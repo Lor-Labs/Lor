@@ -28,6 +28,10 @@ const serverSchema = z.object({
     .enum(["development", "staging", "production", "test"])
     .default("production"),
   DATABASE_URL: z.string().url(),
+  // Throwaway database for the Merlin eval harness (`pnpm --filter @repo/merlin
+  // eval`). When unset, the eval is skipped. Read by the eval bootstrap before
+  // @repo/db loads, so it can point the shared client here instead of prod.
+  EVAL_DB_URL: z.string().url().optional(),
   PORT: z.coerce.number().int().min(1).max(65535).default(8080),
   REALTIME_PORT: z.coerce.number().int().min(1).max(65535).default(8000),
   REALTIME_CORS_ORIGIN: z.string().default(DEFAULT_REALTIME_CORS_ORIGIN),

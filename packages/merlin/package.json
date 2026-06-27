@@ -12,7 +12,8 @@
   "scripts": {
     "check-types": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "eval": "tsx src/eval/run.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.81",
@@ -25,6 +26,8 @@
   },
   "devDependencies": {
     "@repo/typescript-config": "workspace:*",
+    "dotenv": "^17.2.4",
+    "tsx": "^4.21.0",
     "vitest": "^4.1.2"
   }
 }
