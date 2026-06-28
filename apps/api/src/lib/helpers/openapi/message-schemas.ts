@@ -37,6 +37,7 @@ export const merlinToolCallSchema = z.object({
   toolName: z.string(),
   label: z.string(),
   at: z.number().optional(),
+  parentToolCallId: z.string().optional(),
   detail: z
     .object({
       summary: z.string().optional(),

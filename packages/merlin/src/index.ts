@@ -1,6 +1,7 @@
 import { anthropic } from "@ai-sdk/anthropic"
 import { and, asc, db, eq, or, schema, sql } from "@repo/db"
 import type { MerlinToolCall } from "@repo/db/schema"
+import { env } from "@repo/env/server"
 import {
   generateObject,
   generateText,
@@ -23,8 +24,11 @@ import {
   type Resolution,
   rewriteCitations,
 } from "./citations"
+import { buildCodeTools } from "./code"
 import { embedText } from "./embeddings"
+import { logger } from "./logger"
 import { buildSourceTools, resolveSourceCitation } from "./sources"
+import type { OnUsage } from "./usage"
 
 // Sonnet drives the main loop; Haiku gates the (cheap) write-back salience check.
 export const MERLIN_MODEL = "claude-sonnet-4-6"
@@ -132,7 +136,12 @@ export type RespondCallbacks = {
   // Fires on tool-call (label) and again on tool-result (detail + status), keyed
   // by toolCallId — for the live + persisted tool trail.
   onToolEvent?: (e: ToolEvent) => void
+  // Fires once per metered tool invocation (e.g. the code sandbox agent) — the
+  // seam for future usage-based billing.
+  onUsage?: OnUsage
 }
+
+export type { OnUsage, UsageEvent } from "./usage"
 
 export type RespondResult = {
   text: string
@@ -311,7 +320,10 @@ function toolLabel(toolName: string, input: unknown): string {
   }
   const query = field("query")
   const path = field("path")
+  const repo = field("repo")
   switch (toolName) {
+    case "investigate_code":
+      return repo ? `Investigating ${repo}` : "Investigating the codebase"
     case "search_messages":
       return query ? `Searching messages for “${query}”` : "Searching messages"
     case "read_thread":
@@ -402,6 +414,17 @@ function toolDetail(
         },
       }
     }
+    case "investigate_code": {
+      // Keep the full findings (formatting preserved) so the user can expand and
+      // read everything; generous cap only to bound the stored jsonb.
+      const findings = asString(rec?.findings)
+      return {
+        status: "ok",
+        detail: {
+          summary: findings?.slice(0, 16000) ?? "Explored the codebase",
+        },
+      }
+    }
     default:
       // brain ls/read/tree/write/… — the label is self-explanatory.
       return { status: "ok" }
@@ -412,7 +435,7 @@ function toolDetail(
 // messages let write-back continue the same conversation.
 export async function respond(
   ctx: RespondContext,
-  { onDelta, onMemoryWritten, onToolEvent }: RespondCallbacks
+  { onDelta, onMemoryWritten, onToolEvent, onUsage }: RespondCallbacks
 ): Promise<RespondResult> {
   // Semantic pre-fetch: seed the top matching brain pages. Best-effort —
   // the brain tools remain the fallback.
@@ -497,6 +520,11 @@ export async function respond(
     ...buildSourceTools(ctx.workspaceId),
     ...buildBrainReadTools(ctx.workspaceId),
     ...buildBrainWriteTools(ctx.workspaceId, onMemoryWritten),
+    // Code investigation runs in a Railway sandbox — only offer it when that's
+    // configured, so Merlin doesn't reach for a tool that can't run.
+    ...(env.RAILWAY_API_TOKEN
+      ? buildCodeTools(ctx.workspaceId, { onUsage, onToolEvent })
+      : {}),
   }
 
   const result = streamText({
@@ -529,12 +557,21 @@ export async function respond(
       // Call finished — fill in the result detail + status (same toolCallId, so
       // consumers upsert over the start event). No text streams between a call
       // and its result, so `at` is unchanged.
+      const resolved = toolDetail(part.toolName, part.output)
+      // Surface tool failures in logs — they're returned to the model as a
+      // result, so without this they'd be invisible server-side.
+      if (resolved.status === "error") {
+        logger.warn(
+          { tool: part.toolName, error: resolved.detail?.summary },
+          "Merlin tool returned an error"
+        )
+      }
       onToolEvent?.({
         toolCallId: part.toolCallId,
         toolName: part.toolName,
         label: toolLabel(part.toolName, part.input),
         at: text.length,
-        ...toolDetail(part.toolName, part.output),
+        ...resolved,
       })
     } else if (part.type === "error") {
       throw part.error

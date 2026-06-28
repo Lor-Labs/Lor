@@ -11,12 +11,20 @@ type IngestDraft = Omit<
 
 const toDate = (s?: string | null): Date | null => (s ? new Date(s) : null)
 
+// Source ingest (summarize + embed PR/issue/release into `source`) is PAUSED
+// while GitHub moves to a sandbox + brain-centric model (§7.4 — code via the
+// sandbox; PRs/issues live-fetched on demand, not mirrored). All the webhook
+// wiring stays intact (lifecycle still processes; useful later for notifs);
+// flip this to re-enable embedding if that proves valuable.
+const SOURCE_INGEST_ENABLED: boolean = false
+
 // Resolve the workspace this installation is linked to, then ingest. Skips
 // silently when the install isn't mapped to a workspace yet (setup flow later).
 async function ingestForInstallation(
   installationId: number | undefined,
   draft: IngestDraft
 ): Promise<void> {
+  if (!SOURCE_INGEST_ENABLED) return
   if (installationId === undefined) return
   const connection = await db
     .select({

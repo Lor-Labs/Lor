@@ -183,6 +183,9 @@ export function createMerlinRespondProcessor(
                   toolCall,
                 })
               },
+              // Metered tool usage (e.g. the code sandbox agent). No billing yet —
+              // log it; this is the seam to persist a usage row + report to Stripe.
+              onUsage: (u) => logger.info({ ...u }, "Merlin tool usage"),
             }
           )
           if (pending.length > 0) emit(pending, false)
