@@ -13,4 +13,9 @@ export function getSourceProvider(provider: Provider): SourceProvider | null {
   return providers[provider] ?? null
 }
 
+export {
+  getInstallationOverview,
+  type InstallationRepo,
+  listInstallationRepos,
+} from "./github"
 export type { ConnectionRef, SourceProvider, SourceRef } from "./types"

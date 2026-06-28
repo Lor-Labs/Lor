@@ -1,7 +1,10 @@
 import { db } from "@repo/db"
 import { integrationConnection } from "@repo/db/schema"
 import { env } from "@repo/env/server"
-import { getSourceProvider } from "@repo/merlin/providers"
+import {
+  getInstallationOverview,
+  getSourceProvider,
+} from "@repo/merlin/providers"
 import { and, eq, ne, sql } from "drizzle-orm"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
@@ -21,6 +24,7 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
     .select({
       id: integrationConnection.id,
       accountLogin: integrationConnection.accountLogin,
+      externalId: integrationConnection.externalId,
     })
     .from(integrationConnection)
     .where(
@@ -32,6 +36,23 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
     )
     .limit(1)
     .then((rows) => rows[0])
+
+  // Surface the installation's accessible repos (read-only) + its GitHub manage
+  // URL. Best-effort: a hiccup leaves them null and the card still renders.
+  const MAX_REPOS = 100
+  let repos: { fullName: string; private: boolean }[] | null = null
+  let manageUrl: string | null = null
+  if (github) {
+    const overview = await getInstallationOverview(github.externalId).catch(
+      () => null
+    )
+    if (overview) {
+      repos = overview.repos
+        .slice(0, MAX_REPOS)
+        .map((r) => ({ fullName: r.fullName, private: r.private }))
+      manageUrl = overview.manageUrl
+    }
+  }
 
   // Install link is built server-side so the App slug stays out of the client.
   // `state` carries the workspace back to the setup redirect.
@@ -55,6 +76,8 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
           accountLogin: github?.accountLogin ?? null,
           connectionId: github?.id ?? null,
           connectUrl,
+          repos,
+          manageUrl,
         },
       ],
     },

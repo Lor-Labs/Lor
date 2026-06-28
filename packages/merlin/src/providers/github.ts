@@ -100,6 +100,77 @@ export async function getInstallationToken(
   }
 }
 
+// A repository an installation can access — the authoritative, cloneable set.
+export type InstallationRepo = {
+  fullName: string
+  private: boolean
+  defaultBranch: string
+  pushedAt: string | null
+}
+
+const REPO_PAGE_SIZE = 100
+const MAX_REPO_PAGES = 5
+
+// List the repos an installation can access (GET /installation/repositories),
+// paginated + capped, most-recently-pushed first so the active repo ranks first.
+// Empty on any failure — callers degrade gracefully (best-effort passthrough).
+export async function listInstallationRepos(
+  installationId: string
+): Promise<InstallationRepo[]> {
+  const app = getApp()
+  if (!app) return []
+  const id = Number(installationId)
+  if (!Number.isFinite(id)) return []
+  try {
+    const octokit = await app.getInstallationOctokit(id)
+    const repos: InstallationRepo[] = []
+    for (let page = 1; page <= MAX_REPO_PAGES; page += 1) {
+      const { data } =
+        await octokit.rest.apps.listReposAccessibleToInstallation({
+          per_page: REPO_PAGE_SIZE,
+          page,
+        })
+      for (const r of data.repositories) {
+        repos.push({
+          fullName: r.full_name,
+          private: r.private,
+          defaultBranch: r.default_branch,
+          pushedAt: r.pushed_at ?? null,
+        })
+      }
+      if (data.repositories.length < REPO_PAGE_SIZE) break
+    }
+    repos.sort((a, b) => (b.pushedAt ?? "").localeCompare(a.pushedAt ?? ""))
+    return repos
+  } catch (err) {
+    logger.error(
+      { err, installationId: id },
+      "Failed to list installation repos"
+    )
+    return []
+  }
+}
+
+// Settings-page overview of an installation: its accessible repos + the GitHub
+// management URL (html_url — correct for both org and user installs, where you
+// add/remove repos). Null when the App isn't configured or the id is invalid.
+export async function getInstallationOverview(
+  installationId: string
+): Promise<{ repos: InstallationRepo[]; manageUrl: string | null } | null> {
+  const app = getApp()
+  if (!app) return null
+  const id = Number(installationId)
+  if (!Number.isFinite(id)) return null
+  const [repos, manageUrl] = await Promise.all([
+    listInstallationRepos(installationId),
+    app.octokit.rest.apps
+      .getInstallation({ installation_id: id })
+      .then((r) => r.data.html_url ?? null)
+      .catch(() => null),
+  ])
+  return { repos, manageUrl }
+}
+
 function clip(s: string): string {
   return s.length > MAX_CONTENT ? `${s.slice(0, MAX_CONTENT)}\n…(truncated)` : s
 }

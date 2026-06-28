@@ -24,7 +24,7 @@ import {
   type Resolution,
   rewriteCitations,
 } from "./citations"
-import { buildCodeTools } from "./code"
+import { buildCodeTools, listWorkspaceRepos } from "./code"
 import { embedText } from "./embeddings"
 import { logger } from "./logger"
 import { buildSourceTools, resolveSourceCitation } from "./sources"
@@ -515,15 +515,26 @@ export async function respond(
 
   const userMessage: ModelMessage = { role: "user", content: parts }
 
+  // Code investigation runs in a Railway sandbox — only offer it when that's
+  // configured, so Merlin doesn't reach for a tool that can't run. When it is,
+  // list the installation's accessible repos so Merlin targets a real one (the
+  // tool resolves the choice again before cloning). Only hits GitHub when a
+  // connection exists; otherwise it's a single DB check.
+  const githubRepos = env.RAILWAY_API_TOKEN
+    ? await listWorkspaceRepos(ctx.workspaceId).catch(() => [])
+    : []
+
   const tools = {
     ...buildChatTools(ctx.workspaceId),
     ...buildSourceTools(ctx.workspaceId),
     ...buildBrainReadTools(ctx.workspaceId),
     ...buildBrainWriteTools(ctx.workspaceId, onMemoryWritten),
-    // Code investigation runs in a Railway sandbox — only offer it when that's
-    // configured, so Merlin doesn't reach for a tool that can't run.
     ...(env.RAILWAY_API_TOKEN
-      ? buildCodeTools(ctx.workspaceId, { onUsage, onToolEvent })
+      ? buildCodeTools(ctx.workspaceId, {
+          onUsage,
+          onToolEvent,
+          repos: githubRepos,
+        })
       : {}),
   }
 

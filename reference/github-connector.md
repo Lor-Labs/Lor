@@ -22,12 +22,14 @@ The flow: Merlin calls the `investigate_code(repo, question)` tool → clone the
 - [x] Per-invocation usage metering (seam for billing).
 - [x] Sandbox create/destroy logging; full sandbox-exec error logging.
 - [x] Auth: GitHub App installation tokens + robust PEM handling.
+- [x] **Repo resolution.** The installation *is* the repo picker — we enumerate its accessible repos (`listInstallationRepos`, `apps.listReposAccessibleToInstallation`) rather than rebuild a picker. They're listed in the `investigate_code` description (so Merlin targets a real repo) and resolved again server-side before clone (`resolveRepo` in `code.ts`): single repo → auto-use; exact/unambiguous-name match → use; miss → return the valid list so Merlin retries — never clones a phantom. Settings shows the repos read-only with a "Manage on GitHub" link (`getInstallationOverview` → installation `html_url`).
 
 ### 🔴 Must-have before shipping (even read-only)
-- [ ] **Gating — Layer 2 per-channel tool profiles.** `investigate_code` (~$0.30/call) is currently callable in *every* channel by anyone. Scope it to eng channels.
-- [ ] **Cost/rate guard.** Per-workspace budget + rate limit on the sandbox tool (runaway-cost protection).
-- [ ] **Repo resolution.** Merlin currently *guesses* `owner/repo` from its brain/question. Feed it the installation's actual repos (a list-repos tool, or auto-resolve when there's one connected repo). Wrong guess = clone of a nonexistent repo.
+- [ ] **Cost/rate guard.** Per-workspace budget + rate limit on the sandbox tool (runaway-cost protection). GitHub-specific safety.
 - [ ] **On-demand GitHub PR/issue search.** Promised when we turned off embedding; not built. `search_sources` returns nothing now, so "what PRs touched auth?" has no path (`investigate_code` is for *code*, not PR/issue discussion). Build a live GitHub search tool.
+
+### 🟣 Cross-cutting (not a GitHub blocker — project-level)
+- [ ] **Gating — Layer 2 per-channel tool profiles.** `investigate_code` is currently callable in *every* channel by anyone; scope it to eng channels. This is a per-channel-per-connector concern shared across all connectors, so it lands as its own project-level layer, not inside the GitHub work.
 
 ### 🟡 For the "proper = read + write" bar
 - [ ] **Draft-PR write loop (§7.5).** Agent proposes a fix → opens a **draft** PR (never auto-merge) → links it in-thread. Needs App write perms + (for verifying fixes) dep install in the sandbox. The Datadog→code→PR payoff builds on this.
@@ -47,4 +49,8 @@ The flow: Merlin calls the `investigate_code(repo, question)` tool → clone the
 - **Linear is deferred** until GitHub is done; when resumed: proper OAuth + write scope + webhooks from day 1 (tokens expire ~24h w/ refresh — design researched).
 
 ## Recommended next step
-**Gating + cost guard (the two 🔴 safety items).** That's the line between "cool demo" and "safe to leave on." Then repo resolution + PR/issue search to make the read side trustworthy; draft-PR write after that.
+Repo resolution is done. The two remaining GitHub-specific 🔴 items make the read side trustworthy and safe:
+1. **On-demand PR/issue search** — restore the path we dropped with embedding ("what PRs touched auth?"). A live GitHub search tool over the installation's repos.
+2. **Cost/rate guard** — per-workspace budget + rate limit on the sandbox tool.
+
+Then the 🟡 draft-PR write loop. Gating is cross-cutting (🟣) and lands as its own project-level layer.
