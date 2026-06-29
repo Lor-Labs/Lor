@@ -4,14 +4,12 @@ import { Button } from "@repo/ui/components/button"
 import { Input } from "@repo/ui/components/input"
 import { Label } from "@repo/ui/components/label"
 import { Separator } from "@repo/ui/components/separator"
-import { Textarea } from "@repo/ui/components/textarea"
 import { cn } from "@repo/ui/lib/utils"
 import { Camera, Check, Loader2, Upload, X } from "lucide-react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 import { apiClient } from "@/lib/api-client"
 
-const MAX_BIO_LENGTH = 255
 const MAX_STATUS_LENGTH = 128
 const MAX_USERNAME_LENGTH = 30
 const MIN_USERNAME_LENGTH = 3
@@ -40,7 +38,6 @@ export function MyAccountSettings() {
 
   const [name, setName] = useState("")
   const [displayUsername, setDisplayUsername] = useState("")
-  const [bio, setBio] = useState("")
   const [status, setStatus] = useState("")
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null)
   const [avatarFile, setAvatarFile] = useState<File | null>(null)
@@ -58,7 +55,6 @@ export function MyAccountSettings() {
     if (!user) return
     setName(user.name ?? "")
     setDisplayUsername(user.displayUsername ?? user.username ?? "")
-    setBio((user.bio as string) ?? "")
     setStatus((user.status as string) ?? "")
   }, [user])
 
@@ -220,7 +216,6 @@ export function MyAccountSettings() {
       await authClient.updateUser({
         name: name.trim(),
         image: imageUrl ?? undefined,
-        bio: bio.trim() || undefined,
         status: status.trim() || undefined,
         ...(usernameChanged && displayUsername.trim()
           ? { username: displayUsername.trim() }
@@ -245,7 +240,6 @@ export function MyAccountSettings() {
     name,
     displayUsername,
     usernameChanged,
-    bio,
     status,
     avatarFile,
     avatarPreview,
@@ -256,7 +250,6 @@ export function MyAccountSettings() {
     user &&
     (name.trim() !== (user.name ?? "") ||
       usernameChanged ||
-      bio.trim() !== ((user.bio as string) ?? "") ||
       status.trim() !== ((user.status as string) ?? "") ||
       avatarFile !== null)
 
@@ -407,23 +400,6 @@ export function MyAccountSettings() {
             onChange={(e) => setStatus(e.target.value)}
             placeholder="What are you up to?"
             maxLength={MAX_STATUS_LENGTH}
-          />
-        </div>
-
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between">
-            <Label htmlFor="bio">Bio</Label>
-            <span className="text-xs text-muted-foreground">
-              {bio.length}/{MAX_BIO_LENGTH}
-            </span>
-          </div>
-          <Textarea
-            id="bio"
-            value={bio}
-            onChange={(e) => setBio(e.target.value)}
-            placeholder="Tell us about yourself"
-            maxLength={MAX_BIO_LENGTH}
-            className="min-h-20 resize-none"
           />
         </div>
       </div>
