@@ -81,5 +81,10 @@ PS. If you add/edit routes in the API, run `pnpm run validate`. The
 type-check task builds upstream dependencies before checking dependents, and
 the generated-file check verifies the web route tree is committed.
 
+### Adding an integration/connector
+
+When adding a new integration (Linear, Notion, Datadog, …), follow the runbook at `reference/adding-a-connector.md`. It's the checklist of every place a connector must be wired — provider enum, auth/connect flow, `SourceProvider`, Merlin tools, `merlin_capability` + `CAPABILITY_CATALOG`, settings UI — and flags which steps the compiler enforces vs. which fail silently.
+
 ### Conventions
 - DO NOT make extremely verbose comments for every tiny detail or every line of code changed. this bloats the codebase and makes it harder to read and maintain. THIS IS VERY IMPORTANT.
+- Default to use HugeIcons and not lucide icons

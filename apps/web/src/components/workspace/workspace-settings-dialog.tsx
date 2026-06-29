@@ -13,6 +13,7 @@ import {
   Lock,
   Plug,
   Settings,
+  Sparkles,
   Upload,
   X,
 } from "lucide-react"
@@ -20,6 +21,7 @@ import { AnimatePresence, motion } from "motion/react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { toast } from "sonner"
+import { MerlinProfilesSection } from "@/components/workspace/merlin-profiles-section"
 import { apiClient } from "@/lib/api-client"
 
 const MAX_WORKSPACE_ICON_BYTES = 2 * 1024 * 1024
@@ -47,11 +49,12 @@ type Workspace = {
   logo?: string | null
 }
 
-export type SectionId = "general" | "integrations"
+export type SectionId = "general" | "integrations" | "merlin"
 
 const SECTIONS: { id: SectionId; label: string; icon: typeof Settings }[] = [
   { id: "general", label: "General", icon: Settings },
   { id: "integrations", label: "Integrations", icon: Plug },
+  { id: "merlin", label: "Merlin", icon: Sparkles },
 ]
 
 export function WorkspaceSettingsDialog({
@@ -151,8 +154,10 @@ export function WorkspaceSettingsDialog({
                         workspace={workspace}
                         onClose={() => onOpenChange(false)}
                       />
-                    ) : (
+                    ) : section === "integrations" ? (
                       <IntegrationsSection workspaceSlug={workspace.slug} />
+                    ) : (
+                      <MerlinProfilesSection workspaceSlug={workspace.slug} />
                     )}
                   </div>
                 </div>

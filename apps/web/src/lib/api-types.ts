@@ -16,6 +16,20 @@ type ChannelClient =
 
 export type GetChannelResponse = InferResponseType<ChannelClient["$get"], 200>
 
+// ── Agent Profiles ──────────────────────────────────────────
+
+type AgentProfilesClient =
+  Client["v1"]["workspaces"][":workspaceSlug"]["agent-profiles"]
+
+export type AgentProfilesResponse = InferResponseType<
+  AgentProfilesClient["$get"],
+  200
+>
+export type AgentProfile = AgentProfilesResponse["profiles"][number]
+export type MerlinCapabilityKey = AgentProfile["capabilities"][number]
+export type AvailableCapability =
+  AgentProfilesResponse["availableCapabilities"][number]
+
 // ── Messages ──────────────────────────────────────────
 
 type MessagesClient =

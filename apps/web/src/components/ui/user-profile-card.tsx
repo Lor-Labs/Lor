@@ -7,11 +7,7 @@ import {
   PopoverTrigger,
 } from "@repo/ui/components/popover"
 import { Skeleton } from "@repo/ui/components/skeleton"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@repo/ui/components/tooltip"
+import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { MessageCircle } from "lucide-react"
@@ -63,7 +59,7 @@ function ProfileCardContent({ userId }: { userId: string }) {
     return (
       <div className="space-y-3">
         <div className="flex items-center gap-3">
-          <Skeleton className="size-12 rounded-full" />
+          <Skeleton className="size-14 rounded-full" />
           <div className="space-y-1.5">
             <Skeleton className="h-4 w-24 rounded" />
             <Skeleton className="h-3 w-16 rounded" />
@@ -85,82 +81,66 @@ function ProfileCardContent({ userId }: { userId: string }) {
   const user = data.user
   const isCurrentUser = session?.user?.id === userId
   const isMutating = createDM.isPending
+  const isOnline = user.presenceStatus === "online"
+  const joined = new Date(user.createdAt).toLocaleDateString(undefined, {
+    month: "long",
+    year: "numeric",
+  })
 
   return (
-    <div className="space-y-3">
-      {/* Avatar + name + presence */}
-      <div className="relative flex items-center gap-3">
-        {isCurrentUser && (
-          <Badge
-            variant="secondary"
-            className="absolute -top-1 right-0 text-[10px]"
-          >
-            Me
-          </Badge>
-        )}
+    <div className="flex flex-col gap-4">
+      <div className="flex items-start gap-3">
         <div className="relative shrink-0">
-          <UserAvatar name={user.name} src={user.image} className="size-12" />
+          <UserAvatar name={user.name} src={user.image} className="size-14" />
           <span
-            className={`absolute -bottom-0.5 -right-0.5 size-3 rounded-full border-2 border-popover ${
-              user.presenceStatus === "online"
-                ? "bg-emerald-500"
-                : "bg-muted-foreground/40"
-            }`}
+            className={cn(
+              "absolute -bottom-0.5 -right-0.5 size-3.5 rounded-full border-[3px] border-popover",
+              isOnline ? "bg-emerald-500" : "bg-muted-foreground/40"
+            )}
           />
         </div>
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-semibold">{user.name}</div>
+        <div className="min-w-0 flex-1 pt-0.5">
+          <div className="flex items-center gap-1.5">
+            <span className="truncate text-[15px] font-semibold leading-tight">
+              {user.name}
+            </span>
+            {isCurrentUser && (
+              <Badge variant="secondary" className="shrink-0 text-[10px]">
+                You
+              </Badge>
+            )}
+          </div>
           {user.username && (
-            <div className="truncate text-xs text-muted-foreground">
+            <div className="truncate text-[13px] text-muted-foreground">
               @{user.displayUsername ?? user.username}
             </div>
           )}
         </div>
       </div>
 
-      {/* Status */}
       {user.status && (
-        <div className="text-xs text-muted-foreground">{user.status}</div>
-      )}
-
-      {/* Bio */}
-      {user.bio && (
-        <div className="border-t border-border pt-2 text-xs text-muted-foreground">
-          {user.bio}
+        <div className="rounded-lg bg-muted/50 px-3 py-2">
+          <p className="line-clamp-2 text-[13px] font-medium text-foreground/90">
+            {user.status}
+          </p>
         </div>
       )}
 
-      {/* Member since */}
-      <div className="border-t border-border pt-2 text-[11px] text-muted-foreground">
-        Member since{" "}
-        {new Date(user.createdAt).toLocaleDateString(undefined, {
-          month: "short",
-          year: "numeric",
-        })}
+      <div className="flex flex-col gap-3 border-t border-border/60 pt-3">
+        <div className="text-[11px] text-muted-foreground">Joined {joined}</div>
+        {!isCurrentUser && (
+          <Button
+            size="sm"
+            variant="secondary"
+            className="h-8 w-full gap-2"
+            disabled={isMutating}
+            onClick={() => createDM.mutate()}
+          >
+            <MessageCircle className="size-4" />
+            Message
+          </Button>
+        )}
       </div>
-
-      {/* Actions row */}
-      {!isCurrentUser && (
-        <div className="flex items-center gap-1.5">
-          {/* Send DM */}
-          <div className="flex-1">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  className="h-8 w-full"
-                  disabled={isMutating}
-                  onClick={() => createDM.mutate()}
-                >
-                  <MessageCircle className="size-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Send DM</TooltipContent>
-            </Tooltip>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

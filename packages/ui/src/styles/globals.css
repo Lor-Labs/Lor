@@ -69,7 +69,8 @@
               --gold kept (no longer Merlin) for backward-compat / warm accent.
    =========================================================================== */
 
-:root {
+:root,
+.light {
   --radius: 0.625rem;
 
   /* Surfaces — warm neutral */
