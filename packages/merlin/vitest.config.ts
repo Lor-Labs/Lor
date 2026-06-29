@@ -1,11 +1,5 @@
 import { defineConfig } from "vitest/config"
 
-// Dummy values satisfying `@repo/env/server`'s Zod schema so tests that
-// transitively import it (e.g. via `./index` → `@repo/db`) can load. `env` is
-// applied before any module loads, since the env package parses `process.env` at
-// import time. Nothing here is real — citation tests are pure (no DB/LLM/network),
-// and any future DB-backed eval must point at a real test database explicitly.
-// Keep these keys in sync with required fields in packages/env/src/server.ts.
 const TEST_ENV = {
   NODE_ENV: "test",
   DATABASE_URL: "postgres://test:test@localhost:5432/test",

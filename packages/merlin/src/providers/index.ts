@@ -4,7 +4,6 @@ import type { SourceProvider } from "./types"
 
 type Provider = (typeof schema.integrationProviderEnum.enumValues)[number]
 
-// Register a connection here once you implement its SourceProvider.
 const providers: Partial<Record<Provider, SourceProvider>> = {
   github: githubProvider,
 }

@@ -8,14 +8,7 @@ import {
   sanitizeCitationField,
 } from "./citations"
 
-// Eval harness — citation contract (Layer 1). These are deterministic: they
-// exercise the pure grounding logic with stubbed resolutions, so no DB / LLM /
-// network is touched. The DB-backed end-to-end eval (seeded workspace → real
-// resolveSourceCitation/pageExists) is the next tier and is gated separately.
-
-// A resolve() that looks tokens up in a plain map, mirroring how groundCitations
-// builds its resolution map from the DB. Falls back to "missing" so an
-// unexpected token is treated as a hallucination, never kept.
+// Unknown tokens resolve as missing, matching groundCitations' behavior.
 function resolverFrom(map: Record<string, Resolution>) {
   return (token: string): Resolution => {
     const known = map[token]
@@ -44,7 +37,6 @@ describe("prefixedTokenId", () => {
   it("strips the 4-char prefix and any enrichment suffix", () => {
     expect(prefixedTokenId("msg:abc-123")).toBe("abc-123")
     expect(prefixedTokenId("src:abc-123")).toBe("abc-123")
-    // Idempotent: an already-enriched source token yields the bare id.
     expect(prefixedTokenId("src:abc-123|My PR|https://x.test/1")).toBe(
       "abc-123"
     )
@@ -156,8 +148,6 @@ describe("rewriteCitations — sources", () => {
     const enriched = "[[src:pr-1|Add OAuth|https://gh.test/1]]"
     const r = rewriteCitations(
       enriched,
-      // The enriched token still resolves, and prefixedTokenId recovers the bare
-      // id ("pr-1") so the re-emitted token doesn't accrete its own suffix.
       resolverFrom({
         "src:pr-1|Add OAuth|https://gh.test/1": VALID_SRC(
           "Add OAuth",

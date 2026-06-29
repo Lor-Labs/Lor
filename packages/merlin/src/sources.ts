@@ -5,17 +5,11 @@ import { z } from "zod"
 import { embedText } from "./embeddings"
 import { getSourceProvider } from "./providers"
 
-// Track B: ingest meaningful integration events into `source` rows (summary +
-// pointer + embedding) and search them semantically. Embed the summary, not the
-// document; full content is live-fetched by the connector layer (not here yet).
-
 const SEARCH_DEFAULT_LIMIT = 6
 const SEARCH_MAX_LIMIT = 15
-// Cheap model summarizes each event into embed-friendly memory.
 const SUMMARY_MODEL = "claude-haiku-4-5"
 
-// Source ids are uuids; guard before querying so a malformed or hallucinated
-// citation token can't reach the DB. Mirrors the message-id guard in index.ts.
+// Reject malformed citation ids before querying.
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
@@ -47,7 +41,6 @@ export async function searchSources(
       summary: schema.source.summary,
     })
     .from(schema.source)
-    // Join the connection so a revoked/suspended integration's sources drop out.
     .innerJoin(
       schema.integrationConnection,
       eq(schema.source.connectionId, schema.integrationConnection.id)
@@ -116,9 +109,6 @@ export function buildSourceTools(workspaceId: string) {
   }
 }
 
-// Live-fetch a source's full content via its provider, scoped to the workspace.
-// Falls back to the stored summary when the provider can't fetch (unconfigured
-// or error), so the model always gets something usable.
 export async function fetchSourceContent(workspaceId: string, id: string) {
   const row = await db
     .select({
@@ -166,10 +156,7 @@ export async function fetchSourceContent(workspaceId: string, id: string) {
   }
 }
 
-// Resolve a [[src:<id>]] citation to its verified url + title, scoped to the
-// workspace and gated on an active connection — so a hallucinated or cross-tenant
-// id resolves to null and the citation gets stripped. Returns null when the id is
-// malformed, missing, or its integration has been revoked.
+// Active-connection and tenant-scoped source citation lookup.
 export async function resolveSourceCitation(
   workspaceId: string,
   id: string
@@ -195,17 +182,13 @@ export async function resolveSourceCitation(
   return row ? { url: row.url, title: row.title } : null
 }
 
-// Derived from the table so it tracks schema changes. The connector supplies the
-// stored columns (minus the ones we compute/auto-fill) plus raw `content`.
 export type IngestSourceInput = Omit<
   typeof schema.source.$inferInsert,
   "id" | "summary" | "embedding" | "status" | "createdAt" | "updatedAt"
 > & {
-  // Raw text to summarize (e.g. PR title + body). The summary is what's embedded.
   content: string
 }
 
-// Chars of raw content to keep if summarization is unavailable.
 const SUMMARY_FALLBACK_MAX = 1000
 
 async function summarize(input: IngestSourceInput): Promise<string> {
@@ -216,14 +199,10 @@ async function summarize(input: IngestSourceInput): Promise<string> {
     })
     return text.trim()
   } catch {
-    // LLM unavailable — fall back to truncated raw content so the ingest still
-    // succeeds (a better summary lands on the next re-delivery/edit).
     return input.content.trim().slice(0, SUMMARY_FALLBACK_MAX)
   }
 }
 
-// Summarize → embed → upsert a source. Idempotent on (workspace, provider,
-// externalId), so re-delivered/edited events update in place.
 export async function ingestSource(input: IngestSourceInput): Promise<void> {
   const summary = await summarize(input)
   const embedding = await embedText(summary).catch(() => null)
@@ -245,8 +224,7 @@ export async function ingestSource(input: IngestSourceInput): Promise<void> {
         occurredAt: input.occurredAt ?? null,
         summary,
         status: "active",
-        // Only overwrite the embedding when we have a fresh one — don't null out
-        // a previously-good embedding if embedText failed on this re-delivery.
+        // Keep the previous embedding if this re-delivery fails to embed.
         ...(embedding ? { embedding } : {}),
       },
     })

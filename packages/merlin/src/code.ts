@@ -5,15 +5,9 @@ import { getInstallationToken, type InstallationRepo } from "./providers/github"
 import { investigateCode } from "./sandbox/investigate"
 import type { OnUsage } from "./usage"
 
-// Cap repo names listed in the tool description / errors so a big "All repos"
-// org doesn't blow up the prompt.
 const MAX_LISTED = 30
 
-// Map the repo Merlin asked for onto an actually-connected one so we never clone
-// a phantom. One connected repo → use it (ignore the guess). Exact or
-// unambiguous name match → use it. Otherwise return the valid list so Merlin can
-// retry. Empty list → best-effort passthrough (can't validate; don't block on a
-// transient enumerate failure).
+// Validate Merlin's repo guess against connected repos before cloning.
 function resolveRepo(
   requested: string,
   accessible: InstallationRepo[]
@@ -26,8 +20,6 @@ function resolveRepo(
   const wantName = want.split("/").pop() ?? want
   const exact = accessible.find((r) => r.fullName.toLowerCase() === want)
   if (exact) return { repo: exact.fullName }
-  // Merlin sometimes guesses the wrong owner; match on the repo name alone when
-  // that's unambiguous.
   const byName = accessible.filter(
     (r) => (r.fullName.split("/")[1] ?? "").toLowerCase() === wantName
   )
@@ -43,13 +35,6 @@ function resolveRepo(
   }
 }
 
-// Merlin's code-investigation tool: clone the connected GitHub repo into an
-// ephemeral sandbox and run a coding agent against it, returning a synthesis
-// Merlin folds into its answer. Registered only when GitHub is connected +
-// (registration-side) Railway is configured, so the installationId is known up
-// front. `repos` (the installation's accessible repos) are listed in the
-// description so Merlin targets a real one, and resolved again server-side so a
-// wrong guess never clones a phantom. Emits a UsageEvent per run for billing.
 export function buildCodeTools(
   workspaceId: string,
   {
@@ -80,9 +65,6 @@ export function buildCodeTools(
           .describe("the specific code question to investigate"),
       }),
       execute: async ({ repo, question }, { toolCallId }) => {
-        // Resolve against the actually-connected repos before any expensive
-        // work, so a wrong guess returns the valid list instead of cloning a
-        // nonexistent repo.
         const resolved = resolveRepo(repo, repos)
         if ("error" in resolved) return { error: resolved.error }
 
@@ -91,8 +73,6 @@ export function buildCodeTools(
         )
         if (!token) return { error: "couldn't authenticate with GitHub" }
 
-        // Stream the agent's own tool calls up as nested sub-steps under this
-        // investigate_code call so the user watches it explore in realtime.
         let step = 0
         const result = await investigateCode({
           repoFullName: resolved.repo,

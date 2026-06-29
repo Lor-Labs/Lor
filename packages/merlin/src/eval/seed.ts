@@ -2,11 +2,6 @@ import { and, db, eq, MERLIN_USER_ID, schema } from "@repo/db"
 import { writePage } from "../brain"
 import { ingestSource } from "../sources"
 
-// Seeds a fresh, known workspace for the eval harness: brain pages, a connected
-// GitHub source, and a little chat history — enough to assert retrieval,
-// citation, honesty, and write-back. Reuses the real write paths (writePage /
-// ingestSource) so embeddings are produced exactly as in production.
-
 export type SeededWorkspace = {
   workspaceId: string
   channelId: string
@@ -21,8 +16,6 @@ function required<T>(rows: T[], what: string): T {
   return row
 }
 
-// The global Merlin bot user (idempotent) — workspace membership + message
-// authorship reference this fixed id.
 async function ensureMerlinUser(): Promise<void> {
   await db
     .insert(schema.user)
@@ -88,7 +81,6 @@ export async function seedEvalWorkspace(): Promise<SeededWorkspace> {
     "channel"
   )
 
-  // Brain pages (writePage embeds + creates parent folders).
   await writePage(
     workspace.id,
     "/people/alice",
@@ -100,7 +92,6 @@ export async function seedEvalWorkspace(): Promise<SeededWorkspace> {
     "We chose JWT with refresh tokens for API authentication (decided 2026-05). Rationale: stateless and horizontally scalable; server-side sessions were dropped to avoid sticky load balancing."
   )
 
-  // A connected GitHub source (ingestSource summarizes + embeds).
   const connection = required(
     await db
       .insert(schema.integrationConnection)
@@ -128,7 +119,6 @@ export async function seedEvalWorkspace(): Promise<SeededWorkspace> {
       "Implements refresh-token rotation for the auth service: short-lived access tokens, rotating refresh tokens stored hashed, and automatic revocation when a used token is replayed.",
   })
 
-  // Chat history for FTS (search_messages).
   await db.insert(schema.message).values([
     {
       channelId: channel.id,
@@ -146,9 +136,6 @@ export async function seedEvalWorkspace(): Promise<SeededWorkspace> {
   ])
 
   const cleanup = async (): Promise<void> => {
-    // Source before connection (FK), then the rest; workspace delete cascades
-    // channels/messages/members. Belt-and-suspenders explicit deletes so nothing
-    // leaks if a cascade isn't configured.
     await db
       .delete(schema.source)
       .where(eq(schema.source.workspaceId, workspace.id))
@@ -173,7 +160,6 @@ export async function seedEvalWorkspace(): Promise<SeededWorkspace> {
   }
 }
 
-// Brain pages currently in the workspace — used to detect write-back creations.
 export async function listBrainPages(
   workspaceId: string
 ): Promise<{ id: string; name: string; body: string | null }[]> {

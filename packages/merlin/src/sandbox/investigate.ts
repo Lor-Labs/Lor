@@ -2,16 +2,6 @@ import { env } from "@repo/env/server"
 import { logger } from "../logger"
 import { withSandbox } from "./index"
 
-// Code investigation in an ephemeral sandbox (§7.4). Per query: shallow-clone the
-// repo (no deps, no checkpoint — always fresh), run the code agent (Claude Code)
-// as an autonomous sub-agent against the clone, STREAM its tool calls back as it
-// works, capture its findings + token usage, then tear the sandbox down. The
-// agent has its OWN context on the box; we hand it a focused brief and get back a
-// synthesis, which Merlin then composes into the user-facing answer.
-//
-// ⚠️ NOT runnable without a Railway sandbox — the `claude` flags + the
-// stream-json event shape are isolated here so this is the only place to adjust.
-
 export type InvestigationUsage = {
   model?: string
   inputTokens?: number
@@ -19,7 +9,6 @@ export type InvestigationUsage = {
   costUsd?: number
 }
 
-// A single tool call the in-sandbox agent made (streamed live for the UI).
 export type CodeStep = { toolName: string; label: string }
 
 export type InvestigationResult = {
@@ -27,10 +16,8 @@ export type InvestigationResult = {
   usage?: InvestigationUsage
 }
 
-// Generous ceiling for a single investigation; the sandbox is destroyed after.
 const AGENT_TIMEOUT_SEC = 600
 const CLONE_TIMEOUT_SEC = 180
-// Cap on the raw-stdout fallback fed to Merlin if no result event is parsed.
 const FALLBACK_MAX = 8000
 
 function brief(question: string): string {
@@ -56,7 +43,6 @@ function asNumber(v: unknown): number | undefined {
   return typeof v === "number" && Number.isFinite(v) ? v : undefined
 }
 
-// Human label for an in-sandbox agent tool call (Claude Code tool names).
 function subToolLabel(name: string, input: unknown): string {
   const r = asRecord(input)
   const file = asString(r?.file_path)
@@ -79,20 +65,14 @@ function subToolLabel(name: string, input: unknown): string {
 }
 
 export async function investigateCode(opts: {
-  // "owner/repo"
   repoFullName: string
-  // Short-lived GitHub installation token for cloning the private repo.
   cloneToken: string
   question: string
-  // Called for each tool call the in-sandbox agent makes, as it happens.
   onStep?: (step: CodeStep) => void
 }): Promise<InvestigationResult | { error: string }> {
   const { repoFullName, cloneToken, question, onStep } = opts
-  // Token is inlined in the clone URL (visible to `ps` inside the box) — acceptable
-  // for an ephemeral, isolated, short-lived sandbox; ANTHROPIC_API_KEY is baked as
-  // sandbox env instead so it isn't in any command string.
+  // Token is in the clone URL; scrub command output before logging.
   const cloneUrl = `https://x-access-token:${cloneToken}@github.com/${repoFullName}.git`
-  // git may echo the clone URL (with the token) in errors — scrub before logging.
   const scrub = (s: string) => s.split(cloneToken).join("***")
 
   try {
@@ -113,9 +93,7 @@ export async function investigateCode(opts: {
         }
         logger.info({ repoFullName }, "Sandbox: clone ok; running code agent")
 
-        // Parse Claude Code's stream-json (JSONL) as it arrives: assistant
-        // tool_use blocks → live steps; the final `result` event → findings +
-        // usage. ⚠️ event shape unverified live; defensive throughout.
+        // Parse Claude Code JSONL: tool_use blocks stream steps; result has findings.
         let resultText = ""
         let usage: InvestigationUsage | undefined
         let buffer = ""
@@ -163,8 +141,6 @@ export async function investigateCode(opts: {
         }
 
         await sandbox.files.write("/investigation.txt", brief(question))
-        // IS_SANDBOX=1 + --dangerously-skip-permissions let Claude Code run headless
-        // as root (the sandbox's default user). stream-json needs --verbose.
         const run = await sandbox.exec(
           "sh -c 'cat /investigation.txt | claude -p --output-format stream-json --verbose --dangerously-skip-permissions'",
           {
@@ -226,8 +202,6 @@ export async function investigateCode(opts: {
       { env: { ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY, IS_SANDBOX: "1" } }
     )
   } catch (err) {
-    // Sandbox create / transport failures (would otherwise be swallowed by the
-    // tool's .catch and only show as a generic "investigation failed").
     logger.error({ err, repoFullName }, "Sandbox: investigation failed")
     return { error: "code investigation failed (sandbox error)" }
   }

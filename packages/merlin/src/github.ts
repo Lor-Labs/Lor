@@ -10,14 +10,9 @@ import {
 
 const SEARCH_DEFAULT = 8
 const SEARCH_MAX = 20
-// Repos a scope-less search fans out over (GitHub's q has a length limit, so we
-// can't list every repo of a big "All repos" org). Most-recently-active first.
 const MAX_SCOPE_REPOS = 8
-// Repo names listed in tool descriptions / errors.
 const MAX_LISTED = 30
 
-// The active GitHub installation id for a workspace (one active connection per
-// workspace), or null when GitHub isn't connected.
 export async function activeGithubInstallation(
   workspaceId: string
 ): Promise<string | null> {
@@ -36,11 +31,7 @@ export async function activeGithubInstallation(
   return connection?.externalId ?? null
 }
 
-// Optional cache for the installation→repos lookup (the per-turn GitHub call).
-// The worker injects a Redis-backed store at startup (setRepoCacheStore); the
-// eval harness and tests leave it unset and fetch live. The API invalidates by
-// key (githubReposCacheKey) on connect / disconnect / repo-access change, with
-// the TTL as the backstop. Merlin itself has no Redis dependency.
+// Injected by the worker so Merlin keeps no Redis dependency.
 export type RepoCacheStore = {
   get(key: string): Promise<string | null>
   set(key: string, value: string, ttlSeconds: number): Promise<void>
@@ -51,13 +42,10 @@ export function setRepoCacheStore(store: RepoCacheStore | null): void {
   repoCacheStore = store
 }
 
-// Cache key for an installation's repo list. Exported so the API can invalidate
-// it; keep the format in sync on both sides.
 export function githubReposCacheKey(installationId: string): string {
   return `github:repos:${installationId}`
 }
 
-// 1h backstop; explicit invalidation handles the common change cases.
 const REPO_CACHE_TTL_SECONDS = 60 * 60
 
 function parseCachedRepos(raw: string): InstallationRepo[] | null {
@@ -69,11 +57,6 @@ function parseCachedRepos(raw: string): InstallationRepo[] | null {
   }
 }
 
-// Resolve a workspace's GitHub once: the active installation id + its accessible
-// repos. Null when GitHub isn't connected. Always a cheap DB lookup; the GitHub
-// repo list is served from the cache (when a store is set) and only fetched on a
-// miss — so a connected workspace pays at most one GitHub call per installation
-// per hour, not per turn.
 export async function resolveWorkspaceGithub(
   workspaceId: string
 ): Promise<{ installationId: string; repos: InstallationRepo[] } | null> {
@@ -88,8 +71,7 @@ export async function resolveWorkspaceGithub(
   }
 
   const repos = await listInstallationRepos(installationId).catch(() => [])
-  // Only cache a non-empty list: an empty result is usually a transient
-  // enumerate failure, and caching it for an hour would hide real repos.
+  // Empty repo lists are usually transient enumerate failures.
   if (repoCacheStore && repos.length > 0) {
     await repoCacheStore
       .set(key, JSON.stringify(repos), REPO_CACHE_TTL_SECONDS)
@@ -102,8 +84,6 @@ function repoListText(repoNames: string[]): string {
   return repoNames.slice(0, MAX_LISTED).join(", ")
 }
 
-// Live GitHub PR/issue tools, available only when GitHub is connected. Results
-// are referenced by url (Markdown link), not [[src:]] — they aren't ingested.
 export function buildGithubTools({
   installationId,
   repos,

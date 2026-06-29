@@ -4,11 +4,6 @@ import { groundCitations, respond, writeBack } from "../index"
 import { type EvalResult, fixtures } from "./fixtures"
 import { listBrainPages, seedEvalWorkspace } from "./seed"
 
-// The eval body. Loaded by ./run.ts only after EVAL_DB_URL has been pointed at
-// the shared @repo/db client, so every query here hits the throwaway test DB.
-// Seeds a known workspace, runs each fixture through the real answer loop, grades
-// against tolerant assertions, prints a report, then tears the workspace down.
-
 function dbHost(): string {
   try {
     return new URL(process.env.DATABASE_URL ?? "").host || "unknown"

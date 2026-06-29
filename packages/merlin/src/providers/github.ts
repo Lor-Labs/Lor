@@ -3,8 +3,6 @@ import { App } from "octokit"
 import { logger } from "../logger"
 import type { SourceProvider } from "./types"
 
-// One App, lazily built from env. Null when the App isn't configured — callers
-// then fall back to the stored summary.
 function fromBase64(s: string): string | undefined {
   try {
     return Buffer.from(s, "base64").toString("utf8")
@@ -13,9 +11,7 @@ function fromBase64(s: string): string | undefined {
   }
 }
 
-// Re-wrap a PEM to canonical form. .env frequently strips the newlines, gluing
-// header+body+footer onto one line, which OpenSSL can't decode. Pull out the
-// base64 body and re-emit with header/footer on their own lines + 64-char body.
+// .env often strips PEM newlines; re-emit canonical header/body/footer form.
 function rewrapPem(key: string): string {
   const match = key.match(
     /-----BEGIN ([A-Z0-9 ]+?)-----([\s\S]*?)-----END \1-----/
@@ -27,9 +23,7 @@ function rewrapPem(key: string): string {
   return `-----BEGIN ${type}-----\n${wrapped}\n-----END ${type}-----\n`
 }
 
-// GitHub App private keys are a frequent env footgun. Accept any storage form: a
-// normal multi-line PEM, a single-line PEM (newlines stripped by .env), one with
-// escaped \n, or the whole PEM base64-encoded — then canonicalize.
+// Accept multi-line, escaped-newline, single-line, or base64-encoded PEMs.
 function normalizePrivateKey(raw: string | undefined): string | undefined {
   if (!raw) return undefined
   let key = raw.trim()
@@ -47,9 +41,7 @@ function getApp(): App | null {
   const appId = env.GITHUB_APP_ID
   const raw = env.GITHUB_APP_PRIVATE_KEY
   const privateKey = normalizePrivateKey(raw)
-  // One-time diagnostic — only safe metadata (never key bytes). After rewrap a
-  // valid key is ~28 lines; pemType is the BEGIN label (PKCS#1 = "RSA PRIVATE
-  // KEY", PKCS#8 = "PRIVATE KEY").
+  // Safe metadata only; never log key bytes.
   if (raw) {
     logger.info(
       {
@@ -68,9 +60,6 @@ function getApp(): App | null {
 const MAX_CONTENT = 8000
 const MAX_COMMENTS = 10
 
-// Mint a short-lived installation access token for cloning private repos into a
-// sandbox. Scoped to the installation; expires in ~1h. Null when the App isn't
-// configured or the id is invalid.
 export async function getInstallationToken(
   installationId: string
 ): Promise<string | null> {
@@ -100,7 +89,6 @@ export async function getInstallationToken(
   }
 }
 
-// A repository an installation can access — the authoritative, cloneable set.
 export type InstallationRepo = {
   fullName: string
   private: boolean
@@ -111,9 +99,6 @@ export type InstallationRepo = {
 const REPO_PAGE_SIZE = 100
 const MAX_REPO_PAGES = 5
 
-// List the repos an installation can access (GET /installation/repositories),
-// paginated + capped, most-recently-pushed first so the active repo ranks first.
-// Empty on any failure — callers degrade gracefully (best-effort passthrough).
 export async function listInstallationRepos(
   installationId: string
 ): Promise<InstallationRepo[]> {
@@ -151,9 +136,6 @@ export async function listInstallationRepos(
   }
 }
 
-// Settings-page overview of an installation: its accessible repos + the GitHub
-// management URL (html_url — correct for both org and user installs, where you
-// add/remove repos). Null when the App isn't configured or the id is invalid.
 export async function getInstallationOverview(
   installationId: string
 ): Promise<{ repos: InstallationRepo[]; manageUrl: string | null } | null> {
@@ -175,7 +157,6 @@ function clip(s: string): string {
   return s.length > MAX_CONTENT ? `${s.slice(0, MAX_CONTENT)}\n…(truncated)` : s
 }
 
-// A PR/issue hit from live GitHub search.
 export type IssueSearchHit = {
   ref: string // "owner/repo#number" — pass to fetchIssueOrPr
   type: "pull_request" | "issue"
@@ -191,9 +172,6 @@ export type IssueSearchHit = {
 
 const SEARCH_SNIPPET = 240
 
-// Live-search the installation's PRs/issues (GET /search/issues). Scoped to the
-// given repos via repo: qualifiers (never an unscoped global search); `type`
-// narrows to PRs or issues. Empty on failure.
 export async function searchIssues(
   installationId: string,
   opts: {
@@ -248,7 +226,6 @@ export async function searchIssues(
   }
 }
 
-// The full content of a live-fetched PR/issue.
 export type FetchedIssue = {
   ref: string
   type: "pull_request" | "issue"
@@ -258,9 +235,6 @@ export type FetchedIssue = {
   content: string
 }
 
-// Live-fetch a single PR/issue by "owner/repo#number": title, state, body, top
-// comments, plus review comments for PRs. Auto-detects PR vs issue. Null when
-// unavailable (App not configured, malformed ref, or fetch failed).
 export async function fetchIssueOrPr(
   installationId: string,
   ref: string
@@ -324,7 +298,6 @@ export async function fetchIssueOrPr(
   }
 }
 
-// externalId is "owner/repo#<number>" (PR/issue) or "owner/repo@<id>" (release).
 function parseRef(externalId: string, sep: "#" | "@") {
   const [ownerRepo, tail] = externalId.split(sep)
   const [owner, repo] = (ownerRepo ?? "").split("/")
@@ -351,8 +324,7 @@ export const githubProvider: SourceProvider = {
       })
       const state = data.merged ? "merged" : data.state
       let out = `# ${data.title}\nState: ${state} · by ${data.user?.login ?? "unknown"}\n\n${data.body ?? "(no description)"}`
-      // PRs are issues under the hood — the conversation thread plus the
-      // inline code-review comments are the discussion we want as memory.
+      // PR discussion is split across issue comments and review comments.
       const [comments, reviewComments] = await Promise.all([
         octokit.rest.issues
           .listComments({

@@ -80,3 +80,6 @@ All CSS lives in `packages/ui`. Apps do NOT have their own `globals.css`.
 PS. If you add/edit routes in the API, run `pnpm run validate`. The
 type-check task builds upstream dependencies before checking dependents, and
 the generated-file check verifies the web route tree is committed.
+
+### Conventions
+- DO NOT make extremely verbose comments for every tiny detail or every line of code changed. this bloats the codebase and makes it harder to read and maintain. THIS IS VERY IMPORTANT.
