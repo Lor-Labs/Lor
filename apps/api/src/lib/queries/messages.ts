@@ -1,5 +1,10 @@
 import { db } from "@repo/db"
-import type { Attachment, Embed, MerlinToolCall } from "@repo/db/schema"
+import type {
+  Attachment,
+  Embed,
+  MerlinMemory,
+  MerlinToolCall,
+} from "@repo/db/schema"
 import { message, messageMention, messageReaction, user } from "@repo/db/schema"
 import {
   and,
@@ -25,6 +30,7 @@ type BareMessageRow = {
   attachments: Attachment[] | null
   embeds: Embed[] | null
   merlinToolCalls: MerlinToolCall[] | null
+  merlinMemories: MerlinMemory[] | null
   referencedMessageId: string | null
   threadRootId: string | null
   editedAt: Date | null
@@ -48,6 +54,7 @@ const messageSelect = {
   attachments: message.attachments,
   embeds: message.embeds,
   merlinToolCalls: message.merlinToolCalls,
+  merlinMemories: message.merlinMemories,
   referencedMessageId: message.referencedMessageId,
   threadRootId: message.threadRootId,
   editedAt: message.editedAt,
@@ -467,10 +474,12 @@ export async function fetchMessages({
     reactionsByMessageId.set(reactionRow.messageId, reactionsByEmoji)
   }
 
-  const data = messages.map((msg) => ({
+  const data = messages.map(({ merlinMemories, ...msg }) => ({
     ...msg,
     embeds: msg.embeds ?? [],
     merlinToolCalls: msg.merlinToolCalls ?? [],
+    // Serialized as `remembered` (the brain pages saved during this answer).
+    remembered: merlinMemories ?? [],
     mentions: mentionsByMessageId.get(msg.id) ?? [],
     reactions: Array.from(reactionsByMessageId.get(msg.id)?.values() ?? []),
     referencedMessage: msg.referencedMessageId

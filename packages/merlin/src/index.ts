@@ -24,8 +24,9 @@ import {
   type Resolution,
   rewriteCitations,
 } from "./citations"
-import { buildCodeTools, listWorkspaceRepos } from "./code"
+import { buildCodeTools } from "./code"
 import { embedText } from "./embeddings"
+import { buildGithubTools, resolveWorkspaceGithub } from "./github"
 import { logger } from "./logger"
 import { buildSourceTools, resolveSourceCitation } from "./sources"
 import type { OnUsage } from "./usage"
@@ -47,7 +48,7 @@ const SYSTEM_PROMPT = `You are Merlin, the knowledge keeper for this team's Lor 
 You have two kinds of memory:
 - Your brain: a filesystem of notes about this workspace that you read from and maintain yourself. Browse it with ls / tree, read pages with read, and save or organize knowledge with write / mkdir / move / link. Consult it first — it's your distilled knowledge (it may be sparse early on). Pages list their linked pages (relates_to, caused_by, …); follow a link with read to traverse.
 - The team's message history: search it with search_messages (keyword, all channels) and read_thread for full context.
-- The team's connected tools: search_sources finds summarized activity from integrations like GitHub (pull requests, issues, releases); fetch_source pulls a source's full content when the summary isn't enough (it returns a live flag — when false it fell back to the stored summary). Cite a source by its id in double brackets, e.g. [[src:0b9c…]] — don't paste its raw url.
+- The team's GitHub (when connected): search_github finds pull requests and issues by keyword across the connected repos, and fetch_github pulls one's full body and discussion. Reference a PR or issue with a normal Markdown link to the result's url (these are live results, not [[src:]] citations). (search_sources / fetch_source cover other connected integrations' summarized activity — cite those by id in double brackets, e.g. [[src:0b9c…]], not by pasting the url.)
 
 You can also see images people share in the channel — they're included inline in the conversation below.
 
@@ -321,9 +322,14 @@ function toolLabel(toolName: string, input: unknown): string {
   const query = field("query")
   const path = field("path")
   const repo = field("repo")
+  const ref = field("ref")
   switch (toolName) {
     case "investigate_code":
       return repo ? `Investigating ${repo}` : "Investigating the codebase"
+    case "search_github":
+      return query ? `Searching GitHub for “${query}”` : "Searching GitHub"
+    case "fetch_github":
+      return ref ? `Reading ${ref}` : "Reading a pull request/issue"
     case "search_messages":
       return query ? `Searching messages for “${query}”` : "Searching messages"
     case "read_thread":
@@ -410,6 +416,40 @@ function toolDetail(
         detail: {
           summary:
             rec?.live === true ? "Fetched live content" : "Used stored summary",
+          items: title ? [{ title, url: asString(rec?.url) }] : undefined,
+        },
+      }
+    }
+    case "search_github": {
+      const results = Array.isArray(rec?.results) ? rec.results : []
+      const note = asString(rec?.note)
+      const base =
+        results.length === 0 ? "No results" : plural(results.length, "result")
+      return {
+        status: "ok",
+        detail: {
+          summary: note ? `${base} · ${note}` : base,
+          items: results.slice(0, 8).map((it) => {
+            const r = asRecord(it)
+            const itemRef = asString(r?.ref)
+            const title = asString(r?.title) ?? "untitled"
+            return {
+              title: itemRef ? `${itemRef} ${title}` : title,
+              url: asString(r?.url),
+            }
+          }),
+        },
+      }
+    }
+    case "fetch_github": {
+      const title = asString(rec?.title)
+      return {
+        status: "ok",
+        detail: {
+          summary:
+            rec?.type === "pull_request"
+              ? "Fetched a pull request"
+              : "Fetched an issue",
           items: title ? [{ title, url: asString(rec?.url) }] : undefined,
         },
       }
@@ -515,25 +555,26 @@ export async function respond(
 
   const userMessage: ModelMessage = { role: "user", content: parts }
 
-  // Code investigation runs in a Railway sandbox — only offer it when that's
-  // configured, so Merlin doesn't reach for a tool that can't run. When it is,
-  // list the installation's accessible repos so Merlin targets a real one (the
-  // tool resolves the choice again before cloning). Only hits GitHub when a
-  // connection exists; otherwise it's a single DB check.
-  const githubRepos = env.RAILWAY_API_TOKEN
-    ? await listWorkspaceRepos(ctx.workspaceId).catch(() => [])
-    : []
+  // Resolve GitHub once (one DB check; one GitHub call only when connected).
+  // Live PR/issue tools come with any connection; code investigation also needs
+  // Railway. The installation's repos seed the tools so Merlin targets real
+  // ones (each tool re-resolves the choice before acting).
+  const github = await resolveWorkspaceGithub(ctx.workspaceId).catch(() => null)
 
   const tools = {
     ...buildChatTools(ctx.workspaceId),
     ...buildSourceTools(ctx.workspaceId),
     ...buildBrainReadTools(ctx.workspaceId),
     ...buildBrainWriteTools(ctx.workspaceId, onMemoryWritten),
-    ...(env.RAILWAY_API_TOKEN
+    ...(github ? buildGithubTools(github) : {}),
+    // Code investigation runs in a Railway sandbox — only offer it when that's
+    // configured, so Merlin doesn't reach for a tool that can't run.
+    ...(env.RAILWAY_API_TOKEN && github
       ? buildCodeTools(ctx.workspaceId, {
+          installationId: github.installationId,
           onUsage,
           onToolEvent,
-          repos: githubRepos,
+          repos: github.repos,
         })
       : {}),
   }
@@ -633,6 +674,14 @@ export async function writeBack(
   })
   if (!gate.object.worthSaving) return
 
+  // priorMessages carries the answer's tool_use/tool_result blocks, and
+  // Anthropic requires every tool referenced there to be defined here too — so
+  // mirror respond()'s tool set (incl. GitHub/code when connected). Write-back
+  // won't call them (its instruction is brain-only), but they must exist or the
+  // request 400s and nothing gets saved. Resolved after the gate so trivial
+  // exchanges skip the lookup.
+  const github = await resolveWorkspaceGithub(ctx.workspaceId).catch(() => null)
+
   await generateText({
     model: anthropic(MERLIN_MODEL),
     system: SYSTEM_PROMPT,
@@ -645,6 +694,13 @@ export async function writeBack(
       ...buildSourceTools(ctx.workspaceId),
       ...buildBrainReadTools(ctx.workspaceId),
       ...buildBrainWriteTools(ctx.workspaceId, onMemoryWritten),
+      ...(github ? buildGithubTools(github) : {}),
+      ...(env.RAILWAY_API_TOKEN && github
+        ? buildCodeTools(ctx.workspaceId, {
+            installationId: github.installationId,
+            repos: github.repos,
+          })
+        : {}),
     },
     stopWhen: stepCountIs(MAX_STEPS),
   })

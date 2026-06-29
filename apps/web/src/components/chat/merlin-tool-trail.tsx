@@ -174,10 +174,12 @@ export function MerlinToolTrail({
                           href={it.url}
                           target="_blank"
                           rel="noreferrer noopener"
-                          className="inline-flex items-center gap-1 hover:text-foreground hover:underline"
+                          className="inline-flex cursor-pointer items-center gap-1 text-primary hover:text-primary/80"
                         >
                           <ItemIcon className="size-3 shrink-0" />
-                          <span className="truncate">{it.title}</span>
+                          <span className="truncate underline-offset-2 hover:underline">
+                            {it.title}
+                          </span>
                         </a>
                       ) : (
                         <span

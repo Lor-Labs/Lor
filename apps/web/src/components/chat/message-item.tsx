@@ -18,7 +18,7 @@ import {
 } from "@repo/ui/components/tooltip"
 import { cn } from "@repo/ui/lib/utils"
 import { formatTime, timeAgo } from "@repo/utils/date"
-import { ChevronRight } from "lucide-react"
+import { Brain, ChevronRight } from "lucide-react"
 import { useCallback, useEffect, useState } from "react"
 import type { MentionCandidate } from "@/components/chat/composer/mention-types"
 import { EmbedCard } from "@/components/chat/embed-card"
@@ -368,13 +368,21 @@ export function MessageItem({
             />
           )}
           {message.remembered && message.remembered.length > 0 && (
-            <div className="mt-1 flex flex-wrap gap-1">
+            <div className="mt-3.5 flex flex-wrap gap-1.5">
               {message.remembered.map((r) => (
                 <span
                   key={r.path}
-                  className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground"
+                  className="inline-flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 py-1 pr-2.5 pl-2 text-xs text-muted-foreground"
                 >
-                  🧠 {r.action === "created" ? "saved" : "updated"} {r.path}
+                  <Brain className="size-3.5 shrink-0 text-primary" />
+                  <span>
+                    {r.action === "created"
+                      ? "Saved to memory"
+                      : "Updated memory"}
+                    <span className="ml-1.5 font-mono text-[11px] text-foreground/85">
+                      {r.path}
+                    </span>
+                  </span>
                 </span>
               ))}
             </div>

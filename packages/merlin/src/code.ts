@@ -1,49 +1,13 @@
-import { and, db, eq, schema } from "@repo/db"
 import type { MerlinToolCall } from "@repo/db/schema"
 import { tool } from "ai"
 import { z } from "zod"
-import {
-  getInstallationToken,
-  type InstallationRepo,
-  listInstallationRepos,
-} from "./providers/github"
+import { getInstallationToken, type InstallationRepo } from "./providers/github"
 import { investigateCode } from "./sandbox/investigate"
 import type { OnUsage } from "./usage"
 
 // Cap repo names listed in the tool description / errors so a big "All repos"
 // org doesn't blow up the prompt.
 const MAX_LISTED = 30
-
-// The active GitHub installation id for a workspace (one active connection per
-// workspace), or null when GitHub isn't connected.
-async function activeGithubInstallation(
-  workspaceId: string
-): Promise<string | null> {
-  const connection = await db
-    .select({ externalId: schema.integrationConnection.externalId })
-    .from(schema.integrationConnection)
-    .where(
-      and(
-        eq(schema.integrationConnection.workspaceId, workspaceId),
-        eq(schema.integrationConnection.provider, "github"),
-        eq(schema.integrationConnection.status, "active")
-      )
-    )
-    .limit(1)
-    .then((r) => r[0])
-  return connection?.externalId ?? null
-}
-
-// The repos Merlin can investigate for a workspace — fed into its context so it
-// targets a real repo instead of guessing owner/repo. Empty when GitHub isn't
-// connected (or the App can't enumerate).
-export async function listWorkspaceRepos(
-  workspaceId: string
-): Promise<InstallationRepo[]> {
-  const installationId = await activeGithubInstallation(workspaceId)
-  if (!installationId) return []
-  return listInstallationRepos(installationId)
-}
 
 // Map the repo Merlin asked for onto an actually-connected one so we never clone
 // a phantom. One connected repo → use it (ignore the guess). Exact or
@@ -81,18 +45,20 @@ function resolveRepo(
 
 // Merlin's code-investigation tool: clone the connected GitHub repo into an
 // ephemeral sandbox and run a coding agent against it, returning a synthesis
-// Merlin folds into its answer. Gated on a GitHub connection + (registration-side)
-// Railway being configured. `repos` (the installation's accessible repos) are
-// listed in the description so Merlin targets a real one, and resolved again
-// server-side so a wrong guess never clones a phantom. Emits a UsageEvent per
-// run for future billing.
+// Merlin folds into its answer. Registered only when GitHub is connected +
+// (registration-side) Railway is configured, so the installationId is known up
+// front. `repos` (the installation's accessible repos) are listed in the
+// description so Merlin targets a real one, and resolved again server-side so a
+// wrong guess never clones a phantom. Emits a UsageEvent per run for billing.
 export function buildCodeTools(
   workspaceId: string,
   {
+    installationId,
     onUsage,
     onToolEvent,
     repos = [],
   }: {
+    installationId: string
     onUsage?: OnUsage
     onToolEvent?: (e: MerlinToolCall) => void
     repos?: InstallationRepo[]
@@ -114,11 +80,6 @@ export function buildCodeTools(
           .describe("the specific code question to investigate"),
       }),
       execute: async ({ repo, question }, { toolCallId }) => {
-        const installationId = await activeGithubInstallation(workspaceId)
-        if (!installationId) {
-          return { error: "GitHub isn't connected to this workspace" }
-        }
-
         // Resolve against the actually-connected repos before any expensive
         // work, so a wrong guess returns the valid list instead of cloning a
         // nonexistent repo.

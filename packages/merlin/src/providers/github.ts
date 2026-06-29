@@ -175,6 +175,155 @@ function clip(s: string): string {
   return s.length > MAX_CONTENT ? `${s.slice(0, MAX_CONTENT)}\n…(truncated)` : s
 }
 
+// A PR/issue hit from live GitHub search.
+export type IssueSearchHit = {
+  ref: string // "owner/repo#number" — pass to fetchIssueOrPr
+  type: "pull_request" | "issue"
+  number: number
+  repo: string // "owner/repo"
+  title: string
+  state: string // open / closed / merged
+  author: string | null
+  url: string
+  updatedAt: string
+  snippet: string
+}
+
+const SEARCH_SNIPPET = 240
+
+// Live-search the installation's PRs/issues (GET /search/issues). Scoped to the
+// given repos via repo: qualifiers (never an unscoped global search); `type`
+// narrows to PRs or issues. Empty on failure.
+export async function searchIssues(
+  installationId: string,
+  opts: {
+    query: string
+    repos: string[]
+    type?: "pull_request" | "issue"
+    limit: number
+  }
+): Promise<IssueSearchHit[]> {
+  const app = getApp()
+  if (!app) return []
+  const id = Number(installationId)
+  if (!Number.isFinite(id)) return []
+  if (opts.repos.length === 0) return []
+  try {
+    const octokit = await app.getInstallationOctokit(id)
+    const scope = opts.repos.map((r) => `repo:${r}`).join(" ")
+    const typeQ =
+      opts.type === "pull_request"
+        ? " is:pr"
+        : opts.type === "issue"
+          ? " is:issue"
+          : ""
+    const q = `${opts.query} ${scope}${typeQ}`.trim()
+    const { data } = await octokit.rest.search.issuesAndPullRequests({
+      q,
+      per_page: opts.limit,
+      sort: "updated",
+      order: "desc",
+    })
+    return data.items.map((it) => {
+      const isPr = Boolean(it.pull_request)
+      const repo = it.repository_url.split("/repos/")[1] ?? ""
+      const state =
+        isPr && it.pull_request?.merged_at ? "merged" : (it.state ?? "open")
+      return {
+        ref: `${repo}#${it.number}`,
+        type: isPr ? "pull_request" : "issue",
+        number: it.number,
+        repo,
+        title: it.title,
+        state,
+        author: it.user?.login ?? null,
+        url: it.html_url,
+        updatedAt: it.updated_at,
+        snippet: (it.body ?? "").trim().slice(0, SEARCH_SNIPPET),
+      }
+    })
+  } catch (err) {
+    logger.error({ err, installationId: id }, "GitHub issue search failed")
+    return []
+  }
+}
+
+// The full content of a live-fetched PR/issue.
+export type FetchedIssue = {
+  ref: string
+  type: "pull_request" | "issue"
+  title: string
+  state: string
+  url: string
+  content: string
+}
+
+// Live-fetch a single PR/issue by "owner/repo#number": title, state, body, top
+// comments, plus review comments for PRs. Auto-detects PR vs issue. Null when
+// unavailable (App not configured, malformed ref, or fetch failed).
+export async function fetchIssueOrPr(
+  installationId: string,
+  ref: string
+): Promise<FetchedIssue | null> {
+  const app = getApp()
+  if (!app) return null
+  const id = Number(installationId)
+  if (!Number.isFinite(id)) return null
+  const parsed = parseRef(ref, "#")
+  if (!parsed) return null
+  try {
+    const octokit = await app.getInstallationOctokit(id)
+    const { data } = await octokit.rest.issues.get({
+      owner: parsed.owner,
+      repo: parsed.repo,
+      issue_number: parsed.id,
+    })
+    const isPr = Boolean(data.pull_request)
+    const state =
+      isPr && data.pull_request?.merged_at ? "merged" : (data.state ?? "open")
+    let out = `# ${data.title}\nState: ${state} · by ${data.user?.login ?? "unknown"}\n\n${data.body ?? "(no description)"}`
+
+    const comments = await octokit.rest.issues
+      .listComments({
+        owner: parsed.owner,
+        repo: parsed.repo,
+        issue_number: parsed.id,
+        per_page: MAX_COMMENTS,
+      })
+      .then((r) => r.data)
+      .catch(() => [])
+    for (const cm of comments) {
+      out += `\n\n— ${cm.user?.login ?? "unknown"}: ${cm.body ?? ""}`
+    }
+    if (isPr) {
+      const reviewComments = await octokit.rest.pulls
+        .listReviewComments({
+          owner: parsed.owner,
+          repo: parsed.repo,
+          pull_number: parsed.id,
+          per_page: MAX_COMMENTS,
+        })
+        .then((r) => r.data)
+        .catch(() => [])
+      for (const rc of reviewComments) {
+        out += `\n\n— ${rc.user?.login ?? "unknown"} on ${rc.path}: ${rc.body ?? ""}`
+      }
+    }
+
+    return {
+      ref: `${parsed.owner}/${parsed.repo}#${parsed.id}`,
+      type: isPr ? "pull_request" : "issue",
+      title: data.title,
+      state,
+      url: data.html_url,
+      content: clip(out),
+    }
+  } catch (err) {
+    logger.error({ err, ref }, "GitHub issue/PR fetch failed")
+    return null
+  }
+}
+
 // externalId is "owner/repo#<number>" (PR/issue) or "owner/repo@<id>" (release).
 function parseRef(externalId: string, sep: "#" | "@") {
   const [ownerRepo, tail] = externalId.split(sep)

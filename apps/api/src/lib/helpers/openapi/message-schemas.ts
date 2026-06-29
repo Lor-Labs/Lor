@@ -49,6 +49,11 @@ export const merlinToolCallSchema = z.object({
   status: z.enum(["ok", "error"]).optional(),
 })
 
+export const merlinMemorySchema = z.object({
+  path: z.string(),
+  action: z.enum(["created", "updated"]),
+})
+
 export const referencedMessageSchema = z
   .object({
     id: z.string().uuid(),
@@ -72,17 +77,21 @@ export const threadSummarySchema = z
   })
   .nullable()
 
-export const messageWithAuthorSchema = selectMessageSchema.extend({
-  author: messageAuthorSchema,
-  mentions: z.array(messageAuthorSchema),
-  reactions: z.array(messageReactionSchema),
-  embeds: z.array(messageEmbedSchema),
-  referencedMessage: referencedMessageSchema,
-  threadSummary: threadSummarySchema,
-  // Only Merlin replies carry these; optional so other message endpoints
-  // (DMs, pinned, …) need not supply them.
-  merlinToolCalls: z.array(merlinToolCallSchema).optional(),
-})
+export const messageWithAuthorSchema = selectMessageSchema
+  // Raw memory column is reshaped into `remembered` below.
+  .omit({ merlinMemories: true })
+  .extend({
+    author: messageAuthorSchema,
+    mentions: z.array(messageAuthorSchema),
+    reactions: z.array(messageReactionSchema),
+    embeds: z.array(messageEmbedSchema),
+    referencedMessage: referencedMessageSchema,
+    threadSummary: threadSummarySchema,
+    // Only Merlin replies carry these; optional so other message endpoints
+    // (DMs, pinned, …) need not supply them.
+    merlinToolCalls: z.array(merlinToolCallSchema).optional(),
+    remembered: z.array(merlinMemorySchema).optional(),
+  })
 
 // Cursor-based query: `around`, `before`, `after` are mutually exclusive
 // message ids. With none, the latest page is returned.

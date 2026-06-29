@@ -23,10 +23,10 @@ The flow: Merlin calls the `investigate_code(repo, question)` tool → clone the
 - [x] Sandbox create/destroy logging; full sandbox-exec error logging.
 - [x] Auth: GitHub App installation tokens + robust PEM handling.
 - [x] **Repo resolution.** The installation *is* the repo picker — we enumerate its accessible repos (`listInstallationRepos`, `apps.listReposAccessibleToInstallation`) rather than rebuild a picker. They're listed in the `investigate_code` description (so Merlin targets a real repo) and resolved again server-side before clone (`resolveRepo` in `code.ts`): single repo → auto-use; exact/unambiguous-name match → use; miss → return the valid list so Merlin retries — never clones a phantom. Settings shows the repos read-only with a "Manage on GitHub" link (`getInstallationOverview` → installation `html_url`).
+- [x] **On-demand PR/issue search (live).** `search_github` (live `GET /search/issues`, scoped to the connected repos via `repo:` qualifiers, `type` PR/issue filter, capped fan-out with an overflow note) + `fetch_github` (full body + comments, plus review comments for PRs; auto-detects PR vs issue). Lives in `packages/merlin/src/github.ts` (provider calls `searchIssues`/`fetchIssueOrPr` in `providers/github.ts`); registered only when GitHub is connected. Results are referenced inline by **Markdown link** (live, not `[[src:]]` — nothing is ingested), and appear as grounded drillable items in the tool trail. System prompt routes GitHub PR/issue questions here.
 
 ### 🔴 Must-have before shipping (even read-only)
 - [ ] **Cost/rate guard.** Per-workspace budget + rate limit on the sandbox tool (runaway-cost protection). GitHub-specific safety.
-- [ ] **On-demand GitHub PR/issue search.** Promised when we turned off embedding; not built. `search_sources` returns nothing now, so "what PRs touched auth?" has no path (`investigate_code` is for *code*, not PR/issue discussion). Build a live GitHub search tool.
 
 ### 🟣 Cross-cutting (not a GitHub blocker — project-level)
 - [ ] **Gating — Layer 2 per-channel tool profiles.** `investigate_code` is currently callable in *every* channel by anyone; scope it to eng channels. This is a per-channel-per-connector concern shared across all connectors, so it lands as its own project-level layer, not inside the GitHub work.
@@ -40,6 +40,8 @@ The flow: Merlin calls the `investigate_code(repo, question)` tool → clone the
 - [ ] Re-verify `fetch_source` now that App auth works (was silently broken by the PEM issue).
 - [ ] Edge cases: large-repo clone timeout, concurrent-sandbox cap (100/env), mid-stream agent failure, repo-not-found.
 - [ ] **Verify the `stream-json` event schema live** and tighten the parser in `investigate.ts` (currently best-effort/defensive). Decide whether to keep the `getApp` key diagnostic log.
+- [ ] **Ground GitHub links.** PR/issue refs are emitted as plain Markdown links, so the citation grounder can't catch a fabricated url (the real results are in the trail, but inline links aren't verified). Optional: a `[[gh:owner/repo#n]]` token verified against tool output, or post-hoc link validation.
+- [ ] **Confirm `search.issuesAndPullRequests` live** (deprecation: GitHub is nudging toward the `advanced_search` opt-in). Best-effort/defensive today; verify scoping + result shape against a real installation.
 
 ## Decisions locked (do NOT re-litigate)
 - **No embedding** of GitHub PRs/issues — brain-centric. `SOURCE_INGEST_ENABLED = false` in `github/events.ts` (code kept; user may revisit).
@@ -49,8 +51,7 @@ The flow: Merlin calls the `investigate_code(repo, question)` tool → clone the
 - **Linear is deferred** until GitHub is done; when resumed: proper OAuth + write scope + webhooks from day 1 (tokens expire ~24h w/ refresh — design researched).
 
 ## Recommended next step
-Repo resolution is done. The two remaining GitHub-specific 🔴 items make the read side trustworthy and safe:
-1. **On-demand PR/issue search** — restore the path we dropped with embedding ("what PRs touched auth?"). A live GitHub search tool over the installation's repos.
-2. **Cost/rate guard** — per-workspace budget + rate limit on the sandbox tool.
+Repo resolution and live PR/issue search are done — the read side is now trustworthy. One GitHub-specific 🔴 remains:
+1. **Cost/rate guard** — per-workspace budget + rate limit on the sandbox tool (the only tool that spends real money / can run away).
 
-Then the 🟡 draft-PR write loop. Gating is cross-cutting (🟣) and lands as its own project-level layer.
+Then the 🟡 draft-PR write loop (the read+write bar). Gating is cross-cutting (🟣) and lands as its own project-level layer. Live-verify the two best-effort paths (`stream-json` parser, `search/issues` scoping) against a real installation when convenient.

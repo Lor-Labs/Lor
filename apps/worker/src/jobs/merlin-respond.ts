@@ -11,7 +11,7 @@ import {
   or,
   schema,
 } from "@repo/db"
-import type { MerlinToolCall } from "@repo/db/schema"
+import type { MerlinMemory, MerlinToolCall } from "@repo/db/schema"
 import { withContext } from "@repo/logger"
 import { groundCitations, respond, writeBack } from "@repo/merlin"
 import { buildMessageFanout } from "@repo/messaging"
@@ -121,6 +121,22 @@ export function createMerlinRespondProcessor(
         // Tools Merlin consults while answering — accumulated for the durable
         // trail persisted on the message, and streamed live via merlin:tool.
         const toolCalls: MerlinToolCall[] = []
+        // Brain pages Merlin saves (explicit during the answer + autonomous
+        // write-back) — accumulated for the durable record and streamed live
+        // via merlin:memory. Upsert by path (last write wins).
+        const remembered: MerlinMemory[] = []
+        const remember = (memory: MerlinMemory) => {
+          const idx = remembered.findIndex((m) => m.path === memory.path)
+          if (idx >= 0) remembered[idx] = memory
+          else remembered.push(memory)
+          emitter.to(room).emit("merlin:memory", {
+            channelId,
+            threadRootId,
+            messageId: merlinMessageId,
+            path: memory.path,
+            action: memory.action,
+          })
+        }
         try {
           const conversation = await loadConversation({
             channelId,
@@ -158,14 +174,7 @@ export function createMerlinRespondProcessor(
               },
               // Explicit "remember this" writes happen during the answer; surface
               // their chip immediately like the background write-back does.
-              onMemoryWritten: ({ path, action }) =>
-                emitter.to(room).emit("merlin:memory", {
-                  channelId,
-                  threadRootId,
-                  messageId: merlinMessageId,
-                  path,
-                  action,
-                }),
+              onMemoryWritten: remember,
               // Live tool status ("Searching sources…") streamed so slow tools
               // don't read as a dead spinner; also accumulated for the durable
               // trail persisted below (survives the answer and a reload). Upsert
@@ -266,7 +275,13 @@ export function createMerlinRespondProcessor(
 
           await db
             .update(schema.message)
-            .set({ content: finalText, merlinToolCalls: persistedToolCalls })
+            .set({
+              content: finalText,
+              merlinToolCalls: persistedToolCalls,
+              // Explicit "remember this" saves so far; write-back may add more
+              // after this and re-persists then.
+              merlinMemories: remembered,
+            })
             .where(eq(schema.message.id, merlinMessageId))
 
           // Notify like a normal message: fan out unread/mention to recipients.
@@ -336,17 +351,22 @@ export function createMerlinRespondProcessor(
         try {
           await writeBack(
             { workspaceId, priorMessages: answer.messages, gateText },
-            {
-              onMemoryWritten: ({ path, action }) =>
-                emitter.to(room).emit("merlin:memory", {
-                  channelId,
-                  threadRootId,
-                  messageId: merlinMessageId,
-                  path,
-                  action,
-                }),
-            }
+            { onMemoryWritten: remember }
           )
+          // Persist what write-back committed so the chip survives a reload
+          // (the live emits above only patch the open client's cache).
+          if (remembered.length > 0) {
+            await db
+              .update(schema.message)
+              .set({ merlinMemories: remembered })
+              .where(eq(schema.message.id, merlinMessageId))
+              .catch((err) =>
+                logger.error(
+                  { err, merlinMessageId },
+                  "Failed to persist Merlin memories"
+                )
+              )
+          }
         } catch (err) {
           logger.error({ err, merlinMessageId }, "Merlin write-back failed")
         } finally {

@@ -14,8 +14,12 @@ export function getSourceProvider(provider: Provider): SourceProvider | null {
 }
 
 export {
+  type FetchedIssue,
+  fetchIssueOrPr,
   getInstallationOverview,
   type InstallationRepo,
+  type IssueSearchHit,
   listInstallationRepos,
+  searchIssues,
 } from "./github"
 export type { ConnectionRef, SourceProvider, SourceRef } from "./types"
