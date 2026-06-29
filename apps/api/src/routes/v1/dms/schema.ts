@@ -53,10 +53,12 @@ export const dmMemberSchema = z.object({
   image: z.string().nullable(),
 })
 
-export const dmChannelSchema = selectChannelSchema.extend({
-  members: z.array(dmMemberSchema),
-  lastMessage: lastMessageSchema.nullable(),
-})
+export const dmChannelSchema = selectChannelSchema
+  .omit({ agentProfileId: true })
+  .extend({
+    members: z.array(dmMemberSchema),
+    lastMessage: lastMessageSchema.nullable(),
+  })
 
 export const createDMRequestSchema = z.object({
   userIds: z

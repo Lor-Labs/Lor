@@ -163,7 +163,7 @@ export function createMerlinRespondProcessor(
 
           let pending = ""
           answer = await respond(
-            { workspaceId, conversation },
+            { workspaceId, conversation, channelId },
             {
               onDelta: (d) => {
                 pending += d
