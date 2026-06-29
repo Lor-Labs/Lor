@@ -4,6 +4,7 @@ import createApp from "@/lib/helpers/app/create-app"
 import configureOpenAPI from "@/lib/helpers/openapi/configure-openapi"
 import { globalRateLimit } from "@/middleware/rate-limit"
 import index from "@/routes/index.route"
+import agentProfilesRouter from "@/routes/v1/agent-profiles/index"
 import channelsRouter from "@/routes/v1/channels/index"
 import dmsRouter from "@/routes/v1/dms/index"
 import integrationsRouter from "@/routes/v1/integrations/index"
@@ -46,6 +47,7 @@ const routes = app
   .route("/v1", uploadsRouter)
   .route("/v1", usersRouter)
   .route("/v1", integrationsRouter)
+  .route("/v1", agentProfilesRouter)
 
 export type AppType = typeof routes
 

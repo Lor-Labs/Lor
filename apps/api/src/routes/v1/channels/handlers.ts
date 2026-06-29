@@ -1,5 +1,6 @@
 import { db } from "@repo/db"
 import {
+  agentProfile,
   channel,
   message,
   messageMention,
@@ -178,6 +179,28 @@ export const updateChannel: AppRouteHandler<UpdateChannelRoute> = async (c) => {
   assertWorkspacePermission(member, workspace, {
     channel: ["update"],
   })
+
+  // Assigning a Merlin profile: it must belong to this workspace (the FK alone
+  // doesn't scope it). null clears the assignment (inherit category/default).
+  if (body.agentProfileId) {
+    const profile = await db
+      .select({ id: agentProfile.id })
+      .from(agentProfile)
+      .where(
+        and(
+          eq(agentProfile.id, body.agentProfileId),
+          eq(agentProfile.workspaceId, workspace.id)
+        )
+      )
+      .limit(1)
+      .then((r) => r[0])
+    if (!profile) {
+      return c.json(
+        { success: false, message: "Profile not found" },
+        HttpStatusCodes.NOT_FOUND
+      )
+    }
+  }
 
   const updated = await db
     .update(channel)

@@ -9,6 +9,7 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core"
+import { createSelectSchema } from "drizzle-zod"
 import { workspace } from "./workspaces"
 
 // What Merlin is allowed to *do* in a channel — gated tools/connectors, not the
@@ -70,6 +71,8 @@ export const agentProfileRelations = relations(agentProfile, ({ one }) => ({
     references: [workspace.id],
   }),
 }))
+
+export const selectAgentProfileSchema = createSelectSchema(agentProfile)
 
 export type AgentProfile = typeof agentProfile.$inferSelect
 export type NewAgentProfile = typeof agentProfile.$inferInsert
