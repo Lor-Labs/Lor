@@ -9,11 +9,11 @@ import {
   Camera,
   ExternalLink,
   Github,
+  Layers,
   Loader2,
   Lock,
   Plug,
   Settings,
-  Sparkles,
   Upload,
   X,
 } from "lucide-react"
@@ -54,7 +54,7 @@ export type SectionId = "general" | "integrations" | "merlin"
 const SECTIONS: { id: SectionId; label: string; icon: typeof Settings }[] = [
   { id: "general", label: "General", icon: Settings },
   { id: "integrations", label: "Integrations", icon: Plug },
-  { id: "merlin", label: "Merlin", icon: Sparkles },
+  { id: "merlin", label: "Agent profiles", icon: Layers },
 ]
 
 export function WorkspaceSettingsDialog({

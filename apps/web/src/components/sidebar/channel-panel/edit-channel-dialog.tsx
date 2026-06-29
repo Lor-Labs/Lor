@@ -1,9 +1,3 @@
-import {
-  Settings02Icon,
-  SparklesIcon,
-  Tick02Icon,
-} from "@hugeicons/core-free-icons"
-import { HugeiconsIcon } from "@hugeicons/react"
 import { Button } from "@repo/ui/components/button"
 import {
   Dialog,
@@ -26,6 +20,7 @@ import { Textarea } from "@repo/ui/components/textarea"
 import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useParams } from "@tanstack/react-router"
+import { Layers, Settings } from "lucide-react"
 import { useEffect, useState } from "react"
 import { toast } from "sonner"
 import { apiClient } from "@/lib/api-client"
@@ -34,13 +29,14 @@ import type {
   AvailableCapability,
   Channel,
 } from "@/lib/api-types"
+import { capabilityIcon } from "@/lib/capability-icons"
 
 const INHERIT = "__inherit__"
 
-type Tab = "overview" | "merlin"
-const TABS: { id: Tab; label: string; icon: typeof Settings02Icon }[] = [
-  { id: "overview", label: "Overview", icon: Settings02Icon },
-  { id: "merlin", label: "Merlin", icon: SparklesIcon },
+type Tab = "overview" | "profile"
+const TABS: { id: Tab; label: string; icon: typeof Settings }[] = [
+  { id: "overview", label: "Overview", icon: Settings },
+  { id: "profile", label: "Agent profile", icon: Layers },
 ]
 
 function ProfileCapabilities({
@@ -62,22 +58,23 @@ function ProfileCapabilities({
       {granted.length === 0 ? (
         <p className="text-xs text-muted-foreground">No connectors.</p>
       ) : (
-        <ul className="space-y-1.5">
-          {granted.map((c) => (
-            <li key={c.key} className="flex items-start gap-2 text-sm">
-              <HugeiconsIcon
-                icon={Tick02Icon}
-                size={14}
-                className="mt-0.5 shrink-0 text-primary"
-              />
-              <span className="min-w-0">
-                <span className="block">{c.label}</span>
-                <span className="block text-xs text-muted-foreground">
-                  {c.description}
+        <ul className="space-y-2">
+          {granted.map((c) => {
+            const Icon = capabilityIcon(c.key)
+            return (
+              <li key={c.key} className="flex items-center gap-3">
+                <span className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-background">
+                  <Icon className="size-4" />
                 </span>
-              </span>
-            </li>
-          ))}
+                <span className="min-w-0">
+                  <span className="block text-sm">{c.label}</span>
+                  <span className="block text-xs text-muted-foreground">
+                    {c.description}
+                  </span>
+                </span>
+              </li>
+            )
+          })}
         </ul>
       )}
       <p className="text-[11px] text-muted-foreground">
@@ -193,10 +190,12 @@ export function EditChannelDialog({
     profileId === INHERIT
       ? null
       : (profilesData?.profiles.find((p) => p.id === profileId) ?? null)
+  const defaultProfile = profilesData?.profiles.find((p) => p.isDefault) ?? null
+  const previewProfile = selectedProfile ?? defaultProfile
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-2xl">
+      <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-2xl md:max-w-3xl lg:max-w-5xl">
         <DialogHeader className="border-border border-b px-5 py-3 text-left">
           <DialogTitle>
             {isCategory ? "Edit Category" : "Edit Channel"}
@@ -214,8 +213,8 @@ export function EditChannelDialog({
             }
           }}
         >
-          <div className="flex min-h-[20rem]">
-            <nav className="flex w-40 shrink-0 flex-col gap-1 border-border border-r bg-sidebar p-2">
+          <div className="flex h-[460px]">
+            <nav className="flex w-48 shrink-0 flex-col gap-1 border-border border-r bg-sidebar p-3">
               {TABS.map((t) => (
                 <button
                   key={t.id}
@@ -228,82 +227,93 @@ export function EditChannelDialog({
                       : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"
                   )}
                 >
-                  <HugeiconsIcon icon={t.icon} size={16} />
+                  <t.icon className="size-4" />
                   {t.label}
                 </button>
               ))}
             </nav>
 
-            <div className="min-w-0 flex-1 space-y-4 overflow-y-auto p-5">
-              {tab === "overview" ? (
-                <>
-                  <div className="space-y-2">
-                    <Label htmlFor="channel-name">Name</Label>
-                    <Input
-                      id="channel-name"
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      maxLength={100}
-                    />
-                  </div>
-                  {!isCategory && (
+            <div className="min-w-0 flex-1 overflow-y-auto p-6">
+              <div className="mx-auto w-full max-w-xl space-y-4">
+                {tab === "overview" ? (
+                  <>
                     <div className="space-y-2">
-                      <Label htmlFor="channel-topic">Topic</Label>
-                      <Textarea
-                        id="channel-topic"
-                        value={topic}
-                        onChange={(e) => setTopic(e.target.value)}
-                        maxLength={1024}
-                        placeholder="What's this channel about?"
-                        rows={3}
+                      <Label htmlFor="channel-name">Name</Label>
+                      <Input
+                        id="channel-name"
+                        value={name}
+                        onChange={(e) => setName(e.target.value)}
+                        maxLength={100}
                       />
                     </div>
-                  )}
-                </>
-              ) : (
-                <div className="space-y-3">
-                  <div className="space-y-2">
-                    <Label htmlFor="channel-merlin-profile">Profile</Label>
-                    <Select value={profileId} onValueChange={setProfileId}>
-                      <SelectTrigger
-                        id="channel-merlin-profile"
-                        className="w-full"
-                      >
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value={INHERIT}>
-                          {isCategory
-                            ? "Inherit (workspace default)"
-                            : "Inherit (category or default)"}
-                        </SelectItem>
-                        {profilesData?.profiles.map((p) => (
-                          <SelectItem key={p.id} value={p.id}>
-                            {p.name}
-                            {p.isDefault ? " · default" : ""}
+                    {!isCategory && (
+                      <div className="space-y-2">
+                        <Label htmlFor="channel-topic">Topic</Label>
+                        <Textarea
+                          id="channel-topic"
+                          value={topic}
+                          onChange={(e) => setTopic(e.target.value)}
+                          maxLength={1024}
+                          placeholder="What's this channel about?"
+                          rows={3}
+                        />
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="space-y-2">
+                      <Label htmlFor="channel-merlin-profile">Profile</Label>
+                      <Select value={profileId} onValueChange={setProfileId}>
+                        <SelectTrigger
+                          id="channel-merlin-profile"
+                          className="w-full"
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={INHERIT}>
+                            {isCategory
+                              ? "Inherit (workspace default)"
+                              : "Inherit (category or default)"}
                           </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <p className="text-xs text-muted-foreground">
-                      Controls which tools Merlin can use here.
-                    </p>
-                  </div>
+                          {profilesData?.profiles.map((p) => (
+                            <SelectItem key={p.id} value={p.id}>
+                              {p.name}
+                              {p.isDefault ? " · default" : ""}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">
+                        Controls which tools Merlin can use here.
+                      </p>
+                    </div>
 
-                  {selectedProfile && profilesData ? (
-                    <ProfileCapabilities
-                      profile={selectedProfile}
-                      available={profilesData.availableCapabilities}
-                    />
-                  ) : (
-                    <p className="rounded-lg border border-border bg-muted/30 p-3 text-xs text-muted-foreground">
-                      {isCategory
-                        ? "Inherits the workspace default profile."
-                        : "Inherits the category's profile, or the workspace default."}
-                    </p>
-                  )}
-                </div>
-              )}
+                    {previewProfile && profilesData ? (
+                      <div className="space-y-1.5">
+                        {!selectedProfile && (
+                          <p className="text-xs text-muted-foreground">
+                            {isCategory
+                              ? "Inherits the workspace default:"
+                              : "Inherits the category's profile, or the workspace default:"}
+                          </p>
+                        )}
+                        <ProfileCapabilities
+                          profile={previewProfile}
+                          available={profilesData.availableCapabilities}
+                        />
+                      </div>
+                    ) : (
+                      <p className="rounded-lg border border-border bg-muted/30 p-3 text-xs text-muted-foreground">
+                        {isCategory
+                          ? "Inherits the workspace default profile."
+                          : "Inherits the category's profile, or the workspace default."}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 

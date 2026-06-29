@@ -1,15 +1,9 @@
-import {
-  Delete02Icon,
-  Loading03Icon,
-  PencilEdit02Icon,
-  PlusSignIcon,
-} from "@hugeicons/core-free-icons"
-import { HugeiconsIcon } from "@hugeicons/react"
 import { Badge } from "@repo/ui/components/badge"
 import { Button } from "@repo/ui/components/button"
-import { Checkbox } from "@repo/ui/components/checkbox"
 import { Input } from "@repo/ui/components/input"
+import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { Check, Loader2, Pencil, Plus, Trash2 } from "lucide-react"
 import { useState } from "react"
 import { toast } from "sonner"
 import { apiClient } from "@/lib/api-client"
@@ -18,16 +12,85 @@ import type {
   AvailableCapability,
   MerlinCapabilityKey,
 } from "@/lib/api-types"
+import { capabilityIcon } from "@/lib/capability-icons"
 
-function summarize(
-  profile: AgentProfile,
+function GrantedChips({
+  profile,
+  available,
+}: {
+  profile: AgentProfile
   available: AvailableCapability[]
-): string {
-  if (profile.grantsAll) return "All tools (and any added later)"
-  if (profile.capabilities.length === 0) return "Chat & memory only"
-  return profile.capabilities
-    .map((k) => available.find((c) => c.key === k)?.label ?? k)
-    .join(", ")
+}) {
+  const granted = profile.grantsAll
+    ? available
+    : available.filter((c) => profile.capabilities.includes(c.key))
+
+  if (granted.length === 0) {
+    return (
+      <span className="text-xs text-muted-foreground">Chat & memory only</span>
+    )
+  }
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {granted.map((c) => {
+        const Icon = capabilityIcon(c.key)
+        return (
+          <span
+            key={c.key}
+            className="inline-flex items-center gap-1.5 rounded-md bg-muted px-2 py-1 text-xs text-foreground"
+          >
+            <Icon className="size-3.5 shrink-0" />
+            {c.label}
+          </span>
+        )
+      })}
+    </div>
+  )
+}
+
+function CapabilityTile({
+  cap,
+  selected,
+  onToggle,
+}: {
+  cap: AvailableCapability
+  selected: boolean
+  onToggle: () => void
+}) {
+  const Icon = capabilityIcon(cap.key)
+  return (
+    <button
+      type="button"
+      aria-pressed={selected}
+      onClick={onToggle}
+      className={cn(
+        "flex w-full cursor-pointer items-center gap-3 rounded-lg border p-3 text-left transition-colors",
+        selected
+          ? "border-primary/40 bg-primary/5"
+          : "border-border hover:bg-accent/40"
+      )}
+    >
+      <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted">
+        <Icon className="size-5" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-medium">{cap.label}</span>
+        <span className="block text-xs text-muted-foreground">
+          {cap.description}
+        </span>
+      </span>
+      <span
+        className={cn(
+          "flex size-5 shrink-0 items-center justify-center rounded-full border transition-colors",
+          selected
+            ? "border-primary bg-primary text-primary-foreground"
+            : "border-muted-foreground/30"
+        )}
+      >
+        {selected && <Check className="size-3" />}
+      </span>
+    </button>
+  )
 }
 
 function ProfileRow({
@@ -57,19 +120,17 @@ function ProfileRow({
   const [selected, setSelected] =
     useState<Set<MerlinCapabilityKey>>(initialSelected)
 
-  const toggle = (key: MerlinCapabilityKey, on: boolean) => {
+  const toggle = (key: MerlinCapabilityKey) => {
     setSelected((prev) => {
       const next = new Set(prev)
-      if (on) next.add(key)
-      else next.delete(key)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
       return next
     })
   }
 
   const handleSave = () => {
     if (!name.trim()) return
-    // Preserve any granted capability the editor can't show (its connector is
-    // currently disconnected) so editing doesn't silently drop it.
     const availableKeys = new Set(available.map((c) => c.key))
     const preserved = (profile?.capabilities ?? []).filter(
       (k) => !availableKeys.has(k)
@@ -90,15 +151,13 @@ function ProfileRow({
 
   if (!editing && profile) {
     return (
-      <div className="flex items-center justify-between gap-3 rounded-lg border border-border p-4">
-        <div className="min-w-0">
+      <div className="flex items-start justify-between gap-3 rounded-xl border border-border p-4">
+        <div className="min-w-0 space-y-2">
           <div className="flex items-center gap-2">
-            <span className="truncate text-sm font-medium">{profile.name}</span>
+            <span className="truncate font-medium text-sm">{profile.name}</span>
             {profile.isDefault && <Badge variant="secondary">Default</Badge>}
           </div>
-          <div className="mt-0.5 truncate text-xs text-muted-foreground">
-            {summarize(profile, available)}
-          </div>
+          <GrantedChips profile={profile} available={available} />
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <Button
@@ -107,7 +166,7 @@ function ProfileRow({
             aria-label="Edit profile"
             onClick={() => setEditing(true)}
           >
-            <HugeiconsIcon icon={PencilEdit02Icon} size={14} />
+            <Pencil className="size-3.5" />
           </Button>
           {onDelete && (
             <Button
@@ -116,7 +175,7 @@ function ProfileRow({
               aria-label="Delete profile"
               onClick={onDelete}
             >
-              <HugeiconsIcon icon={Delete02Icon} size={14} />
+              <Trash2 className="size-3.5" />
             </Button>
           )}
         </div>
@@ -125,7 +184,7 @@ function ProfileRow({
   }
 
   return (
-    <div className="space-y-3 rounded-lg border border-border p-4">
+    <div className="space-y-4 rounded-xl border border-border p-4">
       <Input
         value={name}
         onChange={(e) => setName(e.target.value)}
@@ -133,31 +192,20 @@ function ProfileRow({
         maxLength={60}
       />
       <div className="space-y-2">
-        <div className="text-xs font-medium text-muted-foreground">Tools</div>
+        <div className="font-medium text-muted-foreground text-xs">Tools</div>
         {available.length === 0 ? (
-          <p className="text-xs text-muted-foreground">
+          <p className="text-muted-foreground text-xs">
             No connectors are connected yet — connect one under Integrations to
             grant tools.
           </p>
         ) : (
           available.map((cap) => (
-            <div key={cap.key} className="flex items-start gap-2">
-              <Checkbox
-                id={`cap-${cap.key}`}
-                checked={selected.has(cap.key)}
-                onCheckedChange={(v) => toggle(cap.key, v === true)}
-                className="mt-0.5"
-              />
-              <label
-                htmlFor={`cap-${cap.key}`}
-                className="min-w-0 cursor-pointer"
-              >
-                <span className="block text-sm">{cap.label}</span>
-                <span className="block text-xs text-muted-foreground">
-                  {cap.description}
-                </span>
-              </label>
-            </div>
+            <CapabilityTile
+              key={cap.key}
+              cap={cap}
+              selected={selected.has(cap.key)}
+              onToggle={() => toggle(cap.key)}
+            />
           ))
         )}
       </div>
@@ -246,11 +294,7 @@ export function MerlinProfilesSection({
   if (isPending) {
     return (
       <div className="flex justify-center py-10">
-        <HugeiconsIcon
-          icon={Loading03Icon}
-          size={20}
-          className="animate-spin text-muted-foreground"
-        />
+        <Loader2 className="size-5 animate-spin text-muted-foreground" />
       </div>
     )
   }
@@ -294,7 +338,7 @@ export function MerlinProfilesSection({
         />
       ) : (
         <Button variant="outline" size="sm" onClick={() => setCreating(true)}>
-          <HugeiconsIcon icon={PlusSignIcon} size={16} />
+          <Plus className="size-4" />
           New profile
         </Button>
       )}
