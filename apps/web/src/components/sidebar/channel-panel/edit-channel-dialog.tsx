@@ -77,9 +77,6 @@ function ProfileCapabilities({
           })}
         </ul>
       )}
-      <p className="text-[11px] text-muted-foreground">
-        Chat history & memory are always available.
-      </p>
     </div>
   )
 }
@@ -192,6 +189,8 @@ export function EditChannelDialog({
       : (profilesData?.profiles.find((p) => p.id === profileId) ?? null)
   const defaultProfile = profilesData?.profiles.find((p) => p.isDefault) ?? null
   const previewProfile = selectedProfile ?? defaultProfile
+  const customProfiles =
+    profilesData?.profiles.filter((p) => !p.isDefault) ?? []
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -262,53 +261,43 @@ export function EditChannelDialog({
                   </>
                 ) : (
                   <div className="space-y-3">
-                    <div className="space-y-2">
-                      <Label htmlFor="channel-merlin-profile">Profile</Label>
-                      <Select value={profileId} onValueChange={setProfileId}>
-                        <SelectTrigger
-                          id="channel-merlin-profile"
-                          className="w-full"
-                        >
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value={INHERIT}>
-                            {isCategory
-                              ? "Inherit (workspace default)"
-                              : "Inherit (category or default)"}
-                          </SelectItem>
-                          {profilesData?.profiles.map((p) => (
-                            <SelectItem key={p.id} value={p.id}>
-                              {p.name}
-                              {p.isDefault ? " · default" : ""}
+                    {customProfiles.length > 0 && (
+                      <div className="space-y-2">
+                        <Label htmlFor="channel-merlin-profile">Profile</Label>
+                        <Select value={profileId} onValueChange={setProfileId}>
+                          <SelectTrigger
+                            id="channel-merlin-profile"
+                            className="w-full"
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value={INHERIT}>
+                              {isCategory
+                                ? "Inherit (workspace default)"
+                                : "Inherit (category or default)"}
                             </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <p className="text-xs text-muted-foreground">
-                        Controls which tools Merlin can use here.
-                      </p>
-                    </div>
-
-                    {previewProfile && profilesData ? (
-                      <div className="space-y-1.5">
-                        {!selectedProfile && (
-                          <p className="text-xs text-muted-foreground">
-                            {isCategory
-                              ? "Inherits the workspace default:"
-                              : "Inherits the category's profile, or the workspace default:"}
-                          </p>
-                        )}
-                        <ProfileCapabilities
-                          profile={previewProfile}
-                          available={profilesData.availableCapabilities}
-                        />
+                            {customProfiles.map((p) => (
+                              <SelectItem key={p.id} value={p.id}>
+                                {p.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
-                    ) : (
-                      <p className="rounded-lg border border-border bg-muted/30 p-3 text-xs text-muted-foreground">
-                        {isCategory
-                          ? "Inherits the workspace default profile."
-                          : "Inherits the category's profile, or the workspace default."}
+                    )}
+
+                    {previewProfile && profilesData && (
+                      <ProfileCapabilities
+                        profile={previewProfile}
+                        available={profilesData.availableCapabilities}
+                      />
+                    )}
+
+                    {customProfiles.length === 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        Add agent profiles in workspace settings to give
+                        channels different tools.
                       </p>
                     )}
                   </div>

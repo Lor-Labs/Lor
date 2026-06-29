@@ -16,7 +16,8 @@ export const CAPABILITY_CATALOG: Record<
   },
   code: {
     label: "Code investigation",
-    description: "Explore the connected codebase in a sandbox",
+    description:
+      "Explore the connected codebase in a ephemeral sandbox environment",
     requires: ["github"],
   },
 }
