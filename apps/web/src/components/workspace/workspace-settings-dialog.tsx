@@ -7,8 +7,10 @@ import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   Camera,
+  ExternalLink,
   Github,
   Loader2,
+  Lock,
   Plug,
   Settings,
   Upload,
@@ -360,6 +362,9 @@ function GeneralSection({
 
 const PROVIDER_ICONS: Record<string, typeof Github> = { github: Github }
 
+// How many repo chips to show before collapsing the rest into a "+N more".
+const REPO_DISPLAY_LIMIT = 8
+
 function IntegrationsSection({ workspaceSlug }: { workspaceSlug: string }) {
   const queryClient = useQueryClient()
 
@@ -414,48 +419,93 @@ function IntegrationsSection({ workspaceSlug }: { workspaceSlug: string }) {
   return (
     <div className="space-y-3">
       <p className="text-sm text-muted-foreground">
-        Connect tools so Merlin can draw on your team's work. Activity is
-        summarized into your workspace's memory.
+        Connect tools so Merlin can draw on your team's work — searching pull
+        requests, issues, and code on demand, and summarizing what matters into
+        your workspace's memory.
       </p>
       {data?.providers.map((p) => {
         const Icon = PROVIDER_ICONS[p.id] ?? Plug
+        const repos = p.repos ?? []
+        // `repos` may be capped server-side; repoCount is the true total.
+        const repoCount = p.repoCount ?? repos.length
+        const showRepos = p.connected && (repoCount > 0 || !!p.manageUrl)
         return (
-          <div
-            key={p.id}
-            className="flex items-center justify-between gap-4 rounded-lg border border-border p-4"
-          >
-            <div className="flex min-w-0 items-center gap-3">
-              <Icon className="size-6 shrink-0" />
-              <div className="min-w-0">
-                <div className="text-sm font-medium">{p.name}</div>
-                <div className="truncate text-xs text-muted-foreground">
-                  {p.connected
-                    ? `Connected${p.accountLogin ? ` · ${p.accountLogin}` : ""}`
-                    : "Not connected"}
+          <div key={p.id} className="rounded-lg border border-border p-4">
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex min-w-0 items-center gap-3">
+                <Icon className="size-6 shrink-0" />
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">{p.name}</div>
+                  <div className="truncate text-xs text-muted-foreground">
+                    {p.connected
+                      ? `Connected${p.accountLogin ? ` · ${p.accountLogin}` : ""}`
+                      : "Not connected"}
+                  </div>
                 </div>
               </div>
+              {p.connected && p.connectionId ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={disconnect.isPending}
+                  onClick={() =>
+                    p.connectionId && disconnect.mutate(p.connectionId)
+                  }
+                >
+                  Disconnect
+                </Button>
+              ) : (
+                <Button
+                  size="sm"
+                  disabled={!p.connectUrl}
+                  onClick={() => {
+                    if (p.connectUrl) window.location.href = p.connectUrl
+                  }}
+                >
+                  {p.connectUrl ? "Connect" : "Unavailable"}
+                </Button>
+              )}
             </div>
-            {p.connected && p.connectionId ? (
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={disconnect.isPending}
-                onClick={() =>
-                  p.connectionId && disconnect.mutate(p.connectionId)
-                }
-              >
-                Disconnect
-              </Button>
-            ) : (
-              <Button
-                size="sm"
-                disabled={!p.connectUrl}
-                onClick={() => {
-                  if (p.connectUrl) window.location.href = p.connectUrl
-                }}
-              >
-                {p.connectUrl ? "Connect" : "Unavailable"}
-              </Button>
+
+            {showRepos && (
+              <div className="mt-3 border-border/60 border-t pt-3">
+                <div className="mb-1.5 flex items-center justify-between gap-2">
+                  <span className="text-xs font-medium text-muted-foreground">
+                    {repoCount > 0
+                      ? `${repoCount} ${repoCount === 1 ? "repository" : "repositories"} Merlin can read`
+                      : "No repositories"}
+                  </span>
+                  {p.manageUrl && (
+                    <a
+                      href={p.manageUrl}
+                      target="_blank"
+                      rel="noreferrer noopener"
+                      className="inline-flex shrink-0 cursor-pointer items-center gap-1 text-xs text-muted-foreground hover:text-foreground hover:underline"
+                    >
+                      Manage on GitHub
+                      <ExternalLink className="size-3" />
+                    </a>
+                  )}
+                </div>
+                {repos.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {repos.slice(0, REPO_DISPLAY_LIMIT).map((r) => (
+                      <span
+                        key={r.fullName}
+                        className="inline-flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-xs text-muted-foreground"
+                      >
+                        {r.private && <Lock className="size-2.5 shrink-0" />}
+                        {r.fullName}
+                      </span>
+                    ))}
+                    {repoCount > REPO_DISPLAY_LIMIT && (
+                      <span className="px-1.5 py-0.5 text-xs text-muted-foreground">
+                        +{repoCount - REPO_DISPLAY_LIMIT} more
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
             )}
           </div>
         )

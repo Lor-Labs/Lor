@@ -13,10 +13,7 @@ import {
 import { tool } from "ai"
 import { z } from "zod"
 import { embedText } from "./embeddings"
-
-// Path-addressed access to Merlin's brain (brain_node tree + brain_edge graph).
-// Paths look like "/people/alice"; "/" is the workspace root. See
-// reference/merlin-mvp-spec.md §5.
+import { logger } from "./logger"
 
 const TREE_DEFAULT_DEPTH = 2
 const TREE_MAX_DEPTH = 4
@@ -31,7 +28,6 @@ function segmentsOf(path: string): string[] {
     .filter((s) => s.length > 0)
 }
 
-// segment-wise: is `a` a prefix of (or equal to) `b`?
 function isPrefix(a: string[], b: string[]): boolean {
   return a.length <= b.length && a.every((seg, i) => seg === b[i])
 }
@@ -79,7 +75,6 @@ async function childrenOf(workspaceId: string, parentId: string | null) {
     .orderBy(asc(schema.brainNode.kind), asc(schema.brainNode.name))
 }
 
-// Resolve a path to a node. "root" for "/"; null if any segment is missing.
 async function resolvePath(
   workspaceId: string,
   path: string
@@ -97,7 +92,6 @@ async function resolvePath(
   return node
 }
 
-// Create folders for each segment (mkdir -p); returns the last folder's id.
 async function ensureFolderPath(
   workspaceId: string,
   segments: string[]
@@ -132,7 +126,6 @@ export async function ls(workspaceId: string, path: string) {
   return { path, entries: entries.map((e) => ({ name: e.name, kind: e.kind })) }
 }
 
-// Does an active brain page exist at this path? Used to verify citations.
 export async function pageExists(
   workspaceId: string,
   path: string
@@ -194,7 +187,6 @@ export async function tree(workspaceId: string, path: string, depth: number) {
   return { path, tree: await buildTree(workspaceId, parentId, clamped) }
 }
 
-// Walk a node up to the root to reconstruct its "/a/b/c" path.
 async function pagePath(nodeId: string): Promise<string> {
   const parts: string[] = []
   let current: string | null = nodeId
@@ -217,7 +209,6 @@ async function pagePath(nodeId: string): Promise<string> {
 
 export type BrainLink = { type: string; direction: "out" | "in"; path: string }
 
-// Typed edges touching a page: the relationship + the connected page's path.
 async function pageLinks(
   workspaceId: string,
   nodeId: string
@@ -251,8 +242,6 @@ async function pageLinks(
   return links
 }
 
-// Semantic search over page embeddings (cosine, closest first). Returns top-k
-// pages with their reconstructed paths and linked pages.
 export async function searchBrain(
   workspaceId: string,
   queryEmbedding: number[],
@@ -297,11 +286,9 @@ export async function writePage(
   const cpath = `/${segments.join("/")}`
   const parentId = await ensureFolderPath(workspaceId, segments.slice(0, -1))
 
-  // Reject a folder collision before paying for the embedding call.
   const existing = await findChild(workspaceId, parentId, leaf)
   if (existing?.kind === "folder") return { error: `${cpath} is a folder` }
 
-  // Embed on write (best-effort); an un-embedded page is still reachable via ls/read.
   const embedding = await embedText(`${cpath}\n\n${body}`).catch(() => null)
 
   if (existing) {
@@ -354,9 +341,7 @@ export async function move(workspaceId: string, src: string, dst: string) {
     .set({ parentId: dstParentId, name: dstLeaf })
     .where(eq(schema.brainNode.id, node.id))
 
-  // Embeddings encode the path, so a moved page's vector is now stale. Re-embed
-  // the page itself (cheap). Descendants of a moved folder keep stale paths —
-  // a minor recall cost, refreshed on their next write.
+  // Page embeddings include paths; refresh moved pages.
   if (node.kind === "page") {
     const cdst = `/${dstSegments.join("/")}`
     const page = await db
@@ -398,15 +383,11 @@ export async function link(
   return { from, to, type }
 }
 
-// Surface op failures to the model as a readable error instead of throwing.
 function wrap<T>(fn: () => Promise<T>) {
   return fn().catch((e: unknown) => ({
     error: e instanceof Error ? e.message : "operation failed",
   }))
 }
-
-// Bare filesystem names (models know ls/read/write). Split read/write so the
-// answer loop is read-only and write-back gets both.
 
 export function buildBrainReadTools(workspaceId: string) {
   return {
@@ -456,13 +437,15 @@ export function buildBrainWriteTools(
       }),
       execute: async ({ path, body }) => {
         const result = await wrap(() => writePage(workspaceId, path, body))
-        // Fire the callback outside wrap: a throwing listener must not make a
-        // committed write look failed (and trigger a retry/duplicate).
+        // Listener failures should not make a committed write look failed.
         if (onWrite && "action" in result) {
           try {
             onWrite({ path: result.path, action: result.action })
-          } catch {
-            // listener errors are non-fatal; the write already committed
+          } catch (err) {
+            logger.error(
+              { err, path: result.path },
+              "Merlin onWrite listener failed"
+            )
           }
         }
         return result

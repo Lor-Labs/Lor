@@ -73,10 +73,22 @@ export function MerlinMessageBody({
   mentions: Message["mentions"]
   onCitationJump?: (messageId: string) => void
 }) {
-  const segments = useMemo(
-    () => buildSegments(content ?? "", toolCalls),
-    [content, toolCalls]
-  )
+  // Only top-level calls drive the text/tool segmentation; nested sub-steps
+  // (e.g. the code agent's own tool calls) render inside their parent's trail.
+  const { segments, childrenByParent } = useMemo(() => {
+    const children = new Map<string, MerlinToolCallView[]>()
+    for (const t of toolCalls) {
+      if (!t.parentToolCallId) continue
+      const arr = children.get(t.parentToolCallId) ?? []
+      arr.push(t)
+      children.set(t.parentToolCallId, arr)
+    }
+    const topLevel = toolCalls.filter((t) => !t.parentToolCallId)
+    return {
+      segments: buildSegments(content ?? "", topLevel),
+      childrenByParent: children,
+    }
+  }, [content, toolCalls])
 
   return (
     <>
@@ -96,6 +108,7 @@ export function MerlinMessageBody({
           <MerlinToolTrail
             key={seg.key}
             toolCalls={seg.tools}
+            childrenByParent={childrenByParent}
             // Only the trailing group is "live" — earlier groups already settled.
             streaming={streaming && isLast}
           />

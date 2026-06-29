@@ -382,6 +382,7 @@ export interface ServerToClientEvents {
       toolName: string
       label: string
       at?: number
+      parentToolCallId?: string
       detail?: {
         summary?: string
         items?: { title: string; url?: string }[]

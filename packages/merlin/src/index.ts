@@ -1,6 +1,7 @@
 import { anthropic } from "@ai-sdk/anthropic"
 import { and, asc, db, eq, or, schema, sql } from "@repo/db"
 import type { MerlinToolCall } from "@repo/db/schema"
+import { env } from "@repo/env/server"
 import {
   generateObject,
   generateText,
@@ -23,17 +24,18 @@ import {
   type Resolution,
   rewriteCitations,
 } from "./citations"
+import { buildCodeTools } from "./code"
 import { embedText } from "./embeddings"
+import { buildGithubTools, resolveWorkspaceGithub } from "./github"
+import { logger } from "./logger"
 import { buildSourceTools, resolveSourceCitation } from "./sources"
+import type { OnUsage } from "./usage"
 
-// Sonnet drives the main loop; Haiku gates the (cheap) write-back salience check.
 export const MERLIN_MODEL = "claude-sonnet-4-6"
 const MERLIN_GATE_MODEL = "claude-haiku-4-5"
 
-// Cap the tool-use loop. Each step is one model turn (tool calls or final text).
 const MAX_STEPS = 12
 const SEARCH_DEFAULT_LIMIT = 8
-// Brain pages semantically pre-fetched into the answer prompt.
 const PREFETCH_LIMIT = 3
 const SNIPPET_MAX = 500
 const THREAD_MAX = 100
@@ -43,7 +45,7 @@ const SYSTEM_PROMPT = `You are Merlin, the knowledge keeper for this team's Lor 
 You have two kinds of memory:
 - Your brain: a filesystem of notes about this workspace that you read from and maintain yourself. Browse it with ls / tree, read pages with read, and save or organize knowledge with write / mkdir / move / link. Consult it first — it's your distilled knowledge (it may be sparse early on). Pages list their linked pages (relates_to, caused_by, …); follow a link with read to traverse.
 - The team's message history: search it with search_messages (keyword, all channels) and read_thread for full context.
-- The team's connected tools: search_sources finds summarized activity from integrations like GitHub (pull requests, issues, releases); fetch_source pulls a source's full content when the summary isn't enough (it returns a live flag — when false it fell back to the stored summary). Cite a source by its id in double brackets, e.g. [[src:0b9c…]] — don't paste its raw url.
+- The team's GitHub (when connected): search_github finds pull requests and issues by keyword across the connected repos, and fetch_github pulls one's full body and discussion. Reference a PR or issue with a normal Markdown link to the result's url (these are live results, not [[src:]] citations). (search_sources / fetch_source cover other connected integrations' summarized activity — cite those by id in double brackets, e.g. [[src:0b9c…]], not by pasting the url.)
 
 You can also see images people share in the channel — they're included inline in the conversation below.
 
@@ -53,9 +55,7 @@ How to answer:
 
 Use your tools silently — don't narrate that you're searching. Gather what you need, then give one clear answer. Be concise. Use Markdown. Speak in the first person; never claim to be human.`
 
-// Appended for the answer phase only: write tools are present, but reserved for
-// explicit requests so ordinary answers stay read-only (and fast). Routine,
-// unprompted note-keeping is handled by the separate background write-back.
+// Answer phase only; background write-back handles routine note-keeping.
 const ANSWER_WRITE_GUIDANCE = `Saving to your brain: only write (or mkdir / move / link) when the user explicitly asks you to remember, save, note, or organize something. When you do, make the change and briefly confirm what you saved and where (e.g. "Saved to /decisions/auth"). For ordinary questions, don't write — just answer; durable knowledge from this conversation is captured automatically afterward.`
 
 const GATE_QUESTION = `Does the exchange above contain durable team knowledge worth saving to long-term memory — a decision, how something works, who owns or is responsible for what, a resolved problem, or a lasting fact? Answer false for small talk, transient status, or general/how-to questions.`
@@ -79,7 +79,6 @@ Decide for yourself. Don't reply to the user; just maintain memory. End with one
 export type ConversationImage = {
   url: string
   filename: string
-  // MIME type, e.g. "image/png". Filtered to types Anthropic vision accepts.
   mediaType: string
   size: number
 }
@@ -90,21 +89,16 @@ export type ConversationTurn = {
   images?: ConversationImage[]
 }
 
-// Image types Anthropic's vision models accept (svg and non-image files are dropped).
 const VISION_MEDIA_TYPES = new Set([
   "image/jpeg",
   "image/png",
   "image/gif",
   "image/webp",
 ])
-// Cap images per answer to bound cost/latency; keeps the most recent.
 const MAX_IMAGES = 8
-// Anthropic rejects images larger than 5MB; skip oversized ones.
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024
 
-// Fetch an image and return its bytes for inline (base64) delivery. We download
-// here rather than hand Anthropic a URL: S3 URLs aren't reachable from
-// Anthropic's servers (private/local endpoints), but the worker can reach them.
+// Download images because Anthropic cannot fetch private/local S3 URLs.
 async function fetchImageBytes(url: string): Promise<Uint8Array | null> {
   try {
     const res = await fetch(url)
@@ -116,34 +110,29 @@ async function fetchImageBytes(url: string): Promise<Uint8Array | null> {
 }
 
 export type RespondContext = {
-  // Merlin only runs in workspace channels; search is workspace-scoped.
   workspaceId: string
   conversation: ConversationTurn[]
 }
 
-// The evolving record of one tool call: emitted with just a label when the call
-// starts, then again with detail + status when it completes.
 export type ToolEvent = MerlinToolCall
 
 export type RespondCallbacks = {
   onDelta: (delta: string) => void | Promise<void>
-  // Fires when Merlin writes to its brain mid-answer (explicit save requests).
   onMemoryWritten?: (e: { path: string; action: "created" | "updated" }) => void
-  // Fires on tool-call (label) and again on tool-result (detail + status), keyed
-  // by toolCallId — for the live + persisted tool trail.
   onToolEvent?: (e: ToolEvent) => void
+  onUsage?: OnUsage
 }
+
+export type { OnUsage, UsageEvent } from "./usage"
 
 export type RespondResult = {
   text: string
-  // The answer turn's full message history, for the write-back to continue from.
   messages: ModelMessage[]
 }
 
 export type WriteBackContext = {
   workspaceId: string
   priorMessages: ModelMessage[]
-  // Compact plain-text exchange for the cheap salience gate (no tool blocks).
   gateText: string
 }
 
@@ -186,7 +175,7 @@ async function searchMessages(
 }
 
 async function readThread(workspaceId: string, messageId: string) {
-  // Scope by workspace so a stray/hallucinated id can't read another tenant's thread.
+  // Tenant guard for user-visible message ids.
   const msg = await db
     .select({
       id: schema.message.id,
@@ -235,7 +224,6 @@ async function readThread(workspaceId: string, messageId: string) {
   }))
 }
 
-// Does a message with this id exist in the workspace? Used to verify citations.
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
@@ -298,9 +286,6 @@ function buildChatTools(workspaceId: string) {
   }
 }
 
-// A short human status for a tool call, shown live in the client while Merlin
-// works. Uses the call's input where it sharpens the line (the search query, the
-// page path); falls back to a generic phrase, then the bare tool name.
 function toolLabel(toolName: string, input: unknown): string {
   const field = (k: string): string | undefined => {
     if (input && typeof input === "object" && k in input) {
@@ -311,7 +296,15 @@ function toolLabel(toolName: string, input: unknown): string {
   }
   const query = field("query")
   const path = field("path")
+  const repo = field("repo")
+  const ref = field("ref")
   switch (toolName) {
+    case "investigate_code":
+      return repo ? `Investigating ${repo}` : "Investigating the codebase"
+    case "search_github":
+      return query ? `Searching GitHub for “${query}”` : "Searching GitHub"
+    case "fetch_github":
+      return ref ? `Reading ${ref}` : "Reading a pull request/issue"
     case "search_messages":
       return query ? `Searching messages for “${query}”` : "Searching messages"
     case "read_thread":
@@ -346,8 +339,6 @@ function asString(v: unknown): string | undefined {
   return typeof v === "string" && v.trim() ? v.trim() : undefined
 }
 
-// Compact, bounded summary of a tool's output for the expandable detail panel.
-// Returns no detail for tools whose label already says everything (brain reads).
 function toolDetail(
   toolName: string,
   output: unknown
@@ -402,20 +393,58 @@ function toolDetail(
         },
       }
     }
+    case "search_github": {
+      const results = Array.isArray(rec?.results) ? rec.results : []
+      const note = asString(rec?.note)
+      const base =
+        results.length === 0 ? "No results" : plural(results.length, "result")
+      return {
+        status: "ok",
+        detail: {
+          summary: note ? `${base} · ${note}` : base,
+          items: results.slice(0, 8).map((it) => {
+            const r = asRecord(it)
+            const itemRef = asString(r?.ref)
+            const title = asString(r?.title) ?? "untitled"
+            return {
+              title: itemRef ? `${itemRef} ${title}` : title,
+              url: asString(r?.url),
+            }
+          }),
+        },
+      }
+    }
+    case "fetch_github": {
+      const title = asString(rec?.title)
+      return {
+        status: "ok",
+        detail: {
+          summary:
+            rec?.type === "pull_request"
+              ? "Fetched a pull request"
+              : "Fetched an issue",
+          items: title ? [{ title, url: asString(rec?.url) }] : undefined,
+        },
+      }
+    }
+    case "investigate_code": {
+      const findings = asString(rec?.findings)
+      return {
+        status: "ok",
+        detail: {
+          summary: findings?.slice(0, 16000) ?? "Explored the codebase",
+        },
+      }
+    }
     default:
-      // brain ls/read/tree/write/… — the label is self-explanatory.
       return { status: "ok" }
   }
 }
 
-// Read-only answer loop. onDelta fires per streamed chunk; the returned
-// messages let write-back continue the same conversation.
 export async function respond(
   ctx: RespondContext,
-  { onDelta, onMemoryWritten, onToolEvent }: RespondCallbacks
+  { onDelta, onMemoryWritten, onToolEvent, onUsage }: RespondCallbacks
 ): Promise<RespondResult> {
-  // Semantic pre-fetch: seed the top matching brain pages. Best-effort —
-  // the brain tools remain the fallback.
   const question = ctx.conversation[ctx.conversation.length - 1]?.content ?? ""
   let brainContext = ""
   if (question.trim()) {
@@ -440,18 +469,13 @@ export async function respond(
           })
           .join("\n\n")}`
       }
-    } catch {
-      // best-effort; the brain tools remain as fallback
-    }
+    } catch {}
   }
 
-  // Build a multimodal transcript: each turn's text, with any shared images
-  // inlined as image parts (downloaded to bytes) so the model can see them.
   type UserPart =
     | { type: "text"; text: string }
     | { type: "image"; image: Uint8Array; mediaType: string }
 
-  // Eligible = supported type and under the size limit; keep the most recent.
   const eligible = ctx.conversation.flatMap((t, turnIndex) =>
     (t.images ?? [])
       .filter(
@@ -492,11 +516,22 @@ export async function respond(
 
   const userMessage: ModelMessage = { role: "user", content: parts }
 
+  const github = await resolveWorkspaceGithub(ctx.workspaceId).catch(() => null)
+
   const tools = {
     ...buildChatTools(ctx.workspaceId),
     ...buildSourceTools(ctx.workspaceId),
     ...buildBrainReadTools(ctx.workspaceId),
     ...buildBrainWriteTools(ctx.workspaceId, onMemoryWritten),
+    ...(github ? buildGithubTools(github) : {}),
+    ...(env.RAILWAY_API_TOKEN && github
+      ? buildCodeTools(ctx.workspaceId, {
+          installationId: github.installationId,
+          onUsage,
+          onToolEvent,
+          repos: github.repos,
+        })
+      : {}),
   }
 
   const result = streamText({
@@ -507,18 +542,13 @@ export async function respond(
     stopWhen: stepCountIs(MAX_STEPS),
   })
 
-  // Iterate the full stream (not just textStream) so tool calls surface as live
-  // status. Text accumulates exactly as before; an error part is re-thrown to
-  // preserve the caller's fallback path.
+  // fullStream exposes tool call/status events; textStream does not.
   let text = ""
   for await (const part of result.fullStream) {
     if (part.type === "text-delta") {
       text += part.text
       await onDelta(part.text)
     } else if (part.type === "tool-call") {
-      // Call started — record what Merlin is consulting (input known, no result
-      // yet). `at` = text emitted so far, so the UI can interleave tools with
-      // text in order. A failed call still counts as consulted.
       onToolEvent?.({
         toolCallId: part.toolCallId,
         toolName: part.toolName,
@@ -526,15 +556,19 @@ export async function respond(
         at: text.length,
       })
     } else if (part.type === "tool-result") {
-      // Call finished — fill in the result detail + status (same toolCallId, so
-      // consumers upsert over the start event). No text streams between a call
-      // and its result, so `at` is unchanged.
+      const resolved = toolDetail(part.toolName, part.output)
+      if (resolved.status === "error") {
+        logger.warn(
+          { tool: part.toolName, error: resolved.detail?.summary },
+          "Merlin tool returned an error"
+        )
+      }
       onToolEvent?.({
         toolCallId: part.toolCallId,
         toolName: part.toolName,
         label: toolLabel(part.toolName, part.input),
         at: text.length,
-        ...toolDetail(part.toolName, part.output),
+        ...resolved,
       })
     } else if (part.type === "error") {
       throw part.error
@@ -543,17 +577,12 @@ export async function respond(
 
   const response = await result.response
 
-  // The tool loop occasionally ends on a tool call at the step cap without
-  // emitting any answer text. Run one no-tools synthesis pass continuing the
-  // same conversation so Merlin produces a real reply from what it gathered,
-  // rather than posting a blank message.
+  // Step cap can end on tool use; force one final no-tools text pass.
   if (!text.trim()) {
     const retry = streamText({
       model: anthropic(MERLIN_MODEL),
       system: `${SYSTEM_PROMPT}\n\n${ANSWER_WRITE_GUIDANCE}`,
       messages: [userMessage, ...response.messages],
-      // The history carries tool_use/tool_result blocks, so Anthropic requires
-      // tools to be defined — but force a text answer (no more tool calls).
       tools,
       toolChoice: "none",
     })
@@ -571,9 +600,6 @@ export async function respond(
   return { text, messages: [userMessage, ...response.messages] }
 }
 
-// Autonomous write-back: the Haiku gate skips trivial exchanges, then a Sonnet
-// agent continues the answer's messages (already knows what it found) and
-// persists anything durable to the brain.
 export async function writeBack(
   ctx: WriteBackContext,
   { onMemoryWritten }: WriteBackCallbacks
@@ -584,6 +610,9 @@ export async function writeBack(
     prompt: `${ctx.gateText}\n\n---\n${GATE_QUESTION}`,
   })
   if (!gate.object.worthSaving) return
+
+  // Anthropic requires prior tool_use/tool_result names to be defined again.
+  const github = await resolveWorkspaceGithub(ctx.workspaceId).catch(() => null)
 
   await generateText({
     model: anthropic(MERLIN_MODEL),
@@ -597,15 +626,20 @@ export async function writeBack(
       ...buildSourceTools(ctx.workspaceId),
       ...buildBrainReadTools(ctx.workspaceId),
       ...buildBrainWriteTools(ctx.workspaceId, onMemoryWritten),
+      ...(github ? buildGithubTools(github) : {}),
+      ...(env.RAILWAY_API_TOKEN && github
+        ? buildCodeTools(ctx.workspaceId, {
+            installationId: github.installationId,
+            repos: github.repos,
+            disabled: true,
+          })
+        : {}),
     },
     stopWhen: stepCountIs(MAX_STEPS),
   })
 }
 
-// Verify Merlin's inline citations against the DB, then hand off to the pure
-// rewrite (./citations) which keeps valid ones, enriches sources with their
-// verified title+url, and strips hallucinated ones so a fabricated citation can't
-// pose as a source. Workspace-scoped; best-effort and never throws.
+// Workspace-scoped, best-effort citation verification.
 export async function groundCitations(
   workspaceId: string,
   text: string
@@ -613,8 +647,6 @@ export async function groundCitations(
   const tokens = extractCitationTokens(text)
   if (tokens.size === 0) return { text, valid: 0, invalid: 0 }
 
-  // Resolve each unique token once. Pages/messages resolve to a boolean; sources
-  // resolve to their verified url+title (or null), since we render them as links.
   const resolutions = new Map<string, Resolution>()
   await Promise.all(
     [...tokens].map(async (t) => {
@@ -638,7 +670,6 @@ export async function groundCitations(
     })
   )
 
-  // Every matched token is in the map; the fallback only satisfies the type.
   const fallback = (t: string): Resolution => {
     const kind = classifyToken(t)
     return kind === "src"

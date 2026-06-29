@@ -28,6 +28,15 @@ const serverSchema = z.object({
     .enum(["development", "staging", "production", "test"])
     .default("production"),
   DATABASE_URL: z.string().url(),
+  // Throwaway database for the Merlin eval harness (`pnpm --filter @repo/merlin
+  // eval`). When unset, the eval is skipped. Read by the eval bootstrap before
+  // @repo/db loads, so it can point the shared client here instead of prod.
+  EVAL_DB_URL: z.string().url().optional(),
+  // Railway Sandboxes (ephemeral code-exec for the GitHub code connector, §7.4).
+  // Optional: sandbox features are skipped when unset. The `railway` SDK reads
+  // these from the environment directly.
+  RAILWAY_API_TOKEN: z.string().min(1).optional(),
+  RAILWAY_ENVIRONMENT_ID: z.string().min(1).optional(),
   PORT: z.coerce.number().int().min(1).max(65535).default(8080),
   REALTIME_PORT: z.coerce.number().int().min(1).max(65535).default(8000),
   REALTIME_CORS_ORIGIN: z.string().default(DEFAULT_REALTIME_CORS_ORIGIN),
@@ -70,4 +79,19 @@ const serverSchema = z.object({
   COOKIE_DOMAIN: z.string().default(""),
 })
 
-export const env = serverSchema.parse(process.env)
+// Railway sandbox config is all-or-nothing: a lone token (or lone env id) is a
+// partially-wired setup that fails only later, at sandbox-create time.
+const railwaySchema = serverSchema.superRefine((val, ctx) => {
+  if (Boolean(val.RAILWAY_API_TOKEN) !== Boolean(val.RAILWAY_ENVIRONMENT_ID)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message:
+        "RAILWAY_API_TOKEN and RAILWAY_ENVIRONMENT_ID must be set together",
+      path: [
+        val.RAILWAY_API_TOKEN ? "RAILWAY_ENVIRONMENT_ID" : "RAILWAY_API_TOKEN",
+      ],
+    })
+  }
+})
+
+export const env = railwaySchema.parse(process.env)

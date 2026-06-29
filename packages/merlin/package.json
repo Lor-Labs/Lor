@@ -5,6 +5,7 @@
   "private": true,
   "exports": {
     ".": "./src/index.ts",
+    "./github": "./src/github.ts",
     "./placement": "./src/placement.ts",
     "./providers": "./src/providers/index.ts",
     "./sources": "./src/sources.ts"
@@ -12,19 +13,25 @@
   "scripts": {
     "check-types": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "eval": "tsx src/eval/run.ts",
+    "sandbox:smoke": "tsx src/sandbox/smoke.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.81",
     "@ai-sdk/openai": "^3.0.73",
     "@repo/db": "workspace:^",
     "@repo/env": "workspace:^",
+    "@repo/logger": "workspace:^",
     "ai": "^6.0.197",
     "octokit": "^5.0.5",
+    "railway": "^3.4.1",
     "zod": "^4.3.6"
   },
   "devDependencies": {
     "@repo/typescript-config": "workspace:*",
+    "dotenv": "^17.2.4",
+    "tsx": "^4.21.0",
     "vitest": "^4.1.2"
   }
 }

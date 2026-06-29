@@ -1,8 +1,12 @@
 import { db } from "@repo/db"
 import { integrationConnection } from "@repo/db/schema"
 import { env } from "@repo/env/server"
-import { getSourceProvider } from "@repo/merlin/providers"
+import {
+  getInstallationOverview,
+  getSourceProvider,
+} from "@repo/merlin/providers"
 import { and, eq, ne, sql } from "drizzle-orm"
+import { invalidateGithubRepoCache } from "@/lib/github-repo-cache"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
 import type { AppRouteHandler } from "@/lib/types/app-types"
@@ -21,6 +25,7 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
     .select({
       id: integrationConnection.id,
       accountLogin: integrationConnection.accountLogin,
+      externalId: integrationConnection.externalId,
     })
     .from(integrationConnection)
     .where(
@@ -32,6 +37,26 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
     )
     .limit(1)
     .then((rows) => rows[0])
+
+  // Surface the installation's accessible repos (read-only) + its GitHub manage
+  // URL. Best-effort: a hiccup leaves them null and the card still renders.
+  const MAX_REPOS = 100
+  let repos: { fullName: string; private: boolean }[] | null = null
+  let repoCount: number | null = null
+  let manageUrl: string | null = null
+  if (github) {
+    const overview = await getInstallationOverview(github.externalId).catch(
+      () => null
+    )
+    if (overview) {
+      // Keep the true total before capping the list sent to the client.
+      repoCount = overview.repos.length
+      repos = overview.repos
+        .slice(0, MAX_REPOS)
+        .map((r) => ({ fullName: r.fullName, private: r.private }))
+      manageUrl = overview.manageUrl
+    }
+  }
 
   // Install link is built server-side so the App slug stays out of the client.
   // `state` carries the workspace back to the setup redirect.
@@ -55,6 +80,9 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
           accountLogin: github?.accountLogin ?? null,
           connectionId: github?.id ?? null,
           connectUrl,
+          repos,
+          repoCount,
+          manageUrl,
         },
       ],
     },
@@ -150,6 +178,9 @@ export const connectGithub: AppRouteHandler<ConnectGithubRoute> = async (c) => {
     )
   }
 
+  // A (re)install can change the selected repos — drop any stale cached list.
+  await invalidateGithubRepoCache(installationId)
+
   return c.json({ success: true as const, accountLogin }, HttpStatusCodes.OK)
 }
 
@@ -167,7 +198,11 @@ export const disconnectIntegration: AppRouteHandler<
         eq(integrationConnection.workspaceId, workspace.id)
       )
     )
-    .returning({ id: integrationConnection.id })
+    .returning({
+      id: integrationConnection.id,
+      provider: integrationConnection.provider,
+      externalId: integrationConnection.externalId,
+    })
     .then((rows) => rows[0])
 
   if (!deleted) {
@@ -175,6 +210,10 @@ export const disconnectIntegration: AppRouteHandler<
       { success: false, message: "Connection not found" },
       HttpStatusCodes.NOT_FOUND
     )
+  }
+
+  if (deleted.provider === "github") {
+    await invalidateGithubRepoCache(deleted.externalId)
   }
 
   return c.json({ success: true as const }, HttpStatusCodes.OK)

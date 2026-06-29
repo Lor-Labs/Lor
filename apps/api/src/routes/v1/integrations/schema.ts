@@ -16,6 +16,13 @@ export const connectionIdParamsSchema =
 
 // One row per integration provider: whether this workspace has it connected,
 // and how to connect it.
+// A repository the connected installation can access. Repos are managed on
+// GitHub (the App install picker), surfaced here read-only.
+export const integrationRepoSchema = z.object({
+  fullName: z.string(),
+  private: z.boolean(),
+})
+
 export const integrationStatusSchema = z.object({
   id: z.string(), // provider id, e.g. "github"
   name: z.string(), // display name, e.g. "GitHub"
@@ -23,6 +30,12 @@ export const integrationStatusSchema = z.object({
   accountLogin: z.string().nullable(),
   connectionId: z.string().nullable(),
   connectUrl: z.string().nullable(), // null when the provider isn't configured
+  // Accessible repos + the GitHub management URL; null when not connected or
+  // the installation can't be enumerated (App not configured). `repos` may be
+  // capped for payload size — use `repoCount` for the true total.
+  repos: z.array(integrationRepoSchema).nullable(),
+  repoCount: z.number().nullable(),
+  manageUrl: z.string().nullable(),
 })
 
 export const listIntegrationsResponseSchema = z.object({

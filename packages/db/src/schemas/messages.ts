@@ -65,6 +65,13 @@ export const message = pgTable(
       .$type<MerlinToolCall[]>()
       .default([]),
 
+    // Brain pages Merlin saved/updated while producing this answer (explicit
+    // "remember this" + the autonomous write-back) — a durable record of what it
+    // committed to memory, shown under the reply. Serialized as `remembered`.
+    merlinMemories: jsonb("merlin_memories")
+      .$type<MerlinMemory[]>()
+      .default([]),
+
     pinned: boolean("pinned").default(false).notNull(),
 
     editedAt: timestamp("edited_at"),
@@ -146,6 +153,9 @@ export type MerlinToolCall = {
   toolName: string
   // Human status line, e.g. "Searching connected sources for …".
   label: string
+  // Set on a nested sub-step (e.g. a code-investigation sandbox agent's own
+  // tool calls) → the toolCallId of the parent tool. Top-level calls omit it.
+  parentToolCallId?: string
   // Character offset into the message `content` where this call occurred, so the
   // UI can render text and tool groups in the order the model produced them.
   at?: number
@@ -157,4 +167,10 @@ export type MerlinToolCall = {
     items?: { title: string; url?: string }[]
   }
   status?: "ok" | "error"
+}
+
+// A brain page Merlin wrote during an answer.
+export type MerlinMemory = {
+  path: string
+  action: "created" | "updated"
 }

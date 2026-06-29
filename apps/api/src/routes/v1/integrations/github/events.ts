@@ -1,6 +1,7 @@
 import type { Webhooks } from "@octokit/webhooks"
 import { and, db, eq, schema } from "@repo/db"
 import { type IngestSourceInput, ingestSource } from "@repo/merlin/sources"
+import { invalidateGithubRepoCache } from "@/lib/github-repo-cache"
 import { logger } from "@/lib/logger"
 
 // What a handler hands to ingestSource, minus the fields we resolve here.
@@ -11,12 +12,20 @@ type IngestDraft = Omit<
 
 const toDate = (s?: string | null): Date | null => (s ? new Date(s) : null)
 
+// Source ingest (summarize + embed PR/issue/release into `source`) is PAUSED
+// while GitHub moves to a sandbox + brain-centric model (§7.4 — code via the
+// sandbox; PRs/issues live-fetched on demand, not mirrored). All the webhook
+// wiring stays intact (lifecycle still processes; useful later for notifs);
+// flip this to re-enable embedding if that proves valuable.
+const SOURCE_INGEST_ENABLED: boolean = false
+
 // Resolve the workspace this installation is linked to, then ingest. Skips
 // silently when the install isn't mapped to a workspace yet (setup flow later).
 async function ingestForInstallation(
   installationId: number | undefined,
   draft: IngestDraft
 ): Promise<void> {
+  if (!SOURCE_INGEST_ENABLED) return
   if (installationId === undefined) return
   const connection = await db
     .select({
@@ -96,11 +105,22 @@ export function registerGithubHandlers(webhooks: Webhooks): void {
     })
   })
 
+  // Repo access changed on GitHub's side (admin added/removed repos) — drop the
+  // cached repo list so the next query reflects it; the TTL is only a backstop.
+  webhooks.on(
+    ["installation_repositories.added", "installation_repositories.removed"],
+    async ({ payload }) => {
+      await invalidateGithubRepoCache(String(payload.installation.id))
+    }
+  )
+
   // App lifecycle: uninstall drops the connection (sources cascade-purge);
   // suspend/unsuspend toggles status. Workspace mapping is the setup flow.
   webhooks.on(
     ["installation.deleted", "installation.suspend", "installation.unsuspend"],
     async ({ payload }) => {
+      // Drop the cached repo list regardless of action (gone/revoked/restored).
+      await invalidateGithubRepoCache(String(payload.installation.id))
       const where = and(
         eq(schema.integrationConnection.provider, "github"),
         eq(

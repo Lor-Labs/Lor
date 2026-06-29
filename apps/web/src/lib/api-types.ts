@@ -26,10 +26,10 @@ export type ListMessagesResponse = InferResponseType<
   200
 >
 // Client-only transient fields (never on server payloads): `streaming` while
-// Merlin streams its reply, `remembered` for brain pages it saved during write-back.
+// Merlin streams its reply. (`remembered` is now a real server field, also
+// upserted live via the merlin:memory socket event.)
 export type Message = ListMessagesResponse["data"][number] & {
   streaming?: boolean
-  remembered?: { path: string; action: "created" | "updated" }[]
   // Tool calls in flight while Merlin streams, for a live "searching…" status.
   toolActivity?: { toolCallId: string; label: string }[]
 }

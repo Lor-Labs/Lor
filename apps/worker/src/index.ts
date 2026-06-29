@@ -1,4 +1,5 @@
 import { env } from "@repo/env/server"
+import { setRepoCacheStore } from "@repo/merlin/github"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
 import {
   LINK_UNFURL_QUEUE,
@@ -31,6 +32,16 @@ async function bootstrap() {
     logger.error({ err: error }, "Redis emitter error")
   })
   await redisEmitterClient.connect()
+
+  // Back Merlin's GitHub repo-list cache with this Redis client (Merlin has no
+  // Redis dependency of its own — it just calls this injected store). One GitHub
+  // repos call per installation per hour instead of per turn.
+  setRepoCacheStore({
+    get: (key) => redisEmitterClient.get(key),
+    set: async (key, value, ttlSeconds) => {
+      await redisEmitterClient.set(key, value, { EX: ttlSeconds })
+    },
+  })
 
   const emitter = new Emitter<ServerToClientEvents>(redisEmitterClient)
 
