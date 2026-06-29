@@ -42,12 +42,15 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
   // URL. Best-effort: a hiccup leaves them null and the card still renders.
   const MAX_REPOS = 100
   let repos: { fullName: string; private: boolean }[] | null = null
+  let repoCount: number | null = null
   let manageUrl: string | null = null
   if (github) {
     const overview = await getInstallationOverview(github.externalId).catch(
       () => null
     )
     if (overview) {
+      // Keep the true total before capping the list sent to the client.
+      repoCount = overview.repos.length
       repos = overview.repos
         .slice(0, MAX_REPOS)
         .map((r) => ({ fullName: r.fullName, private: r.private }))
@@ -78,6 +81,7 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
           connectionId: github?.id ?? null,
           connectUrl,
           repos,
+          repoCount,
           manageUrl,
         },
       ],

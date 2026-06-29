@@ -419,13 +419,16 @@ function IntegrationsSection({ workspaceSlug }: { workspaceSlug: string }) {
   return (
     <div className="space-y-3">
       <p className="text-sm text-muted-foreground">
-        Connect tools so Merlin can draw on your team's work. Activity is
-        summarized into your workspace's memory.
+        Connect tools so Merlin can draw on your team's work — searching pull
+        requests, issues, and code on demand, and summarizing what matters into
+        your workspace's memory.
       </p>
       {data?.providers.map((p) => {
         const Icon = PROVIDER_ICONS[p.id] ?? Plug
         const repos = p.repos ?? []
-        const showRepos = p.connected && (repos.length > 0 || !!p.manageUrl)
+        // `repos` may be capped server-side; repoCount is the true total.
+        const repoCount = p.repoCount ?? repos.length
+        const showRepos = p.connected && (repoCount > 0 || !!p.manageUrl)
         return (
           <div key={p.id} className="rounded-lg border border-border p-4">
             <div className="flex items-center justify-between gap-4">
@@ -468,8 +471,8 @@ function IntegrationsSection({ workspaceSlug }: { workspaceSlug: string }) {
               <div className="mt-3 border-border/60 border-t pt-3">
                 <div className="mb-1.5 flex items-center justify-between gap-2">
                   <span className="text-xs font-medium text-muted-foreground">
-                    {repos.length > 0
-                      ? `${repos.length} ${repos.length === 1 ? "repository" : "repositories"} Merlin can read`
+                    {repoCount > 0
+                      ? `${repoCount} ${repoCount === 1 ? "repository" : "repositories"} Merlin can read`
                       : "No repositories"}
                   </span>
                   {p.manageUrl && (
@@ -495,9 +498,9 @@ function IntegrationsSection({ workspaceSlug }: { workspaceSlug: string }) {
                         {r.fullName}
                       </span>
                     ))}
-                    {repos.length > REPO_DISPLAY_LIMIT && (
+                    {repoCount > REPO_DISPLAY_LIMIT && (
                       <span className="px-1.5 py-0.5 text-xs text-muted-foreground">
-                        +{repos.length - REPO_DISPLAY_LIMIT} more
+                        +{repoCount - REPO_DISPLAY_LIMIT} more
                       </span>
                     )}
                   </div>

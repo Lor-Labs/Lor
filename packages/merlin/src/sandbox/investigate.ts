@@ -91,6 +91,11 @@ export async function investigateCode(opts: {
           )
           return { error: `clone failed: ${stderr}` }
         }
+        // Strip the embedded access token from .git/config before the agent
+        // explores — otherwise the (semi-trusted) checkout can read it back.
+        await sandbox.exec(
+          `git -C /repo remote set-url origin https://github.com/${repoFullName}.git`
+        )
         logger.info({ repoFullName }, "Sandbox: clone ok; running code agent")
 
         // Parse Claude Code JSONL: tool_use blocks stream steps; result has findings.

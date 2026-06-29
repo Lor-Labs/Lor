@@ -47,14 +47,47 @@ export function githubReposCacheKey(installationId: string): string {
 }
 
 const REPO_CACHE_TTL_SECONDS = 60 * 60
+const REPO_FETCH_TIMEOUT_MS = 10_000
 
+function isInstallationRepo(v: unknown): v is InstallationRepo {
+  if (!v || typeof v !== "object") return false
+  const r = v as Record<string, unknown>
+  return (
+    typeof r.fullName === "string" &&
+    typeof r.private === "boolean" &&
+    typeof r.defaultBranch === "string" &&
+    (r.pushedAt === null || typeof r.pushedAt === "string")
+  )
+}
+
+// Reject the whole payload on any shape mismatch (e.g. a stale cache from an
+// older repo shape) so the caller falls back to a fresh enumeration.
 function parseCachedRepos(raw: string): InstallationRepo[] | null {
   try {
     const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? (parsed as InstallationRepo[]) : null
+    if (!Array.isArray(parsed) || !parsed.every(isInstallationRepo)) return null
+    return parsed
   } catch {
     return null
   }
+}
+
+// Resolve to the fallback if the promise hasn't settled within `ms` — keeps a
+// hung GitHub/Redis call from blocking the caller indefinitely.
+function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return new Promise<T>((resolve) => {
+    const timer = setTimeout(() => resolve(fallback), ms)
+    p.then(
+      (v) => {
+        clearTimeout(timer)
+        resolve(v)
+      },
+      () => {
+        clearTimeout(timer)
+        resolve(fallback)
+      }
+    )
+  })
 }
 
 export async function resolveWorkspaceGithub(
@@ -70,7 +103,11 @@ export async function resolveWorkspaceGithub(
     if (repos) return { installationId, repos }
   }
 
-  const repos = await listInstallationRepos(installationId).catch(() => [])
+  const repos = await withTimeout(
+    listInstallationRepos(installationId),
+    REPO_FETCH_TIMEOUT_MS,
+    [] as InstallationRepo[]
+  )
   // Empty repo lists are usually transient enumerate failures.
   if (repoCacheStore && repos.length > 0) {
     await repoCacheStore

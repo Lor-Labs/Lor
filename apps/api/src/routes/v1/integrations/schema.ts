@@ -31,8 +31,10 @@ export const integrationStatusSchema = z.object({
   connectionId: z.string().nullable(),
   connectUrl: z.string().nullable(), // null when the provider isn't configured
   // Accessible repos + the GitHub management URL; null when not connected or
-  // the installation can't be enumerated (App not configured).
+  // the installation can't be enumerated (App not configured). `repos` may be
+  // capped for payload size — use `repoCount` for the true total.
   repos: z.array(integrationRepoSchema).nullable(),
+  repoCount: z.number().nullable(),
   manageUrl: z.string().nullable(),
 })
 

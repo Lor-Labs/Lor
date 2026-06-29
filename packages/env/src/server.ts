@@ -79,4 +79,19 @@ const serverSchema = z.object({
   COOKIE_DOMAIN: z.string().default(""),
 })
 
-export const env = serverSchema.parse(process.env)
+// Railway sandbox config is all-or-nothing: a lone token (or lone env id) is a
+// partially-wired setup that fails only later, at sandbox-create time.
+const railwaySchema = serverSchema.superRefine((val, ctx) => {
+  if (Boolean(val.RAILWAY_API_TOKEN) !== Boolean(val.RAILWAY_ENVIRONMENT_ID)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message:
+        "RAILWAY_API_TOKEN and RAILWAY_ENVIRONMENT_ID must be set together",
+      path: [
+        val.RAILWAY_API_TOKEN ? "RAILWAY_ENVIRONMENT_ID" : "RAILWAY_API_TOKEN",
+      ],
+    })
+  }
+})
+
+export const env = railwaySchema.parse(process.env)

@@ -98,6 +98,9 @@ export type InstallationRepo = {
 
 const REPO_PAGE_SIZE = 100
 const MAX_REPO_PAGES = 5
+// Bound each GitHub request so a hung connection can't stall the caller (Octokit
+// has no default request timeout).
+const REQUEST_TIMEOUT_MS = 10_000
 
 export async function listInstallationRepos(
   installationId: string
@@ -114,6 +117,7 @@ export async function listInstallationRepos(
         await octokit.rest.apps.listReposAccessibleToInstallation({
           per_page: REPO_PAGE_SIZE,
           page,
+          request: { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) },
         })
       for (const r of data.repositories) {
         repos.push({
@@ -146,7 +150,10 @@ export async function getInstallationOverview(
   const [repos, manageUrl] = await Promise.all([
     listInstallationRepos(installationId),
     app.octokit.rest.apps
-      .getInstallation({ installation_id: id })
+      .getInstallation({
+        installation_id: id,
+        request: { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) },
+      })
       .then((r) => r.data.html_url ?? null)
       .catch(() => null),
   ])

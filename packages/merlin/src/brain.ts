@@ -13,6 +13,7 @@ import {
 import { tool } from "ai"
 import { z } from "zod"
 import { embedText } from "./embeddings"
+import { logger } from "./logger"
 
 const TREE_DEFAULT_DEPTH = 2
 const TREE_MAX_DEPTH = 4
@@ -440,7 +441,12 @@ export function buildBrainWriteTools(
         if (onWrite && "action" in result) {
           try {
             onWrite({ path: result.path, action: result.action })
-          } catch {}
+          } catch (err) {
+            logger.error(
+              { err, path: result.path },
+              "Merlin onWrite listener failed"
+            )
+          }
         }
         return result
       },

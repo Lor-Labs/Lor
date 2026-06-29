@@ -631,6 +631,7 @@ export async function writeBack(
         ? buildCodeTools(ctx.workspaceId, {
             installationId: github.installationId,
             repos: github.repos,
+            disabled: true,
           })
         : {}),
     },

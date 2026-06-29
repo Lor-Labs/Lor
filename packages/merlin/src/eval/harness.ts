@@ -28,8 +28,8 @@ async function main(): Promise<void> {
 
   try {
     for (const fx of fixtures) {
-      const before = new Set(
-        (await listBrainPages(ws.workspaceId)).map((p) => p.id)
+      const before = new Map(
+        (await listBrainPages(ws.workspaceId)).map((p) => [p.id, p.body ?? ""])
       )
 
       const conversation: ConversationTurn[] = [
@@ -52,16 +52,20 @@ async function main(): Promise<void> {
         )
       }
 
+      // Capture bodies of pages that were created OR whose content changed, so
+      // write-backs that update an existing page are measured too.
       const after = await listBrainPages(ws.workspaceId)
       const newPageBodies = after
-        .filter((p) => !before.has(p.id))
+        .filter((p) => before.get(p.id) !== (p.body ?? ""))
         .map((p) => p.body ?? "")
 
       const result: EvalResult = {
         answer: grounded.text,
         valid: grounded.valid,
         invalid: grounded.invalid,
-        citations: [...extractCitationTokens(grounded.text)],
+        // Extract from the raw model answer, before grounding rewrites/strips
+        // markers — this reflects what Merlin actually cited.
+        citations: [...extractCitationTokens(answer.text)],
         newPageBodies,
       }
 

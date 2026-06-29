@@ -12,10 +12,17 @@ let url
 for (let i = 0; i < argv.length; i++) {
   const arg = argv[i]
   if (arg === "--url" || arg === "-u") {
-    url = argv[i + 1]
+    const next = argv[i + 1]
+    if (!next || next.startsWith("-")) {
+      console.error(`${arg} requires a value`)
+      process.exit(1)
+    }
+    url = next
     i += 1
   } else if (arg.startsWith("--url=")) {
     url = arg.slice("--url=".length)
+  } else if (arg.startsWith("-u=")) {
+    url = arg.slice("-u=".length)
   } else {
     passthrough.push(arg)
   }
