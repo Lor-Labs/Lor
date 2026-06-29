@@ -36,15 +36,65 @@ export async function activeGithubInstallation(
   return connection?.externalId ?? null
 }
 
+// Optional cache for the installation→repos lookup (the per-turn GitHub call).
+// The worker injects a Redis-backed store at startup (setRepoCacheStore); the
+// eval harness and tests leave it unset and fetch live. The API invalidates by
+// key (githubReposCacheKey) on connect / disconnect / repo-access change, with
+// the TTL as the backstop. Merlin itself has no Redis dependency.
+export type RepoCacheStore = {
+  get(key: string): Promise<string | null>
+  set(key: string, value: string, ttlSeconds: number): Promise<void>
+}
+
+let repoCacheStore: RepoCacheStore | null = null
+export function setRepoCacheStore(store: RepoCacheStore | null): void {
+  repoCacheStore = store
+}
+
+// Cache key for an installation's repo list. Exported so the API can invalidate
+// it; keep the format in sync on both sides.
+export function githubReposCacheKey(installationId: string): string {
+  return `github:repos:${installationId}`
+}
+
+// 1h backstop; explicit invalidation handles the common change cases.
+const REPO_CACHE_TTL_SECONDS = 60 * 60
+
+function parseCachedRepos(raw: string): InstallationRepo[] | null {
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? (parsed as InstallationRepo[]) : null
+  } catch {
+    return null
+  }
+}
+
 // Resolve a workspace's GitHub once: the active installation id + its accessible
-// repos. Null when GitHub isn't connected. One DB query, plus one GitHub call
-// only when connected — callers gate tool registration on the result.
+// repos. Null when GitHub isn't connected. Always a cheap DB lookup; the GitHub
+// repo list is served from the cache (when a store is set) and only fetched on a
+// miss — so a connected workspace pays at most one GitHub call per installation
+// per hour, not per turn.
 export async function resolveWorkspaceGithub(
   workspaceId: string
 ): Promise<{ installationId: string; repos: InstallationRepo[] } | null> {
   const installationId = await activeGithubInstallation(workspaceId)
   if (!installationId) return null
+
+  const key = githubReposCacheKey(installationId)
+  if (repoCacheStore) {
+    const cached = await repoCacheStore.get(key).catch(() => null)
+    const repos = cached ? parseCachedRepos(cached) : null
+    if (repos) return { installationId, repos }
+  }
+
   const repos = await listInstallationRepos(installationId).catch(() => [])
+  // Only cache a non-empty list: an empty result is usually a transient
+  // enumerate failure, and caching it for an hour would hide real repos.
+  if (repoCacheStore && repos.length > 0) {
+    await repoCacheStore
+      .set(key, JSON.stringify(repos), REPO_CACHE_TTL_SECONDS)
+      .catch(() => {})
+  }
   return { installationId, repos }
 }
 

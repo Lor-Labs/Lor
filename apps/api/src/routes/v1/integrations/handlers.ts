@@ -6,6 +6,7 @@ import {
   getSourceProvider,
 } from "@repo/merlin/providers"
 import { and, eq, ne, sql } from "drizzle-orm"
+import { invalidateGithubRepoCache } from "@/lib/github-repo-cache"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
 import type { AppRouteHandler } from "@/lib/types/app-types"
@@ -173,6 +174,9 @@ export const connectGithub: AppRouteHandler<ConnectGithubRoute> = async (c) => {
     )
   }
 
+  // A (re)install can change the selected repos — drop any stale cached list.
+  await invalidateGithubRepoCache(installationId)
+
   return c.json({ success: true as const, accountLogin }, HttpStatusCodes.OK)
 }
 
@@ -190,7 +194,11 @@ export const disconnectIntegration: AppRouteHandler<
         eq(integrationConnection.workspaceId, workspace.id)
       )
     )
-    .returning({ id: integrationConnection.id })
+    .returning({
+      id: integrationConnection.id,
+      provider: integrationConnection.provider,
+      externalId: integrationConnection.externalId,
+    })
     .then((rows) => rows[0])
 
   if (!deleted) {
@@ -198,6 +206,10 @@ export const disconnectIntegration: AppRouteHandler<
       { success: false, message: "Connection not found" },
       HttpStatusCodes.NOT_FOUND
     )
+  }
+
+  if (deleted.provider === "github") {
+    await invalidateGithubRepoCache(deleted.externalId)
   }
 
   return c.json({ success: true as const }, HttpStatusCodes.OK)

@@ -1,6 +1,7 @@
 import type { Webhooks } from "@octokit/webhooks"
 import { and, db, eq, schema } from "@repo/db"
 import { type IngestSourceInput, ingestSource } from "@repo/merlin/sources"
+import { invalidateGithubRepoCache } from "@/lib/github-repo-cache"
 import { logger } from "@/lib/logger"
 
 // What a handler hands to ingestSource, minus the fields we resolve here.
@@ -104,11 +105,22 @@ export function registerGithubHandlers(webhooks: Webhooks): void {
     })
   })
 
+  // Repo access changed on GitHub's side (admin added/removed repos) — drop the
+  // cached repo list so the next query reflects it; the TTL is only a backstop.
+  webhooks.on(
+    ["installation_repositories.added", "installation_repositories.removed"],
+    async ({ payload }) => {
+      await invalidateGithubRepoCache(String(payload.installation.id))
+    }
+  )
+
   // App lifecycle: uninstall drops the connection (sources cascade-purge);
   // suspend/unsuspend toggles status. Workspace mapping is the setup flow.
   webhooks.on(
     ["installation.deleted", "installation.suspend", "installation.unsuspend"],
     async ({ payload }) => {
+      // Drop the cached repo list regardless of action (gone/revoked/restored).
+      await invalidateGithubRepoCache(String(payload.installation.id))
       const where = and(
         eq(schema.integrationConnection.provider, "github"),
         eq(
