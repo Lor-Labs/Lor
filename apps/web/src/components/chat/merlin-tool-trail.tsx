@@ -1,3 +1,4 @@
+import { LinearLogo } from "@repo/ui/components/logos/linear"
 import { cn } from "@repo/ui/lib/utils"
 import {
   BookOpen,
@@ -6,13 +7,12 @@ import {
   Download,
   ExternalLink,
   Github,
-  type LucideIcon,
   PencilLine,
   Search,
   Terminal,
   Wrench,
 } from "lucide-react"
-import { useState } from "react"
+import { type ComponentType, useState } from "react"
 import { MessageMarkdown } from "@/components/chat/message-markdown"
 import type { MerlinToolCallView } from "@/lib/api-types"
 
@@ -20,10 +20,27 @@ import type { MerlinToolCallView } from "@/lib/api-types"
 // to answer, each row drillable into its result. Expanded live while streaming
 // (so progress shows), collapsed once settled; persisted, so it survives reload.
 
-function toolIcon(toolName: string): LucideIcon {
+// Brand marks and lucide glyphs share one shape here.
+type TrailIcon = ComponentType<{ className?: string }>
+
+// fill-current so the mark inherits the row/link color (incl. the violet links).
+function LinearMark({ className }: { className?: string }) {
+  return <LinearLogo variant="logo" className={cn(className, "fill-current")} />
+}
+
+function toolIcon(toolName: string): TrailIcon {
   switch (toolName) {
     case "investigate_code":
       return Code
+    // Connector tools wear their brand mark, not an action glyph.
+    case "search_github":
+    case "fetch_github":
+      return Github
+    case "search_linear":
+    case "fetch_linear":
+    case "create_linear_issue":
+    case "comment_linear":
+      return LinearMark
     case "search_sources":
     case "search_messages":
     // Claude Code sub-tools (capitalized) streamed from the sandbox agent:
@@ -50,9 +67,10 @@ function toolIcon(toolName: string): LucideIcon {
 }
 
 // Provider logo for a result item, inferred from its url (extends naturally as
-// Linear/Datadog connectors land). Falls back to a generic external-link glyph.
-function itemIcon(url?: string): LucideIcon {
+// more connectors land). Falls back to a generic external-link glyph.
+function itemIcon(url?: string): TrailIcon {
   if (url && /(^|\.)github\.com\b/i.test(url)) return Github
+  if (url && /(^|\.)linear\.app\b/i.test(url)) return LinearMark
   return ExternalLink
 }
 

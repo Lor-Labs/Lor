@@ -3,6 +3,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar"
 import { Button } from "@repo/ui/components/button"
 import { Input } from "@repo/ui/components/input"
 import { Label } from "@repo/ui/components/label"
+import { LinearLogo } from "@repo/ui/components/logos/linear"
 import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
@@ -18,7 +19,13 @@ import {
   X,
 } from "lucide-react"
 import { AnimatePresence, motion } from "motion/react"
-import { useCallback, useEffect, useRef, useState } from "react"
+import {
+  type ComponentType,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react"
 import { createPortal } from "react-dom"
 import { toast } from "sonner"
 import { MerlinProfilesSection } from "@/components/workspace/merlin-profiles-section"
@@ -365,7 +372,16 @@ function GeneralSection({
   )
 }
 
-const PROVIDER_ICONS: Record<string, typeof Github> = { github: Github }
+// fill-current so the brand mark inherits the theme's foreground color.
+function LinearIcon({ className }: { className?: string }) {
+  return <LinearLogo variant="logo" className={cn(className, "fill-current")} />
+}
+
+// Brand marks (logo components) and lucide glyphs share one shape here.
+const PROVIDER_ICONS: Record<string, ComponentType<{ className?: string }>> = {
+  github: Github,
+  linear: LinearIcon,
+}
 
 // How many repo chips to show before collapsing the rest into a "+N more".
 const REPO_DISPLAY_LIMIT = 8

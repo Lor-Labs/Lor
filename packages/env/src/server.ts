@@ -74,6 +74,14 @@ const serverSchema = z.object({
     .default(false),
   MAX_FILE_UPLOAD_SIZE: z.coerce.number().default(DEFAULT_MAX_FILE_UPLOAD_SIZE),
   NEXT_PUBLIC_API_URL: z.string().min(1).transform(addProtocol),
+  // Public origin of the web app — the base for OAuth redirect URIs (e.g.
+  // Linear's callback). Must match the callback URL registered with the
+  // provider. Defaults to the dev web server.
+  APP_BASE_URL: z
+    .string()
+    .min(1)
+    .default("http://localhost:3000")
+    .transform(addProtocol),
   S3_ENDPOINT: z.string().url(),
   S3_ACCESS_KEY_ID: z.string().min(1),
   S3_SECRET_ACCESS_KEY: z.string().min(1),

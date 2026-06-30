@@ -50,20 +50,32 @@ const PREFETCH_LIMIT = 3
 const SNIPPET_MAX = 500
 const THREAD_MAX = 100
 
-const SYSTEM_PROMPT = `You are Merlin, the knowledge keeper for this team's Lor workspace. You answer questions about the team's work, decisions, history, and people.
+// The base prompt + per-connector lines are assembled by buildSystemPrompt so a
+// channel only sees instructions for tools it actually has bound.
+const SYSTEM_PROMPT_HEAD = `You are Merlin, the knowledge keeper for this team's Lor workspace. You answer questions about the team's work, decisions, history, and people.
 
 You have two kinds of memory:
 - Your brain: a filesystem of notes about this workspace that you read from and maintain yourself. Browse it with ls / tree, read pages with read, and save or organize knowledge with write / mkdir / move / link. Consult it first — it's your distilled knowledge (it may be sparse early on). Pages list their linked pages (relates_to, caused_by, …); follow a link with read to traverse.
 - The team's message history: search it with search_messages (keyword, all channels) and read_thread for full context.
-- The team's GitHub (when connected): search_github finds pull requests and issues by keyword across the connected repos, and fetch_github pulls one's full body and discussion. Reference a PR or issue with a normal Markdown link to the result's url (these are live results, not [[src:]] citations). (search_sources / fetch_source cover other connected integrations' summarized activity — cite those by id in double brackets, e.g. [[src:0b9c…]], not by pasting the url.)
+- Other connected integrations: search_sources finds their summarized activity and fetch_source pulls a source's full content. Cite these by id in double brackets, e.g. [[src:0b9c…]] — don't paste the url.`
 
-You can also see images people share in the channel — they're included inline in the conversation below.
+const GITHUB_PROMPT_LINE = `- The team's GitHub: search_github finds pull requests and issues by keyword across the connected repos, and fetch_github pulls one's full body and discussion. Reference a PR or issue with a normal Markdown link to the result's url (these are live results, not [[src:]] citations).`
+
+const LINEAR_PROMPT_LINE = `- The team's Linear: search_linear finds issues by keyword and fetch_linear pulls one's full description and comments. Reference a Linear issue with a normal Markdown link to its url (live results, not [[src:]] citations).`
+
+const LINEAR_WRITE_PROMPT_LINE = `- When asked to file or follow up in Linear: create_linear_issue opens an issue and comment_linear adds a comment.`
+
+const SYSTEM_PROMPT_TAIL = `You can also see images people share in the channel — they're included inline in the conversation below.
 
 How to answer:
 - For questions about THIS team/workspace, check your brain first, then search the message history for anything it doesn't cover. Ground your answer in what you find; note who said it and roughly when. Cite your sources inline in double brackets: a brain page by its exact path, e.g. [[/decisions/auth]]; a specific message by its id from search_messages / read_thread, e.g. [[msg:0b9c…]]; or a connected-tool source by its id from search_sources / fetch_source, e.g. [[src:0b9c…]]. If nothing turns up, say you don't have it in memory yet — never invent specifics or cite pages, messages, or sources you didn't read.
 - For general questions (how-to, definitions, quick help), just answer directly; no lookup needed.
 
 Use your tools silently — don't narrate that you're searching. Gather what you need, then give one clear answer. Be concise. Use Markdown. Speak in the first person; never claim to be human.`
+
+function buildSystemPrompt(connectorLines: string[]): string {
+  return `${[SYSTEM_PROMPT_HEAD, ...connectorLines].join("\n")}\n\n${SYSTEM_PROMPT_TAIL}`
+}
 
 // Answer phase only; background write-back handles routine note-keeping.
 const ANSWER_WRITE_GUIDANCE = `Saving to your brain: only write (or mkdir / move / link) when the user explicitly asks you to remember, save, note, or organize something. When you do, make the change and briefly confirm what you saved and where (e.g. "Saved to /decisions/auth"). For ordinary questions, don't write — just answer; durable knowledge from this conversation is captured automatically afterward.`
@@ -316,6 +328,18 @@ function toolLabel(toolName: string, input: unknown): string {
       return query ? `Searching GitHub for “${query}”` : "Searching GitHub"
     case "fetch_github":
       return ref ? `Reading ${ref}` : "Reading a pull request/issue"
+    case "search_linear":
+      return query ? `Searching Linear for “${query}”` : "Searching Linear"
+    case "fetch_linear":
+      return "Reading a Linear issue"
+    case "create_linear_issue": {
+      const title = field("title")
+      return title
+        ? `Creating Linear issue “${title}”`
+        : "Creating a Linear issue"
+    }
+    case "comment_linear":
+      return "Commenting on a Linear issue"
     case "search_messages":
       return query ? `Searching messages for “${query}”` : "Searching messages"
     case "read_thread":
@@ -447,6 +471,49 @@ function toolDetail(
         },
       }
     }
+    case "search_linear": {
+      const results = Array.isArray(rec?.results) ? rec.results : []
+      return {
+        status: "ok",
+        detail: {
+          summary:
+            results.length === 0
+              ? "No results"
+              : plural(results.length, "result"),
+          items: results.slice(0, 8).map((it) => {
+            const r = asRecord(it)
+            const identifier = asString(r?.identifier)
+            const title = asString(r?.title) ?? "untitled"
+            return {
+              title: identifier ? `${identifier} ${title}` : title,
+              url: asString(r?.url),
+            }
+          }),
+        },
+      }
+    }
+    case "fetch_linear":
+    case "create_linear_issue": {
+      const identifier = asString(rec?.identifier)
+      const title = asString(rec?.title)
+      const label = identifier && title ? `${identifier} ${title}` : title
+      return {
+        status: "ok",
+        detail: {
+          summary:
+            toolName === "create_linear_issue"
+              ? identifier
+                ? `Created ${identifier}`
+                : "Created an issue"
+              : "Fetched a Linear issue",
+          items: label
+            ? [{ title: label, url: asString(rec?.url) }]
+            : undefined,
+        },
+      }
+    }
+    case "comment_linear":
+      return { status: "ok", detail: { summary: "Comment added" } }
     default:
       return { status: "ok" }
   }
@@ -564,9 +631,17 @@ export async function respond(
       : {}),
   }
 
+  // Only describe the connectors actually bound for this channel.
+  const connectorPromptLines = [
+    github && caps.includes("github") ? GITHUB_PROMPT_LINE : null,
+    linear && caps.includes("linear") ? LINEAR_PROMPT_LINE : null,
+    linear && caps.includes("linear_write") ? LINEAR_WRITE_PROMPT_LINE : null,
+  ].filter((line): line is string => line !== null)
+  const system = `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}`
+
   const result = streamText({
     model: anthropic(MERLIN_MODEL),
-    system: `${SYSTEM_PROMPT}\n\n${ANSWER_WRITE_GUIDANCE}`,
+    system,
     messages: [userMessage],
     tools,
     stopWhen: stepCountIs(MAX_STEPS),
@@ -611,7 +686,7 @@ export async function respond(
   if (!text.trim()) {
     const retry = streamText({
       model: anthropic(MERLIN_MODEL),
-      system: `${SYSTEM_PROMPT}\n\n${ANSWER_WRITE_GUIDANCE}`,
+      system,
       messages: [userMessage, ...response.messages],
       tools,
       toolChoice: "none",
@@ -643,7 +718,7 @@ export async function writeBack(
 
   await generateText({
     model: anthropic(MERLIN_MODEL),
-    system: SYSTEM_PROMPT,
+    system: buildSystemPrompt([]),
     messages: [
       ...ctx.priorMessages,
       { role: "user", content: WRITEBACK_INSTRUCTION },

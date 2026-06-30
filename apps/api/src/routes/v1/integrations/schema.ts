@@ -52,6 +52,16 @@ export const connectGithubResponseSchema = z.object({
   accountLogin: z.string().nullable(),
 })
 
+export const connectLinearRequestSchema = z.object({
+  // The OAuth authorization code from Linear's callback.
+  code: z.string().min(1),
+})
+
+export const connectLinearResponseSchema = z.object({
+  success: z.literal(true),
+  accountLogin: z.string().nullable(),
+})
+
 export const disconnectResponseSchema = z.object({
   success: z.literal(true),
 })
