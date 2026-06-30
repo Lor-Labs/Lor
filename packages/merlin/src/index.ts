@@ -356,10 +356,13 @@ function toolLabel(toolName: string, input: unknown): string {
     case "read":
       return path ? `Reading memory ${path}` : "Reading memory"
     case "write":
+      return path ? `Saving ${path}` : "Saving to memory"
     case "mkdir":
+      return path ? `Creating folder ${path}` : "Creating a folder"
     case "move":
+      return "Reorganizing memory"
     case "link":
-      return "Updating memory"
+      return "Linking pages"
     default:
       return `Working (${toolName})`
   }
@@ -532,6 +535,45 @@ function toolDetail(
           items: url ? [{ title: "View comment", url }] : undefined,
         },
       }
+    }
+    case "write": {
+      const path = asString(rec?.path)
+      const body = asString(rec?.body)
+      const verb = rec?.action === "updated" ? "Updated" : "Saved"
+      const heading = path ? `${verb} ${path}` : verb
+      return {
+        status: "ok",
+        detail: { summary: body ? `${heading}\n\n${body}` : heading },
+      }
+    }
+    case "mkdir": {
+      const path = asString(rec?.path)
+      return {
+        status: "ok",
+        detail: {
+          summary: path ? `Created folder ${path}` : "Created a folder",
+        },
+      }
+    }
+    case "move": {
+      const from = asString(rec?.from)
+      const to = asString(rec?.to)
+      return {
+        status: "ok",
+        detail: {
+          summary: from && to ? `Moved ${from} → ${to}` : "Moved a page",
+        },
+      }
+    }
+    case "link": {
+      const from = asString(rec?.from)
+      const to = asString(rec?.to)
+      const type = asString(rec?.type)
+      const summary =
+        from && to
+          ? `Linked ${from} ${type ? `(${type}) ` : ""}→ ${to}`
+          : "Linked pages"
+      return { status: "ok", detail: { summary } }
     }
     default:
       return { status: "ok" }

@@ -448,7 +448,8 @@ export function buildBrainWriteTools(
             )
           }
         }
-        return result
+        // Echo the body so the tool-trail card can show what was saved.
+        return "action" in result ? { ...result, body } : result
       },
       strict: true,
     }),
