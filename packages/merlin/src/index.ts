@@ -492,28 +492,47 @@ function toolDetail(
         },
       }
     }
-    case "fetch_linear":
-    case "create_linear_issue": {
+    case "fetch_linear": {
       const identifier = asString(rec?.identifier)
       const title = asString(rec?.title)
       const label = identifier && title ? `${identifier} ${title}` : title
       return {
         status: "ok",
         detail: {
-          summary:
-            toolName === "create_linear_issue"
-              ? identifier
-                ? `Created ${identifier}`
-                : "Created an issue"
-              : "Fetched a Linear issue",
+          summary: "Fetched a Linear issue",
           items: label
             ? [{ title: label, url: asString(rec?.url) }]
             : undefined,
         },
       }
     }
-    case "comment_linear":
-      return { status: "ok", detail: { summary: "Comment added" } }
+    case "create_linear_issue": {
+      const identifier = asString(rec?.identifier)
+      const title = asString(rec?.title)
+      const description = asString(rec?.description)
+      const label = identifier && title ? `${identifier} ${title}` : title
+      const heading = identifier ? `Created ${identifier}` : "Created an issue"
+      return {
+        status: "ok",
+        detail: {
+          summary: description ? `${heading}\n\n${description}` : heading,
+          items: label
+            ? [{ title: label, url: asString(rec?.url) }]
+            : undefined,
+        },
+      }
+    }
+    case "comment_linear": {
+      const body = asString(rec?.body)
+      const url = asString(rec?.url)
+      return {
+        status: "ok",
+        detail: {
+          summary: body ?? "Comment added",
+          items: url ? [{ title: "View comment", url }] : undefined,
+        },
+      }
+    }
     default:
       return { status: "ok" }
   }

@@ -140,7 +140,12 @@ export function buildLinearWriteTools({ externalId }: { externalId: string }) {
         if (!(payload?.success && issue)) {
           return { error: "couldn't create the issue" }
         }
-        return { identifier: issue.identifier, url: issue.url, title }
+        return {
+          identifier: issue.identifier,
+          url: issue.url,
+          title,
+          description: description ?? null,
+        }
       },
       strict: true,
     }),
@@ -158,7 +163,8 @@ export function buildLinearWriteTools({ externalId }: { externalId: string }) {
           .createComment({ issueId, body })
           .catch(() => null)
         if (!payload?.success) return { error: "couldn't add the comment" }
-        return { ok: true }
+        const comment = await payload.comment
+        return { ok: true, body, url: comment?.url ?? null }
       },
       strict: true,
     }),
