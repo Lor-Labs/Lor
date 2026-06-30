@@ -88,9 +88,15 @@ export function assertWorkspacePermission(
 
 export function assertCanManageWorkspaceMember(
   actor: Pick<WorkspaceMember, "role" | "userId">,
-  target: Pick<WorkspaceMember, "role" | "userId">,
+  target: Pick<WorkspaceMember, "role" | "userId"> & { isBot: boolean },
   workspace: Pick<Workspace, "ownerId">
 ) {
+  if (target.isBot) {
+    throw new HTTPException(HttpStatusCodes.FORBIDDEN, {
+      message: "Bots cannot be moderated",
+    })
+  }
+
   if (actor.userId === target.userId) {
     throw new HTTPException(HttpStatusCodes.FORBIDDEN, {
       message: "You cannot moderate yourself",

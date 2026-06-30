@@ -35,6 +35,7 @@ import {
   User,
 } from "lucide-react"
 import { useMemo, useState } from "react"
+import { AppearanceSettings } from "@/components/settings/appearance-settings"
 import { MyAccountSettings } from "@/components/settings/my-account-settings"
 import { NotificationSettings } from "@/components/settings/notification-settings"
 import { useSettings } from "@/hooks/use-settings"
@@ -128,6 +129,8 @@ export function SettingsDialog() {
             <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-4">
               {activeItem.id === "account" ? (
                 <MyAccountSettings />
+              ) : activeItem.id === "appearance" ? (
+                <AppearanceSettings />
               ) : activeItem.id === "notifications" ? (
                 <NotificationSettings />
               ) : (

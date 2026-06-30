@@ -15,6 +15,7 @@ import {
   createSelectSchema,
   createUpdateSchema,
 } from "drizzle-zod"
+import { agentProfile } from "./agent-profiles"
 import { message } from "./messages"
 import { user } from "./users"
 import { workspace } from "./workspaces"
@@ -50,6 +51,14 @@ export const channel = pgTable(
       onDelete: "set null",
     }),
 
+    // Merlin capability profile for this channel (or category). Null = inherit:
+    // a channel falls back to its parent category's profile, then the workspace
+    // default. See reference/merlin-architecture.md §8.1.
+    agentProfileId: uuid("agent_profile_id").references(
+      (): AnyPgColumn => agentProfile.id,
+      { onDelete: "set null" }
+    ),
+
     // ordering within a category or workspace
     position: integer("position").default(0).notNull(),
 
@@ -83,6 +92,10 @@ export const channelRelations = relations(channel, ({ one, many }) => ({
   owner: one(user, {
     fields: [channel.ownerId],
     references: [user.id],
+  }),
+  agentProfile: one(agentProfile, {
+    fields: [channel.agentProfileId],
+    references: [agentProfile.id],
   }),
   messages: many(message),
   members: many(channelMember),

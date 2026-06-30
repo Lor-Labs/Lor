@@ -59,6 +59,7 @@ const updateChannelRequestBaseSchema = updateChannelSchema
     name: true,
     topic: true,
     rateLimitPerUser: true,
+    agentProfileId: true,
   })
   .strict()
 

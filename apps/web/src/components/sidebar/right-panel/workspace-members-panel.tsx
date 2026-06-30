@@ -119,7 +119,10 @@ function MemberRow({
   const workspaceCtx = ownerId ? { ownerId } : null
 
   const canManageTarget =
-    currentMember && workspaceCtx && currentUserId !== member.userId
+    currentMember &&
+    workspaceCtx &&
+    !member.isBot &&
+    currentUserId !== member.userId
       ? canManageWorkspaceMember(
           currentMember,
           { userId: member.userId, role: member.role },

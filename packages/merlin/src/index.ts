@@ -1,6 +1,10 @@
 import { anthropic } from "@ai-sdk/anthropic"
 import { and, asc, db, eq, or, schema, sql } from "@repo/db"
-import type { MerlinToolCall } from "@repo/db/schema"
+import {
+  ALL_MERLIN_CAPABILITIES,
+  type MerlinCapability,
+  type MerlinToolCall,
+} from "@repo/db/schema"
 import { env } from "@repo/env/server"
 import {
   generateObject,
@@ -17,6 +21,7 @@ import {
   pageExists,
   searchBrain,
 } from "./brain"
+import { resolveChannelCapabilities } from "./capabilities"
 import {
   classifyToken,
   extractCitationTokens,
@@ -112,6 +117,7 @@ async function fetchImageBytes(url: string): Promise<Uint8Array | null> {
 export type RespondContext = {
   workspaceId: string
   conversation: ConversationTurn[]
+  channelId?: string
 }
 
 export type ToolEvent = MerlinToolCall
@@ -516,15 +522,26 @@ export async function respond(
 
   const userMessage: ModelMessage = { role: "user", content: parts }
 
-  const github = await resolveWorkspaceGithub(ctx.workspaceId).catch(() => null)
+  // resolveChannelCapabilities already maps truly unprovisioned channels to the
+  // permissive set; an actual throw here is an unexpected failure, so fail
+  // closed to core-only (no gated tools) rather than granting everything.
+  const caps = ctx.channelId
+    ? await resolveChannelCapabilities(ctx.channelId).catch(
+        () => [] as MerlinCapability[]
+      )
+    : ALL_MERLIN_CAPABILITIES
+  const needsGithub = caps.includes("github") || caps.includes("code")
+  const github = needsGithub
+    ? await resolveWorkspaceGithub(ctx.workspaceId).catch(() => null)
+    : null
 
   const tools = {
     ...buildChatTools(ctx.workspaceId),
     ...buildSourceTools(ctx.workspaceId),
     ...buildBrainReadTools(ctx.workspaceId),
     ...buildBrainWriteTools(ctx.workspaceId, onMemoryWritten),
-    ...(github ? buildGithubTools(github) : {}),
-    ...(env.RAILWAY_API_TOKEN && github
+    ...(github && caps.includes("github") ? buildGithubTools(github) : {}),
+    ...(env.RAILWAY_API_TOKEN && github && caps.includes("code")
       ? buildCodeTools(ctx.workspaceId, {
           installationId: github.installationId,
           onUsage,
@@ -611,9 +628,6 @@ export async function writeBack(
   })
   if (!gate.object.worthSaving) return
 
-  // Anthropic requires prior tool_use/tool_result names to be defined again.
-  const github = await resolveWorkspaceGithub(ctx.workspaceId).catch(() => null)
-
   await generateText({
     model: anthropic(MERLIN_MODEL),
     system: SYSTEM_PROMPT,
@@ -626,14 +640,6 @@ export async function writeBack(
       ...buildSourceTools(ctx.workspaceId),
       ...buildBrainReadTools(ctx.workspaceId),
       ...buildBrainWriteTools(ctx.workspaceId, onMemoryWritten),
-      ...(github ? buildGithubTools(github) : {}),
-      ...(env.RAILWAY_API_TOKEN && github
-        ? buildCodeTools(ctx.workspaceId, {
-            installationId: github.installationId,
-            repos: github.repos,
-            disabled: true,
-          })
-        : {}),
     },
     stopWhen: stepCountIs(MAX_STEPS),
   })

@@ -92,7 +92,12 @@ function WorkspaceSidebarInner() {
   const [inviteOpen, setInviteOpen] = useState(false)
 
   const settingsOpen = target === "workspace"
-  const settingsSection = tab === "integrations" ? "integrations" : "general"
+  const settingsSection =
+    tab === "integrations"
+      ? "integrations"
+      : tab === "merlin"
+        ? "merlin"
+        : "general"
 
   const { data: workspaces, isPending } = useQuery({
     queryKey: ["workspaces"],

@@ -42,16 +42,11 @@ export function buildCodeTools(
     onUsage,
     onToolEvent,
     repos = [],
-    disabled = false,
   }: {
     installationId: string
     onUsage?: OnUsage
     onToolEvent?: (e: MerlinToolCall) => void
     repos?: InstallationRepo[]
-    // Keep the tool defined (Anthropic requires prior tool names to stay
-    // declared) but cheaply no-op it — e.g. during background write-back, which
-    // shouldn't kick off fresh sandbox runs.
-    disabled?: boolean
   }
 ) {
   const repoHint = repos.length
@@ -70,9 +65,6 @@ export function buildCodeTools(
           .describe("the specific code question to investigate"),
       }),
       execute: async ({ repo, question }, { toolCallId }) => {
-        if (disabled) {
-          return { error: "code investigation is disabled during write-back" }
-        }
         const resolved = resolveRepo(repo, repos)
         if ("error" in resolved) return { error: resolved.error }
 

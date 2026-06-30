@@ -19,6 +19,9 @@ export const integrationProviderEnum = pgEnum("integration_provider", [
   "github",
 ])
 
+export type IntegrationProvider =
+  (typeof integrationProviderEnum.enumValues)[number]
+
 export const integrationConnectionStatusEnum = pgEnum(
   "integration_connection_status",
   ["active", "revoked"]
