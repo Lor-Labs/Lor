@@ -35,8 +35,12 @@ function applyThemeWithTransition(
     return
   }
 
-  const x = event.clientX
-  const y = event.clientY
+  // Keyboard activations report (0, 0) for clientX/Y — fall back to the
+  // triggering button's center so the reveal doesn't fly in from the corner.
+  const hasPointer = event.clientX !== 0 || event.clientY !== 0
+  const rect = event.currentTarget.getBoundingClientRect()
+  const x = hasPointer ? event.clientX : rect.left + rect.width / 2
+  const y = hasPointer ? event.clientY : rect.top + rect.height / 2
   const endRadius = Math.hypot(
     Math.max(x, window.innerWidth - x),
     Math.max(y, window.innerHeight - y)

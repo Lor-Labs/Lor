@@ -1,6 +1,10 @@
 import { availableCapabilities } from "@repo/connectors"
 import { db } from "@repo/db"
-import { agentProfile, integrationConnection } from "@repo/db/schema"
+import {
+  agentProfile,
+  integrationConnection,
+  type MerlinCapability,
+} from "@repo/db/schema"
 import { and, asc, desc, eq } from "drizzle-orm"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { assertWorkspacePermission } from "@/lib/permissions"
@@ -28,6 +32,25 @@ async function ensureDefaultProfile(workspaceId: string): Promise<void> {
     .insert(agentProfile)
     .values({ workspaceId, name: "Default", isDefault: true, grantsAll: true })
     .onConflictDoNothing()
+}
+
+// Capabilities the workspace can actually grant given its active connectors —
+// the same set surfaced in the editor. Used to reject grants for disconnected
+// providers before they're persisted.
+async function grantableCapabilities(
+  workspaceId: string
+): Promise<Set<MerlinCapability>> {
+  const connections = await db
+    .select({ provider: integrationConnection.provider })
+    .from(integrationConnection)
+    .where(
+      and(
+        eq(integrationConnection.workspaceId, workspaceId),
+        eq(integrationConnection.status, "active")
+      )
+    )
+  const connected = new Set(connections.map((r) => r.provider))
+  return new Set(availableCapabilities(connected).map((c) => c.key))
 }
 
 export const listAgentProfiles: AppRouteHandler<
@@ -68,6 +91,18 @@ export const createAgentProfile: AppRouteHandler<
   assertWorkspacePermission(c.var.member, workspace, { channel: ["update"] })
   const { name, capabilities } = c.req.valid("json")
 
+  const grantable = await grantableCapabilities(workspace.id)
+  const unsupported = capabilities.filter((k) => !grantable.has(k))
+  if (unsupported.length > 0) {
+    return c.json(
+      {
+        success: false,
+        message: `Capabilities require a connected provider: ${unsupported.join(", ")}`,
+      },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+
   const created = await db
     .insert(agentProfile)
     .values({
@@ -96,6 +131,20 @@ export const updateAgentProfile: AppRouteHandler<
   assertWorkspacePermission(c.var.member, workspace, { channel: ["update"] })
   const { profileId } = c.req.valid("param")
   const { name, capabilities } = c.req.valid("json")
+
+  if (capabilities !== undefined) {
+    const grantable = await grantableCapabilities(workspace.id)
+    const unsupported = capabilities.filter((k) => !grantable.has(k))
+    if (unsupported.length > 0) {
+      return c.json(
+        {
+          success: false,
+          message: `Capabilities require a connected provider: ${unsupported.join(", ")}`,
+        },
+        HttpStatusCodes.BAD_REQUEST
+      )
+    }
+  }
 
   const updated = await db
     .update(agentProfile)

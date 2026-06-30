@@ -1,6 +1,10 @@
 import { anthropic } from "@ai-sdk/anthropic"
 import { and, asc, db, eq, or, schema, sql } from "@repo/db"
-import { ALL_MERLIN_CAPABILITIES, type MerlinToolCall } from "@repo/db/schema"
+import {
+  ALL_MERLIN_CAPABILITIES,
+  type MerlinCapability,
+  type MerlinToolCall,
+} from "@repo/db/schema"
 import { env } from "@repo/env/server"
 import {
   generateObject,
@@ -518,9 +522,12 @@ export async function respond(
 
   const userMessage: ModelMessage = { role: "user", content: parts }
 
+  // resolveChannelCapabilities already maps truly unprovisioned channels to the
+  // permissive set; an actual throw here is an unexpected failure, so fail
+  // closed to core-only (no gated tools) rather than granting everything.
   const caps = ctx.channelId
     ? await resolveChannelCapabilities(ctx.channelId).catch(
-        () => ALL_MERLIN_CAPABILITIES
+        () => [] as MerlinCapability[]
       )
     : ALL_MERLIN_CAPABILITIES
   const needsGithub = caps.includes("github") || caps.includes("code")

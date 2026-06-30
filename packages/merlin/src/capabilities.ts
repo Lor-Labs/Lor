@@ -8,14 +8,19 @@ function profileCapabilities(profile: {
   return profile.grantsAll ? ALL_MERLIN_CAPABILITIES : profile.capabilities
 }
 
-async function getProfile(id: string) {
+async function getProfile(id: string, workspaceId: string) {
   return db
     .select({
       grantsAll: schema.agentProfile.grantsAll,
       capabilities: schema.agentProfile.capabilities,
     })
     .from(schema.agentProfile)
-    .where(eq(schema.agentProfile.id, id))
+    .where(
+      and(
+        eq(schema.agentProfile.id, id),
+        eq(schema.agentProfile.workspaceId, workspaceId)
+      )
+    )
     .limit(1)
     .then((r) => r[0] ?? null)
 }
@@ -39,13 +44,13 @@ export async function resolveChannelCapabilities(
     .then((r) => r[0] ?? null)
   if (!ch) return ALL_MERLIN_CAPABILITIES
 
-  // 1. Explicit channel profile.
-  if (ch.agentProfileId) {
-    const p = await getProfile(ch.agentProfileId)
+  // 1. Explicit channel profile (scoped to the channel's workspace).
+  if (ch.agentProfileId && ch.workspaceId) {
+    const p = await getProfile(ch.agentProfileId, ch.workspaceId)
     if (p) return profileCapabilities(p)
   }
   // 2. Parent category's profile (the "group").
-  if (ch.parentId) {
+  if (ch.parentId && ch.workspaceId) {
     const parentProfileId = await db
       .select({ agentProfileId: schema.channel.agentProfileId })
       .from(schema.channel)
@@ -53,7 +58,7 @@ export async function resolveChannelCapabilities(
       .limit(1)
       .then((r) => r[0]?.agentProfileId ?? null)
     if (parentProfileId) {
-      const p = await getProfile(parentProfileId)
+      const p = await getProfile(parentProfileId, ch.workspaceId)
       if (p) return profileCapabilities(p)
     }
   }

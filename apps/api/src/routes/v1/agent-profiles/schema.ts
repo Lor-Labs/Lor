@@ -39,13 +39,13 @@ export const listAgentProfilesResponseSchema = z.object({
 })
 
 export const createAgentProfileRequestSchema = z.object({
-  name: z.string().min(1).max(60),
+  name: z.string().trim().min(1).max(60),
   capabilities: z.array(capabilitySchema).default([]),
 })
 
 export const updateAgentProfileRequestSchema = z
   .object({
-    name: z.string().min(1).max(60).optional(),
+    name: z.string().trim().min(1).max(60).optional(),
     capabilities: z.array(capabilitySchema).optional(),
   })
   .refine((v) => v.name !== undefined || v.capabilities !== undefined, {
