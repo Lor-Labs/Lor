@@ -1,7 +1,7 @@
+import { availableCapabilities } from "@repo/connectors"
 import { db } from "@repo/db"
 import { agentProfile, integrationConnection } from "@repo/db/schema"
 import { and, asc, desc, eq } from "drizzle-orm"
-import { availableCapabilities } from "@/lib/agent-capabilities"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { assertWorkspacePermission } from "@/lib/permissions"
 import type { AppRouteHandler } from "@/lib/types/app-types"
@@ -51,12 +51,14 @@ export const listAgentProfiles: AppRouteHandler<
         eq(integrationConnection.status, "active")
       )
     )
-  const connected = new Set<string>(connections.map((r) => r.provider))
+  const connected = new Set(connections.map((r) => r.provider))
+  const caps = availableCapabilities(connected).map((c) => ({
+    key: c.key,
+    label: c.label,
+    description: c.description,
+  }))
 
-  return c.json(
-    { profiles, availableCapabilities: availableCapabilities(connected) },
-    HttpStatusCodes.OK
-  )
+  return c.json({ profiles, availableCapabilities: caps }, HttpStatusCodes.OK)
 }
 
 export const createAgentProfile: AppRouteHandler<

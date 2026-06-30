@@ -50,6 +50,9 @@ importers:
       '@repo/auth':
         specifier: workspace:*
         version: link:../../packages/auth
+      '@repo/connectors':
+        specifier: workspace:^
+        version: link:../../packages/connectors
       '@repo/db':
         specifier: workspace:*
         version: link:../../packages/db
@@ -482,6 +485,16 @@ importers:
       resend:
         specifier: ^6.9.4
         version: 6.9.4
+    devDependencies:
+      '@repo/typescript-config':
+        specifier: workspace:*
+        version: link:../typescript-config
+
+  packages/connectors:
+    dependencies:
+      '@repo/db':
+        specifier: workspace:^
+        version: link:../db
     devDependencies:
       '@repo/typescript-config':
         specifier: workspace:*
