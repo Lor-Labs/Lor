@@ -32,6 +32,11 @@ import {
 import { buildCodeTools } from "./code"
 import { embedText } from "./embeddings"
 import { buildGithubTools, resolveWorkspaceGithub } from "./github"
+import {
+  buildLinearTools,
+  buildLinearWriteTools,
+  resolveWorkspaceLinear,
+} from "./linear"
 import { logger } from "./logger"
 import { buildSourceTools, resolveSourceCitation } from "./sources"
 import type { OnUsage } from "./usage"
@@ -534,6 +539,10 @@ export async function respond(
   const github = needsGithub
     ? await resolveWorkspaceGithub(ctx.workspaceId).catch(() => null)
     : null
+  const needsLinear = caps.includes("linear") || caps.includes("linear_write")
+  const linear = needsLinear
+    ? await resolveWorkspaceLinear(ctx.workspaceId).catch(() => null)
+    : null
 
   const tools = {
     ...buildChatTools(ctx.workspaceId),
@@ -548,6 +557,10 @@ export async function respond(
           onToolEvent,
           repos: github.repos,
         })
+      : {}),
+    ...(linear && caps.includes("linear") ? buildLinearTools(linear) : {}),
+    ...(linear && caps.includes("linear_write")
+      ? buildLinearWriteTools(linear)
       : {}),
   }
 

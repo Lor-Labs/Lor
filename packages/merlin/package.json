@@ -20,9 +20,11 @@
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.81",
     "@ai-sdk/openai": "^3.0.73",
+    "@linear/sdk": "^87.0.0",
     "@repo/db": "workspace:^",
     "@repo/env": "workspace:^",
     "@repo/logger": "workspace:^",
+    "@repo/utils": "workspace:^",
     "ai": "^6.0.197",
     "octokit": "^5.0.5",
     "railway": "^3.4.1",

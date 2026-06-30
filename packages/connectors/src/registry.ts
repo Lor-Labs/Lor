@@ -16,6 +16,18 @@ export const CONNECTORS: Record<IntegrationProvider, ConnectorDescriptor> = {
       "GITHUB_WEBHOOK_SECRET",
     ],
   },
+  linear: {
+    id: "linear",
+    label: "Linear",
+    description: "Issues, projects, and comments.",
+    authType: "oauth",
+    envKeys: [
+      "LINEAR_CLIENT_ID",
+      "LINEAR_CLIENT_SECRET",
+      "LINEAR_WEBHOOK_SECRET",
+      "INTEGRATION_ENCRYPTION_KEY",
+    ],
+  },
 }
 
 // Exhaustive over merlinCapabilityEnum — adding a capability value without a
@@ -32,6 +44,18 @@ export const CAPABILITIES: Record<MerlinCapability, CapabilityDescriptor> = {
     label: "Code investigation",
     description: "Explore the connected codebase in a sandbox",
     connector: "github",
+  },
+  linear: {
+    key: "linear",
+    label: "Linear",
+    description: "Search and read issues, projects & comments",
+    connector: "linear",
+  },
+  linear_write: {
+    key: "linear_write",
+    label: "Create & comment in Linear",
+    description: "Create issues and post comments",
+    connector: "linear",
   },
 }
 

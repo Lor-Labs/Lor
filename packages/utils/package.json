@@ -6,7 +6,8 @@
   "exports": {
     "./slug": "./src/slug.ts",
     "./date": "./src/date.ts",
-    "./phone": "./src/phone.ts"
+    "./phone": "./src/phone.ts",
+    "./crypto": "./src/crypto.ts"
   },
   "scripts": {
     "check-types": "tsc --noEmit",
