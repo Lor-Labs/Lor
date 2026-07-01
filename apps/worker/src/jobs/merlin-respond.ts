@@ -254,7 +254,6 @@ export function createMerlinRespondProcessor(
         // status; fanout is best-effort and never downgrades a saved reply.
         let finalText = ""
         let emptyFallback = false
-        let persisted = false
         try {
           // Verify [[…]] citations (brain pages, messages, sources); strip any
           // that don't resolve so a hallucinated source can't masquerade as real
@@ -322,79 +321,74 @@ export function createMerlinRespondProcessor(
               merlinMemories: remembered,
             })
             .where(eq(schema.message.id, merlinMessageId))
-          persisted = true
         } catch (err) {
           logger.error(
             { err, merlinMessageId },
             "Merlin reply persistence failed after streaming"
           )
-          // The answer streamed live but wasn't saved — mark a still-pending
-          // row failed so a reload doesn't hang on the thinking indicator.
+          // The streamed answer was never saved — replace it with the fallback
+          // (live and on reload) and stop, so fanout and write-back are skipped
+          // for a reply that didn't persist.
           await db
             .update(schema.message)
-            .set({ status: "failed" })
-            .where(
-              and(
-                eq(schema.message.id, merlinMessageId),
-                eq(schema.message.status, "pending")
-              )
-            )
+            .set({ content: MERLIN_ERROR_FALLBACK, status: "failed" })
+            .where(eq(schema.message.id, merlinMessageId))
             .catch(() => {})
-          emit("", true, "failed")
+          emit(MERLIN_ERROR_FALLBACK, true, "failed", true)
+          return
         }
 
-        // Fan out unread/mention like a normal message. Best-effort: a fanout
-        // failure must not downgrade the reply we already saved as complete.
-        if (persisted) {
-          try {
-            const channelRow = await db
-              .select({
-                id: schema.channel.id,
-                workspaceId: schema.channel.workspaceId,
-                name: schema.channel.name,
-              })
-              .from(schema.channel)
-              .where(eq(schema.channel.id, channelId))
-              .then((r) => r[0])
+        // Persisted (a failure would have returned above) — fan out
+        // unread/mention like a normal message. Best-effort: a fanout failure
+        // must not downgrade the reply we already saved.
+        try {
+          const channelRow = await db
+            .select({
+              id: schema.channel.id,
+              workspaceId: schema.channel.workspaceId,
+              name: schema.channel.name,
+            })
+            .from(schema.channel)
+            .where(eq(schema.channel.id, channelId))
+            .then((r) => r[0])
 
-            if (channelRow) {
-              const fanout = await buildMessageFanout({
-                authorId: MERLIN_USER_ID,
-                channel: channelRow,
-                message: {
-                  id: merlinMessageId,
-                  content: finalText,
-                  author: { name: "Merlin" },
-                  attachments: [],
-                },
-              })
-              for (const n of fanout.unreadNotifications) {
-                emitter
-                  .to(userRoom(n.userId))
-                  .emit("notification:unread", n.payload)
-              }
-              for (const n of fanout.mentionNotifications) {
-                emitter
-                  .to(userRoom(n.userId))
-                  .emit("notification:mention", n.payload)
-              }
+          if (channelRow) {
+            const fanout = await buildMessageFanout({
+              authorId: MERLIN_USER_ID,
+              channel: channelRow,
+              message: {
+                id: merlinMessageId,
+                content: finalText,
+                author: { name: "Merlin" },
+                attachments: [],
+              },
+            })
+            for (const n of fanout.unreadNotifications) {
+              emitter
+                .to(userRoom(n.userId))
+                .emit("notification:unread", n.payload)
             }
-          } catch (err) {
-            logger.error(
-              { err, merlinMessageId },
-              "Merlin reply fanout failed after persistence"
-            )
+            for (const n of fanout.mentionNotifications) {
+              emitter
+                .to(userRoom(n.userId))
+                .emit("notification:mention", n.payload)
+            }
           }
-
-          // Normal case streamed the answer already, so just end the stream.
-          // For the empty-fallback case nothing was streamed, so push the
-          // fallback text as the final delta before ending.
-          emit(emptyFallback ? finalText : "", true, "complete")
-          logger.info(
-            { merlinMessageId, length: finalText.length },
-            "Merlin reply complete"
+        } catch (err) {
+          logger.error(
+            { err, merlinMessageId },
+            "Merlin reply fanout failed after persistence"
           )
         }
+
+        // Normal case streamed the answer already, so just end the stream.
+        // For the empty-fallback case nothing was streamed, so push the
+        // fallback text as the final delta before ending.
+        emit(emptyFallback ? finalText : "", true, "complete")
+        logger.info(
+          { merlinMessageId, length: finalText.length },
+          "Merlin reply complete"
+        )
 
         // Phase 3 — autonomous write-back. Per-workspace lock serializes brain
         // writes; skip if another holds it (resurfaces on a later mention).
