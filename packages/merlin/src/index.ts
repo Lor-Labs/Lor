@@ -141,6 +141,8 @@ export type ToolEvent = MerlinToolCall
 
 export type RespondCallbacks = {
   onDelta: (delta: string) => void | Promise<void>
+  // Summarized extended-thinking deltas, streamed before/between the answer.
+  onReasoning?: (delta: string) => void | Promise<void>
   onMemoryWritten?: (e: { path: string; action: "created" | "updated" }) => void
   onToolEvent?: (e: ToolEvent) => void
   onUsage?: OnUsage
@@ -582,7 +584,13 @@ function toolDetail(
 
 export async function respond(
   ctx: RespondContext,
-  { onDelta, onMemoryWritten, onToolEvent, onUsage }: RespondCallbacks
+  {
+    onDelta,
+    onReasoning,
+    onMemoryWritten,
+    onToolEvent,
+    onUsage,
+  }: RespondCallbacks
 ): Promise<RespondResult> {
   const question = ctx.conversation[ctx.conversation.length - 1]?.content ?? ""
   let brainContext = ""
@@ -706,14 +714,23 @@ export async function respond(
     messages: [userMessage],
     tools,
     stopWhen: stepCountIs(MAX_STEPS),
+    // Adaptive thinking (Sonnet 4.6): the model decides depth and interleaves
+    // reasoning between tool calls; "summarized" streams a readable summary
+    // (the raw chain of thought is never returned). Disabled for now — the
+    // reasoning stream/persist/UI plumbing stays wired; re-enable to turn it on.
+    // providerOptions: {
+    //   anthropic: { thinking: { type: "adaptive", display: "summarized" } },
+    // },
   })
 
-  // fullStream exposes tool call/status events; textStream does not.
+  // fullStream exposes tool call/status + reasoning events; textStream does not.
   let text = ""
   for await (const part of result.fullStream) {
     if (part.type === "text-delta") {
       text += part.text
       await onDelta(part.text)
+    } else if (part.type === "reasoning-delta") {
+      await onReasoning?.(part.text)
     } else if (part.type === "tool-call") {
       onToolEvent?.({
         toolCallId: part.toolCallId,
@@ -751,6 +768,10 @@ export async function respond(
       messages: [userMessage, ...response.messages],
       tools,
       toolChoice: "none",
+      // Disabled alongside the main call above; re-enable both together.
+      // providerOptions: {
+      //   anthropic: { thinking: { type: "adaptive", display: "summarized" } },
+      // },
     })
     for await (const delta of retry.textStream) {
       text += delta

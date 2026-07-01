@@ -20,6 +20,7 @@ interface MessagePage {
     streaming?: boolean
     remembered?: { path: string; action: "created" | "updated" }[]
     merlinToolCalls?: ToolCall[]
+    merlinReasoning?: string | null
   }[]
 }
 
@@ -70,6 +71,41 @@ export function useMerlinStream({
     socket.on("message:stream", handleStream)
     return () => {
       socket.off("message:stream", handleStream)
+    }
+  }, [socket, channelId, queryClient])
+
+  useEffect(() => {
+    if (!socket) return
+
+    const handleReasoning = (payload: {
+      channelId: string
+      threadRootId: string | null
+      messageId: string
+      delta: string
+    }) => {
+      if (payload.channelId !== channelId) return
+      const key = payload.threadRootId
+        ? ["thread", payload.threadRootId]
+        : ["messages", channelId]
+      queryClient.setQueryData<InfiniteData<MessagePage>>(key, (old) => {
+        if (!old) return old
+        return updateMessagesAcrossPages(old, (msgs) =>
+          msgs.map((m) =>
+            m.id === payload.messageId
+              ? {
+                  ...m,
+                  merlinReasoning: (m.merlinReasoning ?? "") + payload.delta,
+                  streaming: true,
+                }
+              : m
+          )
+        )
+      })
+    }
+
+    socket.on("merlin:reasoning", handleReasoning)
+    return () => {
+      socket.off("merlin:reasoning", handleReasoning)
     }
   }, [socket, channelId, queryClient])
 

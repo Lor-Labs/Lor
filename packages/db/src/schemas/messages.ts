@@ -82,6 +82,10 @@ export const message = pgTable(
       .$type<MerlinMemory[]>()
       .default([]),
 
+    // Summarized extended-thinking trace for a Merlin reply — streamed live and
+    // kept so the collapsible "thought process" survives a reload.
+    merlinReasoning: text("merlin_reasoning"),
+
     pinned: boolean("pinned").default(false).notNull(),
 
     editedAt: timestamp("edited_at"),

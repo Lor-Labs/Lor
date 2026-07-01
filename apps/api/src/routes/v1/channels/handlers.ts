@@ -401,6 +401,7 @@ export const listPinnedMessages: AppRouteHandler<
       pinned: message.pinned,
       attachments: message.attachments,
       embeds: message.embeds,
+      merlinReasoning: message.merlinReasoning,
       referencedMessageId: message.referencedMessageId,
       threadRootId: message.threadRootId,
       editedAt: message.editedAt,

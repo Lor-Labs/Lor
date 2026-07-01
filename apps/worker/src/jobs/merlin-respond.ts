@@ -113,6 +113,20 @@ export function createMerlinRespondProcessor(
         // Register the stream so clients can show a thinking indicator.
         emit("", false)
 
+        // Summarized thinking, accumulated for persistence + batched to clients.
+        let reasoning = ""
+        let pendingReasoning = ""
+        const flushReasoning = () => {
+          if (!pendingReasoning) return
+          emitter.to(room).emit("merlin:reasoning", {
+            channelId,
+            threadRootId,
+            messageId: merlinMessageId,
+            delta: pendingReasoning,
+          })
+          pendingReasoning = ""
+        }
+
         // Phase 1 — generate + stream. On failure, replace the partial text
         // with a fallback.
         let answer: Awaited<ReturnType<typeof respond>>
@@ -177,6 +191,11 @@ export function createMerlinRespondProcessor(
                   pending = ""
                 }
               },
+              onReasoning: (d) => {
+                reasoning += d
+                pendingReasoning += d
+                if (pendingReasoning.length >= FLUSH_THRESHOLD) flushReasoning()
+              },
               // Explicit "remember this" writes happen during the answer; surface
               // their chip immediately like the background write-back does.
               onMemoryWritten: remember,
@@ -203,6 +222,7 @@ export function createMerlinRespondProcessor(
             }
           )
           if (pending.length > 0) emit(pending, false)
+          flushReasoning()
 
           gateText = `${conversation
             .map((t) => `${t.authorName}: ${t.content}`)
@@ -284,6 +304,7 @@ export function createMerlinRespondProcessor(
               content: finalText,
               status: "complete",
               merlinToolCalls: persistedToolCalls,
+              merlinReasoning: reasoning || null,
               // Explicit "remember this" saves so far; write-back may add more
               // after this and re-persists then.
               merlinMemories: remembered,

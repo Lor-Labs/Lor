@@ -32,6 +32,7 @@ type BareMessageRow = {
   embeds: Embed[] | null
   merlinToolCalls: MerlinToolCall[] | null
   merlinMemories: MerlinMemory[] | null
+  merlinReasoning: string | null
   referencedMessageId: string | null
   threadRootId: string | null
   editedAt: Date | null
@@ -57,6 +58,7 @@ const messageSelect = {
   embeds: message.embeds,
   merlinToolCalls: message.merlinToolCalls,
   merlinMemories: message.merlinMemories,
+  merlinReasoning: message.merlinReasoning,
   referencedMessageId: message.referencedMessageId,
   threadRootId: message.threadRootId,
   editedAt: message.editedAt,

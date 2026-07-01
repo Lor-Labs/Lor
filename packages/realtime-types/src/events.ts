@@ -365,6 +365,15 @@ export interface ServerToClientEvents {
     delta: string
     done: boolean
   }) => void
+  // Merlin's summarized extended-thinking, streamed before/between the answer.
+  // delta = new reasoning chunk; the client appends it to the message's
+  // collapsible "thought process" (also persisted on the message for reload).
+  "merlin:reasoning": (payload: {
+    channelId: string
+    threadRootId: string | null
+    messageId: string
+    delta: string
+  }) => void
   // Merlin saved/updated a brain page during write-back (messageId = its reply).
   "merlin:memory": (payload: {
     channelId: string

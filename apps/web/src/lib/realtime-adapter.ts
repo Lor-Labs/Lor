@@ -24,6 +24,7 @@ export function realtimeMessageToMessage(rm: RealtimeMessage): Message {
     reactions: rm.reactions,
     threadRootId: rm.threadRootId ?? null,
     threadSummary: null,
+    merlinReasoning: null,
     ...(rm.streaming ? { streaming: true } : {}),
   }
 }
@@ -195,5 +196,6 @@ export function createOptimisticMessage(
     reactions: [],
     threadRootId: null,
     threadSummary: null,
+    merlinReasoning: null,
   }
 }
