@@ -29,7 +29,7 @@ import type {
   AvailableCapability,
   Channel,
 } from "@/lib/api-types"
-import { capabilityIcon } from "@/lib/capability-icons"
+import { connectorLogo } from "@/lib/connector-ui"
 
 const INHERIT = "__inherit__"
 
@@ -60,7 +60,7 @@ function ProfileCapabilities({
       ) : (
         <ul className="space-y-2">
           {granted.map((c) => {
-            const Icon = capabilityIcon(c.key)
+            const Icon = connectorLogo(c.connector)
             return (
               <li key={c.key} className="flex items-center gap-3">
                 <span className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-background">

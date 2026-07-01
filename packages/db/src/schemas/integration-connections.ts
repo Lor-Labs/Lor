@@ -17,6 +17,7 @@ import { workspace } from "./workspaces"
 // Add providers deliberately as connectors land.
 export const integrationProviderEnum = pgEnum("integration_provider", [
   "github",
+  "linear",
 ])
 
 export type IntegrationProvider =
@@ -44,6 +45,13 @@ export const integrationConnection = pgTable(
     externalId: text("external_id").notNull(),
     // Display label for the connected account (e.g. the GitHub org/user login).
     accountLogin: text("account_login"),
+    // OAuth token storage for connectors that persist tokens (e.g. Linear).
+    // Stored encrypted at rest (AES-256-GCM); null for connectors that mint
+    // tokens on demand (GitHub App).
+    accessToken: text("access_token"),
+    refreshToken: text("refresh_token"),
+    tokenExpiresAt: timestamp("token_expires_at"),
+    scope: text("scope"),
     status: integrationConnectionStatusEnum("status")
       .notNull()
       .default("active"),

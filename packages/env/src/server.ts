@@ -62,11 +62,29 @@ const serverSchema = z.object({
   GITHUB_APP_PRIVATE_KEY: z.string().min(1).optional(),
   // The GitHub App's public slug (github.com/apps/<slug>), for the install link.
   GITHUB_APP_SLUG: z.string().min(1).optional(),
+  LINEAR_CLIENT_ID: z.string().min(1).optional(),
+  LINEAR_CLIENT_SECRET: z.string().min(1).optional(),
+  LINEAR_WEBHOOK_SECRET: z.string().min(1).optional(),
+  INTEGRATION_ENCRYPTION_KEY: z
+    .string()
+    .regex(/^[0-9a-f]{64}$/i)
+    .optional(),
   NEXT_PUBLIC_SELF_HOSTED: z
     .preprocess((v) => v === "true" || v === "1", z.boolean())
     .default(false),
   MAX_FILE_UPLOAD_SIZE: z.coerce.number().default(DEFAULT_MAX_FILE_UPLOAD_SIZE),
   NEXT_PUBLIC_API_URL: z.string().min(1).transform(addProtocol),
+  // Public origin of the web app — the base for OAuth redirect URIs (e.g.
+  // Linear's callback). Must match the callback URL registered with the
+  // provider. Defaults to the dev web server.
+  APP_BASE_URL: z
+    .string()
+    .min(1)
+    .default("http://localhost:3000")
+    .transform(addProtocol)
+    // Drop trailing slashes so callback builders (e.g. `${APP_BASE_URL}/…`)
+    // don't produce a double slash in the redirect URI.
+    .transform((url) => url.replace(/\/+$/, "")),
   S3_ENDPOINT: z.string().url(),
   S3_ACCESS_KEY_ID: z.string().min(1),
   S3_SECRET_ACCESS_KEY: z.string().min(1),
@@ -79,9 +97,7 @@ const serverSchema = z.object({
   COOKIE_DOMAIN: z.string().default(""),
 })
 
-// Railway sandbox config is all-or-nothing: a lone token (or lone env id) is a
-// partially-wired setup that fails only later, at sandbox-create time.
-const railwaySchema = serverSchema.superRefine((val, ctx) => {
+const refinedServerSchema = serverSchema.superRefine((val, ctx) => {
   if (Boolean(val.RAILWAY_API_TOKEN) !== Boolean(val.RAILWAY_ENVIRONMENT_ID)) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
@@ -92,6 +108,23 @@ const railwaySchema = serverSchema.superRefine((val, ctx) => {
       ],
     })
   }
+  if (Boolean(val.LINEAR_CLIENT_ID) !== Boolean(val.LINEAR_CLIENT_SECRET)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "LINEAR_CLIENT_ID and LINEAR_CLIENT_SECRET must be set together",
+      path: [
+        val.LINEAR_CLIENT_ID ? "LINEAR_CLIENT_SECRET" : "LINEAR_CLIENT_ID",
+      ],
+    })
+  }
+  if (val.LINEAR_CLIENT_ID && !val.INTEGRATION_ENCRYPTION_KEY) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message:
+        "INTEGRATION_ENCRYPTION_KEY is required when Linear (a token-persisting connector) is configured",
+      path: ["INTEGRATION_ENCRYPTION_KEY"],
+    })
+  }
 })
 
-export const env = railwaySchema.parse(process.env)
+export const env = refinedServerSchema.parse(process.env)

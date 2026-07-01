@@ -17,8 +17,10 @@ import { workspace } from "./workspaces"
 // as each gated ability lands; brain read/write + chat search are always-on
 // core and deliberately NOT capabilities. See reference/merlin-architecture.md §8.1.
 export const merlinCapabilityEnum = pgEnum("merlin_capability", [
-  "github", // PR/issue search + fetch
-  "code", // sandbox code investigation (and future code-writing)
+  "github",
+  "code",
+  "linear",
+  "linear_write",
 ])
 
 export type MerlinCapability = (typeof merlinCapabilityEnum.enumValues)[number]

@@ -29,6 +29,9 @@ export type AgentProfile = AgentProfilesResponse["profiles"][number]
 export type MerlinCapabilityKey = AgentProfile["capabilities"][number]
 export type AvailableCapability =
   AgentProfilesResponse["availableCapabilities"][number]
+// The set of connector ids (the integration provider enum), shared by the
+// capability + integration-status shapes.
+export type ConnectorKey = AvailableCapability["connector"]
 
 // ── Messages ──────────────────────────────────────────
 

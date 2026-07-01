@@ -5,22 +5,31 @@ import {
   Code,
   Download,
   ExternalLink,
-  Github,
-  type LucideIcon,
   PencilLine,
   Search,
   Terminal,
   Wrench,
 } from "lucide-react"
-import { useState } from "react"
+import { type ComponentType, useState } from "react"
 import { MessageMarkdown } from "@/components/chat/message-markdown"
 import type { MerlinToolCallView } from "@/lib/api-types"
+import {
+  connectorForTool,
+  connectorForUrl,
+  connectorLogo,
+} from "@/lib/connector-ui"
 
 // Codex/Cursor-style tool trail: a collapsible summary of the tools Merlin used
 // to answer, each row drillable into its result. Expanded live while streaming
 // (so progress shows), collapsed once settled; persisted, so it survives reload.
 
-function toolIcon(toolName: string): LucideIcon {
+// Brand marks and lucide glyphs share one shape here.
+type TrailIcon = ComponentType<{ className?: string }>
+
+function toolIcon(toolName: string): TrailIcon {
+  // Connector tools wear their brand mark; built-in tools get an action glyph.
+  const connector = connectorForTool(toolName)
+  if (connector) return connectorLogo(connector)
   switch (toolName) {
     case "investigate_code":
       return Code
@@ -49,11 +58,11 @@ function toolIcon(toolName: string): LucideIcon {
   }
 }
 
-// Provider logo for a result item, inferred from its url (extends naturally as
-// Linear/Datadog connectors land). Falls back to a generic external-link glyph.
-function itemIcon(url?: string): LucideIcon {
-  if (url && /(^|\.)github\.com\b/i.test(url)) return Github
-  return ExternalLink
+// Provider logo for a result item, inferred from its url; falls back to a
+// generic external-link glyph.
+function itemIcon(url?: string): TrailIcon {
+  const connector = connectorForUrl(url)
+  return connector ? connectorLogo(connector) : ExternalLink
 }
 
 function hasDetail(t: MerlinToolCallView): boolean {

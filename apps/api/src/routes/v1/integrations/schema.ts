@@ -1,4 +1,5 @@
 import { z } from "@hono/zod-openapi"
+import { integrationProviderEnum } from "@repo/db/schema"
 
 export const integrationsWorkspaceParamsSchema = z.object({
   workspaceSlug: z.string().openapi({
@@ -24,7 +25,7 @@ export const integrationRepoSchema = z.object({
 })
 
 export const integrationStatusSchema = z.object({
-  id: z.string(), // provider id, e.g. "github"
+  id: z.enum(integrationProviderEnum.enumValues), // provider id, e.g. "github"
   name: z.string(), // display name, e.g. "GitHub"
   connected: z.boolean(),
   accountLogin: z.string().nullable(),
@@ -48,6 +49,18 @@ export const connectGithubRequestSchema = z.object({
 })
 
 export const connectGithubResponseSchema = z.object({
+  success: z.literal(true),
+  accountLogin: z.string().nullable(),
+})
+
+export const connectLinearRequestSchema = z.object({
+  // The OAuth authorization code from Linear's callback.
+  code: z.string().min(1),
+  // The signed `state` Linear echoed back, verified server-side (CSRF).
+  state: z.string().min(1),
+})
+
+export const connectLinearResponseSchema = z.object({
   success: z.literal(true),
   accountLogin: z.string().nullable(),
 })

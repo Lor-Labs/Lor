@@ -1,4 +1,4 @@
-import { availableCapabilities } from "@repo/connectors"
+import { availableCapabilities, CONNECTORS } from "@repo/connectors"
 import { db } from "@repo/db"
 import {
   agentProfile,
@@ -79,6 +79,8 @@ export const listAgentProfiles: AppRouteHandler<
     key: c.key,
     label: c.label,
     description: c.description,
+    connector: c.connector,
+    connectorLabel: CONNECTORS[c.connector].label,
   }))
 
   return c.json({ profiles, availableCapabilities: caps }, HttpStatusCodes.OK)

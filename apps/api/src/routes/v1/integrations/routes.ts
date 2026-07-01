@@ -14,6 +14,8 @@ import {
   connectGithubRequestSchema,
   connectGithubResponseSchema,
   connectionIdParamsSchema,
+  connectLinearRequestSchema,
+  connectLinearResponseSchema,
   disconnectResponseSchema,
   integrationsWorkspaceParamsSchema,
   listIntegrationsResponseSchema,
@@ -68,6 +70,36 @@ export const connectGithub = createRoute({
   },
 })
 
+export const connectLinear = createRoute({
+  path: "/workspaces/{workspaceSlug}/integrations/linear/connect",
+  method: "post",
+  summary: "Link a Linear workspace to a workspace",
+  description:
+    "Called by the OAuth callback with the authorization code; exchanges it for tokens.",
+  tags: ["Integrations"],
+  middleware: [workspaceAuthMiddleware] as const,
+  request: {
+    params: integrationsWorkspaceParamsSchema,
+    body: jsonContent({
+      schema: connectLinearRequestSchema,
+      description: "The Linear OAuth authorization code",
+    }),
+  },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: connectLinearResponseSchema,
+      description: "Connected",
+    }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.CONFLICT]: conflictSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
 export const disconnectIntegration = createRoute({
   path: "/workspaces/{workspaceSlug}/integrations/{connectionId}",
   method: "delete",
@@ -90,4 +122,5 @@ export const disconnectIntegration = createRoute({
 
 export type ListIntegrationsRoute = typeof listIntegrations
 export type ConnectGithubRoute = typeof connectGithub
+export type ConnectLinearRoute = typeof connectLinear
 export type DisconnectIntegrationRoute = typeof disconnectIntegration

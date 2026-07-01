@@ -44,6 +44,9 @@ importers:
       '@hono/zod-openapi':
         specifier: ^1.2.2
         version: 1.2.2(hono@4.11.9)(zod@4.3.6)
+      '@linear/sdk':
+        specifier: ^87.0.0
+        version: 87.0.0(graphql@16.12.0)
       '@octokit/webhooks':
         specifier: ^14.2.0
         version: 14.2.0
@@ -559,6 +562,9 @@ importers:
       '@ai-sdk/openai':
         specifier: ^3.0.73
         version: 3.0.73(zod@4.3.6)
+      '@linear/sdk':
+        specifier: ^87.0.0
+        version: 87.0.0(graphql@16.12.0)
       '@repo/db':
         specifier: workspace:^
         version: link:../db
@@ -568,6 +574,9 @@ importers:
       '@repo/logger':
         specifier: workspace:^
         version: link:../logger
+      '@repo/utils':
+        specifier: workspace:^
+        version: link:../utils
       ai:
         specifier: ^6.0.197
         version: 6.0.197(zod@4.3.6)
@@ -1945,6 +1954,10 @@ packages:
 
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
+
+  '@linear/sdk@87.0.0':
+    resolution: {integrity: sha512-hYJhmhDIuhu7tyca1T9xZ5y0sf6EiCnFYbdGX3I5kylkGGMrrVszasoIfrkopwBCuJjolFnnVVwqqzCbURVftA==}
+    engines: {node: '>=18.x'}
 
   '@mermaid-js/parser@1.1.1':
     resolution: {integrity: sha512-VuHdsYMK1bT6X2JbcAaWAhugTRvRBRyuZgd+c22swUeI9g/ntaxF7CY7dYarhZovofCbUNO0G7JesfmNtjYOCw==}
@@ -8738,6 +8751,12 @@ snapshots:
     dependencies:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
+
+  '@linear/sdk@87.0.0(graphql@16.12.0)':
+    dependencies:
+      '@graphql-typed-document-node/core': 3.2.0(graphql@16.12.0)
+    transitivePeerDependencies:
+      - graphql
 
   '@mermaid-js/parser@1.1.1':
     dependencies:
