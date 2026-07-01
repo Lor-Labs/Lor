@@ -32,6 +32,9 @@ const CONTEXT_LIMIT = 30
 // Write-back lock TTL (s); auto-releases if the worker crashes.
 const WRITEBACK_LOCK_TTL = 120
 
+const MERLIN_ERROR_FALLBACK =
+  "⚠️ I ran into an error answering that. Please try again."
+
 // Recent channel/thread messages, oldest→newest; skips the placeholder + empties.
 async function loadConversation(args: {
   channelId: string
@@ -101,17 +104,38 @@ export function createMerlinRespondProcessor(
           ? threadRoom(threadRootId)
           : channelRoom(channelId)
 
-        const emit = (delta: string, done: boolean) =>
+        const emit = (
+          delta: string,
+          done: boolean,
+          status?: "complete" | "failed",
+          replace?: boolean
+        ) =>
           emitter.to(room).emit("message:stream", {
             channelId,
             threadRootId,
             messageId: merlinMessageId,
             delta,
             done,
+            ...(status ? { status } : {}),
+            ...(replace ? { replace: true } : {}),
           })
 
         // Register the stream so clients can show a thinking indicator.
         emit("", false)
+
+        // Summarized thinking, accumulated for persistence + batched to clients.
+        let reasoning = ""
+        let pendingReasoning = ""
+        const flushReasoning = () => {
+          if (!pendingReasoning) return
+          emitter.to(room).emit("merlin:reasoning", {
+            channelId,
+            threadRootId,
+            messageId: merlinMessageId,
+            delta: pendingReasoning,
+          })
+          pendingReasoning = ""
+        }
 
         // Phase 1 — generate + stream. On failure, replace the partial text
         // with a fallback.
@@ -156,7 +180,12 @@ export function createMerlinRespondProcessor(
               { channelId, merlinMessageId },
               "Merlin invoked outside a workspace channel; skipping"
             )
-            emit("", true)
+            await db
+              .update(schema.message)
+              .set({ content: MERLIN_ERROR_FALLBACK, status: "failed" })
+              .where(eq(schema.message.id, merlinMessageId))
+              .catch(() => {})
+            emit(MERLIN_ERROR_FALLBACK, true, "failed")
             return
           }
           workspaceId = channel.workspaceId
@@ -171,6 +200,11 @@ export function createMerlinRespondProcessor(
                   emit(pending, false)
                   pending = ""
                 }
+              },
+              onReasoning: (d) => {
+                reasoning += d
+                pendingReasoning += d
+                if (pendingReasoning.length >= FLUSH_THRESHOLD) flushReasoning()
               },
               // Explicit "remember this" writes happen during the answer; surface
               // their chip immediately like the background write-back does.
@@ -198,25 +232,28 @@ export function createMerlinRespondProcessor(
             }
           )
           if (pending.length > 0) emit(pending, false)
+          flushReasoning()
 
           gateText = `${conversation
             .map((t) => `${t.authorName}: ${t.content}`)
             .join("\n")}\n\nMerlin: ${answer.text}`
         } catch (err) {
           logger.error({ err, merlinMessageId }, "Merlin response failed")
-          const fallback =
-            "⚠️ I ran into an error answering that. Please try again."
           await db
             .update(schema.message)
-            .set({ content: fallback })
+            .set({ content: MERLIN_ERROR_FALLBACK, status: "failed" })
             .where(eq(schema.message.id, merlinMessageId))
             .catch(() => {})
-          emit(fallback, true)
+          // Replace (not append) so a partial answer streamed before the error
+          // is dropped in favor of the fallback, matching the persisted row.
+          emit(MERLIN_ERROR_FALLBACK, true, "failed", true)
           return
         }
 
-        // Phase 2 — persist + fan out. Already streamed, so on failure just log
-        // and emit the final signal (never clobber the shown text).
+        // Phase 2 — persist, then fan out. Persistence decides the terminal
+        // status; fanout is best-effort and never downgrades a saved reply.
+        let finalText = ""
+        let emptyFallback = false
         try {
           // Verify [[…]] citations (brain pages, messages, sources); strip any
           // that don't resolve so a hallucinated source can't masquerade as real
@@ -232,8 +269,7 @@ export function createMerlinRespondProcessor(
           // Safety net: if generation (and its no-tools retry) still yielded
           // nothing, post a graceful note instead of a blank message that
           // would persist across reloads.
-          let finalText = grounded.text
-          let emptyFallback = false
+          finalText = grounded.text
           if (!finalText.trim()) {
             finalText =
               "I couldn't pull together an answer for that — could you add a bit more detail or rephrase?"
@@ -277,14 +313,35 @@ export function createMerlinRespondProcessor(
             .update(schema.message)
             .set({
               content: finalText,
+              status: "complete",
               merlinToolCalls: persistedToolCalls,
+              merlinReasoning: reasoning || null,
               // Explicit "remember this" saves so far; write-back may add more
               // after this and re-persists then.
               merlinMemories: remembered,
             })
             .where(eq(schema.message.id, merlinMessageId))
+        } catch (err) {
+          logger.error(
+            { err, merlinMessageId },
+            "Merlin reply persistence failed after streaming"
+          )
+          // The streamed answer was never saved — replace it with the fallback
+          // (live and on reload) and stop, so fanout and write-back are skipped
+          // for a reply that didn't persist.
+          await db
+            .update(schema.message)
+            .set({ content: MERLIN_ERROR_FALLBACK, status: "failed" })
+            .where(eq(schema.message.id, merlinMessageId))
+            .catch(() => {})
+          emit(MERLIN_ERROR_FALLBACK, true, "failed", true)
+          return
+        }
 
-          // Notify like a normal message: fan out unread/mention to recipients.
+        // Persisted (a failure would have returned above) — fan out
+        // unread/mention like a normal message. Best-effort: a fanout failure
+        // must not downgrade the reply we already saved.
+        try {
           const channelRow = await db
             .select({
               id: schema.channel.id,
@@ -317,22 +374,21 @@ export function createMerlinRespondProcessor(
                 .emit("notification:mention", n.payload)
             }
           }
-
-          // Normal case streamed the answer already, so just end the stream.
-          // For the empty-fallback case nothing was streamed, so push the
-          // fallback text as the final delta before ending.
-          emit(emptyFallback ? finalText : "", true)
-          logger.info(
-            { merlinMessageId, length: finalText.length },
-            "Merlin reply complete"
-          )
         } catch (err) {
           logger.error(
             { err, merlinMessageId },
-            "Merlin reply persistence/fanout failed after streaming"
+            "Merlin reply fanout failed after persistence"
           )
-          emit("", true)
         }
+
+        // Normal case streamed the answer already, so just end the stream.
+        // For the empty-fallback case nothing was streamed, so push the
+        // fallback text as the final delta before ending.
+        emit(emptyFallback ? finalText : "", true, "complete")
+        logger.info(
+          { merlinMessageId, length: finalText.length },
+          "Merlin reply complete"
+        )
 
         // Phase 3 — autonomous write-back. Per-workspace lock serializes brain
         // writes; skip if another holds it (resurfaces on a later mention).

@@ -87,6 +87,7 @@ export async function createMerlinPlaceholder(args: {
       threadRootId: args.threadRootId ?? undefined,
     },
     accessibleChannel: args.accessibleChannel,
+    status: "pending",
   })
   return result.message
 }

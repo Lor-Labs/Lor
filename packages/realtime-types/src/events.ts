@@ -152,6 +152,10 @@ export type RealtimeMessage = {
   // Set on Merlin's empty placeholder so the client shows the "thinking"
   // indicator immediately, without waiting for the first stream event.
   streaming?: boolean
+  // Row lifecycle — "pending" on an in-flight Merlin placeholder, so the
+  // thinking indicator persists across a reload/late thread join (not just the
+  // transient `streaming` flag). Absent → treated as "complete".
+  status?: "complete" | "pending" | "failed"
 }
 
 export type RealtimeMessagePinToggled = {
@@ -360,6 +364,21 @@ export interface ServerToClientEvents {
     messageId: string
     delta: string
     done: boolean
+    // Terminal status on the final chunk, so the client clears the
+    // placeholder's "pending" state live (not just on reload).
+    status?: "complete" | "failed"
+    // When set, `delta` replaces the message content instead of appending —
+    // used on failure to drop a partial answer in favor of the fallback text.
+    replace?: boolean
+  }) => void
+  // Merlin's summarized extended-thinking, streamed before/between the answer.
+  // delta = new reasoning chunk; the client appends it to the message's
+  // collapsible "thought process" (also persisted on the message for reload).
+  "merlin:reasoning": (payload: {
+    channelId: string
+    threadRootId: string | null
+    messageId: string
+    delta: string
   }) => void
   // Merlin saved/updated a brain page during write-back (messageId = its reply).
   "merlin:memory": (payload: {

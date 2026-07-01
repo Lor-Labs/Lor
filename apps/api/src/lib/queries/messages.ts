@@ -26,11 +26,13 @@ type BareMessageRow = {
   channelId: string
   content: string | null
   type: (typeof message.type.enumValues)[number]
+  status: (typeof message.status.enumValues)[number]
   pinned: boolean
   attachments: Attachment[] | null
   embeds: Embed[] | null
   merlinToolCalls: MerlinToolCall[] | null
   merlinMemories: MerlinMemory[] | null
+  merlinReasoning: string | null
   referencedMessageId: string | null
   threadRootId: string | null
   editedAt: Date | null
@@ -50,11 +52,13 @@ const messageSelect = {
   channelId: message.channelId,
   content: message.content,
   type: message.type,
+  status: message.status,
   pinned: message.pinned,
   attachments: message.attachments,
   embeds: message.embeds,
   merlinToolCalls: message.merlinToolCalls,
   merlinMemories: message.merlinMemories,
+  merlinReasoning: message.merlinReasoning,
   referencedMessageId: message.referencedMessageId,
   threadRootId: message.threadRootId,
   editedAt: message.editedAt,

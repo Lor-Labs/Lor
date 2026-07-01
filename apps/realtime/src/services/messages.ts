@@ -17,6 +17,9 @@ type CreateMessageInput = {
   userId: string
   payload: SendMessagePayload
   accessibleChannel: AccessibleChannel
+  // Internal: Merlin's placeholder lands as "pending"; everything else defaults
+  // to "complete" via the column default.
+  status?: RealtimeMessage["status"]
 }
 
 type DeleteMessageInput = {
@@ -132,6 +135,7 @@ export async function createMessage(input: CreateMessageInput) {
           : null,
         threadRootId,
         attachments: input.payload.attachments ?? [],
+        status: input.status,
       })
       .returning({
         id: schema.message.id,
@@ -153,6 +157,7 @@ export async function createMessage(input: CreateMessageInput) {
         channelId: schema.message.channelId,
         content: schema.message.content,
         type: schema.message.type,
+        status: schema.message.status,
         createdAt: schema.message.createdAt,
         authorId: schema.user.id,
         authorName: schema.user.name,
@@ -211,6 +216,7 @@ export async function createMessage(input: CreateMessageInput) {
     channelId: messageWithAuthor.channelId,
     content: messageWithAuthor.content,
     type: messageWithAuthor.type,
+    status: messageWithAuthor.status,
     pinned: false,
     createdAt: messageWithAuthor.createdAt.toISOString(),
     author: {

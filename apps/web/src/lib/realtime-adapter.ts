@@ -11,6 +11,7 @@ export function realtimeMessageToMessage(rm: RealtimeMessage): Message {
     authorId: rm.author.id,
     content: rm.content,
     type: rm.type,
+    status: rm.status ?? "complete",
     createdAt: rm.createdAt,
     author: rm.author,
     referencedMessageId: rm.referencedMessage?.id ?? null,
@@ -23,6 +24,7 @@ export function realtimeMessageToMessage(rm: RealtimeMessage): Message {
     reactions: rm.reactions,
     threadRootId: rm.threadRootId ?? null,
     threadSummary: null,
+    merlinReasoning: null,
     ...(rm.streaming ? { streaming: true } : {}),
   }
 }
@@ -181,6 +183,7 @@ export function createOptimisticMessage(
     authorId: author.id,
     content,
     type: referencedMessage ? "reply" : "default",
+    status: "complete",
     createdAt: new Date().toISOString(),
     author,
     referencedMessageId: referencedMessage?.id ?? null,
@@ -193,5 +196,6 @@ export function createOptimisticMessage(
     reactions: [],
     threadRootId: null,
     threadSummary: null,
+    merlinReasoning: null,
   }
 }

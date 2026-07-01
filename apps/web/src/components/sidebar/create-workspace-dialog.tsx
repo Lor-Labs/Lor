@@ -1,5 +1,3 @@
-"use client"
-
 import { authClient } from "@repo/auth/client"
 import { Button } from "@repo/ui/components/button"
 import {

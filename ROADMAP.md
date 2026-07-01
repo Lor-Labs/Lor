@@ -76,7 +76,11 @@
 ## Phase 7 — v2 Features
 
 - [ ] Voice/video (voice channels)
-- [ ] Bots & webhooks (including inbound channel webhooks for integrations like GitHub PR notifications with @mentions)
+- [ ] Bots & webhooks
+  - [ ] **Connector-native notifications** — when connecting a webhook-capable connector (GitHub, Linear, …), a guided in-product flow: opt in, choose which events, and route them to a channel (or auto-create a default `#notifs`). Because we own the connector's authed, signature-verified webhook, we subscribe on the user's behalf and render events richly (a Linear issue as a real card, not raw JSON) — and those messages become searchable history Merlin can summarize/reference, so institutional memory grows automatically. Preferred over a generic inbound URL: more premium, more secure, and Merlin-integrated.
+    - **Design** — extend the `@repo/connectors` registry with a per-connector event catalog + formatters so the guided UI is generic and each connector just declares its notifiable events + rendering (same exhaustive-registry pattern as the descriptors/capabilities). Verify per-provider webhook filtering granularity first (Linear scopes by resource type; GitHub App events are more app-global). Needs a bot/system message type, channel-routing config, and noise control (curated default event set + dedup/batching/rate-limiting for chatty events).
+    - **Why deferred (post-MVP)** — this is a notifications & preferences system in disguise: per-channel mute/silence + event-level preferences, all of which must sync across web, desktop, and mobile (when it exists). Too large a surface for MVP.
+  - [ ] **Generic inbound webhook URL** (Slack/Discord-style) — long-tail fallback for tools without a first-class connector; lower quality (raw payloads, setup lives in the other tool). Ship after the connector-native path, as the floor not the headline.
 
 ---
 

@@ -1,5 +1,3 @@
-"use client"
-
 import { FolderAddIcon, Message01Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"

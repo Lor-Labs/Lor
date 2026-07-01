@@ -18,8 +18,10 @@ interface MessagePage {
     id: string
     content: string | null
     streaming?: boolean
+    status?: "pending" | "complete" | "failed"
     remembered?: { path: string; action: "created" | "updated" }[]
     merlinToolCalls?: ToolCall[]
+    merlinReasoning?: string | null
   }[]
 }
 
@@ -45,6 +47,8 @@ export function useMerlinStream({
       messageId: string
       delta: string
       done: boolean
+      status?: "complete" | "failed"
+      replace?: boolean
     }) => {
       if (payload.channelId !== channelId) return
       // Patch the thread cache when the reply lives in a thread, else the channel feed.
@@ -58,8 +62,11 @@ export function useMerlinStream({
             m.id === payload.messageId
               ? {
                   ...m,
-                  content: (m.content ?? "") + payload.delta,
+                  content: payload.replace
+                    ? payload.delta
+                    : (m.content ?? "") + payload.delta,
                   streaming: !payload.done,
+                  ...(payload.status ? { status: payload.status } : {}),
                 }
               : m
           )
@@ -70,6 +77,41 @@ export function useMerlinStream({
     socket.on("message:stream", handleStream)
     return () => {
       socket.off("message:stream", handleStream)
+    }
+  }, [socket, channelId, queryClient])
+
+  useEffect(() => {
+    if (!socket) return
+
+    const handleReasoning = (payload: {
+      channelId: string
+      threadRootId: string | null
+      messageId: string
+      delta: string
+    }) => {
+      if (payload.channelId !== channelId) return
+      const key = payload.threadRootId
+        ? ["thread", payload.threadRootId]
+        : ["messages", channelId]
+      queryClient.setQueryData<InfiniteData<MessagePage>>(key, (old) => {
+        if (!old) return old
+        return updateMessagesAcrossPages(old, (msgs) =>
+          msgs.map((m) =>
+            m.id === payload.messageId
+              ? {
+                  ...m,
+                  merlinReasoning: (m.merlinReasoning ?? "") + payload.delta,
+                  streaming: true,
+                }
+              : m
+          )
+        )
+      })
+    }
+
+    socket.on("merlin:reasoning", handleReasoning)
+    return () => {
+      socket.off("merlin:reasoning", handleReasoning)
     }
   }, [socket, channelId, queryClient])
 

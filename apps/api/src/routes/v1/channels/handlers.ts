@@ -397,9 +397,12 @@ export const listPinnedMessages: AppRouteHandler<
       channelId: message.channelId,
       content: message.content,
       type: message.type,
+      status: message.status,
       pinned: message.pinned,
       attachments: message.attachments,
       embeds: message.embeds,
+      merlinToolCalls: message.merlinToolCalls,
+      merlinReasoning: message.merlinReasoning,
       referencedMessageId: message.referencedMessageId,
       threadRootId: message.threadRootId,
       editedAt: message.editedAt,
@@ -533,6 +536,7 @@ export const listPinnedMessages: AppRouteHandler<
   const data = messages.map((msg) => ({
     ...msg,
     embeds: msg.embeds ?? [],
+    merlinToolCalls: msg.merlinToolCalls ?? [],
     mentions: (mentionsByMessageId.get(msg.id) ?? []).map((m) => ({
       id: m.id,
       name: m.name,

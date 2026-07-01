@@ -1,5 +1,3 @@
-"use client"
-
 import { createContext, type ReactNode, useContext, useState } from "react"
 import { CreateChannelDialog } from "@/components/sidebar/channel-panel/create-channel-dialog"
 
