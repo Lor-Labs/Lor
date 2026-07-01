@@ -42,7 +42,8 @@ export const CAPABILITIES: Record<MerlinCapability, CapabilityDescriptor> = {
   code: {
     key: "code",
     label: "Code investigation",
-    description: "Explore the connected codebase in a sandbox",
+    description:
+      "Explore the connected codebase in a ephemeral sandbox enviroment",
     connector: "github",
   },
   linear: {

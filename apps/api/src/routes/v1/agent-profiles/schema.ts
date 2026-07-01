@@ -1,5 +1,9 @@
 import { z } from "@hono/zod-openapi"
-import { merlinCapabilityEnum, selectAgentProfileSchema } from "@repo/db/schema"
+import {
+  integrationProviderEnum,
+  merlinCapabilityEnum,
+  selectAgentProfileSchema,
+} from "@repo/db/schema"
 
 export const agentProfilesWorkspaceParamsSchema = z.object({
   workspaceSlug: z.string().openapi({
@@ -29,6 +33,9 @@ export const capabilityDescriptorSchema = z.object({
   key: capabilitySchema,
   label: z.string(),
   description: z.string(),
+  // The connector this capability belongs to — the editor groups by it.
+  connector: z.enum(integrationProviderEnum.enumValues),
+  connectorLabel: z.string(),
 })
 
 export const listAgentProfilesResponseSchema = z.object({

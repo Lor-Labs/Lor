@@ -1,3 +1,4 @@
+import { CONNECTOR_LIST, type ConnectorDescriptor } from "@repo/connectors"
 import { db } from "@repo/db"
 import { integrationConnection } from "@repo/db/schema"
 import { env } from "@repo/env/server"
@@ -37,14 +38,36 @@ function linearConnectUrl(state: string): string | null {
   return `https://linear.app/oauth/authorize?${params.toString()}&scope=read,write`
 }
 
+// The connect entry point per auth type. `state` carries the workspace slug back
+// to the callback/setup redirect. null → the connector shows as Unavailable.
+function connectUrlFor(
+  descriptor: ConnectorDescriptor,
+  state: string
+): string | null {
+  switch (descriptor.authType) {
+    case "github-app":
+      return env.GITHUB_APP_SLUG
+        ? `https://github.com/apps/${env.GITHUB_APP_SLUG}/installations/new?state=${state}`
+        : null
+    case "oauth":
+      // Linear is the only OAuth connector today; per-descriptor OAuth config
+      // will generalize this when a second lands.
+      return descriptor.id === "linear" ? linearConnectUrl(state) : null
+    case "api-key":
+      // Keyed connectors are entered in-app, not via a redirect.
+      return null
+  }
+}
+
 export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
   c
 ) => {
   const workspace = c.var.workspace
 
-  const github = await db
+  const connections = await db
     .select({
       id: integrationConnection.id,
+      provider: integrationConnection.provider,
       accountLogin: integrationConnection.accountLogin,
       externalId: integrationConnection.externalId,
     })
@@ -52,90 +75,55 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
     .where(
       and(
         eq(integrationConnection.workspaceId, workspace.id),
-        eq(integrationConnection.provider, "github"),
         eq(integrationConnection.status, "active")
       )
     )
-    .limit(1)
-    .then((rows) => rows[0])
+  const byProvider = new Map(connections.map((r) => [r.provider, r]))
 
-  // Surface the installation's accessible repos (read-only) + its GitHub manage
-  // URL. Best-effort: a hiccup leaves them null and the card still renders.
-  const MAX_REPOS = 100
-  let repos: { fullName: string; private: boolean }[] | null = null
-  let repoCount: number | null = null
-  let manageUrl: string | null = null
-  if (github) {
-    const overview = await getInstallationOverview(github.externalId).catch(
-      () => null
-    )
-    if (overview) {
-      // Keep the true total before capping the list sent to the client.
-      repoCount = overview.repos.length
-      repos = overview.repos
-        .slice(0, MAX_REPOS)
-        .map((r) => ({ fullName: r.fullName, private: r.private }))
-      manageUrl = overview.manageUrl
-    }
-  }
-
-  // Install link is built server-side so the App slug stays out of the client.
-  // `state` carries the workspace back to the setup redirect.
   if (!env.GITHUB_APP_SLUG) {
     logger.warn(
       { workspaceSlug: workspace.slug },
       "GITHUB_APP_SLUG not set; GitHub integration shows as Unavailable"
     )
   }
-  const connectUrl = env.GITHUB_APP_SLUG
-    ? `https://github.com/apps/${env.GITHUB_APP_SLUG}/installations/new?state=${workspace.slug}`
-    : null
 
-  const linear = await db
-    .select({
-      id: integrationConnection.id,
-      accountLogin: integrationConnection.accountLogin,
+  // GitHub surfaces its accessible repos (read-only) + manage URL; other
+  // connectors have none. Best-effort — a hiccup leaves them null.
+  const MAX_REPOS = 100
+
+  const providers = await Promise.all(
+    CONNECTOR_LIST.map(async (descriptor) => {
+      const conn = byProvider.get(descriptor.id) ?? null
+      let repos: { fullName: string; private: boolean }[] | null = null
+      let repoCount: number | null = null
+      let manageUrl: string | null = null
+      if (descriptor.id === "github" && conn) {
+        const overview = await getInstallationOverview(conn.externalId).catch(
+          () => null
+        )
+        if (overview) {
+          repoCount = overview.repos.length
+          repos = overview.repos
+            .slice(0, MAX_REPOS)
+            .map((r) => ({ fullName: r.fullName, private: r.private }))
+          manageUrl = overview.manageUrl
+        }
+      }
+      return {
+        id: descriptor.id,
+        name: descriptor.label,
+        connected: !!conn,
+        accountLogin: conn?.accountLogin ?? null,
+        connectionId: conn?.id ?? null,
+        connectUrl: connectUrlFor(descriptor, workspace.slug),
+        repos,
+        repoCount,
+        manageUrl,
+      }
     })
-    .from(integrationConnection)
-    .where(
-      and(
-        eq(integrationConnection.workspaceId, workspace.id),
-        eq(integrationConnection.provider, "linear"),
-        eq(integrationConnection.status, "active")
-      )
-    )
-    .limit(1)
-    .then((rows) => rows[0])
-
-  return c.json(
-    {
-      providers: [
-        {
-          id: "github",
-          name: "GitHub",
-          connected: !!github,
-          accountLogin: github?.accountLogin ?? null,
-          connectionId: github?.id ?? null,
-          connectUrl,
-          repos,
-          repoCount,
-          manageUrl,
-        },
-        {
-          id: "linear",
-          name: "Linear",
-          connected: !!linear,
-          accountLogin: linear?.accountLogin ?? null,
-          connectionId: linear?.id ?? null,
-          connectUrl: linearConnectUrl(workspace.slug),
-          repos: null,
-          repoCount: null,
-          manageUrl: null,
-        },
-      ],
-    },
-    HttpStatusCodes.OK
   )
+
+  return c.json({ providers }, HttpStatusCodes.OK)
 }
 
 export const connectGithub: AppRouteHandler<ConnectGithubRoute> = async (c) => {

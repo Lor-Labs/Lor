@@ -12,7 +12,27 @@ import type {
   AvailableCapability,
   MerlinCapabilityKey,
 } from "@/lib/api-types"
-import { capabilityIcon } from "@/lib/capability-icons"
+import { connectorLogo } from "@/lib/connector-logos"
+
+// Group capabilities by their connector, preserving first-seen order.
+function groupByConnector(caps: AvailableCapability[]) {
+  const groups: {
+    connector: AvailableCapability["connector"]
+    connectorLabel: string
+    caps: AvailableCapability[]
+  }[] = []
+  for (const cap of caps) {
+    const group = groups.find((g) => g.connector === cap.connector)
+    if (group) group.caps.push(cap)
+    else
+      groups.push({
+        connector: cap.connector,
+        connectorLabel: cap.connectorLabel,
+        caps: [cap],
+      })
+  }
+  return groups
+}
 
 function GrantedChips({
   profile,
@@ -33,7 +53,7 @@ function GrantedChips({
   return (
     <div className="flex flex-wrap gap-1.5">
       {granted.map((c) => {
-        const Icon = capabilityIcon(c.key)
+        const Icon = connectorLogo(c.connector)
         return (
           <span
             key={c.key}
@@ -57,7 +77,7 @@ function CapabilityTile({
   selected: boolean
   onToggle: () => void
 }) {
-  const Icon = capabilityIcon(cap.key)
+  const Icon = connectorLogo(cap.connector)
   return (
     <button
       type="button"
@@ -199,14 +219,27 @@ function ProfileRow({
             grant tools.
           </p>
         ) : (
-          available.map((cap) => (
-            <CapabilityTile
-              key={cap.key}
-              cap={cap}
-              selected={selected.has(cap.key)}
-              onToggle={() => toggle(cap.key)}
-            />
-          ))
+          groupByConnector(available).map((group) => {
+            const Logo = connectorLogo(group.connector)
+            return (
+              <div key={group.connector} className="space-y-2">
+                <div className="flex items-center gap-1.5 text-muted-foreground">
+                  <Logo className="size-3.5 shrink-0" />
+                  <span className="text-xs font-medium">
+                    {group.connectorLabel}
+                  </span>
+                </div>
+                {group.caps.map((cap) => (
+                  <CapabilityTile
+                    key={cap.key}
+                    cap={cap}
+                    selected={selected.has(cap.key)}
+                    onToggle={() => toggle(cap.key)}
+                  />
+                ))}
+              </div>
+            )
+          })
         )}
       </div>
       <div className="flex justify-end gap-2">
