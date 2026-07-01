@@ -107,7 +107,8 @@ export function createMerlinRespondProcessor(
         const emit = (
           delta: string,
           done: boolean,
-          status?: "complete" | "failed"
+          status?: "complete" | "failed",
+          replace?: boolean
         ) =>
           emitter.to(room).emit("message:stream", {
             channelId,
@@ -116,6 +117,7 @@ export function createMerlinRespondProcessor(
             delta,
             done,
             ...(status ? { status } : {}),
+            ...(replace ? { replace: true } : {}),
           })
 
         // Register the stream so clients can show a thinking indicator.
@@ -242,12 +244,17 @@ export function createMerlinRespondProcessor(
             .set({ content: MERLIN_ERROR_FALLBACK, status: "failed" })
             .where(eq(schema.message.id, merlinMessageId))
             .catch(() => {})
-          emit(MERLIN_ERROR_FALLBACK, true, "failed")
+          // Replace (not append) so a partial answer streamed before the error
+          // is dropped in favor of the fallback, matching the persisted row.
+          emit(MERLIN_ERROR_FALLBACK, true, "failed", true)
           return
         }
 
-        // Phase 2 — persist + fan out. Already streamed, so on failure just log
-        // and emit the final signal (never clobber the shown text).
+        // Phase 2 — persist, then fan out. Persistence decides the terminal
+        // status; fanout is best-effort and never downgrades a saved reply.
+        let finalText = ""
+        let emptyFallback = false
+        let persisted = false
         try {
           // Verify [[…]] citations (brain pages, messages, sources); strip any
           // that don't resolve so a hallucinated source can't masquerade as real
@@ -263,8 +270,7 @@ export function createMerlinRespondProcessor(
           // Safety net: if generation (and its no-tools retry) still yielded
           // nothing, post a graceful note instead of a blank message that
           // would persist across reloads.
-          let finalText = grounded.text
-          let emptyFallback = false
+          finalText = grounded.text
           if (!finalText.trim()) {
             finalText =
               "I couldn't pull together an answer for that — could you add a bit more detail or rephrase?"
@@ -316,56 +322,14 @@ export function createMerlinRespondProcessor(
               merlinMemories: remembered,
             })
             .where(eq(schema.message.id, merlinMessageId))
-
-          // Notify like a normal message: fan out unread/mention to recipients.
-          const channelRow = await db
-            .select({
-              id: schema.channel.id,
-              workspaceId: schema.channel.workspaceId,
-              name: schema.channel.name,
-            })
-            .from(schema.channel)
-            .where(eq(schema.channel.id, channelId))
-            .then((r) => r[0])
-
-          if (channelRow) {
-            const fanout = await buildMessageFanout({
-              authorId: MERLIN_USER_ID,
-              channel: channelRow,
-              message: {
-                id: merlinMessageId,
-                content: finalText,
-                author: { name: "Merlin" },
-                attachments: [],
-              },
-            })
-            for (const n of fanout.unreadNotifications) {
-              emitter
-                .to(userRoom(n.userId))
-                .emit("notification:unread", n.payload)
-            }
-            for (const n of fanout.mentionNotifications) {
-              emitter
-                .to(userRoom(n.userId))
-                .emit("notification:mention", n.payload)
-            }
-          }
-
-          // Normal case streamed the answer already, so just end the stream.
-          // For the empty-fallback case nothing was streamed, so push the
-          // fallback text as the final delta before ending.
-          emit(emptyFallback ? finalText : "", true, "complete")
-          logger.info(
-            { merlinMessageId, length: finalText.length },
-            "Merlin reply complete"
-          )
+          persisted = true
         } catch (err) {
           logger.error(
             { err, merlinMessageId },
-            "Merlin reply persistence/fanout failed after streaming"
+            "Merlin reply persistence failed after streaming"
           )
-          // Only clear a still-pending placeholder — if the completion update
-          // already landed and only fanout failed, leave it "complete".
+          // The answer streamed live but wasn't saved — mark a still-pending
+          // row failed so a reload doesn't hang on the thinking indicator.
           await db
             .update(schema.message)
             .set({ status: "failed" })
@@ -377,6 +341,59 @@ export function createMerlinRespondProcessor(
             )
             .catch(() => {})
           emit("", true, "failed")
+        }
+
+        // Fan out unread/mention like a normal message. Best-effort: a fanout
+        // failure must not downgrade the reply we already saved as complete.
+        if (persisted) {
+          try {
+            const channelRow = await db
+              .select({
+                id: schema.channel.id,
+                workspaceId: schema.channel.workspaceId,
+                name: schema.channel.name,
+              })
+              .from(schema.channel)
+              .where(eq(schema.channel.id, channelId))
+              .then((r) => r[0])
+
+            if (channelRow) {
+              const fanout = await buildMessageFanout({
+                authorId: MERLIN_USER_ID,
+                channel: channelRow,
+                message: {
+                  id: merlinMessageId,
+                  content: finalText,
+                  author: { name: "Merlin" },
+                  attachments: [],
+                },
+              })
+              for (const n of fanout.unreadNotifications) {
+                emitter
+                  .to(userRoom(n.userId))
+                  .emit("notification:unread", n.payload)
+              }
+              for (const n of fanout.mentionNotifications) {
+                emitter
+                  .to(userRoom(n.userId))
+                  .emit("notification:mention", n.payload)
+              }
+            }
+          } catch (err) {
+            logger.error(
+              { err, merlinMessageId },
+              "Merlin reply fanout failed after persistence"
+            )
+          }
+
+          // Normal case streamed the answer already, so just end the stream.
+          // For the empty-fallback case nothing was streamed, so push the
+          // fallback text as the final delta before ending.
+          emit(emptyFallback ? finalText : "", true, "complete")
+          logger.info(
+            { merlinMessageId, length: finalText.length },
+            "Merlin reply complete"
+          )
         }
 
         // Phase 3 — autonomous write-back. Per-workspace lock serializes brain

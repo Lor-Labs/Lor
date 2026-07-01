@@ -48,6 +48,7 @@ export function useMerlinStream({
       delta: string
       done: boolean
       status?: "complete" | "failed"
+      replace?: boolean
     }) => {
       if (payload.channelId !== channelId) return
       // Patch the thread cache when the reply lives in a thread, else the channel feed.
@@ -61,7 +62,9 @@ export function useMerlinStream({
             m.id === payload.messageId
               ? {
                   ...m,
-                  content: (m.content ?? "") + payload.delta,
+                  content: payload.replace
+                    ? payload.delta
+                    : (m.content ?? "") + payload.delta,
                   streaming: !payload.done,
                   ...(payload.status ? { status: payload.status } : {}),
                 }

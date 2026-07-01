@@ -367,6 +367,9 @@ export interface ServerToClientEvents {
     // Terminal status on the final chunk, so the client clears the
     // placeholder's "pending" state live (not just on reload).
     status?: "complete" | "failed"
+    // When set, `delta` replaces the message content instead of appending —
+    // used on failure to drop a partial answer in favor of the fallback text.
+    replace?: boolean
   }) => void
   // Merlin's summarized extended-thinking, streamed before/between the answer.
   // delta = new reasoning chunk; the client appends it to the message's
