@@ -27,6 +27,7 @@ import { MessageActionBar } from "@/components/chat/message-action-bar"
 import { AttachmentGrid } from "@/components/chat/message-attachment"
 import { MessageEditInput } from "@/components/chat/message-edit-input"
 import { MessageMarkdown } from "@/components/chat/message-markdown"
+import { ThinkingIndicator } from "@/components/chat/thinking-indicator"
 import { UserProfilePopover } from "@/components/ui/user-profile-card"
 import type { Message } from "@/lib/api-types"
 
@@ -343,12 +344,15 @@ export function MessageItem({
               onCancel={handleEditCancel}
               mentionCandidates={mentionCandidates}
             />
-          ) : message.streaming &&
+          ) : (message.streaming || message.status === "pending") &&
             !message.content &&
             !(message.merlinToolCalls && message.merlinToolCalls.length > 0) ? (
-            <span className="inline-flex items-center text-sm text-muted-foreground italic">
-              Merlin is thinking
-              <span className="ml-1 animate-pulse">…</span>
+            // In-flight Merlin reply: `streaming` covers the live client, while
+            // `status === "pending"` survives a reload / late thread join.
+            <ThinkingIndicator />
+          ) : message.status === "failed" && !message.content ? (
+            <span className="text-sm text-muted-foreground italic">
+              Merlin couldn't respond to that.
             </span>
           ) : message.merlinToolCalls && message.merlinToolCalls.length > 0 ? (
             // Merlin: interleave answer text with tool-call groups in order.

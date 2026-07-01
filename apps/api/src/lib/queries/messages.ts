@@ -26,6 +26,7 @@ type BareMessageRow = {
   channelId: string
   content: string | null
   type: (typeof message.type.enumValues)[number]
+  status: (typeof message.status.enumValues)[number]
   pinned: boolean
   attachments: Attachment[] | null
   embeds: Embed[] | null
@@ -50,6 +51,7 @@ const messageSelect = {
   channelId: message.channelId,
   content: message.content,
   type: message.type,
+  status: message.status,
   pinned: message.pinned,
   attachments: message.attachments,
   embeds: message.embeds,

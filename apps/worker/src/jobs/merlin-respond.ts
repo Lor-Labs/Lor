@@ -156,6 +156,11 @@ export function createMerlinRespondProcessor(
               { channelId, merlinMessageId },
               "Merlin invoked outside a workspace channel; skipping"
             )
+            await db
+              .update(schema.message)
+              .set({ status: "failed" })
+              .where(eq(schema.message.id, merlinMessageId))
+              .catch(() => {})
             emit("", true)
             return
           }
@@ -208,7 +213,7 @@ export function createMerlinRespondProcessor(
             "⚠️ I ran into an error answering that. Please try again."
           await db
             .update(schema.message)
-            .set({ content: fallback })
+            .set({ content: fallback, status: "failed" })
             .where(eq(schema.message.id, merlinMessageId))
             .catch(() => {})
           emit(fallback, true)
@@ -277,6 +282,7 @@ export function createMerlinRespondProcessor(
             .update(schema.message)
             .set({
               content: finalText,
+              status: "complete",
               merlinToolCalls: persistedToolCalls,
               // Explicit "remember this" saves so far; write-back may add more
               // after this and re-persists then.

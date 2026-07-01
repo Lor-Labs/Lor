@@ -397,6 +397,7 @@ export const listPinnedMessages: AppRouteHandler<
       channelId: message.channelId,
       content: message.content,
       type: message.type,
+      status: message.status,
       pinned: message.pinned,
       attachments: message.attachments,
       embeds: message.embeds,

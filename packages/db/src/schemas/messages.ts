@@ -23,6 +23,15 @@ export const messageTypeEnum = pgEnum("message_type", [
   "channel_name_change",
 ])
 
+// Lifecycle of a message row. Everything is "complete" except a Merlin
+// placeholder, which lands as "pending" and flips to "complete"/"failed" when
+// the worker finishes — so the thinking indicator survives a reload/late join.
+export const messageStatusEnum = pgEnum("message_status", [
+  "complete",
+  "pending",
+  "failed",
+])
+
 export const message = pgTable(
   "message",
   {
@@ -36,6 +45,7 @@ export const message = pgTable(
 
     content: text("content"),
     type: messageTypeEnum("type").notNull().default("default"),
+    status: messageStatusEnum("status").notNull().default("complete"),
 
     // for replies — points to the message being replied to
     referencedMessageId: uuid("referenced_message_id").references(
@@ -128,6 +138,8 @@ export const insertMessageSchema = createInsertSchema(message).omit({
   createdAt: true,
   editedAt: true,
 })
+
+export type MessageStatus = (typeof messageStatusEnum.enumValues)[number]
 
 // Type definitions for the JSONB fields
 export type Attachment = {
