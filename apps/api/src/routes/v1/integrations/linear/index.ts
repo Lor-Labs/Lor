@@ -24,11 +24,16 @@ linearRouter.post("/integrations/linear/webhook", async (c) => {
     return c.json({ ok: false }, 503)
   }
 
+  // content-length is a cheap early-out but can be absent or lie; enforce the
+  // real size against the buffered body below too.
   if (Number(c.req.header("content-length") ?? 0) > MAX_WEBHOOK_BYTES) {
     return c.json({ ok: false }, 413)
   }
 
   const raw = await c.req.text()
+  if (Buffer.byteLength(raw) > MAX_WEBHOOK_BYTES) {
+    return c.json({ ok: false }, 413)
+  }
   const signature = c.req.header("linear-signature") ?? ""
   const timestamp = c.req.header("linear-timestamp")
   let event: LinearEvent
@@ -40,30 +45,31 @@ linearRouter.post("/integrations/linear/webhook", async (c) => {
   }
 
   // Lifecycle: revoking the OAuth app drops the connection (sources cascade).
-  // Fire-and-forget so we ack immediately.
+  // Await the cleanup so a failure returns non-2xx and Linear retries, rather
+  // than acking a delete that never landed.
   if (
     event.type === "OAuthApp" &&
     event.action === "revoked" &&
     event.organizationId
   ) {
     const organizationId = event.organizationId
-    void db
-      .delete(schema.integrationConnection)
-      .where(
-        and(
-          eq(schema.integrationConnection.provider, "linear"),
-          eq(schema.integrationConnection.externalId, organizationId)
+    try {
+      await db
+        .delete(schema.integrationConnection)
+        .where(
+          and(
+            eq(schema.integrationConnection.provider, "linear"),
+            eq(schema.integrationConnection.externalId, organizationId)
+          )
         )
+      logger.info(
+        { organizationId },
+        "Linear OAuth app revoked; connection removed"
       )
-      .then(() =>
-        logger.info(
-          { organizationId },
-          "Linear OAuth app revoked; connection removed"
-        )
-      )
-      .catch((err) =>
-        logger.error({ err }, "Linear OAuth app revoke handling failed")
-      )
+    } catch (err) {
+      logger.error({ err }, "Linear OAuth app revoke handling failed")
+      return c.json({ ok: false }, 500)
+    }
   }
 
   return c.json({ ok: true })

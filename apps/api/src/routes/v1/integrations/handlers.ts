@@ -11,6 +11,7 @@ import { and, eq, ne, sql } from "drizzle-orm"
 import { invalidateGithubRepoCache } from "@/lib/github-repo-cache"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
+import { signOAuthState, verifyOAuthState } from "@/lib/oauth-state"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
   ConnectGithubRoute,
@@ -38,21 +39,25 @@ function linearConnectUrl(state: string): string | null {
   return `https://linear.app/oauth/authorize?${params.toString()}&scope=read,write`
 }
 
-// The connect entry point per auth type. `state` carries the workspace slug back
-// to the callback/setup redirect. null → the connector shows as Unavailable.
+// The connect entry point per auth type. The `state` round-trips back to the
+// callback/setup redirect: OAuth uses a short-lived signed state (CSRF-bound to
+// the user + workspace); the GitHub App install carries the raw slug. null → the
+// connector shows as Unavailable.
 function connectUrlFor(
   descriptor: ConnectorDescriptor,
-  state: string
+  ctx: { slug: string; userId: string }
 ): string | null {
   switch (descriptor.authType) {
     case "github-app":
       return env.GITHUB_APP_SLUG
-        ? `https://github.com/apps/${env.GITHUB_APP_SLUG}/installations/new?state=${state}`
+        ? `https://github.com/apps/${env.GITHUB_APP_SLUG}/installations/new?state=${ctx.slug}`
         : null
     case "oauth":
       // Linear is the only OAuth connector today; per-descriptor OAuth config
       // will generalize this when a second lands.
-      return descriptor.id === "linear" ? linearConnectUrl(state) : null
+      return descriptor.id === "linear"
+        ? linearConnectUrl(signOAuthState(ctx.slug, ctx.userId))
+        : null
     case "api-key":
       // Keyed connectors are entered in-app, not via a redirect.
       return null
@@ -115,7 +120,10 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
         connected: !!conn,
         accountLogin: conn?.accountLogin ?? null,
         connectionId: conn?.id ?? null,
-        connectUrl: connectUrlFor(descriptor, workspace.slug),
+        connectUrl: connectUrlFor(descriptor, {
+          slug: workspace.slug,
+          userId: c.var.user.id,
+        }),
         repos,
         repoCount,
         manageUrl,
@@ -222,7 +230,16 @@ export const connectGithub: AppRouteHandler<ConnectGithubRoute> = async (c) => {
 
 export const connectLinear: AppRouteHandler<ConnectLinearRoute> = async (c) => {
   const workspace = c.var.workspace
-  const { code } = c.req.valid("json")
+  const { code, state } = c.req.valid("json")
+
+  // Verify the signed OAuth state before spending the code: it must be minted
+  // for this user and bound to this workspace (blocks connection fixation).
+  if (verifyOAuthState(state, c.var.user.id) !== workspace.slug) {
+    return c.json(
+      { success: false, message: "Invalid or expired connection request" },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
 
   // Exchange the code for tokens + resolve the org (returns encrypted tokens).
   const result = await exchangeLinearCode(code, linearRedirectUri()).catch(
@@ -255,10 +272,17 @@ export const connectLinear: AppRouteHandler<ConnectLinearRoute> = async (c) => {
       .then((rows) => rows[0])
     if (existing && existing.workspaceId !== workspace.id) return false
 
-    // One active Linear connection per workspace: retire any others.
+    // One active Linear connection per workspace: retire any others and wipe
+    // their encrypted tokens so stale secrets don't linger on revoked rows.
     await tx
       .update(integrationConnection)
-      .set({ status: "revoked" })
+      .set({
+        status: "revoked",
+        accessToken: null,
+        refreshToken: null,
+        tokenExpiresAt: null,
+        scope: null,
+      })
       .where(
         and(
           eq(integrationConnection.workspaceId, workspace.id),

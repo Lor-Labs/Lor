@@ -11,9 +11,10 @@ type CallbackSearch = {
   error?: string
 }
 
-// Linear redirects here after OAuth consent with ?code=…&state=<workspaceSlug>
-// (or ?error=… on denial). We exchange the code via the API, then bounce back
-// into the workspace.
+// Linear redirects here after OAuth consent with ?code=…&state=<signedState>
+// (or ?error=… on denial). The state is `<slug>.<exp>.<sig>` — the slug routes
+// the request; the API verifies the full signature. We exchange the code, then
+// bounce back into the workspace.
 export const Route = createFileRoute(
   "/_authenticated/integrations/linear/callback"
 )({
@@ -42,13 +43,15 @@ function LinearCallback() {
         await navigate({ to: "/" })
         return
       }
+      // The slug prefix routes the request; the API verifies the full state.
+      const slug = state.split(".")[0] ?? state
       let connected = false
       try {
         const res = await apiClient.v1.workspaces[
           ":workspaceSlug"
         ].integrations.linear.connect.$post({
-          param: { workspaceSlug: state },
-          json: { code },
+          param: { workspaceSlug: slug },
+          json: { code, state },
         })
         connected = res.ok
         toast[res.ok ? "success" : "error"](
@@ -59,7 +62,7 @@ function LinearCallback() {
       }
       await navigate({
         to: "/$workspaceSlug",
-        params: { workspaceSlug: state },
+        params: { workspaceSlug: slug },
         search: connected ? { settings: "workspace", tab: "integrations" } : {},
         replace: true,
       })

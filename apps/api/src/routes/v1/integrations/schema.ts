@@ -56,6 +56,8 @@ export const connectGithubResponseSchema = z.object({
 export const connectLinearRequestSchema = z.object({
   // The OAuth authorization code from Linear's callback.
   code: z.string().min(1),
+  // The signed `state` Linear echoed back, verified server-side (CSRF).
+  state: z.string().min(1),
 })
 
 export const connectLinearResponseSchema = z.object({

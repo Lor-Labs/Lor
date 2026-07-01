@@ -485,7 +485,7 @@ function IntegrationsSection({ workspaceSlug }: { workspaceSlug: string }) {
                       rel="noreferrer noopener"
                       className="inline-flex shrink-0 cursor-pointer items-center gap-1 text-xs text-muted-foreground hover:text-foreground hover:underline"
                     >
-                      Manage on GitHub
+                      Manage on {p.name}
                       <ExternalLink className="size-3" />
                     </a>
                   )}
