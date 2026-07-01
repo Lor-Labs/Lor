@@ -3,13 +3,11 @@ import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar"
 import { Button } from "@repo/ui/components/button"
 import { Input } from "@repo/ui/components/input"
 import { Label } from "@repo/ui/components/label"
-import { LinearLogo } from "@repo/ui/components/logos/linear"
 import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   Camera,
   ExternalLink,
-  Github,
   Layers,
   Loader2,
   Lock,
@@ -19,17 +17,12 @@ import {
   X,
 } from "lucide-react"
 import { AnimatePresence, motion } from "motion/react"
-import {
-  type ComponentType,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { toast } from "sonner"
 import { MerlinProfilesSection } from "@/components/workspace/merlin-profiles-section"
 import { apiClient } from "@/lib/api-client"
+import { connectorLogo } from "@/lib/connector-ui"
 
 const MAX_WORKSPACE_ICON_BYTES = 2 * 1024 * 1024
 const ACCEPTED_IMAGE_TYPES = [
@@ -372,17 +365,6 @@ function GeneralSection({
   )
 }
 
-// fill-current so the brand mark inherits the theme's foreground color.
-function LinearIcon({ className }: { className?: string }) {
-  return <LinearLogo variant="logo" className={cn(className, "fill-current")} />
-}
-
-// Brand marks (logo components) and lucide glyphs share one shape here.
-const PROVIDER_ICONS: Record<string, ComponentType<{ className?: string }>> = {
-  github: Github,
-  linear: LinearIcon,
-}
-
 // How many repo chips to show before collapsing the rest into a "+N more".
 const REPO_DISPLAY_LIMIT = 8
 
@@ -445,7 +427,7 @@ function IntegrationsSection({ workspaceSlug }: { workspaceSlug: string }) {
         your workspace's memory.
       </p>
       {data?.providers.map((p) => {
-        const Icon = PROVIDER_ICONS[p.id] ?? Plug
+        const Icon = connectorLogo(p.id)
         const repos = p.repos ?? []
         // `repos` may be capped server-side; repoCount is the true total.
         const repoCount = p.repoCount ?? repos.length

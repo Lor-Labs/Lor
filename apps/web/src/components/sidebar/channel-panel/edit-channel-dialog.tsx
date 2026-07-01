@@ -29,7 +29,7 @@ import type {
   AvailableCapability,
   Channel,
 } from "@/lib/api-types"
-import { connectorLogo } from "@/lib/connector-logos"
+import { connectorLogo } from "@/lib/connector-ui"
 
 const INHERIT = "__inherit__"
 

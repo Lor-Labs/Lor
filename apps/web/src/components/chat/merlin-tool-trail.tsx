@@ -1,4 +1,3 @@
-import { LinearLogo } from "@repo/ui/components/logos/linear"
 import { cn } from "@repo/ui/lib/utils"
 import {
   BookOpen,
@@ -6,7 +5,6 @@ import {
   Code,
   Download,
   ExternalLink,
-  Github,
   PencilLine,
   Search,
   Terminal,
@@ -15,6 +13,11 @@ import {
 import { type ComponentType, useState } from "react"
 import { MessageMarkdown } from "@/components/chat/message-markdown"
 import type { MerlinToolCallView } from "@/lib/api-types"
+import {
+  connectorForTool,
+  connectorForUrl,
+  connectorLogo,
+} from "@/lib/connector-ui"
 
 // Codex/Cursor-style tool trail: a collapsible summary of the tools Merlin used
 // to answer, each row drillable into its result. Expanded live while streaming
@@ -23,24 +26,13 @@ import type { MerlinToolCallView } from "@/lib/api-types"
 // Brand marks and lucide glyphs share one shape here.
 type TrailIcon = ComponentType<{ className?: string }>
 
-// fill-current so the mark inherits the row/link color (incl. the violet links).
-function LinearMark({ className }: { className?: string }) {
-  return <LinearLogo variant="logo" className={cn(className, "fill-current")} />
-}
-
 function toolIcon(toolName: string): TrailIcon {
+  // Connector tools wear their brand mark; built-in tools get an action glyph.
+  const connector = connectorForTool(toolName)
+  if (connector) return connectorLogo(connector)
   switch (toolName) {
     case "investigate_code":
       return Code
-    // Connector tools wear their brand mark, not an action glyph.
-    case "search_github":
-    case "fetch_github":
-      return Github
-    case "search_linear":
-    case "fetch_linear":
-    case "create_linear_issue":
-    case "comment_linear":
-      return LinearMark
     case "search_sources":
     case "search_messages":
     // Claude Code sub-tools (capitalized) streamed from the sandbox agent:
@@ -66,12 +58,11 @@ function toolIcon(toolName: string): TrailIcon {
   }
 }
 
-// Provider logo for a result item, inferred from its url (extends naturally as
-// more connectors land). Falls back to a generic external-link glyph.
+// Provider logo for a result item, inferred from its url; falls back to a
+// generic external-link glyph.
 function itemIcon(url?: string): TrailIcon {
-  if (url && /(^|\.)github\.com\b/i.test(url)) return Github
-  if (url && /(^|\.)linear\.app\b/i.test(url)) return LinearMark
-  return ExternalLink
+  const connector = connectorForUrl(url)
+  return connector ? connectorLogo(connector) : ExternalLink
 }
 
 function hasDetail(t: MerlinToolCallView): boolean {

@@ -12,7 +12,7 @@ import type {
   AvailableCapability,
   MerlinCapabilityKey,
 } from "@/lib/api-types"
-import { connectorLogo } from "@/lib/connector-logos"
+import { connectorLogo } from "@/lib/connector-ui"
 
 // Group capabilities by their connector, preserving first-seen order.
 function groupByConnector(caps: AvailableCapability[]) {
