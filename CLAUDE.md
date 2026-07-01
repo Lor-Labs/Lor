@@ -20,7 +20,7 @@ This is a pnpm + Turborepo monorepo for **Lor** — the AI multiplayer workspace
 
 ### Workspaces
 
-- `apps/web` — Next.js 16.1.6 main app (React 19, App Router, port 3000)
+- `apps/web` — Vite + TanStack Router SPA, main app (React 19, client-rendered, no SSR, port 3000)
 - `apps/www` — Next.js 16.1.6 marketing site (React 19, App Router, port 3001)
 - `apps/api` — Hono API server (`@repo/api`), OpenAPI via `@hono/zod-openapi`
 - `apps/realtime` — Socket.IO realtime gateway (`@repo/realtime`, defaults to port 8081)

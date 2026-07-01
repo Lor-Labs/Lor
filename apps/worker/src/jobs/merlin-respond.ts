@@ -32,6 +32,9 @@ const CONTEXT_LIMIT = 30
 // Write-back lock TTL (s); auto-releases if the worker crashes.
 const WRITEBACK_LOCK_TTL = 120
 
+const MERLIN_ERROR_FALLBACK =
+  "⚠️ I ran into an error answering that. Please try again."
+
 // Recent channel/thread messages, oldest→newest; skips the placeholder + empties.
 async function loadConversation(args: {
   channelId: string
@@ -101,13 +104,18 @@ export function createMerlinRespondProcessor(
           ? threadRoom(threadRootId)
           : channelRoom(channelId)
 
-        const emit = (delta: string, done: boolean) =>
+        const emit = (
+          delta: string,
+          done: boolean,
+          status?: "complete" | "failed"
+        ) =>
           emitter.to(room).emit("message:stream", {
             channelId,
             threadRootId,
             messageId: merlinMessageId,
             delta,
             done,
+            ...(status ? { status } : {}),
           })
 
         // Register the stream so clients can show a thinking indicator.
@@ -172,10 +180,10 @@ export function createMerlinRespondProcessor(
             )
             await db
               .update(schema.message)
-              .set({ status: "failed" })
+              .set({ content: MERLIN_ERROR_FALLBACK, status: "failed" })
               .where(eq(schema.message.id, merlinMessageId))
               .catch(() => {})
-            emit("", true)
+            emit(MERLIN_ERROR_FALLBACK, true, "failed")
             return
           }
           workspaceId = channel.workspaceId
@@ -229,14 +237,12 @@ export function createMerlinRespondProcessor(
             .join("\n")}\n\nMerlin: ${answer.text}`
         } catch (err) {
           logger.error({ err, merlinMessageId }, "Merlin response failed")
-          const fallback =
-            "⚠️ I ran into an error answering that. Please try again."
           await db
             .update(schema.message)
-            .set({ content: fallback, status: "failed" })
+            .set({ content: MERLIN_ERROR_FALLBACK, status: "failed" })
             .where(eq(schema.message.id, merlinMessageId))
             .catch(() => {})
-          emit(fallback, true)
+          emit(MERLIN_ERROR_FALLBACK, true, "failed")
           return
         }
 
@@ -348,7 +354,7 @@ export function createMerlinRespondProcessor(
           // Normal case streamed the answer already, so just end the stream.
           // For the empty-fallback case nothing was streamed, so push the
           // fallback text as the final delta before ending.
-          emit(emptyFallback ? finalText : "", true)
+          emit(emptyFallback ? finalText : "", true, "complete")
           logger.info(
             { merlinMessageId, length: finalText.length },
             "Merlin reply complete"
@@ -358,7 +364,19 @@ export function createMerlinRespondProcessor(
             { err, merlinMessageId },
             "Merlin reply persistence/fanout failed after streaming"
           )
-          emit("", true)
+          // Only clear a still-pending placeholder — if the completion update
+          // already landed and only fanout failed, leave it "complete".
+          await db
+            .update(schema.message)
+            .set({ status: "failed" })
+            .where(
+              and(
+                eq(schema.message.id, merlinMessageId),
+                eq(schema.message.status, "pending")
+              )
+            )
+            .catch(() => {})
+          emit("", true, "failed")
         }
 
         // Phase 3 — autonomous write-back. Per-workspace lock serializes brain

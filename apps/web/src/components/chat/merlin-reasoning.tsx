@@ -1,5 +1,3 @@
-"use client"
-
 import { cn } from "@repo/ui/lib/utils"
 import { ChevronRight } from "lucide-react"
 import { useEffect, useState } from "react"

@@ -1,5 +1,3 @@
-"use client"
-
 import { useEffect, useState } from "react"
 
 // Claude-Code-style nonsense gerunds Merlin cycles through while it works — a

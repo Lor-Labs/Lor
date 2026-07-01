@@ -18,6 +18,7 @@ interface MessagePage {
     id: string
     content: string | null
     streaming?: boolean
+    status?: "pending" | "complete" | "failed"
     remembered?: { path: string; action: "created" | "updated" }[]
     merlinToolCalls?: ToolCall[]
     merlinReasoning?: string | null
@@ -46,6 +47,7 @@ export function useMerlinStream({
       messageId: string
       delta: string
       done: boolean
+      status?: "complete" | "failed"
     }) => {
       if (payload.channelId !== channelId) return
       // Patch the thread cache when the reply lives in a thread, else the channel feed.
@@ -61,6 +63,7 @@ export function useMerlinStream({
                   ...m,
                   content: (m.content ?? "") + payload.delta,
                   streaming: !payload.done,
+                  ...(payload.status ? { status: payload.status } : {}),
                 }
               : m
           )

@@ -364,6 +364,9 @@ export interface ServerToClientEvents {
     messageId: string
     delta: string
     done: boolean
+    // Terminal status on the final chunk, so the client clears the
+    // placeholder's "pending" state live (not just on reload).
+    status?: "complete" | "failed"
   }) => void
   // Merlin's summarized extended-thinking, streamed before/between the answer.
   // delta = new reasoning chunk; the client appends it to the message's
