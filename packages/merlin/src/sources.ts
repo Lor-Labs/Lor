@@ -1,13 +1,12 @@
-import { anthropic } from "@ai-sdk/anthropic"
 import { and, cosineDistance, db, eq, isNotNull, schema } from "@repo/db"
 import { generateText, tool } from "ai"
 import { z } from "zod"
 import { embedText } from "./embeddings"
+import { MERLIN_SMALL_FALLBACK_MODEL, MERLIN_SMALL_MODEL } from "./models"
 import { getSourceProvider } from "./providers"
 
 const SEARCH_DEFAULT_LIMIT = 6
 const SEARCH_MAX_LIMIT = 15
-const SUMMARY_MODEL = "claude-haiku-4-5"
 
 // Reject malformed citation ids before querying.
 const UUID_REGEX =
@@ -197,8 +196,11 @@ const SUMMARY_FALLBACK_MAX = 1000
 async function summarize(input: IngestSourceInput): Promise<string> {
   try {
     const { text } = await generateText({
-      model: anthropic(SUMMARY_MODEL),
+      model: MERLIN_SMALL_MODEL,
       prompt: `Summarize this ${input.provider} ${input.kind} for a team's institutional memory in 2–4 sentences: what changed or was decided, who did it, and why it matters. Be factual and specific; no preamble.\n\nTitle: ${input.title}\nAuthor: ${input.author ?? "unknown"}\n\n${input.content}`,
+      providerOptions: {
+        gateway: { models: [MERLIN_SMALL_FALLBACK_MODEL] },
+      },
     })
     return text.trim()
   } catch {
