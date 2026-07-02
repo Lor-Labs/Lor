@@ -6,6 +6,7 @@ import {
   connectLinear as exchangeLinearCode,
   getInstallationOverview,
   getSourceProvider,
+  connectDatadog as verifyDatadogKeys,
 } from "@repo/merlin/providers"
 import { and, eq, ne, sql } from "drizzle-orm"
 import { invalidateGithubRepoCache } from "@/lib/github-repo-cache"
@@ -14,6 +15,7 @@ import { logger } from "@/lib/logger"
 import { signOAuthState, verifyOAuthState } from "@/lib/oauth-state"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
+  ConnectDatadogRoute,
   ConnectGithubRoute,
   ConnectLinearRoute,
   DisconnectIntegrationRoute,
@@ -114,16 +116,24 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
           manageUrl = overview.manageUrl
         }
       }
+      const connectUrl = connectUrlFor(descriptor, {
+        slug: workspace.slug,
+        userId: c.var.user.id,
+      })
       return {
         id: descriptor.id,
         name: descriptor.label,
         connected: !!conn,
         accountLogin: conn?.accountLogin ?? null,
         connectionId: conn?.id ?? null,
-        connectUrl: connectUrlFor(descriptor, {
-          slug: workspace.slug,
-          userId: c.var.user.id,
-        }),
+        authType: descriptor.authType,
+        // api-key connectors have no connect URL; they only need the encryption
+        // key configured server-side to accept pasted credentials.
+        available:
+          descriptor.authType === "api-key"
+            ? Boolean(env.INTEGRATION_ENCRYPTION_KEY)
+            : connectUrl !== null,
+        connectUrl,
         repos,
         repoCount,
         manageUrl,
@@ -331,6 +341,117 @@ export const connectLinear: AppRouteHandler<ConnectLinearRoute> = async (c) => {
       {
         success: false,
         message: "This Linear workspace is connected to another workspace",
+      },
+      HttpStatusCodes.CONFLICT
+    )
+  }
+
+  return c.json(
+    { success: true as const, accountLogin: result.accountLabel },
+    HttpStatusCodes.OK
+  )
+}
+
+export const connectDatadog: AppRouteHandler<ConnectDatadogRoute> = async (
+  c
+) => {
+  const workspace = c.var.workspace
+  const { site, apiKey, appKey } = c.req.valid("json")
+
+  if (!env.INTEGRATION_ENCRYPTION_KEY) {
+    return c.json(
+      { success: false, message: "Datadog isn't available on this server" },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+
+  // Verify the keys can actually read logs before persisting (returns them
+  // encrypted, with the external id fingerprinted from the API key).
+  const result = await verifyDatadogKeys({ site, apiKey, appKey }).catch(
+    () => null
+  )
+  if (!result) {
+    return c.json(
+      {
+        success: false,
+        message:
+          "Couldn't verify the Datadog keys — check the site, API key, and that the application key can read logs",
+      },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+
+  const ok = await db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${`${workspace.id}:datadog`}, 0))`
+    )
+
+    // The key fingerprint is globally unique; don't let one workspace attach
+    // credentials already linked to another.
+    const existing = await tx
+      .select({ workspaceId: integrationConnection.workspaceId })
+      .from(integrationConnection)
+      .where(
+        and(
+          eq(integrationConnection.provider, "datadog"),
+          eq(integrationConnection.externalId, result.externalId)
+        )
+      )
+      .limit(1)
+      .then((rows) => rows[0])
+    if (existing && existing.workspaceId !== workspace.id) return false
+
+    // One active Datadog connection per workspace: retire any others and wipe
+    // their encrypted keys so stale secrets don't linger on revoked rows.
+    await tx
+      .update(integrationConnection)
+      .set({ status: "revoked", apiKey: null, appKey: null, site: null })
+      .where(
+        and(
+          eq(integrationConnection.workspaceId, workspace.id),
+          eq(integrationConnection.provider, "datadog"),
+          eq(integrationConnection.status, "active"),
+          ne(integrationConnection.externalId, result.externalId)
+        )
+      )
+
+    const written = await tx
+      .insert(integrationConnection)
+      .values({
+        workspaceId: workspace.id,
+        provider: "datadog",
+        externalId: result.externalId,
+        accountLogin: result.accountLabel,
+        apiKey: result.apiKey,
+        appKey: result.appKey,
+        site,
+        status: "active",
+      })
+      .onConflictDoUpdate({
+        target: [
+          integrationConnection.provider,
+          integrationConnection.externalId,
+        ],
+        set: {
+          workspaceId: workspace.id,
+          accountLogin: result.accountLabel,
+          apiKey: result.apiKey,
+          appKey: result.appKey,
+          site,
+          status: "active",
+        },
+        setWhere: eq(integrationConnection.workspaceId, workspace.id),
+      })
+      .returning({ id: integrationConnection.id })
+
+    return written.length > 0
+  })
+
+  if (!ok) {
+    return c.json(
+      {
+        success: false,
+        message: "These Datadog keys are connected to another workspace",
       },
       HttpStatusCodes.CONFLICT
     )

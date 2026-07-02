@@ -31,6 +31,7 @@ import {
   rewriteCitations,
 } from "./citations"
 import { codeTools } from "./code"
+import { datadogMcpTools, resolveWorkspaceDatadog } from "./datadog"
 import { embedText } from "./embeddings"
 import { githubTools, resolveWorkspaceGithub } from "./github"
 import { linearTools, linearWriteTools, resolveWorkspaceLinear } from "./linear"
@@ -71,6 +72,8 @@ const GITHUB_PROMPT_LINE = `- The team's GitHub: search_github finds pull reques
 const LINEAR_PROMPT_LINE = `- The team's Linear: search_linear finds issues by keyword and fetch_linear pulls one's full description and comments. Reference a Linear issue with a normal Markdown link to its url (live results, not [[src:]] citations).`
 
 const LINEAR_WRITE_PROMPT_LINE = `- When asked to file or follow up in Linear: create_linear_issue opens an issue and comment_linear adds a comment.`
+
+const DATADOG_PROMPT_LINE = `- The team's Datadog: search_datadog_logs searches indexed logs (query syntax like service:checkout status:error) and analyze_datadog_logs runs counts/aggregations over them. Default to the last hour unless the question implies a range, keep result limits small, and reference Datadog links with normal Markdown links (live results, not [[src:]] citations).`
 
 const SYSTEM_PROMPT_TAIL = `You can also see images people share in the channel — they're included inline in the conversation below.
 
@@ -374,6 +377,12 @@ function toolLabel(toolName: string, input: unknown): string {
     }
     case "comment_linear":
       return "Commenting on a Linear issue"
+    case "search_datadog_logs":
+      return query
+        ? `Searching Datadog logs for “${query}”`
+        : "Searching Datadog logs"
+    case "analyze_datadog_logs":
+      return "Analyzing Datadog logs"
     case "search_messages":
       return query ? `Searching messages for “${query}”` : "Searching messages"
     case "read_thread":
@@ -570,6 +579,29 @@ function toolDetail(
         },
       }
     }
+    case "search_datadog_logs":
+    case "analyze_datadog_logs": {
+      // MCP tool result: { content: [{ type: "text", text }], isError? }.
+      const parts = Array.isArray(rec?.content) ? rec.content : []
+      const firstText = parts
+        .map((p) => asString(asRecord(p)?.text))
+        .find((t) => t !== undefined)
+      if (rec?.isError === true) {
+        return {
+          status: "error",
+          detail: { summary: firstText?.slice(0, 200) ?? "failed" },
+        }
+      }
+      return {
+        status: "ok",
+        detail: {
+          summary:
+            toolName === "search_datadog_logs"
+              ? "Searched Datadog logs"
+              : "Analyzed Datadog logs",
+        },
+      }
+    }
     case "write": {
       const path = asString(rec?.path)
       const body = asString(rec?.body)
@@ -711,6 +743,12 @@ export async function respond(
   const linear = needsLinear
     ? await resolveWorkspaceLinear(ctx.workspaceId).catch(() => null)
     : null
+  const datadog = caps.includes("datadog")
+    ? await resolveWorkspaceDatadog(ctx.workspaceId).catch(() => null)
+    : null
+  const datadogMcp = datadog
+    ? await datadogMcpTools(datadog.externalId).catch(() => null)
+    : null
 
   const tools = {
     ...chatTools,
@@ -723,6 +761,7 @@ export async function respond(
       : {}),
     ...(linear && caps.includes("linear") ? linearTools : {}),
     ...(linear && caps.includes("linear_write") ? linearWriteTools : {}),
+    ...(datadogMcp ? datadogMcp.tools : {}),
   }
 
   const toolsContext = {
@@ -755,6 +794,7 @@ export async function respond(
     github && caps.includes("github") ? GITHUB_PROMPT_LINE : null,
     linear && caps.includes("linear") ? LINEAR_PROMPT_LINE : null,
     linear && caps.includes("linear_write") ? LINEAR_WRITE_PROMPT_LINE : null,
+    datadogMcp ? DATADOG_PROMPT_LINE : null,
   ].filter((line): line is string => line !== null)
   const instructions = `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}`
 
@@ -799,43 +839,48 @@ export async function respond(
   })
 
   // stream exposes tool call/status + reasoning events; textStream does not.
-  let text = ""
-  for await (const part of result.stream) {
-    if (part.type === "text-delta") {
-      text += part.text
-      await onDelta(part.text)
-    } else if (part.type === "reasoning-delta") {
-      await onReasoning?.(part.text)
-    } else if (part.type === "tool-call") {
-      onToolEvent?.({
-        toolCallId: part.toolCallId,
-        toolName: part.toolName,
-        label: toolLabel(part.toolName, part.input),
-        at: text.length,
-      })
-    } else if (part.type === "tool-result") {
-      const resolved = toolDetail(part.toolName, part.output)
-      if (resolved.status === "error") {
-        logger.warn(
-          { tool: part.toolName, error: resolved.detail?.summary },
-          "Merlin tool returned an error"
-        )
+  // The finally keeps the Datadog MCP session open for the whole tool loop.
+  try {
+    let text = ""
+    for await (const part of result.stream) {
+      if (part.type === "text-delta") {
+        text += part.text
+        await onDelta(part.text)
+      } else if (part.type === "reasoning-delta") {
+        await onReasoning?.(part.text)
+      } else if (part.type === "tool-call") {
+        onToolEvent?.({
+          toolCallId: part.toolCallId,
+          toolName: part.toolName,
+          label: toolLabel(part.toolName, part.input),
+          at: text.length,
+        })
+      } else if (part.type === "tool-result") {
+        const resolved = toolDetail(part.toolName, part.output)
+        if (resolved.status === "error") {
+          logger.warn(
+            { tool: part.toolName, error: resolved.detail?.summary },
+            "Merlin tool returned an error"
+          )
+        }
+        onToolEvent?.({
+          toolCallId: part.toolCallId,
+          toolName: part.toolName,
+          label: toolLabel(part.toolName, part.input),
+          at: text.length,
+          ...resolved,
+        })
+      } else if (part.type === "error") {
+        throw part.error
       }
-      onToolEvent?.({
-        toolCallId: part.toolCallId,
-        toolName: part.toolName,
-        label: toolLabel(part.toolName, part.input),
-        at: text.length,
-        ...resolved,
-      })
-    } else if (part.type === "error") {
-      throw part.error
     }
+
+    const responseMessages = await result.responseMessages
+
+    return { text, messages: [userMessage, ...responseMessages] }
+  } finally {
+    await datadogMcp?.close()
   }
-
-  const responseMessages = await result.responseMessages
-
-  return { text, messages: [userMessage, ...responseMessages] }
 }
 
 export async function writeBack(

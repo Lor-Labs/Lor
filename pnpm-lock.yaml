@@ -556,6 +556,9 @@ importers:
 
   packages/merlin:
     dependencies:
+      '@ai-sdk/mcp':
+        specifier: ^2.0.5
+        version: 2.0.5(zod@4.3.6)
       '@linear/sdk':
         specifier: ^87.0.0
         version: 87.0.0(graphql@16.12.0)
@@ -721,6 +724,12 @@ packages:
 
   '@ai-sdk/gateway@4.0.8':
     resolution: {integrity: sha512-esHzojMp+LllqOnEu6sYa6NKOmPcE5UObPV61LE6L2QAzCH6WHMgTS+Q/HF5HU3lVUWsHtkDzN7TNqMfv/ecCg==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      zod: ^3.25.76 || ^4.1.8
+
+  '@ai-sdk/mcp@2.0.5':
+    resolution: {integrity: sha512-0FW3pcvfGEZ9VPSLSsDHxFN9+tMsUVZurVryCnsBWayzsueUPD6RYKkI9vYoqWAIwWFDEemCwZHeMzdHF/wsZQ==}
     engines: {node: '>=22'}
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
@@ -7423,6 +7432,13 @@ snapshots:
       '@ai-sdk/provider': 4.0.1
       '@ai-sdk/provider-utils': 5.0.3(zod@4.3.6)
       '@vercel/oidc': 3.2.0
+      zod: 4.3.6
+
+  '@ai-sdk/mcp@2.0.5(zod@4.3.6)':
+    dependencies:
+      '@ai-sdk/provider': 4.0.1
+      '@ai-sdk/provider-utils': 5.0.3(zod@4.3.6)
+      pkce-challenge: 5.0.1
       zod: 4.3.6
 
   '@ai-sdk/provider-utils@5.0.3(zod@4.3.6)':

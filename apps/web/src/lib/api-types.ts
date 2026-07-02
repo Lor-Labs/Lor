@@ -1,4 +1,8 @@
-import type { Client, InferResponseType } from "@repo/api-client"
+import type {
+  Client,
+  InferRequestType,
+  InferResponseType,
+} from "@repo/api-client"
 
 // ── Channels ──────────────────────────────────────────
 
@@ -32,6 +36,15 @@ export type AvailableCapability =
 // The set of connector ids (the integration provider enum), shared by the
 // capability + integration-status shapes.
 export type ConnectorKey = AvailableCapability["connector"]
+
+// ── Integrations ──────────────────────────────────────────
+
+type IntegrationsClient =
+  Client["v1"]["workspaces"][":workspaceSlug"]["integrations"]
+
+export type ConnectDatadogRequest = InferRequestType<
+  IntegrationsClient["datadog"]["connect"]["$post"]
+>["json"]
 
 // ── Messages ──────────────────────────────────────────
 
