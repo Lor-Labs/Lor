@@ -1,5 +1,5 @@
 import { LinearClient } from "@linear/sdk"
-import { and, db, eq, schema } from "@repo/db"
+import { and, db, eq, schema, sql } from "@repo/db"
 import { env } from "@repo/env/server"
 import { decryptSecret, encryptSecret } from "@repo/utils/crypto"
 import { logger } from "../logger"
@@ -9,6 +9,7 @@ const TOKEN_URL = "https://api.linear.app/oauth/token"
 const MAX_COMMENTS = 10
 // Refresh slightly before actual expiry to avoid racing the boundary.
 const REFRESH_SKEW_MS = 60_000
+const REQUEST_TIMEOUT_MS = 10_000
 
 function encryptionKey(): string {
   const key = env.INTEGRATION_ENCRYPTION_KEY
@@ -35,6 +36,7 @@ async function requestTokens(
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams(body).toString(),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     })
     if (!res.ok) {
       logger.error({ status: res.status }, "Linear token request failed")
@@ -99,35 +101,40 @@ export async function connectLinear(
   }
 }
 
+const connectionColumns = {
+  id: schema.integrationConnection.id,
+  accessToken: schema.integrationConnection.accessToken,
+  refreshToken: schema.integrationConnection.refreshToken,
+  tokenExpiresAt: schema.integrationConnection.tokenExpiresAt,
+}
+
+const activeLinear = (externalId: string) =>
+  and(
+    eq(schema.integrationConnection.provider, "linear"),
+    eq(schema.integrationConnection.externalId, externalId),
+    eq(schema.integrationConnection.status, "active")
+  )
+
+function isFresh(expiresAt: Date | null): boolean {
+  return !!expiresAt && expiresAt.getTime() - REFRESH_SKEW_MS > Date.now()
+}
+
 // Usable access token for the workspace's Linear org, refreshing + re-persisting
 // when near expiry. Null when not connected, unconfigured, or refresh fails.
 export async function getLinearAccessToken(
   externalId: string
 ): Promise<string | null> {
+  const key = encryptionKey()
   const row = await db
-    .select({
-      id: schema.integrationConnection.id,
-      accessToken: schema.integrationConnection.accessToken,
-      refreshToken: schema.integrationConnection.refreshToken,
-      tokenExpiresAt: schema.integrationConnection.tokenExpiresAt,
-    })
+    .select(connectionColumns)
     .from(schema.integrationConnection)
-    .where(
-      and(
-        eq(schema.integrationConnection.provider, "linear"),
-        eq(schema.integrationConnection.externalId, externalId),
-        eq(schema.integrationConnection.status, "active")
-      )
-    )
+    .where(activeLinear(externalId))
     .limit(1)
     .then((r) => r[0])
   if (!row?.accessToken) return null
 
-  const key = encryptionKey()
-  const fresh =
-    row.tokenExpiresAt &&
-    row.tokenExpiresAt.getTime() - REFRESH_SKEW_MS > Date.now()
-  if (fresh) {
+  // Fast path: still valid, no refresh needed.
+  if (isFresh(row.tokenExpiresAt)) {
     try {
       return decryptSecret(row.accessToken, key)
     } catch {
@@ -135,35 +142,65 @@ export async function getLinearAccessToken(
     }
   }
 
-  if (!(row.refreshToken && env.LINEAR_CLIENT_ID && env.LINEAR_CLIENT_SECRET)) {
-    return null
-  }
-  let refreshToken: string
-  try {
-    refreshToken = decryptSecret(row.refreshToken, key)
-  } catch {
-    return null
-  }
-  const tokens = await requestTokens({
-    grant_type: "refresh_token",
-    refresh_token: refreshToken,
-    client_id: env.LINEAR_CLIENT_ID,
-    client_secret: env.LINEAR_CLIENT_SECRET,
-  })
-  if (!tokens) return null
+  // Stale: serialize the refresh per org. Concurrent callers would each spend
+  // the refresh token, and Linear rotates it on use — the losers would 401.
+  return db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${`linear-refresh:${externalId}`}, 0))`
+    )
 
-  await db
-    .update(schema.integrationConnection)
-    .set({
-      accessToken: encryptSecret(tokens.accessToken, key),
-      refreshToken: tokens.refreshToken
-        ? encryptSecret(tokens.refreshToken, key)
-        : row.refreshToken,
-      tokenExpiresAt: tokens.expiresAt,
-      scope: tokens.scope,
+    // Re-read under the lock: another caller may have refreshed already.
+    const current = await tx
+      .select(connectionColumns)
+      .from(schema.integrationConnection)
+      .where(activeLinear(externalId))
+      .limit(1)
+      .then((r) => r[0])
+    if (!current?.accessToken) return null
+    if (isFresh(current.tokenExpiresAt)) {
+      try {
+        return decryptSecret(current.accessToken, key)
+      } catch {
+        return null
+      }
+    }
+
+    if (
+      !(
+        current.refreshToken &&
+        env.LINEAR_CLIENT_ID &&
+        env.LINEAR_CLIENT_SECRET
+      )
+    ) {
+      return null
+    }
+    let refreshToken: string
+    try {
+      refreshToken = decryptSecret(current.refreshToken, key)
+    } catch {
+      return null
+    }
+    const tokens = await requestTokens({
+      grant_type: "refresh_token",
+      refresh_token: refreshToken,
+      client_id: env.LINEAR_CLIENT_ID,
+      client_secret: env.LINEAR_CLIENT_SECRET,
     })
-    .where(eq(schema.integrationConnection.id, row.id))
-  return tokens.accessToken
+    if (!tokens) return null
+
+    await tx
+      .update(schema.integrationConnection)
+      .set({
+        accessToken: encryptSecret(tokens.accessToken, key),
+        refreshToken: tokens.refreshToken
+          ? encryptSecret(tokens.refreshToken, key)
+          : current.refreshToken,
+        tokenExpiresAt: tokens.expiresAt,
+        scope: tokens.scope,
+      })
+      .where(eq(schema.integrationConnection.id, current.id))
+    return tokens.accessToken
+  })
 }
 
 export async function linearClientFor(

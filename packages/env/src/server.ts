@@ -81,7 +81,10 @@ const serverSchema = z.object({
     .string()
     .min(1)
     .default("http://localhost:3000")
-    .transform(addProtocol),
+    .transform(addProtocol)
+    // Drop trailing slashes so callback builders (e.g. `${APP_BASE_URL}/…`)
+    // don't produce a double slash in the redirect URI.
+    .transform((url) => url.replace(/\/+$/, "")),
   S3_ENDPOINT: z.string().url(),
   S3_ACCESS_KEY_ID: z.string().min(1),
   S3_SECRET_ACCESS_KEY: z.string().min(1),

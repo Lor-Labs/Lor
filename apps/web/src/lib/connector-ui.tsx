@@ -58,7 +58,13 @@ export function connectorForTool(toolName: string): ConnectorKey | null {
 // The connector a result URL belongs to, or null when it matches none.
 export function connectorForUrl(url?: string): ConnectorKey | null {
   if (!url) return null
+  let host: string
+  try {
+    host = new URL(url).hostname
+  } catch {
+    return null
+  }
   return (
-    CONNECTOR_KEYS.find((key) => CONNECTOR_UI[key].urlHost.test(url)) ?? null
+    CONNECTOR_KEYS.find((key) => CONNECTOR_UI[key].urlHost.test(host)) ?? null
   )
 }

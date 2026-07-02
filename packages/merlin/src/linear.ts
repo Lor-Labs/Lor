@@ -76,7 +76,7 @@ export const linearTools = {
       if (!client) return { error: "couldn't authenticate with Linear" }
       const issue = await client.issue(id).catch(() => null)
       if (!issue) return { error: "couldn't fetch that issue" }
-      const state = await issue.state
+      const state = await Promise.resolve(issue.state).catch(() => null)
       const comments = await issue
         .comments({ first: MAX_COMMENTS })
         .then((c) => c.nodes)
@@ -135,13 +135,14 @@ export const linearWriteTools = {
       const payload = await client
         .createIssue({ teamId: target.id, title, description })
         .catch(() => null)
-      const issue = payload ? await payload.issue : null
-      if (!(payload?.success && issue)) {
+      if (!payload?.success) {
         return { error: "couldn't create the issue" }
       }
+      // The write succeeded; reading the created issue back is best-effort.
+      const issue = await Promise.resolve(payload.issue).catch(() => null)
       return {
-        identifier: issue.identifier,
-        url: issue.url,
+        identifier: issue?.identifier ?? null,
+        url: issue?.url ?? null,
         title,
         description: description ?? null,
       }
@@ -163,7 +164,8 @@ export const linearWriteTools = {
         .createComment({ issueId, body })
         .catch(() => null)
       if (!payload?.success) return { error: "couldn't add the comment" }
-      const comment = await payload.comment
+      // The write succeeded; reading the comment back is best-effort.
+      const comment = await Promise.resolve(payload.comment).catch(() => null)
       return { ok: true, body, url: comment?.url ?? null }
     },
     strict: true,
