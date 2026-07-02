@@ -27,6 +27,7 @@ export async function decideReplyPlacement(
     schema: z.object({ placement: z.enum(["channel", "thread"]) }),
     prompt: `${PLACEMENT_PROMPT}\n\nRecent conversation:\n${transcript}`,
     // Inline realtime path; callers default to channel on abort.
+    // (generateObject omits the v7 `timeout` option, so AbortSignal it is.)
     abortSignal: AbortSignal.timeout(PLACEMENT_TIMEOUT_MS),
   })
 

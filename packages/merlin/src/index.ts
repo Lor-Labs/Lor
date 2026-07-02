@@ -11,6 +11,7 @@ import {
   generateText,
   isStepCount,
   type ModelMessage,
+  pruneMessages,
   streamText,
   tool,
 } from "ai"
@@ -42,6 +43,13 @@ export const MERLIN_MODEL = "claude-sonnet-4-6"
 const MERLIN_GATE_MODEL = "claude-haiku-4-5"
 
 const MAX_STEPS = 30
+// Total tokens (all steps summed) before the loop is forced to answer; the
+// backstop against deep runs re-billing a large context every step.
+const RESPOND_TOKEN_BUDGET = 300_000
+// Per-step input size that triggers pruning old tool results from the context.
+const COMPACT_INPUT_TOKENS = 60_000
+const RESPOND_TIMEOUT_MS = 10 * 60_000
+const WRITEBACK_TIMEOUT_MS = 5 * 60_000
 const SEARCH_DEFAULT_LIMIT = 8
 const PREFETCH_LIMIT = 3
 const SNIPPET_MAX = 500
@@ -754,10 +762,27 @@ export async function respond(
     tools,
     toolsContext,
     stopWhen: isStepCount(MAX_STEPS),
-    // The step cap can land on tool use; disabling tools on the last step
-    // forces the loop to end with a text answer instead of a retry pass.
-    prepareStep: ({ stepNumber }) =>
-      stepNumber === MAX_STEPS - 1 ? { toolChoice: "none" } : {},
+    timeout: { totalMs: RESPOND_TIMEOUT_MS },
+    prepareStep: ({ stepNumber, steps, messages }) => {
+      // The step cap and token budget can land on tool use; disabling tools
+      // on the last step forces the loop to end with a text answer.
+      const spent = steps.reduce((n, s) => n + (s.usage.totalTokens ?? 0), 0)
+      if (stepNumber === MAX_STEPS - 1 || spent >= RESPOND_TOKEN_BUDGET) {
+        return { toolChoice: "none" }
+      }
+      // Compact old tool calls/results once the context gets heavy. Reasoning
+      // is kept: Anthropic requires thinking blocks preserved across tool use.
+      const lastInput = steps.at(-1)?.usage.inputTokens ?? 0
+      if (lastInput > COMPACT_INPUT_TOKENS) {
+        return {
+          messages: pruneMessages({
+            messages,
+            toolCalls: "before-last-4-messages",
+          }),
+        }
+      }
+      return {}
+    },
     // Adaptive thinking (Sonnet 4.6): `reasoning` sets the effort; display
     // still comes from providerOptions — "summarized" is required to stream
     // the reasoning deltas (newer models omit thinking text by default).
@@ -833,6 +858,7 @@ export async function writeBack(
     },
     toolsContext: coreToolsContext(ctx.workspaceId, onMemoryWritten),
     stopWhen: isStepCount(MAX_STEPS),
+    timeout: { totalMs: WRITEBACK_TIMEOUT_MS },
   })
 }
 
