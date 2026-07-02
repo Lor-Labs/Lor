@@ -564,6 +564,7 @@ const DATADOG_SITE_LABELS: Record<DatadogSite, string> = {
   "us3.datadoghq.com": "US3 · us3.datadoghq.com",
   "us5.datadoghq.com": "US5 · us5.datadoghq.com",
   "ap1.datadoghq.com": "AP1 · ap1.datadoghq.com",
+  "ap2.datadoghq.com": "AP2 · ap2.datadoghq.com",
 }
 const DATADOG_SITES = Object.keys(DATADOG_SITE_LABELS) as DatadogSite[]
 

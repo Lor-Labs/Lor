@@ -47,7 +47,8 @@ const CONNECTOR_UI: Record<ConnectorKey, ConnectorUI> = {
   },
   datadog: {
     logo: DatadogMark,
-    urlHost: /(^|\.)datadoghq\.(com|eu)\b/i,
+    // Anchored to the hostname end so datadoghq.com.evil.com can't wear the mark.
+    urlHost: /(^|\.)datadoghq\.(com|eu)$/i,
     tools: ["search_datadog_logs", "analyze_datadog_logs"],
   },
 }

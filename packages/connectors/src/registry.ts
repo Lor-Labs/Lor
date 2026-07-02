@@ -38,13 +38,16 @@ export const CONNECTORS: Record<IntegrationProvider, ConnectorDescriptor> = {
 }
 
 // Datadog is multi-region: the API/MCP hosts derive from the site. Validated at
-// the connect endpoint and stored on the connection's `site` column.
+// the connect endpoint and stored on the connection's `site` column. GovCloud
+// sites (ddog-gov.com) are deliberately absent — Datadog's MCP server, which
+// backs this connector's tools, doesn't support them.
 export const DATADOG_SITES = [
   "datadoghq.com",
   "datadoghq.eu",
   "us3.datadoghq.com",
   "us5.datadoghq.com",
   "ap1.datadoghq.com",
+  "ap2.datadoghq.com",
 ] as const
 
 export type DatadogSite = (typeof DATADOG_SITES)[number]

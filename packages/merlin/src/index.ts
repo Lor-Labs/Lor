@@ -736,19 +736,22 @@ export async function respond(
       )
     : ALL_MERLIN_CAPABILITIES
   const needsGithub = caps.includes("github") || caps.includes("code")
-  const github = needsGithub
-    ? await resolveWorkspaceGithub(ctx.workspaceId).catch(() => null)
-    : null
   const needsLinear = caps.includes("linear") || caps.includes("linear_write")
-  const linear = needsLinear
-    ? await resolveWorkspaceLinear(ctx.workspaceId).catch(() => null)
-    : null
-  const datadog = caps.includes("datadog")
-    ? await resolveWorkspaceDatadog(ctx.workspaceId).catch(() => null)
-    : null
-  const datadogMcp = datadog
-    ? await datadogMcpTools(datadog.externalId).catch(() => null)
-    : null
+  // Independent lookups run concurrently; the Datadog MCP handshake is the
+  // slow one and is itself time-bounded inside datadogMcpTools.
+  const [github, linear, datadogMcp] = await Promise.all([
+    needsGithub
+      ? resolveWorkspaceGithub(ctx.workspaceId).catch(() => null)
+      : null,
+    needsLinear
+      ? resolveWorkspaceLinear(ctx.workspaceId).catch(() => null)
+      : null,
+    caps.includes("datadog")
+      ? resolveWorkspaceDatadog(ctx.workspaceId)
+          .then((d) => (d ? datadogMcpTools(d.externalId) : null))
+          .catch(() => null)
+      : null,
+  ])
 
   const tools = {
     ...chatTools,
@@ -798,49 +801,50 @@ export async function respond(
   ].filter((line): line is string => line !== null)
   const instructions = `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}`
 
-  const result = streamText({
-    model: MERLIN_MODEL,
-    instructions,
-    messages: [userMessage],
-    tools,
-    toolsContext,
-    stopWhen: isStepCount(MAX_STEPS),
-    timeout: { totalMs: RESPOND_TIMEOUT_MS },
-    prepareStep: ({ stepNumber, steps, messages }) => {
-      // The step cap and token budget can land on tool use; disabling tools
-      // on the last step forces the loop to end with a text answer.
-      const spent = steps.reduce((n, s) => n + (s.usage.totalTokens ?? 0), 0)
-      if (stepNumber === MAX_STEPS - 1 || spent >= RESPOND_TOKEN_BUDGET) {
-        return { toolChoice: "none" }
-      }
-      // Compact old tool calls/results once the context gets heavy. Reasoning
-      // is kept: Anthropic requires thinking blocks preserved across tool use.
-      const lastInput = steps.at(-1)?.usage.inputTokens ?? 0
-      if (lastInput > COMPACT_INPUT_TOKENS) {
-        return {
-          messages: pruneMessages({
-            messages,
-            toolCalls: "before-last-4-messages",
-          }),
-        }
-      }
-      return {}
-    },
-    // Reasoning config is namespaced per provider; whichever provider serves
-    // the request uses its own entry. "summarized" is required to stream the
-    // reasoning deltas. gateway.caching places Anthropic cache markers.
-    providerOptions: {
-      anthropic: {
-        thinking: { type: "adaptive", effort: "high", display: "summarized" },
-      },
-      openai: { reasoningEffort: "high", reasoningSummary: "detailed" },
-      gateway: { caching: "auto", models: [MERLIN_FALLBACK_MODEL] },
-    },
-  })
-
-  // stream exposes tool call/status + reasoning events; textStream does not.
-  // The finally keeps the Datadog MCP session open for the whole tool loop.
+  // The finally closes the Datadog MCP session after the whole tool loop, even
+  // if streamText or step preparation throws before streaming completes.
   try {
+    const result = streamText({
+      model: MERLIN_MODEL,
+      instructions,
+      messages: [userMessage],
+      tools,
+      toolsContext,
+      stopWhen: isStepCount(MAX_STEPS),
+      timeout: { totalMs: RESPOND_TIMEOUT_MS },
+      prepareStep: ({ stepNumber, steps, messages }) => {
+        // The step cap and token budget can land on tool use; disabling tools
+        // on the last step forces the loop to end with a text answer.
+        const spent = steps.reduce((n, s) => n + (s.usage.totalTokens ?? 0), 0)
+        if (stepNumber === MAX_STEPS - 1 || spent >= RESPOND_TOKEN_BUDGET) {
+          return { toolChoice: "none" }
+        }
+        // Compact old tool calls/results once the context gets heavy. Reasoning
+        // is kept: Anthropic requires thinking blocks preserved across tool use.
+        const lastInput = steps.at(-1)?.usage.inputTokens ?? 0
+        if (lastInput > COMPACT_INPUT_TOKENS) {
+          return {
+            messages: pruneMessages({
+              messages,
+              toolCalls: "before-last-4-messages",
+            }),
+          }
+        }
+        return {}
+      },
+      // Reasoning config is namespaced per provider; whichever provider serves
+      // the request uses its own entry. "summarized" is required to stream the
+      // reasoning deltas. gateway.caching places Anthropic cache markers.
+      providerOptions: {
+        anthropic: {
+          thinking: { type: "adaptive", effort: "high", display: "summarized" },
+        },
+        openai: { reasoningEffort: "high", reasoningSummary: "detailed" },
+        gateway: { caching: "auto", models: [MERLIN_FALLBACK_MODEL] },
+      },
+    })
+
+    // stream exposes tool call/status + reasoning events; textStream does not.
     let text = ""
     for await (const part of result.stream) {
       if (part.type === "text-delta") {
