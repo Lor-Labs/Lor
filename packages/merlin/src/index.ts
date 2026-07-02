@@ -42,7 +42,7 @@ import {
   MERLIN_SMALL_FALLBACK_MODEL,
   MERLIN_SMALL_MODEL,
 } from "./models"
-import { resolveSourceCitation, sourceTools } from "./sources"
+import { resolveSourceCitation, searchSources, sourceTools } from "./sources"
 import type { OnUsage } from "./usage"
 
 const MAX_STEPS = 30
@@ -53,7 +53,10 @@ const RESPOND_TOKEN_BUDGET = 300_000
 const COMPACT_INPUT_TOKENS = 60_000
 const RESPOND_TIMEOUT_MS = 10 * 60_000
 const WRITEBACK_TIMEOUT_MS = 5 * 60_000
-const SEARCH_DEFAULT_LIMIT = 8
+// search runs each backend independently, so the cap is per result kind
+// (messages vs. sources), not shared — one corpus can't starve the other.
+const SEARCH_PER_KIND_DEFAULT = 6
+const SEARCH_PER_KIND_MAX = 15
 const PREFETCH_LIMIT = 3
 const SNIPPET_MAX = 500
 const THREAD_MAX = 100
@@ -64,8 +67,7 @@ const SYSTEM_PROMPT_HEAD = `You are Merlin, the knowledge keeper for this team's
 
 You have two kinds of memory:
 - Your brain: a filesystem of notes about this workspace that you read from and maintain yourself. Browse it with ls / tree, read pages with read, and save or organize knowledge with write / mkdir / move / link. Consult it first — it's your distilled knowledge (it may be sparse early on). Pages list their linked pages (relates_to, caused_by, …); follow a link with read to traverse.
-- The team's message history: search it with search_messages (keyword, all channels) and read_thread for full context.
-- Other connected integrations: search_sources finds their summarized activity and fetch_source pulls a source's full content. Cite these by id in double brackets, e.g. [[src:0b9c…]] — don't paste the url.`
+- Everything else the team has produced: one search tool covers both the full chat message history (all channels) and the summarized activity of connected integrations (GitHub, Linear, …). Each hit is tagged with its type — a message comes back with its full text (read_thread pulls the rest of its thread; cite it [[msg:…]]); an integration source comes back as a summary you can expand with fetch_source (cite it [[src:…]] by id, not by pasting the url).`
 
 const GITHUB_PROMPT_LINE = `- The team's GitHub: search_github finds pull requests and issues by keyword across the connected repos, and fetch_github pulls one's full body and discussion. Reference a PR or issue with a normal Markdown link to the result's url (these are live results, not [[src:]] citations).`
 
@@ -78,7 +80,7 @@ const DATADOG_PROMPT_LINE = `- The team's Datadog: search_datadog_logs searches 
 const SYSTEM_PROMPT_TAIL = `You can also see images people share in the channel — they're included inline in the conversation below.
 
 How to answer:
-- For questions about THIS team/workspace, check your brain first, then search the message history for anything it doesn't cover. Ground your answer in what you find; note who said it and roughly when. Cite your sources inline in double brackets: a brain page by its exact path, e.g. [[/decisions/auth]]; a specific message by its id from search_messages / read_thread, e.g. [[msg:0b9c…]]; or a connected-tool source by its id from search_sources / fetch_source, e.g. [[src:0b9c…]]. If nothing turns up, say you don't have it in memory yet — never invent specifics or cite pages, messages, or sources you didn't read.
+- For questions about THIS team/workspace, check your brain first, then use search for anything it doesn't cover. Ground your answer in what you find; note who said it and roughly when. Cite your sources inline in double brackets: a brain page by its exact path, e.g. [[/decisions/auth]]; a specific message by its id, e.g. [[msg:0b9c…]]; or a connected-tool source by its id, e.g. [[src:0b9c…]]. If nothing turns up, say you don't have it in memory yet — never invent specifics or cite pages, messages, or sources you didn't read.
 - For general questions (how-to, definitions, quick help), just answer directly; no lookup needed.
 
 Use your tools silently — don't narrate that you're searching. Gather what you need, then give one clear answer. Be concise. Use Markdown. Speak in the first person; never claim to be human.`
@@ -182,7 +184,13 @@ async function searchMessages(
   limit: number
 ) {
   const tsv = sql`to_tsvector('english', coalesce(${schema.message.content}, ''))`
-  const tsq = sql`websearch_to_tsquery('english', ${query})`
+  // websearch_to_tsquery ANDs its terms, so a natural-language query returns
+  // nothing unless a single message contains every content word. Rewrite the
+  // AND (&) operators to OR (|) so it degrades gracefully — a message matching
+  // some terms still surfaces, ranked below fuller matches by ts_rank. The
+  // websearch parser still handles stopword removal, stemming, and sanitizing
+  // the raw user text for us.
+  const tsq = sql`replace(websearch_to_tsquery('english', ${query})::text, '&', '|')::tsquery`
 
   const rows = await db
     .select({
@@ -285,27 +293,65 @@ async function messageExists(
 
 const workspaceContext = z.object({ workspaceId: z.string() })
 
-const chatTools = {
-  search_messages: tool({
+// Both backends rank independently and each is capped, so a bag of keywords
+// can't flood one side and a phrase degrades gracefully on the other — the
+// model just writes one natural query and lets each corpus return its best.
+async function searchSourceSummaries(
+  workspaceId: string,
+  query: string,
+  limit: number
+) {
+  return searchSources(workspaceId, await embedText(query), limit)
+}
+
+const searchTools = {
+  search: tool({
     description:
-      "Search the team's message history (all channels) by keyword. Returns matching messages with author, date, channel, and id. Call repeatedly with different keywords to investigate.",
+      "Search the team's knowledge in one place: its chat message history (exact/keyword match) and the summarized activity of connected integrations like GitHub and Linear (semantic match). Pass a short natural-language query or phrase. Results are tagged with `type`: a `message` comes back with its full text — cite it as [[msg:<id>]]; a `source` comes back as a summary with `hasMore: true` — call fetch_source with its id for the full body, and cite it as [[src:<id>]] (don't paste its url). Pass `types` to search only one kind. Call repeatedly with different queries to investigate.",
     inputSchema: z.object({
-      query: z.string().describe("keywords to search for"),
-      limit: z.number().optional().describe("max results, 1–20 (default 8)"),
+      query: z.string().describe("a short natural-language query or phrase"),
+      types: z
+        .array(z.enum(["messages", "sources"]))
+        .optional()
+        .describe("limit to these kinds of result (default: both)"),
+      limit: z
+        .number()
+        .optional()
+        .describe("max results of each kind, 1–15 (default 6)"),
     }),
     contextSchema: workspaceContext,
-    execute: async ({ query, limit }, { context }) => {
-      try {
-        const n = Math.floor(
-          Math.min(Math.max(limit ?? SEARCH_DEFAULT_LIMIT, 1), 20)
+    execute: async ({ query, types, limit }, { context }) => {
+      const n = Math.floor(
+        Math.min(
+          Math.max(limit ?? SEARCH_PER_KIND_DEFAULT, 1),
+          SEARCH_PER_KIND_MAX
         )
-        return await searchMessages(context.workspaceId, query, n)
-      } catch {
-        return { error: "search failed" }
-      }
+      )
+      const want = (t: "messages" | "sources") => !types || types.includes(t)
+      // Each backend is isolated: one failing (e.g. the embedding call) still
+      // returns the other half rather than failing the whole search.
+      const [messages, sources] = await Promise.all([
+        want("messages")
+          ? searchMessages(context.workspaceId, query, n).catch(() => [])
+          : [],
+        want("sources")
+          ? searchSourceSummaries(context.workspaceId, query, n).catch(() => [])
+          : [],
+      ])
+      return [
+        ...messages.map((m) => ({ type: "message" as const, ...m })),
+        ...sources.map((s) => ({
+          type: "source" as const,
+          hasMore: true,
+          ...s,
+        })),
+      ]
     },
     strict: true,
   }),
+}
+
+const chatTools = {
   read_thread: tool({
     description:
       "Read the full thread (root message + all replies) a message belongs to. Use after search_messages to get full context around a hit.",
@@ -332,9 +378,8 @@ function coreToolsContext(
 ) {
   const workspace = { workspaceId }
   return {
-    search_messages: workspace,
+    search: workspace,
     read_thread: workspace,
-    search_sources: workspace,
     fetch_source: workspace,
     ls: workspace,
     read: workspace,
@@ -383,14 +428,10 @@ function toolLabel(toolName: string, input: unknown): string {
         : "Searching Datadog logs"
     case "analyze_datadog_logs":
       return "Analyzing Datadog logs"
-    case "search_messages":
-      return query ? `Searching messages for “${query}”` : "Searching messages"
+    case "search":
+      return query ? `Searching for “${query}”` : "Searching"
     case "read_thread":
       return "Reading a thread"
-    case "search_sources":
-      return query
-        ? `Searching connected sources for “${query}”`
-        : "Searching connected sources"
     case "fetch_source":
       return "Fetching a source"
     case "ls":
@@ -444,25 +485,24 @@ function toolDetail(
       }
     })
   }
-  const count = Array.isArray(output) ? output.length : 0
   const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`
   switch (toolName) {
-    case "search_sources":
+    case "search": {
+      const items = Array.isArray(output) ? output : []
+      const msgs = items.filter((it) => asRecord(it)?.type === "message").length
+      const srcs = items.length - msgs
+      const groups = [
+        msgs > 0 ? plural(msgs, "message") : null,
+        srcs > 0 ? plural(srcs, "source") : null,
+      ].filter((g): g is string => g !== null)
       return {
         status: "ok",
         detail: {
-          summary: count === 0 ? "No results" : plural(count, "result"),
+          summary: items.length === 0 ? "No results" : groups.join(", "),
           items: toItems(output),
         },
       }
-    case "search_messages":
-      return {
-        status: "ok",
-        detail: {
-          summary: count === 0 ? "No matches" : plural(count, "message"),
-          items: toItems(output),
-        },
-      }
+    }
     case "fetch_source": {
       const title = asString(rec?.title)
       return {
@@ -722,7 +762,7 @@ export async function respond(
   if (brainContext) parts.push({ type: "text", text: brainContext })
   parts.push({
     type: "text",
-    text: "\n\n---\nAnswer the most recent message, grounded in the brain notes, images, and conversation above. Use your tools (brain ls/read, message search) for anything they don't cover.",
+    text: "\n\n---\nAnswer the most recent message, grounded in the brain notes, images, and conversation above. Use your tools (brain ls/read, search) for anything they don't cover.",
   })
 
   const userMessage: ModelMessage = { role: "user", content: parts }
@@ -754,6 +794,7 @@ export async function respond(
   ])
 
   const tools = {
+    ...searchTools,
     ...chatTools,
     ...sourceTools,
     ...brainReadTools,
@@ -909,6 +950,7 @@ export async function writeBack(
       { role: "user", content: WRITEBACK_INSTRUCTION },
     ],
     tools: {
+      ...searchTools,
       ...chatTools,
       ...sourceTools,
       ...brainReadTools,
