@@ -67,46 +67,49 @@ export async function searchSources(
   }))
 }
 
-export function buildSourceTools(workspaceId: string) {
-  return {
-    search_sources: tool({
-      description:
-        "Search summarized activity from the team's connected integrations (e.g. GitHub pull requests, issues, releases). Semantic search; returns matching items with an id, title, summary, author, date, and url. Cite a result as [[src:<id>]] using its id (not by pasting its url).",
-      inputSchema: z.object({
-        query: z.string().describe("what to look for"),
-        limit: z.number().optional().describe("max results, 1–15 (default 6)"),
-      }),
-      execute: async ({ query, limit }) => {
-        try {
-          const n = Math.floor(
-            Math.min(
-              Math.max(limit ?? SEARCH_DEFAULT_LIMIT, 1),
-              SEARCH_MAX_LIMIT
-            )
-          )
-          return await searchSources(workspaceId, await embedText(query), n)
-        } catch {
-          return { error: "search failed" }
-        }
-      },
-      strict: true,
+const workspaceContext = z.object({ workspaceId: z.string() })
+
+export const sourceTools = {
+  search_sources: tool({
+    description:
+      "Search summarized activity from the team's connected integrations (e.g. GitHub pull requests, issues, releases). Semantic search; returns matching items with an id, title, summary, author, date, and url. Cite a result as [[src:<id>]] using its id (not by pasting its url).",
+    inputSchema: z.object({
+      query: z.string().describe("what to look for"),
+      limit: z.number().optional().describe("max results, 1–15 (default 6)"),
     }),
-    fetch_source: tool({
-      description:
-        "Fetch a source's full content (the complete PR/issue/release body and discussion), beyond the summary from search_sources. Pass a source id. Returns a `live` flag: when false the integration was unreachable and `content` falls back to the stored summary. Cite it as [[src:<id>]] with the same id you passed.",
-      inputSchema: z.object({
-        id: z.string().describe("a source id from search_sources"),
-      }),
-      execute: async ({ id }) => {
-        try {
-          return await fetchSourceContent(workspaceId, id)
-        } catch {
-          return { error: "fetch failed" }
-        }
-      },
-      strict: true,
+    contextSchema: workspaceContext,
+    execute: async ({ query, limit }, { context }) => {
+      try {
+        const n = Math.floor(
+          Math.min(Math.max(limit ?? SEARCH_DEFAULT_LIMIT, 1), SEARCH_MAX_LIMIT)
+        )
+        return await searchSources(
+          context.workspaceId,
+          await embedText(query),
+          n
+        )
+      } catch {
+        return { error: "search failed" }
+      }
+    },
+    strict: true,
+  }),
+  fetch_source: tool({
+    description:
+      "Fetch a source's full content (the complete PR/issue/release body and discussion), beyond the summary from search_sources. Pass a source id. Returns a `live` flag: when false the integration was unreachable and `content` falls back to the stored summary. Cite it as [[src:<id>]] with the same id you passed.",
+    inputSchema: z.object({
+      id: z.string().describe("a source id from search_sources"),
     }),
-  }
+    contextSchema: workspaceContext,
+    execute: async ({ id }, { context }) => {
+      try {
+        return await fetchSourceContent(context.workspaceId, id)
+      } catch {
+        return { error: "fetch failed" }
+      }
+    },
+    strict: true,
+  }),
 }
 
 export async function fetchSourceContent(workspaceId: string, id: string) {

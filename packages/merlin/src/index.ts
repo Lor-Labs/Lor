@@ -9,15 +9,17 @@ import { env } from "@repo/env/server"
 import {
   generateObject,
   generateText,
+  isStepCount,
   type ModelMessage,
-  stepCountIs,
+  pruneMessages,
   streamText,
   tool,
 } from "ai"
 import { z } from "zod"
 import {
-  buildBrainReadTools,
-  buildBrainWriteTools,
+  type BrainWriteEvent,
+  brainReadTools,
+  brainWriteTools,
   pageExists,
   searchBrain,
 } from "./brain"
@@ -29,22 +31,25 @@ import {
   type Resolution,
   rewriteCitations,
 } from "./citations"
-import { buildCodeTools } from "./code"
+import { codeTools } from "./code"
 import { embedText } from "./embeddings"
-import { buildGithubTools, resolveWorkspaceGithub } from "./github"
-import {
-  buildLinearTools,
-  buildLinearWriteTools,
-  resolveWorkspaceLinear,
-} from "./linear"
+import { githubTools, resolveWorkspaceGithub } from "./github"
+import { linearTools, linearWriteTools, resolveWorkspaceLinear } from "./linear"
 import { logger } from "./logger"
-import { buildSourceTools, resolveSourceCitation } from "./sources"
+import { resolveSourceCitation, sourceTools } from "./sources"
 import type { OnUsage } from "./usage"
 
 export const MERLIN_MODEL = "claude-sonnet-4-6"
 const MERLIN_GATE_MODEL = "claude-haiku-4-5"
 
-const MAX_STEPS = 12
+const MAX_STEPS = 30
+// Total tokens (all steps summed) before the loop is forced to answer; the
+// backstop against deep runs re-billing a large context every step.
+const RESPOND_TOKEN_BUDGET = 300_000
+// Per-step input size that triggers pruning old tool results from the context.
+const COMPACT_INPUT_TOKENS = 60_000
+const RESPOND_TIMEOUT_MS = 10 * 60_000
+const WRITEBACK_TIMEOUT_MS = 5 * 60_000
 const SEARCH_DEFAULT_LIMIT = 8
 const PREFETCH_LIMIT = 3
 const SNIPPET_MAX = 500
@@ -272,42 +277,66 @@ async function messageExists(
   return !!row
 }
 
-function buildChatTools(workspaceId: string) {
+const workspaceContext = z.object({ workspaceId: z.string() })
+
+const chatTools = {
+  search_messages: tool({
+    description:
+      "Search the team's message history (all channels) by keyword. Returns matching messages with author, date, channel, and id. Call repeatedly with different keywords to investigate.",
+    inputSchema: z.object({
+      query: z.string().describe("keywords to search for"),
+      limit: z.number().optional().describe("max results, 1–20 (default 8)"),
+    }),
+    contextSchema: workspaceContext,
+    execute: async ({ query, limit }, { context }) => {
+      try {
+        const n = Math.floor(
+          Math.min(Math.max(limit ?? SEARCH_DEFAULT_LIMIT, 1), 20)
+        )
+        return await searchMessages(context.workspaceId, query, n)
+      } catch {
+        return { error: "search failed" }
+      }
+    },
+    strict: true,
+  }),
+  read_thread: tool({
+    description:
+      "Read the full thread (root message + all replies) a message belongs to. Use after search_messages to get full context around a hit.",
+    inputSchema: z.object({
+      messageId: z.string().describe("a message id from search_messages"),
+    }),
+    contextSchema: workspaceContext,
+    execute: async ({ messageId }, { context }) => {
+      try {
+        return await readThread(context.workspaceId, messageId)
+      } catch {
+        return { error: "read failed" }
+      }
+    },
+    strict: true,
+  }),
+}
+
+// Context for the always-bound tools; connector tool contexts are added per
+// call in respond() based on what the channel has bound.
+function coreToolsContext(
+  workspaceId: string,
+  onWrite?: (e: BrainWriteEvent) => void
+) {
+  const workspace = { workspaceId }
   return {
-    search_messages: tool({
-      description:
-        "Search the team's message history (all channels) by keyword. Returns matching messages with author, date, channel, and id. Call repeatedly with different keywords to investigate.",
-      inputSchema: z.object({
-        query: z.string().describe("keywords to search for"),
-        limit: z.number().optional().describe("max results, 1–20 (default 8)"),
-      }),
-      execute: async ({ query, limit }) => {
-        try {
-          const n = Math.floor(
-            Math.min(Math.max(limit ?? SEARCH_DEFAULT_LIMIT, 1), 20)
-          )
-          return await searchMessages(workspaceId, query, n)
-        } catch {
-          return { error: "search failed" }
-        }
-      },
-      strict: true,
-    }),
-    read_thread: tool({
-      description:
-        "Read the full thread (root message + all replies) a message belongs to. Use after search_messages to get full context around a hit.",
-      inputSchema: z.object({
-        messageId: z.string().describe("a message id from search_messages"),
-      }),
-      execute: async ({ messageId }) => {
-        try {
-          return await readThread(workspaceId, messageId)
-        } catch {
-          return { error: "read failed" }
-        }
-      },
-      strict: true,
-    }),
+    search_messages: workspace,
+    read_thread: workspace,
+    search_sources: workspace,
+    fetch_source: workspace,
+    ls: workspace,
+    read: workspace,
+    tree: workspace,
+    write: { workspaceId, onWrite },
+    mkdir: workspace,
+    move: workspace,
+    link: workspace,
   }
 }
 
@@ -681,22 +710,40 @@ export async function respond(
     : null
 
   const tools = {
-    ...buildChatTools(ctx.workspaceId),
-    ...buildSourceTools(ctx.workspaceId),
-    ...buildBrainReadTools(ctx.workspaceId),
-    ...buildBrainWriteTools(ctx.workspaceId, onMemoryWritten),
-    ...(github && caps.includes("github") ? buildGithubTools(github) : {}),
+    ...chatTools,
+    ...sourceTools,
+    ...brainReadTools,
+    ...brainWriteTools,
+    ...(github && caps.includes("github") ? githubTools : {}),
     ...(env.RAILWAY_API_TOKEN && github && caps.includes("code")
-      ? buildCodeTools(ctx.workspaceId, {
-          installationId: github.installationId,
-          onUsage,
-          onToolEvent,
-          repos: github.repos,
-        })
+      ? codeTools
       : {}),
-    ...(linear && caps.includes("linear") ? buildLinearTools(linear) : {}),
-    ...(linear && caps.includes("linear_write")
-      ? buildLinearWriteTools(linear)
+    ...(linear && caps.includes("linear") ? linearTools : {}),
+    ...(linear && caps.includes("linear_write") ? linearWriteTools : {}),
+  }
+
+  const toolsContext = {
+    ...coreToolsContext(ctx.workspaceId, onMemoryWritten),
+    ...(github
+      ? {
+          search_github: github,
+          fetch_github: github,
+          investigate_code: {
+            workspaceId: ctx.workspaceId,
+            installationId: github.installationId,
+            repos: github.repos,
+            onUsage,
+            onToolEvent,
+          },
+        }
+      : {}),
+    ...(linear
+      ? {
+          search_linear: linear,
+          fetch_linear: linear,
+          create_linear_issue: linear,
+          comment_linear: linear,
+        }
       : {}),
   }
 
@@ -706,26 +753,48 @@ export async function respond(
     linear && caps.includes("linear") ? LINEAR_PROMPT_LINE : null,
     linear && caps.includes("linear_write") ? LINEAR_WRITE_PROMPT_LINE : null,
   ].filter((line): line is string => line !== null)
-  const system = `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}`
+  const instructions = `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}`
 
   const result = streamText({
     model: anthropic(MERLIN_MODEL),
-    system,
+    instructions,
     messages: [userMessage],
     tools,
-    stopWhen: stepCountIs(MAX_STEPS),
-    // Adaptive thinking (Sonnet 4.6): the model decides depth and interleaves
-    // reasoning between tool calls; "summarized" streams a readable summary
-    // (the raw chain of thought is never returned). Disabled for now — the
-    // reasoning stream/persist/UI plumbing stays wired; re-enable to turn it on.
-    // providerOptions: {
-    //   anthropic: { thinking: { type: "adaptive", display: "summarized" } },
-    // },
+    toolsContext,
+    stopWhen: isStepCount(MAX_STEPS),
+    timeout: { totalMs: RESPOND_TIMEOUT_MS },
+    prepareStep: ({ stepNumber, steps, messages }) => {
+      // The step cap and token budget can land on tool use; disabling tools
+      // on the last step forces the loop to end with a text answer.
+      const spent = steps.reduce((n, s) => n + (s.usage.totalTokens ?? 0), 0)
+      if (stepNumber === MAX_STEPS - 1 || spent >= RESPOND_TOKEN_BUDGET) {
+        return { toolChoice: "none" }
+      }
+      // Compact old tool calls/results once the context gets heavy. Reasoning
+      // is kept: Anthropic requires thinking blocks preserved across tool use.
+      const lastInput = steps.at(-1)?.usage.inputTokens ?? 0
+      if (lastInput > COMPACT_INPUT_TOKENS) {
+        return {
+          messages: pruneMessages({
+            messages,
+            toolCalls: "before-last-4-messages",
+          }),
+        }
+      }
+      return {}
+    },
+    // Adaptive thinking (Sonnet 4.6): `reasoning` sets the effort; display
+    // still comes from providerOptions — "summarized" is required to stream
+    // the reasoning deltas (newer models omit thinking text by default).
+    reasoning: "high",
+    providerOptions: {
+      anthropic: { thinking: { type: "adaptive", display: "summarized" } },
+    },
   })
 
-  // fullStream exposes tool call/status + reasoning events; textStream does not.
+  // stream exposes tool call/status + reasoning events; textStream does not.
   let text = ""
-  for await (const part of result.fullStream) {
+  for await (const part of result.stream) {
     if (part.type === "text-delta") {
       text += part.text
       await onDelta(part.text)
@@ -758,33 +827,9 @@ export async function respond(
     }
   }
 
-  const response = await result.response
+  const responseMessages = await result.responseMessages
 
-  // Step cap can end on tool use; force one final no-tools text pass.
-  if (!text.trim()) {
-    const retry = streamText({
-      model: anthropic(MERLIN_MODEL),
-      system,
-      messages: [userMessage, ...response.messages],
-      tools,
-      toolChoice: "none",
-      // Disabled alongside the main call above; re-enable both together.
-      // providerOptions: {
-      //   anthropic: { thinking: { type: "adaptive", display: "summarized" } },
-      // },
-    })
-    for await (const delta of retry.textStream) {
-      text += delta
-      await onDelta(delta)
-    }
-    const retryResponse = await retry.response
-    return {
-      text,
-      messages: [userMessage, ...response.messages, ...retryResponse.messages],
-    }
-  }
-
-  return { text, messages: [userMessage, ...response.messages] }
+  return { text, messages: [userMessage, ...responseMessages] }
 }
 
 export async function writeBack(
@@ -800,18 +845,20 @@ export async function writeBack(
 
   await generateText({
     model: anthropic(MERLIN_MODEL),
-    system: buildSystemPrompt([]),
+    instructions: buildSystemPrompt([]),
     messages: [
       ...ctx.priorMessages,
       { role: "user", content: WRITEBACK_INSTRUCTION },
     ],
     tools: {
-      ...buildChatTools(ctx.workspaceId),
-      ...buildSourceTools(ctx.workspaceId),
-      ...buildBrainReadTools(ctx.workspaceId),
-      ...buildBrainWriteTools(ctx.workspaceId, onMemoryWritten),
+      ...chatTools,
+      ...sourceTools,
+      ...brainReadTools,
+      ...brainWriteTools,
     },
-    stopWhen: stepCountIs(MAX_STEPS),
+    toolsContext: coreToolsContext(ctx.workspaceId, onMemoryWritten),
+    stopWhen: isStepCount(MAX_STEPS),
+    timeout: { totalMs: WRITEBACK_TIMEOUT_MS },
   })
 }
 
