@@ -16,8 +16,9 @@ import {
 } from "ai"
 import { z } from "zod"
 import {
-  buildBrainReadTools,
-  buildBrainWriteTools,
+  type BrainWriteEvent,
+  brainReadTools,
+  brainWriteTools,
   pageExists,
   searchBrain,
 } from "./brain"
@@ -29,16 +30,12 @@ import {
   type Resolution,
   rewriteCitations,
 } from "./citations"
-import { buildCodeTools } from "./code"
+import { codeTools } from "./code"
 import { embedText } from "./embeddings"
-import { buildGithubTools, resolveWorkspaceGithub } from "./github"
-import {
-  buildLinearTools,
-  buildLinearWriteTools,
-  resolveWorkspaceLinear,
-} from "./linear"
+import { githubTools, resolveWorkspaceGithub } from "./github"
+import { linearTools, linearWriteTools, resolveWorkspaceLinear } from "./linear"
 import { logger } from "./logger"
-import { buildSourceTools, resolveSourceCitation } from "./sources"
+import { resolveSourceCitation, sourceTools } from "./sources"
 import type { OnUsage } from "./usage"
 
 export const MERLIN_MODEL = "claude-sonnet-4-6"
@@ -272,42 +269,66 @@ async function messageExists(
   return !!row
 }
 
-function buildChatTools(workspaceId: string) {
+const workspaceContext = z.object({ workspaceId: z.string() })
+
+const chatTools = {
+  search_messages: tool({
+    description:
+      "Search the team's message history (all channels) by keyword. Returns matching messages with author, date, channel, and id. Call repeatedly with different keywords to investigate.",
+    inputSchema: z.object({
+      query: z.string().describe("keywords to search for"),
+      limit: z.number().optional().describe("max results, 1–20 (default 8)"),
+    }),
+    contextSchema: workspaceContext,
+    execute: async ({ query, limit }, { context }) => {
+      try {
+        const n = Math.floor(
+          Math.min(Math.max(limit ?? SEARCH_DEFAULT_LIMIT, 1), 20)
+        )
+        return await searchMessages(context.workspaceId, query, n)
+      } catch {
+        return { error: "search failed" }
+      }
+    },
+    strict: true,
+  }),
+  read_thread: tool({
+    description:
+      "Read the full thread (root message + all replies) a message belongs to. Use after search_messages to get full context around a hit.",
+    inputSchema: z.object({
+      messageId: z.string().describe("a message id from search_messages"),
+    }),
+    contextSchema: workspaceContext,
+    execute: async ({ messageId }, { context }) => {
+      try {
+        return await readThread(context.workspaceId, messageId)
+      } catch {
+        return { error: "read failed" }
+      }
+    },
+    strict: true,
+  }),
+}
+
+// Context for the always-bound tools; connector tool contexts are added per
+// call in respond() based on what the channel has bound.
+function coreToolsContext(
+  workspaceId: string,
+  onWrite?: (e: BrainWriteEvent) => void
+) {
+  const workspace = { workspaceId }
   return {
-    search_messages: tool({
-      description:
-        "Search the team's message history (all channels) by keyword. Returns matching messages with author, date, channel, and id. Call repeatedly with different keywords to investigate.",
-      inputSchema: z.object({
-        query: z.string().describe("keywords to search for"),
-        limit: z.number().optional().describe("max results, 1–20 (default 8)"),
-      }),
-      execute: async ({ query, limit }) => {
-        try {
-          const n = Math.floor(
-            Math.min(Math.max(limit ?? SEARCH_DEFAULT_LIMIT, 1), 20)
-          )
-          return await searchMessages(workspaceId, query, n)
-        } catch {
-          return { error: "search failed" }
-        }
-      },
-      strict: true,
-    }),
-    read_thread: tool({
-      description:
-        "Read the full thread (root message + all replies) a message belongs to. Use after search_messages to get full context around a hit.",
-      inputSchema: z.object({
-        messageId: z.string().describe("a message id from search_messages"),
-      }),
-      execute: async ({ messageId }) => {
-        try {
-          return await readThread(workspaceId, messageId)
-        } catch {
-          return { error: "read failed" }
-        }
-      },
-      strict: true,
-    }),
+    search_messages: workspace,
+    read_thread: workspace,
+    search_sources: workspace,
+    fetch_source: workspace,
+    ls: workspace,
+    read: workspace,
+    tree: workspace,
+    write: { workspaceId, onWrite },
+    mkdir: workspace,
+    move: workspace,
+    link: workspace,
   }
 }
 
@@ -681,22 +702,40 @@ export async function respond(
     : null
 
   const tools = {
-    ...buildChatTools(ctx.workspaceId),
-    ...buildSourceTools(ctx.workspaceId),
-    ...buildBrainReadTools(ctx.workspaceId),
-    ...buildBrainWriteTools(ctx.workspaceId, onMemoryWritten),
-    ...(github && caps.includes("github") ? buildGithubTools(github) : {}),
+    ...chatTools,
+    ...sourceTools,
+    ...brainReadTools,
+    ...brainWriteTools,
+    ...(github && caps.includes("github") ? githubTools : {}),
     ...(env.RAILWAY_API_TOKEN && github && caps.includes("code")
-      ? buildCodeTools(ctx.workspaceId, {
-          installationId: github.installationId,
-          onUsage,
-          onToolEvent,
-          repos: github.repos,
-        })
+      ? codeTools
       : {}),
-    ...(linear && caps.includes("linear") ? buildLinearTools(linear) : {}),
-    ...(linear && caps.includes("linear_write")
-      ? buildLinearWriteTools(linear)
+    ...(linear && caps.includes("linear") ? linearTools : {}),
+    ...(linear && caps.includes("linear_write") ? linearWriteTools : {}),
+  }
+
+  const toolsContext = {
+    ...coreToolsContext(ctx.workspaceId, onMemoryWritten),
+    ...(github
+      ? {
+          search_github: github,
+          fetch_github: github,
+          investigate_code: {
+            workspaceId: ctx.workspaceId,
+            installationId: github.installationId,
+            repos: github.repos,
+            onUsage,
+            onToolEvent,
+          },
+        }
+      : {}),
+    ...(linear
+      ? {
+          search_linear: linear,
+          fetch_linear: linear,
+          create_linear_issue: linear,
+          comment_linear: linear,
+        }
       : {}),
   }
 
@@ -713,18 +752,19 @@ export async function respond(
     instructions,
     messages: [userMessage],
     tools,
+    toolsContext,
     stopWhen: isStepCount(MAX_STEPS),
     // The step cap can land on tool use; disabling tools on the last step
     // forces the loop to end with a text answer instead of a retry pass.
     prepareStep: ({ stepNumber }) =>
       stepNumber === MAX_STEPS - 1 ? { toolChoice: "none" } : {},
-    // Adaptive thinking (Sonnet 4.6): the model decides depth and interleaves
-    // reasoning between tool calls; "summarized" streams a readable summary
-    // (the raw chain of thought is never returned). Disabled for now — the
-    // reasoning stream/persist/UI plumbing stays wired; re-enable to turn it on.
-    // providerOptions: {
-    //   anthropic: { thinking: { type: "adaptive", display: "summarized" } },
-    // },
+    // Adaptive thinking (Sonnet 4.6): `reasoning` sets the effort; display
+    // still comes from providerOptions — "summarized" is required to stream
+    // the reasoning deltas (newer models omit thinking text by default).
+    reasoning: "high",
+    providerOptions: {
+      anthropic: { thinking: { type: "adaptive", display: "summarized" } },
+    },
   })
 
   // stream exposes tool call/status + reasoning events; textStream does not.
@@ -786,11 +826,12 @@ export async function writeBack(
       { role: "user", content: WRITEBACK_INSTRUCTION },
     ],
     tools: {
-      ...buildChatTools(ctx.workspaceId),
-      ...buildSourceTools(ctx.workspaceId),
-      ...buildBrainReadTools(ctx.workspaceId),
-      ...buildBrainWriteTools(ctx.workspaceId, onMemoryWritten),
+      ...chatTools,
+      ...sourceTools,
+      ...brainReadTools,
+      ...brainWriteTools,
     },
+    toolsContext: coreToolsContext(ctx.workspaceId, onMemoryWritten),
     stopWhen: isStepCount(MAX_STEPS),
   })
 }

@@ -121,87 +121,91 @@ function repoListText(repoNames: string[]): string {
   return repoNames.slice(0, MAX_LISTED).join(", ")
 }
 
-export function buildGithubTools({
-  installationId,
-  repos,
-}: {
-  installationId: string
-  repos: InstallationRepo[]
-}) {
+const githubContext = z.object({
+  installationId: z.string(),
+  repos: z.custom<InstallationRepo[]>(),
+})
+
+function repoHint(repos: InstallationRepo[]): string {
   const repoNames = repos.map((r) => r.fullName)
-  const repoHint = repoNames.length
+  return repoNames.length
     ? ` Connected repositories: ${repoListText(repoNames)}.`
     : ""
-  return {
-    search_github: tool({
-      description: `Search the team's connected GitHub for pull requests and issues by keyword — use for "what PR changed X", "any issues about Y", recent work, or who worked on something. Returns matching PRs/issues with a ref (owner/repo#number), title, state, author, date, url, and a snippet. Reference a result with a Markdown link to its url. For the full body + discussion, call fetch_github with its ref.${repoHint}`,
-      inputSchema: z.object({
-        query: z.string().describe("keywords to search for"),
-        repo: z
-          .string()
-          .optional()
-          .describe("limit to one connected repo (owner/repo)"),
-        type: z
-          .enum(["pull_request", "issue"])
-          .optional()
-          .describe("limit to pull requests or issues"),
-        limit: z.number().optional().describe("max results, 1–20 (default 8)"),
-      }),
-      execute: async ({ query, repo, type, limit }) => {
-        const n = Math.floor(
-          Math.min(Math.max(limit ?? SEARCH_DEFAULT, 1), SEARCH_MAX)
+}
+
+export const githubTools = {
+  search_github: tool({
+    description: ({ context }) =>
+      `Search the team's connected GitHub for pull requests and issues by keyword — use for "what PR changed X", "any issues about Y", recent work, or who worked on something. Returns matching PRs/issues with a ref (owner/repo#number), title, state, author, date, url, and a snippet. Reference a result with a Markdown link to its url. For the full body + discussion, call fetch_github with its ref.${repoHint(context.repos)}`,
+    inputSchema: z.object({
+      query: z.string().describe("keywords to search for"),
+      repo: z
+        .string()
+        .optional()
+        .describe("limit to one connected repo (owner/repo)"),
+      type: z
+        .enum(["pull_request", "issue"])
+        .optional()
+        .describe("limit to pull requests or issues"),
+      limit: z.number().optional().describe("max results, 1–20 (default 8)"),
+    }),
+    contextSchema: githubContext,
+    execute: async ({ query, repo, type, limit }, { context }) => {
+      const repoNames = context.repos.map((r) => r.fullName)
+      const n = Math.floor(
+        Math.min(Math.max(limit ?? SEARCH_DEFAULT, 1), SEARCH_MAX)
+      )
+
+      let scope: string[]
+      let note: string | undefined
+      if (repo) {
+        const want = repo.trim().toLowerCase()
+        const wantName = want.split("/").pop() ?? want
+        const match = repoNames.find(
+          (r) =>
+            r.toLowerCase() === want ||
+            (r.split("/")[1] ?? "").toLowerCase() === wantName
         )
-
-        let scope: string[]
-        let note: string | undefined
-        if (repo) {
-          const want = repo.trim().toLowerCase()
-          const wantName = want.split("/").pop() ?? want
-          const match = repoNames.find(
-            (r) =>
-              r.toLowerCase() === want ||
-              (r.split("/")[1] ?? "").toLowerCase() === wantName
-          )
-          if (!match) {
-            return {
-              error: `"${repo}" isn't a connected repository. Connected repos: ${repoListText(repoNames)}`,
-            }
-          }
-          scope = [match]
-        } else {
-          scope = repoNames.slice(0, MAX_SCOPE_REPOS)
-          if (repoNames.length > MAX_SCOPE_REPOS) {
-            note = `searched the ${MAX_SCOPE_REPOS} most-recently-active of ${repoNames.length} repos — pass repo to target another`
+        if (!match) {
+          return {
+            error: `"${repo}" isn't a connected repository. Connected repos: ${repoListText(repoNames)}`,
           }
         }
-        if (scope.length === 0) {
-          return { error: "no connected repositories to search" }
+        scope = [match]
+      } else {
+        scope = repoNames.slice(0, MAX_SCOPE_REPOS)
+        if (repoNames.length > MAX_SCOPE_REPOS) {
+          note = `searched the ${MAX_SCOPE_REPOS} most-recently-active of ${repoNames.length} repos — pass repo to target another`
         }
+      }
+      if (scope.length === 0) {
+        return { error: "no connected repositories to search" }
+      }
 
-        const results = await searchIssues(installationId, {
-          query,
-          repos: scope,
-          type,
-          limit: n,
-        })
-        return note ? { note, results } : { results }
-      },
-      strict: true,
+      const results = await searchIssues(context.installationId, {
+        query,
+        repos: scope,
+        type,
+        limit: n,
+      })
+      return note ? { note, results } : { results }
+    },
+    strict: true,
+  }),
+  fetch_github: tool({
+    description:
+      "Fetch a GitHub pull request or issue's full body and discussion (comments, plus review comments for PRs), beyond the search snippet. Pass a ref as owner/repo#number (from search_github). Reference it with a Markdown link to its url.",
+    inputSchema: z.object({
+      ref: z
+        .string()
+        .describe("a pull request or issue ref, owner/repo#number"),
     }),
-    fetch_github: tool({
-      description:
-        "Fetch a GitHub pull request or issue's full body and discussion (comments, plus review comments for PRs), beyond the search snippet. Pass a ref as owner/repo#number (from search_github). Reference it with a Markdown link to its url.",
-      inputSchema: z.object({
-        ref: z
-          .string()
-          .describe("a pull request or issue ref, owner/repo#number"),
-      }),
-      execute: async ({ ref }) => {
-        const fetched = await fetchIssueOrPr(installationId, ref)
-        if (!fetched) return { error: "couldn't fetch that pull request/issue" }
-        return fetched
-      },
-      strict: true,
-    }),
-  }
+    contextSchema: githubContext,
+    execute: async ({ ref }, { context }) => {
+      const fetched = await fetchIssueOrPr(context.installationId, ref)
+      if (!fetched) return { error: "couldn't fetch that pull request/issue" }
+      return fetched
+    },
+    strict: true,
+  }),
 }

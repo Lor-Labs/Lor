@@ -389,98 +389,111 @@ function wrap<T>(fn: () => Promise<T>) {
   }))
 }
 
-export function buildBrainReadTools(workspaceId: string) {
-  return {
-    ls: tool({
-      description:
-        "List the immediate children (folders and pages) of a brain folder. Path '/' is the root.",
-      inputSchema: z.object({
-        path: z.string().describe("folder path, e.g. /people"),
-      }),
-      execute: ({ path }) => wrap(() => ls(workspaceId, path)),
-      strict: true,
+export type BrainWriteEvent = { path: string; action: "created" | "updated" }
+
+const workspaceContext = z.object({ workspaceId: z.string() })
+const writeContext = z.object({
+  workspaceId: z.string(),
+  onWrite: z.custom<(e: BrainWriteEvent) => void>().optional(),
+})
+
+export const brainReadTools = {
+  ls: tool({
+    description:
+      "List the immediate children (folders and pages) of a brain folder. Path '/' is the root.",
+    inputSchema: z.object({
+      path: z.string().describe("folder path, e.g. /people"),
     }),
-    read: tool({
-      description:
-        "Read a brain page's contents and its linked pages, by path.",
-      inputSchema: z.object({
-        path: z.string().describe("page path, e.g. /people/alice"),
-      }),
-      execute: ({ path }) => wrap(() => readPage(workspaceId, path)),
-      strict: true,
+    contextSchema: workspaceContext,
+    execute: ({ path }, { context }) =>
+      wrap(() => ls(context.workspaceId, path)),
+    strict: true,
+  }),
+  read: tool({
+    description: "Read a brain page's contents and its linked pages, by path.",
+    inputSchema: z.object({
+      path: z.string().describe("page path, e.g. /people/alice"),
     }),
-    tree: tool({
-      description:
-        "Show the brain's folder/page structure under a path, nested to a depth (default 2).",
-      inputSchema: z.object({
-        path: z.string().describe("root path, e.g. / or /services"),
-        depth: z.number().optional(),
-      }),
-      execute: ({ path, depth }) =>
-        wrap(() => tree(workspaceId, path, depth ?? TREE_DEFAULT_DEPTH)),
-      strict: true,
+    contextSchema: workspaceContext,
+    execute: ({ path }, { context }) =>
+      wrap(() => readPage(context.workspaceId, path)),
+    strict: true,
+  }),
+  tree: tool({
+    description:
+      "Show the brain's folder/page structure under a path, nested to a depth (default 2).",
+    inputSchema: z.object({
+      path: z.string().describe("root path, e.g. / or /services"),
+      depth: z.number().optional(),
     }),
-  }
+    contextSchema: workspaceContext,
+    execute: ({ path, depth }, { context }) =>
+      wrap(() => tree(context.workspaceId, path, depth ?? TREE_DEFAULT_DEPTH)),
+    strict: true,
+  }),
 }
 
-export function buildBrainWriteTools(
-  workspaceId: string,
-  onWrite?: (e: { path: string; action: "created" | "updated" }) => void
-) {
-  return {
-    write: tool({
-      description:
-        "Create or update a brain page at a path (parent folders are created automatically). Overwrites the page body.",
-      inputSchema: z.object({
-        path: z.string().describe("page path, e.g. /decisions/auth"),
-        body: z.string().describe("the page contents (Markdown)"),
-      }),
-      execute: async ({ path, body }) => {
-        const result = await wrap(() => writePage(workspaceId, path, body))
-        // Listener failures should not make a committed write look failed.
-        if (onWrite && "action" in result) {
-          try {
-            onWrite({ path: result.path, action: result.action })
-          } catch (err) {
-            logger.error(
-              { err, path: result.path },
-              "Merlin onWrite listener failed"
-            )
-          }
+export const brainWriteTools = {
+  write: tool({
+    description:
+      "Create or update a brain page at a path (parent folders are created automatically). Overwrites the page body.",
+    inputSchema: z.object({
+      path: z.string().describe("page path, e.g. /decisions/auth"),
+      body: z.string().describe("the page contents (Markdown)"),
+    }),
+    contextSchema: writeContext,
+    execute: async ({ path, body }, { context }) => {
+      const result = await wrap(() =>
+        writePage(context.workspaceId, path, body)
+      )
+      // Listener failures should not make a committed write look failed.
+      if (context.onWrite && "action" in result) {
+        try {
+          context.onWrite({ path: result.path, action: result.action })
+        } catch (err) {
+          logger.error(
+            { err, path: result.path },
+            "Merlin onWrite listener failed"
+          )
         }
-        // Echo the body so the tool-trail card can show what was saved.
-        return "action" in result ? { ...result, body } : result
-      },
-      strict: true,
+      }
+      // Echo the body so the tool-trail card can show what was saved.
+      return "action" in result ? { ...result, body } : result
+    },
+    strict: true,
+  }),
+  mkdir: tool({
+    description: "Create a brain folder (and any missing parent folders).",
+    inputSchema: z.object({
+      path: z.string().describe("folder path"),
     }),
-    mkdir: tool({
-      description: "Create a brain folder (and any missing parent folders).",
-      inputSchema: z.object({
-        path: z.string().describe("folder path"),
-      }),
-      execute: ({ path }) => wrap(() => mkdir(workspaceId, path)),
-      strict: true,
+    contextSchema: workspaceContext,
+    execute: ({ path }, { context }) =>
+      wrap(() => mkdir(context.workspaceId, path)),
+    strict: true,
+  }),
+  move: tool({
+    description: "Move or rename a brain node (folder or page).",
+    inputSchema: z.object({
+      from: z.string().describe("current path"),
+      to: z.string().describe("new path"),
     }),
-    move: tool({
-      description: "Move or rename a brain node (folder or page).",
-      inputSchema: z.object({
-        from: z.string().describe("current path"),
-        to: z.string().describe("new path"),
-      }),
-      execute: ({ from, to }) => wrap(() => move(workspaceId, from, to)),
-      strict: true,
+    contextSchema: workspaceContext,
+    execute: ({ from, to }, { context }) =>
+      wrap(() => move(context.workspaceId, from, to)),
+    strict: true,
+  }),
+  link: tool({
+    description:
+      "Create a typed link between two brain pages from the fixed set of edge types.",
+    inputSchema: z.object({
+      from: z.string().describe("source page path"),
+      to: z.string().describe("target page path"),
+      type: z.enum(schema.BRAIN_EDGE_TYPES).describe("relationship type"),
     }),
-    link: tool({
-      description:
-        "Create a typed link between two brain pages from the fixed set of edge types.",
-      inputSchema: z.object({
-        from: z.string().describe("source page path"),
-        to: z.string().describe("target page path"),
-        type: z.enum(schema.BRAIN_EDGE_TYPES).describe("relationship type"),
-      }),
-      execute: ({ from, to, type }) =>
-        wrap(() => link(workspaceId, from, to, type)),
-      strict: true,
-    }),
-  }
+    contextSchema: workspaceContext,
+    execute: ({ from, to, type }, { context }) =>
+      wrap(() => link(context.workspaceId, from, to, type)),
+    strict: true,
+  }),
 }
