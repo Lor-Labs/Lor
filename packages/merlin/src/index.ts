@@ -327,7 +327,9 @@ const searchTools = {
           SEARCH_PER_KIND_MAX
         )
       )
-      const want = (t: "messages" | "sources") => !types || types.includes(t)
+      // An empty/absent types array means both kinds; a non-empty one filters.
+      const want = (t: "messages" | "sources") =>
+        !types || types.length === 0 || types.includes(t)
       // Each backend is isolated: one failing (e.g. the embedding call) still
       // returns the other half rather than failing the whole search.
       const [messages, sources] = await Promise.all([
