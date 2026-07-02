@@ -106,7 +106,7 @@ export const message = pgTable(
       "gin",
       sql`${table.content} gin_trgm_ops`
     ),
-    // FTS for Merlin's search_messages. Expression index (no tsvector column),
+    // FTS backing Merlin's search tool. Expression index (no tsvector column),
     // so queries must match: to_tsvector('english', coalesce(content, '')).
     index("message_content_tsv_idx").using(
       "gin",
