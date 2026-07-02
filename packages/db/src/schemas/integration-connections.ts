@@ -18,6 +18,7 @@ import { workspace } from "./workspaces"
 export const integrationProviderEnum = pgEnum("integration_provider", [
   "github",
   "linear",
+  "datadog",
 ])
 
 export type IntegrationProvider =
@@ -52,6 +53,11 @@ export const integrationConnection = pgTable(
     refreshToken: text("refresh_token"),
     tokenExpiresAt: timestamp("token_expires_at"),
     scope: text("scope"),
+    // API-key auth storage (e.g. Datadog): both encrypted at rest (AES-256-GCM).
+    apiKey: text("api_key"),
+    appKey: text("app_key"),
+    // Provider region/host qualifier (e.g. the Datadog site "datadoghq.eu").
+    site: text("site"),
     status: integrationConnectionStatusEnum("status")
       .notNull()
       .default("active"),

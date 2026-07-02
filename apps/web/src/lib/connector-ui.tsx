@@ -1,3 +1,4 @@
+import { DatadogLogo } from "@repo/ui/components/logos/datadog"
 import { LinearLogo } from "@repo/ui/components/logos/linear"
 import { cn } from "@repo/ui/lib/utils"
 import { Github } from "lucide-react"
@@ -9,6 +10,11 @@ type Logo = ComponentType<{ className?: string }>
 // fill-current so brand marks inherit the surrounding text color.
 function LinearMark({ className }: { className?: string }) {
   return <LinearLogo variant="logo" className={cn(className, "fill-current")} />
+}
+
+// The Datadog mark hardcodes its brand fill on the path; override via CSS.
+function DatadogMark({ className }: { className?: string }) {
+  return <DatadogLogo className={cn(className, "[&_path]:fill-current")} />
 }
 
 type ConnectorUI = {
@@ -38,6 +44,12 @@ const CONNECTOR_UI: Record<ConnectorKey, ConnectorUI> = {
       "create_linear_issue",
       "comment_linear",
     ],
+  },
+  datadog: {
+    logo: DatadogMark,
+    // Anchored to the hostname end so datadoghq.com.evil.com can't wear the mark.
+    urlHost: /(^|\.)datadoghq\.(com|eu)$/i,
+    tools: ["search_datadog_logs", "analyze_datadog_logs"],
   },
 }
 

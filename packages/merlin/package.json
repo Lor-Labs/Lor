@@ -18,6 +18,7 @@
     "sandbox:smoke": "tsx src/sandbox/smoke.ts"
   },
   "dependencies": {
+    "@ai-sdk/mcp": "^2.0.5",
     "@linear/sdk": "^87.0.0",
     "@repo/db": "workspace:^",
     "@repo/env": "workspace:^",
