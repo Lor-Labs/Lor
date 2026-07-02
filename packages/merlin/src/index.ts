@@ -1,4 +1,3 @@
-import { anthropic } from "@ai-sdk/anthropic"
 import { and, asc, db, eq, or, schema, sql } from "@repo/db"
 import {
   ALL_MERLIN_CAPABILITIES,
@@ -36,11 +35,14 @@ import { embedText } from "./embeddings"
 import { githubTools, resolveWorkspaceGithub } from "./github"
 import { linearTools, linearWriteTools, resolveWorkspaceLinear } from "./linear"
 import { logger } from "./logger"
+import {
+  MERLIN_FALLBACK_MODEL,
+  MERLIN_MODEL,
+  MERLIN_SMALL_FALLBACK_MODEL,
+  MERLIN_SMALL_MODEL,
+} from "./models"
 import { resolveSourceCitation, sourceTools } from "./sources"
 import type { OnUsage } from "./usage"
-
-export const MERLIN_MODEL = "claude-sonnet-4-6"
-const MERLIN_GATE_MODEL = "claude-haiku-4-5"
 
 const MAX_STEPS = 30
 // Total tokens (all steps summed) before the loop is forced to answer; the
@@ -153,6 +155,7 @@ export type RespondCallbacks = {
   onUsage?: OnUsage
 }
 
+export { MERLIN_MODEL } from "./models"
 export type { OnUsage, UsageEvent } from "./usage"
 
 export type RespondResult = {
@@ -756,7 +759,7 @@ export async function respond(
   const instructions = `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}`
 
   const result = streamText({
-    model: anthropic(MERLIN_MODEL),
+    model: MERLIN_MODEL,
     instructions,
     messages: [userMessage],
     tools,
@@ -783,12 +786,15 @@ export async function respond(
       }
       return {}
     },
-    // Adaptive thinking (Sonnet 4.6): `reasoning` sets the effort; display
-    // still comes from providerOptions — "summarized" is required to stream
-    // the reasoning deltas (newer models omit thinking text by default).
-    reasoning: "high",
+    // Reasoning config is namespaced per provider; whichever provider serves
+    // the request uses its own entry. "summarized" is required to stream the
+    // reasoning deltas. gateway.caching places Anthropic cache markers.
     providerOptions: {
-      anthropic: { thinking: { type: "adaptive", display: "summarized" } },
+      anthropic: {
+        thinking: { type: "adaptive", effort: "high", display: "summarized" },
+      },
+      openai: { reasoningEffort: "high", reasoningSummary: "detailed" },
+      gateway: { caching: "auto", models: [MERLIN_FALLBACK_MODEL] },
     },
   })
 
@@ -837,14 +843,17 @@ export async function writeBack(
   { onMemoryWritten }: WriteBackCallbacks
 ): Promise<void> {
   const gate = await generateObject({
-    model: anthropic(MERLIN_GATE_MODEL),
+    model: MERLIN_SMALL_MODEL,
     schema: z.object({ worthSaving: z.boolean() }),
     prompt: `${ctx.gateText}\n\n---\n${GATE_QUESTION}`,
+    providerOptions: {
+      gateway: { models: [MERLIN_SMALL_FALLBACK_MODEL] },
+    },
   })
   if (!gate.object.worthSaving) return
 
   await generateText({
-    model: anthropic(MERLIN_MODEL),
+    model: MERLIN_MODEL,
     instructions: buildSystemPrompt([]),
     messages: [
       ...ctx.priorMessages,
@@ -859,6 +868,9 @@ export async function writeBack(
     toolsContext: coreToolsContext(ctx.workspaceId, onMemoryWritten),
     stopWhen: isStepCount(MAX_STEPS),
     timeout: { totalMs: WRITEBACK_TIMEOUT_MS },
+    providerOptions: {
+      gateway: { caching: "auto", models: [MERLIN_FALLBACK_MODEL] },
+    },
   })
 }
 

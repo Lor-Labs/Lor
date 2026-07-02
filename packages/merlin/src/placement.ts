@@ -1,8 +1,7 @@
-import { anthropic } from "@ai-sdk/anthropic"
 import { generateObject } from "ai"
 import { z } from "zod"
+import { MERLIN_SMALL_FALLBACK_MODEL, MERLIN_SMALL_MODEL } from "./models"
 
-const PLACEMENT_MODEL = "claude-haiku-4-5"
 const PLACEMENT_TIMEOUT_MS = 15_000
 
 export type PlacementTurn = { authorName: string; content: string }
@@ -23,9 +22,12 @@ export async function decideReplyPlacement(
     .join("\n")
 
   const result = await generateObject({
-    model: anthropic(PLACEMENT_MODEL),
+    model: MERLIN_SMALL_MODEL,
     schema: z.object({ placement: z.enum(["channel", "thread"]) }),
     prompt: `${PLACEMENT_PROMPT}\n\nRecent conversation:\n${transcript}`,
+    providerOptions: {
+      gateway: { models: [MERLIN_SMALL_FALLBACK_MODEL] },
+    },
     // Inline realtime path; callers default to channel on abort.
     // (generateObject omits the v7 `timeout` option, so AbortSignal it is.)
     abortSignal: AbortSignal.timeout(PLACEMENT_TIMEOUT_MS),

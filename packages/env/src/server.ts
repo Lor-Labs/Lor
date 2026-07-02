@@ -42,18 +42,16 @@ const serverSchema = z.object({
   REALTIME_CORS_ORIGIN: z.string().default(DEFAULT_REALTIME_CORS_ORIGIN),
   REDIS_URL: z.string().url(),
   BETTER_AUTH_SECRET: z.string().min(1),
+  // Claude Code CLI in the code-investigation sandbox only; all other
+  // inference and embeddings go through the AI Gateway.
   ANTHROPIC_API_KEY: z.string().min(1),
-  // Embedding provider (OpenAI-compatible). Self-hosters can point the base URL
-  // at any compatible endpoint (Ollama, LocalAI, …); the model MUST output
-  // 1536-dim vectors to match the brain_node.embedding column.
-  OPENAI_API_KEY: z.string().min(1),
+  // Vercel AI Gateway key — routes every model + embedding call.
+  AI_GATEWAY_API_KEY: z.string().min(1),
+  // Gateway model slug (creator/model). The model MUST output 1536-dim
+  // vectors to match the brain_node.embedding column.
   MERLIN_EMBED_MODEL: z.preprocess(
     (v) => (v === "" ? undefined : v),
-    z.string().default("text-embedding-3-small")
-  ),
-  MERLIN_EMBED_BASE_URL: z.preprocess(
-    (v) => (v === "" ? undefined : v),
-    z.string().url().optional()
+    z.string().default("openai/text-embedding-3-small")
   ),
   GITHUB_WEBHOOK_SECRET: z.string().min(1).optional(),
   // GitHub App identity for installation-authed REST (fetch_source). Optional:
