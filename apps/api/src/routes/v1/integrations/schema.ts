@@ -1,4 +1,5 @@
 import { z } from "@hono/zod-openapi"
+import { DATADOG_SITES } from "@repo/connectors"
 import { integrationProviderEnum } from "@repo/db/schema"
 
 export const integrationsWorkspaceParamsSchema = z.object({
@@ -30,6 +31,11 @@ export const integrationStatusSchema = z.object({
   connected: z.boolean(),
   accountLogin: z.string().nullable(),
   connectionId: z.string().nullable(),
+  // Mirrors ConnectorAuthType — api-key connectors connect via an in-app form
+  // instead of a redirect, so they have no connectUrl.
+  authType: z.enum(["github-app", "oauth", "api-key"]),
+  // Whether the server is configured to accept a connection right now.
+  available: z.boolean(),
   connectUrl: z.string().nullable(), // null when the provider isn't configured
   // Accessible repos + the GitHub management URL; null when not connected or
   // the installation can't be enumerated (App not configured). `repos` may be
@@ -61,6 +67,18 @@ export const connectLinearRequestSchema = z.object({
 })
 
 export const connectLinearResponseSchema = z.object({
+  success: z.literal(true),
+  accountLogin: z.string().nullable(),
+})
+
+export const connectDatadogRequestSchema = z.object({
+  site: z.enum(DATADOG_SITES),
+  apiKey: z.string().min(1),
+  // A scoped application key with logs read access, ideally from a service account.
+  appKey: z.string().min(1),
+})
+
+export const connectDatadogResponseSchema = z.object({
   success: z.literal(true),
   accountLogin: z.string().nullable(),
 })

@@ -1,8 +1,22 @@
-import { FocusScope } from "@radix-ui/react-focus-scope"
 import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar"
 import { Button } from "@repo/ui/components/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@repo/ui/components/dialog"
 import { Input } from "@repo/ui/components/input"
 import { Label } from "@repo/ui/components/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@repo/ui/components/select"
 import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
@@ -17,11 +31,17 @@ import {
   X,
 } from "lucide-react"
 import { AnimatePresence, motion } from "motion/react"
+// The same focus-scope instance Radix's own Dialog/Select use — nested Radix
+// layers pause an outer trap via a module-level stack, which only coordinates
+// within one instance. The standalone @radix-ui/react-focus-scope package
+// resolves to a different copy and its trap would fight nested portals.
+import { FocusScope } from "radix-ui/internal"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { toast } from "sonner"
 import { MerlinProfilesSection } from "@/components/workspace/merlin-profiles-section"
 import { apiClient } from "@/lib/api-client"
+import type { ConnectDatadogRequest } from "@/lib/api-types"
 import { connectorLogo } from "@/lib/connector-ui"
 
 const MAX_WORKSPACE_ICON_BYTES = 2 * 1024 * 1024
@@ -74,7 +94,9 @@ export function WorkspaceSettingsDialog({
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onOpenChange(false)
+      // Nested Radix layers (e.g. the Datadog connect dialog) preventDefault
+      // when they dismiss on Escape — don't close settings on the same press.
+      if (e.key === "Escape" && !e.defaultPrevented) onOpenChange(false)
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
@@ -95,7 +117,7 @@ export function WorkspaceSettingsDialog({
             transition={{ duration: 0.15 }}
           />
           {/* Trap + restore focus (no Radix Dialog here, so wire it ourselves). */}
-          <FocusScope asChild loop trapped>
+          <FocusScope.Root asChild loop trapped>
             <motion.div
               role="dialog"
               aria-modal="true"
@@ -163,7 +185,7 @@ export function WorkspaceSettingsDialog({
                 </div>
               </div>
             </motion.div>
-          </FocusScope>
+          </FocusScope.Root>
         </>
       )}
     </AnimatePresence>,
@@ -370,6 +392,7 @@ const REPO_DISPLAY_LIMIT = 8
 
 function IntegrationsSection({ workspaceSlug }: { workspaceSlug: string }) {
   const queryClient = useQueryClient()
+  const [datadogOpen, setDatadogOpen] = useState(false)
 
   const { data, isPending, isError, refetch } = useQuery({
     queryKey: ["integrations", workspaceSlug],
@@ -423,8 +446,8 @@ function IntegrationsSection({ workspaceSlug }: { workspaceSlug: string }) {
     <div className="space-y-3">
       <p className="text-sm text-muted-foreground">
         Connect tools so Merlin can draw on your team's work — searching pull
-        requests, issues, and code on demand, and summarizing what matters into
-        your workspace's memory.
+        requests, issues, code, and logs on demand, and summarizing what matters
+        into your workspace's memory.
       </p>
       {data?.providers.map((p) => {
         const Icon = connectorLogo(p.id)
@@ -456,6 +479,16 @@ function IntegrationsSection({ workspaceSlug }: { workspaceSlug: string }) {
                   }
                 >
                   Disconnect
+                </Button>
+              ) : p.authType === "api-key" ? (
+                // Keyed connectors connect via an in-app form, not a redirect.
+                // Datadog is the only one today.
+                <Button
+                  size="sm"
+                  disabled={!p.available}
+                  onClick={() => setDatadogOpen(true)}
+                >
+                  {p.available ? "Connect" : "Unavailable"}
                 </Button>
               ) : (
                 <Button
@@ -513,6 +546,129 @@ function IntegrationsSection({ workspaceSlug }: { workspaceSlug: string }) {
           </div>
         )
       })}
+      <DatadogConnectDialog
+        workspaceSlug={workspaceSlug}
+        open={datadogOpen}
+        onOpenChange={setDatadogOpen}
+      />
     </div>
+  )
+}
+
+type DatadogSite = ConnectDatadogRequest["site"]
+
+// Keyed by the API's site union so a new site is a compile error here.
+const DATADOG_SITE_LABELS: Record<DatadogSite, string> = {
+  "datadoghq.com": "US1 · datadoghq.com",
+  "datadoghq.eu": "EU · datadoghq.eu",
+  "us3.datadoghq.com": "US3 · us3.datadoghq.com",
+  "us5.datadoghq.com": "US5 · us5.datadoghq.com",
+  "ap1.datadoghq.com": "AP1 · ap1.datadoghq.com",
+}
+const DATADOG_SITES = Object.keys(DATADOG_SITE_LABELS) as DatadogSite[]
+
+function DatadogConnectDialog({
+  workspaceSlug,
+  open,
+  onOpenChange,
+}: {
+  workspaceSlug: string
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  const queryClient = useQueryClient()
+  const [site, setSite] = useState<DatadogSite>("datadoghq.com")
+  const [apiKey, setApiKey] = useState("")
+  const [appKey, setAppKey] = useState("")
+
+  const connect = useMutation({
+    mutationFn: async () => {
+      const res = await apiClient.v1.workspaces[
+        ":workspaceSlug"
+      ].integrations.datadog.connect.$post({
+        param: { workspaceSlug },
+        json: { site, apiKey: apiKey.trim(), appKey: appKey.trim() },
+      })
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as {
+          message?: string
+        } | null
+        throw new Error(body?.message ?? "Couldn't connect Datadog")
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["integrations", workspaceSlug],
+      })
+      toast.success("Datadog connected")
+      setApiKey("")
+      setAppKey("")
+      onOpenChange(false)
+    },
+    onError: (err) => toast.error(err.message),
+  })
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Connect Datadog</DialogTitle>
+          <DialogDescription>
+            Paste an API key and an application key with logs read access —
+            ideally scoped keys from a service account. They're stored
+            encrypted.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="datadog-site">Site</Label>
+            <Select
+              value={site}
+              onValueChange={(v) => setSite(v as DatadogSite)}
+            >
+              <SelectTrigger id="datadog-site" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {DATADOG_SITES.map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {DATADOG_SITE_LABELS[s]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="datadog-api-key">API key</Label>
+            <Input
+              id="datadog-api-key"
+              type="password"
+              autoComplete="off"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="datadog-app-key">Application key</Label>
+            <Input
+              id="datadog-app-key"
+              type="password"
+              autoComplete="off"
+              value={appKey}
+              onChange={(e) => setAppKey(e.target.value)}
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button
+            onClick={() => connect.mutate()}
+            disabled={!apiKey.trim() || !appKey.trim() || connect.isPending}
+          >
+            {connect.isPending && <Loader2 className="size-4 animate-spin" />}
+            Connect
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

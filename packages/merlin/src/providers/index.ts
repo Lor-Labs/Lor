@@ -1,4 +1,5 @@
 import type { IntegrationProvider } from "@repo/db/schema"
+import { datadogProvider } from "./datadog"
 import { githubProvider } from "./github"
 import { linearProvider } from "./linear"
 import type { SourceProvider } from "./types"
@@ -8,6 +9,7 @@ import type { SourceProvider } from "./types"
 const providers: Record<IntegrationProvider, SourceProvider> = {
   github: githubProvider,
   linear: linearProvider,
+  datadog: datadogProvider,
 }
 
 export function getSourceProvider(
@@ -16,6 +18,7 @@ export function getSourceProvider(
   return providers[provider]
 }
 
+export { connectDatadog } from "./datadog"
 export {
   type FetchedIssue,
   fetchIssueOrPr,

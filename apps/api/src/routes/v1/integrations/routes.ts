@@ -11,6 +11,8 @@ import {
 } from "@/lib/helpers/openapi/schemas"
 import { workspaceAuthMiddleware } from "@/middleware/workspace-auth"
 import {
+  connectDatadogRequestSchema,
+  connectDatadogResponseSchema,
   connectGithubRequestSchema,
   connectGithubResponseSchema,
   connectionIdParamsSchema,
@@ -100,6 +102,36 @@ export const connectLinear = createRoute({
   },
 })
 
+export const connectDatadog = createRoute({
+  path: "/workspaces/{workspaceSlug}/integrations/datadog/connect",
+  method: "post",
+  summary: "Link a Datadog account to a workspace",
+  description:
+    "Verifies the pasted API + application keys against the selected site, then stores them encrypted.",
+  tags: ["Integrations"],
+  middleware: [workspaceAuthMiddleware] as const,
+  request: {
+    params: integrationsWorkspaceParamsSchema,
+    body: jsonContent({
+      schema: connectDatadogRequestSchema,
+      description: "The Datadog site + API/application keys",
+    }),
+  },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: connectDatadogResponseSchema,
+      description: "Connected",
+    }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.CONFLICT]: conflictSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
 export const disconnectIntegration = createRoute({
   path: "/workspaces/{workspaceSlug}/integrations/{connectionId}",
   method: "delete",
@@ -123,4 +155,5 @@ export const disconnectIntegration = createRoute({
 export type ListIntegrationsRoute = typeof listIntegrations
 export type ConnectGithubRoute = typeof connectGithub
 export type ConnectLinearRoute = typeof connectLinear
+export type ConnectDatadogRoute = typeof connectDatadog
 export type DisconnectIntegrationRoute = typeof disconnectIntegration

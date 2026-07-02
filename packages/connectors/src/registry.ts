@@ -28,7 +28,26 @@ export const CONNECTORS: Record<IntegrationProvider, ConnectorDescriptor> = {
       "INTEGRATION_ENCRYPTION_KEY",
     ],
   },
+  datadog: {
+    id: "datadog",
+    label: "Datadog",
+    description: "Log search and analysis.",
+    authType: "api-key",
+    envKeys: ["INTEGRATION_ENCRYPTION_KEY"],
+  },
 }
+
+// Datadog is multi-region: the API/MCP hosts derive from the site. Validated at
+// the connect endpoint and stored on the connection's `site` column.
+export const DATADOG_SITES = [
+  "datadoghq.com",
+  "datadoghq.eu",
+  "us3.datadoghq.com",
+  "us5.datadoghq.com",
+  "ap1.datadoghq.com",
+] as const
+
+export type DatadogSite = (typeof DATADOG_SITES)[number]
 
 // Exhaustive over merlinCapabilityEnum — adding a capability value without a
 // descriptor here is a compile error.
@@ -57,6 +76,12 @@ export const CAPABILITIES: Record<MerlinCapability, CapabilityDescriptor> = {
     label: "Create & comment in Linear",
     description: "Create issues and post comments",
     connector: "linear",
+  },
+  datadog: {
+    key: "datadog",
+    label: "Datadog",
+    description: "Search and analyze logs",
+    connector: "datadog",
   },
 }
 
