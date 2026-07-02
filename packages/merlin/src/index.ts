@@ -9,8 +9,8 @@ import { env } from "@repo/env/server"
 import {
   generateObject,
   generateText,
+  isStepCount,
   type ModelMessage,
-  stepCountIs,
   streamText,
   tool,
 } from "ai"
@@ -44,7 +44,7 @@ import type { OnUsage } from "./usage"
 export const MERLIN_MODEL = "claude-sonnet-4-6"
 const MERLIN_GATE_MODEL = "claude-haiku-4-5"
 
-const MAX_STEPS = 12
+const MAX_STEPS = 30
 const SEARCH_DEFAULT_LIMIT = 8
 const PREFETCH_LIMIT = 3
 const SNIPPET_MAX = 500
@@ -706,14 +706,18 @@ export async function respond(
     linear && caps.includes("linear") ? LINEAR_PROMPT_LINE : null,
     linear && caps.includes("linear_write") ? LINEAR_WRITE_PROMPT_LINE : null,
   ].filter((line): line is string => line !== null)
-  const system = `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}`
+  const instructions = `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}`
 
   const result = streamText({
     model: anthropic(MERLIN_MODEL),
-    system,
+    instructions,
     messages: [userMessage],
     tools,
-    stopWhen: stepCountIs(MAX_STEPS),
+    stopWhen: isStepCount(MAX_STEPS),
+    // The step cap can land on tool use; disabling tools on the last step
+    // forces the loop to end with a text answer instead of a retry pass.
+    prepareStep: ({ stepNumber }) =>
+      stepNumber === MAX_STEPS - 1 ? { toolChoice: "none" } : {},
     // Adaptive thinking (Sonnet 4.6): the model decides depth and interleaves
     // reasoning between tool calls; "summarized" streams a readable summary
     // (the raw chain of thought is never returned). Disabled for now — the
@@ -723,9 +727,9 @@ export async function respond(
     // },
   })
 
-  // fullStream exposes tool call/status + reasoning events; textStream does not.
+  // stream exposes tool call/status + reasoning events; textStream does not.
   let text = ""
-  for await (const part of result.fullStream) {
+  for await (const part of result.stream) {
     if (part.type === "text-delta") {
       text += part.text
       await onDelta(part.text)
@@ -758,33 +762,9 @@ export async function respond(
     }
   }
 
-  const response = await result.response
+  const responseMessages = await result.responseMessages
 
-  // Step cap can end on tool use; force one final no-tools text pass.
-  if (!text.trim()) {
-    const retry = streamText({
-      model: anthropic(MERLIN_MODEL),
-      system,
-      messages: [userMessage, ...response.messages],
-      tools,
-      toolChoice: "none",
-      // Disabled alongside the main call above; re-enable both together.
-      // providerOptions: {
-      //   anthropic: { thinking: { type: "adaptive", display: "summarized" } },
-      // },
-    })
-    for await (const delta of retry.textStream) {
-      text += delta
-      await onDelta(delta)
-    }
-    const retryResponse = await retry.response
-    return {
-      text,
-      messages: [userMessage, ...response.messages, ...retryResponse.messages],
-    }
-  }
-
-  return { text, messages: [userMessage, ...response.messages] }
+  return { text, messages: [userMessage, ...responseMessages] }
 }
 
 export async function writeBack(
@@ -800,7 +780,7 @@ export async function writeBack(
 
   await generateText({
     model: anthropic(MERLIN_MODEL),
-    system: buildSystemPrompt([]),
+    instructions: buildSystemPrompt([]),
     messages: [
       ...ctx.priorMessages,
       { role: "user", content: WRITEBACK_INSTRUCTION },
@@ -811,7 +791,7 @@ export async function writeBack(
       ...buildBrainReadTools(ctx.workspaceId),
       ...buildBrainWriteTools(ctx.workspaceId, onMemoryWritten),
     },
-    stopWhen: stepCountIs(MAX_STEPS),
+    stopWhen: isStepCount(MAX_STEPS),
   })
 }
 
