@@ -202,6 +202,20 @@ export const githubTools = {
     }),
     contextSchema: githubContext,
     execute: async ({ ref }, { context }) => {
+      // Enforce the connected-repo list before fetching; an empty list is
+      // usually a transient enumeration failure, so stay permissive like
+      // resolveRepo does.
+      const refRepo = (ref.split("#")[0] ?? "").trim().toLowerCase()
+      if (
+        context.repos.length > 0 &&
+        !context.repos.some((r) => r.fullName.toLowerCase() === refRepo)
+      ) {
+        return {
+          error: `"${ref}" isn't in a connected repository. Connected repos: ${repoListText(
+            context.repos.map((r) => r.fullName)
+          )}`,
+        }
+      }
       const fetched = await fetchIssueOrPr(context.installationId, ref)
       if (!fetched) return { error: "couldn't fetch that pull request/issue" }
       return fetched

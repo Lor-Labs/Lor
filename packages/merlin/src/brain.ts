@@ -394,7 +394,7 @@ export type BrainWriteEvent = { path: string; action: "created" | "updated" }
 const workspaceContext = z.object({ workspaceId: z.string() })
 const writeContext = z.object({
   workspaceId: z.string(),
-  onWrite: z.custom<(e: BrainWriteEvent) => void>().optional(),
+  onWrite: z.custom<(e: BrainWriteEvent) => void | Promise<void>>().optional(),
 })
 
 export const brainReadTools = {
@@ -449,7 +449,7 @@ export const brainWriteTools = {
       // Listener failures should not make a committed write look failed.
       if (context.onWrite && "action" in result) {
         try {
-          context.onWrite({ path: result.path, action: result.action })
+          await context.onWrite({ path: result.path, action: result.action })
         } catch (err) {
           logger.error(
             { err, path: result.path },
