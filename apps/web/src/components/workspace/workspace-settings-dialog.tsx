@@ -1,4 +1,3 @@
-import { FocusScope } from "@radix-ui/react-focus-scope"
 import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar"
 import { Button } from "@repo/ui/components/button"
 import {
@@ -32,6 +31,11 @@ import {
   X,
 } from "lucide-react"
 import { AnimatePresence, motion } from "motion/react"
+// The same focus-scope instance Radix's own Dialog/Select use — nested Radix
+// layers pause an outer trap via a module-level stack, which only coordinates
+// within one instance. The standalone @radix-ui/react-focus-scope package
+// resolves to a different copy and its trap would fight nested portals.
+import { FocusScope } from "radix-ui/internal"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { toast } from "sonner"
@@ -90,7 +94,9 @@ export function WorkspaceSettingsDialog({
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onOpenChange(false)
+      // Nested Radix layers (e.g. the Datadog connect dialog) preventDefault
+      // when they dismiss on Escape — don't close settings on the same press.
+      if (e.key === "Escape" && !e.defaultPrevented) onOpenChange(false)
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
@@ -111,7 +117,7 @@ export function WorkspaceSettingsDialog({
             transition={{ duration: 0.15 }}
           />
           {/* Trap + restore focus (no Radix Dialog here, so wire it ourselves). */}
-          <FocusScope asChild loop trapped>
+          <FocusScope.Root asChild loop trapped>
             <motion.div
               role="dialog"
               aria-modal="true"
@@ -179,7 +185,7 @@ export function WorkspaceSettingsDialog({
                 </div>
               </div>
             </motion.div>
-          </FocusScope>
+          </FocusScope.Root>
         </>
       )}
     </AnimatePresence>,
