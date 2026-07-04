@@ -53,18 +53,21 @@ jobs:
           mv "$tmp" "$conf"
           echo "building version $VERSION"
 
-      - name: Import Apple certificate
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+      # NOTE: no manual "Import Apple certificate" / build.keychain step. When
+      # APPLE_CERTIFICATE is passed to tauri-action it builds & partition-lists
+      # its OWN keychain and imports the cert there; a manual step left two
+      # keychains holding the same identity, which can stall codesign on the
+      # signing step. tauri-action owns the full keychain lifecycle.
+
+      # codesign contacts Apple's secure timestamp server while signing; if the
+      # runner can't reach it, codesign hangs. Probe it (non-fatal) so the log
+      # shows whether reachability is the cause of the signing hang.
+      - name: Probe Apple timestamp server
         run: |
-          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
-          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-          security default-keychain -s build.keychain
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-          security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          echo "probing timestamp.apple.com (codesign uses it during signing)..."
+          curl -sS -o /dev/null -w "connect=%{time_connect}s total=%{time_total}s http=%{http_code}\n" \
+            --max-time 20 http://timestamp.apple.com/ts01 \
+            || echo "::warning::timestamp.apple.com not reachable within 20s — likely the codesign hang"
 
       # Build only — no tagName/releaseName, so no GitHub release is created.
       # The web frontend is bundled via beforeBuildCommand; NEXT_PUBLIC_* are
