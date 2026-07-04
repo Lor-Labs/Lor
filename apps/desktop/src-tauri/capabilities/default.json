@@ -7,6 +7,13 @@
     "core:default",
     "notification:default",
     "process:default",
-    "updater:default"
+    "updater:default",
+    {
+      "identifier": "http:default",
+      "allow": [
+        { "url": "https://*.lor.chat/*" },
+        { "url": "https://*.lor.chat/**" }
+      ]
+    }
   ]
 }

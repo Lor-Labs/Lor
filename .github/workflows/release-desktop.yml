@@ -6,7 +6,7 @@ on:
       - "v*"
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -14,20 +14,7 @@ concurrency:
 
 jobs:
   release:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: macos-latest
-            args: --target aarch64-apple-darwin
-          - platform: macos-latest
-            args: --target x86_64-apple-darwin
-          - platform: ubuntu-22.04
-            args: ""
-          - platform: windows-latest
-            args: ""
-
-    runs-on: ${{ matrix.platform }}
+    runs-on: macos-latest
     timeout-minutes: 60
 
     steps:
@@ -43,34 +30,62 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
-
-      - name: Install Linux dependencies
-        if: matrix.platform == 'ubuntu-22.04'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
 
       - run: pnpm install --frozen-lockfile
 
-      - name: Import Apple certificate
-        if: matrix.platform == 'macos-latest'
+      # The committed conf keeps signingIdentity "-" (ad-hoc) for local dev
+      # builds; CI overwrites it with the real Developer ID so notarization
+      # works, avoiding any precedence ambiguity with APPLE_SIGNING_IDENTITY.
+      - name: Set version and signing identity
         env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
-          echo $APPLE_CERTIFICATE | base64 --decode > certificate.p12
-          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-          security default-keychain -s build.keychain
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-          security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          set -eu
+          if [ -z "${APPLE_SIGNING_IDENTITY:-}" ]; then
+            echo "::error::APPLE_SIGNING_IDENTITY is empty — refusing to build a release that would fall back to ad-hoc signing" >&2
+            exit 1
+          fi
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "APP_VERSION=$VERSION" >> "$GITHUB_ENV"
+          conf="apps/desktop/src-tauri/tauri.conf.json"
+          tmp="$(mktemp)"
+          jq --arg v "$VERSION" --arg id "$APPLE_SIGNING_IDENTITY" \
+            '.version = $v | .bundle.macOS.signingIdentity = $id' \
+            "$conf" > "$tmp"
+          mv "$tmp" "$conf"
+          echo "building version $VERSION"
 
-      - name: Build Tauri app
+      # NOTE: no manual "Import Apple certificate" / build.keychain step. When
+      # APPLE_CERTIFICATE is passed to tauri-action it builds & partition-lists
+      # its OWN keychain and imports the cert there; a manual step left two
+      # keychains holding the same identity, which can stall codesign on the
+      # signing step. tauri-action owns the full keychain lifecycle.
+
+      # codesign contacts Apple's secure timestamp server while signing; if the
+      # runner can't reach it, codesign hangs. Probe it (non-fatal) so the log
+      # shows whether reachability is the cause of the signing hang.
+      - name: Probe Apple timestamp server
+        run: |
+          echo "probing timestamp.apple.com (codesign uses it during signing)..."
+          curl -sS -o /dev/null -w "connect=%{time_connect}s total=%{time_total}s http=%{http_code}\n" \
+            --max-time 20 http://timestamp.apple.com/ts01 \
+            || echo "::warning::timestamp.apple.com not reachable within 20s — likely the codesign hang"
+
+      # Build only — no tagName/releaseName, so no GitHub release is created.
+      # The web frontend is bundled via beforeBuildCommand; NEXT_PUBLIC_* are
+      # baked in by Vite at build time and must be present here.
+      # arm64-only for now: this matches the old per-arch build shape that
+      # worked. Universal (--target universal-apple-darwin) hung after signing,
+      # so we've reverted to the known-good single-arch path. Add Intel/universal
+      # back once that hang is understood.
+      - name: Build Tauri app (Apple Silicon)
         uses: tauri-apps/tauri-action@v0
+        id: tauri
+        timeout-minutes: 30
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
+          NEXT_PUBLIC_REALTIME_URL: ${{ secrets.NEXT_PUBLIC_REALTIME_URL }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -80,11 +95,73 @@ jobs:
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "Lor ${{ github.ref_name }}"
-          releaseBody: "Download the Lor desktop app for your platform."
-          releaseDraft: true
-          prerelease: false
           projectPath: apps/desktop
           tauriScript: pnpm tauri
-          args: ${{ matrix.args }}
+          # -v surfaces which bundler step runs (DMG creation vs notarization) so
+          # a hang is pinpointed rather than silent. Paired with timeout-minutes.
+          args: --target aarch64-apple-darwin -v
+
+      # Assemble latest.json (tauri-action only generates it for GitHub release
+      # uploads) and publish artifacts + manifest to Cloudflare R2.
+      - name: Publish to R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          R2_BUCKET: lor-releases
+          RELEASES_BASE_URL: https://releases.lor.chat
+        run: |
+          set -eu
+          VERSION="$APP_VERSION"
+          TARGET_DIR="apps/desktop/src-tauri/target"
+
+          TARBALL="$(find "$TARGET_DIR" -name '*.app.tar.gz' | head -1)"
+          SIG="$(find "$TARGET_DIR" -name '*.app.tar.gz.sig' | head -1)"
+          DMG="$(find "$TARGET_DIR" -name '*.dmg' | head -1)"
+
+          if [ -z "$TARBALL" ] || [ -z "$SIG" ] || [ -z "$DMG" ]; then
+            echo "::error::expected artifacts (.app.tar.gz / .sig / .dmg) not all found under $TARGET_DIR" >&2
+            exit 1
+          fi
+
+          TARBALL_NAME="$(basename "$TARBALL")"
+          SIGNATURE="$(cat "$SIG")"
+          PUB_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          URL="$RELEASES_BASE_URL/$VERSION/$TARBALL_NAME"
+
+          # arm64-only build → advertise only darwin-aarch64 so Intel Macs don't
+          # pull a binary they can't run. Add darwin-x86_64 back with universal.
+          jq -n \
+            --arg version "$VERSION" \
+            --arg notes "Lor $VERSION" \
+            --arg pub_date "$PUB_DATE" \
+            --arg sig "$SIGNATURE" \
+            --arg url "$URL" \
+            '{
+              version: $version,
+              notes: $notes,
+              pub_date: $pub_date,
+              platforms: {
+                "darwin-aarch64": { signature: $sig, url: $url }
+              }
+            }' > latest.json
+
+          s3() { aws s3 cp --endpoint-url "$R2_ENDPOINT" "$@"; }
+
+          # Versioned artifacts are immutable — let the CDN cache them hard.
+          IMMUTABLE="public, max-age=31536000, immutable"
+          # Mutable pointers must never be cached, or the updater/downloads go stale.
+          NOCACHE="no-cache, max-age=0, must-revalidate"
+
+          s3 --cache-control "$IMMUTABLE" "$TARBALL" "s3://$R2_BUCKET/$VERSION/$TARBALL_NAME"
+          s3 --cache-control "$IMMUTABLE" "$SIG"     "s3://$R2_BUCKET/$VERSION/$TARBALL_NAME.sig"
+          s3 --cache-control "$IMMUTABLE" latest.json "s3://$R2_BUCKET/$VERSION/latest.json"
+          s3 --cache-control "$IMMUTABLE" "$DMG" "s3://$R2_BUCKET/$VERSION/$(basename "$DMG")"
+          # Stable path for the marketing "Download for Mac" button (arm64).
+          s3 --cache-control "$NOCACHE" "$DMG" "s3://$R2_BUCKET/latest/Lor_aarch64.dmg"
+
+          # Root manifest — the updater endpoint the app polls; must stay fresh.
+          s3 --cache-control "$NOCACHE" latest.json "s3://$R2_BUCKET/latest.json"
+
+          echo "published $VERSION to $RELEASES_BASE_URL"

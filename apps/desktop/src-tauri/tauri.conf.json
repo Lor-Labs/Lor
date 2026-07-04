@@ -4,10 +4,10 @@
   "version": "0.1.1",
   "identifier": "com.lor.desktop",
   "build": {
-    "frontendDist": "https://app.lor.chat",
+    "frontendDist": "../../web/dist",
     "devUrl": "http://localhost:3000",
     "beforeDevCommand": "pnpm --filter web dev",
-    "beforeBuildCommand": ""
+    "beforeBuildCommand": "pnpm turbo run build --filter=web"
   },
   "app": {
     "windows": [
@@ -23,7 +23,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self' https://*.lor.chat; connect-src 'self' https://*.lor.chat wss://*.lor.chat http://localhost:* ws://localhost:*; img-src 'self' https: data: blob:; style-src 'self' 'unsafe-inline' https://*.lor.chat; font-src 'self' https://*.lor.chat data:; script-src 'self' 'unsafe-inline' https://*.lor.chat"
+      "csp": "default-src 'self' https://*.lor.chat; connect-src 'self' https://*.lor.chat wss://*.lor.chat http://localhost:* ws://localhost:* ipc: http://ipc.localhost; img-src 'self' https: data: blob:; style-src 'self' 'unsafe-inline' https://*.lor.chat; font-src 'self' https://*.lor.chat data:; script-src 'self' 'unsafe-inline' https://*.lor.chat"
     }
   },
   "bundle": {
@@ -43,10 +43,8 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQxNjNCOUYwOEIwQ0RCRTAKUldUZzJ3eUw4TGxqUWJkKzl4emczdUNLMlNJVWZLc24rWFpOaWNVaTEzV0doSUdPMzVHTzBYcXYK",
-      "endpoints": [
-        "https://github.com/BuckyMcYolo/lor/releases/latest/download/latest.json"
-      ]
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDM5MTgyNzYzOEM0OTk1M0UKUldRK2xVbU1ZeWNZT2YwYXhKNHFzNWROUDhHMjRjc2swTlBZNXVPakduWk1SK0RvbE54UTJEQzUK",
+      "endpoints": ["https://releases.lor.chat/latest.json"]
     }
   }
 }

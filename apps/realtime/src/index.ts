@@ -115,15 +115,18 @@ function toHeaders(
 
 const realtimePort = env.REALTIME_PORT
 
-const defaultOrigins = [
-  "http://localhost:3000",
-  "http://localhost:3001",
-  "tauri://localhost",
+const defaultOrigins = ["http://localhost:3000", "http://localhost:3001"]
+// The desktop (Tauri) app serves from these fixed origins, so they must always
+// be allowed — even in production where REALTIME_CORS_ORIGIN overrides the
+// defaults. (tauri://localhost on macOS/Linux, http://tauri.localhost on Windows.)
+const desktopOrigins = ["tauri://localhost", "http://tauri.localhost"]
+const corsOrigins = [
+  ...(env.REALTIME_CORS_ORIGIN || defaultOrigins.join(","))
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean),
+  ...desktopOrigins,
 ]
-const corsOrigins = (env.REALTIME_CORS_ORIGIN || defaultOrigins.join(","))
-  .split(",")
-  .map((origin) => origin.trim())
-  .filter(Boolean)
 
 const redisPubClient = createClient({ url: env.REDIS_URL })
 const redisSubClient = redisPubClient.duplicate()
@@ -200,11 +203,30 @@ io.use(async (socket, next) => {
   next()
 })
 
+// Resolve a session from its raw token via better-auth's internal adapter,
+// which honors secondary (Redis) storage and expiry the same way getSession
+// does — used for the Tauri handshake fallback where no cookie is present.
+// findSession is typed to better-auth's base models; at runtime it returns the
+// full row, so we surface it as the plugin-augmented Session the app uses.
+async function sessionFromToken(token: string): Promise<Session | null> {
+  const ctx = await auth.$context
+  return (await ctx.internalAdapter.findSession(token)) as Session | null
+}
+
 io.use(async (socket, next) => {
   try {
-    const session = await auth.api.getSession({
+    let session = await auth.api.getSession({
       headers: toHeaders(socket.handshake.headers),
     })
+
+    // Desktop (Tauri) fallback: the webview WS handshake can't carry the native
+    // cookie jar, so the client passes the session token in the auth payload.
+    if (!session) {
+      const token = socket.handshake.auth?.token
+      if (typeof token === "string" && token.length > 0) {
+        session = await sessionFromToken(token)
+      }
+    }
 
     if (!session) {
       next(new Error("Unauthorized"))
