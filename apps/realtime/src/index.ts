@@ -115,15 +115,18 @@ function toHeaders(
 
 const realtimePort = env.REALTIME_PORT
 
-const defaultOrigins = [
-  "http://localhost:3000",
-  "http://localhost:3001",
-  "tauri://localhost",
+const defaultOrigins = ["http://localhost:3000", "http://localhost:3001"]
+// The desktop (Tauri) app serves from these fixed origins, so they must always
+// be allowed — even in production where REALTIME_CORS_ORIGIN overrides the
+// defaults. (tauri://localhost on macOS/Linux, http://tauri.localhost on Windows.)
+const desktopOrigins = ["tauri://localhost", "http://tauri.localhost"]
+const corsOrigins = [
+  ...(env.REALTIME_CORS_ORIGIN || defaultOrigins.join(","))
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean),
+  ...desktopOrigins,
 ]
-const corsOrigins = (env.REALTIME_CORS_ORIGIN || defaultOrigins.join(","))
-  .split(",")
-  .map((origin) => origin.trim())
-  .filter(Boolean)
 
 const redisPubClient = createClient({ url: env.REDIS_URL })
 const redisSubClient = redisPubClient.duplicate()
