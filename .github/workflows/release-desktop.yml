@@ -51,8 +51,7 @@ jobs:
           conf="apps/desktop/src-tauri/tauri.conf.json"
           tmp="$(mktemp)"
           jq --arg v "$VERSION" --arg id "$APPLE_SIGNING_IDENTITY" \
-            '.version = $v
-             | (if $id != "" then .bundle.macOS.signingIdentity = $id else . end)' \
+            '.version = $v | .bundle.macOS.signingIdentity = $id' \
             "$conf" > "$tmp"
           mv "$tmp" "$conf"
           echo "building version $VERSION"

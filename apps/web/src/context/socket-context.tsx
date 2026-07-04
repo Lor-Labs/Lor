@@ -51,10 +51,12 @@ export function SocketProvider({
       authClient
         .getSession()
         .then(({ data }) => {
+          if (cancelled) return
           const token = data?.session?.token
           s.auth = token ? { token } : {}
         })
         .catch(() => {
+          if (cancelled) return
           s.auth = {}
         })
         .finally(() => {
