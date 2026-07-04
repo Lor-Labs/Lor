@@ -69,7 +69,11 @@ jobs:
       # Build only — no tagName/releaseName, so no GitHub release is created.
       # The web frontend is bundled via beforeBuildCommand; NEXT_PUBLIC_* are
       # baked in by Vite at build time and must be present here.
-      - name: Build Tauri app (universal macOS)
+      # arm64-only for now: this matches the old per-arch build shape that
+      # worked. Universal (--target universal-apple-darwin) hung after signing,
+      # so we've reverted to the known-good single-arch path. Add Intel/universal
+      # back once that hang is understood.
+      - name: Build Tauri app (Apple Silicon)
         uses: tauri-apps/tauri-action@v0
         id: tauri
         timeout-minutes: 30
@@ -89,7 +93,7 @@ jobs:
           tauriScript: pnpm tauri
           # -v surfaces which bundler step runs (DMG creation vs notarization) so
           # a hang is pinpointed rather than silent. Paired with timeout-minutes.
-          args: --target universal-apple-darwin -v
+          args: --target aarch64-apple-darwin -v
 
       # Assemble latest.json (tauri-action only generates it for GitHub release
       # uploads) and publish artifacts + manifest to Cloudflare R2.
@@ -120,7 +124,8 @@ jobs:
           PUB_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           URL="$RELEASES_BASE_URL/$VERSION/$TARBALL_NAME"
 
-          # Universal binary runs on both arches, so both platform keys point at it.
+          # arm64-only build → advertise only darwin-aarch64 so Intel Macs don't
+          # pull a binary they can't run. Add darwin-x86_64 back with universal.
           jq -n \
             --arg version "$VERSION" \
             --arg notes "Lor $VERSION" \
@@ -132,8 +137,7 @@ jobs:
               notes: $notes,
               pub_date: $pub_date,
               platforms: {
-                "darwin-aarch64": { signature: $sig, url: $url },
-                "darwin-x86_64":  { signature: $sig, url: $url }
+                "darwin-aarch64": { signature: $sig, url: $url }
               }
             }' > latest.json
 
@@ -149,8 +153,8 @@ jobs:
           s3 --cache-control "$IMMUTABLE" latest.json "s3://$R2_BUCKET/$VERSION/latest.json"
           if [ -n "$DMG" ]; then
             s3 --cache-control "$IMMUTABLE" "$DMG" "s3://$R2_BUCKET/$VERSION/$(basename "$DMG")"
-            # Stable path for the marketing "Download for Mac" button.
-            s3 --cache-control "$NOCACHE" "$DMG" "s3://$R2_BUCKET/latest/Lor_universal.dmg"
+            # Stable path for the marketing "Download for Mac" button (arm64).
+            s3 --cache-control "$NOCACHE" "$DMG" "s3://$R2_BUCKET/latest/Lor_aarch64.dmg"
           fi
 
           # Root manifest — the updater endpoint the app polls; must stay fresh.
