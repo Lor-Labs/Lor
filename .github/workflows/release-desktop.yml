@@ -42,6 +42,10 @@ jobs:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
           set -eu
+          if [ -z "${APPLE_SIGNING_IDENTITY:-}" ]; then
+            echo "::error::APPLE_SIGNING_IDENTITY is empty — refusing to build a release that would fall back to ad-hoc signing" >&2
+            exit 1
+          fi
           VERSION="${GITHUB_REF_NAME#v}"
           echo "APP_VERSION=$VERSION" >> "$GITHUB_ENV"
           conf="apps/desktop/src-tauri/tauri.conf.json"
@@ -117,8 +121,8 @@ jobs:
           SIG="$(find "$TARGET_DIR" -name '*.app.tar.gz.sig' | head -1)"
           DMG="$(find "$TARGET_DIR" -name '*.dmg' | head -1)"
 
-          if [ -z "$TARBALL" ] || [ -z "$SIG" ]; then
-            echo "::error::updater artifacts (.app.tar.gz / .sig) not found under $TARGET_DIR" >&2
+          if [ -z "$TARBALL" ] || [ -z "$SIG" ] || [ -z "$DMG" ]; then
+            echo "::error::expected artifacts (.app.tar.gz / .sig / .dmg) not all found under $TARGET_DIR" >&2
             exit 1
           fi
 
@@ -154,11 +158,9 @@ jobs:
           s3 --cache-control "$IMMUTABLE" "$TARBALL" "s3://$R2_BUCKET/$VERSION/$TARBALL_NAME"
           s3 --cache-control "$IMMUTABLE" "$SIG"     "s3://$R2_BUCKET/$VERSION/$TARBALL_NAME.sig"
           s3 --cache-control "$IMMUTABLE" latest.json "s3://$R2_BUCKET/$VERSION/latest.json"
-          if [ -n "$DMG" ]; then
-            s3 --cache-control "$IMMUTABLE" "$DMG" "s3://$R2_BUCKET/$VERSION/$(basename "$DMG")"
-            # Stable path for the marketing "Download for Mac" button (arm64).
-            s3 --cache-control "$NOCACHE" "$DMG" "s3://$R2_BUCKET/latest/Lor_aarch64.dmg"
-          fi
+          s3 --cache-control "$IMMUTABLE" "$DMG" "s3://$R2_BUCKET/$VERSION/$(basename "$DMG")"
+          # Stable path for the marketing "Download for Mac" button (arm64).
+          s3 --cache-control "$NOCACHE" "$DMG" "s3://$R2_BUCKET/latest/Lor_aarch64.dmg"
 
           # Root manifest — the updater endpoint the app polls; must stay fresh.
           s3 --cache-control "$NOCACHE" latest.json "s3://$R2_BUCKET/latest.json"

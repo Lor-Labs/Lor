@@ -45,13 +45,18 @@ export function SocketProvider({
       // session token in the handshake auth payload (in-memory only). The
       // realtime server validates it as a fallback to the session cookie.
       let cancelled = false
+      // Clear any stale token on the singleton socket before re-resolving, so a
+      // failed/empty session can't reconnect with a previous user's credentials.
+      s.auth = {}
       authClient
         .getSession()
         .then(({ data }) => {
           const token = data?.session?.token
-          if (token) s.auth = { token }
+          s.auth = token ? { token } : {}
         })
-        .catch(() => {})
+        .catch(() => {
+          s.auth = {}
+        })
         .finally(() => {
           if (!cancelled) s.connect()
         })
