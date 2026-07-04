@@ -1,3 +1,5 @@
+import { authClient } from "@repo/auth/client"
+import { isTauri } from "@repo/auth/tauri-fetch"
 import type { ReactNode } from "react"
 import { createContext, useContext, useEffect, useState } from "react"
 import { type AppSocket, getSocket } from "@/lib/socket"
@@ -36,8 +38,34 @@ export function SocketProvider({
     s.on("disconnect", onDisconnect)
     s.on("connect_error", onConnectError)
 
-    s.connect()
     setSocket(s)
+
+    if (isTauri) {
+      // The webview WS handshake can't carry the Rust cookie jar, so pass the
+      // session token in the handshake auth payload (in-memory only). The
+      // realtime server validates it as a fallback to the session cookie.
+      let cancelled = false
+      authClient
+        .getSession()
+        .then(({ data }) => {
+          const token = data?.session?.token
+          if (token) s.auth = { token }
+        })
+        .catch(() => {})
+        .finally(() => {
+          if (!cancelled) s.connect()
+        })
+      return () => {
+        cancelled = true
+        s.off("connect", onConnect)
+        s.off("disconnect", onDisconnect)
+        s.off("connect_error", onConnectError)
+        s.disconnect()
+        setSocket(null)
+      }
+    }
+
+    s.connect()
 
     return () => {
       s.off("connect", onConnect)

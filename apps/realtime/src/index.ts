@@ -200,11 +200,30 @@ io.use(async (socket, next) => {
   next()
 })
 
+// Resolve a session from its raw token via better-auth's internal adapter,
+// which honors secondary (Redis) storage and expiry the same way getSession
+// does — used for the Tauri handshake fallback where no cookie is present.
+// findSession is typed to better-auth's base models; at runtime it returns the
+// full row, so we surface it as the plugin-augmented Session the app uses.
+async function sessionFromToken(token: string): Promise<Session | null> {
+  const ctx = await auth.$context
+  return (await ctx.internalAdapter.findSession(token)) as Session | null
+}
+
 io.use(async (socket, next) => {
   try {
-    const session = await auth.api.getSession({
+    let session = await auth.api.getSession({
       headers: toHeaders(socket.handshake.headers),
     })
+
+    // Desktop (Tauri) fallback: the webview WS handshake can't carry the native
+    // cookie jar, so the client passes the session token in the auth payload.
+    if (!session) {
+      const token = socket.handshake.auth?.token
+      if (typeof token === "string" && token.length > 0) {
+        session = await sessionFromToken(token)
+      }
+    }
 
     if (!session) {
       next(new Error("Unauthorized"))

@@ -10,9 +10,11 @@ import {
 import { createAuthClient } from "better-auth/react"
 import type { auth } from "./auth.js"
 import { ac, admin, member, owner } from "./permissions"
+import { appFetch } from "./tauri-fetch"
 
 export const authClient = createAuthClient({
   baseURL: env.NEXT_PUBLIC_API_URL,
+  fetchOptions: { customFetchImpl: appFetch },
   plugins: [
     organizationClient({
       ac,

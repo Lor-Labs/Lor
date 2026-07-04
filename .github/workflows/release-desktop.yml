@@ -72,6 +72,7 @@ jobs:
       - name: Build Tauri app (universal macOS)
         uses: tauri-apps/tauri-action@v0
         id: tauri
+        timeout-minutes: 30
         env:
           NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
           NEXT_PUBLIC_REALTIME_URL: ${{ secrets.NEXT_PUBLIC_REALTIME_URL }}
@@ -86,7 +87,9 @@ jobs:
         with:
           projectPath: apps/desktop
           tauriScript: pnpm tauri
-          args: --target universal-apple-darwin
+          # -v surfaces which bundler step runs (DMG creation vs notarization) so
+          # a hang is pinpointed rather than silent. Paired with timeout-minutes.
+          args: --target universal-apple-darwin -v
 
       # Assemble latest.json (tauri-action only generates it for GitHub release
       # uploads) and publish artifacts + manifest to Cloudflare R2.

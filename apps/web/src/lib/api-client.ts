@@ -1,4 +1,5 @@
 import { honoClient } from "@repo/api-client"
+import { appFetch } from "@repo/auth/tauri-fetch"
 import { env } from "@repo/env/client"
 
 export const apiClient = honoClient(env.NEXT_PUBLIC_API_URL, {
@@ -8,4 +9,5 @@ export const apiClient = honoClient(env.NEXT_PUBLIC_API_URL, {
   init: {
     credentials: "include",
   },
+  fetch: appFetch,
 })
