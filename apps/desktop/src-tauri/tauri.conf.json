@@ -43,7 +43,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQxNjNCOUYwOEIwQ0RCRTAKUldUZzJ3eUw4TGxqUWJkKzl4emczdUNLMlNJVWZLc24rWFpOaWNVaTEzV0doSUdPMzVHTzBYcXYK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDM5MTgyNzYzOEM0OTk1M0UKUldRK2xVbU1ZeWNZT2YwYXhKNHFzNWROUDhHMjRjc2swTlBZNXVPakduWk1SK0RvbE54UTJEQzUK",
       "endpoints": [
         "https://github.com/BuckyMcYolo/lor/releases/latest/download/latest.json"
       ]
