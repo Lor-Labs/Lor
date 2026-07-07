@@ -100,16 +100,15 @@ export const deleteInvite = createRoute({
 
 export type DeleteInviteRoute = typeof deleteInvite
 
-// ── Public routes (only require auth session) ──────────
+// ── Public routes (preview is unauthenticated, accept requires a session) ──────────
 
 export const previewInvite = createRoute({
   path: "/invites/{code}",
   method: "get",
   summary: "Preview an invite link",
   description:
-    "Returns workspace info for an invite code. Used to show a preview before joining.",
+    "Returns workspace info for an invite code. Public — used to show a preview before joining, including to logged-out visitors.",
   tags: ["Invites"],
-  middleware: [sessionAuthMiddleware] as const,
   request: {
     params: inviteCodeParamsSchema,
   },
@@ -118,7 +117,6 @@ export const previewInvite = createRoute({
       schema: invitePreviewResponseSchema,
       description: "Invite preview",
     }),
-    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
     [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
     [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
   },

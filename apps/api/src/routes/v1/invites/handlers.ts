@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto"
+import { auth } from "@repo/auth"
 import { and, db, eq, schema, sql } from "@repo/db"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { assertWorkspacePermission } from "@/lib/permissions"
@@ -219,7 +220,7 @@ export const deleteInvite: AppRouteHandler<DeleteInviteRoute> = async (c) => {
 // ── Public Handlers (session-only) ───────────────────────
 
 export const previewInvite: AppRouteHandler<PreviewInviteRoute> = async (c) => {
-  const user = c.var.user
+  const session = await auth.api.getSession({ headers: c.req.raw.headers })
   const { code } = c.req.valid("param")
 
   const invite = await db
@@ -264,18 +265,20 @@ export const previewInvite: AppRouteHandler<PreviewInviteRoute> = async (c) => {
     .where(eq(schema.workspaceMember.workspaceId, invite.workspaceId))
     .then((rows) => rows[0])
 
-  // Check if user is already a member
-  const existingMember = await db
-    .select({ id: schema.workspaceMember.id })
-    .from(schema.workspaceMember)
-    .where(
-      and(
-        eq(schema.workspaceMember.workspaceId, invite.workspaceId),
-        eq(schema.workspaceMember.userId, user.id)
-      )
-    )
-    .limit(1)
-    .then((rows) => rows[0])
+  // Check if the visitor (when logged in) is already a member
+  const existingMember = session
+    ? await db
+        .select({ id: schema.workspaceMember.id })
+        .from(schema.workspaceMember)
+        .where(
+          and(
+            eq(schema.workspaceMember.workspaceId, invite.workspaceId),
+            eq(schema.workspaceMember.userId, session.user.id)
+          )
+        )
+        .limit(1)
+        .then((rows) => rows[0])
+    : undefined
 
   // Get channel info if present
   let channelInfo = null

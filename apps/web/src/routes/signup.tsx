@@ -10,17 +10,28 @@ import {
 import { Input } from "@repo/ui/components/input"
 import { Label } from "@repo/ui/components/label"
 import { useMutation } from "@tanstack/react-query"
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
+import {
+  createFileRoute,
+  Link,
+  useNavigate,
+  useRouter,
+} from "@tanstack/react-router"
 import { AlertCircle, Loader2 } from "lucide-react"
 import { type FormEvent, useEffect, useState } from "react"
 import { PasswordInput } from "@/components/auth/password-input"
+import { sanitizeRedirect } from "@/lib/auth-redirect"
 
 export const Route = createFileRoute("/signup")({
   component: SignUpPage,
+  validateSearch: (search: Record<string, unknown>): { redirect?: string } => ({
+    redirect: sanitizeRedirect(search.redirect),
+  }),
 })
 
 function SignUpPage() {
   const navigate = useNavigate()
+  const router = useRouter()
+  const { redirect } = Route.useSearch()
   const { data: session, isPending: sessionPending } = authClient.useSession()
   const [name, setName] = useState("")
   const [email, setEmail] = useState("")
@@ -28,9 +39,13 @@ function SignUpPage() {
 
   useEffect(() => {
     if (!sessionPending && session) {
-      navigate({ to: "/" })
+      if (redirect) {
+        router.history.push(redirect)
+      } else {
+        navigate({ to: "/" })
+      }
     }
-  }, [sessionPending, session, navigate])
+  }, [sessionPending, session, navigate, router, redirect])
 
   const {
     mutate: signUp,
@@ -42,14 +57,16 @@ function SignUpPage() {
         name,
         email,
         password,
-        callbackURL: `${window.location.origin}/`,
+        // The verification email link lands here after verifying, so the
+        // redirect (e.g. an invite) survives the email round-trip
+        callbackURL: `${window.location.origin}${redirect ?? "/"}`,
       })
       if (error) throw new Error(error.message ?? "Failed to create account")
     },
     onSuccess: () =>
       navigate({
         to: "/check-email",
-        search: { email },
+        search: { email, redirect },
       }),
   })
 
@@ -139,6 +156,7 @@ function SignUpPage() {
                       Already have an account?{" "}
                       <Link
                         to="/login"
+                        search={{ redirect }}
                         className="underline underline-offset-4 hover:text-primary"
                       >
                         Sign in

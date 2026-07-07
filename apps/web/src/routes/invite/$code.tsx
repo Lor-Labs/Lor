@@ -1,20 +1,38 @@
+import { authClient } from "@repo/auth/client"
 import { Button } from "@repo/ui/components/button"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { createFileRoute, useNavigate } from "@tanstack/react-router"
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
 import { Shield, Users } from "lucide-react"
 import { toast } from "sonner"
-import { useSocket } from "@/context/socket-context"
+import { SocketProvider, useSocket } from "@/context/socket-context"
 import { apiClient } from "@/lib/api-client"
 
-export const Route = createFileRoute("/_authenticated/invite/$code")({
+export const Route = createFileRoute("/invite/$code")({
   component: InvitePage,
 })
 
 function InvitePage() {
+  const { data: session, isPending: sessionPending } = authClient.useSession()
+
+  return (
+    <SocketProvider enabled={!!session}>
+      <InviteCard isAuthenticated={!!session} sessionPending={sessionPending} />
+    </SocketProvider>
+  )
+}
+
+function InviteCard({
+  isAuthenticated,
+  sessionPending,
+}: {
+  isAuthenticated: boolean
+  sessionPending: boolean
+}) {
   const { code } = Route.useParams()
   const navigate = useNavigate()
   const socket = useSocket()
   const queryClient = useQueryClient()
+  const invitePath = `/invite/${code}`
 
   const {
     data: preview,
@@ -75,6 +93,8 @@ function InvitePage() {
     navigate({ to: "/" })
   }
 
+  const isLoading = isPending || sessionPending
+
   // Error / expired states
   let errorContent: { title: string; description: string } | null = null
 
@@ -92,19 +112,8 @@ function InvitePage() {
 
   if (errorContent) {
     return (
-      // biome-ignore lint/a11y/useSemanticElements: backdrop overlay for dismiss on click
-      <div
-        role="button"
-        tabIndex={0}
-        className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"
-        onClick={goHome}
-        onKeyDown={(e) => e.key === "Escape" && goHome()}
-      >
-        <div
-          className="flex flex-col items-center gap-4 rounded-xl border border-border bg-card p-8 shadow-2xl"
-          onClick={(e) => e.stopPropagation()}
-          onKeyDown={(e) => e.stopPropagation()}
-        >
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-4 rounded-xl border border-border bg-card p-8 shadow-2xl">
           <Shield className="size-12 text-muted-foreground" />
           <h2 className="text-lg font-semibold">{errorContent.title}</h2>
           <p className="text-sm text-muted-foreground">
@@ -120,21 +129,59 @@ function InvitePage() {
 
   const invite = preview?.invite
 
+  let cta = null
+  if (invite) {
+    if (invite.isMember) {
+      cta = (
+        <Button
+          className="w-full"
+          onClick={() =>
+            navigate({
+              to: "/$workspaceSlug",
+              params: { workspaceSlug: invite.workspace.slug },
+            })
+          }
+        >
+          Already a Member — Go to Workspace
+        </Button>
+      )
+    } else if (isAuthenticated) {
+      cta = (
+        <Button
+          className="w-full"
+          onClick={() => acceptMutation.mutate()}
+          disabled={acceptMutation.isPending}
+        >
+          {acceptMutation.isPending ? "Joining..." : "Accept Invite"}
+        </Button>
+      )
+    } else {
+      cta = (
+        <div className="grid w-full gap-3">
+          <Button asChild className="w-full">
+            <Link to="/signup" search={{ redirect: invitePath }}>
+              Sign Up to Join
+            </Link>
+          </Button>
+          <p className="text-center text-sm text-muted-foreground">
+            Already have an account?{" "}
+            <Link
+              to="/login"
+              search={{ redirect: invitePath }}
+              className="underline underline-offset-4 hover:text-primary"
+            >
+              Sign in
+            </Link>
+          </p>
+        </div>
+      )
+    }
+  }
+
   return (
-    // biome-ignore lint/a11y/useSemanticElements: backdrop overlay for dismiss on click
-    <div
-      role="button"
-      tabIndex={0}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"
-      onClick={goHome}
-      onKeyDown={(e) => e.key === "Escape" && goHome()}
-    >
-      <div
-        className="w-full max-w-sm rounded-xl border border-border bg-card p-6 shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-        onKeyDown={(e) => e.stopPropagation()}
-      >
-        {isPending ? (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background">
+      <div className="w-full max-w-sm rounded-xl border border-border bg-card p-6 shadow-2xl">
+        {isLoading ? (
           <div className="py-8 text-center text-sm text-muted-foreground">
             Loading invite...
           </div>
@@ -168,27 +215,7 @@ function InvitePage() {
               invited you to join
             </p>
 
-            {invite.isMember ? (
-              <Button
-                className="w-full"
-                onClick={() =>
-                  navigate({
-                    to: "/$workspaceSlug",
-                    params: { workspaceSlug: invite.workspace.slug },
-                  })
-                }
-              >
-                Already a Member — Go to Workspace
-              </Button>
-            ) : (
-              <Button
-                className="w-full"
-                onClick={() => acceptMutation.mutate()}
-                disabled={acceptMutation.isPending}
-              >
-                {acceptMutation.isPending ? "Joining..." : "Accept Invite"}
-              </Button>
-            )}
+            {cta}
           </div>
         ) : null}
       </div>
