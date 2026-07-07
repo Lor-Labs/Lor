@@ -17,7 +17,7 @@ export const Route = createFileRoute("/check-email")({
   validateSearch: (
     search: Record<string, unknown>
   ): { email: string; redirect?: string } => ({
-    email: (search.email as string) ?? "",
+    email: typeof search.email === "string" ? search.email : "",
     redirect: sanitizeRedirect(search.redirect),
   }),
 })

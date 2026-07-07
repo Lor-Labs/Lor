@@ -16,18 +16,22 @@ function InvitePage() {
 
   return (
     <SocketProvider enabled={!!session}>
-      <InviteCard isAuthenticated={!!session} sessionPending={sessionPending} />
+      <InviteCard
+        userId={session?.user.id ?? null}
+        sessionPending={sessionPending}
+      />
     </SocketProvider>
   )
 }
 
 function InviteCard({
-  isAuthenticated,
+  userId,
   sessionPending,
 }: {
-  isAuthenticated: boolean
+  userId: string | null
   sessionPending: boolean
 }) {
+  const isAuthenticated = userId !== null
   const { code } = Route.useParams()
   const navigate = useNavigate()
   const socket = useSocket()
@@ -39,7 +43,7 @@ function InviteCard({
     isPending,
     isError,
   } = useQuery({
-    queryKey: ["invite-preview", code],
+    queryKey: ["invite-preview", code, userId],
     queryFn: async () => {
       const res = await apiClient.v1.invites[":code"].$get({
         param: { code },
