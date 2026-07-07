@@ -38,6 +38,7 @@ import { useMemo, useState } from "react"
 import { AppearanceSettings } from "@/components/settings/appearance-settings"
 import { MyAccountSettings } from "@/components/settings/my-account-settings"
 import { NotificationSettings } from "@/components/settings/notification-settings"
+import { useAppVersion } from "@/hooks/use-app-version"
 import { useSettings } from "@/hooks/use-settings"
 
 interface SettingsNav {
@@ -60,6 +61,7 @@ export function SettingsDialog() {
   const { target, tab, close, setTab } = useSettings()
   const isOpen = target === "user"
   const [search, setSearch] = useState("")
+  const appVersion = useAppVersion()
 
   const activeItem =
     settingsNav.find((item) => item.id === tab) ?? settingsNav[0]
@@ -139,6 +141,11 @@ export function SettingsDialog() {
                 </div>
               )}
             </div>
+            {appVersion ? (
+              <footer className="shrink-0 border-t px-4 py-2 text-xs text-muted-foreground">
+                Lor v{appVersion}
+              </footer>
+            ) : null}
           </main>
         </SidebarProvider>
       </DialogContent>

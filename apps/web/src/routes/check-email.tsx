@@ -10,16 +10,20 @@ import { useMutation } from "@tanstack/react-query"
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { Loader2, Mail, MailCheck } from "lucide-react"
 import { AuthLayout } from "@/components/auth/auth-layout"
+import { sanitizeRedirect } from "@/lib/auth-redirect"
 
 export const Route = createFileRoute("/check-email")({
   component: CheckEmailPage,
-  validateSearch: (search: Record<string, unknown>) => ({
-    email: (search.email as string) ?? "",
+  validateSearch: (
+    search: Record<string, unknown>
+  ): { email: string; redirect?: string } => ({
+    email: typeof search.email === "string" ? search.email : "",
+    redirect: sanitizeRedirect(search.redirect),
   }),
 })
 
 function CheckEmailPage() {
-  const { email } = Route.useSearch()
+  const { email, redirect } = Route.useSearch()
 
   const {
     mutate: resendEmail,
@@ -30,7 +34,7 @@ function CheckEmailPage() {
       if (!email) return
       const { error } = await authClient.sendVerificationEmail({
         email,
-        callbackURL: `${window.location.origin}/`,
+        callbackURL: `${window.location.origin}${redirect ?? "/"}`,
       })
       if (error)
         throw new Error(error.message ?? "Failed to resend verification email")
@@ -85,6 +89,7 @@ function CheckEmailPage() {
           )}
           <Link
             to="/login"
+            search={{ redirect }}
             className="text-center text-sm font-medium text-muted-foreground transition-colors hover:text-primary"
           >
             Back to sign in

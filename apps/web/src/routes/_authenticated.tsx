@@ -75,9 +75,14 @@ function AuthenticatedLayout() {
 
   useEffect(() => {
     if (!isPending && !session) {
-      navigate({ to: "/login" })
+      navigate({
+        to: "/login",
+        search: {
+          redirect: location.href === "/" ? undefined : location.href,
+        },
+      })
     }
-  }, [isPending, session, navigate])
+  }, [isPending, session, navigate, location.href])
 
   useEffect(() => {
     if (location.pathname !== "/") {
@@ -108,9 +113,7 @@ function AuthenticatedLayout() {
 
   // Only show onboarding if explicitly not completed AND no existing workspaces
   // (guards against existing users whose flag defaulted to false)
-  const isInviteRoute = location.pathname.startsWith("/invite/")
   const showOnboarding =
-    !isInviteRoute &&
     session.user.onboardingCompleted === false &&
     workspaces !== undefined &&
     workspaces?.length === 0

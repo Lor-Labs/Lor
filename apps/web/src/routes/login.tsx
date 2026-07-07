@@ -10,26 +10,41 @@ import {
 import { Input } from "@repo/ui/components/input"
 import { Label } from "@repo/ui/components/label"
 import { useMutation } from "@tanstack/react-query"
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
+import {
+  createFileRoute,
+  Link,
+  useNavigate,
+  useRouter,
+} from "@tanstack/react-router"
 import { AlertCircle, Loader2 } from "lucide-react"
 import { type FormEvent, useEffect, useState } from "react"
 import { PasswordInput } from "@/components/auth/password-input"
+import { sanitizeRedirect } from "@/lib/auth-redirect"
 
 export const Route = createFileRoute("/login")({
   component: LoginPage,
+  validateSearch: (search: Record<string, unknown>): { redirect?: string } => ({
+    redirect: sanitizeRedirect(search.redirect),
+  }),
 })
 
 function LoginPage() {
   const navigate = useNavigate()
+  const router = useRouter()
+  const { redirect } = Route.useSearch()
   const { data: session, isPending: sessionPending } = authClient.useSession()
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
 
   useEffect(() => {
     if (!sessionPending && session) {
-      navigate({ to: "/" })
+      if (redirect) {
+        router.history.push(redirect)
+      } else {
+        navigate({ to: "/" })
+      }
     }
-  }, [sessionPending, session, navigate])
+  }, [sessionPending, session, navigate, router, redirect])
 
   const {
     mutate: signIn,
@@ -40,12 +55,12 @@ function LoginPage() {
       const { error } = await authClient.signIn.email({
         email,
         password,
-        callbackURL: `${window.location.origin}/`,
+        callbackURL: `${window.location.origin}${redirect ?? "/"}`,
       })
       if (error) {
         // 403 = email not verified — better-auth re-sends the verification email automatically
         if (error.status === 403) {
-          navigate({ to: "/check-email", search: { email } })
+          navigate({ to: "/check-email", search: { email, redirect } })
           return { needsVerification: true }
         }
         throw new Error(error.message ?? "Failed to sign in")
@@ -54,7 +69,11 @@ function LoginPage() {
     },
     onSuccess: (result) => {
       if (!result?.needsVerification) {
-        navigate({ to: "/" })
+        if (redirect) {
+          router.history.push(redirect)
+        } else {
+          navigate({ to: "/" })
+        }
       }
     },
   })
@@ -135,6 +154,7 @@ function LoginPage() {
                       Don&apos;t have an account?{" "}
                       <Link
                         to="/signup"
+                        search={{ redirect }}
                         className="underline underline-offset-4 hover:text-primary"
                       >
                         Sign up
