@@ -86,6 +86,18 @@ export const message = pgTable(
     // kept so the collapsible "thought process" survives a reload.
     merlinReasoning: text("merlin_reasoning"),
 
+    // Display identity for webhook/connector messages (Discord-style). The row
+    // is authored by the shared app bot user; these override what renders.
+    overrideName: text("override_name"),
+    overrideAvatarUrl: text("override_avatar_url"),
+
+    // Connector notification messages are pointers — their canonical content
+    // lives in `source`. Excluded from Merlin's search so retrieval doesn't
+    // surface mirrors of what the sources layer already returns.
+    excludedFromMemory: boolean("excluded_from_memory")
+      .default(false)
+      .notNull(),
+
     pinned: boolean("pinned").default(false).notNull(),
 
     editedAt: timestamp("edited_at"),

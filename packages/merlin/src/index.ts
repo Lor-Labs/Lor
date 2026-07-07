@@ -204,7 +204,13 @@ async function searchMessages(
     .innerJoin(schema.channel, eq(schema.message.channelId, schema.channel.id))
     .innerJoin(schema.user, eq(schema.message.authorId, schema.user.id))
     .where(
-      and(eq(schema.channel.workspaceId, workspaceId), sql`${tsv} @@ ${tsq}`)
+      and(
+        eq(schema.channel.workspaceId, workspaceId),
+        // Connector notifications are pointers — their canonical content lives
+        // in `source`; surfacing them here would duplicate source results.
+        eq(schema.message.excludedFromMemory, false),
+        sql`${tsv} @@ ${tsq}`
+      )
     )
     .orderBy(sql`ts_rank(${tsv}, ${tsq}) desc`)
     .limit(limit)

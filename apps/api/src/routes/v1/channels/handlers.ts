@@ -403,6 +403,8 @@ export const listPinnedMessages: AppRouteHandler<
       embeds: message.embeds,
       merlinToolCalls: message.merlinToolCalls,
       merlinReasoning: message.merlinReasoning,
+      overrideName: message.overrideName,
+      overrideAvatarUrl: message.overrideAvatarUrl,
       referencedMessageId: message.referencedMessageId,
       threadRootId: message.threadRootId,
       editedAt: message.editedAt,

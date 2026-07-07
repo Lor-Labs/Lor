@@ -1,6 +1,15 @@
-import { CONNECTOR_LIST, type ConnectorDescriptor } from "@repo/connectors"
+import {
+  CONNECTOR_EVENTS,
+  CONNECTOR_LIST,
+  type ConnectorDescriptor,
+  isConnectorEvent,
+} from "@repo/connectors"
 import { db } from "@repo/db"
-import { integrationConnection } from "@repo/db/schema"
+import {
+  channel,
+  connectorNotificationRoute,
+  integrationConnection,
+} from "@repo/db/schema"
 import { env } from "@repo/env/server"
 import {
   connectLinear as exchangeLinearCode,
@@ -8,7 +17,7 @@ import {
   getSourceProvider,
   connectDatadog as verifyDatadogKeys,
 } from "@repo/merlin/providers"
-import { and, eq, ne, sql } from "drizzle-orm"
+import { and, eq, inArray, ne, sql } from "drizzle-orm"
 import { invalidateGithubRepoCache } from "@/lib/github-repo-cache"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
@@ -20,6 +29,7 @@ import type {
   ConnectLinearRoute,
   DisconnectIntegrationRoute,
   ListIntegrationsRoute,
+  UpdateIntegrationRoute,
 } from "@/routes/v1/integrations/routes"
 
 // Used for both the authorize URL and the token exchange — they must match.
@@ -87,6 +97,26 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
     )
   const byProvider = new Map(connections.map((r) => [r.provider, r]))
 
+  const routes =
+    connections.length > 0
+      ? await db
+          .select({
+            connectionId: connectorNotificationRoute.connectionId,
+            event: connectorNotificationRoute.event,
+            channelId: connectorNotificationRoute.channelId,
+          })
+          .from(connectorNotificationRoute)
+          .where(
+            inArray(
+              connectorNotificationRoute.connectionId,
+              connections.map((r) => r.id)
+            )
+          )
+      : []
+  const routeChannel = new Map(
+    routes.map((r) => [`${r.connectionId}:${r.event}`, r.channelId])
+  )
+
   if (!env.GITHUB_APP_SLUG) {
     logger.warn(
       { workspaceSlug: workspace.slug },
@@ -137,6 +167,13 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
         repos,
         repoCount,
         manageUrl,
+        events: CONNECTOR_EVENTS[descriptor.id].map((e) => ({
+          key: e.key,
+          label: e.label,
+          channelId: conn
+            ? (routeChannel.get(`${conn.id}:${e.key}`) ?? null)
+            : null,
+        })),
       }
     })
   )
@@ -461,6 +498,90 @@ export const connectDatadog: AppRouteHandler<ConnectDatadogRoute> = async (
     { success: true as const, accountLogin: result.accountLabel },
     HttpStatusCodes.OK
   )
+}
+
+export const updateIntegration: AppRouteHandler<
+  UpdateIntegrationRoute
+> = async (c) => {
+  const workspace = c.var.workspace
+  const { connectionId } = c.req.valid("param")
+  const { event, notifyChannelId } = c.req.valid("json")
+
+  const connection = await db
+    .select({
+      id: integrationConnection.id,
+      provider: integrationConnection.provider,
+    })
+    .from(integrationConnection)
+    .where(
+      and(
+        eq(integrationConnection.id, connectionId),
+        eq(integrationConnection.workspaceId, workspace.id)
+      )
+    )
+    .limit(1)
+    .then((rows) => rows[0])
+  if (!connection) {
+    return c.json(
+      { success: false, message: "Connection not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+
+  if (!isConnectorEvent(connection.provider, event)) {
+    return c.json(
+      { success: false, message: "Unknown event for this connector" },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+
+  if (notifyChannelId === null) {
+    await db
+      .delete(connectorNotificationRoute)
+      .where(
+        and(
+          eq(connectorNotificationRoute.connectionId, connection.id),
+          eq(connectorNotificationRoute.event, event)
+        )
+      )
+    return c.json({ success: true as const }, HttpStatusCodes.OK)
+  }
+
+  const target = await db
+    .select({ id: channel.id })
+    .from(channel)
+    .where(
+      and(
+        eq(channel.id, notifyChannelId),
+        eq(channel.workspaceId, workspace.id),
+        eq(channel.type, "text")
+      )
+    )
+    .limit(1)
+    .then((rows) => rows[0])
+  if (!target) {
+    return c.json(
+      { success: false, message: "Channel not found in this workspace" },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+
+  await db
+    .insert(connectorNotificationRoute)
+    .values({
+      connectionId: connection.id,
+      event,
+      channelId: notifyChannelId,
+    })
+    .onConflictDoUpdate({
+      target: [
+        connectorNotificationRoute.connectionId,
+        connectorNotificationRoute.event,
+      ],
+      set: { channelId: notifyChannelId },
+    })
+
+  return c.json({ success: true as const }, HttpStatusCodes.OK)
 }
 
 export const disconnectIntegration: AppRouteHandler<

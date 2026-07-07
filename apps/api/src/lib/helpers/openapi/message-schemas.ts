@@ -78,8 +78,9 @@ export const threadSummarySchema = z
   .nullable()
 
 export const messageWithAuthorSchema = selectMessageSchema
-  // Raw memory column is reshaped into `remembered` below.
-  .omit({ merlinMemories: true })
+  // Raw memory column is reshaped into `remembered` below; the memory
+  // exclusion flag is retrieval plumbing the client never needs.
+  .omit({ merlinMemories: true, excludedFromMemory: true })
   .extend({
     author: messageAuthorSchema,
     mentions: z.array(messageAuthorSchema),

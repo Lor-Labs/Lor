@@ -21,6 +21,8 @@ import {
   disconnectResponseSchema,
   integrationsWorkspaceParamsSchema,
   listIntegrationsResponseSchema,
+  updateIntegrationRequestSchema,
+  updateIntegrationResponseSchema,
 } from "@/routes/v1/integrations/schema"
 
 export const listIntegrations = createRoute({
@@ -132,6 +134,33 @@ export const connectDatadog = createRoute({
   },
 })
 
+export const updateIntegration = createRoute({
+  path: "/workspaces/{workspaceSlug}/integrations/{connectionId}",
+  method: "patch",
+  summary: "Update an integration's settings",
+  description: "Sets or clears the channel that receives provider activity.",
+  tags: ["Integrations"],
+  middleware: [workspaceAuthMiddleware] as const,
+  request: {
+    params: connectionIdParamsSchema,
+    body: jsonContent({
+      schema: updateIntegrationRequestSchema,
+      description: "The notification channel (null to disable)",
+    }),
+  },
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: updateIntegrationResponseSchema,
+      description: "Updated",
+    }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
 export const disconnectIntegration = createRoute({
   path: "/workspaces/{workspaceSlug}/integrations/{connectionId}",
   method: "delete",
@@ -156,4 +185,5 @@ export type ListIntegrationsRoute = typeof listIntegrations
 export type ConnectGithubRoute = typeof connectGithub
 export type ConnectLinearRoute = typeof connectLinear
 export type ConnectDatadogRoute = typeof connectDatadog
+export type UpdateIntegrationRoute = typeof updateIntegration
 export type DisconnectIntegrationRoute = typeof disconnectIntegration

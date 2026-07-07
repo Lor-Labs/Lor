@@ -21,6 +21,7 @@ import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   Camera,
+  ChevronDown,
   ExternalLink,
   Layers,
   Loader2,
@@ -390,9 +391,12 @@ function GeneralSection({
 // How many repo chips to show before collapsing the rest into a "+N more".
 const REPO_DISPLAY_LIMIT = 8
 
+const NOTIFY_OFF = "__off__"
+
 function IntegrationsSection({ workspaceSlug }: { workspaceSlug: string }) {
   const queryClient = useQueryClient()
   const [datadogOpen, setDatadogOpen] = useState(false)
+  const [expandedId, setExpandedId] = useState<string | null>(null)
 
   const { data, isPending, isError, refetch } = useQuery({
     queryKey: ["integrations", workspaceSlug],
@@ -419,6 +423,43 @@ function IntegrationsSection({ workspaceSlug }: { workspaceSlug: string }) {
       toast.success("Disconnected")
     },
     onError: () => toast.error("Failed to disconnect"),
+  })
+
+  const { data: channelsData } = useQuery({
+    queryKey: ["channels", workspaceSlug],
+    queryFn: async () => {
+      const res = await apiClient.v1.workspaces[":workspaceSlug"].channels.$get(
+        { param: { workspaceSlug } }
+      )
+      if (!res.ok) throw new Error("Failed to load channels")
+      return res.json()
+    },
+  })
+  const textChannels = [
+    ...(channelsData?.uncategorized ?? []),
+    ...(channelsData?.categories ?? []).flatMap((cat) => cat.channels),
+  ].filter((ch) => ch.type === "text")
+
+  const updateNotifyChannel = useMutation({
+    mutationFn: async (input: {
+      connectionId: string
+      event: string
+      notifyChannelId: string | null
+    }) => {
+      const res = await apiClient.v1.workspaces[":workspaceSlug"].integrations[
+        ":connectionId"
+      ].$patch({
+        param: { workspaceSlug, connectionId: input.connectionId },
+        json: { event: input.event, notifyChannelId: input.notifyChannelId },
+      })
+      if (!res.ok) throw new Error("Failed to update notifications")
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["integrations", workspaceSlug],
+      })
+    },
+    onError: () => toast.error("Failed to update notifications"),
   })
 
   if (isPending) {
@@ -455,6 +496,22 @@ function IntegrationsSection({ workspaceSlug }: { workspaceSlug: string }) {
         // `repos` may be capped server-side; repoCount is the true total.
         const repoCount = p.repoCount ?? repos.length
         const showRepos = p.connected && (repoCount > 0 || !!p.manageUrl)
+        const showNotify =
+          p.connected && !!p.connectionId && p.events.length > 0
+        const hasDetails = showNotify || showRepos
+        const isExpanded = expandedId === p.id
+        const activeEvents = p.events.filter((ev) => ev.channelId).length
+        const statusParts = p.connected
+          ? [
+              "Connected",
+              ...(p.accountLogin ? [p.accountLogin] : []),
+              ...(activeEvents > 0
+                ? [
+                    `posting ${activeEvents} ${activeEvents === 1 ? "event" : "events"}`,
+                  ]
+                : []),
+            ]
+          : ["Not connected"]
         return (
           <div key={p.id} className="rounded-lg border border-border p-4">
             <div className="flex items-center justify-between gap-4">
@@ -463,23 +520,43 @@ function IntegrationsSection({ workspaceSlug }: { workspaceSlug: string }) {
                 <div className="min-w-0">
                   <div className="text-sm font-medium">{p.name}</div>
                   <div className="truncate text-xs text-muted-foreground">
-                    {p.connected
-                      ? `Connected${p.accountLogin ? ` · ${p.accountLogin}` : ""}`
-                      : "Not connected"}
+                    {statusParts.join(" · ")}
                   </div>
                 </div>
               </div>
               {p.connected && p.connectionId ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={disconnect.isPending}
-                  onClick={() =>
-                    p.connectionId && disconnect.mutate(p.connectionId)
-                  }
-                >
-                  Disconnect
-                </Button>
+                <div className="flex shrink-0 items-center gap-1">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={disconnect.isPending}
+                    onClick={() =>
+                      p.connectionId && disconnect.mutate(p.connectionId)
+                    }
+                  >
+                    Disconnect
+                  </Button>
+                  {hasDetails && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-8 text-muted-foreground"
+                      aria-label={
+                        isExpanded
+                          ? `Collapse ${p.name} settings`
+                          : `Expand ${p.name} settings`
+                      }
+                      onClick={() => setExpandedId(isExpanded ? null : p.id)}
+                    >
+                      <ChevronDown
+                        className={cn(
+                          "size-4 transition-transform",
+                          isExpanded && "rotate-180"
+                        )}
+                      />
+                    </Button>
+                  )}
+                </div>
               ) : p.authType === "api-key" ? (
                 // Keyed connectors connect via an in-app form, not a redirect.
                 // Datadog is the only one today.
@@ -503,7 +580,48 @@ function IntegrationsSection({ workspaceSlug }: { workspaceSlug: string }) {
               )}
             </div>
 
-            {showRepos && (
+            {isExpanded && showNotify && (
+              <div className="mt-3 space-y-2 border-border/60 border-t pt-3">
+                <div className="text-xs font-medium text-muted-foreground">
+                  Post activity to channels
+                </div>
+                {p.events.map((ev) => (
+                  <div
+                    key={ev.key}
+                    className="flex items-center justify-between gap-3"
+                  >
+                    <span className="min-w-0 truncate text-xs text-muted-foreground/80">
+                      {ev.label}
+                    </span>
+                    <Select
+                      value={ev.channelId ?? NOTIFY_OFF}
+                      onValueChange={(value) => {
+                        if (!p.connectionId) return
+                        updateNotifyChannel.mutate({
+                          connectionId: p.connectionId,
+                          event: ev.key,
+                          notifyChannelId: value === NOTIFY_OFF ? null : value,
+                        })
+                      }}
+                    >
+                      <SelectTrigger className="w-44 shrink-0" size="sm">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={NOTIFY_OFF}>Off</SelectItem>
+                        {textChannels.map((ch) => (
+                          <SelectItem key={ch.id} value={ch.id}>
+                            #{ch.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {isExpanded && showRepos && (
               <div className="mt-3 border-border/60 border-t pt-3">
                 <div className="mb-1.5 flex items-center justify-between gap-2">
                   <span className="text-xs font-medium text-muted-foreground">

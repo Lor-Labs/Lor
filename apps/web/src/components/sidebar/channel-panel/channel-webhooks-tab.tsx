@@ -1,0 +1,410 @@
+import { env } from "@repo/env/client"
+import { Button } from "@repo/ui/components/button"
+import { Input } from "@repo/ui/components/input"
+import { Label } from "@repo/ui/components/label"
+import { cn } from "@repo/ui/lib/utils"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  Check,
+  ChevronDown,
+  Clock,
+  ImagePlus,
+  Loader2,
+  Webhook,
+} from "lucide-react"
+import { useRef, useState } from "react"
+import { toast } from "sonner"
+import { apiClient } from "@/lib/api-client"
+
+const AVATAR_MIME_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"]
+const MAX_AVATAR_BYTES = 2 * 1024 * 1024
+const DEFAULT_WEBHOOK_NAME = "New Webhook"
+
+function webhookUrl(id: string, token: string) {
+  return `${env.NEXT_PUBLIC_API_URL}/v1/webhooks/${id}/${token}`
+}
+
+function validateAvatarFile(file: File): string | null {
+  if (!AVATAR_MIME_TYPES.includes(file.type)) {
+    return "Only JPEG, PNG, GIF, and WebP images are allowed"
+  }
+  if (file.size > MAX_AVATAR_BYTES) {
+    return "Avatar must be under 2 MB"
+  }
+  return null
+}
+
+async function uploadWebhookAvatar(
+  channelId: string,
+  file: File
+): Promise<string> {
+  const res = await apiClient.v1.uploads["webhook-avatar"].presign.$post({
+    json: {
+      channelId,
+      filename: file.name,
+      contentType: file.type,
+      size: file.size,
+    },
+  })
+  if (!res.ok) throw new Error("Failed to get upload URL")
+  const { uploadUrl, fileUrl } = await res.json()
+  const uploadRes = await fetch(uploadUrl, {
+    method: "PUT",
+    body: file,
+    headers: { "Content-Type": file.type },
+  })
+  if (!uploadRes.ok) throw new Error("Failed to upload avatar")
+  return fileUrl
+}
+
+function formatCreatedAt(iso: string) {
+  return new Date(iso).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  })
+}
+
+function WebhookAvatar({
+  src,
+  className,
+  iconClassName,
+}: {
+  src: string | null
+  className?: string
+  iconClassName?: string
+}) {
+  return (
+    <span
+      className={cn(
+        "flex shrink-0 items-center justify-center overflow-hidden border border-border bg-muted text-muted-foreground",
+        className
+      )}
+    >
+      {src ? (
+        <img src={src} alt="" className="size-full object-cover" />
+      ) : (
+        <Webhook className={iconClassName} />
+      )}
+    </span>
+  )
+}
+
+// Large avatar with an image-picker badge, for the expanded editor.
+function AvatarPicker({
+  src,
+  busy,
+  onFile,
+}: {
+  src: string | null
+  busy: boolean
+  onFile: (file: File) => void
+}) {
+  const inputRef = useRef<HTMLInputElement>(null)
+  return (
+    <>
+      <button
+        type="button"
+        className="group relative shrink-0 cursor-pointer self-start"
+        disabled={busy}
+        onClick={() => inputRef.current?.click()}
+        aria-label="Change avatar"
+      >
+        <WebhookAvatar
+          src={src}
+          className="size-20 rounded-xl"
+          iconClassName="size-8"
+        />
+        <span className="absolute -top-1.5 -right-1.5 flex items-center justify-center rounded-full border border-border bg-background p-1.5 text-muted-foreground shadow-sm transition-colors group-hover:text-foreground">
+          {busy ? (
+            <Loader2 className="size-3.5 animate-spin" />
+          ) : (
+            <ImagePlus className="size-3.5" />
+          )}
+        </span>
+      </button>
+      <input
+        ref={inputRef}
+        type="file"
+        accept={AVATAR_MIME_TYPES.join(",")}
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0]
+          e.target.value = ""
+          if (!file) return
+          const error = validateAvatarFile(file)
+          if (error) {
+            toast.error(error)
+            return
+          }
+          onFile(file)
+        }}
+      />
+    </>
+  )
+}
+
+export function ChannelWebhooksTab({
+  workspaceSlug,
+  channelId,
+  channelName,
+}: {
+  workspaceSlug: string
+  channelId: string
+  channelName: string | null
+}) {
+  const queryClient = useQueryClient()
+  const [openId, setOpenId] = useState<string | null>(null)
+  const [draftName, setDraftName] = useState("")
+  const [copiedId, setCopiedId] = useState<string | null>(null)
+  const [avatarSavingId, setAvatarSavingId] = useState<string | null>(null)
+
+  const queryKey = ["channel-webhooks", workspaceSlug, channelId]
+  const { data, isPending } = useQuery({
+    queryKey,
+    queryFn: async () => {
+      const res = await apiClient.v1.workspaces[":workspaceSlug"].channels[
+        ":channelId"
+      ].webhooks.$get({ param: { workspaceSlug, channelId } })
+      if (!res.ok) throw new Error("Failed to load webhooks")
+      return res.json()
+    },
+  })
+
+  const createMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiClient.v1.workspaces[":workspaceSlug"].channels[
+        ":channelId"
+      ].webhooks.$post({
+        param: { workspaceSlug, channelId },
+        json: { name: DEFAULT_WEBHOOK_NAME },
+      })
+      if (!res.ok) throw new Error("Failed to create webhook")
+      return res.json()
+    },
+    onSuccess: ({ webhook }) => {
+      queryClient.invalidateQueries({ queryKey })
+      setOpenId(webhook.id)
+      setDraftName(webhook.name)
+    },
+    onError: () => toast.error("Failed to create webhook"),
+  })
+
+  const updateMutation = useMutation({
+    mutationFn: async (input: {
+      webhookId: string
+      name?: string
+      avatarUrl?: string
+    }) => {
+      const res = await apiClient.v1.workspaces[":workspaceSlug"].channels[
+        ":channelId"
+      ].webhooks[":webhookId"].$patch({
+        param: { workspaceSlug, channelId, webhookId: input.webhookId },
+        json: { name: input.name, avatarUrl: input.avatarUrl },
+      })
+      if (!res.ok) throw new Error("Failed to update webhook")
+      return res.json()
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey }),
+    onError: () => toast.error("Failed to update webhook"),
+    onSettled: () => setAvatarSavingId(null),
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: async (webhookId: string) => {
+      const res = await apiClient.v1.workspaces[":workspaceSlug"].channels[
+        ":channelId"
+      ].webhooks[":webhookId"].$delete({
+        param: { workspaceSlug, channelId, webhookId },
+      })
+      if (!res.ok) throw new Error("Failed to delete webhook")
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey }),
+    onError: () => toast.error("Failed to delete webhook"),
+  })
+
+  const handleToggle = (hookId: string, hookName: string) => {
+    if (openId === hookId) {
+      setOpenId(null)
+      return
+    }
+    setOpenId(hookId)
+    setDraftName(hookName)
+  }
+
+  const handleCopy = async (id: string, token: string) => {
+    await navigator.clipboard.writeText(webhookUrl(id, token)).catch(() => {})
+    setCopiedId(id)
+    setTimeout(() => setCopiedId(null), 1500)
+  }
+
+  const webhooks = data?.webhooks ?? []
+
+  return (
+    <div className="space-y-4">
+      <p className="text-xs text-muted-foreground">
+        Webhooks are a simple way for other apps and services to post messages
+        into this channel — POST JSON like <code>{'{ "content": "..." }'}</code>{" "}
+        to the webhook URL. The URL is the credential, so treat it as a secret.
+      </p>
+
+      <Button
+        type="button"
+        disabled={createMutation.isPending}
+        onClick={() => createMutation.mutate()}
+      >
+        {createMutation.isPending ? "Creating..." : "New Webhook"}
+      </Button>
+
+      {isPending ? (
+        <div className="flex justify-center py-6">
+          <Loader2 className="size-4 animate-spin text-muted-foreground" />
+        </div>
+      ) : webhooks.length === 0 ? (
+        <p className="text-xs text-muted-foreground">No webhooks yet.</p>
+      ) : (
+        <div className="space-y-3">
+          {channelName && (
+            <div className="text-sm font-semibold">
+              Posting to #{channelName}
+            </div>
+          )}
+          <ul className="space-y-2">
+            {webhooks.map((hook) => {
+              const isOpen = openId === hook.id
+              const nameDirty =
+                isOpen &&
+                draftName.trim().length > 0 &&
+                draftName.trim() !== hook.name
+              return (
+                <li
+                  key={hook.id}
+                  className="rounded-lg border border-border bg-muted/20"
+                >
+                  <button
+                    type="button"
+                    onClick={() => handleToggle(hook.id, hook.name)}
+                    className="flex w-full cursor-pointer items-center gap-3 p-3 text-left"
+                  >
+                    <WebhookAvatar
+                      src={hook.avatarUrl}
+                      className="size-12 rounded-full"
+                      iconClassName="size-5"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-medium">
+                        {hook.name}
+                      </div>
+                      <div className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <Clock className="size-3" />
+                        <span className="truncate">
+                          Created on {formatCreatedAt(hook.createdAt)}
+                          {hook.createdByName
+                            ? ` by ${hook.createdByName}`
+                            : ""}
+                        </span>
+                      </div>
+                    </div>
+                    <ChevronDown
+                      className={cn(
+                        "size-4 shrink-0 text-muted-foreground transition-transform",
+                        isOpen && "rotate-180"
+                      )}
+                    />
+                  </button>
+
+                  {isOpen && (
+                    <div className="border-border border-t p-4">
+                      <div className="flex gap-5">
+                        <AvatarPicker
+                          src={hook.avatarUrl}
+                          busy={avatarSavingId === hook.id}
+                          onFile={async (file) => {
+                            setAvatarSavingId(hook.id)
+                            try {
+                              const avatarUrl = await uploadWebhookAvatar(
+                                channelId,
+                                file
+                              )
+                              updateMutation.mutate({
+                                webhookId: hook.id,
+                                avatarUrl,
+                              })
+                            } catch {
+                              setAvatarSavingId(null)
+                              toast.error("Failed to upload avatar")
+                            }
+                          }}
+                        />
+                        <div className="min-w-0 flex-1 space-y-2">
+                          <Label htmlFor={`webhook-name-${hook.id}`}>
+                            Name
+                          </Label>
+                          <Input
+                            id={`webhook-name-${hook.id}`}
+                            value={draftName}
+                            onChange={(e) => setDraftName(e.target.value)}
+                            maxLength={80}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" && nameDirty) {
+                                e.preventDefault()
+                                updateMutation.mutate({
+                                  webhookId: hook.id,
+                                  name: draftName.trim(),
+                                })
+                              }
+                            }}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="mt-4 flex items-center gap-2 border-border border-t pt-4">
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => handleCopy(hook.id, hook.token)}
+                        >
+                          {copiedId === hook.id && (
+                            <Check className="size-3.5" />
+                          )}
+                          Copy Webhook URL
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive hover:text-destructive"
+                          disabled={deleteMutation.isPending}
+                          onClick={() => deleteMutation.mutate(hook.id)}
+                        >
+                          Delete Webhook
+                        </Button>
+                        {nameDirty && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            className="ml-auto"
+                            disabled={updateMutation.isPending}
+                            onClick={() =>
+                              updateMutation.mutate({
+                                webhookId: hook.id,
+                                name: draftName.trim(),
+                              })
+                            }
+                          >
+                            {updateMutation.isPending ? "Saving..." : "Save"}
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+        </div>
+      )}
+    </div>
+  )
+}

@@ -5,6 +5,7 @@ import * as routes from "@/routes/v1/uploads/routes"
 const uploadsRouter = createRouter()
   .openapi(routes.presign, handlers.presign)
   .openapi(routes.avatarPresign, handlers.avatarPresign)
+  .openapi(routes.webhookAvatarPresign, handlers.webhookAvatarPresign)
   .openapi(routes.workspaceIconPresign, handlers.workspaceIconPresign)
 
 export default uploadsRouter

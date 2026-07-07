@@ -20,9 +20,10 @@ import { Textarea } from "@repo/ui/components/textarea"
 import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useParams } from "@tanstack/react-router"
-import { Layers, Settings } from "lucide-react"
+import { Layers, Settings, Webhook } from "lucide-react"
 import { useEffect, useState } from "react"
 import { toast } from "sonner"
+import { ChannelWebhooksTab } from "@/components/sidebar/channel-panel/channel-webhooks-tab"
 import { apiClient } from "@/lib/api-client"
 import type {
   AgentProfile,
@@ -33,10 +34,11 @@ import { connectorLogo } from "@/lib/connector-ui"
 
 const INHERIT = "__inherit__"
 
-type Tab = "overview" | "profile"
+type Tab = "overview" | "profile" | "webhooks"
 const TABS: { id: Tab; label: string; icon: typeof Settings }[] = [
   { id: "overview", label: "Overview", icon: Settings },
   { id: "profile", label: "Agent profile", icon: Layers },
+  { id: "webhooks", label: "Webhooks", icon: Webhook },
 ]
 
 function ProfileCapabilities({
@@ -192,6 +194,10 @@ export function EditChannelDialog({
   const customProfiles =
     profilesData?.profiles.filter((p) => !p.isDefault) ?? []
 
+  // Webhooks post into the channel feed — text channels only.
+  const visibleTabs =
+    channel.type === "text" ? TABS : TABS.filter((t) => t.id !== "webhooks")
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-2xl md:max-w-3xl lg:max-w-5xl">
@@ -214,7 +220,7 @@ export function EditChannelDialog({
         >
           <div className="flex h-[460px]">
             <nav className="flex w-48 shrink-0 flex-col gap-1 border-border border-r bg-sidebar p-3">
-              {TABS.map((t) => (
+              {visibleTabs.map((t) => (
                 <button
                   key={t.id}
                   type="button"
@@ -259,6 +265,14 @@ export function EditChannelDialog({
                       </div>
                     )}
                   </>
+                ) : tab === "webhooks" ? (
+                  workspaceSlug ? (
+                    <ChannelWebhooksTab
+                      workspaceSlug={workspaceSlug}
+                      channelId={channel.id}
+                      channelName={channel.name}
+                    />
+                  ) : null
                 ) : (
                   <div className="space-y-3">
                     {customProfiles.length > 0 && (

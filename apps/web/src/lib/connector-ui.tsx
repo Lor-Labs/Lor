@@ -59,6 +59,14 @@ export function connectorLogo(key: ConnectorKey): Logo {
   return CONNECTOR_UI[key].logo
 }
 
+// The connector behind a bot display name ("GitHub" → github) — used to brand
+// webhook/connector message avatars. Labels lowercase to the connector ids.
+export function connectorForName(name?: string | null): ConnectorKey | null {
+  if (!name) return null
+  const key = name.toLowerCase()
+  return CONNECTOR_KEYS.find((k) => k === key) ?? null
+}
+
 // The connector a tool belongs to, or null for built-in (non-connector) tools.
 export function connectorForTool(toolName: string): ConnectorKey | null {
   return (

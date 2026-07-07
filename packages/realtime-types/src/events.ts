@@ -149,6 +149,10 @@ export type RealtimeMessage = {
   threadRootId?: string | null
   editedAt?: string
   nonce?: string
+  // Display identity for webhook/connector messages — overrides the author's
+  // name/avatar when set (the row is authored by the shared app bot user).
+  overrideName?: string | null
+  overrideAvatarUrl?: string | null
   // Set on Merlin's empty placeholder so the client shows the "thinking"
   // indicator immediately, without waiting for the first stream event.
   streaming?: boolean

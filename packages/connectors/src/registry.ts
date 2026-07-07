@@ -1,5 +1,10 @@
 import type { IntegrationProvider, MerlinCapability } from "@repo/db/schema"
-import type { CapabilityDescriptor, ConnectorDescriptor } from "./types"
+import type {
+  CapabilityDescriptor,
+  ConnectorDescriptor,
+  ConnectorEventDescriptor,
+  ConnectorEventKey,
+} from "./types"
 
 // Exhaustive over integrationProviderEnum — adding a provider value without a
 // descriptor here is a compile error.
@@ -86,6 +91,32 @@ export const CAPABILITIES: Record<MerlinCapability, CapabilityDescriptor> = {
     description: "Search and analyze logs",
     connector: "datadog",
   },
+}
+
+// Exhaustive over integrationProviderEnum — a new provider must declare its
+// notifiable events (empty is fine; Datadog is live-query only).
+export const CONNECTOR_EVENTS: Record<
+  IntegrationProvider,
+  readonly ConnectorEventDescriptor[]
+> = {
+  github: [
+    { key: "pr_merged", label: "Pull request merged" },
+    { key: "issue_opened", label: "Issue opened" },
+    { key: "issue_closed", label: "Issue closed" },
+    { key: "release_published", label: "Release published" },
+  ],
+  linear: [
+    { key: "issue_created", label: "Issue created" },
+    { key: "issue_completed", label: "Issue completed" },
+  ],
+  datadog: [],
+}
+
+export function isConnectorEvent(
+  provider: IntegrationProvider,
+  key: string
+): key is ConnectorEventKey {
+  return CONNECTOR_EVENTS[provider].some((e) => e.key === key)
 }
 
 export const CONNECTOR_LIST: ConnectorDescriptor[] = Object.values(CONNECTORS)

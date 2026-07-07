@@ -12,6 +12,7 @@ import invitesRouter from "@/routes/v1/invites/index"
 import notificationSettingsRouter from "@/routes/v1/notification-settings/index"
 import uploadsRouter from "@/routes/v1/uploads/index"
 import usersRouter from "@/routes/v1/users/index"
+import webhooksRouter from "@/routes/v1/webhooks/index"
 import workspacesRouter from "@/routes/v1/workspaces/index"
 import waitlistRouter from "@/routes/waitlist/index"
 
@@ -48,6 +49,7 @@ const routes = app
   .route("/v1", usersRouter)
   .route("/v1", integrationsRouter)
   .route("/v1", agentProfilesRouter)
+  .route("/v1", webhooksRouter)
 
 export type AppType = typeof routes
 
