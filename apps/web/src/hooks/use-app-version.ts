@@ -11,7 +11,9 @@ export function useAppVersion() {
     import("@tauri-apps/api/app")
       .then(({ getVersion }) => getVersion())
       .then(setVersion)
-      .catch(() => {})
+      .catch((err) => {
+        console.error("[app-version] failed to resolve desktop version:", err)
+      })
   }, [])
 
   return version
