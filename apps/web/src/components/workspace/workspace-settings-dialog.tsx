@@ -1,3 +1,13 @@
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@repo/ui/components/alert-dialog"
 import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar"
 import { Button } from "@repo/ui/components/button"
 import {
@@ -397,6 +407,10 @@ function IntegrationsSection({ workspaceSlug }: { workspaceSlug: string }) {
   const queryClient = useQueryClient()
   const [datadogOpen, setDatadogOpen] = useState(false)
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [disconnectTarget, setDisconnectTarget] = useState<{
+    connectionId: string
+    name: string
+  } | null>(null)
 
   const { data, isPending, isError, refetch } = useQuery({
     queryKey: ["integrations", workspaceSlug],
@@ -531,7 +545,11 @@ function IntegrationsSection({ workspaceSlug }: { workspaceSlug: string }) {
                     size="sm"
                     disabled={disconnect.isPending}
                     onClick={() =>
-                      p.connectionId && disconnect.mutate(p.connectionId)
+                      p.connectionId &&
+                      setDisconnectTarget({
+                        connectionId: p.connectionId,
+                        name: p.name,
+                      })
                     }
                   >
                     Disconnect
@@ -669,6 +687,38 @@ function IntegrationsSection({ workspaceSlug }: { workspaceSlug: string }) {
         open={datadogOpen}
         onOpenChange={setDatadogOpen}
       />
+      <AlertDialog
+        open={!!disconnectTarget}
+        onOpenChange={(open) => {
+          if (!open) setDisconnectTarget(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Disconnect {disconnectTarget?.name}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Merlin will no longer be able to search{" "}
+              {disconnectTarget?.name ?? "this connector"}, and its activity
+              posts to channels will stop. You can reconnect at any time.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (disconnectTarget) {
+                  disconnect.mutate(disconnectTarget.connectionId)
+                }
+                setDisconnectTarget(null)
+              }}
+            >
+              Disconnect
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
