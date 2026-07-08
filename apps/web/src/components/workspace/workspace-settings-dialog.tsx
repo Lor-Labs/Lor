@@ -8,7 +8,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@repo/ui/components/alert-dialog"
-import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar"
+import { Avatar, AvatarFallback } from "@repo/ui/components/avatar"
 import { Button } from "@repo/ui/components/button"
 import {
   Dialog,
@@ -349,15 +349,27 @@ function GeneralSection({
         onClick={() => fileInputRef.current?.click()}
       >
         <span className="group relative shrink-0">
-          <Avatar className="size-20">
-            {displayIcon && (
-              <AvatarImage src={displayIcon} alt={workspace.name} />
+          {displayIcon ? (
+            <span className="flex size-20 items-center justify-center overflow-hidden rounded-xl">
+              <img
+                src={displayIcon}
+                alt={workspace.name}
+                className="size-full object-contain"
+              />
+            </span>
+          ) : (
+            <Avatar className="size-20">
+              <AvatarFallback className="text-lg font-semibold">
+                {initials}
+              </AvatarFallback>
+            </Avatar>
+          )}
+          <span
+            className={cn(
+              "absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 transition-opacity group-hover:opacity-100",
+              displayIcon ? "rounded-xl" : "rounded-full"
             )}
-            <AvatarFallback className="text-lg font-semibold">
-              {initials}
-            </AvatarFallback>
-          </Avatar>
-          <span className="absolute inset-0 flex items-center justify-center rounded-full bg-black/50 opacity-0 transition-opacity group-hover:opacity-100">
+          >
             <Camera className="size-5 text-white" />
           </span>
         </span>

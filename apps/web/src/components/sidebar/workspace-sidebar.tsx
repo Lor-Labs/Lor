@@ -28,6 +28,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@repo/ui/components/tooltip"
+import { cn } from "@repo/ui/lib/utils"
 import { useQuery } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import {
@@ -168,12 +169,19 @@ function WorkspaceSidebarInner() {
                   className="data-[state=open]:bg-sidebar-accent"
                   tooltip={activeWorkspace?.name ?? "Workspace"}
                 >
-                  <div className="flex aspect-square size-8 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-sidebar-primary text-sidebar-primary-foreground text-sm font-semibold">
+                  <div
+                    className={cn(
+                      "flex aspect-square size-8 shrink-0 items-center justify-center overflow-hidden rounded-lg text-sm font-semibold",
+                      activeWorkspace?.logo
+                        ? "p-0.5"
+                        : "bg-sidebar-primary text-sidebar-primary-foreground"
+                    )}
+                  >
                     {activeWorkspace?.logo ? (
                       <img
                         src={activeWorkspace.logo}
                         alt=""
-                        className="size-full object-cover"
+                        className="size-full rounded-md object-contain"
                       />
                     ) : (
                       initial
@@ -234,12 +242,19 @@ function WorkspaceSidebarInner() {
                             })
                           }}
                         >
-                          <div className="flex aspect-square size-6 shrink-0 items-center justify-center overflow-hidden rounded-md bg-sidebar-primary text-[10px] font-semibold text-sidebar-primary-foreground">
+                          <div
+                            className={cn(
+                              "flex aspect-square size-6 shrink-0 items-center justify-center overflow-hidden rounded-md text-[10px] font-semibold",
+                              ws.logo
+                                ? "p-0.5"
+                                : "bg-sidebar-primary text-sidebar-primary-foreground"
+                            )}
+                          >
                             {ws.logo ? (
                               <img
                                 src={ws.logo}
                                 alt=""
-                                className="size-full object-cover"
+                                className="size-full rounded-[3px] object-contain"
                               />
                             ) : (
                               wsInitial
