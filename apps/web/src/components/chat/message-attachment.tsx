@@ -1,17 +1,12 @@
 import { VideoAmbient } from "@repo/ui/components/unlumen-ui/video-ambient"
 import { cn } from "@repo/ui/lib/utils"
-import { ChevronLeft, ChevronRight, Download, FileIcon, X } from "lucide-react"
+import { ChevronLeft, ChevronRight, Download, X } from "lucide-react"
 import { useCallback, useEffect, useState } from "react"
 import { createPortal } from "react-dom"
 import type { Message } from "@/lib/api-types"
+import { formatFileSize, getFileKind } from "@/lib/attachments"
 
 type Attachment = NonNullable<Message["attachments"]>[number]
-
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
 
 function VideoAttachment({ attachment }: { attachment: Attachment }) {
   return (
@@ -35,24 +30,35 @@ function AudioAttachment({ attachment }: { attachment: Attachment }) {
 }
 
 function FileAttachment({ attachment }: { attachment: Attachment }) {
+  const { Icon, tint, label } = getFileKind(
+    attachment.contentType,
+    attachment.filename
+  )
   return (
     <a
       href={attachment.url}
       target="_blank"
       rel="noopener noreferrer"
       download={attachment.filename}
-      className="flex items-center gap-3 rounded-md border border-border bg-secondary/50 px-3 py-2 transition-colors hover:bg-secondary"
+      className="group flex w-full max-w-[420px] items-center gap-3 rounded-lg border border-border bg-secondary/40 p-2.5 transition-colors hover:bg-secondary"
     >
-      <FileIcon className="size-5 flex-shrink-0 text-muted-foreground" />
+      <div
+        className={cn(
+          "flex size-10 flex-shrink-0 items-center justify-center rounded-md",
+          tint
+        )}
+      >
+        <Icon className="size-5" />
+      </div>
       <div className="min-w-0 flex-1">
-        <div className="truncate text-sm font-medium">
+        <div className="truncate text-sm font-medium text-foreground">
           {attachment.filename}
         </div>
         <div className="text-xs text-muted-foreground">
-          {formatFileSize(attachment.size)}
+          {label} · {formatFileSize(attachment.size)}
         </div>
       </div>
-      <Download className="size-4 flex-shrink-0 text-muted-foreground" />
+      <Download className="size-4 flex-shrink-0 text-muted-foreground transition-colors group-hover:text-foreground" />
     </a>
   )
 }
