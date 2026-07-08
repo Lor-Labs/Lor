@@ -1,6 +1,8 @@
 import type { Webhooks } from "@octokit/webhooks"
+import type { ConnectorEventKey } from "@repo/connectors"
 import { and, db, eq, schema } from "@repo/db"
 import { type IngestSourceInput, ingestSource } from "@repo/merlin/sources"
+import { postConnectorNotification } from "@/lib/connector-notifications"
 import { invalidateGithubRepoCache } from "@/lib/github-repo-cache"
 import { logger } from "@/lib/logger"
 
@@ -14,9 +16,9 @@ const toDate = (s?: string | null): Date | null => (s ? new Date(s) : null)
 
 // Source ingest (summarize + embed PR/issue/release into `source`) is PAUSED
 // while GitHub moves to a sandbox + brain-centric model (§7.4 — code via the
-// sandbox; PRs/issues live-fetched on demand, not mirrored). All the webhook
-// wiring stays intact (lifecycle still processes; useful later for notifs);
-// flip this to re-enable embedding if that proves valuable.
+// sandbox; PRs/issues live-fetched on demand, not mirrored). The webhook
+// wiring stays live for lifecycle + channel notifications; flip this to
+// re-enable embedding if that proves valuable.
 const SOURCE_INGEST_ENABLED: boolean = false
 
 // Resolve the workspace this installation is linked to, then ingest. Skips
@@ -56,6 +58,21 @@ async function ingestForInstallation(
   )
 }
 
+async function notifyForInstallation(
+  installationId: number | undefined,
+  event: ConnectorEventKey,
+  text: string
+): Promise<void> {
+  if (installationId === undefined) return
+  await postConnectorNotification({
+    provider: "github",
+    externalId: String(installationId),
+    event,
+    label: "GitHub",
+    text,
+  })
+}
+
 // Register the salient events. Payloads are fully typed by @octokit/webhooks.
 export function registerGithubHandlers(webhooks: Webhooks): void {
   // Merged PRs — high-signal units of change.
@@ -72,6 +89,11 @@ export function registerGithubHandlers(webhooks: Webhooks): void {
       occurredAt: toDate(pr.merged_at),
       content: `${pr.title}\n\n${pr.body ?? ""}`,
     })
+    await notifyForInstallation(
+      payload.installation?.id,
+      "pr_merged",
+      `**PR merged** [${repo}#${pr.number}](${pr.html_url}) ${pr.title}${pr.user ? ` — by ${pr.user.login}` : ""}`
+    )
   })
 
   webhooks.on(["issues.opened", "issues.closed"], async ({ payload }) => {
@@ -88,6 +110,11 @@ export function registerGithubHandlers(webhooks: Webhooks): void {
       ),
       content: `${issue.title}\n\n${issue.body ?? ""}`,
     })
+    await notifyForInstallation(
+      payload.installation?.id,
+      payload.action === "opened" ? "issue_opened" : "issue_closed",
+      `**Issue ${payload.action}** [${repo}#${issue.number}](${issue.html_url}) ${issue.title}${issue.user ? ` — by ${issue.user.login}` : ""}`
+    )
   })
 
   webhooks.on("release.published", async ({ payload }) => {
@@ -103,6 +130,11 @@ export function registerGithubHandlers(webhooks: Webhooks): void {
       occurredAt: toDate(release.published_at),
       content: `${title}\n\n${release.body ?? ""}`,
     })
+    await notifyForInstallation(
+      payload.installation?.id,
+      "release_published",
+      `**Release published** [${title}](${release.html_url}) — ${repo}`
+    )
   })
 
   // Repo access changed on GitHub's side (admin added/removed repos) — drop the

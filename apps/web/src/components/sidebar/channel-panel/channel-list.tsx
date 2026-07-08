@@ -552,7 +552,7 @@ function SortableCategorySection({
 
   return (
     <div ref={setNodeRef} style={style}>
-      <div className="group flex w-full items-center gap-0.5 px-1 pb-1">
+      <div className="group/category flex w-full items-center gap-0.5 px-1 pb-1">
         <button
           type="button"
           onClick={() => setCollapsed(!collapsed)}
@@ -575,7 +575,7 @@ function SortableCategorySection({
               onClick={() => onCreateChannel?.(id)}
               title="Create channel"
               aria-label="Create channel"
-              className="text-muted-foreground hover:text-foreground"
+              className="text-muted-foreground opacity-0 transition-opacity duration-150 hover:text-foreground group-hover/category:opacity-100 focus-visible:opacity-100"
             >
               <Plus />
             </Button>
@@ -589,7 +589,7 @@ function SortableCategorySection({
                   aria-label="Category options"
                   onPointerDown={(e) => e.stopPropagation()}
                   className={cn(
-                    "text-muted-foreground opacity-0 transition-opacity duration-150 hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100",
+                    "text-muted-foreground opacity-0 transition-opacity duration-150 hover:text-foreground group-hover/category:opacity-100 focus-visible:opacity-100",
                     menuOpen && "opacity-100"
                   )}
                 >
@@ -712,7 +712,7 @@ function SortableChannelItem({
         onClick={onClick}
         {...(canManage ? { ...attributes, ...listeners } : {})}
         className={cn(
-          "group relative flex w-full items-center gap-2 rounded-lg px-2 py-[6px] text-[14px] hover:bg-foreground/[0.06] cursor-pointer",
+          "group/channel relative flex w-full items-center gap-2 rounded-lg px-2 py-[6px] text-[14px] hover:bg-foreground/[0.06] cursor-pointer",
           active && "bg-foreground/[0.06] font-medium text-foreground",
           !active && hasUnread && "font-medium text-foreground",
           !active && !hasUnread && "text-muted-foreground",
@@ -743,7 +743,7 @@ function SortableChannelItem({
                   onClick={(e) => e.stopPropagation()}
                   onPointerDown={(e) => e.stopPropagation()}
                   className={cn(
-                    "text-muted-foreground opacity-0 transition-opacity duration-150 hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100",
+                    "text-muted-foreground opacity-0 transition-opacity duration-150 hover:text-foreground group-hover/channel:opacity-100 focus-visible:opacity-100",
                     menuOpen && "opacity-100"
                   )}
                 >

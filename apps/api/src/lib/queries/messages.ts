@@ -33,6 +33,8 @@ type BareMessageRow = {
   merlinToolCalls: MerlinToolCall[] | null
   merlinMemories: MerlinMemory[] | null
   merlinReasoning: string | null
+  overrideName: string | null
+  overrideAvatarUrl: string | null
   referencedMessageId: string | null
   threadRootId: string | null
   editedAt: Date | null
@@ -59,6 +61,8 @@ const messageSelect = {
   merlinToolCalls: message.merlinToolCalls,
   merlinMemories: message.merlinMemories,
   merlinReasoning: message.merlinReasoning,
+  overrideName: message.overrideName,
+  overrideAvatarUrl: message.overrideAvatarUrl,
   referencedMessageId: message.referencedMessageId,
   threadRootId: message.threadRootId,
   editedAt: message.editedAt,

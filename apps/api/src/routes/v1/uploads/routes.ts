@@ -13,6 +13,8 @@ import {
   avatarPresignResponseSchema,
   presignRequestSchema,
   presignResponseSchema,
+  webhookAvatarPresignRequestSchema,
+  webhookAvatarPresignResponseSchema,
   workspaceIconPresignRequestSchema,
   workspaceIconPresignResponseSchema,
 } from "@/routes/v1/uploads/schema"
@@ -71,6 +73,34 @@ export const avatarPresign = createRoute({
 })
 
 export type AvatarPresignRoute = typeof avatarPresign
+
+export const webhookAvatarPresign = createRoute({
+  path: "/uploads/webhook-avatar/presign",
+  method: "post",
+  summary: "Request a presigned URL for a channel-webhook avatar upload",
+  description:
+    "Returns a presigned URL for uploading a webhook avatar to S3-compatible storage.",
+  tags: ["Uploads"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: {
+    body: jsonContent({
+      schema: webhookAvatarPresignRequestSchema,
+      description: "Webhook avatar file metadata",
+    }),
+  },
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: webhookAvatarPresignResponseSchema,
+      description: "Presigned URL for webhook avatar upload",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.REQUEST_TOO_LONG]: payloadTooLargeSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type WebhookAvatarPresignRoute = typeof webhookAvatarPresign
 
 export const workspaceIconPresign = createRoute({
   path: "/uploads/workspace-icon/presign",

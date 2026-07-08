@@ -13,6 +13,7 @@ const integrationsRouter = createRouter()
   .openapi(routes.connectGithub, handlers.connectGithub)
   .openapi(routes.connectLinear, handlers.connectLinear)
   .openapi(routes.connectDatadog, handlers.connectDatadog)
+  .openapi(routes.updateIntegration, handlers.updateIntegration)
   .openapi(routes.disconnectIntegration, handlers.disconnectIntegration)
 
 export default integrationsRouter

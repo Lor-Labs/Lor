@@ -48,6 +48,24 @@ export const avatarPresignResponseSchema = z.object({
   fileUrl: z.string().url(),
 })
 
+// ── Webhook Avatar ─────────────────────────────────────────
+
+export const webhookAvatarPresignRequestSchema = z.object({
+  channelId: z.string().uuid(),
+  filename: z.string().min(1).max(256),
+  contentType: z
+    .string()
+    .refine((ct) => (AVATAR_MIME_TYPES as readonly string[]).includes(ct), {
+      message: "Unsupported image type",
+    }),
+  size: z.number().int().min(1).max(MAX_AVATAR_SIZE),
+})
+
+export const webhookAvatarPresignResponseSchema = z.object({
+  uploadUrl: z.string().url(),
+  fileUrl: z.string().url(),
+})
+
 // ── Workspace Icon ─────────────────────────────────────────
 
 const WORKSPACE_ICON_MIME_TYPES = [

@@ -43,6 +43,15 @@ export const integrationStatusSchema = z.object({
   repos: z.array(integrationRepoSchema).nullable(),
   repoCount: z.number().nullable(),
   manageUrl: z.string().nullable(),
+  // The provider's notifiable event kinds (from the connector registry), each
+  // with the channel it currently posts to; null = off.
+  events: z.array(
+    z.object({
+      key: z.string(),
+      label: z.string(),
+      channelId: z.string().nullable(),
+    })
+  ),
 })
 
 export const listIntegrationsResponseSchema = z.object({
@@ -81,6 +90,17 @@ export const connectDatadogRequestSchema = z.object({
 export const connectDatadogResponseSchema = z.object({
   success: z.literal(true),
   accountLogin: z.string().nullable(),
+})
+
+export const updateIntegrationRequestSchema = z.object({
+  // One of the provider's event keys from the connector registry.
+  event: z.string().min(1),
+  // Text channel this event posts into; null turns it off.
+  notifyChannelId: z.string().uuid().nullable(),
+})
+
+export const updateIntegrationResponseSchema = z.object({
+  success: z.literal(true),
 })
 
 export const disconnectResponseSchema = z.object({

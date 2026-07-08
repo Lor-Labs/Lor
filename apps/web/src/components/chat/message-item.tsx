@@ -31,6 +31,7 @@ import { MessageMarkdown } from "@/components/chat/message-markdown"
 import { ThinkingIndicator } from "@/components/chat/thinking-indicator"
 import { UserProfilePopover } from "@/components/ui/user-profile-card"
 import type { Message } from "@/lib/api-types"
+import { connectorForName, connectorLogo } from "@/lib/connector-ui"
 
 interface MessageItemProps {
   message: Message
@@ -172,6 +173,18 @@ export function MessageItem({
   onJumpToMessage,
 }: MessageItemProps) {
   const author = message.author
+  // Webhook/connector messages render an overridden identity and aren't a
+  // real user — no profile popover.
+  const isApp = !!message.overrideName || !!message.overrideAvatarUrl
+  const displayName =
+    message.overrideName ?? author.displayUsername ?? author.name
+  const avatarUrl = message.overrideAvatarUrl ?? author.image
+  // Connector-named bot posts ("GitHub", "Linear") wear the provider mark
+  // when no uploaded avatar is set.
+  const connectorKey = message.overrideAvatarUrl
+    ? null
+    : connectorForName(message.overrideName)
+  const ConnectorMark = connectorKey ? connectorLogo(connectorKey) : null
   const [isActionBarPinned, setIsActionBarPinned] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
@@ -303,18 +316,36 @@ export function MessageItem({
       )}
       <div className="flex gap-3">
         {showHeader ? (
-          <UserProfilePopover userId={author.id} side="right" align="start">
-            <button type="button" className="mt-0.5 cursor-pointer self-start">
+          isApp ? (
+            <div className="mt-0.5 self-start">
               <Avatar size="lg">
-                {author.image && (
-                  <AvatarImage src={author.image} alt={author.name} />
-                )}
+                {avatarUrl && <AvatarImage src={avatarUrl} alt={displayName} />}
                 <AvatarFallback className="text-xs font-semibold">
-                  {nameInitial(author.displayUsername ?? author.name)}
+                  {ConnectorMark ? (
+                    <ConnectorMark className="size-5" />
+                  ) : (
+                    nameInitial(displayName)
+                  )}
                 </AvatarFallback>
               </Avatar>
-            </button>
-          </UserProfilePopover>
+            </div>
+          ) : (
+            <UserProfilePopover userId={author.id} side="right" align="start">
+              <button
+                type="button"
+                className="mt-0.5 cursor-pointer self-start"
+              >
+                <Avatar size="lg">
+                  {avatarUrl && (
+                    <AvatarImage src={avatarUrl} alt={displayName} />
+                  )}
+                  <AvatarFallback className="text-xs font-semibold">
+                    {nameInitial(displayName)}
+                  </AvatarFallback>
+                </Avatar>
+              </button>
+            </UserProfilePopover>
+          )
         ) : (
           <div className="w-10 shrink-0 text-right text-[10px] leading-6 text-muted-foreground opacity-0 transition-opacity duration-100 group-hover:opacity-100">
             <span className="whitespace-nowrap">
@@ -325,14 +356,29 @@ export function MessageItem({
         <div className="min-w-0 flex-1">
           {showHeader && (
             <div className="flex items-baseline gap-2">
-              <UserProfilePopover userId={author.id} side="right" align="start">
-                <button
-                  type="button"
-                  className="cursor-pointer text-sm font-semibold leading-snug hover:underline"
+              {isApp ? (
+                <span className="text-sm font-semibold leading-snug">
+                  {displayName}
+                </span>
+              ) : (
+                <UserProfilePopover
+                  userId={author.id}
+                  side="right"
+                  align="start"
                 >
-                  {author.displayUsername ?? author.name}
-                </button>
-              </UserProfilePopover>
+                  <button
+                    type="button"
+                    className="cursor-pointer text-sm font-semibold leading-snug hover:underline"
+                  >
+                    {displayName}
+                  </button>
+                </UserProfilePopover>
+              )}
+              {isApp && (
+                <span className="self-center rounded-sm bg-primary/15 px-1 py-px text-[10px] font-semibold text-primary">
+                  APP
+                </span>
+              )}
               <span className="text-xs text-muted-foreground">
                 {formatTime(message.createdAt)}
               </span>
