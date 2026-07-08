@@ -2,14 +2,8 @@ import { cn } from "@repo/ui/lib/utils"
 import { Loader2, X } from "lucide-react"
 import { useState } from "react"
 import { createPortal } from "react-dom"
-import { getFileKind } from "@/components/chat/message-attachment"
 import type { PendingAttachment } from "@/hooks/use-file-upload"
-
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
+import { formatFileSize, getFileKind } from "@/lib/attachments"
 
 function FilePreviewTile({ attachment }: { attachment: PendingAttachment }) {
   const { Icon, tint, label } = getFileKind(

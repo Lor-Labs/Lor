@@ -1,114 +1,12 @@
 import { VideoAmbient } from "@repo/ui/components/unlumen-ui/video-ambient"
 import { cn } from "@repo/ui/lib/utils"
-import type { LucideIcon } from "lucide-react"
-import {
-  ChevronLeft,
-  ChevronRight,
-  Download,
-  FileArchive,
-  FileIcon,
-  FileJson,
-  FileSpreadsheet,
-  FileText,
-  Presentation,
-  X,
-} from "lucide-react"
+import { ChevronLeft, ChevronRight, Download, X } from "lucide-react"
 import { useCallback, useEffect, useState } from "react"
 import { createPortal } from "react-dom"
 import type { Message } from "@/lib/api-types"
+import { formatFileSize, getFileKind } from "@/lib/attachments"
 
 type Attachment = NonNullable<Message["attachments"]>[number]
-
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
-
-type FileKind = { Icon: LucideIcon; tint: string; label: string }
-
-export function getFileKind(contentType: string, filename: string): FileKind {
-  const ext = filename.split(".").pop()?.toLowerCase() ?? ""
-  const has = (...types: string[]) =>
-    types.some((t) => contentType === t) || types.includes(ext)
-  const withLabel = (kind: Omit<FileKind, "label">, fallback: string) => ({
-    ...kind,
-    label: ext ? ext.toUpperCase() : fallback,
-  })
-
-  if (has("application/pdf", "pdf"))
-    return withLabel(
-      { Icon: FileText, tint: "bg-destructive/10 text-destructive" },
-      "PDF"
-    )
-  if (
-    has(
-      "text/csv",
-      "application/vnd.ms-excel",
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "csv",
-      "xls",
-      "xlsx"
-    )
-  )
-    return withLabel(
-      { Icon: FileSpreadsheet, tint: "bg-success/10 text-success" },
-      "Sheet"
-    )
-  if (
-    has(
-      "application/msword",
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-      "doc",
-      "docx"
-    )
-  )
-    return withLabel(
-      { Icon: FileText, tint: "bg-chart-2/10 text-chart-2" },
-      "Doc"
-    )
-  if (
-    has(
-      "application/vnd.ms-powerpoint",
-      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-      "ppt",
-      "pptx"
-    )
-  )
-    return withLabel(
-      { Icon: Presentation, tint: "bg-chart-4/10 text-chart-4" },
-      "Slides"
-    )
-  if (has("application/json", "json"))
-    return withLabel(
-      { Icon: FileJson, tint: "bg-chart-3/10 text-chart-3" },
-      "JSON"
-    )
-  if (has("application/zip", "application/x-tar", "zip", "tar", "gz"))
-    return withLabel(
-      { Icon: FileArchive, tint: "bg-chart-1/10 text-chart-1" },
-      "Archive"
-    )
-  if (
-    has(
-      "text/plain",
-      "text/markdown",
-      "text/rtf",
-      "application/rtf",
-      "txt",
-      "md",
-      "rtf"
-    )
-  )
-    return withLabel(
-      { Icon: FileText, tint: "bg-muted text-muted-foreground" },
-      "Text"
-    )
-  return withLabel(
-    { Icon: FileIcon, tint: "bg-muted text-muted-foreground" },
-    "File"
-  )
-}
 
 function VideoAttachment({ attachment }: { attachment: Attachment }) {
   return (
