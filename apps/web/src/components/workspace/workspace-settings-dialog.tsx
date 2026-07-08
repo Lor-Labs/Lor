@@ -475,6 +475,9 @@ function IntegrationsSection({ workspaceSlug }: { workspaceSlug: string }) {
     },
     onError: () => toast.error("Failed to update notifications"),
   })
+  const pendingNotify = updateNotifyChannel.isPending
+    ? updateNotifyChannel.variables
+    : null
 
   if (isPending) {
     return (
@@ -613,6 +616,10 @@ function IntegrationsSection({ workspaceSlug }: { workspaceSlug: string }) {
                     </span>
                     <Select
                       value={ev.channelId ?? NOTIFY_OFF}
+                      disabled={
+                        pendingNotify?.connectionId === p.connectionId &&
+                        pendingNotify?.event === ev.key
+                      }
                       onValueChange={(value) => {
                         if (!p.connectionId) return
                         updateNotifyChannel.mutate({

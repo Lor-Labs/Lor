@@ -32,6 +32,7 @@ export const connectorNotificationRoute = pgTable(
       table.event
     ),
     index("connector_notification_route_connection_idx").on(table.connectionId),
+    index("connector_notification_route_channel_idx").on(table.channelId),
   ]
 )
 

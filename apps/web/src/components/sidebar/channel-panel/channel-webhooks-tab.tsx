@@ -207,7 +207,6 @@ export function ChannelWebhooksTab({
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey }),
     onError: () => toast.error("Failed to update webhook"),
-    onSettled: () => setAvatarSavingId(null),
   })
 
   const deleteMutation = useMutation({
@@ -233,7 +232,12 @@ export function ChannelWebhooksTab({
   }
 
   const handleCopy = async (id: string, token: string) => {
-    await navigator.clipboard.writeText(webhookUrl(id, token)).catch(() => {})
+    try {
+      await navigator.clipboard.writeText(webhookUrl(id, token))
+    } catch {
+      toast.error("Failed to copy webhook URL")
+      return
+    }
     setCopiedId(id)
     setTimeout(() => setCopiedId(null), 1500)
   }
@@ -326,10 +330,12 @@ export function ChannelWebhooksTab({
                                 channelId,
                                 file
                               )
-                              updateMutation.mutate({
-                                webhookId: hook.id,
-                                avatarUrl,
-                              })
+                              updateMutation.mutate(
+                                { webhookId: hook.id, avatarUrl },
+                                {
+                                  onSettled: () => setAvatarSavingId(null),
+                                }
+                              )
                             } catch {
                               setAvatarSavingId(null)
                               toast.error("Failed to upload avatar")

@@ -15,10 +15,11 @@ import type {
 
 const MAX_WEBHOOKS_PER_CHANNEL = 10
 
-// Avatars must live in our public bucket (uploaded via the webhook-avatar
-// presign) — never an arbitrary external URL.
-function isOwnAssetUrl(url: string) {
-  return url.startsWith(`${env.S3_PUBLIC_URL.replace(/\/$/, "")}/`)
+// Avatars must come from this channel's webhook-avatar presign namespace —
+// never an arbitrary external URL or another asset in our bucket.
+function isOwnWebhookAvatarUrl(url: string, channelId: string) {
+  const base = env.S3_PUBLIC_URL.replace(/\/$/, "")
+  return url.startsWith(`${base}/webhook-avatars/${channelId}/`)
 }
 
 // Webhooks post into the channel feed, so only text channels host them.
@@ -96,27 +97,62 @@ export const createChannelWebhook: AppRouteHandler<
 
   assertWorkspacePermission(c.var.member, workspace, { channel: ["update"] })
 
-  if (avatarUrl && !isOwnAssetUrl(avatarUrl)) {
+  if (avatarUrl && !isOwnWebhookAvatarUrl(avatarUrl, channelId)) {
     return c.json(
       { success: false, message: "Avatar must be an uploaded asset" },
       HttpStatusCodes.BAD_REQUEST
     )
   }
 
-  const target = await findTextChannel(channelId, workspace.id)
-  if (!target) {
+  // Lock the channel row so concurrent creates serialize and the cap check
+  // can't be raced past.
+  const result = await db.transaction(async (tx) => {
+    const target = await tx
+      .select({ id: channel.id })
+      .from(channel)
+      .where(
+        and(
+          eq(channel.id, channelId),
+          eq(channel.workspaceId, workspace.id),
+          eq(channel.type, "text")
+        )
+      )
+      .limit(1)
+      .for("update")
+      .then((rows) => rows[0] ?? null)
+    if (!target) return { status: "not_found" as const }
+
+    const existing = await tx
+      .select({ value: count() })
+      .from(channelWebhook)
+      .where(eq(channelWebhook.channelId, channelId))
+      .then((rows) => rows[0]?.value ?? 0)
+    if (existing >= MAX_WEBHOOKS_PER_CHANNEL) {
+      return { status: "limit" as const }
+    }
+
+    const inserted = await tx
+      .insert(channelWebhook)
+      .values({
+        channelId,
+        workspaceId: workspace.id,
+        name,
+        avatarUrl: avatarUrl ?? null,
+        token: randomBytes(32).toString("base64url"),
+        createdBy: c.var.user.id,
+      })
+      .returning()
+      .then((rows) => rows[0])
+    return { status: "created" as const, inserted }
+  })
+
+  if (result.status === "not_found") {
     return c.json(
       { success: false, message: "Channel not found" },
       HttpStatusCodes.NOT_FOUND
     )
   }
-
-  const existing = await db
-    .select({ value: count() })
-    .from(channelWebhook)
-    .where(eq(channelWebhook.channelId, channelId))
-    .then((rows) => rows[0]?.value ?? 0)
-  if (existing >= MAX_WEBHOOKS_PER_CHANNEL) {
+  if (result.status === "limit") {
     return c.json(
       {
         success: false,
@@ -126,18 +162,7 @@ export const createChannelWebhook: AppRouteHandler<
     )
   }
 
-  const inserted = await db
-    .insert(channelWebhook)
-    .values({
-      channelId,
-      workspaceId: workspace.id,
-      name,
-      avatarUrl: avatarUrl ?? null,
-      token: randomBytes(32).toString("base64url"),
-      createdBy: c.var.user.id,
-    })
-    .returning()
-    .then((rows) => rows[0])
+  const inserted = result.inserted
   if (!inserted) {
     return c.json(
       { success: false, message: "Failed to create webhook" },
@@ -160,7 +185,7 @@ export const updateChannelWebhook: AppRouteHandler<
 
   assertWorkspacePermission(c.var.member, workspace, { channel: ["update"] })
 
-  if (avatarUrl && !isOwnAssetUrl(avatarUrl)) {
+  if (avatarUrl && !isOwnWebhookAvatarUrl(avatarUrl, channelId)) {
     return c.json(
       { success: false, message: "Avatar must be an uploaded asset" },
       HttpStatusCodes.BAD_REQUEST

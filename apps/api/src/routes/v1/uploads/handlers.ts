@@ -27,6 +27,24 @@ import {
 
 const DM_CHANNEL_TYPES = ["dm", "group_dm"] as const
 
+async function createPresignedUpload(
+  key: string,
+  contentType: string,
+  size: number
+) {
+  const command = new PutObjectCommand({
+    Bucket: env.S3_BUCKET_NAME,
+    Key: key,
+    ContentType: contentType,
+    ContentLength: size,
+  })
+  const uploadUrl = await getSignedUrl(s3Client, command, {
+    expiresIn: PRESIGNED_URL_EXPIRY_SECONDS,
+  })
+  const fileUrl = `${env.S3_PUBLIC_URL.replace(/\/$/, "")}/${key}`
+  return { uploadUrl, fileUrl }
+}
+
 export const presign: AppRouteHandler<PresignRoute> = async (c) => {
   const user = c.var.user
   const { channelId, filename, contentType, size } = c.req.valid("json")
@@ -114,19 +132,11 @@ export const presign: AppRouteHandler<PresignRoute> = async (c) => {
   const fileId = crypto.randomUUID()
   const sanitizedFilename = filename.replace(/[^a-zA-Z0-9._-]/g, "_")
   const key = `attachments/${channelId}/${fileId}/${sanitizedFilename}`
-
-  const command = new PutObjectCommand({
-    Bucket: env.S3_BUCKET_NAME,
-    Key: key,
-    ContentType: contentType,
-    ContentLength: size,
-  })
-
-  const uploadUrl = await getSignedUrl(s3Client, command, {
-    expiresIn: PRESIGNED_URL_EXPIRY_SECONDS,
-  })
-
-  const fileUrl = `${env.S3_PUBLIC_URL.replace(/\/$/, "")}/${key}`
+  const { uploadUrl, fileUrl } = await createPresignedUpload(
+    key,
+    contentType,
+    size
+  )
 
   return c.json({ uploadUrl, fileUrl, key }, HttpStatusCodes.OK)
 }
@@ -144,19 +154,11 @@ export const avatarPresign: AppRouteHandler<AvatarPresignRoute> = async (c) => {
 
   const sanitizedFilename = filename.replace(/[^a-zA-Z0-9._-]/g, "_")
   const key = `avatars/${user.id}/${crypto.randomUUID()}/${sanitizedFilename}`
-
-  const command = new PutObjectCommand({
-    Bucket: env.S3_BUCKET_NAME,
-    Key: key,
-    ContentType: contentType,
-    ContentLength: size,
-  })
-
-  const uploadUrl = await getSignedUrl(s3Client, command, {
-    expiresIn: PRESIGNED_URL_EXPIRY_SECONDS,
-  })
-
-  const fileUrl = `${env.S3_PUBLIC_URL.replace(/\/$/, "")}/${key}`
+  const { uploadUrl, fileUrl } = await createPresignedUpload(
+    key,
+    contentType,
+    size
+  )
 
   return c.json({ uploadUrl, fileUrl }, HttpStatusCodes.OK)
 }
@@ -221,19 +223,11 @@ export const webhookAvatarPresign: AppRouteHandler<
 
   const sanitizedFilename = filename.replace(/[^a-zA-Z0-9._-]/g, "_")
   const key = `webhook-avatars/${channelId}/${crypto.randomUUID()}/${sanitizedFilename}`
-
-  const command = new PutObjectCommand({
-    Bucket: env.S3_BUCKET_NAME,
-    Key: key,
-    ContentType: contentType,
-    ContentLength: size,
-  })
-
-  const uploadUrl = await getSignedUrl(s3Client, command, {
-    expiresIn: PRESIGNED_URL_EXPIRY_SECONDS,
-  })
-
-  const fileUrl = `${env.S3_PUBLIC_URL.replace(/\/$/, "")}/${key}`
+  const { uploadUrl, fileUrl } = await createPresignedUpload(
+    key,
+    contentType,
+    size
+  )
 
   return c.json({ uploadUrl, fileUrl }, HttpStatusCodes.OK)
 }
@@ -291,19 +285,11 @@ export const workspaceIconPresign: AppRouteHandler<
 
   const sanitizedFilename = filename.replace(/[^a-zA-Z0-9._-]/g, "_")
   const key = `workspace-icons/${workspaceId}/${crypto.randomUUID()}/${sanitizedFilename}`
-
-  const command = new PutObjectCommand({
-    Bucket: env.S3_BUCKET_NAME,
-    Key: key,
-    ContentType: contentType,
-    ContentLength: size,
-  })
-
-  const uploadUrl = await getSignedUrl(s3Client, command, {
-    expiresIn: PRESIGNED_URL_EXPIRY_SECONDS,
-  })
-
-  const fileUrl = `${env.S3_PUBLIC_URL.replace(/\/$/, "")}/${key}`
+  const { uploadUrl, fileUrl } = await createPresignedUpload(
+    key,
+    contentType,
+    size
+  )
 
   return c.json({ uploadUrl, fileUrl }, HttpStatusCodes.OK)
 }
