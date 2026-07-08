@@ -27,12 +27,14 @@ const channelTypes = [
     label: "Text",
     icon: Hash,
     description: "A text channel for general conversation and discussion",
+    disabled: false,
   },
   {
     value: "voice",
     label: "Voice",
     icon: Volume2,
-    description: "A voice channel for huddles and meetings",
+    description: "Voice channels are coming soon",
+    disabled: true,
   },
 ] as const
 
@@ -156,6 +158,7 @@ export function CreateChannelDialog({
                       value={ct.value}
                       tooltip={ct.description}
                       side="right"
+                      disabled={ct.disabled}
                     >
                       <div className="flex items-center gap-2">
                         <ct.icon className="size-4 text-muted-foreground" />

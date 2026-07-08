@@ -89,7 +89,7 @@ export function DMSidebarContent() {
                 })
               }}
               tooltip={name ? `Back to ${name}` : "Direct messages"}
-              className="group"
+              className="group/back"
             >
               <div className="flex aspect-square size-8 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-sidebar-primary text-sidebar-primary-foreground text-sm font-semibold">
                 {logo ? (
@@ -108,7 +108,7 @@ export function DMSidebarContent() {
                 )}
                 <span className="flex items-center gap-1 truncate text-xs text-sidebar-foreground/70">
                   <ArrowLeft
-                    className="size-3 transition-transform group-hover:-translate-x-0.5"
+                    className="size-3 transition-transform group-hover/back:-translate-x-0.5"
                     strokeWidth={2.25}
                   />
                   Back to workspace
