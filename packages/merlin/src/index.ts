@@ -92,14 +92,23 @@ function buildSystemPrompt(connectorLines: string[]): string {
 // Answer phase only; background write-back handles routine note-keeping.
 const ANSWER_WRITE_GUIDANCE = `Saving to your brain: only write (or mkdir / move / link) when the user explicitly asks you to remember, save, note, or organize something. When you do, make the change and briefly confirm what you saved and where (e.g. "Saved to /decisions/auth"). For ordinary questions, don't write — just answer; durable knowledge from this conversation is captured automatically afterward.`
 
-const GATE_QUESTION = `Does the exchange above contain durable team knowledge worth saving to long-term memory — a decision, how something works, who owns or is responsible for what, a resolved problem, or a lasting fact? Answer false for small talk, transient status, or general/how-to questions.`
+const GATE_QUESTION = `Decide whether the exchange above is worth saving to the team's long-term memory. The bar is high — memory is for knowledge a teammate would genuinely benefit from weeks from now.
+
+Answer true ONLY if the exchange states a specific, durable, workspace-specific fact of one of these kinds:
+- a settled decision (not a proposal still under discussion),
+- how one of the team's systems or processes actually works,
+- who owns or is responsible for something,
+- a resolved problem and its fix, or
+- a lasting convention the team follows.
+
+Answer false — the default — for everything else: small talk, greetings, transient status, questions that state no new fact (whether asked or answered), opinions, speculation, undecided proposals, general or how-to knowledge, and anything vague, one-off, or already obvious. When in doubt, answer false; saving nothing is the right outcome far more often than not.`
 
 const WRITEBACK_INSTRUCTION = `You've just answered. Now step back and act as the keeper of this workspace's long-term memory.
 
-Looking only at what was just discussed and what you found: is there durable knowledge here worth saving — a decision, how something works, who owns or is responsible for what, a resolved problem, or a convention/fact that will matter weeks from now?
+Your bar for saving is high. Only save specific, durable, workspace-specific knowledge a teammate would genuinely benefit from weeks from now: a settled decision, how one of the team's systems or processes actually works, who owns or is responsible for something, a resolved problem and its fix, or a lasting convention. Save nothing for small talk, transient status, questions that state no new fact, opinions, speculation, undecided proposals, general or how-to knowledge, or anything vague or one-off. When in doubt, save nothing — a sparse, trustworthy brain is worth far more than a cluttered one.
 
-- If yes: first browse your brain (ls / tree / read) to find where it belongs and whether a page on this already exists (you may have already saved something while answering — don't duplicate it). Strongly prefer updating or extending an existing page over creating a near-duplicate. Then write the page (write creates parent folders automatically), and use link if it clearly relates to another page. Keep pages tight, factual, and self-contained.
-- If there's nothing durable here — small talk, transient status, or a general question — do nothing.
+- If (and only if) something clears that bar: first browse your brain (ls / tree / read) to find where it belongs and whether a page on this already exists (you may have already saved something while answering — don't duplicate it). Strongly prefer updating or extending an existing page over creating a new one; only create a page for a genuinely new topic. Write the smallest change that captures the fact (write creates parent folders automatically), and use link only when the relationship to another page is clear. Keep pages tight, factual, and self-contained.
+- Otherwise, do nothing. This is the common case.
 
 Page format — begin every page with a short frontmatter block, then the body:
 ---
@@ -965,12 +974,17 @@ export async function writeBack(
 ): Promise<void> {
   const gate = await generateObject({
     model: MERLIN_SMALL_MODEL,
-    schema: z.object({ worthSaving: z.boolean() }),
+    // reason first so the model commits to a justification before the verdict.
+    schema: z.object({ reason: z.string(), worthSaving: z.boolean() }),
     prompt: `${ctx.gateText}\n\n---\n${GATE_QUESTION}`,
     providerOptions: {
       gateway: { models: [MERLIN_SMALL_FALLBACK_MODEL] },
     },
   })
+  logger.info(
+    { workspaceId: ctx.workspaceId, ...gate.object },
+    "Write-back salience gate"
+  )
   if (!gate.object.worthSaving) return
 
   await generateText({
