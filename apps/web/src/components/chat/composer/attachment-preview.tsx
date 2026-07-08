@@ -1,13 +1,44 @@
 import { cn } from "@repo/ui/lib/utils"
-import { FileIcon, Loader2, X } from "lucide-react"
+import { Loader2, X } from "lucide-react"
 import { useState } from "react"
 import { createPortal } from "react-dom"
+import { getFileKind } from "@/components/chat/message-attachment"
 import type { PendingAttachment } from "@/hooks/use-file-upload"
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function FilePreviewTile({ attachment }: { attachment: PendingAttachment }) {
+  const { Icon, tint, label } = getFileKind(
+    attachment.contentType,
+    attachment.filename
+  )
+  return (
+    <div
+      className={cn(
+        "flex size-20 flex-col items-center justify-center gap-1 rounded-md p-2",
+        attachment.status === "error" && "opacity-50"
+      )}
+    >
+      <div
+        className={cn(
+          "flex size-8 items-center justify-center rounded-md",
+          tint
+        )}
+      >
+        <Icon className="size-4" />
+      </div>
+      <span className="max-w-full truncate text-[10px] font-medium text-foreground">
+        {attachment.filename}
+      </span>
+      <span className="text-[10px] text-muted-foreground">
+        {label} · {formatFileSize(attachment.size)}
+      </span>
+    </div>
+  )
 }
 
 interface AttachmentPreviewProps {
@@ -62,20 +93,7 @@ export function AttachmentPreview({
                 />
               </button>
             ) : (
-              <div
-                className={cn(
-                  "flex size-20 flex-col items-center justify-center gap-1 rounded-md p-2",
-                  attachment.status === "error" && "opacity-50"
-                )}
-              >
-                <FileIcon className="size-6 text-muted-foreground" />
-                <span className="max-w-full truncate text-[10px] text-muted-foreground">
-                  {attachment.filename}
-                </span>
-                <span className="text-[10px] text-muted-foreground">
-                  {formatFileSize(attachment.size)}
-                </span>
-              </div>
+              <FilePreviewTile attachment={attachment} />
             )}
           </div>
         ))}
