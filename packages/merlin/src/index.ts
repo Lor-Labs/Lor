@@ -704,9 +704,11 @@ export async function respond(
     onUsage,
   }: RespondCallbacks
 ): Promise<RespondResult> {
+  const respondStart = performance.now()
   const question = ctx.conversation[ctx.conversation.length - 1]?.content ?? ""
   let brainContext = ""
   if (question.trim()) {
+    const prefetchStart = performance.now()
     try {
       const hits = await searchBrain(
         ctx.workspaceId,
@@ -729,6 +731,10 @@ export async function respond(
           .join("\n\n")}`
       }
     } catch {}
+    logger.info(
+      { ms: Math.round(performance.now() - prefetchStart) },
+      "Merlin brain prefetch timing"
+    )
   }
 
   type UserPart =
@@ -850,9 +856,16 @@ export async function respond(
   ].filter((line): line is string => line !== null)
   const instructions = `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}`
 
+  logger.info(
+    { ms: Math.round(performance.now() - respondStart) },
+    "Merlin pre-stream setup timing"
+  )
+
   // The finally closes the Datadog MCP session after the whole tool loop, even
   // if streamText or step preparation throws before streaming completes.
   try {
+    const streamStart = performance.now()
+    let firstPartLogged = false
     const result = streamText({
       model: MERLIN_MODEL,
       instructions,
@@ -896,6 +909,16 @@ export async function respond(
     // stream exposes tool call/status + reasoning events; textStream does not.
     let text = ""
     for await (const part of result.stream) {
+      if (!firstPartLogged) {
+        firstPartLogged = true
+        logger.info(
+          {
+            ms: Math.round(performance.now() - streamStart),
+            partType: part.type,
+          },
+          "Merlin time to first stream part"
+        )
+      }
       if (part.type === "text-delta") {
         text += part.text
         await onDelta(part.text)

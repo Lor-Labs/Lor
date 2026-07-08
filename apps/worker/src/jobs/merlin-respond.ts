@@ -100,6 +100,10 @@ export function createMerlinRespondProcessor(
           threadRootId,
           contextThreadRootId,
         } = job.data
+        logger.info(
+          { queueWaitMs: Date.now() - job.timestamp },
+          "Merlin job picked up"
+        )
         const room = threadRootId
           ? threadRoom(threadRootId)
           : channelRoom(channelId)

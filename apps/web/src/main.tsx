@@ -26,6 +26,17 @@ declare module "@tanstack/react-router" {
   }
 }
 
+// A deploy replaces hashed chunks, so open tabs fail lazy route imports.
+// Reload once to pick up the new index.html; the guard avoids a reload loop
+// when an asset is missing for some other reason.
+window.addEventListener("vite:preloadError", (event) => {
+  const lastReload = sessionStorage.getItem("chunk-reload-at")
+  if (lastReload && Date.now() - Number(lastReload) < 30_000) return
+  event.preventDefault()
+  sessionStorage.setItem("chunk-reload-at", String(Date.now()))
+  window.location.reload()
+})
+
 const rootElement = document.getElementById("root")
 if (!rootElement) throw new Error("Root element not found")
 
