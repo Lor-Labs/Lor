@@ -2,9 +2,11 @@ name: Desktop Version Guard
 
 # The desktop app bundles the web frontend, so whenever a PR changes anything
 # that ships in that bundle, the desktop version in tauri.conf.json must be
-# bumped too — otherwise web deploys but the desktop release drifts behind.
-# This check blocks that. Mark it a required status check in branch protection
-# so it actually gates merges to main.
+# bumped past the latest RELEASED version — otherwise web deploys but the
+# desktop release drifts behind. The baseline is the newest v* git tag (the real
+# released version), not just the committed file: bumping to an already-tagged
+# version would make auto-tag skip and cut no build, which is the drift we're
+# preventing. Mark this a required status check on main so it gates merges.
 
 on:
   pull_request:
@@ -45,25 +47,34 @@ jobs:
             exit 0
           fi
 
+          # Make sure tags are present (release history lives in v* tags).
+          git fetch --tags --force >/dev/null 2>&1 || true
+
           base_v="$(git show "$BASE_SHA:$conf" | jq -r '.version')"
           head_v="$(git show "$HEAD_SHA:$conf" | jq -r '.version')"
-          next_v="$(echo "$base_v" | awk -F. '{ $3 = $3 + 1; print $1"."$2"."$3 }')"
+          latest_tag_v="$(git tag -l 'v*' | sed 's/^v//' | sort -V | tail -1)"
 
-          echo "Current released version (main): $base_v"
-          echo "This PR's version:              $head_v"
+          # The new version must clear the highest of {committed on main, latest
+          # released tag}. Clearing the tag is what guarantees auto-tag creates a
+          # fresh tag and actually builds — a bump to an already-tagged version
+          # would be silently skipped.
+          baseline="$base_v"
+          if [ -n "$latest_tag_v" ]; then
+            baseline="$(printf '%s\n%s\n' "$base_v" "$latest_tag_v" | sort -V | tail -1)"
+          fi
+          next_v="$(echo "$baseline" | awk -F. '{ $3 = $3 + 1; print $1"."$2"."$3 }')"
+
+          echo "Committed on main:   $base_v"
+          echo "Latest released tag: ${latest_tag_v:-<none>}"
+          echo "Baseline to clear:   $baseline"
+          echo "This PR's version:   $head_v"
           echo "Frontend files changed:"
           printf '  %s\n' $remaining
 
-          if [ "$base_v" = "$head_v" ]; then
-            echo "::error::This PR changes the bundled frontend but doesn't bump the desktop version. Set \".version\" in $conf to $next_v (or higher) so desktop and web release together."
+          highest="$(printf '%s\n%s\n' "$baseline" "$head_v" | sort -V | tail -1)"
+          if [ "$head_v" = "$baseline" ] || [ "$highest" != "$head_v" ]; then
+            echo "::error::This PR changes the bundled frontend but its desktop version ($head_v) does not exceed the latest released version ($baseline). Set \".version\" in $conf to $next_v or higher so a new tag — and a new desktop build — is actually cut."
             exit 1
           fi
 
-          # Guard against a downgrade / equal version slipping through.
-          highest="$(printf '%s\n%s\n' "$base_v" "$head_v" | sort -V | tail -1)"
-          if [ "$highest" != "$head_v" ]; then
-            echo "::error::Desktop version $head_v is not greater than the current $base_v in $conf."
-            exit 1
-          fi
-
-          echo "Desktop version bumped $base_v → $head_v ✔"
+          echo "Desktop version $head_v clears baseline $baseline ✔ — will cut a fresh release."
