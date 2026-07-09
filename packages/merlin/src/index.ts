@@ -1,4 +1,4 @@
-import { and, asc, db, eq, MERLIN_USER_ID, or, schema, sql } from "@repo/db"
+import { and, asc, db, eq, MERLIN_USER_ID, ne, or, schema, sql } from "@repo/db"
 import {
   ALL_MERLIN_CAPABILITIES,
   type MerlinCapability,
@@ -777,20 +777,25 @@ export async function respond(
 
   // Roster of teammates Merlin can @-mention. Rendered with their exact
   // <@id> token so Merlin's mentions fan out and highlight like a person's.
-  const roster = (
-    await db
-      .select({
-        id: schema.user.id,
-        name: schema.user.name,
-        username: schema.user.username,
-        displayUsername: schema.user.displayUsername,
-      })
-      .from(schema.workspaceMember)
-      .innerJoin(schema.user, eq(schema.workspaceMember.userId, schema.user.id))
-      .where(eq(schema.workspaceMember.workspaceId, ctx.workspaceId))
-      .limit(ROSTER_LIMIT)
-      .catch(() => [])
-  ).filter((m) => m.id !== MERLIN_USER_ID && m.name.trim().length > 0)
+  const roster = await db
+    .select({
+      id: schema.user.id,
+      name: schema.user.name,
+      username: schema.user.username,
+      displayUsername: schema.user.displayUsername,
+    })
+    .from(schema.workspaceMember)
+    .innerJoin(schema.user, eq(schema.workspaceMember.userId, schema.user.id))
+    .where(
+      and(
+        eq(schema.workspaceMember.workspaceId, ctx.workspaceId),
+        ne(schema.user.id, MERLIN_USER_ID),
+        sql`btrim(${schema.user.name}) <> ''`
+      )
+    )
+    .orderBy(asc(schema.user.name))
+    .limit(ROSTER_LIMIT)
+    .catch(() => [])
   const rosterText =
     roster.length > 0
       ? `\n\nPeople you can mention (write the token exactly to @-mention them):\n${roster

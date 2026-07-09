@@ -80,8 +80,9 @@ function LeftSidebar() {
 // Minimum comfortable chat width. When dragging the right panel makes the
 // center narrower than this, the left sidebar auto-collapses to give the room
 // back; dragging the panel back reopens it (see handleMouseDown). Note the
-// right panel is capped at 60% of the viewport, so the center can't shrink
-// below ~0.4·viewport − leftWidth; this must sit above that floor to fire.
+// right panel is capped at 75% of the viewport (MAX_PANEL_WIDTH_RATIO), so the
+// center can't shrink below ~0.25·viewport − leftWidth; this must sit above
+// that floor to fire.
 const CENTER_MIN_WIDTH = 450
 
 function RightPanelDock() {
@@ -101,6 +102,9 @@ function RightPanelDock() {
       const startX = e.clientX
       const startWidth = panelWidth
       const viewportWidth = window.innerWidth
+      // Seed the ref from the current width so a click-drag-release with no
+      // mousemove persists the unchanged width, not a stale earlier value.
+      widthRef.current = startWidth
 
       // Watch the center (chat) width so a wide right panel can borrow the
       // left sidebar's space. The left sidebar animates its collapse/expand

@@ -126,7 +126,8 @@ export function createMerlinRespondProcessor(
           delta: string,
           done: boolean,
           status?: "complete" | "failed",
-          replace?: boolean
+          replace?: boolean,
+          mentions?: RealtimeMessageMention[]
         ) =>
           emitter.to(room).emit("message:stream", {
             channelId,
@@ -136,6 +137,7 @@ export function createMerlinRespondProcessor(
             done,
             ...(status ? { status } : {}),
             ...(replace ? { replace: true } : {}),
+            ...(mentions && mentions.length > 0 ? { mentions } : {}),
           })
 
         // Register the stream so clients can show a thinking indicator.
@@ -407,15 +409,13 @@ export function createMerlinRespondProcessor(
         // For the empty-fallback case nothing was streamed, so push the
         // fallback text as the final delta before ending. Carry the resolved
         // mentions on this terminal frame so the client highlights them live.
-        emitter.to(room).emit("message:stream", {
-          channelId,
-          threadRootId,
-          messageId: merlinMessageId,
-          delta: emptyFallback ? finalText : "",
-          done: true,
-          status: "complete",
-          ...(messageMentions.length > 0 ? { mentions: messageMentions } : {}),
-        })
+        emit(
+          emptyFallback ? finalText : "",
+          true,
+          "complete",
+          false,
+          messageMentions
+        )
         logger.info(
           { merlinMessageId, length: finalText.length },
           "Merlin reply complete"
