@@ -374,6 +374,10 @@ export interface ServerToClientEvents {
     // When set, `delta` replaces the message content instead of appending —
     // used on failure to drop a partial answer in favor of the fallback text.
     replace?: boolean
+    // Resolved @mentions Merlin made, sent on the terminal (done) chunk so the
+    // client highlights them live — mirrors the messageMention rows persisted
+    // for reload. Absent while streaming (the users aren't resolved until then).
+    mentions?: RealtimeMessageMention[]
   }) => void
   // Merlin's summarized extended-thinking, streamed before/between the answer.
   // delta = new reasoning chunk; the client appends it to the message's

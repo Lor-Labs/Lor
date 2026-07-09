@@ -1,4 +1,4 @@
-import { and, asc, db, eq, or, schema, sql } from "@repo/db"
+import { and, asc, db, eq, MERLIN_USER_ID, or, schema, sql } from "@repo/db"
 import {
   ALL_MERLIN_CAPABILITIES,
   type MerlinCapability,
@@ -60,6 +60,8 @@ const SEARCH_PER_KIND_MAX = 15
 const PREFETCH_LIMIT = 3
 const SNIPPET_MAX = 500
 const THREAD_MAX = 100
+// Max teammates listed in the mention roster injected into the answer prompt.
+const ROSTER_LIMIT = 100
 
 // The base prompt + per-connector lines are assembled by buildSystemPrompt so a
 // channel only sees instructions for tools it actually has bound.
@@ -90,6 +92,10 @@ function buildSystemPrompt(connectorLines: string[]): string {
 }
 
 // Answer phase only; background write-back handles routine note-keeping.
+// Only appended when the roster below is non-empty; teaches Merlin the exact
+// mention token so its @mentions notify + highlight like a person's.
+const MENTION_GUIDANCE = `Mentioning teammates: to @-mention someone from "People you can mention" below, write their token exactly as given (e.g. <@0b9c1d2e-...>) — this notifies and highlights them just like a person's @mention. Only mention someone when you're genuinely addressing them or flagging them for follow-up; don't mention people you merely refer to in passing.`
+
 const ANSWER_WRITE_GUIDANCE = `Saving to your brain: only write (or mkdir / move / link) when the user explicitly asks you to remember, save, note, or organize something. When you do, make the change and briefly confirm what you saved and where (e.g. "Saved to /decisions/auth"). For ordinary questions, don't write — just answer; durable knowledge from this conversation is captured automatically afterward.`
 
 const GATE_QUESTION = `Decide whether the exchange above is worth saving to the team's long-term memory. The bar is high — memory is for knowledge a teammate would genuinely benefit from weeks from now.
@@ -187,6 +193,17 @@ export type WriteBackCallbacks = {
   onMemoryWritten?: (e: { path: string; action: "created" | "updated" }) => void
 }
 
+// How a person appears everywhere in the app (message author header, mention
+// pill, composer): prefer the handle, fall back to the real name. Merlin reads
+// and mentions people by this same label so its prose and pills stay consistent.
+export function userDisplayName(u: {
+  name: string
+  username?: string | null
+  displayUsername?: string | null
+}): string {
+  return u.displayUsername ?? u.username ?? u.name
+}
+
 async function searchMessages(
   workspaceId: string,
   query: string,
@@ -208,6 +225,8 @@ async function searchMessages(
       content: schema.message.content,
       createdAt: schema.message.createdAt,
       authorName: schema.user.name,
+      authorUsername: schema.user.username,
+      authorDisplayUsername: schema.user.displayUsername,
     })
     .from(schema.message)
     .innerJoin(schema.channel, eq(schema.message.channelId, schema.channel.id))
@@ -227,7 +246,11 @@ async function searchMessages(
   return rows.map((r) => ({
     messageId: r.messageId,
     channelId: r.channelId,
-    author: r.authorName,
+    author: userDisplayName({
+      name: r.authorName,
+      username: r.authorUsername,
+      displayUsername: r.authorDisplayUsername,
+    }),
     when: r.createdAt.toISOString(),
     text: (r.content ?? "").slice(0, SNIPPET_MAX),
   }))
@@ -259,6 +282,8 @@ async function readThread(workspaceId: string, messageId: string) {
       content: schema.message.content,
       createdAt: schema.message.createdAt,
       authorName: schema.user.name,
+      authorUsername: schema.user.username,
+      authorDisplayUsername: schema.user.displayUsername,
     })
     .from(schema.message)
     .innerJoin(schema.channel, eq(schema.message.channelId, schema.channel.id))
@@ -277,7 +302,11 @@ async function readThread(workspaceId: string, messageId: string) {
 
   return rows.map((r) => ({
     messageId: r.id,
-    author: r.authorName,
+    author: userDisplayName({
+      name: r.authorName,
+      username: r.authorUsername,
+      displayUsername: r.authorDisplayUsername,
+    }),
     when: r.createdAt.toISOString(),
     text: r.content ?? "",
   }))
@@ -746,6 +775,29 @@ export async function respond(
     )
   }
 
+  // Roster of teammates Merlin can @-mention. Rendered with their exact
+  // <@id> token so Merlin's mentions fan out and highlight like a person's.
+  const roster = (
+    await db
+      .select({
+        id: schema.user.id,
+        name: schema.user.name,
+        username: schema.user.username,
+        displayUsername: schema.user.displayUsername,
+      })
+      .from(schema.workspaceMember)
+      .innerJoin(schema.user, eq(schema.workspaceMember.userId, schema.user.id))
+      .where(eq(schema.workspaceMember.workspaceId, ctx.workspaceId))
+      .limit(ROSTER_LIMIT)
+      .catch(() => [])
+  ).filter((m) => m.id !== MERLIN_USER_ID && m.name.trim().length > 0)
+  const rosterText =
+    roster.length > 0
+      ? `\n\nPeople you can mention (write the token exactly to @-mention them):\n${roster
+          .map((m) => `${userDisplayName(m)} <@${m.id}>`)
+          .join("\n")}`
+      : ""
+
   type UserPart =
     | { type: "text"; text: string }
     | { type: "image"; image: Uint8Array; mediaType: string }
@@ -783,6 +835,7 @@ export async function respond(
     }
   })
   if (brainContext) parts.push({ type: "text", text: brainContext })
+  if (rosterText) parts.push({ type: "text", text: rosterText })
   parts.push({
     type: "text",
     text: "\n\n---\nAnswer the most recent message, grounded in the brain notes, images, and conversation above. Use your tools (brain ls/read, search) for anything they don't cover.",
@@ -863,7 +916,7 @@ export async function respond(
     linear && caps.includes("linear_write") ? LINEAR_WRITE_PROMPT_LINE : null,
     datadogMcp ? DATADOG_PROMPT_LINE : null,
   ].filter((line): line is string => line !== null)
-  const instructions = `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}`
+  const instructions = `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}${roster.length > 0 ? `\n\n${MENTION_GUIDANCE}` : ""}`
 
   logger.info(
     { ms: Math.round(performance.now() - respondStart) },

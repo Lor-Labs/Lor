@@ -14,6 +14,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { UserBar } from "@/components/sidebar/channel-panel/user-bar"
 import { DMSidebarContent } from "@/components/sidebar/dm-sidebar"
 import {
+  clampPanelWidth,
   RightSidebarProvider,
   useRightSidebar,
 } from "@/components/sidebar/right-panel/right-sidebar-context"
@@ -76,10 +77,18 @@ function LeftSidebar() {
  * Merlin threads (and members / pinned / threads), so it needs its own
  * visual identity rather than blending into the main chat surface.
  */
+// Minimum comfortable chat width. When dragging the right panel makes the
+// center narrower than this, the left sidebar auto-collapses to give the room
+// back; dragging the panel back reopens it (see handleMouseDown). Note the
+// right panel is capped at 60% of the viewport, so the center can't shrink
+// below ~0.4·viewport − leftWidth; this must sit above that floor to fire.
+const CENTER_MIN_WIDTH = 450
+
 function RightPanelDock() {
   const { workspaceSlug } = useParams({ strict: false })
   const { view, isCollapsed, panelWidth, setPanelWidth, isHydrated } =
     useRightSidebar()
+  const { open: leftOpen, setOpen: setLeftOpen } = useSidebar()
   const [isResizing, setIsResizing] = useState(false)
   const panelRef = useRef<HTMLDivElement>(null)
   const widthRef = useRef(panelWidth)
@@ -91,14 +100,57 @@ function RightPanelDock() {
 
       const startX = e.clientX
       const startWidth = panelWidth
+      const viewportWidth = window.innerWidth
+
+      // Watch the center (chat) width so a wide right panel can borrow the
+      // left sidebar's space. The left sidebar animates its collapse/expand
+      // on its own (shadcn gap transition); the leftWidth hysteresis below
+      // keeps the mid-animation measurements from flickering the decision.
+      const centerEl = document.querySelector<HTMLElement>(
+        "[data-slot='sidebar-inset']"
+      )
+      const wrapper = document.querySelector<HTMLElement>(
+        "[data-slot='sidebar-wrapper']"
+      )
+      const leftWidth = wrapper
+        ? Number.parseFloat(
+            getComputedStyle(wrapper).getPropertyValue("--sidebar-width")
+          ) || 0
+        : 0
+      const startCenter =
+        centerEl?.getBoundingClientRect().width ?? Number.POSITIVE_INFINITY
+
+      // Only auto-manage the left sidebar if this drag collapsed it, when it
+      // started open (never fight a user who chose to collapse it), and only
+      // if the chat started with headroom — otherwise a drag that begins
+      // already cramped (e.g. left just reopened over a maxed right panel)
+      // would collapse on the first move and immediately reopen.
+      const canManageLeft =
+        leftOpen && leftWidth > 0 && startCenter >= CENTER_MIN_WIDTH
+      let collapsedByThisDrag = false
 
       const handleMouseMove = (moveEvent: MouseEvent) => {
         const delta = startX - moveEvent.clientX
-        const newWidth = Math.min(Math.max(startWidth + delta, 240), 480)
+        const newWidth = clampPanelWidth(startWidth + delta, viewportWidth)
         if (panelRef.current) {
           panelRef.current.style.width = `${newWidth}px`
         }
         widthRef.current = newWidth
+
+        if (!canManageLeft) return
+        const centerWidth =
+          centerEl?.getBoundingClientRect().width ?? Number.POSITIVE_INFINITY
+        if (!collapsedByThisDrag) {
+          if (centerWidth < CENTER_MIN_WIDTH) {
+            collapsedByThisDrag = true
+            setLeftOpen(false)
+          }
+          // Reopening consumes leftWidth, so require that much headroom —
+          // the gap between the two thresholds prevents flicker.
+        } else if (centerWidth - leftWidth >= CENTER_MIN_WIDTH) {
+          collapsedByThisDrag = false
+          setLeftOpen(true)
+        }
       }
 
       const handleMouseUp = () => {
@@ -111,7 +163,7 @@ function RightPanelDock() {
       document.addEventListener("mousemove", handleMouseMove)
       document.addEventListener("mouseup", handleMouseUp)
     },
-    [panelWidth, setPanelWidth]
+    [panelWidth, setPanelWidth, leftOpen, setLeftOpen]
   )
 
   const showRightPanel = !!view && !!workspaceSlug

@@ -13,9 +13,17 @@ import {
 } from "@repo/db"
 import type { MerlinMemory, MerlinToolCall } from "@repo/db/schema"
 import { withContext } from "@repo/logger"
-import { groundCitations, respond, writeBack } from "@repo/merlin"
+import {
+  groundCitations,
+  respond,
+  userDisplayName,
+  writeBack,
+} from "@repo/merlin"
 import { buildMessageFanout } from "@repo/messaging"
-import type { MerlinRespondJobData } from "@repo/realtime-types"
+import type {
+  MerlinRespondJobData,
+  RealtimeMessageMention,
+} from "@repo/realtime-types"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
 import { channelRoom, threadRoom, userRoom } from "@repo/realtime-types/rooms"
 import type { Emitter } from "@socket.io/redis-emitter"
@@ -55,6 +63,8 @@ async function loadConversation(args: {
     .select({
       content: schema.message.content,
       authorName: schema.user.name,
+      authorUsername: schema.user.username,
+      authorDisplayUsername: schema.user.displayUsername,
       attachments: schema.message.attachments,
     })
     .from(schema.message)
@@ -79,7 +89,11 @@ async function loadConversation(args: {
         size: a.size,
       }))
     return {
-      authorName: r.authorName,
+      authorName: userDisplayName({
+        name: r.authorName,
+        username: r.authorUsername,
+        displayUsername: r.authorDisplayUsername,
+      }),
       content: r.content ?? "",
       ...(images.length > 0 ? { images } : {}),
     }
@@ -258,6 +272,9 @@ export function createMerlinRespondProcessor(
         // status; fanout is best-effort and never downgrades a saved reply.
         let finalText = ""
         let emptyFallback = false
+        // Resolved @mentions from fanout, delivered on the terminal stream frame
+        // so the client highlights them live (reload uses the persisted rows).
+        let messageMentions: RealtimeMessageMention[] = []
         try {
           // Verify [[…]] citations (brain pages, messages, sources); strip any
           // that don't resolve so a hallucinated source can't masquerade as real
@@ -367,6 +384,7 @@ export function createMerlinRespondProcessor(
                 attachments: [],
               },
             })
+            messageMentions = fanout.messageMentions
             for (const n of fanout.unreadNotifications) {
               emitter
                 .to(userRoom(n.userId))
@@ -387,8 +405,17 @@ export function createMerlinRespondProcessor(
 
         // Normal case streamed the answer already, so just end the stream.
         // For the empty-fallback case nothing was streamed, so push the
-        // fallback text as the final delta before ending.
-        emit(emptyFallback ? finalText : "", true, "complete")
+        // fallback text as the final delta before ending. Carry the resolved
+        // mentions on this terminal frame so the client highlights them live.
+        emitter.to(room).emit("message:stream", {
+          channelId,
+          threadRootId,
+          messageId: merlinMessageId,
+          delta: emptyFallback ? finalText : "",
+          done: true,
+          status: "complete",
+          ...(messageMentions.length > 0 ? { mentions: messageMentions } : {}),
+        })
         logger.info(
           { merlinMessageId, length: finalText.length },
           "Merlin reply complete"

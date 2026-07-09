@@ -1,3 +1,4 @@
+import type { RealtimeMessageMention } from "@repo/realtime-types"
 import type { InfiniteData, QueryClient } from "@tanstack/react-query"
 import { useEffect } from "react"
 import { updateMessagesAcrossPages } from "@/lib/message-cache-utils"
@@ -22,6 +23,7 @@ interface MessagePage {
     remembered?: { path: string; action: "created" | "updated" }[]
     merlinToolCalls?: ToolCall[]
     merlinReasoning?: string | null
+    mentions?: RealtimeMessageMention[]
   }[]
 }
 
@@ -49,6 +51,7 @@ export function useMerlinStream({
       done: boolean
       status?: "complete" | "failed"
       replace?: boolean
+      mentions?: RealtimeMessageMention[]
     }) => {
       if (payload.channelId !== channelId) return
       // Patch the thread cache when the reply lives in a thread, else the channel feed.
@@ -67,6 +70,7 @@ export function useMerlinStream({
                     : (m.content ?? "") + payload.delta,
                   streaming: !payload.done,
                   ...(payload.status ? { status: payload.status } : {}),
+                  ...(payload.mentions ? { mentions: payload.mentions } : {}),
                 }
               : m
           )
