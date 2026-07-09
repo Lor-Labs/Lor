@@ -111,19 +111,26 @@ async function resolveAssignee(
   const want = raw.toLowerCase()
   // Filter server-side so a member beyond the first page still matches — a bare
   // users() only returns the first page (misses large workspaces).
-  const matched = await client
-    .users({
-      first: 250,
-      filter: {
-        or: [
-          { name: { containsIgnoreCase: raw } },
-          { displayName: { containsIgnoreCase: raw } },
-          { email: { containsIgnoreCase: raw } },
-        ],
-      },
-    })
-    .then((u) => u.nodes)
-    .catch(() => [])
+  let matched: Awaited<ReturnType<typeof client.users>>["nodes"]
+  try {
+    matched = (
+      await client.users({
+        first: 250,
+        filter: {
+          or: [
+            { name: { containsIgnoreCase: raw } },
+            { displayName: { containsIgnoreCase: raw } },
+            { email: { containsIgnoreCase: raw } },
+          ],
+        },
+      })
+    ).nodes
+  } catch (err) {
+    // A failed lookup must not masquerade as "no match" — surface the failure.
+    return {
+      error: `couldn't look up Linear members: ${err instanceof Error ? err.message : String(err)}`,
+    }
+  }
   if (matched.length === 0) {
     return { error: `no Linear member matches "${query}"` }
   }
