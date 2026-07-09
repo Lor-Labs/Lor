@@ -204,6 +204,17 @@ export function userDisplayName(u: {
   return u.displayUsername ?? u.username ?? u.name
 }
 
+// Display names are user-controlled, so neutralize anything that could break
+// the roster structure or forge a mention when interpolated into the prompt:
+// drop line breaks (no injected roster lines/instructions) and angle brackets
+// (no fake <@id> tokens). The real <@id> we append is the only valid mention.
+function sanitizeRosterLabel(label: string): string {
+  return label
+    .replace(/[\r\n<>]+/g, " ")
+    .trim()
+    .slice(0, 80)
+}
+
 async function searchMessages(
   workspaceId: string,
   query: string,
@@ -790,7 +801,9 @@ export async function respond(
       and(
         eq(schema.workspaceMember.workspaceId, ctx.workspaceId),
         ne(schema.user.id, MERLIN_USER_ID),
-        sql`btrim(${schema.user.name}) <> ''`
+        // Keep anyone with a usable label, matching userDisplayName's fallback
+        // (displayUsername → username → name) so username-only profiles survive.
+        sql`btrim(coalesce(${schema.user.displayUsername}, ${schema.user.username}, ${schema.user.name})) <> ''`
       )
     )
     .orderBy(asc(schema.user.name))
@@ -799,7 +812,7 @@ export async function respond(
   const rosterText =
     roster.length > 0
       ? `\n\nPeople you can mention (write the token exactly to @-mention them):\n${roster
-          .map((m) => `${userDisplayName(m)} <@${m.id}>`)
+          .map((m) => `${sanitizeRosterLabel(userDisplayName(m))} <@${m.id}>`)
           .join("\n")}`
       : ""
 
