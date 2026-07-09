@@ -13,6 +13,11 @@ export function useUpdateCheck() {
   > | null>(null)
 
   useEffect(() => {
+    // Update prompts target packaged/production builds only. In dev (Vite dev
+    // server + Tauri debug) the app version trails the release feed, so the
+    // native check would always report an update.
+    if (import.meta.env.DEV) return
+
     // Web frontend version check (works for both browser and Tauri)
     const checkWeb = async () => {
       try {

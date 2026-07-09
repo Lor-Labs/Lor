@@ -207,6 +207,54 @@
   }
 }
 
+/* Scrollbars — the native webview (Tauri/WebKit on desktop) renders chunky
+   light tracks that clash with the dark theme. Drive WebKit/WebView2 with the
+   pseudo-elements; scope the standard properties to Firefox, since setting
+   scrollbar-width makes WebKit/Chromium ignore ::-webkit-scrollbar. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  border-radius: 9999px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+  background-color: color-mix(
+    in oklab,
+    var(--muted-foreground) 30%,
+    transparent
+  );
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(
+    in oklab,
+    var(--muted-foreground) 55%,
+    transparent
+  );
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(
+        in oklab,
+        var(--muted-foreground) 35%,
+        transparent
+      )
+      transparent;
+  }
+}
+
 /* Chat-message markdown: tighten Streamdown's prose defaults for chat density.
    Targets Streamdown's data-streamdown elements; scoped to .message-markdown so
    it only affects message bubbles. Same utilities as the old wrapper classes. */
