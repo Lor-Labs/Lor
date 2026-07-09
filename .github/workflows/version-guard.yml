@@ -12,6 +12,10 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -24,6 +28,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Check tauri.conf.json version
         env:
@@ -69,7 +74,7 @@ jobs:
           echo "Baseline to clear:   $baseline"
           echo "This PR's version:   $head_v"
           echo "Frontend files changed:"
-          printf '  %s\n' $remaining
+          printf '%s\n' "$remaining" | sed 's/^/  /'
 
           highest="$(printf '%s\n%s\n' "$baseline" "$head_v" | sort -V | tail -1)"
           if [ "$head_v" = "$baseline" ] || [ "$highest" != "$head_v" ]; then
