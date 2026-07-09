@@ -106,37 +106,43 @@ async function resolveAssignee(
   client: LinearClient,
   query: string
 ): Promise<{ userId: string; name: string } | { error: string }> {
-  const want = query.trim().toLowerCase()
-  if (!want) return { error: "no assignee given" }
-  const all = await client
-    .users({ first: 250 })
+  const raw = query.trim()
+  if (!raw) return { error: "no assignee given" }
+  const want = raw.toLowerCase()
+  // Filter server-side so a member beyond the first page still matches — a bare
+  // users() only returns the first page (misses large workspaces).
+  const matched = await client
+    .users({
+      first: 250,
+      filter: {
+        or: [
+          { name: { containsIgnoreCase: raw } },
+          { displayName: { containsIgnoreCase: raw } },
+          { email: { containsIgnoreCase: raw } },
+        ],
+      },
+    })
     .then((u) => u.nodes)
     .catch(() => [])
-  if (all.length === 0) return { error: "couldn't list Linear members" }
-  const active = all.filter((u) => u.active)
-  const users = active.length > 0 ? active : all
+  if (matched.length === 0) {
+    return { error: `no Linear member matches "${query}"` }
+  }
+  const active = matched.filter((u) => u.active)
+  const users = active.length > 0 ? active : matched
   const norm = (s: string | null | undefined) => (s ?? "").trim().toLowerCase()
   const label = (u: (typeof users)[number]) => u.displayName || u.name
 
+  // The server already narrowed to substring matches; prefer an exact hit.
   const exact = users.filter(
     (u) =>
       norm(u.email) === want ||
       norm(u.name) === want ||
       norm(u.displayName) === want
   )
-  const partial = users.filter(
-    (u) =>
-      norm(u.name).includes(want) ||
-      norm(u.displayName).includes(want) ||
-      norm(u.email).includes(want)
-  )
-  const matches = exact.length > 0 ? exact : partial
+  const matches = exact.length > 0 ? exact : users
   const first = matches[0]
   if (matches.length === 1 && first) {
     return { userId: first.id, name: label(first) }
-  }
-  if (matches.length === 0) {
-    return { error: `no Linear member matches "${query}"` }
   }
   const list = matches.slice(0, MAX_LISTED).map(label).join(", ")
   return { error: `which person? Matches for "${query}": ${list}` }
@@ -149,12 +155,15 @@ function resolveTeam(
   teams: { id: string; key: string; name: string }[],
   query: string | undefined
 ): { teamId: string; team: string } | { error: string } {
-  const ask = () => ({
-    error: `which team? Pass the team key or name — options: ${teams
+  const ask = () => {
+    const options = teams
       .slice(0, MAX_LISTED)
       .map((t) => `${t.key} (${t.name})`)
-      .join(", ")}`,
-  })
+      .join(", ")
+    // Distinguish an omitted team from a name that matched nothing/ambiguously.
+    const lead = query?.trim() ? `no team matches "${query}"` : "which team?"
+    return { error: `${lead} — pass the team key or name; options: ${options}` }
+  }
   if (!query?.trim()) {
     const only = teams[0]
     return teams.length === 1 && only
