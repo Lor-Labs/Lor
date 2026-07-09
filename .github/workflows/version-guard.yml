@@ -1,0 +1,69 @@
+name: Desktop Version Guard
+
+# The desktop app bundles the web frontend, so whenever a PR changes anything
+# that ships in that bundle, the desktop version in tauri.conf.json must be
+# bumped too — otherwise web deploys but the desktop release drifts behind.
+# This check blocks that. Mark it a required status check in branch protection
+# so it actually gates merges to main.
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  version-guard:
+    name: Require desktop version bump
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check tauri.conf.json version
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          conf="apps/desktop/src-tauri/tauri.conf.json"
+
+          # Paths that do NOT ship in the desktop bundle (backend apps, server-only
+          # packages, docs, CI). A PR touching only these needs no desktop release.
+          # Everything else — apps/web, apps/desktop, packages/ui, shared frontend
+          # packages, root config — requires a version bump. Edit as the repo grows.
+          safe_re='^(apps/(api|realtime|worker|www)|packages/(merlin|db|auth)|reference|\.github)/|\.md$'
+
+          changed="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")"
+          remaining="$(printf '%s\n' "$changed" | grep -Ev "$safe_re" || true)"
+
+          if [ -z "$remaining" ]; then
+            echo "No bundled-frontend changes in this PR — desktop version bump not required."
+            exit 0
+          fi
+
+          base_v="$(git show "$BASE_SHA:$conf" | jq -r '.version')"
+          head_v="$(git show "$HEAD_SHA:$conf" | jq -r '.version')"
+          next_v="$(echo "$base_v" | awk -F. '{ $3 = $3 + 1; print $1"."$2"."$3 }')"
+
+          echo "Current released version (main): $base_v"
+          echo "This PR's version:              $head_v"
+          echo "Frontend files changed:"
+          printf '  %s\n' $remaining
+
+          if [ "$base_v" = "$head_v" ]; then
+            echo "::error::This PR changes the bundled frontend but doesn't bump the desktop version. Set \".version\" in $conf to $next_v (or higher) so desktop and web release together."
+            exit 1
+          fi
+
+          # Guard against a downgrade / equal version slipping through.
+          highest="$(printf '%s\n%s\n' "$base_v" "$head_v" | sort -V | tail -1)"
+          if [ "$highest" != "$head_v" ]; then
+            echo "::error::Desktop version $head_v is not greater than the current $base_v in $conf."
+            exit 1
+          fi
+
+          echo "Desktop version bumped $base_v → $head_v ✔"
