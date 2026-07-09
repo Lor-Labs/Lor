@@ -142,14 +142,53 @@ async function resolveAssignee(
   return { error: `which person? Matches for "${query}": ${list}` }
 }
 
+// A team is required to create an issue. Auto-use the only team when there's
+// one; otherwise match the given key/name (exact, then partial) and ask which
+// one when it's missing or ambiguous — listing the options so Merlin can retry.
+function resolveTeam(
+  teams: { id: string; key: string; name: string }[],
+  query: string | undefined
+): { teamId: string; team: string } | { error: string } {
+  const ask = () => ({
+    error: `which team? Pass the team key or name — options: ${teams
+      .slice(0, MAX_LISTED)
+      .map((t) => `${t.key} (${t.name})`)
+      .join(", ")}`,
+  })
+  if (!query?.trim()) {
+    const only = teams[0]
+    return teams.length === 1 && only
+      ? { teamId: only.id, team: only.key }
+      : ask()
+  }
+  const want = query.trim().toLowerCase()
+  const norm = (s: string) => s.trim().toLowerCase()
+  const exact = teams.filter(
+    (t) => norm(t.key) === want || norm(t.name) === want
+  )
+  const partial = teams.filter(
+    (t) => norm(t.key).includes(want) || norm(t.name).includes(want)
+  )
+  const matches = exact.length > 0 ? exact : partial
+  const first = matches[0]
+  return matches.length === 1 && first
+    ? { teamId: first.id, team: first.key }
+    : ask()
+}
+
 export const linearWriteTools = {
   create_linear_issue: tool({
     description:
-      "Create a new issue in the team's Linear. Pass a title, an optional Markdown description, the team key or name (e.g. \"ENG\") — required when the workspace has more than one team — and an optional assignee (a member's name, display name, or email; it's matched to a Linear member, so use their real name, not a Lor handle). Returns the created issue's identifier, url, and assignee.",
+      "Create a new issue in the team's Linear. A Linear team is required: if the workspace has a single team it's used automatically, otherwise you MUST pass its key or name (e.g. \"ENG\") — if you omit it or it's ambiguous, the tool returns the list of teams so you can pick one and retry. Also takes a title, an optional Markdown description, and an optional assignee (a member's name, display name, or email; matched to a Linear member, so use their real name, not a Lor handle). Returns the created issue's identifier, url, team, and assignee.",
     inputSchema: z.object({
       title: z.string().describe("the issue title"),
       description: z.string().optional().describe("the issue body (Markdown)"),
-      team: z.string().optional().describe("team key or name, e.g. ENG"),
+      team: z
+        .string()
+        .optional()
+        .describe(
+          "team key or name (e.g. ENG); required when the workspace has more than one Linear team"
+        ),
       assignee: z
         .string()
         .optional()
@@ -165,22 +204,8 @@ export const linearWriteTools = {
         .catch(() => [])
       if (teams.length === 0) return { error: "no Linear teams found" }
 
-      let target: (typeof teams)[number] | undefined
-      if (team) {
-        const want = team.trim().toLowerCase()
-        target = teams.find(
-          (t) => t.key.toLowerCase() === want || t.name.toLowerCase() === want
-        )
-      } else if (teams.length === 1) {
-        target = teams[0]
-      }
-      if (!target) {
-        const list = teams
-          .slice(0, MAX_LISTED)
-          .map((t) => `${t.key} (${t.name})`)
-          .join(", ")
-        return { error: `which team? Teams: ${list}` }
-      }
+      const resolvedTeam = resolveTeam(teams, team)
+      if ("error" in resolvedTeam) return { error: resolvedTeam.error }
 
       // Resolve the assignee before creating so an unresolved/ambiguous name
       // stops here instead of creating a misassigned issue.
@@ -194,7 +219,12 @@ export const linearWriteTools = {
       }
 
       const payload = await client
-        .createIssue({ teamId: target.id, title, description, assigneeId })
+        .createIssue({
+          teamId: resolvedTeam.teamId,
+          title,
+          description,
+          assigneeId,
+        })
         .catch(() => null)
       if (!payload?.success) {
         return { error: "couldn't create the issue" }
@@ -206,6 +236,7 @@ export const linearWriteTools = {
         url: issue?.url ?? null,
         title,
         description: description ?? null,
+        team: resolvedTeam.team,
         assignee: assigneeName,
       }
     },
