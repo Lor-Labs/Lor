@@ -96,17 +96,122 @@ export const linearTools = {
   }),
 }
 
+type LinearClient = NonNullable<Awaited<ReturnType<typeof linearClientFor>>>
+
+// Resolve a free-text assignee (name, display name, or email) to a Linear user
+// id. Prefers active members and disambiguates when several match, so Merlin can
+// ask the user rather than guessing. Returns an error string on no/ambiguous
+// match so the issue isn't created misassigned.
+async function resolveAssignee(
+  client: LinearClient,
+  query: string
+): Promise<{ userId: string; name: string } | { error: string }> {
+  const raw = query.trim()
+  if (!raw) return { error: "no assignee given" }
+  const want = raw.toLowerCase()
+  // Filter server-side so a member beyond the first page still matches — a bare
+  // users() only returns the first page (misses large workspaces).
+  let matched: Awaited<ReturnType<typeof client.users>>["nodes"]
+  try {
+    matched = (
+      await client.users({
+        first: 250,
+        filter: {
+          or: [
+            { name: { containsIgnoreCase: raw } },
+            { displayName: { containsIgnoreCase: raw } },
+            { email: { containsIgnoreCase: raw } },
+          ],
+        },
+      })
+    ).nodes
+  } catch (err) {
+    // A failed lookup must not masquerade as "no match" — surface the failure.
+    return {
+      error: `couldn't look up Linear members: ${err instanceof Error ? err.message : String(err)}`,
+    }
+  }
+  if (matched.length === 0) {
+    return { error: `no Linear member matches "${query}"` }
+  }
+  const active = matched.filter((u) => u.active)
+  const users = active.length > 0 ? active : matched
+  const norm = (s: string | null | undefined) => (s ?? "").trim().toLowerCase()
+  const label = (u: (typeof users)[number]) => u.displayName || u.name
+
+  // The server already narrowed to substring matches; prefer an exact hit.
+  const exact = users.filter(
+    (u) =>
+      norm(u.email) === want ||
+      norm(u.name) === want ||
+      norm(u.displayName) === want
+  )
+  const matches = exact.length > 0 ? exact : users
+  const first = matches[0]
+  if (matches.length === 1 && first) {
+    return { userId: first.id, name: label(first) }
+  }
+  const list = matches.slice(0, MAX_LISTED).map(label).join(", ")
+  return { error: `which person? Matches for "${query}": ${list}` }
+}
+
+// A team is required to create an issue. Auto-use the only team when there's
+// one; otherwise match the given key/name (exact, then partial) and ask which
+// one when it's missing or ambiguous — listing the options so Merlin can retry.
+function resolveTeam(
+  teams: { id: string; key: string; name: string }[],
+  query: string | undefined
+): { teamId: string; team: string } | { error: string } {
+  const ask = () => {
+    const options = teams
+      .slice(0, MAX_LISTED)
+      .map((t) => `${t.key} (${t.name})`)
+      .join(", ")
+    // Distinguish an omitted team from a name that matched nothing/ambiguously.
+    const lead = query?.trim() ? `no team matches "${query}"` : "which team?"
+    return { error: `${lead} — pass the team key or name; options: ${options}` }
+  }
+  if (!query?.trim()) {
+    const only = teams[0]
+    return teams.length === 1 && only
+      ? { teamId: only.id, team: only.key }
+      : ask()
+  }
+  const want = query.trim().toLowerCase()
+  const norm = (s: string) => s.trim().toLowerCase()
+  const exact = teams.filter(
+    (t) => norm(t.key) === want || norm(t.name) === want
+  )
+  const partial = teams.filter(
+    (t) => norm(t.key).includes(want) || norm(t.name).includes(want)
+  )
+  const matches = exact.length > 0 ? exact : partial
+  const first = matches[0]
+  return matches.length === 1 && first
+    ? { teamId: first.id, team: first.key }
+    : ask()
+}
+
 export const linearWriteTools = {
   create_linear_issue: tool({
     description:
-      "Create a new issue in the team's Linear. Pass a title, an optional Markdown description, and the team key or name (e.g. \"ENG\") — required when the workspace has more than one team. Returns the created issue's identifier and url.",
+      "Create a new issue in the team's Linear. A Linear team is required: if the workspace has a single team it's used automatically, otherwise you MUST pass its key or name (e.g. \"ENG\") — if you omit it or it's ambiguous, the tool returns the list of teams so you can pick one and retry. Also takes a title, an optional Markdown description, and an optional assignee (a member's name, display name, or email; matched to a Linear member, so use their real name, not a Lor handle). Returns the created issue's identifier, url, team, and assignee.",
     inputSchema: z.object({
       title: z.string().describe("the issue title"),
       description: z.string().optional().describe("the issue body (Markdown)"),
-      team: z.string().optional().describe("team key or name, e.g. ENG"),
+      team: z
+        .string()
+        .optional()
+        .describe(
+          "team key or name (e.g. ENG); required when the workspace has more than one Linear team"
+        ),
+      assignee: z
+        .string()
+        .optional()
+        .describe("who to assign it to — a Linear member's name or email"),
     }),
     contextSchema: linearContext,
-    execute: async ({ title, description, team }, { context }) => {
+    execute: async ({ title, description, team, assignee }, { context }) => {
       const client = await linearClientFor(context.externalId)
       if (!client) return { error: "couldn't authenticate with Linear" }
       const teams = await client
@@ -115,25 +220,27 @@ export const linearWriteTools = {
         .catch(() => [])
       if (teams.length === 0) return { error: "no Linear teams found" }
 
-      let target: (typeof teams)[number] | undefined
-      if (team) {
-        const want = team.trim().toLowerCase()
-        target = teams.find(
-          (t) => t.key.toLowerCase() === want || t.name.toLowerCase() === want
-        )
-      } else if (teams.length === 1) {
-        target = teams[0]
-      }
-      if (!target) {
-        const list = teams
-          .slice(0, MAX_LISTED)
-          .map((t) => `${t.key} (${t.name})`)
-          .join(", ")
-        return { error: `which team? Teams: ${list}` }
+      const resolvedTeam = resolveTeam(teams, team)
+      if ("error" in resolvedTeam) return { error: resolvedTeam.error }
+
+      // Resolve the assignee before creating so an unresolved/ambiguous name
+      // stops here instead of creating a misassigned issue.
+      let assigneeId: string | undefined
+      let assigneeName: string | null = null
+      if (assignee?.trim()) {
+        const resolved = await resolveAssignee(client, assignee)
+        if ("error" in resolved) return { error: resolved.error }
+        assigneeId = resolved.userId
+        assigneeName = resolved.name
       }
 
       const payload = await client
-        .createIssue({ teamId: target.id, title, description })
+        .createIssue({
+          teamId: resolvedTeam.teamId,
+          title,
+          description,
+          assigneeId,
+        })
         .catch(() => null)
       if (!payload?.success) {
         return { error: "couldn't create the issue" }
@@ -145,6 +252,8 @@ export const linearWriteTools = {
         url: issue?.url ?? null,
         title,
         description: description ?? null,
+        team: resolvedTeam.team,
+        assignee: assigneeName,
       }
     },
     strict: true,

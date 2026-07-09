@@ -83,7 +83,7 @@ function LeftSidebar() {
 // right panel is capped at 75% of the viewport (MAX_PANEL_WIDTH_RATIO), so the
 // center can't shrink below ~0.25·viewport − leftWidth; this must sit above
 // that floor to fire.
-const CENTER_MIN_WIDTH = 450
+const CENTER_MIN_WIDTH = 400
 
 function RightPanelDock() {
   const { workspaceSlug } = useParams({ strict: false })

@@ -263,11 +263,18 @@ export function MessageMarkdown({
     >
       <Streamdown
         plugins={{ code: codePlugin }}
+        // Keys here are matched by hast-util-sanitize against the HAST property
+        // names, which rehype-raw camelCases — so it MUST be `dataId`/`dataUrl`,
+        // not `data-id`/`data-url`. With the hyphenated form the attribute is
+        // silently stripped and reaches the component as undefined (breaking
+        // mention hover cards, [[msg:]] jumps, and [[src:]] links). to-jsx-runtime
+        // converts the surviving `dataId` back to the `data-id` prop the
+        // components read.
         allowedTags={{
-          mention: ["data-id"],
+          mention: ["dataId"],
           pageref: [],
-          msgref: ["data-id"],
-          srcref: ["data-url"],
+          msgref: ["dataId"],
+          srcref: ["dataUrl"],
         }}
         literalTagContent={["mention", "pageref", "msgref", "srcref"]}
         components={components}
