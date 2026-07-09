@@ -1,4 +1,4 @@
-import { and, asc, db, eq, or, schema, sql } from "@repo/db"
+import { and, asc, db, eq, MERLIN_USER_ID, ne, or, schema, sql } from "@repo/db"
 import {
   ALL_MERLIN_CAPABILITIES,
   type MerlinCapability,
@@ -60,6 +60,8 @@ const SEARCH_PER_KIND_MAX = 15
 const PREFETCH_LIMIT = 3
 const SNIPPET_MAX = 500
 const THREAD_MAX = 100
+// Max teammates listed in the mention roster injected into the answer prompt.
+const ROSTER_LIMIT = 100
 
 // The base prompt + per-connector lines are assembled by buildSystemPrompt so a
 // channel only sees instructions for tools it actually has bound.
@@ -90,16 +92,29 @@ function buildSystemPrompt(connectorLines: string[]): string {
 }
 
 // Answer phase only; background write-back handles routine note-keeping.
+// Only appended when the roster below is non-empty; teaches Merlin the exact
+// mention token so its @mentions notify + highlight like a person's.
+const MENTION_GUIDANCE = `Mentioning teammates: each person under "People you can mention" below has a mention token like <@0b9c1d2e-...>. To @-mention someone — notifying and highlighting them exactly as a teammate tagging them would — write their token verbatim, copied character-for-character from the list. Typing their name as plain text, even with an "@" (e.g. @Jane), does NOT create a mention and does NOT notify them; only the exact token does. So whenever you address or refer to one of these people, use their token in place of their name. Mention people naturally where it fits — you needn't tag everyone, just those you're actually speaking to or about.`
+
 const ANSWER_WRITE_GUIDANCE = `Saving to your brain: only write (or mkdir / move / link) when the user explicitly asks you to remember, save, note, or organize something. When you do, make the change and briefly confirm what you saved and where (e.g. "Saved to /decisions/auth"). For ordinary questions, don't write — just answer; durable knowledge from this conversation is captured automatically afterward.`
 
-const GATE_QUESTION = `Does the exchange above contain durable team knowledge worth saving to long-term memory — a decision, how something works, who owns or is responsible for what, a resolved problem, or a lasting fact? Answer false for small talk, transient status, or general/how-to questions.`
+const GATE_QUESTION = `Decide whether the exchange above is worth saving to the team's long-term memory. The bar is high — memory is for knowledge a teammate would genuinely benefit from weeks from now.
+
+Answer true ONLY if the exchange states a specific, durable, workspace-specific fact of one of these kinds:
+- a settled decision (not a proposal still under discussion),
+- how one of the team's systems or processes actually works,
+- who owns or is responsible for something,
+- a resolved problem and its fix, or
+- a lasting convention the team follows.
+
+Answer false — the default — for everything else: small talk, greetings, transient status, questions that state no new fact (whether asked or answered), opinions, speculation, undecided proposals, general or how-to knowledge, and anything vague, one-off, or already obvious. When in doubt, answer false; saving nothing is the right outcome far more often than not.`
 
 const WRITEBACK_INSTRUCTION = `You've just answered. Now step back and act as the keeper of this workspace's long-term memory.
 
-Looking only at what was just discussed and what you found: is there durable knowledge here worth saving — a decision, how something works, who owns or is responsible for what, a resolved problem, or a convention/fact that will matter weeks from now?
+Your bar for saving is high. Only save specific, durable, workspace-specific knowledge a teammate would genuinely benefit from weeks from now: a settled decision, how one of the team's systems or processes actually works, who owns or is responsible for something, a resolved problem and its fix, or a lasting convention. Save nothing for small talk, transient status, questions that state no new fact, opinions, speculation, undecided proposals, general or how-to knowledge, or anything vague or one-off. When in doubt, save nothing — a sparse, trustworthy brain is worth far more than a cluttered one.
 
-- If yes: first browse your brain (ls / tree / read) to find where it belongs and whether a page on this already exists (you may have already saved something while answering — don't duplicate it). Strongly prefer updating or extending an existing page over creating a near-duplicate. Then write the page (write creates parent folders automatically), and use link if it clearly relates to another page. Keep pages tight, factual, and self-contained.
-- If there's nothing durable here — small talk, transient status, or a general question — do nothing.
+- If (and only if) something clears that bar: first browse your brain (ls / tree / read) to find where it belongs and whether a page on this already exists (you may have already saved something while answering — don't duplicate it). Strongly prefer updating or extending an existing page over creating a new one; only create a page for a genuinely new topic. Write the smallest change that captures the fact (write creates parent folders automatically), and use link only when the relationship to another page is clear. Keep pages tight, factual, and self-contained.
+- Otherwise, do nothing. This is the common case.
 
 Page format — begin every page with a short frontmatter block, then the body:
 ---
@@ -178,6 +193,28 @@ export type WriteBackCallbacks = {
   onMemoryWritten?: (e: { path: string; action: "created" | "updated" }) => void
 }
 
+// How a person appears everywhere in the app (message author header, mention
+// pill, composer): prefer the handle, fall back to the real name. Merlin reads
+// and mentions people by this same label so its prose and pills stay consistent.
+export function userDisplayName(u: {
+  name: string
+  username?: string | null
+  displayUsername?: string | null
+}): string {
+  return u.displayUsername ?? u.username ?? u.name
+}
+
+// Display names are user-controlled, so neutralize anything that could break
+// the roster structure or forge a mention when interpolated into the prompt:
+// drop line breaks (no injected roster lines/instructions) and angle brackets
+// (no fake <@id> tokens). The real <@id> we append is the only valid mention.
+function sanitizeRosterLabel(label: string): string {
+  return label
+    .replace(/[\r\n<>]+/g, " ")
+    .trim()
+    .slice(0, 80)
+}
+
 async function searchMessages(
   workspaceId: string,
   query: string,
@@ -199,6 +236,8 @@ async function searchMessages(
       content: schema.message.content,
       createdAt: schema.message.createdAt,
       authorName: schema.user.name,
+      authorUsername: schema.user.username,
+      authorDisplayUsername: schema.user.displayUsername,
     })
     .from(schema.message)
     .innerJoin(schema.channel, eq(schema.message.channelId, schema.channel.id))
@@ -218,7 +257,11 @@ async function searchMessages(
   return rows.map((r) => ({
     messageId: r.messageId,
     channelId: r.channelId,
-    author: r.authorName,
+    author: userDisplayName({
+      name: r.authorName,
+      username: r.authorUsername,
+      displayUsername: r.authorDisplayUsername,
+    }),
     when: r.createdAt.toISOString(),
     text: (r.content ?? "").slice(0, SNIPPET_MAX),
   }))
@@ -250,6 +293,8 @@ async function readThread(workspaceId: string, messageId: string) {
       content: schema.message.content,
       createdAt: schema.message.createdAt,
       authorName: schema.user.name,
+      authorUsername: schema.user.username,
+      authorDisplayUsername: schema.user.displayUsername,
     })
     .from(schema.message)
     .innerJoin(schema.channel, eq(schema.message.channelId, schema.channel.id))
@@ -268,7 +313,11 @@ async function readThread(workspaceId: string, messageId: string) {
 
   return rows.map((r) => ({
     messageId: r.id,
-    author: r.authorName,
+    author: userDisplayName({
+      name: r.authorName,
+      username: r.authorUsername,
+      displayUsername: r.authorDisplayUsername,
+    }),
     when: r.createdAt.toISOString(),
     text: r.content ?? "",
   }))
@@ -704,9 +753,11 @@ export async function respond(
     onUsage,
   }: RespondCallbacks
 ): Promise<RespondResult> {
+  const respondStart = performance.now()
   const question = ctx.conversation[ctx.conversation.length - 1]?.content ?? ""
   let brainContext = ""
   if (question.trim()) {
+    const prefetchStart = performance.now()
     try {
       const hits = await searchBrain(
         ctx.workspaceId,
@@ -729,7 +780,41 @@ export async function respond(
           .join("\n\n")}`
       }
     } catch {}
+    logger.info(
+      { ms: Math.round(performance.now() - prefetchStart) },
+      "Merlin brain prefetch timing"
+    )
   }
+
+  // Roster of teammates Merlin can @-mention. Rendered with their exact
+  // <@id> token so Merlin's mentions fan out and highlight like a person's.
+  const roster = await db
+    .select({
+      id: schema.user.id,
+      name: schema.user.name,
+      username: schema.user.username,
+      displayUsername: schema.user.displayUsername,
+    })
+    .from(schema.workspaceMember)
+    .innerJoin(schema.user, eq(schema.workspaceMember.userId, schema.user.id))
+    .where(
+      and(
+        eq(schema.workspaceMember.workspaceId, ctx.workspaceId),
+        ne(schema.user.id, MERLIN_USER_ID),
+        // Keep anyone with a usable label, matching userDisplayName's fallback
+        // (displayUsername → username → name) so username-only profiles survive.
+        sql`btrim(coalesce(${schema.user.displayUsername}, ${schema.user.username}, ${schema.user.name})) <> ''`
+      )
+    )
+    .orderBy(asc(schema.user.name))
+    .limit(ROSTER_LIMIT)
+    .catch(() => [])
+  const rosterText =
+    roster.length > 0
+      ? `\n\nPeople you can mention (write the token exactly to @-mention them):\n${roster
+          .map((m) => `${sanitizeRosterLabel(userDisplayName(m))} <@${m.id}>`)
+          .join("\n")}`
+      : ""
 
   type UserPart =
     | { type: "text"; text: string }
@@ -768,6 +853,7 @@ export async function respond(
     }
   })
   if (brainContext) parts.push({ type: "text", text: brainContext })
+  if (rosterText) parts.push({ type: "text", text: rosterText })
   parts.push({
     type: "text",
     text: "\n\n---\nAnswer the most recent message, grounded in the brain notes, images, and conversation above. Use your tools (brain ls/read, search) for anything they don't cover.",
@@ -848,11 +934,18 @@ export async function respond(
     linear && caps.includes("linear_write") ? LINEAR_WRITE_PROMPT_LINE : null,
     datadogMcp ? DATADOG_PROMPT_LINE : null,
   ].filter((line): line is string => line !== null)
-  const instructions = `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}`
+  const instructions = `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}${roster.length > 0 ? `\n\n${MENTION_GUIDANCE}` : ""}`
+
+  logger.info(
+    { ms: Math.round(performance.now() - respondStart) },
+    "Merlin pre-stream setup timing"
+  )
 
   // The finally closes the Datadog MCP session after the whole tool loop, even
   // if streamText or step preparation throws before streaming completes.
   try {
+    const streamStart = performance.now()
+    let firstPartLogged = false
     const result = streamText({
       model: MERLIN_MODEL,
       instructions,
@@ -896,6 +989,16 @@ export async function respond(
     // stream exposes tool call/status + reasoning events; textStream does not.
     let text = ""
     for await (const part of result.stream) {
+      if (!firstPartLogged) {
+        firstPartLogged = true
+        logger.info(
+          {
+            ms: Math.round(performance.now() - streamStart),
+            partType: part.type,
+          },
+          "Merlin time to first stream part"
+        )
+      }
       if (part.type === "text-delta") {
         text += part.text
         await onDelta(part.text)
@@ -942,12 +1045,17 @@ export async function writeBack(
 ): Promise<void> {
   const gate = await generateObject({
     model: MERLIN_SMALL_MODEL,
-    schema: z.object({ worthSaving: z.boolean() }),
+    // reason first so the model commits to a justification before the verdict.
+    schema: z.object({ reason: z.string(), worthSaving: z.boolean() }),
     prompt: `${ctx.gateText}\n\n---\n${GATE_QUESTION}`,
     providerOptions: {
       gateway: { models: [MERLIN_SMALL_FALLBACK_MODEL] },
     },
   })
+  logger.info(
+    { workspaceId: ctx.workspaceId, ...gate.object },
+    "Write-back salience gate"
+  )
   if (!gate.object.worthSaving) return
 
   await generateText({

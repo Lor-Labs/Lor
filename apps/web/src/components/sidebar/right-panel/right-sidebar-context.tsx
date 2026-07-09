@@ -24,6 +24,14 @@ const PANEL_COLLAPSED_KEY = "lor-right-panel-collapsed"
 const PANEL_WIDTH_KEY = "lor-right-panel-width"
 const DEFAULT_WIDTH = 280
 
+export const MIN_PANEL_WIDTH = 240
+export const MAX_PANEL_WIDTH_RATIO = 0.75
+
+export function clampPanelWidth(width: number, viewportWidth: number): number {
+  const max = Math.max(viewportWidth * MAX_PANEL_WIDTH_RATIO, MIN_PANEL_WIDTH)
+  return Math.min(Math.max(width, MIN_PANEL_WIDTH), max)
+}
+
 function getStoredCollapsed(): boolean {
   try {
     return localStorage.getItem(PANEL_COLLAPSED_KEY) === "true"
@@ -37,7 +45,9 @@ function getStoredWidth(): number {
     const stored = localStorage.getItem(PANEL_WIDTH_KEY)
     if (stored) {
       const parsed = Number.parseInt(stored, 10)
-      if (parsed >= 240 && parsed <= 480) return parsed
+      if (Number.isFinite(parsed)) {
+        return clampPanelWidth(parsed, window.innerWidth)
+      }
     }
   } catch {}
   return DEFAULT_WIDTH

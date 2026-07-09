@@ -620,6 +620,7 @@ io.on("connection", (socket) => {
         // or duck into a thread rooted at the triggering message (narrow/noisy).
         let merlinThreadRootId = parsed.threadRootId ?? null
         if (merlinThreadRootId === null) {
+          const placementStart = performance.now()
           try {
             const recent = await loadRecentChannelMessages(parsed.channelId)
             if ((await decideReplyPlacement(recent)) === "thread") {
@@ -628,6 +629,13 @@ io.on("connection", (socket) => {
           } catch (err) {
             logger.error({ err }, "Merlin placement decision failed")
           }
+          logger.info(
+            {
+              channelId: parsed.channelId,
+              ms: Math.round(performance.now() - placementStart),
+            },
+            "Merlin placement decision timing"
+          )
         }
 
         void createMerlinPlaceholder({
