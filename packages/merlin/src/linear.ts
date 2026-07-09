@@ -96,17 +96,67 @@ export const linearTools = {
   }),
 }
 
+type LinearClient = NonNullable<Awaited<ReturnType<typeof linearClientFor>>>
+
+// Resolve a free-text assignee (name, display name, or email) to a Linear user
+// id. Prefers active members and disambiguates when several match, so Merlin can
+// ask the user rather than guessing. Returns an error string on no/ambiguous
+// match so the issue isn't created misassigned.
+async function resolveAssignee(
+  client: LinearClient,
+  query: string
+): Promise<{ userId: string; name: string } | { error: string }> {
+  const want = query.trim().toLowerCase()
+  if (!want) return { error: "no assignee given" }
+  const all = await client
+    .users({ first: 250 })
+    .then((u) => u.nodes)
+    .catch(() => [])
+  if (all.length === 0) return { error: "couldn't list Linear members" }
+  const active = all.filter((u) => u.active)
+  const users = active.length > 0 ? active : all
+  const norm = (s: string | null | undefined) => (s ?? "").trim().toLowerCase()
+  const label = (u: (typeof users)[number]) => u.displayName || u.name
+
+  const exact = users.filter(
+    (u) =>
+      norm(u.email) === want ||
+      norm(u.name) === want ||
+      norm(u.displayName) === want
+  )
+  const partial = users.filter(
+    (u) =>
+      norm(u.name).includes(want) ||
+      norm(u.displayName).includes(want) ||
+      norm(u.email).includes(want)
+  )
+  const matches = exact.length > 0 ? exact : partial
+  const first = matches[0]
+  if (matches.length === 1 && first) {
+    return { userId: first.id, name: label(first) }
+  }
+  if (matches.length === 0) {
+    return { error: `no Linear member matches "${query}"` }
+  }
+  const list = matches.slice(0, MAX_LISTED).map(label).join(", ")
+  return { error: `which person? Matches for "${query}": ${list}` }
+}
+
 export const linearWriteTools = {
   create_linear_issue: tool({
     description:
-      "Create a new issue in the team's Linear. Pass a title, an optional Markdown description, and the team key or name (e.g. \"ENG\") — required when the workspace has more than one team. Returns the created issue's identifier and url.",
+      "Create a new issue in the team's Linear. Pass a title, an optional Markdown description, the team key or name (e.g. \"ENG\") — required when the workspace has more than one team — and an optional assignee (a member's name, display name, or email; it's matched to a Linear member, so use their real name, not a Lor handle). Returns the created issue's identifier, url, and assignee.",
     inputSchema: z.object({
       title: z.string().describe("the issue title"),
       description: z.string().optional().describe("the issue body (Markdown)"),
       team: z.string().optional().describe("team key or name, e.g. ENG"),
+      assignee: z
+        .string()
+        .optional()
+        .describe("who to assign it to — a Linear member's name or email"),
     }),
     contextSchema: linearContext,
-    execute: async ({ title, description, team }, { context }) => {
+    execute: async ({ title, description, team, assignee }, { context }) => {
       const client = await linearClientFor(context.externalId)
       if (!client) return { error: "couldn't authenticate with Linear" }
       const teams = await client
@@ -132,8 +182,19 @@ export const linearWriteTools = {
         return { error: `which team? Teams: ${list}` }
       }
 
+      // Resolve the assignee before creating so an unresolved/ambiguous name
+      // stops here instead of creating a misassigned issue.
+      let assigneeId: string | undefined
+      let assigneeName: string | null = null
+      if (assignee?.trim()) {
+        const resolved = await resolveAssignee(client, assignee)
+        if ("error" in resolved) return { error: resolved.error }
+        assigneeId = resolved.userId
+        assigneeName = resolved.name
+      }
+
       const payload = await client
-        .createIssue({ teamId: target.id, title, description })
+        .createIssue({ teamId: target.id, title, description, assigneeId })
         .catch(() => null)
       if (!payload?.success) {
         return { error: "couldn't create the issue" }
@@ -145,6 +206,7 @@ export const linearWriteTools = {
         url: issue?.url ?? null,
         title,
         description: description ?? null,
+        assignee: assigneeName,
       }
     },
     strict: true,

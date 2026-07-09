@@ -75,7 +75,7 @@ const GITHUB_PROMPT_LINE = `- The team's GitHub: search_github finds pull reques
 
 const LINEAR_PROMPT_LINE = `- The team's Linear: search_linear finds issues by keyword and fetch_linear pulls one's full description and comments. Reference a Linear issue with a normal Markdown link to its url (live results, not [[src:]] citations).`
 
-const LINEAR_WRITE_PROMPT_LINE = `- When asked to file or follow up in Linear: create_linear_issue opens an issue and comment_linear adds a comment.`
+const LINEAR_WRITE_PROMPT_LINE = `- When asked to file or follow up in Linear: create_linear_issue opens an issue — you can set the team, and assign it to someone by passing their name or email as the assignee (it's matched to a Linear member) — and comment_linear adds a comment.`
 
 const DATADOG_PROMPT_LINE = `- The team's Datadog: search_datadog_logs searches indexed logs (query syntax like service:checkout status:error) and analyze_datadog_logs runs counts/aggregations over them. Default to the last hour unless the question implies a range, keep result limits small, and reference Datadog links with normal Markdown links (live results, not [[src:]] citations).`
 
@@ -653,8 +653,12 @@ function toolDetail(
       const identifier = asString(rec?.identifier)
       const title = asString(rec?.title)
       const description = asString(rec?.description)
+      const assignee = asString(rec?.assignee)
       const label = identifier && title ? `${identifier} ${title}` : title
-      const heading = identifier ? `Created ${identifier}` : "Created an issue"
+      const created = identifier ? `Created ${identifier}` : "Created an issue"
+      const heading = assignee
+        ? `${created} · assigned to ${assignee}`
+        : created
       return {
         status: "ok",
         detail: {
