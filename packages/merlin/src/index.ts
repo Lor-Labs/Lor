@@ -94,7 +94,7 @@ function buildSystemPrompt(connectorLines: string[]): string {
 // Answer phase only; background write-back handles routine note-keeping.
 // Only appended when the roster below is non-empty; teaches Merlin the exact
 // mention token so its @mentions notify + highlight like a person's.
-const MENTION_GUIDANCE = `Mentioning teammates: to @-mention someone from "People you can mention" below, write their token exactly as given (e.g. <@0b9c1d2e-...>) — this notifies and highlights them just like a person's @mention. Only mention someone when you're genuinely addressing them or flagging them for follow-up; don't mention people you merely refer to in passing.`
+const MENTION_GUIDANCE = `Mentioning teammates: each person under "People you can mention" below has a mention token like <@0b9c1d2e-...>. To @-mention someone — notifying and highlighting them exactly as a teammate tagging them would — write their token verbatim, copied character-for-character from the list. Typing their name as plain text, even with an "@" (e.g. @Jane), does NOT create a mention and does NOT notify them; only the exact token does. So whenever you address or refer to one of these people, use their token in place of their name. Mention people naturally where it fits — you needn't tag everyone, just those you're actually speaking to or about.`
 
 const ANSWER_WRITE_GUIDANCE = `Saving to your brain: only write (or mkdir / move / link) when the user explicitly asks you to remember, save, note, or organize something. When you do, make the change and briefly confirm what you saved and where (e.g. "Saved to /decisions/auth"). For ordinary questions, don't write — just answer; durable knowledge from this conversation is captured automatically afterward.`
 
