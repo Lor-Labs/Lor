@@ -612,6 +612,12 @@ export function MessageInput({
       Boolean(document.querySelector(SUGGESTION_MENU_SELECTOR))
 
     const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "b") {
+        event.preventDefault()
+        event.stopPropagation()
+        editor.chain().focus().toggleBold().run()
+        return
+      }
       if (event.key === "Enter" && !event.shiftKey) {
         if (event.isComposing) {
           return
