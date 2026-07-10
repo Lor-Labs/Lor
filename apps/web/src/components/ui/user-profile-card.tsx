@@ -82,10 +82,6 @@ function ProfileCardContent({ userId }: { userId: string }) {
   const isCurrentUser = session?.user?.id === userId
   const isMutating = createDM.isPending
   const isOnline = user.presenceStatus === "online"
-  const joined = new Date(user.createdAt).toLocaleDateString(undefined, {
-    month: "long",
-    year: "numeric",
-  })
 
   return (
     <div className="flex flex-col gap-4">
@@ -126,9 +122,8 @@ function ProfileCardContent({ userId }: { userId: string }) {
         </div>
       )}
 
-      <div className="flex flex-col gap-3 border-t border-border/60 pt-3">
-        <div className="text-[11px] text-muted-foreground">Joined {joined}</div>
-        {!isCurrentUser && (
+      {!isCurrentUser && (
+        <div className="flex flex-col gap-3 border-t border-border/60 pt-3">
           <Button
             size="sm"
             variant="secondary"
@@ -139,8 +134,8 @@ function ProfileCardContent({ userId }: { userId: string }) {
             <MessageCircle className="size-4" />
             Message
           </Button>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   )
 }
