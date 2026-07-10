@@ -18,7 +18,15 @@
         "minWidth": 800,
         "minHeight": 600,
         "resizable": true,
+        "center": true,
         "fullscreen": false,
+        "decorations": true,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": {
+          "x": 14,
+          "y": 34
+        },
         "dragDropEnabled": false
       }
     ],
