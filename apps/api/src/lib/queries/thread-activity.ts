@@ -90,6 +90,8 @@ export async function fetchChannelThreadActivity({
         eq(message.channelId, channelId),
         isNotNull(message.threadRootId),
         ne(message.authorId, currentUserId),
+        // In-flight Merlin placeholders aren't replies yet.
+        ne(message.status, "pending"),
         lastReadAt ? gt(message.createdAt, lastReadAt) : undefined
       )
     )
@@ -109,7 +111,12 @@ export async function fetchChannelThreadActivity({
         lastReplyAt: max(message.createdAt),
       })
       .from(message)
-      .where(inArray(message.threadRootId, rootIds))
+      .where(
+        and(
+          inArray(message.threadRootId, rootIds),
+          ne(message.status, "pending")
+        )
+      )
       .groupBy(message.threadRootId),
     // Newest-first; the first row per root is its latest reply, and the
     // distinct authors give participants.
@@ -127,7 +134,12 @@ export async function fetchChannelThreadActivity({
       })
       .from(message)
       .innerJoin(user, eq(message.authorId, user.id))
-      .where(inArray(message.threadRootId, rootIds))
+      .where(
+        and(
+          inArray(message.threadRootId, rootIds),
+          ne(message.status, "pending")
+        )
+      )
       .orderBy(desc(message.createdAt)),
   ])
 

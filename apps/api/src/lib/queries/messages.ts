@@ -17,6 +17,7 @@ import {
   isNull,
   lt,
   max,
+  ne,
   or,
   type SQL,
 } from "drizzle-orm"
@@ -339,6 +340,7 @@ export async function fetchMessages({
         .where(inArray(message.id, referencedMessageIds))
     })(),
     // Thread summaries only when fetching channel messages, not thread replies.
+    // Pending rows (in-flight Merlin placeholders) aren't replies yet.
     threadRootId || messageIds.length === 0
       ? Promise.resolve([])
       : db
@@ -348,7 +350,12 @@ export async function fetchMessages({
             lastReplyAt: max(message.createdAt),
           })
           .from(message)
-          .where(inArray(message.threadRootId, messageIds))
+          .where(
+            and(
+              inArray(message.threadRootId, messageIds),
+              ne(message.status, "pending")
+            )
+          )
           .groupBy(message.threadRootId),
     threadRootId || messageIds.length === 0
       ? Promise.resolve([])
@@ -363,7 +370,12 @@ export async function fetchMessages({
           })
           .from(message)
           .innerJoin(user, eq(message.authorId, user.id))
-          .where(inArray(message.threadRootId, messageIds))
+          .where(
+            and(
+              inArray(message.threadRootId, messageIds),
+              ne(message.status, "pending")
+            )
+          )
           .orderBy(desc(message.createdAt)),
   ])
 

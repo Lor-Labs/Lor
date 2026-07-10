@@ -5,6 +5,8 @@ import type {
   UnreadNotification,
 } from "@repo/realtime-types"
 
+export { loadThreadSummary } from "./thread-summary"
+
 // Minimal shapes so both realtime (human send) and worker (Merlin reply) can call this.
 type FanoutChannel = {
   id: string

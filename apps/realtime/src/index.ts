@@ -4,7 +4,7 @@ import { and, db, eq, schema } from "@repo/db"
 import { env } from "@repo/env/server"
 import { enterContext } from "@repo/logger"
 import { decideReplyPlacement } from "@repo/merlin/placement"
-import { buildMessageFanout } from "@repo/messaging"
+import { buildMessageFanout, loadThreadSummary } from "@repo/messaging"
 import type {
   ClientToServerEvents,
   InterServerEvents,
@@ -60,7 +60,6 @@ import {
   createMessage,
   deleteMessage,
   editMessage,
-  loadThreadSummary,
   toggleMessageReaction,
 } from "@/services/messages"
 import {
@@ -649,17 +648,12 @@ io.on("connection", (socket) => {
             // first stream event arriving).
             const placeholder = { ...merlinMessage, streaming: true }
             if (placeholder.threadRootId) {
+              // Thread room only — the reply-count summary excludes pending
+              // placeholders, so the channel footer updates when the worker
+              // finalizes the reply, not here.
               io.to(threadRoom(placeholder.threadRootId)).emit(
                 "message:created",
                 placeholder
-              )
-              const summary = await loadThreadSummary(
-                parsed.channelId,
-                placeholder.threadRootId
-              )
-              io.to(channelRoom(parsed.channelId)).emit(
-                "message:thread:updated",
-                summary
               )
             } else {
               io.to(channelRoom(parsed.channelId)).emit(
