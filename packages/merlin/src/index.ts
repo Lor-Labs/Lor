@@ -873,7 +873,8 @@ export async function respond(
         () => [] as MerlinCapability[]
       )
     : ALL_MERLIN_CAPABILITIES
-  const needsGithub = caps.includes("github") || caps.includes("code")
+  const needsGithub =
+    caps.includes("github") || caps.includes("code_intelligence")
   const needsLinear = caps.includes("linear") || caps.includes("linear_write")
   // Independent lookups run concurrently; the Datadog MCP handshake is the
   // slow one and is itself time-bounded inside datadogMcpTools.
@@ -898,7 +899,7 @@ export async function respond(
     ...brainReadTools,
     ...brainWriteTools,
     ...(github && caps.includes("github") ? githubTools : {}),
-    ...(env.RAILWAY_API_TOKEN && github && caps.includes("code")
+    ...(env.RAILWAY_API_TOKEN && github && caps.includes("code_intelligence")
       ? codeTools
       : {}),
     ...(linear && caps.includes("linear") ? linearTools : {}),

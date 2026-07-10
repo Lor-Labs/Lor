@@ -18,7 +18,7 @@ import { workspace } from "./workspaces"
 // core and deliberately NOT capabilities. See reference/merlin-architecture.md §8.1.
 export const merlinCapabilityEnum = pgEnum("merlin_capability", [
   "github",
-  "code",
+  "code_intelligence",
   "linear",
   "linear_write",
   "datadog",

@@ -1,5 +1,6 @@
 import { relations } from "drizzle-orm"
 import {
+  foreignKey,
   index,
   pgTable,
   text,
@@ -18,15 +19,19 @@ export const connectorNotificationRoute = pgTable(
   {
     id: uuid("id").defaultRandom().primaryKey(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
-    connectionId: uuid("connection_id")
-      .notNull()
-      .references(() => integrationConnection.id, { onDelete: "cascade" }),
+    connectionId: uuid("connection_id").notNull(),
     event: text("event").notNull(),
     channelId: uuid("channel_id")
       .notNull()
       .references(() => channel.id, { onDelete: "cascade" }),
   },
   (table) => [
+    // Explicit name: the auto-generated one exceeds Postgres's 63-byte limit.
+    foreignKey({
+      columns: [table.connectionId],
+      foreignColumns: [integrationConnection.id],
+      name: "connector_notification_route_connection_fk",
+    }).onDelete("cascade"),
     uniqueIndex("connector_notification_route_connection_event_uidx").on(
       table.connectionId,
       table.event
