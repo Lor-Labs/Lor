@@ -13,15 +13,15 @@ import { Input } from "@repo/ui/components/input"
 import { Label } from "@repo/ui/components/label"
 import { cn } from "@repo/ui/lib/utils"
 import { sluggify } from "@repo/utils/slug"
-import { useQueryClient } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { ArrowLeft, Check, Loader2, Plus, Users, X } from "lucide-react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { apiClient } from "@/lib/api-client"
+import { hasValidUsername, MIN_USERNAME_LENGTH } from "@/lib/username"
 
-type Step = "username" | "welcome" | "create" | "join"
+type Step = "username" | "welcome" | "create" | "join" | "invite"
 
-const MIN_USERNAME_LENGTH = 3
 const MAX_USERNAME_LENGTH = 30
 const USERNAME_REGEX = /^[a-zA-Z0-9_.]+$/
 // TODO: Remove hardcoded invite code once we have a proper discovery/featured workspaces system
@@ -50,19 +50,31 @@ function parseInviteCode(value: string) {
   return inviteMatch?.[1] ?? null
 }
 
-export function OnboardingDialog({ open }: { open: boolean }) {
+export function OnboardingDialog({
+  open,
+  inviteCode = null,
+  hasWorkspace = false,
+  onComplete,
+}: {
+  open: boolean
+  inviteCode?: string | null
+  hasWorkspace?: boolean
+  onComplete?: () => void
+}) {
   const { data: session } = authClient.useSession()
-  const hasUsername = !!(
-    session?.user?.username &&
-    session.user.username.length >= MIN_USERNAME_LENGTH
+  const hasUsername = hasValidUsername(session?.user?.username)
+  // The step after the username gate: a pre-filled invite confirmation if we
+  // arrived from an invite link, otherwise the create/join welcome.
+  const stepAfterUsername: Step = inviteCode ? "invite" : "welcome"
+  const [step, setStep] = useState<Step>(
+    hasUsername ? stepAfterUsername : "username"
   )
-  const [step, setStep] = useState<Step>(hasUsername ? "welcome" : "username")
   // Sync step with session hydration — session may be null on first render
   useEffect(() => {
     if (hasUsername && step === "username") {
-      setStep("welcome")
+      setStep(stepAfterUsername)
     }
-  }, [hasUsername, step])
+  }, [hasUsername, step, stepAfterUsername])
   const [name, setName] = useState("")
   const [slug, setSlug] = useState("")
   const [slugEdited, setSlugEdited] = useState(false)
@@ -142,7 +154,58 @@ export function OnboardingDialog({ open }: { open: boolean }) {
         setError(error.message ?? "Failed to set username")
         return
       }
-      setStep("welcome")
+      // Invited users go to the pre-filled join; users already in a workspace
+      // (backfilling a missing username) are done and the dialog closes;
+      // everyone else picks create/join.
+      if (inviteCode) {
+        setStep("invite")
+      } else if (hasWorkspace) {
+        onComplete?.()
+      } else {
+        setStep("welcome")
+      }
+    } catch {
+      setError("Something went wrong. Please try again.")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const { data: invitePreview, isPending: invitePreviewPending } = useQuery({
+    queryKey: ["invite-preview", inviteCode],
+    queryFn: async () => {
+      if (!inviteCode) throw new Error("No invite code")
+      const res = await apiClient.v1.invites[":code"].$get({
+        param: { code: inviteCode },
+      })
+      if (!res.ok) throw new Error("Invite not found")
+      return res.json()
+    },
+    enabled: !!inviteCode,
+  })
+
+  const inviteUnavailable =
+    !invitePreviewPending && (!invitePreview || invitePreview.invite.isExpired)
+
+  const handleAcceptInvite = async () => {
+    if (!inviteCode) return
+    setError(null)
+    setLoading(true)
+    try {
+      const res = await apiClient.v1.invites[":code"].accept.$post({
+        param: { code: inviteCode },
+      })
+      if (!res.ok) {
+        const body = await res.json()
+        setError("message" in body ? body.message : "Failed to join workspace")
+        return
+      }
+      const data = await res.json()
+      await queryClient.invalidateQueries({ queryKey: ["workspaces"] })
+      navigate({
+        to: "/$workspaceSlug",
+        params: { workspaceSlug: data.workspace.slug },
+      })
     } catch {
       setError("Something went wrong. Please try again.")
     } finally {
@@ -352,6 +415,95 @@ export function OnboardingDialog({ open }: { open: boolean }) {
                     Continue
                   </Button>
                 </form>
+              </>
+            )}
+
+            {step === "invite" && (
+              <>
+                <DialogHeader className="mb-6 text-left">
+                  <DialogTitle className="text-2xl">
+                    You've been invited
+                  </DialogTitle>
+                  <DialogDescription className="text-sm">
+                    Join the workspace you were invited to, or create your own
+                    instead.
+                  </DialogDescription>
+                </DialogHeader>
+
+                {invitePreviewPending ? (
+                  <div className="flex items-center justify-center py-8 text-sm text-muted-foreground">
+                    <Loader2 className="mr-2 size-4 animate-spin" />
+                    Loading invite…
+                  </div>
+                ) : inviteUnavailable || !invitePreview ? (
+                  <div className="space-y-4">
+                    <p className="text-sm text-destructive">
+                      This invite link is invalid or has expired.
+                    </p>
+                    <Button
+                      variant="outline"
+                      className="w-full"
+                      onClick={() => setStep("welcome")}
+                    >
+                      Continue without it
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-3 rounded-lg border border-border bg-card p-4">
+                      {invitePreview.invite.workspace.logo ? (
+                        <img
+                          src={invitePreview.invite.workspace.logo}
+                          alt={invitePreview.invite.workspace.name}
+                          className="size-12 shrink-0 rounded-lg object-cover"
+                        />
+                      ) : (
+                        <div className="flex size-12 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-lg font-bold text-primary">
+                          {invitePreview.invite.workspace.name
+                            .charAt(0)
+                            .toUpperCase()}
+                        </div>
+                      )}
+                      <div className="min-w-0">
+                        <p className="truncate font-medium">
+                          {invitePreview.invite.workspace.name}
+                        </p>
+                        <p className="flex items-center gap-1 text-sm text-muted-foreground">
+                          <Users className="size-3.5" />
+                          {invitePreview.invite.workspace.memberCount}{" "}
+                          {invitePreview.invite.workspace.memberCount === 1
+                            ? "member"
+                            : "members"}
+                        </p>
+                      </div>
+                    </div>
+
+                    {error && (
+                      <p className="text-sm text-destructive">{error}</p>
+                    )}
+
+                    <Button
+                      className="w-full"
+                      disabled={loading}
+                      onClick={handleAcceptInvite}
+                    >
+                      {loading && (
+                        <Loader2 className="mr-2 size-4 animate-spin" />
+                      )}
+                      Join {invitePreview.invite.workspace.name}
+                    </Button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setStep("welcome")
+                        setError(null)
+                      }}
+                      className="w-full text-center text-sm text-muted-foreground hover:text-foreground"
+                    >
+                      Create my own workspace instead
+                    </button>
+                  </div>
+                )}
               </>
             )}
 

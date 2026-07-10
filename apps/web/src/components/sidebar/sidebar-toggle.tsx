@@ -12,7 +12,8 @@ import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-
 /**
  * Left-sidebar toggle. Anchored to shadcn's `useSidebar` open state so the
  * SidebarToggleIcon morphs between open/closed states whenever the sidebar
- * is opened or collapsed.
+ * is opened or collapsed. Content headers should render it via
+ * HeaderNavControls, which handles macOS desktop placement.
  */
 export function LeftSidebarToggle({ className }: { className?: string }) {
   const { open, openMobile, isMobile, toggleSidebar } = useSidebar()

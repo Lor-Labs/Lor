@@ -105,7 +105,9 @@ type LinearClient = NonNullable<Awaited<ReturnType<typeof linearClientFor>>>
 async function resolveAssignee(
   client: LinearClient,
   query: string
-): Promise<{ userId: string; name: string } | { error: string }> {
+): Promise<
+  { userId: string; name: string } | { error: string; members?: string[] }
+> {
   const raw = query.trim()
   if (!raw) return { error: "no assignee given" }
   const want = raw.toLowerCase()
@@ -132,7 +134,19 @@ async function resolveAssignee(
     }
   }
   if (matched.length === 0) {
-    return { error: `no Linear member matches "${query}"` }
+    // Hand back the member list so the model can pick the right person and
+    // retry instead of dead-ending on a handle Linear doesn't know.
+    const all = await client
+      .users({ first: 250 })
+      .then((u) => u.nodes)
+      .catch(() => null)
+    const members = all
+      ?.filter((u) => u.active)
+      .map((u) => `${u.displayName || u.name} <${u.email}>`)
+    return {
+      error: `no Linear member matches "${query}" — pick from the workspace members and retry with their exact name or email`,
+      members,
+    }
   }
   const active = matched.filter((u) => u.active)
   const users = active.length > 0 ? active : matched
@@ -195,7 +209,7 @@ function resolveTeam(
 export const linearWriteTools = {
   create_linear_issue: tool({
     description:
-      "Create a new issue in the team's Linear. A Linear team is required: if the workspace has a single team it's used automatically, otherwise you MUST pass its key or name (e.g. \"ENG\") — if you omit it or it's ambiguous, the tool returns the list of teams so you can pick one and retry. Also takes a title, an optional Markdown description, and an optional assignee (a member's name, display name, or email; matched to a Linear member, so use their real name, not a Lor handle). Returns the created issue's identifier, url, team, and assignee.",
+      "Create a new issue in the team's Linear. A Linear team is required: if the workspace has a single team it's used automatically, otherwise you MUST pass its key or name (e.g. \"ENG\") — if you omit it or it's ambiguous, the tool returns the list of teams so you can pick one and retry. Also takes a title, an optional Markdown description, and an optional assignee (a member's name, display name, or email; matched to a Linear member, so use their real name, not a Lor handle) — if the assignee doesn't match anyone, the tool returns the workspace's member list so you can pick the right person and retry. Returns the created issue's identifier, url, team, and assignee.",
     inputSchema: z.object({
       title: z.string().describe("the issue title"),
       description: z.string().optional().describe("the issue body (Markdown)"),
@@ -229,7 +243,7 @@ export const linearWriteTools = {
       let assigneeName: string | null = null
       if (assignee?.trim()) {
         const resolved = await resolveAssignee(client, assignee)
-        if ("error" in resolved) return { error: resolved.error }
+        if ("error" in resolved) return resolved
         assigneeId = resolved.userId
         assigneeName = resolved.name
       }

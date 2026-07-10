@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Lor",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "identifier": "com.lor.desktop",
   "build": {
     "frontendDist": "../../web/dist",
@@ -18,7 +18,15 @@
         "minWidth": 800,
         "minHeight": 600,
         "resizable": true,
+        "center": true,
         "fullscreen": false,
+        "decorations": true,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": {
+          "x": 14,
+          "y": 34
+        },
         "dragDropEnabled": false
       }
     ],

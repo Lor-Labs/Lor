@@ -39,3 +39,22 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+
+/* The macOS titlebar is integrated into the left navigation column: the
+   sidebar's DesktopTitlebar row hosts the native traffic lights and window
+   controls, while the main and right surfaces keep the full window height. */
+.tauri-macos-window [data-tauri-window-content] > * {
+  height: 100%;
+  min-height: 0;
+}
+
+.tauri-macos-window [data-slot="sidebar-wrapper"] {
+  height: 100%;
+  min-height: 0;
+}
+
+.tauri-macos-window [data-slot="sidebar-container"],
+.tauri-macos-window [data-left-sidebar-resize-handle] {
+  position: absolute;
+  height: 100%;
+}

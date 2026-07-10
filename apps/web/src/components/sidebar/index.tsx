@@ -11,6 +11,7 @@ import { cn } from "@repo/ui/lib/utils"
 import { useParams } from "@tanstack/react-router"
 import { AnimatePresence, motion } from "motion/react"
 import { useCallback, useEffect, useRef, useState } from "react"
+import { DesktopSidebarTitlebar } from "@/components/desktop-titlebar"
 import { UserBar } from "@/components/sidebar/channel-panel/user-bar"
 import { DMSidebarContent } from "@/components/sidebar/dm-sidebar"
 import {
@@ -37,6 +38,7 @@ function LeftSidebar() {
 
   return (
     <ShadcnSidebar variant="inset">
+      <DesktopSidebarTitlebar />
       <div
         className="relative flex min-h-0 flex-1 flex-col"
         style={{ perspective: 1400 }}
@@ -203,7 +205,7 @@ function RightPanelDock() {
             className={cn(
               "hidden h-full shrink-0 overflow-hidden md:flex",
               "bg-sidebar text-sidebar-foreground",
-              "md:my-2 md:mr-2 md:rounded-xl"
+              "md:mb-2 md:mr-2 md:rounded-b-xl"
             )}
           >
             <div className="h-full min-w-0 flex-1 overflow-hidden">
@@ -348,6 +350,7 @@ function LeftSidebarResizeHandle({
 
   return (
     <div
+      data-left-sidebar-resize-handle=""
       onMouseDown={handleMouseDown}
       aria-hidden
       className={cn(

@@ -9,10 +9,8 @@ import {
 import { useParams } from "@tanstack/react-router"
 import { Hash } from "lucide-react"
 import { HeaderSearch } from "@/components/chat/header-search"
-import {
-  LeftSidebarToggle,
-  RightPanelToggle,
-} from "@/components/sidebar/sidebar-toggle"
+import { HeaderNavControls } from "@/components/desktop-titlebar"
+import { RightPanelToggle } from "@/components/sidebar/sidebar-toggle"
 
 export type ChatContext =
   | { type: "channel"; name: string; topic?: string }
@@ -37,8 +35,7 @@ export function ChatHeader({
 
   return (
     <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-4">
-      <LeftSidebarToggle className="-ml-2" />
-      <div className="h-4 w-px bg-border" aria-hidden="true" />
+      <HeaderNavControls className="-ml-2" withDivider />
       {context.type === "channel" && (
         <Hash className="size-5 shrink-0 text-muted-foreground" />
       )}

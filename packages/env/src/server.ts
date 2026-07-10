@@ -32,7 +32,7 @@ const serverSchema = z.object({
   // eval`). When unset, the eval is skipped. Read by the eval bootstrap before
   // @repo/db loads, so it can point the shared client here instead of prod.
   EVAL_DB_URL: z.string().url().optional(),
-  // Railway Sandboxes (ephemeral code-exec for the GitHub code connector, §7.4).
+  // Railway Sandboxes (ephemeral code-exec for GitHub code intelligence, §7.4).
   // Optional: sandbox features are skipped when unset. The `railway` SDK reads
   // these from the environment directly.
   RAILWAY_API_TOKEN: z.string().min(1).optional(),

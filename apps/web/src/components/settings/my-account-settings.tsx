@@ -9,10 +9,10 @@ import { Camera, Check, Loader2, Upload, X } from "lucide-react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 import { apiClient } from "@/lib/api-client"
+import { MIN_USERNAME_LENGTH } from "@/lib/username"
 
 const MAX_STATUS_LENGTH = 128
 const MAX_USERNAME_LENGTH = 30
-const MIN_USERNAME_LENGTH = 3
 const USERNAME_REGEX = /^[a-zA-Z0-9_.]+$/
 const MAX_AVATAR_BYTES = 2 * 1024 * 1024
 const ACCEPTED_IMAGE_TYPES = [

@@ -12,7 +12,7 @@ export const CONNECTORS: Record<IntegrationProvider, ConnectorDescriptor> = {
   github: {
     id: "github",
     label: "GitHub",
-    description: "Pull requests, issues, and code investigation.",
+    description: "Pull requests, issues, and code intelligence.",
     authType: "github-app",
     envKeys: [
       "GITHUB_APP_ID",
@@ -66,11 +66,11 @@ export const CAPABILITIES: Record<MerlinCapability, CapabilityDescriptor> = {
     description: "Search and read pull requests & issues",
     connector: "github",
   },
-  code: {
-    key: "code",
-    label: "Code investigation",
+  code_intelligence: {
+    key: "code_intelligence",
+    label: "Code Intelligence",
     description:
-      "Explore the connected codebase in an ephemeral sandbox environment",
+      "Analyze and answer questions about your connected repositories",
     connector: "github",
   },
   linear: {
