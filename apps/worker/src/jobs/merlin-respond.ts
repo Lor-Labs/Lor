@@ -19,7 +19,7 @@ import {
   userDisplayName,
   writeBack,
 } from "@repo/merlin"
-import { buildMessageFanout, loadThreadSummary } from "@repo/messaging"
+import { buildMessageFanout } from "@repo/messaging"
 import type {
   MerlinRespondJobData,
   RealtimeMessageMention,
@@ -140,25 +140,6 @@ export function createMerlinRespondProcessor(
             ...(mentions && mentions.length > 0 ? { mentions } : {}),
           })
 
-        // Reply counts exclude pending placeholders, so the channel feed's
-        // "N replies" footer only learns about this reply once it settles
-        // (complete or failed) — broadcast the summary at every terminal path.
-        const refreshThreadSummary = () => {
-          if (!threadRootId) return
-          void loadThreadSummary(channelId, threadRootId)
-            .then((summary) =>
-              emitter
-                .to(channelRoom(channelId))
-                .emit("message:thread:updated", summary)
-            )
-            .catch((err) =>
-              logger.error(
-                { err, merlinMessageId },
-                "Thread summary refresh failed"
-              )
-            )
-        }
-
         // Register the stream so clients can show a thinking indicator.
         emit("", false)
 
@@ -225,7 +206,6 @@ export function createMerlinRespondProcessor(
               .where(eq(schema.message.id, merlinMessageId))
               .catch(() => {})
             emit(MERLIN_ERROR_FALLBACK, true, "failed")
-            refreshThreadSummary()
             return
           }
           workspaceId = channel.workspaceId
@@ -287,7 +267,6 @@ export function createMerlinRespondProcessor(
           // Replace (not append) so a partial answer streamed before the error
           // is dropped in favor of the fallback, matching the persisted row.
           emit(MERLIN_ERROR_FALLBACK, true, "failed", true)
-          refreshThreadSummary()
           return
         }
 
@@ -379,7 +358,6 @@ export function createMerlinRespondProcessor(
             .where(eq(schema.message.id, merlinMessageId))
             .catch(() => {})
           emit(MERLIN_ERROR_FALLBACK, true, "failed", true)
-          refreshThreadSummary()
           return
         }
 
@@ -438,7 +416,6 @@ export function createMerlinRespondProcessor(
           false,
           messageMentions
         )
-        refreshThreadSummary()
         logger.info(
           { merlinMessageId, length: finalText.length },
           "Merlin reply complete"
