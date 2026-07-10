@@ -8,6 +8,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@better-auth/expo": "1.4.18",
     "@better-auth/redis-storage": "^1.5.5",
     "@repo/db": "workspace:*",
     "@repo/env": "workspace:*",

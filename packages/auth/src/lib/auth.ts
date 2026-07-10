@@ -1,3 +1,4 @@
+import { expo } from "@better-auth/expo"
 import { redisStorage } from "@better-auth/redis-storage"
 import { db, eq, MERLIN_USER_ID, schema } from "@repo/db"
 import { env } from "@repo/env/server"
@@ -152,9 +153,11 @@ export const auth = betterAuth({
           "http://localhost:3001",
           "http://127.0.0.1:3000",
           "http://127.0.0.1:3001",
+          "exp://",
         ]
       : []),
     "tauri://localhost",
+    "lor://",
     ...env.TRUSTED_ORIGINS.split(",").filter(Boolean),
   ],
   emailAndPassword: {
@@ -329,6 +332,7 @@ export const auth = betterAuth({
     admin(),
     username(),
     twoFactor(),
+    expo(),
   ],
 })
 
