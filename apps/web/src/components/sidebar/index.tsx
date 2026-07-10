@@ -11,8 +11,7 @@ import { cn } from "@repo/ui/lib/utils"
 import { useParams } from "@tanstack/react-router"
 import { AnimatePresence, motion } from "motion/react"
 import { useCallback, useEffect, useRef, useState } from "react"
-import { DesktopTitlebar } from "@/components/desktop-titlebar"
-import { useDesktopChrome } from "@/components/desktop-window-frame"
+import { DesktopSidebarTitlebar } from "@/components/desktop-titlebar"
 import { UserBar } from "@/components/sidebar/channel-panel/user-bar"
 import { DMSidebarContent } from "@/components/sidebar/dm-sidebar"
 import {
@@ -35,12 +34,11 @@ import { WorkspaceSidebarContent } from "@/components/sidebar/workspace-sidebar"
  */
 function LeftSidebar() {
   const { workspaceSlug } = useParams({ strict: false })
-  const { isMacDesktop } = useDesktopChrome()
   const isWorkspace = !!workspaceSlug
 
   return (
     <ShadcnSidebar variant="inset">
-      {isMacDesktop && <div aria-hidden className="h-12 shrink-0" />}
+      <DesktopSidebarTitlebar />
       <div
         className="relative flex min-h-0 flex-1 flex-col"
         style={{ perspective: 1400 }}
@@ -392,7 +390,6 @@ function SidebarLayout({ children }: { children: React.ReactNode }) {
         } as React.CSSProperties
       }
     >
-      <DesktopTitlebar />
       <LeftSidebar />
       <LeftSidebarResizeHandle width={width} onWidthChange={persistWidth} />
       <MainArea>{children}</MainArea>

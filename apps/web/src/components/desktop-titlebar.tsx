@@ -61,37 +61,31 @@ function HistoryNavButtons() {
 }
 
 /**
- * macOS-only window-chrome strip over the expanded sidebar's reserved top
- * row: native traffic lights in the left inset, then the sidebar toggle and
- * history nav. When the sidebar collapses these controls move into the
- * content header (HeaderNavControls) so the main card keeps its full height.
- * In fullscreen macOS hides the lights and the inset collapses.
+ * macOS-only top row of the left sidebar. The native traffic lights overlay
+ * its left edge; the history nav pins to the right edge of the panel. It also
+ * reserves the vertical space that pushes the workspace switcher below the
+ * lights. When the sidebar collapses it slides off-canvas with the panel, so
+ * the history nav re-homes into the content header (HeaderNavControls).
  */
-export function DesktopTitlebar() {
-  const { isMacDesktop, isFullscreen } = useDesktopChrome()
-  const { open, isMobile } = useSidebar()
+export function DesktopSidebarTitlebar() {
+  const { isMacDesktop } = useDesktopChrome()
+  const { isMobile } = useSidebar()
 
-  if (!isMacDesktop || isMobile || !open) return null
+  if (!isMacDesktop || isMobile) return null
 
   return (
-    <div
-      className={cn(
-        "absolute top-2 left-0 z-20 flex h-12 items-center gap-1",
-        isFullscreen ? "pl-1" : "pl-22"
-      )}
-    >
-      <LeftSidebarToggle />
+    <div className="flex h-12 shrink-0 items-center justify-end pr-1">
       <HistoryNavButtons />
     </div>
   )
 }
 
 /**
- * Sidebar-toggle slot for content headers. On the web (and mobile) it's just
- * the toggle, as before. On macOS desktop the titlebar strip owns the
- * controls while the sidebar is expanded, so this renders nothing; when the
- * sidebar collapses, the toggle and history nav render here beside the
- * title — shifted right of the traffic lights outside fullscreen.
+ * Sidebar-toggle slot for content headers — always present, mirroring the web
+ * layout where the toggle lives in the center panel. On macOS desktop the
+ * history nav lives in the sidebar's own top row while expanded; when the
+ * sidebar collapses (and its nav goes off-canvas) the arrows join the toggle
+ * here, shifted right to clear the traffic lights outside fullscreen.
  */
 export function HeaderNavControls({
   className,
@@ -102,9 +96,7 @@ export function HeaderNavControls({
 }) {
   const { isMacDesktop, isFullscreen } = useDesktopChrome()
   const { open, isMobile } = useSidebar()
-  const inDesktopHeader = isMacDesktop && !isMobile
-
-  if (inDesktopHeader && open) return null
+  const collapsedDesktop = isMacDesktop && !isMobile && !open
 
   return (
     <>
@@ -112,11 +104,11 @@ export function HeaderNavControls({
         className={cn(
           "flex items-center gap-1",
           className,
-          inDesktopHeader && !isFullscreen && "ml-16"
+          collapsedDesktop && !isFullscreen && "ml-16"
         )}
       >
+        {collapsedDesktop && <HistoryNavButtons />}
         <LeftSidebarToggle />
-        {inDesktopHeader && <HistoryNavButtons />}
       </div>
       {withDivider && <div className="h-4 w-px bg-border" aria-hidden="true" />}
     </>
