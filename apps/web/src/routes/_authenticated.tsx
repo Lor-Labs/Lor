@@ -6,7 +6,7 @@ import {
   useLocation,
   useNavigate,
 } from "@tanstack/react-router"
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import { OnboardingDialog } from "@/components/onboarding/onboarding-dialog"
 import { SettingsDialog } from "@/components/settings/settings-dialog"
 import { Sidebar } from "@/components/sidebar/index"
@@ -15,6 +15,9 @@ import { SocketProvider } from "@/context/socket-context"
 import { UnreadProvider } from "@/context/unread-context"
 import { useBrowserNotifications } from "@/hooks/use-browser-notifications"
 import { useUpdateCheck } from "@/hooks/use-update-check"
+import { clearPendingInvite, readPendingInvite } from "@/lib/pending-invite"
+
+const MIN_USERNAME_LENGTH = 3
 
 // v0.1.2
 function BrowserNotifications() {
@@ -72,6 +75,15 @@ function AuthenticatedLayout() {
   const navigate = useNavigate()
   const location = useLocation()
   const { data: session, isPending } = authClient.useSession()
+  // Consume any invite stashed by /invite/$code exactly once, so onboarding
+  // can pre-fill the join step. Cleared immediately — it only needs to survive
+  // the redirect, and lives in-memory for the dialog's lifetime after that.
+  const [pendingInvite] = useState(() => {
+    const code = readPendingInvite()
+    if (code) clearPendingInvite()
+    return code
+  })
+  const [onboardingDone, setOnboardingDone] = useState(false)
 
   useEffect(() => {
     if (!isPending && !session) {
@@ -111,12 +123,19 @@ function AuthenticatedLayout() {
     return null
   }
 
-  // Only show onboarding if explicitly not completed AND no existing workspaces
-  // (guards against existing users whose flag defaulted to false)
+  // Show onboarding when the account isn't set up yet: either no workspace, or
+  // no username (invited users join a workspace without ever being prompted for
+  // one). The onboardingCompleted flag guards existing users whose flag
+  // defaulted to false. The username step closes the dialog via onComplete once
+  // an already-in-a-workspace user picks one.
+  const hasUsername =
+    !!session.user.username &&
+    session.user.username.length >= MIN_USERNAME_LENGTH
+  const hasWorkspace = (workspaces?.length ?? 0) > 0
   const showOnboarding =
     session.user.onboardingCompleted === false &&
-    workspaces !== undefined &&
-    workspaces?.length === 0
+    workspaces != null &&
+    (workspaces.length === 0 || !hasUsername)
 
   return (
     <SocketProvider enabled={!!session}>
@@ -128,7 +147,12 @@ function AuthenticatedLayout() {
             <Sidebar>
               <Outlet />
             </Sidebar>
-            <OnboardingDialog open={showOnboarding} />
+            <OnboardingDialog
+              open={showOnboarding && !onboardingDone}
+              inviteCode={pendingInvite}
+              hasWorkspace={hasWorkspace}
+              onComplete={() => setOnboardingDone(true)}
+            />
             <SettingsDialog />
           </div>
         </MobileSidebarProvider>
