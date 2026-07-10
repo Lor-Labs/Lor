@@ -4,6 +4,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useState,
 } from "react"
 
@@ -98,10 +99,15 @@ export function DesktopWindowFrame({
       .catch(() => {})
   }, [])
 
+  const chrome = useMemo(
+    () => ({ isMacDesktop: true, isFullscreen }),
+    [isFullscreen]
+  )
+
   if (!isMacDesktopApp) return children
 
   return (
-    <DesktopChromeContext.Provider value={{ isMacDesktop: true, isFullscreen }}>
+    <DesktopChromeContext.Provider value={chrome}>
       <div className="tauri-macos-window flex h-[100dvh] min-h-0 flex-col overflow-hidden bg-sidebar">
         <div
           data-tauri-window-content=""
