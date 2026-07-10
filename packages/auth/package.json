@@ -26,6 +26,7 @@
     "./client": "./src/lib/auth-client.ts",
     "./tauri-fetch": "./src/lib/tauri-fetch.ts",
     "./utils": "./src/lib/auth-utils.ts",
-    "./permissions": "./src/lib/permissions.ts"
+    "./permissions": "./src/lib/permissions.ts",
+    "./workspace-statements": "./src/lib/workspace-statements.ts"
   }
 }

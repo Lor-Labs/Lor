@@ -10,6 +10,7 @@ import {
 } from "better-auth/client/plugins"
 import { createAuthClient } from "better-auth/react"
 import * as SecureStore from "expo-secure-store"
+import { ac, admin, member, owner } from "./permissions"
 
 export const API_URL =
   process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:8080"
@@ -23,6 +24,12 @@ export const authClient = createAuthClient({
       storage: SecureStore,
     }),
     organizationClient({
+      ac,
+      roles: {
+        owner,
+        admin,
+        member,
+      },
       schema: inferOrgAdditionalFields<typeof auth>(),
     }),
     adminClient(),
