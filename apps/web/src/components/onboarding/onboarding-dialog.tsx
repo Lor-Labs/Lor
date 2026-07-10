@@ -18,10 +18,10 @@ import { useNavigate } from "@tanstack/react-router"
 import { ArrowLeft, Check, Loader2, Plus, Users, X } from "lucide-react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { apiClient } from "@/lib/api-client"
+import { hasValidUsername, MIN_USERNAME_LENGTH } from "@/lib/username"
 
 type Step = "username" | "welcome" | "create" | "join" | "invite"
 
-const MIN_USERNAME_LENGTH = 3
 const MAX_USERNAME_LENGTH = 30
 const USERNAME_REGEX = /^[a-zA-Z0-9_.]+$/
 // TODO: Remove hardcoded invite code once we have a proper discovery/featured workspaces system
@@ -62,10 +62,7 @@ export function OnboardingDialog({
   onComplete?: () => void
 }) {
   const { data: session } = authClient.useSession()
-  const hasUsername = !!(
-    session?.user?.username &&
-    session.user.username.length >= MIN_USERNAME_LENGTH
-  )
+  const hasUsername = hasValidUsername(session?.user?.username)
   // The step after the username gate: a pre-filled invite confirmation if we
   // arrived from an invite link, otherwise the create/join welcome.
   const stepAfterUsername: Step = inviteCode ? "invite" : "welcome"

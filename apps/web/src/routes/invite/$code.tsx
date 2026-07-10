@@ -8,8 +8,7 @@ import { toast } from "sonner"
 import { SocketProvider, useSocket } from "@/context/socket-context"
 import { apiClient } from "@/lib/api-client"
 import { writePendingInvite } from "@/lib/pending-invite"
-
-const MIN_USERNAME_LENGTH = 3
+import { hasValidUsername } from "@/lib/username"
 
 export const Route = createFileRoute("/invite/$code")({
   component: InvitePage,
@@ -17,10 +16,7 @@ export const Route = createFileRoute("/invite/$code")({
 
 function InvitePage() {
   const { data: session, isPending: sessionPending } = authClient.useSession()
-  const hasUsername = !!(
-    session?.user?.username &&
-    session.user.username.length >= MIN_USERNAME_LENGTH
-  )
+  const hasUsername = hasValidUsername(session?.user?.username)
 
   return (
     <SocketProvider enabled={!!session}>

@@ -57,19 +57,26 @@ export function DesktopWindowFrame({
     let disposed = false
     let stopListening: (() => void) | undefined
 
+    // Swallow IPC failures — keep the last known fullscreen state rather than
+    // surfacing unhandled rejections.
     const syncFullscreenState = async () => {
-      const fullscreen = await appWindow.isFullscreen()
-      if (!disposed) setIsFullscreen(fullscreen)
+      try {
+        const fullscreen = await appWindow.isFullscreen()
+        if (!disposed) setIsFullscreen(fullscreen)
+      } catch {}
     }
 
     void syncFullscreenState()
-    void appWindow.onResized(syncFullscreenState).then((unlisten) => {
-      if (disposed) {
-        unlisten()
-      } else {
-        stopListening = unlisten
-      }
-    })
+    appWindow
+      .onResized(syncFullscreenState)
+      .then((unlisten) => {
+        if (disposed) {
+          unlisten()
+        } else {
+          stopListening = unlisten
+        }
+      })
+      .catch(() => {})
 
     return () => {
       disposed = true
@@ -79,12 +86,16 @@ export function DesktopWindowFrame({
 
   const onMouseDown = useCallback((event: React.MouseEvent<HTMLElement>) => {
     if (!isDragBandTarget(event) || event.detail > 1) return
-    void getCurrentWindow().startDragging()
+    getCurrentWindow()
+      .startDragging()
+      .catch(() => {})
   }, [])
 
   const onDoubleClick = useCallback((event: React.MouseEvent<HTMLElement>) => {
     if (!isDragBandTarget(event)) return
-    void getCurrentWindow().toggleMaximize()
+    getCurrentWindow()
+      .toggleMaximize()
+      .catch(() => {})
   }, [])
 
   if (!isMacDesktopApp) return children

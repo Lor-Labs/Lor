@@ -28,13 +28,15 @@ function HistoryNavButtons() {
     <>
       <Tooltip>
         <TooltipTrigger asChild>
+          {/* aria-disabled (not disabled) so the tooltip stays hoverable —
+              native disabled buttons don't receive pointer events. */}
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => router.history.back()}
-            disabled={!canGoBack}
+            onClick={() => canGoBack && router.history.back()}
+            aria-disabled={!canGoBack}
             aria-label="Go back"
-            className="size-7 text-muted-foreground hover:text-foreground"
+            className="size-7 text-muted-foreground hover:text-foreground aria-disabled:opacity-50 aria-disabled:hover:bg-transparent aria-disabled:hover:text-muted-foreground"
           >
             <HugeiconsIcon icon={ArrowLeft02Icon} size={16} strokeWidth={2} />
           </Button>
@@ -46,10 +48,10 @@ function HistoryNavButtons() {
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => router.history.forward()}
-            disabled={!canGoForward}
+            onClick={() => canGoForward && router.history.forward()}
+            aria-disabled={!canGoForward}
             aria-label="Go forward"
-            className="size-7 text-muted-foreground hover:text-foreground"
+            className="size-7 text-muted-foreground hover:text-foreground aria-disabled:opacity-50 aria-disabled:hover:bg-transparent aria-disabled:hover:text-muted-foreground"
           >
             <HugeiconsIcon icon={ArrowRight02Icon} size={16} strokeWidth={2} />
           </Button>

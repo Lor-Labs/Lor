@@ -16,8 +16,7 @@ import { UnreadProvider } from "@/context/unread-context"
 import { useBrowserNotifications } from "@/hooks/use-browser-notifications"
 import { useUpdateCheck } from "@/hooks/use-update-check"
 import { clearPendingInvite, readPendingInvite } from "@/lib/pending-invite"
-
-const MIN_USERNAME_LENGTH = 3
+import { hasValidUsername } from "@/lib/username"
 
 // v0.1.2
 function BrowserNotifications() {
@@ -77,12 +76,17 @@ function AuthenticatedLayout() {
   const { data: session, isPending } = authClient.useSession()
   // Consume any invite stashed by /invite/$code exactly once, so onboarding
   // can pre-fill the join step. Cleared immediately — it only needs to survive
-  // the redirect, and lives in-memory for the dialog's lifetime after that.
-  const [pendingInvite] = useState(() => {
+  // the redirect, and lives in state for the dialog's lifetime after that.
+  // Done in an effect (not a useState initializer) so StrictMode's double
+  // render can't clear the code on the discarded invocation and lose it.
+  const [pendingInvite, setPendingInvite] = useState<string | null>(null)
+  useEffect(() => {
     const code = readPendingInvite()
-    if (code) clearPendingInvite()
-    return code
-  })
+    if (code) {
+      clearPendingInvite()
+      setPendingInvite(code)
+    }
+  }, [])
   const [onboardingDone, setOnboardingDone] = useState(false)
 
   useEffect(() => {
@@ -128,9 +132,7 @@ function AuthenticatedLayout() {
   // one). The onboardingCompleted flag guards existing users whose flag
   // defaulted to false. The username step closes the dialog via onComplete once
   // an already-in-a-workspace user picks one.
-  const hasUsername =
-    !!session.user.username &&
-    session.user.username.length >= MIN_USERNAME_LENGTH
+  const hasUsername = hasValidUsername(session.user.username)
   const hasWorkspace = (workspaces?.length ?? 0) > 0
   const showOnboarding =
     session.user.onboardingCompleted === false &&
