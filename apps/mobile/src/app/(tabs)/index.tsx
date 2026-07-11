@@ -1,5 +1,5 @@
 import * as Device from "expo-device"
-import { Platform, StyleSheet } from "react-native"
+import { Platform, Pressable, StyleSheet } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
 
 import { AnimatedIcon } from "@/components/animated-icon"
@@ -30,7 +30,7 @@ function getDevMenuHint() {
 }
 
 export default function HomeScreen() {
-  const { data: session, isPending } = authClient.useSession()
+  const { data: session } = authClient.useSession()
 
   return (
     <ThemedView style={styles.container}>
@@ -38,11 +38,7 @@ export default function HomeScreen() {
         <ThemedView style={styles.heroSection}>
           <AnimatedIcon />
           <ThemedText type="title" style={styles.title}>
-            {isPending
-              ? "Loading…"
-              : session
-                ? `Signed in as ${session.user.name}`
-                : "Welcome to Lor"}
+            {session ? `Signed in as ${session.user.name}` : "Lor"}
           </ThemedText>
         </ThemedView>
 
@@ -61,6 +57,12 @@ export default function HomeScreen() {
             hint={<ThemedText type="code">npm run reset-project</ThemedText>}
           />
         </ThemedView>
+
+        <Pressable onPress={() => authClient.signOut()}>
+          <ThemedText type="link" themeColor="textSecondary">
+            Sign out
+          </ThemedText>
+        </Pressable>
 
         {Platform.OS === "web" && <WebBadge />}
       </SafeAreaView>

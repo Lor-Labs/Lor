@@ -21,6 +21,7 @@ export const authClient = createAuthClient({
     expoClient({
       scheme: "lor",
       storagePrefix: "lor",
+      cookiePrefix: "lor",
       storage: SecureStore,
     }),
     organizationClient({
