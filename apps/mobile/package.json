@@ -44,6 +44,7 @@
   },
   "scripts": {
     "start": "expo start",
+    "dev": "expo start",
     "check-types": "tsc --noEmit",
     "reset-project": "node ./scripts/reset-project.js",
     "android": "expo start --android",

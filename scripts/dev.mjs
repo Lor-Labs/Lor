@@ -5,7 +5,7 @@
  *
  * Usage:
  *   pnpm dev              → interactive picker
- *   pnpm dev --all        → skip picker, run everything (minus desktop)
+ *   pnpm dev --all        → skip picker, run everything (minus desktop & mobile)
  *   pnpm dev api web      → skip picker, run just these (matches short names
  *                            or full package names like `@repo/api`)
  *
@@ -31,7 +31,11 @@ const APPS = [
   { pkg: "@repo/realtime", short: "realtime", hint: "Socket.IO server (8000)" },
   { pkg: "@repo/worker", short: "worker", hint: "BullMQ background workers" },
   { pkg: "desktop", short: "desktop", hint: "Tauri desktop app" },
+  { pkg: "mobile", short: "mobile", hint: "Expo dev server (8081)" },
 ]
+
+// Device-targeted apps you opt into explicitly; excluded from --all.
+const EXCLUDED_FROM_ALL = ["desktop", "mobile"]
 
 // Always launched alongside the picker selection. The frontend imports types
 // from @repo/api-client's dist/, so this keeps those types in sync as API
@@ -116,7 +120,9 @@ async function main() {
   const { runAll, explicit } = resolveCliFlags()
 
   if (runAll) {
-    const pkgs = APPS.filter((a) => a.pkg !== "desktop").map((a) => a.pkg)
+    const pkgs = APPS.filter((a) => !EXCLUDED_FROM_ALL.includes(a.pkg)).map(
+      (a) => a.pkg
+    )
     runTurbo(pkgs)
     return
   }
