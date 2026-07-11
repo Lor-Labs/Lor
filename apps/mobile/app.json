@@ -2,6 +2,7 @@
   "expo": {
     "name": "Lor",
     "slug": "lor",
+    "owner": "lor-chat",
     "version": "0.1.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -10,7 +11,10 @@
     "ios": {
       "icon": "./assets/expo.icon",
       "bundleIdentifier": "chat.lor.app",
-      "supportsTablet": false
+      "supportsTablet": false,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -40,6 +44,12 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "133347a1-bcad-424a-ae01-e8c0f6cac0f2"
+      }
     }
   }
 }
