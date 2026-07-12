@@ -15,7 +15,8 @@
   },
   "devDependencies": {
     "@repo/typescript-config": "workspace:*",
-    "@types/luxon": "^3.7.1"
+    "@types/luxon": "^3.7.1",
+    "@types/node": "^24"
   },
   "dependencies": {
     "luxon": "^3.7.2"

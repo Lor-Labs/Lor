@@ -116,16 +116,18 @@ function toHeaders(
 const realtimePort = env.REALTIME_PORT
 
 const defaultOrigins = ["http://localhost:3000", "http://localhost:3001"]
-// The desktop (Tauri) app serves from these fixed origins, so they must always
-// be allowed — even in production where REALTIME_CORS_ORIGIN overrides the
-// defaults. (tauri://localhost on macOS/Linux, http://tauri.localhost on Windows.)
-const desktopOrigins = ["tauri://localhost", "http://tauri.localhost"]
+// Native apps use fixed origins that must always be allowed — even in
+// production where REALTIME_CORS_ORIGIN overrides the defaults. Desktop
+// (Tauri) serves from tauri://localhost (macOS/Linux) or http://tauri.localhost
+// (Windows); mobile sends its app scheme explicitly (RN's WebSocket otherwise
+// derives Origin from the connection URL, which can't be allowlisted).
+const nativeOrigins = ["tauri://localhost", "http://tauri.localhost", "lor://"]
 const corsOrigins = [
   ...(env.REALTIME_CORS_ORIGIN || defaultOrigins.join(","))
     .split(",")
     .map((origin) => origin.trim())
     .filter(Boolean),
-  ...desktopOrigins,
+  ...nativeOrigins,
 ]
 
 const redisPubClient = createClient({ url: env.REDIS_URL })

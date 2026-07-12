@@ -5,27 +5,22 @@ import {
   memberAc,
   ownerAc,
 } from "better-auth/plugins/organization/access"
+import { workspaceGrants, workspaceStatements } from "./workspace-statements"
 
 const statement = {
   ...defaultStatements,
-  channel: ["create", "update", "delete"],
-  message: ["delete", "pin"], // delete/pin others' messages (own messages are always deletable)
-  workspaceMember: ["kick", "role:update"],
+  ...workspaceStatements,
 } as const
 
 const ac = createAccessControl(statement)
 
 const owner = ac.newRole({
-  channel: ["create", "update", "delete"],
-  message: ["delete", "pin"],
-  workspaceMember: ["kick", "role:update"],
+  ...workspaceGrants,
   ...ownerAc.statements,
 })
 
 const admin = ac.newRole({
-  channel: ["create", "update", "delete"],
-  message: ["delete", "pin"],
-  workspaceMember: ["kick", "role:update"],
+  ...workspaceGrants,
   ...adminAc.statements,
 })
 
