@@ -32,13 +32,16 @@ export default function SignInScreen() {
   const handleSignIn = async () => {
     setError(null)
     setSubmitting(true)
-    const result = await authClient.signIn.email({
-      email: email.trim(),
-      password,
-    })
-    setSubmitting(false)
-    if (result.error) {
-      setError(result.error.message ?? "Sign in failed")
+    try {
+      const result = await authClient.signIn.email({
+        email: email.trim(),
+        password,
+      })
+      if (result.error) {
+        setError(result.error.message ?? "Sign in failed")
+      }
+    } finally {
+      setSubmitting(false)
     }
   }
 

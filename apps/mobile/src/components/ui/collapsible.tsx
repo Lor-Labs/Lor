@@ -18,6 +18,8 @@ export function Collapsible({
   return (
     <ThemedView>
       <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded: isOpen }}
         style={({ pressed }) => [
           styles.heading,
           pressed && styles.pressedHeading,
