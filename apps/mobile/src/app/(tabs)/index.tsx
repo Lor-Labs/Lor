@@ -1,4 +1,5 @@
 import * as Device from "expo-device"
+import { useEffect, useState } from "react"
 import { Platform, Pressable, StyleSheet } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
 
@@ -8,6 +9,7 @@ import { ThemedText } from "@/components/themed-text"
 import { ThemedView } from "@/components/themed-view"
 import { WebBadge } from "@/components/web-badge"
 import { BottomTabInset, MaxContentWidth, Spacing } from "@/constants/theme"
+import { useSocket } from "@/context/socket-context"
 import { authClient } from "@/lib/auth-client"
 
 function getDevMenuHint() {
@@ -29,8 +31,29 @@ function getDevMenuHint() {
   )
 }
 
+function useSocketConnected() {
+  const socket = useSocket()
+  const [connected, setConnected] = useState(socket?.connected ?? false)
+
+  useEffect(() => {
+    if (!socket) return
+    setConnected(socket.connected)
+    const onConnect = () => setConnected(true)
+    const onDisconnect = () => setConnected(false)
+    socket.on("connect", onConnect)
+    socket.on("disconnect", onDisconnect)
+    return () => {
+      socket.off("connect", onConnect)
+      socket.off("disconnect", onDisconnect)
+    }
+  }, [socket])
+
+  return connected
+}
+
 export default function HomeScreen() {
   const { data: session } = authClient.useSession()
+  const connected = useSocketConnected()
 
   return (
     <ThemedView style={styles.container}>
@@ -39,6 +62,9 @@ export default function HomeScreen() {
           <AnimatedIcon />
           <ThemedText type="title" style={styles.title}>
             {session ? `Signed in as ${session.user.name}` : "Lor"}
+          </ThemedText>
+          <ThemedText type="small" themeColor="textSecondary">
+            realtime: {connected ? "connected" : "offline"}
           </ThemedText>
         </ThemedView>
 
