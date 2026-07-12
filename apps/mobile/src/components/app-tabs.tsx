@@ -7,23 +7,26 @@ export default function AppTabs() {
 
   return (
     <NativeTabs
-      backgroundColor={colors.background}
-      indicatorColor={colors.backgroundElement}
-      labelStyle={{ selected: { color: colors.text } }}
+      iconColor={{ default: colors.textSecondary, selected: colors.accent }}
+      labelStyle={{
+        default: { color: colors.textSecondary },
+        selected: { color: colors.accent },
+      }}
+      minimizeBehavior="onScrollDown"
     >
       <NativeTabs.Trigger name="index">
         <NativeTabs.Trigger.Label>Home</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon
-          src={require("@/assets/images/tabIcons/home.png")}
-          renderingMode="template"
+          md={{ default: "home", selected: "home" }}
+          sf={{ default: "house", selected: "house.fill" }}
         />
       </NativeTabs.Trigger>
 
       <NativeTabs.Trigger name="explore">
-        <NativeTabs.Trigger.Label>Explore</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Label>Activity</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon
-          src={require("@/assets/images/tabIcons/explore.png")}
-          renderingMode="template"
+          md={{ default: "notifications_none", selected: "notifications" }}
+          sf={{ default: "bell", selected: "bell.fill" }}
         />
       </NativeTabs.Trigger>
     </NativeTabs>

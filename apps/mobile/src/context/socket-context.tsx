@@ -9,10 +9,38 @@ export function useSocket() {
   return useContext(SocketContext)
 }
 
+export function useSocketConnected() {
+  const socket = useSocket()
+  const [isConnected, setIsConnected] = useState(socket?.connected ?? false)
+
+  useEffect(() => {
+    if (!socket) {
+      setIsConnected(false)
+      return
+    }
+
+    const onConnect = () => setIsConnected(true)
+    const onDisconnect = () => setIsConnected(false)
+    setIsConnected(socket.connected)
+    socket.on("connect", onConnect)
+    socket.on("disconnect", onDisconnect)
+
+    return () => {
+      socket.off("connect", onConnect)
+      socket.off("disconnect", onDisconnect)
+    }
+  }, [socket])
+
+  return isConnected
+}
+
 export function SocketProvider({ children }: { children: ReactNode }) {
+  const { data: session, isPending } = authClient.useSession()
   const [socket, setSocket] = useState<AppSocket | null>(null)
 
   useEffect(() => {
+    if (isPending || !session) return
+
     const s = getSocket()
 
     const onConnect = () => {
@@ -53,7 +81,7 @@ export function SocketProvider({ children }: { children: ReactNode }) {
       s.disconnect()
       setSocket(null)
     }
-  }, [])
+  }, [isPending, session])
 
   return (
     <SocketContext.Provider value={socket}>{children}</SocketContext.Provider>
