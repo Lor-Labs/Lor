@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { api } from "@/lib/api"
 import type { Message } from "@/lib/api-types"
 import {
@@ -39,10 +39,25 @@ export function useChannelMessages({
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [isSending, setIsSending] = useState(false)
+  const reloadRequestRef = useRef(0)
+  const channelIdentityRef = useRef("")
+  const channelIdentity = `${workspaceSlug}:${channelId}`
+
+  channelIdentityRef.current = channelIdentity
 
   const reload = useCallback(async () => {
+    const requestId = ++reloadRequestRef.current
+    const requestIdentity = `${workspaceSlug}:${channelId}`
+
     if (!workspaceSlug || !channelId) {
-      setIsLoading(false)
+      if (
+        requestId === reloadRequestRef.current &&
+        requestIdentity === channelIdentityRef.current
+      ) {
+        setMessages([])
+        setError(null)
+        setIsLoading(false)
+      }
       return
     }
 
@@ -57,13 +72,28 @@ export function useChannelMessages({
       })
       if (!response.ok) throw new Error("Could not load messages")
       const payload = await response.json()
-      setMessages((current) => mergeMessages(payload.data, current))
+      if (
+        requestId === reloadRequestRef.current &&
+        requestIdentity === channelIdentityRef.current
+      ) {
+        setMessages((current) => mergeMessages(payload.data, current))
+      }
     } catch (cause) {
-      setError(
-        cause instanceof Error ? cause.message : "Could not load messages"
-      )
+      if (
+        requestId === reloadRequestRef.current &&
+        requestIdentity === channelIdentityRef.current
+      ) {
+        setError(
+          cause instanceof Error ? cause.message : "Could not load messages"
+        )
+      }
     } finally {
-      setIsLoading(false)
+      if (
+        requestId === reloadRequestRef.current &&
+        requestIdentity === channelIdentityRef.current
+      ) {
+        setIsLoading(false)
+      }
     }
   }, [workspaceSlug, channelId])
 
@@ -100,7 +130,18 @@ export function useChannelMessages({
   const sendMessage = useCallback(
     async (content: string) => {
       const trimmed = content.trim()
-      if (!trimmed || !socket?.connected || !currentUser || isSending) return
+      if (!trimmed || isSending) return
+      if (!socket?.connected) {
+        const errorMessage = "You're offline. Reconnect and try again."
+        setError(errorMessage)
+        throw new Error(errorMessage)
+      }
+      if (!currentUser) {
+        const errorMessage =
+          "Your session is unavailable. Please sign in again."
+        setError(errorMessage)
+        throw new Error(errorMessage)
+      }
 
       const nonce = `mobile-${Date.now()}-${Math.random().toString(36).slice(2)}`
       const optimistic = createOptimisticMessage({
@@ -113,45 +154,35 @@ export function useChannelMessages({
       setIsSending(true)
       setError(null)
 
-      await new Promise<void>((resolve) => {
-        let settled = false
-        const settle = () => {
-          if (settled) return
-          settled = true
-          resolve()
-        }
-        const timeout = setTimeout(() => {
-          setMessages((current) =>
+      try {
+        const result = await socket
+          .timeout(12_000)
+          .emitWithAck("message:send", { channelId, content: trimmed, nonce })
+
+        if (!result.ok) throw new Error(result.error)
+
+        const confirmed = realtimeMessageToMessage(result.message)
+        setMessages((current) =>
+          mergeMessages(
+            [confirmed],
             current.filter((message) => message.id !== nonce)
           )
-          setError("Message delivery timed out. Please try again.")
-          settle()
-        }, 12_000)
-
-        socket.emit(
-          "message:send",
-          { channelId, content: trimmed, nonce },
-          (result) => {
-            clearTimeout(timeout)
-            if (result.ok) {
-              const confirmed = realtimeMessageToMessage(result.message)
-              setMessages((current) =>
-                mergeMessages(
-                  [confirmed],
-                  current.filter((message) => message.id !== nonce)
-                )
-              )
-            } else {
-              setMessages((current) =>
-                current.filter((message) => message.id !== nonce)
-              )
-              setError(result.error)
-            }
-            settle()
-          }
         )
-      })
-      setIsSending(false)
+      } catch (cause) {
+        setMessages((current) =>
+          current.filter((message) => message.id !== nonce)
+        )
+        const errorMessage =
+          cause instanceof Error && cause.message === "operation has timed out"
+            ? "Message delivery timed out. Please try again."
+            : cause instanceof Error
+              ? cause.message
+              : "Could not deliver message. Please try again."
+        setError(errorMessage)
+        throw cause
+      } finally {
+        setIsSending(false)
+      }
     },
     [socket, currentUser, isSending, channelId]
   )

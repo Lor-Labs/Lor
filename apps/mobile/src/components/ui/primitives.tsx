@@ -1,4 +1,4 @@
-import type { ReactNode } from "react"
+import type { ComponentProps, ReactNode } from "react"
 import {
   ActivityIndicator,
   Image,
@@ -50,23 +50,18 @@ export function Avatar({
 
 export function PressableSurface({
   children,
-  onPress,
   className,
-  disabled = false,
-  accessibilityLabel,
-}: {
+  accessibilityRole = "button",
+  ...props
+}: Omit<ComponentProps<typeof Pressable>, "children" | "className"> & {
   children: ReactNode
-  onPress?: () => void
   className?: string
-  disabled?: boolean
-  accessibilityLabel?: string
 }) {
   return (
     <Pressable
-      accessibilityLabel={accessibilityLabel}
+      {...props}
+      accessibilityRole={accessibilityRole}
       className={`${className ?? ""} active:bg-lor-pressed dark:active:bg-lor-pressed-dark disabled:opacity-45`}
-      disabled={disabled}
-      onPress={onPress}
     >
       {children}
     </Pressable>
@@ -76,22 +71,22 @@ export function PressableSurface({
 export function IconButton({
   label,
   icon,
-  onPress,
-  disabled = false,
-}: {
+  accessibilityLabel = label,
+  accessibilityRole = "button",
+  hitSlop = 8,
+  ...props
+}: Omit<ComponentProps<typeof Pressable>, "children" | "className"> & {
   label: string
   icon: ImageSourcePropType
-  onPress: () => void
-  disabled?: boolean
 }) {
   const theme = useTheme()
   return (
     <Pressable
-      accessibilityLabel={label}
+      {...props}
+      accessibilityLabel={accessibilityLabel}
+      accessibilityRole={accessibilityRole}
       className="h-9 w-9 items-center justify-center rounded-lor-md active:bg-lor-pressed dark:active:bg-lor-pressed-dark disabled:opacity-45"
-      disabled={disabled}
-      hitSlop={8}
-      onPress={onPress}
+      hitSlop={hitSlop}
     >
       <Image
         className="h-[18px] w-[18px]"

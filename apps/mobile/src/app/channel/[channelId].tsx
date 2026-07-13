@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from "expo-router"
 import { SymbolView } from "expo-symbols"
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import {
   KeyboardAvoidingView,
   Platform,
@@ -30,9 +30,26 @@ export default function ChannelScreen() {
   const [channel, setChannel] = useState<ChannelDetail | null>(null)
   const [isLoadingChannel, setIsLoadingChannel] = useState(true)
   const [channelError, setChannelError] = useState<string | null>(null)
+  const channelRequestRef = useRef(0)
+  const channelIdentityRef = useRef("")
+  const channelIdentity = `${workspace?.slug ?? ""}:${channelId ?? ""}`
+
+  channelIdentityRef.current = channelIdentity
 
   const loadChannel = useCallback(async () => {
-    if (!workspace || !channelId) return
+    const requestId = ++channelRequestRef.current
+    const requestIdentity = `${workspace?.slug ?? ""}:${channelId ?? ""}`
+
+    if (!workspace || !channelId) {
+      if (
+        requestId === channelRequestRef.current &&
+        requestIdentity === channelIdentityRef.current
+      ) {
+        setIsLoadingChannel(false)
+      }
+      return
+    }
+
     setIsLoadingChannel(true)
     setChannelError(null)
     try {
@@ -42,13 +59,29 @@ export default function ChannelScreen() {
         param: { workspaceSlug: workspace.slug, channelId },
       })
       if (!response.ok) throw new Error("Could not load this channel")
-      setChannel(await response.json())
+      const payload = await response.json()
+      if (
+        requestId === channelRequestRef.current &&
+        requestIdentity === channelIdentityRef.current
+      ) {
+        setChannel(payload)
+      }
     } catch (cause) {
-      setChannelError(
-        cause instanceof Error ? cause.message : "Could not load this channel"
-      )
+      if (
+        requestId === channelRequestRef.current &&
+        requestIdentity === channelIdentityRef.current
+      ) {
+        setChannelError(
+          cause instanceof Error ? cause.message : "Could not load this channel"
+        )
+      }
     } finally {
-      setIsLoadingChannel(false)
+      if (
+        requestId === channelRequestRef.current &&
+        requestIdentity === channelIdentityRef.current
+      ) {
+        setIsLoadingChannel(false)
+      }
     }
   }, [workspace, channelId])
 

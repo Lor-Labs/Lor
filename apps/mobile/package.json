@@ -8,6 +8,7 @@
     "@repo/api-client": "workspace:*",
     "@repo/auth": "workspace:*",
     "@repo/realtime-types": "workspace:*",
+    "@repo/ui": "workspace:*",
     "@repo/utils": "workspace:*",
     "better-auth": "1.4.18",
     "expo": "~57.0.4",

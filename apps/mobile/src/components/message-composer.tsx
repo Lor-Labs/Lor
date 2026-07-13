@@ -22,7 +22,11 @@ export function MessageComposer({
     if (!canSend) return
     const next = content
     setContent("")
-    await onSend(next)
+    try {
+      await onSend(next)
+    } catch {
+      setContent(next)
+    }
   }
 
   return (
@@ -42,6 +46,7 @@ export function MessageComposer({
           onSubmitEditing={() => void send()}
           placeholder={`Message #${channelName}`}
           placeholderTextColor={theme.textTertiary}
+          submitBehavior="submit"
           value={content}
         />
         <Pressable

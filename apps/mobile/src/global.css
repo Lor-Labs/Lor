@@ -2,4 +2,4 @@
 @import "tailwindcss/preflight.css" layer(base);
 @import "tailwindcss/utilities.css";
 @import "nativewind/theme";
-@import "../../../packages/ui/src/styles/lor-tokens.css";
+@import "@repo/ui/lor-tokens.css";

@@ -141,6 +141,9 @@ importers:
       '@repo/realtime-types':
         specifier: workspace:*
         version: link:../../packages/realtime-types
+      '@repo/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
       '@repo/utils':
         specifier: workspace:*
         version: link:../../packages/utils

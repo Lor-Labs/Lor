@@ -3,6 +3,7 @@ import { Avatar, Skeleton, StatePanel } from "@/components/ui/primitives"
 import type { Message } from "@/lib/api-types"
 
 const MESSAGE_GROUP_WINDOW_MS = 5 * 60 * 1000
+const MERLIN_USER_ID = "00000000-0000-4000-8000-000000000001"
 
 function displayName(message: Message) {
   return (
@@ -37,7 +38,7 @@ function MessageRow({
   message: Message
   showHeader: boolean
 }) {
-  const isMerlin = displayName(message).toLowerCase() === "merlin"
+  const isMerlin = message.authorId === MERLIN_USER_ID
   const isPending = message.id.startsWith("mobile-")
   const time = new Date(message.createdAt).toLocaleTimeString([], {
     hour: "numeric",
@@ -84,12 +85,12 @@ function MessageRow({
             <Text className="text-xs font-medium text-lor-text-tertiary dark:text-lor-text-tertiary-dark">
               {time}
             </Text>
-            {isPending ? (
-              <Text className="ml-auto text-[11px] font-semibold text-lor-text-tertiary dark:text-lor-text-tertiary-dark">
-                Sending
-              </Text>
-            ) : null}
           </View>
+        ) : null}
+        {isPending ? (
+          <Text className="self-end text-[11px] font-semibold text-lor-text-tertiary dark:text-lor-text-tertiary-dark">
+            Sending
+          </Text>
         ) : null}
         {message.content ? (
           <Text className="text-base leading-[22px] text-lor-text dark:text-lor-text-dark">
