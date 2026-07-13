@@ -138,6 +138,9 @@ importers:
       '@repo/auth':
         specifier: workspace:*
         version: link:../../packages/auth
+      '@repo/db':
+        specifier: workspace:*
+        version: link:../../packages/db
       '@repo/realtime-types':
         specifier: workspace:*
         version: link:../../packages/realtime-types

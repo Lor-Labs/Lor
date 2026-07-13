@@ -1,9 +1,9 @@
+import { MERLIN_USER_ID } from "@repo/db/constants"
 import { FlatList, Text, View } from "react-native"
 import { Avatar, Skeleton, StatePanel } from "@/components/ui/primitives"
 import type { Message } from "@/lib/api-types"
 
 const MESSAGE_GROUP_WINDOW_MS = 5 * 60 * 1000
-const MERLIN_USER_ID = "00000000-0000-4000-8000-000000000001"
 
 function displayName(message: Message) {
   return (
