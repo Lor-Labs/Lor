@@ -5,19 +5,13 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
-  StyleSheet,
   Text,
   View,
 } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
 import { MessageComposer } from "@/components/message-composer"
 import { MessageList } from "@/components/message-list"
-import {
-  InlineSpinner,
-  StatePanel,
-  textStyles,
-} from "@/components/ui/primitives"
-import { Radius, Spacing } from "@/constants/theme"
+import { InlineSpinner, StatePanel } from "@/components/ui/primitives"
 import { useSocket, useSocketConnected } from "@/context/socket-context"
 import { useWorkspace } from "@/context/workspace-context"
 import { useChannelMessages } from "@/hooks/use-channel-messages"
@@ -69,52 +63,45 @@ export default function ChannelScreen() {
     currentUser: session?.user,
   })
 
-  if (!workspace || !channelId)
+  if (!workspace || !channelId) {
     return (
       <StatePanel
-        title="Channel unavailable"
+        className="flex-1"
         detail="Return to your workspace and try again."
-        style={styles.centered}
+        title="Channel unavailable"
       />
     )
-  if (isLoadingChannel)
+  }
+  if (isLoadingChannel) {
     return (
-      <View style={[styles.loading, { backgroundColor: theme.background }]}>
+      <View className="flex-1 items-center justify-center bg-lor-bg dark:bg-lor-bg-dark">
         <InlineSpinner />
       </View>
     )
-  if (channelError || !channel)
+  }
+  if (channelError || !channel) {
     return (
       <StatePanel
-        title="Channel unavailable"
-        detail={channelError ?? "This channel no longer exists."}
         action={{ label: "Back to channels", onPress: () => router.back() }}
-        style={styles.centered}
+        className="flex-1"
+        detail={channelError ?? "This channel no longer exists."}
+        title="Channel unavailable"
       />
     )
+  }
   const channelName = channel.name ?? "channel"
 
   return (
     <SafeAreaView
+      className="flex-1 bg-lor-bg dark:bg-lor-bg-dark"
       edges={["top", "bottom"]}
-      style={[styles.screen, { backgroundColor: theme.background }]}
+      style={{ flex: 1 }}
     >
-      <View
-        style={[
-          styles.header,
-          {
-            backgroundColor: theme.background,
-            borderBottomColor: theme.divider,
-          },
-        ]}
-      >
+      <View className="min-h-[60px] flex-row items-center gap-two border-b border-lor-divider px-three dark:border-lor-divider-dark">
         <Pressable
           accessibilityLabel="Back to channels"
+          className="h-[38px] w-[38px] items-center justify-center rounded-lor-md active:bg-lor-pressed dark:active:bg-lor-pressed-dark"
           onPress={() => router.back()}
-          style={({ pressed }) => [
-            styles.back,
-            pressed && { backgroundColor: theme.pressed },
-          ]}
         >
           <SymbolView
             name={{
@@ -126,20 +113,22 @@ export default function ChannelScreen() {
             tintColor={theme.text}
           />
         </Pressable>
-        <View style={styles.headerCopy}>
-          <View style={styles.channelTitleRow}>
-            <Text style={[styles.hash, { color: theme.textSecondary }]}>#</Text>
+        <View className="min-w-0 flex-1 gap-px">
+          <View className="flex-row items-center gap-one">
+            <Text className="text-[22px] font-normal leading-[23px] text-lor-text-secondary dark:text-lor-text-secondary-dark">
+              #
+            </Text>
             <Text
+              className="text-[17px] font-bold tracking-[-0.2px] text-lor-text dark:text-lor-text-dark"
               numberOfLines={1}
-              style={[styles.channelName, { color: theme.text }]}
             >
               {channelName}
             </Text>
           </View>
           {channel.topic ? (
             <Text
+              className="text-xs font-medium leading-4 text-lor-text-secondary dark:text-lor-text-secondary-dark"
               numberOfLines={1}
-              style={[styles.channelTopic, { color: theme.textSecondary }]}
             >
               {channel.topic}
             </Text>
@@ -147,12 +136,8 @@ export default function ChannelScreen() {
         </View>
         <Pressable
           accessibilityLabel="Channel options"
+          className="mr-one h-9 w-9 items-center justify-center rounded-lor-md bg-lor-surface active:bg-lor-pressed dark:bg-lor-surface-dark dark:active:bg-lor-pressed-dark"
           onPress={() => router.push("/explore")}
-          style={({ pressed }) => [
-            styles.options,
-            { backgroundColor: theme.surface },
-            pressed && { backgroundColor: theme.pressed },
-          ]}
         >
           <SymbolView
             name={{ ios: "ellipsis", android: "more_horiz", web: "more_horiz" }}
@@ -165,8 +150,8 @@ export default function ChannelScreen() {
       </View>
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : undefined}
+        className="flex-1"
         keyboardVerticalOffset={0}
-        style={styles.chat}
       >
         <MessageList
           channelName={channelName}
@@ -186,42 +171,3 @@ export default function ChannelScreen() {
     </SafeAreaView>
   )
 }
-
-const styles = StyleSheet.create({
-  screen: { flex: 1 },
-  centered: { flex: 1 },
-  loading: { flex: 1, alignItems: "center", justifyContent: "center" },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    minHeight: 60,
-    paddingHorizontal: Spacing.three,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    gap: Spacing.two,
-  },
-  back: {
-    width: 38,
-    height: 38,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: Radius.medium,
-  },
-  headerCopy: { flex: 1, minWidth: 0, gap: 1 },
-  channelTitleRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: Spacing.one,
-  },
-  hash: { fontSize: 22, fontWeight: "400", lineHeight: 23 },
-  channelName: { fontSize: 17, fontWeight: "700", letterSpacing: -0.2 },
-  channelTopic: { ...textStyles.caption },
-  options: {
-    alignItems: "center",
-    borderRadius: Radius.medium,
-    height: 36,
-    justifyContent: "center",
-    marginRight: Spacing.one,
-    width: 36,
-  },
-  chat: { flex: 1 },
-})

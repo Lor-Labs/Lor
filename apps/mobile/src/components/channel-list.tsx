@@ -1,7 +1,5 @@
-import { Pressable, StyleSheet, Text, View } from "react-native"
-import { SectionLabel, Skeleton, textStyles } from "@/components/ui/primitives"
-import { Radius, Spacing } from "@/constants/theme"
-import { useTheme } from "@/hooks/use-theme"
+import { Pressable, Text, View } from "react-native"
+import { SectionLabel, Skeleton } from "@/components/ui/primitives"
 import type { Channel, ChannelCategory } from "@/lib/api-types"
 
 function ChannelRow({
@@ -11,25 +9,26 @@ function ChannelRow({
   channel: Channel
   onPress: (channel: Channel) => void
 }) {
-  const theme = useTheme()
   return (
     <Pressable
       accessibilityLabel={`Open ${channel.name}`}
       accessibilityRole="button"
+      className="min-h-10 flex-row items-center gap-two rounded-lor-sm px-three active:bg-lor-pressed dark:active:bg-lor-pressed-dark"
       onPress={() => onPress(channel)}
-      style={({ pressed }) => [
-        styles.row,
-        pressed && { backgroundColor: theme.pressed },
-      ]}
     >
-      <Text style={[styles.hash, { color: theme.textTertiary }]}>#</Text>
-      <Text numberOfLines={1} style={[styles.rowName, { color: theme.text }]}>
+      <Text className="w-[17px] text-xl font-normal leading-[22px] text-lor-text-tertiary dark:text-lor-text-tertiary-dark">
+        #
+      </Text>
+      <Text
+        className="shrink-0 text-[15px] font-semibold leading-[21px] text-lor-text dark:text-lor-text-dark"
+        numberOfLines={1}
+      >
         {channel.name ?? "untitled"}
       </Text>
       {channel.topic ? (
         <Text
+          className="ml-one flex-1 text-xs font-medium leading-4 text-lor-text-secondary dark:text-lor-text-secondary-dark"
           numberOfLines={1}
-          style={[styles.rowTopic, { color: theme.textSecondary }]}
         >
           {channel.topic}
         </Text>
@@ -49,9 +48,11 @@ function ChannelSection({
 }) {
   if (channels.length === 0) return null
   return (
-    <View style={styles.section}>
-      <View style={styles.sectionHeader}>
-        <Text style={styles.chevron}>⌄</Text>
+    <View className="gap-[2px]">
+      <View className="mb-one flex-row items-center gap-[3px] px-one">
+        <Text className="-mt-one text-[17px] leading-[17px] text-lor-text-tertiary dark:text-lor-text-tertiary-dark">
+          ⌄
+        </Text>
         <SectionLabel>{title}</SectionLabel>
       </View>
       {channels.map((channel) => (
@@ -74,7 +75,7 @@ export function ChannelList({
   if (!data) return null
 
   return (
-    <View style={styles.list}>
+    <View className="gap-six pb-seven">
       <ChannelSection
         channels={data.uncategorized}
         onPress={onPress}
@@ -94,15 +95,26 @@ export function ChannelList({
 
 function ChannelListSkeleton() {
   return (
-    <View style={styles.list}>
+    <View className="gap-six pb-seven">
       {[0, 1].map((section) => (
-        <View key={section} style={styles.section}>
-          <Skeleton style={styles.skeletonLabel} />
+        <View className="gap-[2px]" key={section}>
+          <Skeleton className="mb-two ml-one h-[10px] w-20" />
           {[0, 1, 2, 3].map((row) => (
-            <View key={row} style={styles.skeletonRow}>
-              <Skeleton style={styles.skeletonIcon} />
+            <View
+              className="min-h-10 flex-row items-center gap-two px-three"
+              key={row}
+            >
+              <Skeleton className="h-4 w-4" />
               <Skeleton
-                style={[styles.skeletonName, { width: `${44 + row * 9}%` }]}
+                className={
+                  row === 0
+                    ? "h-[13px] w-[44%]"
+                    : row === 1
+                      ? "h-[13px] w-[53%]"
+                      : row === 2
+                        ? "h-[13px] w-[62%]"
+                        : "h-[13px] w-[71%]"
+                }
               />
             </View>
           ))}
@@ -111,42 +123,3 @@ function ChannelListSkeleton() {
     </View>
   )
 }
-
-const styles = StyleSheet.create({
-  list: { gap: Spacing.six, paddingBottom: Spacing.seven },
-  section: { gap: 2 },
-  sectionHeader: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 3,
-    marginBottom: Spacing.one,
-    paddingHorizontal: Spacing.one,
-  },
-  chevron: { color: "#8d8780", fontSize: 17, lineHeight: 17, marginTop: -4 },
-  row: {
-    alignItems: "center",
-    borderRadius: Radius.small,
-    flexDirection: "row",
-    gap: Spacing.two,
-    minHeight: 40,
-    paddingHorizontal: Spacing.three,
-  },
-  hash: { fontSize: 20, fontWeight: "400", lineHeight: 22, width: 17 },
-  rowName: { ...textStyles.bodyMedium, flexShrink: 0 },
-  rowTopic: { ...textStyles.caption, flex: 1, marginLeft: Spacing.one },
-  skeletonLabel: {
-    height: 10,
-    marginBottom: Spacing.two,
-    marginLeft: Spacing.one,
-    width: 80,
-  },
-  skeletonRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: Spacing.two,
-    minHeight: 40,
-    paddingHorizontal: Spacing.three,
-  },
-  skeletonIcon: { height: 16, width: 16 },
-  skeletonName: { height: 13 },
-})

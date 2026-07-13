@@ -3,6 +3,7 @@ import * as SplashScreen from "expo-splash-screen"
 import { StatusBar } from "expo-status-bar"
 import { useColorScheme } from "react-native"
 
+import "../global.css"
 import { AnimatedSplashOverlay } from "@/components/animated-icon"
 import { SocketProvider } from "@/context/socket-context"
 import { WorkspaceProvider } from "@/context/workspace-context"

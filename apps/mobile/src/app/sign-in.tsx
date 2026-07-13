@@ -5,13 +5,11 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
-  StyleSheet,
   Text,
   TextInput,
   View,
 } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
-import { Radius, Spacing } from "@/constants/theme"
 import { useTheme } from "@/hooks/use-theme"
 import { authClient } from "@/lib/auth-client"
 
@@ -46,99 +44,83 @@ export default function SignInScreen() {
 
   return (
     <SafeAreaView
-      style={[styles.screen, { backgroundColor: theme.background }]}
+      className="flex-1 bg-lor-bg dark:bg-lor-bg-dark"
+      style={{ flex: 1 }}
     >
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : undefined}
-        style={styles.keyboard}
+        className="flex-1"
       >
-        <View style={styles.content}>
-          <View style={[styles.mark, { backgroundColor: theme.accent }]}>
-            <Text style={[styles.markText, { color: theme.accentForeground }]}>
+        <View className="flex-1 justify-center px-seven">
+          <View className="mb-seven h-[52px] w-[52px] items-center justify-center rounded-lor-lg bg-lor-accent dark:bg-lor-accent-dark">
+            <Text className="text-[25px] font-bold text-lor-accent-fg dark:text-lor-accent-fg-dark">
               L
             </Text>
           </View>
-          <View style={styles.copy}>
-            <Text style={[styles.title, { color: theme.text }]}>
+          <View className="mb-eight gap-two">
+            <Text className="text-[28px] font-bold tracking-[-0.6px] text-lor-text dark:text-lor-text-dark">
               Welcome to Lor
             </Text>
-            <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
+            <Text className="text-base leading-[22px] text-lor-text-secondary dark:text-lor-text-secondary-dark">
               Your team’s shared memory, in motion.
             </Text>
           </View>
-          <View style={styles.form}>
-            <View style={styles.field}>
-              <Text style={[styles.label, { color: theme.textSecondary }]}>
+          <View className="gap-four">
+            <View className="gap-two">
+              <Text className="text-[13px] font-semibold text-lor-text-secondary dark:text-lor-text-secondary-dark">
                 Email
               </Text>
               <TextInput
                 autoCapitalize="none"
                 autoComplete="email"
+                className="min-h-[52px] rounded-lor-md border border-lor-border bg-lor-surface px-three text-base text-lor-text dark:border-lor-border-dark dark:bg-lor-surface-dark dark:text-lor-text-dark"
                 keyboardType="email-address"
                 onChangeText={setEmail}
                 placeholder="you@company.com"
                 placeholderTextColor={theme.textTertiary}
-                style={[
-                  styles.input,
-                  {
-                    borderColor: theme.border,
-                    color: theme.text,
-                    backgroundColor: theme.surface,
-                  },
-                ]}
                 textContentType="emailAddress"
                 value={email}
               />
             </View>
-            <View style={styles.field}>
-              <Text style={[styles.label, { color: theme.textSecondary }]}>
+            <View className="gap-two">
+              <Text className="text-[13px] font-semibold text-lor-text-secondary dark:text-lor-text-secondary-dark">
                 Password
               </Text>
               <TextInput
                 autoComplete="current-password"
+                className="min-h-[52px] rounded-lor-md border border-lor-border bg-lor-surface px-three text-base text-lor-text dark:border-lor-border-dark dark:bg-lor-surface-dark dark:text-lor-text-dark"
                 onChangeText={setPassword}
                 onSubmitEditing={() => void signIn()}
                 placeholder="Your password"
                 placeholderTextColor={theme.textTertiary}
                 secureTextEntry
-                style={[
-                  styles.input,
-                  {
-                    borderColor: theme.border,
-                    color: theme.text,
-                    backgroundColor: theme.surface,
-                  },
-                ]}
                 textContentType="password"
                 value={password}
               />
             </View>
-            {error && (
-              <Text style={[styles.error, { color: theme.danger }]}>
+            {error ? (
+              <Text className="text-[13px] leading-[18px] text-lor-danger dark:text-lor-danger-dark">
                 {error}
               </Text>
-            )}
+            ) : null}
             <Pressable
+              className={`mt-two min-h-[52px] items-center justify-center rounded-lor-md ${
+                canSubmit
+                  ? "bg-lor-accent active:scale-[0.985] active:opacity-85 dark:bg-lor-accent-dark"
+                  : "bg-lor-divider dark:bg-lor-divider-dark"
+              }`}
               disabled={!canSubmit}
               onPress={() => void signIn()}
-              style={({ pressed }) => [
-                styles.button,
-                { backgroundColor: canSubmit ? theme.accent : theme.divider },
-                pressed && canSubmit && styles.buttonPressed,
-              ]}
             >
               {submitting ? (
                 <ActivityIndicator color={theme.accentForeground} />
               ) : (
                 <Text
-                  style={[
-                    styles.buttonText,
-                    {
-                      color: canSubmit
-                        ? theme.accentForeground
-                        : theme.textTertiary,
-                    },
-                  ]}
+                  className={
+                    canSubmit
+                      ? "text-base font-semibold text-lor-accent-fg dark:text-lor-accent-fg-dark"
+                      : "text-base font-semibold text-lor-text-tertiary dark:text-lor-text-tertiary-dark"
+                  }
                 >
                   Sign in
                 </Text>
@@ -150,45 +132,3 @@ export default function SignInScreen() {
     </SafeAreaView>
   )
 }
-
-const styles = StyleSheet.create({
-  screen: { flex: 1 },
-  keyboard: { flex: 1 },
-  content: {
-    flex: 1,
-    justifyContent: "center",
-    paddingHorizontal: Spacing.seven,
-  },
-  mark: {
-    alignItems: "center",
-    borderRadius: Radius.large,
-    height: 52,
-    justifyContent: "center",
-    marginBottom: Spacing.seven,
-    width: 52,
-  },
-  markText: { fontSize: 25, fontWeight: "700" },
-  copy: { gap: Spacing.two, marginBottom: Spacing.eight },
-  title: { fontSize: 28, fontWeight: "700", letterSpacing: -0.6 },
-  subtitle: { fontSize: 16, lineHeight: 22 },
-  form: { gap: Spacing.four },
-  field: { gap: Spacing.two },
-  label: { fontSize: 13, fontWeight: "600" },
-  input: {
-    borderRadius: Radius.medium,
-    borderWidth: 1,
-    fontSize: 16,
-    minHeight: 52,
-    paddingHorizontal: Spacing.three,
-  },
-  error: { fontSize: 13, lineHeight: 18 },
-  button: {
-    alignItems: "center",
-    borderRadius: Radius.medium,
-    justifyContent: "center",
-    minHeight: 52,
-    marginTop: Spacing.two,
-  },
-  buttonText: { fontSize: 16, fontWeight: "600" },
-  buttonPressed: { opacity: 0.85, transform: [{ scale: 0.985 }] },
-})

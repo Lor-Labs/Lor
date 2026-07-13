@@ -4,14 +4,9 @@ import {
   Image,
   type ImageSourcePropType,
   Pressable,
-  type StyleProp,
-  StyleSheet,
   Text,
-  type TextStyle,
   View,
-  type ViewStyle,
 } from "react-native"
-import { Radius, Spacing } from "@/constants/theme"
 import { useTheme } from "@/hooks/use-theme"
 
 export function Avatar({
@@ -25,29 +20,26 @@ export function Avatar({
   size?: number
   merlin?: boolean
 }) {
-  const theme = useTheme()
   const initial = name.trim().charAt(0).toUpperCase() || "?"
 
   return (
     <View
-      style={[
-        styles.avatar,
-        {
-          width: size,
-          height: size,
-          borderRadius: Math.round(size * 0.32),
-          backgroundColor: merlin ? theme.merlin : theme.accentMuted,
-        },
-      ]}
+      className={
+        merlin
+          ? "items-center justify-center overflow-hidden rounded-lor-md bg-lor-merlin dark:bg-lor-merlin-dark"
+          : "items-center justify-center overflow-hidden rounded-lor-md bg-lor-accent-muted dark:bg-lor-accent-muted-dark"
+      }
+      style={{ height: size, width: size }}
     >
       {image ? (
-        <Image source={{ uri: image }} style={styles.avatarImage} />
+        <Image className="h-full w-full" source={{ uri: image }} />
       ) : (
         <Text
-          style={[
-            styles.avatarInitial,
-            { color: merlin ? theme.merlinMuted : theme.accent },
-          ]}
+          className={
+            merlin
+              ? "text-sm font-bold text-lor-merlin-muted dark:text-lor-merlin-muted-dark"
+              : "text-sm font-bold text-lor-accent dark:text-lor-accent-dark"
+          }
         >
           {initial}
         </Text>
@@ -59,27 +51,22 @@ export function Avatar({
 export function PressableSurface({
   children,
   onPress,
-  style,
+  className,
   disabled = false,
   accessibilityLabel,
 }: {
   children: ReactNode
   onPress?: () => void
-  style?: StyleProp<ViewStyle>
+  className?: string
   disabled?: boolean
   accessibilityLabel?: string
 }) {
-  const theme = useTheme()
   return (
     <Pressable
       accessibilityLabel={accessibilityLabel}
+      className={`${className ?? ""} active:bg-lor-pressed dark:active:bg-lor-pressed-dark disabled:opacity-45`}
       disabled={disabled}
       onPress={onPress}
-      style={({ pressed }) => [
-        style,
-        pressed && !disabled && { backgroundColor: theme.pressed },
-        disabled && styles.disabled,
-      ]}
     >
       {children}
     </Pressable>
@@ -101,25 +88,24 @@ export function IconButton({
   return (
     <Pressable
       accessibilityLabel={label}
+      className="h-9 w-9 items-center justify-center rounded-lor-md active:bg-lor-pressed dark:active:bg-lor-pressed-dark disabled:opacity-45"
       disabled={disabled}
       hitSlop={8}
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.iconButton,
-        pressed && !disabled && { backgroundColor: theme.pressed },
-        disabled && styles.disabled,
-      ]}
     >
-      <Image source={icon} style={[styles.icon, { tintColor: theme.text }]} />
+      <Image
+        className="h-[18px] w-[18px]"
+        source={icon}
+        tintColor={theme.text}
+      />
     </Pressable>
   )
 }
 
-export function Skeleton({ style }: { style?: StyleProp<ViewStyle> }) {
-  const theme = useTheme()
+export function Skeleton({ className }: { className?: string }) {
   return (
     <View
-      style={[styles.skeleton, { backgroundColor: theme.divider }, style]}
+      className={`rounded-lor-sm bg-lor-divider dark:bg-lor-divider-dark ${className ?? ""}`}
     />
   )
 }
@@ -128,40 +114,35 @@ export function StatePanel({
   title,
   detail,
   action,
-  style,
+  className,
 }: {
   title: string
   detail: string
   action?: { label: string; onPress: () => void }
-  style?: StyleProp<ViewStyle>
+  className?: string
 }) {
-  const theme = useTheme()
   return (
-    <View style={[styles.statePanel, style]}>
-      <View
-        style={[styles.stateMark, { backgroundColor: theme.accentMuted }]}
-      />
-      <Text style={[styles.stateTitle, { color: theme.text }]}>{title}</Text>
-      <Text style={[styles.stateDetail, { color: theme.textSecondary }]}>
+    <View
+      className={`items-center justify-center px-seven py-eight ${className ?? ""}`}
+    >
+      <View className="mb-four h-[34px] w-[34px] rounded-lor-md bg-lor-accent-muted dark:bg-lor-accent-muted-dark" />
+      <Text className="text-center text-lg font-bold tracking-[-0.2px] text-lor-text dark:text-lor-text-dark">
+        {title}
+      </Text>
+      <Text className="mt-two text-center text-[15px] leading-[21px] text-lor-text-secondary dark:text-lor-text-secondary-dark">
         {detail}
       </Text>
-      {action && (
+      {action ? (
         <Pressable
           accessibilityRole="button"
+          className="mt-five rounded-lor-md bg-lor-accent px-four py-three active:scale-[0.98] active:opacity-80 dark:bg-lor-accent-dark"
           onPress={action.onPress}
-          style={({ pressed }) => [
-            styles.stateAction,
-            { backgroundColor: theme.accent },
-            pressed && styles.actionPressed,
-          ]}
         >
-          <Text
-            style={[styles.stateActionText, { color: theme.accentForeground }]}
-          >
+          <Text className="text-[15px] font-semibold leading-[21px] text-lor-accent-fg dark:text-lor-accent-fg-dark">
             {action.label}
           </Text>
         </Pressable>
-      )}
+      ) : null}
     </View>
   )
 }
@@ -172,70 +153,9 @@ export function InlineSpinner() {
 }
 
 export function SectionLabel({ children }: { children: string }) {
-  const theme = useTheme()
   return (
-    <Text style={[styles.sectionLabel, { color: theme.textTertiary }]}>
+    <Text className="text-[11px] font-semibold uppercase leading-[14px] tracking-[0.8px] text-lor-text-tertiary dark:text-lor-text-tertiary-dark">
       {children}
     </Text>
   )
 }
-
-export const textStyles = StyleSheet.create({
-  title: { fontSize: 26, fontWeight: "700", letterSpacing: -0.5 },
-  heading: { fontSize: 18, fontWeight: "700", letterSpacing: -0.2 },
-  body: { fontSize: 15, lineHeight: 21 },
-  bodyMedium: { fontSize: 15, lineHeight: 21, fontWeight: "600" },
-  caption: { fontSize: 12, lineHeight: 16, fontWeight: "500" },
-  micro: { fontSize: 11, lineHeight: 14, fontWeight: "600" },
-} satisfies Record<string, TextStyle>)
-
-const styles = StyleSheet.create({
-  avatar: {
-    alignItems: "center",
-    justifyContent: "center",
-    overflow: "hidden",
-  },
-  avatarImage: { width: "100%", height: "100%" },
-  avatarInitial: { fontSize: 14, fontWeight: "700" },
-  iconButton: {
-    width: 36,
-    height: 36,
-    borderRadius: Radius.medium,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  icon: { width: 18, height: 18, resizeMode: "contain" },
-  disabled: { opacity: 0.45 },
-  skeleton: { borderRadius: Radius.small },
-  statePanel: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: Spacing.seven,
-    paddingVertical: Spacing.eight,
-  },
-  stateMark: {
-    width: 34,
-    height: 34,
-    borderRadius: Radius.medium,
-    marginBottom: Spacing.four,
-  },
-  stateTitle: { ...textStyles.heading, textAlign: "center" },
-  stateDetail: {
-    ...textStyles.body,
-    marginTop: Spacing.two,
-    textAlign: "center",
-  },
-  stateAction: {
-    borderRadius: Radius.medium,
-    marginTop: Spacing.five,
-    paddingHorizontal: Spacing.four,
-    paddingVertical: Spacing.three,
-  },
-  stateActionText: { ...textStyles.bodyMedium },
-  actionPressed: { opacity: 0.82, transform: [{ scale: 0.98 }] },
-  sectionLabel: {
-    ...textStyles.micro,
-    letterSpacing: 0.8,
-    textTransform: "uppercase",
-  },
-})

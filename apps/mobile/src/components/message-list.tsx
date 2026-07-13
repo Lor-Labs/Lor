@@ -1,7 +1,5 @@
-import { FlatList, StyleSheet, Text, View } from "react-native"
+import { FlatList, Text, View } from "react-native"
 import { Avatar, Skeleton, StatePanel } from "@/components/ui/primitives"
-import { Radius, Spacing } from "@/constants/theme"
-import { useTheme } from "@/hooks/use-theme"
 import type { Message } from "@/lib/api-types"
 
 const MESSAGE_GROUP_WINDOW_MS = 5 * 60 * 1000
@@ -39,7 +37,6 @@ function MessageRow({
   message: Message
   showHeader: boolean
 }) {
-  const theme = useTheme()
   const isMerlin = displayName(message).toLowerCase() === "merlin"
   const isPending = message.id.startsWith("mobile-")
   const time = new Date(message.createdAt).toLocaleTimeString([], {
@@ -49,19 +46,19 @@ function MessageRow({
 
   return (
     <View
-      style={[
-        styles.row,
-        !showHeader && styles.compactRow,
-        isMerlin && { backgroundColor: theme.merlinMuted },
-      ]}
+      className={`${
+        showHeader ? "py-three" : "py-[3px]"
+      } flex-row gap-three px-four ${
+        isMerlin ? "bg-lor-merlin-muted dark:bg-lor-merlin-muted-dark" : ""
+      }`}
     >
-      <View style={styles.avatarSlot}>
+      <View className="min-w-10 pt-px">
         {showHeader ? (
           isMerlin ? (
-            <View
-              style={[styles.merlinAvatar, { backgroundColor: theme.merlin }]}
-            >
-              <Text style={styles.merlinMark}>M</Text>
+            <View className="h-10 w-10 items-center justify-center rounded-lor-md bg-lor-merlin dark:bg-lor-merlin-dark">
+              <Text className="text-[17px] font-bold text-lor-bg dark:text-lor-bg-dark">
+                M
+              </Text>
             </View>
           ) : (
             <Avatar
@@ -72,29 +69,30 @@ function MessageRow({
           )
         ) : null}
       </View>
-      <View style={styles.messageCopy}>
+      <View className="min-w-0 flex-1 gap-[2px]">
         {showHeader ? (
-          <View style={styles.meta}>
+          <View className="flex-row items-baseline gap-two">
             <Text
-              style={[
-                styles.name,
-                { color: isMerlin ? theme.merlin : theme.text },
-              ]}
+              className={
+                isMerlin
+                  ? "text-[15px] font-bold tracking-[-0.1px] text-lor-merlin dark:text-lor-merlin-dark"
+                  : "text-[15px] font-bold tracking-[-0.1px] text-lor-text dark:text-lor-text-dark"
+              }
             >
               {displayName(message)}
             </Text>
-            <Text style={[styles.time, { color: theme.textTertiary }]}>
+            <Text className="text-xs font-medium text-lor-text-tertiary dark:text-lor-text-tertiary-dark">
               {time}
             </Text>
             {isPending ? (
-              <Text style={[styles.sent, { color: theme.textTertiary }]}>
+              <Text className="ml-auto text-[11px] font-semibold text-lor-text-tertiary dark:text-lor-text-tertiary-dark">
                 Sending
               </Text>
             ) : null}
           </View>
         ) : null}
         {message.content ? (
-          <Text style={[styles.content, { color: theme.text }]}>
+          <Text className="text-base leading-[22px] text-lor-text dark:text-lor-text-dark">
             {message.content}
           </Text>
         ) : null}
@@ -104,14 +102,13 @@ function MessageRow({
 }
 
 function DateDivider({ date }: { date: string }) {
-  const theme = useTheme()
   return (
-    <View style={styles.dateDivider}>
-      <View style={[styles.dateLine, { backgroundColor: theme.divider }]} />
-      <Text style={[styles.dateText, { color: theme.textTertiary }]}>
+    <View className="flex-row items-center gap-two px-four py-five">
+      <View className="h-px flex-1 bg-lor-divider dark:bg-lor-divider-dark" />
+      <Text className="text-xs font-semibold text-lor-text-tertiary dark:text-lor-text-tertiary-dark">
         {dateLabel(date)}
       </Text>
-      <View style={[styles.dateLine, { backgroundColor: theme.divider }]} />
+      <View className="h-px flex-1 bg-lor-divider dark:bg-lor-divider-dark" />
     </View>
   )
 }
@@ -130,14 +127,13 @@ export function MessageList({
   currentUserId?: string
   onRetry: () => void
 }) {
-  const theme = useTheme()
   if (isLoading) return <MessageListSkeleton />
   if (error) {
     return (
       <StatePanel
         action={{ label: "Try again", onPress: onRetry }}
+        className="flex-1"
         detail={error}
-        style={styles.empty}
         title="Messages are unavailable"
       />
     )
@@ -145,8 +141,8 @@ export function MessageList({
   if (messages.length === 0) {
     return (
       <StatePanel
+        className="flex-1"
         detail={`This is the beginning of #${channelName}. Say hello to your team.`}
-        style={styles.empty}
         title={`Welcome to #${channelName}`}
       />
     )
@@ -154,7 +150,7 @@ export function MessageList({
 
   return (
     <FlatList
-      contentContainerStyle={styles.listContent}
+      className="flex-1 bg-lor-bg dark:bg-lor-bg-dark"
       data={messages}
       inverted
       keyExtractor={(message) => message.id}
@@ -175,74 +171,23 @@ export function MessageList({
         )
       }}
       showsVerticalScrollIndicator={false}
-      style={{ backgroundColor: theme.background }}
     />
   )
 }
 
 function MessageListSkeleton() {
   return (
-    <View style={styles.skeletonList}>
+    <View className="flex-1 gap-six bg-lor-bg px-four pt-five dark:bg-lor-bg-dark">
       {[0, 1, 2, 3, 4].map((item) => (
-        <View key={item} style={styles.skeletonRow}>
-          <Skeleton style={styles.skeletonAvatar} />
-          <View style={styles.skeletonCopy}>
-            <Skeleton style={styles.skeletonName} />
-            <Skeleton
-              style={[styles.skeletonLine, { width: item % 2 ? "62%" : "82%" }]}
-            />
-            {item === 1 ? (
-              <Skeleton style={[styles.skeletonLine, { width: "42%" }]} />
-            ) : null}
+        <View className="flex-row gap-three" key={item}>
+          <Skeleton className="h-10 w-10 rounded-lor-md" />
+          <View className="flex-1 gap-two pt-[2px]">
+            <Skeleton className="h-[14px] w-[100px]" />
+            <Skeleton className={item % 2 ? "h-3 w-[62%]" : "h-3 w-[82%]"} />
+            {item === 1 ? <Skeleton className="h-3 w-[42%]" /> : null}
           </View>
         </View>
       ))}
     </View>
   )
 }
-
-const styles = StyleSheet.create({
-  listContent: { paddingVertical: Spacing.four },
-  row: {
-    flexDirection: "row",
-    gap: Spacing.three,
-    paddingHorizontal: Spacing.four,
-    paddingVertical: Spacing.three,
-  },
-  compactRow: { paddingBottom: 3, paddingTop: 3 },
-  avatarSlot: { minWidth: 40, paddingTop: 1 },
-  merlinAvatar: {
-    alignItems: "center",
-    borderRadius: Radius.medium,
-    height: 40,
-    justifyContent: "center",
-    width: 40,
-  },
-  merlinMark: { color: "#fdfcf9", fontSize: 17, fontWeight: "700" },
-  messageCopy: { flex: 1, gap: 2, minWidth: 0 },
-  meta: { alignItems: "baseline", flexDirection: "row", gap: Spacing.two },
-  name: { fontSize: 15, fontWeight: "700", letterSpacing: -0.1 },
-  time: { fontSize: 12, fontWeight: "500" },
-  sent: { fontSize: 11, fontWeight: "600", marginLeft: "auto" },
-  content: { fontSize: 16, lineHeight: 22 },
-  dateDivider: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: Spacing.two,
-    paddingHorizontal: Spacing.four,
-    paddingVertical: Spacing.five,
-  },
-  dateLine: { flex: 1, height: StyleSheet.hairlineWidth },
-  dateText: { fontSize: 12, fontWeight: "600" },
-  empty: { flex: 1 },
-  skeletonList: {
-    gap: Spacing.six,
-    paddingHorizontal: Spacing.four,
-    paddingTop: Spacing.five,
-  },
-  skeletonRow: { flexDirection: "row", gap: Spacing.three },
-  skeletonAvatar: { borderRadius: Radius.medium, height: 40, width: 40 },
-  skeletonCopy: { flex: 1, gap: Spacing.two, paddingTop: 2 },
-  skeletonName: { height: 14, width: 100 },
-  skeletonLine: { height: 12 },
-})

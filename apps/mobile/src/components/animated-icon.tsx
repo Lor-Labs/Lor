@@ -1,6 +1,6 @@
 import * as SplashScreen from "expo-splash-screen"
 import { useEffect, useState } from "react"
-import { StyleSheet, Text } from "react-native"
+import { Text } from "react-native"
 import Animated, { FadeOut, ZoomIn } from "react-native-reanimated"
 
 export function AnimatedSplashOverlay() {
@@ -15,29 +15,16 @@ export function AnimatedSplashOverlay() {
   if (!visible) return null
 
   return (
-    <Animated.View exiting={FadeOut.duration(180)} style={styles.overlay}>
-      <Animated.View entering={ZoomIn.duration(280)} style={styles.mark}>
-        <Text style={styles.markText}>L</Text>
+    <Animated.View
+      className="absolute inset-0 z-[1000] items-center justify-center bg-lor-accent"
+      exiting={FadeOut.duration(180)}
+    >
+      <Animated.View
+        className="h-16 w-16 items-center justify-center rounded-[20px] bg-lor-bg"
+        entering={ZoomIn.duration(280)}
+      >
+        <Text className="text-[30px] font-bold text-lor-accent">L</Text>
       </Animated.View>
     </Animated.View>
   )
 }
-
-const styles = StyleSheet.create({
-  overlay: {
-    ...StyleSheet.absoluteFill,
-    alignItems: "center",
-    backgroundColor: "#6c4abb",
-    justifyContent: "center",
-    zIndex: 1000,
-  },
-  mark: {
-    alignItems: "center",
-    backgroundColor: "#fdfcf9",
-    borderRadius: 20,
-    height: 64,
-    justifyContent: "center",
-    width: 64,
-  },
-  markText: { color: "#6c4abb", fontSize: 30, fontWeight: "700" },
-})

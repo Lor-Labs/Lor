@@ -1,11 +1,10 @@
 import { router } from "expo-router"
 import { SymbolView } from "expo-symbols"
 import { useCallback, useEffect, useState } from "react"
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native"
+import { Pressable, ScrollView, Text, View } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
 import { ChannelList } from "@/components/channel-list"
 import { Avatar, InlineSpinner, StatePanel } from "@/components/ui/primitives"
-import { Radius, Spacing } from "@/constants/theme"
 import { useWorkspace } from "@/context/workspace-context"
 import { useTheme } from "@/hooks/use-theme"
 import { api } from "@/lib/api"
@@ -62,8 +61,8 @@ export default function WorkspaceScreen() {
   if (workspaceError) {
     return (
       <StatePanel
+        className="flex-1"
         detail={workspaceError}
-        style={styles.centered}
         title="Your workspace is unavailable"
       />
     )
@@ -71,8 +70,8 @@ export default function WorkspaceScreen() {
   if (!workspace) {
     return (
       <StatePanel
+        className="flex-1"
         detail="Create or join a Lor workspace on web, then return here to chat with your team."
-        style={styles.centered}
         title="No workspace yet"
       />
     )
@@ -80,12 +79,13 @@ export default function WorkspaceScreen() {
 
   return (
     <SafeAreaView
+      className="flex-1 bg-lor-bg dark:bg-lor-bg-dark"
       edges={["top", "bottom"]}
-      style={[styles.screen, { backgroundColor: theme.background }]}
+      style={{ flex: 1 }}
     >
-      <View style={[styles.topbar, { backgroundColor: theme.sidebar }]}>
+      <View className="gap-three bg-lor-sidebar pb-four pt-two dark:bg-lor-sidebar-dark">
         <ScrollView
-          contentContainerStyle={styles.workspaceRail}
+          contentContainerClassName="gap-two px-four"
           horizontal
           showsHorizontalScrollIndicator={false}
         >
@@ -94,41 +94,35 @@ export default function WorkspaceScreen() {
             return (
               <Pressable
                 accessibilityLabel={`Open ${item.name}`}
+                className={`rounded-lor-md p-[3px] active:opacity-70 ${
+                  active
+                    ? "bg-lor-accent-muted dark:bg-lor-accent-muted-dark"
+                    : ""
+                }`}
                 key={item.id}
                 onPress={() => void selectWorkspace(item.id)}
-                style={({ pressed }) => [
-                  styles.workspaceMark,
-                  active && { backgroundColor: theme.accentMuted },
-                  pressed && { opacity: 0.72 },
-                ]}
               >
                 <Avatar image={item.logo} name={item.name} size={32} />
               </Pressable>
             )
           })}
         </ScrollView>
-        <View style={styles.workspaceHeading}>
-          <View style={styles.workspaceCopy}>
+        <View className="flex-row items-center gap-three px-four">
+          <View className="flex-1 gap-px">
             <Text
+              className="text-[22px] font-bold tracking-[-0.45px] text-lor-text dark:text-lor-text-dark"
               numberOfLines={1}
-              style={[styles.workspaceName, { color: theme.text }]}
             >
               {workspace.name}
             </Text>
-            <Text
-              style={[styles.workspaceMeta, { color: theme.textSecondary }]}
-            >
+            <Text className="text-[13px] font-medium text-lor-text-secondary dark:text-lor-text-secondary-dark">
               Spaces for your team
             </Text>
           </View>
           <Pressable
             accessibilityLabel="Search workspace"
+            className="h-[38px] w-[38px] items-center justify-center rounded-lor-md bg-lor-surface-raised active:bg-lor-pressed dark:bg-lor-surface-raised-dark dark:active:bg-lor-pressed-dark"
             onPress={() => router.push("/explore")}
-            style={({ pressed }) => [
-              styles.searchButton,
-              { backgroundColor: theme.surfaceRaised },
-              pressed && { backgroundColor: theme.pressed },
-            ]}
           >
             <SymbolView
               name={{
@@ -144,26 +138,21 @@ export default function WorkspaceScreen() {
       </View>
 
       <ScrollView
-        contentContainerStyle={styles.content}
+        className="flex-1"
+        contentContainerClassName="gap-six px-four pt-five"
         showsVerticalScrollIndicator={false}
+        style={{ flex: 1 }}
       >
         <ScrollView
-          contentContainerStyle={styles.shortcutRow}
+          contentContainerClassName="gap-two pr-four"
           horizontal
           showsHorizontalScrollIndicator={false}
         >
           {shortcuts.map((shortcut) => (
             <Pressable
+              className="min-h-[86px] w-[132px] gap-[2px] rounded-lor-md border border-lor-border bg-lor-surface p-three active:bg-lor-pressed dark:border-lor-border-dark dark:bg-lor-surface-dark dark:active:bg-lor-pressed-dark"
               key={shortcut.label}
               onPress={() => router.push("/explore")}
-              style={({ pressed }) => [
-                styles.shortcut,
-                {
-                  backgroundColor: theme.surface,
-                  borderColor: theme.border,
-                },
-                pressed && { backgroundColor: theme.pressed },
-              ]}
             >
               <SymbolView
                 name={{
@@ -178,23 +167,21 @@ export default function WorkspaceScreen() {
                     : theme.textSecondary
                 }
               />
-              <Text style={[styles.shortcutLabel, { color: theme.text }]}>
+              <Text className="mt-one text-sm font-bold text-lor-text dark:text-lor-text-dark">
                 {shortcut.label}
               </Text>
-              <Text
-                style={[styles.shortcutDetail, { color: theme.textSecondary }]}
-              >
+              <Text className="text-xs leading-4 text-lor-text-secondary dark:text-lor-text-secondary-dark">
                 {shortcut.detail}
               </Text>
             </Pressable>
           ))}
         </ScrollView>
 
-        <View style={styles.channelsHeading}>
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>
+        <View className="mt-two flex-row items-baseline gap-two">
+          <Text className="text-lg font-bold tracking-[-0.2px] text-lor-text dark:text-lor-text-dark">
             Channels
           </Text>
-          <Text style={[styles.channelCount, { color: theme.textSecondary }]}>
+          <Text className="text-[13px] font-semibold text-lor-text-secondary dark:text-lor-text-secondary-dark">
             {channels
               ? channels.uncategorized.length +
                 channels.categories.reduce(
@@ -229,63 +216,9 @@ export default function WorkspaceScreen() {
 }
 
 function LoadingScreen() {
-  const theme = useTheme()
   return (
-    <View style={[styles.loading, { backgroundColor: theme.background }]}>
+    <View className="flex-1 items-center justify-center bg-lor-bg dark:bg-lor-bg-dark">
       <InlineSpinner />
     </View>
   )
 }
-
-const styles = StyleSheet.create({
-  screen: { flex: 1 },
-  centered: { flex: 1 },
-  loading: { alignItems: "center", flex: 1, justifyContent: "center" },
-  topbar: {
-    gap: Spacing.three,
-    paddingBottom: Spacing.four,
-    paddingTop: Spacing.two,
-  },
-  workspaceRail: { gap: Spacing.two, paddingHorizontal: Spacing.four },
-  workspaceMark: { borderRadius: Radius.medium, padding: 3 },
-  workspaceHeading: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: Spacing.three,
-    paddingHorizontal: Spacing.four,
-  },
-  workspaceCopy: { flex: 1, gap: 1 },
-  workspaceName: { fontSize: 22, fontWeight: "700", letterSpacing: -0.45 },
-  workspaceMeta: { fontSize: 13, fontWeight: "500" },
-  searchButton: {
-    alignItems: "center",
-    borderRadius: Radius.medium,
-    height: 38,
-    justifyContent: "center",
-    width: 38,
-  },
-  content: {
-    gap: Spacing.six,
-    paddingHorizontal: Spacing.four,
-    paddingTop: Spacing.five,
-  },
-  shortcutRow: { gap: Spacing.two, paddingRight: Spacing.four },
-  shortcut: {
-    borderRadius: Radius.medium,
-    borderWidth: 1,
-    gap: 2,
-    minHeight: 86,
-    padding: Spacing.three,
-    width: 132,
-  },
-  shortcutLabel: { fontSize: 14, fontWeight: "700", marginTop: 4 },
-  shortcutDetail: { fontSize: 12, lineHeight: 16 },
-  channelsHeading: {
-    alignItems: "baseline",
-    flexDirection: "row",
-    gap: Spacing.two,
-    marginTop: Spacing.two,
-  },
-  sectionTitle: { fontSize: 18, fontWeight: "700", letterSpacing: -0.2 },
-  channelCount: { fontSize: 13, fontWeight: "600" },
-})

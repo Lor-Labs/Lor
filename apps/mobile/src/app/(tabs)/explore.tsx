@@ -1,16 +1,15 @@
 import { router } from "expo-router"
-import { StyleSheet, View } from "react-native"
+import { View } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
 import { StatePanel } from "@/components/ui/primitives"
-import { useTheme } from "@/hooks/use-theme"
 
 export default function FutureAreaScreen() {
-  const theme = useTheme()
   return (
     <SafeAreaView
-      style={[styles.screen, { backgroundColor: theme.background }]}
+      className="flex-1 bg-lor-bg dark:bg-lor-bg-dark"
+      style={{ flex: 1 }}
     >
-      <View style={styles.content}>
+      <View className="flex-1">
         <StatePanel
           action={{ label: "Back to channels", onPress: () => router.back() }}
           detail="Search, notifications, and workspace settings will be added here without changing the channel navigation model."
@@ -20,8 +19,3 @@ export default function FutureAreaScreen() {
     </SafeAreaView>
   )
 }
-
-const styles = StyleSheet.create({
-  screen: { flex: 1 },
-  content: { flex: 1 },
-})

@@ -1,5 +1,6 @@
 const { getDefaultConfig } = require("expo/metro-config")
 const { dirname } = require("node:path")
+const { withNativewind } = require("nativewind/metro")
 
 const config = getDefaultConfig(__dirname)
 const isBetterAuthRuntimeModule = (moduleName) =>
@@ -30,4 +31,4 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
   return context.resolveRequest(context, moduleName, platform)
 }
 
-module.exports = config
+module.exports = withNativewind(config)

@@ -1,7 +1,6 @@
 import { SymbolView } from "expo-symbols"
 import { useState } from "react"
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native"
-import { Radius, Spacing } from "@/constants/theme"
+import { Pressable, Text, TextInput, View } from "react-native"
 import { useTheme } from "@/hooks/use-theme"
 
 export function MessageComposer({
@@ -27,38 +26,33 @@ export function MessageComposer({
   }
 
   return (
-    <View style={[styles.wrap, { backgroundColor: theme.background }]}>
+    <View className="bg-lor-bg px-three pb-three pt-two dark:bg-lor-bg-dark">
       {!isConnected ? (
-        <Text style={[styles.offline, { color: theme.danger }]}>
+        <Text className="mb-two text-center text-xs font-semibold text-lor-danger dark:text-lor-danger-dark">
           Reconnecting…
         </Text>
       ) : null}
-      <View
-        style={[
-          styles.composer,
-          { backgroundColor: theme.surfaceRaised, borderColor: theme.border },
-        ]}
-      >
+      <View className="min-h-[50px] flex-row items-end gap-two rounded-lor-lg border border-lor-border bg-lor-surface-raised py-two pl-four pr-two dark:border-lor-border-dark dark:bg-lor-surface-raised-dark">
         <TextInput
           accessibilityLabel={`Message ${channelName}`}
+          className="max-h-[110px] flex-1 py-[5px] text-base leading-[21px] text-lor-text dark:text-lor-text-dark"
           editable={isConnected && !isSending}
           multiline
           onChangeText={setContent}
           onSubmitEditing={() => void send()}
           placeholder={`Message #${channelName}`}
           placeholderTextColor={theme.textTertiary}
-          style={[styles.input, { color: theme.text }]}
           value={content}
         />
         <Pressable
           accessibilityLabel="Send message"
+          className={`h-[34px] w-[34px] items-center justify-center rounded-lor-md ${
+            canSend
+              ? "bg-lor-accent active:scale-[0.94] active:opacity-80 dark:bg-lor-accent-dark"
+              : "bg-lor-pressed dark:bg-lor-pressed-dark"
+          }`}
           disabled={!canSend}
           onPress={() => void send()}
-          style={({ pressed }) => [
-            styles.send,
-            { backgroundColor: canSend ? theme.accent : theme.pressed },
-            pressed && canSend && styles.sendPressed,
-          ]}
         >
           <SymbolView
             name={{
@@ -74,44 +68,3 @@ export function MessageComposer({
     </View>
   )
 }
-
-const styles = StyleSheet.create({
-  wrap: {
-    paddingHorizontal: Spacing.three,
-    paddingTop: Spacing.two,
-    paddingBottom: Spacing.three,
-  },
-  offline: {
-    fontSize: 12,
-    fontWeight: "600",
-    marginBottom: Spacing.two,
-    textAlign: "center",
-  },
-  composer: {
-    alignItems: "flex-end",
-    borderRadius: Radius.large,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: Spacing.two,
-    minHeight: 50,
-    paddingLeft: Spacing.four,
-    paddingRight: Spacing.two,
-    paddingVertical: Spacing.two,
-  },
-  input: {
-    flex: 1,
-    fontSize: 16,
-    lineHeight: 21,
-    maxHeight: 110,
-    paddingBottom: 5,
-    paddingTop: 5,
-  },
-  send: {
-    alignItems: "center",
-    borderRadius: Radius.medium,
-    height: 34,
-    justifyContent: "center",
-    width: 34,
-  },
-  sendPressed: { opacity: 0.82, transform: [{ scale: 0.94 }] },
-})

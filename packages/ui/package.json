@@ -5,6 +5,7 @@
   "private": true,
   "exports": {
     "./globals.css": "./src/styles/globals.css",
+    "./lor-tokens.css": "./src/styles/lor-tokens.css",
     "./postcss.config": "./postcss.config.mjs",
     "./lib/*": "./src/lib/*.ts",
     "./components/*": "./src/components/*.tsx",
