@@ -1,7 +1,6 @@
 import { Redirect } from "expo-router"
 
 import AppTabs from "@/components/app-tabs"
-import { SocketProvider } from "@/context/socket-context"
 import { authClient } from "@/lib/auth-client"
 
 export default function TabsLayout() {
@@ -10,9 +9,5 @@ export default function TabsLayout() {
   if (isPending) return null
   if (!session) return <Redirect href="/sign-in" />
 
-  return (
-    <SocketProvider>
-      <AppTabs />
-    </SocketProvider>
-  )
+  return <AppTabs />
 }

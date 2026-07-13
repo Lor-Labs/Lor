@@ -5,6 +5,7 @@
   "private": true,
   "exports": {
     ".": "./src/index.ts",
+    "./constants": "./src/constants.ts",
     "./schema": "./src/schemas/index.ts"
   },
   "scripts": {

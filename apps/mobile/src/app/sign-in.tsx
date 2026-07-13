@@ -5,14 +5,11 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
-  StyleSheet,
+  Text,
   TextInput,
+  View,
 } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
-
-import { ThemedText } from "@/components/themed-text"
-import { ThemedView } from "@/components/themed-view"
-import { MaxContentWidth, Spacing } from "@/constants/theme"
 import { useTheme } from "@/hooks/use-theme"
 import { authClient } from "@/lib/auth-client"
 
@@ -28,8 +25,8 @@ export default function SignInScreen() {
 
   const canSubmit =
     email.trim().length > 0 && password.length > 0 && !submitting
-
-  const handleSignIn = async () => {
+  const signIn = async () => {
+    if (!canSubmit) return
     setError(null)
     setSubmitting(true)
     try {
@@ -37,121 +34,101 @@ export default function SignInScreen() {
         email: email.trim(),
         password,
       })
-      if (result.error) {
-        setError(result.error.message ?? "Sign in failed")
-      }
+      if (result.error) setError(result.error.message ?? "Sign in failed")
+    } catch {
+      setError("Sign in failed. Check your connection and try again.")
     } finally {
       setSubmitting(false)
     }
   }
 
   return (
-    <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
-        <KeyboardAvoidingView
-          style={styles.content}
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
-        >
-          <ThemedText type="subtitle" style={styles.title}>
-            Sign in to Lor
-          </ThemedText>
-
-          <TextInput
-            style={[
-              styles.input,
-              { backgroundColor: theme.backgroundElement, color: theme.text },
-            ]}
-            placeholder="Email"
-            placeholderTextColor={theme.textSecondary}
-            autoCapitalize="none"
-            autoComplete="email"
-            keyboardType="email-address"
-            textContentType="emailAddress"
-            value={email}
-            onChangeText={setEmail}
-          />
-
-          <TextInput
-            style={[
-              styles.input,
-              { backgroundColor: theme.backgroundElement, color: theme.text },
-            ]}
-            placeholder="Password"
-            placeholderTextColor={theme.textSecondary}
-            autoCapitalize="none"
-            autoComplete="current-password"
-            textContentType="password"
-            secureTextEntry
-            value={password}
-            onChangeText={setPassword}
-            onSubmitEditing={() => {
-              if (canSubmit) handleSignIn()
-            }}
-          />
-
-          {error && (
-            <ThemedText type="small" style={styles.error}>
-              {error}
-            </ThemedText>
-          )}
-
-          <Pressable
-            style={[
-              styles.button,
-              { backgroundColor: theme.backgroundSelected },
-              !canSubmit && styles.buttonDisabled,
-            ]}
-            disabled={!canSubmit}
-            onPress={handleSignIn}
-          >
-            {submitting ? (
-              <ActivityIndicator color={theme.text} />
-            ) : (
-              <ThemedText type="smallBold">Sign in</ThemedText>
-            )}
-          </Pressable>
-        </KeyboardAvoidingView>
-      </SafeAreaView>
-    </ThemedView>
+    <SafeAreaView
+      className="flex-1 bg-lor-bg dark:bg-lor-bg-dark"
+      style={{ flex: 1 }}
+    >
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        className="flex-1"
+      >
+        <View className="flex-1 justify-center px-seven">
+          <View className="mb-seven h-[52px] w-[52px] items-center justify-center rounded-lor-lg bg-lor-accent dark:bg-lor-accent-dark">
+            <Text className="text-[25px] font-bold text-lor-accent-fg dark:text-lor-accent-fg-dark">
+              L
+            </Text>
+          </View>
+          <View className="mb-eight gap-two">
+            <Text className="text-[28px] font-bold tracking-[-0.6px] text-lor-text dark:text-lor-text-dark">
+              Welcome to Lor
+            </Text>
+            <Text className="text-base leading-[22px] text-lor-text-secondary dark:text-lor-text-secondary-dark">
+              Your team’s shared memory, in motion.
+            </Text>
+          </View>
+          <View className="gap-four">
+            <View className="gap-two">
+              <Text className="text-[13px] font-semibold text-lor-text-secondary dark:text-lor-text-secondary-dark">
+                Email
+              </Text>
+              <TextInput
+                autoCapitalize="none"
+                autoComplete="email"
+                className="min-h-[52px] rounded-lor-md border border-lor-border bg-lor-surface px-three text-base text-lor-text dark:border-lor-border-dark dark:bg-lor-surface-dark dark:text-lor-text-dark"
+                keyboardType="email-address"
+                onChangeText={setEmail}
+                placeholder="you@company.com"
+                placeholderTextColor={theme.textTertiary}
+                textContentType="emailAddress"
+                value={email}
+              />
+            </View>
+            <View className="gap-two">
+              <Text className="text-[13px] font-semibold text-lor-text-secondary dark:text-lor-text-secondary-dark">
+                Password
+              </Text>
+              <TextInput
+                autoComplete="current-password"
+                className="min-h-[52px] rounded-lor-md border border-lor-border bg-lor-surface px-three text-base text-lor-text dark:border-lor-border-dark dark:bg-lor-surface-dark dark:text-lor-text-dark"
+                onChangeText={setPassword}
+                onSubmitEditing={() => void signIn()}
+                placeholder="Your password"
+                placeholderTextColor={theme.textTertiary}
+                secureTextEntry
+                textContentType="password"
+                value={password}
+              />
+            </View>
+            {error ? (
+              <Text className="text-[13px] leading-[18px] text-lor-danger dark:text-lor-danger-dark">
+                {error}
+              </Text>
+            ) : null}
+            <Pressable
+              className={`mt-two min-h-[52px] items-center justify-center rounded-lor-md ${
+                canSubmit
+                  ? "bg-lor-accent active:scale-[0.985] active:opacity-85 dark:bg-lor-accent-dark"
+                  : "bg-lor-divider dark:bg-lor-divider-dark"
+              }`}
+              disabled={!canSubmit}
+              onPress={() => void signIn()}
+            >
+              {submitting ? (
+                <ActivityIndicator color={theme.accentForeground} />
+              ) : (
+                <Text
+                  className={
+                    canSubmit
+                      ? "text-base font-semibold text-lor-accent-fg dark:text-lor-accent-fg-dark"
+                      : "text-base font-semibold text-lor-text-tertiary dark:text-lor-text-tertiary-dark"
+                  }
+                >
+                  Sign in
+                </Text>
+              )}
+            </Pressable>
+          </View>
+        </View>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   )
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    flexDirection: "row",
-    justifyContent: "center",
-  },
-  safeArea: {
-    flex: 1,
-    maxWidth: MaxContentWidth,
-  },
-  content: {
-    flex: 1,
-    justifyContent: "center",
-    paddingHorizontal: Spacing.four,
-    gap: Spacing.three,
-  },
-  title: {
-    textAlign: "center",
-    marginBottom: Spacing.four,
-  },
-  input: {
-    borderRadius: Spacing.three,
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.three,
-    fontSize: 16,
-  },
-  error: {
-    color: "#ef4444",
-    textAlign: "center",
-  },
-  button: {
-    borderRadius: Spacing.three,
-    paddingVertical: Spacing.three,
-    alignItems: "center",
-  },
-  buttonDisabled: {
-    opacity: 0.5,
-  },
-})

@@ -1,133 +1,224 @@
-import * as Device from "expo-device"
-import { useEffect, useState } from "react"
-import { Platform, Pressable, StyleSheet } from "react-native"
+import { router } from "expo-router"
+import { SymbolView } from "expo-symbols"
+import { useCallback, useEffect, useState } from "react"
+import { Pressable, ScrollView, Text, View } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
+import { ChannelList } from "@/components/channel-list"
+import { Avatar, InlineSpinner, StatePanel } from "@/components/ui/primitives"
+import { useWorkspace } from "@/context/workspace-context"
+import { useTheme } from "@/hooks/use-theme"
+import { api } from "@/lib/api"
+import type { ChannelList as ChannelListData } from "@/lib/api-types"
 
-import { AnimatedIcon } from "@/components/animated-icon"
-import { HintRow } from "@/components/hint-row"
-import { ThemedText } from "@/components/themed-text"
-import { ThemedView } from "@/components/themed-view"
-import { WebBadge } from "@/components/web-badge"
-import { BottomTabInset, MaxContentWidth, Spacing } from "@/constants/theme"
-import { useSocket } from "@/context/socket-context"
-import { authClient } from "@/lib/auth-client"
+const shortcuts = [
+  { label: "Inbox", detail: "All caught up", icon: "tray" },
+  { label: "Merlin", detail: "Ask anything", icon: "sparkles" },
+  {
+    label: "Threads",
+    detail: "Coming soon",
+    icon: "bubble.left.and.bubble.right",
+  },
+] as const
 
-function getDevMenuHint() {
-  if (Platform.OS === "web") {
-    return <ThemedText type="small">use browser devtools</ThemedText>
-  }
-  if (Device.isDevice) {
-    return (
-      <ThemedText type="small">
-        shake device or press <ThemedText type="code">m</ThemedText> in terminal
-      </ThemedText>
-    )
-  }
-  const shortcut = Platform.OS === "android" ? "cmd+m (or ctrl+m)" : "cmd+d"
-  return (
-    <ThemedText type="small">
-      press <ThemedText type="code">{shortcut}</ThemedText>
-    </ThemedText>
-  )
-}
+export default function WorkspaceScreen() {
+  const theme = useTheme()
+  const {
+    workspace,
+    workspaces,
+    isLoading: workspaceLoading,
+    error: workspaceError,
+    selectWorkspace,
+  } = useWorkspace()
+  const [channels, setChannels] = useState<ChannelListData | null>(null)
+  const [isLoadingChannels, setIsLoadingChannels] = useState(false)
+  const [channelError, setChannelError] = useState<string | null>(null)
 
-function useSocketConnected() {
-  const socket = useSocket()
-  const [connected, setConnected] = useState(socket?.connected ?? false)
+  const loadChannels = useCallback(async () => {
+    if (!workspace) return
+    setIsLoadingChannels(true)
+    setChannelError(null)
+    try {
+      const response = await api.v1.workspaces[":workspaceSlug"].channels.$get({
+        param: { workspaceSlug: workspace.slug },
+      })
+      if (!response.ok) throw new Error("Could not load channels")
+      setChannels(await response.json())
+    } catch (cause) {
+      setChannelError(
+        cause instanceof Error ? cause.message : "Could not load channels"
+      )
+    } finally {
+      setIsLoadingChannels(false)
+    }
+  }, [workspace])
 
   useEffect(() => {
-    if (!socket) return
-    setConnected(socket.connected)
-    const onConnect = () => setConnected(true)
-    const onDisconnect = () => setConnected(false)
-    socket.on("connect", onConnect)
-    socket.on("disconnect", onDisconnect)
-    return () => {
-      socket.off("connect", onConnect)
-      socket.off("disconnect", onDisconnect)
-    }
-  }, [socket])
+    setChannels(null)
+    void loadChannels()
+  }, [loadChannels])
 
-  return connected
-}
-
-export default function HomeScreen() {
-  const { data: session } = authClient.useSession()
-  const connected = useSocketConnected()
+  if (workspaceLoading) return <LoadingScreen />
+  if (workspaceError) {
+    return (
+      <StatePanel
+        className="flex-1"
+        detail={workspaceError}
+        title="Your workspace is unavailable"
+      />
+    )
+  }
+  if (!workspace) {
+    return (
+      <StatePanel
+        className="flex-1"
+        detail="Create or join a Lor workspace on web, then return here to chat with your team."
+        title="No workspace yet"
+      />
+    )
+  }
 
   return (
-    <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
-        <ThemedView style={styles.heroSection}>
-          <AnimatedIcon />
-          <ThemedText type="title" style={styles.title}>
-            {session ? `Signed in as ${session.user.name}` : "Lor"}
-          </ThemedText>
-          <ThemedText type="small" themeColor="textSecondary">
-            realtime: {connected ? "connected" : "offline"}
-          </ThemedText>
-        </ThemedView>
+    <SafeAreaView
+      className="flex-1 bg-lor-bg dark:bg-lor-bg-dark"
+      edges={["top", "bottom"]}
+      style={{ flex: 1 }}
+    >
+      <View className="gap-three bg-lor-sidebar pb-four pt-two dark:bg-lor-sidebar-dark">
+        <ScrollView
+          contentContainerClassName="gap-two px-four"
+          horizontal
+          showsHorizontalScrollIndicator={false}
+        >
+          {workspaces.map((item) => {
+            const active = item.id === workspace.id
+            return (
+              <Pressable
+                accessibilityLabel={`Open ${item.name}`}
+                className={`rounded-lor-md p-[3px] active:opacity-70 ${
+                  active
+                    ? "bg-lor-accent-muted dark:bg-lor-accent-muted-dark"
+                    : ""
+                }`}
+                key={item.id}
+                onPress={() => void selectWorkspace(item.id)}
+              >
+                <Avatar image={item.logo} name={item.name} size={32} />
+              </Pressable>
+            )
+          })}
+        </ScrollView>
+        <View className="flex-row items-center gap-three px-four">
+          <View className="flex-1 gap-px">
+            <Text
+              className="text-[22px] font-bold tracking-[-0.45px] text-lor-text dark:text-lor-text-dark"
+              numberOfLines={1}
+            >
+              {workspace.name}
+            </Text>
+            <Text className="text-[13px] font-medium text-lor-text-secondary dark:text-lor-text-secondary-dark">
+              Spaces for your team
+            </Text>
+          </View>
+          <Pressable
+            accessibilityLabel="Search workspace"
+            className="h-[38px] w-[38px] items-center justify-center rounded-lor-md bg-lor-surface-raised active:bg-lor-pressed dark:bg-lor-surface-raised-dark dark:active:bg-lor-pressed-dark"
+            onPress={() => router.push("/explore")}
+          >
+            <SymbolView
+              name={{
+                ios: "magnifyingglass",
+                android: "search",
+                web: "search",
+              }}
+              size={19}
+              tintColor={theme.textSecondary}
+            />
+          </Pressable>
+        </View>
+      </View>
 
-        <ThemedText type="code" style={styles.code}>
-          get started
-        </ThemedText>
+      <ScrollView
+        className="flex-1"
+        contentContainerClassName="gap-six px-four pt-five"
+        showsVerticalScrollIndicator={false}
+        style={{ flex: 1 }}
+      >
+        <ScrollView
+          contentContainerClassName="gap-two pr-four"
+          horizontal
+          showsHorizontalScrollIndicator={false}
+        >
+          {shortcuts.map((shortcut) => (
+            <Pressable
+              className="min-h-[86px] w-[132px] gap-[2px] rounded-lor-md border border-lor-border bg-lor-surface p-three active:bg-lor-pressed dark:border-lor-border-dark dark:bg-lor-surface-dark dark:active:bg-lor-pressed-dark"
+              key={shortcut.label}
+              onPress={() => router.push("/explore")}
+            >
+              <SymbolView
+                name={{
+                  ios: shortcut.icon,
+                  android: shortcut.icon === "tray" ? "inbox" : "chat",
+                  web: shortcut.icon === "tray" ? "inbox" : "chat",
+                }}
+                size={18}
+                tintColor={
+                  shortcut.label === "Merlin"
+                    ? theme.merlin
+                    : theme.textSecondary
+                }
+              />
+              <Text className="mt-one text-sm font-bold text-lor-text dark:text-lor-text-dark">
+                {shortcut.label}
+              </Text>
+              <Text className="text-xs leading-4 text-lor-text-secondary dark:text-lor-text-secondary-dark">
+                {shortcut.detail}
+              </Text>
+            </Pressable>
+          ))}
+        </ScrollView>
 
-        <ThemedView type="backgroundElement" style={styles.stepContainer}>
-          <HintRow
-            title="Try editing"
-            hint={<ThemedText type="code">src/app/index.tsx</ThemedText>}
+        <View className="mt-two flex-row items-baseline gap-two">
+          <Text className="text-lg font-bold tracking-[-0.2px] text-lor-text dark:text-lor-text-dark">
+            Channels
+          </Text>
+          <Text className="text-[13px] font-semibold text-lor-text-secondary dark:text-lor-text-secondary-dark">
+            {channels
+              ? channels.uncategorized.length +
+                channels.categories.reduce(
+                  (total, category) => total + category.channels.length,
+                  0
+                )
+              : ""}
+          </Text>
+        </View>
+
+        {channelError ? (
+          <StatePanel
+            action={{ label: "Try again", onPress: () => void loadChannels() }}
+            detail={channelError}
+            title="Channels are unavailable"
           />
-          <HintRow title="Dev tools" hint={getDevMenuHint()} />
-          <HintRow
-            title="Fresh start"
-            hint={<ThemedText type="code">npm run reset-project</ThemedText>}
+        ) : (
+          <ChannelList
+            data={channels ?? undefined}
+            isLoading={isLoadingChannels}
+            onPress={(channel) =>
+              router.push({
+                pathname: "/channel/[channelId]",
+                params: { channelId: channel.id },
+              } as never)
+            }
           />
-        </ThemedView>
-
-        <Pressable onPress={() => authClient.signOut()}>
-          <ThemedText type="link" themeColor="textSecondary">
-            Sign out
-          </ThemedText>
-        </Pressable>
-
-        {Platform.OS === "web" && <WebBadge />}
-      </SafeAreaView>
-    </ThemedView>
+        )}
+      </ScrollView>
+    </SafeAreaView>
   )
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: "center",
-    flexDirection: "row",
-  },
-  safeArea: {
-    flex: 1,
-    paddingHorizontal: Spacing.four,
-    alignItems: "center",
-    gap: Spacing.three,
-    paddingBottom: BottomTabInset + Spacing.three,
-    maxWidth: MaxContentWidth,
-  },
-  heroSection: {
-    alignItems: "center",
-    justifyContent: "center",
-    flex: 1,
-    paddingHorizontal: Spacing.four,
-    gap: Spacing.four,
-  },
-  title: {
-    textAlign: "center",
-  },
-  code: {
-    textTransform: "uppercase",
-  },
-  stepContainer: {
-    gap: Spacing.three,
-    alignSelf: "stretch",
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.four,
-    borderRadius: Spacing.four,
-  },
-})
+function LoadingScreen() {
+  return (
+    <View className="flex-1 items-center justify-center bg-lor-bg dark:bg-lor-bg-dark">
+      <InlineSpinner />
+    </View>
+  )
+}
