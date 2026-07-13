@@ -1,7 +1,7 @@
 const { getDefaultConfig } = require("expo/metro-config")
 const { dirname, resolve } = require("node:path")
-const { withNativewind } = require("nativewind/metro")
 const { getBundleModeMetroConfig } = require("react-native-worklets/bundleMode")
+const { withUniwindConfig } = require("uniwind/metro")
 
 let config = getDefaultConfig(__dirname)
 
@@ -53,4 +53,7 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
   return context.resolveRequest(context, moduleName, platform)
 }
 
-module.exports = withNativewind(config)
+module.exports = withUniwindConfig(config, {
+  cssEntryFile: "./src/global.css",
+  dtsFile: "./src/uniwind-types.d.ts",
+})
