@@ -1,5 +1,6 @@
 import { MERLIN_USER_ID } from "@repo/db/constants"
 import { FlatList, Text, View } from "react-native"
+import { MessageContent } from "@/components/message-content"
 import { Avatar, Skeleton, StatePanel } from "@/components/ui/primitives"
 import type { Message } from "@/lib/api-types"
 
@@ -93,9 +94,11 @@ function MessageRow({
           </Text>
         ) : null}
         {message.content ? (
-          <Text className="text-base leading-[22px] text-lor-text dark:text-lor-text-dark">
-            {message.content}
-          </Text>
+          <MessageContent
+            content={message.content}
+            mentions={message.mentions}
+            streaming={isMerlin && message.status === "pending"}
+          />
         ) : null}
       </View>
     </View>
