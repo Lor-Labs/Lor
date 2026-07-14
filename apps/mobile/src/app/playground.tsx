@@ -12,7 +12,8 @@ import { Tabs } from "heroui-native/tabs"
 import { TextField } from "heroui-native/text-field"
 import { useToast } from "heroui-native/toast"
 import { type ReactNode, useState } from "react"
-import { ScrollView, Text, View } from "react-native"
+import { Text, View } from "react-native"
+import { KeyboardAwareScrollView } from "react-native-keyboard-controller"
 import { Uniwind, useUniwind } from "uniwind"
 import {
   HapticButton,
@@ -116,11 +117,14 @@ export default function PlaygroundScreen() {
         </View>
       </View>
 
-      <ScrollView
+      <KeyboardAwareScrollView
+        bottomOffset={24}
         className="flex-1"
         contentContainerClassName="gap-seven px-four"
         contentContainerStyle={{ flexGrow: 1, paddingBottom: 32 }}
+        keyboardDismissMode="interactive"
         keyboardShouldPersistTaps="handled"
+        mode="insets"
         showsVerticalScrollIndicator={false}
         style={{ flex: 1 }}
       >
@@ -429,7 +433,7 @@ export default function PlaygroundScreen() {
             </PlaygroundSection>
           </Tabs.Content>
         </Tabs>
-      </ScrollView>
+      </KeyboardAwareScrollView>
     </Screen>
   )
 }

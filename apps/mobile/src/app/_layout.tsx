@@ -4,6 +4,7 @@ import { StatusBar } from "expo-status-bar"
 import { HeroUINativeProvider } from "heroui-native/provider"
 import { useColorScheme } from "react-native"
 import { GestureHandlerRootView } from "react-native-gesture-handler"
+import { KeyboardProvider } from "react-native-keyboard-controller"
 
 import "../global.css"
 import { AnimatedSplashOverlay } from "@/components/animated-icon"
@@ -17,17 +18,19 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <HeroUINativeProvider>
-        <ThemeProvider
-          value={colorScheme === "dark" ? DarkTheme : DefaultTheme}
-        >
-          <StatusBar style={colorScheme === "dark" ? "light" : "dark"} />
-          <AnimatedSplashOverlay />
-          <SocketProvider>
-            <WorkspaceProvider>
-              <Stack screenOptions={{ headerShown: false }} />
-            </WorkspaceProvider>
-          </SocketProvider>
-        </ThemeProvider>
+        <KeyboardProvider>
+          <ThemeProvider
+            value={colorScheme === "dark" ? DarkTheme : DefaultTheme}
+          >
+            <StatusBar style={colorScheme === "dark" ? "light" : "dark"} />
+            <AnimatedSplashOverlay />
+            <SocketProvider>
+              <WorkspaceProvider>
+                <Stack screenOptions={{ headerShown: false }} />
+              </WorkspaceProvider>
+            </SocketProvider>
+          </ThemeProvider>
+        </KeyboardProvider>
       </HeroUINativeProvider>
     </GestureHandlerRootView>
   )
