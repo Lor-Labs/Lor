@@ -1,10 +1,9 @@
 import { MERLIN_USER_ID } from "@repo/db/constants"
-import { Alert } from "heroui-native/alert"
-import { Avatar } from "heroui-native/avatar"
-import { Button } from "heroui-native/button"
-import { Skeleton } from "heroui-native/skeleton"
 import { FlatList, Text, View } from "react-native"
 import { MessageContent } from "@/components/message-content"
+import { Avatar } from "@/components/ui/avatar"
+import { Skeleton } from "@/components/ui/skeleton"
+import { StatePanel } from "@/components/ui/state-panel"
 import type { Message } from "@/lib/api-types"
 
 const MESSAGE_GROUP_WINDOW_MS = 5 * 60 * 1000
@@ -63,16 +62,12 @@ function MessageRow({
       <View className="min-w-10 pt-px">
         {showHeader ? (
           <Avatar
-            className="rounded-xl"
             color={isMerlin ? "accent" : "default"}
+            fallback={isMerlin ? "M" : avatarInitial(message)}
+            image={avatarUrl}
+            name={displayName(message)}
             size="sm"
-            variant="soft"
-          >
-            {avatarUrl ? <Avatar.Image source={{ uri: avatarUrl }} /> : null}
-            <Avatar.Fallback classNames={{ container: "rounded-xl" }}>
-              {isMerlin ? "M" : avatarInitial(message)}
-            </Avatar.Fallback>
-          </Avatar>
+          />
         ) : null}
       </View>
       <View className="min-w-0 flex-1 gap-[2px]">
@@ -136,8 +131,9 @@ export function MessageList({
   if (isLoading) return <MessageListSkeleton />
   if (error) {
     return (
-      <MessageState
+      <StatePanel
         action={{ label: "Try again", onPress: onRetry }}
+        className="flex-1"
         detail={error}
         status="danger"
         title="Messages are unavailable"
@@ -146,7 +142,8 @@ export function MessageList({
   }
   if (messages.length === 0) {
     return (
-      <MessageState
+      <StatePanel
+        className="flex-1"
         detail={`This is the beginning of #${channelName}. Say hello to your team.`}
         title={`Welcome to #${channelName}`}
       />
@@ -187,7 +184,7 @@ function MessageListSkeleton() {
     <View className="flex-1 gap-six bg-background px-four pt-five">
       {[0, 1, 2, 3, 4].map((item) => (
         <View className="flex-row gap-three" key={item}>
-          <Skeleton className="h-10 w-10 rounded-xl" />
+          <Skeleton className="h-10 w-10" />
           <View className="flex-1 gap-two pt-[2px]">
             <Skeleton className="h-[14px] w-[100px] rounded-full" />
             <Skeleton
@@ -199,42 +196,6 @@ function MessageListSkeleton() {
           </View>
         </View>
       ))}
-    </View>
-  )
-}
-
-function MessageState({
-  title,
-  detail,
-  action,
-  status = "accent",
-}: {
-  title: string
-  detail: string
-  action?: { label: string; onPress: () => void }
-  status?: "accent" | "danger"
-}) {
-  return (
-    <View className="flex-1 justify-center bg-background px-five">
-      <Alert
-        className="border border-border bg-surface-secondary shadow-none"
-        status={status}
-      >
-        <Alert.Indicator />
-        <Alert.Content>
-          <Alert.Title>{title}</Alert.Title>
-          <Alert.Description>{detail}</Alert.Description>
-          {action ? (
-            <Button
-              className="mt-four self-start"
-              onPress={action.onPress}
-              size="sm"
-            >
-              {action.label}
-            </Button>
-          ) : null}
-        </Alert.Content>
-      </Alert>
     </View>
   )
 }

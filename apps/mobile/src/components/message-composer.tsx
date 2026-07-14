@@ -1,11 +1,11 @@
 import { SymbolView } from "expo-symbols"
 import { Alert } from "heroui-native/alert"
-import { Button } from "heroui-native/button"
 import { useThemeColor } from "heroui-native/hooks"
 import { Spinner } from "heroui-native/spinner"
 import { TextArea } from "heroui-native/text-area"
 import { useState } from "react"
 import { View } from "react-native"
+import { IconButton } from "@/components/ui/icon-button"
 
 export function MessageComposer({
   channelName,
@@ -40,7 +40,7 @@ export function MessageComposer({
     <View className="border-t border-separator bg-background px-three pb-three pt-two">
       {!isConnected ? (
         <Alert
-          className="mb-two rounded-2xl bg-warning-soft p-two shadow-none"
+          className="mb-two rounded-lor-sm bg-warning-soft p-two shadow-none"
           status="warning"
         >
           <Alert.Indicator className="pt-px" iconProps={{ size: 16 }} />
@@ -52,7 +52,7 @@ export function MessageComposer({
       <View className="relative">
         <TextArea
           accessibilityLabel={`Message ${channelName}`}
-          className="h-auto min-h-12 max-h-[120px] rounded-3xl py-three pl-four pr-[60px] text-base leading-[21px]"
+          className="h-auto min-h-12 max-h-[120px] py-three pl-four pr-[60px] text-base leading-[21px]"
           isDisabled={!isConnected || isSending}
           onChangeText={setContent}
           onSubmitEditing={() => void send()}
@@ -61,13 +61,11 @@ export function MessageComposer({
           submitBehavior="submit"
           value={content}
         />
-        <Button
+        <IconButton
           accessibilityLabel="Send message"
           className="absolute bottom-one right-one"
           isDisabled={!canSend}
-          isIconOnly
           onPress={() => void send()}
-          size="sm"
         >
           {isSending ? (
             <Spinner color={accentForeground} size="sm" />
@@ -82,7 +80,7 @@ export function MessageComposer({
               tintColor={canSend ? accentForeground : muted}
             />
           )}
-        </Button>
+        </IconButton>
       </View>
     </View>
   )

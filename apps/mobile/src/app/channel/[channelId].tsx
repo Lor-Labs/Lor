@@ -1,7 +1,5 @@
 import { router, useLocalSearchParams } from "expo-router"
 import { SymbolView } from "expo-symbols"
-import { Alert } from "heroui-native/alert"
-import { Button } from "heroui-native/button"
 import { useThemeColor } from "heroui-native/hooks"
 import { Spinner } from "heroui-native/spinner"
 import { useCallback, useEffect, useRef, useState } from "react"
@@ -9,7 +7,9 @@ import { Text, View } from "react-native"
 import { KeyboardAvoidingView } from "react-native-keyboard-controller"
 import { MessageComposer } from "@/components/message-composer"
 import { MessageList } from "@/components/message-list"
+import { IconButton } from "@/components/ui/icon-button"
 import { Screen } from "@/components/ui/screen"
+import { StatePanel } from "@/components/ui/state-panel"
 import { useSocket, useSocketConnected } from "@/context/socket-context"
 import { useWorkspace } from "@/context/workspace-context"
 import { useChannelMessages } from "@/hooks/use-channel-messages"
@@ -96,7 +96,8 @@ export default function ChannelScreen() {
   if (!workspace || !channelId) {
     return (
       <Screen className="bg-background" edges={["top", "bottom"]}>
-        <ChannelState
+        <StatePanel
+          className="flex-1"
           detail="Return to your workspace and try again."
           title="Channel unavailable"
         />
@@ -115,8 +116,9 @@ export default function ChannelScreen() {
   if (channelError || !channel) {
     return (
       <Screen className="bg-background" edges={["top", "bottom"]}>
-        <ChannelState
+        <StatePanel
           action={{ label: "Back to channels", onPress: () => router.back() }}
+          className="flex-1"
           detail={channelError ?? "This channel no longer exists."}
           status="danger"
           title="Channel unavailable"
@@ -129,11 +131,9 @@ export default function ChannelScreen() {
   return (
     <Screen className="bg-background" edges={["top", "bottom"]}>
       <View className="min-h-[60px] flex-row items-center gap-two border-b border-separator px-three">
-        <Button
+        <IconButton
           accessibilityLabel="Back to channels"
-          isIconOnly
           onPress={() => router.back()}
-          size="sm"
           variant="ghost"
         >
           <SymbolView
@@ -145,7 +145,7 @@ export default function ChannelScreen() {
             size={21}
             tintColor={foreground}
           />
-        </Button>
+        </IconButton>
         <View className="min-w-0 flex-1 gap-px">
           <View className="flex-row items-center gap-one">
             <Text className="text-[22px] font-normal leading-[23px] text-muted">
@@ -167,12 +167,10 @@ export default function ChannelScreen() {
             </Text>
           ) : null}
         </View>
-        <Button
+        <IconButton
           accessibilityLabel="Channel options"
           className="mr-one"
-          isIconOnly
           onPress={() => router.push("/explore")}
-          size="sm"
           variant="tertiary"
         >
           <SymbolView
@@ -180,7 +178,7 @@ export default function ChannelScreen() {
             size={20}
             tintColor={isSocketConnected ? foreground : muted}
           />
-        </Button>
+        </IconButton>
       </View>
       <KeyboardAvoidingView
         behavior="translate-with-padding"
@@ -202,41 +200,5 @@ export default function ChannelScreen() {
         />
       </KeyboardAvoidingView>
     </Screen>
-  )
-}
-
-function ChannelState({
-  title,
-  detail,
-  action,
-  status = "accent",
-}: {
-  title: string
-  detail: string
-  action?: { label: string; onPress: () => void }
-  status?: "accent" | "danger"
-}) {
-  return (
-    <View className="flex-1 justify-center px-five">
-      <Alert
-        className="border border-border bg-surface-secondary shadow-none"
-        status={status}
-      >
-        <Alert.Indicator />
-        <Alert.Content>
-          <Alert.Title>{title}</Alert.Title>
-          <Alert.Description>{detail}</Alert.Description>
-          {action ? (
-            <Button
-              className="mt-four self-start"
-              onPress={action.onPress}
-              size="sm"
-            >
-              {action.label}
-            </Button>
-          ) : null}
-        </Alert.Content>
-      </Alert>
-    </View>
   )
 }

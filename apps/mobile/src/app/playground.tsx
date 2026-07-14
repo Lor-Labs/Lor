@@ -1,28 +1,25 @@
 import { router } from "expo-router"
-import { Button } from "heroui-native/button"
 import { Card } from "heroui-native/card"
 import { Description } from "heroui-native/description"
 import { FieldError } from "heroui-native/field-error"
 import { Input } from "heroui-native/input"
 import { Label } from "heroui-native/label"
-import { RadioGroup } from "heroui-native/radio-group"
 import { Select } from "heroui-native/select"
-import { Skeleton } from "heroui-native/skeleton"
-import { Tabs } from "heroui-native/tabs"
 import { TextField } from "heroui-native/text-field"
 import { useToast } from "heroui-native/toast"
 import { type ReactNode, useState } from "react"
 import { Text, View } from "react-native"
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller"
 import { Uniwind, useUniwind } from "uniwind"
-import {
-  HapticButton,
-  HapticCheckbox,
-  HapticRadioGroup,
-  HapticSwitch,
-  triggerHaptic,
-} from "@/components/ui/haptic-controls"
+import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
+import { HapticButton } from "@/components/ui/haptic-button"
+import { triggerHaptic } from "@/components/ui/haptics"
+import { RadioGroup } from "@/components/ui/radio-group"
 import { Screen } from "@/components/ui/screen"
+import { Skeleton } from "@/components/ui/skeleton"
+import { Switch } from "@/components/ui/switch"
+import { Tabs } from "@/components/ui/tabs"
 
 type PlaygroundTab = "components" | "states" | "feedback"
 type SelectPresentation = "popover" | "bottom-sheet" | "dialog"
@@ -142,7 +139,6 @@ export default function PlaygroundScreen() {
           value={activeTab}
           onValueChange={(value) => {
             if (value === activeTab) return
-            triggerHaptic("soft")
             setActiveTab(value as PlaygroundTab)
           }}
         >
@@ -240,7 +236,7 @@ export default function PlaygroundScreen() {
                       Send a concise digest when conversations need attention.
                     </Text>
                   </View>
-                  <HapticSwitch
+                  <Switch
                     isSelected={notificationsEnabled}
                     onSelectedChange={setNotificationsEnabled}
                   />
@@ -310,7 +306,7 @@ export default function PlaygroundScreen() {
                 <Text className="text-[15px] font-medium text-muted">
                   External notifications
                 </Text>
-                <HapticSwitch isDisabled isSelected={false} />
+                <Switch isDisabled isSelected={false} />
               </View>
             </PlaygroundSection>
           </Tabs.Content>
@@ -329,7 +325,7 @@ export default function PlaygroundScreen() {
                         Quiet nonessential workspace updates.
                       </Card.Description>
                     </View>
-                    <HapticSwitch
+                    <Switch
                       isSelected={focusModeEnabled}
                       onSelectedChange={setFocusModeEnabled}
                     />
@@ -342,14 +338,14 @@ export default function PlaygroundScreen() {
                         Send a digest when conversations need attention.
                       </Card.Description>
                     </View>
-                    <HapticSwitch
+                    <Switch
                       isSelected={notificationsEnabled}
                       onSelectedChange={setNotificationsEnabled}
                     />
                   </View>
                   <View className="h-px bg-divider" />
                   <View className="flex-row items-start gap-three">
-                    <HapticCheckbox
+                    <Checkbox
                       className="mt-one"
                       isSelected={autoJoinThreads}
                       onSelectedChange={setAutoJoinThreads}
@@ -369,7 +365,7 @@ export default function PlaygroundScreen() {
                         Choose how much context appears in the channel feed.
                       </Card.Description>
                     </View>
-                    <HapticRadioGroup
+                    <RadioGroup
                       className="gap-two"
                       value={replyDensity}
                       onValueChange={setReplyDensity}
@@ -381,7 +377,7 @@ export default function PlaygroundScreen() {
                       <RadioGroup.Item value="expanded">
                         Expanded
                       </RadioGroup.Item>
-                    </HapticRadioGroup>
+                    </RadioGroup>
                   </View>
                 </Card.Body>
               </Card>

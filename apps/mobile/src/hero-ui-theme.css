@@ -25,6 +25,7 @@
     --field-foreground: var(--color-lor-text);
     --field-placeholder: var(--color-lor-text-tertiary);
     --field-border: var(--color-lor-border);
+    --field-radius: var(--radius-lor-sm);
 
     --success: var(--color-lor-success);
     --success-foreground: var(--color-lor-success-fg);
@@ -66,6 +67,7 @@
     --field-foreground: var(--color-lor-text-dark);
     --field-placeholder: var(--color-lor-text-tertiary-dark);
     --field-border: var(--color-lor-border-dark);
+    --field-radius: var(--radius-lor-sm);
 
     --success: var(--color-lor-success-dark);
     --success-foreground: var(--color-lor-success-fg-dark);

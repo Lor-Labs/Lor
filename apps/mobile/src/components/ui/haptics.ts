@@ -1,9 +1,4 @@
 import * as Haptics from "expo-haptics"
-import { Button } from "heroui-native/button"
-import { Checkbox } from "heroui-native/checkbox"
-import { RadioGroup } from "heroui-native/radio-group"
-import { Switch } from "heroui-native/switch"
-import type { ComponentProps } from "react"
 import { Platform } from "react-native"
 
 export type HapticFeedback =
@@ -45,7 +40,7 @@ const androidNotificationStyles = {
   error: Haptics.AndroidHaptics.Reject,
 } as const
 
-function ignoreUnavailableHaptics(effect: Promise<void>) {
+export function ignoreUnavailableHaptics(effect: Promise<void>) {
   void effect.catch(() => undefined)
 }
 
@@ -81,77 +76,14 @@ export function triggerHaptic(feedback: HapticFeedback = "light") {
   )
 }
 
-type HapticButtonProps = ComponentProps<typeof Button> & {
-  haptic?: HapticFeedback
-}
-
-export function HapticButton({ haptic, onPress, ...props }: HapticButtonProps) {
-  return (
-    <Button
-      {...props}
-      onPress={(event) => {
-        if (haptic) triggerHaptic(haptic)
-        if (typeof onPress === "function") onPress(event)
-      }}
-    />
-  )
-}
-
-type HapticCheckboxProps = ComponentProps<typeof Checkbox>
-
-export function HapticCheckbox({
-  onSelectedChange,
-  ...props
-}: HapticCheckboxProps) {
-  return (
-    <Checkbox
-      {...props}
-      onSelectedChange={(isSelected) => {
-        triggerHaptic("selection")
-        onSelectedChange?.(isSelected)
-      }}
-    />
-  )
-}
-
-type HapticRadioGroupProps = ComponentProps<typeof RadioGroup>
-
-export function HapticRadioGroup({
-  onValueChange,
-  ...props
-}: HapticRadioGroupProps) {
-  return (
-    <RadioGroup
-      {...props}
-      onValueChange={(value) => {
-        triggerHaptic("selection")
-        onValueChange?.(value)
-      }}
-    />
-  )
-}
-
-type HapticSwitchProps = ComponentProps<typeof Switch>
-
-export function HapticSwitch({
-  onSelectedChange,
-  ...props
-}: HapticSwitchProps) {
-  return (
-    <Switch
-      {...props}
-      onSelectedChange={(isSelected) => {
-        ignoreUnavailableHaptics(
-          Platform.OS === "android"
-            ? Haptics.performAndroidHapticsAsync(
-                isSelected
-                  ? Haptics.AndroidHaptics.Toggle_On
-                  : Haptics.AndroidHaptics.Toggle_Off
-              )
-            : Haptics.selectionAsync()
+export function triggerToggleHaptic(isSelected: boolean) {
+  ignoreUnavailableHaptics(
+    Platform.OS === "android"
+      ? Haptics.performAndroidHapticsAsync(
+          isSelected
+            ? Haptics.AndroidHaptics.Toggle_On
+            : Haptics.AndroidHaptics.Toggle_Off
         )
-        onSelectedChange?.(isSelected)
-      }}
-    />
+      : Haptics.selectionAsync()
   )
 }

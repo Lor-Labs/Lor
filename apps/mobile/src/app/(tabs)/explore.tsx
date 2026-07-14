@@ -1,7 +1,7 @@
 import { router } from "expo-router"
 import { View } from "react-native"
-import { StatePanel } from "@/components/ui/primitives"
 import { Screen } from "@/components/ui/screen"
+import { StatePanel } from "@/components/ui/state-panel"
 
 export default function FutureAreaScreen() {
   return (

@@ -1,10 +1,13 @@
 import { router } from "expo-router"
 import { SymbolView } from "expo-symbols"
+import { Spinner } from "heroui-native/spinner"
 import { useCallback, useEffect, useState } from "react"
 import { Pressable, ScrollView, Text, View } from "react-native"
 import { ChannelList } from "@/components/channel-list"
-import { Avatar, InlineSpinner, StatePanel } from "@/components/ui/primitives"
+import { Avatar } from "@/components/ui/avatar"
+import { IconButton } from "@/components/ui/icon-button"
 import { Screen } from "@/components/ui/screen"
+import { StatePanel } from "@/components/ui/state-panel"
 import { useWorkspace } from "@/context/workspace-context"
 import { useTheme } from "@/hooks/use-theme"
 import { api } from "@/lib/api"
@@ -98,7 +101,7 @@ export default function WorkspaceScreen() {
                 key={item.id}
                 onPress={() => void selectWorkspace(item.id)}
               >
-                <Avatar image={item.logo} name={item.name} size={32} />
+                <Avatar image={item.logo} name={item.name} size="xs" />
               </Pressable>
             )
           })}
@@ -115,10 +118,10 @@ export default function WorkspaceScreen() {
               Spaces for your team
             </Text>
           </View>
-          <Pressable
+          <IconButton
             accessibilityLabel="Search workspace"
-            className="h-[38px] w-[38px] items-center justify-center rounded-lor-md bg-lor-surface-raised active:bg-lor-pressed dark:bg-lor-surface-raised-dark dark:active:bg-lor-pressed-dark"
             onPress={() => router.push("/explore")}
+            variant="tertiary"
           >
             <SymbolView
               name={{
@@ -129,7 +132,7 @@ export default function WorkspaceScreen() {
               size={19}
               tintColor={theme.textSecondary}
             />
-          </Pressable>
+          </IconButton>
         </View>
       </View>
 
@@ -214,7 +217,7 @@ export default function WorkspaceScreen() {
 function LoadingScreen() {
   return (
     <View className="flex-1 items-center justify-center bg-lor-bg dark:bg-lor-bg-dark">
-      <InlineSpinner />
+      <Spinner accessibilityLabel="Loading workspace" />
     </View>
   )
 }
