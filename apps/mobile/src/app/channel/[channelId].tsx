@@ -8,10 +8,10 @@ import {
   Text,
   View,
 } from "react-native"
-import { SafeAreaView } from "react-native-safe-area-context"
 import { MessageComposer } from "@/components/message-composer"
 import { MessageList } from "@/components/message-list"
 import { InlineSpinner, StatePanel } from "@/components/ui/primitives"
+import { Screen } from "@/components/ui/screen"
 import { useSocket, useSocketConnected } from "@/context/socket-context"
 import { useWorkspace } from "@/context/workspace-context"
 import { useChannelMessages } from "@/hooks/use-channel-messages"
@@ -125,11 +125,7 @@ export default function ChannelScreen() {
   const channelName = channel.name ?? "channel"
 
   return (
-    <SafeAreaView
-      className="flex-1 bg-lor-bg dark:bg-lor-bg-dark"
-      edges={["top", "bottom"]}
-      style={{ flex: 1 }}
-    >
+    <Screen className="bg-lor-bg dark:bg-lor-bg-dark" edges={["top", "bottom"]}>
       <View className="min-h-[60px] flex-row items-center gap-two border-b border-lor-divider px-three dark:border-lor-divider-dark">
         <Pressable
           accessibilityLabel="Back to channels"
@@ -201,6 +197,6 @@ export default function ChannelScreen() {
           onSend={chat.sendMessage}
         />
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </Screen>
   )
 }

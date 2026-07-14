@@ -3,5 +3,6 @@
 
 @import "heroui-native/styles";
 @import "@repo/ui/lor-tokens.css";
+@import "./hero-ui-theme.css";
 
 @source "../node_modules/heroui-native/lib";

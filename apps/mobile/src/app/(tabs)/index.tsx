@@ -2,9 +2,9 @@ import { router } from "expo-router"
 import { SymbolView } from "expo-symbols"
 import { useCallback, useEffect, useState } from "react"
 import { Pressable, ScrollView, Text, View } from "react-native"
-import { SafeAreaView } from "react-native-safe-area-context"
 import { ChannelList } from "@/components/channel-list"
 import { Avatar, InlineSpinner, StatePanel } from "@/components/ui/primitives"
+import { Screen } from "@/components/ui/screen"
 import { useWorkspace } from "@/context/workspace-context"
 import { useTheme } from "@/hooks/use-theme"
 import { api } from "@/lib/api"
@@ -78,11 +78,7 @@ export default function WorkspaceScreen() {
   }
 
   return (
-    <SafeAreaView
-      className="flex-1 bg-lor-bg dark:bg-lor-bg-dark"
-      edges={["top", "bottom"]}
-      style={{ flex: 1 }}
-    >
+    <Screen className="bg-lor-bg dark:bg-lor-bg-dark" edges={["top", "bottom"]}>
       <View className="gap-three bg-lor-sidebar pb-four pt-two dark:bg-lor-sidebar-dark">
         <ScrollView
           contentContainerClassName="gap-two px-four"
@@ -211,7 +207,7 @@ export default function WorkspaceScreen() {
           />
         )}
       </ScrollView>
-    </SafeAreaView>
+    </Screen>
   )
 }
 

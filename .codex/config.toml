@@ -1,3 +1,6 @@
 [mcp_servers.heroui-native]
 command = "npx"
 args = ["-y", "@heroui/native-mcp@latest"]
+
+[mcp_servers.heroui-native.tools.get_component_docs]
+approval_mode = "approve"

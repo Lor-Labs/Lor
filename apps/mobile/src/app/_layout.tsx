@@ -1,7 +1,7 @@
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from "expo-router"
 import * as SplashScreen from "expo-splash-screen"
 import { StatusBar } from "expo-status-bar"
-import { HeroUINativeProvider } from "heroui-native"
+import { HeroUINativeProvider } from "heroui-native/provider"
 import { useColorScheme } from "react-native"
 import { GestureHandlerRootView } from "react-native-gesture-handler"
 
