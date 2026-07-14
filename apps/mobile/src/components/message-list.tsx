@@ -1,7 +1,10 @@
 import { MERLIN_USER_ID } from "@repo/db/constants"
+import { Alert } from "heroui-native/alert"
+import { Avatar } from "heroui-native/avatar"
+import { Button } from "heroui-native/button"
+import { Skeleton } from "heroui-native/skeleton"
 import { FlatList, Text, View } from "react-native"
 import { MessageContent } from "@/components/message-content"
-import { Avatar, Skeleton, StatePanel } from "@/components/ui/primitives"
 import type { Message } from "@/lib/api-types"
 
 const MESSAGE_GROUP_WINDOW_MS = 5 * 60 * 1000
@@ -12,6 +15,10 @@ function displayName(message: Message) {
     message.author.displayUsername ??
     message.author.name
   )
+}
+
+function avatarInitial(message: Message) {
+  return displayName(message).trim().charAt(0).toUpperCase() || "?"
 }
 
 function isSameDay(left: string, right: string) {
@@ -41,6 +48,7 @@ function MessageRow({
 }) {
   const isMerlin = message.authorId === MERLIN_USER_ID
   const isPending = message.id.startsWith("mobile-")
+  const avatarUrl = message.overrideAvatarUrl ?? message.author.image
   const time = new Date(message.createdAt).toLocaleTimeString([], {
     hour: "numeric",
     minute: "2-digit",
@@ -50,25 +58,21 @@ function MessageRow({
     <View
       className={`${
         showHeader ? "py-three" : "py-[3px]"
-      } flex-row gap-three px-four ${
-        isMerlin ? "bg-lor-merlin-muted dark:bg-lor-merlin-muted-dark" : ""
-      }`}
+      } flex-row gap-three px-four ${isMerlin ? "bg-accent-soft" : ""}`}
     >
       <View className="min-w-10 pt-px">
         {showHeader ? (
-          isMerlin ? (
-            <View className="h-10 w-10 items-center justify-center rounded-lor-md bg-lor-merlin dark:bg-lor-merlin-dark">
-              <Text className="text-[17px] font-bold text-lor-bg dark:text-lor-bg-dark">
-                M
-              </Text>
-            </View>
-          ) : (
-            <Avatar
-              image={message.overrideAvatarUrl ?? message.author.image}
-              name={displayName(message)}
-              size={40}
-            />
-          )
+          <Avatar
+            className="rounded-xl"
+            color={isMerlin ? "accent" : "default"}
+            size="sm"
+            variant="soft"
+          >
+            {avatarUrl ? <Avatar.Image source={{ uri: avatarUrl }} /> : null}
+            <Avatar.Fallback classNames={{ container: "rounded-xl" }}>
+              {isMerlin ? "M" : avatarInitial(message)}
+            </Avatar.Fallback>
+          </Avatar>
         ) : null}
       </View>
       <View className="min-w-0 flex-1 gap-[2px]">
@@ -77,19 +81,17 @@ function MessageRow({
             <Text
               className={
                 isMerlin
-                  ? "text-[15px] font-bold tracking-[-0.1px] text-lor-merlin dark:text-lor-merlin-dark"
-                  : "text-[15px] font-bold tracking-[-0.1px] text-lor-text dark:text-lor-text-dark"
+                  ? "text-[15px] font-bold tracking-[-0.1px] text-accent"
+                  : "text-[15px] font-bold tracking-[-0.1px] text-foreground"
               }
             >
               {displayName(message)}
             </Text>
-            <Text className="text-xs font-medium text-lor-text-tertiary dark:text-lor-text-tertiary-dark">
-              {time}
-            </Text>
+            <Text className="text-xs font-medium text-muted">{time}</Text>
           </View>
         ) : null}
         {isPending ? (
-          <Text className="self-end text-[11px] font-semibold text-lor-text-tertiary dark:text-lor-text-tertiary-dark">
+          <Text className="self-end text-[11px] font-semibold text-muted">
             Sending
           </Text>
         ) : null}
@@ -108,11 +110,11 @@ function MessageRow({
 function DateDivider({ date }: { date: string }) {
   return (
     <View className="flex-row items-center gap-two px-four py-five">
-      <View className="h-px flex-1 bg-lor-divider dark:bg-lor-divider-dark" />
-      <Text className="text-xs font-semibold text-lor-text-tertiary dark:text-lor-text-tertiary-dark">
+      <View className="h-px flex-1 bg-separator" />
+      <Text className="text-xs font-semibold text-muted">
         {dateLabel(date)}
       </Text>
-      <View className="h-px flex-1 bg-lor-divider dark:bg-lor-divider-dark" />
+      <View className="h-px flex-1 bg-separator" />
     </View>
   )
 }
@@ -134,18 +136,17 @@ export function MessageList({
   if (isLoading) return <MessageListSkeleton />
   if (error) {
     return (
-      <StatePanel
+      <MessageState
         action={{ label: "Try again", onPress: onRetry }}
-        className="flex-1"
         detail={error}
+        status="danger"
         title="Messages are unavailable"
       />
     )
   }
   if (messages.length === 0) {
     return (
-      <StatePanel
-        className="flex-1"
+      <MessageState
         detail={`This is the beginning of #${channelName}. Say hello to your team.`}
         title={`Welcome to #${channelName}`}
       />
@@ -154,9 +155,11 @@ export function MessageList({
 
   return (
     <FlatList
-      className="flex-1 bg-lor-bg dark:bg-lor-bg-dark"
+      className="flex-1 bg-background"
       data={messages}
       inverted
+      keyboardDismissMode="interactive"
+      keyboardShouldPersistTaps="handled"
       keyExtractor={(message) => message.id}
       renderItem={({ item, index }) => {
         const older = messages[index + 1]
@@ -181,17 +184,57 @@ export function MessageList({
 
 function MessageListSkeleton() {
   return (
-    <View className="flex-1 gap-six bg-lor-bg px-four pt-five dark:bg-lor-bg-dark">
+    <View className="flex-1 gap-six bg-background px-four pt-five">
       {[0, 1, 2, 3, 4].map((item) => (
         <View className="flex-row gap-three" key={item}>
-          <Skeleton className="h-10 w-10 rounded-lor-md" />
+          <Skeleton className="h-10 w-10 rounded-xl" />
           <View className="flex-1 gap-two pt-[2px]">
-            <Skeleton className="h-[14px] w-[100px]" />
-            <Skeleton className={item % 2 ? "h-3 w-[62%]" : "h-3 w-[82%]"} />
-            {item === 1 ? <Skeleton className="h-3 w-[42%]" /> : null}
+            <Skeleton className="h-[14px] w-[100px] rounded-full" />
+            <Skeleton
+              className={`${item % 2 ? "w-[62%]" : "w-[82%]"} h-3 rounded-full`}
+            />
+            {item === 1 ? (
+              <Skeleton className="h-3 w-[42%] rounded-full" />
+            ) : null}
           </View>
         </View>
       ))}
+    </View>
+  )
+}
+
+function MessageState({
+  title,
+  detail,
+  action,
+  status = "accent",
+}: {
+  title: string
+  detail: string
+  action?: { label: string; onPress: () => void }
+  status?: "accent" | "danger"
+}) {
+  return (
+    <View className="flex-1 justify-center bg-background px-five">
+      <Alert
+        className="border border-border bg-surface-secondary shadow-none"
+        status={status}
+      >
+        <Alert.Indicator />
+        <Alert.Content>
+          <Alert.Title>{title}</Alert.Title>
+          <Alert.Description>{detail}</Alert.Description>
+          {action ? (
+            <Button
+              className="mt-four self-start"
+              onPress={action.onPress}
+              size="sm"
+            >
+              {action.label}
+            </Button>
+          ) : null}
+        </Alert.Content>
+      </Alert>
     </View>
   )
 }

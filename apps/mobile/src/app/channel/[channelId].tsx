@@ -1,27 +1,24 @@
 import { router, useLocalSearchParams } from "expo-router"
 import { SymbolView } from "expo-symbols"
+import { Alert } from "heroui-native/alert"
+import { Button } from "heroui-native/button"
+import { useThemeColor } from "heroui-native/hooks"
+import { Spinner } from "heroui-native/spinner"
 import { useCallback, useEffect, useRef, useState } from "react"
-import {
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  Text,
-  View,
-} from "react-native"
+import { Text, View } from "react-native"
+import { KeyboardAvoidingView } from "react-native-keyboard-controller"
 import { MessageComposer } from "@/components/message-composer"
 import { MessageList } from "@/components/message-list"
-import { InlineSpinner, StatePanel } from "@/components/ui/primitives"
 import { Screen } from "@/components/ui/screen"
 import { useSocket, useSocketConnected } from "@/context/socket-context"
 import { useWorkspace } from "@/context/workspace-context"
 import { useChannelMessages } from "@/hooks/use-channel-messages"
-import { useTheme } from "@/hooks/use-theme"
 import { api } from "@/lib/api"
 import type { ChannelDetail } from "@/lib/api-types"
 import { authClient } from "@/lib/auth-client"
 
 export default function ChannelScreen() {
-  const theme = useTheme()
+  const [foreground, muted] = useThemeColor(["foreground", "muted"])
   const socket = useSocket()
   const isSocketConnected = useSocketConnected()
   const { workspace } = useWorkspace()
@@ -98,39 +95,46 @@ export default function ChannelScreen() {
 
   if (!workspace || !channelId) {
     return (
-      <StatePanel
-        className="flex-1"
-        detail="Return to your workspace and try again."
-        title="Channel unavailable"
-      />
+      <Screen className="bg-background" edges={["top", "bottom"]}>
+        <ChannelState
+          detail="Return to your workspace and try again."
+          title="Channel unavailable"
+        />
+      </Screen>
     )
   }
   if (isLoadingChannel) {
     return (
-      <View className="flex-1 items-center justify-center bg-lor-bg dark:bg-lor-bg-dark">
-        <InlineSpinner />
-      </View>
+      <Screen className="bg-background" edges={["top", "bottom"]}>
+        <View className="flex-1 items-center justify-center">
+          <Spinner accessibilityLabel="Loading channel" />
+        </View>
+      </Screen>
     )
   }
   if (channelError || !channel) {
     return (
-      <StatePanel
-        action={{ label: "Back to channels", onPress: () => router.back() }}
-        className="flex-1"
-        detail={channelError ?? "This channel no longer exists."}
-        title="Channel unavailable"
-      />
+      <Screen className="bg-background" edges={["top", "bottom"]}>
+        <ChannelState
+          action={{ label: "Back to channels", onPress: () => router.back() }}
+          detail={channelError ?? "This channel no longer exists."}
+          status="danger"
+          title="Channel unavailable"
+        />
+      </Screen>
     )
   }
   const channelName = channel.name ?? "channel"
 
   return (
-    <Screen className="bg-lor-bg dark:bg-lor-bg-dark" edges={["top", "bottom"]}>
-      <View className="min-h-[60px] flex-row items-center gap-two border-b border-lor-divider px-three dark:border-lor-divider-dark">
-        <Pressable
+    <Screen className="bg-background" edges={["top", "bottom"]}>
+      <View className="min-h-[60px] flex-row items-center gap-two border-b border-separator px-three">
+        <Button
           accessibilityLabel="Back to channels"
-          className="h-[38px] w-[38px] items-center justify-center rounded-lor-md active:bg-lor-pressed dark:active:bg-lor-pressed-dark"
+          isIconOnly
           onPress={() => router.back()}
+          size="sm"
+          variant="ghost"
         >
           <SymbolView
             name={{
@@ -139,16 +143,16 @@ export default function ChannelScreen() {
               web: "arrow_back",
             }}
             size={21}
-            tintColor={theme.text}
+            tintColor={foreground}
           />
-        </Pressable>
+        </Button>
         <View className="min-w-0 flex-1 gap-px">
           <View className="flex-row items-center gap-one">
-            <Text className="text-[22px] font-normal leading-[23px] text-lor-text-secondary dark:text-lor-text-secondary-dark">
+            <Text className="text-[22px] font-normal leading-[23px] text-muted">
               #
             </Text>
             <Text
-              className="text-[17px] font-bold tracking-[-0.2px] text-lor-text dark:text-lor-text-dark"
+              className="text-[17px] font-bold tracking-[-0.2px] text-foreground"
               numberOfLines={1}
             >
               {channelName}
@@ -156,31 +160,31 @@ export default function ChannelScreen() {
           </View>
           {channel.topic ? (
             <Text
-              className="text-xs font-medium leading-4 text-lor-text-secondary dark:text-lor-text-secondary-dark"
+              className="text-xs font-medium leading-4 text-muted"
               numberOfLines={1}
             >
               {channel.topic}
             </Text>
           ) : null}
         </View>
-        <Pressable
+        <Button
           accessibilityLabel="Channel options"
-          className="mr-one h-9 w-9 items-center justify-center rounded-lor-md bg-lor-surface active:bg-lor-pressed dark:bg-lor-surface-dark dark:active:bg-lor-pressed-dark"
+          className="mr-one"
+          isIconOnly
           onPress={() => router.push("/explore")}
+          size="sm"
+          variant="tertiary"
         >
           <SymbolView
             name={{ ios: "ellipsis", android: "more_horiz", web: "more_horiz" }}
             size={20}
-            tintColor={
-              isSocketConnected ? theme.textSecondary : theme.textTertiary
-            }
+            tintColor={isSocketConnected ? foreground : muted}
           />
-        </Pressable>
+        </Button>
       </View>
       <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        behavior="translate-with-padding"
         className="flex-1"
-        keyboardVerticalOffset={0}
       >
         <MessageList
           channelName={channelName}
@@ -198,5 +202,41 @@ export default function ChannelScreen() {
         />
       </KeyboardAvoidingView>
     </Screen>
+  )
+}
+
+function ChannelState({
+  title,
+  detail,
+  action,
+  status = "accent",
+}: {
+  title: string
+  detail: string
+  action?: { label: string; onPress: () => void }
+  status?: "accent" | "danger"
+}) {
+  return (
+    <View className="flex-1 justify-center px-five">
+      <Alert
+        className="border border-border bg-surface-secondary shadow-none"
+        status={status}
+      >
+        <Alert.Indicator />
+        <Alert.Content>
+          <Alert.Title>{title}</Alert.Title>
+          <Alert.Description>{detail}</Alert.Description>
+          {action ? (
+            <Button
+              className="mt-four self-start"
+              onPress={action.onPress}
+              size="sm"
+            >
+              {action.label}
+            </Button>
+          ) : null}
+        </Alert.Content>
+      </Alert>
+    </View>
   )
 }

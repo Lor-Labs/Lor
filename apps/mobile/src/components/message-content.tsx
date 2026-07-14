@@ -1,4 +1,5 @@
 import * as WebBrowser from "expo-web-browser"
+import { useThemeColor } from "heroui-native/hooks"
 import { useCallback, useMemo } from "react"
 import {
   EnrichedMarkdownText,
@@ -6,7 +7,6 @@ import {
 } from "react-native-enriched-markdown"
 import { StreamdownText } from "react-native-streamdown"
 import { Fonts } from "@/constants/theme"
-import { useTheme } from "@/hooks/use-theme"
 import type { Message } from "@/lib/api-types"
 import {
   MENTION_SCHEME,
@@ -15,7 +15,18 @@ import {
   toDisplayMarkdown,
 } from "@/lib/message-markdown"
 
-function buildMarkdownStyle(theme: ReturnType<typeof useTheme>): MarkdownStyle {
+type MessageTheme = {
+  text: string
+  accent: string
+  accentMuted: string
+  backgroundSelected: string
+  border: string
+  backgroundElement: string
+  textSecondary: string
+  textTertiary: string
+}
+
+function buildMarkdownStyle(theme: MessageTheme): MarkdownStyle {
   const chip = { color: theme.accent, backgroundColor: theme.accentMuted }
   return {
     paragraph: {
@@ -81,7 +92,44 @@ export function MessageContent({
   onMentionPress?: (id: string) => void
   onCitationJump?: (messageId: string) => void
 }) {
-  const theme = useTheme()
+  const [
+    text,
+    accent,
+    accentMuted,
+    backgroundSelected,
+    border,
+    backgroundElement,
+    textSecondary,
+  ] = useThemeColor([
+    "foreground",
+    "accent",
+    "accent-soft",
+    "surface-tertiary",
+    "border",
+    "surface-secondary",
+    "muted",
+  ])
+  const theme = useMemo<MessageTheme>(
+    () => ({
+      text,
+      accent,
+      accentMuted,
+      backgroundSelected,
+      border,
+      backgroundElement,
+      textSecondary,
+      textTertiary: textSecondary,
+    }),
+    [
+      text,
+      accent,
+      accentMuted,
+      backgroundSelected,
+      border,
+      backgroundElement,
+      textSecondary,
+    ]
+  )
   const markdown = useMemo(
     () => toDisplayMarkdown(content, mentions),
     [content, mentions]
