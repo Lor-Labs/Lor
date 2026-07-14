@@ -82,9 +82,12 @@ export const message = pgTable(
       .$type<MerlinMemory[]>()
       .default([]),
 
-    // Summarized extended-thinking trace for a Merlin reply — streamed live and
-    // kept so the collapsible "thought process" survives a reload.
+    // Aggregate reasoning retained for older clients/messages. New replies also
+    // store ordered segments so reasoning can be interleaved with tool calls.
     merlinReasoning: text("merlin_reasoning"),
+    merlinReasoningSegments: jsonb("merlin_reasoning_segments")
+      .$type<MerlinReasoningSegment[]>()
+      .default([]),
 
     // Display identity for webhook/connector messages (Discord-style). The row
     // is authored by the shared app bot user; these override what renders.
@@ -187,6 +190,8 @@ export type MerlinToolCall = {
   // Character offset into the message `content` where this call occurred, so the
   // UI can render text and tool groups in the order the model produced them.
   at?: number
+  // Relative order among reasoning/tool events at the same content offset.
+  order?: number
   // Compact, bounded result for the expandable detail panel (filled on
   // completion; absent while the call is still in flight or for tools whose
   // label already says everything).
@@ -195,6 +200,14 @@ export type MerlinToolCall = {
     items?: { title: string; url?: string }[]
   }
   status?: "ok" | "error"
+}
+
+export type MerlinReasoningSegment = {
+  text: string
+  // Character offset into message content when this reasoning was produced.
+  at: number
+  // Relative order among reasoning/tool events at the same content offset.
+  order: number
 }
 
 // A brain page Merlin wrote during an answer.

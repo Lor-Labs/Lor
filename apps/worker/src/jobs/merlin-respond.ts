@@ -11,7 +11,11 @@ import {
   or,
   schema,
 } from "@repo/db"
-import type { MerlinMemory, MerlinToolCall } from "@repo/db/schema"
+import type {
+  MerlinMemory,
+  MerlinReasoningSegment,
+  MerlinToolCall,
+} from "@repo/db/schema"
 import { withContext } from "@repo/logger"
 import {
   groundCitations,
@@ -143,18 +147,28 @@ export function createMerlinRespondProcessor(
         // Register the stream so clients can show a thinking indicator.
         emit("", false)
 
-        // Summarized thinking, accumulated for persistence + batched to clients.
+        // Reasoning is kept both as a legacy aggregate and ordered segments that
+        // can be interleaved with tool calls at the same answer-text offset.
         let reasoning = ""
         let pendingReasoning = ""
+        let eventOrder = 0
+        let activeReasoningSegment: MerlinReasoningSegment | null = null
+        const reasoningSegments: MerlinReasoningSegment[] = []
         const flushReasoning = () => {
-          if (!pendingReasoning) return
+          if (!pendingReasoning || !activeReasoningSegment) return
           emitter.to(room).emit("merlin:reasoning", {
             channelId,
             threadRootId,
             messageId: merlinMessageId,
             delta: pendingReasoning,
+            at: activeReasoningSegment.at,
+            order: activeReasoningSegment.order,
           })
           pendingReasoning = ""
+        }
+        const closeReasoningSegment = () => {
+          flushReasoning()
+          activeReasoningSegment = null
         }
 
         // Phase 1 — generate + stream. On failure, replace the partial text
@@ -211,18 +225,34 @@ export function createMerlinRespondProcessor(
           workspaceId = channel.workspaceId
 
           let pending = ""
+          const flushPendingText = () => {
+            if (!pending) return
+            emit(pending, false)
+            pending = ""
+          }
           answer = await respond(
             { workspaceId, conversation, channelId },
             {
               onDelta: (d) => {
                 pending += d
-                if (pending.length >= FLUSH_THRESHOLD) {
-                  emit(pending, false)
-                  pending = ""
-                }
+                if (pending.length >= FLUSH_THRESHOLD) flushPendingText()
               },
-              onReasoning: (d) => {
+              onReasoning: (d, at) => {
+                flushPendingText()
+                if (
+                  !activeReasoningSegment ||
+                  activeReasoningSegment.at !== at
+                ) {
+                  closeReasoningSegment()
+                  activeReasoningSegment = {
+                    text: "",
+                    at,
+                    order: eventOrder++,
+                  }
+                  reasoningSegments.push(activeReasoningSegment)
+                }
                 reasoning += d
+                activeReasoningSegment.text += d
                 pendingReasoning += d
                 if (pendingReasoning.length >= FLUSH_THRESHOLD) flushReasoning()
               },
@@ -234,16 +264,31 @@ export function createMerlinRespondProcessor(
               // trail persisted below (survives the answer and a reload). Upsert
               // by toolCallId: start sets the label, completion adds detail.
               onToolEvent: (toolCall) => {
+                flushPendingText()
                 const idx = toolCalls.findIndex(
                   (t) => t.toolCallId === toolCall.toolCallId
                 )
-                if (idx >= 0) toolCalls[idx] = toolCall
-                else toolCalls.push(toolCall)
+                const existing = idx >= 0 ? toolCalls[idx] : undefined
+                if (!existing && !toolCall.parentToolCallId) {
+                  closeReasoningSegment()
+                }
+                const nextToolCall: MerlinToolCall = {
+                  ...existing,
+                  ...toolCall,
+                  ...(existing?.at !== undefined ? { at: existing.at } : {}),
+                  ...(existing?.order !== undefined
+                    ? { order: existing.order }
+                    : !toolCall.parentToolCallId
+                      ? { order: eventOrder++ }
+                      : {}),
+                }
+                if (idx >= 0) toolCalls[idx] = nextToolCall
+                else toolCalls.push(nextToolCall)
                 emitter.to(room).emit("merlin:tool", {
                   channelId,
                   threadRootId,
                   messageId: merlinMessageId,
-                  toolCall,
+                  toolCall: nextToolCall,
                 })
               },
               // Metered tool usage (e.g. the code sandbox agent). No billing yet —
@@ -251,8 +296,8 @@ export function createMerlinRespondProcessor(
               onUsage: (u) => logger.info({ ...u }, "Merlin tool usage"),
             }
           )
-          if (pending.length > 0) emit(pending, false)
-          flushReasoning()
+          flushPendingText()
+          closeReasoningSegment()
 
           gateText = `${conversation
             .map((t) => `${t.authorName}: ${t.content}`)
@@ -331,6 +376,14 @@ export function createMerlinRespondProcessor(
                     : { ...tc, at: await remapOffset(tc.at) }
                 )
               )
+          const persistedReasoningSegments = emptyFallback
+            ? reasoningSegments
+            : await Promise.all(
+                reasoningSegments.map(async (segment) => ({
+                  ...segment,
+                  at: await remapOffset(segment.at),
+                }))
+              )
 
           await db
             .update(schema.message)
@@ -339,6 +392,7 @@ export function createMerlinRespondProcessor(
               status: "complete",
               merlinToolCalls: persistedToolCalls,
               merlinReasoning: reasoning || null,
+              merlinReasoningSegments: persistedReasoningSegments,
               // Explicit "remember this" saves so far; write-back may add more
               // after this and re-persists then.
               merlinMemories: remembered,

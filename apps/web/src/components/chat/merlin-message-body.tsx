@@ -1,48 +1,94 @@
 import { useMemo } from "react"
+import { MerlinReasoning } from "@/components/chat/merlin-reasoning"
 import { MerlinToolTrail } from "@/components/chat/merlin-tool-trail"
 import { MessageMarkdown } from "@/components/chat/message-markdown"
-import type { MerlinToolCallView, Message } from "@/lib/api-types"
-
-// Interleaves Merlin's answer text with its tool-call groups in the order the
-// model produced them, using each call's `at` (a character offset into content).
-// Consecutive calls at the same offset (no text between them) form one group.
+import type {
+  MerlinReasoningSegmentView,
+  MerlinToolCallView,
+  Message,
+} from "@/lib/api-types"
 
 type Segment =
   | { kind: "text"; key: string; text: string }
+  | {
+      kind: "reasoning"
+      key: string
+      reasoning: MerlinReasoningSegmentView
+    }
   | { kind: "tools"; key: string; tools: MerlinToolCallView[] }
+
+type TimelineEvent =
+  | {
+      kind: "reasoning"
+      at: number
+      order: number
+      sequence: number
+      reasoning: MerlinReasoningSegmentView
+    }
+  | {
+      kind: "tool"
+      at: number
+      order: number
+      sequence: number
+      tool: MerlinToolCallView
+    }
 
 function buildSegments(
   content: string,
-  toolCalls: MerlinToolCallView[]
+  toolCalls: MerlinToolCallView[],
+  reasoningSegments: MerlinReasoningSegmentView[]
 ): Segment[] {
   const clamp = (n: number) => Math.min(Math.max(n, 0), content.length)
-  // Offset defaults to end-of-text for calls without `at` (older messages), so
-  // they fall after the answer rather than corrupting the split.
-  const withAt = toolCalls
-    .map((t) => ({ t, at: clamp(t.at ?? content.length) }))
-    .sort((a, b) => a.at - b.at)
+  const events: TimelineEvent[] = [
+    ...reasoningSegments.map((reasoning, sequence) => ({
+      kind: "reasoning" as const,
+      at: clamp(reasoning.at),
+      order: reasoning.order,
+      sequence,
+      reasoning,
+    })),
+    ...toolCalls.map((tool, sequence) => ({
+      kind: "tool" as const,
+      at: clamp(tool.at ?? content.length),
+      order: tool.order ?? Number.MAX_SAFE_INTEGER,
+      sequence: reasoningSegments.length + sequence,
+      tool,
+    })),
+  ].sort((a, b) => a.at - b.at || a.order - b.order || a.sequence - b.sequence)
 
   const segments: Segment[] = []
   let cursor = 0
-  let i = 0
-  while (i < withAt.length) {
-    const head = withAt[i]
-    if (!head) break
-    const at = head.at
-    if (at > cursor) {
+  let index = 0
+  while (index < events.length) {
+    const event = events[index]
+    if (!event) break
+
+    if (event.at > cursor) {
       segments.push({
         kind: "text",
         key: `text:${cursor}`,
-        text: content.slice(cursor, at),
+        text: content.slice(cursor, event.at),
       })
-      cursor = at
+      cursor = event.at
     }
-    const tools: MerlinToolCallView[] = []
-    let peek = withAt[i]
-    while (peek && peek.at === at) {
-      tools.push(peek.t)
-      i += 1
-      peek = withAt[i]
+
+    if (event.kind === "reasoning") {
+      segments.push({
+        kind: "reasoning",
+        key: `reasoning:${event.reasoning.order}`,
+        reasoning: event.reasoning,
+      })
+      index += 1
+      continue
+    }
+
+    const tools: MerlinToolCallView[] = [event.tool]
+    index += 1
+    let next = events[index]
+    while (next?.kind === "tool" && next.at === event.at) {
+      tools.push(next.tool)
+      index += 1
+      next = events[index]
     }
     segments.push({
       kind: "tools",
@@ -50,6 +96,7 @@ function buildSegments(
       tools,
     })
   }
+
   if (cursor < content.length) {
     segments.push({
       kind: "text",
@@ -57,59 +104,74 @@ function buildSegments(
       text: content.slice(cursor),
     })
   }
+
   return segments
 }
 
 export function MerlinMessageBody({
   content,
   toolCalls,
+  reasoningSegments,
   streaming,
   mentions,
   onCitationJump,
 }: {
   content: string | null
   toolCalls: MerlinToolCallView[]
+  reasoningSegments: MerlinReasoningSegmentView[]
   streaming?: boolean
   mentions: Message["mentions"]
   onCitationJump?: (messageId: string) => void
 }) {
-  // Only top-level calls drive the text/tool segmentation; nested sub-steps
-  // (e.g. the code agent's own tool calls) render inside their parent's trail.
+  // Only top-level calls drive timeline segmentation; nested sub-steps render
+  // inside their parent tool's trail.
   const { segments, childrenByParent } = useMemo(() => {
     const children = new Map<string, MerlinToolCallView[]>()
-    for (const t of toolCalls) {
-      if (!t.parentToolCallId) continue
-      const arr = children.get(t.parentToolCallId) ?? []
-      arr.push(t)
-      children.set(t.parentToolCallId, arr)
+    for (const toolCall of toolCalls) {
+      if (!toolCall.parentToolCallId) continue
+      const childCalls = children.get(toolCall.parentToolCallId) ?? []
+      childCalls.push(toolCall)
+      children.set(toolCall.parentToolCallId, childCalls)
     }
-    const topLevel = toolCalls.filter((t) => !t.parentToolCallId)
+    const topLevel = toolCalls.filter((toolCall) => !toolCall.parentToolCallId)
     return {
-      segments: buildSegments(content ?? "", topLevel),
+      segments: buildSegments(content ?? "", topLevel, reasoningSegments),
       childrenByParent: children,
     }
-  }, [content, toolCalls])
+  }, [content, toolCalls, reasoningSegments])
 
   return (
     <>
-      {segments.map((seg, idx) => {
-        const isLast = idx === segments.length - 1
-        if (seg.kind === "text") {
+      {segments.map((segment, index) => {
+        const isLast = index === segments.length - 1
+        if (segment.kind === "text") {
           return (
             <MessageMarkdown
-              key={seg.key}
-              content={seg.text}
+              key={segment.key}
+              content={segment.text}
               mentions={mentions}
               onCitationJump={onCitationJump}
             />
           )
         }
+        if (segment.kind === "reasoning") {
+          return (
+            <MerlinReasoning
+              key={segment.key}
+              text={segment.reasoning.text}
+              active={
+                !!streaming &&
+                isLast &&
+                segment.reasoning.at >= (content?.length ?? 0)
+              }
+            />
+          )
+        }
         return (
           <MerlinToolTrail
-            key={seg.key}
-            toolCalls={seg.tools}
+            key={segment.key}
+            toolCalls={segment.tools}
             childrenByParent={childrenByParent}
-            // Only the trailing group is "live" — earlier groups already settled.
             streaming={streaming && isLast}
           />
         )

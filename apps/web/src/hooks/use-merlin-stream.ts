@@ -4,11 +4,18 @@ import { useEffect } from "react"
 import { updateMessagesAcrossPages } from "@/lib/message-cache-utils"
 import type { AppSocket } from "@/lib/socket"
 
+type ReasoningSegment = {
+  text: string
+  at: number
+  order: number
+}
+
 type ToolCall = {
   toolCallId: string
   toolName: string
   label: string
   at?: number
+  order?: number
   parentToolCallId?: string
   detail?: { summary?: string; items?: { title: string; url?: string }[] }
   status?: "ok" | "error"
@@ -23,6 +30,7 @@ interface MessagePage {
     remembered?: { path: string; action: "created" | "updated" }[]
     merlinToolCalls?: ToolCall[]
     merlinReasoning?: string | null
+    merlinReasoningSegments?: ReasoningSegment[]
     mentions?: RealtimeMessageMention[]
   }[]
 }
@@ -92,6 +100,8 @@ export function useMerlinStream({
       threadRootId: string | null
       messageId: string
       delta: string
+      at: number
+      order: number
     }) => {
       if (payload.channelId !== channelId) return
       const key = payload.threadRootId
@@ -100,15 +110,34 @@ export function useMerlinStream({
       queryClient.setQueryData<InfiniteData<MessagePage>>(key, (old) => {
         if (!old) return old
         return updateMessagesAcrossPages(old, (msgs) =>
-          msgs.map((m) =>
-            m.id === payload.messageId
-              ? {
-                  ...m,
-                  merlinReasoning: (m.merlinReasoning ?? "") + payload.delta,
-                  streaming: true,
-                }
-              : m
-          )
+          msgs.map((m) => {
+            if (m.id !== payload.messageId) return m
+            const segments = m.merlinReasoningSegments ?? []
+            const existingIndex = segments.findIndex(
+              (segment) => segment.order === payload.order
+            )
+            const merlinReasoningSegments =
+              existingIndex >= 0
+                ? segments.map((segment, index) =>
+                    index === existingIndex
+                      ? { ...segment, text: segment.text + payload.delta }
+                      : segment
+                  )
+                : [
+                    ...segments,
+                    {
+                      text: payload.delta,
+                      at: payload.at,
+                      order: payload.order,
+                    },
+                  ]
+            return {
+              ...m,
+              merlinReasoning: (m.merlinReasoning ?? "") + payload.delta,
+              merlinReasoningSegments,
+              streaming: true,
+            }
+          })
         )
       })
     }

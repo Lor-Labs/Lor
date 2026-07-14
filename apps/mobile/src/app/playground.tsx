@@ -394,8 +394,9 @@ export default function PlaygroundScreen() {
                     Verify placement, swipe dismissal, and semantic colors.
                   </Card.Description>
                 </Card.Body>
-                <Card.Footer className="flex-wrap gap-two">
+                <Card.Footer className="gap-two">
                   <HapticButton
+                    className="w-full"
                     haptic="soft"
                     size="sm"
                     onPress={() =>
@@ -409,6 +410,7 @@ export default function PlaygroundScreen() {
                     Success toast
                   </HapticButton>
                   <HapticButton
+                    className="w-full"
                     haptic="soft"
                     size="sm"
                     variant="danger-soft"

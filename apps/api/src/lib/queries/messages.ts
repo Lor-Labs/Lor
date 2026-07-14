@@ -3,6 +3,7 @@ import type {
   Attachment,
   Embed,
   MerlinMemory,
+  MerlinReasoningSegment,
   MerlinToolCall,
 } from "@repo/db/schema"
 import { message, messageMention, messageReaction, user } from "@repo/db/schema"
@@ -33,6 +34,7 @@ type BareMessageRow = {
   merlinToolCalls: MerlinToolCall[] | null
   merlinMemories: MerlinMemory[] | null
   merlinReasoning: string | null
+  merlinReasoningSegments: MerlinReasoningSegment[] | null
   overrideName: string | null
   overrideAvatarUrl: string | null
   referencedMessageId: string | null
@@ -61,6 +63,7 @@ const messageSelect = {
   merlinToolCalls: message.merlinToolCalls,
   merlinMemories: message.merlinMemories,
   merlinReasoning: message.merlinReasoning,
+  merlinReasoningSegments: message.merlinReasoningSegments,
   overrideName: message.overrideName,
   overrideAvatarUrl: message.overrideAvatarUrl,
   referencedMessageId: message.referencedMessageId,
@@ -486,6 +489,7 @@ export async function fetchMessages({
     ...msg,
     embeds: msg.embeds ?? [],
     merlinToolCalls: msg.merlinToolCalls ?? [],
+    merlinReasoningSegments: msg.merlinReasoningSegments ?? [],
     // Serialized as `remembered` (the brain pages saved during this answer).
     remembered: merlinMemories ?? [],
     mentions: mentionsByMessageId.get(msg.id) ?? [],

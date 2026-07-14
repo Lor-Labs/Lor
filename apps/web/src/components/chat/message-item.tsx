@@ -384,7 +384,8 @@ export function MessageItem({
               </span>
             </div>
           )}
-          {message.merlinReasoning ? (
+          {message.merlinReasoning &&
+          !message.merlinReasoningSegments?.length ? (
             <MerlinReasoning
               text={message.merlinReasoning}
               active={!!message.streaming && !message.content}
@@ -400,6 +401,7 @@ export function MessageItem({
           ) : (message.streaming || message.status === "pending") &&
             !message.content &&
             !message.merlinReasoning &&
+            !message.merlinReasoningSegments?.length &&
             !(message.merlinToolCalls && message.merlinToolCalls.length > 0) ? (
             // In-flight Merlin reply: `streaming` covers the live client, while
             // `status === "pending"` survives a reload / late thread join. Once
@@ -409,11 +411,12 @@ export function MessageItem({
             <span className="text-sm text-muted-foreground italic">
               Merlin couldn't respond to that.
             </span>
-          ) : message.merlinToolCalls && message.merlinToolCalls.length > 0 ? (
-            // Merlin: interleave answer text with tool-call groups in order.
+          ) : (message.merlinToolCalls && message.merlinToolCalls.length > 0) ||
+            message.merlinReasoningSegments?.length ? (
             <MerlinMessageBody
               content={message.content}
-              toolCalls={message.merlinToolCalls}
+              toolCalls={message.merlinToolCalls ?? []}
+              reasoningSegments={message.merlinReasoningSegments ?? []}
               streaming={message.streaming}
               mentions={message.mentions}
               onCitationJump={onJumpToMessage}

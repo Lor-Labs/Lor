@@ -403,6 +403,7 @@ export const listPinnedMessages: AppRouteHandler<
       embeds: message.embeds,
       merlinToolCalls: message.merlinToolCalls,
       merlinReasoning: message.merlinReasoning,
+      merlinReasoningSegments: message.merlinReasoningSegments,
       overrideName: message.overrideName,
       overrideAvatarUrl: message.overrideAvatarUrl,
       referencedMessageId: message.referencedMessageId,
@@ -539,6 +540,7 @@ export const listPinnedMessages: AppRouteHandler<
     ...msg,
     embeds: msg.embeds ?? [],
     merlinToolCalls: msg.merlinToolCalls ?? [],
+    merlinReasoningSegments: msg.merlinReasoningSegments ?? [],
     mentions: (mentionsByMessageId.get(msg.id) ?? []).map((m) => ({
       id: m.id,
       name: m.name,

@@ -37,6 +37,7 @@ export const merlinToolCallSchema = z.object({
   toolName: z.string(),
   label: z.string(),
   at: z.number().optional(),
+  order: z.number().int().nonnegative().optional(),
   parentToolCallId: z.string().optional(),
   detail: z
     .object({
@@ -47,6 +48,12 @@ export const merlinToolCallSchema = z.object({
     })
     .optional(),
   status: z.enum(["ok", "error"]).optional(),
+})
+
+export const merlinReasoningSegmentSchema = z.object({
+  text: z.string(),
+  at: z.number().int().nonnegative(),
+  order: z.number().int().nonnegative(),
 })
 
 export const merlinMemorySchema = z.object({
@@ -91,6 +98,7 @@ export const messageWithAuthorSchema = selectMessageSchema
     // Only Merlin replies carry these; optional so other message endpoints
     // (DMs, pinned, …) need not supply them.
     merlinToolCalls: z.array(merlinToolCallSchema).optional(),
+    merlinReasoningSegments: z.array(merlinReasoningSegmentSchema).optional(),
     remembered: z.array(merlinMemorySchema).optional(),
   })
 

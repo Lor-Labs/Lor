@@ -22,6 +22,7 @@ export function realtimeMessageToMessage(message: RealtimeMessage): Message {
     threadRootId: message.threadRootId ?? null,
     threadSummary: null,
     merlinReasoning: null,
+    merlinReasoningSegments: [],
     overrideName: message.overrideName ?? null,
     overrideAvatarUrl: message.overrideAvatarUrl ?? null,
   }
@@ -70,6 +71,7 @@ export function createOptimisticMessage({
     threadRootId: null,
     threadSummary: null,
     merlinReasoning: null,
+    merlinReasoningSegments: [],
     overrideName: null,
     overrideAvatarUrl: null,
   }
