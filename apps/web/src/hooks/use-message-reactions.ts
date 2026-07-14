@@ -12,12 +12,14 @@ type MessageWithReactions = Parameters<typeof toggleReactionOptimistically>[0]
 
 interface MessagePage {
   data: MessageWithReactions[]
+  root?: MessageWithReactions | null
 }
 
 interface UseMessageReactionsOptions {
   socket: AppSocket | null
   queryClient: QueryClient
   channelId: string
+  threadRootId?: string
   currentUserId?: string
   currentUserName?: string
 }
@@ -26,6 +28,7 @@ export function useMessageReactions({
   socket,
   queryClient,
   channelId,
+  threadRootId,
   currentUserId,
   currentUserName,
 }: UseMessageReactionsOptions) {
@@ -34,19 +37,31 @@ export function useMessageReactions({
       messageId: string,
       updater: (message: MessageWithReactions) => MessageWithReactions
     ) => {
-      queryClient.setQueryData<InfiniteData<MessagePage>>(
-        ["messages", channelId],
-        (old) => {
+      const updateCache = (cacheKey: readonly unknown[]) => {
+        queryClient.setQueryData<InfiniteData<MessagePage>>(cacheKey, (old) => {
           if (!old) return old
-          return updateMessagesAcrossPages(old, (msgs) =>
+
+          const updated = updateMessagesAcrossPages(old, (msgs) =>
             msgs.map((message) =>
               message.id === messageId ? updater(message) : message
             )
           )
-        }
-      )
+
+          return {
+            ...updated,
+            pages: updated.pages.map((page) =>
+              page.root?.id === messageId
+                ? { ...page, root: updater(page.root) }
+                : page
+            ),
+          }
+        })
+      }
+
+      updateCache(["messages", channelId])
+      if (threadRootId) updateCache(["thread", threadRootId])
     },
-    [queryClient, channelId]
+    [queryClient, channelId, threadRootId]
   )
 
   const currentUser = useMemo(
