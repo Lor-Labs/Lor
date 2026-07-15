@@ -1,4 +1,5 @@
-import { SymbolView } from "expo-symbols"
+import SentIcon from "@hugeicons/core-free-icons/SentIcon"
+import { HugeiconsIcon } from "@hugeicons/react-native"
 import { Alert } from "heroui-native/alert"
 import { useThemeColor } from "heroui-native/hooks"
 import { Spinner } from "heroui-native/spinner"
@@ -18,10 +19,7 @@ export function MessageComposer({
   isConnected: boolean
   onSend: (content: string) => Promise<void>
 }) {
-  const [accentForeground, muted] = useThemeColor([
-    "accent-foreground",
-    "muted",
-  ])
+  const [accent, muted] = useThemeColor(["accent", "muted"])
   const [content, setContent] = useState("")
   const canSend = content.trim().length > 0 && !isSending && isConnected
 
@@ -52,7 +50,7 @@ export function MessageComposer({
       <View className="relative">
         <TextArea
           accessibilityLabel={`Message ${channelName}`}
-          className="h-auto min-h-12 max-h-[120px] py-three pl-four pr-[60px] text-base leading-[21px]"
+          className="h-auto min-h-12 max-h-[120px] py-three pl-four pr-[60px] text-base leading-[21px] ios:focus:outline-transparent android:focus:border-field-border"
           isDisabled={!isConnected || isSending}
           onChangeText={setContent}
           onSubmitEditing={() => void send()}
@@ -64,20 +62,18 @@ export function MessageComposer({
         <IconButton
           accessibilityLabel="Send message"
           className="absolute bottom-one right-one"
+          feedbackVariant="scale"
           isDisabled={!canSend}
           onPress={() => void send()}
+          variant="ghost"
         >
           {isSending ? (
-            <Spinner color={accentForeground} size="sm" />
+            <Spinner color={accent} size="sm" />
           ) : (
-            <SymbolView
-              name={{
-                ios: "arrow.up",
-                android: "arrow_upward",
-                web: "arrow_upward",
-              }}
-              size={18}
-              tintColor={canSend ? accentForeground : muted}
+            <HugeiconsIcon
+              color={canSend ? accent : muted}
+              icon={SentIcon}
+              size={16}
             />
           )}
         </IconButton>

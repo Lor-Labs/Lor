@@ -171,7 +171,7 @@ export default function ChannelScreen() {
           accessibilityLabel="Channel options"
           className="mr-one"
           onPress={() => router.push("/explore")}
-          variant="tertiary"
+          variant="ghost"
         >
           <SymbolView
             name={{ ios: "ellipsis", android: "more_horiz", web: "more_horiz" }}

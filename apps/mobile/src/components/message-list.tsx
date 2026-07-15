@@ -55,9 +55,7 @@ function MessageRow({
 
   return (
     <View
-      className={`${
-        showHeader ? "py-three" : "py-[3px]"
-      } flex-row gap-three px-four ${isMerlin ? "bg-accent-soft" : ""}`}
+      className={`${showHeader ? "py-three" : "py-[3px]"} flex-row gap-three px-four`}
     >
       <View className="min-w-10 pt-px">
         {showHeader ? (
