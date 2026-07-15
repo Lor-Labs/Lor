@@ -1,0 +1,124 @@
+diff --git a/ios/renderer/LinkRenderer.m b/ios/renderer/LinkRenderer.m
+index 3668136abfdbcd175f18f4b83c1b2a3988787c81..8ba434265e2d087698c10447eae8245ccd879cd3 100644
+--- a/ios/renderer/LinkRenderer.m
++++ b/ios/renderer/LinkRenderer.m
+@@ -1,4 +1,5 @@
+ #import "LinkRenderer.h"
++#import "CodeBackground.h"
+ #import "FontUtils.h"
+ #import "RenderContext.h"
+ #import "RendererFactory.h"
+@@ -73,7 +74,9 @@ - (void)renderNode:(MarkdownASTNode *)node into:(NSMutableAttributedString *)out
+                           }];
+ 
+   if (backgroundColor) {
+-    [output addAttribute:NSBackgroundColorAttributeName value:backgroundColor range:range];
++    // Custom attribute drawn as a rounded, padded chip by CodeBackground
++    // (NSBackgroundColorAttributeName renders a sharp glyph-hugging rect).
++    [output addAttribute:LinkChipAttributeName value:backgroundColor range:range];
+   }
+ 
+   [context registerLinkRange:range url:url];
+diff --git a/ios/utils/CodeBackground.h b/ios/utils/CodeBackground.h
+index 17f198248d1de06b8417aa90ba3823a3ec6592b3..8f46f7da0a4274a9284b852cffb9cd2287e7c447 100644
+--- a/ios/utils/CodeBackground.h
++++ b/ios/utils/CodeBackground.h
+@@ -5,6 +5,7 @@
+ NS_ASSUME_NONNULL_BEGIN
+ 
+ extern NSString *const CodeAttributeName;
++extern NSString *const LinkChipAttributeName;
+ 
+ @interface CodeBackground : NSObject
+ 
+diff --git a/ios/utils/CodeBackground.m b/ios/utils/CodeBackground.m
+index 5e5d5bf06370c9a94ed5645ccba4436894fe2bdb..5ac6acde1809b3c7532fc88d098aa160811df6e7 100644
+--- a/ios/utils/CodeBackground.m
++++ b/ios/utils/CodeBackground.m
+@@ -3,9 +3,11 @@
+ #import "RenderContext.h"
+ 
+ NSString *const CodeAttributeName = @"Code";
++NSString *const LinkChipAttributeName = @"LinkChip";
+ 
+-static const CGFloat kCodeBackgroundCornerRadius = 2.0;
++static const CGFloat kCodeBackgroundCornerRadius = 4.0;
+ static const CGFloat kCodeBackgroundBorderWidth = 0.5;
++static const CGFloat kChipHorizontalPadding = 2.0;
+ 
+ @implementation CodeBackground {
+   StyleConfig *_config;
+@@ -25,20 +27,38 @@ - (void)drawBackgroundsForGlyphRange:(NSRange)glyphsToShow
+                        textContainer:(NSTextContainer *)textContainer
+                              atPoint:(CGPoint)origin
+ {
+-  RCTUIColor *backgroundColor = _config.codeBackgroundColor;
+-  if (!backgroundColor)
+-    return;
+-
+   NSTextStorage *textStorage = layoutManager.textStorage;
+   NSRange charRange = [layoutManager characterRangeForGlyphRange:glyphsToShow actualGlyphRange:NULL];
+   if (charRange.location == NSNotFound || charRange.length == 0)
+     return;
+ 
+-  [textStorage enumerateAttribute:CodeAttributeName
++  RCTUIColor *backgroundColor = _config.codeBackgroundColor;
++  if (backgroundColor) {
++    [textStorage enumerateAttribute:CodeAttributeName
++                            inRange:NSMakeRange(0, textStorage.length)
++                            options:0
++                         usingBlock:^(id value, NSRange range, BOOL *stop) {
++                           if (!value || range.length == 0)
++                             return;
++                           if (NSIntersectionRange(range, charRange).length == 0)
++                             return;
++
++                           [self drawCodeBackgroundForRange:range
++                                              layoutManager:layoutManager
++                                              textContainer:textContainer
++                                                    atPoint:origin
++                                            backgroundColor:backgroundColor
++                                                borderColor:self->_config.codeBorderColor];
++                         }];
++  }
++
++  // Link chips (mentions/citations) carry their resolved background color as
++  // the attribute value so each variant keeps its own tint.
++  [textStorage enumerateAttribute:LinkChipAttributeName
+                           inRange:NSMakeRange(0, textStorage.length)
+                           options:0
+                        usingBlock:^(id value, NSRange range, BOOL *stop) {
+-                         if (!value || range.length == 0)
++                         if (![value isKindOfClass:[RCTUIColor class]] || range.length == 0)
+                            return;
+                          if (NSIntersectionRange(range, charRange).length == 0)
+                            return;
+@@ -47,8 +67,8 @@ - (void)drawBackgroundsForGlyphRange:(NSRange)glyphsToShow
+                                             layoutManager:layoutManager
+                                             textContainer:textContainer
+                                                   atPoint:origin
+-                                          backgroundColor:backgroundColor
+-                                              borderColor:self->_config.codeBorderColor];
++                                          backgroundColor:(RCTUIColor *)value
++                                              borderColor:nil];
+                        }];
+ }
+ 
+@@ -100,6 +120,17 @@ - (void)drawCodeBackgroundForRange:(NSRange)range
+                                    finalRect.size.height = referenceHeight;
+                                  }
+ 
++                                 // Chip x-padding: the layout reserves no space around the glyphs,
++                                 // so extend the background slightly past the span edges.
++                                 if (isFirst) {
++                                   CGFloat pad = MIN(kChipHorizontalPadding, finalRect.origin.x);
++                                   finalRect.origin.x -= pad;
++                                   finalRect.size.width += pad;
++                                 }
++                                 if (isLast) {
++                                   finalRect.size.width += kChipHorizontalPadding;
++                                 }
++
+                                  [self drawBackgroundAndBorders:finalRect
+                                                 backgroundColor:backgroundColor
+                                                     borderColor:borderColor
