@@ -21,11 +21,15 @@ export function MessageComposer({
   isSending,
   isConnected,
   onSend,
+  placeholder,
+  accessibilityLabel,
 }: {
   channelName: string
   isSending: boolean
   isConnected: boolean
   onSend: (content: string) => Promise<void>
+  placeholder?: string
+  accessibilityLabel?: string
 }) {
   const [accent, muted] = useThemeColor(["accent", "muted"])
   const [content, setContent] = useState("")
@@ -63,7 +67,7 @@ export function MessageComposer({
         layout={composerLayoutTransition}
       >
         <TextArea
-          accessibilityLabel={`Message ${channelName}`}
+          accessibilityLabel={accessibilityLabel ?? `Message ${channelName}`}
           className={`h-auto max-h-[120px] border-transparent bg-transparent px-four text-base leading-[21px] shadow-none ios:shadow-none ios:outline-transparent ios:focus:outline-transparent android:border-transparent android:focus:border-transparent ${
             isExpanded
               ? "min-h-[56px] pb-two pt-three"
@@ -74,7 +78,7 @@ export function MessageComposer({
           onChangeText={setContent}
           onFocus={() => setIsFocused(true)}
           onSubmitEditing={() => void send()}
-          placeholder={`Message #${channelName}`}
+          placeholder={placeholder ?? `Message #${channelName}`}
           returnKeyType={hasMessage ? "send" : "default"}
           submitBehavior={hasMessage ? "submit" : "newline"}
           value={content}

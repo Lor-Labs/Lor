@@ -4,7 +4,6 @@ import { router, useLocalSearchParams } from "expo-router"
 import { SymbolView } from "expo-symbols"
 import { useThemeColor } from "heroui-native/hooks"
 import { Spinner } from "heroui-native/spinner"
-import { useCallback, useEffect, useRef, useState } from "react"
 import { Text, View } from "react-native"
 import { KeyboardAvoidingView } from "react-native-keyboard-controller"
 import { MessageComposer } from "@/components/message-composer"
@@ -14,9 +13,9 @@ import { Screen } from "@/components/ui/screen"
 import { StatePanel } from "@/components/ui/state-panel"
 import { useSocket, useSocketConnected } from "@/context/socket-context"
 import { useWorkspace } from "@/context/workspace-context"
+import { useChannelDetail } from "@/hooks/use-channel-detail"
 import { useChannelMessages } from "@/hooks/use-channel-messages"
-import { api } from "@/lib/api"
-import type { ChannelDetail } from "@/lib/api-types"
+import type { Message } from "@/lib/api-types"
 import { authClient } from "@/lib/auth-client"
 
 export default function ChannelScreen() {
@@ -26,67 +25,10 @@ export default function ChannelScreen() {
   const { workspace } = useWorkspace()
   const { channelId } = useLocalSearchParams<{ channelId: string }>()
   const { data: session } = authClient.useSession()
-  const [channel, setChannel] = useState<ChannelDetail | null>(null)
-  const [isLoadingChannel, setIsLoadingChannel] = useState(true)
-  const [channelError, setChannelError] = useState<string | null>(null)
-  const channelRequestRef = useRef(0)
-  const channelIdentityRef = useRef("")
-  const channelIdentity = `${workspace?.slug ?? ""}:${channelId ?? ""}`
-
-  channelIdentityRef.current = channelIdentity
-
-  const loadChannel = useCallback(async () => {
-    const requestId = ++channelRequestRef.current
-    const requestIdentity = `${workspace?.slug ?? ""}:${channelId ?? ""}`
-
-    if (!workspace || !channelId) {
-      if (
-        requestId === channelRequestRef.current &&
-        requestIdentity === channelIdentityRef.current
-      ) {
-        setIsLoadingChannel(false)
-      }
-      return
-    }
-
-    setIsLoadingChannel(true)
-    setChannelError(null)
-    try {
-      const response = await api.v1.workspaces[":workspaceSlug"].channels[
-        ":channelId"
-      ].$get({
-        param: { workspaceSlug: workspace.slug, channelId },
-      })
-      if (!response.ok) throw new Error("Could not load this channel")
-      const payload = await response.json()
-      if (
-        requestId === channelRequestRef.current &&
-        requestIdentity === channelIdentityRef.current
-      ) {
-        setChannel(payload)
-      }
-    } catch (cause) {
-      if (
-        requestId === channelRequestRef.current &&
-        requestIdentity === channelIdentityRef.current
-      ) {
-        setChannelError(
-          cause instanceof Error ? cause.message : "Could not load this channel"
-        )
-      }
-    } finally {
-      if (
-        requestId === channelRequestRef.current &&
-        requestIdentity === channelIdentityRef.current
-      ) {
-        setIsLoadingChannel(false)
-      }
-    }
-  }, [workspace, channelId])
-
-  useEffect(() => {
-    void loadChannel()
-  }, [loadChannel])
+  const channelState = useChannelDetail({
+    workspaceSlug: workspace?.slug ?? "",
+    channelId: channelId ?? "",
+  })
 
   const chat = useChannelMessages({
     workspaceSlug: workspace?.slug ?? "",
@@ -106,7 +48,7 @@ export default function ChannelScreen() {
       </Screen>
     )
   }
-  if (isLoadingChannel) {
+  if (channelState.isLoading) {
     return (
       <Screen className="bg-background" edges={["top", "bottom"]}>
         <View className="flex-1 items-center justify-center">
@@ -115,20 +57,27 @@ export default function ChannelScreen() {
       </Screen>
     )
   }
-  if (channelError || !channel) {
+  if (channelState.error || !channelState.channel) {
     return (
       <Screen className="bg-background" edges={["top", "bottom"]}>
         <StatePanel
           action={{ label: "Back to channels", onPress: () => router.back() }}
           className="flex-1"
-          detail={channelError ?? "This channel no longer exists."}
+          detail={channelState.error ?? "This channel no longer exists."}
           status="danger"
           title="Channel unavailable"
         />
       </Screen>
     )
   }
+  const channel = channelState.channel
   const channelName = channel.name ?? "channel"
+  const openThread = (message: Message) => {
+    router.push({
+      pathname: "/channel/[channelId]/thread/[threadRootId]",
+      params: { channelId, threadRootId: message.id },
+    })
+  }
 
   return (
     <Screen className="bg-background" edges={["top", "bottom"]}>
@@ -201,10 +150,10 @@ export default function ChannelScreen() {
       >
         <MessageList
           channelName={channelName}
-          currentUserId={session?.user.id}
           error={chat.error}
           isLoading={chat.isLoading}
           messages={chat.messages}
+          onOpenThread={openThread}
           onRetry={() => void chat.reload()}
         />
         <MessageComposer

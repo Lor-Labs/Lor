@@ -1,22 +1,16 @@
+import type { RealtimeMessageThreadUpdated } from "@repo/realtime-types"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { api } from "@/lib/api"
 import type { Message } from "@/lib/api-types"
 import {
+  applyThreadSummaryUpdate,
   createOptimisticMessage,
+  mergeMessages,
   realtimeMessageToMessage,
+  removeMessage,
+  replaceMessage,
 } from "@/lib/messages"
 import type { AppSocket } from "@/lib/socket"
-
-function mergeMessages(...groups: Message[][]) {
-  const byId = new Map<string, Message>()
-  for (const group of groups) {
-    for (const message of group) byId.set(message.id, message)
-  }
-  return [...byId.values()].sort(
-    (left, right) =>
-      new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
-  )
-}
 
 export function useChannelMessages({
   workspaceSlug,
@@ -108,6 +102,10 @@ export function useChannelMessages({
     const joinChannel = () => {
       socket.emit("channel:join", { channelId })
     }
+    const rejoinChannel = () => {
+      joinChannel()
+      void reload()
+    }
     const receiveMessage = (
       message: Parameters<typeof realtimeMessageToMessage>[0]
     ) => {
@@ -115,17 +113,23 @@ export function useChannelMessages({
       const next = realtimeMessageToMessage(message)
       setMessages((current) => mergeMessages([next], current))
     }
+    const updateThreadSummary = (payload: RealtimeMessageThreadUpdated) => {
+      if (payload.channelId !== channelId) return
+      setMessages((current) => applyThreadSummaryUpdate(current, payload))
+    }
 
     if (socket.connected) joinChannel()
-    socket.on("connect", joinChannel)
+    socket.on("connect", rejoinChannel)
     socket.on("message:created", receiveMessage)
+    socket.on("message:thread:updated", updateThreadSummary)
 
     return () => {
       if (socket.connected) socket.emit("channel:leave", { channelId })
-      socket.off("connect", joinChannel)
+      socket.off("connect", rejoinChannel)
       socket.off("message:created", receiveMessage)
+      socket.off("message:thread:updated", updateThreadSummary)
     }
-  }, [socket, channelId])
+  }, [socket, channelId, reload])
 
   const sendMessage = useCallback(
     async (content: string) => {
@@ -162,16 +166,9 @@ export function useChannelMessages({
         if (!result.ok) throw new Error(result.error)
 
         const confirmed = realtimeMessageToMessage(result.message)
-        setMessages((current) =>
-          mergeMessages(
-            [confirmed],
-            current.filter((message) => message.id !== nonce)
-          )
-        )
+        setMessages((current) => replaceMessage(current, nonce, confirmed))
       } catch (cause) {
-        setMessages((current) =>
-          current.filter((message) => message.id !== nonce)
-        )
+        setMessages((current) => removeMessage(current, nonce))
         const errorMessage =
           cause instanceof Error && cause.message === "operation has timed out"
             ? "Message delivery timed out. Please try again."
