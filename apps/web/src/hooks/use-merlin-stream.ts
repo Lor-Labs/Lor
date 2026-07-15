@@ -1,14 +1,13 @@
 import type { RealtimeMessageMention } from "@repo/realtime-types"
+import {
+  appendReasoningSegment,
+  type MerlinReasoningSegment,
+  upsertToolCall,
+} from "@repo/utils/merlin"
 import type { InfiniteData, QueryClient } from "@tanstack/react-query"
 import { useEffect } from "react"
 import { updateMessagesAcrossPages } from "@/lib/message-cache-utils"
 import type { AppSocket } from "@/lib/socket"
-
-type ReasoningSegment = {
-  text: string
-  at: number
-  order: number
-}
 
 type ToolCall = {
   toolCallId: string
@@ -30,7 +29,7 @@ interface MessagePage {
     remembered?: { path: string; action: "created" | "updated" }[]
     merlinToolCalls?: ToolCall[]
     merlinReasoning?: string | null
-    merlinReasoningSegments?: ReasoningSegment[]
+    merlinReasoningSegments?: MerlinReasoningSegment[]
     mentions?: RealtimeMessageMention[]
   }[]
 }
@@ -110,34 +109,19 @@ export function useMerlinStream({
       queryClient.setQueryData<InfiniteData<MessagePage>>(key, (old) => {
         if (!old) return old
         return updateMessagesAcrossPages(old, (msgs) =>
-          msgs.map((m) => {
-            if (m.id !== payload.messageId) return m
-            const segments = m.merlinReasoningSegments ?? []
-            const existingIndex = segments.findIndex(
-              (segment) => segment.order === payload.order
-            )
-            const merlinReasoningSegments =
-              existingIndex >= 0
-                ? segments.map((segment, index) =>
-                    index === existingIndex
-                      ? { ...segment, text: segment.text + payload.delta }
-                      : segment
-                  )
-                : [
-                    ...segments,
-                    {
-                      text: payload.delta,
-                      at: payload.at,
-                      order: payload.order,
-                    },
-                  ]
-            return {
-              ...m,
-              merlinReasoning: (m.merlinReasoning ?? "") + payload.delta,
-              merlinReasoningSegments,
-              streaming: true,
-            }
-          })
+          msgs.map((m) =>
+            m.id === payload.messageId
+              ? {
+                  ...m,
+                  merlinReasoning: (m.merlinReasoning ?? "") + payload.delta,
+                  merlinReasoningSegments: appendReasoningSegment(
+                    m.merlinReasoningSegments,
+                    payload
+                  ),
+                  streaming: true,
+                }
+              : m
+          )
         )
       })
     }
@@ -204,20 +188,19 @@ export function useMerlinStream({
       queryClient.setQueryData<InfiniteData<MessagePage>>(key, (old) => {
         if (!old) return old
         return updateMessagesAcrossPages(old, (msgs) =>
-          msgs.map((m) => {
-            if (m.id !== payload.messageId) return m
-            // Upsert into the same trail the server persists, so live and
-            // reloaded renders match (start adds the row, completion fills detail).
-            const existing = m.merlinToolCalls ?? []
-            const idx = existing.findIndex(
-              (t) => t.toolCallId === payload.toolCall.toolCallId
-            )
-            const merlinToolCalls =
-              idx >= 0
-                ? existing.map((t, i) => (i === idx ? payload.toolCall : t))
-                : [...existing, payload.toolCall]
-            return { ...m, merlinToolCalls }
-          })
+          msgs.map((m) =>
+            m.id === payload.messageId
+              ? // Upsert into the same trail the server persists, so live and
+                // reloaded renders match (start adds the row, completion fills detail).
+                {
+                  ...m,
+                  merlinToolCalls: upsertToolCall(
+                    m.merlinToolCalls,
+                    payload.toolCall
+                  ),
+                }
+              : m
+          )
         )
       })
     }

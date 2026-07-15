@@ -17,7 +17,7 @@ export function Screen({ className, style, ...props }: ScreenProps) {
     <UniwindSafeAreaView
       {...props}
       className={`flex-1 ${className ?? ""}`}
-      style={[{ flex: 1 }, style]}
+      style={[style, { flex: 1 }]}
     />
   )
 }

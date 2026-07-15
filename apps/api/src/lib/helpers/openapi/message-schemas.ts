@@ -66,6 +66,8 @@ export const referencedMessageSchema = z
     id: z.string().uuid(),
     content: z.string().nullable(),
     author: messageAuthorSchema,
+    overrideName: z.string().nullable(),
+    overrideAvatarUrl: z.string().nullable(),
   })
   .nullable()
 

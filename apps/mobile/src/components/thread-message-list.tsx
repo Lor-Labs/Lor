@@ -155,7 +155,8 @@ export function ThreadMessageList({
           }}
           maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
           onEndReached={() => {
-            if (hasOlder && !isLoadingOlder) onLoadOlder()
+            // Don't auto-retry after a failed page — that's the Try again button.
+            if (hasOlder && !isLoadingOlder && !paginationError) onLoadOlder()
           }}
           onEndReachedThreshold={0.25}
           onScrollToIndexFailed={({ index, averageItemLength }) => {
@@ -245,9 +246,12 @@ export function ThreadMessageList({
               new Date(message.createdAt).getTime() -
                 new Date(older.createdAt).getTime() >
                 MESSAGE_GROUP_WINDOW_MS
-            const showDate =
-              !!older &&
-              !areMessagesOnSameDay(message.createdAt, older.createdAt)
+            // The oldest loaded reply compares against the root only once all
+            // older replies are loaded — unloaded days may sit in between.
+            const showDate = older
+              ? !areMessagesOnSameDay(message.createdAt, older.createdAt)
+              : !hasOlder &&
+                !areMessagesOnSameDay(message.createdAt, root.createdAt)
 
             return (
               <Pressable

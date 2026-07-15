@@ -363,13 +363,18 @@ function ReplyPreview({
 }) {
   const referenced = message.referencedMessage
   const deleted = !referenced
+  const referencedName = referenced
+    ? (referenced.overrideName ??
+      referenced.author.displayUsername ??
+      referenced.author.name)
+    : null
 
   return (
     <Pressable
       accessibilityLabel={
-        deleted
-          ? "Original message was deleted"
-          : `Jump to message from ${referenced.author.displayUsername ?? referenced.author.name}`
+        referencedName
+          ? `Jump to message from ${referencedName}`
+          : "Original message was deleted"
       }
       accessibilityRole={deleted ? undefined : "button"}
       className="mb-one min-h-7 flex-row items-center gap-two"
@@ -379,23 +384,16 @@ function ReplyPreview({
       }}
     >
       <View className="ml-two h-5 w-px bg-border" />
-      {referenced ? (
+      {referenced && referencedName ? (
         <Avatar
-          fallback={
-            (referenced.author.displayUsername ?? referenced.author.name)
-              .trim()
-              .charAt(0)
-              .toUpperCase() || "?"
-          }
-          image={referenced.author.image}
-          name={referenced.author.displayUsername ?? referenced.author.name}
+          fallback={referencedName.trim().charAt(0).toUpperCase() || "?"}
+          image={referenced.overrideAvatarUrl ?? referenced.author.image}
+          name={referencedName}
           size="xs"
         />
       ) : null}
       <Text className="shrink-0 text-xs font-semibold text-muted">
-        {referenced
-          ? (referenced.author.displayUsername ?? referenced.author.name)
-          : "Original message was deleted"}
+        {referencedName ?? "Original message was deleted"}
       </Text>
       {referenced?.content ? (
         <Text className="min-w-0 flex-1 text-xs text-muted" numberOfLines={1}>

@@ -38,63 +38,71 @@ export function useChannelMessages({
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [isSending, setIsSending] = useState(false)
+  const sendingRef = useRef(false)
   const reloadRequestRef = useRef(0)
   const channelIdentityRef = useRef("")
   const channelIdentity = `${workspaceSlug}:${channelId}`
 
   channelIdentityRef.current = channelIdentity
 
-  const reload = useCallback(async () => {
-    const requestId = ++reloadRequestRef.current
-    const requestIdentity = `${workspaceSlug}:${channelId}`
+  // `replace` drops local state in favor of the fetched page — used on socket
+  // reconnect so deletions missed while offline don't linger.
+  const reload = useCallback(
+    async ({ replace = false } = {}) => {
+      const requestId = ++reloadRequestRef.current
+      const requestIdentity = `${workspaceSlug}:${channelId}`
 
-    if (!workspaceSlug || !channelId) {
-      if (
-        requestId === reloadRequestRef.current &&
-        requestIdentity === channelIdentityRef.current
-      ) {
-        setMessages([])
-        setError(null)
-        setIsLoading(false)
+      if (!workspaceSlug || !channelId) {
+        if (
+          requestId === reloadRequestRef.current &&
+          requestIdentity === channelIdentityRef.current
+        ) {
+          setMessages([])
+          setError(null)
+          setIsLoading(false)
+        }
+        return
       }
-      return
-    }
 
-    setIsLoading(true)
-    setError(null)
-    try {
-      const response = await api.v1.workspaces[":workspaceSlug"].channels[
-        ":channelId"
-      ].messages.$get({
-        param: { workspaceSlug, channelId },
-        query: { limit: "50" },
-      })
-      if (!response.ok) throw new Error("Could not load messages")
-      const payload = await response.json()
-      if (
-        requestId === reloadRequestRef.current &&
-        requestIdentity === channelIdentityRef.current
-      ) {
-        setMessages((current) => mergeMessages(payload.data, current))
+      setIsLoading(true)
+      setError(null)
+      try {
+        const response = await api.v1.workspaces[":workspaceSlug"].channels[
+          ":channelId"
+        ].messages.$get({
+          param: { workspaceSlug, channelId },
+          query: { limit: "50" },
+        })
+        if (!response.ok) throw new Error("Could not load messages")
+        const payload = await response.json()
+        if (
+          requestId === reloadRequestRef.current &&
+          requestIdentity === channelIdentityRef.current
+        ) {
+          setMessages((current) =>
+            replace ? payload.data : mergeMessages(payload.data, current)
+          )
+        }
+      } catch (cause) {
+        if (
+          requestId === reloadRequestRef.current &&
+          requestIdentity === channelIdentityRef.current
+        ) {
+          setError(
+            cause instanceof Error ? cause.message : "Could not load messages"
+          )
+        }
+      } finally {
+        if (
+          requestId === reloadRequestRef.current &&
+          requestIdentity === channelIdentityRef.current
+        ) {
+          setIsLoading(false)
+        }
       }
-    } catch (cause) {
-      if (
-        requestId === reloadRequestRef.current &&
-        requestIdentity === channelIdentityRef.current
-      ) {
-        setError(
-          cause instanceof Error ? cause.message : "Could not load messages"
-        )
-      }
-    } finally {
-      if (
-        requestId === reloadRequestRef.current &&
-        requestIdentity === channelIdentityRef.current
-      ) {
-        setIsLoading(false)
-      }
-    }
-  }, [workspaceSlug, channelId])
+    },
+    [workspaceSlug, channelId]
+  )
 
   useEffect(() => {
     setMessages([])
@@ -109,7 +117,7 @@ export function useChannelMessages({
     }
     const rejoinChannel = () => {
       joinChannel()
-      void reload()
+      void reload({ replace: true })
     }
     const receiveMessage = (
       message: Parameters<typeof realtimeMessageToMessage>[0]
@@ -295,7 +303,7 @@ export function useChannelMessages({
   const sendMessage = useCallback(
     async (content: string, referencedMessage?: Message) => {
       const trimmed = content.trim()
-      if (!trimmed || isSending) return
+      if (!trimmed || sendingRef.current) return
       if (!socket?.connected) {
         const errorMessage = "You're offline. Reconnect and try again."
         setError(errorMessage)
@@ -319,9 +327,12 @@ export function useChannelMessages({
               id: referencedMessage.id,
               content: referencedMessage.content,
               author: referencedMessage.author,
+              overrideName: referencedMessage.overrideName,
+              overrideAvatarUrl: referencedMessage.overrideAvatarUrl,
             }
           : null,
       })
+      sendingRef.current = true
       setMessages((current) => mergeMessages([optimistic], current))
       setIsSending(true)
       setError(null)
@@ -351,10 +362,11 @@ export function useChannelMessages({
         setError(errorMessage)
         throw cause
       } finally {
+        sendingRef.current = false
         setIsSending(false)
       }
     },
-    [socket, currentUser, isSending, channelId]
+    [socket, currentUser, channelId]
   )
 
   const toggleReaction = useCallback(

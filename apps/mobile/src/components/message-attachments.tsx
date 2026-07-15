@@ -2,10 +2,10 @@ import Download01Icon from "@hugeicons/core-free-icons/Download01Icon"
 import File01Icon from "@hugeicons/core-free-icons/File01Icon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
 import { Image } from "expo-image"
-import * as WebBrowser from "expo-web-browser"
 import { useThemeColor } from "heroui-native/hooks"
 import { Pressable, Text, View } from "react-native"
 import type { Message } from "@/lib/api-types"
+import { openExternalUrl } from "@/lib/open-url"
 
 type Attachments = NonNullable<Message["attachments"]>
 type Attachment = Attachments[number]
@@ -48,7 +48,7 @@ export function MessageAttachments({
           className="max-w-[360px] overflow-hidden rounded-lor-sm bg-surface-secondary"
           onPress={() => {
             const url = images[0]?.url
-            if (url) void WebBrowser.openBrowserAsync(url)
+            if (url) openExternalUrl(url)
           }}
         >
           <Image
@@ -67,7 +67,7 @@ export function MessageAttachments({
               accessibilityRole="imagebutton"
               className="aspect-square w-[49%] overflow-hidden rounded-lor-sm bg-surface-secondary"
               key={image.url}
-              onPress={() => void WebBrowser.openBrowserAsync(image.url)}
+              onPress={() => openExternalUrl(image.url)}
             >
               <Image
                 accessibilityLabel={image.filename}
@@ -86,7 +86,7 @@ export function MessageAttachments({
           accessibilityRole="link"
           className="max-w-[420px] flex-row items-center gap-three rounded-lor-sm border border-border bg-surface-secondary p-three"
           key={attachment.url}
-          onPress={() => void WebBrowser.openBrowserAsync(attachment.url)}
+          onPress={() => openExternalUrl(attachment.url)}
         >
           <View className="size-10 items-center justify-center rounded-lor-sm bg-default">
             <HugeiconsIcon color={foreground} icon={File01Icon} size={20} />

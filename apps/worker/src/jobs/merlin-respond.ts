@@ -354,16 +354,20 @@ export function createMerlinRespondProcessor(
           // rewrites the same tokens as the full pass, so the grounded prefix
           // length is the grounded offset. Citation-free prefixes (the common
           // case — tools run before any cited text) short-circuit with no DB work.
-          const offsetCache = new Map<number, number>()
-          const remapOffset = async (at: number): Promise<number> => {
-            if (at <= 0) return at
+          // Cache the in-flight promise, not the resolved value — the callers
+          // below fan out with Promise.all, so same-offset events would each
+          // trigger their own grounding pass otherwise.
+          const offsetCache = new Map<number, Promise<number>>()
+          const remapOffset = (at: number): Promise<number> => {
+            if (at <= 0) return Promise.resolve(at)
             const cached = offsetCache.get(at)
-            if (cached !== undefined) return cached
-            const g = await groundCitations(
+            if (cached) return cached
+            const mapped = groundCitations(
               workspaceId,
               answer.text.slice(0, at)
-            ).catch(() => null)
-            const mapped = g ? g.text.length : at
+            )
+              .then((g) => g.text.length)
+              .catch(() => at)
             offsetCache.set(at, mapped)
             return mapped
           }

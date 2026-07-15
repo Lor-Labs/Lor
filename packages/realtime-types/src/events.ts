@@ -129,6 +129,10 @@ export type RealtimeReferencedMessage = {
   id: string
   content: string | null
   author: RealtimeAuthor
+  // Webhook/connector display identity — mirrors RealtimeMessage so reply
+  // previews show the same name/avatar as the referenced message itself.
+  overrideName: string | null
+  overrideAvatarUrl: string | null
 }
 
 export type RealtimeMessage = {

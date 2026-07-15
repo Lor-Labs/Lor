@@ -8,7 +8,6 @@ import Search01Icon from "@hugeicons/core-free-icons/Search01Icon"
 import TerminalIcon from "@hugeicons/core-free-icons/TerminalIcon"
 import Wrench01Icon from "@hugeicons/core-free-icons/Wrench01Icon"
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react-native"
-import * as WebBrowser from "expo-web-browser"
 import { BottomSheet } from "heroui-native/bottom-sheet"
 import { useThemeColor } from "heroui-native/hooks"
 import { useState } from "react"
@@ -20,6 +19,7 @@ import {
 } from "@/components/connector-icon"
 import { MessageContent } from "@/components/message-content"
 import type { MerlinToolCall } from "@/lib/merlin"
+import { openExternalUrl } from "@/lib/open-url"
 
 function builtinToolIcon(toolName: string): IconSvgElement {
   switch (toolName) {
@@ -83,8 +83,15 @@ export function MerlinToolTrail({
     "accent",
   ])
   const [isOpen, setIsOpen] = useState(false)
-  const [selectedTool, setSelectedTool] = useState<MerlinToolCall | null>(null)
+  // Track only the id — the drawer re-derives its tool from the prop so it
+  // keeps updating while the call streams in more detail.
+  const [selectedToolId, setSelectedToolId] = useState<string | null>(null)
   if (toolCalls.length === 0) return null
+
+  const selectedTool = selectedToolId
+    ? (toolCalls.find((toolCall) => toolCall.toolCallId === selectedToolId) ??
+      null)
+    : null
 
   const expanded = isOpen || streaming
   const summary = streaming
@@ -125,7 +132,7 @@ export function MerlinToolTrail({
                   accessibilityRole={drillable ? "button" : undefined}
                   className="min-h-8 flex-row items-center gap-two py-one"
                   disabled={!drillable}
-                  onPress={() => setSelectedTool(toolCall)}
+                  onPress={() => setSelectedToolId(toolCall.toolCallId)}
                 >
                   <ToolGlyph color={muted} toolName={toolCall.toolName} />
                   <Text
@@ -178,7 +185,7 @@ export function MerlinToolTrail({
       <BottomSheet
         isOpen={selectedTool !== null}
         onOpenChange={(open) => {
-          if (!open) setSelectedTool(null)
+          if (!open) setSelectedToolId(null)
         }}
       >
         <BottomSheet.Portal unstable_accessibilityContainerViewIsModal>
@@ -226,7 +233,7 @@ export function MerlinToolTrail({
                       disabled={!item.url}
                       key={`${selectedTool.toolCallId}:${item.url ?? item.title}`}
                       onPress={() => {
-                        if (item.url) void WebBrowser.openBrowserAsync(item.url)
+                        if (item.url) openExternalUrl(item.url)
                       }}
                     >
                       {connector ? (

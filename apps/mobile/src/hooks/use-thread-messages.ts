@@ -80,82 +80,91 @@ export function useThreadMessages({
     []
   )
 
-  const reload = useCallback(async () => {
-    const requestId = ++requestRef.current
-    const requestIdentity = `${workspaceSlug}:${channelId}:${threadRootId}`
+  // `replace` drops local state in favor of the fetched page — used on socket
+  // reconnect so deletions missed while offline don't linger.
+  const reload = useCallback(
+    async ({ replace = false } = {}) => {
+      const requestId = ++requestRef.current
+      const requestIdentity = `${workspaceSlug}:${channelId}:${threadRootId}`
 
-    if (!workspaceSlug || !channelId || !threadRootId) {
-      if (
-        requestId === requestRef.current &&
-        requestIdentity === identityRef.current
-      ) {
-        messagesRef.current = []
-        beforeCursorRef.current = null
-        setMessages([])
-        setRoot(null)
-        setTotalReplyCount(0)
-        setError(null)
-        setIsMissing(true)
-        setIsLoading(false)
-      }
-      return
-    }
-
-    setIsLoading(true)
-    setError(null)
-    setPaginationError(null)
-    setIsMissing(false)
-    try {
-      const response = await api.v1.workspaces[":workspaceSlug"].channels[
-        ":channelId"
-      ].messages[":messageId"].thread.$get({
-        param: { workspaceSlug, channelId, messageId: threadRootId },
-        query: { limit: "50" },
-      })
-      if (response.status === 404) {
+      if (!workspaceSlug || !channelId || !threadRootId) {
         if (
           requestId === requestRef.current &&
           requestIdentity === identityRef.current
         ) {
-          updateRoot(() => null)
+          messagesRef.current = []
+          beforeCursorRef.current = null
+          setMessages([])
+          setRoot(null)
+          setTotalReplyCount(0)
+          setError(null)
           setIsMissing(true)
+          setIsLoading(false)
         }
         return
       }
-      if (!response.ok) throw new Error("Could not load this thread")
 
-      const payload = await response.json()
-      if (
-        requestId === requestRef.current &&
-        requestIdentity === identityRef.current
-      ) {
-        updateMessages((current) => mergeMessages(payload.data, current))
-        if (payload.root) updateRoot(() => payload.root)
-        beforeCursorRef.current = payload.beforeCursor
-        setReachedOldest(payload.reachedOldest)
-        setTotalReplyCount(
-          payload.root?.threadSummary?.replyCount ?? payload.data.length
-        )
-        setIsMissing(!payload.root)
+      setIsLoading(true)
+      setError(null)
+      setPaginationError(null)
+      setIsMissing(false)
+      try {
+        const response = await api.v1.workspaces[":workspaceSlug"].channels[
+          ":channelId"
+        ].messages[":messageId"].thread.$get({
+          param: { workspaceSlug, channelId, messageId: threadRootId },
+          query: { limit: "50" },
+        })
+        if (response.status === 404) {
+          if (
+            requestId === requestRef.current &&
+            requestIdentity === identityRef.current
+          ) {
+            updateRoot(() => null)
+            setIsMissing(true)
+          }
+          return
+        }
+        if (!response.ok) throw new Error("Could not load this thread")
+
+        const payload = await response.json()
+        if (
+          requestId === requestRef.current &&
+          requestIdentity === identityRef.current
+        ) {
+          updateMessages((current) =>
+            replace ? payload.data : mergeMessages(payload.data, current)
+          )
+          if (payload.root) updateRoot(() => payload.root)
+          beforeCursorRef.current = payload.beforeCursor
+          setReachedOldest(payload.reachedOldest)
+          setTotalReplyCount(
+            payload.root?.threadSummary?.replyCount ?? payload.data.length
+          )
+          setIsMissing(!payload.root)
+        }
+      } catch (cause) {
+        if (
+          requestId === requestRef.current &&
+          requestIdentity === identityRef.current
+        ) {
+          setError(
+            cause instanceof Error
+              ? cause.message
+              : "Could not load this thread"
+          )
+        }
+      } finally {
+        if (
+          requestId === requestRef.current &&
+          requestIdentity === identityRef.current
+        ) {
+          setIsLoading(false)
+        }
       }
-    } catch (cause) {
-      if (
-        requestId === requestRef.current &&
-        requestIdentity === identityRef.current
-      ) {
-        setError(
-          cause instanceof Error ? cause.message : "Could not load this thread"
-        )
-      }
-    } finally {
-      if (
-        requestId === requestRef.current &&
-        requestIdentity === identityRef.current
-      ) {
-        setIsLoading(false)
-      }
-    }
-  }, [workspaceSlug, channelId, threadRootId, updateMessages, updateRoot])
+    },
+    [workspaceSlug, channelId, threadRootId, updateMessages, updateRoot]
+  )
 
   useEffect(() => {
     messagesRef.current = []
@@ -270,7 +279,7 @@ export function useThreadMessages({
     }
     const rejoinThread = () => {
       joinThread()
-      void reload()
+      void reload({ replace: true })
     }
     const receiveMessage = (message: RealtimeMessage) => {
       if (
@@ -581,6 +590,8 @@ export function useThreadMessages({
               id: referencedMessage.id,
               content: referencedMessage.content,
               author: referencedMessage.author,
+              overrideName: referencedMessage.overrideName,
+              overrideAvatarUrl: referencedMessage.overrideAvatarUrl,
             }
           : null,
       })
@@ -604,6 +615,11 @@ export function useThreadMessages({
         const confirmed = realtimeMessageToMessage(result.message)
         updateMessages((current) => replaceMessage(current, nonce, confirmed))
       } catch (cause) {
+        // If message:created already reconciled the optimistic reply (e.g. the
+        // ack timed out after delivery), the send succeeded — don't roll back.
+        if (!messagesRef.current.some((message) => message.id === nonce)) {
+          return
+        }
         updateMessages(
           (current) => rollbackOptimisticReply(current, nonce, 1).messages
         )

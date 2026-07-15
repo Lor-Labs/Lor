@@ -189,6 +189,8 @@ export async function createMessage(input: CreateMessageInput) {
         authorUsername: schema.user.username,
         authorDisplayUsername: schema.user.displayUsername,
         authorImage: schema.user.image,
+        overrideName: schema.message.overrideName,
+        overrideAvatarUrl: schema.message.overrideAvatarUrl,
       })
       .from(schema.message)
       .innerJoin(schema.user, eq(schema.message.authorId, schema.user.id))
@@ -207,6 +209,8 @@ export async function createMessage(input: CreateMessageInput) {
           displayUsername: refMsg.authorDisplayUsername,
           image: refMsg.authorImage,
         },
+        overrideName: refMsg.overrideName,
+        overrideAvatarUrl: refMsg.overrideAvatarUrl,
       }
     }
   }

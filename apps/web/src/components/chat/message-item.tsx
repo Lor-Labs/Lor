@@ -73,6 +73,9 @@ function ReplyPreview({
   }
 
   const author = referencedMessage.author
+  const referencedName =
+    referencedMessage.overrideName ?? author.displayUsername ?? author.name
+  const referencedAvatar = referencedMessage.overrideAvatarUrl ?? author.image
   const truncatedContent =
     referencedMessage.content && referencedMessage.content.length > 100
       ? `${referencedMessage.content.slice(0, 100)}...`
@@ -86,13 +89,15 @@ function ReplyPreview({
     >
       <div className="mb-1 ml-4 h-3 w-8 rounded-tl-md border-t-2 border-l-2 border-muted-foreground/40" />
       <Avatar size="sm" className="size-4">
-        {author.image && <AvatarImage src={author.image} alt={author.name} />}
+        {referencedAvatar && (
+          <AvatarImage src={referencedAvatar} alt={referencedName} />
+        )}
         <AvatarFallback className="text-[8px] font-semibold">
-          {nameInitial(author.displayUsername ?? author.name)}
+          {nameInitial(referencedName)}
         </AvatarFallback>
       </Avatar>
       <span className="shrink-0 font-semibold text-foreground/80">
-        {author.displayUsername ?? author.name}
+        {referencedName}
       </span>
       {truncatedContent && (
         <span className="truncate text-muted-foreground">
@@ -196,6 +201,9 @@ export function MessageItem({
 
   const isOwnMessage = !!currentUserId && currentUserId === message.authorId
   const isReply = message.type === "reply"
+  const hasToolCalls = (message.merlinToolCalls?.length ?? 0) > 0
+  const hasReasoningSegments =
+    (message.merlinReasoningSegments?.length ?? 0) > 0
 
   const handleCopyText = useCallback(() => {
     if (!message.content) return
@@ -384,8 +392,7 @@ export function MessageItem({
               </span>
             </div>
           )}
-          {message.merlinReasoning &&
-          !message.merlinReasoningSegments?.length ? (
+          {message.merlinReasoning && !hasReasoningSegments ? (
             <MerlinReasoning
               text={message.merlinReasoning}
               active={!!message.streaming && !message.content}
@@ -401,8 +408,8 @@ export function MessageItem({
           ) : (message.streaming || message.status === "pending") &&
             !message.content &&
             !message.merlinReasoning &&
-            !message.merlinReasoningSegments?.length &&
-            !(message.merlinToolCalls && message.merlinToolCalls.length > 0) ? (
+            !hasReasoningSegments &&
+            !hasToolCalls ? (
             // In-flight Merlin reply: `streaming` covers the live client, while
             // `status === "pending"` survives a reload / late thread join. Once
             // reasoning starts, that block takes over the "thinking" affordance.
@@ -411,8 +418,7 @@ export function MessageItem({
             <span className="text-sm text-muted-foreground italic">
               Merlin couldn't respond to that.
             </span>
-          ) : (message.merlinToolCalls && message.merlinToolCalls.length > 0) ||
-            message.merlinReasoningSegments?.length ? (
+          ) : hasToolCalls || hasReasoningSegments ? (
             <MerlinMessageBody
               content={message.content}
               toolCalls={message.merlinToolCalls ?? []}

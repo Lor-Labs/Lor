@@ -1,3 +1,4 @@
+import { appendReasoningSegment, upsertToolCall } from "@repo/utils/merlin"
 import type { Message } from "@/lib/api-types"
 
 export type MerlinToolCall = NonNullable<Message["merlinToolCalls"]>[number]
@@ -108,26 +109,13 @@ export function appendMerlinReasoning(
   message: Message,
   payload: { delta: string; at: number; order: number }
 ) {
-  const segments = message.merlinReasoningSegments ?? []
-  const existingIndex = segments.findIndex(
-    (segment) => segment.order === payload.order
-  )
-  const merlinReasoningSegments =
-    existingIndex >= 0
-      ? segments.map((segment, index) =>
-          index === existingIndex
-            ? { ...segment, text: segment.text + payload.delta }
-            : segment
-        )
-      : [
-          ...segments,
-          { text: payload.delta, at: payload.at, order: payload.order },
-        ]
-
   return {
     ...message,
     merlinReasoning: (message.merlinReasoning ?? "") + payload.delta,
-    merlinReasoningSegments,
+    merlinReasoningSegments: appendReasoningSegment(
+      message.merlinReasoningSegments,
+      payload
+    ),
     status: "pending" as const,
   }
 }
@@ -136,17 +124,8 @@ export function upsertMerlinToolCall(
   message: Message,
   toolCall: MerlinToolCall
 ) {
-  const toolCalls = message.merlinToolCalls ?? []
-  const existingIndex = toolCalls.findIndex(
-    (item) => item.toolCallId === toolCall.toolCallId
-  )
   return {
     ...message,
-    merlinToolCalls:
-      existingIndex >= 0
-        ? toolCalls.map((item, index) =>
-            index === existingIndex ? toolCall : item
-          )
-        : [...toolCalls, toolCall],
+    merlinToolCalls: upsertToolCall(message.merlinToolCalls, toolCall),
   }
 }

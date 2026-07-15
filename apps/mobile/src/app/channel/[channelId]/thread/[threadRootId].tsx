@@ -53,6 +53,12 @@ export default function ThreadScreen() {
       router.back()
       return
     }
+    // Deep links can land here without a channelId — fall back to home
+    // rather than building the channel route with a missing param.
+    if (!channelId) {
+      router.replace("/")
+      return
+    }
     router.replace({
       pathname: "/channel/[channelId]",
       params: { channelId },

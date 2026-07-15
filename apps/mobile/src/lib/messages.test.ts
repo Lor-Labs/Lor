@@ -104,6 +104,8 @@ describe("message collection helpers", () => {
         id: referenced.id,
         content: referenced.content,
         author: referenced.author,
+        overrideName: null,
+        overrideAvatarUrl: null,
       },
     })
 
