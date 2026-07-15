@@ -1,9 +1,10 @@
 import Search01Icon from "@hugeicons/core-free-icons/Search01Icon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
-import { router, useLocalSearchParams } from "expo-router"
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router"
 import { SymbolView } from "expo-symbols"
 import { useThemeColor } from "heroui-native/hooks"
 import { Spinner } from "heroui-native/spinner"
+import { useCallback, useEffect, useState } from "react"
 import { Text, View } from "react-native"
 import { KeyboardAvoidingView } from "react-native-keyboard-controller"
 import { MessageComposer } from "@/components/message-composer"
@@ -13,18 +14,21 @@ import { Screen } from "@/components/ui/screen"
 import { StatePanel } from "@/components/ui/state-panel"
 import { useSocket, useSocketConnected } from "@/context/socket-context"
 import { useWorkspace } from "@/context/workspace-context"
+import { useCanPinMessages } from "@/hooks/use-can-pin-messages"
 import { useChannelDetail } from "@/hooks/use-channel-detail"
 import { useChannelMessages } from "@/hooks/use-channel-messages"
 import type { Message } from "@/lib/api-types"
 import { authClient } from "@/lib/auth-client"
 
 export default function ChannelScreen() {
+  const [replyingTo, setReplyingTo] = useState<Message | null>(null)
   const [foreground, muted] = useThemeColor(["foreground", "muted"])
   const socket = useSocket()
   const isSocketConnected = useSocketConnected()
   const { workspace } = useWorkspace()
   const { channelId } = useLocalSearchParams<{ channelId: string }>()
   const { data: session } = authClient.useSession()
+  const canPinMessages = useCanPinMessages(workspace?.id)
   const channelState = useChannelDetail({
     workspaceSlug: workspace?.slug ?? "",
     channelId: channelId ?? "",
@@ -36,6 +40,18 @@ export default function ChannelScreen() {
     socket,
     currentUser: session?.user,
   })
+
+  useEffect(() => {
+    setReplyingTo(null)
+  }, [channelId])
+
+  useFocusEffect(
+    useCallback(() => {
+      if (socket?.connected && channelId) {
+        socket.emit("channel:join", { channelId })
+      }
+    }, [socket, channelId])
+  )
 
   if (!workspace || !channelId) {
     return (
@@ -153,14 +169,30 @@ export default function ChannelScreen() {
           error={chat.error}
           isLoading={chat.isLoading}
           messages={chat.messages}
+          onLoadAround={chat.loadAround}
           onOpenThread={openThread}
+          onReply={setReplyingTo}
           onRetry={() => void chat.reload()}
+          onToggleReaction={chat.toggleReaction}
+          onTogglePin={
+            canPinMessages
+              ? (message) => {
+                  void chat.togglePin(message.id, message.pinned)
+                }
+              : undefined
+          }
+          replyingToId={replyingTo?.id}
         />
         <MessageComposer
           channelName={channelName}
           isConnected={isSocketConnected}
           isSending={chat.isSending}
-          onSend={chat.sendMessage}
+          onCancelReply={() => setReplyingTo(null)}
+          onSend={async (content) => {
+            await chat.sendMessage(content, replyingTo ?? undefined)
+            setReplyingTo(null)
+          }}
+          replyingTo={replyingTo}
         />
       </KeyboardAvoidingView>
     </Screen>

@@ -2,6 +2,12 @@ import type { RealtimeMessageThreadUpdated } from "@repo/realtime-types"
 import { describe, expect, it } from "vitest"
 import type { Message } from "./api-types"
 import {
+  appendMerlinReasoning,
+  buildMerlinSegments,
+  upsertMerlinToolCall,
+} from "./merlin"
+import {
+  applyReactionUpdate,
   applyThreadSummaryUpdate,
   createOptimisticMessage,
   mergeMessages,
@@ -83,16 +89,28 @@ describe("message collection helpers", () => {
   })
 
   it("creates optimistic replies under the supplied thread root", () => {
+    const referenced = makeMessage(
+      "referenced",
+      "2026-07-14T11:59:00.000Z",
+      "Original"
+    )
     const optimistic = createOptimisticMessage({
       nonce: "mobile-1",
       channelId: "channel-1",
       content: "Thread reply",
       author,
       threadRootId: "root-1",
+      referencedMessage: {
+        id: referenced.id,
+        content: referenced.content,
+        author: referenced.author,
+      },
     })
 
     expect(optimistic.threadRootId).toBe("root-1")
     expect(optimistic.id).toBe("mobile-1")
+    expect(optimistic.type).toBe("reply")
+    expect(optimistic.referencedMessage?.content).toBe("Original")
   })
 
   it("keeps Merlin placeholders pending until the terminal stream arrives", () => {
@@ -143,5 +161,94 @@ describe("message collection helpers", () => {
     expect(rollback.messages).toEqual([confirmed])
     expect(rollback.totalReplyCount).toBe(1)
     expect(removeMessage(rollback.messages, "missing")).toEqual([confirmed])
+  })
+
+  it("applies exact reaction totals and current-user state", () => {
+    const message = makeMessage("message-1", "2026-07-14T12:00:00.000Z")
+    const updated = applyReactionUpdate(
+      message,
+      {
+        channelId: "channel-1",
+        messageId: message.id,
+        emoji: "ship",
+        count: 1,
+        actorUserId: author.id,
+        actorName: author.name,
+        reactedByActor: true,
+      },
+      author.id
+    )
+
+    expect(updated.reactions).toEqual([
+      {
+        emoji: "ship",
+        count: 1,
+        reactedByCurrentUser: true,
+        reactors: [{ id: author.id, name: author.name }],
+      },
+    ])
+  })
+})
+
+describe("Merlin timeline helpers", () => {
+  it("interleaves reasoning, tools, and answer text chronologically", () => {
+    const segments = buildMerlinSegments(
+      "Answer complete",
+      [
+        {
+          toolCallId: "tool-1",
+          toolName: "search_linear",
+          label: "Searched Linear",
+          at: 7,
+          order: 2,
+        },
+      ],
+      [{ text: "I should search", at: 0, order: 1 }]
+    )
+
+    expect(segments.map((segment) => segment.kind)).toEqual([
+      "reasoning",
+      "text",
+      "tools",
+      "text",
+    ])
+  })
+
+  it("appends reasoning deltas to one ordered segment", () => {
+    const message = makeMessage("merlin-1", "2026-07-14T12:00:00.000Z")
+    const first = appendMerlinReasoning(message, {
+      delta: "Checking ",
+      at: 0,
+      order: 1,
+    })
+    const second = appendMerlinReasoning(first, {
+      delta: "sources",
+      at: 0,
+      order: 1,
+    })
+
+    expect(second.merlinReasoning).toBe("Checking sources")
+    expect(second.merlinReasoningSegments).toEqual([
+      { text: "Checking sources", at: 0, order: 1 },
+    ])
+  })
+
+  it("upserts a completed tool call over its live placeholder", () => {
+    const message = makeMessage("merlin-1", "2026-07-14T12:00:00.000Z")
+    const pending = upsertMerlinToolCall(message, {
+      toolCallId: "tool-1",
+      toolName: "search_github",
+      label: "Searching GitHub",
+    })
+    const complete = upsertMerlinToolCall(pending, {
+      toolCallId: "tool-1",
+      toolName: "search_github",
+      label: "Searched GitHub",
+      status: "ok",
+      detail: { items: [{ title: "Result", url: "https://github.com/x" }] },
+    })
+
+    expect(complete.merlinToolCalls).toHaveLength(1)
+    expect(complete.merlinToolCalls?.[0]?.status).toBe("ok")
   })
 })

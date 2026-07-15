@@ -1,5 +1,6 @@
 import type {
   RealtimeMessage,
+  RealtimeMessageReactionUpdated,
   RealtimeMessageThreadUpdated,
 } from "@repo/realtime-types"
 import type { Message } from "@/lib/api-types"
@@ -63,6 +64,45 @@ export function applyThreadSummaryUpdate(
   )
 }
 
+export function applyReactionUpdate(
+  message: Message,
+  update: RealtimeMessageReactionUpdated,
+  currentUserId?: string
+): Message {
+  if (message.id !== update.messageId) return message
+  const reactions = [...(message.reactions ?? [])]
+  const index = reactions.findIndex(
+    (reaction) => reaction.emoji === update.emoji
+  )
+  if (update.count <= 0) {
+    if (index >= 0) reactions.splice(index, 1)
+    return { ...message, reactions }
+  }
+
+  const current = index >= 0 ? reactions[index] : undefined
+  const reactors = [...(current?.reactors ?? [])]
+  const actorIndex = reactors.findIndex(
+    (reactor) => reactor.id === update.actorUserId
+  )
+  if (update.reactedByActor && actorIndex < 0) {
+    reactors.push({ id: update.actorUserId, name: update.actorName })
+  } else if (!update.reactedByActor && actorIndex >= 0) {
+    reactors.splice(actorIndex, 1)
+  }
+  const nextReaction = {
+    emoji: update.emoji,
+    count: update.count,
+    reactedByCurrentUser:
+      currentUserId === update.actorUserId
+        ? update.reactedByActor
+        : (current?.reactedByCurrentUser ?? false),
+    reactors,
+  }
+  if (index >= 0) reactions[index] = nextReaction
+  else reactions.push(nextReaction)
+  return { ...message, reactions }
+}
+
 export function realtimeMessageToMessage(message: RealtimeMessage): Message {
   return {
     id: message.id,
@@ -96,6 +136,7 @@ export function createOptimisticMessage({
   content,
   author,
   threadRootId = null,
+  referencedMessage = null,
 }: {
   nonce: string
   channelId: string
@@ -108,13 +149,14 @@ export function createOptimisticMessage({
     image?: string | null
   }
   threadRootId?: string | null
+  referencedMessage?: NonNullable<Message["referencedMessage"]> | null
 }): Message {
   return {
     id: nonce,
     channelId,
     authorId: author.id,
     content,
-    type: "default",
+    type: referencedMessage ? "reply" : "default",
     status: "complete",
     createdAt: new Date().toISOString(),
     author: {
@@ -124,8 +166,8 @@ export function createOptimisticMessage({
       displayUsername: author.displayUsername ?? null,
       image: author.image ?? null,
     },
-    referencedMessageId: null,
-    referencedMessage: null,
+    referencedMessageId: referencedMessage?.id ?? null,
+    referencedMessage,
     attachments: [],
     embeds: [],
     pinned: false,

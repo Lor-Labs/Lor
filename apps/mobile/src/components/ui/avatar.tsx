@@ -5,11 +5,12 @@ import {
   type AvatarSize as HeroAvatarSize,
 } from "heroui-native/avatar"
 import { cn } from "heroui-native/utils"
+import type { ReactNode } from "react"
 
 export type AvatarSize = "xs" | HeroAvatarSize
 
 export type AvatarProps = Omit<AvatarRootProps, "children" | "size"> & {
-  fallback?: string
+  fallback?: ReactNode
   image?: string | null
   name: string
   size?: AvatarSize

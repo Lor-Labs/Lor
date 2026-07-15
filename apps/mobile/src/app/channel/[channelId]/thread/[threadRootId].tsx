@@ -1,6 +1,7 @@
 import { router, useLocalSearchParams } from "expo-router"
 import { SymbolView } from "expo-symbols"
 import { useThemeColor } from "heroui-native/hooks"
+import { useEffect, useState } from "react"
 import { Text, View } from "react-native"
 import { KeyboardAvoidingView } from "react-native-keyboard-controller"
 import { MessageComposer } from "@/components/message-composer"
@@ -13,11 +14,14 @@ import { Screen } from "@/components/ui/screen"
 import { StatePanel } from "@/components/ui/state-panel"
 import { useSocket, useSocketConnected } from "@/context/socket-context"
 import { useWorkspace } from "@/context/workspace-context"
+import { useCanPinMessages } from "@/hooks/use-can-pin-messages"
 import { useChannelDetail } from "@/hooks/use-channel-detail"
 import { useThreadMessages } from "@/hooks/use-thread-messages"
+import type { Message } from "@/lib/api-types"
 import { authClient } from "@/lib/auth-client"
 
 export default function ThreadScreen() {
+  const [replyingTo, setReplyingTo] = useState<Message | null>(null)
   const foreground = useThemeColor("foreground")
   const socket = useSocket()
   const isSocketConnected = useSocketConnected()
@@ -27,6 +31,7 @@ export default function ThreadScreen() {
     threadRootId: string
   }>()
   const { data: session } = authClient.useSession()
+  const canPinMessages = useCanPinMessages(workspace?.id)
   const channelState = useChannelDetail({
     workspaceSlug: workspace?.slug ?? "",
     channelId: channelId ?? "",
@@ -38,6 +43,10 @@ export default function ThreadScreen() {
     socket,
     currentUser: session?.user,
   })
+
+  useEffect(() => {
+    setReplyingTo(null)
+  }, [channelId, threadRootId])
 
   const goBack = () => {
     if (router.canGoBack()) {
@@ -121,9 +130,20 @@ export default function ThreadScreen() {
             hasOlder={thread.hasOlder}
             isLoadingOlder={thread.isLoadingOlder}
             messages={thread.messages}
+            onLoadAround={thread.loadAround}
             onLoadOlder={() => void thread.loadOlder()}
+            onReply={setReplyingTo}
+            onToggleReaction={thread.toggleReaction}
+            onTogglePin={
+              canPinMessages
+                ? (message) => {
+                    void thread.togglePin(message.id, message.pinned)
+                  }
+                : undefined
+            }
             paginationError={thread.paginationError}
             root={thread.root}
+            replyingToId={replyingTo?.id}
             totalReplyCount={thread.totalReplyCount}
           />
         )}
@@ -133,8 +153,13 @@ export default function ThreadScreen() {
             channelName={channelName}
             isConnected={isSocketConnected}
             isSending={thread.isSending}
-            onSend={thread.sendMessage}
+            onCancelReply={() => setReplyingTo(null)}
+            onSend={async (content) => {
+              await thread.sendMessage(content, replyingTo ?? undefined)
+              setReplyingTo(null)
+            }}
             placeholder="Reply in thread"
+            replyingTo={replyingTo}
           />
         ) : null}
       </KeyboardAvoidingView>

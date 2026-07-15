@@ -1,4 +1,5 @@
 import AtSignIcon from "@hugeicons/core-free-icons/AtSignIcon"
+import Cancel01Icon from "@hugeicons/core-free-icons/Cancel01Icon"
 import CommandLineIcon from "@hugeicons/core-free-icons/CommandLineIcon"
 import LaughingIcon from "@hugeicons/core-free-icons/LaughingIcon"
 import PlusSignIcon from "@hugeicons/core-free-icons/PlusSignIcon"
@@ -10,9 +11,11 @@ import { useThemeColor } from "heroui-native/hooks"
 import { Spinner } from "heroui-native/spinner"
 import { TextArea } from "heroui-native/text-area"
 import { useState } from "react"
-import { View } from "react-native"
+import { Text, View } from "react-native"
 import Animated, { LinearTransition } from "react-native-reanimated"
+import { messageDisplayName } from "@/components/message-row"
 import { IconButton } from "@/components/ui/icon-button"
+import type { Message } from "@/lib/api-types"
 
 const composerLayoutTransition = LinearTransition.duration(100)
 
@@ -23,6 +26,8 @@ export function MessageComposer({
   onSend,
   placeholder,
   accessibilityLabel,
+  replyingTo,
+  onCancelReply,
 }: {
   channelName: string
   isSending: boolean
@@ -30,6 +35,8 @@ export function MessageComposer({
   onSend: (content: string) => Promise<void>
   placeholder?: string
   accessibilityLabel?: string
+  replyingTo?: Message | null
+  onCancelReply?: () => void
 }) {
   const [accent, muted] = useThemeColor(["accent", "muted"])
   const [content, setContent] = useState("")
@@ -66,6 +73,27 @@ export function MessageComposer({
         className="relative overflow-hidden rounded-lor-sm border border-border bg-surface"
         layout={composerLayoutTransition}
       >
+        {replyingTo ? (
+          <View className="min-h-10 flex-row items-center gap-two border-b border-border px-three py-two">
+            <View className="w-[3px] self-stretch rounded-full bg-accent" />
+            <View className="min-w-0 flex-1">
+              <Text className="text-xs font-semibold text-accent">
+                Replying to {messageDisplayName(replyingTo)}
+              </Text>
+              <Text className="text-xs text-muted" numberOfLines={1}>
+                {replyingTo.content ?? "Message"}
+              </Text>
+            </View>
+            <IconButton
+              accessibilityLabel="Cancel reply"
+              onPress={onCancelReply}
+              size="sm"
+              variant="ghost"
+            >
+              <HugeiconsIcon color={muted} icon={Cancel01Icon} size={16} />
+            </IconButton>
+          </View>
+        ) : null}
         <TextArea
           accessibilityLabel={accessibilityLabel ?? `Message ${channelName}`}
           className={`h-auto max-h-[120px] border-transparent bg-transparent px-four text-base leading-[21px] shadow-none ios:shadow-none ios:outline-transparent ios:focus:outline-transparent android:border-transparent android:focus:border-transparent ${

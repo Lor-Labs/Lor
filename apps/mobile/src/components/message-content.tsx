@@ -171,7 +171,7 @@ export function MessageContent({
         markdownStyle={markdownStyle}
         md4cFlags={{ latexMath: false }}
         onLinkPress={onLinkPress}
-        selectable
+        selectable={false}
       />
     )
   }
@@ -183,7 +183,7 @@ export function MessageContent({
       markdownStyle={markdownStyle}
       md4cFlags={{ latexMath: false }}
       onLinkPress={onLinkPress}
-      selectable
+      selectable={false}
     />
   )
 }

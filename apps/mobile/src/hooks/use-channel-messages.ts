@@ -1,8 +1,13 @@
-import type { RealtimeMessageThreadUpdated } from "@repo/realtime-types"
+import type {
+  RealtimeMessageThreadUpdated,
+  ServerToClientEvents,
+} from "@repo/realtime-types"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { api } from "@/lib/api"
 import type { Message } from "@/lib/api-types"
+import { appendMerlinReasoning, upsertMerlinToolCall } from "@/lib/merlin"
 import {
+  applyReactionUpdate,
   applyThreadSummaryUpdate,
   createOptimisticMessage,
   mergeMessages,
@@ -117,22 +122,178 @@ export function useChannelMessages({
       if (payload.channelId !== channelId) return
       setMessages((current) => applyThreadSummaryUpdate(current, payload))
     }
+    const updateMessage: ServerToClientEvents["message:updated"] = (
+      payload
+    ) => {
+      if (payload.channelId !== channelId) return
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === payload.messageId
+            ? {
+                ...message,
+                content: payload.content,
+                editedAt: payload.editedAt,
+              }
+            : message
+        )
+      )
+    }
+    const deleteMessage: ServerToClientEvents["message:deleted"] = (
+      payload
+    ) => {
+      if (payload.channelId !== channelId) return
+      setMessages((current) => removeMessage(current, payload.messageId))
+    }
+    const streamMessage: ServerToClientEvents["message:stream"] = (payload) => {
+      if (payload.channelId !== channelId || payload.threadRootId) return
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === payload.messageId
+            ? {
+                ...message,
+                content: payload.replace
+                  ? payload.delta
+                  : `${message.content ?? ""}${payload.delta}`,
+                mentions: payload.mentions ?? message.mentions,
+                status: payload.done
+                  ? (payload.status ?? "complete")
+                  : "pending",
+              }
+            : message
+        )
+      )
+    }
+    const updateReasoning: ServerToClientEvents["merlin:reasoning"] = (
+      payload
+    ) => {
+      if (payload.channelId !== channelId || payload.threadRootId) return
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === payload.messageId
+            ? appendMerlinReasoning(message, payload)
+            : message
+        )
+      )
+    }
+    const updateTool: ServerToClientEvents["merlin:tool"] = (payload) => {
+      if (payload.channelId !== channelId || payload.threadRootId) return
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === payload.messageId
+            ? upsertMerlinToolCall(message, payload.toolCall)
+            : message
+        )
+      )
+    }
+    const updateMemory: ServerToClientEvents["merlin:memory"] = (payload) => {
+      if (payload.channelId !== channelId || payload.threadRootId) return
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === payload.messageId
+            ? {
+                ...message,
+                remembered: [
+                  ...(message.remembered ?? []).filter(
+                    (memory) => memory.path !== payload.path
+                  ),
+                  { path: payload.path, action: payload.action },
+                ],
+              }
+            : message
+        )
+      )
+    }
+    const updateEmbeds: ServerToClientEvents["message:embeds:updated"] = (
+      payload
+    ) => {
+      if (payload.channelId !== channelId) return
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === payload.messageId
+            ? { ...message, embeds: payload.embeds }
+            : message
+        )
+      )
+    }
+    const updateReaction: ServerToClientEvents["message:reaction:updated"] = (
+      payload
+    ) => {
+      if (payload.channelId !== channelId) return
+      setMessages((current) =>
+        current.map((message) =>
+          applyReactionUpdate(message, payload, currentUser?.id)
+        )
+      )
+    }
+    const updatePin: ServerToClientEvents["message:pin:toggled"] = (
+      payload
+    ) => {
+      if (payload.channelId !== channelId) return
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === payload.messageId
+            ? { ...message, pinned: payload.pinned }
+            : message
+        )
+      )
+    }
 
     if (socket.connected) joinChannel()
     socket.on("connect", rejoinChannel)
     socket.on("message:created", receiveMessage)
+    socket.on("message:updated", updateMessage)
+    socket.on("message:deleted", deleteMessage)
+    socket.on("message:stream", streamMessage)
+    socket.on("merlin:reasoning", updateReasoning)
+    socket.on("merlin:tool", updateTool)
+    socket.on("merlin:memory", updateMemory)
+    socket.on("message:embeds:updated", updateEmbeds)
+    socket.on("message:reaction:updated", updateReaction)
+    socket.on("message:pin:toggled", updatePin)
     socket.on("message:thread:updated", updateThreadSummary)
 
     return () => {
       if (socket.connected) socket.emit("channel:leave", { channelId })
       socket.off("connect", rejoinChannel)
       socket.off("message:created", receiveMessage)
+      socket.off("message:updated", updateMessage)
+      socket.off("message:deleted", deleteMessage)
+      socket.off("message:stream", streamMessage)
+      socket.off("merlin:reasoning", updateReasoning)
+      socket.off("merlin:tool", updateTool)
+      socket.off("merlin:memory", updateMemory)
+      socket.off("message:embeds:updated", updateEmbeds)
+      socket.off("message:reaction:updated", updateReaction)
+      socket.off("message:pin:toggled", updatePin)
       socket.off("message:thread:updated", updateThreadSummary)
     }
-  }, [socket, channelId, reload])
+  }, [socket, channelId, reload, currentUser?.id])
+
+  const loadAround = useCallback(
+    async (messageId: string) => {
+      if (messages.some((message) => message.id === messageId)) return true
+      const requestIdentity = `${workspaceSlug}:${channelId}`
+      try {
+        const response = await api.v1.workspaces[":workspaceSlug"].channels[
+          ":channelId"
+        ].messages.$get({
+          param: { workspaceSlug, channelId },
+          query: { around: messageId, limit: "50" },
+        })
+        if (!response.ok) return false
+        const payload = await response.json()
+        if (requestIdentity !== channelIdentityRef.current) return false
+        setMessages((current) => mergeMessages(current, payload.data))
+        return payload.data.some((message) => message.id === messageId)
+      } catch {
+        return false
+      }
+    },
+    [workspaceSlug, channelId, messages]
+  )
 
   const sendMessage = useCallback(
-    async (content: string) => {
+    async (content: string, referencedMessage?: Message) => {
       const trimmed = content.trim()
       if (!trimmed || isSending) return
       if (!socket?.connected) {
@@ -153,6 +314,13 @@ export function useChannelMessages({
         channelId,
         content: trimmed,
         author: currentUser,
+        referencedMessage: referencedMessage
+          ? {
+              id: referencedMessage.id,
+              content: referencedMessage.content,
+              author: referencedMessage.author,
+            }
+          : null,
       })
       setMessages((current) => mergeMessages([optimistic], current))
       setIsSending(true)
@@ -161,7 +329,12 @@ export function useChannelMessages({
       try {
         const result = await socket
           .timeout(12_000)
-          .emitWithAck("message:send", { channelId, content: trimmed, nonce })
+          .emitWithAck("message:send", {
+            channelId,
+            content: trimmed,
+            nonce,
+            referencedMessageId: referencedMessage?.id,
+          })
 
         if (!result.ok) throw new Error(result.error)
 
@@ -184,5 +357,67 @@ export function useChannelMessages({
     [socket, currentUser, isSending, channelId]
   )
 
-  return { messages, isLoading, error, isSending, reload, sendMessage }
+  const toggleReaction = useCallback(
+    (messageId: string, emoji: string) => {
+      if (!socket?.connected) return
+      socket.emit(
+        "message:reaction:toggle",
+        { channelId, messageId, emoji },
+        (result) => {
+          if (!result.ok) return
+          setMessages((current) =>
+            current.map((message) =>
+              applyReactionUpdate(message, result.update, currentUser?.id)
+            )
+          )
+        }
+      )
+    },
+    [socket, channelId, currentUser?.id]
+  )
+
+  const togglePin = useCallback(
+    async (messageId: string, currentlyPinned: boolean) => {
+      const nextPinned = !currentlyPinned
+      const updatePin = (pinned: boolean, onlyIf?: boolean) => {
+        setMessages((current) =>
+          current.map((message) =>
+            message.id === messageId &&
+            (onlyIf === undefined || message.pinned === onlyIf)
+              ? { ...message, pinned }
+              : message
+          )
+        )
+      }
+
+      updatePin(nextPinned)
+      try {
+        const response = await api.v1.workspaces[":workspaceSlug"].channels[
+          ":channelId"
+        ].messages[":messageId"].pin.$patch({
+          param: { workspaceSlug, channelId, messageId },
+        })
+        if (!response.ok) throw new Error("Could not update message pin")
+        const result = await response.json()
+        updatePin(result.pinned)
+      } catch {
+        updatePin(currentlyPinned, nextPinned)
+        return false
+      }
+      return true
+    },
+    [workspaceSlug, channelId]
+  )
+
+  return {
+    messages,
+    isLoading,
+    error,
+    isSending,
+    reload,
+    loadAround,
+    sendMessage,
+    toggleReaction,
+    togglePin,
+  }
 }
