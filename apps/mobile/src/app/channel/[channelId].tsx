@@ -1,3 +1,5 @@
+import Search01Icon from "@hugeicons/core-free-icons/Search01Icon"
+import { HugeiconsIcon } from "@hugeicons/react-native"
 import { router, useLocalSearchParams } from "expo-router"
 import { SymbolView } from "expo-symbols"
 import { useThemeColor } from "heroui-native/hooks"
@@ -158,15 +160,28 @@ export default function ChannelScreen() {
               {channelName}
             </Text>
           </View>
-          {channel.topic ? (
+          <View className="flex-row items-center gap-one">
+            <View
+              className={`size-[7px] rounded-full ${
+                isSocketConnected ? "bg-success" : "bg-warning"
+              }`}
+            />
             <Text
-              className="text-xs font-medium leading-4 text-muted"
+              className="min-w-0 flex-1 text-xs font-medium leading-4 text-muted"
               numberOfLines={1}
             >
-              {channel.topic}
+              {isSocketConnected ? "Online" : "Reconnecting"}
+              {channel.topic ? ` · ${channel.topic}` : ""}
             </Text>
-          ) : null}
+          </View>
         </View>
+        <IconButton
+          accessibilityLabel="Search channel"
+          onPress={() => router.push("/explore")}
+          variant="ghost"
+        >
+          <HugeiconsIcon color={foreground} icon={Search01Icon} size={19} />
+        </IconButton>
         <IconButton
           accessibilityLabel="Channel options"
           className="mr-one"

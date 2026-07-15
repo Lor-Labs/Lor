@@ -1,6 +1,6 @@
-declare module "@hugeicons/core-free-icons/SentIcon" {
+declare module "@hugeicons/core-free-icons/*" {
   import type { IconSvgElement } from "@hugeicons/react-native"
 
-  const SentIcon: IconSvgElement
-  export default SentIcon
+  const icon: IconSvgElement
+  export default icon
 }
