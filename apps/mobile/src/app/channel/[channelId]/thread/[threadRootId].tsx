@@ -17,6 +17,7 @@ import { useWorkspace } from "@/context/workspace-context"
 import { useCanPinMessages } from "@/hooks/use-can-pin-messages"
 import { useChannelDetail } from "@/hooks/use-channel-detail"
 import { useThreadMessages } from "@/hooks/use-thread-messages"
+import { useWorkspaceMentionCandidates } from "@/hooks/use-workspace-mention-candidates"
 import type { Message } from "@/lib/api-types"
 import { authClient } from "@/lib/auth-client"
 
@@ -42,6 +43,10 @@ export default function ThreadScreen() {
     threadRootId: threadRootId ?? "",
     socket,
     currentUser: session?.user,
+  })
+  const mentions = useWorkspaceMentionCandidates({
+    workspaceSlug: workspace?.slug ?? "",
+    currentUserId: session?.user.id,
   })
 
   useEffect(() => {
@@ -158,7 +163,10 @@ export default function ThreadScreen() {
             accessibilityLabel="Reply in thread"
             channelName={channelName}
             isConnected={isSocketConnected}
+            isMentionCandidatesLoading={mentions.isLoading}
             isSending={thread.isSending}
+            mentionCandidates={mentions.candidates}
+            mentionCandidatesError={mentions.error}
             onCancelReply={() => setReplyingTo(null)}
             onSend={async (content) => {
               await thread.sendMessage(content, replyingTo ?? undefined)

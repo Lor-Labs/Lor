@@ -12,6 +12,8 @@ const USER_MENTION_TOKEN_REGEX =
   /<@([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})>/gi
 const TIPTAP_MENTION_REGEX =
   /\[@[^\]]*?\bid="([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})"[^\]]*]/gi
+const ENRICHED_MENTION_REGEX =
+  /\[@(?:\\.|[^\]])*]\(lor:\/\/mention\/(everyone|[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\)/gi
 const EVERYONE_MENTION_REGEX = /(^|\s)@everyone\b/gi
 const CITATION_REGEX = /\[\[([^\]]+)\]\]/g
 
@@ -36,6 +38,12 @@ function isHttpUrl(value: string) {
 
 function mentionLink(label: string, id: string) {
   return `[@${escapeLinkText(label)}](${MENTION_SCHEME}${id})`
+}
+
+export function toStoredMessageMarkdown(markdown: string) {
+  return markdown.replace(ENRICHED_MENTION_REGEX, (_match, id: string) =>
+    id.toLowerCase() === "everyone" ? "@everyone" : `<@${id}>`
+  )
 }
 
 export function toDisplayMarkdown(
