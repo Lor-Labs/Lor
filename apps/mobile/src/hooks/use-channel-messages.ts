@@ -10,6 +10,7 @@ import {
   applyReactionUpdate,
   applyThreadSummaryUpdate,
   createOptimisticMessage,
+  isOptimisticMessage,
   mergeMessages,
   realtimeMessageToMessage,
   removeMessage,
@@ -39,6 +40,7 @@ export function useChannelMessages({
   const [error, setError] = useState<string | null>(null)
   const [isSending, setIsSending] = useState(false)
   const sendingRef = useRef(false)
+  const messagesRef = useRef<Message[]>([])
   const reloadRequestRef = useRef(0)
   const channelIdentityRef = useRef("")
   const channelIdentity = `${workspaceSlug}:${channelId}`
@@ -79,8 +81,13 @@ export function useChannelMessages({
           requestId === reloadRequestRef.current &&
           requestIdentity === channelIdentityRef.current
         ) {
+          // Replace still keeps unacked optimistic sends so an in-flight
+          // message survives a reconnect reload until its ack resolves.
           setMessages((current) =>
-            replace ? payload.data : mergeMessages(payload.data, current)
+            mergeMessages(
+              payload.data,
+              replace ? current.filter(isOptimisticMessage) : current
+            )
           )
         }
       } catch (cause) {
@@ -103,6 +110,10 @@ export function useChannelMessages({
     },
     [workspaceSlug, channelId]
   )
+
+  useEffect(() => {
+    messagesRef.current = messages
+  }, [messages])
 
   useEffect(() => {
     setMessages([])
@@ -279,7 +290,9 @@ export function useChannelMessages({
 
   const loadAround = useCallback(
     async (messageId: string) => {
-      if (messages.some((message) => message.id === messageId)) return true
+      if (messagesRef.current.some((message) => message.id === messageId)) {
+        return true
+      }
       const requestIdentity = `${workspaceSlug}:${channelId}`
       try {
         const response = await api.v1.workspaces[":workspaceSlug"].channels[
@@ -297,7 +310,7 @@ export function useChannelMessages({
         return false
       }
     },
-    [workspaceSlug, channelId, messages]
+    [workspaceSlug, channelId]
   )
 
   const sendMessage = useCallback(

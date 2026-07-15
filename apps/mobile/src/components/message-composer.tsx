@@ -51,14 +51,12 @@ export function MessageComposer({
   isMentionCandidatesLoading?: boolean
   mentionCandidatesError?: string | null
 }) {
-  const [accent, accentSoft, foreground, muted, placeholderColor] =
-    useThemeColor([
-      "accent",
-      "accent-soft",
-      "foreground",
-      "muted",
-      "field-placeholder",
-    ])
+  const [accent, foreground, muted, placeholderColor] = useThemeColor([
+    "accent",
+    "foreground",
+    "muted",
+    "field-placeholder",
+  ])
   const inputRef = useRef<EnrichedMarkdownTextInputInstance>(null)
   const mentionMenuOpenRef = useRef(false)
   const [content, setContent] = useState("")
@@ -79,16 +77,16 @@ export function MessageComposer({
     () => ({
       strong: { color: foreground },
       em: { color: foreground },
-      link: { color: accent, underline: true },
+      link: { color: accent, backgroundColor: "transparent", underline: false },
       linkVariants: {
         "^lor://mention/": {
           color: accent,
-          backgroundColor: accentSoft,
+          backgroundColor: "transparent",
           underline: false,
         },
       },
     }),
-    [accent, accentSoft, foreground]
+    [accent, foreground]
   )
 
   const inputStyle = useMemo(

@@ -20,6 +20,11 @@ export function mergeMessages(...groups: Message[][]) {
   })
 }
 
+// Client-generated nonce ids (`mobile-…`) mark sends awaiting server ack.
+export function isOptimisticMessage(message: Message) {
+  return message.id.startsWith("mobile-")
+}
+
 export function replaceMessage(
   messages: Message[],
   messageId: string,

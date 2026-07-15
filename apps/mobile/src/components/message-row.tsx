@@ -16,6 +16,7 @@ import { MessageEmbed } from "@/components/message-embed"
 import { ThinkingIndicator } from "@/components/thinking-indicator"
 import { Avatar } from "@/components/ui/avatar"
 import type { Message } from "@/lib/api-types"
+import { isOptimisticMessage } from "@/lib/messages"
 
 export const MESSAGE_GROUP_WINDOW_MS = 5 * 60 * 1000
 
@@ -104,7 +105,7 @@ function MessageRowBody({
 }) {
   const accent = useThemeColor("accent")
   const isMerlin = message.authorId === MERLIN_USER_ID
-  const isPending = message.id.startsWith("mobile-")
+  const isPending = isOptimisticMessage(message)
   const isStreaming = isMerlin && message.status === "pending"
   const hasTimeline =
     (message.merlinToolCalls?.length ?? 0) > 0 ||
@@ -368,17 +369,20 @@ function ReplyPreview({
       referenced.author.displayUsername ??
       referenced.author.name)
     : null
+  const canJump = !!referenced && !!onJumpToMessage
 
   return (
     <Pressable
       accessibilityLabel={
         referencedName
-          ? `Jump to message from ${referencedName}`
+          ? canJump
+            ? `Jump to message from ${referencedName}`
+            : `Replying to ${referencedName}`
           : "Original message was deleted"
       }
-      accessibilityRole={deleted ? undefined : "button"}
+      accessibilityRole={canJump ? "button" : undefined}
       className="mb-one min-h-7 flex-row items-center gap-two"
-      disabled={deleted || !onJumpToMessage}
+      disabled={!canJump}
       onPress={() => {
         if (referenced) onJumpToMessage?.(referenced.id)
       }}

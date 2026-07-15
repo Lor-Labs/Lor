@@ -11,6 +11,7 @@ import {
   applyReactionUpdate,
   applyThreadSummaryUpdate,
   createOptimisticMessage,
+  isOptimisticMessage,
   mergeMessages,
   realtimeMessageToMessage,
   removeMessage,
@@ -132,8 +133,14 @@ export function useThreadMessages({
           requestId === requestRef.current &&
           requestIdentity === identityRef.current
         ) {
+          // Replace still keeps unacked optimistic replies — dropping them
+          // would make an in-flight send look already-reconciled to the
+          // rollback guard and vanish without an error.
           updateMessages((current) =>
-            replace ? payload.data : mergeMessages(payload.data, current)
+            mergeMessages(
+              payload.data,
+              replace ? current.filter(isOptimisticMessage) : current
+            )
           )
           if (payload.root) updateRoot(() => payload.root)
           beforeCursorRef.current = payload.beforeCursor
