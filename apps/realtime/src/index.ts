@@ -739,9 +739,10 @@ io.on("connection", (socket) => {
         messageId: result.messageId,
         content: result.content,
         editedAt: result.editedAt,
+        mentions: result.mentions,
       })
 
-      ack?.({ ok: true })
+      ack?.({ ok: true, editedAt: result.editedAt, mentions: result.mentions })
     } catch (error) {
       ack?.({ ok: false, error: toErrorMessage(error) })
     }

@@ -218,7 +218,11 @@ export type SendMessageAck = (
 ) => void
 
 export type DeleteMessageAck = (result: OkResult | ErrorResult) => void
-export type EditMessageAck = (result: OkResult | ErrorResult) => void
+export type EditMessageAck = (
+  result:
+    | { ok: true; editedAt: string; mentions: RealtimeMessageMention[] }
+    | ErrorResult
+) => void
 
 export type ToggleMessageReactionAck = (
   result: { ok: true; update: RealtimeMessageReactionUpdated } | ErrorResult
@@ -359,6 +363,7 @@ export interface ServerToClientEvents {
     messageId: string
     content: string
     editedAt: string
+    mentions: RealtimeMessageMention[]
   }) => void
   "message:reaction:updated": (payload: RealtimeMessageReactionUpdated) => void
   "message:embeds:updated": (payload: RealtimeMessageEmbedsUpdated) => void

@@ -128,6 +128,95 @@ function isMentionNotificationType(
   return (mentionNotificationTypes as readonly string[]).includes(type)
 }
 
+async function listMentionUsers(
+  mentionTypeByUserId: Map<string, MentionInsertType>
+): Promise<RealtimeMessageMention[]> {
+  const directIds = Array.from(mentionTypeByUserId.entries())
+    .filter(([, mentionType]) => mentionType === "direct")
+    .map(([userId]) => userId)
+  if (directIds.length === 0) return []
+
+  const users = await db
+    .select({
+      id: schema.user.id,
+      name: schema.user.name,
+      username: schema.user.username,
+      displayUsername: schema.user.displayUsername,
+      image: schema.user.image,
+    })
+    .from(schema.user)
+    .where(inArray(schema.user.id, directIds))
+  const userById = new Map(users.map((user) => [user.id, user]))
+  return directIds.flatMap((userId) => userById.get(userId) ?? [])
+}
+
+// Reconciles message_mention rows after an edit and returns the canonical
+// direct mentions. Deliberately does not create notification events — edits
+// don't re-ping, but fresh mention rows still feed unread mention badges.
+export async function syncMessageMentions(input: {
+  authorId: string
+  channel: FanoutChannel
+  messageId: string
+  content: string
+}): Promise<RealtimeMessageMention[]> {
+  const allRecipientIds = await listRecipientUserIds(input.channel)
+  const recipientIds = [...new Set(allRecipientIds)].filter(
+    (id) => id !== input.authorId
+  )
+  const mentionTypeByUserId = buildMentionTargets({
+    channel: input.channel,
+    recipients: recipientIds,
+    messageContent: input.content,
+  })
+
+  const existingRows = await db
+    .select({
+      mentionedUserId: schema.messageMention.mentionedUserId,
+      mentionType: schema.messageMention.mentionType,
+    })
+    .from(schema.messageMention)
+    .where(eq(schema.messageMention.messageId, input.messageId))
+  const existingTypeByUserId = new Map(
+    existingRows.map((row) => [row.mentionedUserId, row.mentionType])
+  )
+
+  const removedUserIds = existingRows
+    .filter(
+      (row) => mentionTypeByUserId.get(row.mentionedUserId) !== row.mentionType
+    )
+    .map((row) => row.mentionedUserId)
+  if (removedUserIds.length > 0) {
+    await db
+      .delete(schema.messageMention)
+      .where(
+        and(
+          eq(schema.messageMention.messageId, input.messageId),
+          inArray(schema.messageMention.mentionedUserId, removedUserIds)
+        )
+      )
+  }
+
+  const addedRows = Array.from(mentionTypeByUserId.entries())
+    .filter(
+      ([userId, mentionType]) =>
+        existingTypeByUserId.get(userId) !== mentionType
+    )
+    .map(([mentionedUserId, mentionType]) => ({
+      messageId: input.messageId,
+      channelId: input.channel.id,
+      mentionedUserId,
+      mentionType,
+    }))
+  if (addedRows.length > 0) {
+    await db
+      .insert(schema.messageMention)
+      .values(addedRows)
+      .onConflictDoNothing()
+  }
+
+  return listMentionUsers(mentionTypeByUserId)
+}
+
 export async function buildMessageFanout(input: MessageFanoutInput) {
   const allRecipientIds = await listRecipientUserIds(input.channel)
   const recipientIds = [...new Set(allRecipientIds)].filter(
@@ -162,40 +251,7 @@ export async function buildMessageFanout(input: MessageFanoutInput) {
     messageContent: input.message.content ?? "",
   })
 
-  const mentionedUserIds = Array.from(mentionTypeByUserId.entries())
-    .filter(([, mentionType]) => mentionType === "direct")
-    .map(([userId]) => userId)
-  const mentionUsers =
-    mentionedUserIds.length > 0
-      ? await db
-          .select({
-            id: schema.user.id,
-            name: schema.user.name,
-            username: schema.user.username,
-            displayUsername: schema.user.displayUsername,
-            image: schema.user.image,
-          })
-          .from(schema.user)
-          .where(inArray(schema.user.id, mentionedUserIds))
-      : []
-
-  const mentionUserMap = new Map(mentionUsers.map((user) => [user.id, user]))
-  const messageMentions: RealtimeMessageMention[] = mentionedUserIds.flatMap(
-    (userId) => {
-      const mentionUser = mentionUserMap.get(userId)
-      if (!mentionUser) return []
-
-      return [
-        {
-          id: mentionUser.id,
-          name: mentionUser.name,
-          username: mentionUser.username,
-          displayUsername: mentionUser.displayUsername,
-          image: mentionUser.image,
-        },
-      ]
-    }
-  )
+  const messageMentions = await listMentionUsers(mentionTypeByUserId)
 
   if (mentionTypeByUserId.size === 0) {
     return {

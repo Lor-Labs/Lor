@@ -205,6 +205,37 @@ describe("message collection helpers", () => {
     expect(result[1]).toBe(untouched)
   })
 
+  it("replaces mentions from the edit ack and keeps them when omitted", () => {
+    const edited = makeMessage("edited", "2026-07-14T12:01:00.000Z")
+    const editedAt = "2026-07-14T12:02:00.000Z"
+
+    const withMention = updateMessageContent(
+      [edited],
+      edited.id,
+      `Ping <@${author.id}>`,
+      editedAt,
+      [author]
+    )
+    expect(withMention[0]?.mentions).toEqual([author])
+
+    const mentionKept = updateMessageContent(
+      withMention,
+      edited.id,
+      "Ping again",
+      editedAt
+    )
+    expect(mentionKept[0]?.mentions).toEqual([author])
+
+    const mentionRemoved = updateMessageContent(
+      withMention,
+      edited.id,
+      "No more pings",
+      editedAt,
+      []
+    )
+    expect(mentionRemoved[0]?.mentions).toEqual([])
+  })
+
   it("applies exact reaction totals and current-user state", () => {
     const message = makeMessage("message-1", "2026-07-14T12:00:00.000Z")
     const updated = applyReactionUpdate(

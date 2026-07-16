@@ -44,10 +44,18 @@ export function updateMessageContent(
   messages: Message[],
   messageId: string,
   content: string,
-  editedAt: string
+  editedAt: string,
+  mentions?: Message["mentions"]
 ) {
   return messages.map((message) =>
-    message.id === messageId ? { ...message, content, editedAt } : message
+    message.id === messageId
+      ? {
+          ...message,
+          content,
+          editedAt,
+          mentions: mentions ?? message.mentions,
+        }
+      : message
   )
 }
 

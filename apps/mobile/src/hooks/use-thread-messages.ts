@@ -330,7 +330,8 @@ export function useThreadMessages({
                 [current],
                 payload.messageId,
                 payload.content,
-                payload.editedAt
+                payload.editedAt,
+                payload.mentions
               )[0] ?? current)
             : current
         )
@@ -344,7 +345,8 @@ export function useThreadMessages({
           current,
           payload.messageId,
           payload.content,
-          payload.editedAt
+          payload.editedAt,
+          payload.mentions
         )
       )
     }
@@ -720,6 +722,29 @@ export function useThreadMessages({
           .timeout(12_000)
           .emitWithAck("message:edit", { channelId, messageId, content })
         if (!result.ok) throw new Error(result.error)
+        if (messageId === threadRootId) {
+          updateRoot((current) =>
+            current
+              ? (updateMessageContent(
+                  [current],
+                  messageId,
+                  content,
+                  result.editedAt,
+                  result.mentions
+                )[0] ?? current)
+              : current
+          )
+        } else {
+          updateMessages((current) =>
+            updateMessageContent(
+              current,
+              messageId,
+              content,
+              result.editedAt,
+              result.mentions
+            )
+          )
+        }
       } catch (cause) {
         const isTimeout =
           cause instanceof Error && cause.message === "operation has timed out"
