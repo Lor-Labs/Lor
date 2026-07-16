@@ -9,26 +9,29 @@ import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react-native"
 import { Alert } from "heroui-native/alert"
 import { useThemeColor } from "heroui-native/hooks"
 import { Spinner } from "heroui-native/spinner"
-import { useCallback, useMemo, useRef, useState } from "react"
-import { Text, View } from "react-native"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { Keyboard, Text, useWindowDimensions, View } from "react-native"
 import {
   EnrichedMarkdownTextInput,
   type EnrichedMarkdownTextInputInstance,
 } from "react-native-enriched-markdown"
 import { KeyboardController } from "react-native-keyboard-controller"
 import Animated, { LinearTransition } from "react-native-reanimated"
-import { AttachmentPickerSheet } from "@/components/attachment-picker-sheet"
+import { useSafeAreaInsets } from "react-native-safe-area-context"
+import { AttachmentPickerPanel } from "@/components/attachment-picker-panel"
 import { ComposerAttachmentPreview } from "@/components/composer-attachment-preview"
 import { MentionSuggestionMenu } from "@/components/mention-suggestion-menu"
 import { messageDisplayName } from "@/components/message-row"
 import { triggerHaptic } from "@/components/ui/haptics"
 import { IconButton } from "@/components/ui/icon-button"
 import { useMessageAttachments } from "@/hooks/use-message-attachments"
+import type { RecentPhoto } from "@/hooks/use-recent-photos"
 import type { Message } from "@/lib/api-types"
 import { filterMentionCandidates, type MentionCandidate } from "@/lib/mentions"
 import { MENTION_SCHEME, toStoredMessageMarkdown } from "@/lib/message-markdown"
 
 const composerLayoutTransition = LinearTransition.duration(100)
+const attachmentPanelGap = 8
 
 export function MessageComposer({
   channelId,
@@ -60,6 +63,8 @@ export function MessageComposer({
   isMentionCandidatesLoading?: boolean
   mentionCandidatesError?: string | null
 }) {
+  const { bottom: bottomInset } = useSafeAreaInsets()
+  const { height: windowHeight } = useWindowDimensions()
   const [accent, foreground, muted, placeholderColor] = useThemeColor([
     "accent",
     "foreground",
@@ -74,6 +79,7 @@ export function MessageComposer({
   const [isFocused, setIsFocused] = useState(false)
   const [isMentionMenuOpen, setIsMentionMenuOpen] = useState(false)
   const [isAttachmentPickerOpen, setIsAttachmentPickerOpen] = useState(false)
+  const [attachmentPickerHeight, setAttachmentPickerHeight] = useState(320)
   const [mentionQuery, setMentionQuery] = useState("")
   const hasMessage = plainText.trim().length > 0
   const hasUploadedAttachments = attachmentUpload.uploadedAttachments.length > 0
@@ -84,7 +90,10 @@ export function MessageComposer({
     !isSending &&
     isConnected
   const isExpanded =
-    isFocused || plainText.length > 0 || attachmentUpload.attachments.length > 0
+    isFocused ||
+    isAttachmentPickerOpen ||
+    plainText.length > 0 ||
+    attachmentUpload.attachments.length > 0
 
   const filteredMentionCandidates = useMemo(
     () => filterMentionCandidates(mentionCandidates, mentionQuery),
@@ -144,11 +153,59 @@ export function MessageComposer({
     inputRef.current?.startMention("@")
   }, [])
 
-  const openAttachmentPicker = useCallback(async () => {
+  const closeAttachmentPicker = useCallback(() => {
+    setIsAttachmentPickerOpen(false)
+  }, [])
+
+  const returnToKeyboard = useCallback(() => {
+    inputRef.current?.focus()
+  }, [])
+
+  useEffect(() => {
+    if (!(isAttachmentPickerOpen && isFocused)) return
+
+    const subscription = Keyboard.addListener(
+      "keyboardDidShow",
+      closeAttachmentPicker
+    )
+    const timeout = setTimeout(closeAttachmentPicker, 650)
+
+    return () => {
+      subscription.remove()
+      clearTimeout(timeout)
+    }
+  }, [closeAttachmentPicker, isAttachmentPickerOpen, isFocused])
+
+  const openAttachmentPicker = useCallback(() => {
     closeMentionMenu()
-    await KeyboardController.dismiss()
+    const keyboardHeight = KeyboardController.state().height
+    const fallbackHeight = Math.min(Math.max(windowHeight * 0.36, 260), 340)
+    const nextHeight =
+      keyboardHeight > 0
+        ? keyboardHeight - bottomInset - attachmentPanelGap
+        : fallbackHeight - attachmentPanelGap
+
+    setAttachmentPickerHeight(Math.min(Math.max(nextHeight, 250), 360))
     setIsAttachmentPickerOpen(true)
-  }, [closeMentionMenu])
+
+    requestAnimationFrame(() => {
+      inputRef.current?.blur()
+      Keyboard.dismiss()
+      void KeyboardController.dismiss().catch(() => undefined)
+    })
+  }, [bottomInset, closeMentionMenu, windowHeight])
+
+  const selectRecentPhoto = useCallback(
+    (photo: RecentPhoto) => {
+      attachmentUpload.addPhotoAssets([photo])
+    },
+    [attachmentUpload]
+  )
+
+  const selectedPhotoUris = useMemo(
+    () => new Set(attachmentUpload.attachments.map((item) => item.uri)),
+    [attachmentUpload.attachments]
+  )
 
   const insertMention = useCallback(
     (candidate: MentionCandidate) => {
@@ -266,7 +323,9 @@ export function MessageComposer({
           }}
           onChangeText={setPlainText}
           onEndMention={closeMentionMenu}
-          onFocus={() => setIsFocused(true)}
+          onFocus={() => {
+            setIsFocused(true)
+          }}
           onStartMention={() => {
             setMentionQuery("")
             openMentionMenu()
@@ -281,11 +340,15 @@ export function MessageComposer({
         {isExpanded ? (
           <View className="min-h-10 flex-row items-center gap-one px-two pb-two">
             <ComposerShortcut
-              accessibilityLabel="Add attachment"
-              color={muted}
+              accessibilityLabel={
+                isAttachmentPickerOpen ? "Show keyboard" : "Add attachment"
+              }
+              color={isAttachmentPickerOpen ? foreground : muted}
               emphasized
-              icon={PlusSignIcon}
-              onPress={() => void openAttachmentPicker()}
+              icon={isAttachmentPickerOpen ? Cancel01Icon : PlusSignIcon}
+              onPress={
+                isAttachmentPickerOpen ? returnToKeyboard : openAttachmentPicker
+              }
             />
             <ComposerShortcut color={muted} icon={TextFontIcon} />
             <ComposerShortcut color={muted} icon={LaughingIcon} />
@@ -313,7 +376,7 @@ export function MessageComposer({
                 color={muted}
                 emphasized
                 icon={PlusSignIcon}
-                onPress={() => void openAttachmentPicker()}
+                onPress={openAttachmentPicker}
               />
             </View>
             <ComposerSendButton
@@ -327,13 +390,16 @@ export function MessageComposer({
           </>
         )}
       </Animated.View>
-      <AttachmentPickerSheet
-        isOpen={isAttachmentPickerOpen}
-        onOpenChange={setIsAttachmentPickerOpen}
-        onPickFiles={attachmentUpload.pickFiles}
-        onPickPhotos={attachmentUpload.pickPhotos}
-        onTakePhoto={attachmentUpload.takePhoto}
-      />
+      {isAttachmentPickerOpen ? (
+        <AttachmentPickerPanel
+          height={attachmentPickerHeight}
+          onPickFiles={attachmentUpload.pickFiles}
+          onPickPhotos={attachmentUpload.pickPhotos}
+          onSelectPhoto={selectRecentPhoto}
+          onTakePhoto={attachmentUpload.takePhoto}
+          selectedPhotoUris={selectedPhotoUris}
+        />
+      ) : null}
     </View>
   )
 }

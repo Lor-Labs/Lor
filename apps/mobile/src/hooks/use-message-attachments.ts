@@ -13,7 +13,7 @@ import type { Message } from "@/lib/api-types"
 const DEFAULT_MAX_FILE_SIZE = 20 * 1024 * 1024
 const ALLOWED_MIME_TYPES_SET = new Set<string>(ALLOWED_MIME_TYPES)
 
-type LocalAttachmentAsset = {
+export type LocalAttachmentAsset = {
   uri: string
   filename: string
   contentType: string
@@ -281,6 +281,29 @@ export function useMessageAttachments(channelId: string) {
     [updateAttachments, uploadAttachment]
   )
 
+  const addPhotoAssets = useCallback(
+    (
+      assets: Array<{
+        uri: string
+        filename: string
+        width?: number
+        height?: number
+      }>
+    ) => {
+      addAssets(
+        assets.map((asset) => {
+          const file = new File(asset.uri)
+          return {
+            ...asset,
+            contentType: mimeTypeFromName(asset.filename),
+            size: file.size ?? 0,
+          }
+        })
+      )
+    },
+    [addAssets]
+  )
+
   const pickPhotos = useCallback(async () => {
     if (attachmentsRef.current.length >= MAX_ATTACHMENTS_PER_MESSAGE) {
       setError(
@@ -421,6 +444,7 @@ export function useMessageAttachments(channelId: string) {
   )
 
   return {
+    addPhotoAssets,
     attachments,
     clearAttachments,
     error,
