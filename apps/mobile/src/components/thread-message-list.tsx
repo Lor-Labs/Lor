@@ -42,6 +42,7 @@ export function ThreadMessageList({
   currentUserId,
   editingMessageId,
   replyingToId,
+  focusMessageId,
 }: {
   root: Message
   messages: Message[]
@@ -59,11 +60,13 @@ export function ThreadMessageList({
   currentUserId?: string
   editingMessageId?: string | null
   replyingToId?: string | null
+  focusMessageId?: string | null
 }) {
   const [selectedMessage, setSelectedMessage] = useState<Message | null>(null)
   const [jumpTargetId, setJumpTargetId] = useState<string | null>(null)
   const [stickyDate, setStickyDate] = useState<string | null>(null)
   const listRef = useRef<FlatList<ThreadListItem>>(null)
+  const externalFocusRef = useRef<string | null>(null)
   const { handleLongPress, highlightedMessageId } =
     useMessageActionPress(setSelectedMessage)
 
@@ -142,6 +145,12 @@ export function ThreadMessageList({
     },
     [items, onLoadAround]
   )
+
+  useEffect(() => {
+    if (!focusMessageId || externalFocusRef.current === focusMessageId) return
+    externalFocusRef.current = focusMessageId
+    void jumpToMessage(focusMessageId)
+  }, [focusMessageId, jumpToMessage])
 
   return (
     <>

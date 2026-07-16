@@ -29,8 +29,9 @@ export default function ThreadScreen() {
   const socket = useSocket()
   const isSocketConnected = useSocketConnected()
   const { workspace } = useWorkspace()
-  const { channelId, threadRootId } = useLocalSearchParams<{
+  const { channelId, focusMessageId, threadRootId } = useLocalSearchParams<{
     channelId: string
+    focusMessageId?: string
     threadRootId: string
   }>()
   const { data: session } = authClient.useSession()
@@ -194,6 +195,7 @@ export default function ThreadScreen() {
           <ThreadMessageList
             currentUserId={session?.user.id}
             editingMessageId={editingMessage?.id}
+            focusMessageId={focusMessageId}
             hasOlder={thread.hasOlder}
             isLoadingOlder={thread.isLoadingOlder}
             messages={thread.messages}

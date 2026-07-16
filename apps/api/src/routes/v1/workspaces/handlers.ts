@@ -392,6 +392,36 @@ export const searchMessages: AppRouteHandler<SearchMessagesRoute> = async (
 
   const itemsTotal = countResult[0]?.total ?? 0
   const totalPages = Math.ceil(itemsTotal / perPage)
+  const messageIds = messages.map((message) => message.id)
+  const mentionRows =
+    messageIds.length > 0
+      ? await db
+          .select({
+            messageId: schema.messageMention.messageId,
+            id: schema.user.id,
+            name: schema.user.name,
+            username: schema.user.username,
+            displayUsername: schema.user.displayUsername,
+            image: schema.user.image,
+          })
+          .from(schema.messageMention)
+          .innerJoin(
+            schema.user,
+            eq(schema.messageMention.mentionedUserId, schema.user.id)
+          )
+          .where(
+            and(
+              inArray(schema.messageMention.messageId, messageIds),
+              eq(schema.messageMention.mentionType, "direct")
+            )
+          )
+      : []
+  const mentionsByMessageId = new Map<string, typeof mentionRows>()
+  for (const mention of mentionRows) {
+    const current = mentionsByMessageId.get(mention.messageId) ?? []
+    current.push(mention)
+    mentionsByMessageId.set(mention.messageId, current)
+  }
 
   return c.json(
     {
@@ -412,6 +442,13 @@ export const searchMessages: AppRouteHandler<SearchMessagesRoute> = async (
           displayUsername: msg.author.displayUsername,
           image: msg.author.image,
         },
+        mentions: (mentionsByMessageId.get(msg.id) ?? []).map((mention) => ({
+          id: mention.id,
+          name: mention.name,
+          username: mention.username,
+          displayUsername: mention.displayUsername,
+          image: mention.image,
+        })),
       })),
     },
     HttpStatusCodes.OK

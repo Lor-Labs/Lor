@@ -33,6 +33,7 @@ export function MessageList({
   currentUserId,
   editingMessageId,
   replyingToId,
+  focusMessageId,
 }: {
   messages: Message[]
   isLoading: boolean
@@ -49,6 +50,7 @@ export function MessageList({
   currentUserId?: string
   editingMessageId?: string | null
   replyingToId?: string | null
+  focusMessageId?: string | null
 }) {
   const [selectedMessage, setSelectedMessage] = useState<Message | null>(null)
   const [jumpTargetId, setJumpTargetId] = useState<string | null>(null)
@@ -83,6 +85,10 @@ export function MessageList({
   const viewabilityConfig = useRef({
     viewAreaCoveragePercentThreshold: 0,
   }).current
+
+  useEffect(() => {
+    if (focusMessageId) setJumpTargetId(focusMessageId)
+  }, [focusMessageId])
 
   useEffect(() => {
     if (!jumpTargetId) return

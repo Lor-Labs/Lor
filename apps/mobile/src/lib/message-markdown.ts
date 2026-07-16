@@ -46,6 +46,27 @@ export function toStoredMessageMarkdown(markdown: string) {
   )
 }
 
+export function toSearchPreviewText(
+  content: string | null,
+  mentions: Message["mentions"]
+) {
+  if (!content) return ""
+  const mentionById = new Map(mentions.map((mention) => [mention.id, mention]))
+  const mentionLabel = (id: string) => {
+    const mention = mentionById.get(id)
+    return `@${mention ? getMentionLabel(mention) : "unknown-user"}`
+  }
+
+  return content
+    .replace(TIPTAP_MENTION_REGEX, (_match, id: string) => mentionLabel(id))
+    .replace(USER_MENTION_TOKEN_REGEX, (_match, id: string) => mentionLabel(id))
+    .replace(/!\[([^\]]*)]\([^)]*\)/g, "$1")
+    .replace(/\[([^\]]+)]\([^)]*\)/g, "$1")
+    .replace(/(^|\s)[#>*_~-]+(?=\S)/g, "$1")
+    .replace(/[`*_~]/g, "")
+    .trim()
+}
+
 export function toDisplayMarkdown(
   content: string | null,
   mentions: Message["mentions"]

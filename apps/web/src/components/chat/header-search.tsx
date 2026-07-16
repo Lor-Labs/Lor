@@ -20,6 +20,13 @@ type SearchResult = {
     displayUsername: string | null
     image: string | null
   }
+  mentions?: Array<{
+    id: string
+    name: string
+    username: string | null
+    displayUsername: string | null
+    image: string | null
+  }>
 }
 
 type SearchResponse = {
@@ -210,7 +217,10 @@ export function HeaderSearch({
                 </span>
               </div>
               <div className="mt-0.5 truncate text-xs text-muted-foreground">
-                <MessageMarkdown content={msg.content} mentions={[]} />
+                <MessageMarkdown
+                  content={msg.content}
+                  mentions={msg.mentions ?? []}
+                />
               </div>
             </button>
           ))}

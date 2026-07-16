@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest"
-import { toStoredMessageMarkdown } from "./message-markdown"
+import {
+  toSearchPreviewText,
+  toStoredMessageMarkdown,
+} from "./message-markdown"
 
 describe("message Markdown storage", () => {
   it("converts native mention links to the shared stored token contract", () => {
@@ -15,5 +18,24 @@ describe("message Markdown storage", () => {
     const markdown = "Read [the guide](https://example.com/guide)."
 
     expect(toStoredMessageMarkdown(markdown)).toBe(markdown)
+  })
+
+  it("resolves stored mentions and removes Markdown syntax in search previews", () => {
+    const userId = "4f89d7d0-2eb5-4f53-8b06-6dfe9b9f6682"
+
+    expect(
+      toSearchPreviewText(
+        `<@${userId}> **created** [a ticket](https://example.com)`,
+        [
+          {
+            id: userId,
+            name: "Avery Stone",
+            username: "avery",
+            displayUsername: "Avery",
+            image: null,
+          },
+        ]
+      )
+    ).toBe("@Avery created a ticket")
   })
 })

@@ -16,11 +16,6 @@ import type { ChannelList as ChannelListData } from "@/lib/api-types"
 const shortcuts = [
   { label: "Inbox", detail: "All caught up", icon: "tray" },
   { label: "Merlin", detail: "Ask anything", icon: "sparkles" },
-  {
-    label: "Threads",
-    detail: "Coming soon",
-    icon: "bubble.left.and.bubble.right",
-  },
 ] as const
 
 export default function WorkspaceScreen() {
