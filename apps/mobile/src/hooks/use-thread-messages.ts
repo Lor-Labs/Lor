@@ -17,6 +17,7 @@ import {
   removeMessage,
   replaceMessage,
   rollbackOptimisticReply,
+  updateMessageContent,
 } from "@/lib/messages"
 import type { AppSocket } from "@/lib/socket"
 
@@ -52,6 +53,7 @@ export function useThreadMessages({
   const [isMissing, setIsMissing] = useState(false)
   const [isSending, setIsSending] = useState(false)
   const messagesRef = useRef<Message[]>([])
+  const rootRef = useRef<Message | null>(null)
   const beforeCursorRef = useRef<string | null>(null)
   const loadingOlderRef = useRef(false)
   const sendingRef = useRef(false)
@@ -73,18 +75,20 @@ export function useThreadMessages({
 
   const updateRoot = useCallback(
     (updater: (current: Message | null) => Message | null) => {
-      setRoot((current) => {
-        const next = updater(current)
-        return next
-      })
+      const next = updater(rootRef.current)
+      rootRef.current = next
+      setRoot(next)
     },
     []
   )
 
   // `replace` drops local state in favor of the fetched page — used on socket
-  // reconnect so deletions missed while offline don't linger.
+  // reconnect so deletions missed while offline don't linger. Returns the
+  // fetched page (or null on failure) so error paths can check canonical state.
   const reload = useCallback(
-    async ({ replace = false } = {}) => {
+    async ({
+      replace = false,
+    } = {}): Promise<{ data: Message[]; root: Message | null } | null> => {
       const requestId = ++requestRef.current
       const requestIdentity = `${workspaceSlug}:${channelId}:${threadRootId}`
 
@@ -94,6 +98,7 @@ export function useThreadMessages({
           requestIdentity === identityRef.current
         ) {
           messagesRef.current = []
+          rootRef.current = null
           beforeCursorRef.current = null
           setMessages([])
           setRoot(null)
@@ -102,7 +107,7 @@ export function useThreadMessages({
           setIsMissing(true)
           setIsLoading(false)
         }
-        return
+        return null
       }
 
       setIsLoading(true)
@@ -123,8 +128,9 @@ export function useThreadMessages({
           ) {
             updateRoot(() => null)
             setIsMissing(true)
+            return { data: [], root: null }
           }
-          return
+          return null
         }
         if (!response.ok) throw new Error("Could not load this thread")
 
@@ -149,7 +155,9 @@ export function useThreadMessages({
             payload.root?.threadSummary?.replyCount ?? payload.data.length
           )
           setIsMissing(!payload.root)
+          return { data: payload.data, root: payload.root ?? null }
         }
+        return null
       } catch (cause) {
         if (
           requestId === requestRef.current &&
@@ -161,6 +169,7 @@ export function useThreadMessages({
               : "Could not load this thread"
           )
         }
+        return null
       } finally {
         if (
           requestId === requestRef.current &&
@@ -175,6 +184,7 @@ export function useThreadMessages({
 
   useEffect(() => {
     messagesRef.current = []
+    rootRef.current = null
     beforeCursorRef.current = null
     setMessages([])
     setRoot(null)
@@ -316,11 +326,13 @@ export function useThreadMessages({
       if (payload.messageId === threadRootId) {
         updateRoot((current) =>
           current
-            ? {
-                ...current,
-                content: payload.content,
-                editedAt: payload.editedAt,
-              }
+            ? (updateMessageContent(
+                [current],
+                payload.messageId,
+                payload.content,
+                payload.editedAt,
+                payload.mentions
+              )[0] ?? current)
             : current
         )
         return
@@ -329,14 +341,12 @@ export function useThreadMessages({
         return
       }
       updateMessages((current) =>
-        current.map((message) =>
-          message.id === payload.messageId
-            ? {
-                ...message,
-                content: payload.content,
-                editedAt: payload.editedAt,
-              }
-            : message
+        updateMessageContent(
+          current,
+          payload.messageId,
+          payload.content,
+          payload.editedAt,
+          payload.mentions
         )
       )
     }
@@ -679,6 +689,163 @@ export function useThreadMessages({
     [socket, channelId, currentUser?.id, updateMessages, updateRoot]
   )
 
+  const editMessage = useCallback(
+    async (messageId: string, content: string) => {
+      if (!socket?.connected) {
+        throw new Error("You're offline. Reconnect and try again.")
+      }
+
+      const previousRoot = rootRef.current
+      const previousMessage = messagesRef.current.find(
+        (message) => message.id === messageId
+      )
+      const editedAt = new Date().toISOString()
+      if (messageId === threadRootId) {
+        updateRoot((current) =>
+          current
+            ? (updateMessageContent(
+                [current],
+                messageId,
+                content,
+                editedAt
+              )[0] ?? current)
+            : current
+        )
+      } else {
+        updateMessages((current) =>
+          updateMessageContent(current, messageId, content, editedAt)
+        )
+      }
+
+      try {
+        const result = await socket
+          .timeout(12_000)
+          .emitWithAck("message:edit", { channelId, messageId, content })
+        if (!result.ok) throw new Error(result.error)
+        if (messageId === threadRootId) {
+          updateRoot((current) =>
+            current
+              ? (updateMessageContent(
+                  [current],
+                  messageId,
+                  content,
+                  result.editedAt,
+                  result.mentions
+                )[0] ?? current)
+              : current
+          )
+        } else {
+          updateMessages((current) =>
+            updateMessageContent(
+              current,
+              messageId,
+              content,
+              result.editedAt,
+              result.mentions
+            )
+          )
+        }
+      } catch (cause) {
+        const isTimeout =
+          cause instanceof Error && cause.message === "operation has timed out"
+        const canonical = await reload({ replace: true })
+        // A timed-out ack can race a delivered edit; trust the refetched page.
+        const editApplied =
+          messageId === threadRootId
+            ? canonical?.root?.content === content
+            : canonical?.data.some(
+                (message) =>
+                  message.id === messageId && message.content === content
+              )
+        if (isTimeout && editApplied) return
+        // Reload failed too — put the pre-edit message back unless something
+        // newer already replaced our optimistic content.
+        if (!canonical) {
+          if (messageId === threadRootId && previousRoot) {
+            updateRoot((current) =>
+              current?.id === messageId && current.content === content
+                ? previousRoot
+                : current
+            )
+          } else if (previousMessage) {
+            updateMessages((current) =>
+              current.map((message) =>
+                message.id === messageId &&
+                message.content === content &&
+                message.editedAt === editedAt
+                  ? previousMessage
+                  : message
+              )
+            )
+          }
+        }
+        throw cause instanceof Error && !isTimeout
+          ? cause
+          : new Error("Could not edit this message. Please try again.")
+      }
+    },
+    [socket, channelId, threadRootId, reload, updateMessages, updateRoot]
+  )
+
+  const deleteMessage = useCallback(
+    async (messageId: string) => {
+      if (!socket?.connected) {
+        throw new Error("You're offline. Reconnect and try again.")
+      }
+
+      const previousRoot = rootRef.current
+      const previousMessage = messagesRef.current.find(
+        (message) => message.id === messageId
+      )
+      if (messageId === threadRootId) {
+        updateRoot(() => null)
+        setIsMissing(true)
+      } else {
+        updateMessages((current) => removeMessage(current, messageId))
+        if (previousMessage) {
+          setTotalReplyCount((current) => Math.max(0, current - 1))
+        }
+      }
+
+      try {
+        const result = await socket
+          .timeout(12_000)
+          .emitWithAck("message:delete", { channelId, messageId })
+        if (!result.ok) throw new Error(result.error)
+      } catch (cause) {
+        const isTimeout =
+          cause instanceof Error && cause.message === "operation has timed out"
+        const canonical = await reload({ replace: true })
+        // A timed-out ack can race a delivered delete; trust the refetched page.
+        const deletionApplied =
+          messageId === threadRootId
+            ? canonical !== null && canonical.root === null
+            : canonical !== null &&
+              !canonical.data.some((message) => message.id === messageId)
+        if (isTimeout && deletionApplied) return
+        // Reload failed too — restore the removed message.
+        if (!canonical) {
+          if (messageId === threadRootId && previousRoot) {
+            updateRoot(() => previousRoot)
+            setIsMissing(false)
+          } else if (
+            previousMessage &&
+            !messagesRef.current.some((message) => message.id === messageId)
+          ) {
+            updateMessages((current) =>
+              mergeMessages([previousMessage], current)
+            )
+            setTotalReplyCount((current) => current + 1)
+          }
+        }
+        throw cause instanceof Error && !isTimeout
+          ? cause
+          : new Error("Could not delete this message. Please try again.")
+      }
+    },
+    [socket, channelId, threadRootId, reload, updateMessages, updateRoot]
+  )
+
   const togglePin = useCallback(
     async (messageId: string, currentlyPinned: boolean) => {
       const nextPinned = !currentlyPinned
@@ -733,6 +900,8 @@ export function useThreadMessages({
     loadOlder,
     loadAround,
     sendMessage,
+    editMessage,
+    deleteMessage,
     toggleReaction,
     togglePin,
   }

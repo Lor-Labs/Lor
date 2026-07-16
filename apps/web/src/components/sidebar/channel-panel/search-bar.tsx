@@ -4,8 +4,8 @@ import { useQuery } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import { Loader2, Search, X } from "lucide-react"
 import { useCallback, useEffect, useRef, useState } from "react"
-import { MessageMarkdown } from "@/components/chat/message-markdown"
 import { apiClient } from "@/lib/api-client"
+import { toSearchPreviewText } from "@/lib/search-preview"
 
 type SearchResult = {
   id: string
@@ -20,6 +20,13 @@ type SearchResult = {
     displayUsername: string | null
     image: string | null
   }
+  mentions?: Array<{
+    id: string
+    name: string
+    username: string | null
+    displayUsername: string | null
+    image: string | null
+  }>
 }
 
 type SearchResponse = {
@@ -206,7 +213,7 @@ export function SearchBar({
                 </span>
               </div>
               <div className="mt-0.5 truncate text-xs text-muted-foreground">
-                <MessageMarkdown content={msg.content} mentions={[]} />
+                {toSearchPreviewText(msg.content, msg.mentions ?? [])}
               </div>
             </button>
           ))}

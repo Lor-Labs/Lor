@@ -2,7 +2,7 @@ import { router, useLocalSearchParams } from "expo-router"
 import { SymbolView } from "expo-symbols"
 import { useThemeColor } from "heroui-native/hooks"
 import { useEffect, useState } from "react"
-import { Text, View } from "react-native"
+import { Alert, Text, View } from "react-native"
 import { KeyboardAvoidingView } from "react-native-keyboard-controller"
 import { MessageComposer } from "@/components/message-composer"
 import {
@@ -23,12 +23,15 @@ import { authClient } from "@/lib/auth-client"
 
 export default function ThreadScreen() {
   const [replyingTo, setReplyingTo] = useState<Message | null>(null)
+  const [editingMessage, setEditingMessage] = useState<Message | null>(null)
+  const [isSavingEdit, setIsSavingEdit] = useState(false)
   const foreground = useThemeColor("foreground")
   const socket = useSocket()
   const isSocketConnected = useSocketConnected()
   const { workspace } = useWorkspace()
-  const { channelId, threadRootId } = useLocalSearchParams<{
+  const { channelId, focusMessageId, threadRootId } = useLocalSearchParams<{
     channelId: string
+    focusMessageId?: string
     threadRootId: string
   }>()
   const { data: session } = authClient.useSession()
@@ -51,7 +54,20 @@ export default function ThreadScreen() {
 
   useEffect(() => {
     setReplyingTo(null)
+    setEditingMessage(null)
+    setIsSavingEdit(false)
   }, [channelId, threadRootId])
+
+  useEffect(() => {
+    if (!editingMessage) return
+    const editingMessageExists =
+      thread.root?.id === editingMessage.id ||
+      thread.messages.some((message) => message.id === editingMessage.id)
+    if (!editingMessageExists) {
+      setEditingMessage(null)
+      setIsSavingEdit(false)
+    }
+  }, [editingMessage, thread.messages, thread.root])
 
   const goBack = () => {
     if (router.canGoBack()) {
@@ -68,6 +84,45 @@ export default function ThreadScreen() {
       pathname: "/channel/[channelId]",
       params: { channelId },
     })
+  }
+
+  const startReply = (message: Message) => {
+    setEditingMessage(null)
+    setReplyingTo(message)
+  }
+
+  const startEditing = (message: Message) => {
+    setReplyingTo(null)
+    setEditingMessage(message)
+  }
+
+  const confirmDelete = (message: Message) => {
+    const isRoot = message.id === threadRootId
+    Alert.alert(
+      "Delete message?",
+      isRoot
+        ? "This message and all of its thread replies will be permanently deleted."
+        : "This reply will be permanently deleted.",
+      [
+        { style: "cancel", text: "Cancel" },
+        {
+          style: "destructive",
+          text: "Delete",
+          onPress: () => {
+            if (editingMessage?.id === message.id) setEditingMessage(null)
+            if (replyingTo?.id === message.id) setReplyingTo(null)
+            void thread.deleteMessage(message.id).catch((cause) => {
+              Alert.alert(
+                "Message not deleted",
+                cause instanceof Error
+                  ? cause.message
+                  : "Please try again in a moment."
+              )
+            })
+          },
+        },
+      ]
+    )
   }
 
   if (!workspace || !channelId || !threadRootId) {
@@ -138,12 +193,17 @@ export default function ThreadScreen() {
           />
         ) : (
           <ThreadMessageList
+            currentUserId={session?.user.id}
+            editingMessageId={editingMessage?.id}
+            focusMessageId={focusMessageId}
             hasOlder={thread.hasOlder}
             isLoadingOlder={thread.isLoadingOlder}
             messages={thread.messages}
             onLoadAround={thread.loadAround}
             onLoadOlder={() => void thread.loadOlder()}
-            onReply={setReplyingTo}
+            onDelete={confirmDelete}
+            onEdit={startEditing}
+            onReply={startReply}
             onToggleReaction={thread.toggleReaction}
             onTogglePin={
               canPinMessages
@@ -163,12 +223,23 @@ export default function ThreadScreen() {
             accessibilityLabel="Reply in thread"
             channelId={channelId}
             channelName={channelName}
+            editingMessage={editingMessage}
             isConnected={isSocketConnected}
             isMentionCandidatesLoading={mentions.isLoading}
-            isSending={thread.isSending}
+            isSending={thread.isSending || isSavingEdit}
             mentionCandidates={mentions.candidates}
             mentionCandidatesError={mentions.error}
+            onCancelEdit={() => setEditingMessage(null)}
             onCancelReply={() => setReplyingTo(null)}
+            onEdit={async (messageId, content) => {
+              setIsSavingEdit(true)
+              try {
+                await thread.editMessage(messageId, content)
+                setEditingMessage(null)
+              } finally {
+                setIsSavingEdit(false)
+              }
+            }}
             onSend={async (content, attachments) => {
               await thread.sendMessage(
                 content,

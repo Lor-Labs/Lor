@@ -15,6 +15,7 @@ import {
   realtimeMessageToMessage,
   removeMessage,
   replaceMessage,
+  updateMessageContent,
 } from "@/lib/messages"
 import type { AppSocket } from "@/lib/socket"
 
@@ -48,9 +49,10 @@ export function useChannelMessages({
   channelIdentityRef.current = channelIdentity
 
   // `replace` drops local state in favor of the fetched page — used on socket
-  // reconnect so deletions missed while offline don't linger.
+  // reconnect so deletions missed while offline don't linger. Returns the
+  // fetched page (or null on failure) so error paths can check canonical state.
   const reload = useCallback(
-    async ({ replace = false } = {}) => {
+    async ({ replace = false } = {}): Promise<Message[] | null> => {
       const requestId = ++reloadRequestRef.current
       const requestIdentity = `${workspaceSlug}:${channelId}`
 
@@ -63,7 +65,7 @@ export function useChannelMessages({
           setError(null)
           setIsLoading(false)
         }
-        return
+        return null
       }
 
       setIsLoading(true)
@@ -89,7 +91,9 @@ export function useChannelMessages({
               replace ? current.filter(isOptimisticMessage) : current
             )
           )
+          return payload.data
         }
+        return null
       } catch (cause) {
         if (
           requestId === reloadRequestRef.current &&
@@ -99,6 +103,7 @@ export function useChannelMessages({
             cause instanceof Error ? cause.message : "Could not load messages"
           )
         }
+        return null
       } finally {
         if (
           requestId === reloadRequestRef.current &&
@@ -146,14 +151,12 @@ export function useChannelMessages({
     ) => {
       if (payload.channelId !== channelId) return
       setMessages((current) =>
-        current.map((message) =>
-          message.id === payload.messageId
-            ? {
-                ...message,
-                content: payload.content,
-                editedAt: payload.editedAt,
-              }
-            : message
+        updateMessageContent(
+          current,
+          payload.messageId,
+          payload.content,
+          payload.editedAt,
+          payload.mentions
         )
       )
     }
@@ -407,6 +410,112 @@ export function useChannelMessages({
     [socket, channelId, currentUser?.id]
   )
 
+  const editMessage = useCallback(
+    async (messageId: string, content: string) => {
+      if (!socket?.connected) {
+        throw new Error("You're offline. Reconnect and try again.")
+      }
+
+      const previous = messagesRef.current.find(
+        (message) => message.id === messageId
+      )
+      const editedAt = new Date().toISOString()
+      setMessages((current) =>
+        updateMessageContent(current, messageId, content, editedAt)
+      )
+
+      try {
+        const result = await socket
+          .timeout(12_000)
+          .emitWithAck("message:edit", { channelId, messageId, content })
+        if (!result.ok) throw new Error(result.error)
+        setMessages((current) =>
+          updateMessageContent(
+            current,
+            messageId,
+            content,
+            result.editedAt,
+            result.mentions
+          )
+        )
+      } catch (cause) {
+        const isTimeout =
+          cause instanceof Error && cause.message === "operation has timed out"
+        const canonical = await reload({ replace: true })
+        // A timed-out ack can race a delivered edit; trust the refetched page.
+        if (
+          isTimeout &&
+          canonical?.some(
+            (message) => message.id === messageId && message.content === content
+          )
+        ) {
+          return
+        }
+        // Reload failed too — put the pre-edit message back unless something
+        // newer already replaced our optimistic content.
+        if (!canonical && previous) {
+          setMessages((current) =>
+            current.map((message) =>
+              message.id === messageId &&
+              message.content === content &&
+              message.editedAt === editedAt
+                ? previous
+                : message
+            )
+          )
+        }
+        throw cause instanceof Error && !isTimeout
+          ? cause
+          : new Error("Could not edit this message. Please try again.")
+      }
+    },
+    [socket, channelId, reload]
+  )
+
+  const deleteMessage = useCallback(
+    async (messageId: string) => {
+      if (!socket?.connected) {
+        throw new Error("You're offline. Reconnect and try again.")
+      }
+
+      const previous = messagesRef.current.find(
+        (message) => message.id === messageId
+      )
+      setMessages((current) => removeMessage(current, messageId))
+
+      try {
+        const result = await socket
+          .timeout(12_000)
+          .emitWithAck("message:delete", { channelId, messageId })
+        if (!result.ok) throw new Error(result.error)
+      } catch (cause) {
+        const isTimeout =
+          cause instanceof Error && cause.message === "operation has timed out"
+        const canonical = await reload({ replace: true })
+        // A timed-out ack can race a delivered delete; trust the refetched page.
+        if (
+          isTimeout &&
+          canonical &&
+          !canonical.some((message) => message.id === messageId)
+        ) {
+          return
+        }
+        // Reload failed too — restore the removed message.
+        if (!canonical && previous) {
+          setMessages((current) =>
+            current.some((message) => message.id === messageId)
+              ? current
+              : mergeMessages([previous], current)
+          )
+        }
+        throw cause instanceof Error && !isTimeout
+          ? cause
+          : new Error("Could not delete this message. Please try again.")
+      }
+    },
+    [socket, channelId, reload]
+  )
+
   const togglePin = useCallback(
     async (messageId: string, currentlyPinned: boolean) => {
       const nextPinned = !currentlyPinned
@@ -448,6 +557,8 @@ export function useChannelMessages({
     reload,
     loadAround,
     sendMessage,
+    editMessage,
+    deleteMessage,
     toggleReaction,
     togglePin,
   }

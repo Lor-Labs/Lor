@@ -1,8 +1,10 @@
 import { and, count, db, desc, eq, max, schema } from "@repo/db"
+import { syncMessageMentions } from "@repo/messaging"
 import type {
   DeleteMessagePayload,
   EditMessagePayload,
   RealtimeMessage,
+  RealtimeMessageMention,
   RealtimeMessageReactionUpdated,
   RealtimeMessageThreadUpdated,
   SendMessagePayload,
@@ -401,6 +403,7 @@ export type EditMessageResult = {
   messageId: string
   content: string
   editedAt: string
+  mentions: RealtimeMessageMention[]
   channel: AccessibleChannel
 }
 
@@ -442,11 +445,19 @@ export async function editMessage(
     .set({ content: input.payload.content, editedAt })
     .where(eq(schema.message.id, input.payload.messageId))
 
+  const mentions = await syncMessageMentions({
+    authorId: messageRecord.authorId,
+    channel: channelRecord,
+    messageId: input.payload.messageId,
+    content: input.payload.content,
+  })
+
   return {
     channelId: input.payload.channelId,
     messageId: input.payload.messageId,
     content: input.payload.content,
     editedAt: editedAt.toISOString(),
+    mentions,
     channel: channelRecord,
   }
 }

@@ -21,3 +21,8 @@ export type WorkspaceMemberList = InferResponseType<
   200
 >
 export type WorkspaceMember = WorkspaceMemberList["members"][number]
+export type ChannelSearchResults = InferResponseType<
+  WorkspaceClient["search"]["$get"],
+  200
+>
+export type ChannelSearchResult = ChannelSearchResults["data"][number]

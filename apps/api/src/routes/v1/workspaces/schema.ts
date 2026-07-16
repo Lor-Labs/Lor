@@ -104,6 +104,7 @@ const searchResultMessageSchema = z.object({
   channelId: z.string().uuid(),
   channelName: z.string(),
   author: messageAuthorSchema,
+  mentions: z.array(messageAuthorSchema),
 })
 
 export const searchMessagesResponseSchema = paginatedResponseSchema(

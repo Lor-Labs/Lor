@@ -1,10 +1,16 @@
+import type { RealtimeMessageMention } from "@repo/realtime-types"
 import type { InfiniteData, QueryClient } from "@tanstack/react-query"
 import { useCallback, useEffect } from "react"
 import { updateMessagesAcrossPages } from "@/lib/message-cache-utils"
 import type { AppSocket } from "@/lib/socket"
 
 interface MessagePage {
-  data: { id: string; content: string | null; editedAt: string | null }[]
+  data: {
+    id: string
+    content: string | null
+    editedAt: string | null
+    mentions?: RealtimeMessageMention[]
+  }[]
 }
 
 interface UseMessageEditingOptions {
@@ -19,14 +25,21 @@ export function useMessageEditing({
   channelId,
 }: UseMessageEditingOptions) {
   const updateMessageInCache = useCallback(
-    (messageId: string, content: string, editedAt: string) => {
+    (
+      messageId: string,
+      content: string,
+      editedAt: string,
+      mentions?: RealtimeMessageMention[]
+    ) => {
       queryClient.setQueryData<InfiniteData<MessagePage>>(
         ["messages", channelId],
         (old) => {
           if (!old) return old
           return updateMessagesAcrossPages(old, (msgs) =>
             msgs.map((m) =>
-              m.id === messageId ? { ...m, content, editedAt } : m
+              m.id === messageId
+                ? { ...m, content, editedAt, mentions: mentions ?? m.mentions }
+                : m
             )
           )
         }
@@ -43,9 +56,15 @@ export function useMessageEditing({
       messageId: string
       content: string
       editedAt: string
+      mentions: RealtimeMessageMention[]
     }) => {
       if (payload.channelId !== channelId) return
-      updateMessageInCache(payload.messageId, payload.content, payload.editedAt)
+      updateMessageInCache(
+        payload.messageId,
+        payload.content,
+        payload.editedAt,
+        payload.mentions
+      )
     }
 
     socket.on("message:updated", handleUpdated)
@@ -70,7 +89,14 @@ export function useMessageEditing({
             void queryClient.invalidateQueries({
               queryKey: ["messages", channelId],
             })
+            return
           }
+          updateMessageInCache(
+            messageId,
+            content,
+            result.editedAt,
+            result.mentions
+          )
         }
       )
     },

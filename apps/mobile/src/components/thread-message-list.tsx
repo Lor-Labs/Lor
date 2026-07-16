@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useMessageActionPress } from "@/hooks/use-message-action-press"
 import type { Message } from "@/lib/api-types"
+import { isOptimisticMessage } from "@/lib/messages"
 
 type ThreadListItem =
   | { kind: "reply"; message: Message; replyIndex: number }
@@ -34,9 +35,14 @@ export function ThreadMessageList({
   onLoadOlder,
   onReply,
   onLoadAround,
+  onEdit,
+  onDelete,
   onToggleReaction,
   onTogglePin,
+  currentUserId,
+  editingMessageId,
   replyingToId,
+  focusMessageId,
 }: {
   root: Message
   messages: Message[]
@@ -47,14 +53,20 @@ export function ThreadMessageList({
   onLoadOlder: () => void
   onReply: (message: Message) => void
   onLoadAround: (messageId: string) => Promise<boolean>
+  onEdit?: (message: Message) => void
+  onDelete?: (message: Message) => void
   onToggleReaction?: (messageId: string, emoji: string) => void
   onTogglePin?: (message: Message) => void
+  currentUserId?: string
+  editingMessageId?: string | null
   replyingToId?: string | null
+  focusMessageId?: string | null
 }) {
   const [selectedMessage, setSelectedMessage] = useState<Message | null>(null)
   const [jumpTargetId, setJumpTargetId] = useState<string | null>(null)
   const [stickyDate, setStickyDate] = useState<string | null>(null)
   const listRef = useRef<FlatList<ThreadListItem>>(null)
+  const externalFocusRef = useRef<string | null>(null)
   const { handleLongPress, highlightedMessageId } =
     useMessageActionPress(setSelectedMessage)
 
@@ -134,6 +146,12 @@ export function ThreadMessageList({
     [items, onLoadAround]
   )
 
+  useEffect(() => {
+    if (!focusMessageId || externalFocusRef.current === focusMessageId) return
+    externalFocusRef.current = focusMessageId
+    void jumpToMessage(focusMessageId)
+  }, [focusMessageId, jumpToMessage])
+
   return (
     <>
       <View className="relative flex-1">
@@ -174,13 +192,42 @@ export function ThreadMessageList({
           }}
           renderItem={({ item }) => {
             if (item.kind === "root") {
+              const canManageMessage =
+                Boolean(currentUserId) &&
+                item.message.authorId === currentUserId &&
+                !isOptimisticMessage(item.message)
+              const accessibilityActions = [{ label: "Reply", name: "reply" }]
+              if (canManageMessage && item.message.content?.trim() && onEdit) {
+                accessibilityActions.push({
+                  label: "Edit message",
+                  name: "edit",
+                })
+              }
+              if (canManageMessage && onDelete) {
+                accessibilityActions.push({
+                  label: "Delete message",
+                  name: "delete",
+                })
+              }
               return (
                 <Pressable
-                  accessibilityActions={[{ label: "Reply", name: "reply" }]}
+                  accessibilityActions={accessibilityActions}
                   accessibilityHint="Opens message actions"
                   accessibilityLabel={`Message from ${messageDisplayName(item.message)}`}
                   delayLongPress={350}
-                  onAccessibilityAction={() => onReply(item.message)}
+                  onAccessibilityAction={(event) => {
+                    if (event.nativeEvent.actionName === "reply") {
+                      onReply(item.message)
+                      return
+                    }
+                    if (event.nativeEvent.actionName === "edit") {
+                      onEdit?.(item.message)
+                      return
+                    }
+                    if (event.nativeEvent.actionName === "delete") {
+                      onDelete?.(item.message)
+                    }
+                  }}
                   onLongPress={() => handleLongPress(item.message)}
                 >
                   <ThreadRootMessage
@@ -189,7 +236,8 @@ export function ThreadMessageList({
                     }
                     isHighlighted={
                       jumpTargetId === item.message.id ||
-                      replyingToId === item.message.id
+                      replyingToId === item.message.id ||
+                      editingMessageId === item.message.id
                     }
                     message={item.message}
                     onJumpToMessage={(messageId) =>
@@ -252,14 +300,43 @@ export function ThreadMessageList({
               ? !areMessagesOnSameDay(message.createdAt, older.createdAt)
               : !hasOlder &&
                 !areMessagesOnSameDay(message.createdAt, root.createdAt)
+            const canManageMessage =
+              Boolean(currentUserId) &&
+              message.authorId === currentUserId &&
+              !isOptimisticMessage(message)
+            const accessibilityActions = [{ label: "Reply", name: "reply" }]
+            if (canManageMessage && message.content?.trim() && onEdit) {
+              accessibilityActions.push({
+                label: "Edit message",
+                name: "edit",
+              })
+            }
+            if (canManageMessage && onDelete) {
+              accessibilityActions.push({
+                label: "Delete message",
+                name: "delete",
+              })
+            }
 
             return (
               <Pressable
-                accessibilityActions={[{ label: "Reply", name: "reply" }]}
+                accessibilityActions={accessibilityActions}
                 accessibilityHint="Opens message actions"
                 accessibilityLabel={`Message from ${messageDisplayName(message)}`}
                 delayLongPress={350}
-                onAccessibilityAction={() => onReply(message)}
+                onAccessibilityAction={(event) => {
+                  if (event.nativeEvent.actionName === "reply") {
+                    onReply(message)
+                    return
+                  }
+                  if (event.nativeEvent.actionName === "edit") {
+                    onEdit?.(message)
+                    return
+                  }
+                  if (event.nativeEvent.actionName === "delete") {
+                    onDelete?.(message)
+                  }
+                }}
                 onLongPress={() => handleLongPress(message)}
               >
                 <View>
@@ -269,7 +346,9 @@ export function ThreadMessageList({
                   <MessageRow
                     isActionHighlighted={highlightedMessageId === message.id}
                     isHighlighted={
-                      jumpTargetId === message.id || replyingToId === message.id
+                      jumpTargetId === message.id ||
+                      replyingToId === message.id ||
+                      editingMessageId === message.id
                     }
                     message={message}
                     onJumpToMessage={(messageId) =>
@@ -312,6 +391,21 @@ export function ThreadMessageList({
           if (!isOpen) setSelectedMessage(null)
         }}
         onReply={replyToSelectedMessage}
+        onEdit={
+          selectedMessage &&
+          currentUserId === selectedMessage.authorId &&
+          !isOptimisticMessage(selectedMessage) &&
+          selectedMessage.content?.trim()
+            ? onEdit
+            : undefined
+        }
+        onDelete={
+          selectedMessage &&
+          currentUserId === selectedMessage.authorId &&
+          !isOptimisticMessage(selectedMessage)
+            ? onDelete
+            : undefined
+        }
         onToggleReaction={(message, emoji) =>
           onToggleReaction?.(message.id, emoji)
         }

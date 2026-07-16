@@ -15,6 +15,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { StatePanel } from "@/components/ui/state-panel"
 import { useMessageActionPress } from "@/hooks/use-message-action-press"
 import type { Message } from "@/lib/api-types"
+import { isOptimisticMessage } from "@/lib/messages"
 
 export function MessageList({
   messages,
@@ -25,9 +26,14 @@ export function MessageList({
   onOpenThread,
   onReply,
   onLoadAround,
+  onEdit,
+  onDelete,
   onToggleReaction,
   onTogglePin,
+  currentUserId,
+  editingMessageId,
   replyingToId,
+  focusMessageId,
 }: {
   messages: Message[]
   isLoading: boolean
@@ -37,9 +43,14 @@ export function MessageList({
   onOpenThread: (message: Message) => void
   onReply: (message: Message) => void
   onLoadAround?: (messageId: string) => Promise<boolean>
+  onEdit?: (message: Message) => void
+  onDelete?: (message: Message) => void
   onToggleReaction?: (messageId: string, emoji: string) => void
   onTogglePin?: (message: Message) => void
+  currentUserId?: string
+  editingMessageId?: string | null
   replyingToId?: string | null
+  focusMessageId?: string | null
 }) {
   const [selectedMessage, setSelectedMessage] = useState<Message | null>(null)
   const [jumpTargetId, setJumpTargetId] = useState<string | null>(null)
@@ -74,6 +85,10 @@ export function MessageList({
   const viewabilityConfig = useRef({
     viewAreaCoveragePercentThreshold: 0,
   }).current
+
+  useEffect(() => {
+    if (focusMessageId) setJumpTargetId(focusMessageId)
+  }, [focusMessageId])
 
   useEffect(() => {
     if (!jumpTargetId) return
@@ -170,15 +185,32 @@ export function MessageList({
             const actionLabel = item.threadSummary
               ? "Open thread"
               : "Reply in thread"
+            const canManageMessage =
+              Boolean(currentUserId) &&
+              item.authorId === currentUserId &&
+              !isOptimisticMessage(item)
+            const accessibilityActions = [
+              { label: "Reply", name: "reply" },
+              { label: actionLabel, name: "open-thread" },
+            ]
+            if (canManageMessage && item.content?.trim() && onEdit) {
+              accessibilityActions.push({
+                label: "Edit message",
+                name: "edit",
+              })
+            }
+            if (canManageMessage && onDelete) {
+              accessibilityActions.push({
+                label: "Delete message",
+                name: "delete",
+              })
+            }
 
             return (
               <View>
                 {showDate ? <MessageDateDivider date={item.createdAt} /> : null}
                 <Pressable
-                  accessibilityActions={[
-                    { label: "Reply", name: "reply" },
-                    { label: actionLabel, name: "open-thread" },
-                  ]}
+                  accessibilityActions={accessibilityActions}
                   accessibilityHint="Opens thread actions"
                   accessibilityLabel={`${messageDisplayName(item)}, ${item.content ?? "Message"}`}
                   delayLongPress={350}
@@ -189,6 +221,14 @@ export function MessageList({
                     }
                     if (event.nativeEvent.actionName === "open-thread") {
                       onOpenThread(item)
+                      return
+                    }
+                    if (event.nativeEvent.actionName === "edit") {
+                      onEdit?.(item)
+                      return
+                    }
+                    if (event.nativeEvent.actionName === "delete") {
+                      onDelete?.(item)
                     }
                   }}
                   onLongPress={() => handleLongPress(item)}
@@ -197,7 +237,9 @@ export function MessageList({
                     message={item}
                     isActionHighlighted={highlightedMessageId === item.id}
                     isHighlighted={
-                      jumpTargetId === item.id || replyingToId === item.id
+                      jumpTargetId === item.id ||
+                      replyingToId === item.id ||
+                      editingMessageId === item.id
                     }
                     onJumpToMessage={(messageId) =>
                       void jumpToMessage(messageId)
@@ -232,6 +274,21 @@ export function MessageList({
         }}
         onOpenThread={openSelectedThread}
         onReply={replyToSelectedMessage}
+        onEdit={
+          selectedMessage &&
+          currentUserId === selectedMessage.authorId &&
+          !isOptimisticMessage(selectedMessage) &&
+          selectedMessage.content?.trim()
+            ? onEdit
+            : undefined
+        }
+        onDelete={
+          selectedMessage &&
+          currentUserId === selectedMessage.authorId &&
+          !isOptimisticMessage(selectedMessage)
+            ? onDelete
+            : undefined
+        }
         onToggleReaction={(message, emoji) =>
           onToggleReaction?.(message.id, emoji)
         }

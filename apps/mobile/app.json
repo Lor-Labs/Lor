@@ -51,11 +51,20 @@
         }
       ],
       [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow Lor to show your recent photos so you can attach them to messages.",
+          "savePhotosPermission": "Allow Lor to save images from messages to your photo library.",
+          "granularPermissions": ["photo"]
+        }
+      ],
+      [
         "react-native-enriched-markdown",
         {
           "enableMath": false
         }
-      ]
+      ],
+      "expo-sharing"
     ],
     "experiments": {
       "typedRoutes": true,

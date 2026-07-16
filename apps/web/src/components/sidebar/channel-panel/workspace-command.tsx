@@ -19,6 +19,7 @@ import { useNavigate, useParams } from "@tanstack/react-router"
 import { Loader2, Monitor, Moon, Search, Sun } from "lucide-react"
 import { useTheme } from "next-themes"
 import { useCallback, useEffect, useRef, useState } from "react"
+import { MessageMarkdown } from "@/components/chat/message-markdown"
 import { apiClient } from "@/lib/api-client"
 
 type SearchResult = {
@@ -30,6 +31,13 @@ type SearchResult = {
     displayUsername: string | null
     name: string
   }
+  mentions: Array<{
+    id: string
+    name: string
+    username: string | null
+    displayUsername: string | null
+    image: string | null
+  }>
 }
 
 type SearchResponse = {
@@ -202,7 +210,10 @@ export function WorkspaceCommand() {
                             </span>
                           </div>
                           <div className="truncate text-xs text-muted-foreground">
-                            {msg.content}
+                            <MessageMarkdown
+                              content={msg.content}
+                              mentions={msg.mentions}
+                            />
                           </div>
                         </div>
                       </CommandItem>
