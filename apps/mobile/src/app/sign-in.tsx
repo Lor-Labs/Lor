@@ -9,7 +9,7 @@ import {
   TextInput,
   View,
 } from "react-native"
-import { SafeAreaView } from "react-native-safe-area-context"
+import { Screen } from "@/components/ui/screen"
 import { useTheme } from "@/hooks/use-theme"
 import { authClient } from "@/lib/auth-client"
 
@@ -43,10 +43,7 @@ export default function SignInScreen() {
   }
 
   return (
-    <SafeAreaView
-      className="flex-1 bg-lor-bg dark:bg-lor-bg-dark"
-      style={{ flex: 1 }}
-    >
+    <Screen className="bg-lor-bg dark:bg-lor-bg-dark">
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         className="flex-1"
@@ -129,6 +126,6 @@ export default function SignInScreen() {
           </View>
         </View>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </Screen>
   )
 }

@@ -155,6 +155,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
     socket,
     queryClient,
     channelId: view.channelId,
+    threadRootId: view.threadRootId,
     currentUserId,
     currentUserName: session?.user.name,
   })

@@ -6,6 +6,7 @@
   "exports": {
     "./slug": "./src/slug.ts",
     "./date": "./src/date.ts",
+    "./merlin": "./src/merlin.ts",
     "./phone": "./src/phone.ts",
     "./crypto": "./src/crypto.ts"
   },

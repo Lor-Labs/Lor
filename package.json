@@ -12,6 +12,7 @@
     "generate:auth-schema": "pnpm --filter @repo/auth exec npx @better-auth/cli@latest generate --output ../../packages/db/src/generated-schema.ts",
     "db:push": "pnpm --filter @repo/db db:push",
     "db:studio": "pnpm --filter @repo/db db:studio",
+    "mobile:ios": "pnpm --filter mobile exec expo run:ios --device",
     "test": "turbo run test",
     "validate": "pnpm run check && pnpm run check-types && pnpm run test",
     "desktop": "pnpm --filter desktop dev",
@@ -30,6 +31,9 @@
   "pnpm": {
     "overrides": {
       "lightningcss": "1.30.1"
+    },
+    "patchedDependencies": {
+      "react-native-enriched-markdown@0.7.4": "patches/react-native-enriched-markdown@0.7.4.patch"
     }
   },
   "engines": {

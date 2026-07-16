@@ -14,6 +14,8 @@
   --color-lor-surface-dark: oklch(0.19 0.005 80);
   --color-lor-surface-raised: oklch(0.96 0.004 80);
   --color-lor-surface-raised-dark: oklch(0.25 0.006 80);
+  --color-lor-segment: oklch(0.995 0.002 80);
+  --color-lor-segment-dark: oklch(0.38 0.008 80);
   --color-lor-sidebar: oklch(0.975 0.003 80);
   --color-lor-sidebar-dark: oklch(0.13 0.004 80);
   --color-lor-border: oklch(0.92 0.004 80);
@@ -32,6 +34,10 @@
   --color-lor-merlin-dark: oklch(0.7 0.2 296);
   --color-lor-merlin-muted: oklch(0.95 0.01 296);
   --color-lor-merlin-muted-dark: oklch(0.25 0.03 296);
+  --color-lor-success: oklch(0.58 0.13 150);
+  --color-lor-success-dark: oklch(0.62 0.18 150);
+  --color-lor-success-fg: oklch(0.98 0.01 150);
+  --color-lor-success-fg-dark: oklch(0.18 0.03 150);
   --color-lor-danger: oklch(0.55 0.2 25);
   --color-lor-danger-dark: oklch(0.62 0.19 25);
   --spacing-one: 4px;
@@ -64,8 +70,8 @@
   --merlin: oklch(0.52 0.22 296);
   --merlin-foreground: oklch(0.99 0.004 296);
   --gold: oklch(0.7 0.13 75);
-  --success: oklch(0.58 0.13 150);
-  --success-foreground: oklch(0.98 0.01 150);
+  --success: var(--color-lor-success);
+  --success-foreground: var(--color-lor-success-fg);
   --destructive: oklch(0.55 0.2 25);
   --border: oklch(0.92 0.004 80);
   --input: oklch(0.92 0.004 80);
@@ -103,8 +109,8 @@
   --merlin: oklch(0.7 0.2 296);
   --merlin-foreground: oklch(0.17 0.02 296);
   --gold: oklch(0.78 0.12 78);
-  --success: oklch(0.7 0.13 150);
-  --success-foreground: oklch(0.18 0.03 150);
+  --success: var(--color-lor-success-dark);
+  --success-foreground: var(--color-lor-success-fg-dark);
   --destructive: oklch(0.62 0.19 25);
   --border: oklch(0.28 0.006 80);
   --input: oklch(0.25 0.006 80);

@@ -129,6 +129,10 @@ export type RealtimeReferencedMessage = {
   id: string
   content: string | null
   author: RealtimeAuthor
+  // Webhook/connector display identity — mirrors RealtimeMessage so reply
+  // previews show the same name/avatar as the referenced message itself.
+  overrideName: string | null
+  overrideAvatarUrl: string | null
 }
 
 export type RealtimeMessage = {
@@ -380,13 +384,14 @@ export interface ServerToClientEvents {
     mentions?: RealtimeMessageMention[]
   }) => void
   // Merlin's summarized extended-thinking, streamed before/between the answer.
-  // delta = new reasoning chunk; the client appends it to the message's
-  // collapsible "thought process" (also persisted on the message for reload).
+  // `at` and `order` place each segment among answer text and tool calls.
   "merlin:reasoning": (payload: {
     channelId: string
     threadRootId: string | null
     messageId: string
     delta: string
+    at: number
+    order: number
   }) => void
   // Merlin saved/updated a brain page during write-back (messageId = its reply).
   "merlin:memory": (payload: {
@@ -409,6 +414,7 @@ export interface ServerToClientEvents {
       toolName: string
       label: string
       at?: number
+      order?: number
       parentToolCallId?: string
       detail?: {
         summary?: string

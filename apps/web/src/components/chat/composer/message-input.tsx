@@ -576,6 +576,8 @@ export function MessageInput({
             id: replyingTo.id,
             content: replyingTo.content,
             author: replyingTo.author,
+            overrideName: replyingTo.overrideName,
+            overrideAvatarUrl: replyingTo.overrideAvatarUrl,
           }
         : undefined,
       attachments: hasAttachments ? uploadedAttachments : undefined,

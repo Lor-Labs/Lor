@@ -168,8 +168,8 @@ export type ToolEvent = MerlinToolCall
 
 export type RespondCallbacks = {
   onDelta: (delta: string) => void | Promise<void>
-  // Summarized extended-thinking deltas, streamed before/between the answer.
-  onReasoning?: (delta: string) => void | Promise<void>
+  // Summarized extended-thinking deltas, with their current answer-text offset.
+  onReasoning?: (delta: string, at: number) => void | Promise<void>
   onMemoryWritten?: (e: { path: string; action: "created" | "updated" }) => void
   onToolEvent?: (e: ToolEvent) => void
   onUsage?: OnUsage
@@ -1008,7 +1008,7 @@ export async function respond(
         text += part.text
         await onDelta(part.text)
       } else if (part.type === "reasoning-delta") {
-        await onReasoning?.(part.text)
+        await onReasoning?.(part.text, text.length)
       } else if (part.type === "tool-call") {
         onToolEvent?.({
           toolCallId: part.toolCallId,

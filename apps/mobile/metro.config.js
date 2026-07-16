@@ -1,8 +1,19 @@
 const { getDefaultConfig } = require("expo/metro-config")
-const { dirname } = require("node:path")
-const { withNativewind } = require("nativewind/metro")
+const { dirname, resolve } = require("node:path")
+const { getBundleModeMetroConfig } = require("react-native-worklets/bundleMode")
+const { withUniwindConfig } = require("uniwind/metro")
 
-const config = getDefaultConfig(__dirname)
+let config = getDefaultConfig(__dirname)
+
+// Bundle Mode: pre-bundles worklet-thread code (react-native-streamdown runs
+// remend off the JS thread via react-native-worklets).
+config.watchFolders.push(
+  resolve(
+    dirname(require.resolve("react-native-worklets/package.json")),
+    ".worklets"
+  )
+)
+
 const isBetterAuthRuntimeModule = (moduleName) =>
   moduleName === "better-auth" ||
   moduleName === "better-call" ||
@@ -20,7 +31,15 @@ const resolvePublishedBetterAuthModule = (moduleName, originModulePath) => {
   }
 }
 
+const defaultResolver = config.resolver.resolveRequest
+config = getBundleModeMetroConfig(config)
+const bundleModeResolver = config.resolver.resolveRequest
+
 config.resolver.resolveRequest = (context, moduleName, platform) => {
+  if (moduleName.startsWith("react-native-worklets/.worklets/")) {
+    return bundleModeResolver(context, moduleName, platform)
+  }
+
   const filePath = isBetterAuthRuntimeModule(moduleName)
     ? resolvePublishedBetterAuthModule(moduleName, context.originModulePath)
     : null
@@ -28,7 +47,13 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
     return { filePath, type: "sourceFile" }
   }
 
+  if (defaultResolver) {
+    return defaultResolver(context, moduleName, platform)
+  }
   return context.resolveRequest(context, moduleName, platform)
 }
 
-module.exports = withNativewind(config)
+module.exports = withUniwindConfig(config, {
+  cssEntryFile: "./src/global.css",
+  dtsFile: "./src/uniwind-types.d.ts",
+})

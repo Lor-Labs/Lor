@@ -1,5 +1,6 @@
 import { Pressable, Text, View } from "react-native"
-import { SectionLabel, Skeleton } from "@/components/ui/primitives"
+import { SectionLabel } from "@/components/ui/section-label"
+import { Skeleton } from "@/components/ui/skeleton"
 import type { Channel, ChannelCategory } from "@/lib/api-types"
 
 function ChannelRow({

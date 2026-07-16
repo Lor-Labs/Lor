@@ -1,118 +1,20 @@
-import { MERLIN_USER_ID } from "@repo/db/constants"
-import { FlatList, Text, View } from "react-native"
-import { Avatar, Skeleton, StatePanel } from "@/components/ui/primitives"
+import { formatDateDivider } from "@repo/utils/date"
+import { useCallback, useEffect, useRef, useState } from "react"
+import { FlatList, Pressable, View, type ViewToken } from "react-native"
+import Animated, { FadeInUp, FadeOutUp } from "react-native-reanimated"
+import { MessageActionMenu } from "@/components/message-action-menu"
+import {
+  areMessagesOnSameDay,
+  DatePill,
+  MESSAGE_GROUP_WINDOW_MS,
+  MessageDateDivider,
+  MessageRow,
+  messageDisplayName,
+} from "@/components/message-row"
+import { Skeleton } from "@/components/ui/skeleton"
+import { StatePanel } from "@/components/ui/state-panel"
+import { useMessageActionPress } from "@/hooks/use-message-action-press"
 import type { Message } from "@/lib/api-types"
-
-const MESSAGE_GROUP_WINDOW_MS = 5 * 60 * 1000
-
-function displayName(message: Message) {
-  return (
-    message.overrideName ??
-    message.author.displayUsername ??
-    message.author.name
-  )
-}
-
-function isSameDay(left: string, right: string) {
-  const leftDate = new Date(left)
-  const rightDate = new Date(right)
-  return (
-    leftDate.getFullYear() === rightDate.getFullYear() &&
-    leftDate.getMonth() === rightDate.getMonth() &&
-    leftDate.getDate() === rightDate.getDate()
-  )
-}
-
-function dateLabel(date: string) {
-  return new Date(date).toLocaleDateString([], {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  })
-}
-
-function MessageRow({
-  message,
-  showHeader,
-}: {
-  message: Message
-  showHeader: boolean
-}) {
-  const isMerlin = message.authorId === MERLIN_USER_ID
-  const isPending = message.id.startsWith("mobile-")
-  const time = new Date(message.createdAt).toLocaleTimeString([], {
-    hour: "numeric",
-    minute: "2-digit",
-  })
-
-  return (
-    <View
-      className={`${
-        showHeader ? "py-three" : "py-[3px]"
-      } flex-row gap-three px-four ${
-        isMerlin ? "bg-lor-merlin-muted dark:bg-lor-merlin-muted-dark" : ""
-      }`}
-    >
-      <View className="min-w-10 pt-px">
-        {showHeader ? (
-          isMerlin ? (
-            <View className="h-10 w-10 items-center justify-center rounded-lor-md bg-lor-merlin dark:bg-lor-merlin-dark">
-              <Text className="text-[17px] font-bold text-lor-bg dark:text-lor-bg-dark">
-                M
-              </Text>
-            </View>
-          ) : (
-            <Avatar
-              image={message.overrideAvatarUrl ?? message.author.image}
-              name={displayName(message)}
-              size={40}
-            />
-          )
-        ) : null}
-      </View>
-      <View className="min-w-0 flex-1 gap-[2px]">
-        {showHeader ? (
-          <View className="flex-row items-baseline gap-two">
-            <Text
-              className={
-                isMerlin
-                  ? "text-[15px] font-bold tracking-[-0.1px] text-lor-merlin dark:text-lor-merlin-dark"
-                  : "text-[15px] font-bold tracking-[-0.1px] text-lor-text dark:text-lor-text-dark"
-              }
-            >
-              {displayName(message)}
-            </Text>
-            <Text className="text-xs font-medium text-lor-text-tertiary dark:text-lor-text-tertiary-dark">
-              {time}
-            </Text>
-          </View>
-        ) : null}
-        {isPending ? (
-          <Text className="self-end text-[11px] font-semibold text-lor-text-tertiary dark:text-lor-text-tertiary-dark">
-            Sending
-          </Text>
-        ) : null}
-        {message.content ? (
-          <Text className="text-base leading-[22px] text-lor-text dark:text-lor-text-dark">
-            {message.content}
-          </Text>
-        ) : null}
-      </View>
-    </View>
-  )
-}
-
-function DateDivider({ date }: { date: string }) {
-  return (
-    <View className="flex-row items-center gap-two px-four py-five">
-      <View className="h-px flex-1 bg-lor-divider dark:bg-lor-divider-dark" />
-      <Text className="text-xs font-semibold text-lor-text-tertiary dark:text-lor-text-tertiary-dark">
-        {dateLabel(date)}
-      </Text>
-      <View className="h-px flex-1 bg-lor-divider dark:bg-lor-divider-dark" />
-    </View>
-  )
-}
 
 export function MessageList({
   messages,
@@ -120,14 +22,78 @@ export function MessageList({
   error,
   channelName,
   onRetry,
+  onOpenThread,
+  onReply,
+  onLoadAround,
+  onToggleReaction,
+  onTogglePin,
+  replyingToId,
 }: {
   messages: Message[]
   isLoading: boolean
   error: string | null
   channelName: string
-  currentUserId?: string
   onRetry: () => void
+  onOpenThread: (message: Message) => void
+  onReply: (message: Message) => void
+  onLoadAround?: (messageId: string) => Promise<boolean>
+  onToggleReaction?: (messageId: string, emoji: string) => void
+  onTogglePin?: (message: Message) => void
+  replyingToId?: string | null
 }) {
+  const [selectedMessage, setSelectedMessage] = useState<Message | null>(null)
+  const [jumpTargetId, setJumpTargetId] = useState<string | null>(null)
+  const [stickyDate, setStickyDate] = useState<string | null>(null)
+  const listRef = useRef<FlatList<Message>>(null)
+  const messageCountRef = useRef(0)
+  messageCountRef.current = messages.length
+  const { handleLongPress, highlightedMessageId } =
+    useMessageActionPress(setSelectedMessage)
+
+  // In an inverted list the highest-index viewable item sits at the visual
+  // top; its day is what the floating pill shows. Hidden once the oldest
+  // loaded message (whose inline divider marks the start) is on screen.
+  const handleViewableItemsChanged = useRef(
+    ({ viewableItems }: { viewableItems: ViewToken<Message>[] }) => {
+      let top: ViewToken<Message> | null = null
+      for (const token of viewableItems) {
+        if (
+          token.index != null &&
+          (top?.index == null || token.index > top.index)
+        ) {
+          top = token
+        }
+      }
+      setStickyDate(
+        !top || top.index === messageCountRef.current - 1
+          ? null
+          : formatDateDivider(top.item.createdAt)
+      )
+    }
+  ).current
+  const viewabilityConfig = useRef({
+    viewAreaCoveragePercentThreshold: 0,
+  }).current
+
+  useEffect(() => {
+    if (!jumpTargetId) return
+    const index = messages.findIndex((message) => message.id === jumpTargetId)
+    if (index < 0) return
+    listRef.current?.scrollToIndex({ animated: true, index, viewPosition: 0.5 })
+    const timeout = setTimeout(() => setJumpTargetId(null), 3500)
+    return () => clearTimeout(timeout)
+  }, [jumpTargetId, messages])
+
+  const jumpToMessage = useCallback(
+    async (messageId: string) => {
+      setJumpTargetId(messageId)
+      if (messages.some((message) => message.id === messageId)) return
+      const loaded = await onLoadAround?.(messageId)
+      if (!loaded) setJumpTargetId(null)
+    },
+    [messages, onLoadAround]
+  )
+
   if (isLoading) return <MessageListSkeleton />
   if (error) {
     return (
@@ -135,6 +101,7 @@ export function MessageList({
         action={{ label: "Try again", onPress: onRetry }}
         className="flex-1"
         detail={error}
+        status="danger"
         title="Messages are unavailable"
       />
     )
@@ -149,43 +116,145 @@ export function MessageList({
     )
   }
 
+  const openSelectedThread = () => {
+    if (!selectedMessage) return
+    const message = selectedMessage
+    setSelectedMessage(null)
+    onOpenThread(message)
+  }
+
+  const replyToSelectedMessage = () => {
+    if (!selectedMessage) return
+    const message = selectedMessage
+    setSelectedMessage(null)
+    onReply(message)
+  }
+
   return (
-    <FlatList
-      className="flex-1 bg-lor-bg dark:bg-lor-bg-dark"
-      data={messages}
-      inverted
-      keyExtractor={(message) => message.id}
-      renderItem={({ item, index }) => {
-        const older = messages[index + 1]
-        const showHeader =
-          !older ||
-          older.authorId !== item.authorId ||
-          new Date(item.createdAt).getTime() -
-            new Date(older.createdAt).getTime() >
-            MESSAGE_GROUP_WINDOW_MS
-        const showDate = !older || !isSameDay(item.createdAt, older.createdAt)
-        return (
-          <View>
-            {showDate ? <DateDivider date={item.createdAt} /> : null}
-            <MessageRow message={item} showHeader={showHeader} />
-          </View>
-        )
-      }}
-      showsVerticalScrollIndicator={false}
-    />
+    <>
+      <View className="relative flex-1">
+        <FlatList
+          ref={listRef}
+          className="flex-1 bg-background"
+          data={messages}
+          inverted
+          keyboardDismissMode="interactive"
+          keyboardShouldPersistTaps="handled"
+          keyExtractor={(message) => message.id}
+          onViewableItemsChanged={handleViewableItemsChanged}
+          viewabilityConfig={viewabilityConfig}
+          onScrollToIndexFailed={({ index, averageItemLength }) => {
+            listRef.current?.scrollToOffset({
+              animated: false,
+              offset: Math.max(0, index * averageItemLength),
+            })
+            setTimeout(() => {
+              listRef.current?.scrollToIndex({
+                animated: true,
+                index,
+                viewPosition: 0.5,
+              })
+            }, 80)
+          }}
+          renderItem={({ item, index }) => {
+            const older = messages[index + 1]
+            const showHeader =
+              !older ||
+              item.type === "reply" ||
+              older.authorId !== item.authorId ||
+              new Date(item.createdAt).getTime() -
+                new Date(older.createdAt).getTime() >
+                MESSAGE_GROUP_WINDOW_MS
+            const showDate =
+              !older || !areMessagesOnSameDay(item.createdAt, older.createdAt)
+            const actionLabel = item.threadSummary
+              ? "Open thread"
+              : "Reply in thread"
+
+            return (
+              <View>
+                {showDate ? <MessageDateDivider date={item.createdAt} /> : null}
+                <Pressable
+                  accessibilityActions={[
+                    { label: "Reply", name: "reply" },
+                    { label: actionLabel, name: "open-thread" },
+                  ]}
+                  accessibilityHint="Opens thread actions"
+                  accessibilityLabel={`${messageDisplayName(item)}, ${item.content ?? "Message"}`}
+                  delayLongPress={350}
+                  onAccessibilityAction={(event) => {
+                    if (event.nativeEvent.actionName === "reply") {
+                      onReply(item)
+                      return
+                    }
+                    if (event.nativeEvent.actionName === "open-thread") {
+                      onOpenThread(item)
+                    }
+                  }}
+                  onLongPress={() => handleLongPress(item)}
+                >
+                  <MessageRow
+                    message={item}
+                    isActionHighlighted={highlightedMessageId === item.id}
+                    isHighlighted={
+                      jumpTargetId === item.id || replyingToId === item.id
+                    }
+                    onJumpToMessage={(messageId) =>
+                      void jumpToMessage(messageId)
+                    }
+                    onOpenThread={onOpenThread}
+                    onToggleReaction={(message, emoji) =>
+                      onToggleReaction?.(message.id, emoji)
+                    }
+                    showHeader={showHeader}
+                  />
+                </Pressable>
+              </View>
+            )
+          }}
+          showsVerticalScrollIndicator={false}
+        />
+        {stickyDate ? (
+          <Animated.View
+            className="absolute inset-x-0 top-two items-center"
+            entering={FadeInUp.duration(200)}
+            exiting={FadeOutUp.duration(200)}
+            pointerEvents="none"
+          >
+            <DatePill className="shadow-sm" label={stickyDate} />
+          </Animated.View>
+        ) : null}
+      </View>
+      <MessageActionMenu
+        message={selectedMessage}
+        onOpenChange={(isOpen) => {
+          if (!isOpen) setSelectedMessage(null)
+        }}
+        onOpenThread={openSelectedThread}
+        onReply={replyToSelectedMessage}
+        onToggleReaction={(message, emoji) =>
+          onToggleReaction?.(message.id, emoji)
+        }
+        onTogglePin={onTogglePin}
+      />
+    </>
   )
 }
 
-function MessageListSkeleton() {
+export function MessageListSkeleton() {
   return (
-    <View className="flex-1 gap-six bg-lor-bg px-four pt-five dark:bg-lor-bg-dark">
+    <View className="flex-1 gap-six bg-background px-four pt-five">
       {[0, 1, 2, 3, 4].map((item) => (
         <View className="flex-row gap-three" key={item}>
-          <Skeleton className="h-10 w-10 rounded-lor-md" />
+          <Skeleton className="h-10 w-10" />
           <View className="flex-1 gap-two pt-[2px]">
-            <Skeleton className="h-[14px] w-[100px]" />
-            <Skeleton className={item % 2 ? "h-3 w-[62%]" : "h-3 w-[82%]"} />
-            {item === 1 ? <Skeleton className="h-3 w-[42%]" /> : null}
+            <Skeleton className="h-[14px] w-[100px] rounded-full" />
+            <Skeleton
+              className={`${item % 2 ? "w-[62%]" : "w-[82%]"} h-3 rounded-full`}
+            />
+            {item === 1 ? (
+              <Skeleton className="h-3 w-[42%] rounded-full" />
+            ) : null}
           </View>
         </View>
       ))}

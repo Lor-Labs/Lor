@@ -1,0 +1,110 @@
+import Download01Icon from "@hugeicons/core-free-icons/Download01Icon"
+import File01Icon from "@hugeicons/core-free-icons/File01Icon"
+import { HugeiconsIcon } from "@hugeicons/react-native"
+import { Image } from "expo-image"
+import { useThemeColor } from "heroui-native/hooks"
+import { Pressable, Text, View } from "react-native"
+import type { Message } from "@/lib/api-types"
+import { openExternalUrl } from "@/lib/open-url"
+
+type Attachments = NonNullable<Message["attachments"]>
+type Attachment = Attachments[number]
+
+function formatFileSize(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function fileLabel(attachment: Attachment) {
+  if (attachment.contentType.startsWith("video/")) return "Video"
+  if (attachment.contentType.startsWith("audio/")) return "Audio"
+  const extension = attachment.filename.split(".").at(-1)
+  return extension && extension !== attachment.filename
+    ? extension.toUpperCase()
+    : "File"
+}
+
+export function MessageAttachments({
+  attachments,
+}: {
+  attachments: Attachments
+}) {
+  const [foreground, muted] = useThemeColor(["foreground", "muted"])
+  const images = attachments.filter((attachment) =>
+    attachment.contentType.startsWith("image/")
+  )
+  const files = attachments.filter(
+    (attachment) => !attachment.contentType.startsWith("image/")
+  )
+
+  return (
+    <View className="mt-one gap-one">
+      {images.length === 1 ? (
+        <Pressable
+          accessibilityHint="Opens the image"
+          accessibilityLabel={images[0]?.filename}
+          accessibilityRole="imagebutton"
+          className="max-w-[360px] overflow-hidden rounded-lor-sm bg-surface-secondary"
+          onPress={() => {
+            const url = images[0]?.url
+            if (url) openExternalUrl(url)
+          }}
+        >
+          <Image
+            accessibilityLabel={images[0]?.filename}
+            className="h-[220px] w-full"
+            contentFit="contain"
+            source={{ uri: images[0]?.url }}
+          />
+        </Pressable>
+      ) : images.length > 1 ? (
+        <View className="max-w-[360px] flex-row flex-wrap gap-one">
+          {images.map((image) => (
+            <Pressable
+              accessibilityHint="Opens the image"
+              accessibilityLabel={image.filename}
+              accessibilityRole="imagebutton"
+              className="aspect-square w-[49%] overflow-hidden rounded-lor-sm bg-surface-secondary"
+              key={image.url}
+              onPress={() => openExternalUrl(image.url)}
+            >
+              <Image
+                accessibilityLabel={image.filename}
+                className="size-full"
+                contentFit="cover"
+                source={{ uri: image.url }}
+              />
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+      {files.map((attachment) => (
+        <Pressable
+          accessibilityHint="Opens the attachment"
+          accessibilityLabel={`${attachment.filename}, ${fileLabel(attachment)}, ${formatFileSize(attachment.size)}`}
+          accessibilityRole="link"
+          className="max-w-[420px] flex-row items-center gap-three rounded-lor-sm border border-border bg-surface-secondary p-three"
+          key={attachment.url}
+          onPress={() => openExternalUrl(attachment.url)}
+        >
+          <View className="size-10 items-center justify-center rounded-lor-sm bg-default">
+            <HugeiconsIcon color={foreground} icon={File01Icon} size={20} />
+          </View>
+          <View className="min-w-0 flex-1 gap-px">
+            <Text
+              className="text-sm font-semibold text-foreground"
+              numberOfLines={1}
+            >
+              {attachment.filename}
+            </Text>
+            <Text className="text-xs text-muted">
+              {fileLabel(attachment)} · {formatFileSize(attachment.size)}
+            </Text>
+          </View>
+          <HugeiconsIcon color={muted} icon={Download01Icon} size={17} />
+        </Pressable>
+      ))}
+    </View>
+  )
+}

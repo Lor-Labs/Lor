@@ -10,7 +10,12 @@ import {
 import { and, asc, desc, eq, inArray } from "drizzle-orm"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { assertWorkspacePermission } from "@/lib/permissions"
-import { fetchMessages } from "@/lib/queries/messages"
+import {
+  fetchMessages,
+  messageSelect,
+  referencedMessageSelect,
+  toReferencedMessage,
+} from "@/lib/queries/messages"
 import { fetchChannelThreadActivity } from "@/lib/queries/thread-activity"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
@@ -391,33 +396,12 @@ export const listPinnedMessages: AppRouteHandler<
     )
   }
 
+  // Same shape as the shared message queries, minus the memory column the
+  // client never sees.
+  const { merlinMemories: _merlinMemories, ...pinnedMessageSelect } =
+    messageSelect
   const messages = await db
-    .select({
-      id: message.id,
-      channelId: message.channelId,
-      content: message.content,
-      type: message.type,
-      status: message.status,
-      pinned: message.pinned,
-      attachments: message.attachments,
-      embeds: message.embeds,
-      merlinToolCalls: message.merlinToolCalls,
-      merlinReasoning: message.merlinReasoning,
-      overrideName: message.overrideName,
-      overrideAvatarUrl: message.overrideAvatarUrl,
-      referencedMessageId: message.referencedMessageId,
-      threadRootId: message.threadRootId,
-      editedAt: message.editedAt,
-      createdAt: message.createdAt,
-      authorId: message.authorId,
-      author: {
-        id: user.id,
-        name: user.name,
-        username: user.username,
-        displayUsername: user.displayUsername,
-        image: user.image,
-      },
-    })
+    .select(pinnedMessageSelect)
     .from(message)
     .innerJoin(user, eq(message.authorId, user.id))
     .where(and(eq(message.channelId, channelId), eq(message.pinned, true)))
@@ -467,35 +451,14 @@ export const listPinnedMessages: AppRouteHandler<
   const referencedMessageRows =
     referencedMessageIds.length > 0
       ? await db
-          .select({
-            id: message.id,
-            content: message.content,
-            authorId: user.id,
-            authorName: user.name,
-            authorUsername: user.username,
-            authorDisplayUsername: user.displayUsername,
-            authorImage: user.image,
-          })
+          .select(referencedMessageSelect)
           .from(message)
           .innerJoin(user, eq(message.authorId, user.id))
           .where(inArray(message.id, referencedMessageIds))
       : []
 
   const referencedMessagesById = new Map(
-    referencedMessageRows.map((row) => [
-      row.id,
-      {
-        id: row.id,
-        content: row.content,
-        author: {
-          id: row.authorId,
-          name: row.authorName,
-          username: row.authorUsername,
-          displayUsername: row.authorDisplayUsername,
-          image: row.authorImage,
-        },
-      },
-    ])
+    referencedMessageRows.map((row) => [row.id, toReferencedMessage(row)])
   )
 
   const mentionsByMessageId = new Map<string, typeof mentionRows>()
@@ -539,6 +502,7 @@ export const listPinnedMessages: AppRouteHandler<
     ...msg,
     embeds: msg.embeds ?? [],
     merlinToolCalls: msg.merlinToolCalls ?? [],
+    merlinReasoningSegments: msg.merlinReasoningSegments ?? [],
     mentions: (mentionsByMessageId.get(msg.id) ?? []).map((m) => ({
       id: m.id,
       name: m.name,

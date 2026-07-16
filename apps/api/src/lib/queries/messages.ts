@@ -3,6 +3,7 @@ import type {
   Attachment,
   Embed,
   MerlinMemory,
+  MerlinReasoningSegment,
   MerlinToolCall,
 } from "@repo/db/schema"
 import { message, messageMention, messageReaction, user } from "@repo/db/schema"
@@ -33,6 +34,7 @@ type BareMessageRow = {
   merlinToolCalls: MerlinToolCall[] | null
   merlinMemories: MerlinMemory[] | null
   merlinReasoning: string | null
+  merlinReasoningSegments: MerlinReasoningSegment[] | null
   overrideName: string | null
   overrideAvatarUrl: string | null
   referencedMessageId: string | null
@@ -49,7 +51,7 @@ type BareMessageRow = {
   }
 }
 
-const messageSelect = {
+export const messageSelect = {
   id: message.id,
   channelId: message.channelId,
   content: message.content,
@@ -61,6 +63,7 @@ const messageSelect = {
   merlinToolCalls: message.merlinToolCalls,
   merlinMemories: message.merlinMemories,
   merlinReasoning: message.merlinReasoning,
+  merlinReasoningSegments: message.merlinReasoningSegments,
   overrideName: message.overrideName,
   overrideAvatarUrl: message.overrideAvatarUrl,
   referencedMessageId: message.referencedMessageId,
@@ -76,6 +79,44 @@ const messageSelect = {
     image: user.image,
   },
 } as const
+
+export const referencedMessageSelect = {
+  id: message.id,
+  content: message.content,
+  authorId: user.id,
+  authorName: user.name,
+  authorUsername: user.username,
+  authorDisplayUsername: user.displayUsername,
+  authorImage: user.image,
+  overrideName: message.overrideName,
+  overrideAvatarUrl: message.overrideAvatarUrl,
+} as const
+
+export function toReferencedMessage(row: {
+  id: string
+  content: string | null
+  authorId: string
+  authorName: string
+  authorUsername: string | null
+  authorDisplayUsername: string | null
+  authorImage: string | null
+  overrideName: string | null
+  overrideAvatarUrl: string | null
+}) {
+  return {
+    id: row.id,
+    content: row.content,
+    author: {
+      id: row.authorId,
+      name: row.authorName,
+      username: row.authorUsername,
+      displayUsername: row.authorDisplayUsername,
+      image: row.authorImage,
+    },
+    overrideName: row.overrideName,
+    overrideAvatarUrl: row.overrideAvatarUrl,
+  }
+}
 
 type FetchMessagesParams = {
   channelId: string
@@ -325,15 +366,7 @@ export async function fetchMessages({
         .filter((id): id is string => id !== null)
       if (referencedMessageIds.length === 0) return []
       return db
-        .select({
-          id: message.id,
-          content: message.content,
-          authorId: user.id,
-          authorName: user.name,
-          authorUsername: user.username,
-          authorDisplayUsername: user.displayUsername,
-          authorImage: user.image,
-        })
+        .select(referencedMessageSelect)
         .from(message)
         .innerJoin(user, eq(message.authorId, user.id))
         .where(inArray(message.id, referencedMessageIds))
@@ -408,20 +441,7 @@ export async function fetchMessages({
   }
 
   const referencedMessagesById = new Map(
-    referencedMessageRows.map((row) => [
-      row.id,
-      {
-        id: row.id,
-        content: row.content,
-        author: {
-          id: row.authorId,
-          name: row.authorName,
-          username: row.authorUsername,
-          displayUsername: row.authorDisplayUsername,
-          image: row.authorImage,
-        },
-      },
-    ])
+    referencedMessageRows.map((row) => [row.id, toReferencedMessage(row)])
   )
 
   const mentionsByMessageId = new Map<
@@ -486,6 +506,7 @@ export async function fetchMessages({
     ...msg,
     embeds: msg.embeds ?? [],
     merlinToolCalls: msg.merlinToolCalls ?? [],
+    merlinReasoningSegments: msg.merlinReasoningSegments ?? [],
     // Serialized as `remembered` (the brain pages saved during this answer).
     remembered: merlinMemories ?? [],
     mentions: mentionsByMessageId.get(msg.id) ?? [],

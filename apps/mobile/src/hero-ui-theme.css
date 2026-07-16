@@ -1,0 +1,86 @@
+/* Bridge Lor's shared tokens to HeroUI Native's semantic color contract. */
+@layer theme {
+  @variant light {
+    --background: var(--color-lor-bg);
+    --foreground: var(--color-lor-text);
+
+    --surface: var(--color-lor-surface);
+    --surface-foreground: var(--color-lor-text);
+    --surface-secondary: var(--color-lor-surface-raised);
+    --surface-secondary-foreground: var(--color-lor-text);
+    --surface-tertiary: var(--color-lor-pressed);
+    --surface-tertiary-foreground: var(--color-lor-text);
+
+    --overlay: var(--color-lor-surface);
+    --overlay-foreground: var(--color-lor-text);
+
+    --muted: var(--color-lor-text-secondary);
+    --default: var(--color-lor-surface-raised);
+    --default-foreground: var(--color-lor-text);
+
+    --accent: var(--color-lor-accent);
+    --accent-foreground: var(--color-lor-accent-fg);
+
+    --field-background: var(--color-lor-surface);
+    --field-foreground: var(--color-lor-text);
+    --field-placeholder: var(--color-lor-text-tertiary);
+    --field-border: var(--color-lor-border);
+    --field-radius: var(--radius-lor-sm);
+
+    --success: var(--color-lor-success);
+    --success-foreground: var(--color-lor-success-fg);
+    --warning: oklch(0.7 0.13 75);
+    --warning-foreground: var(--color-lor-text);
+    --danger: var(--color-lor-danger);
+    --danger-foreground: var(--color-lor-accent-fg);
+
+    --segment: var(--color-lor-segment);
+    --segment-foreground: var(--color-lor-text);
+    --border: var(--color-lor-border);
+    --separator: var(--color-lor-divider);
+    --focus: var(--color-lor-accent);
+    --link: var(--color-lor-accent);
+  }
+
+  @variant dark {
+    --background: var(--color-lor-bg-dark);
+    --foreground: var(--color-lor-text-dark);
+
+    --surface: var(--color-lor-surface-dark);
+    --surface-foreground: var(--color-lor-text-dark);
+    --surface-secondary: var(--color-lor-surface-raised-dark);
+    --surface-secondary-foreground: var(--color-lor-text-dark);
+    --surface-tertiary: var(--color-lor-pressed-dark);
+    --surface-tertiary-foreground: var(--color-lor-text-dark);
+
+    --overlay: var(--color-lor-surface-dark);
+    --overlay-foreground: var(--color-lor-text-dark);
+
+    --muted: var(--color-lor-text-secondary-dark);
+    --default: var(--color-lor-surface-raised-dark);
+    --default-foreground: var(--color-lor-text-dark);
+
+    --accent: var(--color-lor-accent-dark);
+    --accent-foreground: var(--color-lor-accent-fg-dark);
+
+    --field-background: var(--color-lor-surface-dark);
+    --field-foreground: var(--color-lor-text-dark);
+    --field-placeholder: var(--color-lor-text-tertiary-dark);
+    --field-border: var(--color-lor-border-dark);
+    --field-radius: var(--radius-lor-sm);
+
+    --success: var(--color-lor-success-dark);
+    --success-foreground: var(--color-lor-success-fg-dark);
+    --warning: oklch(0.78 0.12 78);
+    --warning-foreground: var(--color-lor-bg-dark);
+    --danger: var(--color-lor-danger-dark);
+    --danger-foreground: var(--color-lor-accent-fg-dark);
+
+    --segment: var(--color-lor-segment-dark);
+    --segment-foreground: var(--color-lor-text-dark);
+    --border: var(--color-lor-border-dark);
+    --separator: var(--color-lor-divider-dark);
+    --focus: var(--color-lor-accent-dark);
+    --link: var(--color-lor-accent-dark);
+  }
+}

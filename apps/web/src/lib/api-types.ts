@@ -64,8 +64,11 @@ export type Message = ListMessagesResponse["data"][number] & {
   toolActivity?: { toolCallId: string; label: string }[]
 }
 export type MessageAuthor = Message["author"]
-// One entry in Merlin's tool trail (derived from the API response shape).
+// Entries in Merlin's chronological reasoning/tool trail.
 export type MerlinToolCallView = NonNullable<Message["merlinToolCalls"]>[number]
+export type MerlinReasoningSegmentView = NonNullable<
+  Message["merlinReasoningSegments"]
+>[number]
 
 // ── DMs ──────────────────────────────────────────
 
