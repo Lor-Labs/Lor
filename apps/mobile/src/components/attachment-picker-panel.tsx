@@ -158,9 +158,7 @@ export function AttachmentPickerPanel({
                   accessibilityLabel={`Attach ${photo.filename}`}
                   isSelected={isSelected}
                   key={photo.id}
-                  onPress={() => {
-                    if (!isSelected) onSelectPhoto(photo)
-                  }}
+                  onPress={() => onSelectPhoto(photo)}
                   size={tileSize}
                 >
                   <Image
@@ -247,9 +245,11 @@ function PhotoTile({
     <Pressable
       accessibilityLabel={accessibilityLabel}
       accessibilityRole="button"
+      accessibilityState={{ disabled: isSelected, selected: isSelected }}
       className={`items-center justify-center gap-two overflow-hidden bg-default active:opacity-80 ${
         isSelected ? "border-[3px] border-accent" : ""
       }`}
+      disabled={isSelected}
       onPress={onPress}
       style={{
         height: size,

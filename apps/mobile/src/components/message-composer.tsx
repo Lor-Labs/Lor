@@ -275,13 +275,16 @@ export function MessageComposer({
 
   const selectRecentPhoto = useCallback(
     (photo: RecentPhoto) => {
-      attachmentUpload.addPhotoAssets([photo])
+      void attachmentUpload.addPhotoAssets([photo])
     },
     [attachmentUpload]
   )
 
   const selectedPhotoUris = useMemo(
-    () => new Set(attachmentUpload.attachments.map((item) => item.uri)),
+    () =>
+      new Set(
+        attachmentUpload.attachments.map((item) => item.sourceUri ?? item.uri)
+      ),
     [attachmentUpload.attachments]
   )
 

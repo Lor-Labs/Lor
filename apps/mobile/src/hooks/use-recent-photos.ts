@@ -33,18 +33,23 @@ async function fetchRecentPhotos() {
     .limit(RECENT_PHOTO_LIMIT)
     .exe()
 
-  return await Promise.all(
-    assets.map(async (asset): Promise<RecentPhoto> => {
-      const info = await asset.getInfo()
-      return {
-        id: info.id,
-        uri: info.uri,
-        filename: info.filename,
-        width: info.width || undefined,
-        height: info.height || undefined,
+  const photos = await Promise.all(
+    assets.map(async (asset): Promise<RecentPhoto | null> => {
+      try {
+        const info = await asset.getInfo()
+        return {
+          id: info.id,
+          uri: info.uri,
+          filename: info.filename,
+          width: info.width || undefined,
+          height: info.height || undefined,
+        }
+      } catch {
+        return null
       }
     })
   )
+  return photos.filter((photo) => photo !== null)
 }
 
 export function useRecentPhotos() {
@@ -88,7 +93,7 @@ export function useRecentPhotos() {
   }, [])
 
   useEffect(() => {
-    void load(true)
+    void load(false)
     const subscription = addListener(() => void load(false))
     return () => {
       loadIdRef.current += 1

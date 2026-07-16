@@ -4,6 +4,7 @@ import {
 } from "@repo/realtime-types/uploads"
 import * as DocumentPicker from "expo-document-picker"
 import { File, type UploadTask, UploadType } from "expo-file-system"
+import { ImageManipulator, SaveFormat } from "expo-image-manipulator"
 import * as ImagePicker from "expo-image-picker"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Alert, Linking } from "react-native"
@@ -15,6 +16,7 @@ const ALLOWED_MIME_TYPES_SET = new Set<string>(ALLOWED_MIME_TYPES)
 
 export type LocalAttachmentAsset = {
   uri: string
+  sourceUri?: string
   filename: string
   contentType: string
   size: number
@@ -95,6 +97,42 @@ function imageAssetToLocalAsset(
     size: asset.fileSize ?? file.size ?? 0,
     width: asset.width || undefined,
     height: asset.height || undefined,
+  }
+}
+
+const DIRECT_UPLOAD_IMAGE_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+])
+
+async function photoAssetToLocalAsset(asset: {
+  uri: string
+  filename: string
+  width?: number
+  height?: number
+}): Promise<LocalAttachmentAsset> {
+  const contentType = mimeTypeFromName(asset.filename)
+  if (DIRECT_UPLOAD_IMAGE_TYPES.has(contentType)) {
+    const file = new File(asset.uri)
+    return { ...asset, sourceUri: asset.uri, contentType, size: file.size ?? 0 }
+  }
+
+  const image = await ImageManipulator.manipulate(asset.uri).renderAsync()
+  const result = await image.saveAsync({
+    compress: 0.9,
+    format: SaveFormat.JPEG,
+  })
+  const file = new File(result.uri)
+  return {
+    uri: result.uri,
+    sourceUri: asset.uri,
+    filename: `${asset.filename.replace(/\.[^.]+$/, "")}.jpg`,
+    contentType: "image/jpeg",
+    size: file.size ?? 0,
+    width: result.width || undefined,
+    height: result.height || undefined,
   }
 }
 
@@ -282,7 +320,7 @@ export function useMessageAttachments(channelId: string) {
   )
 
   const addPhotoAssets = useCallback(
-    (
+    async (
       assets: Array<{
         uri: string
         filename: string
@@ -290,16 +328,11 @@ export function useMessageAttachments(channelId: string) {
         height?: number
       }>
     ) => {
-      addAssets(
-        assets.map((asset) => {
-          const file = new File(asset.uri)
-          return {
-            ...asset,
-            contentType: mimeTypeFromName(asset.filename),
-            size: file.size ?? 0,
-          }
-        })
-      )
+      try {
+        addAssets(await Promise.all(assets.map(photoAssetToLocalAsset)))
+      } catch {
+        setError("This photo could not be read.")
+      }
     },
     [addAssets]
   )
