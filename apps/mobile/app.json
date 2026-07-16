@@ -54,7 +54,7 @@
         "expo-media-library",
         {
           "photosPermission": "Allow Lor to show your recent photos so you can attach them to messages.",
-          "savePhotosPermission": false,
+          "savePhotosPermission": "Allow Lor to save images from messages to your photo library.",
           "granularPermissions": ["photo"]
         }
       ],
