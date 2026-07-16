@@ -314,9 +314,13 @@ export function useChannelMessages({
   )
 
   const sendMessage = useCallback(
-    async (content: string, referencedMessage?: Message) => {
+    async (
+      content: string,
+      referencedMessage?: Message,
+      attachments: NonNullable<Message["attachments"]> = []
+    ) => {
       const trimmed = content.trim()
-      if (!trimmed || sendingRef.current) return
+      if ((!trimmed && attachments.length === 0) || sendingRef.current) return
       if (!socket?.connected) {
         const errorMessage = "You're offline. Reconnect and try again."
         setError(errorMessage)
@@ -333,8 +337,9 @@ export function useChannelMessages({
       const optimistic = createOptimisticMessage({
         nonce,
         channelId,
-        content: trimmed,
+        content: trimmed || null,
         author: currentUser,
+        attachments,
         referencedMessage: referencedMessage
           ? {
               id: referencedMessage.id,
@@ -355,7 +360,8 @@ export function useChannelMessages({
           .timeout(12_000)
           .emitWithAck("message:send", {
             channelId,
-            content: trimmed,
+            content: trimmed || undefined,
+            attachments: attachments.length > 0 ? attachments : undefined,
             nonce,
             referencedMessageId: referencedMessage?.id,
           })

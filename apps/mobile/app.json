@@ -43,6 +43,14 @@
       ],
       "expo-secure-store",
       [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Lor to access your photos so you can share them in messages.",
+          "cameraPermission": "Allow Lor to use your camera so you can take photos to share in messages.",
+          "microphonePermission": false
+        }
+      ],
+      [
         "react-native-enriched-markdown",
         {
           "enableMath": false

@@ -189,6 +189,7 @@ export default function ChannelScreen() {
           replyingToId={replyingTo?.id}
         />
         <MessageComposer
+          channelId={channelId}
           channelName={channelName}
           isConnected={isSocketConnected}
           isMentionCandidatesLoading={mentions.isLoading}
@@ -196,8 +197,12 @@ export default function ChannelScreen() {
           mentionCandidates={mentions.candidates}
           mentionCandidatesError={mentions.error}
           onCancelReply={() => setReplyingTo(null)}
-          onSend={async (content) => {
-            await chat.sendMessage(content, replyingTo ?? undefined)
+          onSend={async (content, attachments) => {
+            await chat.sendMessage(
+              content,
+              replyingTo ?? undefined,
+              attachments
+            )
             setReplyingTo(null)
           }}
           replyingTo={replyingTo}

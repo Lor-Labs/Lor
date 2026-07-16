@@ -15,11 +15,15 @@ import {
   EnrichedMarkdownTextInput,
   type EnrichedMarkdownTextInputInstance,
 } from "react-native-enriched-markdown"
+import { KeyboardController } from "react-native-keyboard-controller"
 import Animated, { LinearTransition } from "react-native-reanimated"
+import { AttachmentPickerSheet } from "@/components/attachment-picker-sheet"
+import { ComposerAttachmentPreview } from "@/components/composer-attachment-preview"
 import { MentionSuggestionMenu } from "@/components/mention-suggestion-menu"
 import { messageDisplayName } from "@/components/message-row"
 import { triggerHaptic } from "@/components/ui/haptics"
 import { IconButton } from "@/components/ui/icon-button"
+import { useMessageAttachments } from "@/hooks/use-message-attachments"
 import type { Message } from "@/lib/api-types"
 import { filterMentionCandidates, type MentionCandidate } from "@/lib/mentions"
 import { MENTION_SCHEME, toStoredMessageMarkdown } from "@/lib/message-markdown"
@@ -27,6 +31,7 @@ import { MENTION_SCHEME, toStoredMessageMarkdown } from "@/lib/message-markdown"
 const composerLayoutTransition = LinearTransition.duration(100)
 
 export function MessageComposer({
+  channelId,
   channelName,
   isSending,
   isConnected,
@@ -39,10 +44,14 @@ export function MessageComposer({
   isMentionCandidatesLoading = false,
   mentionCandidatesError = null,
 }: {
+  channelId: string
   channelName: string
   isSending: boolean
   isConnected: boolean
-  onSend: (content: string) => Promise<void>
+  onSend: (
+    content: string,
+    attachments: NonNullable<Message["attachments"]>
+  ) => Promise<void>
   placeholder?: string
   accessibilityLabel?: string
   replyingTo?: Message | null
@@ -58,15 +67,24 @@ export function MessageComposer({
     "field-placeholder",
   ])
   const inputRef = useRef<EnrichedMarkdownTextInputInstance>(null)
+  const attachmentUpload = useMessageAttachments(channelId)
   const mentionMenuOpenRef = useRef(false)
   const [content, setContent] = useState("")
   const [plainText, setPlainText] = useState("")
   const [isFocused, setIsFocused] = useState(false)
   const [isMentionMenuOpen, setIsMentionMenuOpen] = useState(false)
+  const [isAttachmentPickerOpen, setIsAttachmentPickerOpen] = useState(false)
   const [mentionQuery, setMentionQuery] = useState("")
   const hasMessage = plainText.trim().length > 0
-  const canSend = hasMessage && !isSending && isConnected
-  const isExpanded = isFocused || plainText.length > 0
+  const hasUploadedAttachments = attachmentUpload.uploadedAttachments.length > 0
+  const canSend =
+    (hasMessage || hasUploadedAttachments) &&
+    !attachmentUpload.hasError &&
+    !attachmentUpload.isUploading &&
+    !isSending &&
+    isConnected
+  const isExpanded =
+    isFocused || plainText.length > 0 || attachmentUpload.attachments.length > 0
 
   const filteredMentionCandidates = useMemo(
     () => filterMentionCandidates(mentionCandidates, mentionQuery),
@@ -126,6 +144,12 @@ export function MessageComposer({
     inputRef.current?.startMention("@")
   }, [])
 
+  const openAttachmentPicker = useCallback(async () => {
+    closeMentionMenu()
+    await KeyboardController.dismiss()
+    setIsAttachmentPickerOpen(true)
+  }, [closeMentionMenu])
+
   const insertMention = useCallback(
     (candidate: MentionCandidate) => {
       inputRef.current?.insertMention(
@@ -142,14 +166,15 @@ export function MessageComposer({
     const next = (await inputRef.current?.getMarkdown()) ?? content
     const nextPlainText = plainText
     const storedContent = toStoredMessageMarkdown(next).trim()
-    if (!storedContent) return
+    if (!storedContent && !hasUploadedAttachments) return
 
     setContent("")
     setPlainText("")
     inputRef.current?.setValue("")
     closeMentionMenu()
     try {
-      await onSend(storedContent)
+      await onSend(storedContent, attachmentUpload.uploadedAttachments)
+      attachmentUpload.clearAttachments()
     } catch {
       setContent(next)
       setPlainText(nextPlainText)
@@ -168,6 +193,19 @@ export function MessageComposer({
           <Alert.Indicator className="pt-px" iconProps={{ size: 16 }} />
           <Alert.Content>
             <Alert.Title className="text-sm">Reconnecting…</Alert.Title>
+          </Alert.Content>
+        </Alert>
+      ) : null}
+      {attachmentUpload.error ? (
+        <Alert
+          className="mb-two rounded-lor-sm bg-danger-soft p-two shadow-none"
+          status="danger"
+        >
+          <Alert.Indicator className="pt-px" iconProps={{ size: 16 }} />
+          <Alert.Content>
+            <Alert.Title className="text-sm">
+              {attachmentUpload.error}
+            </Alert.Title>
           </Alert.Content>
         </Alert>
       ) : null}
@@ -204,6 +242,11 @@ export function MessageComposer({
             </IconButton>
           </View>
         ) : null}
+        <ComposerAttachmentPreview
+          attachments={attachmentUpload.attachments}
+          onRemove={attachmentUpload.removeAttachment}
+          onRetry={attachmentUpload.retryAttachment}
+        />
         <EnrichedMarkdownTextInput
           accessibilityLabel={accessibilityLabel ?? `Message ${channelName}`}
           autoCapitalize="sentences"
@@ -237,7 +280,13 @@ export function MessageComposer({
         />
         {isExpanded ? (
           <View className="min-h-10 flex-row items-center gap-one px-two pb-two">
-            <ComposerShortcut color={muted} emphasized icon={PlusSignIcon} />
+            <ComposerShortcut
+              accessibilityLabel="Add attachment"
+              color={muted}
+              emphasized
+              icon={PlusSignIcon}
+              onPress={() => void openAttachmentPicker()}
+            />
             <ComposerShortcut color={muted} icon={TextFontIcon} />
             <ComposerShortcut color={muted} icon={LaughingIcon} />
             <ComposerShortcut
@@ -259,7 +308,13 @@ export function MessageComposer({
         ) : (
           <>
             <View className="absolute bottom-two left-two">
-              <ComposerShortcut color={muted} emphasized icon={PlusSignIcon} />
+              <ComposerShortcut
+                accessibilityLabel="Add attachment"
+                color={muted}
+                emphasized
+                icon={PlusSignIcon}
+                onPress={() => void openAttachmentPicker()}
+              />
             </View>
             <ComposerSendButton
               accent={accent}
@@ -272,6 +327,13 @@ export function MessageComposer({
           </>
         )}
       </Animated.View>
+      <AttachmentPickerSheet
+        isOpen={isAttachmentPickerOpen}
+        onOpenChange={setIsAttachmentPickerOpen}
+        onPickFiles={attachmentUpload.pickFiles}
+        onPickPhotos={attachmentUpload.pickPhotos}
+        onTakePhoto={attachmentUpload.takePhoto}
+      />
     </View>
   )
 }

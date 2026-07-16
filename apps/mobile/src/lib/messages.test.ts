@@ -115,6 +115,25 @@ describe("message collection helpers", () => {
     expect(optimistic.referencedMessage?.content).toBe("Original")
   })
 
+  it("keeps attachments on an optimistic attachment-only message", () => {
+    const attachment = {
+      url: "https://files.example.com/brief.pdf",
+      filename: "brief.pdf",
+      size: 4096,
+      contentType: "application/pdf",
+    }
+    const optimistic = createOptimisticMessage({
+      nonce: "mobile-attachment",
+      channelId: "channel-1",
+      content: null,
+      author,
+      attachments: [attachment],
+    })
+
+    expect(optimistic.content).toBeNull()
+    expect(optimistic.attachments).toEqual([attachment])
+  })
+
   it("keeps Merlin placeholders pending until the terminal stream arrives", () => {
     const message = {
       id: "merlin-1",

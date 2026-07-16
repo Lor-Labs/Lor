@@ -142,10 +142,11 @@ export function createOptimisticMessage({
   author,
   threadRootId = null,
   referencedMessage = null,
+  attachments = [],
 }: {
   nonce: string
   channelId: string
-  content: string
+  content: string | null
   author: {
     id: string
     name: string
@@ -155,6 +156,7 @@ export function createOptimisticMessage({
   }
   threadRootId?: string | null
   referencedMessage?: NonNullable<Message["referencedMessage"]> | null
+  attachments?: NonNullable<Message["attachments"]>
 }): Message {
   return {
     id: nonce,
@@ -173,7 +175,7 @@ export function createOptimisticMessage({
     },
     referencedMessageId: referencedMessage?.id ?? null,
     referencedMessage,
-    attachments: [],
+    attachments,
     embeds: [],
     pinned: false,
     editedAt: null,

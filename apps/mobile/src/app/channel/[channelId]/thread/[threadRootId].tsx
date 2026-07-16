@@ -161,6 +161,7 @@ export default function ThreadScreen() {
         {thread.root && !thread.isMissing && !thread.error ? (
           <MessageComposer
             accessibilityLabel="Reply in thread"
+            channelId={channelId}
             channelName={channelName}
             isConnected={isSocketConnected}
             isMentionCandidatesLoading={mentions.isLoading}
@@ -168,8 +169,12 @@ export default function ThreadScreen() {
             mentionCandidates={mentions.candidates}
             mentionCandidatesError={mentions.error}
             onCancelReply={() => setReplyingTo(null)}
-            onSend={async (content) => {
-              await thread.sendMessage(content, replyingTo ?? undefined)
+            onSend={async (content, attachments) => {
+              await thread.sendMessage(
+                content,
+                replyingTo ?? undefined,
+                attachments
+              )
               setReplyingTo(null)
             }}
             placeholder="Reply in thread"
