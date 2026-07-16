@@ -14,6 +14,7 @@ import {
   realtimeMessageToMessage,
   removeMessage,
   rollbackOptimisticReply,
+  updateMessageContent,
 } from "./messages"
 
 const author = {
@@ -182,6 +183,26 @@ describe("message collection helpers", () => {
     expect(rollback.messages).toEqual([confirmed])
     expect(rollback.totalReplyCount).toBe(1)
     expect(removeMessage(rollback.messages, "missing")).toEqual([confirmed])
+  })
+
+  it("updates only the edited message content and timestamp", () => {
+    const edited = makeMessage("edited", "2026-07-14T12:01:00.000Z")
+    const untouched = makeMessage("untouched", "2026-07-14T12:00:00.000Z")
+    const editedAt = "2026-07-14T12:02:00.000Z"
+
+    const result = updateMessageContent(
+      [edited, untouched],
+      edited.id,
+      "Updated content",
+      editedAt
+    )
+
+    expect(result[0]).toMatchObject({
+      id: edited.id,
+      content: "Updated content",
+      editedAt,
+    })
+    expect(result[1]).toBe(untouched)
   })
 
   it("applies exact reaction totals and current-user state", () => {

@@ -40,6 +40,17 @@ export function removeMessage(messages: Message[], messageId: string) {
   return messages.filter((message) => message.id !== messageId)
 }
 
+export function updateMessageContent(
+  messages: Message[],
+  messageId: string,
+  content: string,
+  editedAt: string
+) {
+  return messages.map((message) =>
+    message.id === messageId ? { ...message, content, editedAt } : message
+  )
+}
+
 export function rollbackOptimisticReply(
   messages: Message[],
   messageId: string,

@@ -1,4 +1,6 @@
 import Copy01Icon from "@hugeicons/core-free-icons/Copy01Icon"
+import Delete02Icon from "@hugeicons/core-free-icons/Delete02Icon"
+import Edit02Icon from "@hugeicons/core-free-icons/Edit02Icon"
 import MessageCircleReplyIcon from "@hugeicons/core-free-icons/MessageCircleReplyIcon"
 import Pin02Icon from "@hugeicons/core-free-icons/Pin02Icon"
 import PinOffIcon from "@hugeicons/core-free-icons/PinOffIcon"
@@ -8,6 +10,7 @@ import * as Clipboard from "expo-clipboard"
 import { useThemeColor } from "heroui-native/hooks"
 import { Menu } from "heroui-native/menu"
 import { Pressable, ScrollView, Text, View } from "react-native"
+import { KeyboardController } from "react-native-keyboard-controller"
 import { triggerHaptic } from "@/components/ui/haptics"
 import type { Message } from "@/lib/api-types"
 
@@ -18,6 +21,8 @@ export function MessageActionMenu({
   onOpenChange,
   onReply,
   onOpenThread,
+  onEdit,
+  onDelete,
   onToggleReaction,
   onTogglePin,
 }: {
@@ -25,10 +30,16 @@ export function MessageActionMenu({
   onOpenChange: (isOpen: boolean) => void
   onReply: () => void
   onOpenThread?: () => void
+  onEdit?: (message: Message) => void
+  onDelete?: (message: Message) => void
   onToggleReaction?: (message: Message, emoji: string) => void
   onTogglePin?: (message: Message) => void
 }) {
-  const [foreground, accent] = useThemeColor(["foreground", "accent"])
+  const [foreground, accent, danger] = useThemeColor([
+    "foreground",
+    "accent",
+    "danger",
+  ])
   const threadActionLabel = message?.threadSummary
     ? "Open thread"
     : "Reply in thread"
@@ -44,6 +55,15 @@ export function MessageActionMenu({
         <Menu.Content
           contentContainerClassName="gap-four px-four pb-six pt-two"
           enableDynamicSizing={false}
+          keyboardBehavior="interactive"
+          keyboardBlurBehavior="none"
+          onAnimate={(fromIndex, toIndex) => {
+            if (fromIndex !== -1 || toIndex < 0) return
+
+            requestAnimationFrame(() => {
+              void KeyboardController.dismiss().catch(() => undefined)
+            })
+          }}
           presentation="bottom-sheet"
           snapPoints={["54%", "92%"]}
         >
@@ -99,7 +119,7 @@ export function MessageActionMenu({
             ) : null}
           </View>
 
-          {message?.content || (message && onTogglePin) ? (
+          {message?.content || (message && (onEdit || onTogglePin)) ? (
             <View className="overflow-hidden rounded-lor-lg bg-surface-secondary">
               {message.content ? (
                 <ActionRow
@@ -113,7 +133,21 @@ export function MessageActionMenu({
                   tint={foreground}
                 />
               ) : null}
-              {message.content && onTogglePin ? (
+              {message.content && (onEdit || onTogglePin) ? (
+                <View className="ml-14 h-px bg-separator" />
+              ) : null}
+              {message.content && onEdit ? (
+                <ActionRow
+                  icon={Edit02Icon}
+                  label="Edit message"
+                  onPress={() => {
+                    onOpenChange(false)
+                    onEdit(message)
+                  }}
+                  tint={foreground}
+                />
+              ) : null}
+              {message.content && onEdit && onTogglePin ? (
                 <View className="ml-14 h-px bg-separator" />
               ) : null}
               {onTogglePin ? (
@@ -130,6 +164,21 @@ export function MessageActionMenu({
               ) : null}
             </View>
           ) : null}
+
+          {message && onDelete ? (
+            <View className="overflow-hidden rounded-lor-lg bg-surface-secondary">
+              <ActionRow
+                danger
+                icon={Delete02Icon}
+                label="Delete message"
+                onPress={() => {
+                  onOpenChange(false)
+                  onDelete(message)
+                }}
+                tint={danger}
+              />
+            </View>
+          ) : null}
         </Menu.Content>
       </Menu.Portal>
     </Menu>
@@ -137,11 +186,13 @@ export function MessageActionMenu({
 }
 
 function ActionRow({
+  danger = false,
   icon,
   label,
   onPress,
   tint,
 }: {
+  danger?: boolean
   icon: IconSvgElement
   label: string
   onPress: () => void
@@ -155,7 +206,9 @@ function ActionRow({
       onPress={onPress}
     >
       <HugeiconsIcon color={tint} icon={icon} size={21} strokeWidth={1.8} />
-      <Text className="flex-1 text-[15px] font-medium text-foreground">
+      <Text
+        className={`flex-1 text-[15px] font-medium ${danger ? "text-danger" : "text-foreground"}`}
+      >
         {label}
       </Text>
     </Pressable>

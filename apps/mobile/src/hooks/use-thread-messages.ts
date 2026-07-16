@@ -17,6 +17,7 @@ import {
   removeMessage,
   replaceMessage,
   rollbackOptimisticReply,
+  updateMessageContent,
 } from "@/lib/messages"
 import type { AppSocket } from "@/lib/socket"
 
@@ -52,6 +53,7 @@ export function useThreadMessages({
   const [isMissing, setIsMissing] = useState(false)
   const [isSending, setIsSending] = useState(false)
   const messagesRef = useRef<Message[]>([])
+  const rootRef = useRef<Message | null>(null)
   const beforeCursorRef = useRef<string | null>(null)
   const loadingOlderRef = useRef(false)
   const sendingRef = useRef(false)
@@ -73,10 +75,9 @@ export function useThreadMessages({
 
   const updateRoot = useCallback(
     (updater: (current: Message | null) => Message | null) => {
-      setRoot((current) => {
-        const next = updater(current)
-        return next
-      })
+      const next = updater(rootRef.current)
+      rootRef.current = next
+      setRoot(next)
     },
     []
   )
@@ -94,6 +95,7 @@ export function useThreadMessages({
           requestIdentity === identityRef.current
         ) {
           messagesRef.current = []
+          rootRef.current = null
           beforeCursorRef.current = null
           setMessages([])
           setRoot(null)
@@ -175,6 +177,7 @@ export function useThreadMessages({
 
   useEffect(() => {
     messagesRef.current = []
+    rootRef.current = null
     beforeCursorRef.current = null
     setMessages([])
     setRoot(null)
@@ -316,11 +319,12 @@ export function useThreadMessages({
       if (payload.messageId === threadRootId) {
         updateRoot((current) =>
           current
-            ? {
-                ...current,
-                content: payload.content,
-                editedAt: payload.editedAt,
-              }
+            ? (updateMessageContent(
+                [current],
+                payload.messageId,
+                payload.content,
+                payload.editedAt
+              )[0] ?? current)
             : current
         )
         return
@@ -329,14 +333,11 @@ export function useThreadMessages({
         return
       }
       updateMessages((current) =>
-        current.map((message) =>
-          message.id === payload.messageId
-            ? {
-                ...message,
-                content: payload.content,
-                editedAt: payload.editedAt,
-              }
-            : message
+        updateMessageContent(
+          current,
+          payload.messageId,
+          payload.content,
+          payload.editedAt
         )
       )
     }
@@ -679,6 +680,79 @@ export function useThreadMessages({
     [socket, channelId, currentUser?.id, updateMessages, updateRoot]
   )
 
+  const editMessage = useCallback(
+    async (messageId: string, content: string) => {
+      if (!socket?.connected) {
+        throw new Error("You're offline. Reconnect and try again.")
+      }
+
+      const editedAt = new Date().toISOString()
+      if (messageId === threadRootId) {
+        updateRoot((current) =>
+          current
+            ? (updateMessageContent(
+                [current],
+                messageId,
+                content,
+                editedAt
+              )[0] ?? current)
+            : current
+        )
+      } else {
+        updateMessages((current) =>
+          updateMessageContent(current, messageId, content, editedAt)
+        )
+      }
+
+      try {
+        const result = await socket
+          .timeout(12_000)
+          .emitWithAck("message:edit", { channelId, messageId, content })
+        if (!result.ok) throw new Error(result.error)
+      } catch (cause) {
+        await reload({ replace: true })
+        throw cause instanceof Error
+          ? cause
+          : new Error("Could not edit this message. Please try again.")
+      }
+    },
+    [socket, channelId, threadRootId, reload, updateMessages, updateRoot]
+  )
+
+  const deleteMessage = useCallback(
+    async (messageId: string) => {
+      if (!socket?.connected) {
+        throw new Error("You're offline. Reconnect and try again.")
+      }
+
+      if (messageId === threadRootId) {
+        updateRoot(() => null)
+        setIsMissing(true)
+      } else {
+        const existed = messagesRef.current.some(
+          (message) => message.id === messageId
+        )
+        updateMessages((current) => removeMessage(current, messageId))
+        if (existed) {
+          setTotalReplyCount((current) => Math.max(0, current - 1))
+        }
+      }
+
+      try {
+        const result = await socket
+          .timeout(12_000)
+          .emitWithAck("message:delete", { channelId, messageId })
+        if (!result.ok) throw new Error(result.error)
+      } catch (cause) {
+        await reload({ replace: true })
+        throw cause instanceof Error
+          ? cause
+          : new Error("Could not delete this message. Please try again.")
+      }
+    },
+    [socket, channelId, threadRootId, reload, updateMessages, updateRoot]
+  )
+
   const togglePin = useCallback(
     async (messageId: string, currentlyPinned: boolean) => {
       const nextPinned = !currentlyPinned
@@ -733,6 +807,8 @@ export function useThreadMessages({
     loadOlder,
     loadAround,
     sendMessage,
+    editMessage,
+    deleteMessage,
     toggleReaction,
     togglePin,
   }

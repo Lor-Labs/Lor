@@ -5,7 +5,7 @@ import { SymbolView } from "expo-symbols"
 import { useThemeColor } from "heroui-native/hooks"
 import { Spinner } from "heroui-native/spinner"
 import { useCallback, useEffect, useState } from "react"
-import { Text, View } from "react-native"
+import { Alert, Text, View } from "react-native"
 import { KeyboardAvoidingView } from "react-native-keyboard-controller"
 import { MessageComposer } from "@/components/message-composer"
 import { MessageList } from "@/components/message-list"
@@ -23,6 +23,8 @@ import { authClient } from "@/lib/auth-client"
 
 export default function ChannelScreen() {
   const [replyingTo, setReplyingTo] = useState<Message | null>(null)
+  const [editingMessage, setEditingMessage] = useState<Message | null>(null)
+  const [isSavingEdit, setIsSavingEdit] = useState(false)
   const [foreground, muted] = useThemeColor(["foreground", "muted"])
   const socket = useSocket()
   const isSocketConnected = useSocketConnected()
@@ -48,7 +50,19 @@ export default function ChannelScreen() {
 
   useEffect(() => {
     setReplyingTo(null)
+    setEditingMessage(null)
+    setIsSavingEdit(false)
   }, [channelId])
+
+  useEffect(() => {
+    if (
+      editingMessage &&
+      !chat.messages.some((message) => message.id === editingMessage.id)
+    ) {
+      setEditingMessage(null)
+      setIsSavingEdit(false)
+    }
+  }, [chat.messages, editingMessage])
 
   useFocusEffect(
     useCallback(() => {
@@ -98,6 +112,39 @@ export default function ChannelScreen() {
       pathname: "/channel/[channelId]/thread/[threadRootId]",
       params: { channelId, threadRootId: message.id },
     })
+  }
+  const startReply = (message: Message) => {
+    setEditingMessage(null)
+    setReplyingTo(message)
+  }
+  const startEditing = (message: Message) => {
+    setReplyingTo(null)
+    setEditingMessage(message)
+  }
+  const confirmDelete = (message: Message) => {
+    const detail = message.threadSummary
+      ? "This message and all of its thread replies will be permanently deleted."
+      : "This message will be permanently deleted."
+
+    Alert.alert("Delete message?", detail, [
+      { style: "cancel", text: "Cancel" },
+      {
+        style: "destructive",
+        text: "Delete",
+        onPress: () => {
+          if (editingMessage?.id === message.id) setEditingMessage(null)
+          if (replyingTo?.id === message.id) setReplyingTo(null)
+          void chat.deleteMessage(message.id).catch((cause) => {
+            Alert.alert(
+              "Message not deleted",
+              cause instanceof Error
+                ? cause.message
+                : "Please try again in a moment."
+            )
+          })
+        },
+      },
+    ])
   }
 
   return (
@@ -171,12 +218,16 @@ export default function ChannelScreen() {
       >
         <MessageList
           channelName={channelName}
+          currentUserId={session?.user.id}
+          editingMessageId={editingMessage?.id}
           error={chat.error}
           isLoading={chat.isLoading}
           messages={chat.messages}
           onLoadAround={chat.loadAround}
           onOpenThread={openThread}
-          onReply={setReplyingTo}
+          onDelete={confirmDelete}
+          onEdit={startEditing}
+          onReply={startReply}
           onRetry={() => void chat.reload()}
           onToggleReaction={chat.toggleReaction}
           onTogglePin={
@@ -191,12 +242,23 @@ export default function ChannelScreen() {
         <MessageComposer
           channelId={channelId}
           channelName={channelName}
+          editingMessage={editingMessage}
           isConnected={isSocketConnected}
           isMentionCandidatesLoading={mentions.isLoading}
-          isSending={chat.isSending}
+          isSending={chat.isSending || isSavingEdit}
           mentionCandidates={mentions.candidates}
           mentionCandidatesError={mentions.error}
+          onCancelEdit={() => setEditingMessage(null)}
           onCancelReply={() => setReplyingTo(null)}
+          onEdit={async (messageId, content) => {
+            setIsSavingEdit(true)
+            try {
+              await chat.editMessage(messageId, content)
+              setEditingMessage(null)
+            } finally {
+              setIsSavingEdit(false)
+            }
+          }}
           onSend={async (content, attachments) => {
             await chat.sendMessage(
               content,

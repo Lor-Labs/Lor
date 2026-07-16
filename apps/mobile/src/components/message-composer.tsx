@@ -5,10 +5,12 @@ import LaughingIcon from "@hugeicons/core-free-icons/LaughingIcon"
 import PlusSignIcon from "@hugeicons/core-free-icons/PlusSignIcon"
 import SentIcon from "@hugeicons/core-free-icons/SentIcon"
 import TextFontIcon from "@hugeicons/core-free-icons/TextFontIcon"
+import Tick02Icon from "@hugeicons/core-free-icons/Tick02Icon"
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react-native"
 import { Alert } from "heroui-native/alert"
 import { useThemeColor } from "heroui-native/hooks"
 import { Spinner } from "heroui-native/spinner"
+import { cn } from "heroui-native/utils"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Keyboard, Text, useWindowDimensions, View } from "react-native"
 import {
@@ -28,10 +30,15 @@ import { useMessageAttachments } from "@/hooks/use-message-attachments"
 import type { RecentPhoto } from "@/hooks/use-recent-photos"
 import type { Message } from "@/lib/api-types"
 import { filterMentionCandidates, type MentionCandidate } from "@/lib/mentions"
-import { MENTION_SCHEME, toStoredMessageMarkdown } from "@/lib/message-markdown"
+import {
+  MENTION_SCHEME,
+  toDisplayMarkdown,
+  toStoredMessageMarkdown,
+} from "@/lib/message-markdown"
 
 const composerLayoutTransition = LinearTransition.duration(100)
 const attachmentPanelGap = 8
+const MAX_MESSAGE_LENGTH = 2000
 
 export function MessageComposer({
   channelId,
@@ -43,6 +50,9 @@ export function MessageComposer({
   accessibilityLabel,
   replyingTo,
   onCancelReply,
+  editingMessage,
+  onCancelEdit,
+  onEdit,
   mentionCandidates = [],
   isMentionCandidatesLoading = false,
   mentionCandidatesError = null,
@@ -59,6 +69,9 @@ export function MessageComposer({
   accessibilityLabel?: string
   replyingTo?: Message | null
   onCancelReply?: () => void
+  editingMessage?: Message | null
+  onCancelEdit?: () => void
+  onEdit?: (messageId: string, content: string) => Promise<void>
   mentionCandidates?: MentionCandidate[]
   isMentionCandidatesLoading?: boolean
   mentionCandidatesError?: string | null
@@ -72,24 +85,43 @@ export function MessageComposer({
     "field-placeholder",
   ])
   const inputRef = useRef<EnrichedMarkdownTextInputInstance>(null)
+  const activeEditingMessageIdRef = useRef<string | null>(null)
+  const draftBeforeEditRef = useRef<{
+    content: string
+    plainText: string
+  } | null>(null)
   const attachmentUpload = useMessageAttachments(channelId)
   const mentionMenuOpenRef = useRef(false)
   const [content, setContent] = useState("")
   const [plainText, setPlainText] = useState("")
+  const contentRef = useRef(content)
+  const plainTextRef = useRef(plainText)
+  const [submitError, setSubmitError] = useState<string | null>(null)
   const [isFocused, setIsFocused] = useState(false)
   const [isMentionMenuOpen, setIsMentionMenuOpen] = useState(false)
   const [isAttachmentPickerOpen, setIsAttachmentPickerOpen] = useState(false)
   const [attachmentPickerHeight, setAttachmentPickerHeight] = useState(320)
   const [mentionQuery, setMentionQuery] = useState("")
+  contentRef.current = content
+  plainTextRef.current = plainText
+  const isEditing = Boolean(editingMessage)
   const hasMessage = plainText.trim().length > 0
   const hasUploadedAttachments = attachmentUpload.uploadedAttachments.length > 0
+  const pendingStoredContent = toStoredMessageMarkdown(content).trim()
+  const canSaveEdit =
+    isEditing &&
+    Boolean(onEdit) &&
+    hasMessage &&
+    pendingStoredContent.length <= MAX_MESSAGE_LENGTH &&
+    pendingStoredContent !== editingMessage?.content?.trim()
   const canSend =
-    (hasMessage || hasUploadedAttachments) &&
+    (isEditing ? canSaveEdit : hasMessage || hasUploadedAttachments) &&
     !attachmentUpload.hasError &&
     !attachmentUpload.isUploading &&
     !isSending &&
     isConnected
   const isExpanded =
+    isEditing ||
     isFocused ||
     isAttachmentPickerOpen ||
     plainText.length > 0 ||
@@ -147,6 +179,52 @@ export function MessageComposer({
     }
     setIsMentionMenuOpen(true)
   }, [])
+
+  useEffect(() => {
+    const editingMessageId = editingMessage?.id ?? null
+    const activeEditingMessageId = activeEditingMessageIdRef.current
+
+    if (
+      editingMessage &&
+      editingMessageId &&
+      editingMessageId !== activeEditingMessageId
+    ) {
+      if (!activeEditingMessageId) {
+        draftBeforeEditRef.current = {
+          content: contentRef.current,
+          plainText: plainTextRef.current,
+        }
+      }
+
+      const editContent = toDisplayMarkdown(
+        editingMessage.content,
+        editingMessage.mentions
+      )
+      activeEditingMessageIdRef.current = editingMessageId
+      setContent(editContent)
+      setPlainText(editContent)
+      setSubmitError(null)
+      setIsAttachmentPickerOpen(false)
+      closeMentionMenu()
+      inputRef.current?.setValue(editContent)
+
+      const timeout = setTimeout(() => inputRef.current?.focus(), 220)
+      return () => clearTimeout(timeout)
+    }
+
+    if (!editingMessageId && activeEditingMessageId) {
+      const draft = draftBeforeEditRef.current ?? {
+        content: "",
+        plainText: "",
+      }
+      activeEditingMessageIdRef.current = null
+      draftBeforeEditRef.current = null
+      setContent(draft.content)
+      setPlainText(draft.plainText)
+      setSubmitError(null)
+      inputRef.current?.setValue(draft.content)
+    }
+  }, [closeMentionMenu, editingMessage])
 
   const startMention = useCallback(() => {
     inputRef.current?.focus()
@@ -223,20 +301,49 @@ export function MessageComposer({
     const next = (await inputRef.current?.getMarkdown()) ?? content
     const nextPlainText = plainText
     const storedContent = toStoredMessageMarkdown(next).trim()
+    if (isEditing && editingMessage && onEdit) {
+      if (
+        !storedContent ||
+        storedContent.length > MAX_MESSAGE_LENGTH ||
+        storedContent === editingMessage.content?.trim()
+      ) {
+        return
+      }
+
+      setSubmitError(null)
+      try {
+        await onEdit(editingMessage.id, storedContent)
+      } catch (cause) {
+        setSubmitError(
+          cause instanceof Error
+            ? cause.message
+            : "Could not edit this message. Please try again."
+        )
+        inputRef.current?.focus()
+      }
+      return
+    }
+
     if (!storedContent && !hasUploadedAttachments) return
 
     setContent("")
     setPlainText("")
     inputRef.current?.setValue("")
     closeMentionMenu()
+    setSubmitError(null)
     try {
       await onSend(storedContent, attachmentUpload.uploadedAttachments)
       attachmentUpload.clearAttachments()
-    } catch {
+    } catch (cause) {
       setContent(next)
       setPlainText(nextPlainText)
       inputRef.current?.setValue(next)
       inputRef.current?.focus()
+      setSubmitError(
+        cause instanceof Error
+          ? cause.message
+          : "Could not send this message. Please try again."
+      )
     }
   }
 
@@ -266,6 +373,21 @@ export function MessageComposer({
           </Alert.Content>
         </Alert>
       ) : null}
+      {submitError ||
+      (isEditing && pendingStoredContent.length > MAX_MESSAGE_LENGTH) ? (
+        <Alert
+          className="mb-two rounded-lor-sm bg-danger-soft p-two shadow-none"
+          status="danger"
+        >
+          <Alert.Indicator className="pt-px" iconProps={{ size: 16 }} />
+          <Alert.Content>
+            <Alert.Title className="text-sm">
+              {submitError ??
+                `Messages can be up to ${MAX_MESSAGE_LENGTH.toLocaleString()} characters.`}
+            </Alert.Title>
+          </Alert.Content>
+        </Alert>
+      ) : null}
       {isMentionMenuOpen ? (
         <MentionSuggestionMenu
           candidates={filteredMentionCandidates}
@@ -278,7 +400,27 @@ export function MessageComposer({
         className="relative overflow-hidden rounded-lor-sm border border-border bg-surface"
         layout={composerLayoutTransition}
       >
-        {replyingTo ? (
+        {editingMessage ? (
+          <View className="min-h-10 flex-row items-center gap-two border-b border-border px-three py-two">
+            <View className="w-[3px] self-stretch rounded-full bg-accent" />
+            <View className="min-w-0 flex-1">
+              <Text className="text-xs font-semibold text-accent">
+                Editing message
+              </Text>
+              <Text className="text-xs text-muted" numberOfLines={1}>
+                Save changes or cancel to return to your draft.
+              </Text>
+            </View>
+            <IconButton
+              accessibilityLabel="Cancel editing"
+              onPress={onCancelEdit}
+              size="sm"
+              variant="ghost"
+            >
+              <HugeiconsIcon color={muted} icon={Cancel01Icon} size={16} />
+            </IconButton>
+          </View>
+        ) : replyingTo ? (
           <View className="min-h-10 flex-row items-center gap-two border-b border-border px-three py-two">
             <View className="w-[3px] self-stretch rounded-full bg-accent" />
             <View className="min-w-0 flex-1">
@@ -299,13 +441,19 @@ export function MessageComposer({
             </IconButton>
           </View>
         ) : null}
-        <ComposerAttachmentPreview
-          attachments={attachmentUpload.attachments}
-          onRemove={attachmentUpload.removeAttachment}
-          onRetry={attachmentUpload.retryAttachment}
-        />
+        {!isEditing ? (
+          <ComposerAttachmentPreview
+            attachments={attachmentUpload.attachments}
+            onRemove={attachmentUpload.removeAttachment}
+            onRetry={attachmentUpload.retryAttachment}
+          />
+        ) : null}
         <EnrichedMarkdownTextInput
-          accessibilityLabel={accessibilityLabel ?? `Message ${channelName}`}
+          accessibilityLabel={
+            isEditing
+              ? "Edit message"
+              : (accessibilityLabel ?? `Message ${channelName}`)
+          }
           autoCapitalize="sentences"
           cursorColor={accent}
           editable={isConnected && !isSending}
@@ -316,7 +464,10 @@ export function MessageComposer({
             setIsFocused(false)
             closeMentionMenu()
           }}
-          onChangeMarkdown={setContent}
+          onChangeMarkdown={(markdown) => {
+            setContent(markdown)
+            if (submitError) setSubmitError(null)
+          }}
           onChangeMention={({ text }) => {
             setMentionQuery(text)
             openMentionMenu()
@@ -330,7 +481,11 @@ export function MessageComposer({
             setMentionQuery("")
             openMentionMenu()
           }}
-          placeholder={placeholder ?? `Message #${channelName}`}
+          placeholder={
+            isEditing
+              ? "Edit message"
+              : (placeholder ?? `Message #${channelName}`)
+          }
           placeholderTextColor={placeholderColor}
           ref={inputRef}
           scrollEnabled
@@ -339,17 +494,21 @@ export function MessageComposer({
         />
         {isExpanded ? (
           <View className="min-h-10 flex-row items-center gap-one px-two pb-two">
-            <ComposerShortcut
-              accessibilityLabel={
-                isAttachmentPickerOpen ? "Show keyboard" : "Add attachment"
-              }
-              color={isAttachmentPickerOpen ? foreground : muted}
-              emphasized
-              icon={isAttachmentPickerOpen ? Cancel01Icon : PlusSignIcon}
-              onPress={
-                isAttachmentPickerOpen ? returnToKeyboard : openAttachmentPicker
-              }
-            />
+            {!isEditing ? (
+              <ComposerShortcut
+                accessibilityLabel={
+                  isAttachmentPickerOpen ? "Show keyboard" : "Add attachment"
+                }
+                color={isAttachmentPickerOpen ? foreground : muted}
+                emphasized
+                icon={isAttachmentPickerOpen ? Cancel01Icon : PlusSignIcon}
+                onPress={
+                  isAttachmentPickerOpen
+                    ? returnToKeyboard
+                    : openAttachmentPicker
+                }
+              />
+            ) : null}
             <ComposerShortcut color={muted} icon={TextFontIcon} />
             <ComposerShortcut color={muted} icon={LaughingIcon} />
             <ComposerShortcut
@@ -360,9 +519,13 @@ export function MessageComposer({
             />
             <ComposerShortcut color={muted} icon={CommandLineIcon} />
             <ComposerSendButton
+              accessibilityLabel={
+                isEditing ? "Save message changes" : "Send message"
+              }
               accent={accent}
               canSend={canSend}
               className="ml-auto"
+              icon={isEditing ? Tick02Icon : SentIcon}
               isSending={isSending}
               muted={muted}
               onPress={() => void send()}
@@ -380,9 +543,11 @@ export function MessageComposer({
               />
             </View>
             <ComposerSendButton
+              accessibilityLabel="Send message"
               accent={accent}
               canSend={canSend}
               className="absolute bottom-one right-one"
+              icon={SentIcon}
               isSending={isSending}
               muted={muted}
               onPress={() => void send()}
@@ -390,7 +555,7 @@ export function MessageComposer({
           </>
         )}
       </Animated.View>
-      {isAttachmentPickerOpen ? (
+      {isAttachmentPickerOpen && !isEditing ? (
         <AttachmentPickerPanel
           height={attachmentPickerHeight}
           onPickFiles={attachmentUpload.pickFiles}
@@ -445,37 +610,37 @@ function ComposerShortcut({
 }
 
 function ComposerSendButton({
+  accessibilityLabel,
   accent,
   canSend,
   className,
+  icon,
   isSending,
   muted,
   onPress,
 }: {
+  accessibilityLabel: string
   accent: string
   canSend: boolean
   className?: string
+  icon: IconSvgElement
   isSending: boolean
   muted: string
   onPress: () => void
 }) {
   return (
     <IconButton
-      accessibilityLabel="Send message"
-      className={className}
+      accessibilityLabel={accessibilityLabel}
+      className={cn("active:bg-surface-tertiary", className)}
       feedbackVariant="scale"
       isDisabled={!canSend}
       onPress={onPress}
-      variant="ghost"
+      variant="secondary"
     >
       {isSending ? (
         <Spinner color={accent} size="sm" />
       ) : (
-        <HugeiconsIcon
-          color={canSend ? accent : muted}
-          icon={SentIcon}
-          size={16}
-        />
+        <HugeiconsIcon color={canSend ? accent : muted} icon={icon} size={16} />
       )}
     </IconButton>
   )

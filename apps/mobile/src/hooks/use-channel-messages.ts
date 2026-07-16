@@ -15,6 +15,7 @@ import {
   realtimeMessageToMessage,
   removeMessage,
   replaceMessage,
+  updateMessageContent,
 } from "@/lib/messages"
 import type { AppSocket } from "@/lib/socket"
 
@@ -146,14 +147,11 @@ export function useChannelMessages({
     ) => {
       if (payload.channelId !== channelId) return
       setMessages((current) =>
-        current.map((message) =>
-          message.id === payload.messageId
-            ? {
-                ...message,
-                content: payload.content,
-                editedAt: payload.editedAt,
-              }
-            : message
+        updateMessageContent(
+          current,
+          payload.messageId,
+          payload.content,
+          payload.editedAt
         )
       )
     }
@@ -407,6 +405,55 @@ export function useChannelMessages({
     [socket, channelId, currentUser?.id]
   )
 
+  const editMessage = useCallback(
+    async (messageId: string, content: string) => {
+      if (!socket?.connected) {
+        throw new Error("You're offline. Reconnect and try again.")
+      }
+
+      const editedAt = new Date().toISOString()
+      setMessages((current) =>
+        updateMessageContent(current, messageId, content, editedAt)
+      )
+
+      try {
+        const result = await socket
+          .timeout(12_000)
+          .emitWithAck("message:edit", { channelId, messageId, content })
+        if (!result.ok) throw new Error(result.error)
+      } catch (cause) {
+        await reload({ replace: true })
+        throw cause instanceof Error
+          ? cause
+          : new Error("Could not edit this message. Please try again.")
+      }
+    },
+    [socket, channelId, reload]
+  )
+
+  const deleteMessage = useCallback(
+    async (messageId: string) => {
+      if (!socket?.connected) {
+        throw new Error("You're offline. Reconnect and try again.")
+      }
+
+      setMessages((current) => removeMessage(current, messageId))
+
+      try {
+        const result = await socket
+          .timeout(12_000)
+          .emitWithAck("message:delete", { channelId, messageId })
+        if (!result.ok) throw new Error(result.error)
+      } catch (cause) {
+        await reload({ replace: true })
+        throw cause instanceof Error
+          ? cause
+          : new Error("Could not delete this message. Please try again.")
+      }
+    },
+    [socket, channelId, reload]
+  )
+
   const togglePin = useCallback(
     async (messageId: string, currentlyPinned: boolean) => {
       const nextPinned = !currentlyPinned
@@ -448,6 +495,8 @@ export function useChannelMessages({
     reload,
     loadAround,
     sendMessage,
+    editMessage,
+    deleteMessage,
     toggleReaction,
     togglePin,
   }
