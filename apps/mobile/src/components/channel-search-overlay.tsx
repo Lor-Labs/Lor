@@ -75,7 +75,11 @@ export function ChannelSearchOverlay({
         accessibilityLabel={`Message from ${displayName}: ${preview}`}
         accessibilityRole="button"
         className="mx-three flex-row gap-three border-b border-separator px-one py-three active:bg-surface-secondary"
-        onPress={() => onSelectMessage(item)}
+        onPress={() => {
+          Keyboard.dismiss()
+          void KeyboardController.dismiss().catch(() => undefined)
+          onSelectMessage(item)
+        }}
       >
         <Avatar image={item.author.image} name={displayName} size="sm" />
         <View className="min-w-0 flex-1 gap-one">

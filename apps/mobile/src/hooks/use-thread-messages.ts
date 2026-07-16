@@ -83,9 +83,12 @@ export function useThreadMessages({
   )
 
   // `replace` drops local state in favor of the fetched page — used on socket
-  // reconnect so deletions missed while offline don't linger.
+  // reconnect so deletions missed while offline don't linger. Returns the
+  // fetched page (or null on failure) so error paths can check canonical state.
   const reload = useCallback(
-    async ({ replace = false } = {}) => {
+    async ({
+      replace = false,
+    } = {}): Promise<{ data: Message[]; root: Message | null } | null> => {
       const requestId = ++requestRef.current
       const requestIdentity = `${workspaceSlug}:${channelId}:${threadRootId}`
 
@@ -104,7 +107,7 @@ export function useThreadMessages({
           setIsMissing(true)
           setIsLoading(false)
         }
-        return
+        return null
       }
 
       setIsLoading(true)
@@ -125,8 +128,9 @@ export function useThreadMessages({
           ) {
             updateRoot(() => null)
             setIsMissing(true)
+            return { data: [], root: null }
           }
-          return
+          return null
         }
         if (!response.ok) throw new Error("Could not load this thread")
 
@@ -151,7 +155,9 @@ export function useThreadMessages({
             payload.root?.threadSummary?.replyCount ?? payload.data.length
           )
           setIsMissing(!payload.root)
+          return { data: payload.data, root: payload.root ?? null }
         }
+        return null
       } catch (cause) {
         if (
           requestId === requestRef.current &&
@@ -163,6 +169,7 @@ export function useThreadMessages({
               : "Could not load this thread"
           )
         }
+        return null
       } finally {
         if (
           requestId === requestRef.current &&
@@ -686,6 +693,10 @@ export function useThreadMessages({
         throw new Error("You're offline. Reconnect and try again.")
       }
 
+      const previousRoot = rootRef.current
+      const previousMessage = messagesRef.current.find(
+        (message) => message.id === messageId
+      )
       const editedAt = new Date().toISOString()
       if (messageId === threadRootId) {
         updateRoot((current) =>
@@ -710,8 +721,40 @@ export function useThreadMessages({
           .emitWithAck("message:edit", { channelId, messageId, content })
         if (!result.ok) throw new Error(result.error)
       } catch (cause) {
-        await reload({ replace: true })
-        throw cause instanceof Error
+        const isTimeout =
+          cause instanceof Error && cause.message === "operation has timed out"
+        const canonical = await reload({ replace: true })
+        // A timed-out ack can race a delivered edit; trust the refetched page.
+        const editApplied =
+          messageId === threadRootId
+            ? canonical?.root?.content === content
+            : canonical?.data.some(
+                (message) =>
+                  message.id === messageId && message.content === content
+              )
+        if (isTimeout && editApplied) return
+        // Reload failed too — put the pre-edit message back unless something
+        // newer already replaced our optimistic content.
+        if (!canonical) {
+          if (messageId === threadRootId && previousRoot) {
+            updateRoot((current) =>
+              current?.id === messageId && current.content === content
+                ? previousRoot
+                : current
+            )
+          } else if (previousMessage) {
+            updateMessages((current) =>
+              current.map((message) =>
+                message.id === messageId &&
+                message.content === content &&
+                message.editedAt === editedAt
+                  ? previousMessage
+                  : message
+              )
+            )
+          }
+        }
+        throw cause instanceof Error && !isTimeout
           ? cause
           : new Error("Could not edit this message. Please try again.")
       }
@@ -725,15 +768,16 @@ export function useThreadMessages({
         throw new Error("You're offline. Reconnect and try again.")
       }
 
+      const previousRoot = rootRef.current
+      const previousMessage = messagesRef.current.find(
+        (message) => message.id === messageId
+      )
       if (messageId === threadRootId) {
         updateRoot(() => null)
         setIsMissing(true)
       } else {
-        const existed = messagesRef.current.some(
-          (message) => message.id === messageId
-        )
         updateMessages((current) => removeMessage(current, messageId))
-        if (existed) {
+        if (previousMessage) {
           setTotalReplyCount((current) => Math.max(0, current - 1))
         }
       }
@@ -744,8 +788,32 @@ export function useThreadMessages({
           .emitWithAck("message:delete", { channelId, messageId })
         if (!result.ok) throw new Error(result.error)
       } catch (cause) {
-        await reload({ replace: true })
-        throw cause instanceof Error
+        const isTimeout =
+          cause instanceof Error && cause.message === "operation has timed out"
+        const canonical = await reload({ replace: true })
+        // A timed-out ack can race a delivered delete; trust the refetched page.
+        const deletionApplied =
+          messageId === threadRootId
+            ? canonical !== null && canonical.root === null
+            : canonical !== null &&
+              !canonical.data.some((message) => message.id === messageId)
+        if (isTimeout && deletionApplied) return
+        // Reload failed too — restore the removed message.
+        if (!canonical) {
+          if (messageId === threadRootId && previousRoot) {
+            updateRoot(() => previousRoot)
+            setIsMissing(false)
+          } else if (
+            previousMessage &&
+            !messagesRef.current.some((message) => message.id === messageId)
+          ) {
+            updateMessages((current) =>
+              mergeMessages([previousMessage], current)
+            )
+            setTotalReplyCount((current) => current + 1)
+          }
+        }
+        throw cause instanceof Error && !isTimeout
           ? cause
           : new Error("Could not delete this message. Please try again.")
       }

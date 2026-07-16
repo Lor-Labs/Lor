@@ -38,4 +38,19 @@ describe("message Markdown storage", () => {
       )
     ).toBe("@Avery created a ticket")
   })
+
+  it("preserves literal delimiter characters in ordinary text", () => {
+    expect(
+      toSearchPreviewText("rename file_name, compute 2 * 3, edit ~/.config", [])
+    ).toBe("rename file_name, compute 2 * 3, edit ~/.config")
+  })
+
+  it("strips only paired formatting delimiters and block markers", () => {
+    expect(
+      toSearchPreviewText(
+        "# Title\n> quote\n- item\n*em* _solo_ __bold__ ~~gone~~ `code`",
+        []
+      )
+    ).toBe("Title\nquote\nitem\nem solo bold gone code")
+  })
 })

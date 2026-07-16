@@ -62,8 +62,13 @@ export function toSearchPreviewText(
     .replace(USER_MENTION_TOKEN_REGEX, (_match, id: string) => mentionLabel(id))
     .replace(/!\[([^\]]*)]\([^)]*\)/g, "$1")
     .replace(/\[([^\]]+)]\([^)]*\)/g, "$1")
-    .replace(/(^|\s)[#>*_~-]+(?=\S)/g, "$1")
-    .replace(/[`*_~]/g, "")
+    .replace(/^```[^\n]*$/gm, "")
+    .replace(/(^|\n)[ \t]{0,3}(?:#{1,6}|>+|[-*+]|\d+[.)])[ \t]+/g, "$1")
+    .replace(/(\*\*|__)(\S(?:[\s\S]*?\S)?)\1/g, "$2")
+    .replace(/\*(\S(?:[^*\n]*?\S)?)\*/g, "$1")
+    .replace(/(^|\W)_(\S(?:[^_\n]*?\S)?)_(?=\W|$)/g, "$1$2")
+    .replace(/~~(\S(?:[\s\S]*?\S)?)~~/g, "$1")
+    .replace(/`([^`\n]+)`/g, "$1")
     .trim()
 }
 

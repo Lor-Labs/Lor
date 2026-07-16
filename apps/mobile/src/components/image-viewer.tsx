@@ -4,6 +4,7 @@ import Share08Icon from "@hugeicons/core-free-icons/Share08Icon"
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react-native"
 import { File, Paths } from "expo-file-system"
 import { Asset, requestPermissionsAsync } from "expo-media-library"
+import * as Sharing from "expo-sharing"
 import { StatusBar } from "expo-status-bar"
 import { Spinner } from "heroui-native/spinner"
 import { useCallback, useEffect, useMemo, useState } from "react"
@@ -96,17 +97,16 @@ export function ImageViewer({
     let downloadedFile: File | null = null
 
     try {
+      downloadedFile = await downloadImage(currentImage)
       if (Platform.OS === "ios") {
-        downloadedFile = await downloadImage(currentImage)
         await Share.share({
           title: currentImage.filename,
           url: downloadedFile.uri,
         })
       } else {
-        await Share.share({
-          title: currentImage.filename,
-          message: currentImage.url,
-          url: currentImage.url,
+        await Sharing.shareAsync(downloadedFile.uri, {
+          dialogTitle: currentImage.filename,
+          mimeType: currentImage.contentType,
         })
       }
     } catch {

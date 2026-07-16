@@ -115,9 +115,12 @@ export function MessageComposer({
     pendingStoredContent.length <= MAX_MESSAGE_LENGTH &&
     pendingStoredContent !== editingMessage?.content?.trim()
   const canSend =
-    (isEditing ? canSaveEdit : hasMessage || hasUploadedAttachments) &&
-    !attachmentUpload.hasError &&
-    !attachmentUpload.isUploading &&
+    (isEditing
+      ? canSaveEdit
+      : (hasMessage || hasUploadedAttachments) &&
+        pendingStoredContent.length <= MAX_MESSAGE_LENGTH &&
+        !attachmentUpload.hasError &&
+        !attachmentUpload.isUploading) &&
     !isSending &&
     isConnected
   const isExpanded =
@@ -328,6 +331,7 @@ export function MessageComposer({
     }
 
     if (!storedContent && !hasUploadedAttachments) return
+    if (storedContent.length > MAX_MESSAGE_LENGTH) return
 
     setContent("")
     setPlainText("")
@@ -376,8 +380,7 @@ export function MessageComposer({
           </Alert.Content>
         </Alert>
       ) : null}
-      {submitError ||
-      (isEditing && pendingStoredContent.length > MAX_MESSAGE_LENGTH) ? (
+      {submitError || pendingStoredContent.length > MAX_MESSAGE_LENGTH ? (
         <Alert
           className="mb-two rounded-lor-sm bg-danger-soft p-two shadow-none"
           status="danger"
