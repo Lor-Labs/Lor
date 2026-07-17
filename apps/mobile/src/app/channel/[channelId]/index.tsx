@@ -5,10 +5,14 @@ import { SymbolView } from "expo-symbols"
 import { useThemeColor } from "heroui-native/hooks"
 import { Spinner } from "heroui-native/spinner"
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Alert, Text, View } from "react-native"
+import { Alert, Pressable, Text, View } from "react-native"
 import { KeyboardAvoidingView } from "react-native-keyboard-controller"
 import { ChannelOptionsSheet } from "@/components/channel-options-sheet"
 import { ChannelSearchOverlay } from "@/components/channel-search-overlay"
+import {
+  MemberListSheet,
+  workspaceMemberToListItem,
+} from "@/components/member-list-sheet"
 import { MessageComposer } from "@/components/message-composer"
 import { MessageList } from "@/components/message-list"
 import { IconButton } from "@/components/ui/icon-button"
@@ -30,6 +34,7 @@ export default function ChannelScreen() {
   const [isSavingEdit, setIsSavingEdit] = useState(false)
   const [isSearchOpen, setIsSearchOpen] = useState(false)
   const [isOptionsOpen, setIsOptionsOpen] = useState(false)
+  const [isMembersOpen, setIsMembersOpen] = useState(false)
   const [focusedMessageId, setFocusedMessageId] = useState<string | null>(null)
   const hasFocusedRef = useRef(false)
   const [foreground, muted] = useThemeColor(["foreground", "muted"])
@@ -65,6 +70,7 @@ export default function ChannelScreen() {
     setIsSavingEdit(false)
     setIsSearchOpen(false)
     setIsOptionsOpen(false)
+    setIsMembersOpen(false)
     setFocusedMessageId(null)
   }, [channelId])
 
@@ -131,6 +137,10 @@ export default function ChannelScreen() {
   }
   const channel = channelState.channel
   const channelName = channel.name ?? "channel"
+  const memberItems = mentions.members.map(workspaceMemberToListItem)
+  const onlineMemberCount = memberItems.filter(
+    (member) => member.status === "online"
+  ).length
   const openThread = (message: Message) => {
     router.push({
       pathname: "/channel/[channelId]/thread/[threadRootId]",
@@ -239,7 +249,14 @@ export default function ChannelScreen() {
                 {channelName}
               </Text>
             </View>
-            <View className="flex-row items-center gap-one">
+            <Pressable
+              accessibilityHint="Opens the workspace member list"
+              accessibilityLabel={`${onlineMemberCount} members online`}
+              accessibilityRole="button"
+              className="flex-row items-center gap-one rounded-lor-sm active:opacity-70"
+              hitSlop={6}
+              onPress={() => setIsMembersOpen(true)}
+            >
               <View
                 className={`size-[7px] rounded-full ${
                   isSocketConnected ? "bg-success" : "bg-warning"
@@ -249,10 +266,12 @@ export default function ChannelScreen() {
                 className="min-w-0 flex-1 text-xs font-medium leading-4 text-muted"
                 numberOfLines={1}
               >
-                {isSocketConnected ? "Online" : "Reconnecting"}
+                {isSocketConnected
+                  ? `${onlineMemberCount} Online`
+                  : "Reconnecting"}
                 {channel.topic ? ` · ${channel.topic}` : ""}
               </Text>
-            </View>
+            </Pressable>
           </View>
           <IconButton
             accessibilityLabel="Search channel"
@@ -365,6 +384,15 @@ export default function ChannelScreen() {
         onOpenChange={setIsOptionsOpen}
         workspaceName={workspace.name}
         workspaceSlug={workspace.slug}
+      />
+      <MemberListSheet
+        error={mentions.error}
+        isLoading={mentions.isLoading}
+        isOpen={isMembersOpen}
+        members={memberItems}
+        onOpenChange={setIsMembersOpen}
+        onRetry={() => void mentions.reload()}
+        title="Channel members"
       />
     </Screen>
   )
