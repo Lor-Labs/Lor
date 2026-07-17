@@ -4,7 +4,7 @@ import { router, useFocusEffect, useLocalSearchParams } from "expo-router"
 import { SymbolView } from "expo-symbols"
 import { useThemeColor } from "heroui-native/hooks"
 import { Spinner } from "heroui-native/spinner"
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { Alert, Text, View } from "react-native"
 import { KeyboardAvoidingView } from "react-native-keyboard-controller"
 import { ChannelOptionsSheet } from "@/components/channel-options-sheet"
@@ -31,11 +31,15 @@ export default function ChannelScreen() {
   const [isSearchOpen, setIsSearchOpen] = useState(false)
   const [isOptionsOpen, setIsOptionsOpen] = useState(false)
   const [focusedMessageId, setFocusedMessageId] = useState<string | null>(null)
+  const hasFocusedRef = useRef(false)
   const [foreground, muted] = useThemeColor(["foreground", "muted"])
   const socket = useSocket()
   const isSocketConnected = useSocketConnected()
   const { workspace } = useWorkspace()
-  const { channelId } = useLocalSearchParams<{ channelId: string }>()
+  const { channelId, focusMessageId } = useLocalSearchParams<{
+    channelId: string
+    focusMessageId?: string
+  }>()
   const { data: session } = authClient.useSession()
   const permissions = useChannelPermissions(workspace?.id)
   const channelState = useChannelDetail({
@@ -55,6 +59,7 @@ export default function ChannelScreen() {
   })
 
   useEffect(() => {
+    hasFocusedRef.current = false
     setReplyingTo(null)
     setEditingMessage(null)
     setIsSavingEdit(false)
@@ -62,6 +67,14 @@ export default function ChannelScreen() {
     setIsOptionsOpen(false)
     setFocusedMessageId(null)
   }, [channelId])
+
+  useEffect(() => {
+    if (!focusMessageId) return
+    setIsOptionsOpen(false)
+    void chat.loadAround(focusMessageId).then((loaded) => {
+      if (loaded) setFocusedMessageId(focusMessageId)
+    })
+  }, [chat.loadAround, focusMessageId])
 
   useEffect(() => {
     if (
@@ -75,10 +88,12 @@ export default function ChannelScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      if (hasFocusedRef.current) void chat.reload({ replace: true })
+      else hasFocusedRef.current = true
       if (socket?.connected && channelId) {
         socket.emit("channel:join", { channelId })
       }
-    }, [socket, channelId])
+    }, [socket, channelId, chat.reload])
   )
 
   if (!workspace || !channelId) {
@@ -335,26 +350,19 @@ export default function ChannelScreen() {
       ) : null}
       <ChannelOptionsSheet
         canDeleteChannel={permissions.canDeleteChannel}
-        canPinMessages={permissions.canPinMessages}
         canUpdateChannel={permissions.canUpdateChannel}
         channel={channel}
         isOpen={isOptionsOpen}
         onChannelDeleted={() => router.replace("/")}
         onChannelUpdated={channelState.replaceChannel}
-        onOpenChange={setIsOptionsOpen}
-        onSelectPinnedMessage={(message) => {
-          void chat.loadAround(message.id).then((loaded) => {
-            if (loaded) {
-              setFocusedMessageId(message.id)
-              return
-            }
-            Alert.alert(
-              "Message unavailable",
-              "This message may have been deleted or unpinned."
-            )
+        onOpenPinnedMessages={() => {
+          router.push({
+            pathname: "/channel/[channelId]/pins",
+            params: { channelId },
           })
+          setIsOptionsOpen(false)
         }}
-        onTogglePin={(message) => chat.togglePin(message.id, message.pinned)}
+        onOpenChange={setIsOptionsOpen}
         workspaceName={workspace.name}
         workspaceSlug={workspace.slug}
       />

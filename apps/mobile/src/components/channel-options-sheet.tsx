@@ -7,9 +7,7 @@ import Delete02Icon from "@hugeicons/core-free-icons/Delete02Icon"
 import Edit02Icon from "@hugeicons/core-free-icons/Edit02Icon"
 import HashIcon from "@hugeicons/core-free-icons/HashIcon"
 import Pin02Icon from "@hugeicons/core-free-icons/Pin02Icon"
-import PinOffIcon from "@hugeicons/core-free-icons/PinOffIcon"
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react-native"
-import { timeAgo } from "@repo/utils/date"
 import * as Clipboard from "expo-clipboard"
 import { SymbolView } from "expo-symbols"
 import { BottomSheet } from "heroui-native/bottom-sheet"
@@ -18,41 +16,33 @@ import { Spinner } from "heroui-native/spinner"
 import { useEffect, useState } from "react"
 import { Alert, Pressable, Text, View } from "react-native"
 import { KeyboardController } from "react-native-keyboard-controller"
-import { MessageContent } from "@/components/message-content"
-import { Avatar } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { SectionLabel } from "@/components/ui/section-label"
-import { Skeleton } from "@/components/ui/skeleton"
-import { usePinnedMessages } from "@/hooks/use-pinned-messages"
 import { api } from "@/lib/api"
-import type { ChannelDetail, Message } from "@/lib/api-types"
+import type { ChannelDetail } from "@/lib/api-types"
 
 type SheetView = "options" | "edit"
 
 export function ChannelOptionsSheet({
   canDeleteChannel,
-  canPinMessages,
   canUpdateChannel,
   channel,
   isOpen,
   onChannelDeleted,
   onChannelUpdated,
+  onOpenPinnedMessages,
   onOpenChange,
-  onSelectPinnedMessage,
-  onTogglePin,
   workspaceName,
   workspaceSlug,
 }: {
   canDeleteChannel: boolean
-  canPinMessages: boolean
   canUpdateChannel: boolean
   channel: ChannelDetail
   isOpen: boolean
   onChannelDeleted: () => void
   onChannelUpdated: (channel: ChannelDetail) => void
+  onOpenPinnedMessages: () => void
   onOpenChange: (isOpen: boolean) => void
-  onSelectPinnedMessage: (message: Message) => void
-  onTogglePin: (message: Message) => Promise<boolean>
   workspaceName: string
   workspaceSlug: string
 }) {
@@ -67,12 +57,6 @@ export function ChannelOptionsSheet({
     "accent",
     "danger",
   ])
-  const pins = usePinnedMessages({
-    channelId: channel.id,
-    enabled: isOpen,
-    workspaceSlug,
-  })
-
   useEffect(() => {
     if (!isOpen) return
     setView("options")
@@ -237,35 +221,39 @@ export function ChannelOptionsSheet({
                 </View>
 
                 <View className="gap-three px-one">
-                  <View className="flex-row items-center justify-between gap-three">
-                    <SectionLabel>Pinned messages</SectionLabel>
-                    {!pins.isLoading ? (
-                      <Text className="text-xs font-semibold text-muted">
-                        {pins.messages.length}
+                  <SectionLabel>Channel content</SectionLabel>
+                  <Pressable
+                    accessibilityHint="Opens a scrollable list"
+                    accessibilityLabel="Pinned messages"
+                    accessibilityRole="button"
+                    className="min-h-14 flex-row items-center gap-three rounded-lor-sm bg-surface-secondary px-three py-three active:bg-surface-tertiary"
+                    onPress={onOpenPinnedMessages}
+                  >
+                    <View className="size-9 items-center justify-center rounded-lor-sm bg-surface-tertiary">
+                      <HugeiconsIcon
+                        color={foreground}
+                        icon={Pin02Icon}
+                        size={19}
+                      />
+                    </View>
+                    <View className="min-w-0 flex-1 gap-px">
+                      <Text className="text-[15px] font-semibold text-foreground">
+                        Pinned messages
                       </Text>
-                    ) : null}
-                  </View>
-                  <PinnedMessages
-                    canUnpin={canPinMessages}
-                    error={pins.error}
-                    isLoading={pins.isLoading}
-                    messages={pins.messages}
-                    onRetry={() => void pins.reload()}
-                    onSelect={(message) => {
-                      onOpenChange(false)
-                      onSelectPinnedMessage(message)
-                    }}
-                    onUnpin={async (message) => {
-                      const didUpdate = await onTogglePin(message)
-                      if (didUpdate) pins.remove(message.id)
-                      else {
-                        Alert.alert(
-                          "Pin not updated",
-                          "Please try again in a moment."
-                        )
-                      }
-                    }}
-                  />
+                      <Text className="text-xs leading-4 text-muted">
+                        Browse important messages from this channel
+                      </Text>
+                    </View>
+                    <SymbolView
+                      name={{
+                        ios: "chevron.right",
+                        android: "chevron_right",
+                        web: "chevron_right",
+                      }}
+                      size={17}
+                      tintColor={foreground}
+                    />
+                  </Pressable>
                 </View>
 
                 {canDeleteChannel ? (
@@ -410,139 +398,6 @@ function EditChannelView({
         </Button>
       </View>
     </>
-  )
-}
-
-function PinnedMessages({
-  canUnpin,
-  error,
-  isLoading,
-  messages,
-  onRetry,
-  onSelect,
-  onUnpin,
-}: {
-  canUnpin: boolean
-  error: string | null
-  isLoading: boolean
-  messages: Message[]
-  onRetry: () => void
-  onSelect: (message: Message) => void
-  onUnpin: (message: Message) => void
-}) {
-  const [foreground, muted] = useThemeColor(["foreground", "muted"])
-
-  if (isLoading && messages.length === 0) {
-    return (
-      <View className="gap-two">
-        {[0, 1].map((index) => (
-          <View className="flex-row gap-three py-two" key={index}>
-            <Skeleton className="size-9" />
-            <View className="flex-1 gap-two">
-              <Skeleton className="h-3 w-28" />
-              <Skeleton className="h-3 w-4/5" />
-            </View>
-          </View>
-        ))}
-      </View>
-    )
-  }
-
-  if (error && messages.length === 0) {
-    return (
-      <View className="items-start gap-three rounded-lor-sm border border-border px-four py-four">
-        <Text className="text-sm text-muted">{error}</Text>
-        <Button onPress={onRetry} size="sm" variant="secondary">
-          Try again
-        </Button>
-      </View>
-    )
-  }
-
-  if (messages.length === 0) {
-    return (
-      <View className="items-center gap-two rounded-lor-sm border border-dashed border-border px-four py-six">
-        <HugeiconsIcon color={muted} icon={Pin02Icon} size={23} />
-        <Text className="text-sm font-semibold text-foreground">
-          No pinned messages
-        </Text>
-        <Text className="text-center text-xs leading-4 text-muted">
-          Important messages pinned in this channel will appear here.
-        </Text>
-      </View>
-    )
-  }
-
-  return (
-    <View className="overflow-hidden rounded-lor-sm border border-border">
-      {messages.map((message, index) => {
-        const displayName =
-          message.overrideName ??
-          message.author.displayUsername ??
-          message.author.name
-        return (
-          <View key={message.id}>
-            {index > 0 ? <View className="ml-14 h-px bg-separator" /> : null}
-            <Pressable
-              accessibilityHint="Jumps to this message"
-              accessibilityLabel={`Pinned message from ${displayName}`}
-              accessibilityRole="button"
-              className="flex-row gap-three px-three py-three active:bg-surface-secondary"
-              onPress={() => onSelect(message)}
-            >
-              <Avatar
-                image={message.overrideAvatarUrl ?? message.author.image}
-                name={displayName}
-                size="xs"
-              />
-              <View className="min-w-0 flex-1 gap-one">
-                <View className="flex-row items-center gap-two">
-                  <Text
-                    className="min-w-0 flex-1 text-sm font-semibold text-foreground"
-                    numberOfLines={1}
-                  >
-                    {displayName}
-                  </Text>
-                  <Text className="text-[11px] text-muted">
-                    {timeAgo(message.createdAt)}
-                  </Text>
-                </View>
-                <View className="max-h-12 overflow-hidden">
-                  {message.content ? (
-                    <MessageContent
-                      content={message.content}
-                      mentions={message.mentions}
-                    />
-                  ) : (
-                    <Text className="text-sm italic text-muted">
-                      Attachment
-                    </Text>
-                  )}
-                </View>
-              </View>
-              {canUnpin ? (
-                <Pressable
-                  accessibilityLabel="Unpin message"
-                  accessibilityRole="button"
-                  className="size-9 items-center justify-center rounded-lor-sm active:bg-surface-tertiary"
-                  hitSlop={8}
-                  onPress={(event) => {
-                    event.stopPropagation()
-                    onUnpin(message)
-                  }}
-                >
-                  <HugeiconsIcon
-                    color={foreground}
-                    icon={PinOffIcon}
-                    size={18}
-                  />
-                </Pressable>
-              ) : null}
-            </Pressable>
-          </View>
-        )
-      })}
-    </View>
   )
 }
 

@@ -1,5 +1,5 @@
 const { getDefaultConfig } = require("expo/metro-config")
-const { dirname, resolve } = require("node:path")
+const { dirname, resolve, sep } = require("node:path")
 const { getBundleModeMetroConfig } = require("react-native-worklets/bundleMode")
 const { withUniwindConfig } = require("uniwind/metro")
 
@@ -53,7 +53,33 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
   return context.resolveRequest(context, moduleName, platform)
 }
 
-module.exports = withUniwindConfig(config, {
+config = withUniwindConfig(config, {
   cssEntryFile: "./src/global.css",
   dtsFile: "./src/uniwind-types.d.ts",
 })
+
+// Uniwind replaces app-level `react-native` imports with styled component
+// wrappers. Those wrappers intentionally import `react-native` again to
+// delegate unsupported exports (for example NativeModules) to the real
+// package. In a pnpm workspace Metro can occasionally resolve that internal
+// import back to the wrapper, producing an infinite NativeModules getter loop.
+// Pin only Uniwind's internal delegation to the app's React Native entry.
+const uniwindRoot = dirname(require.resolve("uniwind/package.json"))
+const uniwindModuleSegment = `${sep}node_modules${sep}uniwind${sep}`
+const reactNativeEntry = require.resolve("react-native", { paths: [__dirname] })
+const uniwindResolver = config.resolver.resolveRequest
+
+config.resolver.resolveRequest = (context, moduleName, platform) => {
+  const isFromUniwind =
+    context.originModulePath === uniwindRoot ||
+    context.originModulePath.startsWith(`${uniwindRoot}${sep}`) ||
+    context.originModulePath.includes(uniwindModuleSegment)
+
+  if (isFromUniwind && moduleName === "react-native") {
+    return { filePath: reactNativeEntry, type: "sourceFile" }
+  }
+
+  return uniwindResolver(context, moduleName, platform)
+}
+
+module.exports = config

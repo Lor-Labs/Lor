@@ -9,6 +9,7 @@ import {
   ThreadMessageList,
   ThreadMessageListSkeleton,
 } from "@/components/thread-message-list"
+import { ThreadParticipantStack } from "@/components/thread-participant-stack"
 import { IconButton } from "@/components/ui/icon-button"
 import { Screen } from "@/components/ui/screen"
 import { StatePanel } from "@/components/ui/state-panel"
@@ -169,6 +170,10 @@ export default function ThreadScreen() {
             #{channelName}
           </Text>
         </View>
+        <ThreadParticipantStack
+          members={mentions.members}
+          participants={thread.participants}
+        />
       </View>
       <KeyboardAvoidingView
         behavior="translate-with-padding"

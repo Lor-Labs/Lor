@@ -5,7 +5,7 @@ import type {
 } from "@repo/realtime-types"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { api } from "@/lib/api"
-import type { Message } from "@/lib/api-types"
+import type { Message, ThreadMessageList } from "@/lib/api-types"
 import { appendMerlinReasoning, upsertMerlinToolCall } from "@/lib/merlin"
 import {
   applyReactionUpdate,
@@ -29,6 +29,21 @@ type CurrentUser = {
   image?: string | null
 }
 
+type ThreadParticipant = ThreadMessageList["participants"][number]
+
+function participantsFromMessages(
+  root: Message | null,
+  messages: Message[]
+): ThreadParticipant[] {
+  const participants = new Map<string, ThreadParticipant>()
+  for (const message of root ? [root, ...messages] : messages) {
+    if (!participants.has(message.author.id)) {
+      participants.set(message.author.id, message.author)
+    }
+  }
+  return [...participants.values()]
+}
+
 export function useThreadMessages({
   workspaceSlug,
   channelId,
@@ -44,6 +59,7 @@ export function useThreadMessages({
 }) {
   const [messages, setMessages] = useState<Message[]>([])
   const [root, setRoot] = useState<Message | null>(null)
+  const [participants, setParticipants] = useState<ThreadParticipant[]>([])
   const [totalReplyCount, setTotalReplyCount] = useState(0)
   const [isLoading, setIsLoading] = useState(true)
   const [isLoadingOlder, setIsLoadingOlder] = useState(false)
@@ -102,6 +118,7 @@ export function useThreadMessages({
           beforeCursorRef.current = null
           setMessages([])
           setRoot(null)
+          setParticipants([])
           setTotalReplyCount(0)
           setError(null)
           setIsMissing(true)
@@ -149,6 +166,11 @@ export function useThreadMessages({
             )
           )
           if (payload.root) updateRoot(() => payload.root)
+          setParticipants(
+            payload.participants?.length
+              ? payload.participants
+              : participantsFromMessages(payload.root, payload.data)
+          )
           beforeCursorRef.current = payload.beforeCursor
           setReachedOldest(payload.reachedOldest)
           setTotalReplyCount(
@@ -188,6 +210,7 @@ export function useThreadMessages({
     beforeCursorRef.current = null
     setMessages([])
     setRoot(null)
+    setParticipants([])
     setTotalReplyCount(0)
     setIsLoadingOlder(false)
     setReachedOldest(true)
@@ -311,6 +334,11 @@ export function useThreadMessages({
           (message.nonce !== undefined && current.id === message.nonce)
       )
       const received = realtimeMessageToMessage(message)
+      setParticipants((current) =>
+        current.some((participant) => participant.id === received.author.id)
+          ? current
+          : [...current, received.author]
+      )
       updateMessages((current) => {
         const withoutOptimistic = message.nonce
           ? removeMessage(current, message.nonce)
@@ -618,6 +646,19 @@ export function useThreadMessages({
           : null,
       })
       sendingRef.current = true
+      setParticipants((current) =>
+        current.some((participant) => participant.id === currentUser.id)
+          ? current
+          : [
+              ...current,
+              {
+                id: currentUser.id,
+                name: currentUser.name,
+                displayUsername: currentUser.displayUsername ?? null,
+                image: currentUser.image ?? null,
+              },
+            ]
+      )
       updateMessages((current) => mergeMessages([optimistic], current))
       setTotalReplyCount((current) => current + 1)
       setIsSending(true)
@@ -888,6 +929,7 @@ export function useThreadMessages({
   return {
     messages,
     root,
+    participants,
     totalReplyCount,
     isLoading,
     isLoadingOlder,

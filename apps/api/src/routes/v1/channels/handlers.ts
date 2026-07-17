@@ -7,7 +7,7 @@ import {
   messageReaction,
   user,
 } from "@repo/db/schema"
-import { and, asc, desc, eq, inArray } from "drizzle-orm"
+import { and, asc, desc, eq, inArray, or } from "drizzle-orm"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { assertWorkspacePermission } from "@/lib/permissions"
 import {
@@ -566,7 +566,7 @@ export const listThreadReplies: AppRouteHandler<
   // The root is fetched as a single channel-level message (around + limit 1)
   // so the panel can show it even when it's scrolled out of the channel feed.
   const isInitialPage = !before && !after
-  const [replies, rootResult] = await Promise.all([
+  const [replies, rootResult, participantRows] = await Promise.all([
     fetchMessages({
       channelId,
       currentUserId: currentUser.id,
@@ -584,10 +584,31 @@ export const listThreadReplies: AppRouteHandler<
           around: messageId,
         })
       : Promise.resolve(null),
+    isInitialPage
+      ? db
+          .selectDistinct({
+            id: user.id,
+            name: user.name,
+            displayUsername: user.displayUsername,
+            image: user.image,
+          })
+          .from(message)
+          .innerJoin(user, eq(message.authorId, user.id))
+          .where(
+            and(
+              eq(message.channelId, channelId),
+              or(eq(message.id, messageId), eq(message.threadRootId, messageId))
+            )
+          )
+      : Promise.resolve([]),
   ])
 
   return c.json(
-    { ...replies, root: rootResult?.data[0] ?? null },
+    {
+      ...replies,
+      root: rootResult?.data[0] ?? null,
+      participants: participantRows,
+    },
     HttpStatusCodes.OK
   )
 }
