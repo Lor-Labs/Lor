@@ -1,4 +1,4 @@
-import { router } from "expo-router"
+import { router, useFocusEffect } from "expo-router"
 import { SymbolView } from "expo-symbols"
 import { Spinner } from "heroui-native/spinner"
 import { useCallback, useEffect, useState } from "react"
@@ -52,8 +52,13 @@ export default function WorkspaceScreen() {
 
   useEffect(() => {
     setChannels(null)
-    void loadChannels()
-  }, [loadChannels])
+  }, [workspace?.id])
+
+  useFocusEffect(
+    useCallback(() => {
+      void loadChannels()
+    }, [loadChannels])
+  )
 
   if (workspaceLoading) return <LoadingScreen />
   if (workspaceError) {

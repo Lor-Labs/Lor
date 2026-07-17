@@ -7,6 +7,7 @@ import { Spinner } from "heroui-native/spinner"
 import { useCallback, useEffect, useState } from "react"
 import { Alert, Text, View } from "react-native"
 import { KeyboardAvoidingView } from "react-native-keyboard-controller"
+import { ChannelOptionsSheet } from "@/components/channel-options-sheet"
 import { ChannelSearchOverlay } from "@/components/channel-search-overlay"
 import { MessageComposer } from "@/components/message-composer"
 import { MessageList } from "@/components/message-list"
@@ -15,9 +16,9 @@ import { Screen } from "@/components/ui/screen"
 import { StatePanel } from "@/components/ui/state-panel"
 import { useSocket, useSocketConnected } from "@/context/socket-context"
 import { useWorkspace } from "@/context/workspace-context"
-import { useCanPinMessages } from "@/hooks/use-can-pin-messages"
 import { useChannelDetail } from "@/hooks/use-channel-detail"
 import { useChannelMessages } from "@/hooks/use-channel-messages"
+import { useChannelPermissions } from "@/hooks/use-channel-permissions"
 import { useWorkspaceMentionCandidates } from "@/hooks/use-workspace-mention-candidates"
 import { api } from "@/lib/api"
 import type { ChannelSearchResult, Message } from "@/lib/api-types"
@@ -28,6 +29,7 @@ export default function ChannelScreen() {
   const [editingMessage, setEditingMessage] = useState<Message | null>(null)
   const [isSavingEdit, setIsSavingEdit] = useState(false)
   const [isSearchOpen, setIsSearchOpen] = useState(false)
+  const [isOptionsOpen, setIsOptionsOpen] = useState(false)
   const [focusedMessageId, setFocusedMessageId] = useState<string | null>(null)
   const [foreground, muted] = useThemeColor(["foreground", "muted"])
   const socket = useSocket()
@@ -35,7 +37,7 @@ export default function ChannelScreen() {
   const { workspace } = useWorkspace()
   const { channelId } = useLocalSearchParams<{ channelId: string }>()
   const { data: session } = authClient.useSession()
-  const canPinMessages = useCanPinMessages(workspace?.id)
+  const permissions = useChannelPermissions(workspace?.id)
   const channelState = useChannelDetail({
     workspaceSlug: workspace?.slug ?? "",
     channelId: channelId ?? "",
@@ -57,6 +59,7 @@ export default function ChannelScreen() {
     setEditingMessage(null)
     setIsSavingEdit(false)
     setIsSearchOpen(false)
+    setIsOptionsOpen(false)
     setFocusedMessageId(null)
   }, [channelId])
 
@@ -246,7 +249,7 @@ export default function ChannelScreen() {
           <IconButton
             accessibilityLabel="Channel options"
             className="mr-one"
-            onPress={() => router.push("/explore")}
+            onPress={() => setIsOptionsOpen(true)}
             variant="ghost"
           >
             <SymbolView
@@ -280,7 +283,7 @@ export default function ChannelScreen() {
             onRetry={() => void chat.reload()}
             onToggleReaction={chat.toggleReaction}
             onTogglePin={
-              canPinMessages
+              permissions.canPinMessages
                 ? (message) => {
                     void chat.togglePin(message.id, message.pinned)
                   }
@@ -330,6 +333,31 @@ export default function ChannelScreen() {
           workspaceSlug={workspace.slug}
         />
       ) : null}
+      <ChannelOptionsSheet
+        canDeleteChannel={permissions.canDeleteChannel}
+        canPinMessages={permissions.canPinMessages}
+        canUpdateChannel={permissions.canUpdateChannel}
+        channel={channel}
+        isOpen={isOptionsOpen}
+        onChannelDeleted={() => router.replace("/")}
+        onChannelUpdated={channelState.replaceChannel}
+        onOpenChange={setIsOptionsOpen}
+        onSelectPinnedMessage={(message) => {
+          void chat.loadAround(message.id).then((loaded) => {
+            if (loaded) {
+              setFocusedMessageId(message.id)
+              return
+            }
+            Alert.alert(
+              "Message unavailable",
+              "This message may have been deleted or unpinned."
+            )
+          })
+        }}
+        onTogglePin={(message) => chat.togglePin(message.id, message.pinned)}
+        workspaceName={workspace.name}
+        workspaceSlug={workspace.slug}
+      />
     </Screen>
   )
 }
