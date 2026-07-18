@@ -1,16 +1,12 @@
 import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar"
 import { cn } from "@repo/ui/lib/utils"
+import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { timeAgo } from "@repo/utils/date"
 import { MessagesSquare, X } from "lucide-react"
 import { AnimatePresence, motion } from "motion/react"
 import type { ThreadActivity } from "@/hooks/use-thread-activity"
 import type { Message } from "@/lib/api-types"
 import { STORED_MENTION_REGEX } from "@/lib/editor-utils"
-
-function nameInitial(name: string) {
-  const trimmed = name.trim()
-  return trimmed.length > 0 ? trimmed.charAt(0).toUpperCase() : "?"
-}
 
 // Turn stored `<@uuid>` tokens into readable `@name` for the one-line preview.
 function renderMentions(content: string, mentions: Message["mentions"]) {
@@ -73,15 +69,16 @@ function ThreadActivityCard({
           {activity.participants.slice(0, 3).map((p) => (
             <span
               key={p.id}
-              className="rounded-md ring-2 ring-sidebar transition-[box-shadow]"
+              className="rounded-full ring-2 ring-sidebar transition-[box-shadow]"
             >
-              <Avatar
-                size="sm"
-                className="size-[18px] rounded-md [&_[data-slot=avatar-image]]:rounded-md [&_[data-slot=avatar-fallback]]:rounded-md"
-              >
+              <Avatar size="sm" className="size-[18px]">
                 {p.image && <AvatarImage src={p.image} alt={p.name} />}
-                <AvatarFallback className="rounded-md text-[9px] font-semibold">
-                  {nameInitial(p.displayUsername ?? p.name)}
+                <AvatarFallback
+                  avatarColor={p.avatarColor}
+                  className="text-[9px] font-semibold"
+                  fallbackSeed={p.name}
+                >
+                  {getAvatarInitials(p.name)}
                 </AvatarFallback>
               </Avatar>
             </span>

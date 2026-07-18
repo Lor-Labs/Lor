@@ -1,4 +1,8 @@
 import {
+  getAvatarColorStyle,
+  getAvatarInitials,
+} from "@repo/utils/avatar-colors"
+import {
   type AvatarColor,
   type AvatarRootProps,
   Avatar as HeroAvatar,
@@ -15,31 +19,48 @@ export type AvatarProps = Omit<AvatarRootProps, "children" | "size"> & {
   name: string
   size?: AvatarSize
   color?: AvatarColor
+  avatarColor?: string | null
+  shape?: "circle" | "square"
 }
 
 export function Avatar({
   className,
+  avatarColor,
   color = "default",
   fallback,
   image,
   name,
+  shape = "circle",
   size = "sm",
   variant = "soft",
   ...props
 }: AvatarProps) {
   const heroSize: HeroAvatarSize = size === "xs" ? "sm" : size
-  const initial = fallback ?? (name.trim().charAt(0).toUpperCase() || "?")
+  const initial = fallback ?? getAvatarInitials(name)
+  const fallbackColors = getAvatarColorStyle(avatarColor, name)
 
   return (
     <HeroAvatar
       {...props}
-      className={cn("rounded-lor-sm", size === "xs" && "size-8", className)}
+      className={cn(
+        shape === "circle" ? "rounded-full" : "rounded-lor-sm",
+        size === "xs" && "size-8",
+        className
+      )}
       color={color}
       size={heroSize}
       variant={variant}
     >
       {image ? <HeroAvatar.Image source={{ uri: image }} /> : null}
-      <HeroAvatar.Fallback classNames={{ container: "rounded-lor-sm" }}>
+      <HeroAvatar.Fallback
+        classNames={{
+          container: shape === "circle" ? "rounded-full" : "rounded-lor-sm",
+        }}
+        styles={{
+          container: { backgroundColor: fallbackColors.backgroundColor },
+          text: { color: fallbackColors.foregroundColor },
+        }}
+      >
         {initial}
       </HeroAvatar.Fallback>
     </HeroAvatar>

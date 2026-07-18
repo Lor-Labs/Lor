@@ -57,12 +57,34 @@ export type ToggleMessageReactionResult = {
   channel: AccessibleChannel
 }
 
+async function workspaceAvatarColor(
+  workspaceId: string | null,
+  userId: string
+) {
+  if (!workspaceId) return null
+  return db
+    .select({ avatarColor: schema.workspaceMember.avatarColor })
+    .from(schema.workspaceMember)
+    .where(
+      and(
+        eq(schema.workspaceMember.workspaceId, workspaceId),
+        eq(schema.workspaceMember.userId, userId)
+      )
+    )
+    .limit(1)
+    .then((rows) => rows[0]?.avatarColor ?? null)
+}
+
 export async function createMessage(input: CreateMessageInput) {
   if (input.accessibleChannel.id !== input.payload.channelId) {
     throw new Error("Channel mismatch")
   }
 
   const channelRecord = input.accessibleChannel
+  const authorAvatarColor = await workspaceAvatarColor(
+    channelRecord.workspaceId,
+    input.userId
+  )
 
   let hasReply = !!input.payload.referencedMessageId
   const threadRootId: string | null = input.payload.threadRootId ?? null
@@ -210,6 +232,10 @@ export async function createMessage(input: CreateMessageInput) {
           username: refMsg.authorUsername,
           displayUsername: refMsg.authorDisplayUsername,
           image: refMsg.authorImage,
+          avatarColor: await workspaceAvatarColor(
+            channelRecord.workspaceId,
+            refMsg.authorId
+          ),
         },
         overrideName: refMsg.overrideName,
         overrideAvatarUrl: refMsg.overrideAvatarUrl,
@@ -231,6 +257,7 @@ export async function createMessage(input: CreateMessageInput) {
       username: messageWithAuthor.authorUsername,
       displayUsername: messageWithAuthor.authorDisplayUsername,
       image: messageWithAuthor.authorImage,
+      avatarColor: authorAvatarColor,
     },
     mentions: [],
     reactions: [],
@@ -293,6 +320,25 @@ export async function loadThreadSummary(
     .orderBy(desc(schema.message.createdAt))
     .limit(20)
 
+  const threadWorkspaceId = await db
+    .select({ workspaceId: schema.channel.workspaceId })
+    .from(schema.channel)
+    .where(eq(schema.channel.id, channelId))
+    .limit(1)
+    .then((rows) => rows[0]?.workspaceId ?? null)
+  const avatarColorRows = threadWorkspaceId
+    ? await db
+        .select({
+          userId: schema.workspaceMember.userId,
+          avatarColor: schema.workspaceMember.avatarColor,
+        })
+        .from(schema.workspaceMember)
+        .where(eq(schema.workspaceMember.workspaceId, threadWorkspaceId))
+    : []
+  const avatarColorByUserId = new Map(
+    avatarColorRows.map((row) => [row.userId, row.avatarColor])
+  )
+
   const seen = new Set<string>()
   const participants: RealtimeMessageThreadUpdated["participants"] = []
   for (const row of recentReplies) {
@@ -303,6 +349,7 @@ export async function loadThreadSummary(
       name: row.userName,
       displayUsername: row.userDisplayUsername,
       image: row.userImage,
+      avatarColor: avatarColorByUserId.get(row.authorId) ?? null,
     })
     if (participants.length >= 3) break
   }
@@ -338,8 +385,12 @@ export async function loadThreadSummary(
         username: newest.userUsername,
         displayUsername: newest.userDisplayUsername,
         image: newest.userImage,
+        avatarColor: avatarColorByUserId.get(newest.authorId) ?? null,
       },
-      mentions: mentionRows,
+      mentions: mentionRows.map((mention) => ({
+        ...mention,
+        avatarColor: avatarColorByUserId.get(mention.id) ?? null,
+      })),
       hasAttachments: (newest.attachments ?? []).length > 0,
     }
   }

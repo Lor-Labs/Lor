@@ -26,6 +26,7 @@ type ThreadListItem =
   | { kind: "root"; message: Message }
 
 export function ThreadMessageList({
+  avatarColorByUserId,
   root,
   messages,
   totalReplyCount,
@@ -44,6 +45,7 @@ export function ThreadMessageList({
   replyingToId,
   focusMessageId,
 }: {
+  avatarColorByUserId?: ReadonlyMap<string, string>
   root: Message
   messages: Message[]
   totalReplyCount: number
@@ -231,6 +233,7 @@ export function ThreadMessageList({
                   onLongPress={() => handleLongPress(item.message)}
                 >
                   <ThreadRootMessage
+                    avatarColorByUserId={avatarColorByUserId}
                     isActionHighlighted={
                       highlightedMessageId === item.message.id
                     }
@@ -344,6 +347,7 @@ export function ThreadMessageList({
                     <MessageDateDivider date={message.createdAt} />
                   ) : null}
                   <MessageRow
+                    avatarColorByUserId={avatarColorByUserId}
                     isActionHighlighted={highlightedMessageId === message.id}
                     isHighlighted={
                       jumpTargetId === message.id ||

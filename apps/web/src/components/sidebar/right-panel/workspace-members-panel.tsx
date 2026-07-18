@@ -140,9 +140,19 @@ function MemberRow({
 
   return (
     <div className="flex min-w-0 items-center gap-2 rounded-md px-1.5 py-1.5 hover:bg-foreground/[0.04]">
-      <UserProfilePopover userId={member.userId} side="left" align="start">
+      <UserProfilePopover
+        align="start"
+        avatarColor={member.avatarColor}
+        side="left"
+        userId={member.userId}
+      >
         <button type="button" className="relative shrink-0 cursor-pointer">
-          <UserAvatar name={member.name} src={member.image} size="sm" />
+          <UserAvatar
+            avatarColor={member.avatarColor}
+            name={member.name}
+            src={member.image}
+            size="sm"
+          />
           <span
             className={cn(
               "absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full border-[2px] border-card",
@@ -152,7 +162,12 @@ function MemberRow({
         </button>
       </UserProfilePopover>
       <div className="min-w-0 flex-1">
-        <UserProfilePopover userId={member.userId} side="left" align="start">
+        <UserProfilePopover
+          align="start"
+          avatarColor={member.avatarColor}
+          side="left"
+          userId={member.userId}
+        >
           <button
             type="button"
             className="cursor-pointer truncate text-[13px] font-medium hover:underline"

@@ -7,6 +7,7 @@ export const messageAuthorSchema = z.object({
   username: z.string().nullable(),
   displayUsername: z.string().nullable(),
   image: z.string().nullable(),
+  avatarColor: z.string().nullable().optional(),
 })
 
 export const messageReactionSchema = z.object({
@@ -76,6 +77,7 @@ export const threadParticipantSchema = z.object({
   name: z.string(),
   displayUsername: z.string().nullable(),
   image: z.string().nullable(),
+  avatarColor: z.string().nullable().optional(),
 })
 
 export const threadSummarySchema = z

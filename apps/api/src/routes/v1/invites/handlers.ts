@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto"
 import { auth } from "@repo/auth"
 import { and, db, eq, schema, sql } from "@repo/db"
+import { pickWorkspaceAvatarColor } from "@repo/utils/avatar-colors"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { assertWorkspacePermission } from "@/lib/permissions"
 import type { AppRouteHandler } from "@/lib/types/app-types"
@@ -398,12 +399,22 @@ export const acceptInvite: AppRouteHandler<AcceptInviteRoute> = async (c) => {
       return { maxedOut: true as const }
     }
 
-    // Insert membership
+    // Insert membership with a color from the least-used workspace set.
+    const usedAvatarColors = await tx
+      .select({ avatarColor: schema.workspaceMember.avatarColor })
+      .from(schema.workspaceMember)
+      .where(eq(schema.workspaceMember.workspaceId, invite.workspaceId))
+    const avatarColor = pickWorkspaceAvatarColor(
+      usedAvatarColors.map((membership) => membership.avatarColor),
+      `${invite.workspaceId}:${user.id}`
+    )
+
     await tx.insert(schema.workspaceMember).values({
       workspaceId: invite.workspaceId,
       userId: user.id,
       role: "member",
       createdAt: new Date(),
+      avatarColor,
     })
 
     const workspace = await tx

@@ -1,6 +1,7 @@
 "use client"
 
 import { cn } from "@repo/ui/lib/utils"
+import { getAvatarColorStyle } from "@repo/utils/avatar-colors"
 import { Avatar as AvatarPrimitive } from "radix-ui"
 import type * as React from "react"
 
@@ -38,16 +39,30 @@ function AvatarImage({
 }
 
 function AvatarFallback({
+  avatarColor,
   className,
+  fallbackSeed,
+  style,
   ...props
-}: React.ComponentProps<typeof AvatarPrimitive.Fallback>) {
+}: React.ComponentProps<typeof AvatarPrimitive.Fallback> & {
+  avatarColor?: string | null
+  fallbackSeed?: string
+}) {
+  const childSeed =
+    typeof props.children === "string" ? props.children : "avatar"
+  const colors = getAvatarColorStyle(avatarColor, fallbackSeed ?? childSeed)
   return (
     <AvatarPrimitive.Fallback
       data-slot="avatar-fallback"
       className={cn(
-        "bg-muted text-muted-foreground flex size-full items-center justify-center rounded-full text-sm group-data-[size=sm]/avatar:text-xs",
+        "flex size-full items-center justify-center rounded-full text-sm group-data-[size=sm]/avatar:text-xs",
         className
       )}
+      style={{
+        backgroundColor: colors.backgroundColor,
+        color: colors.foregroundColor,
+        ...style,
+      }}
       {...props}
     />
   )

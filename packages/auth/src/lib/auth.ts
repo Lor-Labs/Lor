@@ -2,6 +2,7 @@ import { expo } from "@better-auth/expo"
 import { redisStorage } from "@better-auth/redis-storage"
 import { db, eq, MERLIN_USER_ID, schema } from "@repo/db"
 import { env } from "@repo/env/server"
+import { pickWorkspaceAvatarColor } from "@repo/utils/avatar-colors"
 import { drizzleAdapter } from "better-auth/adapters/drizzle"
 import { betterAuth } from "better-auth/minimal"
 import { admin, organization, twoFactor, username } from "better-auth/plugins"
@@ -82,12 +83,29 @@ async function seedDefaultWorkspaceChannels(workspaceId: string) {
   })
 }
 
+async function nextWorkspaceAvatarColor(workspaceId: string, userId: string) {
+  const memberships = await db
+    .select({ avatarColor: schema.workspaceMember.avatarColor })
+    .from(schema.workspaceMember)
+    .where(eq(schema.workspaceMember.workspaceId, workspaceId))
+
+  return pickWorkspaceAvatarColor(
+    memberships.map((membership) => membership.avatarColor),
+    `${workspaceId}:${userId}`
+  )
+}
+
 // Merlin is a member of every workspace so it's mentionable and receives fanout.
 async function addMerlinToWorkspace(workspaceId: string) {
+  const avatarColor = await nextWorkspaceAvatarColor(
+    workspaceId,
+    MERLIN_USER_ID
+  )
   await db.insert(schema.workspaceMember).values({
     workspaceId,
     userId: MERLIN_USER_ID,
     role: "member",
+    avatarColor,
   })
 }
 
@@ -261,6 +279,15 @@ export const auth = betterAuth({
           fields: {
             organizationId: "workspaceId",
           },
+          additionalFields: {
+            avatarColor: {
+              type: "string",
+              fieldName: "avatarColor",
+              required: true,
+              input: false,
+              returned: true,
+            },
+          },
         },
         invitation: {
           fields: {
@@ -282,6 +309,13 @@ export const auth = betterAuth({
       organizationHooks: {
         beforeCreateOrganization: async ({ organization, user }) => {
           return { data: { ...organization, ownerId: user.id } }
+        },
+        beforeAddMember: async ({ member }) => {
+          const avatarColor = await nextWorkspaceAvatarColor(
+            member.organizationId,
+            member.userId
+          )
+          return { data: { ...member, avatarColor } }
         },
         afterCreateOrganization: async ({ organization, user }) => {
           try {

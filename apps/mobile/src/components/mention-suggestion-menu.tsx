@@ -75,6 +75,7 @@ export function MentionSuggestionMenu({
                   </View>
                 ) : (
                   <Avatar
+                    avatarColor={candidate.avatarColor}
                     image={candidate.image}
                     name={candidate.name}
                     size="xs"

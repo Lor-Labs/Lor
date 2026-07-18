@@ -12,6 +12,8 @@ import { Skeleton } from "@/components/ui/skeleton"
 import type { WorkspaceMember } from "@/lib/api-types"
 
 export type MemberListItem = {
+  avatarColor: string | null
+  avatarName: string
   detail: string
   id: string
   image: string | null
@@ -177,7 +179,12 @@ function MemberRow({ member }: { member: MemberListItem }) {
       className="min-h-[68px] flex-row items-center gap-three px-three py-two"
     >
       <View style={{ opacity: member.status === "offline" ? 0.5 : 1 }}>
-        <Avatar image={member.image} name={member.name} size="sm" />
+        <Avatar
+          avatarColor={member.avatarColor}
+          image={member.image}
+          name={member.avatarName}
+          size="sm"
+        />
       </View>
       <View className="min-w-0 flex-1 gap-px">
         <Text
@@ -212,7 +219,7 @@ function MemberListSkeleton() {
             className="min-h-[64px] flex-row items-center gap-three"
             key={index}
           >
-            <Skeleton className="size-10 rounded-lor-sm" />
+            <Skeleton className="size-10 rounded-full" />
             <View className="flex-1 gap-two">
               <Skeleton className="h-3 w-32 rounded-full" />
               <Skeleton className="h-2.5 w-20 rounded-full" />
@@ -229,6 +236,8 @@ export function workspaceMemberToListItem(
   member: WorkspaceMember
 ): MemberListItem {
   return {
+    avatarColor: member.avatarColor,
+    avatarName: member.name,
     detail: workspaceMemberDetail(member),
     id: member.userId,
     image: member.image,

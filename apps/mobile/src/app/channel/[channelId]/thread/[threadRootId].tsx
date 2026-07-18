@@ -1,7 +1,7 @@
 import { router, useLocalSearchParams } from "expo-router"
 import { SymbolView } from "expo-symbols"
 import { useThemeColor } from "heroui-native/hooks"
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Alert, Text, View } from "react-native"
 import { KeyboardAvoidingView } from "react-native-keyboard-controller"
 import { MessageComposer } from "@/components/message-composer"
@@ -52,6 +52,13 @@ export default function ThreadScreen() {
     workspaceSlug: workspace?.slug ?? "",
     currentUserId: session?.user.id,
   })
+  const avatarColorByUserId = useMemo(
+    () =>
+      new Map(
+        mentions.members.map((member) => [member.userId, member.avatarColor])
+      ),
+    [mentions.members]
+  )
 
   useEffect(() => {
     setReplyingTo(null)
@@ -198,6 +205,7 @@ export default function ThreadScreen() {
           />
         ) : (
           <ThreadMessageList
+            avatarColorByUserId={avatarColorByUserId}
             currentUserId={session?.user.id}
             editingMessageId={editingMessage?.id}
             focusMessageId={focusMessageId}

@@ -23,6 +23,7 @@ export const workspaceMember = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     role: text("role").default("member").notNull(),
+    avatarColor: text("avatar_color").default("blue").notNull(),
   },
   (table) => [
     index("workspaceMember_workspaceId_idx").on(table.workspaceId),

@@ -4,7 +4,7 @@ import { router, useFocusEffect, useLocalSearchParams } from "expo-router"
 import { SymbolView } from "expo-symbols"
 import { useThemeColor } from "heroui-native/hooks"
 import { Spinner } from "heroui-native/spinner"
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Alert, Pressable, Text, View } from "react-native"
 import { KeyboardAvoidingView } from "react-native-keyboard-controller"
 import { ChannelOptionsSheet } from "@/components/channel-options-sheet"
@@ -62,6 +62,13 @@ export default function ChannelScreen() {
     workspaceSlug: workspace?.slug ?? "",
     currentUserId: session?.user.id,
   })
+  const avatarColorByUserId = useMemo(
+    () =>
+      new Map(
+        mentions.members.map((member) => [member.userId, member.avatarColor])
+      ),
+    [mentions.members]
+  )
 
   useEffect(() => {
     hasFocusedRef.current = false
@@ -302,6 +309,7 @@ export default function ChannelScreen() {
           className="flex-1"
         >
           <MessageList
+            avatarColorByUserId={avatarColorByUserId}
             channelName={channelName}
             currentUserId={session?.user.id}
             editingMessageId={editingMessage?.id}
@@ -359,6 +367,7 @@ export default function ChannelScreen() {
       </View>
       {isSearchOpen ? (
         <ChannelSearchOverlay
+          avatarColorByUserId={avatarColorByUserId}
           channelId={channelId}
           channelName={channelName}
           onClose={() => setIsSearchOpen(false)}

@@ -5,6 +5,7 @@ import {
   HoverCardTrigger,
 } from "@repo/ui/components/hover-card"
 import { cn } from "@repo/ui/lib/utils"
+import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { createCodePlugin } from "@streamdown/code"
 import { type ReactNode, useMemo } from "react"
 import { type Components, Streamdown } from "streamdown"
@@ -45,11 +46,6 @@ function isHttpUrl(value: string): boolean {
 
 function getMentionLabel(mention: Message["mentions"][number]) {
   return mention.displayUsername ?? mention.username ?? mention.name
-}
-
-function nameInitial(name: string) {
-  const trimmed = name.trim()
-  return trimmed.length > 0 ? trimmed.charAt(0).toUpperCase() : "?"
 }
 
 // Mentions are emitted as a custom <mention> tag rather than a link so they
@@ -228,8 +224,12 @@ export function MessageMarkdown({
                   {mention?.image && (
                     <AvatarImage src={mention.image} alt={displayName} />
                   )}
-                  <AvatarFallback className="text-xs font-semibold">
-                    {nameInitial(displayName)}
+                  <AvatarFallback
+                    avatarColor={mention?.avatarColor}
+                    className="text-xs font-semibold"
+                    fallbackSeed={mention?.name ?? displayName}
+                  >
+                    {getAvatarInitials(mention?.name ?? displayName)}
                   </AvatarFallback>
                 </Avatar>
                 <div className="min-w-0 flex-1">

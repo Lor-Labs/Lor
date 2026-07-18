@@ -1,4 +1,4 @@
-import { db } from "@repo/db"
+import { db, schema } from "@repo/db"
 import {
   agentProfile,
   channel,
@@ -408,6 +408,16 @@ export const listPinnedMessages: AppRouteHandler<
     .orderBy(desc(message.createdAt))
 
   const messageIds = messages.map((msg) => msg.id)
+  const avatarColorRows = await db
+    .select({
+      userId: schema.workspaceMember.userId,
+      avatarColor: schema.workspaceMember.avatarColor,
+    })
+    .from(schema.workspaceMember)
+    .where(eq(schema.workspaceMember.workspaceId, workspace.id))
+  const avatarColorByUserId = new Map(
+    avatarColorRows.map((row) => [row.userId, row.avatarColor])
+  )
 
   const mentionRows =
     messageIds.length > 0
@@ -458,7 +468,20 @@ export const listPinnedMessages: AppRouteHandler<
       : []
 
   const referencedMessagesById = new Map(
-    referencedMessageRows.map((row) => [row.id, toReferencedMessage(row)])
+    referencedMessageRows.map((row) => {
+      const referencedMessage = toReferencedMessage(row)
+      return [
+        row.id,
+        {
+          ...referencedMessage,
+          author: {
+            ...referencedMessage.author,
+            avatarColor:
+              avatarColorByUserId.get(referencedMessage.author.id) ?? null,
+          },
+        },
+      ]
+    })
   )
 
   const mentionsByMessageId = new Map<string, typeof mentionRows>()
@@ -500,6 +523,10 @@ export const listPinnedMessages: AppRouteHandler<
 
   const data = messages.map((msg) => ({
     ...msg,
+    author: {
+      ...msg.author,
+      avatarColor: avatarColorByUserId.get(msg.author.id) ?? null,
+    },
     embeds: msg.embeds ?? [],
     merlinToolCalls: msg.merlinToolCalls ?? [],
     merlinReasoningSegments: msg.merlinReasoningSegments ?? [],
@@ -509,6 +536,7 @@ export const listPinnedMessages: AppRouteHandler<
       username: m.username,
       displayUsername: m.displayUsername,
       image: m.image,
+      avatarColor: avatarColorByUserId.get(m.id) ?? null,
     })),
     reactions: Array.from(reactionsByMessageId.get(msg.id)?.values() ?? []),
     referencedMessage: msg.referencedMessageId
@@ -591,9 +619,17 @@ export const listThreadReplies: AppRouteHandler<
             name: user.name,
             displayUsername: user.displayUsername,
             image: user.image,
+            avatarColor: schema.workspaceMember.avatarColor,
           })
           .from(message)
           .innerJoin(user, eq(message.authorId, user.id))
+          .innerJoin(
+            schema.workspaceMember,
+            and(
+              eq(schema.workspaceMember.userId, user.id),
+              eq(schema.workspaceMember.workspaceId, workspace.id)
+            )
+          )
           .where(
             and(
               eq(message.channelId, channelId),

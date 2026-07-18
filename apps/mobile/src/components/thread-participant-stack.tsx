@@ -26,6 +26,8 @@ export function ThreadParticipantStack({
       participants.map((participant) => {
         const member = memberById.get(participant.id)
         return {
+          avatarColor: member?.avatarColor ?? participant.avatarColor ?? null,
+          avatarName: member?.name ?? participant.name,
           detail: member ? workspaceMemberDetail(member) : "Thread participant",
           id: participant.id,
           image: participant.image,
@@ -59,7 +61,8 @@ export function ThreadParticipantStack({
             className={index === 0 ? "" : "-ml-two"}
             image={participant.image}
             key={participant.id}
-            name={participant.name}
+            name={participant.avatarName}
+            avatarColor={participant.avatarColor}
             status={participant.status}
             style={{ zIndex: visibleParticipants.length - index }}
           />
@@ -84,12 +87,14 @@ export function ThreadParticipantStack({
 }
 
 function PresenceAvatar({
+  avatarColor,
   className = "",
   image,
   name,
   status,
   style,
 }: {
+  avatarColor: string | null
   className?: string
   image: string | null
   name: string
@@ -100,6 +105,7 @@ function PresenceAvatar({
     <View className={`relative ${className}`} style={style}>
       <View style={{ opacity: status === "offline" ? 0.5 : 1 }}>
         <Avatar
+          avatarColor={avatarColor}
           className="border-2 border-background"
           image={image}
           name={name}

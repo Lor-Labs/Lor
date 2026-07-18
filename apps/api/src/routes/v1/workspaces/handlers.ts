@@ -61,6 +61,7 @@ function toWorkspaceMemberPresence(
     username: string | null
     displayUsername: string | null
     image: string | null
+    avatarColor: string
     role: string
     isBot: boolean
   },
@@ -75,6 +76,7 @@ function toWorkspaceMemberPresence(
     username: member.username,
     displayUsername: member.displayUsername,
     image: member.image,
+    avatarColor: member.avatarColor,
     role: member.role,
     isOwner: ownerId === member.userId,
     isBot: member.isBot,
@@ -91,6 +93,7 @@ async function getWorkspaceMemberRow(workspaceId: string, userId: string) {
       username: schema.user.username,
       displayUsername: schema.user.displayUsername,
       image: schema.user.image,
+      avatarColor: schema.workspaceMember.avatarColor,
       isBot: schema.user.isBot,
     })
     .from(schema.workspaceMember)
@@ -118,6 +121,7 @@ export const listWorkspaceMembers: AppRouteHandler<
       username: schema.user.username,
       displayUsername: schema.user.displayUsername,
       image: schema.user.image,
+      avatarColor: schema.workspaceMember.avatarColor,
       isBot: schema.user.isBot,
     })
     .from(schema.workspaceMember)
@@ -351,6 +355,16 @@ export const searchMessages: AppRouteHandler<SearchMessagesRoute> = async (
   }
 
   const channelMap = new Map(workspaceChannels.map((ch) => [ch.id, ch.name]))
+  const avatarColorRows = await db
+    .select({
+      userId: schema.workspaceMember.userId,
+      avatarColor: schema.workspaceMember.avatarColor,
+    })
+    .from(schema.workspaceMember)
+    .where(eq(schema.workspaceMember.workspaceId, workspace.id))
+  const avatarColorByUserId = new Map(
+    avatarColorRows.map((row) => [row.userId, row.avatarColor])
+  )
   const searchChannelIds = channelId
     ? workspaceChannels.filter((ch) => ch.id === channelId).map((ch) => ch.id)
     : workspaceChannels.map((ch) => ch.id)
@@ -441,6 +455,7 @@ export const searchMessages: AppRouteHandler<SearchMessagesRoute> = async (
           username: msg.author.username,
           displayUsername: msg.author.displayUsername,
           image: msg.author.image,
+          avatarColor: avatarColorByUserId.get(msg.author.id) ?? null,
         },
         mentions: (mentionsByMessageId.get(msg.id) ?? []).map((mention) => ({
           id: mention.id,
@@ -448,6 +463,7 @@ export const searchMessages: AppRouteHandler<SearchMessagesRoute> = async (
           username: mention.username,
           displayUsername: mention.displayUsername,
           image: mention.image,
+          avatarColor: avatarColorByUserId.get(mention.id) ?? null,
         })),
       })),
     },

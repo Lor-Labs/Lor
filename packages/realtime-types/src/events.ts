@@ -96,6 +96,7 @@ export type RealtimeAuthor = {
   username: string | null
   displayUsername: string | null
   image: string | null
+  avatarColor?: string | null
 }
 
 export type RealtimeMessageMention = RealtimeAuthor
@@ -202,6 +203,7 @@ export type RealtimeMessageThreadUpdated = {
     name: string
     displayUsername: string | null
     image: string | null
+    avatarColor?: string | null
   }>
   // Preview of the newest reply, for the channel-feed activity card. Null when
   // the thread is empty (last reply deleted).

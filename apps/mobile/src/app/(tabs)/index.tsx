@@ -101,7 +101,12 @@ export default function WorkspaceScreen() {
                 key={item.id}
                 onPress={() => void selectWorkspace(item.id)}
               >
-                <Avatar image={item.logo} name={item.name} size="xs" />
+                <Avatar
+                  image={item.logo}
+                  name={item.name}
+                  shape="square"
+                  size="xs"
+                />
               </Pressable>
             )
           })}

@@ -6,6 +6,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@repo/ui/components/tooltip"
+import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { useParams } from "@tanstack/react-router"
 import { Hash } from "lucide-react"
 import { HeaderSearch } from "@/components/chat/header-search"
@@ -16,11 +17,6 @@ export type ChatContext =
   | { type: "channel"; name: string; topic?: string }
   | { type: "dm"; name: string; avatarUrl?: string }
   | { type: "group_dm"; name: string; memberCount: number }
-
-function nameInitial(name: string) {
-  const trimmed = name.trim()
-  return trimmed.length > 0 ? trimmed.charAt(0).toUpperCase() : "?"
-}
 
 export function ChatHeader({
   context,
@@ -45,7 +41,7 @@ export function ChatHeader({
             <AvatarImage src={context.avatarUrl} alt={context.name} />
           )}
           <AvatarFallback className="text-[10px] font-semibold">
-            {nameInitial(context.name)}
+            {getAvatarInitials(context.name)}
           </AvatarFallback>
         </Avatar>
       )}

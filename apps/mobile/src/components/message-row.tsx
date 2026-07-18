@@ -3,6 +3,7 @@ import Brain01Icon from "@hugeicons/core-free-icons/Brain01Icon"
 import Pin02Icon from "@hugeicons/core-free-icons/Pin02Icon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
 import { MERLIN_USER_ID } from "@repo/db/constants"
+import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { formatDateDivider, formatDateTime, timeAgo } from "@repo/utils/date"
 import { useThemeColor } from "heroui-native/hooks"
 import { Pressable, Text, View } from "react-native"
@@ -29,7 +30,7 @@ export function messageDisplayName(message: Message) {
 }
 
 function avatarInitial(message: Message) {
-  return messageDisplayName(message).trim().charAt(0).toUpperCase() || "?"
+  return getAvatarInitials(message.author.name)
 }
 
 export function areMessagesOnSameDay(left: string, right: string) {
@@ -43,9 +44,11 @@ export function areMessagesOnSameDay(left: string, right: string) {
 }
 
 function MessageAvatar({
+  avatarColor,
   message,
   size = "sm",
 }: {
+  avatarColor?: string | null
   message: Message
   size?: "sm" | "md"
 }) {
@@ -57,6 +60,7 @@ function MessageAvatar({
 
   return (
     <Avatar
+      avatarColor={avatarColor}
       color={isMerlin ? "accent" : "default"}
       fallback={
         connector ? (
@@ -218,6 +222,7 @@ function MessageRowBody({
 }
 
 export function MessageRow({
+  avatarColorByUserId,
   message,
   showHeader,
   onOpenThread,
@@ -226,6 +231,7 @@ export function MessageRow({
   isActionHighlighted = false,
   onToggleReaction,
 }: {
+  avatarColorByUserId?: ReadonlyMap<string, string>
   message: Message
   showHeader: boolean
   onOpenThread?: (message: Message) => void
@@ -259,7 +265,15 @@ export function MessageRow({
         <View className="absolute inset-y-0 left-0 w-[3px] bg-accent" />
       ) : null}
       <View className="min-w-10 pt-px">
-        {showHeader ? <MessageAvatar message={message} /> : null}
+        {showHeader ? (
+          <MessageAvatar
+            avatarColor={
+              message.author.avatarColor ??
+              avatarColorByUserId?.get(message.author.id)
+            }
+            message={message}
+          />
+        ) : null}
       </View>
       <View className="min-w-0 flex-1 gap-[2px]">
         {message.pinned ? <PinnedBadge /> : null}
@@ -290,12 +304,14 @@ export function MessageRow({
 }
 
 export function ThreadRootMessage({
+  avatarColorByUserId,
   message,
   isHighlighted = false,
   isActionHighlighted = false,
   onJumpToMessage,
   onToggleReaction,
 }: {
+  avatarColorByUserId?: ReadonlyMap<string, string>
   message: Message
   isHighlighted?: boolean
   isActionHighlighted?: boolean
@@ -323,7 +339,14 @@ export function ThreadRootMessage({
         <View className="absolute inset-y-0 left-0 w-[3px] bg-accent" />
       ) : null}
       <View className="flex-row items-center gap-three">
-        <MessageAvatar message={message} size="md" />
+        <MessageAvatar
+          avatarColor={
+            message.author.avatarColor ??
+            avatarColorByUserId?.get(message.author.id)
+          }
+          message={message}
+          size="md"
+        />
         <View className="min-w-0 flex-1 gap-px">
           <View className="flex-row items-center gap-two">
             <Text
@@ -363,7 +386,6 @@ function ReplyPreview({
   onJumpToMessage?: (messageId: string) => void
 }) {
   const referenced = message.referencedMessage
-  const deleted = !referenced
   const referencedName = referenced
     ? (referenced.overrideName ??
       referenced.author.displayUsername ??
@@ -390,7 +412,8 @@ function ReplyPreview({
       <View className="ml-two h-5 w-px bg-border" />
       {referenced && referencedName ? (
         <Avatar
-          fallback={referencedName.trim().charAt(0).toUpperCase() || "?"}
+          avatarColor={referenced.author.avatarColor}
+          fallback={getAvatarInitials(referenced.author.name)}
           image={referenced.overrideAvatarUrl ?? referenced.author.image}
           name={referencedName}
           size="xs"
@@ -433,13 +456,9 @@ function ThreadFooter({
       <View className="flex-row pl-one">
         {summary.participants.slice(0, 3).map((participant, index) => (
           <Avatar
+            avatarColor={participant.avatarColor}
             className={index === 0 ? "size-6" : "-ml-two size-6"}
-            fallback={
-              (participant.displayUsername ?? participant.name)
-                .trim()
-                .charAt(0)
-                .toUpperCase() || "?"
-            }
+            fallback={getAvatarInitials(participant.name)}
             image={participant.image}
             key={participant.id}
             name={participant.displayUsername ?? participant.name}

@@ -10,6 +10,7 @@ export type MentionCandidate = Pick<
   | "isBot"
   | "status"
 > & {
+  avatarColor?: string | null
   id: string
   label: string
   search: string
@@ -42,6 +43,7 @@ export function workspaceMemberToMentionCandidate(
     username: member.username,
     displayUsername: member.displayUsername,
     image: member.image,
+    avatarColor: member.avatarColor,
     isBot: member.isBot,
     status: member.status,
     label,

@@ -18,6 +18,7 @@ import type { Message } from "@/lib/api-types"
 import { isOptimisticMessage } from "@/lib/messages"
 
 export function MessageList({
+  avatarColorByUserId,
   messages,
   isLoading,
   error,
@@ -35,6 +36,7 @@ export function MessageList({
   replyingToId,
   focusMessageId,
 }: {
+  avatarColorByUserId?: ReadonlyMap<string, string>
   messages: Message[]
   isLoading: boolean
   error: string | null
@@ -234,6 +236,7 @@ export function MessageList({
                   onLongPress={() => handleLongPress(item)}
                 >
                   <MessageRow
+                    avatarColorByUserId={avatarColorByUserId}
                     message={item}
                     isActionHighlighted={highlightedMessageId === item.id}
                     isHighlighted={
