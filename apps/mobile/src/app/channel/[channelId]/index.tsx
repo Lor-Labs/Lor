@@ -20,6 +20,7 @@ import { Screen } from "@/components/ui/screen"
 import { StatePanel } from "@/components/ui/state-panel"
 import { useSocket, useSocketConnected } from "@/context/socket-context"
 import { useWorkspace } from "@/context/workspace-context"
+import { useAutoMarkRead } from "@/hooks/use-auto-mark-read"
 import { useChannelDetail } from "@/hooks/use-channel-detail"
 import { useChannelMessages } from "@/hooks/use-channel-messages"
 import { useChannelPermissions } from "@/hooks/use-channel-permissions"
@@ -58,6 +59,7 @@ export default function ChannelScreen() {
     socket,
     currentUser: session?.user,
   })
+  useAutoMarkRead(channelId)
   const mentions = useWorkspaceMentionCandidates({
     workspaceSlug: workspace?.slug ?? "",
     currentUserId: session?.user.id,
@@ -305,6 +307,7 @@ export default function ChannelScreen() {
           </IconButton>
         </View>
         <KeyboardAvoidingView
+          automaticOffset
           behavior="translate-with-padding"
           className="flex-1"
         >

@@ -6,12 +6,12 @@ import { mergeChannelSearchResults } from "@/lib/channel-search"
 const SEARCH_DEBOUNCE_MS = 280
 const SEARCH_PAGE_SIZE = 30
 
-export function useChannelSearch({
+export function useMessageSearch({
   channelId,
   query,
   workspaceSlug,
 }: {
-  channelId: string
+  channelId?: string
   query: string
   workspaceSlug: string
 }) {
@@ -52,7 +52,7 @@ export function useChannelSearch({
 
   const fetchPage = useCallback(
     async (page: number, replace: boolean) => {
-      if (!workspaceSlug || !channelId || !debouncedQuery) return
+      if (!workspaceSlug || !debouncedQuery) return
 
       const requestId = replace ? ++requestRef.current : requestRef.current
       if (replace) {
@@ -66,13 +66,13 @@ export function useChannelSearch({
         const response = await api.v1.workspaces[":workspaceSlug"].search.$get({
           param: { workspaceSlug },
           query: {
-            channelId,
+            ...(channelId ? { channelId } : {}),
             page: String(page),
             perPage: String(SEARCH_PAGE_SIZE),
             query: debouncedQuery,
           },
         })
-        if (!response.ok) throw new Error("Could not search this channel")
+        if (!response.ok) throw new Error("Could not search messages")
         const payload = await response.json()
         if (requestId !== requestRef.current) return
 
@@ -85,9 +85,7 @@ export function useChannelSearch({
       } catch (cause) {
         if (requestId !== requestRef.current) return
         setError(
-          cause instanceof Error
-            ? cause.message
-            : "Could not search this channel"
+          cause instanceof Error ? cause.message : "Could not search messages"
         )
       } finally {
         if (requestId === requestRef.current) {
@@ -129,6 +127,7 @@ export function useChannelSearch({
     isLoadingMore,
     itemsTotal,
     loadMore,
+    nextPage,
     results,
     retry,
   }

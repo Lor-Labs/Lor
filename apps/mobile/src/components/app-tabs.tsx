@@ -1,9 +1,11 @@
 import { NativeTabs } from "expo-router/unstable-native-tabs"
 
+import { useUnread } from "@/context/unread-context"
 import { useTheme } from "@/hooks/use-theme"
 
 export default function AppTabs() {
   const colors = useTheme()
+  const { totalMentionCount } = useUnread()
 
   return (
     <NativeTabs
@@ -16,6 +18,9 @@ export default function AppTabs() {
     >
       <NativeTabs.Trigger name="index">
         <NativeTabs.Trigger.Label>Home</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Badge hidden={totalMentionCount === 0}>
+          {totalMentionCount > 99 ? "99+" : String(totalMentionCount)}
+        </NativeTabs.Trigger.Badge>
         <NativeTabs.Trigger.Icon
           md={{ default: "home", selected: "home" }}
           sf={{ default: "house", selected: "house.fill" }}

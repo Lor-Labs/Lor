@@ -9,6 +9,7 @@ import { KeyboardProvider } from "react-native-keyboard-controller"
 import "../global.css"
 import { AnimatedSplashOverlay } from "@/components/animated-icon"
 import { SocketProvider } from "@/context/socket-context"
+import { UnreadProvider } from "@/context/unread-context"
 import { WorkspaceProvider } from "@/context/workspace-context"
 
 SplashScreen.preventAutoHideAsync()
@@ -25,9 +26,11 @@ export default function RootLayout() {
             <StatusBar style={colorScheme === "dark" ? "light" : "dark"} />
             <AnimatedSplashOverlay />
             <SocketProvider>
-              <WorkspaceProvider>
-                <Stack screenOptions={{ headerShown: false }} />
-              </WorkspaceProvider>
+              <UnreadProvider>
+                <WorkspaceProvider>
+                  <Stack screenOptions={{ headerShown: false }} />
+                </WorkspaceProvider>
+              </UnreadProvider>
             </SocketProvider>
           </ThemeProvider>
         </KeyboardProvider>

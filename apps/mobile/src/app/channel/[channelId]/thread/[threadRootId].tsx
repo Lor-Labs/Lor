@@ -15,6 +15,7 @@ import { Screen } from "@/components/ui/screen"
 import { StatePanel } from "@/components/ui/state-panel"
 import { useSocket, useSocketConnected } from "@/context/socket-context"
 import { useWorkspace } from "@/context/workspace-context"
+import { useAutoMarkRead } from "@/hooks/use-auto-mark-read"
 import { useCanPinMessages } from "@/hooks/use-can-pin-messages"
 import { useChannelDetail } from "@/hooks/use-channel-detail"
 import { useThreadMessages } from "@/hooks/use-thread-messages"
@@ -48,6 +49,7 @@ export default function ThreadScreen() {
     socket,
     currentUser: session?.user,
   })
+  useAutoMarkRead(channelId)
   const mentions = useWorkspaceMentionCandidates({
     workspaceSlug: workspace?.slug ?? "",
     currentUserId: session?.user.id,
@@ -183,6 +185,7 @@ export default function ThreadScreen() {
         />
       </View>
       <KeyboardAvoidingView
+        automaticOffset
         behavior="translate-with-padding"
         className="flex-1"
       >

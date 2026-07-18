@@ -19,7 +19,7 @@ import { Avatar } from "@/components/ui/avatar"
 import { IconButton } from "@/components/ui/icon-button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatePanel } from "@/components/ui/state-panel"
-import { useChannelSearch } from "@/hooks/use-channel-search"
+import { useMessageSearch } from "@/hooks/use-message-search"
 import type { ChannelSearchResult } from "@/lib/api-types"
 import { toSearchPreviewText } from "@/lib/message-markdown"
 
@@ -47,7 +47,7 @@ export function ChannelSearchOverlay({
     "muted",
     "accent",
   ])
-  const search = useChannelSearch({ channelId, query, workspaceSlug })
+  const search = useMessageSearch({ channelId, query, workspaceSlug })
   const hasQuery = query.trim().length > 0
   const isSearching = search.isDebouncing || search.isLoading
 

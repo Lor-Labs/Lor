@@ -1,22 +1,26 @@
+import * as Haptics from "expo-haptics"
 import { router, useFocusEffect } from "expo-router"
 import { SymbolView } from "expo-symbols"
-import { Spinner } from "heroui-native/spinner"
-import { useCallback, useEffect, useState } from "react"
-import { Pressable, ScrollView, Text, View } from "react-native"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import {
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  Text,
+  TextInput,
+  View,
+} from "react-native"
 import { ChannelList } from "@/components/channel-list"
 import { Avatar } from "@/components/ui/avatar"
-import { IconButton } from "@/components/ui/icon-button"
 import { Screen } from "@/components/ui/screen"
+import { Skeleton } from "@/components/ui/skeleton"
 import { StatePanel } from "@/components/ui/state-panel"
+import { WorkspaceSearchResults } from "@/components/workspace-search-results"
 import { useWorkspace } from "@/context/workspace-context"
+import { useMessageSearch } from "@/hooks/use-message-search"
 import { useTheme } from "@/hooks/use-theme"
 import { api } from "@/lib/api"
-import type { ChannelList as ChannelListData } from "@/lib/api-types"
-
-const shortcuts = [
-  { label: "Inbox", detail: "All caught up", icon: "tray" },
-  { label: "Merlin", detail: "Ask anything", icon: "sparkles" },
-] as const
+import type { Channel, ChannelList as ChannelListData } from "@/lib/api-types"
 
 export default function WorkspaceScreen() {
   const theme = useTheme()
@@ -30,6 +34,7 @@ export default function WorkspaceScreen() {
   const [channels, setChannels] = useState<ChannelListData | null>(null)
   const [isLoadingChannels, setIsLoadingChannels] = useState(false)
   const [channelError, setChannelError] = useState<string | null>(null)
+  const [query, setQuery] = useState("")
 
   const loadChannels = useCallback(async () => {
     if (!workspace) return
@@ -52,12 +57,24 @@ export default function WorkspaceScreen() {
 
   useEffect(() => {
     setChannels(null)
+    setQuery("")
   }, [workspace?.id])
 
   useFocusEffect(
     useCallback(() => {
       void loadChannels()
     }, [loadChannels])
+  )
+
+  const channelCount = useMemo(() => countChannels(channels), [channels])
+  const searchActive = query.trim().length > 0
+  const search = useMessageSearch({
+    query,
+    workspaceSlug: workspace?.slug ?? "",
+  })
+  const matchingChannels = useMemo(
+    () => findMatchingChannels(channels, query),
+    [channels, query]
   )
 
   if (workspaceLoading) return <LoadingScreen />
@@ -80,125 +97,160 @@ export default function WorkspaceScreen() {
     )
   }
 
+  const openChannel = (channel: Channel) =>
+    router.push({
+      pathname: "/channel/[channelId]",
+      params: { channelId: channel.id },
+    } as never)
+
   return (
-    <Screen className="bg-lor-bg dark:bg-lor-bg-dark" edges={["top", "bottom"]}>
-      <View className="gap-three bg-lor-sidebar pb-four pt-two dark:bg-lor-sidebar-dark">
-        <ScrollView
-          contentContainerClassName="gap-two px-four"
-          horizontal
-          showsHorizontalScrollIndicator={false}
-        >
-          {workspaces.map((item) => {
-            const active = item.id === workspace.id
-            return (
-              <Pressable
-                accessibilityLabel={`Open ${item.name}`}
-                className={`rounded-lor-md p-[3px] active:opacity-70 ${
-                  active
-                    ? "bg-lor-accent-muted dark:bg-lor-accent-muted-dark"
-                    : ""
-                }`}
-                key={item.id}
-                onPress={() => void selectWorkspace(item.id)}
-              >
-                <Avatar
-                  image={item.logo}
-                  name={item.name}
-                  shape="square"
-                  size="xs"
-                />
-              </Pressable>
-            )
-          })}
-        </ScrollView>
-        <View className="flex-row items-center gap-three px-four">
-          <View className="flex-1 gap-px">
+    <Screen className="bg-background" edges={["top", "bottom"]}>
+      <View className="border-b border-separator bg-lor-sidebar dark:bg-lor-sidebar-dark pb-three pt-two">
+        <View className="min-h-12 flex-row items-center gap-three px-four">
+          <Avatar
+            image={workspace.logo}
+            name={workspace.name}
+            shape="square"
+            size="md"
+          />
+          <View className="min-w-0 flex-1 gap-px">
             <Text
-              className="text-[22px] font-bold tracking-[-0.45px] text-lor-text dark:text-lor-text-dark"
+              className="text-[21px] font-bold tracking-[-0.4px] text-foreground"
               numberOfLines={1}
             >
               {workspace.name}
             </Text>
-            <Text className="text-[13px] font-medium text-lor-text-secondary dark:text-lor-text-secondary-dark">
-              Spaces for your team
+            <Text className="text-xs font-medium text-muted">
+              {channelCount === null
+                ? "Loading channels"
+                : `${channelCount} ${channelCount === 1 ? "channel" : "channels"}`}
             </Text>
           </View>
-          <IconButton
-            accessibilityLabel="Search workspace"
-            onPress={() => router.push("/explore")}
-            variant="tertiary"
-          >
+        </View>
+
+        <View className="mt-two px-four">
+          <View className="min-h-10 flex-row items-center gap-two rounded-full bg-surface-secondary px-three">
             <SymbolView
               name={{
                 ios: "magnifyingglass",
                 android: "search",
                 web: "search",
               }}
-              size={19}
-              tintColor={theme.textSecondary}
+              size={16}
+              tintColor={theme.textTertiary}
             />
-          </IconButton>
+            <TextInput
+              accessibilityLabel="Search channels and messages"
+              autoCapitalize="none"
+              autoCorrect={false}
+              className="min-w-0 flex-1 py-two text-[15px] text-foreground"
+              onChangeText={setQuery}
+              placeholder="Search all channels"
+              placeholderTextColor={theme.textTertiary}
+              returnKeyType="search"
+              value={query}
+            />
+            {query.length > 0 ? (
+              <Pressable
+                accessibilityLabel="Clear search"
+                accessibilityRole="button"
+                className="size-7 items-center justify-center rounded-full active:bg-surface-tertiary"
+                hitSlop={6}
+                onPress={() => setQuery("")}
+              >
+                <SymbolView
+                  name={{
+                    ios: "xmark.circle.fill",
+                    android: "cancel",
+                    web: "cancel",
+                  }}
+                  size={17}
+                  tintColor={theme.textTertiary}
+                />
+              </Pressable>
+            ) : null}
+          </View>
         </View>
+
+        {workspaces.length > 1 ? (
+          <ScrollView
+            contentContainerClassName="gap-two px-four pt-three"
+            horizontal
+            showsHorizontalScrollIndicator={false}
+          >
+            {workspaces.map((item) => {
+              const active = item.id === workspace.id
+              return (
+                <Pressable
+                  accessibilityLabel={`${active ? "Current workspace" : "Open"} ${item.name}`}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: active }}
+                  className={`min-h-9 flex-row items-center gap-two rounded-lor-sm border px-two pr-three active:opacity-70 ${
+                    active
+                      ? "border-accent bg-accent-soft"
+                      : "border-border bg-surface"
+                  }`}
+                  key={item.id}
+                  onPress={() => {
+                    if (active) return
+                    void Haptics.selectionAsync()
+                    void selectWorkspace(item.id)
+                  }}
+                >
+                  <Avatar
+                    image={item.logo}
+                    name={item.name}
+                    shape="square"
+                    size="xs"
+                  />
+                  <Text
+                    className={`max-w-32 text-xs font-semibold ${active ? "text-accent" : "text-foreground"}`}
+                    numberOfLines={1}
+                  >
+                    {item.name}
+                  </Text>
+                </Pressable>
+              )
+            })}
+          </ScrollView>
+        ) : null}
       </View>
 
       <ScrollView
         className="flex-1"
-        contentContainerClassName="gap-six px-four pt-five"
+        contentContainerClassName="px-four pb-seven pt-four"
+        keyboardDismissMode="on-drag"
+        keyboardShouldPersistTaps="handled"
+        refreshControl={
+          <RefreshControl
+            onRefresh={() => void loadChannels()}
+            refreshing={isLoadingChannels && channels !== null}
+            tintColor={theme.accent}
+          />
+        }
         showsVerticalScrollIndicator={false}
         style={{ flex: 1 }}
       >
-        <ScrollView
-          contentContainerClassName="gap-two pr-four"
-          horizontal
-          showsHorizontalScrollIndicator={false}
-        >
-          {shortcuts.map((shortcut) => (
-            <Pressable
-              className="min-h-[86px] w-[132px] gap-[2px] rounded-lor-md border border-lor-border bg-lor-surface p-three active:bg-lor-pressed dark:border-lor-border-dark dark:bg-lor-surface-dark dark:active:bg-lor-pressed-dark"
-              key={shortcut.label}
-              onPress={() => router.push("/explore")}
-            >
-              <SymbolView
-                name={{
-                  ios: shortcut.icon,
-                  android: shortcut.icon === "tray" ? "inbox" : "chat",
-                  web: shortcut.icon === "tray" ? "inbox" : "chat",
-                }}
-                size={18}
-                tintColor={
-                  shortcut.label === "Merlin"
-                    ? theme.merlin
-                    : theme.textSecondary
-                }
-              />
-              <Text className="mt-one text-sm font-bold text-lor-text dark:text-lor-text-dark">
-                {shortcut.label}
-              </Text>
-              <Text className="text-xs leading-4 text-lor-text-secondary dark:text-lor-text-secondary-dark">
-                {shortcut.detail}
-              </Text>
-            </Pressable>
-          ))}
-        </ScrollView>
-
-        <View className="mt-two flex-row items-baseline gap-two">
-          <Text className="text-lg font-bold tracking-[-0.2px] text-lor-text dark:text-lor-text-dark">
-            Channels
-          </Text>
-          <Text className="text-[13px] font-semibold text-lor-text-secondary dark:text-lor-text-secondary-dark">
-            {channels
-              ? channels.uncategorized.length +
-                channels.categories.reduce(
-                  (total, category) => total + category.channels.length,
-                  0
-                )
-              : ""}
-          </Text>
-        </View>
-
-        {channelError ? (
+        {searchActive ? (
+          <WorkspaceSearchResults
+            channels={matchingChannels}
+            onPressChannel={openChannel}
+            onPressMessage={(message) =>
+              router.push({
+                pathname: "/channel/[channelId]",
+                params: {
+                  channelId: message.channelId,
+                  focusMessageId: message.id,
+                },
+              } as never)
+            }
+            query={query.trim()}
+            search={search}
+          />
+        ) : channelError ? (
           <StatePanel
             action={{ label: "Try again", onPress: () => void loadChannels() }}
+            className="px-two"
             detail={channelError}
             title="Channels are unavailable"
           />
@@ -206,12 +258,7 @@ export default function WorkspaceScreen() {
           <ChannelList
             data={channels ?? undefined}
             isLoading={isLoadingChannels}
-            onPress={(channel) =>
-              router.push({
-                pathname: "/channel/[channelId]",
-                params: { channelId: channel.id },
-              } as never)
-            }
+            onPress={openChannel}
           />
         )}
       </ScrollView>
@@ -219,10 +266,66 @@ export default function WorkspaceScreen() {
   )
 }
 
+function countChannels(data: ChannelListData | null) {
+  if (!data) return null
+  return (
+    data.uncategorized.length +
+    data.categories.reduce(
+      (total, category) => total + category.channels.length,
+      0
+    )
+  )
+}
+
+function findMatchingChannels(
+  data: ChannelListData | null,
+  query: string
+): Channel[] {
+  const normalizedQuery = query.trim().toLocaleLowerCase()
+  if (!(data && normalizedQuery)) return []
+
+  return [
+    ...data.uncategorized,
+    ...data.categories.flatMap((category) => category.channels),
+  ].filter(
+    (channel) =>
+      channel.name?.toLocaleLowerCase().includes(normalizedQuery) ||
+      channel.topic?.toLocaleLowerCase().includes(normalizedQuery)
+  )
+}
+
 function LoadingScreen() {
   return (
-    <View className="flex-1 items-center justify-center bg-lor-bg dark:bg-lor-bg-dark">
-      <Spinner accessibilityLabel="Loading workspace" />
-    </View>
+    <Screen className="bg-background" edges={["top", "bottom"]}>
+      <View className="border-b border-separator bg-lor-sidebar dark:bg-lor-sidebar-dark px-four pb-three pt-two">
+        <View className="min-h-12 flex-row items-center gap-three">
+          <Skeleton className="size-10 rounded-lor-sm" />
+          <View className="flex-1 gap-two">
+            <Skeleton className="h-4 w-36 rounded-full" />
+            <Skeleton className="h-2.5 w-20 rounded-full" />
+          </View>
+        </View>
+        <Skeleton className="mt-two h-10 rounded-full" />
+      </View>
+      <View className="gap-five px-four pt-four">
+        {[0, 1].map((section) => (
+          <View className="gap-one" key={section}>
+            <View className="min-h-8 flex-row items-center gap-two px-two">
+              <Skeleton className="size-3 rounded-sm" />
+              <Skeleton className="h-2.5 w-20 rounded-full" />
+            </View>
+            {[0, 1, 2].map((row) => (
+              <View
+                className="min-h-[42px] flex-row items-center gap-two px-two"
+                key={row}
+              >
+                <Skeleton className="size-5 rounded-md" />
+                <Skeleton className="h-3 w-[48%] rounded-full" />
+              </View>
+            ))}
+          </View>
+        ))}
+      </View>
+    </Screen>
   )
 }
