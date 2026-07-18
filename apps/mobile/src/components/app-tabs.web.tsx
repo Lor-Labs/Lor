@@ -20,6 +20,9 @@ export default function AppTabs() {
           <TabTrigger asChild href="/explore" name="explore">
             <TabButton>Activity</TabButton>
           </TabTrigger>
+          <TabTrigger asChild href={"/you" as never} name="you">
+            <TabButton>You</TabButton>
+          </TabTrigger>
         </CustomTabList>
       </TabList>
     </Tabs>

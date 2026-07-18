@@ -1,0 +1,202 @@
+import { router } from "expo-router"
+import { SymbolView } from "expo-symbols"
+import { useThemeColor } from "heroui-native/hooks"
+import { Radio } from "heroui-native/radio"
+import { useToast } from "heroui-native/toast"
+import { useCallback, useEffect, useState } from "react"
+import { ScrollView, Text, View } from "react-native"
+import { IconButton } from "@/components/ui/icon-button"
+import { RadioGroup } from "@/components/ui/radio-group"
+import { Screen } from "@/components/ui/screen"
+import { Skeleton } from "@/components/ui/skeleton"
+import { StatePanel } from "@/components/ui/state-panel"
+import { api } from "@/lib/api"
+import type { NotificationSettings } from "@/lib/api-types"
+
+const DESKTOP_OPTIONS = [
+  { value: "all_messages", label: "All Messages" },
+  { value: "mentions_only", label: "Mentions Only" },
+  { value: "nothing", label: "Nothing" },
+] as const
+
+const DM_OPTIONS = [
+  { value: "all_messages", label: "All Messages" },
+  { value: "nothing", label: "Nothing" },
+] as const
+
+function OptionGroup<Value extends string>({
+  detail,
+  onChange,
+  options,
+  title,
+  value,
+}: {
+  detail: string
+  onChange: (value: Value) => void
+  options: ReadonlyArray<{ value: Value; label: string }>
+  title: string
+  value: Value
+}) {
+  return (
+    <View className="gap-two">
+      <View className="gap-px px-one">
+        <Text className="text-xs font-semibold uppercase tracking-[0.8px] text-muted">
+          {title}
+        </Text>
+        <Text className="text-xs text-muted">{detail}</Text>
+      </View>
+      <RadioGroup
+        onValueChange={(next) => onChange(next as Value)}
+        value={value}
+      >
+        {options.map((option) => (
+          <RadioGroup.Item
+            className="min-h-[52px] rounded-lor-md border border-border bg-surface px-four py-three"
+            key={option.value}
+            value={option.value}
+          >
+            <Text className="min-w-0 flex-1 text-[15px] font-semibold text-foreground">
+              {option.label}
+            </Text>
+            <Radio />
+          </RadioGroup.Item>
+        ))}
+      </RadioGroup>
+    </View>
+  )
+}
+
+export default function NotificationSettingsScreen() {
+  const foreground = useThemeColor("foreground")
+  const { toast } = useToast()
+  const [settings, setSettings] = useState<NotificationSettings | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    setError(null)
+    try {
+      const response = await api.v1["notification-settings"].$get()
+      if (!response.ok) throw new Error("Could not load notification settings")
+      setSettings(await response.json())
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Could not load notification settings"
+      )
+    }
+  }, [])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  const update = (patch: Partial<NotificationSettings>) => {
+    if (!settings) return
+    // Revert only the keys this request touched — a concurrent update to the
+    // other setting must survive this one failing.
+    const revert: Partial<NotificationSettings> = {
+      ...(patch.desktopNotifications !== undefined
+        ? { desktopNotifications: settings.desktopNotifications }
+        : {}),
+      ...(patch.dmNotifications !== undefined
+        ? { dmNotifications: settings.dmNotifications }
+        : {}),
+    }
+    setSettings((current) => (current ? { ...current, ...patch } : current))
+    void api.v1["notification-settings"]
+      .$patch({ json: patch })
+      .then((response) => {
+        if (!response.ok) throw new Error()
+      })
+      .catch(() => {
+        setSettings((current) =>
+          current ? { ...current, ...revert } : current
+        )
+        toast.show({
+          variant: "danger",
+          label: "Setting not saved",
+          description: "Please try again in a moment.",
+        })
+      })
+  }
+
+  return (
+    <Screen className="bg-background" edges={["top", "bottom"]}>
+      <View className="min-h-[60px] flex-row items-center gap-two border-b border-separator px-three">
+        <IconButton
+          accessibilityLabel="Back"
+          onPress={() => router.back()}
+          variant="ghost"
+        >
+          <SymbolView
+            name={{
+              ios: "chevron.left",
+              android: "arrow_back",
+              web: "arrow_back",
+            }}
+            size={21}
+            tintColor={foreground}
+          />
+        </IconButton>
+        <Text className="flex-1 text-[17px] font-bold text-foreground">
+          Notifications
+        </Text>
+      </View>
+
+      <ScrollView
+        className="flex-1"
+        contentContainerClassName="gap-six px-four pb-eight pt-five"
+        showsVerticalScrollIndicator={false}
+      >
+        {error ? (
+          <StatePanel
+            action={{ label: "Try again", onPress: () => void load() }}
+            detail={error}
+            status="danger"
+            title="Settings are unavailable"
+          />
+        ) : settings ? (
+          <>
+            <OptionGroup
+              detail="Messages in workspace channels."
+              onChange={(desktopNotifications) =>
+                update({ desktopNotifications })
+              }
+              options={DESKTOP_OPTIONS}
+              title="Channel Notifications"
+              value={settings.desktopNotifications}
+            />
+            <OptionGroup
+              detail="Direct messages sent to you."
+              onChange={(dmNotifications) => update({ dmNotifications })}
+              options={DM_OPTIONS}
+              title="DM Notifications"
+              value={settings.dmNotifications}
+            />
+          </>
+        ) : (
+          <NotificationSettingsSkeleton />
+        )}
+      </ScrollView>
+    </Screen>
+  )
+}
+
+function NotificationSettingsSkeleton() {
+  return (
+    <View className="gap-six">
+      {[3, 2].map((rows, group) => (
+        <View className="gap-two" key={rows}>
+          <Skeleton className="h-2.5 w-40 rounded-full" />
+          {Array.from({ length: rows }, (_, index) => index).map((row) => (
+            <Skeleton
+              className="h-[52px] rounded-lor-md"
+              key={`${group}-${row}`}
+            />
+          ))}
+        </View>
+      ))}
+    </View>
+  )
+}
