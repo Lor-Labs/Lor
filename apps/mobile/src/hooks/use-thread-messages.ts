@@ -667,17 +667,9 @@ export function useThreadMessages({
         const confirmed = realtimeMessageToMessage(result.message)
         updateMessages((current) => replaceMessage(current, nonce, confirmed))
         setParticipants((current) =>
-          current.some((participant) => participant.id === currentUser.id)
+          current.some((participant) => participant.id === confirmed.author.id)
             ? current
-            : [
-                ...current,
-                {
-                  id: currentUser.id,
-                  name: currentUser.name,
-                  displayUsername: currentUser.displayUsername ?? null,
-                  image: currentUser.image ?? null,
-                },
-              ]
+            : [...current, confirmed.author]
         )
       } catch (cause) {
         // If message:created already reconciled the optimistic reply (e.g. the
