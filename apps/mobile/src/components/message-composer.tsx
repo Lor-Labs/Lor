@@ -11,7 +11,15 @@ import { Alert } from "heroui-native/alert"
 import { useThemeColor } from "heroui-native/hooks"
 import { Spinner } from "heroui-native/spinner"
 import { cn } from "heroui-native/utils"
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import {
+  type Ref,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from "react"
 import { Keyboard, Text, useWindowDimensions, View } from "react-native"
 import {
   EnrichedMarkdownTextInput,
@@ -40,6 +48,10 @@ const composerLayoutTransition = LinearTransition.duration(100)
 const attachmentPanelGap = 8
 const MAX_MESSAGE_LENGTH = 2000
 
+export type MessageComposerMentionHandle = {
+  insertMention: (mention: { id: string; label: string }) => void
+}
+
 export function MessageComposer({
   channelId,
   channelName,
@@ -56,6 +68,7 @@ export function MessageComposer({
   mentionCandidates = [],
   isMentionCandidatesLoading = false,
   mentionCandidatesError = null,
+  mentionRef,
 }: {
   channelId: string
   channelName: string
@@ -75,6 +88,7 @@ export function MessageComposer({
   mentionCandidates?: MentionCandidate[]
   isMentionCandidatesLoading?: boolean
   mentionCandidatesError?: string | null
+  mentionRef?: Ref<MessageComposerMentionHandle>
 }) {
   const { bottom: bottomInset } = useSafeAreaInsets()
   const { height: windowHeight } = useWindowDimensions()
@@ -300,6 +314,20 @@ export function MessageComposer({
       closeMentionMenu()
     },
     [closeMentionMenu]
+  )
+
+  useImperativeHandle(
+    mentionRef,
+    () => ({
+      // insertMention is a native no-op without an active mention session,
+      // so start one (inserts the "@") and immediately complete it.
+      insertMention: ({ id, label }) => {
+        inputRef.current?.focus()
+        inputRef.current?.startMention("@")
+        inputRef.current?.insertMention(`@${label}`, `${MENTION_SCHEME}${id}`)
+      },
+    }),
+    []
   )
 
   const send = async () => {

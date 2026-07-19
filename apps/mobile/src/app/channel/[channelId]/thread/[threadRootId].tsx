@@ -1,10 +1,18 @@
 import { router, useLocalSearchParams } from "expo-router"
 import { SymbolView } from "expo-symbols"
 import { useThemeColor } from "heroui-native/hooks"
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { Alert, Text, View } from "react-native"
 import { KeyboardAvoidingView } from "react-native-keyboard-controller"
-import { MessageComposer } from "@/components/message-composer"
+import {
+  type MemberListItem,
+  workspaceMemberDetail,
+} from "@/components/member-list-sheet"
+import {
+  MessageComposer,
+  type MessageComposerMentionHandle,
+} from "@/components/message-composer"
+import { messageDisplayName } from "@/components/message-row"
 import {
   ThreadMessageList,
   ThreadMessageListSkeleton,
@@ -13,6 +21,10 @@ import { ThreadParticipantStack } from "@/components/thread-participant-stack"
 import { IconButton } from "@/components/ui/icon-button"
 import { Screen } from "@/components/ui/screen"
 import { StatePanel } from "@/components/ui/state-panel"
+import {
+  UserProfileSheet,
+  type UserProfileTarget,
+} from "@/components/user-profile-sheet"
 import { useSocket, useSocketConnected } from "@/context/socket-context"
 import { useWorkspace } from "@/context/workspace-context"
 import { useAutoMarkRead } from "@/hooks/use-auto-mark-read"
@@ -27,6 +39,8 @@ export default function ThreadScreen() {
   const [replyingTo, setReplyingTo] = useState<Message | null>(null)
   const [editingMessage, setEditingMessage] = useState<Message | null>(null)
   const [isSavingEdit, setIsSavingEdit] = useState(false)
+  const [profileUser, setProfileUser] = useState<UserProfileTarget | null>(null)
+  const composerMentionRef = useRef<MessageComposerMentionHandle>(null)
   const foreground = useThemeColor("foreground")
   const socket = useSocket()
   const isSocketConnected = useSocketConnected()
@@ -66,6 +80,7 @@ export default function ThreadScreen() {
     setReplyingTo(null)
     setEditingMessage(null)
     setIsSavingEdit(false)
+    setProfileUser(null)
   }, [channelId, threadRootId])
 
   useEffect(() => {
@@ -104,6 +119,42 @@ export default function ThreadScreen() {
   const startEditing = (message: Message) => {
     setReplyingTo(null)
     setEditingMessage(message)
+  }
+
+  const openAuthorProfile = (message: Message) => {
+    const member = mentions.members.find(
+      (candidate) => candidate.userId === message.author.id
+    )
+    setProfileUser({
+      id: message.author.id,
+      name: messageDisplayName(message),
+      avatarName: messageDisplayName(message),
+      image: message.author.image,
+      avatarColor:
+        message.author.avatarColor ??
+        avatarColorByUserId.get(message.author.id) ??
+        null,
+      detail: member ? workspaceMemberDetail(member) : null,
+    })
+  }
+
+  const openMemberProfile = (member: MemberListItem) => {
+    // Let the participant sheet finish closing before the profile sheet opens.
+    setTimeout(() => {
+      setProfileUser({
+        id: member.id,
+        name: member.name,
+        avatarName: member.avatarName,
+        image: member.image,
+        avatarColor: member.avatarColor,
+        detail: member.detail,
+      })
+    }, 300)
+  }
+
+  const mentionFromProfile = (mention: { id: string; label: string }) => {
+    setProfileUser(null)
+    setTimeout(() => composerMentionRef.current?.insertMention(mention), 300)
   }
 
   const confirmDelete = (message: Message) => {
@@ -181,6 +232,7 @@ export default function ThreadScreen() {
         </View>
         <ThreadParticipantStack
           members={mentions.members}
+          onPressMember={openMemberProfile}
           participants={thread.participants}
         />
       </View>
@@ -219,6 +271,7 @@ export default function ThreadScreen() {
             onLoadOlder={() => void thread.loadOlder()}
             onDelete={confirmDelete}
             onEdit={startEditing}
+            onPressAuthor={openAuthorProfile}
             onReply={startReply}
             onToggleReaction={thread.toggleReaction}
             onTogglePin={
@@ -245,6 +298,7 @@ export default function ThreadScreen() {
             isSending={thread.isSending || isSavingEdit}
             mentionCandidates={mentions.candidates}
             mentionCandidatesError={mentions.error}
+            mentionRef={composerMentionRef}
             onCancelEdit={() => setEditingMessage(null)}
             onCancelReply={() => setReplyingTo(null)}
             onEdit={async (messageId, content) => {
@@ -269,6 +323,14 @@ export default function ThreadScreen() {
           />
         ) : null}
       </KeyboardAvoidingView>
+      <UserProfileSheet
+        currentUserId={session?.user.id}
+        onMention={mentionFromProfile}
+        onOpenChange={(isOpen) => {
+          if (!isOpen) setProfileUser(null)
+        }}
+        user={profileUser}
+      />
     </Screen>
   )
 }

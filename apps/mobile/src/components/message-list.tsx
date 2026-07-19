@@ -29,6 +29,7 @@ export function MessageList({
   onLoadAround,
   onEdit,
   onDelete,
+  onPressAuthor,
   onToggleReaction,
   onTogglePin,
   currentUserId,
@@ -47,6 +48,7 @@ export function MessageList({
   onLoadAround?: (messageId: string) => Promise<boolean>
   onEdit?: (message: Message) => void
   onDelete?: (message: Message) => void
+  onPressAuthor?: (message: Message) => void
   onToggleReaction?: (messageId: string, emoji: string) => void
   onTogglePin?: (message: Message) => void
   currentUserId?: string
@@ -248,6 +250,7 @@ export function MessageList({
                       void jumpToMessage(messageId)
                     }
                     onOpenThread={onOpenThread}
+                    onPressAuthor={onPressAuthor}
                     onToggleReaction={(message, emoji) =>
                       onToggleReaction?.(message.id, emoji)
                     }

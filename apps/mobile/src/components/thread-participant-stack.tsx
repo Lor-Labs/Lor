@@ -12,9 +12,11 @@ import type { ThreadMessageList, WorkspaceMember } from "@/lib/api-types"
 type ThreadParticipant = ThreadMessageList["participants"][number]
 export function ThreadParticipantStack({
   members,
+  onPressMember,
   participants,
 }: {
   members: WorkspaceMember[]
+  onPressMember?: (member: MemberListItem) => void
   participants: ThreadParticipant[]
 }) {
   const [isOpen, setIsOpen] = useState(false)
@@ -83,6 +85,14 @@ export function ThreadParticipantStack({
         isOpen={isOpen}
         members={participantsWithPresence}
         onOpenChange={setIsOpen}
+        onPressMember={
+          onPressMember
+            ? (member) => {
+                setIsOpen(false)
+                onPressMember(member)
+              }
+            : undefined
+        }
         title="Thread participants"
       />
     </>

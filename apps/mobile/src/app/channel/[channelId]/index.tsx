@@ -10,14 +10,24 @@ import { KeyboardAvoidingView } from "react-native-keyboard-controller"
 import { ChannelOptionsSheet } from "@/components/channel-options-sheet"
 import { ChannelSearchOverlay } from "@/components/channel-search-overlay"
 import {
+  type MemberListItem,
   MemberListSheet,
+  workspaceMemberDetail,
   workspaceMemberToListItem,
 } from "@/components/member-list-sheet"
-import { MessageComposer } from "@/components/message-composer"
+import {
+  MessageComposer,
+  type MessageComposerMentionHandle,
+} from "@/components/message-composer"
 import { MessageList } from "@/components/message-list"
+import { messageDisplayName } from "@/components/message-row"
 import { IconButton } from "@/components/ui/icon-button"
 import { Screen } from "@/components/ui/screen"
 import { StatePanel } from "@/components/ui/state-panel"
+import {
+  UserProfileSheet,
+  type UserProfileTarget,
+} from "@/components/user-profile-sheet"
 import { useSocket, useSocketConnected } from "@/context/socket-context"
 import { useWorkspace } from "@/context/workspace-context"
 import { useAutoMarkRead } from "@/hooks/use-auto-mark-read"
@@ -37,7 +47,9 @@ export default function ChannelScreen() {
   const [isOptionsOpen, setIsOptionsOpen] = useState(false)
   const [isMembersOpen, setIsMembersOpen] = useState(false)
   const [focusedMessageId, setFocusedMessageId] = useState<string | null>(null)
+  const [profileUser, setProfileUser] = useState<UserProfileTarget | null>(null)
   const hasFocusedRef = useRef(false)
+  const composerMentionRef = useRef<MessageComposerMentionHandle>(null)
   const [foreground, muted] = useThemeColor(["foreground", "muted"])
   const socket = useSocket()
   const isSocketConnected = useSocketConnected()
@@ -81,6 +93,7 @@ export default function ChannelScreen() {
     setIsOptionsOpen(false)
     setIsMembersOpen(false)
     setFocusedMessageId(null)
+    setProfileUser(null)
   }, [channelId])
 
   useEffect(() => {
@@ -159,6 +172,40 @@ export default function ChannelScreen() {
   const startReply = (message: Message) => {
     setEditingMessage(null)
     setReplyingTo(message)
+  }
+  const openAuthorProfile = (message: Message) => {
+    const member = mentions.members.find(
+      (candidate) => candidate.userId === message.author.id
+    )
+    setProfileUser({
+      id: message.author.id,
+      name: messageDisplayName(message),
+      avatarName: messageDisplayName(message),
+      image: message.author.image,
+      avatarColor:
+        message.author.avatarColor ??
+        avatarColorByUserId.get(message.author.id) ??
+        null,
+      detail: member ? workspaceMemberDetail(member) : null,
+    })
+  }
+  const openMemberProfile = (member: MemberListItem) => {
+    setIsMembersOpen(false)
+    // Let the member sheet finish closing before the profile sheet opens.
+    setTimeout(() => {
+      setProfileUser({
+        id: member.id,
+        name: member.name,
+        avatarName: member.avatarName,
+        image: member.image,
+        avatarColor: member.avatarColor,
+        detail: member.detail,
+      })
+    }, 300)
+  }
+  const mentionFromProfile = (mention: { id: string; label: string }) => {
+    setProfileUser(null)
+    setTimeout(() => composerMentionRef.current?.insertMention(mention), 300)
   }
   const startEditing = (message: Message) => {
     setReplyingTo(null)
@@ -328,6 +375,7 @@ export default function ChannelScreen() {
             onOpenThread={openThread}
             onDelete={confirmDelete}
             onEdit={startEditing}
+            onPressAuthor={openAuthorProfile}
             onReply={startReply}
             onRetry={() => void chat.reload()}
             onToggleReaction={chat.toggleReaction}
@@ -349,6 +397,7 @@ export default function ChannelScreen() {
             isSending={chat.isSending || isSavingEdit}
             mentionCandidates={mentions.candidates}
             mentionCandidatesError={mentions.error}
+            mentionRef={composerMentionRef}
             onCancelEdit={() => setEditingMessage(null)}
             onCancelReply={() => setReplyingTo(null)}
             onEdit={async (messageId, content) => {
@@ -407,8 +456,17 @@ export default function ChannelScreen() {
         isOpen={isMembersOpen}
         members={memberItems}
         onOpenChange={setIsMembersOpen}
+        onPressMember={openMemberProfile}
         onRetry={() => void mentions.reload()}
         title="Channel members"
+      />
+      <UserProfileSheet
+        currentUserId={session?.user.id}
+        onMention={mentionFromProfile}
+        onOpenChange={(isOpen) => {
+          if (!isOpen) setProfileUser(null)
+        }}
+        user={profileUser}
       />
     </Screen>
   )
