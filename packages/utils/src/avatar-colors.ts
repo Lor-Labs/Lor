@@ -103,5 +103,5 @@ export function getAvatarInitials(name: string | null | undefined): string {
   const initials =
     parts.length === 1 ? first.slice(0, 2) : `${first[0] ?? ""}${last[0] ?? ""}`
 
-  return initials.toLocaleUpperCase() || "?"
+  return initials.toUpperCase() || "?"
 }

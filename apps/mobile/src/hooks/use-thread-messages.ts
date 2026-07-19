@@ -144,6 +144,7 @@ export function useThreadMessages({
             requestIdentity === identityRef.current
           ) {
             updateRoot(() => null)
+            setParticipants([])
             setIsMissing(true)
             return { data: [], root: null }
           }

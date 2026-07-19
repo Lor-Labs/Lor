@@ -3,6 +3,7 @@ import { Pressable, Text, View } from "react-native"
 import {
   type MemberListItem,
   MemberListSheet,
+  memberDisplayName,
   workspaceMemberDetail,
 } from "@/components/member-list-sheet"
 import { Avatar } from "@/components/ui/avatar"
@@ -30,8 +31,10 @@ export function ThreadParticipantStack({
           avatarName: member?.name ?? participant.name,
           detail: member ? workspaceMemberDetail(member) : "Thread participant",
           id: participant.id,
-          image: participant.image,
-          name: participantName(participant),
+          image: member?.image ?? participant.image,
+          name: member
+            ? memberDisplayName(member)
+            : participantName(participant),
           status: member?.status ?? "offline",
         }
       }),

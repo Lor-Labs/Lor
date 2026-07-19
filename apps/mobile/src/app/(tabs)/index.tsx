@@ -1,7 +1,7 @@
 import * as Haptics from "expo-haptics"
 import { router, useFocusEffect } from "expo-router"
 import { SymbolView } from "expo-symbols"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   Pressable,
   RefreshControl,
@@ -20,7 +20,11 @@ import { useWorkspace } from "@/context/workspace-context"
 import { useMessageSearch } from "@/hooks/use-message-search"
 import { useTheme } from "@/hooks/use-theme"
 import { api } from "@/lib/api"
-import type { Channel, ChannelList as ChannelListData } from "@/lib/api-types"
+import type {
+  Channel,
+  ChannelList as ChannelListData,
+  ChannelSearchResult,
+} from "@/lib/api-types"
 
 export default function WorkspaceScreen() {
   const theme = useTheme()
@@ -35,9 +39,11 @@ export default function WorkspaceScreen() {
   const [isLoadingChannels, setIsLoadingChannels] = useState(false)
   const [channelError, setChannelError] = useState<string | null>(null)
   const [query, setQuery] = useState("")
+  const channelsRequestRef = useRef(0)
 
   const loadChannels = useCallback(async () => {
     if (!workspace) return
+    const requestId = ++channelsRequestRef.current
     setIsLoadingChannels(true)
     setChannelError(null)
     try {
@@ -45,17 +51,21 @@ export default function WorkspaceScreen() {
         param: { workspaceSlug: workspace.slug },
       })
       if (!response.ok) throw new Error("Could not load channels")
-      setChannels(await response.json())
+      const payload = await response.json()
+      if (requestId === channelsRequestRef.current) setChannels(payload)
     } catch (cause) {
-      setChannelError(
-        cause instanceof Error ? cause.message : "Could not load channels"
-      )
+      if (requestId === channelsRequestRef.current) {
+        setChannelError(
+          cause instanceof Error ? cause.message : "Could not load channels"
+        )
+      }
     } finally {
-      setIsLoadingChannels(false)
+      if (requestId === channelsRequestRef.current) setIsLoadingChannels(false)
     }
   }, [workspace])
 
   useEffect(() => {
+    channelsRequestRef.current += 1
     setChannels(null)
     setQuery("")
   }, [workspace?.id])
@@ -102,6 +112,30 @@ export default function WorkspaceScreen() {
       pathname: "/channel/[channelId]",
       params: { channelId: channel.id },
     } as never)
+
+  const openSearchMessage = async (message: ChannelSearchResult) => {
+    const location = await api.v1.workspaces[":workspaceSlug"].messages[
+      ":messageId"
+    ]
+      .$get({ param: { workspaceSlug: workspace.slug, messageId: message.id } })
+      .then((response) => (response.ok ? response.json() : null))
+      .catch(() => null)
+    if (location?.threadRootId) {
+      router.push({
+        pathname: "/channel/[channelId]/thread/[threadRootId]",
+        params: {
+          channelId: location.channelId,
+          focusMessageId: message.id,
+          threadRootId: location.threadRootId,
+        },
+      } as never)
+      return
+    }
+    router.push({
+      pathname: "/channel/[channelId]",
+      params: { channelId: message.channelId, focusMessageId: message.id },
+    } as never)
+  }
 
   return (
     <Screen className="bg-background" edges={["top", "bottom"]}>
@@ -235,15 +269,7 @@ export default function WorkspaceScreen() {
           <WorkspaceSearchResults
             channels={matchingChannels}
             onPressChannel={openChannel}
-            onPressMessage={(message) =>
-              router.push({
-                pathname: "/channel/[channelId]",
-                params: {
-                  channelId: message.channelId,
-                  focusMessageId: message.id,
-                },
-              } as never)
-            }
+            onPressMessage={(message) => void openSearchMessage(message)}
             query={query.trim()}
             search={search}
           />

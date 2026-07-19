@@ -70,7 +70,10 @@ function EmptyState({ context }: { context: ChatContext }) {
             {context.type === "dm" && context.avatarUrl && (
               <AvatarImage src={context.avatarUrl} alt={context.name} />
             )}
-            <AvatarFallback className="text-lg font-semibold">
+            <AvatarFallback
+              className="text-lg font-semibold"
+              fallbackSeed={context.name}
+            >
               {getAvatarInitials(context.name)}
             </AvatarFallback>
           </Avatar>

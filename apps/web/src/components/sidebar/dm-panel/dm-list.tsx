@@ -75,7 +75,9 @@ function GroupDMAvatars({ members }: { members: DMember[] }) {
       {shown.map((m) => (
         <Avatar key={m.id} size="sm">
           {m.image && <AvatarImage src={m.image} alt={m.name ?? ""} />}
-          <AvatarFallback>{getAvatarInitials(m.name)}</AvatarFallback>
+          <AvatarFallback fallbackSeed={m.name}>
+            {getAvatarInitials(m.name)}
+          </AvatarFallback>
         </Avatar>
       ))}
       {overflow > 0 && (

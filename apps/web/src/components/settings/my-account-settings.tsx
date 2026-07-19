@@ -285,7 +285,10 @@ export function MyAccountSettings() {
             {displayAvatar && (
               <AvatarImage src={displayAvatar} alt={user.name} />
             )}
-            <AvatarFallback className="text-lg font-semibold">
+            <AvatarFallback
+              className="text-lg font-semibold"
+              fallbackSeed={user.name}
+            >
               {initials ?? "?"}
             </AvatarFallback>
           </Avatar>

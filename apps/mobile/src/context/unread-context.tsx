@@ -150,7 +150,12 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
             const restore = snapshot
             setStateMap((prev) => {
               const next = new Map(prev)
-              next.set(channelId, restore)
+              const arrived = next.get(channelId)
+              next.set(channelId, {
+                unreadCount: restore.unreadCount + (arrived?.unreadCount ?? 0),
+                mentionCount:
+                  restore.mentionCount + (arrived?.mentionCount ?? 0),
+              })
               return next
             })
           }

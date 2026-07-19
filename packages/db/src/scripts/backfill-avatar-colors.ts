@@ -1,6 +1,6 @@
-import { db, schema } from "@repo/db"
 import { pickWorkspaceAvatarColor } from "@repo/utils/avatar-colors"
 import { asc, eq } from "drizzle-orm"
+import { db, schema } from "../index"
 
 const memberships = await db
   .select({

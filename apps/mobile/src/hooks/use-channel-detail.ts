@@ -75,10 +75,16 @@ export function useChannelDetail({
     void reload()
   }, [reload])
 
-  const replaceChannel = useCallback((nextChannel: ChannelDetail) => {
-    setChannel(nextChannel)
-    setError(null)
-  }, [])
+  const replaceChannel = useCallback(
+    (nextChannel: ChannelDetail) => {
+      if (nextChannel.id !== channelId) return
+      requestRef.current += 1
+      setChannel(nextChannel)
+      setError(null)
+      setIsLoading(false)
+    },
+    [channelId]
+  )
 
   return { channel, isLoading, error, reload, replaceChannel }
 }

@@ -355,16 +355,6 @@ export const searchMessages: AppRouteHandler<SearchMessagesRoute> = async (
   }
 
   const channelMap = new Map(workspaceChannels.map((ch) => [ch.id, ch.name]))
-  const avatarColorRows = await db
-    .select({
-      userId: schema.workspaceMember.userId,
-      avatarColor: schema.workspaceMember.avatarColor,
-    })
-    .from(schema.workspaceMember)
-    .where(eq(schema.workspaceMember.workspaceId, workspace.id))
-  const avatarColorByUserId = new Map(
-    avatarColorRows.map((row) => [row.userId, row.avatarColor])
-  )
   const searchChannelIds = channelId
     ? workspaceChannels.filter((ch) => ch.id === channelId).map((ch) => ch.id)
     : workspaceChannels.map((ch) => ch.id)
@@ -436,6 +426,31 @@ export const searchMessages: AppRouteHandler<SearchMessagesRoute> = async (
     current.push(mention)
     mentionsByMessageId.set(mention.messageId, current)
   }
+
+  const avatarColorUserIds = [
+    ...new Set([
+      ...messages.map((msg) => msg.author.id),
+      ...mentionRows.map((mention) => mention.id),
+    ]),
+  ]
+  const avatarColorRows =
+    avatarColorUserIds.length > 0
+      ? await db
+          .select({
+            userId: schema.workspaceMember.userId,
+            avatarColor: schema.workspaceMember.avatarColor,
+          })
+          .from(schema.workspaceMember)
+          .where(
+            and(
+              eq(schema.workspaceMember.workspaceId, workspace.id),
+              inArray(schema.workspaceMember.userId, avatarColorUserIds)
+            )
+          )
+      : []
+  const avatarColorByUserId = new Map(
+    avatarColorRows.map((row) => [row.userId, row.avatarColor])
+  )
 
   return c.json(
     {

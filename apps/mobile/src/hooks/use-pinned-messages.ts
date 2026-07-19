@@ -42,14 +42,20 @@ export function usePinnedMessages({
   }, [workspaceSlug, channelId])
 
   useEffect(() => {
-    if (!enabled) return
-    void reload()
-  }, [enabled, reload])
-
-  useEffect(() => {
+    requestRef.current += 1
     setMessages([])
     setError(null)
+    setIsLoading(false)
   }, [workspaceSlug, channelId])
+
+  useEffect(() => {
+    if (!enabled) {
+      requestRef.current += 1
+      setIsLoading(false)
+      return
+    }
+    void reload()
+  }, [enabled, reload])
 
   const remove = useCallback((messageId: string) => {
     setMessages((current) =>

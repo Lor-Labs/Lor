@@ -260,7 +260,11 @@ export default function ChannelScreen() {
             </View>
             <Pressable
               accessibilityHint="Opens the workspace member list"
-              accessibilityLabel={`${onlineMemberCount} members online`}
+              accessibilityLabel={
+                isSocketConnected
+                  ? `${onlineMemberCount} members online`
+                  : "Reconnecting"
+              }
               accessibilityRole="button"
               className="flex-row items-center gap-one rounded-lor-sm active:opacity-70"
               hitSlop={6}

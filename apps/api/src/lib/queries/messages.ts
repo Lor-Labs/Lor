@@ -335,7 +335,6 @@ export async function fetchMessages({
     referencedMessageRows,
     threadSummaryRows,
     threadParticipantRows,
-    avatarColorRows,
   ] = await Promise.all([
     messageIds.length > 0
       ? db
@@ -406,15 +405,35 @@ export async function fetchMessages({
           .innerJoin(user, eq(message.authorId, user.id))
           .where(inArray(message.threadRootId, messageIds))
           .orderBy(desc(message.createdAt)),
-    db
-      .select({
-        userId: workspaceMember.userId,
-        avatarColor: workspaceMember.avatarColor,
-      })
-      .from(workspaceMember)
-      .innerJoin(channel, eq(channel.workspaceId, workspaceMember.workspaceId))
-      .where(eq(channel.id, channelId)),
   ])
+
+  const avatarColorUserIds = [
+    ...new Set([
+      ...messages.map((msg) => msg.author.id),
+      ...mentionRows.map((row) => row.id),
+      ...referencedMessageRows.map((row) => row.authorId),
+      ...threadParticipantRows.map((row) => row.userId),
+    ]),
+  ]
+  const avatarColorRows =
+    avatarColorUserIds.length > 0
+      ? await db
+          .select({
+            userId: workspaceMember.userId,
+            avatarColor: workspaceMember.avatarColor,
+          })
+          .from(workspaceMember)
+          .innerJoin(
+            channel,
+            eq(channel.workspaceId, workspaceMember.workspaceId)
+          )
+          .where(
+            and(
+              eq(channel.id, channelId),
+              inArray(workspaceMember.userId, avatarColorUserIds)
+            )
+          )
+      : []
 
   const avatarColorByUserId = new Map(
     avatarColorRows.map((row) => [row.userId, row.avatarColor])

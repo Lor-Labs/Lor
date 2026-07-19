@@ -1,4 +1,4 @@
-import { and, count, db, desc, eq, max, schema } from "@repo/db"
+import { and, count, db, desc, eq, inArray, max, schema } from "@repo/db"
 import { syncMessageMentions } from "@repo/messaging"
 import type {
   DeleteMessagePayload,
@@ -320,21 +320,57 @@ export async function loadThreadSummary(
     .orderBy(desc(schema.message.createdAt))
     .limit(20)
 
+  // Newest reply preview for the channel-feed activity card.
+  const newest = recentReplies[0]
+  const mentionRows = newest
+    ? await db
+        .select({
+          id: schema.user.id,
+          name: schema.user.name,
+          username: schema.user.username,
+          displayUsername: schema.user.displayUsername,
+          image: schema.user.image,
+        })
+        .from(schema.messageMention)
+        .innerJoin(
+          schema.user,
+          eq(schema.messageMention.mentionedUserId, schema.user.id)
+        )
+        .where(
+          and(
+            eq(schema.messageMention.messageId, newest.messageId),
+            eq(schema.messageMention.mentionType, "direct")
+          )
+        )
+    : []
+
+  const avatarColorUserIds = [
+    ...new Set([
+      ...recentReplies.map((row) => row.authorId),
+      ...mentionRows.map((mention) => mention.id),
+    ]),
+  ]
   const threadWorkspaceId = await db
     .select({ workspaceId: schema.channel.workspaceId })
     .from(schema.channel)
     .where(eq(schema.channel.id, channelId))
     .limit(1)
     .then((rows) => rows[0]?.workspaceId ?? null)
-  const avatarColorRows = threadWorkspaceId
-    ? await db
-        .select({
-          userId: schema.workspaceMember.userId,
-          avatarColor: schema.workspaceMember.avatarColor,
-        })
-        .from(schema.workspaceMember)
-        .where(eq(schema.workspaceMember.workspaceId, threadWorkspaceId))
-    : []
+  const avatarColorRows =
+    threadWorkspaceId && avatarColorUserIds.length > 0
+      ? await db
+          .select({
+            userId: schema.workspaceMember.userId,
+            avatarColor: schema.workspaceMember.avatarColor,
+          })
+          .from(schema.workspaceMember)
+          .where(
+            and(
+              eq(schema.workspaceMember.workspaceId, threadWorkspaceId),
+              inArray(schema.workspaceMember.userId, avatarColorUserIds)
+            )
+          )
+      : []
   const avatarColorByUserId = new Map(
     avatarColorRows.map((row) => [row.userId, row.avatarColor])
   )
@@ -354,29 +390,8 @@ export async function loadThreadSummary(
     if (participants.length >= 3) break
   }
 
-  // Newest reply preview for the channel-feed activity card.
-  const newest = recentReplies[0]
   let lastReply: RealtimeMessageThreadUpdated["lastReply"] = null
   if (newest) {
-    const mentionRows = await db
-      .select({
-        id: schema.user.id,
-        name: schema.user.name,
-        username: schema.user.username,
-        displayUsername: schema.user.displayUsername,
-        image: schema.user.image,
-      })
-      .from(schema.messageMention)
-      .innerJoin(
-        schema.user,
-        eq(schema.messageMention.mentionedUserId, schema.user.id)
-      )
-      .where(
-        and(
-          eq(schema.messageMention.messageId, newest.messageId),
-          eq(schema.messageMention.mentionType, "direct")
-        )
-      )
     lastReply = {
       content: newest.content,
       author: {

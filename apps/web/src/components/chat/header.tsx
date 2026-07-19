@@ -40,7 +40,10 @@ export function ChatHeader({
           {context.avatarUrl && (
             <AvatarImage src={context.avatarUrl} alt={context.name} />
           )}
-          <AvatarFallback className="text-[10px] font-semibold">
+          <AvatarFallback
+            className="text-[10px] font-semibold"
+            fallbackSeed={context.name}
+          >
             {getAvatarInitials(context.name)}
           </AvatarFallback>
         </Avatar>

@@ -91,9 +91,9 @@ function ReplyPreview({
         <AvatarFallback
           avatarColor={author.avatarColor}
           className="text-[8px] font-semibold"
-          fallbackSeed={author.name}
+          fallbackSeed={referencedName}
         >
-          {getAvatarInitials(author.name)}
+          {getAvatarInitials(referencedName)}
         </AvatarFallback>
       </Avatar>
       <span className="shrink-0 font-semibold text-foreground/80">

@@ -56,6 +56,7 @@ export function useWorkspaceMembers(workspaceSlug: string) {
 
   useEffect(() => {
     if (!socket || !workspaceId) return
+    let disposed = false
 
     const applySnapshot = (onlineUserIds: string[]) => {
       const online = new Set(onlineUserIds)
@@ -69,6 +70,7 @@ export function useWorkspaceMembers(workspaceSlug: string) {
     }
     const subscribe = () => {
       socket.emit("presence:subscribe", { workspaceId }, (result) => {
+        if (disposed) return
         if (result.ok && result.snapshot.workspaceId === workspaceId) {
           applySnapshot(result.snapshot.onlineUserIds)
         }
@@ -92,6 +94,7 @@ export function useWorkspaceMembers(workspaceSlug: string) {
     socket.on("connect", subscribe)
     socket.on("presence:user:update", updatePresence)
     return () => {
+      disposed = true
       socket.off("connect", subscribe)
       socket.off("presence:user:update", updatePresence)
     }

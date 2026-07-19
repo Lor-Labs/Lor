@@ -30,7 +30,7 @@ export function messageDisplayName(message: Message) {
 }
 
 function avatarInitial(message: Message) {
-  return getAvatarInitials(message.author.name)
+  return getAvatarInitials(messageDisplayName(message))
 }
 
 export function areMessagesOnSameDay(left: string, right: string) {
@@ -413,7 +413,7 @@ function ReplyPreview({
       {referenced && referencedName ? (
         <Avatar
           avatarColor={referenced.author.avatarColor}
-          fallback={getAvatarInitials(referenced.author.name)}
+          fallback={getAvatarInitials(referencedName)}
           image={referenced.overrideAvatarUrl ?? referenced.author.image}
           name={referencedName}
           size="xs"

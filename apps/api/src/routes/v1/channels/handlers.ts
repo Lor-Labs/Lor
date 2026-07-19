@@ -408,16 +408,6 @@ export const listPinnedMessages: AppRouteHandler<
     .orderBy(desc(message.createdAt))
 
   const messageIds = messages.map((msg) => msg.id)
-  const avatarColorRows = await db
-    .select({
-      userId: schema.workspaceMember.userId,
-      avatarColor: schema.workspaceMember.avatarColor,
-    })
-    .from(schema.workspaceMember)
-    .where(eq(schema.workspaceMember.workspaceId, workspace.id))
-  const avatarColorByUserId = new Map(
-    avatarColorRows.map((row) => [row.userId, row.avatarColor])
-  )
 
   const mentionRows =
     messageIds.length > 0
@@ -466,6 +456,32 @@ export const listPinnedMessages: AppRouteHandler<
           .innerJoin(user, eq(message.authorId, user.id))
           .where(inArray(message.id, referencedMessageIds))
       : []
+
+  const avatarColorUserIds = [
+    ...new Set([
+      ...messages.map((msg) => msg.author.id),
+      ...mentionRows.map((row) => row.id),
+      ...referencedMessageRows.map((row) => row.authorId),
+    ]),
+  ]
+  const avatarColorRows =
+    avatarColorUserIds.length > 0
+      ? await db
+          .select({
+            userId: schema.workspaceMember.userId,
+            avatarColor: schema.workspaceMember.avatarColor,
+          })
+          .from(schema.workspaceMember)
+          .where(
+            and(
+              eq(schema.workspaceMember.workspaceId, workspace.id),
+              inArray(schema.workspaceMember.userId, avatarColorUserIds)
+            )
+          )
+      : []
+  const avatarColorByUserId = new Map(
+    avatarColorRows.map((row) => [row.userId, row.avatarColor])
+  )
 
   const referencedMessagesById = new Map(
     referencedMessageRows.map((row) => {

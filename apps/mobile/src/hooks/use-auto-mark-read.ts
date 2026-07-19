@@ -37,6 +37,10 @@ export function useAutoMarkRead(channelId: string | undefined) {
   )
 
   useEffect(() => {
+    if (channelId && focusedRef.current) debouncedMarkRead()
+  }, [channelId, debouncedMarkRead])
+
+  useEffect(() => {
     const subscription = AppState.addEventListener("change", (state) => {
       if (state === "active" && focusedRef.current) debouncedMarkRead()
     })

@@ -93,8 +93,8 @@ export default function NotificationSettingsScreen() {
 
   const update = (patch: Partial<NotificationSettings>) => {
     if (!settings) return
-    // Revert only the keys this request touched — a concurrent update to the
-    // other setting must survive this one failing.
+    // Revert only the keys this request touched, and only if a newer choice
+    // hasn't already replaced the value this request wrote.
     const revert: Partial<NotificationSettings> = {
       ...(patch.desktopNotifications !== undefined
         ? { desktopNotifications: settings.desktopNotifications }
@@ -110,9 +110,23 @@ export default function NotificationSettingsScreen() {
         if (!response.ok) throw new Error()
       })
       .catch(() => {
-        setSettings((current) =>
-          current ? { ...current, ...revert } : current
-        )
+        setSettings((current) => {
+          if (!current) return current
+          const next = { ...current }
+          if (
+            revert.desktopNotifications !== undefined &&
+            next.desktopNotifications === patch.desktopNotifications
+          ) {
+            next.desktopNotifications = revert.desktopNotifications
+          }
+          if (
+            revert.dmNotifications !== undefined &&
+            next.dmNotifications === patch.dmNotifications
+          ) {
+            next.dmNotifications = revert.dmNotifications
+          }
+          return next
+        })
         toast.show({
           variant: "danger",
           label: "Setting not saved",

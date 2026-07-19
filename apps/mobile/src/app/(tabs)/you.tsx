@@ -103,7 +103,12 @@ export default function YouScreen() {
           setIsSigningOut(true)
           void authClient
             .signOut()
-            .catch(() => undefined)
+            .then(({ error }) => {
+              if (error) throw new Error(error.message ?? "Log out failed")
+            })
+            .catch(() => {
+              Alert.alert("Log out failed", "Please try again in a moment.")
+            })
             .finally(() => setIsSigningOut(false))
         },
       },
