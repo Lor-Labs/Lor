@@ -29,6 +29,45 @@ import {
   type SQL,
 } from "drizzle-orm"
 
+export async function getAvatarColorsByUserId(
+  scope: { workspaceId: string } | { channelId: string },
+  userIds: Iterable<string>
+): Promise<Map<string, string>> {
+  const ids = [...new Set(userIds)]
+  if (ids.length === 0) return new Map()
+
+  const colorSelection = {
+    userId: workspaceMember.userId,
+    avatarColor: workspaceMember.avatarColor,
+  }
+  const rows =
+    "workspaceId" in scope
+      ? await db
+          .select(colorSelection)
+          .from(workspaceMember)
+          .where(
+            and(
+              eq(workspaceMember.workspaceId, scope.workspaceId),
+              inArray(workspaceMember.userId, ids)
+            )
+          )
+      : await db
+          .select(colorSelection)
+          .from(workspaceMember)
+          .innerJoin(
+            channel,
+            eq(channel.workspaceId, workspaceMember.workspaceId)
+          )
+          .where(
+            and(
+              eq(channel.id, scope.channelId),
+              inArray(workspaceMember.userId, ids)
+            )
+          )
+
+  return new Map(rows.map((row) => [row.userId, row.avatarColor]))
+}
+
 type BareMessageRow = {
   id: string
   channelId: string
@@ -407,37 +446,12 @@ export async function fetchMessages({
           .orderBy(desc(message.createdAt)),
   ])
 
-  const avatarColorUserIds = [
-    ...new Set([
-      ...messages.map((msg) => msg.author.id),
-      ...mentionRows.map((row) => row.id),
-      ...referencedMessageRows.map((row) => row.authorId),
-      ...threadParticipantRows.map((row) => row.userId),
-    ]),
-  ]
-  const avatarColorRows =
-    avatarColorUserIds.length > 0
-      ? await db
-          .select({
-            userId: workspaceMember.userId,
-            avatarColor: workspaceMember.avatarColor,
-          })
-          .from(workspaceMember)
-          .innerJoin(
-            channel,
-            eq(channel.workspaceId, workspaceMember.workspaceId)
-          )
-          .where(
-            and(
-              eq(channel.id, channelId),
-              inArray(workspaceMember.userId, avatarColorUserIds)
-            )
-          )
-      : []
-
-  const avatarColorByUserId = new Map(
-    avatarColorRows.map((row) => [row.userId, row.avatarColor])
-  )
+  const avatarColorByUserId = await getAvatarColorsByUserId({ channelId }, [
+    ...messages.map((msg) => msg.author.id),
+    ...mentionRows.map((row) => row.id),
+    ...referencedMessageRows.map((row) => row.authorId),
+    ...threadParticipantRows.map((row) => row.userId),
+  ])
 
   type ThreadSummary = {
     replyCount: number

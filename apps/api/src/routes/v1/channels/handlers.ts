@@ -12,6 +12,7 @@ import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { assertWorkspacePermission } from "@/lib/permissions"
 import {
   fetchMessages,
+  getAvatarColorsByUserId,
   messageSelect,
   referencedMessageSelect,
   toReferencedMessage,
@@ -457,30 +458,13 @@ export const listPinnedMessages: AppRouteHandler<
           .where(inArray(message.id, referencedMessageIds))
       : []
 
-  const avatarColorUserIds = [
-    ...new Set([
+  const avatarColorByUserId = await getAvatarColorsByUserId(
+    { workspaceId: workspace.id },
+    [
       ...messages.map((msg) => msg.author.id),
       ...mentionRows.map((row) => row.id),
       ...referencedMessageRows.map((row) => row.authorId),
-    ]),
-  ]
-  const avatarColorRows =
-    avatarColorUserIds.length > 0
-      ? await db
-          .select({
-            userId: schema.workspaceMember.userId,
-            avatarColor: schema.workspaceMember.avatarColor,
-          })
-          .from(schema.workspaceMember)
-          .where(
-            and(
-              eq(schema.workspaceMember.workspaceId, workspace.id),
-              inArray(schema.workspaceMember.userId, avatarColorUserIds)
-            )
-          )
-      : []
-  const avatarColorByUserId = new Map(
-    avatarColorRows.map((row) => [row.userId, row.avatarColor])
+    ]
   )
 
   const referencedMessagesById = new Map(
@@ -639,7 +623,7 @@ export const listThreadReplies: AppRouteHandler<
           })
           .from(message)
           .innerJoin(user, eq(message.authorId, user.id))
-          .innerJoin(
+          .leftJoin(
             schema.workspaceMember,
             and(
               eq(schema.workspaceMember.userId, user.id),

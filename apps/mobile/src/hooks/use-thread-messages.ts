@@ -647,19 +647,6 @@ export function useThreadMessages({
           : null,
       })
       sendingRef.current = true
-      setParticipants((current) =>
-        current.some((participant) => participant.id === currentUser.id)
-          ? current
-          : [
-              ...current,
-              {
-                id: currentUser.id,
-                name: currentUser.name,
-                displayUsername: currentUser.displayUsername ?? null,
-                image: currentUser.image ?? null,
-              },
-            ]
-      )
       updateMessages((current) => mergeMessages([optimistic], current))
       setTotalReplyCount((current) => current + 1)
       setIsSending(true)
@@ -679,6 +666,19 @@ export function useThreadMessages({
 
         const confirmed = realtimeMessageToMessage(result.message)
         updateMessages((current) => replaceMessage(current, nonce, confirmed))
+        setParticipants((current) =>
+          current.some((participant) => participant.id === currentUser.id)
+            ? current
+            : [
+                ...current,
+                {
+                  id: currentUser.id,
+                  name: currentUser.name,
+                  displayUsername: currentUser.displayUsername ?? null,
+                  image: currentUser.image ?? null,
+                },
+              ]
+        )
       } catch (cause) {
         // If message:created already reconciled the optimistic reply (e.g. the
         // ack timed out after delivery), the send succeeded — don't roll back.

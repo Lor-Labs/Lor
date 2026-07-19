@@ -13,6 +13,7 @@ import {
   assertCanManageWorkspaceMember,
   assertWorkspacePermission,
 } from "@/lib/permissions"
+import { getAvatarColorsByUserId } from "@/lib/queries/messages"
 import { getRedisClient } from "@/lib/redis"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
@@ -427,29 +428,12 @@ export const searchMessages: AppRouteHandler<SearchMessagesRoute> = async (
     mentionsByMessageId.set(mention.messageId, current)
   }
 
-  const avatarColorUserIds = [
-    ...new Set([
+  const avatarColorByUserId = await getAvatarColorsByUserId(
+    { workspaceId: workspace.id },
+    [
       ...messages.map((msg) => msg.author.id),
       ...mentionRows.map((mention) => mention.id),
-    ]),
-  ]
-  const avatarColorRows =
-    avatarColorUserIds.length > 0
-      ? await db
-          .select({
-            userId: schema.workspaceMember.userId,
-            avatarColor: schema.workspaceMember.avatarColor,
-          })
-          .from(schema.workspaceMember)
-          .where(
-            and(
-              eq(schema.workspaceMember.workspaceId, workspace.id),
-              inArray(schema.workspaceMember.userId, avatarColorUserIds)
-            )
-          )
-      : []
-  const avatarColorByUserId = new Map(
-    avatarColorRows.map((row) => [row.userId, row.avatarColor])
+    ]
   )
 
   return c.json(

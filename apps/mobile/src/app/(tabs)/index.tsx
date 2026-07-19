@@ -3,6 +3,7 @@ import { router, useFocusEffect } from "expo-router"
 import { SymbolView } from "expo-symbols"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
+  Alert,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -120,7 +121,14 @@ export default function WorkspaceScreen() {
       .$get({ param: { workspaceSlug: workspace.slug, messageId: message.id } })
       .then((response) => (response.ok ? response.json() : null))
       .catch(() => null)
-    if (location?.threadRootId) {
+    if (!location) {
+      Alert.alert(
+        "Message unavailable",
+        "This message may have been deleted. Try searching again."
+      )
+      return
+    }
+    if (location.threadRootId) {
       router.push({
         pathname: "/channel/[channelId]/thread/[threadRootId]",
         params: {
@@ -133,7 +141,7 @@ export default function WorkspaceScreen() {
     }
     router.push({
       pathname: "/channel/[channelId]",
-      params: { channelId: message.channelId, focusMessageId: message.id },
+      params: { channelId: location.channelId, focusMessageId: message.id },
     } as never)
   }
 
