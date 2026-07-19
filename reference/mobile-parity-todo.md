@@ -1,0 +1,42 @@
+# Mobile ↔ Web Parity Todo
+
+Tracking what's left to bring `apps/mobile` close to `apps/web` functionality.
+Status: `[ ]` todo · `[~]` in progress · `[x]` done. Keep this file updated as items land.
+
+Last audited: 2026-07-19.
+
+## Tier 1 — big functional gaps
+
+- [ ] **Typing indicators** — realtime events already exist (`packages/realtime-types`, rendered by web `chat/typing-indicator.tsx`); mobile doesn't listen/render. Cheap win, do first.
+- [ ] **Push notifications** — `expo-notifications` installed but nothing wired. Full-stack: token registration on device, server-side send pipeline (mention/DM/thread activity), tap-to-deep-link. Biggest retention lever.
+- [ ] **DMs** — largest missing surface. API fully built (`/dms`, `/dms/:id/messages`, thread, search). Needs own tab/stack per the scoped-vs-global nav rule (never mixed into workspace sidebar). Also unblocks a "Message" action on the mobile user profile sheet.
+- [ ] **Channel creation** — mobile can edit/delete but not create (web: `create-channel-dialog.tsx`, supports type/category).
+- [ ] **Invites** — create/manage invite links (web: `invite/*-dialog.tsx`) + deep-link join flow for `/invite/$code` (pair with `lor://` scheme handling).
+
+## Tier 2 — admin & workspace management
+
+- [ ] **Member management** — role change + kick from the member sheet (API exists: `PATCH /members/:userId/role`, `POST /members/:userId/kick`; mobile sheet is read-only).
+- [ ] **Workspace settings** — rename/logo + Merlin profiles section (web: `workspace-settings-dialog.tsx`, `merlin-profiles-section.tsx`).
+- [ ] **Create workspace** — mobile currently says "create on web". Decide deliberately whether that stays the v1 stance.
+
+## Tier 3 — composer & detail polish
+
+- [ ] **Full emoji reaction picker** — mobile has only 6 quick reactions in the long-press menu.
+- [ ] **Slash commands** — mobile composer's `/` toolbar button is a dead placeholder (web: `composer/slash-command-list.tsx`).
+- [ ] **Formatting toolbar** — mobile composer's text-format button is also a no-op.
+- [ ] **Bio editing** — profile sheet displays bio but nothing can edit it anywhere (column is dormant since web removed it). Add to mobile account settings if bios should be real.
+- [ ] **Wire profile sheet into pins screen + home search results** — `MessageRow`s there don't pass `onPressAuthor` yet.
+
+## Explicitly not gaps (don't chase)
+
+- **Voice** — web has no real voice implementation either (no WebRTC/LiveKit); voice channels are just a list type.
+- **Onboarding dialog, integration OAuth setup (GitHub/Linear), channel webhooks tab** — inherently web-side.
+
+## Done (recent parity work)
+
+- [x] React Query for all REST reads (matching web's query-key conventions + 60s staleTime; socket message stores intentionally not migrated) — 2026-07-19
+- [x] User profile sheet (tap avatar/name in messages, member list, thread participants) with bio/status/presence, Mention + Copy username actions — 2026-07-19
+- [x] Uncategorized channels render flat (no collapsible group) — 2026-07-19
+- [x] Workspace search (channels + messages, thread-aware navigation)
+- [x] Unread/mention badges (socket-driven), auto-mark-read
+- [x] Pins, threads, reactions, edits, replies, attachments, mentions, Merlin rendering, member presence

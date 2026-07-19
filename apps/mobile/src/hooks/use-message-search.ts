@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useInfiniteQuery } from "@tanstack/react-query"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { api } from "@/lib/api"
 import type { ChannelSearchResult } from "@/lib/api-types"
 import { mergeChannelSearchResults } from "@/lib/channel-search"
@@ -16,28 +17,13 @@ export function useMessageSearch({
   workspaceSlug: string
 }) {
   const [debouncedQuery, setDebouncedQuery] = useState("")
-  const [results, setResults] = useState<ChannelSearchResult[]>([])
-  const [itemsTotal, setItemsTotal] = useState(0)
-  const [nextPage, setNextPage] = useState<number | null>(null)
   const [isDebouncing, setIsDebouncing] = useState(false)
-  const [isLoading, setIsLoading] = useState(false)
-  const [isLoadingMore, setIsLoadingMore] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const requestRef = useRef(0)
 
   useEffect(() => {
     const normalized = query.trim()
-    requestRef.current += 1
-
     if (!normalized) {
       setDebouncedQuery("")
-      setResults([])
-      setItemsTotal(0)
-      setNextPage(null)
-      setError(null)
       setIsDebouncing(false)
-      setIsLoading(false)
-      setIsLoadingMore(false)
       return
     }
 
@@ -50,81 +36,65 @@ export function useMessageSearch({
     return () => clearTimeout(timeout)
   }, [query])
 
-  const fetchPage = useCallback(
-    async (page: number, replace: boolean) => {
-      if (!workspaceSlug || !debouncedQuery) return
-
-      const requestId = replace ? ++requestRef.current : requestRef.current
-      if (replace) {
-        setIsLoading(true)
-        setError(null)
-      } else {
-        setIsLoadingMore(true)
-      }
-
-      try {
-        const response = await api.v1.workspaces[":workspaceSlug"].search.$get({
-          param: { workspaceSlug },
-          query: {
-            ...(channelId ? { channelId } : {}),
-            page: String(page),
-            perPage: String(SEARCH_PAGE_SIZE),
-            query: debouncedQuery,
-          },
-        })
-        if (!response.ok) throw new Error("Could not search messages")
-        const payload = await response.json()
-        if (requestId !== requestRef.current) return
-
-        setResults((current) =>
-          mergeChannelSearchResults(replace ? [] : current, payload.data)
-        )
-        setItemsTotal(payload.itemsTotal)
-        setNextPage(payload.nextPage)
-        setError(null)
-      } catch (cause) {
-        if (requestId !== requestRef.current) return
-        setError(
-          cause instanceof Error ? cause.message : "Could not search messages"
-        )
-      } finally {
-        if (requestId === requestRef.current) {
-          setIsLoading(false)
-          setIsLoadingMore(false)
-        }
-      }
+  const enabled = Boolean(workspaceSlug && debouncedQuery)
+  const search = useInfiniteQuery({
+    queryKey: [
+      "message-search",
+      workspaceSlug,
+      channelId ?? null,
+      debouncedQuery,
+    ],
+    enabled,
+    initialPageParam: 1,
+    queryFn: async ({ pageParam }) => {
+      const response = await api.v1.workspaces[":workspaceSlug"].search.$get({
+        param: { workspaceSlug },
+        query: {
+          ...(channelId ? { channelId } : {}),
+          page: String(pageParam),
+          perPage: String(SEARCH_PAGE_SIZE),
+          query: debouncedQuery,
+        },
+      })
+      if (!response.ok) throw new Error("Could not search messages")
+      return response.json()
     },
-    [channelId, debouncedQuery, workspaceSlug]
-  )
+    getNextPageParam: (lastPage) => lastPage.nextPage ?? undefined,
+  })
+  const { fetchNextPage, hasNextPage, isFetching, refetch } = search
 
-  useEffect(() => {
-    if (!debouncedQuery) return
-    setResults([])
-    setItemsTotal(0)
-    setNextPage(null)
-    void fetchPage(1, true)
-  }, [debouncedQuery, fetchPage])
+  const results = useMemo(() => {
+    const pages = search.data?.pages ?? []
+    return pages.reduce<ChannelSearchResult[]>(
+      (merged, page) => mergeChannelSearchResults(merged, page.data),
+      []
+    )
+  }, [search.data])
+
+  const lastPage = search.data?.pages.at(-1)
+  const itemsTotal = lastPage?.itemsTotal ?? 0
+  const nextPage = lastPage?.nextPage ?? null
 
   const loadMore = useCallback(() => {
-    if (isLoading || isLoadingMore || nextPage == null) return
-    void fetchPage(nextPage, false)
-  }, [fetchPage, isLoading, isLoadingMore, nextPage])
+    if (!hasNextPage || isFetching) return
+    void fetchNextPage()
+  }, [fetchNextPage, hasNextPage, isFetching])
 
   const retry = useCallback(() => {
-    if (!debouncedQuery) return
-    if (results.length > 0 && nextPage != null) {
-      void fetchPage(nextPage, false)
+    if (!enabled) return
+    if (results.length > 0 && hasNextPage) {
+      void fetchNextPage()
       return
     }
-    void fetchPage(1, true)
-  }, [debouncedQuery, fetchPage, nextPage, results.length])
+    void refetch()
+  }, [enabled, fetchNextPage, hasNextPage, refetch, results.length])
 
   return {
     debouncedQuery,
-    error,
+    error: search.error?.message ?? null,
     isDebouncing,
-    isLoading,
-    isLoadingMore,
+    isLoading: enabled && search.isPending,
+    isLoadingMore: search.isFetchingNextPage,
     itemsTotal,
     loadMore,
     nextPage,

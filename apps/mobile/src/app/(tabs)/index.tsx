@@ -1,3 +1,4 @@
+import { useQuery } from "@tanstack/react-query"
 import * as Haptics from "expo-haptics"
 import { router, useFocusEffect } from "expo-router"
 import { SymbolView } from "expo-symbols"
@@ -36,45 +37,35 @@ export default function WorkspaceScreen() {
     error: workspaceError,
     selectWorkspace,
   } = useWorkspace()
-  const [channels, setChannels] = useState<ChannelListData | null>(null)
-  const [isLoadingChannels, setIsLoadingChannels] = useState(false)
-  const [channelError, setChannelError] = useState<string | null>(null)
   const [query, setQuery] = useState("")
-  const channelsRequestRef = useRef(0)
+  const hasFocusedChannelsRef = useRef(false)
 
-  const loadChannels = useCallback(async () => {
-    if (!workspace) return
-    const requestId = ++channelsRequestRef.current
-    setIsLoadingChannels(true)
-    setChannelError(null)
-    try {
+  const workspaceSlug = workspace?.slug ?? ""
+  const channelsQuery = useQuery({
+    queryKey: ["channels", workspaceSlug],
+    enabled: Boolean(workspaceSlug),
+    queryFn: async () => {
       const response = await api.v1.workspaces[":workspaceSlug"].channels.$get({
-        param: { workspaceSlug: workspace.slug },
+        param: { workspaceSlug },
       })
       if (!response.ok) throw new Error("Could not load channels")
-      const payload = await response.json()
-      if (requestId === channelsRequestRef.current) setChannels(payload)
-    } catch (cause) {
-      if (requestId === channelsRequestRef.current) {
-        setChannelError(
-          cause instanceof Error ? cause.message : "Could not load channels"
-        )
-      }
-    } finally {
-      if (requestId === channelsRequestRef.current) setIsLoadingChannels(false)
-    }
-  }, [workspace])
+      return response.json()
+    },
+  })
+  const { refetch: refetchChannels } = channelsQuery
+  const channels = channelsQuery.data ?? null
+  const isLoadingChannels = Boolean(workspaceSlug) && channelsQuery.isPending
+  const channelError = channelsQuery.error?.message ?? null
 
   useEffect(() => {
-    channelsRequestRef.current += 1
-    setChannels(null)
     setQuery("")
   }, [workspace?.id])
 
   useFocusEffect(
     useCallback(() => {
-      void loadChannels()
-    }, [loadChannels])
+      if (hasFocusedChannelsRef.current) void refetchChannels()
+      else hasFocusedChannelsRef.current = true
+    }, [refetchChannels])
   )
 
   const channelCount = useMemo(() => countChannels(channels), [channels])
@@ -265,8 +256,8 @@ export default function WorkspaceScreen() {
         keyboardShouldPersistTaps="handled"
         refreshControl={
           <RefreshControl
-            onRefresh={() => void loadChannels()}
-            refreshing={isLoadingChannels && channels !== null}
+            onRefresh={() => void refetchChannels()}
+            refreshing={channelsQuery.isRefetching}
             tintColor={theme.accent}
           />
         }
@@ -283,7 +274,10 @@ export default function WorkspaceScreen() {
           />
         ) : channelError ? (
           <StatePanel
-            action={{ label: "Try again", onPress: () => void loadChannels() }}
+            action={{
+              label: "Try again",
+              onPress: () => void refetchChannels(),
+            }}
             className="px-two"
             detail={channelError}
             title="Channels are unavailable"

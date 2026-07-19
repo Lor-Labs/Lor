@@ -4,17 +4,17 @@ import Copy01Icon from "@hugeicons/core-free-icons/Copy01Icon"
 import Tick02Icon from "@hugeicons/core-free-icons/Tick02Icon"
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react-native"
 import { formatDate } from "@repo/utils/date"
+import { useQuery } from "@tanstack/react-query"
 import * as Clipboard from "expo-clipboard"
 import { BottomSheet } from "heroui-native/bottom-sheet"
 import { useThemeColor } from "heroui-native/hooks"
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useEffect, useState } from "react"
 import { Pressable, Text, View } from "react-native"
 import { Avatar } from "@/components/ui/avatar"
 import { triggerHaptic } from "@/components/ui/haptics"
 import { SectionLabel } from "@/components/ui/section-label"
 import { Skeleton } from "@/components/ui/skeleton"
 import { api } from "@/lib/api"
-import type { UserProfile } from "@/lib/api-types"
 
 export type UserProfileTarget = {
   id: string
@@ -36,11 +36,7 @@ export function UserProfileSheet({
   onOpenChange: (isOpen: boolean) => void
   user: UserProfileTarget | null
 }) {
-  const [profile, setProfile] = useState<UserProfile | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
   const [copied, setCopied] = useState(false)
-  const requestRef = useRef(0)
   const [accent, background, foreground] = useThemeColor([
     "accent",
     "background",
@@ -48,37 +44,27 @@ export function UserProfileSheet({
   ])
   const userId = user?.id ?? null
 
-  const loadProfile = useCallback(async () => {
-    if (!userId) return
-    const requestId = ++requestRef.current
-    setError(null)
-    setIsLoading(true)
-    try {
+  const query = useQuery({
+    queryKey: ["user-profile", userId],
+    enabled: Boolean(userId),
+    queryFn: async () => {
+      if (!userId) throw new Error("Could not load this profile")
       const response = await api.v1.users[":userId"].$get({
         param: { userId },
       })
       if (!response.ok) throw new Error("Could not load this profile")
       const payload = await response.json()
-      if (requestId === requestRef.current) setProfile(payload.user)
-    } catch (cause) {
-      if (requestId === requestRef.current) {
-        setError(
-          cause instanceof Error ? cause.message : "Could not load this profile"
-        )
-      }
-    } finally {
-      if (requestId === requestRef.current) setIsLoading(false)
-    }
-  }, [userId])
+      return payload.user
+    },
+  })
+  const profile = query.data ?? null
+  const isLoading = Boolean(userId) && query.isPending
+  const error = query.error?.message ?? null
+  const { refetch } = query
 
   useEffect(() => {
-    requestRef.current += 1
-    setProfile(null)
-    setError(null)
     setCopied(false)
-    setIsLoading(false)
-    void loadProfile()
-  }, [loadProfile])
+  }, [userId])
 
   useEffect(() => {
     if (!copied) return
@@ -205,7 +191,7 @@ export function UserProfileSheet({
                       accessibilityLabel="Retry loading profile"
                       accessibilityRole="button"
                       className="min-h-10 self-start justify-center rounded-lor-sm bg-surface-tertiary px-three active:opacity-70"
-                      onPress={() => void loadProfile()}
+                      onPress={() => void refetch()}
                     >
                       <Text className="text-sm font-semibold text-foreground">
                         Try again

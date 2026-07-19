@@ -9,6 +9,7 @@ function result(id: string, content = id): ChannelSearchResult {
     createdAt: "2026-07-16T12:00:00.000Z",
     channelId: "00000000-0000-4000-8000-000000000001",
     channelName: "general",
+    threadRootId: null,
     author: {
       id: "00000000-0000-4000-8000-000000000002",
       name: "Jacob",

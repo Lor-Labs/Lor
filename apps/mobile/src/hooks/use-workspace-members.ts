@@ -1,67 +1,45 @@
 import type { PresenceUserUpdate } from "@repo/realtime-types"
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useCallback, useEffect } from "react"
 import { useSocket } from "@/context/socket-context"
 import { api } from "@/lib/api"
-import type { WorkspaceMember } from "@/lib/api-types"
+import type { WorkspaceMember, WorkspaceMemberList } from "@/lib/api-types"
 
 export function useWorkspaceMembers(workspaceSlug: string) {
-  const [members, setMembers] = useState<WorkspaceMember[]>([])
-  const [workspaceId, setWorkspaceId] = useState<string | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const requestRef = useRef(0)
   const socket = useSocket()
-
-  const reload = useCallback(async () => {
-    const requestId = ++requestRef.current
-    if (!workspaceSlug) {
-      setMembers([])
-      setWorkspaceId(null)
-      setError(null)
-      setIsLoading(false)
-      return
-    }
-
-    setError(null)
-    setIsLoading(true)
-    try {
+  const queryClient = useQueryClient()
+  const enabled = Boolean(workspaceSlug)
+  const query = useQuery({
+    queryKey: ["workspace-members", workspaceSlug],
+    enabled,
+    queryFn: async () => {
       const response = await api.v1.workspaces[":workspaceSlug"].members.$get({
         param: { workspaceSlug },
       })
       if (!response.ok) throw new Error("Could not load workspace members")
-      const payload = await response.json()
-      if (requestId !== requestRef.current) return
-      setMembers(payload.members)
-      setWorkspaceId(payload.workspaceId)
-    } catch (cause) {
-      if (requestId !== requestRef.current) return
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : "Could not load workspace members"
-      )
-    } finally {
-      if (requestId === requestRef.current) setIsLoading(false)
-    }
-  }, [workspaceSlug])
-
-  useEffect(() => {
-    setMembers([])
-    setWorkspaceId(null)
-    void reload()
-    return () => {
-      requestRef.current += 1
-    }
-  }, [reload])
+      return response.json()
+    },
+  })
+  const { refetch } = query
+  const workspaceId = query.data?.workspaceId ?? null
 
   useEffect(() => {
     if (!socket || !workspaceId) return
     let disposed = false
 
+    const patchMembers = (
+      updater: (members: WorkspaceMember[]) => WorkspaceMember[]
+    ) => {
+      queryClient.setQueryData<WorkspaceMemberList>(
+        ["workspace-members", workspaceSlug],
+        (current) =>
+          current ? { ...current, members: updater(current.members) } : current
+      )
+    }
     const applySnapshot = (onlineUserIds: string[]) => {
       const online = new Set(onlineUserIds)
-      setMembers((current) =>
-        current.map((member) => ({
+      patchMembers((members) =>
+        members.map((member) => ({
           ...member,
           status:
             member.isBot || online.has(member.userId) ? "online" : "offline",
@@ -78,8 +56,8 @@ export function useWorkspaceMembers(workspaceSlug: string) {
     }
     const updatePresence = (payload: PresenceUserUpdate) => {
       if (payload.workspaceId !== workspaceId) return
-      setMembers((current) =>
-        current.map((member) =>
+      patchMembers((members) =>
+        members.map((member) =>
           member.userId === payload.userId
             ? {
                 ...member,
@@ -98,7 +76,16 @@ export function useWorkspaceMembers(workspaceSlug: string) {
       socket.off("connect", subscribe)
       socket.off("presence:user:update", updatePresence)
     }
-  }, [socket, workspaceId])
+  }, [socket, workspaceId, workspaceSlug, queryClient])
 
-  return { members, isLoading, error, reload }
+  const reload = useCallback(async () => {
+    await refetch()
+  }, [refetch])
+
+  return {
+    members: query.data?.members ?? [],
+    isLoading: enabled && query.isPending,
+    error: query.error?.message ?? null,
+    reload,
+  }
 }

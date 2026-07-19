@@ -1,9 +1,9 @@
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { router } from "expo-router"
 import { SymbolView } from "expo-symbols"
 import { useThemeColor } from "heroui-native/hooks"
 import { Radio } from "heroui-native/radio"
 import { useToast } from "heroui-native/toast"
-import { useCallback, useEffect, useState } from "react"
 import { ScrollView, Text, View } from "react-native"
 import { IconButton } from "@/components/ui/icon-button"
 import { RadioGroup } from "@/components/ui/radio-group"
@@ -69,27 +69,26 @@ function OptionGroup<Value extends string>({
 export default function NotificationSettingsScreen() {
   const foreground = useThemeColor("foreground")
   const { toast } = useToast()
-  const [settings, setSettings] = useState<NotificationSettings | null>(null)
-  const [error, setError] = useState<string | null>(null)
-
-  const load = useCallback(async () => {
-    setError(null)
-    try {
+  const queryClient = useQueryClient()
+  const settingsQuery = useQuery({
+    queryKey: ["notification-settings"],
+    queryFn: async () => {
       const response = await api.v1["notification-settings"].$get()
       if (!response.ok) throw new Error("Could not load notification settings")
-      setSettings(await response.json())
-    } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : "Could not load notification settings"
-      )
-    }
-  }, [])
+      return response.json()
+    },
+  })
+  const settings = settingsQuery.data ?? null
+  const error = settings ? null : (settingsQuery.error?.message ?? null)
 
-  useEffect(() => {
-    void load()
-  }, [load])
+  const patchSettings = (
+    updater: (current: NotificationSettings) => NotificationSettings
+  ) => {
+    queryClient.setQueryData<NotificationSettings>(
+      ["notification-settings"],
+      (current) => (current ? updater(current) : current)
+    )
+  }
 
   const update = (patch: Partial<NotificationSettings>) => {
     if (!settings) return
@@ -103,15 +102,14 @@ export default function NotificationSettingsScreen() {
         ? { dmNotifications: settings.dmNotifications }
         : {}),
     }
-    setSettings((current) => (current ? { ...current, ...patch } : current))
+    patchSettings((current) => ({ ...current, ...patch }))
     void api.v1["notification-settings"]
       .$patch({ json: patch })
       .then((response) => {
         if (!response.ok) throw new Error()
       })
       .catch(() => {
-        setSettings((current) => {
-          if (!current) return current
+        patchSettings((current) => {
           const next = { ...current }
           if (
             revert.desktopNotifications !== undefined &&
@@ -165,7 +163,10 @@ export default function NotificationSettingsScreen() {
       >
         {error ? (
           <StatePanel
-            action={{ label: "Try again", onPress: () => void load() }}
+            action={{
+              label: "Try again",
+              onPress: () => void settingsQuery.refetch(),
+            }}
             detail={error}
             status="danger"
             title="Settings are unavailable"
