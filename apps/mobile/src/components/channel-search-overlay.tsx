@@ -1,5 +1,6 @@
 import Search01Icon from "@hugeicons/core-free-icons/Search01Icon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
+import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { formatDateTime } from "@repo/utils/date"
 import { useThemeColor } from "heroui-native/hooks"
 import { Spinner } from "heroui-native/spinner"
@@ -18,11 +19,12 @@ import { Avatar } from "@/components/ui/avatar"
 import { IconButton } from "@/components/ui/icon-button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatePanel } from "@/components/ui/state-panel"
-import { useChannelSearch } from "@/hooks/use-channel-search"
+import { useMessageSearch } from "@/hooks/use-message-search"
 import type { ChannelSearchResult } from "@/lib/api-types"
 import { toSearchPreviewText } from "@/lib/message-markdown"
 
 export function ChannelSearchOverlay({
+  avatarColorByUserId,
   channelId,
   channelName,
   onClose,
@@ -30,6 +32,7 @@ export function ChannelSearchOverlay({
   visible,
   workspaceSlug,
 }: {
+  avatarColorByUserId?: ReadonlyMap<string, string>
   channelId: string
   channelName: string
   onClose: () => void
@@ -44,7 +47,7 @@ export function ChannelSearchOverlay({
     "muted",
     "accent",
   ])
-  const search = useChannelSearch({ channelId, query, workspaceSlug })
+  const search = useMessageSearch({ channelId, query, workspaceSlug })
   const hasQuery = query.trim().length > 0
   const isSearching = search.isDebouncing || search.isLoading
 
@@ -81,7 +84,15 @@ export function ChannelSearchOverlay({
           onSelectMessage(item)
         }}
       >
-        <Avatar image={item.author.image} name={displayName} size="sm" />
+        <Avatar
+          avatarColor={
+            item.author.avatarColor ?? avatarColorByUserId?.get(item.author.id)
+          }
+          fallback={getAvatarInitials(item.author.name)}
+          image={item.author.image}
+          name={displayName}
+          size="sm"
+        />
         <View className="min-w-0 flex-1 gap-one">
           <View className="flex-row items-baseline gap-two">
             <Text
@@ -230,7 +241,7 @@ function SearchResultsSkeleton() {
           className="flex-row gap-three border-b border-separator py-three"
           key={item}
         >
-          <Skeleton className="size-10 rounded-lor-sm" />
+          <Skeleton className="size-10 rounded-full" />
           <View className="flex-1 gap-two pt-one">
             <Skeleton className="h-3 w-[42%] rounded-full" />
             <Skeleton

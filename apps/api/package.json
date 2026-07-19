@@ -26,6 +26,7 @@
     "@repo/merlin": "workspace:^",
     "@repo/messaging": "workspace:^",
     "@repo/realtime-types": "workspace:*",
+    "@repo/utils": "workspace:*",
     "@socket.io/redis-emitter": "^5.1.0",
     "dotenv": "^17.2.4",
     "drizzle-orm": "^0.45.1",

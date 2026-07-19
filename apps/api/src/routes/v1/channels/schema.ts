@@ -8,6 +8,7 @@ import {
   listMessagesQuerySchema,
   listMessagesResponseSchema,
   messageWithAuthorSchema,
+  threadParticipantSchema,
 } from "@/lib/helpers/openapi/message-schemas"
 
 // ── Path Params ──────────────────────────────────────────
@@ -90,6 +91,7 @@ export {
 export const listThreadRepliesResponseSchema =
   listMessagesResponseSchema.extend({
     root: messageWithAuthorSchema.nullable(),
+    participants: z.array(threadParticipantSchema),
   })
 
 // ── Pins ──────────────────────────────────────────

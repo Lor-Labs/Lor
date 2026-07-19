@@ -13,6 +13,7 @@ import {
   assertCanManageWorkspaceMember,
   assertWorkspacePermission,
 } from "@/lib/permissions"
+import { getAvatarColorsByUserId } from "@/lib/queries/messages"
 import { getRedisClient } from "@/lib/redis"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
@@ -61,6 +62,7 @@ function toWorkspaceMemberPresence(
     username: string | null
     displayUsername: string | null
     image: string | null
+    avatarColor: string
     role: string
     isBot: boolean
   },
@@ -75,6 +77,7 @@ function toWorkspaceMemberPresence(
     username: member.username,
     displayUsername: member.displayUsername,
     image: member.image,
+    avatarColor: member.avatarColor,
     role: member.role,
     isOwner: ownerId === member.userId,
     isBot: member.isBot,
@@ -91,6 +94,7 @@ async function getWorkspaceMemberRow(workspaceId: string, userId: string) {
       username: schema.user.username,
       displayUsername: schema.user.displayUsername,
       image: schema.user.image,
+      avatarColor: schema.workspaceMember.avatarColor,
       isBot: schema.user.isBot,
     })
     .from(schema.workspaceMember)
@@ -118,6 +122,7 @@ export const listWorkspaceMembers: AppRouteHandler<
       username: schema.user.username,
       displayUsername: schema.user.displayUsername,
       image: schema.user.image,
+      avatarColor: schema.workspaceMember.avatarColor,
       isBot: schema.user.isBot,
     })
     .from(schema.workspaceMember)
@@ -423,6 +428,14 @@ export const searchMessages: AppRouteHandler<SearchMessagesRoute> = async (
     mentionsByMessageId.set(mention.messageId, current)
   }
 
+  const avatarColorByUserId = await getAvatarColorsByUserId(
+    { workspaceId: workspace.id },
+    [
+      ...messages.map((msg) => msg.author.id),
+      ...mentionRows.map((mention) => mention.id),
+    ]
+  )
+
   return c.json(
     {
       itemsTotal,
@@ -441,6 +454,7 @@ export const searchMessages: AppRouteHandler<SearchMessagesRoute> = async (
           username: msg.author.username,
           displayUsername: msg.author.displayUsername,
           image: msg.author.image,
+          avatarColor: avatarColorByUserId.get(msg.author.id) ?? null,
         },
         mentions: (mentionsByMessageId.get(msg.id) ?? []).map((mention) => ({
           id: mention.id,
@@ -448,6 +462,7 @@ export const searchMessages: AppRouteHandler<SearchMessagesRoute> = async (
           username: mention.username,
           displayUsername: mention.displayUsername,
           image: mention.image,
+          avatarColor: avatarColorByUserId.get(mention.id) ?? null,
         })),
       })),
     },

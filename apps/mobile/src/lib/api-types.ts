@@ -16,6 +16,10 @@ export type ThreadMessageList = InferResponseType<
   MessageClient["thread"]["$get"],
   200
 >
+export type PinnedMessageList = InferResponseType<
+  ChannelClient["pins"]["$get"],
+  200
+>
 export type WorkspaceMemberList = InferResponseType<
   WorkspaceClient["members"]["$get"],
   200
@@ -26,3 +30,7 @@ export type ChannelSearchResults = InferResponseType<
   200
 >
 export type ChannelSearchResult = ChannelSearchResults["data"][number]
+export type NotificationSettings = InferResponseType<
+  Client["v1"]["notification-settings"]["$get"],
+  200
+>

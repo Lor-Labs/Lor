@@ -1,6 +1,7 @@
 import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar"
 import { Skeleton } from "@repo/ui/components/skeleton"
 import { cn } from "@repo/ui/lib/utils"
+import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { differenceInMinutes, isSameDay } from "@repo/utils/date"
 import { ArrowDown, Hash, Loader2 } from "lucide-react"
 import { useCallback, useEffect, useRef, useState } from "react"
@@ -56,11 +57,6 @@ interface MessageListProps {
   onDismissThreadActivity?: (threadRootId: string) => void
 }
 
-function nameInitial(name: string) {
-  const trimmed = name.trim()
-  return trimmed.length > 0 ? trimmed.charAt(0).toUpperCase() : "?"
-}
-
 function EmptyState({ context }: { context: ChatContext }) {
   return (
     <div className="flex flex-1 flex-col justify-end px-6 pb-4">
@@ -74,8 +70,11 @@ function EmptyState({ context }: { context: ChatContext }) {
             {context.type === "dm" && context.avatarUrl && (
               <AvatarImage src={context.avatarUrl} alt={context.name} />
             )}
-            <AvatarFallback className="text-lg font-semibold">
-              {nameInitial(context.name)}
+            <AvatarFallback
+              className="text-lg font-semibold"
+              fallbackSeed={context.name}
+            >
+              {getAvatarInitials(context.name)}
             </AvatarFallback>
           </Avatar>
         )}

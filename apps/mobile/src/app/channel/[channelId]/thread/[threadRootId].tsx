@@ -1,7 +1,7 @@
 import { router, useLocalSearchParams } from "expo-router"
 import { SymbolView } from "expo-symbols"
 import { useThemeColor } from "heroui-native/hooks"
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Alert, Text, View } from "react-native"
 import { KeyboardAvoidingView } from "react-native-keyboard-controller"
 import { MessageComposer } from "@/components/message-composer"
@@ -9,11 +9,13 @@ import {
   ThreadMessageList,
   ThreadMessageListSkeleton,
 } from "@/components/thread-message-list"
+import { ThreadParticipantStack } from "@/components/thread-participant-stack"
 import { IconButton } from "@/components/ui/icon-button"
 import { Screen } from "@/components/ui/screen"
 import { StatePanel } from "@/components/ui/state-panel"
 import { useSocket, useSocketConnected } from "@/context/socket-context"
 import { useWorkspace } from "@/context/workspace-context"
+import { useAutoMarkRead } from "@/hooks/use-auto-mark-read"
 import { useCanPinMessages } from "@/hooks/use-can-pin-messages"
 import { useChannelDetail } from "@/hooks/use-channel-detail"
 import { useThreadMessages } from "@/hooks/use-thread-messages"
@@ -47,10 +49,18 @@ export default function ThreadScreen() {
     socket,
     currentUser: session?.user,
   })
+  useAutoMarkRead(channelId)
   const mentions = useWorkspaceMentionCandidates({
     workspaceSlug: workspace?.slug ?? "",
     currentUserId: session?.user.id,
   })
+  const avatarColorByUserId = useMemo(
+    () =>
+      new Map(
+        mentions.members.map((member) => [member.userId, member.avatarColor])
+      ),
+    [mentions.members]
+  )
 
   useEffect(() => {
     setReplyingTo(null)
@@ -169,8 +179,13 @@ export default function ThreadScreen() {
             #{channelName}
           </Text>
         </View>
+        <ThreadParticipantStack
+          members={mentions.members}
+          participants={thread.participants}
+        />
       </View>
       <KeyboardAvoidingView
+        automaticOffset
         behavior="translate-with-padding"
         className="flex-1"
       >
@@ -193,6 +208,7 @@ export default function ThreadScreen() {
           />
         ) : (
           <ThreadMessageList
+            avatarColorByUserId={avatarColorByUserId}
             currentUserId={session?.user.id}
             editingMessageId={editingMessage?.id}
             focusMessageId={focusMessageId}

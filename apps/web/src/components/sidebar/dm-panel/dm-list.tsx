@@ -6,6 +6,7 @@ import {
   AvatarImage,
 } from "@repo/ui/components/avatar"
 import { cn } from "@repo/ui/lib/utils"
+import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { useQuery } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import { UserAvatar } from "@/components/ui/user-avatar"
@@ -65,17 +66,6 @@ export function DMList() {
   )
 }
 
-function getInitials(name: string | null) {
-  return (
-    name
-      ?.split(" ")
-      .map((n) => n[0])
-      .join("")
-      .slice(0, 2)
-      .toUpperCase() ?? "?"
-  )
-}
-
 function GroupDMAvatars({ members }: { members: DMember[] }) {
   const shown = members.slice(0, 2)
   const overflow = members.length - shown.length
@@ -85,7 +75,9 @@ function GroupDMAvatars({ members }: { members: DMember[] }) {
       {shown.map((m) => (
         <Avatar key={m.id} size="sm">
           {m.image && <AvatarImage src={m.image} alt={m.name ?? ""} />}
-          <AvatarFallback>{getInitials(m.name)}</AvatarFallback>
+          <AvatarFallback fallbackSeed={m.name}>
+            {getAvatarInitials(m.name)}
+          </AvatarFallback>
         </Avatar>
       ))}
       {overflow > 0 && (

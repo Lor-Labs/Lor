@@ -1,4 +1,4 @@
-import { db } from "@repo/db"
+import { db, schema } from "@repo/db"
 import {
   agentProfile,
   channel,
@@ -7,11 +7,12 @@ import {
   messageReaction,
   user,
 } from "@repo/db/schema"
-import { and, asc, desc, eq, inArray } from "drizzle-orm"
+import { and, asc, desc, eq, inArray, or } from "drizzle-orm"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { assertWorkspacePermission } from "@/lib/permissions"
 import {
   fetchMessages,
+  getAvatarColorsByUserId,
   messageSelect,
   referencedMessageSelect,
   toReferencedMessage,
@@ -457,8 +458,30 @@ export const listPinnedMessages: AppRouteHandler<
           .where(inArray(message.id, referencedMessageIds))
       : []
 
+  const avatarColorByUserId = await getAvatarColorsByUserId(
+    { workspaceId: workspace.id },
+    [
+      ...messages.map((msg) => msg.author.id),
+      ...mentionRows.map((row) => row.id),
+      ...referencedMessageRows.map((row) => row.authorId),
+    ]
+  )
+
   const referencedMessagesById = new Map(
-    referencedMessageRows.map((row) => [row.id, toReferencedMessage(row)])
+    referencedMessageRows.map((row) => {
+      const referencedMessage = toReferencedMessage(row)
+      return [
+        row.id,
+        {
+          ...referencedMessage,
+          author: {
+            ...referencedMessage.author,
+            avatarColor:
+              avatarColorByUserId.get(referencedMessage.author.id) ?? null,
+          },
+        },
+      ]
+    })
   )
 
   const mentionsByMessageId = new Map<string, typeof mentionRows>()
@@ -500,6 +523,10 @@ export const listPinnedMessages: AppRouteHandler<
 
   const data = messages.map((msg) => ({
     ...msg,
+    author: {
+      ...msg.author,
+      avatarColor: avatarColorByUserId.get(msg.author.id) ?? null,
+    },
     embeds: msg.embeds ?? [],
     merlinToolCalls: msg.merlinToolCalls ?? [],
     merlinReasoningSegments: msg.merlinReasoningSegments ?? [],
@@ -509,6 +536,7 @@ export const listPinnedMessages: AppRouteHandler<
       username: m.username,
       displayUsername: m.displayUsername,
       image: m.image,
+      avatarColor: avatarColorByUserId.get(m.id) ?? null,
     })),
     reactions: Array.from(reactionsByMessageId.get(msg.id)?.values() ?? []),
     referencedMessage: msg.referencedMessageId
@@ -566,7 +594,7 @@ export const listThreadReplies: AppRouteHandler<
   // The root is fetched as a single channel-level message (around + limit 1)
   // so the panel can show it even when it's scrolled out of the channel feed.
   const isInitialPage = !before && !after
-  const [replies, rootResult] = await Promise.all([
+  const [replies, rootResult, participantRows] = await Promise.all([
     fetchMessages({
       channelId,
       currentUserId: currentUser.id,
@@ -584,10 +612,39 @@ export const listThreadReplies: AppRouteHandler<
           around: messageId,
         })
       : Promise.resolve(null),
+    isInitialPage
+      ? db
+          .selectDistinct({
+            id: user.id,
+            name: user.name,
+            displayUsername: user.displayUsername,
+            image: user.image,
+            avatarColor: schema.workspaceMember.avatarColor,
+          })
+          .from(message)
+          .innerJoin(user, eq(message.authorId, user.id))
+          .leftJoin(
+            schema.workspaceMember,
+            and(
+              eq(schema.workspaceMember.userId, user.id),
+              eq(schema.workspaceMember.workspaceId, workspace.id)
+            )
+          )
+          .where(
+            and(
+              eq(message.channelId, channelId),
+              or(eq(message.id, messageId), eq(message.threadRootId, messageId))
+            )
+          )
+      : Promise.resolve([]),
   ])
 
   return c.json(
-    { ...replies, root: rootResult?.data[0] ?? null },
+    {
+      ...replies,
+      root: rootResult?.data[0] ?? null,
+      participants: participantRows,
+    },
     HttpStatusCodes.OK
   )
 }

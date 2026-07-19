@@ -5,6 +5,7 @@ import { Input } from "@repo/ui/components/input"
 import { Label } from "@repo/ui/components/label"
 import { Separator } from "@repo/ui/components/separator"
 import { cn } from "@repo/ui/lib/utils"
+import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { Camera, Check, Loader2, Upload, X } from "lucide-react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
@@ -261,12 +262,7 @@ export function MyAccountSettings() {
   if (!user) return null
 
   const displayAvatar = avatarPreview ?? user.image
-  const initials = user.name
-    ?.split(" ")
-    .map((n) => n[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase()
+  const initials = getAvatarInitials(user.name)
 
   return (
     <div className="space-y-6">
@@ -289,7 +285,10 @@ export function MyAccountSettings() {
             {displayAvatar && (
               <AvatarImage src={displayAvatar} alt={user.name} />
             )}
-            <AvatarFallback className="text-lg font-semibold">
+            <AvatarFallback
+              className="text-lg font-semibold"
+              fallbackSeed={user.name}
+            >
               {initials ?? "?"}
             </AvatarFallback>
           </Avatar>

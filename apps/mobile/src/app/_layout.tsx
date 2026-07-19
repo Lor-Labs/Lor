@@ -2,6 +2,7 @@ import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from "expo-router"
 import * as SplashScreen from "expo-splash-screen"
 import { StatusBar } from "expo-status-bar"
 import { HeroUINativeProvider } from "heroui-native/provider"
+import { useEffect } from "react"
 import { useColorScheme } from "react-native"
 import { GestureHandlerRootView } from "react-native-gesture-handler"
 import { KeyboardProvider } from "react-native-keyboard-controller"
@@ -9,12 +10,18 @@ import { KeyboardProvider } from "react-native-keyboard-controller"
 import "../global.css"
 import { AnimatedSplashOverlay } from "@/components/animated-icon"
 import { SocketProvider } from "@/context/socket-context"
+import { UnreadProvider } from "@/context/unread-context"
 import { WorkspaceProvider } from "@/context/workspace-context"
+import { restoreThemePreference } from "@/lib/theme-preference"
 
 SplashScreen.preventAutoHideAsync()
 
 export default function RootLayout() {
   const colorScheme = useColorScheme()
+
+  useEffect(() => {
+    void restoreThemePreference()
+  }, [])
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <HeroUINativeProvider>
@@ -25,9 +32,11 @@ export default function RootLayout() {
             <StatusBar style={colorScheme === "dark" ? "light" : "dark"} />
             <AnimatedSplashOverlay />
             <SocketProvider>
-              <WorkspaceProvider>
-                <Stack screenOptions={{ headerShown: false }} />
-              </WorkspaceProvider>
+              <UnreadProvider>
+                <WorkspaceProvider>
+                  <Stack screenOptions={{ headerShown: false }} />
+                </WorkspaceProvider>
+              </UnreadProvider>
             </SocketProvider>
           </ThemeProvider>
         </KeyboardProvider>

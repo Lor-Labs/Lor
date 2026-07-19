@@ -15,6 +15,7 @@ export const workspaceMemberPresenceSchema = z.object({
   username: z.string().nullable(),
   displayUsername: z.string().nullable(),
   image: z.string().nullable(),
+  avatarColor: z.string(),
   role: z.string(),
   isOwner: z.boolean(),
   isBot: z.boolean(),

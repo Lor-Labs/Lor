@@ -17,6 +17,7 @@ import {
   TooltipTrigger,
 } from "@repo/ui/components/tooltip"
 import { cn } from "@repo/ui/lib/utils"
+import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { formatTime, timeAgo } from "@repo/utils/date"
 import { Brain, ChevronRight } from "lucide-react"
 import { useCallback, useEffect, useState } from "react"
@@ -49,11 +50,6 @@ interface MessageItemProps {
   canPin?: boolean
   mentionCandidates?: MentionCandidate[]
   onJumpToMessage?: (messageId: string) => void
-}
-
-function nameInitial(name: string) {
-  const trimmed = name.trim()
-  return trimmed.length > 0 ? trimmed.charAt(0).toUpperCase() : "?"
 }
 
 function ReplyPreview({
@@ -92,8 +88,12 @@ function ReplyPreview({
         {referencedAvatar && (
           <AvatarImage src={referencedAvatar} alt={referencedName} />
         )}
-        <AvatarFallback className="text-[8px] font-semibold">
-          {nameInitial(referencedName)}
+        <AvatarFallback
+          avatarColor={author.avatarColor}
+          className="text-[8px] font-semibold"
+          fallbackSeed={referencedName}
+        >
+          {getAvatarInitials(referencedName)}
         </AvatarFallback>
       </Avatar>
       <span className="shrink-0 font-semibold text-foreground/80">
@@ -132,15 +132,16 @@ function ThreadFooter({
         {summary.participants.slice(0, 3).map((p) => (
           <span
             key={p.id}
-            className="rounded-md ring-2 ring-background transition-[box-shadow] group-hover/thread:ring-card"
+            className="rounded-full ring-2 ring-background transition-[box-shadow] group-hover/thread:ring-card"
           >
-            <Avatar
-              size="sm"
-              className="size-[22px] rounded-md [&_[data-slot=avatar-image]]:rounded-md [&_[data-slot=avatar-fallback]]:rounded-md"
-            >
+            <Avatar size="sm" className="size-[22px]">
               {p.image && <AvatarImage src={p.image} alt={p.name} />}
-              <AvatarFallback className="rounded-md text-[10px] font-semibold">
-                {nameInitial(p.displayUsername ?? p.name)}
+              <AvatarFallback
+                avatarColor={p.avatarColor}
+                className="text-[10px] font-semibold"
+                fallbackSeed={p.name}
+              >
+                {getAvatarInitials(p.name)}
               </AvatarFallback>
             </Avatar>
           </span>
@@ -328,17 +329,26 @@ export function MessageItem({
             <div className="mt-0.5 self-start">
               <Avatar size="lg">
                 {avatarUrl && <AvatarImage src={avatarUrl} alt={displayName} />}
-                <AvatarFallback className="text-xs font-semibold">
+                <AvatarFallback
+                  avatarColor={author.avatarColor}
+                  className="text-xs font-semibold"
+                  fallbackSeed={displayName}
+                >
                   {ConnectorMark ? (
                     <ConnectorMark className="size-5" />
                   ) : (
-                    nameInitial(displayName)
+                    getAvatarInitials(displayName)
                   )}
                 </AvatarFallback>
               </Avatar>
             </div>
           ) : (
-            <UserProfilePopover userId={author.id} side="right" align="start">
+            <UserProfilePopover
+              align="start"
+              avatarColor={author.avatarColor}
+              side="right"
+              userId={author.id}
+            >
               <button
                 type="button"
                 className="mt-0.5 cursor-pointer self-start"
@@ -347,8 +357,12 @@ export function MessageItem({
                   {avatarUrl && (
                     <AvatarImage src={avatarUrl} alt={displayName} />
                   )}
-                  <AvatarFallback className="text-xs font-semibold">
-                    {nameInitial(displayName)}
+                  <AvatarFallback
+                    avatarColor={author.avatarColor}
+                    className="text-xs font-semibold"
+                    fallbackSeed={author.name}
+                  >
+                    {getAvatarInitials(author.name)}
                   </AvatarFallback>
                 </Avatar>
               </button>
@@ -370,6 +384,7 @@ export function MessageItem({
                 </span>
               ) : (
                 <UserProfilePopover
+                  avatarColor={author.avatarColor}
                   userId={author.id}
                   side="right"
                   align="start"

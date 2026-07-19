@@ -6,7 +6,14 @@ import type {
   MerlinReasoningSegment,
   MerlinToolCall,
 } from "@repo/db/schema"
-import { message, messageMention, messageReaction, user } from "@repo/db/schema"
+import {
+  channel,
+  message,
+  messageMention,
+  messageReaction,
+  user,
+  workspaceMember,
+} from "@repo/db/schema"
 import {
   and,
   asc,
@@ -21,6 +28,45 @@ import {
   or,
   type SQL,
 } from "drizzle-orm"
+
+export async function getAvatarColorsByUserId(
+  scope: { workspaceId: string } | { channelId: string },
+  userIds: Iterable<string>
+): Promise<Map<string, string>> {
+  const ids = [...new Set(userIds)]
+  if (ids.length === 0) return new Map()
+
+  const colorSelection = {
+    userId: workspaceMember.userId,
+    avatarColor: workspaceMember.avatarColor,
+  }
+  const rows =
+    "workspaceId" in scope
+      ? await db
+          .select(colorSelection)
+          .from(workspaceMember)
+          .where(
+            and(
+              eq(workspaceMember.workspaceId, scope.workspaceId),
+              inArray(workspaceMember.userId, ids)
+            )
+          )
+      : await db
+          .select(colorSelection)
+          .from(workspaceMember)
+          .innerJoin(
+            channel,
+            eq(channel.workspaceId, workspaceMember.workspaceId)
+          )
+          .where(
+            and(
+              eq(channel.id, scope.channelId),
+              inArray(workspaceMember.userId, ids)
+            )
+          )
+
+  return new Map(rows.map((row) => [row.userId, row.avatarColor]))
+}
 
 type BareMessageRow = {
   id: string
@@ -400,6 +446,13 @@ export async function fetchMessages({
           .orderBy(desc(message.createdAt)),
   ])
 
+  const avatarColorByUserId = await getAvatarColorsByUserId({ channelId }, [
+    ...messages.map((msg) => msg.author.id),
+    ...mentionRows.map((row) => row.id),
+    ...referencedMessageRows.map((row) => row.authorId),
+    ...threadParticipantRows.map((row) => row.userId),
+  ])
+
   type ThreadSummary = {
     replyCount: number
     lastReplyAt: string
@@ -408,6 +461,7 @@ export async function fetchMessages({
       name: string
       displayUsername: string | null
       image: string | null
+      avatarColor?: string | null
     }>
   }
   const threadSummaryById = new Map<string, ThreadSummary>()
@@ -437,11 +491,25 @@ export async function fetchMessages({
       name: row.userName,
       displayUsername: row.userDisplayUsername,
       image: row.userImage,
+      avatarColor: avatarColorByUserId.get(row.userId) ?? null,
     })
   }
 
   const referencedMessagesById = new Map(
-    referencedMessageRows.map((row) => [row.id, toReferencedMessage(row)])
+    referencedMessageRows.map((row) => {
+      const referencedMessage = toReferencedMessage(row)
+      return [
+        row.id,
+        {
+          ...referencedMessage,
+          author: {
+            ...referencedMessage.author,
+            avatarColor:
+              avatarColorByUserId.get(referencedMessage.author.id) ?? null,
+          },
+        },
+      ]
+    })
   )
 
   const mentionsByMessageId = new Map<
@@ -452,6 +520,7 @@ export async function fetchMessages({
       username: string | null
       displayUsername: string | null
       image: string | null
+      avatarColor?: string | null
     }>
   >()
   const reactionsByMessageId = new Map<
@@ -475,6 +544,7 @@ export async function fetchMessages({
       username: mentionRow.username,
       displayUsername: mentionRow.displayUsername,
       image: mentionRow.image,
+      avatarColor: avatarColorByUserId.get(mentionRow.id) ?? null,
     })
     mentionsByMessageId.set(mentionRow.messageId, existingMentions)
   }
@@ -504,6 +574,10 @@ export async function fetchMessages({
 
   const data = messages.map(({ merlinMemories, ...msg }) => ({
     ...msg,
+    author: {
+      ...msg.author,
+      avatarColor: avatarColorByUserId.get(msg.author.id) ?? null,
+    },
     embeds: msg.embeds ?? [],
     merlinToolCalls: msg.merlinToolCalls ?? [],
     merlinReasoningSegments: msg.merlinReasoningSegments ?? [],

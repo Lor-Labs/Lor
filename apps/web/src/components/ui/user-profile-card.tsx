@@ -16,7 +16,13 @@ import { toast } from "sonner"
 import { UserAvatar } from "@/components/ui/user-avatar"
 import { apiClient } from "@/lib/api-client"
 
-function ProfileCardContent({ userId }: { userId: string }) {
+function ProfileCardContent({
+  avatarColor,
+  userId,
+}: {
+  avatarColor?: string | null
+  userId: string
+}) {
   const queryClient = useQueryClient()
   const { data: session } = authClient.useSession()
 
@@ -87,7 +93,12 @@ function ProfileCardContent({ userId }: { userId: string }) {
     <div className="flex flex-col gap-4">
       <div className="flex items-start gap-3">
         <div className="relative shrink-0">
-          <UserAvatar name={user.name} src={user.image} className="size-14" />
+          <UserAvatar
+            avatarColor={avatarColor}
+            className="size-14"
+            name={user.name}
+            src={user.image}
+          />
           <span
             className={cn(
               "absolute -bottom-0.5 -right-0.5 size-3.5 rounded-full border-[3px] border-popover",
@@ -141,11 +152,13 @@ function ProfileCardContent({ userId }: { userId: string }) {
 }
 
 export function UserProfilePopover({
+  avatarColor,
   userId,
   children,
   side = "right",
   align = "start",
 }: {
+  avatarColor?: string | null
   userId: string
   children: React.ReactNode
   side?: "top" | "bottom" | "left" | "right"
@@ -162,7 +175,9 @@ export function UserProfilePopover({
         className="w-72 p-4"
         onOpenAutoFocus={(e) => e.preventDefault()}
       >
-        {open && <ProfileCardContent userId={userId} />}
+        {open && (
+          <ProfileCardContent avatarColor={avatarColor} userId={userId} />
+        )}
       </PopoverContent>
     </Popover>
   )

@@ -1,4 +1,5 @@
 import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar"
+import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { formatTime } from "@repo/utils/date"
 import { useQuery } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
@@ -203,10 +204,18 @@ export function HeaderSearch({
                   {msg.author.image && (
                     <AvatarImage src={msg.author.image} alt={msg.author.name} />
                   )}
-                  <AvatarFallback className="text-[8px] font-semibold">
-                    {(msg.author.displayUsername ?? msg.author.name ?? "?")
-                      .charAt(0)
-                      .toUpperCase()}
+                  <AvatarFallback
+                    avatarColor={
+                      "avatarColor" in msg.author
+                        ? typeof msg.author.avatarColor === "string"
+                          ? msg.author.avatarColor
+                          : null
+                        : null
+                    }
+                    className="text-[8px] font-semibold"
+                    fallbackSeed={msg.author.name}
+                  >
+                    {getAvatarInitials(msg.author.name)}
                   </AvatarFallback>
                 </Avatar>
                 <span className="text-[11px] font-semibold">

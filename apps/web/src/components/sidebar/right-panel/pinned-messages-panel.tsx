@@ -3,6 +3,7 @@ import { HugeiconsIcon } from "@hugeicons/react"
 import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar"
 import { SidebarToggleIcon } from "@repo/ui/components/unlumen-ui/sidebar-toggle-icon"
 import { useIsMobile } from "@repo/ui/hooks/use-mobile"
+import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { formatTime } from "@repo/utils/date"
 import { useQuery } from "@tanstack/react-query"
 import { ArrowLeft } from "lucide-react"
@@ -10,11 +11,6 @@ import { MessageMarkdown } from "@/components/chat/message-markdown"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import type { PinnedMessagesSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
 import { apiClient } from "@/lib/api-client"
-
-function nameInitial(name: string) {
-  const trimmed = name.trim()
-  return trimmed.length > 0 ? trimmed.charAt(0).toUpperCase() : "?"
-}
 
 export function PinnedMessagesPanel({
   view,
@@ -104,8 +100,12 @@ export function PinnedMessagesPanel({
                 {msg.author.image && (
                   <AvatarImage src={msg.author.image} alt={msg.author.name} />
                 )}
-                <AvatarFallback className="text-[9px] font-semibold">
-                  {nameInitial(msg.author.displayUsername ?? msg.author.name)}
+                <AvatarFallback
+                  avatarColor={msg.author.avatarColor}
+                  className="text-[9px] font-semibold"
+                  fallbackSeed={msg.author.name}
+                >
+                  {getAvatarInitials(msg.author.name)}
                 </AvatarFallback>
               </Avatar>
               <span className="text-xs font-semibold">

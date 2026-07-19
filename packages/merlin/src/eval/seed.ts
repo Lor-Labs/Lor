@@ -1,4 +1,5 @@
 import { and, db, eq, MERLIN_USER_ID, schema } from "@repo/db"
+import { pickWorkspaceAvatarColor } from "@repo/utils/avatar-colors"
 import { writePage } from "../brain"
 import { ingestSource } from "../sources"
 
@@ -63,9 +64,28 @@ export async function seedEvalWorkspace(): Promise<SeededWorkspace> {
     "workspace"
   )
 
+  const userAvatarColor = pickWorkspaceAvatarColor(
+    [],
+    `${workspace.id}:${user.id}`
+  )
+  const merlinAvatarColor = pickWorkspaceAvatarColor(
+    [userAvatarColor],
+    `${workspace.id}:${MERLIN_USER_ID}`
+  )
+
   await db.insert(schema.workspaceMember).values([
-    { workspaceId: workspace.id, userId: user.id, role: "admin" },
-    { workspaceId: workspace.id, userId: MERLIN_USER_ID, role: "member" },
+    {
+      workspaceId: workspace.id,
+      userId: user.id,
+      role: "admin",
+      avatarColor: userAvatarColor,
+    },
+    {
+      workspaceId: workspace.id,
+      userId: MERLIN_USER_ID,
+      role: "member",
+      avatarColor: merlinAvatarColor,
+    },
   ])
 
   const channel = required(

@@ -12,6 +12,8 @@ type Workspace = {
 type WorkspaceContextValue = {
   workspace: Workspace | null
   workspaces: Workspace[]
+  // Own membership color in the active workspace (colors are workspace-scoped)
+  avatarColor: string | null
   isLoading: boolean
   error: string | null
   selectWorkspace: (workspaceId: string) => Promise<void>
@@ -23,8 +25,29 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const { data: session, isPending: isSessionPending } = authClient.useSession()
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [workspace, setWorkspace] = useState<Workspace | null>(null)
+  const [avatarColor, setAvatarColor] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const workspaceId = workspace?.id
+
+  useEffect(() => {
+    let isCurrent = true
+    if (!workspaceId) {
+      setAvatarColor(null)
+      return
+    }
+    void authClient.organization
+      .getActiveMember()
+      .then((result) => {
+        if (isCurrent) setAvatarColor(result.data?.avatarColor ?? null)
+      })
+      .catch(() => {
+        if (isCurrent) setAvatarColor(null)
+      })
+    return () => {
+      isCurrent = false
+    }
+  }, [workspaceId])
 
   const selectWorkspace = async (workspaceId: string) => {
     const next = workspaces.find((item) => item.id === workspaceId)
@@ -102,8 +125,15 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   }, [isSessionPending, session])
 
   const value = useMemo(
-    () => ({ workspace, workspaces, isLoading, error, selectWorkspace }),
-    [workspace, workspaces, isLoading, error]
+    () => ({
+      workspace,
+      workspaces,
+      avatarColor,
+      isLoading,
+      error,
+      selectWorkspace,
+    }),
+    [workspace, workspaces, avatarColor, isLoading, error]
   )
 
   return (

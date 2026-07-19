@@ -4,10 +4,15 @@ import { router, useFocusEffect, useLocalSearchParams } from "expo-router"
 import { SymbolView } from "expo-symbols"
 import { useThemeColor } from "heroui-native/hooks"
 import { Spinner } from "heroui-native/spinner"
-import { useCallback, useEffect, useState } from "react"
-import { Alert, Text, View } from "react-native"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { Alert, Pressable, Text, View } from "react-native"
 import { KeyboardAvoidingView } from "react-native-keyboard-controller"
+import { ChannelOptionsSheet } from "@/components/channel-options-sheet"
 import { ChannelSearchOverlay } from "@/components/channel-search-overlay"
+import {
+  MemberListSheet,
+  workspaceMemberToListItem,
+} from "@/components/member-list-sheet"
 import { MessageComposer } from "@/components/message-composer"
 import { MessageList } from "@/components/message-list"
 import { IconButton } from "@/components/ui/icon-button"
@@ -15,9 +20,10 @@ import { Screen } from "@/components/ui/screen"
 import { StatePanel } from "@/components/ui/state-panel"
 import { useSocket, useSocketConnected } from "@/context/socket-context"
 import { useWorkspace } from "@/context/workspace-context"
-import { useCanPinMessages } from "@/hooks/use-can-pin-messages"
+import { useAutoMarkRead } from "@/hooks/use-auto-mark-read"
 import { useChannelDetail } from "@/hooks/use-channel-detail"
 import { useChannelMessages } from "@/hooks/use-channel-messages"
+import { useChannelPermissions } from "@/hooks/use-channel-permissions"
 import { useWorkspaceMentionCandidates } from "@/hooks/use-workspace-mention-candidates"
 import { api } from "@/lib/api"
 import type { ChannelSearchResult, Message } from "@/lib/api-types"
@@ -28,14 +34,20 @@ export default function ChannelScreen() {
   const [editingMessage, setEditingMessage] = useState<Message | null>(null)
   const [isSavingEdit, setIsSavingEdit] = useState(false)
   const [isSearchOpen, setIsSearchOpen] = useState(false)
+  const [isOptionsOpen, setIsOptionsOpen] = useState(false)
+  const [isMembersOpen, setIsMembersOpen] = useState(false)
   const [focusedMessageId, setFocusedMessageId] = useState<string | null>(null)
+  const hasFocusedRef = useRef(false)
   const [foreground, muted] = useThemeColor(["foreground", "muted"])
   const socket = useSocket()
   const isSocketConnected = useSocketConnected()
   const { workspace } = useWorkspace()
-  const { channelId } = useLocalSearchParams<{ channelId: string }>()
+  const { channelId, focusMessageId } = useLocalSearchParams<{
+    channelId: string
+    focusMessageId?: string
+  }>()
   const { data: session } = authClient.useSession()
-  const canPinMessages = useCanPinMessages(workspace?.id)
+  const permissions = useChannelPermissions(workspace?.id)
   const channelState = useChannelDetail({
     workspaceSlug: workspace?.slug ?? "",
     channelId: channelId ?? "",
@@ -47,18 +59,37 @@ export default function ChannelScreen() {
     socket,
     currentUser: session?.user,
   })
+  useAutoMarkRead(channelId)
   const mentions = useWorkspaceMentionCandidates({
     workspaceSlug: workspace?.slug ?? "",
     currentUserId: session?.user.id,
   })
+  const avatarColorByUserId = useMemo(
+    () =>
+      new Map(
+        mentions.members.map((member) => [member.userId, member.avatarColor])
+      ),
+    [mentions.members]
+  )
 
   useEffect(() => {
+    hasFocusedRef.current = false
     setReplyingTo(null)
     setEditingMessage(null)
     setIsSavingEdit(false)
     setIsSearchOpen(false)
+    setIsOptionsOpen(false)
+    setIsMembersOpen(false)
     setFocusedMessageId(null)
   }, [channelId])
+
+  useEffect(() => {
+    if (!focusMessageId) return
+    setIsOptionsOpen(false)
+    void chat.loadAround(focusMessageId).then((loaded) => {
+      if (loaded) setFocusedMessageId(focusMessageId)
+    })
+  }, [chat.loadAround, focusMessageId])
 
   useEffect(() => {
     if (
@@ -72,10 +103,12 @@ export default function ChannelScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      if (hasFocusedRef.current) void chat.reload({ replace: true })
+      else hasFocusedRef.current = true
       if (socket?.connected && channelId) {
         socket.emit("channel:join", { channelId })
       }
-    }, [socket, channelId])
+    }, [socket, channelId, chat.reload])
   )
 
   if (!workspace || !channelId) {
@@ -113,6 +146,10 @@ export default function ChannelScreen() {
   }
   const channel = channelState.channel
   const channelName = channel.name ?? "channel"
+  const memberItems = mentions.members.map(workspaceMemberToListItem)
+  const onlineMemberCount = memberItems.filter(
+    (member) => member.status === "online"
+  ).length
   const openThread = (message: Message) => {
     router.push({
       pathname: "/channel/[channelId]/thread/[threadRootId]",
@@ -221,7 +258,18 @@ export default function ChannelScreen() {
                 {channelName}
               </Text>
             </View>
-            <View className="flex-row items-center gap-one">
+            <Pressable
+              accessibilityHint="Opens the workspace member list"
+              accessibilityLabel={
+                isSocketConnected
+                  ? `${onlineMemberCount} members online`
+                  : "Reconnecting"
+              }
+              accessibilityRole="button"
+              className="flex-row items-center gap-one rounded-lor-sm active:opacity-70"
+              hitSlop={6}
+              onPress={() => setIsMembersOpen(true)}
+            >
               <View
                 className={`size-[7px] rounded-full ${
                   isSocketConnected ? "bg-success" : "bg-warning"
@@ -231,10 +279,12 @@ export default function ChannelScreen() {
                 className="min-w-0 flex-1 text-xs font-medium leading-4 text-muted"
                 numberOfLines={1}
               >
-                {isSocketConnected ? "Online" : "Reconnecting"}
+                {isSocketConnected
+                  ? `${onlineMemberCount} Online`
+                  : "Reconnecting"}
                 {channel.topic ? ` · ${channel.topic}` : ""}
               </Text>
-            </View>
+            </Pressable>
           </View>
           <IconButton
             accessibilityLabel="Search channel"
@@ -246,7 +296,7 @@ export default function ChannelScreen() {
           <IconButton
             accessibilityLabel="Channel options"
             className="mr-one"
-            onPress={() => router.push("/explore")}
+            onPress={() => setIsOptionsOpen(true)}
             variant="ghost"
           >
             <SymbolView
@@ -261,10 +311,12 @@ export default function ChannelScreen() {
           </IconButton>
         </View>
         <KeyboardAvoidingView
+          automaticOffset
           behavior="translate-with-padding"
           className="flex-1"
         >
           <MessageList
+            avatarColorByUserId={avatarColorByUserId}
             channelName={channelName}
             currentUserId={session?.user.id}
             editingMessageId={editingMessage?.id}
@@ -280,7 +332,7 @@ export default function ChannelScreen() {
             onRetry={() => void chat.reload()}
             onToggleReaction={chat.toggleReaction}
             onTogglePin={
-              canPinMessages
+              permissions.canPinMessages
                 ? (message) => {
                     void chat.togglePin(message.id, message.pinned)
                   }
@@ -322,6 +374,7 @@ export default function ChannelScreen() {
       </View>
       {isSearchOpen ? (
         <ChannelSearchOverlay
+          avatarColorByUserId={avatarColorByUserId}
           channelId={channelId}
           channelName={channelName}
           onClose={() => setIsSearchOpen(false)}
@@ -330,6 +383,33 @@ export default function ChannelScreen() {
           workspaceSlug={workspace.slug}
         />
       ) : null}
+      <ChannelOptionsSheet
+        canDeleteChannel={permissions.canDeleteChannel}
+        canUpdateChannel={permissions.canUpdateChannel}
+        channel={channel}
+        isOpen={isOptionsOpen}
+        onChannelDeleted={() => router.replace("/")}
+        onChannelUpdated={channelState.replaceChannel}
+        onOpenPinnedMessages={() => {
+          router.push({
+            pathname: "/channel/[channelId]/pins",
+            params: { channelId },
+          })
+          setIsOptionsOpen(false)
+        }}
+        onOpenChange={setIsOptionsOpen}
+        workspaceName={workspace.name}
+        workspaceSlug={workspace.slug}
+      />
+      <MemberListSheet
+        error={mentions.error}
+        isLoading={mentions.isLoading}
+        isOpen={isMembersOpen}
+        members={memberItems}
+        onOpenChange={setIsMembersOpen}
+        onRetry={() => void mentions.reload()}
+        title="Channel members"
+      />
     </Screen>
   )
 }
