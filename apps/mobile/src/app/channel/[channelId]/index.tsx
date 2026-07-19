@@ -116,8 +116,11 @@ export default function ChannelScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      if (hasFocusedRef.current) void chat.reload({ replace: true })
-      else hasFocusedRef.current = true
+      if (hasFocusedRef.current) {
+        void chat.reload({ replace: true, silent: true })
+      } else {
+        hasFocusedRef.current = true
+      }
       if (socket?.connected && channelId) {
         socket.emit("channel:join", { channelId })
       }

@@ -38,6 +38,7 @@ export default function WorkspaceScreen() {
     selectWorkspace,
   } = useWorkspace()
   const [query, setQuery] = useState("")
+  const [isPullRefreshing, setIsPullRefreshing] = useState(false)
   const hasFocusedChannelsRef = useRef(false)
 
   const workspaceSlug = workspace?.slug ?? ""
@@ -56,6 +57,15 @@ export default function WorkspaceScreen() {
   const channels = channelsQuery.data ?? null
   const isLoadingChannels = Boolean(workspaceSlug) && channelsQuery.isPending
   const channelError = channelsQuery.error?.message ?? null
+
+  const pullToRefresh = async () => {
+    setIsPullRefreshing(true)
+    try {
+      await refetchChannels()
+    } finally {
+      setIsPullRefreshing(false)
+    }
+  }
 
   useEffect(() => {
     setQuery("")
@@ -256,8 +266,8 @@ export default function WorkspaceScreen() {
         keyboardShouldPersistTaps="handled"
         refreshControl={
           <RefreshControl
-            onRefresh={() => void refetchChannels()}
-            refreshing={channelsQuery.isRefetching}
+            onRefresh={() => void pullToRefresh()}
+            refreshing={isPullRefreshing}
             tintColor={theme.accent}
           />
         }

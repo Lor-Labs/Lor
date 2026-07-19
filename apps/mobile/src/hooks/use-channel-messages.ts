@@ -2,6 +2,7 @@ import type {
   RealtimeMessageThreadUpdated,
   ServerToClientEvents,
 } from "@repo/realtime-types"
+import { useQueryClient } from "@tanstack/react-query"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { api } from "@/lib/api"
 import type { Message } from "@/lib/api-types"
@@ -36,6 +37,7 @@ export function useChannelMessages({
     image?: string | null
   }
 }) {
+  const queryClient = useQueryClient()
   const [messages, setMessages] = useState<Message[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -49,10 +51,14 @@ export function useChannelMessages({
   channelIdentityRef.current = channelIdentity
 
   // `replace` drops local state in favor of the fetched page — used on socket
-  // reconnect so deletions missed while offline don't linger. Returns the
+  // reconnect so deletions missed while offline don't linger. `silent` skips
+  // the loading state so already-rendered messages stay visible. Returns the
   // fetched page (or null on failure) so error paths can check canonical state.
   const reload = useCallback(
-    async ({ replace = false } = {}): Promise<Message[] | null> => {
+    async ({
+      replace = false,
+      silent = false,
+    } = {}): Promise<Message[] | null> => {
       const requestId = ++reloadRequestRef.current
       const requestIdentity = `${workspaceSlug}:${channelId}`
 
@@ -68,7 +74,7 @@ export function useChannelMessages({
         return null
       }
 
-      setIsLoading(true)
+      if (!silent) setIsLoading(true)
       setError(null)
       try {
         const response = await api.v1.workspaces[":workspaceSlug"].channels[
@@ -83,6 +89,7 @@ export function useChannelMessages({
           requestId === reloadRequestRef.current &&
           requestIdentity === channelIdentityRef.current
         ) {
+          queryClient.setQueryData(["messages", channelId], payload.data)
           // Replace still keeps unacked optimistic sends so an in-flight
           // message survives a reconnect reload until its ack resolves.
           setMessages((current) =>
@@ -113,17 +120,37 @@ export function useChannelMessages({
         }
       }
     },
-    [workspaceSlug, channelId]
+    [workspaceSlug, channelId, queryClient]
   )
 
   useEffect(() => {
     messagesRef.current = messages
   }, [messages])
 
+  // Seed from the last cached page so returning to a channel renders
+  // instantly; the silent replace-reload reconciles against the server.
   useEffect(() => {
-    setMessages([])
-    void reload()
-  }, [reload])
+    const cached = channelId
+      ? queryClient.getQueryData<Message[]>(["messages", channelId])
+      : undefined
+    const seeded = Boolean(cached?.length)
+    setMessages(cached ?? [])
+    if (seeded) setIsLoading(false)
+    void reload({ replace: seeded, silent: seeded })
+  }, [reload, channelId, queryClient])
+
+  // Keep the cache current with socket-applied updates for the next visit.
+  useEffect(() => {
+    if (!channelId) return
+    return () => {
+      const snapshot = messagesRef.current.filter(
+        (message) => !isOptimisticMessage(message)
+      )
+      if (snapshot.length > 0) {
+        queryClient.setQueryData(["messages", channelId], snapshot)
+      }
+    }
+  }, [channelId, queryClient])
 
   useEffect(() => {
     if (!socket) return
@@ -133,7 +160,7 @@ export function useChannelMessages({
     }
     const rejoinChannel = () => {
       joinChannel()
-      void reload({ replace: true })
+      void reload({ replace: true, silent: true })
     }
     const receiveMessage = (
       message: Parameters<typeof realtimeMessageToMessage>[0]
@@ -441,7 +468,7 @@ export function useChannelMessages({
       } catch (cause) {
         const isTimeout =
           cause instanceof Error && cause.message === "operation has timed out"
-        const canonical = await reload({ replace: true })
+        const canonical = await reload({ replace: true, silent: true })
         // A timed-out ack can race a delivered edit; trust the refetched page.
         if (
           isTimeout &&
@@ -491,7 +518,7 @@ export function useChannelMessages({
       } catch (cause) {
         const isTimeout =
           cause instanceof Error && cause.message === "operation has timed out"
-        const canonical = await reload({ replace: true })
+        const canonical = await reload({ replace: true, silent: true })
         // A timed-out ack can race a delivered delete; trust the refetched page.
         if (
           isTimeout &&
