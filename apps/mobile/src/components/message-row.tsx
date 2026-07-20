@@ -280,13 +280,10 @@ export function MessageRow({
       <View className="min-w-10 pt-px">
         {showHeader ? (
           <Pressable
-            accessibilityLabel={
-              authorPress
-                ? `View ${messageDisplayName(message)}'s profile`
-                : undefined
-            }
-            accessibilityRole={authorPress ? "button" : undefined}
+            accessibilityElementsHidden
+            accessible={false}
             disabled={!authorPress}
+            importantForAccessibility="no-hide-descendants"
             onPress={authorPress}
           >
             <MessageAvatar
@@ -375,13 +372,10 @@ export function ThreadRootMessage({
       ) : null}
       <View className="flex-row items-center gap-three">
         <Pressable
-          accessibilityLabel={
-            authorPress
-              ? `View ${messageDisplayName(message)}'s profile`
-              : undefined
-          }
-          accessibilityRole={authorPress ? "button" : undefined}
+          accessibilityElementsHidden
+          accessible={false}
           disabled={!authorPress}
+          importantForAccessibility="no-hide-descendants"
           onPress={authorPress}
         >
           <MessageAvatar

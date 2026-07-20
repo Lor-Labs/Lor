@@ -40,6 +40,7 @@ export function useProfileSheet({
   }
 
   const openAuthorProfile = (message: Message) => {
+    clearTransition()
     const member = members.find(
       (candidate) => candidate.userId === message.author.id
     )
