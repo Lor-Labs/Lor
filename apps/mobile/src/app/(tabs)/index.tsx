@@ -114,8 +114,12 @@ export default function WorkspaceScreen() {
   if (!workspace) {
     return (
       <StatePanel
+        action={{
+          label: "Create or join a workspace",
+          onPress: () => router.push("/onboarding"),
+        }}
         className="flex-1"
-        detail="Create or join a Lor workspace on web, then return here to chat with your team."
+        detail="Create a new workspace or join one with an invite link."
         title="No workspace yet"
       />
     )

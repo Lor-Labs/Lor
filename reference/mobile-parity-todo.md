@@ -14,7 +14,6 @@ Last audited: 2026-07-19.
 
 - [ ] **Member management** — role change + kick from the member sheet (API exists: `PATCH /members/:userId/role`, `POST /members/:userId/kick`; mobile sheet is read-only).
 - [ ] **Workspace settings** — rename/logo + Merlin profiles section (web: `workspace-settings-dialog.tsx`, `merlin-profiles-section.tsx`).
-- [ ] **Create workspace** — mobile currently says "create on web". Decide deliberately whether that stays the v1 stance.
 
 ## Tier 3 — composer & detail polish
 
@@ -31,6 +30,8 @@ Last audited: 2026-07-19.
 
 ## Done (recent parity work)
 
+- [x] Sign-up end to end (`sign-up` → `check-email` → `verify-email` deep link with session hand-off via expo plugin `?cookie=` param) + onboarding screen (username → create/join workspace, mirrors web's gate) + create workspace on mobile — 2026-07-20
+- [x] Required typed env (`lib/env.ts` Zod schema, no fallbacks; `.env.example` added) — 2026-07-20
 - [x] Invites (create/share via `create-invite-sheet` on home header — any member; `lor://invite/CODE` deep-link join screen with preview/accept/sign-in handoff; invite *management* list/revoke stays web-side, admin-tier) — 2026-07-20
 - [x] Channel creation (header + button → `create-channel-sheet`, name normalization + category picker; category *creation* stays web-side) — 2026-07-19
 - [x] Typing indicators (channel + thread scoped; `use-typing-indicator` mirrors web's throttle/expiry) — 2026-07-19

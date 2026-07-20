@@ -1,4 +1,4 @@
-import { Redirect } from "expo-router"
+import { Redirect, router } from "expo-router"
 import { useState } from "react"
 import {
   ActivityIndicator,
@@ -48,7 +48,18 @@ export default function SignInScreen() {
         email: email.trim(),
         password,
       })
-      if (result.error) setError(result.error.message ?? "Sign in failed")
+      if (result.error) {
+        // 403 = email not verified — better-auth re-sends the verification
+        // email automatically on the failed attempt.
+        if (result.error.status === 403) {
+          router.replace({
+            pathname: "/check-email",
+            params: { email: email.trim() },
+          })
+          return
+        }
+        setError(result.error.message ?? "Sign in failed")
+      }
     } catch {
       setError("Sign in failed. Check your connection and try again.")
     } finally {
@@ -136,6 +147,18 @@ export default function SignInScreen() {
                   Sign in
                 </Text>
               )}
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              className="min-h-11 items-center justify-center active:opacity-70"
+              onPress={() => router.replace("/sign-up")}
+            >
+              <Text className="text-sm font-medium text-lor-text-secondary dark:text-lor-text-secondary-dark">
+                Don’t have an account?{" "}
+                <Text className="font-semibold text-lor-accent dark:text-lor-accent-dark">
+                  Sign up
+                </Text>
+              </Text>
             </Pressable>
           </View>
         </View>

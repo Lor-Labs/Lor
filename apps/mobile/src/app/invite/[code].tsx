@@ -76,6 +76,11 @@ export default function InviteScreen() {
     }
   }
 
+  const signUpToJoin = () => {
+    if (code) setPendingInviteCode(code)
+    router.replace("/sign-up")
+  }
+
   const signInToJoin = () => {
     if (code) setPendingInviteCode(code)
     router.replace("/sign-in")
@@ -166,7 +171,12 @@ export default function InviteScreen() {
                 {isJoining ? "Joining…" : "Accept invite"}
               </Button>
             ) : (
-              <Button onPress={signInToJoin}>Sign in to join</Button>
+              <>
+                <Button onPress={signUpToJoin}>Sign up to join</Button>
+                <Button onPress={signInToJoin} variant="secondary">
+                  I have an account
+                </Button>
+              </>
             )}
             <Button onPress={goHome} variant="ghost">
               Not now
