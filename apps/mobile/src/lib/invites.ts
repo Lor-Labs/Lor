@@ -1,7 +1,7 @@
-const WEB_URL = process.env.EXPO_PUBLIC_WEB_URL ?? "https://app.lor.chat"
+import { env } from "./env"
 
 export function inviteUrl(code: string) {
-  return `${WEB_URL}/invite/${code}`
+  return `${env.EXPO_PUBLIC_WEB_URL}/invite/${code}`
 }
 
 // Carries an invite code across the sign-in redirect for signed-out users

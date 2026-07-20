@@ -10,10 +10,10 @@ import {
 } from "better-auth/client/plugins"
 import { createAuthClient } from "better-auth/react"
 import * as SecureStore from "expo-secure-store"
+import { env } from "./env"
 import { ac, admin, member, owner } from "./permissions"
 
-export const API_URL =
-  process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:8080"
+export const API_URL = env.EXPO_PUBLIC_API_URL
 
 export const authClient = createAuthClient({
   baseURL: API_URL,
