@@ -12,6 +12,7 @@ import {
 import { Screen } from "@/components/ui/screen"
 import { useTheme } from "@/hooks/use-theme"
 import { authClient } from "@/lib/auth-client"
+import { consumePendingInviteCode } from "@/lib/invites"
 
 export default function SignInScreen() {
   const theme = useTheme()
@@ -21,7 +22,20 @@ export default function SignInScreen() {
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
-  if (session) return <Redirect href="/" />
+  if (session) {
+    const pendingInviteCode = consumePendingInviteCode()
+    if (pendingInviteCode) {
+      return (
+        <Redirect
+          href={{
+            pathname: "/invite/[code]",
+            params: { code: pendingInviteCode },
+          }}
+        />
+      )
+    }
+    return <Redirect href="/" />
+  }
 
   const canSubmit =
     email.trim().length > 0 && password.length > 0 && !submitting

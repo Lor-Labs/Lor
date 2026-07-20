@@ -1,4 +1,5 @@
 import PlusSignIcon from "@hugeicons/core-free-icons/PlusSignIcon"
+import UserAdd01Icon from "@hugeicons/core-free-icons/UserAdd01Icon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
 import { useQuery } from "@tanstack/react-query"
 import * as Haptics from "expo-haptics"
@@ -16,6 +17,7 @@ import {
 } from "react-native"
 import { ChannelList } from "@/components/channel-list"
 import { CreateChannelSheet } from "@/components/create-channel-sheet"
+import { CreateInviteSheet } from "@/components/create-invite-sheet"
 import { Avatar } from "@/components/ui/avatar"
 import { IconButton } from "@/components/ui/icon-button"
 import { Screen } from "@/components/ui/screen"
@@ -45,6 +47,7 @@ export default function WorkspaceScreen() {
   const [query, setQuery] = useState("")
   const [isPullRefreshing, setIsPullRefreshing] = useState(false)
   const [isCreateChannelOpen, setIsCreateChannelOpen] = useState(false)
+  const [isInviteOpen, setIsInviteOpen] = useState(false)
   const hasFocusedChannelsRef = useRef(false)
   const permissions = useChannelPermissions(workspace?.id)
 
@@ -77,6 +80,7 @@ export default function WorkspaceScreen() {
   useEffect(() => {
     setQuery("")
     setIsCreateChannelOpen(false)
+    setIsInviteOpen(false)
   }, [workspace?.id])
 
   useFocusEffect(
@@ -182,6 +186,13 @@ export default function WorkspaceScreen() {
                 : `${channelCount} ${channelCount === 1 ? "channel" : "channels"}`}
             </Text>
           </View>
+          <IconButton
+            accessibilityLabel="Invite people"
+            onPress={() => setIsInviteOpen(true)}
+            variant="ghost"
+          >
+            <HugeiconsIcon color={theme.text} icon={UserAdd01Icon} size={20} />
+          </IconButton>
           {permissions.canCreateChannel ? (
             <IconButton
               accessibilityLabel="Create channel"
@@ -327,6 +338,12 @@ export default function WorkspaceScreen() {
         isOpen={isCreateChannelOpen}
         onCreated={openCreatedChannel}
         onOpenChange={setIsCreateChannelOpen}
+        workspaceName={workspace.name}
+        workspaceSlug={workspace.slug}
+      />
+      <CreateInviteSheet
+        isOpen={isInviteOpen}
+        onOpenChange={setIsInviteOpen}
         workspaceName={workspace.name}
         workspaceSlug={workspace.slug}
       />
