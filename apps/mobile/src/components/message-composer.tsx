@@ -69,6 +69,7 @@ export function MessageComposer({
   isMentionCandidatesLoading = false,
   mentionCandidatesError = null,
   mentionRef,
+  onTyping,
 }: {
   channelId: string
   channelName: string
@@ -89,6 +90,7 @@ export function MessageComposer({
   isMentionCandidatesLoading?: boolean
   mentionCandidatesError?: string | null
   mentionRef?: Ref<MessageComposerMentionHandle>
+  onTyping?: () => void
 }) {
   const { bottom: bottomInset } = useSafeAreaInsets()
   const { height: windowHeight } = useWindowDimensions()
@@ -99,6 +101,8 @@ export function MessageComposer({
     "field-placeholder",
   ])
   const inputRef = useRef<EnrichedMarkdownTextInputInstance>(null)
+  const onTypingRef = useRef(onTyping)
+  onTypingRef.current = onTyping
   const activeEditingMessageIdRef = useRef<string | null>(null)
   const draftBeforeEditRef = useRef<{
     content: string
@@ -506,7 +510,10 @@ export function MessageComposer({
             setMentionQuery(text)
             openMentionMenu()
           }}
-          onChangeText={setPlainText}
+          onChangeText={(text) => {
+            setPlainText(text)
+            if (text.length > 0 && !isEditing) onTypingRef.current?.()
+          }}
           onEndMention={closeMentionMenu}
           onFocus={() => {
             setIsFocused(true)

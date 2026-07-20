@@ -27,6 +27,7 @@ export function TypingIndicator({ users }: { users: TypingUser[] }) {
           className="overflow-hidden"
         >
           <div className="flex h-6 items-center gap-1.5 px-4 text-xs text-muted-foreground">
+            <span>{formatTypingText(users)}</span>
             <span className="inline-flex gap-0.5">
               <span
                 className="animate-bounce"
@@ -47,7 +48,6 @@ export function TypingIndicator({ users }: { users: TypingUser[] }) {
                 .
               </span>
             </span>
-            <span>{formatTypingText(users)}</span>
           </div>
         </motion.div>
       )}

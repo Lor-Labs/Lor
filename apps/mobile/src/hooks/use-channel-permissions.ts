@@ -6,6 +6,7 @@ import { useMemo } from "react"
 import { useActiveMember } from "@/hooks/use-active-member"
 
 type ChannelPermissions = {
+  canCreateChannel: boolean
   canDeleteChannel: boolean
   canPinMessages: boolean
   canUpdateChannel: boolean
@@ -13,6 +14,7 @@ type ChannelPermissions = {
 }
 
 const EMPTY_PERMISSIONS: ChannelPermissions = {
+  canCreateChannel: false,
   canDeleteChannel: false,
   canPinMessages: false,
   canUpdateChannel: false,
@@ -33,6 +35,9 @@ export function useChannelPermissions(workspaceId?: string) {
 
     const authority = { role }
     return {
+      canCreateChannel: workspaceAuthorityHasPermissions(authority, {
+        channel: ["create"],
+      }),
       canDeleteChannel: workspaceAuthorityHasPermissions(authority, {
         channel: ["delete"],
       }),

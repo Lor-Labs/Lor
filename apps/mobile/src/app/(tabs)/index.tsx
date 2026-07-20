@@ -1,3 +1,5 @@
+import PlusSignIcon from "@hugeicons/core-free-icons/PlusSignIcon"
+import { HugeiconsIcon } from "@hugeicons/react-native"
 import { useQuery } from "@tanstack/react-query"
 import * as Haptics from "expo-haptics"
 import { router, useFocusEffect } from "expo-router"
@@ -13,12 +15,15 @@ import {
   View,
 } from "react-native"
 import { ChannelList } from "@/components/channel-list"
+import { CreateChannelSheet } from "@/components/create-channel-sheet"
 import { Avatar } from "@/components/ui/avatar"
+import { IconButton } from "@/components/ui/icon-button"
 import { Screen } from "@/components/ui/screen"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatePanel } from "@/components/ui/state-panel"
 import { WorkspaceSearchResults } from "@/components/workspace-search-results"
 import { useWorkspace } from "@/context/workspace-context"
+import { useChannelPermissions } from "@/hooks/use-channel-permissions"
 import { useMessageSearch } from "@/hooks/use-message-search"
 import { useTheme } from "@/hooks/use-theme"
 import { api } from "@/lib/api"
@@ -39,7 +44,9 @@ export default function WorkspaceScreen() {
   } = useWorkspace()
   const [query, setQuery] = useState("")
   const [isPullRefreshing, setIsPullRefreshing] = useState(false)
+  const [isCreateChannelOpen, setIsCreateChannelOpen] = useState(false)
   const hasFocusedChannelsRef = useRef(false)
+  const permissions = useChannelPermissions(workspace?.id)
 
   const workspaceSlug = workspace?.slug ?? ""
   const channelsQuery = useQuery({
@@ -69,6 +76,7 @@ export default function WorkspaceScreen() {
 
   useEffect(() => {
     setQuery("")
+    setIsCreateChannelOpen(false)
   }, [workspace?.id])
 
   useFocusEffect(
@@ -114,6 +122,11 @@ export default function WorkspaceScreen() {
       pathname: "/channel/[channelId]",
       params: { channelId: channel.id },
     } as never)
+
+  const openCreatedChannel = (channel: Channel) => {
+    void refetchChannels()
+    openChannel(channel)
+  }
 
   const openSearchMessage = async (message: ChannelSearchResult) => {
     const location = await api.v1.workspaces[":workspaceSlug"].messages[
@@ -169,6 +182,15 @@ export default function WorkspaceScreen() {
                 : `${channelCount} ${channelCount === 1 ? "channel" : "channels"}`}
             </Text>
           </View>
+          {permissions.canCreateChannel ? (
+            <IconButton
+              accessibilityLabel="Create channel"
+              onPress={() => setIsCreateChannelOpen(true)}
+              variant="ghost"
+            >
+              <HugeiconsIcon color={theme.text} icon={PlusSignIcon} size={20} />
+            </IconButton>
+          ) : null}
         </View>
 
         <View className="mt-two px-four">
@@ -300,6 +322,14 @@ export default function WorkspaceScreen() {
           />
         )}
       </ScrollView>
+      <CreateChannelSheet
+        categories={channels?.categories ?? []}
+        isOpen={isCreateChannelOpen}
+        onCreated={openCreatedChannel}
+        onOpenChange={setIsCreateChannelOpen}
+        workspaceName={workspace.name}
+        workspaceSlug={workspace.slug}
+      />
     </Screen>
   )
 }

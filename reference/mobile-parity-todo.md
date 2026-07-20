@@ -7,10 +7,8 @@ Last audited: 2026-07-19.
 
 ## Tier 1 — big functional gaps
 
-- [ ] **Typing indicators** — realtime events already exist (`packages/realtime-types`, rendered by web `chat/typing-indicator.tsx`); mobile doesn't listen/render. Cheap win, do first.
 - [ ] **Push notifications** — `expo-notifications` installed but nothing wired. Full-stack: token registration on device, server-side send pipeline (mention/DM/thread activity), tap-to-deep-link. Biggest retention lever.
 - [ ] **DMs** — largest missing surface. API fully built (`/dms`, `/dms/:id/messages`, thread, search). Needs own tab/stack per the scoped-vs-global nav rule (never mixed into workspace sidebar). Also unblocks a "Message" action on the mobile user profile sheet.
-- [ ] **Channel creation** — mobile can edit/delete but not create (web: `create-channel-dialog.tsx`, supports type/category).
 - [ ] **Invites** — create/manage invite links (web: `invite/*-dialog.tsx`) + deep-link join flow for `/invite/$code` (pair with `lor://` scheme handling).
 
 ## Tier 2 — admin & workspace management
@@ -34,6 +32,8 @@ Last audited: 2026-07-19.
 
 ## Done (recent parity work)
 
+- [x] Channel creation (header + button → `create-channel-sheet`, name normalization + category picker; category *creation* stays web-side) — 2026-07-19
+- [x] Typing indicators (channel + thread scoped; `use-typing-indicator` mirrors web's throttle/expiry) — 2026-07-19
 - [x] React Query for all REST reads (matching web's query-key conventions + 60s staleTime; socket message stores intentionally not migrated) — 2026-07-19
 - [x] User profile sheet (tap avatar/name in messages, member list, thread participants) with bio/status/presence, Mention + Copy username actions — 2026-07-19
 - [x] Uncategorized channels render flat (no collapsible group) — 2026-07-19

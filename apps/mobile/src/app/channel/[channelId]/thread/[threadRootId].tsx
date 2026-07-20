@@ -18,6 +18,7 @@ import {
   ThreadMessageListSkeleton,
 } from "@/components/thread-message-list"
 import { ThreadParticipantStack } from "@/components/thread-participant-stack"
+import { TypingIndicator } from "@/components/typing-indicator"
 import { IconButton } from "@/components/ui/icon-button"
 import { Screen } from "@/components/ui/screen"
 import { StatePanel } from "@/components/ui/state-panel"
@@ -31,6 +32,7 @@ import { useAutoMarkRead } from "@/hooks/use-auto-mark-read"
 import { useCanPinMessages } from "@/hooks/use-can-pin-messages"
 import { useChannelDetail } from "@/hooks/use-channel-detail"
 import { useThreadMessages } from "@/hooks/use-thread-messages"
+import { useTypingIndicator } from "@/hooks/use-typing-indicator"
 import { useWorkspaceMentionCandidates } from "@/hooks/use-workspace-mention-candidates"
 import type { Message } from "@/lib/api-types"
 import { authClient } from "@/lib/auth-client"
@@ -64,6 +66,12 @@ export default function ThreadScreen() {
     currentUser: session?.user,
   })
   useAutoMarkRead(channelId)
+  const { typingUsers, emitTyping } = useTypingIndicator({
+    socket,
+    channelId: channelId ?? "",
+    currentUserId: session?.user.id,
+    threadRootId: threadRootId ?? "",
+  })
   const mentions = useWorkspaceMentionCandidates({
     workspaceSlug: workspace?.slug ?? "",
     currentUserId: session?.user.id,
@@ -288,6 +296,9 @@ export default function ThreadScreen() {
           />
         )}
         {thread.root && !thread.isMissing && !thread.error ? (
+          <TypingIndicator users={typingUsers} />
+        ) : null}
+        {thread.root && !thread.isMissing && !thread.error ? (
           <MessageComposer
             accessibilityLabel="Reply in thread"
             channelId={channelId}
@@ -301,6 +312,7 @@ export default function ThreadScreen() {
             mentionRef={composerMentionRef}
             onCancelEdit={() => setEditingMessage(null)}
             onCancelReply={() => setReplyingTo(null)}
+            onTyping={emitTyping}
             onEdit={async (messageId, content) => {
               setIsSavingEdit(true)
               try {

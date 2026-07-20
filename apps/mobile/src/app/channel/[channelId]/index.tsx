@@ -21,6 +21,7 @@ import {
 } from "@/components/message-composer"
 import { MessageList } from "@/components/message-list"
 import { messageDisplayName } from "@/components/message-row"
+import { TypingIndicator } from "@/components/typing-indicator"
 import { IconButton } from "@/components/ui/icon-button"
 import { Screen } from "@/components/ui/screen"
 import { StatePanel } from "@/components/ui/state-panel"
@@ -34,6 +35,7 @@ import { useAutoMarkRead } from "@/hooks/use-auto-mark-read"
 import { useChannelDetail } from "@/hooks/use-channel-detail"
 import { useChannelMessages } from "@/hooks/use-channel-messages"
 import { useChannelPermissions } from "@/hooks/use-channel-permissions"
+import { useTypingIndicator } from "@/hooks/use-typing-indicator"
 import { useWorkspaceMentionCandidates } from "@/hooks/use-workspace-mention-candidates"
 import { api } from "@/lib/api"
 import type { ChannelSearchResult, Message } from "@/lib/api-types"
@@ -72,6 +74,11 @@ export default function ChannelScreen() {
     currentUser: session?.user,
   })
   useAutoMarkRead(channelId)
+  const { typingUsers, emitTyping } = useTypingIndicator({
+    socket,
+    channelId: channelId ?? "",
+    currentUserId: session?.user.id,
+  })
   const mentions = useWorkspaceMentionCandidates({
     workspaceSlug: workspace?.slug ?? "",
     currentUserId: session?.user.id,
@@ -391,6 +398,7 @@ export default function ChannelScreen() {
             }
             replyingToId={replyingTo?.id}
           />
+          <TypingIndicator users={typingUsers} />
           <MessageComposer
             channelId={channelId}
             channelName={channelName}
@@ -403,6 +411,7 @@ export default function ChannelScreen() {
             mentionRef={composerMentionRef}
             onCancelEdit={() => setEditingMessage(null)}
             onCancelReply={() => setReplyingTo(null)}
+            onTyping={emitTyping}
             onEdit={async (messageId, content) => {
               setIsSavingEdit(true)
               try {
