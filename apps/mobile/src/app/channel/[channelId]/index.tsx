@@ -10,20 +10,28 @@ import { KeyboardAvoidingView } from "react-native-keyboard-controller"
 import { ChannelOptionsSheet } from "@/components/channel-options-sheet"
 import { ChannelSearchOverlay } from "@/components/channel-search-overlay"
 import {
+  type MemberListItem,
   MemberListSheet,
   workspaceMemberToListItem,
 } from "@/components/member-list-sheet"
-import { MessageComposer } from "@/components/message-composer"
+import {
+  MessageComposer,
+  type MessageComposerMentionHandle,
+} from "@/components/message-composer"
 import { MessageList } from "@/components/message-list"
+import { TypingIndicator } from "@/components/typing-indicator"
 import { IconButton } from "@/components/ui/icon-button"
 import { Screen } from "@/components/ui/screen"
 import { StatePanel } from "@/components/ui/state-panel"
+import { UserProfileSheet } from "@/components/user-profile-sheet"
 import { useSocket, useSocketConnected } from "@/context/socket-context"
 import { useWorkspace } from "@/context/workspace-context"
 import { useAutoMarkRead } from "@/hooks/use-auto-mark-read"
 import { useChannelDetail } from "@/hooks/use-channel-detail"
 import { useChannelMessages } from "@/hooks/use-channel-messages"
 import { useChannelPermissions } from "@/hooks/use-channel-permissions"
+import { useProfileSheet } from "@/hooks/use-profile-sheet"
+import { useTypingIndicator } from "@/hooks/use-typing-indicator"
 import { useWorkspaceMentionCandidates } from "@/hooks/use-workspace-mention-candidates"
 import { api } from "@/lib/api"
 import type { ChannelSearchResult, Message } from "@/lib/api-types"
@@ -38,6 +46,7 @@ export default function ChannelScreen() {
   const [isMembersOpen, setIsMembersOpen] = useState(false)
   const [focusedMessageId, setFocusedMessageId] = useState<string | null>(null)
   const hasFocusedRef = useRef(false)
+  const composerMentionRef = useRef<MessageComposerMentionHandle>(null)
   const [foreground, muted] = useThemeColor(["foreground", "muted"])
   const socket = useSocket()
   const isSocketConnected = useSocketConnected()
@@ -60,6 +69,11 @@ export default function ChannelScreen() {
     currentUser: session?.user,
   })
   useAutoMarkRead(channelId)
+  const { typingUsers, emitTyping } = useTypingIndicator({
+    socket,
+    channelId: channelId ?? "",
+    currentUserId: session?.user.id,
+  })
   const mentions = useWorkspaceMentionCandidates({
     workspaceSlug: workspace?.slug ?? "",
     currentUserId: session?.user.id,
@@ -71,6 +85,18 @@ export default function ChannelScreen() {
       ),
     [mentions.members]
   )
+  const {
+    closeProfile,
+    mentionFromProfile,
+    openAuthorProfile,
+    openMemberProfile,
+    profileUser,
+    resetProfileSheet,
+  } = useProfileSheet({
+    avatarColorByUserId,
+    members: mentions.members,
+    mentionRef: composerMentionRef,
+  })
 
   useEffect(() => {
     hasFocusedRef.current = false
@@ -81,7 +107,8 @@ export default function ChannelScreen() {
     setIsOptionsOpen(false)
     setIsMembersOpen(false)
     setFocusedMessageId(null)
-  }, [channelId])
+    resetProfileSheet()
+  }, [channelId, resetProfileSheet])
 
   useEffect(() => {
     if (!focusMessageId) return
@@ -103,8 +130,11 @@ export default function ChannelScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      if (hasFocusedRef.current) void chat.reload({ replace: true })
-      else hasFocusedRef.current = true
+      if (hasFocusedRef.current) {
+        void chat.reload({ replace: true, silent: true })
+      } else {
+        hasFocusedRef.current = true
+      }
       if (socket?.connected && channelId) {
         socket.emit("channel:join", { channelId })
       }
@@ -159,6 +189,10 @@ export default function ChannelScreen() {
   const startReply = (message: Message) => {
     setEditingMessage(null)
     setReplyingTo(message)
+  }
+  const openProfileFromMemberList = (member: MemberListItem) => {
+    setIsMembersOpen(false)
+    openMemberProfile(member)
   }
   const startEditing = (message: Message) => {
     setReplyingTo(null)
@@ -328,6 +362,7 @@ export default function ChannelScreen() {
             onOpenThread={openThread}
             onDelete={confirmDelete}
             onEdit={startEditing}
+            onPressAuthor={openAuthorProfile}
             onReply={startReply}
             onRetry={() => void chat.reload()}
             onToggleReaction={chat.toggleReaction}
@@ -340,6 +375,7 @@ export default function ChannelScreen() {
             }
             replyingToId={replyingTo?.id}
           />
+          <TypingIndicator users={typingUsers} />
           <MessageComposer
             channelId={channelId}
             channelName={channelName}
@@ -349,8 +385,10 @@ export default function ChannelScreen() {
             isSending={chat.isSending || isSavingEdit}
             mentionCandidates={mentions.candidates}
             mentionCandidatesError={mentions.error}
+            mentionRef={composerMentionRef}
             onCancelEdit={() => setEditingMessage(null)}
             onCancelReply={() => setReplyingTo(null)}
+            onTyping={emitTyping}
             onEdit={async (messageId, content) => {
               setIsSavingEdit(true)
               try {
@@ -407,8 +445,17 @@ export default function ChannelScreen() {
         isOpen={isMembersOpen}
         members={memberItems}
         onOpenChange={setIsMembersOpen}
+        onPressMember={openProfileFromMemberList}
         onRetry={() => void mentions.reload()}
         title="Channel members"
+      />
+      <UserProfileSheet
+        currentUserId={session?.user.id}
+        onMention={mentionFromProfile}
+        onOpenChange={(isOpen) => {
+          if (!isOpen) closeProfile()
+        }}
+        user={profileUser}
       />
     </Screen>
   )

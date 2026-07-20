@@ -1,4 +1,5 @@
 import Search01Icon from "@hugeicons/core-free-icons/Search01Icon"
+import ThreadIcon from "@hugeicons/core-free-icons/ThreadIcon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
 import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { formatDateTime } from "@repo/utils/date"
@@ -74,8 +75,12 @@ export function ChannelSearchOverlay({
 
     return (
       <Pressable
-        accessibilityHint="Returns to the channel and focuses this message"
-        accessibilityLabel={`Message from ${displayName}: ${preview}`}
+        accessibilityHint={
+          item.threadRootId
+            ? "Opens the thread containing this message"
+            : "Returns to the channel and focuses this message"
+        }
+        accessibilityLabel={`Message from ${displayName}${item.threadRootId ? " in a thread" : ""}: ${preview}`}
         accessibilityRole="button"
         className="mx-three flex-row gap-three border-b border-separator px-one py-three active:bg-surface-secondary"
         onPress={() => {
@@ -105,6 +110,12 @@ export function ChannelSearchOverlay({
               {formatDateTime(item.createdAt)}
             </Text>
           </View>
+          {item.threadRootId ? (
+            <View className="flex-row items-center gap-one">
+              <HugeiconsIcon color={muted} icon={ThreadIcon} size={12} />
+              <Text className="text-xs font-medium text-muted">In thread</Text>
+            </View>
+          ) : null}
           <View className="max-h-[66px] overflow-hidden" pointerEvents="none">
             <MessageContent content={item.content} mentions={item.mentions} />
           </View>

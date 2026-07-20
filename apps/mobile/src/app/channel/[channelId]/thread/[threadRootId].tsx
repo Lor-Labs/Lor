@@ -1,24 +1,31 @@
 import { router, useLocalSearchParams } from "expo-router"
 import { SymbolView } from "expo-symbols"
 import { useThemeColor } from "heroui-native/hooks"
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { Alert, Text, View } from "react-native"
 import { KeyboardAvoidingView } from "react-native-keyboard-controller"
-import { MessageComposer } from "@/components/message-composer"
+import {
+  MessageComposer,
+  type MessageComposerMentionHandle,
+} from "@/components/message-composer"
 import {
   ThreadMessageList,
   ThreadMessageListSkeleton,
 } from "@/components/thread-message-list"
 import { ThreadParticipantStack } from "@/components/thread-participant-stack"
+import { TypingIndicator } from "@/components/typing-indicator"
 import { IconButton } from "@/components/ui/icon-button"
 import { Screen } from "@/components/ui/screen"
 import { StatePanel } from "@/components/ui/state-panel"
+import { UserProfileSheet } from "@/components/user-profile-sheet"
 import { useSocket, useSocketConnected } from "@/context/socket-context"
 import { useWorkspace } from "@/context/workspace-context"
 import { useAutoMarkRead } from "@/hooks/use-auto-mark-read"
 import { useCanPinMessages } from "@/hooks/use-can-pin-messages"
 import { useChannelDetail } from "@/hooks/use-channel-detail"
+import { useProfileSheet } from "@/hooks/use-profile-sheet"
 import { useThreadMessages } from "@/hooks/use-thread-messages"
+import { useTypingIndicator } from "@/hooks/use-typing-indicator"
 import { useWorkspaceMentionCandidates } from "@/hooks/use-workspace-mention-candidates"
 import type { Message } from "@/lib/api-types"
 import { authClient } from "@/lib/auth-client"
@@ -27,6 +34,7 @@ export default function ThreadScreen() {
   const [replyingTo, setReplyingTo] = useState<Message | null>(null)
   const [editingMessage, setEditingMessage] = useState<Message | null>(null)
   const [isSavingEdit, setIsSavingEdit] = useState(false)
+  const composerMentionRef = useRef<MessageComposerMentionHandle>(null)
   const foreground = useThemeColor("foreground")
   const socket = useSocket()
   const isSocketConnected = useSocketConnected()
@@ -50,6 +58,12 @@ export default function ThreadScreen() {
     currentUser: session?.user,
   })
   useAutoMarkRead(channelId)
+  const { typingUsers, emitTyping } = useTypingIndicator({
+    socket,
+    channelId: channelId ?? "",
+    currentUserId: session?.user.id,
+    threadRootId: threadRootId ?? "",
+  })
   const mentions = useWorkspaceMentionCandidates({
     workspaceSlug: workspace?.slug ?? "",
     currentUserId: session?.user.id,
@@ -61,12 +75,25 @@ export default function ThreadScreen() {
       ),
     [mentions.members]
   )
+  const {
+    closeProfile,
+    mentionFromProfile,
+    openAuthorProfile,
+    openMemberProfile,
+    profileUser,
+    resetProfileSheet,
+  } = useProfileSheet({
+    avatarColorByUserId,
+    members: mentions.members,
+    mentionRef: composerMentionRef,
+  })
 
   useEffect(() => {
     setReplyingTo(null)
     setEditingMessage(null)
     setIsSavingEdit(false)
-  }, [channelId, threadRootId])
+    resetProfileSheet()
+  }, [channelId, threadRootId, resetProfileSheet])
 
   useEffect(() => {
     if (!editingMessage) return
@@ -181,6 +208,7 @@ export default function ThreadScreen() {
         </View>
         <ThreadParticipantStack
           members={mentions.members}
+          onPressMember={openMemberProfile}
           participants={thread.participants}
         />
       </View>
@@ -219,6 +247,7 @@ export default function ThreadScreen() {
             onLoadOlder={() => void thread.loadOlder()}
             onDelete={confirmDelete}
             onEdit={startEditing}
+            onPressAuthor={openAuthorProfile}
             onReply={startReply}
             onToggleReaction={thread.toggleReaction}
             onTogglePin={
@@ -235,6 +264,9 @@ export default function ThreadScreen() {
           />
         )}
         {thread.root && !thread.isMissing && !thread.error ? (
+          <TypingIndicator users={typingUsers} />
+        ) : null}
+        {thread.root && !thread.isMissing && !thread.error ? (
           <MessageComposer
             accessibilityLabel="Reply in thread"
             channelId={channelId}
@@ -245,8 +277,10 @@ export default function ThreadScreen() {
             isSending={thread.isSending || isSavingEdit}
             mentionCandidates={mentions.candidates}
             mentionCandidatesError={mentions.error}
+            mentionRef={composerMentionRef}
             onCancelEdit={() => setEditingMessage(null)}
             onCancelReply={() => setReplyingTo(null)}
+            onTyping={emitTyping}
             onEdit={async (messageId, content) => {
               setIsSavingEdit(true)
               try {
@@ -269,6 +303,14 @@ export default function ThreadScreen() {
           />
         ) : null}
       </KeyboardAvoidingView>
+      <UserProfileSheet
+        currentUserId={session?.user.id}
+        onMention={mentionFromProfile}
+        onOpenChange={(isOpen) => {
+          if (!isOpen) closeProfile()
+        }}
+        user={profileUser}
+      />
     </Screen>
   )
 }

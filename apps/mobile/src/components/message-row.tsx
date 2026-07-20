@@ -33,6 +33,16 @@ function avatarInitial(message: Message) {
   return getAvatarInitials(messageDisplayName(message))
 }
 
+// Webhook/app posts author as the shared app user — no profile to show.
+function authorPressHandler(
+  message: Message,
+  onPressAuthor?: (message: Message) => void
+) {
+  if (!onPressAuthor) return undefined
+  if (message.overrideName || message.overrideAvatarUrl) return undefined
+  return () => onPressAuthor(message)
+}
+
 export function areMessagesOnSameDay(left: string, right: string) {
   const leftDate = new Date(left)
   const rightDate = new Date(right)
@@ -227,6 +237,7 @@ export function MessageRow({
   showHeader,
   onOpenThread,
   onJumpToMessage,
+  onPressAuthor,
   isHighlighted = false,
   isActionHighlighted = false,
   onToggleReaction,
@@ -236,12 +247,14 @@ export function MessageRow({
   showHeader: boolean
   onOpenThread?: (message: Message) => void
   onJumpToMessage?: (messageId: string) => void
+  onPressAuthor?: (message: Message) => void
   isHighlighted?: boolean
   isActionHighlighted?: boolean
   onToggleReaction?: (message: Message, emoji: string) => void
 }) {
   const isMerlin = message.authorId === MERLIN_USER_ID
   const isApp = Boolean(message.overrideName || message.overrideAvatarUrl)
+  const authorPress = authorPressHandler(message, onPressAuthor)
   const time = new Date(message.createdAt).toLocaleTimeString([], {
     hour: "numeric",
     minute: "2-digit",
@@ -266,13 +279,21 @@ export function MessageRow({
       ) : null}
       <View className="min-w-10 pt-px">
         {showHeader ? (
-          <MessageAvatar
-            avatarColor={
-              message.author.avatarColor ??
-              avatarColorByUserId?.get(message.author.id)
-            }
-            message={message}
-          />
+          <Pressable
+            accessibilityElementsHidden
+            accessible={false}
+            disabled={!authorPress}
+            importantForAccessibility="no-hide-descendants"
+            onPress={authorPress}
+          >
+            <MessageAvatar
+              avatarColor={
+                message.author.avatarColor ??
+                avatarColorByUserId?.get(message.author.id)
+              }
+              message={message}
+            />
+          </Pressable>
         ) : null}
       </View>
       <View className="min-w-0 flex-1 gap-[2px]">
@@ -280,11 +301,19 @@ export function MessageRow({
         {showHeader ? (
           <View className="flex-row items-baseline gap-two">
             <Text
+              accessibilityLabel={
+                authorPress
+                  ? `View ${messageDisplayName(message)}'s profile`
+                  : undefined
+              }
+              accessibilityRole={authorPress ? "button" : undefined}
               className={
                 isMerlin
                   ? "text-[15px] font-bold tracking-[-0.1px] text-accent"
                   : "text-[15px] font-bold tracking-[-0.1px] text-foreground"
               }
+              onPress={authorPress}
+              suppressHighlighting
             >
               {messageDisplayName(message)}
             </Text>
@@ -309,6 +338,7 @@ export function ThreadRootMessage({
   isHighlighted = false,
   isActionHighlighted = false,
   onJumpToMessage,
+  onPressAuthor,
   onToggleReaction,
 }: {
   avatarColorByUserId?: ReadonlyMap<string, string>
@@ -316,10 +346,12 @@ export function ThreadRootMessage({
   isHighlighted?: boolean
   isActionHighlighted?: boolean
   onJumpToMessage?: (messageId: string) => void
+  onPressAuthor?: (message: Message) => void
   onToggleReaction?: (message: Message, emoji: string) => void
 }) {
   const isMerlin = message.authorId === MERLIN_USER_ID
   const isApp = Boolean(message.overrideName || message.overrideAvatarUrl)
+  const authorPress = authorPressHandler(message, onPressAuthor)
 
   return (
     <View
@@ -339,23 +371,39 @@ export function ThreadRootMessage({
         <View className="absolute inset-y-0 left-0 w-[3px] bg-accent" />
       ) : null}
       <View className="flex-row items-center gap-three">
-        <MessageAvatar
-          avatarColor={
-            message.author.avatarColor ??
-            avatarColorByUserId?.get(message.author.id)
-          }
-          message={message}
-          size="md"
-        />
+        <Pressable
+          accessibilityElementsHidden
+          accessible={false}
+          disabled={!authorPress}
+          importantForAccessibility="no-hide-descendants"
+          onPress={authorPress}
+        >
+          <MessageAvatar
+            avatarColor={
+              message.author.avatarColor ??
+              avatarColorByUserId?.get(message.author.id)
+            }
+            message={message}
+            size="md"
+          />
+        </Pressable>
         <View className="min-w-0 flex-1 gap-px">
           <View className="flex-row items-center gap-two">
             <Text
+              accessibilityLabel={
+                authorPress
+                  ? `View ${messageDisplayName(message)}'s profile`
+                  : undefined
+              }
+              accessibilityRole={authorPress ? "button" : undefined}
               className={
                 isMerlin
                   ? "text-base font-bold tracking-[-0.2px] text-accent"
                   : "text-base font-bold tracking-[-0.2px] text-foreground"
               }
               numberOfLines={1}
+              onPress={authorPress}
+              suppressHighlighting
             >
               {messageDisplayName(message)}
             </Text>

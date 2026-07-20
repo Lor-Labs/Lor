@@ -27,6 +27,7 @@ export function MemberListSheet({
   isOpen,
   members,
   onOpenChange,
+  onPressMember,
   onRetry,
   title,
 }: {
@@ -35,6 +36,7 @@ export function MemberListSheet({
   isOpen: boolean
   members: MemberListItem[]
   onOpenChange: (isOpen: boolean) => void
+  onPressMember?: (member: MemberListItem) => void
   onRetry?: () => void
   title: string
 }) {
@@ -130,6 +132,7 @@ export function MemberListSheet({
                   <MemberSection
                     label={`Online · ${onlineMembers.length}`}
                     members={onlineMembers}
+                    onPressMember={onPressMember}
                   />
                 ) : null}
 
@@ -137,6 +140,7 @@ export function MemberListSheet({
                   <MemberSection
                     label={`Offline · ${offlineMembers.length}`}
                     members={offlineMembers}
+                    onPressMember={onPressMember}
                   />
                 ) : null}
               </>
@@ -151,9 +155,11 @@ export function MemberListSheet({
 function MemberSection({
   label,
   members,
+  onPressMember,
 }: {
   label: string
   members: MemberListItem[]
+  onPressMember?: (member: MemberListItem) => void
 }) {
   return (
     <View className="gap-two px-one">
@@ -164,7 +170,10 @@ function MemberSection({
             {index > 0 ? (
               <View className="ml-[68px] h-px bg-separator" />
             ) : null}
-            <MemberRow member={member} />
+            <MemberRow
+              member={member}
+              onPress={onPressMember ? () => onPressMember(member) : undefined}
+            />
           </View>
         ))}
       </View>
@@ -172,11 +181,23 @@ function MemberSection({
   )
 }
 
-function MemberRow({ member }: { member: MemberListItem }) {
+function MemberRow({
+  member,
+  onPress,
+}: {
+  member: MemberListItem
+  onPress?: () => void
+}) {
   return (
-    <View
+    <Pressable
+      accessibilityHint={onPress ? "Opens their profile" : undefined}
       accessibilityLabel={`${member.name}, ${member.detail}, ${member.status}`}
-      className="min-h-[68px] flex-row items-center gap-three px-three py-two"
+      accessibilityRole={onPress ? "button" : undefined}
+      className={`min-h-[68px] flex-row items-center gap-three px-three py-two ${
+        onPress ? "active:bg-surface-tertiary" : ""
+      }`}
+      disabled={!onPress}
+      onPress={onPress}
     >
       <View style={{ opacity: member.status === "offline" ? 0.5 : 1 }}>
         <Avatar
@@ -205,7 +226,7 @@ function MemberRow({ member }: { member: MemberListItem }) {
           {member.status}
         </Text>
       </View>
-    </View>
+    </Pressable>
   )
 }
 

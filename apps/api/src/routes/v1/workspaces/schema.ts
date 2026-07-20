@@ -104,6 +104,7 @@ const searchResultMessageSchema = z.object({
   createdAt: z.string().datetime(),
   channelId: z.string().uuid(),
   channelName: z.string(),
+  threadRootId: z.string().uuid().nullable(),
   author: messageAuthorSchema,
   mentions: z.array(messageAuthorSchema),
 })

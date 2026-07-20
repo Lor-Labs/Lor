@@ -3,6 +3,7 @@ import type {
   RealtimeMessageThreadUpdated,
   ServerToClientEvents,
 } from "@repo/realtime-types"
+import { useQueryClient } from "@tanstack/react-query"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { api } from "@/lib/api"
 import type { Message, ThreadMessageList } from "@/lib/api-types"
@@ -31,6 +32,15 @@ type CurrentUser = {
 
 type ThreadParticipant = ThreadMessageList["participants"][number]
 
+type ThreadSnapshot = {
+  messages: Message[]
+  root: Message
+  participants: ThreadParticipant[]
+  totalReplyCount: number
+  beforeCursor: string | null
+  reachedOldest: boolean
+}
+
 function participantsFromMessages(
   root: Message | null,
   messages: Message[]
@@ -57,6 +67,7 @@ export function useThreadMessages({
   socket: AppSocket | null
   currentUser?: CurrentUser
 }) {
+  const queryClient = useQueryClient()
   const [messages, setMessages] = useState<Message[]>([])
   const [root, setRoot] = useState<Message | null>(null)
   const [participants, setParticipants] = useState<ThreadParticipant[]>([])
@@ -99,11 +110,13 @@ export function useThreadMessages({
   )
 
   // `replace` drops local state in favor of the fetched page — used on socket
-  // reconnect so deletions missed while offline don't linger. Returns the
+  // reconnect so deletions missed while offline don't linger. `silent` skips
+  // the loading state so already-rendered messages stay visible. Returns the
   // fetched page (or null on failure) so error paths can check canonical state.
   const reload = useCallback(
     async ({
       replace = false,
+      silent = false,
     } = {}): Promise<{ data: Message[]; root: Message | null } | null> => {
       const requestId = ++requestRef.current
       const requestIdentity = `${workspaceSlug}:${channelId}:${threadRootId}`
@@ -127,7 +140,7 @@ export function useThreadMessages({
         return null
       }
 
-      setIsLoading(true)
+      if (!silent) setIsLoading(true)
       setError(null)
       setPaginationError(null)
       setIsMissing(false)
@@ -143,6 +156,7 @@ export function useThreadMessages({
             requestId === requestRef.current &&
             requestIdentity === identityRef.current
           ) {
+            queryClient.removeQueries({ queryKey: ["thread", threadRootId] })
             updateRoot(() => null)
             setParticipants([])
             setIsMissing(true)
@@ -157,6 +171,11 @@ export function useThreadMessages({
           requestId === requestRef.current &&
           requestIdentity === identityRef.current
         ) {
+          const nextParticipants = payload.participants?.length
+            ? payload.participants
+            : participantsFromMessages(payload.root, payload.data)
+          const nextTotalReplyCount =
+            payload.root?.threadSummary?.replyCount ?? payload.data.length
           // Replace still keeps unacked optimistic replies — dropping them
           // would make an in-flight send look already-reconciled to the
           // rollback guard and vanish without an error.
@@ -167,17 +186,21 @@ export function useThreadMessages({
             )
           )
           if (payload.root) updateRoot(() => payload.root)
-          setParticipants(
-            payload.participants?.length
-              ? payload.participants
-              : participantsFromMessages(payload.root, payload.data)
-          )
+          setParticipants(nextParticipants)
           beforeCursorRef.current = payload.beforeCursor
           setReachedOldest(payload.reachedOldest)
-          setTotalReplyCount(
-            payload.root?.threadSummary?.replyCount ?? payload.data.length
-          )
+          setTotalReplyCount(nextTotalReplyCount)
           setIsMissing(!payload.root)
+          if (payload.root) {
+            queryClient.setQueryData<ThreadSnapshot>(["thread", threadRootId], {
+              messages: payload.data,
+              root: payload.root,
+              participants: nextParticipants,
+              totalReplyCount: nextTotalReplyCount,
+              beforeCursor: payload.beforeCursor,
+              reachedOldest: payload.reachedOldest,
+            })
+          }
           return { data: payload.data, root: payload.root ?? null }
         }
         return null
@@ -202,24 +225,38 @@ export function useThreadMessages({
         }
       }
     },
-    [workspaceSlug, channelId, threadRootId, updateMessages, updateRoot]
+    [
+      workspaceSlug,
+      channelId,
+      threadRootId,
+      queryClient,
+      updateMessages,
+      updateRoot,
+    ]
   )
 
+  // Seed from the last cached snapshot so reopening a thread renders
+  // instantly; the silent replace-reload reconciles against the server.
   useEffect(() => {
-    messagesRef.current = []
-    rootRef.current = null
-    beforeCursorRef.current = null
-    setMessages([])
-    setRoot(null)
-    setParticipants([])
-    setTotalReplyCount(0)
+    const cached = threadRootId
+      ? queryClient.getQueryData<ThreadSnapshot>(["thread", threadRootId])
+      : undefined
+    const seeded = Boolean(cached?.root)
+    messagesRef.current = cached?.messages ?? []
+    rootRef.current = cached?.root ?? null
+    beforeCursorRef.current = cached?.beforeCursor ?? null
+    setMessages(cached?.messages ?? [])
+    setRoot(cached?.root ?? null)
+    setParticipants(cached?.participants ?? [])
+    setTotalReplyCount(cached?.totalReplyCount ?? 0)
     setIsLoadingOlder(false)
-    setReachedOldest(true)
+    setReachedOldest(cached?.reachedOldest ?? true)
     setPaginationError(null)
     setIsMissing(false)
     loadingOlderRef.current = false
-    void reload()
-  }, [reload])
+    if (seeded) setIsLoading(false)
+    void reload({ replace: seeded, silent: seeded })
+  }, [reload, threadRootId, queryClient])
 
   const loadOlder = useCallback(async () => {
     const before = beforeCursorRef.current
@@ -320,7 +357,7 @@ export function useThreadMessages({
     }
     const rejoinThread = () => {
       joinThread()
-      void reload({ replace: true })
+      void reload({ replace: true, silent: true })
     }
     const receiveMessage = (message: RealtimeMessage) => {
       if (
@@ -782,7 +819,7 @@ export function useThreadMessages({
       } catch (cause) {
         const isTimeout =
           cause instanceof Error && cause.message === "operation has timed out"
-        const canonical = await reload({ replace: true })
+        const canonical = await reload({ replace: true, silent: true })
         // A timed-out ack can race a delivered edit; trust the refetched page.
         const editApplied =
           messageId === threadRootId
@@ -849,7 +886,7 @@ export function useThreadMessages({
       } catch (cause) {
         const isTimeout =
           cause instanceof Error && cause.message === "operation has timed out"
-        const canonical = await reload({ replace: true })
+        const canonical = await reload({ replace: true, silent: true })
         // A timed-out ack can race a delivered delete; trust the refetched page.
         const deletionApplied =
           messageId === threadRootId

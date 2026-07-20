@@ -1,3 +1,6 @@
+import PlusSignIcon from "@hugeicons/core-free-icons/PlusSignIcon"
+import { HugeiconsIcon } from "@hugeicons/react-native"
+import { useQuery } from "@tanstack/react-query"
 import * as Haptics from "expo-haptics"
 import { router, useFocusEffect } from "expo-router"
 import { SymbolView } from "expo-symbols"
@@ -12,12 +15,15 @@ import {
   View,
 } from "react-native"
 import { ChannelList } from "@/components/channel-list"
+import { CreateChannelSheet } from "@/components/create-channel-sheet"
 import { Avatar } from "@/components/ui/avatar"
+import { IconButton } from "@/components/ui/icon-button"
 import { Screen } from "@/components/ui/screen"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatePanel } from "@/components/ui/state-panel"
 import { WorkspaceSearchResults } from "@/components/workspace-search-results"
 import { useWorkspace } from "@/context/workspace-context"
+import { useChannelPermissions } from "@/hooks/use-channel-permissions"
 import { useMessageSearch } from "@/hooks/use-message-search"
 import { useTheme } from "@/hooks/use-theme"
 import { api } from "@/lib/api"
@@ -36,45 +42,48 @@ export default function WorkspaceScreen() {
     error: workspaceError,
     selectWorkspace,
   } = useWorkspace()
-  const [channels, setChannels] = useState<ChannelListData | null>(null)
-  const [isLoadingChannels, setIsLoadingChannels] = useState(false)
-  const [channelError, setChannelError] = useState<string | null>(null)
   const [query, setQuery] = useState("")
-  const channelsRequestRef = useRef(0)
+  const [isPullRefreshing, setIsPullRefreshing] = useState(false)
+  const [isCreateChannelOpen, setIsCreateChannelOpen] = useState(false)
+  const hasFocusedChannelsRef = useRef(false)
+  const permissions = useChannelPermissions(workspace?.id)
 
-  const loadChannels = useCallback(async () => {
-    if (!workspace) return
-    const requestId = ++channelsRequestRef.current
-    setIsLoadingChannels(true)
-    setChannelError(null)
-    try {
+  const workspaceSlug = workspace?.slug ?? ""
+  const channelsQuery = useQuery({
+    queryKey: ["channels", workspaceSlug],
+    enabled: Boolean(workspaceSlug),
+    queryFn: async () => {
       const response = await api.v1.workspaces[":workspaceSlug"].channels.$get({
-        param: { workspaceSlug: workspace.slug },
+        param: { workspaceSlug },
       })
       if (!response.ok) throw new Error("Could not load channels")
-      const payload = await response.json()
-      if (requestId === channelsRequestRef.current) setChannels(payload)
-    } catch (cause) {
-      if (requestId === channelsRequestRef.current) {
-        setChannelError(
-          cause instanceof Error ? cause.message : "Could not load channels"
-        )
-      }
+      return response.json()
+    },
+  })
+  const { refetch: refetchChannels } = channelsQuery
+  const channels = channelsQuery.data ?? null
+  const isLoadingChannels = Boolean(workspaceSlug) && channelsQuery.isPending
+  const channelError = channelsQuery.error?.message ?? null
+
+  const pullToRefresh = async () => {
+    setIsPullRefreshing(true)
+    try {
+      await refetchChannels()
     } finally {
-      if (requestId === channelsRequestRef.current) setIsLoadingChannels(false)
+      setIsPullRefreshing(false)
     }
-  }, [workspace])
+  }
 
   useEffect(() => {
-    channelsRequestRef.current += 1
-    setChannels(null)
     setQuery("")
+    setIsCreateChannelOpen(false)
   }, [workspace?.id])
 
   useFocusEffect(
     useCallback(() => {
-      void loadChannels()
-    }, [loadChannels])
+      if (hasFocusedChannelsRef.current) void refetchChannels()
+      else hasFocusedChannelsRef.current = true
+    }, [refetchChannels])
   )
 
   const channelCount = useMemo(() => countChannels(channels), [channels])
@@ -113,6 +122,11 @@ export default function WorkspaceScreen() {
       pathname: "/channel/[channelId]",
       params: { channelId: channel.id },
     } as never)
+
+  const openCreatedChannel = (channel: Channel) => {
+    void refetchChannels()
+    openChannel(channel)
+  }
 
   const openSearchMessage = async (message: ChannelSearchResult) => {
     const location = await api.v1.workspaces[":workspaceSlug"].messages[
@@ -168,6 +182,15 @@ export default function WorkspaceScreen() {
                 : `${channelCount} ${channelCount === 1 ? "channel" : "channels"}`}
             </Text>
           </View>
+          {permissions.canCreateChannel ? (
+            <IconButton
+              accessibilityLabel="Create channel"
+              onPress={() => setIsCreateChannelOpen(true)}
+              variant="ghost"
+            >
+              <HugeiconsIcon color={theme.text} icon={PlusSignIcon} size={20} />
+            </IconButton>
+          ) : null}
         </View>
 
         <View className="mt-two px-four">
@@ -265,8 +288,8 @@ export default function WorkspaceScreen() {
         keyboardShouldPersistTaps="handled"
         refreshControl={
           <RefreshControl
-            onRefresh={() => void loadChannels()}
-            refreshing={isLoadingChannels && channels !== null}
+            onRefresh={() => void pullToRefresh()}
+            refreshing={isPullRefreshing}
             tintColor={theme.accent}
           />
         }
@@ -283,7 +306,10 @@ export default function WorkspaceScreen() {
           />
         ) : channelError ? (
           <StatePanel
-            action={{ label: "Try again", onPress: () => void loadChannels() }}
+            action={{
+              label: "Try again",
+              onPress: () => void refetchChannels(),
+            }}
             className="px-two"
             detail={channelError}
             title="Channels are unavailable"
@@ -296,6 +322,14 @@ export default function WorkspaceScreen() {
           />
         )}
       </ScrollView>
+      <CreateChannelSheet
+        categories={channels?.categories ?? []}
+        isOpen={isCreateChannelOpen}
+        onCreated={openCreatedChannel}
+        onOpenChange={setIsCreateChannelOpen}
+        workspaceName={workspace.name}
+        workspaceSlug={workspace.slug}
+      />
     </Screen>
   )
 }

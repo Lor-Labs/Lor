@@ -379,6 +379,7 @@ export const searchMessages: AppRouteHandler<SearchMessagesRoute> = async (
         content: schema.message.content,
         createdAt: schema.message.createdAt,
         channelId: schema.message.channelId,
+        threadRootId: schema.message.threadRootId,
         author: {
           id: schema.user.id,
           name: schema.user.name,
@@ -448,6 +449,7 @@ export const searchMessages: AppRouteHandler<SearchMessagesRoute> = async (
         createdAt: msg.createdAt.toISOString(),
         channelId: msg.channelId,
         channelName: channelMap.get(msg.channelId) ?? "unknown",
+        threadRootId: msg.threadRootId,
         author: {
           id: msg.author.id,
           name: msg.author.name,

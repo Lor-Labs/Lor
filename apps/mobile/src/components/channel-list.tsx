@@ -11,8 +11,6 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { useUnread } from "@/context/unread-context"
 import type { Channel, ChannelCategory } from "@/lib/api-types"
 
-const ROOT_SECTION_ID = "root"
-
 function MentionBadge({ count }: { count: number }) {
   return (
     <View className="h-5 min-w-5 items-center justify-center rounded-full bg-danger px-1.5">
@@ -188,15 +186,9 @@ export function ChannelList({
 
   return (
     <View className="gap-four pb-seven">
-      <ChannelSection
-        channels={data.uncategorized}
-        collapsed={collapsedSections.has(ROOT_SECTION_ID)}
-        hasActivity={hasActivity}
-        id={ROOT_SECTION_ID}
-        onToggle={toggleSection}
-        renderRow={renderRow}
-        title={data.categories.length > 0 ? "Uncategorized" : "Channels"}
-      />
+      {data.uncategorized.length > 0 ? (
+        <View>{data.uncategorized.map(renderRow)}</View>
+      ) : null}
       {data.categories.map((category) => (
         <ChannelSection
           channels={category.channels}

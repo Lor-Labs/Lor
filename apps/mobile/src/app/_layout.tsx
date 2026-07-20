@@ -1,3 +1,4 @@
+import { QueryClientProvider } from "@tanstack/react-query"
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from "expo-router"
 import * as SplashScreen from "expo-splash-screen"
 import { StatusBar } from "expo-status-bar"
@@ -12,6 +13,7 @@ import { AnimatedSplashOverlay } from "@/components/animated-icon"
 import { SocketProvider } from "@/context/socket-context"
 import { UnreadProvider } from "@/context/unread-context"
 import { WorkspaceProvider } from "@/context/workspace-context"
+import { queryClient, subscribeQueryFocus } from "@/lib/query-client"
 import { restoreThemePreference } from "@/lib/theme-preference"
 
 SplashScreen.preventAutoHideAsync()
@@ -22,25 +24,28 @@ export default function RootLayout() {
   useEffect(() => {
     void restoreThemePreference()
   }, [])
+  useEffect(() => subscribeQueryFocus(), [])
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <HeroUINativeProvider>
-        <KeyboardProvider>
-          <ThemeProvider
-            value={colorScheme === "dark" ? DarkTheme : DefaultTheme}
-          >
-            <StatusBar style={colorScheme === "dark" ? "light" : "dark"} />
-            <AnimatedSplashOverlay />
-            <SocketProvider>
-              <UnreadProvider>
-                <WorkspaceProvider>
-                  <Stack screenOptions={{ headerShown: false }} />
-                </WorkspaceProvider>
-              </UnreadProvider>
-            </SocketProvider>
-          </ThemeProvider>
-        </KeyboardProvider>
-      </HeroUINativeProvider>
+      <QueryClientProvider client={queryClient}>
+        <HeroUINativeProvider>
+          <KeyboardProvider>
+            <ThemeProvider
+              value={colorScheme === "dark" ? DarkTheme : DefaultTheme}
+            >
+              <StatusBar style={colorScheme === "dark" ? "light" : "dark"} />
+              <AnimatedSplashOverlay />
+              <SocketProvider>
+                <UnreadProvider>
+                  <WorkspaceProvider>
+                    <Stack screenOptions={{ headerShown: false }} />
+                  </WorkspaceProvider>
+                </UnreadProvider>
+              </SocketProvider>
+            </ThemeProvider>
+          </KeyboardProvider>
+        </HeroUINativeProvider>
+      </QueryClientProvider>
     </GestureHandlerRootView>
   )
 }

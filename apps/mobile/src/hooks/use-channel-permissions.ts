@@ -2,10 +2,11 @@ import {
   isWorkspaceRole,
   workspaceAuthorityHasPermissions,
 } from "@repo/auth/permissions"
-import { useEffect, useState } from "react"
-import { authClient } from "@/lib/auth-client"
+import { useMemo } from "react"
+import { useActiveMember } from "@/hooks/use-active-member"
 
 type ChannelPermissions = {
+  canCreateChannel: boolean
   canDeleteChannel: boolean
   canPinMessages: boolean
   canUpdateChannel: boolean
@@ -13,6 +14,7 @@ type ChannelPermissions = {
 }
 
 const EMPTY_PERMISSIONS: ChannelPermissions = {
+  canCreateChannel: false,
   canDeleteChannel: false,
   canPinMessages: false,
   canUpdateChannel: false,
@@ -20,54 +22,32 @@ const EMPTY_PERMISSIONS: ChannelPermissions = {
 }
 
 export function useChannelPermissions(workspaceId?: string) {
-  const [permissions, setPermissions] = useState<ChannelPermissions>({
-    ...EMPTY_PERMISSIONS,
-    isLoading: Boolean(workspaceId),
-  })
+  const member = useActiveMember(workspaceId)
 
-  useEffect(() => {
-    let isCurrent = true
+  return useMemo<ChannelPermissions>(() => {
+    if (!workspaceId) return EMPTY_PERMISSIONS
+    if (member.isPending) return { ...EMPTY_PERMISSIONS, isLoading: true }
 
-    if (!workspaceId) {
-      setPermissions(EMPTY_PERMISSIONS)
-      return () => {
-        isCurrent = false
-      }
+    const role = member.data?.role
+    if (typeof role !== "string" || !isWorkspaceRole(role)) {
+      return EMPTY_PERMISSIONS
     }
 
-    setPermissions({ ...EMPTY_PERMISSIONS, isLoading: true })
-    void authClient.organization
-      .getActiveMember()
-      .then((result) => {
-        if (!isCurrent) return
-        const role = result.data?.role
-        if (typeof role !== "string" || !isWorkspaceRole(role)) {
-          setPermissions(EMPTY_PERMISSIONS)
-          return
-        }
-
-        const authority = { role }
-        setPermissions({
-          canDeleteChannel: workspaceAuthorityHasPermissions(authority, {
-            channel: ["delete"],
-          }),
-          canPinMessages: workspaceAuthorityHasPermissions(authority, {
-            message: ["pin"],
-          }),
-          canUpdateChannel: workspaceAuthorityHasPermissions(authority, {
-            channel: ["update"],
-          }),
-          isLoading: false,
-        })
-      })
-      .catch(() => {
-        if (isCurrent) setPermissions(EMPTY_PERMISSIONS)
-      })
-
-    return () => {
-      isCurrent = false
+    const authority = { role }
+    return {
+      canCreateChannel: workspaceAuthorityHasPermissions(authority, {
+        channel: ["create"],
+      }),
+      canDeleteChannel: workspaceAuthorityHasPermissions(authority, {
+        channel: ["delete"],
+      }),
+      canPinMessages: workspaceAuthorityHasPermissions(authority, {
+        message: ["pin"],
+      }),
+      canUpdateChannel: workspaceAuthorityHasPermissions(authority, {
+        channel: ["update"],
+      }),
+      isLoading: false,
     }
-  }, [workspaceId])
-
-  return permissions
+  }, [workspaceId, member.isPending, member.data])
 }
