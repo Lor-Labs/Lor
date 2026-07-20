@@ -12,7 +12,6 @@ import { ChannelSearchOverlay } from "@/components/channel-search-overlay"
 import {
   type MemberListItem,
   MemberListSheet,
-  workspaceMemberDetail,
   workspaceMemberToListItem,
 } from "@/components/member-list-sheet"
 import {
@@ -20,21 +19,18 @@ import {
   type MessageComposerMentionHandle,
 } from "@/components/message-composer"
 import { MessageList } from "@/components/message-list"
-import { messageDisplayName } from "@/components/message-row"
 import { TypingIndicator } from "@/components/typing-indicator"
 import { IconButton } from "@/components/ui/icon-button"
 import { Screen } from "@/components/ui/screen"
 import { StatePanel } from "@/components/ui/state-panel"
-import {
-  UserProfileSheet,
-  type UserProfileTarget,
-} from "@/components/user-profile-sheet"
+import { UserProfileSheet } from "@/components/user-profile-sheet"
 import { useSocket, useSocketConnected } from "@/context/socket-context"
 import { useWorkspace } from "@/context/workspace-context"
 import { useAutoMarkRead } from "@/hooks/use-auto-mark-read"
 import { useChannelDetail } from "@/hooks/use-channel-detail"
 import { useChannelMessages } from "@/hooks/use-channel-messages"
 import { useChannelPermissions } from "@/hooks/use-channel-permissions"
+import { useProfileSheet } from "@/hooks/use-profile-sheet"
 import { useTypingIndicator } from "@/hooks/use-typing-indicator"
 import { useWorkspaceMentionCandidates } from "@/hooks/use-workspace-mention-candidates"
 import { api } from "@/lib/api"
@@ -49,7 +45,6 @@ export default function ChannelScreen() {
   const [isOptionsOpen, setIsOptionsOpen] = useState(false)
   const [isMembersOpen, setIsMembersOpen] = useState(false)
   const [focusedMessageId, setFocusedMessageId] = useState<string | null>(null)
-  const [profileUser, setProfileUser] = useState<UserProfileTarget | null>(null)
   const hasFocusedRef = useRef(false)
   const composerMentionRef = useRef<MessageComposerMentionHandle>(null)
   const [foreground, muted] = useThemeColor(["foreground", "muted"])
@@ -90,6 +85,18 @@ export default function ChannelScreen() {
       ),
     [mentions.members]
   )
+  const {
+    closeProfile,
+    mentionFromProfile,
+    openAuthorProfile,
+    openMemberProfile,
+    profileUser,
+    resetProfileSheet,
+  } = useProfileSheet({
+    avatarColorByUserId,
+    members: mentions.members,
+    mentionRef: composerMentionRef,
+  })
 
   useEffect(() => {
     hasFocusedRef.current = false
@@ -100,8 +107,8 @@ export default function ChannelScreen() {
     setIsOptionsOpen(false)
     setIsMembersOpen(false)
     setFocusedMessageId(null)
-    setProfileUser(null)
-  }, [channelId])
+    resetProfileSheet()
+  }, [channelId, resetProfileSheet])
 
   useEffect(() => {
     if (!focusMessageId) return
@@ -183,39 +190,9 @@ export default function ChannelScreen() {
     setEditingMessage(null)
     setReplyingTo(message)
   }
-  const openAuthorProfile = (message: Message) => {
-    const member = mentions.members.find(
-      (candidate) => candidate.userId === message.author.id
-    )
-    setProfileUser({
-      id: message.author.id,
-      name: messageDisplayName(message),
-      avatarName: messageDisplayName(message),
-      image: message.author.image,
-      avatarColor:
-        message.author.avatarColor ??
-        avatarColorByUserId.get(message.author.id) ??
-        null,
-      detail: member ? workspaceMemberDetail(member) : null,
-    })
-  }
-  const openMemberProfile = (member: MemberListItem) => {
+  const openProfileFromMemberList = (member: MemberListItem) => {
     setIsMembersOpen(false)
-    // Let the member sheet finish closing before the profile sheet opens.
-    setTimeout(() => {
-      setProfileUser({
-        id: member.id,
-        name: member.name,
-        avatarName: member.avatarName,
-        image: member.image,
-        avatarColor: member.avatarColor,
-        detail: member.detail,
-      })
-    }, 300)
-  }
-  const mentionFromProfile = (mention: { id: string; label: string }) => {
-    setProfileUser(null)
-    setTimeout(() => composerMentionRef.current?.insertMention(mention), 300)
+    openMemberProfile(member)
   }
   const startEditing = (message: Message) => {
     setReplyingTo(null)
@@ -468,7 +445,7 @@ export default function ChannelScreen() {
         isOpen={isMembersOpen}
         members={memberItems}
         onOpenChange={setIsMembersOpen}
-        onPressMember={openMemberProfile}
+        onPressMember={openProfileFromMemberList}
         onRetry={() => void mentions.reload()}
         title="Channel members"
       />
@@ -476,7 +453,7 @@ export default function ChannelScreen() {
         currentUserId={session?.user.id}
         onMention={mentionFromProfile}
         onOpenChange={(isOpen) => {
-          if (!isOpen) setProfileUser(null)
+          if (!isOpen) closeProfile()
         }}
         user={profileUser}
       />

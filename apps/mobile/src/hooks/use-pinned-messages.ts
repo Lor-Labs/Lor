@@ -45,7 +45,7 @@ export function usePinnedMessages({
   return {
     messages: query.data ?? [],
     isLoading: active && query.isPending,
-    error: query.error?.message ?? null,
+    error: query.data ? null : (query.error?.message ?? null),
     reload,
     remove,
   }

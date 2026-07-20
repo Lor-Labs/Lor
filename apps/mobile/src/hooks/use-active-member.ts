@@ -9,6 +9,11 @@ export function useActiveMember(workspaceId?: string) {
     enabled: Boolean(workspaceId),
     queryFn: async () => {
       const result = await authClient.organization.getActiveMember()
+      if (result.error) {
+        throw new Error(
+          result.error.message ?? "Could not load your membership"
+        )
+      }
       return result.data ?? null
     },
   })

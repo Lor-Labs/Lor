@@ -5,14 +5,9 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { Alert, Text, View } from "react-native"
 import { KeyboardAvoidingView } from "react-native-keyboard-controller"
 import {
-  type MemberListItem,
-  workspaceMemberDetail,
-} from "@/components/member-list-sheet"
-import {
   MessageComposer,
   type MessageComposerMentionHandle,
 } from "@/components/message-composer"
-import { messageDisplayName } from "@/components/message-row"
 import {
   ThreadMessageList,
   ThreadMessageListSkeleton,
@@ -22,15 +17,13 @@ import { TypingIndicator } from "@/components/typing-indicator"
 import { IconButton } from "@/components/ui/icon-button"
 import { Screen } from "@/components/ui/screen"
 import { StatePanel } from "@/components/ui/state-panel"
-import {
-  UserProfileSheet,
-  type UserProfileTarget,
-} from "@/components/user-profile-sheet"
+import { UserProfileSheet } from "@/components/user-profile-sheet"
 import { useSocket, useSocketConnected } from "@/context/socket-context"
 import { useWorkspace } from "@/context/workspace-context"
 import { useAutoMarkRead } from "@/hooks/use-auto-mark-read"
 import { useCanPinMessages } from "@/hooks/use-can-pin-messages"
 import { useChannelDetail } from "@/hooks/use-channel-detail"
+import { useProfileSheet } from "@/hooks/use-profile-sheet"
 import { useThreadMessages } from "@/hooks/use-thread-messages"
 import { useTypingIndicator } from "@/hooks/use-typing-indicator"
 import { useWorkspaceMentionCandidates } from "@/hooks/use-workspace-mention-candidates"
@@ -41,7 +34,6 @@ export default function ThreadScreen() {
   const [replyingTo, setReplyingTo] = useState<Message | null>(null)
   const [editingMessage, setEditingMessage] = useState<Message | null>(null)
   const [isSavingEdit, setIsSavingEdit] = useState(false)
-  const [profileUser, setProfileUser] = useState<UserProfileTarget | null>(null)
   const composerMentionRef = useRef<MessageComposerMentionHandle>(null)
   const foreground = useThemeColor("foreground")
   const socket = useSocket()
@@ -83,13 +75,25 @@ export default function ThreadScreen() {
       ),
     [mentions.members]
   )
+  const {
+    closeProfile,
+    mentionFromProfile,
+    openAuthorProfile,
+    openMemberProfile,
+    profileUser,
+    resetProfileSheet,
+  } = useProfileSheet({
+    avatarColorByUserId,
+    members: mentions.members,
+    mentionRef: composerMentionRef,
+  })
 
   useEffect(() => {
     setReplyingTo(null)
     setEditingMessage(null)
     setIsSavingEdit(false)
-    setProfileUser(null)
-  }, [channelId, threadRootId])
+    resetProfileSheet()
+  }, [channelId, threadRootId, resetProfileSheet])
 
   useEffect(() => {
     if (!editingMessage) return
@@ -127,42 +131,6 @@ export default function ThreadScreen() {
   const startEditing = (message: Message) => {
     setReplyingTo(null)
     setEditingMessage(message)
-  }
-
-  const openAuthorProfile = (message: Message) => {
-    const member = mentions.members.find(
-      (candidate) => candidate.userId === message.author.id
-    )
-    setProfileUser({
-      id: message.author.id,
-      name: messageDisplayName(message),
-      avatarName: messageDisplayName(message),
-      image: message.author.image,
-      avatarColor:
-        message.author.avatarColor ??
-        avatarColorByUserId.get(message.author.id) ??
-        null,
-      detail: member ? workspaceMemberDetail(member) : null,
-    })
-  }
-
-  const openMemberProfile = (member: MemberListItem) => {
-    // Let the participant sheet finish closing before the profile sheet opens.
-    setTimeout(() => {
-      setProfileUser({
-        id: member.id,
-        name: member.name,
-        avatarName: member.avatarName,
-        image: member.image,
-        avatarColor: member.avatarColor,
-        detail: member.detail,
-      })
-    }, 300)
-  }
-
-  const mentionFromProfile = (mention: { id: string; label: string }) => {
-    setProfileUser(null)
-    setTimeout(() => composerMentionRef.current?.insertMention(mention), 300)
   }
 
   const confirmDelete = (message: Message) => {
@@ -339,7 +307,7 @@ export default function ThreadScreen() {
         currentUserId={session?.user.id}
         onMention={mentionFromProfile}
         onOpenChange={(isOpen) => {
-          if (!isOpen) setProfileUser(null)
+          if (!isOpen) closeProfile()
         }}
         user={profileUser}
       />

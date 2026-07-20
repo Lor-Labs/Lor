@@ -304,6 +304,12 @@ export function MessageRow({
         {showHeader ? (
           <View className="flex-row items-baseline gap-two">
             <Text
+              accessibilityLabel={
+                authorPress
+                  ? `View ${messageDisplayName(message)}'s profile`
+                  : undefined
+              }
+              accessibilityRole={authorPress ? "button" : undefined}
               className={
                 isMerlin
                   ? "text-[15px] font-bold tracking-[-0.1px] text-accent"
@@ -390,6 +396,12 @@ export function ThreadRootMessage({
         <View className="min-w-0 flex-1 gap-px">
           <View className="flex-row items-center gap-two">
             <Text
+              accessibilityLabel={
+                authorPress
+                  ? `View ${messageDisplayName(message)}'s profile`
+                  : undefined
+              }
+              accessibilityRole={authorPress ? "button" : undefined}
               className={
                 isMerlin
                   ? "text-base font-bold tracking-[-0.2px] text-accent"

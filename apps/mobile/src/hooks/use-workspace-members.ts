@@ -85,7 +85,7 @@ export function useWorkspaceMembers(workspaceSlug: string) {
   return {
     members: query.data?.members ?? [],
     isLoading: enabled && query.isPending,
-    error: query.error?.message ?? null,
+    error: query.data ? null : (query.error?.message ?? null),
     reload,
   }
 }
