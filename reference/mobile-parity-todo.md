@@ -8,7 +8,7 @@ Last audited: 2026-07-19.
 ## Tier 1 — big functional gaps
 
 - [ ] **Push notifications** — `expo-notifications` installed but nothing wired. Full-stack: token registration on device, server-side send pipeline (mention/DM/thread activity), tap-to-deep-link. Biggest retention lever.
-- [ ] **DMs** — largest missing surface. API fully built (`/dms`, `/dms/:id/messages`, thread, search). Needs own tab/stack per the scoped-vs-global nav rule (never mixed into workspace sidebar). Also unblocks a "Message" action on the mobile user profile sheet.
+- [ ] **DM follow-ups** — DM search (`GET /v1/dms/search` exists, no mobile UI), group-DM member list sheet, DM threads (API exists; web has no DM thread UI either — do together or not at all).
 
 ## Tier 2 — admin & workspace management
 
@@ -30,6 +30,7 @@ Last audited: 2026-07-19.
 
 ## Done (recent parity work)
 
+- [x] DMs (Messages tab with conversation list + unread badges; `/dm/[dmId]` chat screen reusing the channel message machinery via `useChannelMessages` source discriminator; "Message" action on the user profile sheet → get-or-create DM; group DMs render but can't be created — same as web) — 2026-07-21
 - [x] Workspace sheet (Discord-style: tap home header → `workspace-sheet` with Invite people row, workspace switcher list replacing header chips, create/join row → onboarding) — 2026-07-20
 - [x] Sign-up end to end (`sign-up` → `check-email` → `verify-email` deep link with session hand-off via expo plugin `?cookie=` param) + onboarding screen (username → create/join workspace, mirrors web's gate) + create workspace on mobile — 2026-07-20
 - [x] Required typed env (`lib/env.ts` Zod schema, no fallbacks; `.env.example` added) — 2026-07-20

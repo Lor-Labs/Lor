@@ -1,6 +1,7 @@
 import { BottomSheetScrollView } from "@gorhom/bottom-sheet"
 import AtSignIcon from "@hugeicons/core-free-icons/AtSignIcon"
 import Copy01Icon from "@hugeicons/core-free-icons/Copy01Icon"
+import Message01Icon from "@hugeicons/core-free-icons/Message01Icon"
 import Tick02Icon from "@hugeicons/core-free-icons/Tick02Icon"
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react-native"
 import { formatDate } from "@repo/utils/date"
@@ -28,11 +29,13 @@ export type UserProfileTarget = {
 export function UserProfileSheet({
   currentUserId,
   onMention,
+  onMessage,
   onOpenChange,
   user,
 }: {
   currentUserId?: string
   onMention?: (mention: { id: string; label: string }) => void
+  onMessage?: (user: UserProfileTarget) => void
   onOpenChange: (isOpen: boolean) => void
   user: UserProfileTarget | null
 }) {
@@ -159,6 +162,17 @@ export function UserProfileSheet({
                 </View>
 
                 <View className="flex-row gap-three px-one">
+                  {onMessage && currentUserId && !isSelf ? (
+                    <ActionTile
+                      icon={Message01Icon}
+                      label="Message"
+                      onPress={() => {
+                        triggerHaptic("soft")
+                        onMessage(user)
+                      }}
+                      tint={accent}
+                    />
+                  ) : null}
                   {onMention && !isSelf ? (
                     <ActionTile
                       icon={AtSignIcon}
