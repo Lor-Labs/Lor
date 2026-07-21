@@ -24,6 +24,28 @@ export type MessageSource =
   | { kind: "channel"; workspaceSlug: string; channelId: string }
   | { kind: "dm"; dmId: string }
 
+function fetchMessagesPage({
+  sourceKind,
+  workspaceSlug,
+  channelId,
+  query,
+}: {
+  sourceKind: MessageSource["kind"]
+  workspaceSlug: string
+  channelId: string
+  query: { limit: string; around?: string }
+}) {
+  return sourceKind === "channel"
+    ? api.v1.workspaces[":workspaceSlug"].channels[":channelId"].messages.$get({
+        param: { workspaceSlug, channelId },
+        query,
+      })
+    : api.v1.dms[":dmId"].messages.$get({
+        param: { dmId: channelId },
+        query,
+      })
+}
+
 export function useChannelMessages({
   source,
   socket,
@@ -82,18 +104,12 @@ export function useChannelMessages({
       if (!silent) setIsLoading(true)
       setError(null)
       try {
-        const response =
-          sourceKind === "channel"
-            ? await api.v1.workspaces[":workspaceSlug"].channels[
-                ":channelId"
-              ].messages.$get({
-                param: { workspaceSlug, channelId },
-                query: { limit: "50" },
-              })
-            : await api.v1.dms[":dmId"].messages.$get({
-                param: { dmId: channelId },
-                query: { limit: "50" },
-              })
+        const response = await fetchMessagesPage({
+          sourceKind,
+          workspaceSlug,
+          channelId,
+          query: { limit: "50" },
+        })
         if (!response.ok) throw new Error("Could not load messages")
         const payload = await response.json()
         if (
@@ -336,18 +352,12 @@ export function useChannelMessages({
       }
       const requestIdentity = `${sourceKind}:${workspaceSlug}:${channelId}`
       try {
-        const response =
-          sourceKind === "channel"
-            ? await api.v1.workspaces[":workspaceSlug"].channels[
-                ":channelId"
-              ].messages.$get({
-                param: { workspaceSlug, channelId },
-                query: { around: messageId, limit: "50" },
-              })
-            : await api.v1.dms[":dmId"].messages.$get({
-                param: { dmId: channelId },
-                query: { around: messageId, limit: "50" },
-              })
+        const response = await fetchMessagesPage({
+          sourceKind,
+          workspaceSlug,
+          channelId,
+          query: { around: messageId, limit: "50" },
+        })
         if (!response.ok) return false
         const payload = await response.json()
         if (requestIdentity !== channelIdentityRef.current) return false
