@@ -23,6 +23,7 @@ import { useWorkspace } from "@/context/workspace-context"
 import { useAutoMarkRead } from "@/hooks/use-auto-mark-read"
 import { useCanPinMessages } from "@/hooks/use-can-pin-messages"
 import { useChannelDetail } from "@/hooks/use-channel-detail"
+import { useOpenDM } from "@/hooks/use-open-dm"
 import { useProfileSheet } from "@/hooks/use-profile-sheet"
 import { useThreadMessages } from "@/hooks/use-thread-messages"
 import { useTypingIndicator } from "@/hooks/use-typing-indicator"
@@ -87,6 +88,7 @@ export default function ThreadScreen() {
     members: mentions.members,
     mentionRef: composerMentionRef,
   })
+  const { openDM } = useOpenDM()
 
   useEffect(() => {
     setReplyingTo(null)
@@ -306,6 +308,10 @@ export default function ThreadScreen() {
       <UserProfileSheet
         currentUserId={session?.user.id}
         onMention={mentionFromProfile}
+        onMessage={(target) => {
+          closeProfile()
+          void openDM(target.id)
+        }}
         onOpenChange={(isOpen) => {
           if (!isOpen) closeProfile()
         }}

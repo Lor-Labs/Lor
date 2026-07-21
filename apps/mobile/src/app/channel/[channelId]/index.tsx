@@ -30,6 +30,7 @@ import { useAutoMarkRead } from "@/hooks/use-auto-mark-read"
 import { useChannelDetail } from "@/hooks/use-channel-detail"
 import { useChannelMessages } from "@/hooks/use-channel-messages"
 import { useChannelPermissions } from "@/hooks/use-channel-permissions"
+import { useOpenDM } from "@/hooks/use-open-dm"
 import { useProfileSheet } from "@/hooks/use-profile-sheet"
 import { useTypingIndicator } from "@/hooks/use-typing-indicator"
 import { useWorkspaceMentionCandidates } from "@/hooks/use-workspace-mention-candidates"
@@ -63,8 +64,11 @@ export default function ChannelScreen() {
   })
 
   const chat = useChannelMessages({
-    workspaceSlug: workspace?.slug ?? "",
-    channelId: channelId ?? "",
+    source: {
+      kind: "channel",
+      workspaceSlug: workspace?.slug ?? "",
+      channelId: channelId ?? "",
+    },
     socket,
     currentUser: session?.user,
   })
@@ -97,6 +101,7 @@ export default function ChannelScreen() {
     members: mentions.members,
     mentionRef: composerMentionRef,
   })
+  const { openDM } = useOpenDM()
 
   useEffect(() => {
     hasFocusedRef.current = false
@@ -452,6 +457,10 @@ export default function ChannelScreen() {
       <UserProfileSheet
         currentUserId={session?.user.id}
         onMention={mentionFromProfile}
+        onMessage={(target) => {
+          closeProfile()
+          void openDM(target.id)
+        }}
         onOpenChange={(isOpen) => {
           if (!isOpen) closeProfile()
         }}

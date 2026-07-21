@@ -20,14 +20,16 @@ import {
 } from "@/lib/messages"
 import type { AppSocket } from "@/lib/socket"
 
+export type MessageSource =
+  | { kind: "channel"; workspaceSlug: string; channelId: string }
+  | { kind: "dm"; dmId: string }
+
 export function useChannelMessages({
-  workspaceSlug,
-  channelId,
+  source,
   socket,
   currentUser,
 }: {
-  workspaceSlug: string
-  channelId: string
+  source: MessageSource
   socket: AppSocket | null
   currentUser?: {
     id: string
@@ -37,6 +39,9 @@ export function useChannelMessages({
     image?: string | null
   }
 }) {
+  const sourceKind = source.kind
+  const workspaceSlug = source.kind === "channel" ? source.workspaceSlug : ""
+  const channelId = source.kind === "channel" ? source.channelId : source.dmId
   const queryClient = useQueryClient()
   const [messages, setMessages] = useState<Message[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -46,7 +51,7 @@ export function useChannelMessages({
   const messagesRef = useRef<Message[]>([])
   const reloadRequestRef = useRef(0)
   const channelIdentityRef = useRef("")
-  const channelIdentity = `${workspaceSlug}:${channelId}`
+  const channelIdentity = `${sourceKind}:${workspaceSlug}:${channelId}`
 
   channelIdentityRef.current = channelIdentity
 
@@ -60,9 +65,9 @@ export function useChannelMessages({
       silent = false,
     } = {}): Promise<Message[] | null> => {
       const requestId = ++reloadRequestRef.current
-      const requestIdentity = `${workspaceSlug}:${channelId}`
+      const requestIdentity = `${sourceKind}:${workspaceSlug}:${channelId}`
 
-      if (!workspaceSlug || !channelId) {
+      if (!channelId || (sourceKind === "channel" && !workspaceSlug)) {
         if (
           requestId === reloadRequestRef.current &&
           requestIdentity === channelIdentityRef.current
@@ -77,12 +82,18 @@ export function useChannelMessages({
       if (!silent) setIsLoading(true)
       setError(null)
       try {
-        const response = await api.v1.workspaces[":workspaceSlug"].channels[
-          ":channelId"
-        ].messages.$get({
-          param: { workspaceSlug, channelId },
-          query: { limit: "50" },
-        })
+        const response =
+          sourceKind === "channel"
+            ? await api.v1.workspaces[":workspaceSlug"].channels[
+                ":channelId"
+              ].messages.$get({
+                param: { workspaceSlug, channelId },
+                query: { limit: "50" },
+              })
+            : await api.v1.dms[":dmId"].messages.$get({
+                param: { dmId: channelId },
+                query: { limit: "50" },
+              })
         if (!response.ok) throw new Error("Could not load messages")
         const payload = await response.json()
         if (
@@ -120,7 +131,7 @@ export function useChannelMessages({
         }
       }
     },
-    [workspaceSlug, channelId, queryClient]
+    [sourceKind, workspaceSlug, channelId, queryClient]
   )
 
   useEffect(() => {
@@ -323,14 +334,20 @@ export function useChannelMessages({
       if (messagesRef.current.some((message) => message.id === messageId)) {
         return true
       }
-      const requestIdentity = `${workspaceSlug}:${channelId}`
+      const requestIdentity = `${sourceKind}:${workspaceSlug}:${channelId}`
       try {
-        const response = await api.v1.workspaces[":workspaceSlug"].channels[
-          ":channelId"
-        ].messages.$get({
-          param: { workspaceSlug, channelId },
-          query: { around: messageId, limit: "50" },
-        })
+        const response =
+          sourceKind === "channel"
+            ? await api.v1.workspaces[":workspaceSlug"].channels[
+                ":channelId"
+              ].messages.$get({
+                param: { workspaceSlug, channelId },
+                query: { around: messageId, limit: "50" },
+              })
+            : await api.v1.dms[":dmId"].messages.$get({
+                param: { dmId: channelId },
+                query: { around: messageId, limit: "50" },
+              })
         if (!response.ok) return false
         const payload = await response.json()
         if (requestIdentity !== channelIdentityRef.current) return false
@@ -340,7 +357,7 @@ export function useChannelMessages({
         return false
       }
     },
-    [workspaceSlug, channelId]
+    [sourceKind, workspaceSlug, channelId]
   )
 
   const sendMessage = useCallback(
@@ -545,6 +562,7 @@ export function useChannelMessages({
 
   const togglePin = useCallback(
     async (messageId: string, currentlyPinned: boolean) => {
+      if (sourceKind !== "channel") return false
       const nextPinned = !currentlyPinned
       const updatePin = (pinned: boolean, onlyIf?: boolean) => {
         setMessages((current) =>
@@ -573,7 +591,7 @@ export function useChannelMessages({
       }
       return true
     },
-    [workspaceSlug, channelId]
+    [sourceKind, workspaceSlug, channelId]
   )
 
   return {

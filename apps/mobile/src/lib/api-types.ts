@@ -38,3 +38,6 @@ export type UserProfile = InferResponseType<
   Client["v1"]["users"][":userId"]["$get"],
   200
 >["user"]
+export type DMList = InferResponseType<Client["v1"]["dms"]["$get"], 200>
+export type DM = DMList["data"][number]
+export type DMMember = DM["members"][number]

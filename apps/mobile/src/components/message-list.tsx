@@ -23,6 +23,7 @@ export function MessageList({
   isLoading,
   error,
   channelName,
+  emptyState,
   onRetry,
   onOpenThread,
   onReply,
@@ -42,8 +43,9 @@ export function MessageList({
   isLoading: boolean
   error: string | null
   channelName: string
+  emptyState?: { title: string; detail: string }
   onRetry: () => void
-  onOpenThread: (message: Message) => void
+  onOpenThread?: (message: Message) => void
   onReply: (message: Message) => void
   onLoadAround?: (messageId: string) => Promise<boolean>
   onEdit?: (message: Message) => void
@@ -129,18 +131,23 @@ export function MessageList({
     return (
       <StatePanel
         className="flex-1"
-        detail={`This is the beginning of #${channelName}. Say hello to your team.`}
-        title={`Welcome to #${channelName}`}
+        detail={
+          emptyState?.detail ??
+          `This is the beginning of #${channelName}. Say hello to your team.`
+        }
+        title={emptyState?.title ?? `Welcome to #${channelName}`}
       />
     )
   }
 
-  const openSelectedThread = () => {
-    if (!selectedMessage) return
-    const message = selectedMessage
-    setSelectedMessage(null)
-    onOpenThread(message)
-  }
+  const openSelectedThread = onOpenThread
+    ? () => {
+        if (!selectedMessage) return
+        const message = selectedMessage
+        setSelectedMessage(null)
+        onOpenThread(message)
+      }
+    : undefined
 
   const replyToSelectedMessage = () => {
     if (!selectedMessage) return
@@ -193,10 +200,13 @@ export function MessageList({
               Boolean(currentUserId) &&
               item.authorId === currentUserId &&
               !isOptimisticMessage(item)
-            const accessibilityActions = [
-              { label: "Reply", name: "reply" },
-              { label: actionLabel, name: "open-thread" },
-            ]
+            const accessibilityActions = [{ label: "Reply", name: "reply" }]
+            if (onOpenThread) {
+              accessibilityActions.push({
+                label: actionLabel,
+                name: "open-thread",
+              })
+            }
             if (canManageMessage && item.content?.trim() && onEdit) {
               accessibilityActions.push({
                 label: "Edit message",
@@ -224,7 +234,7 @@ export function MessageList({
                       return
                     }
                     if (event.nativeEvent.actionName === "open-thread") {
-                      onOpenThread(item)
+                      onOpenThread?.(item)
                       return
                     }
                     if (event.nativeEvent.actionName === "edit") {
