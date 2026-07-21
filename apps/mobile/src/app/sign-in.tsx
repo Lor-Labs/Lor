@@ -1,5 +1,5 @@
-import { Redirect } from "expo-router"
-import { useState } from "react"
+import { Redirect, router } from "expo-router"
+import { useRef, useState } from "react"
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -12,6 +12,7 @@ import {
 import { Screen } from "@/components/ui/screen"
 import { useTheme } from "@/hooks/use-theme"
 import { authClient } from "@/lib/auth-client"
+import { consumePendingInviteCode } from "@/lib/invites"
 
 export default function SignInScreen() {
   const theme = useTheme()
@@ -20,8 +21,25 @@ export default function SignInScreen() {
   const [password, setPassword] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const pendingInviteCodeRef = useRef<string | null | undefined>(undefined)
 
-  if (session) return <Redirect href="/" />
+  if (session) {
+    if (pendingInviteCodeRef.current === undefined) {
+      pendingInviteCodeRef.current = consumePendingInviteCode()
+    }
+    const pendingInviteCode = pendingInviteCodeRef.current
+    if (pendingInviteCode) {
+      return (
+        <Redirect
+          href={{
+            pathname: "/invite/[code]",
+            params: { code: pendingInviteCode },
+          }}
+        />
+      )
+    }
+    return <Redirect href="/" />
+  }
 
   const canSubmit =
     email.trim().length > 0 && password.length > 0 && !submitting
@@ -34,7 +52,18 @@ export default function SignInScreen() {
         email: email.trim(),
         password,
       })
-      if (result.error) setError(result.error.message ?? "Sign in failed")
+      if (result.error) {
+        // 403 = email not verified — better-auth re-sends the verification
+        // email automatically on the failed attempt.
+        if (result.error.status === 403) {
+          router.replace({
+            pathname: "/check-email",
+            params: { email: email.trim() },
+          })
+          return
+        }
+        setError(result.error.message ?? "Sign in failed")
+      }
     } catch {
       setError("Sign in failed. Check your connection and try again.")
     } finally {
@@ -122,6 +151,18 @@ export default function SignInScreen() {
                   Sign in
                 </Text>
               )}
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              className="min-h-11 items-center justify-center active:opacity-70"
+              onPress={() => router.replace("/sign-up")}
+            >
+              <Text className="text-sm font-medium text-lor-text-secondary dark:text-lor-text-secondary-dark">
+                Don’t have an account?{" "}
+                <Text className="font-semibold text-lor-accent dark:text-lor-accent-dark">
+                  Sign up
+                </Text>
+              </Text>
             </Pressable>
           </View>
         </View>

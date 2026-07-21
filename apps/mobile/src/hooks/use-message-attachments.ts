@@ -8,7 +8,7 @@ import { ImageManipulator, SaveFormat } from "expo-image-manipulator"
 import * as ImagePicker from "expo-image-picker"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Alert, Linking } from "react-native"
-import { api } from "@/lib/api"
+import { api, responseMessage } from "@/lib/api"
 import type { Message } from "@/lib/api-types"
 
 const DEFAULT_MAX_FILE_SIZE = 20 * 1024 * 1024
@@ -145,18 +145,6 @@ function documentAssetToLocalAsset(
     filename: asset.name,
     contentType: asset.mimeType ?? mimeTypeFromName(asset.name),
     size: asset.size ?? file.size ?? 0,
-  }
-}
-
-async function responseMessage(
-  response: { json: () => Promise<unknown> },
-  fallback: string
-) {
-  try {
-    const body = (await response.json()) as { message?: string }
-    return body.message ?? fallback
-  } catch {
-    return fallback
   }
 }
 

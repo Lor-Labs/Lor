@@ -3,11 +3,11 @@ import type {
   ServerToClientEvents,
 } from "@repo/realtime-types"
 import { io, type Socket } from "socket.io-client"
+import { env } from "./env"
 
 export type AppSocket = Socket<ServerToClientEvents, ClientToServerEvents>
 
-export const REALTIME_URL =
-  process.env.EXPO_PUBLIC_REALTIME_URL ?? "http://localhost:8000"
+export const REALTIME_URL = env.EXPO_PUBLIC_REALTIME_URL
 
 let socket: AppSocket | null = null
 

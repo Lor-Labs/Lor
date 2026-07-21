@@ -2,7 +2,7 @@ import type { ReactNode } from "react"
 import { createContext, useContext, useEffect, useMemo, useState } from "react"
 import { authClient } from "@/lib/auth-client"
 
-type Workspace = {
+export type Workspace = {
   id: string
   name: string
   slug: string
@@ -17,6 +17,21 @@ type WorkspaceContextValue = {
   isLoading: boolean
   error: string | null
   selectWorkspace: (workspaceId: string) => Promise<void>
+  reloadWorkspaces: (activateWorkspaceId?: string) => Promise<void>
+}
+
+function toWorkspace(item: {
+  id: string
+  name: string
+  slug: string
+  logo?: string | null
+}): Workspace {
+  return {
+    id: item.id,
+    name: item.name,
+    slug: item.slug,
+    logo: item.logo ?? null,
+  }
 }
 
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null)
@@ -64,6 +79,30 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setWorkspace(next)
   }
 
+  const reloadWorkspaces = async (activateWorkspaceId?: string) => {
+    const result = await authClient.organization.list()
+    if (result.error) {
+      setError(result.error.message ?? "Could not load your workspaces")
+      return
+    }
+    const nextWorkspaces = (result.data ?? []).map(toWorkspace)
+    setError(null)
+    setWorkspaces(nextWorkspaces)
+
+    if (!activateWorkspaceId) return
+    const next = nextWorkspaces.find((item) => item.id === activateWorkspaceId)
+    if (!next) return
+
+    const activeResult = await authClient.organization.setActive({
+      organizationId: activateWorkspaceId,
+    })
+    if (activeResult.error) {
+      setError(activeResult.error.message ?? "Could not open that workspace")
+      return
+    }
+    setWorkspace(next)
+  }
+
   useEffect(() => {
     let isCurrent = true
 
@@ -88,12 +127,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           authClient.organization.list(),
           authClient.organization.getFullOrganization(),
         ])
-        const nextWorkspaces = (organizationsResult.data ?? []).map((item) => ({
-          id: item.id,
-          name: item.name,
-          slug: item.slug,
-          logo: item.logo ?? null,
-        }))
+        const nextWorkspaces = (organizationsResult.data ?? []).map(toWorkspace)
         if (!isCurrent) return
 
         setWorkspaces(nextWorkspaces)
@@ -132,6 +166,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       isLoading,
       error,
       selectWorkspace,
+      reloadWorkspaces,
     }),
     [workspace, workspaces, avatarColor, isLoading, error]
   )

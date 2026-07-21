@@ -12,7 +12,7 @@ import { Pressable, Text, View } from "react-native"
 import { KeyboardController } from "react-native-keyboard-controller"
 import { Button } from "@/components/ui/button"
 import { SectionLabel } from "@/components/ui/section-label"
-import { api } from "@/lib/api"
+import { api, responseMessage } from "@/lib/api"
 import type { Channel, ChannelCategory } from "@/lib/api-types"
 
 export function normalizeChannelName(name: string) {
@@ -222,18 +222,4 @@ function CategoryRow({
       ) : null}
     </Pressable>
   )
-}
-
-async function responseMessage(
-  response: { text: () => Promise<string> },
-  fallback: string
-) {
-  const responseText = await response.text()
-  if (!responseText) return fallback
-  try {
-    const parsed = JSON.parse(responseText) as { message?: string }
-    return typeof parsed.message === "string" ? parsed.message : fallback
-  } catch {
-    return fallback
-  }
 }

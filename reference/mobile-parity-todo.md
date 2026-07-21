@@ -9,13 +9,11 @@ Last audited: 2026-07-19.
 
 - [ ] **Push notifications** — `expo-notifications` installed but nothing wired. Full-stack: token registration on device, server-side send pipeline (mention/DM/thread activity), tap-to-deep-link. Biggest retention lever.
 - [ ] **DMs** — largest missing surface. API fully built (`/dms`, `/dms/:id/messages`, thread, search). Needs own tab/stack per the scoped-vs-global nav rule (never mixed into workspace sidebar). Also unblocks a "Message" action on the mobile user profile sheet.
-- [ ] **Invites** — create/manage invite links (web: `invite/*-dialog.tsx`) + deep-link join flow for `/invite/$code` (pair with `lor://` scheme handling).
 
 ## Tier 2 — admin & workspace management
 
 - [ ] **Member management** — role change + kick from the member sheet (API exists: `PATCH /members/:userId/role`, `POST /members/:userId/kick`; mobile sheet is read-only).
-- [ ] **Workspace settings** — rename/logo + Merlin profiles section (web: `workspace-settings-dialog.tsx`, `merlin-profiles-section.tsx`).
-- [ ] **Create workspace** — mobile currently says "create on web". Decide deliberately whether that stays the v1 stance.
+- [ ] **Workspace settings** — rename/logo + Merlin profiles section (web: `workspace-settings-dialog.tsx`, `merlin-profiles-section.tsx`). Natural home: rows in `workspace-sheet.tsx` (the Discord-style sheet opened from the home header).
 
 ## Tier 3 — composer & detail polish
 
@@ -32,6 +30,10 @@ Last audited: 2026-07-19.
 
 ## Done (recent parity work)
 
+- [x] Workspace sheet (Discord-style: tap home header → `workspace-sheet` with Invite people row, workspace switcher list replacing header chips, create/join row → onboarding) — 2026-07-20
+- [x] Sign-up end to end (`sign-up` → `check-email` → `verify-email` deep link with session hand-off via expo plugin `?cookie=` param) + onboarding screen (username → create/join workspace, mirrors web's gate) + create workspace on mobile — 2026-07-20
+- [x] Required typed env (`lib/env.ts` Zod schema, no fallbacks; `.env.example` added) — 2026-07-20
+- [x] Invites (create/share via `create-invite-sheet` on home header — any member; `lor://invite/CODE` deep-link join screen with preview/accept/sign-in handoff; invite *management* list/revoke stays web-side, admin-tier) — 2026-07-20
 - [x] Channel creation (header + button → `create-channel-sheet`, name normalization + category picker; category *creation* stays web-side) — 2026-07-19
 - [x] Typing indicators (channel + thread scoped; `use-typing-indicator` mirrors web's throttle/expiry) — 2026-07-19
 - [x] React Query for all REST reads (matching web's query-key conventions + 60s staleTime; socket message stores intentionally not migrated) — 2026-07-19

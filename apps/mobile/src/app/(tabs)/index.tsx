@@ -16,12 +16,14 @@ import {
 } from "react-native"
 import { ChannelList } from "@/components/channel-list"
 import { CreateChannelSheet } from "@/components/create-channel-sheet"
+import { CreateInviteSheet } from "@/components/create-invite-sheet"
 import { Avatar } from "@/components/ui/avatar"
 import { IconButton } from "@/components/ui/icon-button"
 import { Screen } from "@/components/ui/screen"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatePanel } from "@/components/ui/state-panel"
 import { WorkspaceSearchResults } from "@/components/workspace-search-results"
+import { WorkspaceSheet } from "@/components/workspace-sheet"
 import { useWorkspace } from "@/context/workspace-context"
 import { useChannelPermissions } from "@/hooks/use-channel-permissions"
 import { useMessageSearch } from "@/hooks/use-message-search"
@@ -45,8 +47,18 @@ export default function WorkspaceScreen() {
   const [query, setQuery] = useState("")
   const [isPullRefreshing, setIsPullRefreshing] = useState(false)
   const [isCreateChannelOpen, setIsCreateChannelOpen] = useState(false)
+  const [isInviteOpen, setIsInviteOpen] = useState(false)
+  const [isWorkspaceSheetOpen, setIsWorkspaceSheetOpen] = useState(false)
   const hasFocusedChannelsRef = useRef(false)
+  const inviteTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const permissions = useChannelPermissions(workspace?.id)
+
+  useEffect(
+    () => () => {
+      if (inviteTimeoutRef.current) clearTimeout(inviteTimeoutRef.current)
+    },
+    []
+  )
 
   const workspaceSlug = workspace?.slug ?? ""
   const channelsQuery = useQuery({
@@ -77,6 +89,8 @@ export default function WorkspaceScreen() {
   useEffect(() => {
     setQuery("")
     setIsCreateChannelOpen(false)
+    setIsInviteOpen(false)
+    setIsWorkspaceSheetOpen(false)
   }, [workspace?.id])
 
   useFocusEffect(
@@ -110,8 +124,12 @@ export default function WorkspaceScreen() {
   if (!workspace) {
     return (
       <StatePanel
+        action={{
+          label: "Create or join a workspace",
+          onPress: () => router.push("/onboarding"),
+        }}
         className="flex-1"
-        detail="Create or join a Lor workspace on web, then return here to chat with your team."
+        detail="Create a new workspace or join one with an invite link."
         title="No workspace yet"
       />
     )
@@ -126,6 +144,24 @@ export default function WorkspaceScreen() {
   const openCreatedChannel = (channel: Channel) => {
     void refetchChannels()
     openChannel(channel)
+  }
+
+  const openInviteFromWorkspaceSheet = () => {
+    setIsWorkspaceSheetOpen(false)
+    if (inviteTimeoutRef.current) clearTimeout(inviteTimeoutRef.current)
+    // Let the workspace sheet finish closing before the invite sheet opens.
+    inviteTimeoutRef.current = setTimeout(() => setIsInviteOpen(true), 300)
+  }
+
+  const switchWorkspace = (workspaceId: string) => {
+    setIsWorkspaceSheetOpen(false)
+    void Haptics.selectionAsync()
+    void selectWorkspace(workspaceId)
+  }
+
+  const addWorkspace = () => {
+    setIsWorkspaceSheetOpen(false)
+    router.push("/onboarding")
   }
 
   const openSearchMessage = async (message: ChannelSearchResult) => {
@@ -163,25 +199,37 @@ export default function WorkspaceScreen() {
     <Screen className="bg-background" edges={["top", "bottom"]}>
       <View className="border-b border-separator bg-lor-sidebar dark:bg-lor-sidebar-dark pb-three pt-two">
         <View className="min-h-12 flex-row items-center gap-three px-four">
-          <Avatar
-            image={workspace.logo}
-            name={workspace.name}
-            shape="square"
-            size="md"
-          />
-          <View className="min-w-0 flex-1 gap-px">
-            <Text
-              className="text-[21px] font-bold tracking-[-0.4px] text-foreground"
-              numberOfLines={1}
-            >
-              {workspace.name}
-            </Text>
-            <Text className="text-xs font-medium text-muted">
-              {channelCount === null
-                ? "Loading channels"
-                : `${channelCount} ${channelCount === 1 ? "channel" : "channels"}`}
-            </Text>
-          </View>
+          <Pressable
+            accessibilityHint="Opens workspace options"
+            accessibilityLabel={`${workspace.name} workspace options`}
+            accessibilityRole="button"
+            className="min-w-0 flex-1 flex-row items-center gap-three active:opacity-70"
+            onPress={() => setIsWorkspaceSheetOpen(true)}
+          >
+            <Avatar
+              image={workspace.logo}
+              name={workspace.name}
+              shape="square"
+              size="md"
+            />
+            <View className="min-w-0 shrink flex-row items-center gap-one">
+              <Text
+                className="shrink text-[21px] font-bold tracking-[-0.4px] text-foreground"
+                numberOfLines={1}
+              >
+                {workspace.name}
+              </Text>
+              <SymbolView
+                name={{
+                  ios: "chevron.down",
+                  android: "expand_more",
+                  web: "expand_more",
+                }}
+                size={13}
+                tintColor={theme.textTertiary}
+              />
+            </View>
+          </Pressable>
           {permissions.canCreateChannel ? (
             <IconButton
               accessibilityLabel="Create channel"
@@ -236,49 +284,6 @@ export default function WorkspaceScreen() {
             ) : null}
           </View>
         </View>
-
-        {workspaces.length > 1 ? (
-          <ScrollView
-            contentContainerClassName="gap-two px-four pt-three"
-            horizontal
-            showsHorizontalScrollIndicator={false}
-          >
-            {workspaces.map((item) => {
-              const active = item.id === workspace.id
-              return (
-                <Pressable
-                  accessibilityLabel={`${active ? "Current workspace" : "Open"} ${item.name}`}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: active }}
-                  className={`min-h-9 flex-row items-center gap-two rounded-lor-sm border px-two pr-three active:opacity-70 ${
-                    active
-                      ? "border-accent bg-accent-soft"
-                      : "border-border bg-surface"
-                  }`}
-                  key={item.id}
-                  onPress={() => {
-                    if (active) return
-                    void Haptics.selectionAsync()
-                    void selectWorkspace(item.id)
-                  }}
-                >
-                  <Avatar
-                    image={item.logo}
-                    name={item.name}
-                    shape="square"
-                    size="xs"
-                  />
-                  <Text
-                    className={`max-w-32 text-xs font-semibold ${active ? "text-accent" : "text-foreground"}`}
-                    numberOfLines={1}
-                  >
-                    {item.name}
-                  </Text>
-                </Pressable>
-              )
-            })}
-          </ScrollView>
-        ) : null}
       </View>
 
       <ScrollView
@@ -327,6 +332,22 @@ export default function WorkspaceScreen() {
         isOpen={isCreateChannelOpen}
         onCreated={openCreatedChannel}
         onOpenChange={setIsCreateChannelOpen}
+        workspaceName={workspace.name}
+        workspaceSlug={workspace.slug}
+      />
+      <WorkspaceSheet
+        channelCount={channelCount}
+        isOpen={isWorkspaceSheetOpen}
+        onAddWorkspace={addWorkspace}
+        onInvite={openInviteFromWorkspaceSheet}
+        onOpenChange={setIsWorkspaceSheetOpen}
+        onSelectWorkspace={switchWorkspace}
+        workspace={workspace}
+        workspaces={workspaces}
+      />
+      <CreateInviteSheet
+        isOpen={isInviteOpen}
+        onOpenChange={setIsInviteOpen}
         workspaceName={workspace.name}
         workspaceSlug={workspace.slug}
       />
