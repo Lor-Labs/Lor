@@ -162,7 +162,7 @@ export function UserProfileSheet({
                 </View>
 
                 <View className="flex-row gap-three px-one">
-                  {onMessage && !isSelf ? (
+                  {onMessage && currentUserId && !isSelf ? (
                     <ActionTile
                       icon={Message01Icon}
                       label="Message"
