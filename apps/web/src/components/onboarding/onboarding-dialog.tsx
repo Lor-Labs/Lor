@@ -1,7 +1,5 @@
 import { authClient } from "@repo/auth/client"
-import { env } from "@repo/env/client"
 import { Button } from "@repo/ui/components/button"
-import { Checkbox } from "@repo/ui/components/checkbox"
 import {
   Dialog,
   DialogContent,
@@ -24,9 +22,6 @@ type Step = "username" | "welcome" | "create" | "join" | "invite"
 
 const MAX_USERNAME_LENGTH = 30
 const USERNAME_REGEX = /^[a-zA-Z0-9_.]+$/
-// TODO: Remove hardcoded invite code once we have a proper discovery/featured workspaces system
-const LOR_INVITE_CODE = "k9yDieWZ"
-const showLorJoin = !env.NEXT_PUBLIC_SELF_HOSTED
 
 function normalizeSlugInput(value: string) {
   return value
@@ -79,19 +74,10 @@ export function OnboardingDialog({
   const [slug, setSlug] = useState("")
   const [slugEdited, setSlugEdited] = useState(false)
   const [inviteLink, setInviteLink] = useState("")
-  const [joinLor, setJoinLor] = useState(showLorJoin)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const queryClient = useQueryClient()
   const navigate = useNavigate()
-
-  const acceptLorInvite = useCallback(() => {
-    if (!joinLor) return
-    apiClient.v1.invites[":code"].accept
-      .$post({ param: { code: LOR_INVITE_CODE } })
-      .then(() => queryClient.invalidateQueries({ queryKey: ["workspaces"] }))
-      .catch((err) => console.error("Failed to join workspace:", err))
-  }, [joinLor, queryClient])
 
   // Username step state
   const [username, setUsername] = useState("")
@@ -260,8 +246,6 @@ export function OnboardingDialog({
       const createdWorkspaceSlug = res.data?.slug ?? normalizedSlug
       await queryClient.invalidateQueries({ queryKey: ["workspaces"] })
 
-      acceptLorInvite()
-
       let firstChannelId: string | null = null
       try {
         firstChannelId = await getFirstChannelId(createdWorkspaceSlug)
@@ -306,10 +290,6 @@ export function OnboardingDialog({
       setError("Enter a valid invite link or invite code.")
       setLoading(false)
       return
-    }
-
-    if (inviteCode !== LOR_INVITE_CODE) {
-      acceptLorInvite()
     }
 
     await navigate({
@@ -550,34 +530,6 @@ export function OnboardingDialog({
                     </div>
                   </button>
                 </div>
-
-                {showLorJoin && (
-                  // biome-ignore lint/a11y/useKeyWithClickEvents: Label + Checkbox handle keyboard a11y
-                  <div
-                    onClick={() => setJoinLor((prev) => !prev)}
-                    className="mt-4 flex w-full cursor-pointer items-start gap-3 rounded-lg border border-border bg-card p-4 text-left transition-colors hover:bg-accent"
-                  >
-                    <Checkbox
-                      id="join-lor"
-                      checked={joinLor}
-                      onCheckedChange={(checked) =>
-                        setJoinLor(checked === true)
-                      }
-                      onClick={(e) => e.stopPropagation()}
-                      className="mt-0.5"
-                    />
-                    <Label
-                      htmlFor="join-lor"
-                      className="cursor-pointer font-normal"
-                    >
-                      <p className="font-medium">Join Lor's workspace</p>
-                      <p className="text-sm text-muted-foreground">
-                        Join our open-source community and help shape the
-                        product roadmap
-                      </p>
-                    </Label>
-                  </div>
-                )}
               </>
             )}
 

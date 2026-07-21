@@ -94,7 +94,6 @@ export default function OnboardingScreen() {
     )
   }
   if (!session) return <Redirect href="/sign-in" />
-  if (hasUsername && hasWorkspace) return <Redirect href="/" />
 
   const changeUsername = (value: string) => {
     setUsername(value)
@@ -274,9 +273,12 @@ export default function OnboardingScreen() {
 
           {step === "welcome" ? (
             <View className="gap-six">
+              {router.canGoBack() ? (
+                <BackLink onPress={() => router.back()} />
+              ) : null}
               <View className="gap-two">
                 <Text className="text-[28px] font-bold tracking-[-0.6px] text-foreground">
-                  Welcome to Lor
+                  {hasWorkspace ? "Add a workspace" : "Welcome to Lor"}
                 </Text>
                 <Text className="text-base leading-[22px] text-muted">
                   Get started by creating a new workspace or joining one you’ve

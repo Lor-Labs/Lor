@@ -2,7 +2,7 @@ import type { ReactNode } from "react"
 import { createContext, useContext, useEffect, useMemo, useState } from "react"
 import { authClient } from "@/lib/auth-client"
 
-type Workspace = {
+export type Workspace = {
   id: string
   name: string
   slug: string

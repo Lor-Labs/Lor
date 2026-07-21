@@ -13,7 +13,7 @@ Last audited: 2026-07-19.
 ## Tier 2 — admin & workspace management
 
 - [ ] **Member management** — role change + kick from the member sheet (API exists: `PATCH /members/:userId/role`, `POST /members/:userId/kick`; mobile sheet is read-only).
-- [ ] **Workspace settings** — rename/logo + Merlin profiles section (web: `workspace-settings-dialog.tsx`, `merlin-profiles-section.tsx`).
+- [ ] **Workspace settings** — rename/logo + Merlin profiles section (web: `workspace-settings-dialog.tsx`, `merlin-profiles-section.tsx`). Natural home: rows in `workspace-sheet.tsx` (the Discord-style sheet opened from the home header).
 
 ## Tier 3 — composer & detail polish
 
@@ -30,6 +30,7 @@ Last audited: 2026-07-19.
 
 ## Done (recent parity work)
 
+- [x] Workspace sheet (Discord-style: tap home header → `workspace-sheet` with Invite people row, workspace switcher list replacing header chips, create/join row → onboarding) — 2026-07-20
 - [x] Sign-up end to end (`sign-up` → `check-email` → `verify-email` deep link with session hand-off via expo plugin `?cookie=` param) + onboarding screen (username → create/join workspace, mirrors web's gate) + create workspace on mobile — 2026-07-20
 - [x] Required typed env (`lib/env.ts` Zod schema, no fallbacks; `.env.example` added) — 2026-07-20
 - [x] Invites (create/share via `create-invite-sheet` on home header — any member; `lor://invite/CODE` deep-link join screen with preview/accept/sign-in handoff; invite *management* list/revoke stays web-side, admin-tier) — 2026-07-20
