@@ -212,29 +212,22 @@ export default function WorkspaceScreen() {
               shape="square"
               size="md"
             />
-            <View className="min-w-0 shrink gap-px">
-              <View className="flex-row items-center gap-one">
-                <Text
-                  className="shrink text-[21px] font-bold tracking-[-0.4px] text-foreground"
-                  numberOfLines={1}
-                >
-                  {workspace.name}
-                </Text>
-                <SymbolView
-                  name={{
-                    ios: "chevron.down",
-                    android: "expand_more",
-                    web: "expand_more",
-                  }}
-                  size={13}
-                  tintColor={theme.textTertiary}
-                />
-              </View>
-              <Text className="text-xs font-medium text-muted">
-                {channelCount === null
-                  ? "Loading channels"
-                  : `${channelCount} ${channelCount === 1 ? "channel" : "channels"}`}
+            <View className="min-w-0 shrink flex-row items-center gap-one">
+              <Text
+                className="shrink text-[21px] font-bold tracking-[-0.4px] text-foreground"
+                numberOfLines={1}
+              >
+                {workspace.name}
               </Text>
+              <SymbolView
+                name={{
+                  ios: "chevron.down",
+                  android: "expand_more",
+                  web: "expand_more",
+                }}
+                size={13}
+                tintColor={theme.textTertiary}
+              />
             </View>
           </Pressable>
           {permissions.canCreateChannel ? (
