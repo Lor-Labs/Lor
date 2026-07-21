@@ -86,13 +86,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       return
     }
     const nextWorkspaces = (result.data ?? []).map(toWorkspace)
+    setError(null)
     setWorkspaces(nextWorkspaces)
 
     if (!activateWorkspaceId) return
     const next = nextWorkspaces.find((item) => item.id === activateWorkspaceId)
     if (!next) return
 
-    setError(null)
     const activeResult = await authClient.organization.setActive({
       organizationId: activateWorkspaceId,
     })

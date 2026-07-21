@@ -1,5 +1,5 @@
 import { Redirect, router } from "expo-router"
-import { useState } from "react"
+import { useRef, useState } from "react"
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -21,9 +21,13 @@ export default function SignInScreen() {
   const [password, setPassword] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const pendingInviteCodeRef = useRef<string | null | undefined>(undefined)
 
   if (session) {
-    const pendingInviteCode = consumePendingInviteCode()
+    if (pendingInviteCodeRef.current === undefined) {
+      pendingInviteCodeRef.current = consumePendingInviteCode()
+    }
+    const pendingInviteCode = pendingInviteCodeRef.current
     if (pendingInviteCode) {
       return (
         <Redirect

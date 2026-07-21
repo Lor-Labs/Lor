@@ -12,7 +12,7 @@ import { Screen } from "@/components/ui/screen"
 import { StatePanel } from "@/components/ui/state-panel"
 import { useSocket } from "@/context/socket-context"
 import { useWorkspace } from "@/context/workspace-context"
-import { api } from "@/lib/api"
+import { api, responseMessage } from "@/lib/api"
 import { authClient } from "@/lib/auth-client"
 import { setPendingInviteCode } from "@/lib/invites"
 
@@ -186,18 +186,4 @@ export default function InviteScreen() {
       </View>
     </Screen>
   )
-}
-
-async function responseMessage(
-  response: { text: () => Promise<string> },
-  fallback: string
-) {
-  const responseText = await response.text()
-  if (!responseText) return fallback
-  try {
-    const parsed = JSON.parse(responseText) as { message?: string }
-    return typeof parsed.message === "string" ? parsed.message : fallback
-  } catch {
-    return fallback
-  }
 }

@@ -8,7 +8,7 @@ import { useEffect, useRef, useState } from "react"
 import { Pressable, Share, Text, View } from "react-native"
 import { Button } from "@/components/ui/button"
 import { SectionLabel } from "@/components/ui/section-label"
-import { api } from "@/lib/api"
+import { api, responseMessage } from "@/lib/api"
 import { inviteUrl } from "@/lib/invites"
 
 const EXPIRY_OPTIONS = [
@@ -239,18 +239,4 @@ function OptionChip({
       </Text>
     </Pressable>
   )
-}
-
-async function responseMessage(
-  response: { text: () => Promise<string> },
-  fallback: string
-) {
-  const responseText = await response.text()
-  if (!responseText) return fallback
-  try {
-    const parsed = JSON.parse(responseText) as { message?: string }
-    return typeof parsed.message === "string" ? parsed.message : fallback
-  } catch {
-    return fallback
-  }
 }

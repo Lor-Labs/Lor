@@ -19,6 +19,7 @@ export default function VerifyEmailScreen() {
   const { data: session } = authClient.useSession()
   const [isWaiting, setIsWaiting] = useState(Boolean(cookie))
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pendingInviteCodeRef = useRef<string | null | undefined>(undefined)
 
   // The verification link redirects here with the session cookie as a query
   // param (attached by the better-auth expo server plugin). The client plugin
@@ -39,7 +40,10 @@ export default function VerifyEmailScreen() {
   }, [cookie])
 
   if (session) {
-    const pendingInviteCode = consumePendingInviteCode()
+    if (pendingInviteCodeRef.current === undefined) {
+      pendingInviteCodeRef.current = consumePendingInviteCode()
+    }
+    const pendingInviteCode = pendingInviteCodeRef.current
     if (pendingInviteCode) {
       return (
         <Redirect
