@@ -133,6 +133,7 @@ export function useChannelMutes() {
       const until = minutes
         ? new Date(Date.now() + minutes * 60_000).toISOString()
         : null
+      await queryClient.cancelQueries({ queryKey: ["channel-mutes"] })
       const previous = queryClient.getQueryData<ChannelMute[]>([
         "channel-mutes",
       ])
@@ -162,6 +163,7 @@ export function useChannelMutes() {
 
   const unmuteChannel = useCallback(
     async (channelId: string) => {
+      await queryClient.cancelQueries({ queryKey: ["channel-mutes"] })
       const previous = queryClient.getQueryData<ChannelMute[]>([
         "channel-mutes",
       ])

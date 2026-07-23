@@ -86,9 +86,12 @@ export function useChannelMutes() {
     })
   }
 
-  const applyOptimistic = (
+  const applyOptimistic = async (
     update: (old: ChannelMute[]) => ChannelMute[]
-  ): { previous: ChannelMute[] | undefined } => {
+  ): Promise<{ previous: ChannelMute[] | undefined }> => {
+    await queryClient.cancelQueries({
+      queryKey: channelMutesQueryOptions.queryKey,
+    })
     const previous = queryClient.getQueryData<ChannelMute[]>(
       channelMutesQueryOptions.queryKey
     )
