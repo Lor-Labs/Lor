@@ -9,6 +9,7 @@ import {
 import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { useParams } from "@tanstack/react-router"
 import { Hash } from "lucide-react"
+import { ChannelMuteMenu } from "@/components/chat/channel-mute-menu"
 import { HeaderSearch } from "@/components/chat/header-search"
 import { HeaderNavControls } from "@/components/desktop-titlebar"
 import { RightPanelToggle } from "@/components/sidebar/sidebar-toggle"
@@ -67,6 +68,7 @@ export function ChatHeader({
           mode={context.type === "channel" ? "workspace" : "dm"}
           channelId={channelId}
         />
+        <ChannelMuteMenu channelId={channelId} />
         {context.type === "channel" && onTogglePinnedMessages && (
           <Tooltip>
             <TooltipTrigger asChild>

@@ -22,6 +22,9 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@repo/ui/components/dropdown-menu"
 import { Skeleton } from "@repo/ui/components/skeleton"
@@ -36,6 +39,7 @@ import { DeleteChannelDialog } from "@/components/sidebar/channel-panel/delete-c
 import { EditChannelDialog } from "@/components/sidebar/channel-panel/edit-channel-dialog"
 import { useMobileSidebar } from "@/context/mobile-sidebar-context"
 import { useUnread } from "@/context/unread-context"
+import { MUTE_DURATIONS, useChannelMutes } from "@/hooks/use-channel-mutes"
 import { apiClient } from "@/lib/api-client"
 import type { Channel, ListChannelsResponse } from "@/lib/api-types"
 import {
@@ -43,6 +47,8 @@ import {
   canDeleteChannels,
   canManageChannels,
 } from "@/lib/permissions"
+
+type ChannelMuteControls = ReturnType<typeof useChannelMutes>
 
 const channelIcons = {
   text: Hash,
@@ -190,6 +196,8 @@ export function ChannelList() {
     : false
 
   const { openCreateChannel } = useCreateChannel()
+  // One query + socket listener for the whole list; rows get the controls via props.
+  const muteControls = useChannelMutes()
 
   const [activeItem, setActiveItem] = useState<{
     channel: Channel
@@ -430,6 +438,7 @@ export function ChannelList() {
                   active={activeChannelId === ch.id}
                   canManage={canManage}
                   canDelete={canDelete}
+                  muteControls={muteControls}
                   onClick={() => {
                     navigate({
                       to: "/$workspaceSlug/$channelId",
@@ -463,6 +472,7 @@ export function ChannelList() {
               canCreate={canCreate}
               canManage={canManage}
               canDelete={canDelete}
+              muteControls={muteControls}
               onChannelClick={(channelId) => {
                 navigate({
                   to: "/$workspaceSlug/$channelId",
@@ -511,6 +521,7 @@ function SortableCategorySection({
   canCreate,
   canManage,
   canDelete,
+  muteControls,
   onChannelClick,
   onCreateChannel,
 }: {
@@ -522,6 +533,7 @@ function SortableCategorySection({
   canCreate: boolean
   canManage: boolean
   canDelete: boolean
+  muteControls: ChannelMuteControls
   onChannelClick?: (channelId: string) => void
   onCreateChannel?: (parentId: string) => void
 }) {
@@ -655,6 +667,7 @@ function SortableCategorySection({
                   active={activeChannelId === ch.id}
                   canManage={canManage}
                   canDelete={canDelete}
+                  muteControls={muteControls}
                   onClick={() => onChannelClick?.(ch.id)}
                 />
               ))}
@@ -671,12 +684,14 @@ function SortableChannelItem({
   active = false,
   canManage,
   canDelete,
+  muteControls,
   onClick,
 }: {
   channel: Channel
   active?: boolean
   canManage: boolean
   canDelete: boolean
+  muteControls: ChannelMuteControls
   onClick?: () => void
 }) {
   const {
@@ -693,6 +708,8 @@ function SortableChannelItem({
   const [deleteOpen, setDeleteOpen] = useState(false)
 
   const { getUnreadCount, getMentionCount } = useUnread()
+  const { getMute, muteChannel, unmuteChannel } = muteControls
+  const mute = getMute(ch.id)
   const unreadCount = active ? 0 : getUnreadCount(ch.id)
   const mentionCount = active ? 0 : getMentionCount(ch.id)
   const hasUnread = unreadCount > 0
@@ -733,24 +750,62 @@ function SortableChannelItem({
               {mentionCount}
             </span>
           )}
-          {canManage && (
-            <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  aria-label="Channel options"
-                  onClick={(e) => e.stopPropagation()}
-                  onPointerDown={(e) => e.stopPropagation()}
-                  className={cn(
-                    "text-muted-foreground opacity-0 transition-opacity duration-150 hover:text-foreground group-hover/channel:opacity-100 focus-visible:opacity-100",
-                    menuOpen && "opacity-100"
-                  )}
+          <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                aria-label="Channel options"
+                onClick={(e) => e.stopPropagation()}
+                onPointerDown={(e) => e.stopPropagation()}
+                className={cn(
+                  "text-muted-foreground opacity-0 transition-opacity duration-150 hover:text-foreground group-hover/channel:opacity-100 focus-visible:opacity-100",
+                  menuOpen && "opacity-100"
+                )}
+              >
+                <MoreHorizontal />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent side="bottom" align="start">
+              {mute ? (
+                <DropdownMenuItem
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    unmuteChannel(ch.id)
+                    setMenuOpen(false)
+                  }}
                 >
-                  <MoreHorizontal />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent side="bottom" align="start">
+                  Unmute Channel
+                </DropdownMenuItem>
+              ) : (
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger
+                    onClick={(e) => e.stopPropagation()}
+                    onPointerDown={(e) => e.stopPropagation()}
+                  >
+                    Mute Channel
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent>
+                    {MUTE_DURATIONS.map((duration) => (
+                      <DropdownMenuItem
+                        key={duration.label}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          muteChannel({
+                            channelId: ch.id,
+                            minutes: duration.minutes,
+                          })
+                          setMenuOpen(false)
+                        }}
+                      >
+                        {duration.label}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+              )}
+              <DropdownMenuSeparator />
+              {canManage && (
                 <DropdownMenuItem
                   onClick={(e) => {
                     e.stopPropagation()
@@ -760,33 +815,33 @@ function SortableChannelItem({
                 >
                   Edit Channel
                 </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    navigator.clipboard.writeText(ch.id)
-                    setMenuOpen(false)
-                  }}
-                >
-                  Copy Channel ID
-                </DropdownMenuItem>
-                {canDelete && (
-                  <>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setMenuOpen(false)
-                        setDeleteOpen(true)
-                      }}
-                      className="text-destructive focus:text-destructive"
-                    >
-                      Delete Channel
-                    </DropdownMenuItem>
-                  </>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
+              )}
+              <DropdownMenuItem
+                onClick={(e) => {
+                  e.stopPropagation()
+                  navigator.clipboard.writeText(ch.id)
+                  setMenuOpen(false)
+                }}
+              >
+                Copy Channel ID
+              </DropdownMenuItem>
+              {canDelete && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setMenuOpen(false)
+                      setDeleteOpen(true)
+                    }}
+                    className="text-destructive focus:text-destructive"
+                  >
+                    Delete Channel
+                  </DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
       {canManage && (

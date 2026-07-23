@@ -1,16 +1,12 @@
 import { PutObjectCommand } from "@aws-sdk/client-s3"
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner"
 import { db } from "@repo/db"
-import {
-  channel,
-  channelMember,
-  workspace,
-  workspaceMember,
-} from "@repo/db/schema"
+import { channel, workspace, workspaceMember } from "@repo/db/schema"
 import { env } from "@repo/env/server"
 import { and, eq } from "drizzle-orm"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { assertWorkspacePermission } from "@/lib/permissions"
+import { userCanAccessChannel } from "@/lib/queries/channel-access"
 import { s3Client } from "@/lib/s3"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
@@ -24,8 +20,6 @@ import {
   MAX_WORKSPACE_ICON_SIZE,
   PRESIGNED_URL_EXPIRY_SECONDS,
 } from "@/routes/v1/uploads/schema"
-
-const DM_CHANNEL_TYPES = ["dm", "group_dm"] as const
 
 async function createPresignedUpload(
   key: string,
@@ -56,73 +50,8 @@ export const presign: AppRouteHandler<PresignRoute> = async (c) => {
     )
   }
 
-  // Fetch the channel to determine access check strategy
-  const ch = await db
-    .select({
-      id: channel.id,
-      workspaceId: channel.workspaceId,
-      type: channel.type,
-    })
-    .from(channel)
-    .where(eq(channel.id, channelId))
-    .limit(1)
-    .then((rows) => rows[0])
-
-  if (!ch) {
-    return c.json(
-      { success: false, message: "Forbidden" },
-      HttpStatusCodes.FORBIDDEN
-    )
-  }
-
-  // Workspace channel — verify workspace membership
-  if (ch.workspaceId) {
-    const member = await db
-      .select({
-        id: workspaceMember.id,
-        role: workspaceMember.role,
-        userId: workspaceMember.userId,
-      })
-      .from(workspaceMember)
-      .where(
-        and(
-          eq(workspaceMember.workspaceId, ch.workspaceId),
-          eq(workspaceMember.userId, user.id)
-        )
-      )
-      .limit(1)
-      .then((rows) => rows[0])
-
-    if (!member) {
-      return c.json(
-        { success: false, message: "Forbidden" },
-        HttpStatusCodes.FORBIDDEN
-      )
-    }
-  } else if (
-    DM_CHANNEL_TYPES.includes(ch.type as (typeof DM_CHANNEL_TYPES)[number])
-  ) {
-    // DM/group DM — verify channel membership
-    const member = await db
-      .select({ id: channelMember.id })
-      .from(channelMember)
-      .where(
-        and(
-          eq(channelMember.channelId, channelId),
-          eq(channelMember.userId, user.id)
-        )
-      )
-      .limit(1)
-      .then((rows) => rows[0])
-
-    if (!member) {
-      return c.json(
-        { success: false, message: "Forbidden" },
-        HttpStatusCodes.FORBIDDEN
-      )
-    }
-  } else {
-    // Unknown channel type with no workspace — reject
+  const canAccess = await userCanAccessChannel(channelId, user.id)
+  if (!canAccess) {
     return c.json(
       { success: false, message: "Forbidden" },
       HttpStatusCodes.FORBIDDEN

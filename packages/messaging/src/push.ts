@@ -1,4 +1,4 @@
-import { db, inArray, schema } from "@repo/db"
+import { and, db, eq, inArray, schema } from "@repo/db"
 import {
   PRESENCE_ONLINE_USERS_SET_KEY,
   type UnreadNotification,
@@ -100,7 +100,33 @@ export async function sendMessagePushNotifications(input: {
     input.fanout.mentionNotifications.map((notification) => notification.userId)
   )
 
+  // Channel mutes silence everything (mentions included); badges are driven
+  // by the socket events, which mutes never touch.
+  const channelId = recipients[0]?.payload.channelId ?? ""
+  const muteRows = await db
+    .select({
+      userId: schema.channelMute.userId,
+      mutedUntil: schema.channelMute.mutedUntil,
+    })
+    .from(schema.channelMute)
+    .where(
+      and(
+        eq(schema.channelMute.channelId, channelId),
+        inArray(
+          schema.channelMute.userId,
+          offline.map((recipient) => recipient.userId)
+        )
+      )
+    )
+  const now = Date.now()
+  const mutedUserIds = new Set(
+    muteRows
+      .filter((row) => !row.mutedUntil || row.mutedUntil.getTime() > now)
+      .map((row) => row.userId)
+  )
+
   const eligible = offline.filter((recipient) => {
+    if (mutedUserIds.has(recipient.userId)) return false
     const settings = settingsByUserId.get(recipient.userId)
     if (recipient.payload.workspaceId === null) {
       return (settings?.dmNotifications ?? "all_messages") !== "nothing"

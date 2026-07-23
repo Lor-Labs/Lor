@@ -6,6 +6,8 @@ import Copy01Icon from "@hugeicons/core-free-icons/Copy01Icon"
 import Delete02Icon from "@hugeicons/core-free-icons/Delete02Icon"
 import Edit02Icon from "@hugeicons/core-free-icons/Edit02Icon"
 import HashIcon from "@hugeicons/core-free-icons/HashIcon"
+import Notification03Icon from "@hugeicons/core-free-icons/Notification03Icon"
+import NotificationOff03Icon from "@hugeicons/core-free-icons/NotificationOff03Icon"
 import Pin02Icon from "@hugeicons/core-free-icons/Pin02Icon"
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react-native"
 import * as Clipboard from "expo-clipboard"
@@ -18,6 +20,11 @@ import { Alert, Pressable, Text, View } from "react-native"
 import { KeyboardController } from "react-native-keyboard-controller"
 import { Button } from "@/components/ui/button"
 import { SectionLabel } from "@/components/ui/section-label"
+import {
+  mutedUntilLabel,
+  promptChannelMute,
+  useChannelMutes,
+} from "@/hooks/use-channel-mutes"
 import { api, responseMessage } from "@/lib/api"
 import type { ChannelDetail } from "@/lib/api-types"
 
@@ -57,6 +64,8 @@ export function ChannelOptionsSheet({
     "accent",
     "danger",
   ])
+  const { getMute, muteChannel, unmuteChannel } = useChannelMutes()
+  const mute = getMute(channel.id)
   useEffect(() => {
     if (!isOpen) return
     setView("options")
@@ -96,6 +105,16 @@ export function ChannelOptionsSheet({
     } finally {
       setIsSaving(false)
     }
+  }
+
+  const pressMute = () => {
+    promptChannelMute({
+      channelId: channel.id,
+      channelLabel: `#${channel.name ?? "channel"}`,
+      mute,
+      muteChannel,
+      unmuteChannel,
+    })
   }
 
   const confirmDelete = () => {
@@ -218,6 +237,45 @@ export function ChannelOptionsSheet({
                       tint={accent}
                     />
                   ) : null}
+                </View>
+
+                <View className="gap-three px-one">
+                  <SectionLabel>Notifications</SectionLabel>
+                  <Pressable
+                    accessibilityLabel={
+                      mute ? "Unmute channel" : "Mute channel"
+                    }
+                    accessibilityRole="button"
+                    className="min-h-14 flex-row items-center gap-three rounded-lor-sm bg-surface-secondary px-three py-three active:bg-surface-tertiary"
+                    onPress={pressMute}
+                  >
+                    <View className="size-9 items-center justify-center rounded-lor-sm bg-surface-tertiary">
+                      <HugeiconsIcon
+                        color={foreground}
+                        icon={mute ? NotificationOff03Icon : Notification03Icon}
+                        size={19}
+                      />
+                    </View>
+                    <View className="min-w-0 flex-1 gap-px">
+                      <Text className="text-[15px] font-semibold text-foreground">
+                        {mute ? "Muted" : "Mute channel"}
+                      </Text>
+                      <Text className="text-xs leading-4 text-muted">
+                        {mute
+                          ? mutedUntilLabel(mute.mutedUntil)
+                          : "Silence notifications from this channel"}
+                      </Text>
+                    </View>
+                    <SymbolView
+                      name={{
+                        ios: "chevron.right",
+                        android: "chevron_right",
+                        web: "chevron_right",
+                      }}
+                      size={17}
+                      tintColor={foreground}
+                    />
+                  </Pressable>
                 </View>
 
                 <View className="gap-three px-one">
