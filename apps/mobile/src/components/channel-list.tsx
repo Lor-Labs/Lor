@@ -24,11 +24,13 @@ function MentionBadge({ count }: { count: number }) {
 export function ChannelRow({
   channel,
   mentionCount,
+  onLongPress,
   onPress,
   unread,
 }: {
   channel: Channel
   mentionCount: number
+  onLongPress?: (channel: Channel) => void
   onPress: (channel: Channel) => void
   unread: boolean
 }) {
@@ -50,6 +52,14 @@ export function ChannelRow({
       }`}
       accessibilityRole="button"
       className="min-h-[42px] flex-row items-center gap-two rounded-lor-sm px-two active:bg-surface-secondary"
+      onLongPress={
+        onLongPress
+          ? () => {
+              void Haptics.selectionAsync()
+              onLongPress(channel)
+            }
+          : undefined
+      }
       onPress={() => onPress(channel)}
     >
       {emphasized ? (
@@ -137,10 +147,12 @@ function ChannelSection({
 export function ChannelList({
   data,
   isLoading,
+  onLongPress,
   onPress,
 }: {
   data?: { uncategorized: Channel[]; categories: ChannelCategory[] }
   isLoading: boolean
+  onLongPress?: (channel: Channel) => void
   onPress: (channel: Channel) => void
 }) {
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(
@@ -179,6 +191,7 @@ export function ChannelList({
       channel={channel}
       key={channel.id}
       mentionCount={getMentionCount(channel.id)}
+      onLongPress={onLongPress}
       onPress={onPress}
       unread={getUnreadCount(channel.id) > 0}
     />

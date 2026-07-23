@@ -21,8 +21,8 @@ import { KeyboardController } from "react-native-keyboard-controller"
 import { Button } from "@/components/ui/button"
 import { SectionLabel } from "@/components/ui/section-label"
 import {
-  MUTE_DURATIONS,
   mutedUntilLabel,
+  promptChannelMute,
   useChannelMutes,
 } from "@/hooks/use-channel-mutes"
 import { api, responseMessage } from "@/lib/api"
@@ -107,37 +107,14 @@ export function ChannelOptionsSheet({
     }
   }
 
-  const showMuteError = (cause: unknown) => {
-    Alert.alert(
-      "Something went wrong",
-      cause instanceof Error ? cause.message : "Please try again in a moment."
-    )
-  }
-
   const pressMute = () => {
-    const channelLabel = `#${channel.name ?? "channel"}`
-    if (mute) {
-      Alert.alert(`Unmute ${channelLabel}?`, mutedUntilLabel(mute.mutedUntil), [
-        { style: "cancel", text: "Cancel" },
-        {
-          text: "Unmute",
-          onPress: () => void unmuteChannel(channel.id).catch(showMuteError),
-        },
-      ])
-      return
-    }
-    Alert.alert(
-      `Mute ${channelLabel}`,
-      "You won't get notifications from this channel while it's muted, on any device. Unread badges are unaffected.",
-      [
-        ...MUTE_DURATIONS.map((duration) => ({
-          text: duration.label,
-          onPress: () =>
-            void muteChannel(channel.id, duration.minutes).catch(showMuteError),
-        })),
-        { style: "cancel" as const, text: "Cancel" },
-      ]
-    )
+    promptChannelMute({
+      channelId: channel.id,
+      channelLabel: `#${channel.name ?? "channel"}`,
+      mute,
+      muteChannel,
+      unmuteChannel,
+    })
   }
 
   const confirmDelete = () => {

@@ -14,6 +14,7 @@ import {
   TextInput,
   View,
 } from "react-native"
+import { ChannelActionsSheet } from "@/components/channel-actions-sheet"
 import { ChannelList } from "@/components/channel-list"
 import { CreateChannelSheet } from "@/components/create-channel-sheet"
 import { CreateInviteSheet } from "@/components/create-invite-sheet"
@@ -49,6 +50,7 @@ export default function WorkspaceScreen() {
   const [isCreateChannelOpen, setIsCreateChannelOpen] = useState(false)
   const [isInviteOpen, setIsInviteOpen] = useState(false)
   const [isWorkspaceSheetOpen, setIsWorkspaceSheetOpen] = useState(false)
+  const [actionChannel, setActionChannel] = useState<Channel | null>(null)
   const hasFocusedChannelsRef = useRef(false)
   const inviteTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const permissions = useChannelPermissions(workspace?.id)
@@ -323,10 +325,18 @@ export default function WorkspaceScreen() {
           <ChannelList
             data={channels ?? undefined}
             isLoading={isLoadingChannels}
+            onLongPress={setActionChannel}
             onPress={openChannel}
           />
         )}
       </ScrollView>
+      <ChannelActionsSheet
+        channel={actionChannel}
+        onOpenChange={(isOpen) => {
+          if (!isOpen) setActionChannel(null)
+        }}
+        workspaceName={workspace.name}
+      />
       <CreateChannelSheet
         categories={channels?.categories ?? []}
         isOpen={isCreateChannelOpen}
