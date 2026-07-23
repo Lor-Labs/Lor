@@ -94,6 +94,25 @@ export function useChannelMutes() {
     }
   }, [socket, queryClient])
 
+  // Timed mutes expire without any event — refetch at the nearest expiry so
+  // open sheets flip back on their own (mirrors the web hook).
+  useEffect(() => {
+    if (!mutes) return
+    const now = Date.now()
+    const expiries = mutes
+      .map((mute) =>
+        mute.mutedUntil ? new Date(mute.mutedUntil).getTime() : null
+      )
+      .filter((time): time is number => time !== null && time > now)
+    if (expiries.length === 0) return
+    const delay = Math.min(...expiries) - now + 1_000
+    if (delay > 2 ** 31 - 1) return
+    const timer = setTimeout(() => {
+      void queryClient.invalidateQueries({ queryKey: ["channel-mutes"] })
+    }, delay)
+    return () => clearTimeout(timer)
+  }, [mutes, queryClient])
+
   const getMute = useCallback(
     (channelId: string) => {
       const mute = mutes?.find((item) => item.channelId === channelId)
