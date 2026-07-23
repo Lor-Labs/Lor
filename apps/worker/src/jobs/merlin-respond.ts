@@ -23,7 +23,10 @@ import {
   userDisplayName,
   writeBack,
 } from "@repo/merlin"
-import { buildMessageFanout } from "@repo/messaging"
+import {
+  buildMessageFanout,
+  sendMessagePushNotifications,
+} from "@repo/messaging"
 import type {
   MerlinRespondJobData,
   RealtimeMessageMention,
@@ -455,6 +458,16 @@ export function createMerlinRespondProcessor(
                 .to(userRoom(n.userId))
                 .emit("notification:mention", n.payload)
             }
+            void sendMessagePushNotifications({
+              fanout,
+              threadRootId,
+              redis,
+            }).catch((err) => {
+              logger.error(
+                { err, merlinMessageId },
+                "Push notification send failed"
+              )
+            })
           }
         } catch (err) {
           logger.error(

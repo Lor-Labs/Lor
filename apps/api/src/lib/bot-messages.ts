@@ -1,5 +1,8 @@
 import { db, schema } from "@repo/db"
-import { buildMessageFanout } from "@repo/messaging"
+import {
+  buildMessageFanout,
+  sendMessagePushNotifications,
+} from "@repo/messaging"
 import {
   channelRoom,
   type RealtimeMessage,
@@ -88,6 +91,13 @@ export async function postBotMessage(
     for (const n of fanout.mentionNotifications) {
       io.to(userRoom(n.userId)).emit("notification:mention", n.payload)
     }
+    const redis = await getRedisClient()
+    void sendMessagePushNotifications({ fanout, redis }).catch((err) => {
+      logger.error(
+        { err, messageId: inserted.id },
+        "Push notification send failed"
+      )
+    })
   } catch (err) {
     logger.error({ err, messageId: inserted.id }, "Bot message fanout failed")
   }

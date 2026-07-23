@@ -9,6 +9,7 @@ import { useSocketConnected } from "@/context/socket-context"
 import { useWorkspace } from "@/context/workspace-context"
 import { useTheme } from "@/hooks/use-theme"
 import { authClient } from "@/lib/auth-client"
+import { unregisterPushToken } from "@/lib/push-notifications"
 
 type SettingsIcon = ComponentProps<typeof SymbolView>["name"]
 
@@ -101,8 +102,9 @@ export default function YouScreen() {
         style: "destructive",
         onPress: () => {
           setIsSigningOut(true)
-          void authClient
-            .signOut()
+          void unregisterPushToken()
+            .catch(() => {})
+            .then(() => authClient.signOut())
             .then(({ error }) => {
               if (error) throw new Error(error.message ?? "Log out failed")
             })
