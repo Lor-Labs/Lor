@@ -10,6 +10,7 @@ import dmsRouter from "@/routes/v1/dms/index"
 import integrationsRouter from "@/routes/v1/integrations/index"
 import invitesRouter from "@/routes/v1/invites/index"
 import notificationSettingsRouter from "@/routes/v1/notification-settings/index"
+import pushTokensRouter from "@/routes/v1/push-tokens/index"
 import uploadsRouter from "@/routes/v1/uploads/index"
 import usersRouter from "@/routes/v1/users/index"
 import webhooksRouter from "@/routes/v1/webhooks/index"
@@ -44,6 +45,7 @@ const routes = app
   .route("/v1", workspacesRouter)
   .route("/v1", invitesRouter)
   .route("/v1", notificationSettingsRouter)
+  .route("/v1", pushTokensRouter)
   .route("/v1", dmsRouter)
   .route("/v1", uploadsRouter)
   .route("/v1", usersRouter)
