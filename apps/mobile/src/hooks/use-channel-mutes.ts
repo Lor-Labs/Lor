@@ -132,7 +132,7 @@ export function useChannelMutes() {
           )
         }
       } catch (cause) {
-        queryClient.setQueryData(["channel-mutes"], previous)
+        queryClient.setQueryData(["channel-mutes"], previous ?? [])
         throw cause
       } finally {
         void queryClient.invalidateQueries({ queryKey: ["channel-mutes"] })
@@ -159,7 +159,7 @@ export function useChannelMutes() {
           )
         }
       } catch (cause) {
-        queryClient.setQueryData(["channel-mutes"], previous)
+        queryClient.setQueryData(["channel-mutes"], previous ?? [])
         throw cause
       } finally {
         void queryClient.invalidateQueries({ queryKey: ["channel-mutes"] })

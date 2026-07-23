@@ -41,8 +41,9 @@ export const listChannelMutes: AppRouteHandler<ListChannelMutesRoute> = async (
 ) => {
   const currentUser = c.var.user
 
-  // Lazy cleanup: expired mutes are dead rows, prune on read.
-  await db
+  // Lazy cleanup: expired mutes are dead rows. The select below already
+  // excludes them, so pruning can run without delaying the response.
+  void db
     .delete(schema.channelMute)
     .where(
       and(
@@ -50,6 +51,9 @@ export const listChannelMutes: AppRouteHandler<ListChannelMutesRoute> = async (
         lte(schema.channelMute.mutedUntil, new Date())
       )
     )
+    .catch((err) => {
+      logger.error({ err }, "Expired channel-mute prune failed")
+    })
 
   const rows = await db
     .select({

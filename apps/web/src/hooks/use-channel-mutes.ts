@@ -44,7 +44,9 @@ export function useChannelMutes() {
   useEffect(() => {
     if (!socket) return
     const onUpdated = () => {
-      void queryClient.invalidateQueries({ queryKey: ["channel-mutes"] })
+      void queryClient.invalidateQueries({
+        queryKey: channelMutesQueryOptions.queryKey,
+      })
     }
     socket.on("channel-mute:updated", onUpdated)
     return () => {
@@ -52,21 +54,47 @@ export function useChannelMutes() {
     }
   }, [socket, queryClient])
 
+  // Timed mutes expire without any event — refetch at the nearest expiry so
+  // the bell flips back on its own.
+  useEffect(() => {
+    if (!mutes) return
+    const now = Date.now()
+    const expiries = mutes
+      .map((mute) =>
+        mute.mutedUntil ? new Date(mute.mutedUntil).getTime() : null
+      )
+      .filter((time): time is number => time !== null && time > now)
+    if (expiries.length === 0) return
+    const delay = Math.min(...expiries) - now + 1_000
+    if (delay > 2 ** 31 - 1) return
+    const timer = setTimeout(() => {
+      void queryClient.invalidateQueries({
+        queryKey: channelMutesQueryOptions.queryKey,
+      })
+    }, delay)
+    return () => clearTimeout(timer)
+  }, [mutes, queryClient])
+
   const getMute = useCallback(
     (channelId: string) => findActiveMute(mutes, channelId),
     [mutes]
   )
 
   const invalidate = () => {
-    void queryClient.invalidateQueries({ queryKey: ["channel-mutes"] })
+    void queryClient.invalidateQueries({
+      queryKey: channelMutesQueryOptions.queryKey,
+    })
   }
 
   const applyOptimistic = (
     update: (old: ChannelMute[]) => ChannelMute[]
   ): { previous: ChannelMute[] | undefined } => {
-    const previous = queryClient.getQueryData<ChannelMute[]>(["channel-mutes"])
-    queryClient.setQueryData<ChannelMute[]>(["channel-mutes"], (old) =>
-      update(old ?? [])
+    const previous = queryClient.getQueryData<ChannelMute[]>(
+      channelMutesQueryOptions.queryKey
+    )
+    queryClient.setQueryData<ChannelMute[]>(
+      channelMutesQueryOptions.queryKey,
+      (old) => update(old ?? [])
     )
     return { previous }
   }
@@ -92,7 +120,10 @@ export function useChannelMutes() {
       ]),
     onError: (error, _variables, context) => {
       if (context) {
-        queryClient.setQueryData(["channel-mutes"], context.previous)
+        queryClient.setQueryData(
+          channelMutesQueryOptions.queryKey,
+          context.previous ?? []
+        )
       }
       toast.error(error.message)
     },
@@ -112,7 +143,10 @@ export function useChannelMutes() {
       ),
     onError: (error, _variables, context) => {
       if (context) {
-        queryClient.setQueryData(["channel-mutes"], context.previous)
+        queryClient.setQueryData(
+          channelMutesQueryOptions.queryKey,
+          context.previous ?? []
+        )
       }
       toast.error(error.message)
     },

@@ -779,7 +779,12 @@ function SortableChannelItem({
                 </DropdownMenuItem>
               ) : (
                 <DropdownMenuSub>
-                  <DropdownMenuSubTrigger>Mute Channel</DropdownMenuSubTrigger>
+                  <DropdownMenuSubTrigger
+                    onClick={(e) => e.stopPropagation()}
+                    onPointerDown={(e) => e.stopPropagation()}
+                  >
+                    Mute Channel
+                  </DropdownMenuSubTrigger>
                   <DropdownMenuSubContent>
                     {MUTE_DURATIONS.map((duration) => (
                       <DropdownMenuItem

@@ -50,8 +50,22 @@ export function ChannelRow({
             ? ", unread messages"
             : ""
       }`}
+      accessibilityActions={
+        onLongPress
+          ? [{ label: "Channel options", name: "channel-options" }]
+          : undefined
+      }
       accessibilityRole="button"
       className="min-h-[42px] flex-row items-center gap-two rounded-lor-sm px-two active:bg-surface-secondary"
+      onAccessibilityAction={
+        onLongPress
+          ? (event) => {
+              if (event.nativeEvent.actionName === "channel-options") {
+                onLongPress(channel)
+              }
+            }
+          : undefined
+      }
       onLongPress={
         onLongPress
           ? () => {
