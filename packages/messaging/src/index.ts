@@ -217,16 +217,67 @@ export async function syncMessageMentions(input: {
   return listMentionUsers(mentionTypeByUserId)
 }
 
+// Plain-text preview for notification surfaces (desktop notifications, push).
+// Mention/citation/markdown handling mirrors apps/web/src/lib/search-preview.ts.
+async function buildNotificationPreview(content: string) {
+  const mentionIds = [...extractDirectMentionUserIds(content)]
+  const users =
+    mentionIds.length > 0
+      ? await db
+          .select({
+            id: schema.user.id,
+            name: schema.user.name,
+            username: schema.user.username,
+            displayUsername: schema.user.displayUsername,
+          })
+          .from(schema.user)
+          .where(inArray(schema.user.id, mentionIds))
+      : []
+  const userById = new Map(users.map((user) => [user.id, user]))
+  const mentionLabel = (id: string) => {
+    const user = userById.get(id)
+    return `@${user ? (user.displayUsername ?? user.username ?? user.name) : "unknown-user"}`
+  }
+
+  return content
+    .replace(MARKDOWN_USER_MENTION_REGEX, (_match, id: string) =>
+      mentionLabel(id)
+    )
+    .replace(USER_MENTION_REGEX, (_match, id: string) => mentionLabel(id))
+    .replace(/\[\[([^\]]+)\]\]/g, (_match, raw: string) => {
+      const token = raw.trim()
+      if (token.startsWith("msg:")) return "↗ message"
+      if (token.startsWith("src:")) {
+        const [, title = ""] = token.slice(4).split("|")
+        return `↗ ${title.trim() || "source"}`
+      }
+      return token
+    })
+    .replace(/!\[([^\]]*)]\([^)]*\)/g, "$1")
+    .replace(/\[([^\]]+)]\([^)]*\)/g, "$1")
+    .replace(/^```[^\n]*$/gm, "")
+    .replace(/(^|\n)[ \t]{0,3}(?:#{1,6}|>+|[-*+]|\d+[.)])[ \t]+/g, "$1")
+    .replace(/(\*\*|__)(\S(?:[\s\S]*?\S)?)\1/g, "$2")
+    .replace(/\*(\S(?:[^*\n]*?\S)?)\*/g, "$1")
+    .replace(/(^|\W)_(\S(?:[^_\n]*?\S)?)_(?=\W|$)/g, "$1$2")
+    .replace(/~~(\S(?:[\s\S]*?\S)?)~~/g, "$1")
+    .replace(/`([^`\n]+)`/g, "$1")
+    .trim()
+}
+
 export async function buildMessageFanout(input: MessageFanoutInput) {
   const allRecipientIds = await listRecipientUserIds(input.channel)
   const recipientIds = [...new Set(allRecipientIds)].filter(
     (id) => id !== input.authorId
   )
 
-  const contentPreview = input.message.content
-    ? input.message.content.length > 100
-      ? `${input.message.content.slice(0, 100)}…`
-      : input.message.content
+  const previewText = input.message.content
+    ? await buildNotificationPreview(input.message.content)
+    : ""
+  const contentPreview = previewText
+    ? previewText.length > 100
+      ? `${previewText.slice(0, 100)}…`
+      : previewText
     : input.message.attachments.length > 0
       ? `sent ${input.message.attachments.length} attachment${input.message.attachments.length > 1 ? "s" : ""}`
       : null
