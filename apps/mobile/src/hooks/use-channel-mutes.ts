@@ -1,0 +1,126 @@
+import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useCallback, useEffect } from "react"
+import { useSocket } from "@/context/socket-context"
+import { api, responseMessage } from "@/lib/api"
+
+export type ChannelMute = { channelId: string; mutedUntil: string | null }
+
+export const MUTE_DURATIONS = [
+  { label: "For 15 minutes", minutes: 15 },
+  { label: "For 1 hour", minutes: 60 },
+  { label: "For 8 hours", minutes: 480 },
+  { label: "For 24 hours", minutes: 1440 },
+  { label: "Until I turn it back on", minutes: null },
+] as const
+
+export function mutedUntilLabel(mutedUntil: string | null) {
+  if (!mutedUntil) return "Muted until you turn it back on"
+  const until = new Date(mutedUntil)
+  return `Muted until ${until.toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  })}`
+}
+
+export function useChannelMutes() {
+  const socket = useSocket()
+  const queryClient = useQueryClient()
+  const { data: mutes } = useQuery({
+    queryKey: ["channel-mutes"],
+    queryFn: async (): Promise<ChannelMute[]> => {
+      const response = await api.v1["channel-mutes"].$get()
+      if (!response.ok) throw new Error("Could not load channel mutes")
+      const payload = await response.json()
+      return payload.mutes
+    },
+  })
+
+  useEffect(() => {
+    if (!socket) return
+    const onUpdated = () => {
+      void queryClient.invalidateQueries({ queryKey: ["channel-mutes"] })
+    }
+    socket.on("channel-mute:updated", onUpdated)
+    return () => {
+      socket.off("channel-mute:updated", onUpdated)
+    }
+  }, [socket, queryClient])
+
+  const getMute = useCallback(
+    (channelId: string) => {
+      const mute = mutes?.find((item) => item.channelId === channelId)
+      if (!mute) return null
+      if (
+        mute.mutedUntil &&
+        new Date(mute.mutedUntil).getTime() <= Date.now()
+      ) {
+        return null
+      }
+      return mute
+    },
+    [mutes]
+  )
+
+  const muteChannel = useCallback(
+    async (channelId: string, minutes: number | null) => {
+      const until = minutes
+        ? new Date(Date.now() + minutes * 60_000).toISOString()
+        : null
+      const previous = queryClient.getQueryData<ChannelMute[]>([
+        "channel-mutes",
+      ])
+      queryClient.setQueryData<ChannelMute[]>(["channel-mutes"], (old) => [
+        ...(old ?? []).filter((item) => item.channelId !== channelId),
+        { channelId, mutedUntil: until },
+      ])
+      try {
+        const response = await api.v1["channel-mutes"][":channelId"].$put({
+          param: { channelId },
+          json: { until },
+        })
+        if (!response.ok) {
+          throw new Error(
+            await responseMessage(response, "Could not mute this channel")
+          )
+        }
+      } catch (cause) {
+        queryClient.setQueryData(["channel-mutes"], previous)
+        throw cause
+      } finally {
+        void queryClient.invalidateQueries({ queryKey: ["channel-mutes"] })
+      }
+    },
+    [queryClient]
+  )
+
+  const unmuteChannel = useCallback(
+    async (channelId: string) => {
+      const previous = queryClient.getQueryData<ChannelMute[]>([
+        "channel-mutes",
+      ])
+      queryClient.setQueryData<ChannelMute[]>(["channel-mutes"], (old) =>
+        (old ?? []).filter((item) => item.channelId !== channelId)
+      )
+      try {
+        const response = await api.v1["channel-mutes"][":channelId"].$delete({
+          param: { channelId },
+        })
+        if (!response.ok) {
+          throw new Error(
+            await responseMessage(response, "Could not unmute this channel")
+          )
+        }
+      } catch (cause) {
+        queryClient.setQueryData(["channel-mutes"], previous)
+        throw cause
+      } finally {
+        void queryClient.invalidateQueries({ queryKey: ["channel-mutes"] })
+      }
+    },
+    [queryClient]
+  )
+
+  return { getMute, muteChannel, unmuteChannel }
+}

@@ -276,6 +276,14 @@ export type MentionNotification = {
   createdAt: string
 }
 
+// Sent to the user room when a channel mute is set/cleared on any device, so
+// other clients refresh their mute list immediately.
+export type ChannelMuteUpdated = {
+  channelId: string
+  mutedUntil: string | null
+  muted: boolean
+}
+
 export type NotificationBootstrap = {
   readStates: Array<{
     channelId: string
@@ -436,6 +444,7 @@ export interface ServerToClientEvents {
   "notification:unread": (payload: UnreadNotification) => void
   "notification:mention": (payload: MentionNotification) => void
   "channel:read-state": (payload: ChannelReadState) => void
+  "channel-mute:updated": (payload: ChannelMuteUpdated) => void
   "workspace:member:joined": (payload: WorkspaceMemberJoinedEvent) => void
   "typing:update": (payload: TypingIndicatorEvent) => void
 }

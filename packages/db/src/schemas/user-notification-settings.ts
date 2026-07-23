@@ -16,6 +16,11 @@ export const dmNotificationEnum = pgEnum("dm_notification", [
 
 export const userNotificationSettings = pgTable("user_notification_settings", {
   id: uuid("id").defaultRandom().primaryKey(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at")
+    .defaultNow()
+    .$onUpdate(() => new Date())
+    .notNull(),
   userId: uuid("user_id")
     .notNull()
     .unique()
@@ -25,11 +30,6 @@ export const userNotificationSettings = pgTable("user_notification_settings", {
     .notNull(),
   dmNotifications: dmNotificationEnum("dm_notifications")
     .default("all_messages")
-    .notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at")
-    .defaultNow()
-    .$onUpdate(() => new Date())
     .notNull(),
 })
 

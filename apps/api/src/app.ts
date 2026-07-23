@@ -5,6 +5,7 @@ import configureOpenAPI from "@/lib/helpers/openapi/configure-openapi"
 import { globalRateLimit } from "@/middleware/rate-limit"
 import index from "@/routes/index.route"
 import agentProfilesRouter from "@/routes/v1/agent-profiles/index"
+import channelMutesRouter from "@/routes/v1/channel-mutes/index"
 import channelsRouter from "@/routes/v1/channels/index"
 import dmsRouter from "@/routes/v1/dms/index"
 import integrationsRouter from "@/routes/v1/integrations/index"
@@ -46,6 +47,7 @@ const routes = app
   .route("/v1", invitesRouter)
   .route("/v1", notificationSettingsRouter)
   .route("/v1", pushTokensRouter)
+  .route("/v1", channelMutesRouter)
   .route("/v1", dmsRouter)
   .route("/v1", uploadsRouter)
   .route("/v1", usersRouter)

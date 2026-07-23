@@ -5,6 +5,10 @@ import type {
 import { useQuery } from "@tanstack/react-query"
 import { useEffect } from "react"
 import { useSocket } from "@/context/socket-context"
+import {
+  channelMutesQueryOptions,
+  findActiveMute,
+} from "@/hooks/use-channel-mutes"
 import { apiClient } from "@/lib/api-client"
 import { showNotification } from "@/lib/notification-dispatcher"
 
@@ -28,6 +32,7 @@ export function useBrowserNotifications() {
       return res.json() as Promise<NotificationSettings>
     },
   })
+  const { data: mutes } = useQuery(channelMutesQueryOptions)
 
   useEffect(() => {
     if (!socket) return
@@ -35,6 +40,7 @@ export function useBrowserNotifications() {
     const onMention = (payload: MentionNotification) => {
       if (document.hasFocus()) return
       if (!settings) return
+      if (findActiveMute(mutes, payload.channelId)) return
       if (settings.desktopNotifications === "nothing") return
 
       // For DM mentions, check dmNotifications setting
@@ -56,6 +62,7 @@ export function useBrowserNotifications() {
     const onUnread = (payload: UnreadNotification) => {
       if (document.hasFocus()) return
       if (!settings) return
+      if (findActiveMute(mutes, payload.channelId)) return
       if (settings.desktopNotifications !== "all_messages") return
 
       // For DMs, check dmNotifications setting
@@ -85,5 +92,5 @@ export function useBrowserNotifications() {
       socket.off("notification:mention", onMention)
       socket.off("notification:unread", onUnread)
     }
-  }, [socket, settings])
+  }, [socket, settings, mutes])
 }
