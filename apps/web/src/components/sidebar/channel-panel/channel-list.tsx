@@ -48,6 +48,8 @@ import {
   canManageChannels,
 } from "@/lib/permissions"
 
+type ChannelMuteControls = ReturnType<typeof useChannelMutes>
+
 const channelIcons = {
   text: Hash,
   voice: Volume2,
@@ -194,6 +196,8 @@ export function ChannelList() {
     : false
 
   const { openCreateChannel } = useCreateChannel()
+  // One query + socket listener for the whole list; rows get the controls via props.
+  const muteControls = useChannelMutes()
 
   const [activeItem, setActiveItem] = useState<{
     channel: Channel
@@ -434,6 +438,7 @@ export function ChannelList() {
                   active={activeChannelId === ch.id}
                   canManage={canManage}
                   canDelete={canDelete}
+                  muteControls={muteControls}
                   onClick={() => {
                     navigate({
                       to: "/$workspaceSlug/$channelId",
@@ -467,6 +472,7 @@ export function ChannelList() {
               canCreate={canCreate}
               canManage={canManage}
               canDelete={canDelete}
+              muteControls={muteControls}
               onChannelClick={(channelId) => {
                 navigate({
                   to: "/$workspaceSlug/$channelId",
@@ -515,6 +521,7 @@ function SortableCategorySection({
   canCreate,
   canManage,
   canDelete,
+  muteControls,
   onChannelClick,
   onCreateChannel,
 }: {
@@ -526,6 +533,7 @@ function SortableCategorySection({
   canCreate: boolean
   canManage: boolean
   canDelete: boolean
+  muteControls: ChannelMuteControls
   onChannelClick?: (channelId: string) => void
   onCreateChannel?: (parentId: string) => void
 }) {
@@ -659,6 +667,7 @@ function SortableCategorySection({
                   active={activeChannelId === ch.id}
                   canManage={canManage}
                   canDelete={canDelete}
+                  muteControls={muteControls}
                   onClick={() => onChannelClick?.(ch.id)}
                 />
               ))}
@@ -675,12 +684,14 @@ function SortableChannelItem({
   active = false,
   canManage,
   canDelete,
+  muteControls,
   onClick,
 }: {
   channel: Channel
   active?: boolean
   canManage: boolean
   canDelete: boolean
+  muteControls: ChannelMuteControls
   onClick?: () => void
 }) {
   const {
@@ -697,7 +708,7 @@ function SortableChannelItem({
   const [deleteOpen, setDeleteOpen] = useState(false)
 
   const { getUnreadCount, getMentionCount } = useUnread()
-  const { getMute, muteChannel, unmuteChannel } = useChannelMutes()
+  const { getMute, muteChannel, unmuteChannel } = muteControls
   const mute = getMute(ch.id)
   const unreadCount = active ? 0 : getUnreadCount(ch.id)
   const mentionCount = active ? 0 : getMentionCount(ch.id)

@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useCallback, useEffect } from "react"
+import { toast } from "sonner"
 import { useSocket } from "@/context/socket-context"
 import { apiClient } from "@/lib/api-client"
 
@@ -89,10 +90,11 @@ export function useChannelMutes() {
         ...old.filter((item) => item.channelId !== channelId),
         { channelId, mutedUntil: until },
       ]),
-    onError: (_error, _variables, context) => {
+    onError: (error, _variables, context) => {
       if (context) {
         queryClient.setQueryData(["channel-mutes"], context.previous)
       }
+      toast.error(error.message)
     },
     onSettled: invalidate,
   })
@@ -108,10 +110,11 @@ export function useChannelMutes() {
       applyOptimistic((old) =>
         old.filter((item) => item.channelId !== channelId)
       ),
-    onError: (_error, _variables, context) => {
+    onError: (error, _variables, context) => {
       if (context) {
         queryClient.setQueryData(["channel-mutes"], context.previous)
       }
+      toast.error(error.message)
     },
     onSettled: invalidate,
   })

@@ -2,6 +2,7 @@ import { and, db, eq, gt, isNull, lte, or, schema } from "@repo/db"
 import { type ServerToClientEvents, userRoom } from "@repo/realtime-types"
 import { Emitter } from "@socket.io/redis-emitter"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
+import { logger } from "@/lib/logger"
 import { userCanAccessChannel } from "@/lib/queries/channel-access"
 import { getRedisClient } from "@/lib/redis"
 import type { AppRouteHandler } from "@/lib/types/app-types"
@@ -21,12 +22,18 @@ async function getEmitter() {
   return emitter
 }
 
+// Best-effort cross-device sync — the DB row already changed, so a realtime
+// delivery failure must not fail the mutation.
 async function emitMuteUpdated(
   userId: string,
   payload: { channelId: string; mutedUntil: string | null; muted: boolean }
 ) {
-  const io = await getEmitter()
-  io.to(userRoom(userId)).emit("channel-mute:updated", payload)
+  try {
+    const io = await getEmitter()
+    io.to(userRoom(userId)).emit("channel-mute:updated", payload)
+  } catch (err) {
+    logger.error({ err, userId }, "channel-mute:updated emit failed")
+  }
 }
 
 export const listChannelMutes: AppRouteHandler<ListChannelMutesRoute> = async (

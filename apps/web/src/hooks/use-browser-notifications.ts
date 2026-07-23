@@ -39,7 +39,7 @@ export function useBrowserNotifications() {
 
     const onMention = (payload: MentionNotification) => {
       if (document.hasFocus()) return
-      if (!settings) return
+      if (!(settings && mutes)) return
       if (findActiveMute(mutes, payload.channelId)) return
       if (settings.desktopNotifications === "nothing") return
 
@@ -61,7 +61,7 @@ export function useBrowserNotifications() {
 
     const onUnread = (payload: UnreadNotification) => {
       if (document.hasFocus()) return
-      if (!settings) return
+      if (!(settings && mutes)) return
       if (findActiveMute(mutes, payload.channelId)) return
       if (settings.desktopNotifications !== "all_messages") return
 

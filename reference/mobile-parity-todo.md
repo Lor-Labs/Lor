@@ -3,7 +3,7 @@
 Tracking what's left to bring `apps/mobile` close to `apps/web` functionality.
 Status: `[ ]` todo · `[~]` in progress · `[x]` done. Keep this file updated as items land.
 
-Last audited: 2026-07-19.
+Last audited: 2026-07-23.
 
 ## Tier 1 — big functional gaps
 
