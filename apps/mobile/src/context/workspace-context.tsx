@@ -16,7 +16,7 @@ type WorkspaceContextValue = {
   avatarColor: string | null
   isLoading: boolean
   error: string | null
-  selectWorkspace: (workspaceId: string) => Promise<void>
+  selectWorkspace: (workspaceId: string) => Promise<boolean>
   reloadWorkspaces: (activateWorkspaceId?: string) => Promise<void>
 }
 
@@ -66,7 +66,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   const selectWorkspace = async (workspaceId: string) => {
     const next = workspaces.find((item) => item.id === workspaceId)
-    if (!next) return
+    if (!next) return false
 
     setError(null)
     const result = await authClient.organization.setActive({
@@ -74,9 +74,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     })
     if (result.error) {
       setError(result.error.message ?? "Could not open that workspace")
-      return
+      return false
     }
     setWorkspace(next)
+    return true
   }
 
   const reloadWorkspaces = async (activateWorkspaceId?: string) => {

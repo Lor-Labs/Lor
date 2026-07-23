@@ -44,7 +44,11 @@ export function usePushNotifications() {
   const activeWorkspaceId = workspace?.id
 
   useEffect(() => {
-    if (!userId || registeredUserIdRef.current === userId) return
+    if (!userId) {
+      registeredUserIdRef.current = null
+      return
+    }
+    if (registeredUserIdRef.current === userId) return
     registeredUserIdRef.current = userId
     registerPushToken().catch(() => {
       registeredUserIdRef.current = null
@@ -61,6 +65,7 @@ export function usePushNotifications() {
     const identifier = lastResponse.notification.request.identifier
     if (handledResponseRef.current === identifier) return
     handledResponseRef.current = identifier
+    void Notifications.clearLastNotificationResponseAsync()
 
     const target = parsePushTarget(
       lastResponse.notification.request.content.data ?? {}
@@ -76,7 +81,8 @@ export function usePushNotifications() {
         return
       }
       if (target.workspaceId !== activeWorkspaceId) {
-        await selectWorkspace(target.workspaceId)
+        const switched = await selectWorkspace(target.workspaceId)
+        if (!switched) return
       }
       if (target.threadRootId) {
         router.push({

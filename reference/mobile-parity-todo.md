@@ -7,7 +7,7 @@ Last audited: 2026-07-19.
 
 ## Tier 1 — big functional gaps
 
-- [~] **Push notifications** — code complete full-stack (see Done); blocked on EAS/APNs credentials + dev-client rebuild on a physical iPhone before it can be tested. Follow-ups once live: badge counts on the app icon, remote-clearing stale pushes after reading on desktop (needs background push), per-channel mutes.
+- [~] **Push notifications** — code complete full-stack (see Done); blocked on EAS/APNs credentials + dev-client rebuild on a physical iPhone before it can be tested. Follow-ups once live: badge counts on the app icon, remote-clearing stale pushes after reading on desktop (needs background push), per-channel mutes, Expo push receipt sweep (delayed job checking receipts for DeviceNotRegistered beyond ticket-level pruning).
 - [ ] **DM follow-ups** — DM search (`GET /v1/dms/search` exists, no mobile UI), group-DM member list sheet, DM threads (API exists; web has no DM thread UI either — do together or not at all).
 
 ## Tier 2 — admin & workspace management
