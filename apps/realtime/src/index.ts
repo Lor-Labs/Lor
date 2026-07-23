@@ -4,7 +4,10 @@ import { and, db, eq, schema } from "@repo/db"
 import { env } from "@repo/env/server"
 import { enterContext } from "@repo/logger"
 import { decideReplyPlacement } from "@repo/merlin/placement"
-import { buildMessageFanout } from "@repo/messaging"
+import {
+  buildMessageFanout,
+  sendMessagePushNotifications,
+} from "@repo/messaging"
 import type {
   ClientToServerEvents,
   InterServerEvents,
@@ -526,6 +529,14 @@ io.on("connection", (socket) => {
           mentionNotification.payload
         )
       }
+
+      void sendMessagePushNotifications({
+        fanout,
+        threadRootId: messageWithMentions.threadRootId,
+        redis: redisPresenceClient,
+      }).catch((err) => {
+        logger.error({ err }, "Push notification send failed")
+      })
 
       ack?.({ ok: true, message: messageWithMentions })
 

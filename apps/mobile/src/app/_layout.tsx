@@ -10,6 +10,7 @@ import { KeyboardProvider } from "react-native-keyboard-controller"
 
 import "../global.css"
 import { AnimatedSplashOverlay } from "@/components/animated-icon"
+import { PushNotifications } from "@/components/push-notifications"
 import { SocketProvider } from "@/context/socket-context"
 import { UnreadProvider } from "@/context/unread-context"
 import { WorkspaceProvider } from "@/context/workspace-context"
@@ -38,6 +39,7 @@ export default function RootLayout() {
               <SocketProvider>
                 <UnreadProvider>
                   <WorkspaceProvider>
+                    <PushNotifications />
                     <Stack screenOptions={{ headerShown: false }} />
                   </WorkspaceProvider>
                 </UnreadProvider>
