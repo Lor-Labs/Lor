@@ -17,6 +17,7 @@ type ExpoPushTicket =
 const EXPO_PUSH_ENDPOINT = "https://exp.host/--/api/v2/push/send"
 const EXPO_PUSH_BATCH_SIZE = 100
 const EXPO_PUSH_MAX_ATTEMPTS = 3
+const EXPO_PUSH_TIMEOUT_MS = 10_000
 
 function toRedisBoolean(value: unknown) {
   return value === true || value === 1 || value === "1"
@@ -28,20 +29,29 @@ function sleep(ms: number) {
 
 async function postPushChunk(chunk: unknown[]) {
   for (let attempt = 1; ; attempt++) {
-    const response = await fetch(EXPO_PUSH_ENDPOINT, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        accept: "application/json",
-      },
-      body: JSON.stringify(chunk),
-    })
-    if (response.ok) {
-      return (await response.json()) as { data?: ExpoPushTicket[] }
+    let response: Response | null = null
+    try {
+      response = await fetch(EXPO_PUSH_ENDPOINT, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json",
+        },
+        body: JSON.stringify(chunk),
+        signal: AbortSignal.timeout(EXPO_PUSH_TIMEOUT_MS),
+      })
+    } catch (cause) {
+      // Timeouts and network failures are transient — retry like a 5xx.
+      if (attempt >= EXPO_PUSH_MAX_ATTEMPTS) throw cause
     }
-    const isTransient = response.status === 429 || response.status >= 500
-    if (!isTransient || attempt >= EXPO_PUSH_MAX_ATTEMPTS) {
-      throw new Error(`Expo push send failed: ${response.status}`)
+    if (response) {
+      if (response.ok) {
+        return (await response.json()) as { data?: ExpoPushTicket[] }
+      }
+      const isTransient = response.status === 429 || response.status >= 500
+      if (!isTransient || attempt >= EXPO_PUSH_MAX_ATTEMPTS) {
+        throw new Error(`Expo push send failed: ${response.status}`)
+      }
     }
     await sleep(500 * 2 ** (attempt - 1))
   }
