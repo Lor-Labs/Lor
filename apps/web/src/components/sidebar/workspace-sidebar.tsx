@@ -51,10 +51,11 @@ import {
 import { WorkspaceCommand } from "@/components/sidebar/channel-panel/workspace-command"
 import { CreateWorkspaceDialog } from "@/components/sidebar/create-workspace-dialog"
 import { WorkspaceSettingsDialog } from "@/components/workspace/workspace-settings-dialog"
+import { useBillingUpdates } from "@/hooks/use-billing-updates"
 import { useSettings } from "@/hooks/use-settings"
 import { apiClient } from "@/lib/api-client"
 import { writeLastWorkspaceSlug } from "@/lib/last-location"
-import { canCreateChannels } from "@/lib/permissions"
+import { canCreateChannels, isAdminOrOwner } from "@/lib/permissions"
 
 /**
  * Full standalone workspace sidebar (Sidebar shell + content). Kept for
@@ -96,7 +97,9 @@ function WorkspaceSidebarInner() {
       ? "integrations"
       : tab === "merlin"
         ? "merlin"
-        : "general"
+        : tab === "billing"
+          ? "billing"
+          : "general"
 
   const { data: workspaces, isPending } = useQuery({
     queryKey: ["workspaces"],
@@ -147,6 +150,12 @@ function WorkspaceSidebarInner() {
           ownerId: workspaceMembersData.ownerId,
         })
       : false
+
+  useBillingUpdates(
+    activeMember && workspaceMembersData?.ownerId
+      ? isAdminOrOwner(activeMember, { ownerId: workspaceMembersData.ownerId })
+      : false
+  )
 
   // Remember the active workspace so the DM view's "back" affordance
   // can return here.

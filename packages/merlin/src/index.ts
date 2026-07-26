@@ -9,6 +9,7 @@ import {
   generateObject,
   generateText,
   isStepCount,
+  type LanguageModelUsage,
   type ModelMessage,
   pruneMessages,
   streamText,
@@ -191,6 +192,7 @@ export type WriteBackContext = {
 
 export type WriteBackCallbacks = {
   onMemoryWritten?: (e: { path: string; action: "created" | "updated" }) => void
+  onUsage?: OnUsage
 }
 
 // How a person appears everywhere in the app (message author header, mention
@@ -993,6 +995,7 @@ export async function respond(
 
     // stream exposes tool call/status + reasoning events; textStream does not.
     let text = ""
+    let toolCallCount = 0
     for await (const part of result.stream) {
       if (!firstPartLogged) {
         firstPartLogged = true
@@ -1010,6 +1013,7 @@ export async function respond(
       } else if (part.type === "reasoning-delta") {
         await onReasoning?.(part.text, text.length)
       } else if (part.type === "tool-call") {
+        toolCallCount++
         onToolEvent?.({
           toolCallId: part.toolCallId,
           toolName: part.toolName,
@@ -1038,6 +1042,27 @@ export async function respond(
 
     const responseMessages = await result.responseMessages
 
+    try {
+      const [usage, response] = await Promise.all([
+        result.totalUsage,
+        result.response,
+      ])
+      onUsage?.({
+        workspaceId: ctx.workspaceId,
+        tool: "merlin.respond",
+        model: response.modelId,
+        requestedModel: MERLIN_MODEL,
+        inputTokens: usage.inputTokens,
+        cachedInputTokens: usage.inputTokenDetails.cacheReadTokens,
+        outputTokens: usage.outputTokens,
+        reasoningTokens: usage.outputTokenDetails.reasoningTokens,
+        wallMs: Math.round(performance.now() - streamStart),
+        toolCalls: toolCallCount,
+      })
+    } catch (err) {
+      logger.warn({ err }, "Merlin respond usage capture failed")
+    }
+
     return { text, messages: [userMessage, ...responseMessages] }
   } finally {
     await datadogMcp?.close()
@@ -1046,7 +1071,7 @@ export async function respond(
 
 export async function writeBack(
   ctx: WriteBackContext,
-  { onMemoryWritten }: WriteBackCallbacks
+  { onMemoryWritten, onUsage }: WriteBackCallbacks
 ): Promise<void> {
   const gate = await generateObject({
     model: MERLIN_SMALL_MODEL,
@@ -1057,13 +1082,14 @@ export async function writeBack(
       gateway: { models: [MERLIN_SMALL_FALLBACK_MODEL] },
     },
   })
+  emitGenerateUsage(onUsage, ctx.workspaceId, "merlin.writeback.gate", gate)
   logger.info(
     { workspaceId: ctx.workspaceId, ...gate.object },
     "Write-back salience gate"
   )
   if (!gate.object.worthSaving) return
 
-  await generateText({
+  const body = await generateText({
     model: MERLIN_MODEL,
     instructions: buildSystemPrompt([]),
     messages: [
@@ -1084,6 +1110,32 @@ export async function writeBack(
       gateway: { caching: "auto", models: [MERLIN_FALLBACK_MODEL] },
     },
   })
+  emitGenerateUsage(onUsage, ctx.workspaceId, "merlin.writeback", body)
+}
+
+// generateText/generateObject results share this usage + response shape.
+function emitGenerateUsage(
+  onUsage: OnUsage | undefined,
+  workspaceId: string,
+  tool: string,
+  result: {
+    usage: LanguageModelUsage
+    response: { modelId: string }
+  }
+) {
+  try {
+    onUsage?.({
+      workspaceId,
+      tool,
+      model: result.response.modelId,
+      inputTokens: result.usage.inputTokens,
+      cachedInputTokens: result.usage.inputTokenDetails.cacheReadTokens,
+      outputTokens: result.usage.outputTokens,
+      reasoningTokens: result.usage.outputTokenDetails.reasoningTokens,
+    })
+  } catch (err) {
+    logger.warn({ err, tool }, "Merlin usage capture failed")
+  }
 }
 
 // Workspace-scoped, best-effort citation verification.

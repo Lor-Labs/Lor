@@ -70,6 +70,10 @@ const serverSchema = z.object({
   NEXT_PUBLIC_SELF_HOSTED: z
     .preprocess((v) => v === "true" || v === "1", z.boolean())
     .default(false),
+  // Autumn billing. Optional: when unset, billing is disabled and all usage
+  // is free (dev/self-hosted mode).
+  AUTUMN_SECRET_KEY: z.string().min(1).optional(),
+  AUTUMN_WEBHOOK_SECRET: z.string().min(1).optional(),
   MAX_FILE_UPLOAD_SIZE: z.coerce.number().default(DEFAULT_MAX_FILE_UPLOAD_SIZE),
   NEXT_PUBLIC_API_URL: z.string().min(1).transform(addProtocol),
   // Public origin of the web app — the base for OAuth redirect URIs (e.g.

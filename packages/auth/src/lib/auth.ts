@@ -1,5 +1,6 @@
 import { expo } from "@better-auth/expo"
 import { redisStorage } from "@better-auth/redis-storage"
+import { ensureCustomer } from "@repo/billing"
 import { db, eq, MERLIN_USER_ID, schema } from "@repo/db"
 import { env } from "@repo/env/server"
 import { pickWorkspaceAvatarColor } from "@repo/utils/avatar-colors"
@@ -357,6 +358,10 @@ export const auth = betterAuth({
               "Failed to mark onboarding as completed"
             )
           }
+
+          // No-ops when billing is disabled; every later Autumn call also
+          // falls back to get-or-create, so a failure here self-heals.
+          await ensureCustomer(organization.id, organization.name)
         },
       },
       dynamicAccessControl: {
