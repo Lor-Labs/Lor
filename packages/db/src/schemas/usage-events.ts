@@ -15,7 +15,7 @@ import { user } from "./users"
 import { workspace } from "./workspaces"
 
 // Append-only usage ledger. Autumn owns the credit balance; this log is ours —
-// per-member/per-hall breakdowns, margin reconstruction, and future agent-run
+// per-member/per-channel breakdowns, cost reporting, and future agent-run
 // pricing all come from here. Never mirror the balance into it.
 
 // merlin.* are analytics buckets, not prices — debits come from token math.

@@ -5,7 +5,7 @@ const rate: CreditRate = {
   inputUsdPerMtok: 3,
   cachedInputUsdPerMtok: 0.3,
   outputUsdPerMtok: 15,
-  conversionRate: 2.5,
+  conversionRate: 2,
 }
 
 describe("computeCostUsd", () => {
@@ -44,12 +44,12 @@ describe("computeCostUsd", () => {
 
 describe("computeCredits", () => {
   it("applies the conversion rate and converts to 1-cent credits, rounding up", () => {
-    // $0.018 cost × 2.5 = $0.045 retail → 4.5 credits → 5
+    // $0.018 cost × 2 = $0.036 → 3.6 credits → 4
     const credits = computeCredits(
       { inputTokens: 1_000, outputTokens: 1_000 },
       rate
     )
-    expect(credits).toBe(5)
+    expect(credits).toBe(4)
   })
 
   it("floors at 1 credit", () => {
@@ -57,13 +57,12 @@ describe("computeCredits", () => {
     expect(computeCredits({}, rate)).toBe(1)
   })
 
-  it("matches the spec example: a standard query", () => {
-    // ~10k in / ~1k out on Sonnet-ish rates
+  it("prices a typical multi-thousand-token call", () => {
     const credits = computeCredits(
       { inputTokens: 10_000, outputTokens: 1_000 },
       rate
     )
-    // (10k×$3 + 1k×$15)/M = $0.045 × 2.5 = $0.1125 → 12 credits
-    expect(credits).toBe(12)
+    // (10k×$3 + 1k×$15)/M = $0.045 × 2 = $0.09 → 9 credits
+    expect(credits).toBe(9)
   })
 })
