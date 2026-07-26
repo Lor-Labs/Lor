@@ -22,15 +22,14 @@ export const pro = plan({
       featureId: credits.id,
       // Monthly prepaid billing implies the monthly reset — the grant
       // expires at cycle end (top-ups are the never-expiring balance).
+      // Proration is left at the server default (prorate immediately on
+      // seat changes); the CLI's proration enums lag the API, so tune it
+      // in the dashboard if needed.
       price: {
         amount: 20,
         billingUnits: 2000,
         billingMethod: "prepaid",
         interval: "month",
-      },
-      proration: {
-        onIncrease: "prorate",
-        onDecrease: "no_action",
       },
     }),
   ],
@@ -45,14 +44,14 @@ export const topup = plan({
   items: [
     item({
       featureId: credits.id,
-      // one_off reset = lifetime balance; interval-less price = one-time
-      // charge. Autumn burns shorter intervals first, so the monthly grant
-      // is always spent before these.
-      reset: { interval: "one_off" },
+      // one_off = one-time charge and a lifetime balance. Autumn burns
+      // shorter intervals first, so the monthly grant is always spent
+      // before these.
       price: {
         amount: 25,
         billingUnits: 2500,
         billingMethod: "prepaid",
+        interval: "one_off",
       },
     }),
   ],
