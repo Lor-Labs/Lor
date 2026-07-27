@@ -1,0 +1,87 @@
+import { db, eq, schema } from "@repo/db"
+import { env } from "@repo/env/server"
+import { createLogger } from "@repo/logger"
+import { Resend } from "resend"
+import { CREDIT_USD } from "./constants"
+
+const logger = createLogger("billing")
+
+let resend: Resend | null = null
+function getResend() {
+  if (!resend) resend = new Resend(env.RESEND_API_KEY)
+  return resend
+}
+
+async function workspaceOwner(workspaceId: string) {
+  const rows = await db
+    .select({
+      email: schema.user.email,
+      workspaceName: schema.workspace.name,
+      workspaceSlug: schema.workspace.slug,
+    })
+    .from(schema.workspace)
+    .innerJoin(schema.user, eq(schema.workspace.ownerId, schema.user.id))
+    .where(eq(schema.workspace.id, workspaceId))
+    .limit(1)
+  return rows[0] ?? null
+}
+
+function billingUrl(slug: string) {
+  return `${env.APP_BASE_URL}/${slug}?settings=workspace&tab=billing`
+}
+
+const EMAIL_WRAP = (body: string) => `
+  <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px 0;">
+    ${body}
+  </div>
+`
+
+export async function sendAutoTopupChargedEmail(
+  workspaceId: string,
+  credits: number
+) {
+  const owner = await workspaceOwner(workspaceId)
+  if (!owner) return
+  const amount = (credits * CREDIT_USD).toFixed(2)
+  const { error } = await getResend().emails.send({
+    from: env.EMAIL_FROM,
+    to: owner.email,
+    subject: `Merlin credits topped up for ${owner.workspaceName}`,
+    html: EMAIL_WRAP(`
+      <h2 style="margin: 0 0 8px; font-size: 24px; color: #1a1a1a;">Auto top-up receipt</h2>
+      <p style="margin: 0 0 24px; color: #555; font-size: 16px; line-height: 1.5;">Your workspace <strong>${owner.workspaceName}</strong> ran low on Merlin credits, so we charged your saved payment method <strong>$${amount}</strong> for <strong>${credits.toLocaleString()} credits</strong>, as configured in your auto top-up settings.</p>
+      <a href="${billingUrl(owner.workspaceSlug)}" style="display: inline-block; background: #994920; color: #fff; padding: 12px 28px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 16px;">View billing</a>
+      <p style="color: #999; font-size: 13px; margin-top: 24px; line-height: 1.4;">You can change the threshold, pack size, or turn auto top-up off any time in Settings → Billing.</p>
+    `),
+  })
+  if (error) {
+    logger.error(
+      { err: error, workspaceId },
+      "Auto top-up receipt email failed"
+    )
+  }
+}
+
+export async function sendAutoTopupFailedEmail(
+  workspaceId: string,
+  reason?: string
+) {
+  const owner = await workspaceOwner(workspaceId)
+  if (!owner) return
+  const { error } = await getResend().emails.send({
+    from: env.EMAIL_FROM,
+    to: owner.email,
+    subject: `Auto top-up failed for ${owner.workspaceName}`,
+    html: EMAIL_WRAP(`
+      <h2 style="margin: 0 0 8px; font-size: 24px; color: #1a1a1a;">Auto top-up failed</h2>
+      <p style="margin: 0 0 24px; color: #555; font-size: 16px; line-height: 1.5;">We couldn't buy more Merlin credits for <strong>${owner.workspaceName}</strong>${reason ? ` (${reason.replaceAll("_", " ")})` : ""}. Merlin will stop answering once the remaining balance runs out.</p>
+      <a href="${billingUrl(owner.workspaceSlug)}" style="display: inline-block; background: #994920; color: #fff; padding: 12px 28px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 16px;">Fix payment method</a>
+    `),
+  })
+  if (error) {
+    logger.error(
+      { err: error, workspaceId },
+      "Auto top-up failure email failed"
+    )
+  }
+}

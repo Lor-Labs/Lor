@@ -1,3 +1,7 @@
+import {
+  sendAutoTopupChargedEmail,
+  sendAutoTopupFailedEmail,
+} from "@repo/billing"
 import { env } from "@repo/env/server"
 import type { BillingUpdatedEvent } from "@repo/realtime-types"
 import { type ServerToClientEvents, workspaceRoom } from "@repo/realtime-types"
@@ -56,7 +60,14 @@ billingRouter.post("/billing/webhook", async (c) => {
   }
 
   const raw = await c.req.text()
-  let event: { type?: string; data?: { customer_id?: string } }
+  let event: {
+    type?: string
+    data?: {
+      customer_id?: string
+      quantity_granted?: number
+      reason?: string
+    }
+  }
   try {
     webhookVerifier.verify(raw, {
       "svix-id": c.req.header("svix-id") ?? "",
@@ -72,7 +83,7 @@ billingRouter.post("/billing/webhook", async (c) => {
   const reason = mapEventReason(event.type ?? "")
   const workspaceId = event.data?.customer_id
   if (reason && workspaceId) {
-    // Ack fast; the emit is best-effort fan-out to open clients.
+    // Ack fast; emits and emails are best-effort side effects.
     void getEmitter()
       .then((io) =>
         io
@@ -82,6 +93,20 @@ billingRouter.post("/billing/webhook", async (c) => {
       .catch((err) =>
         logger.error({ err, workspaceId }, "billing:updated emit failed")
       )
+    // Auto top-ups charge the owner's card without them acting — email them.
+    if (reason === "auto_topup_succeeded" && event.data?.quantity_granted) {
+      void sendAutoTopupChargedEmail(
+        workspaceId,
+        event.data.quantity_granted
+      ).catch((err) =>
+        logger.error({ err, workspaceId }, "Auto top-up receipt email failed")
+      )
+    } else if (reason === "auto_topup_failed") {
+      void sendAutoTopupFailedEmail(workspaceId, event.data?.reason).catch(
+        (err) =>
+          logger.error({ err, workspaceId }, "Auto top-up failure email failed")
+      )
+    }
   } else {
     logger.info({ type: event.type }, "Autumn webhook ignored")
   }
