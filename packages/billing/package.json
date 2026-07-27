@@ -1,0 +1,26 @@
+{
+  "name": "@repo/billing",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@repo/db": "workspace:^",
+    "@repo/env": "workspace:^",
+    "@repo/logger": "workspace:^",
+    "autumn-js": "^1.2.44",
+    "resend": "^6.9.4"
+  },
+  "devDependencies": {
+    "@repo/typescript-config": "workspace:*",
+    "@types/node": "^24",
+    "vitest": "^4.1.2"
+  }
+}

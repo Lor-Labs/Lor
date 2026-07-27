@@ -1,3 +1,4 @@
+import { authClient } from "@repo/auth/client"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -32,6 +33,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   Camera,
   ChevronDown,
+  CreditCard,
   ExternalLink,
   Layers,
   Loader2,
@@ -50,10 +52,12 @@ import { FocusScope } from "radix-ui/internal"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { toast } from "sonner"
+import { BillingSection } from "@/components/workspace/billing-section"
 import { MerlinProfilesSection } from "@/components/workspace/merlin-profiles-section"
 import { apiClient } from "@/lib/api-client"
 import type { ConnectDatadogRequest } from "@/lib/api-types"
 import { connectorLogo } from "@/lib/connector-ui"
+import { isAdminOrOwner } from "@/lib/permissions"
 
 const MAX_WORKSPACE_ICON_BYTES = 2 * 1024 * 1024
 const ACCEPTED_IMAGE_TYPES = [
@@ -80,12 +84,13 @@ type Workspace = {
   logo?: string | null
 }
 
-export type SectionId = "general" | "integrations" | "merlin"
+export type SectionId = "general" | "integrations" | "merlin" | "billing"
 
 const SECTIONS: { id: SectionId; label: string; icon: typeof Settings }[] = [
   { id: "general", label: "General", icon: Settings },
   { id: "integrations", label: "Integrations", icon: Plug },
   { id: "merlin", label: "Agent profiles", icon: Layers },
+  { id: "billing", label: "Billing", icon: CreditCard },
 ]
 
 export function WorkspaceSettingsDialog({
@@ -101,6 +106,40 @@ export function WorkspaceSettingsDialog({
   section: SectionId
   onSectionChange: (section: SectionId) => void
 }) {
+  // Billing is admin-only; same queries the sidebar runs, deduped by
+  // react-query. Non-admins never see the nav item (server enforces too).
+  const { data: activeMember } = useQuery({
+    queryKey: ["active-workspace-member", workspace.slug],
+    queryFn: async (): Promise<{ userId: string; role: string } | null> => {
+      const res = await authClient.organization.getActiveMember()
+      return res.data
+        ? {
+            userId: res.data.userId as string,
+            role: res.data.role as string,
+          }
+        : null
+    },
+    enabled: open,
+  })
+  const { data: membersData } = useQuery({
+    queryKey: ["workspace-members", workspace.slug],
+    queryFn: async () => {
+      const res = await apiClient.v1.workspaces[":workspaceSlug"].members.$get({
+        param: { workspaceSlug: workspace.slug },
+      })
+      if (!res.ok) throw new Error("Failed to fetch workspace members")
+      return res.json()
+    },
+    enabled: open,
+  })
+  const canManageBilling =
+    activeMember && membersData?.ownerId
+      ? isAdminOrOwner(activeMember, { ownerId: membersData.ownerId })
+      : false
+  const sections = SECTIONS.filter(
+    (s) => s.id !== "billing" || canManageBilling
+  )
+
   // Close on Escape (no Radix here, so wire it ourselves).
   useEffect(() => {
     if (!open) return
@@ -144,7 +183,7 @@ export function WorkspaceSettingsDialog({
                 <div className="truncate px-2 pb-2 text-sm font-semibold text-foreground">
                   {workspace.name}
                 </div>
-                {SECTIONS.map((s) => (
+                {sections.map((s) => (
                   <button
                     key={s.id}
                     type="button"
@@ -189,6 +228,8 @@ export function WorkspaceSettingsDialog({
                       />
                     ) : section === "integrations" ? (
                       <IntegrationsSection workspaceSlug={workspace.slug} />
+                    ) : section === "billing" && canManageBilling ? (
+                      <BillingSection workspaceSlug={workspace.slug} />
                     ) : (
                       <MerlinProfilesSection workspaceSlug={workspace.slug} />
                     )}

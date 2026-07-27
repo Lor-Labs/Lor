@@ -2,6 +2,7 @@ import {
   getWorkspaceAuthorityPosition,
   getWorkspaceRolePosition,
 } from "@repo/auth/permissions"
+import { syncSeats } from "@repo/billing"
 import { and, count, db, desc, eq, ilike, inArray, schema } from "@repo/db"
 import { env } from "@repo/env/server"
 import { PRESENCE_ONLINE_USERS_SET_KEY } from "@repo/realtime-types"
@@ -245,6 +246,8 @@ export const kickWorkspaceMember: AppRouteHandler<
         eq(schema.workspaceMember.userId, userId)
       )
     )
+
+  void syncSeats(workspace.id)
 
   return c.json({ success: true as const }, HttpStatusCodes.OK)
 }

@@ -29,6 +29,9 @@ export const workspace = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "restrict" }), // don't delete workspace if owner deletes account
     metadata: text("metadata"),
+    // Idempotency claim for the one-time signup credit grant (set when the
+    // workspace's first invite is accepted; reverted if the grant fails).
+    promoGrantedAt: timestamp("promo_granted_at"),
   },
   (table) => [uniqueIndex("workspace_slug_uidx").on(table.slug)]
 )

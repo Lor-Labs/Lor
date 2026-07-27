@@ -447,6 +447,19 @@ export interface ServerToClientEvents {
   "channel-mute:updated": (payload: ChannelMuteUpdated) => void
   "workspace:member:joined": (payload: WorkspaceMemberJoinedEvent) => void
   "typing:update": (payload: TypingIndicatorEvent) => void
+  "billing:updated": (payload: BillingUpdatedEvent) => void
+}
+
+// Emitted to the workspace room; clients invalidate their billing query and
+// gate any toast presentation to admins client-side.
+export type BillingUpdatedEvent = {
+  workspaceId: string
+  reason:
+    | "auto_topup_succeeded"
+    | "auto_topup_failed"
+    | "low_balance"
+    | "out_of_credits"
+    | "subscription_changed"
 }
 
 export type InterServerEvents = Record<string, never>

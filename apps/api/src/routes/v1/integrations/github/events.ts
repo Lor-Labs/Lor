@@ -1,4 +1,5 @@
 import type { Webhooks } from "@octokit/webhooks"
+import { recordUsage } from "@repo/billing"
 import type { ConnectorEventKey } from "@repo/connectors"
 import { and, db, eq, schema } from "@repo/db"
 import { type IngestSourceInput, ingestSource } from "@repo/merlin/sources"
@@ -46,12 +47,17 @@ async function ingestForInstallation(
     .then((r) => r[0])
   if (!connection) return
 
-  await ingestSource({
-    workspaceId: connection.workspaceId,
-    connectionId: connection.id,
-    provider: "github",
-    ...draft,
-  })
+  await ingestSource(
+    {
+      workspaceId: connection.workspaceId,
+      connectionId: connection.id,
+      provider: "github",
+      ...draft,
+    },
+    // Metered at true cost, never debited — "free ingestion" stays a pricing
+    // decision whose price is visible in the ledger.
+    (u) => void recordUsage(u)
+  )
   logger.info(
     { kind: draft.kind, externalId: draft.externalId },
     "Ingested GitHub source"

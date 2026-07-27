@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto"
+import { checkCredits, recordUsage } from "@repo/billing"
 import {
   and,
   db,
@@ -32,7 +33,12 @@ import type {
   RealtimeMessageMention,
 } from "@repo/realtime-types"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
-import { channelRoom, threadRoom, userRoom } from "@repo/realtime-types/rooms"
+import {
+  channelRoom,
+  threadRoom,
+  userRoom,
+  workspaceRoom,
+} from "@repo/realtime-types/rooms"
 import type { Emitter } from "@socket.io/redis-emitter"
 import type { Job } from "bullmq"
 import type { createClient } from "redis"
@@ -49,6 +55,9 @@ const WRITEBACK_LOCK_TTL = 120
 
 const MERLIN_ERROR_FALLBACK =
   "⚠️ I ran into an error answering that. Please try again."
+
+const OUT_OF_CREDITS_MESSAGE =
+  "⚠️ This workspace is out of Merlin credits. An admin can top up in Settings → Billing."
 
 // Recent channel/thread messages, oldest→newest; skips the placeholder + empties.
 async function loadConversation(args: {
@@ -120,6 +129,7 @@ export function createMerlinRespondProcessor(
           channelId,
           threadRootId,
           contextThreadRootId,
+          triggerMessageId,
         } = job.data
         logger.info(
           { queueWaitMs: Date.now() - job.timestamp },
@@ -227,6 +237,43 @@ export function createMerlinRespondProcessor(
           }
           workspaceId = channel.workspaceId
 
+          // Pre-flight credit gate. Autumn failures never land here — the
+          // check fails open inside @repo/billing (serve, log, skip debit).
+          const gate = await checkCredits(workspaceId)
+          if (!gate.allowed) {
+            logger.info(
+              { workspaceId, merlinMessageId },
+              "Merlin refused; workspace out of credits"
+            )
+            await db
+              .update(schema.message)
+              .set({ content: OUT_OF_CREDITS_MESSAGE, status: "failed" })
+              .where(eq(schema.message.id, merlinMessageId))
+              .catch(() => {})
+            emit(OUT_OF_CREDITS_MESSAGE, true, "failed")
+            emitter.to(workspaceRoom(workspaceId)).emit("billing:updated", {
+              workspaceId,
+              reason: "out_of_credits",
+            })
+            return
+          }
+
+          // Attribution only — never fail the answer over it (and jobs queued
+          // before this field existed have no triggerMessageId).
+          const triggerUserId = triggerMessageId
+            ? await db
+                .select({ authorId: schema.message.authorId })
+                .from(schema.message)
+                .where(eq(schema.message.id, triggerMessageId))
+                .then((r) => r[0]?.authorId ?? null)
+                .catch(() => null)
+            : null
+          const usageRefs = {
+            messageId: merlinMessageId,
+            channelId,
+            userId: triggerUserId,
+          }
+
           let pending = ""
           const flushPendingText = () => {
             if (!pending) return
@@ -294,9 +341,13 @@ export function createMerlinRespondProcessor(
                   toolCall: nextToolCall,
                 })
               },
-              // Metered tool usage (e.g. the code sandbox agent). No billing yet —
-              // log it; this is the seam to persist a usage row + report to Stripe.
-              onUsage: (u) => logger.info({ ...u }, "Merlin tool usage"),
+              // Metered usage: every event lands in the usage_event ledger;
+              // only merlin.respond debits credits (fire-and-forget — billing
+              // must never fail the answer).
+              onUsage: (u) => {
+                logger.info({ ...u }, "Merlin usage")
+                void recordUsage(u, usageRefs)
+              },
             }
           )
           flushPendingText()
@@ -509,7 +560,12 @@ export function createMerlinRespondProcessor(
         try {
           await writeBack(
             { workspaceId, priorMessages: answer.messages, gateText },
-            { onMemoryWritten: remember }
+            {
+              onMemoryWritten: remember,
+              // Autonomous — not attributed to the triggering user.
+              onUsage: (u) =>
+                void recordUsage(u, { messageId: merlinMessageId, channelId }),
+            }
           )
           // Persist what write-back committed so the chip survives a reload
           // (the live emits above only patch the open client's cache).

@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto"
 import { auth } from "@repo/auth"
+import { grantFirstInvitePromo, syncSeats } from "@repo/billing"
 import { and, db, eq, schema, sql } from "@repo/db"
 import { pickWorkspaceAvatarColor } from "@repo/utils/avatar-colors"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
@@ -445,6 +446,13 @@ export const acceptInvite: AppRouteHandler<AcceptInviteRoute> = async (c) => {
       { success: false, message: "Workspace not found" },
       HttpStatusCodes.INTERNAL_SERVER_ERROR
     )
+  }
+
+  if ("joined" in result) {
+    // Fire-and-forget: billing must never block a join. Both self-heal —
+    // syncSeats recomputes from scratch, the promo claim retries on failure.
+    void syncSeats(invite.workspaceId)
+    void grantFirstInvitePromo(invite.workspaceId)
   }
 
   return c.json(

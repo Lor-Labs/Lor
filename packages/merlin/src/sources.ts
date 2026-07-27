@@ -1,9 +1,10 @@
 import { and, cosineDistance, db, eq, isNotNull, schema } from "@repo/db"
 import { generateText, tool } from "ai"
 import { z } from "zod"
-import { embedText } from "./embeddings"
+import { embedTextWithUsage } from "./embeddings"
 import { MERLIN_SMALL_FALLBACK_MODEL, MERLIN_SMALL_MODEL } from "./models"
 import { getSourceProvider } from "./providers"
+import type { OnUsage, UsageEvent } from "./usage"
 
 // Reject malformed citation ids before querying.
 const UUID_REGEX =
@@ -166,24 +167,58 @@ export type IngestSourceInput = Omit<
 
 const SUMMARY_FALLBACK_MAX = 1000
 
-async function summarize(input: IngestSourceInput): Promise<string> {
+// A metering callback failure must never change ingestion outcomes (e.g.
+// trip the summary fallback or discard a good embedding).
+function emitUsage(onUsage: OnUsage | undefined, event: UsageEvent) {
   try {
-    const { text } = await generateText({
+    onUsage?.(event)
+  } catch {
+    // metering is best-effort
+  }
+}
+
+async function summarize(
+  input: IngestSourceInput,
+  onUsage?: OnUsage
+): Promise<string> {
+  try {
+    const result = await generateText({
       model: MERLIN_SMALL_MODEL,
       prompt: `Summarize this ${input.provider} ${input.kind} for a team's institutional memory in 2–4 sentences: what changed or was decided, who did it, and why it matters. Be factual and specific; no preamble.\n\nTitle: ${input.title}\nAuthor: ${input.author ?? "unknown"}\n\n${input.content}`,
       providerOptions: {
         gateway: { models: [MERLIN_SMALL_FALLBACK_MODEL] },
       },
     })
-    return text.trim()
+    emitUsage(onUsage, {
+      workspaceId: input.workspaceId,
+      tool: "source.summarize",
+      model: result.response.modelId,
+      inputTokens: result.usage.inputTokens,
+      cachedInputTokens: result.usage.inputTokenDetails.cacheReadTokens,
+      outputTokens: result.usage.outputTokens,
+    })
+    return result.text.trim()
   } catch {
     return input.content.trim().slice(0, SUMMARY_FALLBACK_MAX)
   }
 }
 
-export async function ingestSource(input: IngestSourceInput): Promise<void> {
-  const summary = await summarize(input)
-  const embedding = await embedText(summary).catch(() => null)
+export async function ingestSource(
+  input: IngestSourceInput,
+  onUsage?: OnUsage
+): Promise<void> {
+  const summary = await summarize(input, onUsage)
+  const embedding = await embedTextWithUsage(summary)
+    .then((r) => {
+      emitUsage(onUsage, {
+        workspaceId: input.workspaceId,
+        tool: "source.embed",
+        model: r.model,
+        inputTokens: r.tokens,
+      })
+      return r.embedding
+    })
+    .catch(() => null)
 
   const { content: _content, ...columns } = input
   await db
