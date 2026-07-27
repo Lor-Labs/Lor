@@ -127,6 +127,21 @@ const refinedServerSchema = serverSchema.superRefine((val, ctx) => {
       path: ["INTEGRATION_ENCRYPTION_KEY"],
     })
   }
+  // Webhooks carry the billing notifications users never trigger themselves
+  // (auto top-up receipts/failures, portal-side subscription changes) —
+  // production must not ship billing without them. Dev can (no tunnel needed).
+  if (
+    val.NODE_ENV === "production" &&
+    val.AUTUMN_SECRET_KEY &&
+    !val.AUTUMN_WEBHOOK_SECRET
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message:
+        "AUTUMN_WEBHOOK_SECRET is required in production when Autumn billing is enabled",
+      path: ["AUTUMN_WEBHOOK_SECRET"],
+    })
+  }
 })
 
 export const env = refinedServerSchema.parse(process.env)

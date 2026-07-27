@@ -30,6 +30,16 @@ function billingUrl(slug: string) {
   return `${env.APP_BASE_URL}/${slug}?settings=workspace&tab=billing`
 }
 
+// Workspace names are user-controlled and land in email HTML.
+function escapeHtml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;")
+}
+
 const EMAIL_WRAP = (body: string) => `
   <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px 0;">
     ${body}
@@ -49,7 +59,7 @@ export async function sendAutoTopupChargedEmail(
     subject: `Merlin credits topped up for ${owner.workspaceName}`,
     html: EMAIL_WRAP(`
       <h2 style="margin: 0 0 8px; font-size: 24px; color: #1a1a1a;">Auto top-up receipt</h2>
-      <p style="margin: 0 0 24px; color: #555; font-size: 16px; line-height: 1.5;">Your workspace <strong>${owner.workspaceName}</strong> ran low on Merlin credits, so we charged your saved payment method <strong>$${amount}</strong> for <strong>${credits.toLocaleString()} credits</strong>, as configured in your auto top-up settings.</p>
+      <p style="margin: 0 0 24px; color: #555; font-size: 16px; line-height: 1.5;">Your workspace <strong>${escapeHtml(owner.workspaceName)}</strong> ran low on Merlin credits, so we charged your saved payment method <strong>$${amount}</strong> for <strong>${credits.toLocaleString()} credits</strong>, as configured in your auto top-up settings.</p>
       <a href="${billingUrl(owner.workspaceSlug)}" style="display: inline-block; background: #994920; color: #fff; padding: 12px 28px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 16px;">View billing</a>
       <p style="color: #999; font-size: 13px; margin-top: 24px; line-height: 1.4;">You can change the threshold, pack size, or turn auto top-up off any time in Settings → Billing.</p>
     `),
@@ -74,7 +84,7 @@ export async function sendAutoTopupFailedEmail(
     subject: `Auto top-up failed for ${owner.workspaceName}`,
     html: EMAIL_WRAP(`
       <h2 style="margin: 0 0 8px; font-size: 24px; color: #1a1a1a;">Auto top-up failed</h2>
-      <p style="margin: 0 0 24px; color: #555; font-size: 16px; line-height: 1.5;">We couldn't buy more Merlin credits for <strong>${owner.workspaceName}</strong>${reason ? ` (${reason.replaceAll("_", " ")})` : ""}. Merlin will stop answering once the remaining balance runs out.</p>
+      <p style="margin: 0 0 24px; color: #555; font-size: 16px; line-height: 1.5;">We couldn't buy more Merlin credits for <strong>${escapeHtml(owner.workspaceName)}</strong>${reason ? ` (${escapeHtml(reason.replaceAll("_", " "))})` : ""}. Merlin will stop answering once the remaining balance runs out.</p>
       <a href="${billingUrl(owner.workspaceSlug)}" style="display: inline-block; background: #994920; color: #fff; padding: 12px 28px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 16px;">Fix payment method</a>
     `),
   })

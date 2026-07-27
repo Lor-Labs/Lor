@@ -35,6 +35,7 @@ const OPERATION_CLASS: Record<
   (typeof schema.operationClassEnum.enumValues)[number]
 > = {
   "merlin.respond": "merlin.standard",
+  "merlin.embed": "embedding",
   "source.summarize": "ingestion",
   "source.embed": "embedding",
 }

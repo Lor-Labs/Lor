@@ -60,6 +60,7 @@ billingRouter.post("/billing/webhook", async (c) => {
   }
 
   const raw = await c.req.text()
+  const svixId = c.req.header("svix-id") ?? ""
   let event: {
     type?: string
     data?: {
@@ -69,15 +70,30 @@ billingRouter.post("/billing/webhook", async (c) => {
     }
   }
   try {
-    webhookVerifier.verify(raw, {
-      "svix-id": c.req.header("svix-id") ?? "",
+    event = webhookVerifier.verify(raw, {
+      "svix-id": svixId,
       "svix-timestamp": c.req.header("svix-timestamp") ?? "",
       "svix-signature": c.req.header("svix-signature") ?? "",
-    })
-    event = JSON.parse(raw)
+    }) as typeof event
   } catch (err) {
     logger.warn({ err }, "Autumn webhook verification failed")
     return c.json({ ok: false }, 401)
+  }
+
+  // Svix retries deliveries; dedupe by message id so a retry can't repeat
+  // the email/toast side effects. Redis trouble → proceed (a duplicate toast
+  // beats a dropped event).
+  if (svixId) {
+    try {
+      const redis = await getRedisClient()
+      const first = await redis.set(`lor:billing:webhook:${svixId}`, "1", {
+        NX: true,
+        EX: 86_400,
+      })
+      if (first !== "OK") return c.json({ ok: true })
+    } catch (err) {
+      logger.warn({ err, svixId }, "Webhook dedup unavailable; proceeding")
+    }
   }
 
   const reason = mapEventReason(event.type ?? "")

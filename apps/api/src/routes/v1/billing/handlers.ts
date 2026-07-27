@@ -27,6 +27,11 @@ function billingReturnUrl(slug: string) {
   return `${env.APP_BASE_URL}/${slug}?settings=workspace&tab=billing`
 }
 
+const BILLING_DISABLED = {
+  success: false,
+  message: "Billing is not enabled",
+} as const
+
 export const getBilling: AppRouteHandler<GetBillingRoute> = async (c) => {
   const workspace = c.var.workspace
   assertWorkspacePermission(c.var.member, workspace, {
@@ -68,10 +73,7 @@ export const setAutoTopupHandler: AppRouteHandler<SetAutoTopupRoute> = async (
   })
   const config = c.req.valid("json")
   if (!billingEnabled) {
-    return c.json(
-      { success: false, message: "Billing is not enabled" },
-      HttpStatusCodes.BAD_REQUEST
-    )
+    return c.json(BILLING_DISABLED, HttpStatusCodes.BAD_REQUEST)
   }
   try {
     const { url } = await setAutoTopup(
@@ -98,10 +100,7 @@ export const subscribe: AppRouteHandler<SubscribeRoute> = async (c) => {
     organization: ["update"],
   })
   if (!billingEnabled) {
-    return c.json(
-      { success: false, message: "Billing is not enabled" },
-      HttpStatusCodes.BAD_REQUEST
-    )
+    return c.json(BILLING_DISABLED, HttpStatusCodes.BAD_REQUEST)
   }
   try {
     const seats = await countSeats(workspace.id)
@@ -127,10 +126,7 @@ export const topup: AppRouteHandler<TopupRoute> = async (c) => {
   })
   const { size } = c.req.valid("json")
   if (!billingEnabled) {
-    return c.json(
-      { success: false, message: "Billing is not enabled" },
-      HttpStatusCodes.BAD_REQUEST
-    )
+    return c.json(BILLING_DISABLED, HttpStatusCodes.BAD_REQUEST)
   }
   try {
     const { url } = await attachTopup(
@@ -154,10 +150,7 @@ export const portal: AppRouteHandler<PortalRoute> = async (c) => {
     organization: ["update"],
   })
   if (!billingEnabled) {
-    return c.json(
-      { success: false, message: "Billing is not enabled" },
-      HttpStatusCodes.BAD_REQUEST
-    )
+    return c.json(BILLING_DISABLED, HttpStatusCodes.BAD_REQUEST)
   }
   try {
     const url = await portalUrl(workspace.id, billingReturnUrl(workspace.slug))

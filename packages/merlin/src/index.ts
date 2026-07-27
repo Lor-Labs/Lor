@@ -33,7 +33,7 @@ import {
 } from "./citations"
 import { codeTools } from "./code"
 import { datadogMcpTools, resolveWorkspaceDatadog } from "./datadog"
-import { embedText } from "./embeddings"
+import { embedText, embedTextWithUsage } from "./embeddings"
 import { githubTools, resolveWorkspaceGithub } from "./github"
 import { linearTools, linearWriteTools, resolveWorkspaceLinear } from "./linear"
 import { logger } from "./logger"
@@ -765,9 +765,16 @@ export async function respond(
   if (question.trim()) {
     const prefetchStart = performance.now()
     try {
+      const embedded = await embedTextWithUsage(question)
+      onUsage?.({
+        workspaceId: ctx.workspaceId,
+        tool: "merlin.embed",
+        model: embedded.model,
+        inputTokens: embedded.tokens,
+      })
       const hits = await searchBrain(
         ctx.workspaceId,
-        await embedText(question),
+        embedded.embedding,
         PREFETCH_LIMIT
       )
       if (hits.length > 0) {
@@ -1052,10 +1059,7 @@ export async function respond(
         tool: "merlin.respond",
         model: response.modelId,
         requestedModel: MERLIN_MODEL,
-        inputTokens: usage.inputTokens,
-        cachedInputTokens: usage.inputTokenDetails.cacheReadTokens,
-        outputTokens: usage.outputTokens,
-        reasoningTokens: usage.outputTokenDetails.reasoningTokens,
+        ...usageTokens(usage),
         wallMs: Math.round(performance.now() - streamStart),
         toolCalls: toolCallCount,
       })
@@ -1113,6 +1117,15 @@ export async function writeBack(
   emitGenerateUsage(onUsage, ctx.workspaceId, "merlin.writeback", body)
 }
 
+function usageTokens(usage: LanguageModelUsage) {
+  return {
+    inputTokens: usage.inputTokens,
+    cachedInputTokens: usage.inputTokenDetails.cacheReadTokens,
+    outputTokens: usage.outputTokens,
+    reasoningTokens: usage.outputTokenDetails.reasoningTokens,
+  }
+}
+
 // generateText/generateObject results share this usage + response shape.
 function emitGenerateUsage(
   onUsage: OnUsage | undefined,
@@ -1128,10 +1141,7 @@ function emitGenerateUsage(
       workspaceId,
       tool,
       model: result.response.modelId,
-      inputTokens: result.usage.inputTokens,
-      cachedInputTokens: result.usage.inputTokenDetails.cacheReadTokens,
-      outputTokens: result.usage.outputTokens,
-      reasoningTokens: result.usage.outputTokenDetails.reasoningTokens,
+      ...usageTokens(result.usage),
     })
   } catch (err) {
     logger.warn({ err, tool }, "Merlin usage capture failed")

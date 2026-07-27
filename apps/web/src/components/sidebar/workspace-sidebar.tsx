@@ -152,6 +152,7 @@ function WorkspaceSidebarInner() {
       : false
 
   useBillingUpdates(
+    activeWorkspace?.id,
     activeMember && workspaceMembersData?.ownerId
       ? isAdminOrOwner(activeMember, { ownerId: workspaceMembersData.ownerId })
       : false

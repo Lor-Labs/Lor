@@ -258,11 +258,16 @@ export function createMerlinRespondProcessor(
             return
           }
 
-          const triggerUserId = await db
-            .select({ authorId: schema.message.authorId })
-            .from(schema.message)
-            .where(eq(schema.message.id, triggerMessageId))
-            .then((r) => r[0]?.authorId ?? null)
+          // Attribution only — never fail the answer over it (and jobs queued
+          // before this field existed have no triggerMessageId).
+          const triggerUserId = triggerMessageId
+            ? await db
+                .select({ authorId: schema.message.authorId })
+                .from(schema.message)
+                .where(eq(schema.message.id, triggerMessageId))
+                .then((r) => r[0]?.authorId ?? null)
+                .catch(() => null)
+            : null
           const usageRefs = {
             messageId: merlinMessageId,
             channelId,

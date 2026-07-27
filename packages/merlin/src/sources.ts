@@ -4,7 +4,7 @@ import { z } from "zod"
 import { embedTextWithUsage } from "./embeddings"
 import { MERLIN_SMALL_FALLBACK_MODEL, MERLIN_SMALL_MODEL } from "./models"
 import { getSourceProvider } from "./providers"
-import type { OnUsage } from "./usage"
+import type { OnUsage, UsageEvent } from "./usage"
 
 // Reject malformed citation ids before querying.
 const UUID_REGEX =
@@ -167,6 +167,16 @@ export type IngestSourceInput = Omit<
 
 const SUMMARY_FALLBACK_MAX = 1000
 
+// A metering callback failure must never change ingestion outcomes (e.g.
+// trip the summary fallback or discard a good embedding).
+function emitUsage(onUsage: OnUsage | undefined, event: UsageEvent) {
+  try {
+    onUsage?.(event)
+  } catch {
+    // metering is best-effort
+  }
+}
+
 async function summarize(
   input: IngestSourceInput,
   onUsage?: OnUsage
@@ -179,7 +189,7 @@ async function summarize(
         gateway: { models: [MERLIN_SMALL_FALLBACK_MODEL] },
       },
     })
-    onUsage?.({
+    emitUsage(onUsage, {
       workspaceId: input.workspaceId,
       tool: "source.summarize",
       model: result.response.modelId,
@@ -200,7 +210,7 @@ export async function ingestSource(
   const summary = await summarize(input, onUsage)
   const embedding = await embedTextWithUsage(summary)
     .then((r) => {
-      onUsage?.({
+      emitUsage(onUsage, {
         workspaceId: input.workspaceId,
         tool: "source.embed",
         model: r.model,

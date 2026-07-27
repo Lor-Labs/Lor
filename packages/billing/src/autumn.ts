@@ -40,8 +40,10 @@ export async function ensureCustomer(workspaceId: string, name?: string) {
 }
 
 // Fail open: Merlin keeps answering through an Autumn outage; under-billing
-// beats downtime. A missing customer is not an outage — it's created and
-// re-checked once, and a workspace with no balance is correctly refused.
+// beats downtime. A missing customer (404) is not an outage — it's created
+// and re-checked once, and a workspace with no balance is correctly refused.
+// Other errors fail open immediately rather than doubling the latency hit
+// with a pointless retry.
 export async function checkCredits(workspaceId: string): Promise<CreditCheck> {
   const autumn = getAutumn()
   if (!autumn) return { allowed: true, failOpen: false }
@@ -51,18 +53,25 @@ export async function checkCredits(workspaceId: string): Promise<CreditCheck> {
       featureId: CREDITS_FEATURE_ID,
     })
     return { allowed: res.allowed, failOpen: false }
-  } catch {
-    try {
-      await ensureCustomer(workspaceId)
-      const res = await autumn.check({
-        customerId: workspaceId,
-        featureId: CREDITS_FEATURE_ID,
-      })
-      return { allowed: res.allowed, failOpen: false }
-    } catch (err) {
-      logger.error({ err, workspaceId }, "Autumn check failed; failing open")
-      return { allowed: true, failOpen: true }
+  } catch (err) {
+    if ((err as { statusCode?: number }).statusCode === 404) {
+      try {
+        await ensureCustomer(workspaceId)
+        const res = await autumn.check({
+          customerId: workspaceId,
+          featureId: CREDITS_FEATURE_ID,
+        })
+        return { allowed: res.allowed, failOpen: false }
+      } catch (retryErr) {
+        logger.error(
+          { err: retryErr, workspaceId },
+          "Autumn check failed; failing open"
+        )
+        return { allowed: true, failOpen: true }
+      }
     }
+    logger.error({ err, workspaceId }, "Autumn check failed; failing open")
+    return { allowed: true, failOpen: true }
   }
 }
 
