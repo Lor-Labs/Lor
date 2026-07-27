@@ -81,14 +81,14 @@ billingRouter.post("/billing/webhook", async (c) => {
   }
 
   // Svix retries deliveries; dedupe by message id so a retry can't repeat
-  // the email/toast side effects. Redis trouble → proceed (a duplicate toast
-  // beats a dropped event).
+  // the email/toast side effects. TTL outlives Svix's ~28h retry schedule.
+  // Redis trouble → proceed (a duplicate toast beats a dropped event).
   if (svixId) {
     try {
       const redis = await getRedisClient()
       const first = await redis.set(`lor:billing:webhook:${svixId}`, "1", {
         NX: true,
-        EX: 86_400,
+        EX: 48 * 60 * 60,
       })
       if (first !== "OK") return c.json({ ok: true })
     } catch (err) {
