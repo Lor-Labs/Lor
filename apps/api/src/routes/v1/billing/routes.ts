@@ -10,6 +10,7 @@ import {
 } from "@/lib/helpers/openapi/schemas"
 import { workspaceAuthMiddleware } from "@/middleware/workspace-auth"
 import {
+  autoTopupBodySchema,
   billingSummaryResponseSchema,
   billingWorkspaceParamsSchema,
   checkoutResponseSchema,
@@ -88,6 +89,34 @@ export const topup = createRoute({
 })
 
 export type TopupRoute = typeof topup
+
+export const setAutoTopup = createRoute({
+  path: "/workspaces/{workspaceSlug}/billing/auto-topup",
+  method: "put",
+  summary: "Configure auto top-up",
+  description:
+    "Automatically buys a credit pack when the pooled balance drops below the threshold. Enabling before any top-up has been purchased also buys the first pack. Admin only.",
+  tags: ["Billing"],
+  middleware: [workspaceAuthMiddleware] as const,
+  request: {
+    params: billingWorkspaceParamsSchema,
+    body: jsonContent({
+      schema: autoTopupBodySchema,
+      description: "Auto top-up config",
+    }),
+  },
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: checkoutResponseSchema,
+      description:
+        "Saved; url is set only when the first pack purchase needs checkout",
+    }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
+    ...commonErrors,
+  },
+})
+
+export type SetAutoTopupRoute = typeof setAutoTopup
 
 export const portal = createRoute({
   path: "/workspaces/{workspaceSlug}/billing/portal",

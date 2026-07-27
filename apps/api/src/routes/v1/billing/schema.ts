@@ -23,6 +23,23 @@ export const billingSummaryResponseSchema = z.object({
       purchased: z.number(),
     })
     .nullable(),
+  autoTopup: z
+    .object({
+      enabled: z.boolean(),
+      threshold: z.number(),
+      quantity: z.number(),
+    })
+    .nullable(),
+  // False until the workspace's first top-up purchase — enabling auto top-up
+  // before that buys the first pack as part of the flow.
+  canAutoTopup: z.boolean(),
+})
+
+export const autoTopupBodySchema = z.object({
+  enabled: z.boolean(),
+  threshold: z.number().int().min(100).max(50_000),
+  // Pack sizes are multiples of the plan's 2,500-credit billing unit.
+  quantity: z.union([z.literal(2_500), z.literal(10_000), z.literal(50_000)]),
 })
 
 // Null when the charge went straight to a saved payment method — no redirect.

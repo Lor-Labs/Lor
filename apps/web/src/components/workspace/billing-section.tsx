@@ -1,18 +1,29 @@
 import { Button } from "@repo/ui/components/button"
+import { Input } from "@repo/ui/components/input"
 import { Progress } from "@repo/ui/components/progress"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@repo/ui/components/select"
 import { Skeleton } from "@repo/ui/components/skeleton"
+import { Switch } from "@repo/ui/components/switch"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { ExternalLink, Loader2 } from "lucide-react"
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import { toast } from "sonner"
 import { useSocket } from "@/context/socket-context"
 import { apiClient } from "@/lib/api-client"
 
 const TOPUPS = [
-  { size: "small" as const, credits: "2,500", price: "$25" },
-  { size: "medium" as const, credits: "10,000", price: "$100" },
-  { size: "large" as const, credits: "50,000", price: "$500" },
-]
+  { size: "small", credits: 2_500, label: "2,500", price: "$25" },
+  { size: "medium", credits: 10_000, label: "10,000", price: "$100" },
+  { size: "large", credits: 50_000, label: "50,000", price: "$500" },
+] as const
+
+type PackCredits = (typeof TOPUPS)[number]["credits"]
 
 export function BillingSection({ workspaceSlug }: { workspaceSlug: string }) {
   const socket = useSocket()
@@ -222,11 +233,130 @@ export function BillingSection({ workspaceSlug }: { workspaceSlug: string }) {
               onClick={() => topup.mutate(pack.size)}
               disabled={topup.isPending}
             >
-              {pack.credits} for {pack.price}
+              {pack.label} for {pack.price}
             </Button>
           ))}
         </div>
       </div>
+
+      <AutoTopupCard
+        workspaceSlug={workspaceSlug}
+        autoTopup={billing.autoTopup}
+        canAutoTopup={billing.canAutoTopup}
+      />
+    </div>
+  )
+}
+
+function AutoTopupCard({
+  workspaceSlug,
+  autoTopup,
+  canAutoTopup,
+}: {
+  workspaceSlug: string
+  autoTopup: { enabled: boolean; threshold: number; quantity: number } | null
+  canAutoTopup: boolean
+}) {
+  const queryClient = useQueryClient()
+  const [enabled, setEnabled] = useState(autoTopup?.enabled ?? false)
+  const [threshold, setThreshold] = useState(autoTopup?.threshold ?? 500)
+  const [quantity, setQuantity] = useState<PackCredits>(
+    (TOPUPS.find((p) => p.credits === autoTopup?.quantity)?.credits ??
+      2_500) as PackCredits
+  )
+
+  const save = useMutation({
+    mutationFn: async () => {
+      const res = await apiClient.v1.workspaces[":workspaceSlug"].billing[
+        "auto-topup"
+      ].$put({
+        param: { workspaceSlug },
+        json: { enabled, threshold, quantity },
+      })
+      if (!res.ok) throw new Error("Failed to update auto top-up")
+      return res.json()
+    },
+    onSuccess: ({ url }) => {
+      if (url) {
+        window.location.href = url
+        return
+      }
+      toast.success(enabled ? "Auto top-up enabled" : "Auto top-up disabled")
+      void queryClient.invalidateQueries({
+        queryKey: ["billing", workspaceSlug],
+      })
+    },
+    onError: () => toast.error("Failed to update auto top-up"),
+  })
+
+  const dirty =
+    enabled !== (autoTopup?.enabled ?? false) ||
+    threshold !== (autoTopup?.threshold ?? 500) ||
+    quantity !== (autoTopup?.quantity ?? 2_500)
+  // The first pack purchase is what registers the top-up price Autumn charges
+  // refills against, so enabling before any top-up also buys one.
+  const buysFirstPack = enabled && !canAutoTopup
+  const pack = TOPUPS.find((p) => p.credits === quantity)
+
+  return (
+    <div className="rounded-lg border border-border p-5">
+      <div className="flex items-center justify-between">
+        <div>
+          <div className="text-sm font-semibold">Auto top-up</div>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Automatically buy a credit pack when the pooled balance runs low.
+          </p>
+        </div>
+        <Switch checked={enabled} onCheckedChange={setEnabled} />
+      </div>
+      {enabled && (
+        <div className="mt-4 flex flex-wrap items-end gap-3">
+          <label
+            htmlFor="auto-topup-threshold"
+            className="flex flex-col gap-1.5 text-sm"
+          >
+            <span className="text-muted-foreground">When balance is below</span>
+            <Input
+              id="auto-topup-threshold"
+              type="number"
+              className="w-32"
+              min={100}
+              max={50_000}
+              step={100}
+              value={threshold}
+              onChange={(e) => setThreshold(Number(e.target.value))}
+            />
+          </label>
+          <div className="flex flex-col gap-1.5 text-sm">
+            <span className="text-muted-foreground">Buy</span>
+            <Select
+              value={String(quantity)}
+              onValueChange={(v) => setQuantity(Number(v) as PackCredits)}
+            >
+              <SelectTrigger className="w-44" aria-label="Auto top-up pack">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {TOPUPS.map((p) => (
+                  <SelectItem key={p.size} value={String(p.credits)}>
+                    {p.label} credits · {p.price}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      )}
+      {dirty && (
+        <Button
+          className="mt-4"
+          onClick={() => save.mutate()}
+          disabled={save.isPending || threshold < 100}
+        >
+          {save.isPending && <Loader2 className="size-4 animate-spin" />}
+          {buysFirstPack ? `Enable & buy first pack (${pack?.price})` : "Save"}
+        </Button>
+      )}
     </div>
   )
 }

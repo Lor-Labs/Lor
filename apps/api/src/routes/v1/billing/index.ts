@@ -13,6 +13,7 @@ const billingRouter = createRouter()
   .openapi(routes.getBilling, handlers.getBilling)
   .openapi(routes.subscribe, handlers.subscribe)
   .openapi(routes.topup, handlers.topup)
+  .openapi(routes.setAutoTopup, handlers.setAutoTopupHandler)
   .openapi(routes.portal, handlers.portal)
 
 let emitter: Emitter<ServerToClientEvents> | null = null

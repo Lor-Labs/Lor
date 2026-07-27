@@ -158,10 +158,21 @@ export async function portalUrl(
   return res.url
 }
 
+export type AutoTopupConfig = {
+  enabled: boolean
+  threshold: number
+  quantity: number
+}
+
 export type BillingSummary = {
   subscribed: boolean
   currentPeriodEnd: number | null
   balance: { total: number; monthly: number; purchased: number } | null
+  autoTopup: AutoTopupConfig | null
+  // Auto top-up charges the topup plan's one-off price, which only exists on
+  // the customer after their first top-up purchase (verified in Autumn's
+  // source: no fallback, it silently never fires without it).
+  canAutoTopup: boolean
 }
 
 export async function getBillingSummary(
@@ -185,15 +196,75 @@ export async function getBillingSummary(
     const purchased = breakdown
       .filter((b) => !b.reset)
       .reduce((n, b) => n + b.remaining, 0)
+    const autoTopup = customer.billingControls.autoTopups?.find(
+      (t) => t.featureId === CREDITS_FEATURE_ID
+    )
     return {
       subscribed: Boolean(sub),
       currentPeriodEnd: sub?.currentPeriodEnd ?? null,
       balance: balance
         ? { total: balance.remaining, monthly, purchased }
         : null,
+      autoTopup: autoTopup
+        ? {
+            enabled: autoTopup.enabled,
+            threshold: autoTopup.threshold,
+            quantity: autoTopup.quantity,
+          }
+        : null,
+      canAutoTopup: customer.purchases.some((p) => p.planId === TOPUP_PLAN_ID),
     }
   } catch (err) {
     logger.error({ err, workspaceId }, "Autumn billing summary failed")
     return null
   }
+}
+
+// Runaway guard; generous enough to never strand a real team. Limit-blocked
+// attempts fire the auto_topup_failed webhook, which reaches admins as a toast.
+const AUTO_TOPUP_MONTHLY_LIMIT = 20
+
+// If the workspace has never bought a top-up, buy the first pack as part of
+// enabling — Autumn charges auto top-ups against the topup plan's one-off
+// price, which doesn't exist on the customer until one purchase happens.
+// Returns a checkout URL only if that first purchase needs a redirect.
+export async function setAutoTopup(
+  workspaceId: string,
+  config: AutoTopupConfig,
+  successUrl: string
+): Promise<CheckoutResult> {
+  const autumn = mustAutumn()
+  await autumn.customers.update({
+    customerId: workspaceId,
+    billingControls: {
+      autoTopups: [
+        {
+          featureId: CREDITS_FEATURE_ID,
+          enabled: config.enabled,
+          threshold: config.threshold,
+          quantity: config.quantity,
+          purchaseLimit: {
+            interval: "month",
+            limit: AUTO_TOPUP_MONTHLY_LIMIT,
+          },
+        },
+      ],
+    },
+  })
+  if (!config.enabled) return { url: null }
+  const customer = await autumn.customers.getOrCreate({
+    customerId: workspaceId,
+  })
+  if (customer.purchases.some((p) => p.planId === TOPUP_PLAN_ID)) {
+    return { url: null }
+  }
+  const res = await autumn.billing.attach({
+    customerId: workspaceId,
+    planId: TOPUP_PLAN_ID,
+    featureQuantities: [
+      { featureId: CREDITS_FEATURE_ID, quantity: config.quantity },
+    ],
+    successUrl,
+  })
+  return { url: res.paymentUrl }
 }
