@@ -97,21 +97,9 @@ const mobilePlatforms = [
 export default function DownloadPage() {
   return (
     <div className="flex min-h-svh flex-col">
-      {/* Navbar */}
-      <header className="sticky top-0 z-50 border-b border-border/40 bg-background/70 backdrop-blur">
-        <nav className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
-          <Link href="/" className="text-xl font-semibold tracking-tight">
-            Lor
-          </Link>
-          <Button size="sm" asChild>
-            <a href={APP_URL}>Open in browser</a>
-          </Button>
-        </nav>
-      </header>
-
       <main className="flex-1">
         {/* Hero */}
-        <section className="mx-auto max-w-4xl px-6 py-20 text-center md:py-28">
+        <section className="mx-auto max-w-4xl px-6 pt-32 pb-20 text-center md:pt-40 md:pb-28">
           <h1 className="text-balance text-4xl font-semibold tracking-tight sm:text-5xl">
             Download Lor.
           </h1>

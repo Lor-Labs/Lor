@@ -103,7 +103,7 @@ export function SiteHeader() {
                 <MotionNavigationMenuContent highlightClassName="bg-foreground/[0.05] rounded-lg">
                   <div className="grid w-[420px] grid-cols-2 gap-1 p-1">
                     <MotionNavigationMenuLink
-                      href="#product"
+                      href="/#product"
                       className="rounded-lg p-3"
                     >
                       <span className="block text-[13px] font-medium text-foreground">
@@ -115,7 +115,7 @@ export function SiteHeader() {
                       </span>
                     </MotionNavigationMenuLink>
                     <MotionNavigationMenuLink
-                      href="#merlin"
+                      href="/#merlin"
                       className="rounded-lg p-3"
                     >
                       <span className="block text-[13px] font-medium text-foreground">
@@ -126,7 +126,7 @@ export function SiteHeader() {
                       </span>
                     </MotionNavigationMenuLink>
                     <MotionNavigationMenuLink
-                      href="#integrations"
+                      href="/#integrations"
                       className="rounded-lg p-3"
                     >
                       <span className="block text-[13px] font-medium text-foreground">
@@ -137,7 +137,7 @@ export function SiteHeader() {
                       </span>
                     </MotionNavigationMenuLink>
                     <MotionNavigationMenuLink
-                      href="#open-source"
+                      href="/#open-source"
                       className="rounded-lg p-3"
                     >
                       <span className="block text-[13px] font-medium text-foreground">
@@ -204,7 +204,7 @@ export function SiteHeader() {
 
               <MotionNavigationMenuItem>
                 <MotionNavigationMenuLink
-                  href="#pricing"
+                  href="/#pricing"
                   className={`font-medium text-foreground/75 hover:text-foreground ${T} ${
                     scrolled
                       ? "px-3 py-1.5 text-[13px]"
