@@ -330,6 +330,10 @@ function AutoTopupCard({
           <div className="flex flex-col gap-1.5 text-sm">
             <span className="text-muted-foreground">Buy</span>
             <Select
+              items={TOPUPS.map((p) => ({
+                value: String(p.credits),
+                label: `${p.label} credits · ${p.price}`,
+              }))}
               value={String(quantity)}
               onValueChange={(v) => setQuantity(Number(v) as PackCredits)}
             >

@@ -279,6 +279,18 @@ export function EditChannelDialog({
                       <div className="space-y-2">
                         <Label htmlFor="channel-merlin-profile">Profile</Label>
                         <Select
+                          items={[
+                            {
+                              value: INHERIT,
+                              label: isCategory
+                                ? "Inherit (workspace default)"
+                                : "Inherit (category or default)",
+                            },
+                            ...customProfiles.map((p) => ({
+                              value: p.id,
+                              label: p.name,
+                            })),
+                          ]}
                           value={profileId}
                           onValueChange={(v) => v && setProfileId(v)}
                         >

@@ -149,6 +149,10 @@ export function CreateChannelDialog({
             <div className="space-y-1.5">
               <Label htmlFor="channel-type">Type</Label>
               <Select
+                items={channelTypes.map((ct) => ({
+                  value: ct.value,
+                  label: ct.label,
+                }))}
                 value={type}
                 onValueChange={(v) => setType(v as "text" | "voice")}
               >

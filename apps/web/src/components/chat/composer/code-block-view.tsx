@@ -52,6 +52,7 @@ export function CodeBlockView({ node, updateAttributes }: NodeViewProps) {
         contentEditable={false}
       >
         <Select
+          items={CODE_BLOCK_LANGUAGES}
           value={language}
           onValueChange={(value) => updateAttributes({ language: value })}
         >

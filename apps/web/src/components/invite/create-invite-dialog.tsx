@@ -184,6 +184,7 @@ export function CreateInviteDialog({
               <div className="space-y-2">
                 <Label>Expire After</Label>
                 <Select
+                  items={EXPIRY_OPTIONS}
                   value={expiresIn}
                   onValueChange={(v) => v && setExpiresIn(v)}
                 >
@@ -202,6 +203,7 @@ export function CreateInviteDialog({
               <div className="space-y-2">
                 <Label>Max Uses</Label>
                 <Select
+                  items={MAX_USES_OPTIONS}
                   value={maxUses}
                   onValueChange={(v) => v && setMaxUses(v)}
                 >

@@ -881,6 +881,10 @@ function DatadogConnectDialog({
           <div className="space-y-1.5">
             <Label htmlFor="datadog-site">Site</Label>
             <Select
+              items={DATADOG_SITES.map((s) => ({
+                value: s,
+                label: DATADOG_SITE_LABELS[s],
+              }))}
               value={site}
               onValueChange={(v) => setSite(v as DatadogSite)}
             >
