@@ -136,7 +136,7 @@ export function CreateWorkspaceDialog({
             memory live.
           </DialogDescription>
         </DialogHeader>
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} className="contents">
           <DialogPanel className="flex flex-col gap-4">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="workspace-name">Name</Label>
