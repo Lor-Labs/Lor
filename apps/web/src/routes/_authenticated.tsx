@@ -143,9 +143,9 @@ function AuthenticatedLayout() {
     <SocketProvider enabled={!!session}>
       <UnreadProvider>
         <BrowserNotifications />
-        <UpdateBanner />
         <MobileSidebarProvider>
           <div className="flex h-screen overflow-hidden bg-background text-foreground">
+            <UpdateBanner />
             <Sidebar>
               <Outlet />
             </Sidebar>
