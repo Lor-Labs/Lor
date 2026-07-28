@@ -1,13 +1,18 @@
+import { ArrowRight } from "lucide-react"
 import Image from "next/image"
 import { AgentBento } from "@/app/components/agent-bento"
 import { ClosingCTA } from "@/app/components/closing-cta"
+import { OpenStack } from "@/app/components/open-stack"
+import { Pricing } from "@/app/components/pricing"
 import { ProductDemo } from "@/app/components/product-demo"
 import { Reveal } from "@/app/components/reveal"
 import { SiteFooter } from "@/app/components/site-footer"
-import { Waitlist } from "@/app/components/waitlist"
+import { WhyLor } from "@/app/components/why-lor"
+
+const SIGNUP_URL = "https://app.lor.chat/signup"
 
 // ---------------------------------------------------------------------------
-// Hero — full-bleed image, atmospheric type, waitlist as the only action
+// Hero — full-bleed image, atmospheric type, sign-up as the only action
 // ---------------------------------------------------------------------------
 
 function Hero() {
@@ -38,22 +43,28 @@ function Hero() {
 
       <div className="flex flex-1 flex-col items-center justify-center px-6 pb-24 text-center md:pb-32">
         <Reveal>
-          <h1 className="max-w-[20ch] text-balance font-cinzel text-5xl font-semibold leading-[1.04] tracking-normal sm:text-6xl md:text-[78px]">
-            Every great journey needs a guide.
-            <br />
-            {/*<span className="text-foreground/55">Lor is yours.</span>*/}
+          <h1 className="max-w-[16ch] text-balance font-cinzel text-4xl font-semibold leading-[1.04] tracking-normal sm:text-6xl md:text-[78px]">
+            The multiplayer AI workspace.
           </h1>
         </Reveal>
         <Reveal delay={220}>
-          <p className="mt-8 max-w-[46ch] text-balance text-[16.5px] leading-[1.6] text-foreground/80 sm:text-[18px]">
-            Lor turns your company&rsquo;s chat, docs, and decisions into a
-            brain that answers and acts.
+          <p className="mt-8 max-w-[52ch] text-balance text-[16.5px] leading-[1.6] text-foreground/80 sm:text-[18px]">
+            Your team chat is already full of answers. Most of them scroll away
+            forever. Lor turns every conversation into context your AI can cite
+            and act on.
           </p>
         </Reveal>
         <Reveal delay={400}>
-          <div className="mt-10 w-full max-w-md">
-            <Waitlist />
-          </div>
+          <a
+            href={SIGNUP_URL}
+            className="group mt-10 inline-flex items-center gap-2 rounded-full bg-primary py-3 pl-6 pr-5 font-medium text-[15px] text-primary-foreground transition-[transform,background-color] duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-primary/95 active:scale-[0.97]"
+          >
+            Get started
+            <ArrowRight
+              className="size-4 transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover:translate-x-0.5"
+              strokeWidth={1.75}
+            />
+          </a>
         </Reveal>
       </div>
     </section>
@@ -70,6 +81,9 @@ export default function Home() {
       <Hero />
       <ProductDemo />
       <AgentBento />
+      <WhyLor />
+      <OpenStack />
+      <Pricing />
       <ClosingCTA />
       <SiteFooter />
     </div>

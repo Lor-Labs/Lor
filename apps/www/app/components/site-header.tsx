@@ -57,7 +57,7 @@ export function SiteHeader() {
           {/* Left: brand */}
           <Link
             href="/"
-            aria-label="Lor — home"
+            aria-label="Lor home"
             className={`group inline-flex items-center px-1 ${T} ${
               scrolled ? "gap-1.5" : "gap-2"
             }`}
@@ -103,7 +103,7 @@ export function SiteHeader() {
                 <MotionNavigationMenuContent highlightClassName="bg-foreground/[0.05] rounded-lg">
                   <div className="grid w-[420px] grid-cols-2 gap-1 p-1">
                     <MotionNavigationMenuLink
-                      href="#channels"
+                      href="/#product"
                       className="rounded-lg p-3"
                     >
                       <span className="block text-[13px] font-medium text-foreground">
@@ -115,7 +115,7 @@ export function SiteHeader() {
                       </span>
                     </MotionNavigationMenuLink>
                     <MotionNavigationMenuLink
-                      href="#merlin"
+                      href="/#merlin"
                       className="rounded-lg p-3"
                     >
                       <span className="block text-[13px] font-medium text-foreground">
@@ -126,7 +126,7 @@ export function SiteHeader() {
                       </span>
                     </MotionNavigationMenuLink>
                     <MotionNavigationMenuLink
-                      href="#integrations"
+                      href="/#integrations"
                       className="rounded-lg p-3"
                     >
                       <span className="block text-[13px] font-medium text-foreground">
@@ -137,14 +137,14 @@ export function SiteHeader() {
                       </span>
                     </MotionNavigationMenuLink>
                     <MotionNavigationMenuLink
-                      href="#self-host"
+                      href="/#open-source"
                       className="rounded-lg p-3"
                     >
                       <span className="block text-[13px] font-medium text-foreground">
-                        Self-host
+                        Open source
                       </span>
                       <span className="mt-0.5 block text-[12px] leading-snug text-foreground/55">
-                        AGPL, open source. Your corpus stays your corpus.
+                        AGPL, open models only. Self-host it, or let us run it.
                       </span>
                     </MotionNavigationMenuLink>
                   </div>
@@ -204,7 +204,7 @@ export function SiteHeader() {
 
               <MotionNavigationMenuItem>
                 <MotionNavigationMenuLink
-                  href="#pricing"
+                  href="/#pricing"
                   className={`font-medium text-foreground/75 hover:text-foreground ${T} ${
                     scrolled
                       ? "px-3 py-1.5 text-[13px]"
@@ -212,6 +212,19 @@ export function SiteHeader() {
                   }`}
                 >
                   Pricing
+                </MotionNavigationMenuLink>
+              </MotionNavigationMenuItem>
+
+              <MotionNavigationMenuItem>
+                <MotionNavigationMenuLink
+                  href="/download"
+                  className={`font-medium text-foreground/75 hover:text-foreground ${T} ${
+                    scrolled
+                      ? "px-3 py-1.5 text-[13px]"
+                      : "px-4 py-2 text-[14px]"
+                  }`}
+                >
+                  Download
                 </MotionNavigationMenuLink>
               </MotionNavigationMenuItem>
             </MotionNavigationMenuList>
@@ -227,14 +240,14 @@ export function SiteHeader() {
 
           {/* Right: CTA */}
           <a
-            href="#waitlist"
+            href="https://app.lor.chat/signup"
             className={`group inline-flex items-center rounded-full bg-foreground font-medium text-background hover:bg-foreground/90 active:scale-[0.97] ${T} ${
               scrolled
                 ? "gap-1.5 py-1.5 pl-3.5 pr-3 text-[12.5px]"
                 : "gap-2 py-2 pl-4 pr-3.5 text-[14px]"
             }`}
           >
-            Join waitlist
+            Sign up
             <ArrowUpRight
               className={`${T} group-hover:translate-x-0.5 group-hover:-translate-y-0.5 ${
                 scrolled ? "size-3" : "size-3.5"

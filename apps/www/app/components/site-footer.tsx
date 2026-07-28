@@ -9,11 +9,12 @@ const GROUPS: LinkGroup[] = [
   {
     title: "Product",
     links: [
-      { label: "Channels", href: "#" },
-      { label: "Voice", href: "#" },
-      { label: "Merlin", href: "#" },
-      { label: "Integrations", href: "#" },
-      { label: "Self-host", href: "#" },
+      { label: "Channels", href: "#product" },
+      { label: "Merlin", href: "#merlin" },
+      { label: "Integrations", href: "#integrations" },
+      { label: "Pricing", href: "#pricing" },
+      { label: "Download", href: "/download" },
+      { label: "Self-host", href: "#open-source" },
     ],
   },
   {
