@@ -52,12 +52,6 @@ const FEATURES: Feature[] = [
   },
 ]
 
-const ROADMAP = [
-  "Voice channels with transcripts Merlin can cite",
-  "Merlin drafting pull requests",
-  "More connectors, Notion up next",
-]
-
 export function WhyLor() {
   return (
     <section
@@ -118,22 +112,6 @@ export function WhyLor() {
               strokeWidth={1.75}
             />
           </a>
-        </div>
-      </div>
-
-      <div className="mx-auto mt-2 flex max-w-4xl flex-col items-start gap-3 rounded-2xl border border-dashed p-6 md:flex-row md:items-center">
-        <span className="shrink-0 font-medium text-[12px] text-muted-foreground uppercase tracking-[0.14em]">
-          On the roadmap
-        </span>
-        <div className="flex flex-wrap gap-2">
-          {ROADMAP.map((item) => (
-            <span
-              key={item}
-              className="rounded-full border bg-background px-3 py-1 text-[12.5px] text-foreground/70"
-            >
-              {item}
-            </span>
-          ))}
         </div>
       </div>
     </section>
