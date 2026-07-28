@@ -27,9 +27,9 @@ const cinzel = Cinzel({
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://lor.chat"),
-  title: "Lor — The AI multiplayer workspace for teams",
+  title: "Lor | The open source multiplayer AI workspace for teams",
   description:
-    "Lor is the AI multiplayer workspace for teams. Every conversation, decision, and integration becomes searchable lore your team can ask anything of.",
+    "Lor is the open source multiplayer AI workspace for teams, powered entirely by open models. $20 per user per month with pooled AI credits, or self-host free under AGPL-3.0.",
   icons: {
     // Castle mark (purple rounded square, transparent corners). Crisp SVG
     // primary, PNG fallback + apple-touch.
@@ -41,9 +41,9 @@ export const metadata: Metadata = {
     apple: "/lor-bg-removed-square.png",
   },
   openGraph: {
-    title: "Lor — The AI multiplayer workspace for teams",
+    title: "Lor | The open source multiplayer AI workspace for teams",
     description:
-      "The AI multiplayer workspace for teams. Open source, self-hostable, AGPL.",
+      "The multiplayer AI workspace for teams. Open source, open models only, self-hostable under AGPL.",
     url: "https://lor.chat",
     siteName: "Lor",
     type: "website",

@@ -93,7 +93,7 @@ function MerlinCard() {
           <div className="rounded-lg bg-accent/60 px-3 py-2.5 dark:bg-accent/40">
             <p className="text-sm leading-snug text-foreground/85">
               The launch moved to{" "}
-              <span className="font-semibold text-foreground">May 28</span> — QA
+              <span className="font-semibold text-foreground">May 28</span>. QA
               pushed it a week. Locked in by jacob.
             </p>
             <div className="mt-2 flex flex-wrap items-center gap-1.5">
@@ -121,7 +121,10 @@ function MerlinCard() {
 
 function IntegrationsHeroCard() {
   return (
-    <div className="group relative rounded-2xl border bg-background bg-[radial-gradient(50%_50%_at_45%_0%,--theme(--color-foreground/.05),transparent)] md:col-span-5 dark:bg-background">
+    <div
+      id="integrations"
+      className="group relative rounded-2xl border bg-background bg-[radial-gradient(50%_50%_at_45%_0%,--theme(--color-foreground/.05),transparent)] md:col-span-5 dark:bg-background"
+    >
       <div className="p-6">
         <h3 className="font-medium text-base leading-tight md:text-lg">
           <span>Connects to your stack.</span>{" "}
@@ -233,7 +236,7 @@ function ContextCard() {
         <h3 className="font-medium text-base leading-tight md:text-lg">
           <span>Always in context.</span>{" "}
           <span className="text-muted-foreground">
-            Merlin reads every channel, ticket, and doc — automatically.
+            Merlin reads every channel, ticket, and doc automatically.
           </span>
         </h3>
       </div>
@@ -313,7 +316,7 @@ function ActionsCard() {
           <span>Takes action.</span>{" "}
           <span className="text-muted-foreground">
             Open tickets, draft messages, schedule reminders. Merlin doesn't
-            just answer — it acts.
+            just answer. It acts.
           </span>
         </h3>
       </div>
@@ -398,7 +401,10 @@ function ActionsCard() {
 
 export function AgentBento() {
   return (
-    <section className="relative mx-auto w-full max-w-6xl px-6 py-24">
+    <section
+      id="merlin"
+      className="relative mx-auto w-full max-w-6xl px-6 py-24"
+    >
       <div className="grid grid-cols-1 gap-2 md:grid-cols-8">
         <MerlinCard />
         <IntegrationsHeroCard />

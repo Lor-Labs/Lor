@@ -2,7 +2,10 @@ import { Play } from "lucide-react"
 
 export function ProductDemo() {
   return (
-    <section className="relative mx-auto w-full max-w-6xl px-6 py-24 md:py-32">
+    <section
+      id="product"
+      className="relative mx-auto w-full max-w-6xl px-6 py-24 md:py-32"
+    >
       <div className="mx-auto max-w-5xl">
         <div className="relative aspect-[16/10] overflow-hidden rounded-2xl border border-foreground/[0.06] bg-card/40 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
           <div
