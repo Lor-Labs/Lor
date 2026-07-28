@@ -8,13 +8,14 @@ import {
   CardTitle,
 } from "@repo/ui/components/card"
 import { Separator } from "@repo/ui/components/separator"
-import { Download, ExternalLink, Github, Globe } from "lucide-react"
+import { Download, Github, Globe } from "lucide-react"
 import type { Metadata } from "next"
 import Link from "next/link"
 
 export const metadata: Metadata = {
   title: "Download Lor",
-  description: "Download Lor for macOS, Windows, or Linux.",
+  description:
+    "Download Lor for macOS. Windows, Linux, iOS, and Android are on the way.",
 }
 
 const VERSION = "0.1.0"
@@ -60,16 +61,36 @@ const platforms = [
     name: "Windows",
     icon: WindowsIcon,
     subtitle: "Windows 10+",
-    description: "Download the .exe installer for Windows",
-    href: `${LATEST}/Lor_${VERSION}_x64-setup.exe`,
+    description: "A native Windows build is in the works",
   },
   {
     name: "Linux",
     icon: LinuxIcon,
     subtitle: ".deb, .rpm, .AppImage",
-    description: "Choose your format from the releases page",
-    href: RELEASES_URL,
-    external: true,
+    description: "A native Linux build is in the works",
+  },
+]
+
+function AndroidIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className={className}>
+      <path d="M17.523 15.341a.998.998 0 1 1 0-1.996.998.998 0 0 1 0 1.996m-11.046 0a.998.998 0 1 1 0-1.996.998.998 0 0 1 0 1.996m11.405-6.02 1.997-3.46a.416.416 0 0 0-.152-.567.416.416 0 0 0-.568.152l-2.022 3.503C15.598 8.24 13.853 7.842 12 7.842s-3.598.398-5.137 1.107L4.84 5.446a.416.416 0 0 0-.567-.152.416.416 0 0 0-.153.568l1.997 3.459C2.688 11.187.343 14.66 0 18.761h24c-.344-4.102-2.688-7.574-6.118-9.44" />
+    </svg>
+  )
+}
+
+const mobilePlatforms = [
+  {
+    name: "iOS",
+    icon: AppleIcon,
+    subtitle: "iPhone and iPad",
+    storeLabel: "Coming to the App Store",
+  },
+  {
+    name: "Android",
+    icon: AndroidIcon,
+    subtitle: "Phones and tablets",
+    storeLabel: "Coming to Google Play",
   },
 ]
 
@@ -92,11 +113,11 @@ export default function DownloadPage() {
         {/* Hero */}
         <section className="mx-auto max-w-4xl px-6 py-20 text-center md:py-28">
           <h1 className="text-balance text-4xl font-semibold tracking-tight sm:text-5xl">
-            Download Lor for desktop.
+            Download Lor.
           </h1>
           <p className="mt-5 text-lg text-muted-foreground">
-            Native apps for macOS, Windows, and Linux. Same Lor, in a faster
-            shell.
+            Native for macOS today. Windows, Linux, iOS, and Android are on the
+            way. Same Lor, in a faster shell.
           </p>
         </section>
 
@@ -119,21 +140,18 @@ export default function DownloadPage() {
                   </p>
                 </CardContent>
                 <CardFooter className="mt-auto flex-col gap-2">
-                  <Button className="w-full" asChild>
-                    <a
-                      href={platform.href}
-                      {...("external" in platform && platform.external
-                        ? { target: "_blank", rel: "noopener noreferrer" }
-                        : {})}
-                    >
-                      {"external" in platform && platform.external ? (
-                        <ExternalLink className="size-4" />
-                      ) : (
+                  {"href" in platform && platform.href ? (
+                    <Button className="w-full" asChild>
+                      <a href={platform.href}>
                         <Download className="size-4" />
-                      )}
-                      Download for {platform.name}
-                    </a>
-                  </Button>
+                        Download for {platform.name}
+                      </a>
+                    </Button>
+                  ) : (
+                    <Button className="w-full" variant="outline" disabled>
+                      Coming soon
+                    </Button>
+                  )}
                   <p className="min-h-4 text-center text-xs text-muted-foreground">
                     {"note" in platform && platform.note ? platform.note : ""}
                   </p>
@@ -152,6 +170,39 @@ export default function DownloadPage() {
               <Github className="size-3.5" />
               All releases on GitHub
             </a>
+          </div>
+        </section>
+
+        <Separator className="mx-auto max-w-4xl" />
+
+        {/* Mobile */}
+        <section className="mx-auto max-w-4xl px-6 py-16">
+          <div className="text-center">
+            <h2 className="text-2xl font-semibold tracking-tight">
+              On your phone
+            </h2>
+            <p className="mt-3 text-muted-foreground">
+              Lor for iOS and Android is in the works.
+            </p>
+          </div>
+          <div className="mx-auto mt-8 grid max-w-2xl gap-6 md:grid-cols-2">
+            {mobilePlatforms.map((platform) => (
+              <Card
+                key={platform.name}
+                className="flex flex-col border-border/40"
+              >
+                <CardHeader className="text-center">
+                  <platform.icon className="mx-auto mb-3 size-12 text-foreground" />
+                  <CardTitle>{platform.name}</CardTitle>
+                  <CardDescription>{platform.subtitle}</CardDescription>
+                </CardHeader>
+                <CardFooter className="mt-auto flex-col gap-2">
+                  <Button className="w-full" variant="outline" disabled>
+                    {platform.storeLabel}
+                  </Button>
+                </CardFooter>
+              </Card>
+            ))}
           </div>
         </section>
 

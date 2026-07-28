@@ -214,6 +214,19 @@ export function SiteHeader() {
                   Pricing
                 </MotionNavigationMenuLink>
               </MotionNavigationMenuItem>
+
+              <MotionNavigationMenuItem>
+                <MotionNavigationMenuLink
+                  href="/download"
+                  className={`font-medium text-foreground/75 hover:text-foreground ${T} ${
+                    scrolled
+                      ? "px-3 py-1.5 text-[13px]"
+                      : "px-4 py-2 text-[14px]"
+                  }`}
+                >
+                  Download
+                </MotionNavigationMenuLink>
+              </MotionNavigationMenuItem>
             </MotionNavigationMenuList>
           </MotionNavigationMenu>
 

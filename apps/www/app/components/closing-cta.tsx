@@ -12,10 +12,6 @@ export function ClosingCTA() {
           <br />
           <span className="text-foreground/55">So is your context.</span>
         </h2>
-        <p className="mt-6 max-w-md text-[15px] text-foreground/60 leading-relaxed">
-          Open source, running on open models. $20 per user per month in the
-          cloud, or self-host free. Set up your workspace in minutes.
-        </p>
         <div className="mt-10 flex flex-col items-center gap-3 sm:flex-row">
           <a
             href={SIGNUP_URL}

@@ -13,6 +13,7 @@ const GROUPS: LinkGroup[] = [
       { label: "Merlin", href: "#merlin" },
       { label: "Integrations", href: "#integrations" },
       { label: "Pricing", href: "#pricing" },
+      { label: "Download", href: "/download" },
       { label: "Self-host", href: "#open-source" },
     ],
   },
