@@ -5,6 +5,7 @@ import {
   DialogContent,
   DialogDescription,
   DialogHeader,
+  DialogPanel,
   DialogTitle,
 } from "@repo/ui/components/dialog"
 import { Input } from "@repo/ui/components/input"
@@ -140,7 +141,10 @@ export function CreateChannelDialog({
               : "Add a new channel to your workspace."}
           </DialogDescription>
         </DialogHeader>
-        <form onSubmit={handleCreate} className="space-y-4">
+        <DialogPanel
+          render={<form onSubmit={handleCreate} />}
+          className="space-y-4"
+        >
           {!isCategory && (
             <div className="space-y-1.5">
               <Label htmlFor="channel-type">Type</Label>
@@ -148,7 +152,7 @@ export function CreateChannelDialog({
                 value={type}
                 onValueChange={(v) => setType(v as "text" | "voice")}
               >
-                <SelectTrigger>
+                <SelectTrigger size="lg">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -174,6 +178,7 @@ export function CreateChannelDialog({
             <Label htmlFor="channel-name">Name</Label>
             <Input
               id="channel-name"
+              size="lg"
               placeholder={isCategory ? "Community" : "general"}
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -192,6 +197,7 @@ export function CreateChannelDialog({
           {error && <p className="text-sm text-destructive">{error}</p>}
           <Button
             type="submit"
+            size="lg"
             className="w-full"
             disabled={
               loading || !name.trim() || (!isCategory && !normalizedName)
@@ -200,7 +206,7 @@ export function CreateChannelDialog({
             {loading && <Loader2 className="mr-2 size-4 animate-spin" />}
             {isCategory ? "Create Category" : "Create Channel"}
           </Button>
-        </form>
+        </DialogPanel>
       </DialogContent>
     </Dialog>
   )

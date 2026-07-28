@@ -21,23 +21,25 @@ export function LeftSidebarToggle({ className }: { className?: string }) {
 
   return (
     <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={toggleSidebar}
-          className={cn(
-            "size-7 text-muted-foreground hover:text-foreground",
-            className
-          )}
-          aria-label={isOpen ? "Collapse sidebar" : "Expand sidebar"}
-        >
-          <SidebarToggleIcon
-            isOpen={isOpen}
-            className="size-4"
-            strokeWidth={1.5}
+      <TooltipTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={toggleSidebar}
+            className={cn(
+              "size-7 text-muted-foreground hover:text-foreground",
+              className
+            )}
+            aria-label={isOpen ? "Collapse sidebar" : "Expand sidebar"}
           />
-        </Button>
+        }
+      >
+        <SidebarToggleIcon
+          isOpen={isOpen}
+          className="size-4"
+          strokeWidth={1.5}
+        />
       </TooltipTrigger>
       <TooltipContent>
         {isOpen ? "Collapse sidebar" : "Expand sidebar"}
@@ -81,23 +83,25 @@ export function RightPanelToggle({
 
   return (
     <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={handleClick}
-          className={cn(
-            "size-7 text-muted-foreground hover:text-foreground",
-            className
-          )}
-          aria-label="Open side panel"
-        >
-          <SidebarToggleIcon
-            isOpen={false}
-            className="size-4 -scale-x-100"
-            strokeWidth={1.5}
+      <TooltipTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleClick}
+            className={cn(
+              "size-7 text-muted-foreground hover:text-foreground",
+              className
+            )}
+            aria-label="Open side panel"
           />
-        </Button>
+        }
+      >
+        <SidebarToggleIcon
+          isOpen={false}
+          className="size-4 -scale-x-100"
+          strokeWidth={1.5}
+        />
       </TooltipTrigger>
       <TooltipContent>Show panel</TooltipContent>
     </Tooltip>

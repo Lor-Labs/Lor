@@ -6,6 +6,7 @@ import {
   DialogDescription,
   DialogFooter,
   DialogHeader,
+  DialogPanel,
   DialogTitle,
 } from "@repo/ui/components/dialog"
 import { Input } from "@repo/ui/components/input"
@@ -135,27 +136,29 @@ export function CreateWorkspaceDialog({
             memory live.
           </DialogDescription>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="workspace-name">Name</Label>
-            <Input
-              id="workspace-name"
-              value={name}
-              onChange={(e) => handleNameChange(e.target.value)}
-              placeholder="Acme Inc."
-              autoFocus
-            />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="workspace-slug">URL slug</Label>
-            <Input
-              id="workspace-slug"
-              value={slug}
-              onChange={(e) => handleSlugChange(e.target.value)}
-              placeholder="acme"
-            />
-          </div>
-          {error && <p className="text-sm text-destructive">{error}</p>}
+        <form onSubmit={handleSubmit}>
+          <DialogPanel className="flex flex-col gap-4">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="workspace-name">Name</Label>
+              <Input
+                id="workspace-name"
+                value={name}
+                onChange={(e) => handleNameChange(e.target.value)}
+                placeholder="Acme Inc."
+                autoFocus
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="workspace-slug">URL slug</Label>
+              <Input
+                id="workspace-slug"
+                value={slug}
+                onChange={(e) => handleSlugChange(e.target.value)}
+                placeholder="acme"
+              />
+            </div>
+            {error && <p className="text-sm text-destructive">{error}</p>}
+          </DialogPanel>
           <DialogFooter>
             <Button
               type="button"

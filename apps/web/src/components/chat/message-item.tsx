@@ -2,8 +2,7 @@ import { Pin02Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
   AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
+  AlertDialogClose,
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
@@ -11,6 +10,7 @@ import {
   AlertDialogTitle,
 } from "@repo/ui/components/alert-dialog"
 import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar"
+import { Button } from "@repo/ui/components/button"
 import {
   Tooltip,
   TooltipContent,
@@ -494,21 +494,23 @@ export function MessageItem({
 
                 return (
                   <Tooltip key={reaction.emoji}>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        onClick={() => handleReact(reaction.emoji)}
-                        aria-pressed={reaction.reactedByCurrentUser}
-                        className={cn(
-                          "inline-flex cursor-pointer items-center gap-1 rounded-full border px-2 py-0.5 text-xs transition-colors",
-                          reaction.reactedByCurrentUser
-                            ? "border-primary/40 bg-primary/15 text-primary hover:bg-primary/20"
-                            : "border-border/70 bg-background text-muted-foreground hover:bg-accent hover:text-foreground"
-                        )}
-                      >
-                        <span>{reaction.emoji}</span>
-                        <span>{reaction.count}</span>
-                      </button>
+                    <TooltipTrigger
+                      render={
+                        <button
+                          type="button"
+                          onClick={() => handleReact(reaction.emoji)}
+                          aria-pressed={reaction.reactedByCurrentUser}
+                          className={cn(
+                            "inline-flex cursor-pointer items-center gap-1 rounded-full border px-2 py-0.5 text-xs transition-colors",
+                            reaction.reactedByCurrentUser
+                              ? "border-primary/40 bg-primary/15 text-primary hover:bg-primary/20"
+                              : "border-border/70 bg-background text-muted-foreground hover:bg-accent hover:text-foreground"
+                          )}
+                        />
+                      }
+                    >
+                      <span>{reaction.emoji}</span>
+                      <span>{reaction.count}</span>
                     </TooltipTrigger>
                     <TooltipContent side="top">
                       <p className="text-xs">{tooltipText}</p>
@@ -539,13 +541,16 @@ export function MessageItem({
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              onClick={handleDeleteConfirm}
+            <AlertDialogClose render={<Button variant="outline" />}>
+              Cancel
+            </AlertDialogClose>
+            <AlertDialogClose
+              render={
+                <Button variant="destructive" onClick={handleDeleteConfirm} />
+              }
             >
               Delete
-            </AlertDialogAction>
+            </AlertDialogClose>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

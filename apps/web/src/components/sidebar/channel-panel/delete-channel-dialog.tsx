@@ -1,13 +1,13 @@
 import {
   AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
+  AlertDialogClose,
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@repo/ui/components/alert-dialog"
+import { Button } from "@repo/ui/components/button"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import { apiClient } from "@/lib/api-client"
@@ -85,14 +85,20 @@ export function DeleteChannelDialog({
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction
-            onClick={() => deleteMutation.mutate()}
-            loading={deleteMutation.isPending}
-            variant="destructive"
+          <AlertDialogClose render={<Button variant="outline" />}>
+            Cancel
+          </AlertDialogClose>
+          <AlertDialogClose
+            render={
+              <Button
+                variant="destructive"
+                onClick={() => deleteMutation.mutate()}
+                loading={deleteMutation.isPending}
+              />
+            }
           >
             {isCategory ? "Delete Category" : "Delete Channel"}
-          </AlertDialogAction>
+          </AlertDialogClose>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

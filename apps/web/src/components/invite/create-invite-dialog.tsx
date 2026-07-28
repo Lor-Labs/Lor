@@ -5,6 +5,7 @@ import {
   DialogDescription,
   DialogFooter,
   DialogHeader,
+  DialogPanel,
   DialogTitle,
 } from "@repo/ui/components/dialog"
 import { Input } from "@repo/ui/components/input"
@@ -132,30 +133,32 @@ export function CreateInviteDialog({
         </DialogHeader>
 
         {inviteCode ? (
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>Invite Link</Label>
-              <div className="flex gap-2">
-                <Input
-                  readOnly
-                  value={getInviteUrl(inviteCode)}
-                  className="font-mono text-sm"
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  aria-label={copied ? "Copied link" : "Copy link"}
-                  onClick={handleCopy}
-                >
-                  {copied ? (
-                    <Check className="size-4" />
-                  ) : (
-                    <Copy className="size-4" />
-                  )}
-                </Button>
+          <>
+            <DialogPanel className="space-y-4">
+              <div className="space-y-2">
+                <Label>Invite Link</Label>
+                <div className="flex gap-2">
+                  <Input
+                    readOnly
+                    value={getInviteUrl(inviteCode)}
+                    className="font-mono text-sm"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    aria-label={copied ? "Copied link" : "Copy link"}
+                    onClick={handleCopy}
+                  >
+                    {copied ? (
+                      <Check className="size-4" />
+                    ) : (
+                      <Copy className="size-4" />
+                    )}
+                  </Button>
+                </div>
               </div>
-            </div>
+            </DialogPanel>
             <DialogFooter>
               <Button
                 type="button"
@@ -174,39 +177,47 @@ export function CreateInviteDialog({
                 Create Another
               </Button>
             </DialogFooter>
-          </div>
+          </>
         ) : (
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>Expire After</Label>
-              <Select value={expiresIn} onValueChange={setExpiresIn}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {EXPIRY_OPTIONS.map((opt) => (
-                    <SelectItem key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Max Uses</Label>
-              <Select value={maxUses} onValueChange={setMaxUses}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {MAX_USES_OPTIONS.map((opt) => (
-                    <SelectItem key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+          <>
+            <DialogPanel className="space-y-4">
+              <div className="space-y-2">
+                <Label>Expire After</Label>
+                <Select
+                  value={expiresIn}
+                  onValueChange={(v) => v && setExpiresIn(v)}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {EXPIRY_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Max Uses</Label>
+                <Select
+                  value={maxUses}
+                  onValueChange={(v) => v && setMaxUses(v)}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {MAX_USES_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </DialogPanel>
             <DialogFooter>
               <Button
                 type="button"
@@ -226,7 +237,7 @@ export function CreateInviteDialog({
                   : "Generate Invite Link"}
               </Button>
             </DialogFooter>
-          </div>
+          </>
         )}
       </DialogContent>
     </Dialog>

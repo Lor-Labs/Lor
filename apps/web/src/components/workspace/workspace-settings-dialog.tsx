@@ -1,8 +1,7 @@
 import { authClient } from "@repo/auth/client"
 import {
   AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
+  AlertDialogClose,
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
@@ -17,6 +16,7 @@ import {
   DialogDescription,
   DialogFooter,
   DialogHeader,
+  DialogPanel,
   DialogTitle,
 } from "@repo/ui/components/dialog"
 import { Input } from "@repo/ui/components/input"
@@ -44,11 +44,6 @@ import {
   X,
 } from "lucide-react"
 import { AnimatePresence, motion } from "motion/react"
-// The same focus-scope instance Radix's own Dialog/Select use — nested Radix
-// layers pause an outer trap via a module-level stack, which only coordinates
-// within one instance. The standalone @radix-ui/react-focus-scope package
-// resolves to a different copy and its trap would fight nested portals.
-import { FocusScope } from "radix-ui/internal"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { toast } from "sonner"
@@ -140,17 +135,50 @@ export function WorkspaceSettingsDialog({
     (s) => s.id !== "billing" || canManageBilling
   )
 
-  // Close on Escape (no Radix here, so wire it ourselves).
+  // Close on Escape (no dialog primitive here, so wire it ourselves).
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => {
-      // Nested Radix layers (e.g. the Datadog connect dialog) preventDefault
-      // when they dismiss on Escape — don't close settings on the same press.
+      // Nested layers (e.g. the Datadog connect dialog) preventDefault when
+      // they dismiss on Escape — don't close settings on the same press.
       if (e.key === "Escape" && !e.defaultPrevented) onOpenChange(false)
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
   }, [open, onOpenChange])
+
+  // Loose focus trap: cycle Tab within the dialog, but only while focus is
+  // actually inside it — nested Base UI popups portal outside the container
+  // and manage their own focus, so we leave them alone.
+  const dialogRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const node = dialogRef.current
+    if (!node) return
+    const previouslyFocused = document.activeElement as HTMLElement | null
+    node.focus()
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Tab" || !node.contains(document.activeElement)) return
+      const focusables = node.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])'
+      )
+      const first = focusables[0]
+      const last = focusables[focusables.length - 1]
+      if (!first || !last) return
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault()
+        last.focus()
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault()
+        first.focus()
+      }
+    }
+    document.addEventListener("keydown", onKeyDown)
+    return () => {
+      document.removeEventListener("keydown", onKeyDown)
+      previouslyFocused?.focus()
+    }
+  }, [open])
 
   return createPortal(
     <AnimatePresence>
@@ -166,78 +194,77 @@ export function WorkspaceSettingsDialog({
             exit={{ opacity: 0 }}
             transition={{ duration: 0.15 }}
           />
-          {/* Trap + restore focus (no Radix Dialog here, so wire it ourselves). */}
-          <FocusScope.Root asChild loop trapped>
-            <motion.div
-              role="dialog"
-              aria-modal="true"
-              aria-label="Workspace settings"
-              className="fixed inset-x-3 inset-y-3 z-50 flex overflow-hidden rounded-2xl border border-border bg-background shadow-2xl sm:inset-x-8 sm:inset-y-8"
-              initial={{ opacity: 0, scale: 0.96, y: 16 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.97, y: 8 }}
-              transition={{ type: "spring", stiffness: 420, damping: 30 }}
-            >
-              {/* Section nav */}
-              <nav className="flex w-52 shrink-0 flex-col gap-1 border-r border-border bg-sidebar p-3">
-                <div className="truncate px-2 pb-2 text-sm font-semibold text-foreground">
-                  {workspace.name}
-                </div>
-                {sections.map((s) => (
-                  <button
-                    key={s.id}
-                    type="button"
-                    onClick={() => onSectionChange(s.id)}
-                    className={cn(
-                      "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors",
-                      section === s.id
-                        ? "bg-accent font-medium text-accent-foreground"
-                        : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"
-                    )}
-                  >
-                    <s.icon className="size-4" />
-                    {s.label}
-                  </button>
-                ))}
-              </nav>
+          <motion.div
+            ref={dialogRef}
+            tabIndex={-1}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Workspace settings"
+            className="fixed inset-x-3 inset-y-3 z-50 flex overflow-hidden rounded-2xl border border-border bg-background shadow-2xl sm:inset-x-8 sm:inset-y-8"
+            initial={{ opacity: 0, scale: 0.96, y: 16 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.97, y: 8 }}
+            transition={{ type: "spring", stiffness: 420, damping: 30 }}
+          >
+            {/* Section nav */}
+            <nav className="flex w-52 shrink-0 flex-col gap-1 border-r border-border bg-sidebar p-3">
+              <div className="truncate px-2 pb-2 text-sm font-semibold text-foreground">
+                {workspace.name}
+              </div>
+              {sections.map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => onSectionChange(s.id)}
+                  className={cn(
+                    "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors",
+                    section === s.id
+                      ? "bg-accent font-medium text-accent-foreground"
+                      : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"
+                  )}
+                >
+                  <s.icon className="size-4" />
+                  {s.label}
+                </button>
+              ))}
+            </nav>
 
-              {/* Content */}
-              <div className="flex min-w-0 flex-1 flex-col">
-                <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-5">
-                  <span className="text-sm font-semibold">
-                    {SECTIONS.find((s) => s.id === section)?.label}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => onOpenChange(false)}
-                    aria-label="Close"
-                    className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-                  >
-                    <X className="size-4" />
-                  </button>
-                </div>
-                <div className="min-h-0 flex-1 overflow-y-auto p-6">
-                  <div className="mx-auto max-w-2xl">
-                    {section === "general" ? (
-                      // key on identity so the form resets if the workspace
-                      // changes under us (no stale name/icon saved onto another).
-                      <GeneralSection
-                        key={workspace.id}
-                        workspace={workspace}
-                        onClose={() => onOpenChange(false)}
-                      />
-                    ) : section === "integrations" ? (
-                      <IntegrationsSection workspaceSlug={workspace.slug} />
-                    ) : section === "billing" && canManageBilling ? (
-                      <BillingSection workspaceSlug={workspace.slug} />
-                    ) : (
-                      <MerlinProfilesSection workspaceSlug={workspace.slug} />
-                    )}
-                  </div>
+            {/* Content */}
+            <div className="flex min-w-0 flex-1 flex-col">
+              <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-5">
+                <span className="text-sm font-semibold">
+                  {SECTIONS.find((s) => s.id === section)?.label}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onOpenChange(false)}
+                  aria-label="Close"
+                  className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+                >
+                  <X className="size-4" />
+                </button>
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto p-6">
+                <div className="mx-auto max-w-2xl">
+                  {section === "general" ? (
+                    // key on identity so the form resets if the workspace
+                    // changes under us (no stale name/icon saved onto another).
+                    <GeneralSection
+                      key={workspace.id}
+                      workspace={workspace}
+                      onClose={() => onOpenChange(false)}
+                    />
+                  ) : section === "integrations" ? (
+                    <IntegrationsSection workspaceSlug={workspace.slug} />
+                  ) : section === "billing" && canManageBilling ? (
+                    <BillingSection workspaceSlug={workspace.slug} />
+                  ) : (
+                    <MerlinProfilesSection workspaceSlug={workspace.slug} />
+                  )}
                 </div>
               </div>
-            </motion.div>
-          </FocusScope.Root>
+            </div>
+          </motion.div>
         </>
       )}
     </AnimatePresence>,
@@ -765,8 +792,10 @@ function IntegrationsSection({ workspaceSlug }: { workspaceSlug: string }) {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
+            <AlertDialogClose render={<Button variant="outline" />}>
+              Cancel
+            </AlertDialogClose>
+            <Button
               onClick={() => {
                 if (disconnectTarget) {
                   disconnect.mutate(disconnectTarget.connectionId)
@@ -775,7 +804,7 @@ function IntegrationsSection({ workspaceSlug }: { workspaceSlug: string }) {
               }}
             >
               Disconnect
-            </AlertDialogAction>
+            </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -848,7 +877,7 @@ function DatadogConnectDialog({
             encrypted.
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-4">
+        <DialogPanel className="space-y-4">
           <div className="space-y-1.5">
             <Label htmlFor="datadog-site">Site</Label>
             <Select
@@ -887,7 +916,7 @@ function DatadogConnectDialog({
               onChange={(e) => setAppKey(e.target.value)}
             />
           </div>
-        </div>
+        </DialogPanel>
         <DialogFooter>
           <Button
             onClick={() => connect.mutate()}

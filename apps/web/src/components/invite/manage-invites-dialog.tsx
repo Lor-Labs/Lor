@@ -1,7 +1,6 @@
 import {
   AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
+  AlertDialogClose,
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
@@ -14,6 +13,7 @@ import {
   DialogContent,
   DialogDescription,
   DialogHeader,
+  DialogPanel,
   DialogTitle,
 } from "@repo/ui/components/dialog"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
@@ -106,65 +106,67 @@ export function ManageInvitesDialog({
             </DialogDescription>
           </DialogHeader>
 
-          {isPending ? (
-            <div className="py-8 text-center text-sm text-muted-foreground">
-              Loading invites...
-            </div>
-          ) : isError ? (
-            <div className="py-8 text-center text-sm text-destructive">
-              Failed to load invites. Try closing and reopening.
-            </div>
-          ) : invites.length === 0 ? (
-            <div className="py-8 text-center text-sm text-muted-foreground">
-              No active invites
-            </div>
-          ) : (
-            <div className="max-h-80 space-y-2 overflow-y-auto">
-              {invites.map((invite) => (
-                <div
-                  key={invite.id}
-                  className="flex items-center justify-between rounded-md border px-3 py-2"
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono text-sm font-medium">
-                        {invite.code}
-                      </span>
-                      <span className="text-xs text-muted-foreground">
-                        {invite.uses}
-                        {invite.maxUses !== null ? `/${invite.maxUses}` : ""}{" "}
-                        uses
-                      </span>
+          <DialogPanel>
+            {isPending ? (
+              <div className="py-8 text-center text-sm text-muted-foreground">
+                Loading invites...
+              </div>
+            ) : isError ? (
+              <div className="py-8 text-center text-sm text-destructive">
+                Failed to load invites. Try closing and reopening.
+              </div>
+            ) : invites.length === 0 ? (
+              <div className="py-8 text-center text-sm text-muted-foreground">
+                No active invites
+              </div>
+            ) : (
+              <div className="max-h-80 space-y-2 overflow-y-auto">
+                {invites.map((invite) => (
+                  <div
+                    key={invite.id}
+                    className="flex items-center justify-between rounded-md border px-3 py-2"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-sm font-medium">
+                          {invite.code}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          {invite.uses}
+                          {invite.maxUses !== null ? `/${invite.maxUses}` : ""}{" "}
+                          uses
+                        </span>
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        by {invite.inviter.name} — expires{" "}
+                        {formatExpiry(invite.expiresAt)}
+                      </div>
                     </div>
-                    <div className="text-xs text-muted-foreground">
-                      by {invite.inviter.name} — expires{" "}
-                      {formatExpiry(invite.expiresAt)}
+                    <div className="flex shrink-0 gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-8"
+                        aria-label={`Copy invite ${invite.code}`}
+                        onClick={() => handleCopy(invite.code)}
+                      >
+                        <Copy className="size-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-8 text-destructive hover:text-destructive"
+                        aria-label={`Revoke invite ${invite.code}`}
+                        onClick={() => setRevokeCode(invite.code)}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </Button>
                     </div>
                   </div>
-                  <div className="flex shrink-0 gap-1">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-8"
-                      aria-label={`Copy invite ${invite.code}`}
-                      onClick={() => handleCopy(invite.code)}
-                    >
-                      <Copy className="size-3.5" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-8 text-destructive hover:text-destructive"
-                      aria-label={`Revoke invite ${invite.code}`}
-                      onClick={() => setRevokeCode(invite.code)}
-                    >
-                      <Trash2 className="size-3.5" />
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+                ))}
+              </div>
+            )}
+          </DialogPanel>
         </DialogContent>
       </Dialog>
 
@@ -183,16 +185,17 @@ export function ManageInvitesDialog({
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={(e) => {
-                e.preventDefault()
+            <AlertDialogClose render={<Button variant="outline" />}>
+              Cancel
+            </AlertDialogClose>
+            <Button
+              onClick={() => {
                 if (revokeCode) revokeMutation.mutate(revokeCode)
               }}
               disabled={revokeMutation.isPending}
             >
               {revokeMutation.isPending ? "Revoking..." : "Revoke"}
-            </AlertDialogAction>
+            </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

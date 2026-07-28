@@ -278,7 +278,10 @@ export function EditChannelDialog({
                     {customProfiles.length > 0 && (
                       <div className="space-y-2">
                         <Label htmlFor="channel-merlin-profile">Profile</Label>
-                        <Select value={profileId} onValueChange={setProfileId}>
+                        <Select
+                          value={profileId}
+                          onValueChange={(v) => v && setProfileId(v)}
+                        >
                           <SelectTrigger
                             id="channel-merlin-profile"
                             className="w-full"

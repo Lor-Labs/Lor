@@ -11,7 +11,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@repo/ui/components/dropdown-menu"
+} from "@repo/ui/components/menu"
 import {
   Tooltip,
   TooltipContent,
@@ -81,34 +81,38 @@ export function MessageActionBar({
       <EmojiReactionPicker onSelect={onReact} onOpenChange={setIsEmojiOpen} />
 
       <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-xs"
-            className="size-7"
-            onClick={onReply}
-            aria-label="Reply"
-          >
-            <Reply className="size-4" strokeWidth={1.5} />
-          </Button>
+        <TooltipTrigger
+          render={
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              className="size-7"
+              onClick={onReply}
+              aria-label="Reply"
+            />
+          }
+        >
+          <Reply className="size-4" strokeWidth={1.5} />
         </TooltipTrigger>
         <TooltipContent side="top">Reply</TooltipContent>
       </Tooltip>
 
       {onReplyInThread && (
         <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="size-7"
-              onClick={onReplyInThread}
-              aria-label="Reply in thread"
-            >
-              <HugeiconsIcon icon={MessageMultiple01Icon} size={8} />
-            </Button>
+          <TooltipTrigger
+            render={
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-7"
+                onClick={onReplyInThread}
+                aria-label="Reply in thread"
+              />
+            }
+          >
+            <HugeiconsIcon icon={MessageMultiple01Icon} size={8} />
           </TooltipTrigger>
           <TooltipContent side="top">Reply in thread</TooltipContent>
         </Tooltip>
@@ -116,31 +120,35 @@ export function MessageActionBar({
 
       <DropdownMenu open={isMoreOpen} onOpenChange={handleMoreOpenChange}>
         <Tooltip open={isMoreOpen || suppressTooltip ? false : undefined}>
-          <TooltipTrigger asChild>
-            <DropdownMenuTrigger asChild>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-xs"
-                className="size-7"
-                aria-label="More actions"
-              >
-                <MoreHorizontal className="size-4" />
-              </Button>
-            </DropdownMenuTrigger>
+          <TooltipTrigger
+            render={
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-xs"
+                    className="size-7"
+                    aria-label="More actions"
+                  />
+                }
+              />
+            }
+          >
+            <MoreHorizontal className="size-4" />
           </TooltipTrigger>
           <TooltipContent side="top">More actions</TooltipContent>
         </Tooltip>
 
         <DropdownMenuContent side="top" align="end">
           {canManageMessage && (
-            <DropdownMenuItem onSelect={onEdit} disabled={!onEdit}>
+            <DropdownMenuItem onClick={onEdit} disabled={!onEdit}>
               Edit message
             </DropdownMenuItem>
           )}
-          <DropdownMenuItem onSelect={onCopyText}>Copy text</DropdownMenuItem>
+          <DropdownMenuItem onClick={onCopyText}>Copy text</DropdownMenuItem>
           {canPin && (
-            <DropdownMenuItem onSelect={onTogglePin} disabled={!onTogglePin}>
+            <DropdownMenuItem onClick={onTogglePin} disabled={!onTogglePin}>
               <HugeiconsIcon
                 icon={isPinned ? PinOffIcon : Pin02Icon}
                 size={14}
@@ -152,7 +160,7 @@ export function MessageActionBar({
             <>
               <DropdownMenuSeparator />
               <DropdownMenuItem
-                onSelect={onDelete}
+                onClick={onDelete}
                 disabled={!onDelete}
                 className="text-destructive focus:text-destructive"
               >

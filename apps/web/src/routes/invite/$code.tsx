@@ -186,10 +186,11 @@ function InviteCard({
     } else {
       cta = (
         <div className="grid w-full gap-3">
-          <Button asChild className="w-full">
-            <Link to="/signup" search={{ redirect: invitePath }}>
-              Sign Up to Join
-            </Link>
+          <Button
+            className="w-full"
+            render={<Link to="/signup" search={{ redirect: invitePath }} />}
+          >
+            Sign Up to Join
           </Button>
           <p className="text-center text-sm text-muted-foreground">
             Already have an account?{" "}

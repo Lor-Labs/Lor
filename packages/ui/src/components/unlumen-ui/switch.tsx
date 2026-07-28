@@ -1,6 +1,6 @@
 "use client"
 
-import * as SwitchPrimitive from "@radix-ui/react-switch"
+import { Switch as SwitchPrimitive } from "@base-ui/react/switch"
 import { cn } from "@repo/ui/lib/utils"
 import { animate, motion, useMotionValue, useTransform } from "motion/react"
 import { forwardRef, useEffect, useId, useRef } from "react"
@@ -14,20 +14,13 @@ const spring = { type: "spring" as const, duration: 0.35, bounce: 0.3 }
 const springFast = { type: "spring" as const, duration: 0.15, bounce: 0 }
 const springSnap = { type: "spring" as const, duration: 0.4, bounce: 0.5 }
 
-interface SwitchProps
-  extends Omit<
-    React.ComponentPropsWithoutRef<typeof SwitchPrimitive.Root>,
-    "asChild"
-  > {
+interface SwitchProps extends SwitchPrimitive.Root.Props {
   label?: string
   /** @default "right" */
   labelSide?: "left" | "right"
 }
 
-const Switch = forwardRef<
-  React.ElementRef<typeof SwitchPrimitive.Root>,
-  SwitchProps
->(
+const Switch = forwardRef<HTMLSpanElement, SwitchProps>(
   (
     {
       checked,
@@ -73,7 +66,10 @@ const Switch = forwardRef<
       animate(thumbScaleY, 1, springSnap)
     }
 
-    const handleCheckedChange = (next: boolean) => {
+    const handleCheckedChange = (
+      next: boolean,
+      eventDetails: SwitchPrimitive.Root.ChangeEventDetails
+    ) => {
       directionRef.current = next ? 1 : -1
 
       // Squeeze in direction of travel on release
@@ -85,7 +81,7 @@ const Switch = forwardRef<
       })
 
       animate(thumbX, next ? THUMB_TRAVEL : 0, spring)
-      onCheckedChange?.(next)
+      onCheckedChange?.(next, eventDetails)
     }
 
     const switchEl = (
@@ -120,22 +116,24 @@ const Switch = forwardRef<
           }}
         />
 
-        <SwitchPrimitive.Thumb asChild>
-          <motion.span
-            className="block rounded-full pointer-events-none z-10"
-            style={{
-              width: THUMB_SIZE,
-              height: THUMB_SIZE,
-              x: thumbX,
-              scaleX: thumbScaleX,
-              scaleY: thumbScaleY,
-              marginLeft: 2,
-              backgroundColor: "white",
-              boxShadow:
-                "0 1px 4px rgba(0,0,0,0.18), 0 0 0 1px rgba(0,0,0,0.06)",
-            }}
-          />
-        </SwitchPrimitive.Thumb>
+        <SwitchPrimitive.Thumb
+          render={
+            <motion.span
+              className="block rounded-full pointer-events-none z-10"
+              style={{
+                width: THUMB_SIZE,
+                height: THUMB_SIZE,
+                x: thumbX,
+                scaleX: thumbScaleX,
+                scaleY: thumbScaleY,
+                marginLeft: 2,
+                backgroundColor: "white",
+                boxShadow:
+                  "0 1px 4px rgba(0,0,0,0.18), 0 0 0 1px rgba(0,0,0,0.06)",
+              }}
+            />
+          }
+        />
       </SwitchPrimitive.Root>
     )
 
