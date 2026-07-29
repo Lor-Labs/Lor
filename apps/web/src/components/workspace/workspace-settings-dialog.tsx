@@ -165,7 +165,10 @@ export function WorkspaceSettingsDialog({
       const first = focusables[0]
       const last = focusables[focusables.length - 1]
       if (!first || !last) return
-      if (e.shiftKey && document.activeElement === first) {
+      if (
+        e.shiftKey &&
+        (document.activeElement === first || document.activeElement === node)
+      ) {
         e.preventDefault()
         last.focus()
       } else if (!e.shiftKey && document.activeElement === last) {
