@@ -3,7 +3,7 @@ import {
   HoverCard,
   HoverCardContent,
   HoverCardTrigger,
-} from "@repo/ui/components/hover-card"
+} from "@repo/ui/components/preview-card"
 import { cn } from "@repo/ui/lib/utils"
 import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { createCodePlugin } from "@streamdown/code"
@@ -212,11 +212,15 @@ export function MessageMarkdown({
         const username = mention?.username
 
         return (
-          <HoverCard openDelay={500} closeDelay={80}>
-            <HoverCardTrigger asChild>
-              <span className="inline-flex cursor-pointer rounded bg-primary/15 px-1 py-0.5 font-medium text-primary">
-                {children}
-              </span>
+          <HoverCard>
+            <HoverCardTrigger
+              delay={500}
+              closeDelay={80}
+              render={
+                <span className="inline-flex cursor-pointer rounded bg-primary/15 px-1 py-0.5 font-medium text-primary" />
+              }
+            >
+              {children}
             </HoverCardTrigger>
             <HoverCardContent side="top" align="start" className="w-72 p-3">
               <div className="flex items-start gap-3">

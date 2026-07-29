@@ -11,8 +11,7 @@ import type {
 } from "@repo/realtime-types"
 import {
   AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
+  AlertDialogClose,
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
@@ -30,7 +29,7 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
-} from "@repo/ui/components/dropdown-menu"
+} from "@repo/ui/components/menu"
 import { ScrollArea } from "@repo/ui/components/scroll-area"
 import { Skeleton } from "@repo/ui/components/skeleton"
 import { SidebarToggleIcon } from "@repo/ui/components/unlumen-ui/sidebar-toggle-icon"
@@ -185,16 +184,18 @@ function MemberRow({
         </span>
         {showActions && (
           <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-7"
-                disabled={isBusy}
-              >
-                <MoreHorizontal className="size-4" />
-                <span className="sr-only">Moderate member</span>
-              </Button>
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-7"
+                  disabled={isBusy}
+                />
+              }
+            >
+              <MoreHorizontal className="size-4" />
+              <span className="sr-only">Moderate member</span>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               {canUpdateRole && targetRole && (
@@ -588,13 +589,7 @@ export function WorkspaceMembersPanel({
           }
         }}
       >
-        <AlertDialogContent
-          onEscapeKeyDown={(event) => {
-            if (isModerationSubmitting) {
-              event.preventDefault()
-            }
-          }}
-        >
+        <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{moderationDialogTitle}</AlertDialogTitle>
             <AlertDialogDescription>
@@ -602,19 +597,19 @@ export function WorkspaceMembersPanel({
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={isModerationSubmitting}>
+            <AlertDialogClose
+              render={<Button variant="outline" />}
+              disabled={isModerationSubmitting}
+            >
               Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction
+            </AlertDialogClose>
+            <Button
               variant="destructive"
               loading={isModerationSubmitting}
-              onClick={(event) => {
-                event.preventDefault()
-                handleConfirmModeration()
-              }}
+              onClick={handleConfirmModeration}
             >
               {moderationActionLabel}
-            </AlertDialogAction>
+            </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

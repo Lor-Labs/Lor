@@ -160,7 +160,7 @@ export function UserProfilePopover({
 }: {
   avatarColor?: string | null
   userId: string
-  children: React.ReactNode
+  children: React.ReactElement
   side?: "top" | "bottom" | "left" | "right"
   align?: "start" | "center" | "end"
 }) {
@@ -168,12 +168,12 @@ export function UserProfilePopover({
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>{children}</PopoverTrigger>
+      <PopoverTrigger render={children} />
       <PopoverContent
         side={side}
         align={align}
-        className="w-72 p-4"
-        onOpenAutoFocus={(e) => e.preventDefault()}
+        className="w-72"
+        initialFocus={false}
       >
         {open && (
           <ProfileCardContent avatarColor={avatarColor} userId={userId} />

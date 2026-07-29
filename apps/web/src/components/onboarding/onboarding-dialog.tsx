@@ -302,8 +302,6 @@ export function OnboardingDialog({
     <Dialog open={open}>
       <DialogContent
         showCloseButton={false}
-        onInteractOutside={(e) => e.preventDefault()}
-        onEscapeKeyDown={(e) => e.preventDefault()}
         className="overflow-hidden p-0 sm:max-w-2xl"
       >
         <div className="flex min-h-[460px]">

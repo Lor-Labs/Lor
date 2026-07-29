@@ -788,27 +788,30 @@ export function MessageInput({
             open={isAttachmentMenuOpen}
             onOpenChange={setIsAttachmentMenuOpen}
           >
-            <PopoverTrigger asChild>
-              <Button
-                type="button"
-                size="icon-sm"
-                variant="outline"
-                className="shrink-0 text-muted-foreground hover:text-foreground"
-                aria-label="Open attachment menu"
-              >
-                <Plus
-                  className={cn(
-                    "size-4 transition-transform duration-200 ease-out",
-                    isAttachmentMenuOpen && "rotate-45"
-                  )}
+            <PopoverTrigger
+              render={
+                <Button
+                  type="button"
+                  size="icon-sm"
+                  variant="outline"
+                  className="shrink-0 text-muted-foreground hover:text-foreground"
+                  aria-label="Open attachment menu"
                 />
-              </Button>
+              }
+            >
+              <Plus
+                className={cn(
+                  "size-4 transition-transform duration-200 ease-out",
+                  isAttachmentMenuOpen && "rotate-45"
+                )}
+              />
             </PopoverTrigger>
             <PopoverContent
               side="top"
               align="start"
               sideOffset={10}
-              className="w-64 p-2"
+              className="w-64"
+              viewportClassName="p-2"
             >
               <div className="grid gap-1">
                 <button

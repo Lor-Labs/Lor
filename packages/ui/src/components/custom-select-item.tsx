@@ -2,12 +2,11 @@
 
 import { SelectItem } from "@repo/ui/components/select"
 import { cn } from "@repo/ui/lib/utils"
-import type { Select as SelectPrimitive } from "radix-ui"
 import React, { useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 
 interface CustomSelectItemProps
-  extends React.ComponentProps<typeof SelectPrimitive.Item> {
+  extends React.ComponentProps<typeof SelectItem> {
   tooltip?: React.ReactNode
   side?:
     | "top"

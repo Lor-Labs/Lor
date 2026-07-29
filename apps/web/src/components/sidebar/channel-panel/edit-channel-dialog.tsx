@@ -278,7 +278,22 @@ export function EditChannelDialog({
                     {customProfiles.length > 0 && (
                       <div className="space-y-2">
                         <Label htmlFor="channel-merlin-profile">Profile</Label>
-                        <Select value={profileId} onValueChange={setProfileId}>
+                        <Select
+                          items={[
+                            {
+                              value: INHERIT,
+                              label: isCategory
+                                ? "Inherit (workspace default)"
+                                : "Inherit (category or default)",
+                            },
+                            ...customProfiles.map((p) => ({
+                              value: p.id,
+                              label: p.name,
+                            })),
+                          ]}
+                          value={profileId}
+                          onValueChange={(v) => v && setProfileId(v)}
+                        >
                           <SelectTrigger
                             id="channel-merlin-profile"
                             className="w-full"

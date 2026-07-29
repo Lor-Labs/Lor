@@ -53,18 +53,22 @@ export function EmojiReactionPicker({
       }}
     >
       <Tooltip>
-        <TooltipTrigger asChild>
-          <PopoverTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="size-7"
-              aria-label="Add reaction"
-            >
-              <HugeiconsIcon icon={SmilePlusIcon} size={16} />
-            </Button>
-          </PopoverTrigger>
+        <TooltipTrigger
+          render={
+            <PopoverTrigger
+              render={
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-7"
+                  aria-label="Add reaction"
+                />
+              }
+            />
+          }
+        >
+          <HugeiconsIcon icon={SmilePlusIcon} size={16} />
         </TooltipTrigger>
         {!open && <TooltipContent side="top">Add reaction</TooltipContent>}
       </Tooltip>
@@ -72,8 +76,9 @@ export function EmojiReactionPicker({
       <PopoverContent
         side="top"
         align="center"
-        className={showFullPicker ? "w-auto border-none p-0" : "w-auto p-1.5"}
-        onCloseAutoFocus={(event) => event.preventDefault()}
+        className={showFullPicker ? "w-auto border-none" : "w-auto"}
+        viewportClassName={showFullPicker ? "p-0" : "p-1.5"}
+        finalFocus={false}
       >
         {showFullPicker ? (
           <EmojiPicker

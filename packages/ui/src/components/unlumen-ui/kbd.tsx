@@ -25,8 +25,7 @@ function Kbd({ size = "md", children, className, ...props }: KbdProps) {
     <kbd
       className={cn(
         "inline-flex items-center justify-center rounded border font-mono font-medium leading-none select-none",
-        "border-b-2 border-border bg-muted text-muted-foreground",
-        "shadow-[inset_0_-1px_0_rgba(0,0,0,0.08)]",
+        "border-border bg-muted text-muted-foreground",
         sizeClass[size],
         className
       )}

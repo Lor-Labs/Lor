@@ -128,8 +128,9 @@ export function NotificationSettings() {
             Choose what triggers a desktop notification.
           </p>
           <Select
+            items={DESKTOP_NOTIFICATION_OPTIONS}
             value={settings?.desktopNotifications ?? "all_messages"}
-            onValueChange={(v) => handleChange("desktopNotifications", v)}
+            onValueChange={(v) => v && handleChange("desktopNotifications", v)}
           >
             <SelectTrigger id="desktop-notifications" className="w-48">
               <SelectValue />
@@ -150,8 +151,9 @@ export function NotificationSettings() {
             Choose whether you get notified for new direct messages.
           </p>
           <Select
+            items={DM_NOTIFICATION_OPTIONS}
             value={settings?.dmNotifications ?? "all_messages"}
-            onValueChange={(v) => handleChange("dmNotifications", v)}
+            onValueChange={(v) => v && handleChange("dmNotifications", v)}
           >
             <SelectTrigger id="dm-notifications" className="w-48">
               <SelectValue />

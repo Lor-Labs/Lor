@@ -1,7 +1,7 @@
+import { Button } from "@repo/ui/components/button"
 import {
   InputGroup,
   InputGroupAddon,
-  InputGroupButton,
   InputGroupInput,
 } from "@repo/ui/components/input-group"
 import { Eye, EyeOff } from "lucide-react"
@@ -16,8 +16,8 @@ export function PasswordInput(props: PasswordInputProps) {
     <InputGroup>
       <InputGroupInput type={visible ? "text" : "password"} {...props} />
       <InputGroupAddon align="inline-end">
-        <InputGroupButton
-          size="icon-xs"
+        <Button
+          size="icon-sm"
           variant="ghost"
           onClick={() => setVisible((v) => !v)}
           aria-label={visible ? "Hide password" : "Show password"}
@@ -27,7 +27,7 @@ export function PasswordInput(props: PasswordInputProps) {
           ) : (
             <Eye className="size-4 text-muted-foreground" />
           )}
-        </InputGroupButton>
+        </Button>
       </InputGroupAddon>
     </InputGroup>
   )

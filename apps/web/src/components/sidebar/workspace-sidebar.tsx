@@ -5,6 +5,7 @@ import { Button } from "@repo/ui/components/button"
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -12,7 +13,7 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
-} from "@repo/ui/components/dropdown-menu"
+} from "@repo/ui/components/menu"
 import {
   Sidebar,
   SidebarContent,
@@ -173,64 +174,68 @@ function WorkspaceSidebarInner() {
         <SidebarMenu>
           <SidebarMenuItem className="flex items-center gap-1">
             <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <SidebarMenuButton
-                  size="lg"
-                  className="data-[state=open]:bg-sidebar-accent"
-                  tooltip={activeWorkspace?.name ?? "Workspace"}
+              <DropdownMenuTrigger
+                render={
+                  <SidebarMenuButton
+                    size="lg"
+                    className="data-popup-open:bg-sidebar-accent"
+                    tooltip={activeWorkspace?.name ?? "Workspace"}
+                  />
+                }
+              >
+                <div
+                  className={cn(
+                    "flex aspect-square size-8 shrink-0 items-center justify-center overflow-hidden rounded-lg text-sm font-semibold",
+                    activeWorkspace?.logo
+                      ? "p-0.5"
+                      : "bg-sidebar-primary text-sidebar-primary-foreground"
+                  )}
                 >
-                  <div
-                    className={cn(
-                      "flex aspect-square size-8 shrink-0 items-center justify-center overflow-hidden rounded-lg text-sm font-semibold",
-                      activeWorkspace?.logo
-                        ? "p-0.5"
-                        : "bg-sidebar-primary text-sidebar-primary-foreground"
-                    )}
-                  >
-                    {activeWorkspace?.logo ? (
-                      <img
-                        src={activeWorkspace.logo}
-                        alt=""
-                        className="size-full rounded-md object-contain"
-                      />
-                    ) : (
-                      initial
-                    )}
-                  </div>
-                  <div className="flex min-w-0 flex-1 items-center text-left text-sm leading-tight">
-                    {isPending ? (
-                      <Skeleton className="h-3.5 w-24 rounded" />
-                    ) : (
-                      <span className="truncate font-semibold">
-                        {activeWorkspace?.name ?? "Lor"}
-                      </span>
-                    )}
-                  </div>
-                  <ChevronsUpDown className="size-4 shrink-0 text-muted-foreground" />
-                </SidebarMenuButton>
+                  {activeWorkspace?.logo ? (
+                    <img
+                      src={activeWorkspace.logo}
+                      alt=""
+                      className="size-full rounded-md object-contain"
+                    />
+                  ) : (
+                    initial
+                  )}
+                </div>
+                <div className="flex min-w-0 flex-1 items-center text-left text-sm leading-tight">
+                  {isPending ? (
+                    <Skeleton className="h-3.5 w-24 rounded" />
+                  ) : (
+                    <span className="truncate font-semibold">
+                      {activeWorkspace?.name ?? "Lor"}
+                    </span>
+                  )}
+                </div>
+                <ChevronsUpDown className="size-4 shrink-0 text-muted-foreground" />
               </DropdownMenuTrigger>
               <DropdownMenuContent
                 align="start"
                 sideOffset={4}
-                className="w-(--radix-dropdown-menu-trigger-width) min-w-60"
+                className="w-(--anchor-width) min-w-60"
               >
-                <DropdownMenuLabel className="truncate text-xs text-muted-foreground">
-                  {activeWorkspace?.name ?? "Workspace"}
-                </DropdownMenuLabel>
-                <DropdownMenuItem
-                  onSelect={() => openSettings("workspace")}
-                  disabled={!activeWorkspace}
-                >
-                  <Settings className="size-4 text-muted-foreground" />
-                  Workspace settings
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onSelect={() => setInviteOpen(true)}
-                  disabled={!activeWorkspace}
-                >
-                  <UserPlus className="size-4 text-muted-foreground" />
-                  Invite people
-                </DropdownMenuItem>
+                <DropdownMenuGroup>
+                  <DropdownMenuLabel className="truncate text-xs text-muted-foreground">
+                    {activeWorkspace?.name ?? "Workspace"}
+                  </DropdownMenuLabel>
+                  <DropdownMenuItem
+                    onClick={() => openSettings("workspace")}
+                    disabled={!activeWorkspace}
+                  >
+                    <Settings className="size-4 text-muted-foreground" />
+                    Workspace settings
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => setInviteOpen(true)}
+                    disabled={!activeWorkspace}
+                  >
+                    <UserPlus className="size-4 text-muted-foreground" />
+                    Invite people
+                  </DropdownMenuItem>
+                </DropdownMenuGroup>
                 <DropdownMenuSeparator />
                 <DropdownMenuSub>
                   <DropdownMenuSubTrigger>
@@ -244,7 +249,7 @@ function WorkspaceSidebarInner() {
                       return (
                         <DropdownMenuItem
                           key={ws.id}
-                          onSelect={() => {
+                          onClick={() => {
                             if (isActive) return
                             void navigate({
                               to: "/$workspaceSlug",
@@ -279,7 +284,7 @@ function WorkspaceSidebarInner() {
                     })}
                     <DropdownMenuSeparator />
                     <DropdownMenuItem
-                      onSelect={() => setCreateWorkspaceOpen(true)}
+                      onClick={() => setCreateWorkspaceOpen(true)}
                     >
                       <PlusCircle className="size-4 text-muted-foreground" />
                       Create workspace
@@ -289,22 +294,20 @@ function WorkspaceSidebarInner() {
               </DropdownMenuContent>
             </DropdownMenu>
             <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label="Direct messages"
-                  onClick={() => {
-                    void navigate({ to: "/dms" })
-                  }}
-                  className="text-muted-foreground hover:text-foreground"
-                >
-                  <HugeiconsIcon
-                    icon={Message01Icon}
-                    size={18}
-                    strokeWidth={2}
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label="Direct messages"
+                    onClick={() => {
+                      void navigate({ to: "/dms" })
+                    }}
+                    className="text-muted-foreground hover:text-foreground"
                   />
-                </Button>
+                }
+              >
+                <HugeiconsIcon icon={Message01Icon} size={18} strokeWidth={2} />
               </TooltipTrigger>
               <TooltipContent>Direct messages</TooltipContent>
             </Tooltip>
@@ -318,26 +321,30 @@ function WorkspaceSidebarInner() {
           {canCreate && (
             <DropdownMenu>
               <Tooltip>
-                <TooltipTrigger asChild>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="outline"
-                      size="icon-sm"
-                      aria-label="Create"
-                      className="text-muted-foreground hover:text-foreground data-[state=open]:bg-foreground/[0.04] data-[state=open]:text-foreground"
-                    >
-                      <Plus />
-                    </Button>
-                  </DropdownMenuTrigger>
+                <TooltipTrigger
+                  render={
+                    <DropdownMenuTrigger
+                      render={
+                        <Button
+                          variant="outline"
+                          size="icon-sm"
+                          aria-label="Create"
+                          className="text-muted-foreground hover:text-foreground data-popup-open:bg-foreground/[0.04] data-popup-open:text-foreground"
+                        />
+                      }
+                    />
+                  }
+                >
+                  <Plus />
                 </TooltipTrigger>
                 <TooltipContent>Create</TooltipContent>
               </Tooltip>
               <DropdownMenuContent align="end" sideOffset={6}>
-                <DropdownMenuItem onSelect={() => openCreateChannel()}>
+                <DropdownMenuItem onClick={() => openCreateChannel()}>
                   <Hash className="size-4 mr-2" />
                   New channel
                 </DropdownMenuItem>
-                <DropdownMenuItem onSelect={openCreateCategory}>
+                <DropdownMenuItem onClick={openCreateCategory}>
                   <HugeiconsIcon icon={FolderAddIcon} className="size-4 mr-2" />
                   New category
                 </DropdownMenuItem>

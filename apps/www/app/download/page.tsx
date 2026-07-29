@@ -129,12 +129,15 @@ export default function DownloadPage() {
                 </CardContent>
                 <CardFooter className="mt-auto flex-col gap-2">
                   {"href" in platform && platform.href ? (
-                    <Button className="w-full" asChild>
-                      <a href={platform.href}>
-                        <Download className="size-4" />
-                        Download for {platform.name}
-                      </a>
-                    </Button>
+                    <Button
+                      className="w-full"
+                      render={
+                        <a href={platform.href}>
+                          <Download className="size-4" />
+                          Download for {platform.name}
+                        </a>
+                      }
+                    />
                   ) : (
                     <Button className="w-full" variant="outline" disabled>
                       Coming soon
@@ -206,9 +209,11 @@ export default function DownloadPage() {
             Use Lor in your browser &mdash; no installation required.
           </p>
           <div className="mt-8">
-            <Button size="lg" variant="outline" asChild>
-              <a href={APP_URL}>Open Lor in browser</a>
-            </Button>
+            <Button
+              size="lg"
+              variant="outline"
+              render={<a href={APP_URL}>Open Lor in browser</a>}
+            />
           </div>
         </section>
       </main>
