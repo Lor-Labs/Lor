@@ -88,17 +88,13 @@ export function DeleteChannelDialog({
           <AlertDialogClose render={<Button variant="outline" />}>
             Cancel
           </AlertDialogClose>
-          <AlertDialogClose
-            render={
-              <Button
-                variant="destructive"
-                onClick={() => deleteMutation.mutate()}
-                loading={deleteMutation.isPending}
-              />
-            }
+          <Button
+            variant="destructive"
+            onClick={() => deleteMutation.mutate()}
+            loading={deleteMutation.isPending}
           >
             {isCategory ? "Delete Category" : "Delete Channel"}
-          </AlertDialogClose>
+          </Button>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

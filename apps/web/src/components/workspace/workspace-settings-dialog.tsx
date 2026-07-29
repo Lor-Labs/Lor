@@ -156,11 +156,11 @@ export function WorkspaceSettingsDialog({
     const node = dialogRef.current
     if (!node) return
     const previouslyFocused = document.activeElement as HTMLElement | null
-    node.focus()
+    if (!node.contains(document.activeElement)) node.focus()
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "Tab" || !node.contains(document.activeElement)) return
       const focusables = node.querySelectorAll<HTMLElement>(
-        'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])'
+        'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
       )
       const first = focusables[0]
       const last = focusables[focusables.length - 1]
