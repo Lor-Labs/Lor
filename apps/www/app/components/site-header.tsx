@@ -62,11 +62,7 @@ export function SiteHeader() {
               scrolled ? "gap-1.5" : "gap-2"
             }`}
           >
-            <LorMark
-              className={`text-foreground mb-1 ${
-                scrolled ? "size-5" : "size-6"
-              }`}
-            />
+            <LorMark className={scrolled ? "size-5" : "size-6"} />
             <span
               className={`font-semibold text-foreground tracking-tight ${T} ${
                 scrolled ? "text-[17px]" : "text-[20px]"

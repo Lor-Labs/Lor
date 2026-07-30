@@ -77,7 +77,7 @@ function SignUpPage() {
           to="/login"
           className="flex items-center gap-2 self-center font-medium"
         >
-          <img src="/lor-icon.png" alt="Lor" className="size-6 rounded-md" />
+          <img src="/lor-mark.svg" alt="Lor" className="size-6" />
           Lor
         </Link>
         <div className="flex flex-col gap-6">

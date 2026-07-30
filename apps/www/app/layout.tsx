@@ -20,14 +20,12 @@ export const metadata: Metadata = {
   description:
     "Lor is the open source multiplayer AI workspace for teams, powered entirely by open models. $20 per user per month with pooled AI credits, or self-host free under AGPL-3.0.",
   icons: {
-    // Castle mark (purple rounded square, transparent corners). Crisp SVG
-    // primary, PNG fallback + apple-touch.
     icon: [
       { url: "/lor-icon.svg", type: "image/svg+xml" },
-      { url: "/lor-bg-removed-square.png", type: "image/png" },
+      { url: "/lor-icon.png", type: "image/png" },
     ],
     shortcut: "/lor-icon.svg",
-    apple: "/lor-bg-removed-square.png",
+    apple: "/lor-icon.png",
   },
   openGraph: {
     title: "Lor | The open source multiplayer AI workspace for teams",

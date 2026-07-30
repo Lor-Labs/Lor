@@ -1,7 +1,8 @@
 import * as SplashScreen from "expo-splash-screen"
 import { useEffect, useState } from "react"
-import { Text } from "react-native"
+import { Image } from "react-native"
 import Animated, { FadeOut, ZoomIn } from "react-native-reanimated"
+import splashMark from "../../assets/images/splash-icon.png"
 
 export function AnimatedSplashOverlay() {
   const [visible, setVisible] = useState(true)
@@ -16,14 +17,11 @@ export function AnimatedSplashOverlay() {
 
   return (
     <Animated.View
-      className="absolute inset-0 z-[1000] items-center justify-center bg-lor-accent"
+      className="absolute inset-0 z-[1000] items-center justify-center bg-black"
       exiting={FadeOut.duration(180)}
     >
-      <Animated.View
-        className="h-16 w-16 items-center justify-center rounded-[20px] bg-lor-bg"
-        entering={ZoomIn.duration(280)}
-      >
-        <Text className="text-[30px] font-bold text-lor-accent">L</Text>
+      <Animated.View entering={ZoomIn.duration(280)}>
+        <Image source={splashMark} style={{ width: 76, height: 46 }} />
       </Animated.View>
     </Animated.View>
   )
