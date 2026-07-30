@@ -46,6 +46,7 @@
     ],
     "macOS": {
       "signingIdentity": "-",
+      "minimumSystemVersion": "11.0",
       "files": {
         "Resources/Assets.car": "icons/macos/Assets.car"
       }
