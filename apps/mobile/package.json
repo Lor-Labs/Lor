@@ -74,10 +74,12 @@
   },
   "devDependencies": {
     "@types/react": "~19.2.2",
+    "babel-preset-expo": "~57.0.3",
     "tailwindcss": "4.3.2",
     "typescript": "6.0.3"
   },
   "scripts": {
+    "eas-build-post-install": "pnpm -w exec turbo run build --filter=@repo/api-client",
     "start": "expo start",
     "dev": "expo start",
     "check-types": "tsc --noEmit",

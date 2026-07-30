@@ -1,5 +1,4 @@
 import type { Metadata } from "next"
-import { Cinzel, Fraunces } from "next/font/google"
 import localFont from "next/font/local"
 import "@repo/ui/globals.css"
 import { Grain } from "@/app/components/grain"
@@ -14,16 +13,6 @@ const geistMono = localFont({
   src: "./fonts/GeistMonoVF.woff",
   variable: "--font-geist-mono",
 })
-const fraunces = Fraunces({
-  subsets: ["latin"],
-  variable: "--font-fraunces",
-  display: "swap",
-})
-const cinzel = Cinzel({
-  subsets: ["latin"],
-  variable: "--font-cinzel",
-  display: "swap",
-})
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://lor.chat"),
@@ -31,14 +20,12 @@ export const metadata: Metadata = {
   description:
     "Lor is the open source multiplayer AI workspace for teams, powered entirely by open models. $20 per user per month with pooled AI credits, or self-host free under AGPL-3.0.",
   icons: {
-    // Castle mark (purple rounded square, transparent corners). Crisp SVG
-    // primary, PNG fallback + apple-touch.
     icon: [
       { url: "/lor-icon.svg", type: "image/svg+xml" },
-      { url: "/lor-bg-removed-square.png", type: "image/png" },
+      { url: "/lor-icon.png", type: "image/png" },
     ],
     shortcut: "/lor-icon.svg",
-    apple: "/lor-bg-removed-square.png",
+    apple: "/lor-icon.png",
   },
   openGraph: {
     title: "Lor | The open source multiplayer AI workspace for teams",
@@ -58,7 +45,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body
-        className={`${geistSans.className} ${geistMono.variable} ${fraunces.variable} ${cinzel.variable} antialiased`}
+        className={`${geistSans.className} ${geistMono.variable} antialiased`}
       >
         <ThemeProvider attribute="class" forcedTheme="dark">
           <SiteHeader />

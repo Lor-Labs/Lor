@@ -16,7 +16,7 @@ This is a pnpm + Turborepo monorepo:
 
 ```
 apps/
-  web/          — Main chat app (Vite + React + TanStack Router)
+  web/          — Primary chat app (Vite + React + TanStack Router)
   www/          — Marketing site & waitlist (Next.js)
   api/          — Hono API server
   realtime/     — Socket.IO realtime gateway

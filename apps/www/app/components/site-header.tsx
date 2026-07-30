@@ -62,14 +62,10 @@ export function SiteHeader() {
               scrolled ? "gap-1.5" : "gap-2"
             }`}
           >
-            <LorMark
-              className={`text-foreground mb-1 ${
-                scrolled ? "size-5" : "size-6"
-              }`}
-            />
+            <LorMark className={scrolled ? "size-5" : "size-6"} />
             <span
-              className={`font-cinzel font-medium text-foreground ${T} ${
-                scrolled ? "text-[19px]" : "text-[23px]"
+              className={`font-semibold text-foreground tracking-tight ${T} ${
+                scrolled ? "text-[17px]" : "text-[20px]"
               }`}
             >
               Lor
@@ -164,7 +160,9 @@ export function SiteHeader() {
                 <MotionNavigationMenuContent highlightClassName="bg-foreground/[0.05] rounded-lg">
                   <div className="grid w-[320px] gap-1 p-1">
                     <MotionNavigationMenuLink
-                      href="#docs"
+                      href="https://github.com/BuckyMcYolo/lor#readme"
+                      target="_blank"
+                      rel="noopener noreferrer"
                       className="rounded-lg p-3"
                     >
                       <span className="block text-[13px] font-medium text-foreground">
@@ -175,7 +173,9 @@ export function SiteHeader() {
                       </span>
                     </MotionNavigationMenuLink>
                     <MotionNavigationMenuLink
-                      href="#changelog"
+                      href="https://github.com/BuckyMcYolo/lor/releases"
+                      target="_blank"
+                      rel="noopener noreferrer"
                       className="rounded-lg p-3"
                     >
                       <span className="block text-[13px] font-medium text-foreground">
