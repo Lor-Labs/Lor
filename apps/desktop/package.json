@@ -5,7 +5,8 @@
   "main": "index.js",
   "scripts": {
     "dev": "pnpm tauri dev",
-    "build": "pnpm tauri build"
+    "build": "pnpm tauri build",
+    "icon:mac": "xcrun actool \"$(pwd)/src-tauri/icons/AppIcon.icon\" --compile \"$(pwd)/src-tauri/icons/macos\" --app-icon AppIcon --platform macosx --minimum-deployment-target 11.0 --output-partial-info-plist \"$(pwd)/src-tauri/icons/macos/partial.plist\" && cp src-tauri/icons/macos/AppIcon.icns src-tauri/icons/icon.icns"
   },
   "keywords": [],
   "author": "",
