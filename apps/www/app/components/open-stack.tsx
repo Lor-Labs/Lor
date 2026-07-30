@@ -1,7 +1,6 @@
 import { ArrowUpRight, Github } from "lucide-react"
 import { Reveal } from "@/app/components/reveal"
-
-const GITHUB_URL = "https://github.com/BuckyMcYolo/lor"
+import { GITHUB_URL } from "@/app/lib/urls"
 
 const MODELS = ["Kimi K2", "GLM", "Inkling", "DeepSeek", "Qwen"]
 

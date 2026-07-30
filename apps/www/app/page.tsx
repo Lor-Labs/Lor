@@ -13,9 +13,7 @@ import { OpenStack } from "@/app/components/open-stack"
 import { Pricing } from "@/app/components/pricing"
 import { Reveal } from "@/app/components/reveal"
 import { SiteFooter } from "@/app/components/site-footer"
-
-const SIGNUP_URL = "https://app.lor.chat/signup"
-const GITHUB_URL = "https://github.com/BuckyMcYolo/lor"
+import { GITHUB_URL, SIGNUP_URL } from "@/app/lib/urls"
 
 const HERO_POINTS = [
   { lead: "Ask Merlin anything", rest: ", get answers with citations" },

@@ -1,9 +1,7 @@
 import { Github } from "lucide-react"
 import { CtaPrimary, CtaSecondary } from "@/app/components/cta"
 import { Reveal } from "@/app/components/reveal"
-
-const GITHUB_URL = "https://github.com/BuckyMcYolo/lor"
-const SIGNUP_URL = "https://app.lor.chat/signup"
+import { GITHUB_URL, SIGNUP_URL } from "@/app/lib/urls"
 
 export function ClosingCTA() {
   return (

@@ -2,6 +2,7 @@ import { ArrowUpRight, Download, Globe } from "lucide-react"
 import type { Metadata } from "next"
 import { Reveal } from "@/app/components/reveal"
 import { SiteFooter } from "@/app/components/site-footer"
+import { GITHUB_URL } from "@/app/lib/urls"
 
 export const metadata: Metadata = {
   title: "Download Lor",
@@ -9,10 +10,8 @@ export const metadata: Metadata = {
     "Download Lor for macOS. Windows, Linux, iOS, and Android are on the way.",
 }
 
-const VERSION = "0.1.0"
-const GITHUB_URL = "https://github.com/BuckyMcYolo/lor"
 const RELEASES_URL = `${GITHUB_URL}/releases`
-const LATEST = `${GITHUB_URL}/releases/latest/download`
+const MACOS_DMG_URL = "https://releases.lor.chat/latest/Lor_aarch64.dmg"
 const APP_URL = "https://app.lor.chat"
 
 function AppleIcon({ className }: { className?: string }) {
@@ -62,7 +61,7 @@ const PLATFORMS: Platform[] = [
     icon: AppleIcon,
     subtitle: "Apple Silicon",
     description: "The .dmg installer for macOS 11 and up.",
-    href: `${LATEST}/Lor_${VERSION}_aarch64.dmg`,
+    href: MACOS_DMG_URL,
     note: "Need Intel? Check all releases below.",
   },
   {
@@ -143,7 +142,7 @@ export default function DownloadPage() {
                           className="inline-flex items-center justify-center gap-2 rounded-full bg-gradient-to-b from-merlin to-primary py-2.5 font-medium text-[14px] text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.2),0_4px_10px_-2px_rgba(97,60,214,0.4)] transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:-translate-y-0.5 active:translate-y-0"
                         >
                           <Download className="size-4" strokeWidth={1.75} />
-                          Download for macOS
+                          Download for {platform.name}
                         </a>
                         {platform.note ? (
                           <p className="mt-3 text-center text-[12px] text-muted-foreground">

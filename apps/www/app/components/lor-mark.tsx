@@ -1,11 +1,6 @@
 export function LorMark({ className }: { className?: string }) {
   return (
-    <svg
-      viewBox="124 288 776 470"
-      role="img"
-      aria-hidden="true"
-      className={className}
-    >
+    <svg viewBox="124 288 776 470" aria-hidden="true" className={className}>
       <defs>
         <linearGradient
           id="lor-mark-gradient"

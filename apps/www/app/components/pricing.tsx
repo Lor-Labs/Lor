@@ -1,7 +1,6 @@
 import { ArrowUpRight, Check } from "lucide-react"
 import { Reveal } from "@/app/components/reveal"
-
-const SIGNUP_URL = "https://app.lor.chat/signup"
+import { SIGNUP_URL } from "@/app/lib/urls"
 
 const CLOUD_FEATURES = [
   "Unlimited channels, threads, and voice",

@@ -1,4 +1,4 @@
-const GITHUB_URL = "https://github.com/BuckyMcYolo/lor"
+import { GITHUB_URL } from "@/app/lib/urls"
 
 type LinkGroup = {
   title: string
