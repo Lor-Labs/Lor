@@ -1,5 +1,4 @@
 import type { Metadata } from "next"
-import { Cinzel, Fraunces } from "next/font/google"
 import localFont from "next/font/local"
 import "@repo/ui/globals.css"
 import { Grain } from "@/app/components/grain"
@@ -13,16 +12,6 @@ const geistSans = localFont({
 const geistMono = localFont({
   src: "./fonts/GeistMonoVF.woff",
   variable: "--font-geist-mono",
-})
-const fraunces = Fraunces({
-  subsets: ["latin"],
-  variable: "--font-fraunces",
-  display: "swap",
-})
-const cinzel = Cinzel({
-  subsets: ["latin"],
-  variable: "--font-cinzel",
-  display: "swap",
 })
 
 export const metadata: Metadata = {
@@ -58,7 +47,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body
-        className={`${geistSans.className} ${geistMono.variable} ${fraunces.variable} ${cinzel.variable} antialiased`}
+        className={`${geistSans.className} ${geistMono.variable} antialiased`}
       >
         <ThemeProvider attribute="class" forcedTheme="dark">
           <SiteHeader />

@@ -27,19 +27,13 @@ export function OpenStack() {
       className="relative mx-auto w-full max-w-6xl px-6 py-24"
     >
       <Reveal>
-        <div className="mx-auto max-w-2xl text-center">
-          <p className="font-medium text-[13px] text-merlin/90 uppercase tracking-[0.18em]">
-            Open by design
-          </p>
-          <h2 className="mt-4 text-balance font-semibold text-4xl leading-[1.05] tracking-[-0.03em] md:text-5xl">
-            Open source. Open models.
-            <br />
-            <span className="text-foreground/55">No black boxes.</span>
-          </h2>
-        </div>
+        <h2 className="max-w-2xl text-balance font-semibold text-4xl leading-[1.06] tracking-[-0.03em] md:text-[44px]">
+          Open source. Open models.{" "}
+          <span className="text-foreground/55">No black boxes.</span>
+        </h2>
       </Reveal>
 
-      <div className="mt-14 grid grid-cols-1 gap-2 md:grid-cols-2">
+      <div className="mt-12 grid grid-cols-1 gap-2 md:grid-cols-2">
         <a
           href={GITHUB_URL}
           target="_blank"

@@ -37,16 +37,14 @@ export function Pricing() {
     >
       <Reveal>
         <div className="mx-auto max-w-2xl text-center">
-          <p className="font-medium text-[13px] text-merlin/90 uppercase tracking-[0.18em]">
-            Pricing
-          </p>
-          <h2 className="mt-4 text-balance font-semibold text-4xl leading-[1.05] tracking-[-0.03em] md:text-5xl">
+          <h2 className="text-balance font-semibold text-4xl leading-[1.06] tracking-[-0.03em] md:text-[44px]">
             One plan.
             <span className="text-foreground/55"> Everything included.</span>
           </h2>
           <p className="mt-5 text-pretty text-[15px] text-foreground/60 leading-relaxed">
-            Every seat adds AI credits to a shared team pool. Need more, buy
-            more. No tiers, no gates, no enterprise call.
+            One $20 seat covers the team chat, the AI that answers from it, and
+            the search across every connected tool. Every seat adds credits to a
+            shared pool. No tiers, no gates, no enterprise call.
           </p>
         </div>
       </Reveal>
@@ -81,7 +79,7 @@ export function Pricing() {
               </p>
               <a
                 href={SIGNUP_URL}
-                className="group mt-8 inline-flex items-center justify-center gap-2 rounded-full bg-foreground py-2.5 font-medium text-[14px] text-background transition-colors hover:bg-foreground/90 md:mt-auto"
+                className="group mt-8 inline-flex items-center justify-center gap-2 rounded-full bg-gradient-to-b from-merlin to-primary py-2.5 font-medium text-[14px] text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.2),0_4px_10px_-2px_rgba(97,60,214,0.4)] transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:-translate-y-0.5 active:translate-y-0 md:mt-auto"
               >
                 Get started
                 <ArrowUpRight
@@ -94,7 +92,7 @@ export function Pricing() {
               </p>
             </div>
             <div className="border-foreground/[0.08] md:border-l md:pl-10">
-              <p className="font-medium text-[12px] text-muted-foreground uppercase tracking-[0.14em]">
+              <p className="font-medium text-[13px] text-muted-foreground">
                 What&rsquo;s included
               </p>
               <div className="mt-5">

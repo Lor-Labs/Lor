@@ -1,5 +1,3 @@
-import { AiBrain01Icon } from "@hugeicons/core-free-icons"
-import { HugeiconsIcon } from "@hugeicons/react"
 import { AWSCloudWatchLogo } from "@repo/ui/components/logos/aws-cloudwatch"
 import { DatadogLogo } from "@repo/ui/components/logos/datadog"
 import { GoogleLogo } from "@repo/ui/components/logos/google"
@@ -7,171 +5,20 @@ import { LinearLogo } from "@repo/ui/components/logos/linear"
 import { NotionLogo } from "@repo/ui/components/logos/notion"
 import { SentryLogo } from "@repo/ui/components/logos/sentry"
 import { SlackLogo } from "@repo/ui/components/logos/slack"
-import { CalendarClock, Github, Hash, Sparkles, Volume2 } from "lucide-react"
+import {
+  ArrowRight,
+  CalendarClock,
+  Globe,
+  Hash,
+  Monitor,
+  Smartphone,
+  Volume2,
+} from "lucide-react"
 import type { ReactNode } from "react"
-
-// Integration brands featured in the headline card. Order is left → right
-// in the row; the `highlight` slot gets the prominent center treatment.
-type IntegrationLogo = {
-  name: string
-  glyph: ReactNode
-  scale: "shrink-most" | "shrink" | "highlight"
-}
-
-const INTEGRATION_LOGOS: IntegrationLogo[] = [
-  {
-    name: "GitHub",
-    glyph: <Github className="size-7" strokeWidth={1.5} />,
-    scale: "shrink-most",
-  },
-  {
-    name: "Notion",
-    glyph: (
-      <span className="flex size-7 items-center justify-center overflow-hidden rounded-[4px] bg-foreground">
-        <NotionLogo className="size-7" />
-      </span>
-    ),
-    scale: "shrink",
-  },
-  {
-    name: "Linear",
-    glyph: <LinearLogo className="size-8" mode="dark" />,
-    scale: "highlight",
-  },
-  {
-    name: "Datadog",
-    glyph: (
-      <span className="text-foreground [&_path]:fill-current">
-        <DatadogLogo className="size-7" />
-      </span>
-    ),
-    scale: "shrink",
-  },
-  {
-    name: "Sentry",
-    glyph: (
-      <span className="text-foreground [&_path]:fill-current">
-        <SentryLogo className="size-7" />
-      </span>
-    ),
-    scale: "shrink-most",
-  },
-]
+import { Reveal } from "@/app/components/reveal"
 
 // ---------------------------------------------------------------------------
-// 1. Meet Merlin — full-width hero (col-span-8)
-// ---------------------------------------------------------------------------
-
-function MerlinCard() {
-  return (
-    <div className="group relative flex flex-col justify-between gap-8 overflow-hidden rounded-2xl border bg-card pt-4 pb-2 md:col-span-8 md:flex-row md:pt-8 md:pb-4 dark:bg-card/50">
-      <div className="w-full max-w-md p-6 md:p-8">
-        <h3 className="font-semibold text-xl tracking-wide">Meet Merlin</h3>
-        <p className="mt-1 text-lg text-muted-foreground leading-tight">
-          Your team&rsquo;s keeper. Reads every channel, ticket, and doc.
-          Answers with citations.
-        </p>
-      </div>
-      <div className="relative flex w-full flex-col items-start justify-center gap-4 overflow-hidden px-6 pb-6 md:max-w-xl md:px-8 md:pb-8">
-        <div className="mask-r-from-0% text-nowrap font-medium text-lg tracking-tight md:text-3xl">
-          <span className="bg-merlin/12 text-merlin">Ask anything.</span>{" "}
-          <span className="text-muted-foreground">Cite everything.</span>
-        </div>
-        <div className="mask-b-from-60% relative w-full max-w-md space-y-1.5">
-          <div className="flex items-center gap-3 rounded-lg border bg-background p-2 shadow-xs md:p-3">
-            <Sparkles className="size-4 text-merlin" strokeWidth={2} />
-            <div className="flex-1 text-muted-foreground text-sm">
-              <span className="rounded bg-merlin/15 px-1 py-0.5 font-medium text-merlin">
-                @merlin
-              </span>{" "}
-              Ask anything…
-            </div>
-            <div className="flex items-center gap-1 rounded border bg-background px-1.5 py-0.5 font-medium text-[10px] text-muted-foreground shadow-sm">
-              <span className="text-xs">⌘</span>K
-            </div>
-          </div>
-          <div className="rounded-lg bg-accent/60 px-3 py-2.5 dark:bg-accent/40">
-            <p className="text-sm leading-snug text-foreground/85">
-              The launch moved to{" "}
-              <span className="font-semibold text-foreground">May 28</span>. QA
-              pushed it a week. Locked in by jacob.
-            </p>
-            <div className="mt-2 flex flex-wrap items-center gap-1.5">
-              <span className="inline-flex items-center gap-1.5 rounded border border-foreground/[0.08] bg-background px-1.5 py-0.5 font-medium text-[10.5px]">
-                <LinearLogo className="size-2.5" mode="dark" />
-                DESIGN-204
-              </span>
-              <span className="inline-flex items-center gap-1.5 rounded border border-foreground/[0.08] bg-background px-1.5 py-0.5 font-medium text-[10.5px]">
-                <span className="flex size-2.5 items-center justify-center overflow-hidden rounded-[2px] bg-foreground">
-                  <NotionLogo className="size-2.5" />
-                </span>
-                Q2 Launch plan
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// 2. Connects to the tools you already use
-// ---------------------------------------------------------------------------
-
-function IntegrationsHeroCard() {
-  return (
-    <div
-      id="integrations"
-      className="group relative rounded-2xl border bg-background bg-[radial-gradient(50%_50%_at_45%_0%,--theme(--color-foreground/.05),transparent)] md:col-span-5 dark:bg-background"
-    >
-      <div className="p-6">
-        <h3 className="font-medium text-base leading-tight md:text-lg">
-          <span>Connects to your stack.</span>{" "}
-          <span className="text-muted-foreground">
-            Merlin reads from the tools your team already lives in.
-          </span>
-        </h3>
-      </div>
-      <div className="relative flex h-64 items-center justify-center overflow-hidden">
-        <div className="mask-[linear-gradient(to_right,transparent,black_10%,black_90%,transparent)] relative flex size-full flex-col items-center justify-center">
-          <div className="flex w-full items-center justify-center gap-3 px-4">
-            {INTEGRATION_LOGOS.map((logo) => {
-              if (logo.scale === "highlight") {
-                return (
-                  <div key={logo.name} className="relative">
-                    <div className="flex size-18 shrink-0 items-center justify-center rounded-2xl border bg-background bg-[radial-gradient(75%_75%_at_0%_0%,--theme(--color-foreground/.1),transparent)] shadow-xs inset-shadow-2xs inset-shadow-foreground/10 transition-all duration-600 ease-in-out group-hover:scale-110 md:size-24 dark:inset-shadow-foreground/60">
-                      {logo.glyph}
-                    </div>
-                    <div className="mt-1 text-center font-medium text-muted-foreground text-sm transition-all duration-600 ease-in-out group-hover:-mt-5">
-                      {logo.name}
-                    </div>
-                    <div className="-z-1 absolute inset-0 rounded-2xl bg-merlin/10 blur-xl" />
-                  </div>
-                )
-              }
-              const scaleClass =
-                logo.scale === "shrink-most"
-                  ? "group-hover:scale-80 group-hover:opacity-80"
-                  : "group-hover:scale-90 group-hover:opacity-90"
-              return (
-                <div
-                  key={logo.name}
-                  className={`flex size-18 shrink-0 items-center justify-center rounded-2xl border bg-background shadow-xs inset-shadow-2xs inset-shadow-foreground/10 transition-all duration-600 ease-in-out md:size-24 dark:inset-shadow-foreground/60 ${scaleClass}`}
-                >
-                  {logo.glyph}
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// 2. Automatic context
+// Always in context
 // ---------------------------------------------------------------------------
 
 function ContextRow({
@@ -245,46 +92,7 @@ function ContextCard() {
 }
 
 // ---------------------------------------------------------------------------
-// 3. Long-term memory
-// ---------------------------------------------------------------------------
-
-function MemoryCard() {
-  return (
-    <div className="group relative rounded-2xl border bg-card md:col-span-4 dark:bg-card/50">
-      <div className="relative flex h-64 items-center justify-center overflow-hidden">
-        <div className="flex size-full items-center justify-center p-6">
-          <div className="mask-b-from-50% h-50 w-full max-w-50 space-y-3 transition-all duration-600 ease-in-out group-hover:max-w-72 group-hover:scale-108">
-            <div className="flex size-12 items-center justify-center rounded-md border bg-background text-merlin shadow-xs">
-              <HugeiconsIcon icon={AiBrain01Icon} size={22} strokeWidth={2} />
-            </div>
-            <div className="flex items-center gap-2 font-mono text-sm">
-              <span className="text-merlin">merlin</span>
-              <span className="text-muted-foreground">·</span>
-              <span className="text-muted-foreground">3 months ago</span>
-            </div>
-            <p className="text-muted-foreground text-sm leading-relaxed">
-              "Pricing for ACME: $32k/yr, locked in by jacob in #sales on Feb 4.
-              Renewal is Apr 18." I still remember every decision your team has
-              made.
-            </p>
-          </div>
-        </div>
-      </div>
-      <div className="p-6">
-        <h3 className="font-medium text-base leading-tight md:text-lg">
-          <span>Long-term memory.</span>{" "}
-          <span className="text-muted-foreground">
-            Three months from now, Merlin still remembers the decision you made
-            today.
-          </span>
-        </h3>
-      </div>
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// 4. Takes action
+// Takes action
 // ---------------------------------------------------------------------------
 
 function ActionPill({
@@ -310,7 +118,7 @@ function ActionPill({
 
 function ActionsCard() {
   return (
-    <div className="group relative rounded-2xl border bg-card md:col-span-4 dark:bg-card/50">
+    <div className="group relative rounded-2xl border bg-card md:col-span-5 dark:bg-card/50">
       <div className="p-6">
         <h3 className="font-medium text-base leading-tight md:text-lg">
           <span>Takes action.</span>{" "}
@@ -396,22 +204,128 @@ function ActionsCard() {
 }
 
 // ---------------------------------------------------------------------------
+// Voice, transcribed
+// ---------------------------------------------------------------------------
+
+const WAVE_HEIGHTS = [10, 18, 26, 14, 30, 22, 12, 24, 16, 28, 18, 10]
+
+function VoiceCard() {
+  return (
+    <div className="group relative rounded-2xl border bg-card md:col-span-3 dark:bg-card/50">
+      <div className="relative flex h-64 flex-col items-center justify-center gap-6 overflow-hidden px-6">
+        <div className="flex h-10 items-end gap-1">
+          {WAVE_HEIGHTS.map((height, index) => (
+            <span
+              key={`${index}-${height}`}
+              className="w-1 rounded-full bg-merlin/70 transition-all duration-600 ease-in-out group-hover:bg-merlin"
+              style={{ height }}
+            />
+          ))}
+        </div>
+        <div className="mask-b-from-40% w-full max-w-60 space-y-2">
+          <p className="text-[12px] text-muted-foreground leading-relaxed">
+            <span className="font-medium text-foreground/80">mira</span>{" "}
+            let&rsquo;s ship the fix behind a flag first
+          </p>
+          <p className="text-[12px] text-muted-foreground leading-relaxed">
+            <span className="font-medium text-foreground/80">sam</span> agreed,
+            flag goes out today, full rollout Friday
+          </p>
+          <p className="text-[12px] text-muted-foreground leading-relaxed">
+            <span className="font-medium text-foreground/80">mira</span> ok
+            locking that in
+          </p>
+        </div>
+      </div>
+      <div className="p-6">
+        <h3 className="font-medium text-base leading-tight md:text-lg">
+          <span>Voice counts too.</span>{" "}
+          <span className="text-muted-foreground">
+            Calls are transcribed, so decisions made out loud are remembered
+            like everything else.
+          </span>
+        </h3>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Native everywhere
+// ---------------------------------------------------------------------------
+
+function AppsCard() {
+  return (
+    <div className="group relative flex flex-col justify-between rounded-2xl border bg-card md:col-span-5 dark:bg-card/50">
+      <div className="p-6">
+        <h3 className="font-medium text-base leading-tight md:text-lg">
+          <span>The chat your team already knows.</span>{" "}
+          <span className="text-muted-foreground">
+            Channels, threads, DMs, and reactions, native on desktop and mobile.
+          </span>
+        </h3>
+      </div>
+      <div className="flex items-end justify-between p-6 pt-0">
+        <div className="flex gap-2">
+          {[
+            {
+              icon: <Monitor className="size-5" strokeWidth={1.5} />,
+              label: "Desktop",
+            },
+            {
+              icon: <Smartphone className="size-5" strokeWidth={1.5} />,
+              label: "Mobile",
+            },
+            {
+              icon: <Globe className="size-5" strokeWidth={1.5} />,
+              label: "Browser",
+            },
+          ].map((platform) => (
+            <span
+              key={platform.label}
+              className="flex items-center gap-2 rounded-lg border bg-background px-3.5 py-2.5 font-medium text-[12.5px] text-foreground/85 shadow-xs"
+            >
+              {platform.icon}
+              {platform.label}
+            </span>
+          ))}
+        </div>
+        <a
+          href="/download"
+          className="group/link inline-flex items-center gap-1.5 pb-1 font-medium text-[13px] text-foreground/75 transition-colors hover:text-foreground"
+        >
+          Download
+          <ArrowRight
+            className="size-3.5 transition-transform group-hover/link:translate-x-0.5"
+            strokeWidth={1.75}
+          />
+        </a>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Compose
 // ---------------------------------------------------------------------------
 
 export function AgentBento() {
   return (
-    <section
-      id="merlin"
-      className="relative mx-auto w-full max-w-6xl px-6 py-24"
-    >
-      <div className="grid grid-cols-1 gap-2 md:grid-cols-8">
-        <MerlinCard />
-        <IntegrationsHeroCard />
-        <ContextCard />
-        <MemoryCard />
-        <ActionsCard />
-      </div>
+    <section className="relative mx-auto w-full max-w-6xl px-6 py-24">
+      <Reveal>
+        <h2 className="max-w-2xl text-balance font-semibold text-4xl leading-[1.06] tracking-[-0.03em] md:text-[44px]">
+          Answers are the start,{" "}
+          <span className="text-foreground/55">not the whole job.</span>
+        </h2>
+      </Reveal>
+      <Reveal delay={120}>
+        <div className="mt-12 grid grid-cols-1 gap-2 md:grid-cols-8">
+          <ActionsCard />
+          <ContextCard />
+          <VoiceCard />
+          <AppsCard />
+        </div>
+      </Reveal>
     </section>
   )
 }

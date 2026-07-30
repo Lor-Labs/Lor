@@ -1,16 +1,7 @@
-import { Button } from "@repo/ui/components/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@repo/ui/components/card"
-import { Separator } from "@repo/ui/components/separator"
-import { Download, Github, Globe } from "lucide-react"
+import { ArrowUpRight, Download, Globe } from "lucide-react"
 import type { Metadata } from "next"
-import Link from "next/link"
+import { Reveal } from "@/app/components/reveal"
+import { SiteFooter } from "@/app/components/site-footer"
 
 export const metadata: Metadata = {
   title: "Download Lor",
@@ -48,29 +39,6 @@ function LinuxIcon({ className }: { className?: string }) {
   )
 }
 
-const platforms = [
-  {
-    name: "macOS",
-    icon: AppleIcon,
-    subtitle: "Apple Silicon",
-    description: "Download the .dmg installer for macOS 11+",
-    href: `${LATEST}/Lor_${VERSION}_aarch64.dmg`,
-    note: "Need Intel? Check all releases below.",
-  },
-  {
-    name: "Windows",
-    icon: WindowsIcon,
-    subtitle: "Windows 10+",
-    description: "A native Windows build is in the works",
-  },
-  {
-    name: "Linux",
-    icon: LinuxIcon,
-    subtitle: ".deb, .rpm, .AppImage",
-    description: "A native Linux build is in the works",
-  },
-]
-
 function AndroidIcon({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" fill="currentColor" className={className}>
@@ -79,7 +47,39 @@ function AndroidIcon({ className }: { className?: string }) {
   )
 }
 
-const mobilePlatforms = [
+type Platform = {
+  name: string
+  icon: (props: { className?: string }) => React.ReactNode
+  subtitle: string
+  description: string
+  href?: string
+  note?: string
+}
+
+const PLATFORMS: Platform[] = [
+  {
+    name: "macOS",
+    icon: AppleIcon,
+    subtitle: "Apple Silicon",
+    description: "The .dmg installer for macOS 11 and up.",
+    href: `${LATEST}/Lor_${VERSION}_aarch64.dmg`,
+    note: "Need Intel? Check all releases below.",
+  },
+  {
+    name: "Windows",
+    icon: WindowsIcon,
+    subtitle: "Windows 10+",
+    description: "A native Windows build is in the works.",
+  },
+  {
+    name: "Linux",
+    icon: LinuxIcon,
+    subtitle: ".deb, .rpm, .AppImage",
+    description: "A native Linux build is in the works.",
+  },
+]
+
+const MOBILE_PLATFORMS = [
   {
     name: "iOS",
     icon: AppleIcon,
@@ -98,150 +98,136 @@ export default function DownloadPage() {
   return (
     <div className="flex min-h-svh flex-col">
       <main className="flex-1">
-        {/* Hero */}
-        <section className="mx-auto max-w-4xl px-6 pt-32 pb-20 text-center md:pt-40 md:pb-28">
-          <h1 className="text-balance text-4xl font-semibold tracking-tight sm:text-5xl">
-            Download Lor.
-          </h1>
-          <p className="mt-5 text-lg text-muted-foreground">
-            Native for macOS today. Windows, Linux, iOS, and Android are on the
-            way. Same Lor, in a faster shell.
-          </p>
+        <section className="relative overflow-hidden">
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-x-0 top-0 h-[420px] bg-[radial-gradient(ellipse_75%_70%_at_50%_-10%,--theme(--color-merlin/.12),transparent)]"
+          />
+          <div className="relative mx-auto max-w-6xl px-6 pt-40 pb-16 md:pt-48">
+            <Reveal>
+              <h1 className="max-w-[16ch] text-balance font-semibold text-[clamp(2.5rem,5vw,3.75rem)] leading-[1.05] tracking-[-0.035em]">
+                Lor, in a{" "}
+                <span className="text-foreground/55">faster shell.</span>
+              </h1>
+              <p className="mt-5 max-w-[46ch] text-[16px] text-foreground/60 leading-relaxed">
+                Native for macOS today. Windows, Linux, iOS, and Android are on
+                the way.
+              </p>
+            </Reveal>
+          </div>
         </section>
 
-        {/* Platform cards */}
-        <section className="mx-auto max-w-4xl px-6 pb-20">
-          <div className="grid gap-6 md:grid-cols-3">
-            {platforms.map((platform) => (
-              <Card
-                key={platform.name}
-                className="flex flex-col border-border/40"
-              >
-                <CardHeader className="text-center">
-                  <platform.icon className="mx-auto mb-3 size-12 text-foreground" />
-                  <CardTitle>{platform.name}</CardTitle>
-                  <CardDescription>{platform.subtitle}</CardDescription>
-                </CardHeader>
-                <CardContent className="flex-1 text-center">
-                  <p className="text-sm text-muted-foreground">
-                    {platform.description}
+        <section className="mx-auto max-w-6xl px-6 pb-20">
+          <Reveal>
+            <div className="grid gap-2 md:grid-cols-3">
+              {PLATFORMS.map((platform) => (
+                <div
+                  key={platform.name}
+                  className="flex flex-col rounded-2xl border bg-card p-7 dark:bg-card/50"
+                >
+                  <platform.icon className="size-9 text-foreground" />
+                  <h2 className="mt-6 font-medium text-base leading-tight md:text-lg">
+                    <span>{platform.name}.</span>{" "}
+                    <span className="text-muted-foreground">
+                      {platform.description}
+                    </span>
+                  </h2>
+                  <p className="mt-1 text-[13px] text-muted-foreground">
+                    {platform.subtitle}
                   </p>
-                </CardContent>
-                <CardFooter className="mt-auto flex-col gap-2">
-                  {"href" in platform && platform.href ? (
-                    <Button
-                      className="w-full"
-                      render={
-                        <a href={platform.href}>
-                          <Download className="size-4" />
-                          Download for {platform.name}
+                  <div className="mt-8 flex flex-1 flex-col justify-end">
+                    {platform.href ? (
+                      <>
+                        <a
+                          href={platform.href}
+                          className="inline-flex items-center justify-center gap-2 rounded-full bg-gradient-to-b from-merlin to-primary py-2.5 font-medium text-[14px] text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.2),0_4px_10px_-2px_rgba(97,60,214,0.4)] transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:-translate-y-0.5 active:translate-y-0"
+                        >
+                          <Download className="size-4" strokeWidth={1.75} />
+                          Download for macOS
                         </a>
-                      }
-                    />
-                  ) : (
-                    <Button className="w-full" variant="outline" disabled>
-                      Coming soon
-                    </Button>
-                  )}
-                  <p className="min-h-4 text-center text-xs text-muted-foreground">
-                    {"note" in platform && platform.note ? platform.note : ""}
-                  </p>
-                </CardFooter>
-              </Card>
-            ))}
-          </div>
-
-          <div className="mt-6 text-center">
-            <a
-              href={RELEASES_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
-            >
-              <Github className="size-3.5" />
-              All releases on GitHub
-            </a>
-          </div>
-        </section>
-
-        <Separator className="mx-auto max-w-4xl" />
-
-        {/* Mobile */}
-        <section className="mx-auto max-w-4xl px-6 py-16">
-          <div className="text-center">
-            <h2 className="text-2xl font-semibold tracking-tight">
-              On your phone
-            </h2>
-            <p className="mt-3 text-muted-foreground">
-              Lor for iOS and Android is in the works.
-            </p>
-          </div>
-          <div className="mx-auto mt-8 grid max-w-2xl gap-6 md:grid-cols-2">
-            {mobilePlatforms.map((platform) => (
-              <Card
-                key={platform.name}
-                className="flex flex-col border-border/40"
+                        {platform.note ? (
+                          <p className="mt-3 text-center text-[12px] text-muted-foreground">
+                            {platform.note}
+                          </p>
+                        ) : null}
+                      </>
+                    ) : (
+                      <span className="inline-flex items-center justify-center rounded-full border border-foreground/[0.1] py-2.5 font-medium text-[14px] text-muted-foreground">
+                        Coming soon
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="mt-5 text-center">
+              <a
+                href={RELEASES_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
               >
-                <CardHeader className="text-center">
-                  <platform.icon className="mx-auto mb-3 size-12 text-foreground" />
-                  <CardTitle>{platform.name}</CardTitle>
-                  <CardDescription>{platform.subtitle}</CardDescription>
-                </CardHeader>
-                <CardFooter className="mt-auto flex-col gap-2">
-                  <Button className="w-full" variant="outline" disabled>
-                    {platform.storeLabel}
-                  </Button>
-                </CardFooter>
-              </Card>
-            ))}
-          </div>
+                All releases on GitHub
+                <ArrowUpRight className="size-3.5" strokeWidth={1.75} />
+              </a>
+            </div>
+          </Reveal>
         </section>
 
-        <Separator className="mx-auto max-w-4xl" />
+        <section className="mx-auto max-w-6xl px-6 pb-20">
+          <Reveal>
+            <div className="grid gap-2 md:grid-cols-2">
+              {MOBILE_PLATFORMS.map((platform) => (
+                <div
+                  key={platform.name}
+                  className="flex items-center gap-5 rounded-2xl border bg-card p-7 dark:bg-card/50"
+                >
+                  <platform.icon className="size-8 shrink-0 text-foreground" />
+                  <div>
+                    <h2 className="font-medium text-base leading-tight">
+                      <span>{platform.name} on your phone.</span>{" "}
+                      <span className="text-muted-foreground">
+                        {platform.subtitle}.
+                      </span>
+                    </h2>
+                    <p className="mt-1 text-[13px] text-muted-foreground">
+                      {platform.storeLabel}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Reveal>
+        </section>
 
-        {/* Browser alternative */}
-        <section className="mx-auto max-w-4xl px-6 py-16 text-center">
-          <Globe className="mx-auto mb-4 size-10 text-muted-foreground" />
-          <h2 className="text-2xl font-semibold tracking-tight">
-            Don&rsquo;t want to download?
-          </h2>
-          <p className="mt-3 text-muted-foreground">
-            Use Lor in your browser &mdash; no installation required.
-          </p>
-          <div className="mt-8">
-            <Button
-              size="lg"
-              variant="outline"
-              render={<a href={APP_URL}>Open Lor in browser</a>}
-            />
-          </div>
+        <section className="mx-auto max-w-6xl px-6 pb-28">
+          <Reveal>
+            <div className="flex flex-col items-start justify-between gap-6 rounded-2xl border bg-card p-8 md:flex-row md:items-center dark:bg-card/50">
+              <div className="flex items-center gap-4">
+                <Globe
+                  className="size-6 text-muted-foreground"
+                  strokeWidth={1.5}
+                />
+                <h2 className="font-medium text-base leading-tight md:text-lg">
+                  <span>Don&rsquo;t want to download?</span>{" "}
+                  <span className="text-muted-foreground">
+                    Lor runs in your browser, no install required.
+                  </span>
+                </h2>
+              </div>
+              <a
+                href={APP_URL}
+                className="inline-flex shrink-0 items-center gap-2 rounded-full border border-foreground/[0.12] bg-foreground/[0.03] py-2.5 px-5 font-medium text-[14px] text-foreground/85 transition-colors hover:bg-foreground/[0.07] hover:text-foreground"
+              >
+                Open Lor in browser
+                <ArrowUpRight className="size-3.5" strokeWidth={1.75} />
+              </a>
+            </div>
+          </Reveal>
         </section>
       </main>
 
-      {/* Footer */}
-      <footer className="border-t border-border/40 py-10">
-        <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-6 sm:flex-row">
-          <div className="flex items-center gap-3 text-sm text-muted-foreground">
-            <Link href="/" className="font-semibold text-foreground">
-              Lor
-            </Link>
-            <span>&copy; {new Date().getFullYear()}</span>
-          </div>
-          <div className="flex gap-6 text-sm text-muted-foreground">
-            <a
-              href={GITHUB_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="transition-colors hover:text-foreground"
-            >
-              GitHub
-            </a>
-            <Link href="/" className="transition-colors hover:text-foreground">
-              Home
-            </Link>
-          </div>
-        </div>
-      </footer>
+      <SiteFooter />
     </div>
   )
 }
