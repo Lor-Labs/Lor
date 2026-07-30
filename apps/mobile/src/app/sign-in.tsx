@@ -2,6 +2,7 @@ import { Redirect, router } from "expo-router"
 import { useRef, useState } from "react"
 import {
   ActivityIndicator,
+  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -13,6 +14,7 @@ import { Screen } from "@/components/ui/screen"
 import { useTheme } from "@/hooks/use-theme"
 import { authClient } from "@/lib/auth-client"
 import { consumePendingInviteCode } from "@/lib/invites"
+import lorMark from "../../assets/images/splash-icon.png"
 
 export default function SignInScreen() {
   const theme = useTheme()
@@ -78,11 +80,11 @@ export default function SignInScreen() {
         className="flex-1"
       >
         <View className="flex-1 justify-center px-seven">
-          <View className="mb-seven h-[52px] w-[52px] items-center justify-center rounded-lor-lg bg-lor-accent dark:bg-lor-accent-dark">
-            <Text className="text-[25px] font-bold text-lor-accent-fg dark:text-lor-accent-fg-dark">
-              L
-            </Text>
-          </View>
+          <Image
+            source={lorMark}
+            className="mb-seven"
+            style={{ width: 56, height: 34 }}
+          />
           <View className="mb-eight gap-two">
             <Text className="text-[28px] font-bold tracking-[-0.6px] text-lor-text dark:text-lor-text-dark">
               Welcome to Lor

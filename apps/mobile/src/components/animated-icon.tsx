@@ -19,7 +19,7 @@ export function AnimatedSplashOverlay() {
   return (
     <Animated.View
       className="absolute inset-0 z-[1000] items-center justify-center"
-      style={{ backgroundColor: scheme === "dark" ? "#000000" : "#F7F6F3" }}
+      style={{ backgroundColor: scheme === "dark" ? "#0e0d0b" : "#fdfcf9" }}
       exiting={FadeOut.duration(180)}
     >
       <Animated.View entering={ZoomIn.duration(280)}>
