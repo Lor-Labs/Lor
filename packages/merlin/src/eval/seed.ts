@@ -181,7 +181,7 @@ export async function seedEvalWorkspace(): Promise<SeededWorkspace> {
       title: distractor.title,
       author: "eval-contributor",
       summary: distractor.summary,
-      embedding: await embedDocument(distractor.summary),
+      embedding: await embedDocument(distractor.summary).catch(() => null),
       occurredAt: new Date(),
     })
   }

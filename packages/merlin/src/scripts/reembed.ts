@@ -101,6 +101,23 @@ async function migrateEmbeddingColumns(): Promise<void> {
   }
 }
 
+const EMBED_ATTEMPTS = 3
+
+async function embedWithRetry(text: string): Promise<number[]> {
+  let lastError: unknown
+  for (let attempt = 1; attempt <= EMBED_ATTEMPTS; attempt++) {
+    try {
+      return await embedDocument(text)
+    } catch (error) {
+      lastError = error
+      if (attempt < EMBED_ATTEMPTS) {
+        await new Promise((r) => setTimeout(r, 500 * 2 ** (attempt - 1)))
+      }
+    }
+  }
+  throw lastError
+}
+
 function nodePath(id: string, nodes: Map<string, NodeRow>): string {
   const segments: string[] = []
   const seen = new Set<string>()
@@ -170,7 +187,7 @@ async function reembedBrain(failures: Failure[]): Promise<number> {
   await mapConcurrent(pages, async (page, completed) => {
     try {
       const path = nodePath(page.id, nodes)
-      const embedding = await embedDocument(`${path}\n\n${page.body ?? ""}`)
+      const embedding = await embedWithRetry(`${path}\n\n${page.body ?? ""}`)
       await db
         .update(schema.brainNode)
         .set({ embedding })
@@ -206,7 +223,7 @@ async function reembedSources(failures: Failure[]): Promise<number> {
   let succeeded = 0
   await mapConcurrent(sources, async (source, completed) => {
     try {
-      const embedding = await embedDocument(source.summary)
+      const embedding = await embedWithRetry(source.summary)
       await db
         .update(schema.source)
         .set({ embedding })

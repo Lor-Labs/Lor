@@ -23,11 +23,14 @@ const DEFAULT_MAX_FILE_UPLOAD_SIZE = 20 * 1024 * 1024
 const DEFAULT_REALTIME_CORS_ORIGIN =
   "http://localhost:3000,http://localhost:3001,tauri://localhost"
 
+const blankToUndefined = (value: unknown) => {
+  if (typeof value !== "string") return value
+  const trimmed = value.trim()
+  return trimmed === "" ? undefined : trimmed
+}
+
 const defaultedString = (fallback: string) =>
-  z.preprocess(
-    (value) => (value === "" ? undefined : value),
-    z.string().min(1).default(fallback)
-  )
+  z.preprocess(blankToUndefined, z.string().min(1).default(fallback))
 
 const serverSchema = z.object({
   NODE_ENV: z
@@ -54,7 +57,10 @@ const serverSchema = z.object({
   // Vercel AI Gateway is Merlin's explicit transport. Model-role selection
   // remains provider-neutral through the MERLIN_* model ids below.
   AI_GATEWAY_API_KEY: z.string().min(1),
-  AI_GATEWAY_BASE_URL: z.string().url().optional(),
+  AI_GATEWAY_BASE_URL: z.preprocess(
+    blankToUndefined,
+    z.string().url().optional()
+  ),
   MERLIN_MODEL: defaultedString("moonshotai/kimi-k3"),
   MERLIN_MODEL_FALLBACKS: defaultedString("thinkingmachines/inkling"),
   MERLIN_SMALL_MODEL: defaultedString("thinkingmachines/inkling"),

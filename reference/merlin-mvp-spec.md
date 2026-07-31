@@ -47,7 +47,7 @@ The harness is the moat: tools, context construction, steering. Retrieval behind
 - Hard citation verification: emitted brain, message, and source citations are resolved before persistence; invalid markers are stripped.
 
 **Deferred (not built):**
-- Integrations (`source` ingestion + connectors) — Track B, §6.
+- Connectors beyond GitHub (Linear, …) — `source` ingestion, the GitHub connector, and the `search`/`fetch_source` tools are built; see `reference/github-connector.md`.
 - Default taxonomy seed — Merlin grows the tree organically via `mkdir`-on-write.
 - Code search, compaction/decay, brain browser UI, and broader eval coverage.
 

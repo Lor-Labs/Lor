@@ -128,7 +128,10 @@ export const fixtures: Fixture[] = [
         label: "mentions rotation or replay protection",
         pass: includesAny(r.answer, ["rotation", "replay", "revocation"]),
       },
-      { label: "uses brain and source citations", pass: r.valid >= 2 },
+      {
+        label: "uses brain and source citations",
+        pass: cites(r, "/") && cites(r, "src:"),
+      },
       { label: "has no hallucinated citations", pass: r.invalid === 0 },
     ],
   },

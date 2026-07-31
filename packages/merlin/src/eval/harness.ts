@@ -124,7 +124,16 @@ async function runRespondFixture(
   )
   const grounded = await groundCitations(workspaceId, answer.text)
 
+  // The answer phase can also save pages; write-back fixtures re-baseline
+  // after respond so they measure only what writeBack itself changes.
+  let baseline = before
   if (fixture.writeBack) {
+    baseline = new Map(
+      (await listBrainPages(workspaceId)).map((page) => [
+        page.id,
+        page.body ?? "",
+      ])
+    )
     await writeBack(
       {
         workspaceId,
@@ -141,7 +150,7 @@ async function runRespondFixture(
   // write-back and, just as importantly, restraint fixtures that expect none.
   const after = await listBrainPages(workspaceId)
   const newPageBodies = after
-    .filter((page) => before.get(page.id) !== (page.body ?? ""))
+    .filter((page) => baseline.get(page.id) !== (page.body ?? ""))
     .map((page) => page.body ?? "")
 
   return {
