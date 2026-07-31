@@ -189,7 +189,7 @@ export function AttachmentPickerPanel({
 
         {permission === "limited" ? (
           <Pressable
-            accessibilityLabel="Choose more photos"
+            accessibilityLabel="Choose more from camera roll"
             accessibilityRole="button"
             className="absolute bottom-two right-three rounded-lor-sm bg-surface px-three py-two shadow-sm"
             onPress={() => void onPickMedia()}

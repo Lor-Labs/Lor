@@ -7,7 +7,7 @@ import { File, type UploadTask, UploadType } from "expo-file-system"
 import { ImageManipulator, SaveFormat } from "expo-image-manipulator"
 import * as ImagePicker from "expo-image-picker"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { Alert, Linking } from "react-native"
+import { Alert, Linking, Platform } from "react-native"
 import { api, responseMessage } from "@/lib/api"
 import type { Message } from "@/lib/api-types"
 
@@ -75,6 +75,8 @@ function mimeTypeFromName(filename: string) {
       return "video/mp4"
     case "mov":
       return "video/quicktime"
+    case "webm":
+      return "video/webm"
     case "mp3":
       return "audio/mpeg"
     case "wav":
@@ -87,12 +89,19 @@ function mimeTypeFromName(filename: string) {
 function mediaAssetToLocalAsset(
   asset: ImagePicker.ImagePickerAsset
 ): LocalAttachmentAsset {
-  const fallbackName =
-    asset.type === "video"
-      ? `video-${Date.now()}.${
-          asset.mimeType === "video/quicktime" ? "mov" : "mp4"
-        }`
-      : `photo-${Date.now()}.jpg`
+  const videoExtension =
+    asset.mimeType === "video/mp4"
+      ? "mp4"
+      : asset.mimeType === "video/quicktime"
+        ? "mov"
+        : asset.mimeType === "video/webm"
+          ? "webm"
+          : asset.type === "video"
+            ? "mp4"
+            : null
+  const fallbackName = videoExtension
+    ? `video-${Date.now()}.${videoExtension}`
+    : `photo-${Date.now()}.jpg`
   const filename = asset.fileName ?? fileNameFromUri(asset.uri, fallbackName)
   const file = new File(asset.uri)
   return {
@@ -338,6 +347,14 @@ export function useMessageAttachments(channelId: string) {
       return
     }
     try {
+      if (Platform.OS === "ios") {
+        const permission =
+          await ImagePicker.requestMediaLibraryPermissionsAsync()
+        if (!permission.granted) {
+          setError("Camera roll access is needed to choose media.")
+          return
+        }
+      }
       const result = await ImagePicker.launchImageLibraryAsync({
         allowsMultipleSelection: true,
         mediaTypes: ["images", "videos"],
