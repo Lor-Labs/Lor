@@ -1,5 +1,6 @@
 import { relations } from "drizzle-orm"
 import {
+  halfvec,
   index,
   pgEnum,
   pgTable,
@@ -7,8 +8,8 @@ import {
   timestamp,
   uniqueIndex,
   uuid,
-  vector,
 } from "drizzle-orm/pg-core"
+import { MERLIN_EMBED_DIMENSIONS } from "../constants"
 import {
   integrationConnection,
   integrationProviderEnum,
@@ -51,8 +52,9 @@ export const source = pgTable(
     author: text("author"),
     // The embedded text (a short summary)
     summary: text("summary").notNull(),
-    // text-embedding-3-small; null until embedded. cosine ops.
-    embedding: vector("embedding", { dimensions: 1536 }),
+    // Qwen3 Embedding 4B at native dimensions; half precision keeps HNSW
+    // indexing below pgvector's float32 vector dimension limit.
+    embedding: halfvec("embedding", { dimensions: MERLIN_EMBED_DIMENSIONS }),
     occurredAt: timestamp("occurred_at"),
     status: sourceStatusEnum("status").notNull().default("active"),
   },
@@ -65,7 +67,7 @@ export const source = pgTable(
     ),
     index("source_embedding_hnsw_idx").using(
       "hnsw",
-      table.embedding.op("vector_cosine_ops")
+      table.embedding.op("halfvec_cosine_ops")
     ),
   ]
 )

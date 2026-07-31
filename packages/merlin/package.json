@@ -15,9 +15,11 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "eval": "tsx src/eval/run.ts",
+    "db:reembed": "tsx src/scripts/reembed.ts",
     "sandbox:smoke": "tsx src/sandbox/smoke.ts"
   },
   "dependencies": {
+    "@ai-sdk/gateway": "^4.0.8",
     "@ai-sdk/mcp": "^2.0.5",
     "@linear/sdk": "^87.0.0",
     "@repo/db": "workspace:^",

@@ -1,6 +1,7 @@
 import { relations } from "drizzle-orm"
 import {
   type AnyPgColumn,
+  halfvec,
   index,
   integer,
   jsonb,
@@ -11,8 +12,8 @@ import {
   unique,
   uniqueIndex,
   uuid,
-  vector,
 } from "drizzle-orm/pg-core"
+import { MERLIN_EMBED_DIMENSIONS } from "../constants"
 import { workspace } from "./workspaces"
 
 // Merlin's brain: a filesystem tree (parent_id) and a typed graph (brain_edge)
@@ -44,8 +45,9 @@ export const brainNode = pgTable(
       .$type<Record<string, unknown>>()
       .default({})
       .notNull(),
-    // text-embedding-3-small; null until embedded. cosine ops.
-    embedding: vector("embedding", { dimensions: 1536 }),
+    // Qwen3 Embedding 4B. halfvec keeps the 2560 native dimensions indexable:
+    // pgvector HNSW caps float32 vector indexes at 2000 dimensions.
+    embedding: halfvec("embedding", { dimensions: MERLIN_EMBED_DIMENSIONS }),
     // decay = archive, never delete; version bumps on body update
     status: brainNodeStatusEnum("status").notNull().default("active"),
     version: integer("version").notNull().default(1),
@@ -63,7 +65,7 @@ export const brainNode = pgTable(
       .nullsNotDistinct(),
     index("brain_node_embedding_hnsw_idx").using(
       "hnsw",
-      table.embedding.op("vector_cosine_ops")
+      table.embedding.op("halfvec_cosine_ops")
     ),
   ]
 )

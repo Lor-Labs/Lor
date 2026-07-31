@@ -1,8 +1,8 @@
 import { and, cosineDistance, db, eq, isNotNull, schema } from "@repo/db"
 import { generateText, tool } from "ai"
 import { z } from "zod"
-import { embedTextWithUsage } from "./embeddings"
-import { MERLIN_SMALL_FALLBACK_MODEL, MERLIN_SMALL_MODEL } from "./models"
+import { embedDocumentWithUsage } from "./embeddings"
+import { merlinSmallModel, smallGatewayOptions } from "./models"
 import { getSourceProvider } from "./providers"
 import type { OnUsage, UsageEvent } from "./usage"
 
@@ -183,10 +183,11 @@ async function summarize(
 ): Promise<string> {
   try {
     const result = await generateText({
-      model: MERLIN_SMALL_MODEL,
+      model: merlinSmallModel,
+      reasoning: "low",
       prompt: `Summarize this ${input.provider} ${input.kind} for a team's institutional memory in 2–4 sentences: what changed or was decided, who did it, and why it matters. Be factual and specific; no preamble.\n\nTitle: ${input.title}\nAuthor: ${input.author ?? "unknown"}\n\n${input.content}`,
       providerOptions: {
-        gateway: { models: [MERLIN_SMALL_FALLBACK_MODEL] },
+        gateway: smallGatewayOptions,
       },
     })
     emitUsage(onUsage, {
@@ -208,7 +209,7 @@ export async function ingestSource(
   onUsage?: OnUsage
 ): Promise<void> {
   const summary = await summarize(input, onUsage)
-  const embedding = await embedTextWithUsage(summary)
+  const embedding = await embedDocumentWithUsage(summary)
     .then((r) => {
       emitUsage(onUsage, {
         workspaceId: input.workspaceId,

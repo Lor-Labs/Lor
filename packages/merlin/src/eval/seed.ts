@@ -1,6 +1,7 @@
 import { and, db, eq, MERLIN_USER_ID, schema } from "@repo/db"
 import { pickWorkspaceAvatarColor } from "@repo/utils/avatar-colors"
 import { writePage } from "../brain"
+import { embedDocument } from "../embeddings"
 import { ingestSource } from "../sources"
 
 export type SeededWorkspace = {
@@ -111,6 +112,16 @@ export async function seedEvalWorkspace(): Promise<SeededWorkspace> {
     "/decisions/auth",
     "We chose JWT with refresh tokens for API authentication (decided 2026-05). Rationale: stateless and horizontally scalable; server-side sessions were dropped to avoid sticky load balancing."
   )
+  await writePage(
+    workspace.id,
+    "/handbook/office",
+    "The office handbook covers visitor access, meeting-room booking, and equipment requests."
+  )
+  await writePage(
+    workspace.id,
+    "/projects/website",
+    "The website project focuses on marketing copy, accessibility, and page-load performance."
+  )
 
   const connection = required(
     await db
@@ -138,6 +149,42 @@ export async function seedEvalWorkspace(): Promise<SeededWorkspace> {
     content:
       "Implements refresh-token rotation for the auth service: short-lived access tokens, rotating refresh tokens stored hashed, and automatic revocation when a used token is replayed.",
   })
+
+  const sourceDistractors = [
+    {
+      externalId: "eval-org/app#43",
+      title: "Update dashboard color palette",
+      summary:
+        "Updates dashboard colors and contrast tokens to match the revised visual design system.",
+    },
+    {
+      externalId: "eval-org/app#44",
+      title: "Optimize image upload pipeline",
+      summary:
+        "Reduces media upload latency by resizing images earlier and parallelizing object storage writes.",
+    },
+    {
+      externalId: "eval-org/app#45",
+      title: "Export monthly billing reports",
+      summary:
+        "Adds scheduled CSV exports for monthly invoices and payment reconciliation.",
+    },
+  ]
+  for (const distractor of sourceDistractors) {
+    await db.insert(schema.source).values({
+      workspaceId: workspace.id,
+      connectionId: connection.id,
+      provider: "github",
+      kind: "pull_request",
+      externalId: distractor.externalId,
+      url: `https://github.com/eval-org/app/pull/${distractor.externalId.split("#")[1]}`,
+      title: distractor.title,
+      author: "eval-contributor",
+      summary: distractor.summary,
+      embedding: await embedDocument(distractor.summary).catch(() => null),
+      occurredAt: new Date(),
+    })
+  }
 
   await db.insert(schema.message).values([
     {

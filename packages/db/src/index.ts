@@ -6,6 +6,10 @@ import * as schema from "./schemas/index"
 const client = postgres(env.DATABASE_URL)
 export const db = drizzle(client, { schema })
 
+export async function closeDb(): Promise<void> {
+  await client.end()
+}
+
 export { schema }
 export * from "drizzle-orm"
 export * from "./constants"

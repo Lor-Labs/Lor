@@ -12,7 +12,7 @@ import {
 } from "@repo/db"
 import { tool } from "ai"
 import { z } from "zod"
-import { embedText } from "./embeddings"
+import { embedDocument } from "./embeddings"
 import { logger } from "./logger"
 
 const TREE_DEFAULT_DEPTH = 2
@@ -289,7 +289,7 @@ export async function writePage(
   const existing = await findChild(workspaceId, parentId, leaf)
   if (existing?.kind === "folder") return { error: `${cpath} is a folder` }
 
-  const embedding = await embedText(`${cpath}\n\n${body}`).catch(() => null)
+  const embedding = await embedDocument(`${cpath}\n\n${body}`).catch(() => null)
 
   if (existing) {
     await db
@@ -349,9 +349,9 @@ export async function move(workspaceId: string, src: string, dst: string) {
       .from(schema.brainNode)
       .where(eq(schema.brainNode.id, node.id))
       .then((r) => r[0])
-    const embedding = await embedText(`${cdst}\n\n${page?.body ?? ""}`).catch(
-      () => null
-    )
+    const embedding = await embedDocument(
+      `${cdst}\n\n${page?.body ?? ""}`
+    ).catch(() => null)
     if (embedding) {
       await db
         .update(schema.brainNode)

@@ -6,7 +6,6 @@ import {
 } from "@repo/db/schema"
 import { env } from "@repo/env/server"
 import {
-  generateObject,
   generateText,
   isStepCount,
   type LanguageModelUsage,
@@ -33,25 +32,21 @@ import {
 } from "./citations"
 import { codeTools } from "./code"
 import { datadogMcpTools, resolveWorkspaceDatadog } from "./datadog"
-import { embedText, embedTextWithUsage } from "./embeddings"
+import { embedBrainQueryWithUsage, embedSourceQuery } from "./embeddings"
 import { githubTools, resolveWorkspaceGithub } from "./github"
 import { linearTools, linearWriteTools, resolveWorkspaceLinear } from "./linear"
 import { logger } from "./logger"
-import {
-  MERLIN_FALLBACK_MODEL,
-  MERLIN_MODEL,
-  MERLIN_SMALL_FALLBACK_MODEL,
-  MERLIN_SMALL_MODEL,
-} from "./models"
+import { MERLIN_MODEL, mainGatewayOptions, merlinModel } from "./models"
 import { resolveSourceCitation, searchSources, sourceTools } from "./sources"
+import { generateSmallObject } from "./structured"
 import type { OnUsage } from "./usage"
 
 const MAX_STEPS = 30
 // Total tokens (all steps summed) before the loop is forced to answer; the
 // backstop against deep runs re-billing a large context every step.
-const RESPOND_TOKEN_BUDGET = 300_000
+const RESPOND_TOKEN_BUDGET = env.MERLIN_RESPOND_TOKEN_BUDGET
 // Per-step input size that triggers pruning old tool results from the context.
-const COMPACT_INPUT_TOKENS = 60_000
+const COMPACT_INPUT_TOKENS = env.MERLIN_COMPACT_INPUT_TOKENS
 const RESPOND_TIMEOUT_MS = 10 * 60_000
 const WRITEBACK_TIMEOUT_MS = 5 * 60_000
 // search runs each backend independently, so the cap is per result kind
@@ -108,6 +103,8 @@ Answer true ONLY if the exchange states a specific, durable, workspace-specific 
 - a resolved problem and its fix, or
 - a lasting convention the team follows.
 
+A direct announcement such as "we decided," "we chose," or "we are moving from X to Y" is a settled decision even when phrased as a heads-up or scheduled for a future date. Do not treat it as transient status merely because implementation has not started or the rationale is omitted.
+
 Answer false — the default — for everything else: small talk, greetings, transient status, questions that state no new fact (whether asked or answered), opinions, speculation, undecided proposals, general or how-to knowledge, and anything vague, one-off, or already obvious. When in doubt, answer false; saving nothing is the right outcome far more often than not.`
 
 const WRITEBACK_INSTRUCTION = `You've just answered. Now step back and act as the keeper of this workspace's long-term memory.
@@ -148,7 +145,8 @@ const VISION_MEDIA_TYPES = new Set([
 const MAX_IMAGES = 8
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024
 
-// Download images because Anthropic cannot fetch private/local S3 URLs.
+// Download images because remote model providers cannot fetch private/local
+// S3 URLs reliably.
 async function fetchImageBytes(url: string): Promise<Uint8Array | null> {
   try {
     const res = await fetch(url)
@@ -358,7 +356,7 @@ async function searchSourceSummaries(
   query: string,
   limit: number
 ) {
-  return searchSources(workspaceId, await embedText(query), limit)
+  return searchSources(workspaceId, await embedSourceQuery(query), limit)
 }
 
 const searchTools = {
@@ -765,7 +763,7 @@ export async function respond(
   if (question.trim()) {
     const prefetchStart = performance.now()
     try {
-      const embedded = await embedTextWithUsage(question)
+      const embedded = await embedBrainQueryWithUsage(question)
       onUsage?.({
         workspaceId: ctx.workspaceId,
         tool: "merlin.embed",
@@ -961,7 +959,8 @@ export async function respond(
     const streamStart = performance.now()
     let firstPartLogged = false
     const result = streamText({
-      model: MERLIN_MODEL,
+      model: merlinModel,
+      reasoning: "high",
       instructions,
       messages: [userMessage],
       tools,
@@ -975,8 +974,8 @@ export async function respond(
         if (stepNumber === MAX_STEPS - 1 || spent >= RESPOND_TOKEN_BUDGET) {
           return { toolChoice: "none" }
         }
-        // Compact old tool calls/results once the context gets heavy. Reasoning
-        // is kept: Anthropic requires thinking blocks preserved across tool use.
+        // Compact old tool calls/results once the context gets heavy. Preserve
+        // reasoning parts so models can continue coherently across tool steps.
         const lastInput = steps.at(-1)?.usage.inputTokens ?? 0
         if (lastInput > COMPACT_INPUT_TOKENS) {
           return {
@@ -988,15 +987,11 @@ export async function respond(
         }
         return {}
       },
-      // Reasoning config is namespaced per provider; whichever provider serves
-      // the request uses its own entry. "summarized" is required to stream the
-      // reasoning deltas. gateway.caching places Anthropic cache markers.
+      // Reasoning is provider-neutral in AI SDK v7. The gateway handles
+      // provider routing and same-model retries; explicit model fallbacks stay
+      // within the open-weight stack.
       providerOptions: {
-        anthropic: {
-          thinking: { type: "adaptive", effort: "high", display: "summarized" },
-        },
-        openai: { reasoningEffort: "high", reasoningSummary: "detailed" },
-        gateway: { caching: "auto", models: [MERLIN_FALLBACK_MODEL] },
+        gateway: mainGatewayOptions,
       },
     })
 
@@ -1077,14 +1072,10 @@ export async function writeBack(
   ctx: WriteBackContext,
   { onMemoryWritten, onUsage }: WriteBackCallbacks
 ): Promise<void> {
-  const gate = await generateObject({
-    model: MERLIN_SMALL_MODEL,
+  const gate = await generateSmallObject({
     // reason first so the model commits to a justification before the verdict.
     schema: z.object({ reason: z.string(), worthSaving: z.boolean() }),
     prompt: `${ctx.gateText}\n\n---\n${GATE_QUESTION}`,
-    providerOptions: {
-      gateway: { models: [MERLIN_SMALL_FALLBACK_MODEL] },
-    },
   })
   emitGenerateUsage(onUsage, ctx.workspaceId, "merlin.writeback.gate", gate)
   logger.info(
@@ -1094,7 +1085,8 @@ export async function writeBack(
   if (!gate.object.worthSaving) return
 
   const body = await generateText({
-    model: MERLIN_MODEL,
+    model: merlinModel,
+    reasoning: "high",
     instructions: buildSystemPrompt([]),
     messages: [
       ...ctx.priorMessages,
@@ -1111,7 +1103,7 @@ export async function writeBack(
     stopWhen: isStepCount(MAX_STEPS),
     timeout: { totalMs: WRITEBACK_TIMEOUT_MS },
     providerOptions: {
-      gateway: { caching: "auto", models: [MERLIN_FALLBACK_MODEL] },
+      gateway: mainGatewayOptions,
     },
   })
   emitGenerateUsage(onUsage, ctx.workspaceId, "merlin.writeback", body)
@@ -1126,7 +1118,7 @@ function usageTokens(usage: LanguageModelUsage) {
   }
 }
 
-// generateText/generateObject results share this usage + response shape.
+// Generation results share this usage + response shape.
 function emitGenerateUsage(
   onUsage: OnUsage | undefined,
   workspaceId: string,
