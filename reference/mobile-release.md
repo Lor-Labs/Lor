@@ -75,9 +75,14 @@ dev URLs). Apple processing after submit is ~5–15 min.
   `@repo/api-client` on the EAS worker — its `dist/` is gitignored and Metro
   needs it. Don't remove the hook; if another workspace package ever exports
   compiled output, add it to the same turbo filter.
-- **`babel-preset-expo` must stay a direct devDependency** of apps/mobile.
-  It resolves locally through pnpm's hidden hoist dir, but EAS's strict fresh
-  install can't see it without the explicit declaration.
+- **`babel-preset-expo` and `@babel/preset-typescript` must stay direct
+  devDependencies** of apps/mobile (the latter is required by the
+  react-native-worklets babel plugin; keep it on the `^7.x` line matching
+  `@babel/core@7`). Both resolve locally through pnpm's hidden hoist dir but
+  break on EAS's strict fresh install. Pattern to recognize: a build fails
+  with `Cannot find module '<babel thing>'` only on EAS, often right after an
+  unrelated dependency change reshuffles the lockfile — fix by declaring the
+  module explicitly in apps/mobile.
 - **Don't persist `android.permissions` in app.json.** Config plugins compute
   them at prebuild; `eas update:configure` once serialized them in (with
   duplicates, re-adding RECORD_AUDIO that `microphonePermission: false`
