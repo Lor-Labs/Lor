@@ -15,7 +15,7 @@
 | Brain table names | `nodes` / `edges` | **`brain_node` / `brain_edge`** |
 | Brain tool names | — | bare **`ls`/`read`/`tree`/`write`/`mkdir`/`move`/`link`** (models know these) |
 | Write-back | (implied) | **Autonomous** — Merlin decides salience itself; Inkling gate + Kimi K3 agent |
-| Grounding | Strict citations, hard-verified | **Prompt-conditional** (institutional vs general); hard citation verification **deferred** |
+| Grounding | Strict citations, hard-verified | Citation use is **prompt-conditional** (institutional vs general); emitted citations are hard-verified |
 | Self-host / BYO-key | First-class (AGPL) | model roles are configurable across AI Gateway's providers; the deferred code-investigation sandbox still uses Claude Code |
 | Brain browser UI | Human-browsable | **Deferred** — agent-only brain |
 
@@ -43,11 +43,11 @@ The harness is the moat: tools, context construction, steering. Retrieval behind
 - The harness (`packages/merlin`): a Kimi K3 tool-loop over the brain + chat; read-only when answering, read+write during write-back.
 - The full `@Merlin` loop: mention → stream a grounded answer → notify like a normal message → autonomous async write-back → "🧠 remembered" chip.
 - Semantic retrieval: embed-on-write + question pre-fetch over page embeddings.
+- Reply placement: Inkling routes broadly useful replies to the channel and narrow replies to a thread.
+- Hard citation verification: emitted brain, message, and source citations are resolved before persistence; invalid markers are stripped.
 
 **Deferred (not built):**
 - Integrations (`source` ingestion + connectors) — Track B, §6.
-- Reply-placement router (thread vs. channel) — Merlin replies in the trigger's context.
-- Hard citation verification — grounding is prompt-enforced only.
 - Default taxonomy seed — Merlin grows the tree organically via `mkdir`-on-write.
 - Code search, compaction/decay, brain browser UI, and broader eval coverage.
 
@@ -99,7 +99,7 @@ An open-weight tool-use loop (Vercel **AI SDK v7**, `streamText` for the streame
 
 **Models:** Kimi K3 (`moonshotai/kimi-k3`) for answers and write-back; Inkling (`thinkingmachines/inkling`) for small/background tasks. Each tier falls back to the other through AI Gateway so normal inference stays on open-weight models.
 
-**Grounding:** prompt-conditional (above). **Citation verification built:** Merlin cites grounding sources inline — brain pages as `[[/path]]`, messages as `[[msg:<id>]]`; `groundCitations(workspaceId, text)` (exported from `packages/merlin`) extracts each, verifies it resolves (`pageExists` for pages, `messageExists` for messages), keeps valid ones, and unwraps unresolved pages to plain text / drops unresolved message ids so a hallucinated citation can't pose as a source. The worker runs it before persist/fanout and logs stripped citations. In the web client, page citations render as a pill and message citations are clickable (jump-to-message, resolving the channel cross-workspace). Making brain-page citations clickable (needs a brain browser) is the remaining open piece.
+**Grounding:** whether an answer requires citations is prompt-conditional (above). **Citation verification is built:** when Merlin emits citations, `groundCitations(workspaceId, text)` resolves brain pages (`pageExists`), messages (`messageExists`), and sources (`resolveSourceCitation`) before persistence. It keeps valid markers, unwraps unresolved page labels to plain text, and removes unresolved message/source markers so hallucinated citations cannot pose as sources. The worker runs verification before persist/fanout and logs stripped citations. Message citations are clickable; brain-page citations render as pills but remain non-clickable until the brain browser exists.
 
 ---
 

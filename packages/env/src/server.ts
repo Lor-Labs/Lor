@@ -23,6 +23,12 @@ const DEFAULT_MAX_FILE_UPLOAD_SIZE = 20 * 1024 * 1024
 const DEFAULT_REALTIME_CORS_ORIGIN =
   "http://localhost:3000,http://localhost:3001,tauri://localhost"
 
+const defaultedString = (fallback: string) =>
+  z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.string().min(1).default(fallback)
+  )
+
 const serverSchema = z.object({
   NODE_ENV: z
     .enum(["development", "staging", "production", "test"])
@@ -49,10 +55,10 @@ const serverSchema = z.object({
   // remains provider-neutral through the MERLIN_* model ids below.
   AI_GATEWAY_API_KEY: z.string().min(1),
   AI_GATEWAY_BASE_URL: z.string().url().optional(),
-  MERLIN_MODEL: z.string().default("moonshotai/kimi-k3"),
-  MERLIN_MODEL_FALLBACKS: z.string().default("thinkingmachines/inkling"),
-  MERLIN_SMALL_MODEL: z.string().default("thinkingmachines/inkling"),
-  MERLIN_SMALL_MODEL_FALLBACKS: z.string().default("moonshotai/kimi-k3"),
+  MERLIN_MODEL: defaultedString("moonshotai/kimi-k3"),
+  MERLIN_MODEL_FALLBACKS: defaultedString("thinkingmachines/inkling"),
+  MERLIN_SMALL_MODEL: defaultedString("thinkingmachines/inkling"),
+  MERLIN_SMALL_MODEL_FALLBACKS: defaultedString("moonshotai/kimi-k3"),
   MERLIN_RESPOND_TOKEN_BUDGET: z.coerce
     .number()
     .int()
@@ -63,10 +69,7 @@ const serverSchema = z.object({
     .int()
     .positive()
     .default(60_000),
-  MERLIN_EMBED_MODEL: z.preprocess(
-    (v) => (v === "" ? undefined : v),
-    z.string().default("alibaba/qwen3-embedding-4b")
-  ),
+  MERLIN_EMBED_MODEL: defaultedString("alibaba/qwen3-embedding-4b"),
   MERLIN_EMBED_DIMENSIONS: z.coerce.number().int().positive().default(2560),
   GITHUB_WEBHOOK_SECRET: z.string().min(1).optional(),
   // GitHub App identity for installation-authed REST (fetch_source). Optional:

@@ -1,6 +1,10 @@
+import { closeDb } from "@repo/db"
 import { searchBrain } from "../brain"
 import { extractCitationTokens } from "../citations"
-import { embedBrainQuery, embedSourceQuery } from "../embeddings"
+import {
+  embedBrainQueryWithUsage,
+  embedSourceQueryWithUsage,
+} from "../embeddings"
 import {
   type ConversationTurn,
   groundCitations,
@@ -32,6 +36,12 @@ function truncate(text: string, max = 280): string {
   return oneLine.length > max ? `${oneLine.slice(0, max)}…` : oneLine
 }
 
+function matchesExpectedModel(actual: string, expected: string): boolean {
+  if (actual === expected) return true
+  const expectedSlug = expected.split("/").at(-1)
+  return Boolean(expectedSlug && actual.endsWith(`/models/${expectedSlug}`))
+}
+
 function emptyResult(): EvalResult {
   return {
     answer: "",
@@ -42,6 +52,7 @@ function emptyResult(): EvalResult {
     toolNames: [],
     reasoningParts: 0,
     usageModels: [],
+    retrievalKeys: [],
   }
 }
 
@@ -142,6 +153,7 @@ async function runRespondFixture(
     toolNames,
     reasoningParts,
     usageModels,
+    retrievalKeys: [],
   }
 }
 
@@ -158,24 +170,22 @@ async function runFixture(
   }
   if (fixture.kind === "retrieval") {
     if (fixture.corpus === "brain") {
-      const hits = await searchBrain(
-        workspaceId,
-        await embedBrainQuery(fixture.query),
-        3
-      )
+      const embedded = await embedBrainQueryWithUsage(fixture.query)
+      const hits = await searchBrain(workspaceId, embedded.embedding, 3)
       return {
         ...emptyResult(),
         answer: hits.map((hit) => `${hit.path}\n${hit.body}`).join("\n\n"),
+        retrievalKeys: hits.map((hit) => hit.path),
+        usageModels: [embedded.model],
       }
     }
-    const hits = await searchSources(
-      workspaceId,
-      await embedSourceQuery(fixture.query),
-      3
-    )
+    const embedded = await embedSourceQueryWithUsage(fixture.query)
+    const hits = await searchSources(workspaceId, embedded.embedding, 3)
     return {
       ...emptyResult(),
       answer: hits.map((hit) => `${hit.title}\n${hit.summary}`).join("\n\n"),
+      retrievalKeys: hits.map((hit) => hit.title),
+      usageModels: [embedded.model],
     }
   }
   return runRespondFixture(fixture, workspaceId, userName)
@@ -193,15 +203,32 @@ async function main(): Promise<void> {
 
   try {
     for (const fixture of fixtures) {
-      const result = await runFixture(
-        fixture,
-        workspace.workspaceId,
-        workspace.userName
-      )
-      for (const model of result.usageModels) observedModels.add(model)
-      const score = logFixture(fixture, result, fixture.expect(result))
-      passed += score.passed
-      total += score.total
+      try {
+        const result = await runFixture(
+          fixture,
+          workspace.workspaceId,
+          workspace.userName
+        )
+        for (const model of result.usageModels) observedModels.add(model)
+        const score = logFixture(fixture, result, fixture.expect(result))
+        passed += score.passed
+        total += score.total
+      } catch (error) {
+        console.error(
+          `Fixture ${fixture.name} failed:`,
+          error instanceof Error ? error.message : error
+        )
+        let checks: EvalCheck[]
+        try {
+          checks = fixture
+            .expect(emptyResult())
+            .map((check) => ({ ...check, pass: false }))
+        } catch {
+          checks = [{ label: "fixture completed", pass: false }]
+        }
+        const score = logFixture(fixture, emptyResult(), checks)
+        total += score.total
+      }
     }
   } finally {
     await workspace.cleanup()
@@ -209,7 +236,9 @@ async function main(): Promise<void> {
 
   const expectedServedModel = process.env.EVAL_EXPECT_SERVED_MODEL
   if (expectedServedModel) {
-    const found = observedModels.has(expectedServedModel)
+    const found = [...observedModels].some((model) =>
+      matchesExpectedModel(model, expectedServedModel)
+    )
     total++
     if (found) passed++
     console.log(
@@ -218,10 +247,19 @@ async function main(): Promise<void> {
   }
 
   console.log(`Result: ${passed}/${total} checks passed.\n`)
-  process.exit(passed === total ? 0 : 1)
+  process.exitCode = passed === total ? 0 : 1
 }
 
-main().catch((error) => {
+try {
+  await main()
+} catch (error) {
   console.error("Eval harness crashed:", error)
-  process.exit(1)
-})
+  process.exitCode = 1
+} finally {
+  try {
+    await closeDb()
+  } catch (error) {
+    console.error("Failed to close eval database:", error)
+    process.exitCode = 1
+  }
+}

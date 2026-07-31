@@ -58,45 +58,47 @@ async function migrateEmbeddingColumns(): Promise<void> {
 
   if (brainType !== expected) {
     console.log(`Migrating brain_node.embedding: ${brainType} -> ${expected}`)
-    await db.execute(
-      sql.raw("DROP INDEX IF EXISTS brain_node_embedding_hnsw_idx")
-    )
-    await db.execute(
-      sql.raw(
-        `ALTER TABLE brain_node
-         ALTER COLUMN embedding TYPE ${expected}
-         USING NULL::${expected}`
+    await db.transaction(async (tx) => {
+      await tx.execute(
+        sql.raw("DROP INDEX IF EXISTS brain_node_embedding_hnsw_idx")
       )
-    )
+      await tx.execute(
+        sql.raw(
+          `ALTER TABLE brain_node
+           ALTER COLUMN embedding TYPE ${expected}
+           USING NULL::${expected}`
+        )
+      )
+      await tx.execute(
+        sql.raw(
+          `CREATE INDEX brain_node_embedding_hnsw_idx
+           ON brain_node USING hnsw (embedding halfvec_cosine_ops)`
+        )
+      )
+    })
   }
 
   if (sourceType !== expected) {
     console.log(`Migrating source.embedding: ${sourceType} -> ${expected}`)
-    await db.execute(sql.raw("DROP INDEX IF EXISTS source_embedding_hnsw_idx"))
-    await db.execute(
-      sql.raw(
-        `ALTER TABLE source
-         ALTER COLUMN embedding TYPE ${expected}
-         USING NULL::${expected}`
+    await db.transaction(async (tx) => {
+      await tx.execute(
+        sql.raw("DROP INDEX IF EXISTS source_embedding_hnsw_idx")
       )
-    )
+      await tx.execute(
+        sql.raw(
+          `ALTER TABLE source
+           ALTER COLUMN embedding TYPE ${expected}
+           USING NULL::${expected}`
+        )
+      )
+      await tx.execute(
+        sql.raw(
+          `CREATE INDEX source_embedding_hnsw_idx
+           ON source USING hnsw (embedding halfvec_cosine_ops)`
+        )
+      )
+    })
   }
-}
-
-async function ensureIndexes(): Promise<void> {
-  console.log("Ensuring halfvec HNSW indexes...")
-  await db.execute(
-    sql.raw(
-      `CREATE INDEX IF NOT EXISTS brain_node_embedding_hnsw_idx
-       ON brain_node USING hnsw (embedding halfvec_cosine_ops)`
-    )
-  )
-  await db.execute(
-    sql.raw(
-      `CREATE INDEX IF NOT EXISTS source_embedding_hnsw_idx
-       ON source USING hnsw (embedding halfvec_cosine_ops)`
-    )
-  )
 }
 
 function nodePath(id: string, nodes: Map<string, NodeRow>): string {
@@ -231,14 +233,8 @@ async function main(): Promise<void> {
   await migrateEmbeddingColumns()
 
   const failures: Failure[] = []
-  let brain = 0
-  let sources = 0
-  try {
-    brain = await reembedBrain(failures)
-    sources = await reembedSources(failures)
-  } finally {
-    await ensureIndexes()
-  }
+  const brain = await reembedBrain(failures)
+  const sources = await reembedSources(failures)
 
   console.log(`Embedded ${brain} brain pages and ${sources} sources.`)
   if (failures.length > 0) {

@@ -103,6 +103,8 @@ Answer true ONLY if the exchange states a specific, durable, workspace-specific 
 - a resolved problem and its fix, or
 - a lasting convention the team follows.
 
+A direct announcement such as "we decided," "we chose," or "we are moving from X to Y" is a settled decision even when phrased as a heads-up or scheduled for a future date. Do not treat it as transient status merely because implementation has not started or the rationale is omitted.
+
 Answer false — the default — for everything else: small talk, greetings, transient status, questions that state no new fact (whether asked or answered), opinions, speculation, undecided proposals, general or how-to knowledge, and anything vague, one-off, or already obvious. When in doubt, answer false; saving nothing is the right outcome far more often than not.`
 
 const WRITEBACK_INSTRUCTION = `You've just answered. Now step back and act as the keeper of this workspace's long-term memory.

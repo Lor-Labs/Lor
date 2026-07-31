@@ -10,6 +10,7 @@ export type EvalResult = {
   toolNames: string[]
   reasoningParts: number
   usageModels: string[]
+  retrievalKeys: string[]
   placement?: ReplyPlacement
 }
 
@@ -93,8 +94,8 @@ export const fixtures: Fixture[] = [
     query: "Who owns API architecture and engineering hiring?",
     expect: (r) => [
       {
-        label: "Alice's page appears in top-k",
-        pass: r.answer.includes("/people/alice"),
+        label: "Alice's page ranks first",
+        pass: r.retrievalKeys[0] === "/people/alice",
       },
     ],
   },
@@ -107,8 +108,8 @@ export const fixtures: Fixture[] = [
     query: "recent replay protection and rotating refresh tokens",
     expect: (r) => [
       {
-        label: "refresh-token PR appears in top-k",
-        pass: includesAny(r.answer, ["refresh-token", "rotation"]),
+        label: "refresh-token PR ranks first",
+        pass: r.retrievalKeys[0] === "Add JWT refresh-token rotation",
       },
     ],
   },
