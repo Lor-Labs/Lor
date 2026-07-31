@@ -8,12 +8,18 @@ const INITIAL_EFFECTIVE_FROM = new Date("2026-07-01T00:00:00Z")
 // "*" is the catch-all for gateway-fallback models, priced at the most
 // expensive tier so unknown models never under-bill.
 const RATES = [
-  { model: "anthropic/claude-sonnet-4.6", input: 3, cached: 0.3, output: 15 },
-  { model: "openai/gpt-5.5", input: 1.25, cached: 0.125, output: 10 },
-  { model: "anthropic/claude-haiku-4.5", input: 1, cached: 0.1, output: 5 },
-  { model: "openai/gpt-5.4-nano", input: 0.05, cached: 0.005, output: 0.4 },
+  { model: "moonshotai/kimi-k3", input: 3, cached: 0.3, output: 15 },
+  // Inkling has multiple Gateway providers with slightly different input and
+  // cache prices. Use the highest route price so provider failover never
+  // under-bills.
   {
-    model: "openai/text-embedding-3-small",
+    model: "thinkingmachines/inkling",
+    input: 1.2,
+    cached: 0.2,
+    output: 4.05,
+  },
+  {
+    model: "alibaba/qwen3-embedding-4b",
     input: 0.02,
     cached: 0.02,
     output: 0,

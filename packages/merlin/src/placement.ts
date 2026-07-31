@@ -1,6 +1,5 @@
-import { generateObject } from "ai"
 import { z } from "zod"
-import { MERLIN_SMALL_FALLBACK_MODEL, MERLIN_SMALL_MODEL } from "./models"
+import { generateSmallObject } from "./structured"
 
 const PLACEMENT_TIMEOUT_MS = 15_000
 
@@ -21,15 +20,10 @@ export async function decideReplyPlacement(
     .map((t) => `${t.authorName}: ${t.content}`)
     .join("\n")
 
-  const result = await generateObject({
-    model: MERLIN_SMALL_MODEL,
+  const result = await generateSmallObject({
     schema: z.object({ placement: z.enum(["channel", "thread"]) }),
     prompt: `${PLACEMENT_PROMPT}\n\nRecent conversation:\n${transcript}`,
-    providerOptions: {
-      gateway: { models: [MERLIN_SMALL_FALLBACK_MODEL] },
-    },
     // Inline realtime path; callers default to channel on abort.
-    // (generateObject omits the v7 `timeout` option, so AbortSignal it is.)
     abortSignal: AbortSignal.timeout(PLACEMENT_TIMEOUT_MS),
   })
 
