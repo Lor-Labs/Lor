@@ -8,6 +8,7 @@ import { createRoot } from "react-dom/client"
 import "@repo/ui/globals.css"
 import "streamdown/styles.css"
 import "@/styles/fonts.css"
+import { isTauri } from "@repo/auth/tauri-fetch"
 import { routeTree } from "@/routeTree.gen"
 
 const queryClient = new QueryClient({
@@ -36,6 +37,25 @@ window.addEventListener("vite:preloadError", (event) => {
   sessionStorage.setItem("chunk-reload-at", String(Date.now()))
   window.location.reload()
 })
+
+// In the desktop app, links to other origins must open in the system browser
+// instead of navigating the webview.
+if (isTauri) {
+  document.addEventListener("click", (event) => {
+    if (event.defaultPrevented) return
+    const target = event.target
+    if (!(target instanceof Element)) return
+    const anchor = target.closest("a[href]")
+    if (!(anchor instanceof HTMLAnchorElement)) return
+    const url = new URL(anchor.href, window.location.href)
+    if (url.protocol !== "http:" && url.protocol !== "https:") return
+    if (url.origin === window.location.origin) return
+    event.preventDefault()
+    void import("@tauri-apps/plugin-opener").then(({ openUrl }) =>
+      openUrl(url.href)
+    )
+  })
+}
 
 const rootElement = document.getElementById("root")
 if (!rootElement) throw new Error("Root element not found")

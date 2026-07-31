@@ -16,6 +16,7 @@ import { useEffect, useState } from "react"
 import { toast } from "sonner"
 import { useSocket } from "@/context/socket-context"
 import { apiClient } from "@/lib/api-client"
+import { openExternal } from "@/lib/open-external"
 
 const TOPUPS = [
   { size: "small", credits: 2_500, label: "2,500", price: "$25" },
@@ -62,7 +63,7 @@ export function BillingSection({ workspaceSlug }: { workspaceSlug: string }) {
       return res.json()
     },
     onSuccess: ({ url }) => {
-      if (url) window.location.href = url
+      if (url) openExternal(url)
       else {
         toast.success("Subscribed")
         void queryClient.invalidateQueries({
@@ -82,7 +83,7 @@ export function BillingSection({ workspaceSlug }: { workspaceSlug: string }) {
       return res.json()
     },
     onSuccess: ({ url }) => {
-      if (url) window.location.href = url
+      if (url) openExternal(url)
       else {
         toast.success("Credits added")
         void queryClient.invalidateQueries({
@@ -102,7 +103,7 @@ export function BillingSection({ workspaceSlug }: { workspaceSlug: string }) {
       return res.json()
     },
     onSuccess: ({ url }) => {
-      window.location.href = url
+      openExternal(url)
     },
     onError: () => toast.error("Failed to open billing portal"),
   })
@@ -278,7 +279,7 @@ function AutoTopupCard({
     },
     onSuccess: ({ url }) => {
       if (url) {
-        window.location.href = url
+        openExternal(url)
         return
       }
       toast.success(enabled ? "Auto top-up enabled" : "Auto top-up disabled")

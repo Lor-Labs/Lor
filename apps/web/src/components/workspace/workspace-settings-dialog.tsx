@@ -52,6 +52,7 @@ import { MerlinProfilesSection } from "@/components/workspace/merlin-profiles-se
 import { apiClient } from "@/lib/api-client"
 import type { ConnectDatadogRequest } from "@/lib/api-types"
 import { connectorLogo } from "@/lib/connector-ui"
+import { openExternal } from "@/lib/open-external"
 import { isAdminOrOwner } from "@/lib/permissions"
 
 const MAX_WORKSPACE_ICON_BYTES = 2 * 1024 * 1024
@@ -680,7 +681,7 @@ function IntegrationsSection({ workspaceSlug }: { workspaceSlug: string }) {
                   size="sm"
                   disabled={!p.connectUrl}
                   onClick={() => {
-                    if (p.connectUrl) window.location.href = p.connectUrl
+                    if (p.connectUrl) openExternal(p.connectUrl)
                   }}
                 >
                   {p.connectUrl ? "Connect" : "Unavailable"}
