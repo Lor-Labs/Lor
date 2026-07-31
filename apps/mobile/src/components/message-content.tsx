@@ -1,4 +1,3 @@
-import * as WebBrowser from "expo-web-browser"
 import { useThemeColor } from "heroui-native/hooks"
 import { useCallback, useMemo } from "react"
 import {
@@ -14,6 +13,7 @@ import {
   SRC_SCHEME,
   toDisplayMarkdown,
 } from "@/lib/message-markdown"
+import { openExternalUrl } from "@/lib/open-url"
 
 type MessageTheme = {
   text: string
@@ -149,11 +149,10 @@ export function MessageContent({
       }
       if (url.startsWith(SRC_SCHEME)) {
         const target = decodeURIComponent(url.slice(SRC_SCHEME.length))
-        if (/^https?:\/\//i.test(target))
-          void WebBrowser.openBrowserAsync(target)
+        if (/^https?:\/\//i.test(target)) openExternalUrl(target)
         return
       }
-      if (/^https?:\/\//i.test(url)) void WebBrowser.openBrowserAsync(url)
+      if (/^https?:\/\//i.test(url)) openExternalUrl(url)
     },
     [onMentionPress, onCitationJump]
   )

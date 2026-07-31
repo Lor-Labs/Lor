@@ -1,10 +1,10 @@
 import ExternalLinkIcon from "@hugeicons/core-free-icons/ExternalLinkIcon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
 import { Image } from "expo-image"
-import * as WebBrowser from "expo-web-browser"
 import { useThemeColor } from "heroui-native/hooks"
 import { Pressable, Text, View } from "react-native"
 import type { Message } from "@/lib/api-types"
+import { openExternalUrl } from "@/lib/open-url"
 
 export function MessageEmbed({ embed }: { embed: Message["embeds"][number] }) {
   const accent = useThemeColor("accent")
@@ -14,7 +14,7 @@ export function MessageEmbed({ embed }: { embed: Message["embeds"][number] }) {
       accessibilityLabel={embed.title ?? embed.url}
       accessibilityRole="link"
       className="mt-one max-w-[480px] overflow-hidden rounded-lor-sm border border-border border-l-[3px] border-l-accent bg-surface-secondary"
-      onPress={() => void WebBrowser.openBrowserAsync(embed.url)}
+      onPress={() => openExternalUrl(embed.url)}
     >
       <View className="gap-one p-three">
         {embed.title ? (
