@@ -23,6 +23,12 @@ const DEFAULT_MAX_FILE_UPLOAD_SIZE = 20 * 1024 * 1024
 const DEFAULT_REALTIME_CORS_ORIGIN =
   "http://localhost:3000,http://localhost:3001,tauri://localhost"
 
+const defaultedString = (fallback: string) =>
+  z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.string().min(1).default(fallback)
+  )
+
 const serverSchema = z.object({
   NODE_ENV: z
     .enum(["development", "staging", "production", "test"])
@@ -45,14 +51,26 @@ const serverSchema = z.object({
   // Claude Code CLI in the code-investigation sandbox only; all other
   // inference and embeddings go through the AI Gateway.
   ANTHROPIC_API_KEY: z.string().min(1),
-  // Vercel AI Gateway key — routes every model + embedding call.
+  // Vercel AI Gateway is Merlin's explicit transport. Model-role selection
+  // remains provider-neutral through the MERLIN_* model ids below.
   AI_GATEWAY_API_KEY: z.string().min(1),
-  // Gateway model slug (creator/model). The model MUST output 1536-dim
-  // vectors to match the brain_node.embedding column.
-  MERLIN_EMBED_MODEL: z.preprocess(
-    (v) => (v === "" ? undefined : v),
-    z.string().default("openai/text-embedding-3-small")
-  ),
+  AI_GATEWAY_BASE_URL: z.string().url().optional(),
+  MERLIN_MODEL: defaultedString("moonshotai/kimi-k3"),
+  MERLIN_MODEL_FALLBACKS: defaultedString("thinkingmachines/inkling"),
+  MERLIN_SMALL_MODEL: defaultedString("thinkingmachines/inkling"),
+  MERLIN_SMALL_MODEL_FALLBACKS: defaultedString("moonshotai/kimi-k3"),
+  MERLIN_RESPOND_TOKEN_BUDGET: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(300_000),
+  MERLIN_COMPACT_INPUT_TOKENS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(60_000),
+  MERLIN_EMBED_MODEL: defaultedString("alibaba/qwen3-embedding-4b"),
+  MERLIN_EMBED_DIMENSIONS: z.coerce.number().int().positive().default(2560),
   GITHUB_WEBHOOK_SECRET: z.string().min(1).optional(),
   // GitHub App identity for installation-authed REST (fetch_source). Optional:
   // fetch_source falls back to the stored summary when unset.
