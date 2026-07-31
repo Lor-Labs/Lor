@@ -97,6 +97,11 @@ export const linearTools = {
 }
 
 type LinearClient = NonNullable<Awaited<ReturnType<typeof linearClientFor>>>
+type LinearIssue = NonNullable<Awaited<ReturnType<LinearClient["issue"]>>>
+type IssueUpdate = Parameters<LinearClient["updateIssue"]>[1]
+
+const PRIORITY_NAMES = ["none", "urgent", "high", "medium", "low"] as const
+const UNASSIGN = new Set(["none", "nobody", "unassigned", "unassign"])
 
 // Resolve a free-text assignee (name, display name, or email) to a Linear user
 // id. Prefers active members and disambiguates when several match, so Merlin can
@@ -206,6 +211,107 @@ function resolveTeam(
     : ask()
 }
 
+// Match a workflow state by name against the issue's team, listing the options
+// on a miss/ambiguity so Merlin can pick one and retry.
+async function resolveState(
+  issue: LinearIssue,
+  query: string
+): Promise<{ stateId: string; state: string } | { error: string }> {
+  const team = await Promise.resolve(issue.team).catch(() => null)
+  const states = team
+    ? await team
+        .states({ first: 50 })
+        .then((s) => s.nodes)
+        .catch(() => [])
+    : []
+  if (states.length === 0) {
+    return { error: "couldn't load the issue's workflow states" }
+  }
+  const want = query.trim().toLowerCase()
+  const norm = (s: string) => s.trim().toLowerCase()
+  const exact = states.filter((s) => norm(s.name) === want)
+  const partial = states.filter((s) => norm(s.name).includes(want))
+  const matches = exact.length > 0 ? exact : partial
+  const first = matches[0]
+  if (matches.length === 1 && first) {
+    return { stateId: first.id, state: first.name }
+  }
+  const options = states
+    .slice(0, MAX_LISTED)
+    .map((s) => s.name)
+    .join(", ")
+  const lead =
+    matches.length === 0
+      ? `no workflow state matches "${query}"`
+      : `which state? Matches for "${query}"`
+  return { error: `${lead} — options: ${options}` }
+}
+
+// Additions match by name against every label in the workspace; removals only
+// against labels already on the issue.
+async function resolveLabels(
+  client: LinearClient,
+  issue: LinearIssue,
+  add: string[],
+  remove: string[]
+): Promise<
+  | { addedLabelIds: string[]; removedLabelIds: string[]; changes: string[] }
+  | { error: string }
+> {
+  const norm = (s: string) => s.trim().toLowerCase()
+  const pick = (labels: { id: string; name: string }[], name: string) => {
+    const want = norm(name)
+    const exact = labels.filter((l) => norm(l.name) === want)
+    const partial = labels.filter((l) => norm(l.name).includes(want))
+    const matches = exact.length > 0 ? exact : partial
+    const first = matches[0]
+    return matches.length === 1 && first ? first : null
+  }
+  const addedLabelIds: string[] = []
+  const removedLabelIds: string[] = []
+  const changes: string[] = []
+  if (add.length > 0) {
+    const all = await client
+      .issueLabels({ first: 250 })
+      .then((l) => l.nodes)
+      .catch(() => null)
+    if (!all) return { error: "couldn't load Linear labels" }
+    for (const name of add) {
+      const label = pick(all, name)
+      if (!label) {
+        const options = all
+          .slice(0, MAX_LISTED)
+          .map((l) => l.name)
+          .join(", ")
+        return {
+          error: `no single label matches "${name}" — options: ${options}`,
+        }
+      }
+      addedLabelIds.push(label.id)
+      changes.push(`added label ${label.name}`)
+    }
+  }
+  if (remove.length > 0) {
+    const current = await issue
+      .labels()
+      .then((l) => l.nodes)
+      .catch(() => null)
+    if (!current) return { error: "couldn't load the issue's labels" }
+    for (const name of remove) {
+      const label = pick(current, name)
+      if (!label) {
+        const options = current.map((l) => l.name).join(", ") || "(no labels)"
+        return {
+          error: `"${name}" doesn't match a label on the issue — it has: ${options}`,
+        }
+      }
+      removedLabelIds.push(label.id)
+      changes.push(`removed label ${label.name}`)
+    }
+  }
+  return { addedLabelIds, removedLabelIds, changes }
+}
+
 export const linearWriteTools = {
   create_linear_issue: tool({
     description:
@@ -290,6 +396,132 @@ export const linearWriteTools = {
       // The write succeeded; reading the comment back is best-effort.
       const comment = await Promise.resolve(payload.comment).catch(() => null)
       return { ok: true, body, url: comment?.url ?? null }
+    },
+    strict: true,
+  }),
+  update_linear_issue: tool({
+    description:
+      'Update an existing Linear issue: reassign or unassign it, move it to another workflow state (e.g. "In Progress", "Done"), retitle it, replace its description, set its priority, add/remove labels, or set/clear its due date. Pass the issue id (from search_linear / fetch_linear) or its identifier (e.g. ENG-123), plus only the fields to change. Unknown assignee/state/label names return the available options so you can pick one and retry.',
+    inputSchema: z.object({
+      id: z.string().describe("the issue id or identifier (e.g. ENG-123)"),
+      title: z.string().optional().describe("new title"),
+      description: z
+        .string()
+        .optional()
+        .describe("new body (Markdown; replaces the current body)"),
+      assignee: z
+        .string()
+        .optional()
+        .describe('a Linear member\'s name or email, or "none" to unassign'),
+      state: z
+        .string()
+        .optional()
+        .describe("a workflow state name, e.g. Todo, In Progress, Done"),
+      priority: z
+        .number()
+        .optional()
+        .describe("0 = none, 1 = urgent, 2 = high, 3 = medium, 4 = low"),
+      addLabels: z.array(z.string()).optional().describe("label names to add"),
+      removeLabels: z
+        .array(z.string())
+        .optional()
+        .describe("label names to remove"),
+      dueDate: z
+        .string()
+        .optional()
+        .describe('due date as YYYY-MM-DD, or "none" to clear'),
+    }),
+    contextSchema: linearContext,
+    execute: async (input, { context }) => {
+      const client = await linearClientFor(context.externalId)
+      if (!client) return { error: "couldn't authenticate with Linear" }
+      const issue = await client.issue(input.id).catch(() => null)
+      if (!issue) {
+        return {
+          error: `couldn't find issue "${input.id}" — pass an id from search_linear or an identifier like ENG-123`,
+        }
+      }
+
+      const update: IssueUpdate = {}
+      const changes: string[] = []
+
+      if (input.title?.trim()) {
+        update.title = input.title
+        changes.push(`retitled to “${input.title}”`)
+      }
+      if (input.description !== undefined) {
+        update.description = input.description
+        changes.push("description replaced")
+      }
+      if (input.assignee?.trim()) {
+        if (UNASSIGN.has(input.assignee.trim().toLowerCase())) {
+          update.assigneeId = null
+          changes.push("unassigned")
+        } else {
+          const resolved = await resolveAssignee(client, input.assignee)
+          if ("error" in resolved) return resolved
+          update.assigneeId = resolved.userId
+          changes.push(`assigned to ${resolved.name}`)
+        }
+      }
+      if (input.state?.trim()) {
+        const resolved = await resolveState(issue, input.state)
+        if ("error" in resolved) return resolved
+        update.stateId = resolved.stateId
+        changes.push(`moved to ${resolved.state}`)
+      }
+      if (input.priority !== undefined) {
+        const p = Math.floor(input.priority)
+        const name = PRIORITY_NAMES[p]
+        if (!name) return { error: "priority must be 0 (none) through 4 (low)" }
+        update.priority = p
+        changes.push(`priority ${name}`)
+      }
+      if (input.addLabels?.length || input.removeLabels?.length) {
+        const resolved = await resolveLabels(
+          client,
+          issue,
+          input.addLabels ?? [],
+          input.removeLabels ?? []
+        )
+        if ("error" in resolved) return resolved
+        if (resolved.addedLabelIds.length > 0) {
+          update.addedLabelIds = resolved.addedLabelIds
+        }
+        if (resolved.removedLabelIds.length > 0) {
+          update.removedLabelIds = resolved.removedLabelIds
+        }
+        changes.push(...resolved.changes)
+      }
+      if (input.dueDate?.trim()) {
+        const raw = input.dueDate.trim()
+        if (raw.toLowerCase() === "none") {
+          update.dueDate = null
+          changes.push("due date cleared")
+        } else if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+          update.dueDate = raw
+          changes.push(`due ${raw}`)
+        } else {
+          return { error: 'dueDate must be YYYY-MM-DD or "none"' }
+        }
+      }
+
+      if (changes.length === 0) {
+        return { error: "pass at least one field to change" }
+      }
+
+      const payload = await client
+        .updateIssue(issue.id, update)
+        .catch(() => null)
+      if (!payload?.success) return { error: "couldn't update the issue" }
+      // The write succeeded; reading the issue back is best-effort.
+      const updated = await Promise.resolve(payload.issue).catch(() => null)
+      return {
+        identifier: updated?.identifier ?? issue.identifier,
+        title: updated?.title ?? issue.title,
+        url: updated?.url ?? issue.url,
+        changes,
+      }
     },
     strict: true,
   }),

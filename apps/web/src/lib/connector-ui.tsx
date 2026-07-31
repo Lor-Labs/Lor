@@ -43,6 +43,7 @@ const CONNECTOR_UI: Record<ConnectorKey, ConnectorUI> = {
       "fetch_linear",
       "create_linear_issue",
       "comment_linear",
+      "update_linear_issue",
     ],
   },
   datadog: {

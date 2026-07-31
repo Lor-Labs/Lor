@@ -52,6 +52,7 @@ import { MerlinProfilesSection } from "@/components/workspace/merlin-profiles-se
 import { apiClient } from "@/lib/api-client"
 import type { ConnectDatadogRequest } from "@/lib/api-types"
 import { connectorLogo } from "@/lib/connector-ui"
+import { openExternal } from "@/lib/open-external"
 import { isAdminOrOwner } from "@/lib/permissions"
 
 const MAX_WORKSPACE_ICON_BYTES = 2 * 1024 * 1024
@@ -536,6 +537,10 @@ function IntegrationsSection({ workspaceSlug }: { workspaceSlug: string }) {
     ...(channelsData?.uncategorized ?? []),
     ...(channelsData?.categories ?? []).flatMap((cat) => cat.channels),
   ].filter((ch) => ch.type === "text")
+  const notifyChannelItems = [
+    { value: NOTIFY_OFF, label: "Off" },
+    ...textChannels.map((ch) => ({ value: ch.id, label: `#${ch.name}` })),
+  ]
 
   const updateNotifyChannel = useMutation({
     mutationFn: async (input: {
@@ -676,7 +681,7 @@ function IntegrationsSection({ workspaceSlug }: { workspaceSlug: string }) {
                   size="sm"
                   disabled={!p.connectUrl}
                   onClick={() => {
-                    if (p.connectUrl) window.location.href = p.connectUrl
+                    if (p.connectUrl) openExternal(p.connectUrl)
                   }}
                 >
                   {p.connectUrl ? "Connect" : "Unavailable"}
@@ -698,6 +703,7 @@ function IntegrationsSection({ workspaceSlug }: { workspaceSlug: string }) {
                       {ev.label}
                     </span>
                     <Select
+                      items={notifyChannelItems}
                       value={ev.channelId ?? NOTIFY_OFF}
                       disabled={
                         pendingNotify?.connectionId === p.connectionId &&

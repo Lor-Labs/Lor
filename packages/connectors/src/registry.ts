@@ -81,8 +81,8 @@ export const CAPABILITIES: Record<MerlinCapability, CapabilityDescriptor> = {
   },
   linear_write: {
     key: "linear_write",
-    label: "Create & comment in Linear",
-    description: "Create issues and post comments",
+    label: "Write to Linear",
+    description: "Create and update issues and post comments",
     connector: "linear",
   },
   datadog: {
