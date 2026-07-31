@@ -12,8 +12,10 @@ no GitHub secrets). It fingerprints the native characteristics of the project,
 then:
 
 - **fingerprint matches an existing EAS build** → publishes an OTA update to
-  the `production` channel; installed apps fetch it on next launch. Dev
-  clients ignore OTA.
+  the `production` channel; installed apps fetch it on next launch.
+  Development builds don't auto-apply OTA updates (they load from the dev
+  server), though compatible updates can be opened manually from the
+  dev-client launcher.
 - **fingerprint is new** (native module added/removed, app.json/plugin
   change, SDK upgrade) → cuts a full EAS build and auto-submits it to
   TestFlight.
