@@ -210,9 +210,12 @@ export default function YouScreen() {
           />
         </SettingsCard>
 
-        <Text className="text-center text-xs font-medium text-muted">
-          Lor v{version}
-        </Text>
+        {/* Hidden dev entry: long-press the version to open the UI playground */}
+        <Pressable onLongPress={() => router.push("/playground")}>
+          <Text className="text-center text-xs font-medium text-muted">
+            Lor v{version}
+          </Text>
+        </Pressable>
       </ScrollView>
     </Screen>
   )

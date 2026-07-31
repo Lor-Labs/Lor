@@ -61,14 +61,6 @@ export default function AppTabs() {
           />
         </NativeTabs.Trigger>
 
-        <NativeTabs.Trigger name="explore">
-          <NativeTabs.Trigger.Label>Activity</NativeTabs.Trigger.Label>
-          <NativeTabs.Trigger.Icon
-            md={{ default: "notifications_none", selected: "notifications" }}
-            sf={{ default: "bell", selected: "bell.fill" }}
-          />
-        </NativeTabs.Trigger>
-
         <NativeTabs.Trigger name="you">
           <NativeTabs.Trigger.Label>You</NativeTabs.Trigger.Label>
           {avatarSource ? (
