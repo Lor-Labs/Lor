@@ -19,6 +19,7 @@ const CONNECTORS: Record<
       "fetch_linear",
       "create_linear_issue",
       "comment_linear",
+      "update_linear_issue",
     ],
   },
   datadog: {
