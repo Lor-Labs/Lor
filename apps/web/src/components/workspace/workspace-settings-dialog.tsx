@@ -536,6 +536,10 @@ function IntegrationsSection({ workspaceSlug }: { workspaceSlug: string }) {
     ...(channelsData?.uncategorized ?? []),
     ...(channelsData?.categories ?? []).flatMap((cat) => cat.channels),
   ].filter((ch) => ch.type === "text")
+  const notifyChannelItems = [
+    { value: NOTIFY_OFF, label: "Off" },
+    ...textChannels.map((ch) => ({ value: ch.id, label: `#${ch.name}` })),
+  ]
 
   const updateNotifyChannel = useMutation({
     mutationFn: async (input: {
@@ -698,6 +702,7 @@ function IntegrationsSection({ workspaceSlug }: { workspaceSlug: string }) {
                       {ev.label}
                     </span>
                     <Select
+                      items={notifyChannelItems}
                       value={ev.channelId ?? NOTIFY_OFF}
                       disabled={
                         pendingNotify?.connectionId === p.connectionId &&
