@@ -24,16 +24,16 @@ const gridPadding = 12
 export function AttachmentPickerPanel({
   height,
   onPickFiles,
-  onPickPhotos,
+  onPickMedia,
   onSelectPhoto,
-  onTakePhoto,
+  onTakeMedia,
   selectedPhotoUris,
 }: {
   height: number
   onPickFiles: () => Promise<void>
-  onPickPhotos: () => Promise<void>
+  onPickMedia: () => Promise<void>
   onSelectPhoto: (photo: RecentPhoto) => void
-  onTakePhoto: () => Promise<void>
+  onTakeMedia: () => Promise<void>
   selectedPhotoUris: Set<string>
 }) {
   const { width: windowWidth } = useWindowDimensions()
@@ -72,8 +72,8 @@ export function AttachmentPickerPanel({
           <AccessoryAction
             color={foreground}
             icon={Image01Icon}
-            label="All photos"
-            onPress={() => void onPickPhotos()}
+            label="Camera roll"
+            onPress={() => void onPickMedia()}
           />
           <AccessoryAction
             color={foreground}
@@ -142,8 +142,8 @@ export function AttachmentPickerPanel({
             showsVerticalScrollIndicator={false}
           >
             <PhotoTile
-              accessibilityLabel="Take a photo"
-              onPress={() => void onTakePhoto()}
+              accessibilityLabel="Take a photo or video"
+              onPress={() => void onTakeMedia()}
               size={tileSize}
             >
               <HugeiconsIcon color={foreground} icon={Camera01Icon} size={28} />
@@ -189,10 +189,10 @@ export function AttachmentPickerPanel({
 
         {permission === "limited" ? (
           <Pressable
-            accessibilityLabel="Choose more photos"
+            accessibilityLabel="Choose more from camera roll"
             accessibilityRole="button"
             className="absolute bottom-two right-three rounded-lor-sm bg-surface px-three py-two shadow-sm"
-            onPress={() => void onPickPhotos()}
+            onPress={() => void onPickMedia()}
           >
             <Text className="text-xs font-semibold text-accent">
               Choose more

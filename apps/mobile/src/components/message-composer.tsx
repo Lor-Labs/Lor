@@ -600,9 +600,9 @@ export function MessageComposer({
         <AttachmentPickerPanel
           height={attachmentPickerHeight}
           onPickFiles={attachmentUpload.pickFiles}
-          onPickPhotos={attachmentUpload.pickPhotos}
+          onPickMedia={attachmentUpload.pickMedia}
           onSelectPhoto={selectRecentPhoto}
-          onTakePhoto={attachmentUpload.takePhoto}
+          onTakeMedia={attachmentUpload.takeMedia}
           selectedPhotoUris={selectedPhotoUris}
         />
       ) : null}

@@ -1,0 +1,57 @@
+# Fingerprint-gated continuous deploy (iOS only for now — see the Android
+# jobs in https://docs.expo.dev/eas/workflows/examples/deploy-to-production/
+# when a Play Store release exists). On every push to main that touches
+# mobile-relevant paths: hash the native characteristics of the project; if
+# no EAS build exists for that hash, cut a full build and submit it to
+# TestFlight; otherwise publish an over-the-air update to the production
+# channel. Runbook: reference/mobile-release.md
+name: Deploy mobile
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - apps/mobile/**
+      - packages/api-client/**
+      - packages/auth/**
+      - packages/db/**
+      - packages/realtime-types/**
+      - packages/ui/**
+      - packages/utils/**
+      - patches/**
+      - pnpm-lock.yaml
+
+jobs:
+  fingerprint:
+    name: Fingerprint
+    type: fingerprint
+    environment: production
+  get_ios_build:
+    name: Check for existing iOS build
+    needs: [fingerprint]
+    type: get-build
+    params:
+      fingerprint_hash: ${{ needs.fingerprint.outputs.ios_fingerprint_hash }}
+      profile: production
+  build_ios:
+    name: Build iOS
+    needs: [get_ios_build]
+    if: ${{ !needs.get_ios_build.outputs.build_id }}
+    type: build
+    params:
+      platform: ios
+      profile: production
+  submit_ios_build:
+    name: Submit iOS build
+    needs: [build_ios]
+    type: submit
+    params:
+      build_id: ${{ needs.build_ios.outputs.build_id }}
+  publish_ios_update:
+    name: Publish iOS update
+    needs: [get_ios_build]
+    if: ${{ needs.get_ios_build.outputs.build_id }}
+    type: update
+    params:
+      platform: ios
+      channel: production

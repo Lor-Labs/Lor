@@ -54,9 +54,9 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Allow Lor to access your photos so you can share them in messages.",
-          "cameraPermission": "Allow Lor to use your camera so you can take photos to share in messages.",
-          "microphonePermission": false
+          "photosPermission": "Allow Lor to access your photos and videos so you can share them in messages.",
+          "cameraPermission": "Allow Lor to use your camera so you can take photos and videos to share in messages.",
+          "microphonePermission": "Allow Lor to use your microphone so videos you record can include audio."
         }
       ],
       [
@@ -88,6 +88,12 @@
       "eas": {
         "projectId": "133347a1-bcad-424a-ae01-e8c0f6cac0f2"
       }
+    },
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/133347a1-bcad-424a-ae01-e8c0f6cac0f2"
     }
   }
 }

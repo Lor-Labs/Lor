@@ -7,7 +7,7 @@ import { File, type UploadTask, UploadType } from "expo-file-system"
 import { ImageManipulator, SaveFormat } from "expo-image-manipulator"
 import * as ImagePicker from "expo-image-picker"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { Alert, Linking } from "react-native"
+import { Alert, Linking, Platform } from "react-native"
 import { api, responseMessage } from "@/lib/api"
 import type { Message } from "@/lib/api-types"
 
@@ -75,6 +75,8 @@ function mimeTypeFromName(filename: string) {
       return "video/mp4"
     case "mov":
       return "video/quicktime"
+    case "webm":
+      return "video/webm"
     case "mp3":
       return "audio/mpeg"
     case "wav":
@@ -84,10 +86,22 @@ function mimeTypeFromName(filename: string) {
   }
 }
 
-function imageAssetToLocalAsset(
+function mediaAssetToLocalAsset(
   asset: ImagePicker.ImagePickerAsset
 ): LocalAttachmentAsset {
-  const fallbackName = `photo-${Date.now()}.jpg`
+  const videoExtension =
+    asset.mimeType === "video/mp4"
+      ? "mp4"
+      : asset.mimeType === "video/quicktime"
+        ? "mov"
+        : asset.mimeType === "video/webm"
+          ? "webm"
+          : asset.type === "video"
+            ? "mp4"
+            : null
+  const fallbackName = videoExtension
+    ? `video-${Date.now()}.${videoExtension}`
+    : `photo-${Date.now()}.jpg`
   const filename = asset.fileName ?? fileNameFromUri(asset.uri, fallbackName)
   const file = new File(asset.uri)
   return {
@@ -325,7 +339,7 @@ export function useMessageAttachments(channelId: string) {
     [addAssets]
   )
 
-  const pickPhotos = useCallback(async () => {
+  const pickMedia = useCallback(async () => {
     if (attachmentsRef.current.length >= MAX_ATTACHMENTS_PER_MESSAGE) {
       setError(
         `You can attach up to ${MAX_ATTACHMENTS_PER_MESSAGE} files to a message.`
@@ -333,9 +347,17 @@ export function useMessageAttachments(channelId: string) {
       return
     }
     try {
+      if (Platform.OS === "ios") {
+        const permission =
+          await ImagePicker.requestMediaLibraryPermissionsAsync()
+        if (!permission.granted) {
+          setError("Camera roll access is needed to choose media.")
+          return
+        }
+      }
       const result = await ImagePicker.launchImageLibraryAsync({
         allowsMultipleSelection: true,
-        mediaTypes: ["images"],
+        mediaTypes: ["images", "videos"],
         orderedSelection: true,
         preferredAssetRepresentationMode:
           ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible,
@@ -344,13 +366,13 @@ export function useMessageAttachments(channelId: string) {
           MAX_ATTACHMENTS_PER_MESSAGE - attachmentsRef.current.length,
         shouldDownloadFromNetwork: true,
       })
-      if (!result.canceled) addAssets(result.assets.map(imageAssetToLocalAsset))
+      if (!result.canceled) addAssets(result.assets.map(mediaAssetToLocalAsset))
     } catch {
-      setError("Could not open the photo library.")
+      setError("Could not open the photo and video library.")
     }
   }, [addAssets])
 
-  const takePhoto = useCallback(async () => {
+  const takeMedia = useCallback(async () => {
     if (attachmentsRef.current.length >= MAX_ATTACHMENTS_PER_MESSAGE) {
       setError(
         `You can attach up to ${MAX_ATTACHMENTS_PER_MESSAGE} files to a message.`
@@ -360,11 +382,11 @@ export function useMessageAttachments(channelId: string) {
     try {
       const permission = await ImagePicker.requestCameraPermissionsAsync()
       if (!permission.granted) {
-        setError("Camera access is needed to take a photo.")
+        setError("Camera access is needed to take a photo or video.")
         if (!permission.canAskAgain) {
           Alert.alert(
             "Camera access is off",
-            "Enable camera access in Settings to take a photo.",
+            "Enable camera access in Settings to take a photo or video.",
             [
               { text: "Cancel", style: "cancel" },
               {
@@ -378,10 +400,10 @@ export function useMessageAttachments(channelId: string) {
       }
       const result = await ImagePicker.launchCameraAsync({
         cameraType: ImagePicker.CameraType.back,
-        mediaTypes: ["images"],
+        mediaTypes: ["images", "videos"],
         quality: 0.9,
       })
-      if (!result.canceled) addAssets(result.assets.map(imageAssetToLocalAsset))
+      if (!result.canceled) addAssets(result.assets.map(mediaAssetToLocalAsset))
     } catch {
       setError("Could not open the camera.")
     }
@@ -474,10 +496,10 @@ export function useMessageAttachments(channelId: string) {
       (attachment) => attachment.status === "uploading"
     ),
     pickFiles,
-    pickPhotos,
+    pickMedia,
     removeAttachment,
     retryAttachment,
-    takePhoto,
+    takeMedia,
     uploadedAttachments,
   }
 }
