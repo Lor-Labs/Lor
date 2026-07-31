@@ -29,7 +29,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@repo/ui/components/tooltip"
-import { cn } from "@repo/ui/lib/utils"
 import { useQuery } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import {
@@ -51,6 +50,7 @@ import {
 } from "@/components/sidebar/channel-panel/create-channel-context"
 import { WorkspaceCommand } from "@/components/sidebar/channel-panel/workspace-command"
 import { CreateWorkspaceDialog } from "@/components/sidebar/create-workspace-dialog"
+import { WorkspaceAvatar } from "@/components/workspace/workspace-avatar"
 import { WorkspaceSettingsDialog } from "@/components/workspace/workspace-settings-dialog"
 import { useBillingUpdates } from "@/hooks/use-billing-updates"
 import { useSettings } from "@/hooks/use-settings"
@@ -166,8 +166,6 @@ function WorkspaceSidebarInner() {
     writeLastWorkspaceSlug(workspaceSlug)
   }, [workspaceSlug])
 
-  const initial = (activeWorkspace?.name ?? "L").charAt(0).toUpperCase()
-
   return (
     <>
       <SidebarHeader className="gap-1 p-0 pb-1">
@@ -183,24 +181,12 @@ function WorkspaceSidebarInner() {
                   />
                 }
               >
-                <div
-                  className={cn(
-                    "flex aspect-square size-8 shrink-0 items-center justify-center overflow-hidden rounded-lg text-sm font-semibold",
-                    activeWorkspace?.logo
-                      ? "p-0.5"
-                      : "bg-sidebar-primary text-sidebar-primary-foreground"
-                  )}
-                >
-                  {activeWorkspace?.logo ? (
-                    <img
-                      src={activeWorkspace.logo}
-                      alt=""
-                      className="size-full rounded-md object-contain"
-                    />
-                  ) : (
-                    initial
-                  )}
-                </div>
+                <WorkspaceAvatar
+                  name={activeWorkspace?.name ?? "Lor"}
+                  logo={activeWorkspace?.logo}
+                  className="size-8 rounded-lg text-sm"
+                  imgClassName="rounded-md"
+                />
                 <div className="flex min-w-0 flex-1 items-center text-left text-sm leading-tight">
                   {isPending ? (
                     <Skeleton className="h-3.5 w-24 rounded" />
@@ -245,7 +231,6 @@ function WorkspaceSidebarInner() {
                   <DropdownMenuSubContent className="min-w-56">
                     {workspaces?.map((ws) => {
                       const isActive = ws.slug === activeWorkspace?.slug
-                      const wsInitial = (ws.name ?? "?").charAt(0).toUpperCase()
                       return (
                         <DropdownMenuItem
                           key={ws.id}
@@ -257,24 +242,12 @@ function WorkspaceSidebarInner() {
                             })
                           }}
                         >
-                          <div
-                            className={cn(
-                              "flex aspect-square size-6 shrink-0 items-center justify-center overflow-hidden rounded-md text-[10px] font-semibold",
-                              ws.logo
-                                ? "p-0.5"
-                                : "bg-sidebar-primary text-sidebar-primary-foreground"
-                            )}
-                          >
-                            {ws.logo ? (
-                              <img
-                                src={ws.logo}
-                                alt=""
-                                className="size-full rounded-[3px] object-contain"
-                              />
-                            ) : (
-                              wsInitial
-                            )}
-                          </div>
+                          <WorkspaceAvatar
+                            name={ws.name}
+                            logo={ws.logo}
+                            className="size-6 rounded-md text-[10px]"
+                            imgClassName="rounded-[3px]"
+                          />
                           <span className="truncate">{ws.name}</span>
                           {isActive && (
                             <Check className="ml-auto size-4 text-muted-foreground" />
