@@ -54,9 +54,9 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Allow Lor to access your photos so you can share them in messages.",
-          "cameraPermission": "Allow Lor to use your camera so you can take photos to share in messages.",
-          "microphonePermission": false
+          "photosPermission": "Allow Lor to access your photos and videos so you can share them in messages.",
+          "cameraPermission": "Allow Lor to use your camera so you can take photos and videos to share in messages.",
+          "microphonePermission": "Allow Lor to use your microphone so videos you record can include audio."
         }
       ],
       [
