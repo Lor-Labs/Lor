@@ -9,7 +9,7 @@ Let people query their company's authorized Slack history from inside Townhall.
 - Search Slack messages, threads, channels, people, links, and accessible files.
 - Fetch full thread context when a search result is relevant.
 - Use Slack as grounded source material for Merlin's answers and workspace memory.
-- Respect the installing workspace's Slack permissions and source access controls.
+- Treat the querying Townhall user as the authorization principal, constrained by the installation's Slack scopes and the source's current access controls.
 - Clearly identify and link back to Slack as the source.
 
 ## The hard boundary
@@ -24,7 +24,7 @@ Townhall will not:
 - turn Slack channels into a second interface for Townhall;
 - request write scopes merely to make the integration feel more bot-like.
 
-Slack event subscriptions or webhooks may be used privately to keep authorized data synchronized. They are ingestion infrastructure, not a conversational or action surface, and they must never cause Townhall to reply in Slack.
+Slack event subscriptions or webhooks may be used privately to keep authorized data synchronized. Before processing, verify Slack's signature and timestamp freshness, reject replayed event IDs, bind the event to its installing workspace, and re-check source authorization before indexing. They are ingestion infrastructure, not a conversational or action surface, and they must never cause Townhall to reply in Slack.
 
 ## Product posture
 
@@ -40,10 +40,11 @@ This keeps Townhall as the primary multiplayer AI workspace instead of reducing 
 ## MVP definition
 
 - Connect a Slack workspace with the minimum read-only permissions required.
-- Query all content the installation is authorized to access from Townhall.
+- Query only content the requesting Townhall user is currently authorized to access in Slack; installation-level access alone is insufficient.
 - Search first, then fetch complete messages and thread context on demand.
 - Return grounded results with author, channel, timestamp, and a Slack permalink.
-- Preserve tenant, private-channel, and user-level access boundaries.
+- Store source ACL metadata with every indexed record and enforce the same authorization checks during search, thread expansion, and file retrieval.
+- Block stale records when scopes, channel membership, or source content changes until deletion or re-sync completes.
 - Provide disconnect, token revocation, deletion, and re-sync controls.
 - Ship no Slack-side conversational UI and no Slack write actions.
 
