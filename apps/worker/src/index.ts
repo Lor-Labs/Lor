@@ -11,8 +11,10 @@ import { createClient } from "redis"
 import { createLinkUnfurlProcessor } from "@/jobs/link-unfurl"
 import { createMerlinRespondProcessor } from "@/jobs/merlin-respond"
 import {
+  DEAD_RUN_SWEEP_EVERY_MS,
   pruneRunEvents,
   RUN_EVENT_PRUNE_EVERY_MS,
+  sweepDeadRuns,
 } from "@/jobs/prune-run-events"
 import { logger } from "@/lib/logger"
 
@@ -119,8 +121,9 @@ async function bootstrap() {
 
   const maintenanceWorker = new Worker(
     MAINTENANCE_QUEUE,
-    async () => {
-      await pruneRunEvents()
+    async (job) => {
+      if (job.name === "prune-run-events") await pruneRunEvents()
+      else if (job.name === "sweep-dead-runs") await sweepDeadRuns(emitter)
     },
     {
       connection: {
@@ -146,6 +149,9 @@ async function bootstrap() {
   // Redis, first run fires immediately, then every interval.
   await maintenanceQueue.upsertJobScheduler("prune-run-events", {
     every: RUN_EVENT_PRUNE_EVERY_MS,
+  })
+  await maintenanceQueue.upsertJobScheduler("sweep-dead-runs", {
+    every: DEAD_RUN_SWEEP_EVERY_MS,
   })
 
   logger.info(

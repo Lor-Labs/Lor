@@ -692,14 +692,27 @@ io.on("connection", (socket) => {
                   triggerMessageId: createdMessage.message.id,
                 })
               : null
-            await merlinRespondQueue.add("respond", {
-              merlinMessageId: merlinMessage.id,
-              channelId: parsed.channelId,
-              threadRootId: merlinThreadRootId,
-              contextThreadRootId: parsed.threadRootId ?? null,
-              triggerMessageId: createdMessage.message.id,
-              ...(runId ? { runId } : {}),
-            })
+            // One recovery attempt: a crashed/stalled attempt is retried once
+            // and resumes from the run's last checkpoint (the run's own
+            // attempt cap is the authoritative guard). Handled errors don't
+            // retry — the worker catches them and posts a fallback instead of
+            // throwing. jobId = runId dedupes re-enqueues of the same run.
+            await merlinRespondQueue.add(
+              "respond",
+              {
+                merlinMessageId: merlinMessage.id,
+                channelId: parsed.channelId,
+                threadRootId: merlinThreadRootId,
+                contextThreadRootId: parsed.threadRootId ?? null,
+                triggerMessageId: createdMessage.message.id,
+                ...(runId ? { runId } : {}),
+              },
+              {
+                attempts: 2,
+                backoff: { type: "fixed", delay: 5000 },
+                ...(runId ? { jobId: runId } : {}),
+              }
+            )
           })
           .catch((err) => {
             logger.error({ err }, "Failed to start Merlin response")

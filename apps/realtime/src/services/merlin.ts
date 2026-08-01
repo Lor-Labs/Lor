@@ -8,6 +8,7 @@ import {
   MERLIN_USER_ID,
   schema,
 } from "@repo/db"
+import { env } from "@repo/env/server"
 import type { PlacementTurn } from "@repo/merlin/placement"
 import { extractDirectMentionUserIds } from "@repo/messaging"
 import type { RealtimeMessage } from "@repo/realtime-types"
@@ -93,8 +94,10 @@ export async function createMerlinPlaceholder(args: {
 }
 
 // Durable agent_run row backing a Merlin response (see
-// reference/agent-harness-plan.md). Best-effort: a failure here must never
-// block the answer — the worker treats a missing runId as a legacy job.
+// reference/agent-harness-plan.md). Budgets are snapshotted from env here so
+// an in-flight run keeps its ceilings across retries and config changes.
+// Best-effort: a failure here must never block the answer — the worker treats
+// a missing runId as a legacy job.
 export async function createAgentRun(args: {
   workspaceId: string
   channelId: string
@@ -111,6 +114,13 @@ export async function createAgentRun(args: {
       threadRootId: args.threadRootId,
       triggerMessageId: args.triggerMessageId,
       scopeKey: args.threadRootId ?? args.channelId,
+      budgetSteps: env.AGENT_RUN_MAX_STEPS,
+      budgetInputTokens: env.AGENT_RUN_MAX_INPUT_TOKENS,
+      budgetOutputTokens: env.AGENT_RUN_MAX_OUTPUT_TOKENS,
+      budgetToolCalls: env.AGENT_RUN_MAX_TOOL_CALLS,
+      budgetToolOutputBytes: env.AGENT_RUN_MAX_TOOL_OUTPUT_BYTES,
+      budgetWallMs: env.AGENT_RUN_MAX_WALL_MS,
+      budgetCredits: env.AGENT_RUN_MAX_CREDITS,
     })
     .returning({ id: schema.agentRun.id })
     .then((r) => r[0] ?? null)

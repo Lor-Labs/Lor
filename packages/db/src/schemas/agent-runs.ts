@@ -6,6 +6,7 @@ import {
   pgEnum,
   pgTable,
   primaryKey,
+  text,
   timestamp,
   uniqueIndex,
   uuid,
@@ -86,6 +87,51 @@ export const agentRun = pgTable(
     // high-water mark with each batched event flush.
     nextSeq: integer("next_seq").notNull().default(0),
 
+    // Execution ownership. Every counter/state write is guarded on the lease
+    // so a retry or concurrent worker can never double-own or double-spend.
+    leaseOwner: text("lease_owner"),
+    leaseExpiresAt: timestamp("lease_expires_at"),
+    attempt: integer("attempt").notNull().default(0),
+    maxAttempts: integer("max_attempts").notNull().default(2),
+
+    // Hard ceilings, snapshotted at creation from env defaults — an in-flight
+    // run keeps its budgets across retries and config changes. Emergency
+    // rails, not normal stopping targets.
+    budgetSteps: integer("budget_steps").notNull().default(100),
+    budgetInputTokens: integer("budget_input_tokens")
+      .notNull()
+      .default(1_000_000),
+    budgetOutputTokens: integer("budget_output_tokens")
+      .notNull()
+      .default(150_000),
+    budgetToolCalls: integer("budget_tool_calls").notNull().default(200),
+    budgetToolOutputBytes: integer("budget_tool_output_bytes")
+      .notNull()
+      .default(2_097_152),
+    budgetWallMs: integer("budget_wall_ms").notNull().default(1_800_000),
+    budgetCredits: integer("budget_credits").notNull().default(500),
+
+    // Cumulative counters across the whole run — persisted at each step
+    // checkpoint and reused (never reset) by recovery. `steps` doubles as the
+    // checkpoint pointer: transcript rows 1..steps are durable.
+    steps: integer("steps").notNull().default(0),
+    inputTokens: integer("input_tokens").notNull().default(0),
+    outputTokens: integer("output_tokens").notNull().default(0),
+    toolCalls: integer("tool_calls").notNull().default(0),
+    toolOutputBytes: integer("tool_output_bytes").notNull().default(0),
+    creditsSpent: integer("credits_spent").notNull().default(0),
+
+    // Wall-clock ceiling as an absolute timestamp (startedAt + budgetWallMs at
+    // first claim) so recovery cannot extend it.
+    deadlineAt: timestamp("deadline_at"),
+
+    // Step-0 context: everything needed to rebuild the initial model request
+    // byte-for-byte on resume (conversation snapshot, brain prefetch, roster)
+    // without re-querying — no drift, no double embed billing. Image bytes are
+    // re-fetched from their URLs.
+    context: jsonb("context").$type<AgentRunContext>(),
+    instructions: text("instructions"),
+
     startedAt: timestamp("started_at"),
     finishedAt: timestamp("finished_at"),
   },
@@ -97,6 +143,49 @@ export const agentRun = pgTable(
       table.createdAt
     ),
   ]
+)
+
+// Append-only transcript: one row per completed model/tool step, holding the
+// ModelMessages that step added. Recovery rebuilds the request as step-0
+// context + rows 1..agent_run.steps. Typed as unknown[] because @repo/db
+// cannot depend on the ai package; @repo/merlin owns the real ModelMessage
+// shape on both write and read.
+export const agentRunStep = pgTable(
+  "agent_run_step",
+  {
+    runId: uuid("run_id")
+      .notNull()
+      .references(() => agentRun.id, { onDelete: "cascade" }),
+    step: integer("step").notNull(),
+    messages: jsonb("messages").$type<unknown[]>().notNull(),
+    model: text("model"),
+    inputTokens: integer("input_tokens"),
+    cachedInputTokens: integer("cached_input_tokens"),
+    outputTokens: integer("output_tokens"),
+    reasoningTokens: integer("reasoning_tokens"),
+    toolCalls: integer("tool_calls").notNull().default(0),
+    toolOutputBytes: integer("tool_output_bytes").notNull().default(0),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.runId, table.step] })]
+)
+
+// Side-effecting tool executions, keyed by a hash of tool name + canonical
+// input (toolCallIds regenerate when a step retries; input identity doesn't).
+// A retried step returns the stored output instead of executing again, so
+// completed actions never run twice. Output shape is per-tool, hence unknown.
+export const agentRunToolResult = pgTable(
+  "agent_run_tool_result",
+  {
+    runId: uuid("run_id")
+      .notNull()
+      .references(() => agentRun.id, { onDelete: "cascade" }),
+    toolKey: text("tool_key").notNull(),
+    toolName: text("tool_name").notNull(),
+    output: jsonb("output").$type<unknown>(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.runId, table.toolKey] })]
 )
 
 export const agentRunEventKindEnum = pgEnum("agent_run_event_kind", [
@@ -152,7 +241,29 @@ export const agentRunEventRelations = relations(agentRunEvent, ({ one }) => ({
   }),
 }))
 
+// Snapshot of the inputs to the initial model request. Mirrors @repo/merlin's
+// ConversationTurn structurally; kept here because the column type lives with
+// the table.
+export type AgentRunContextImage = {
+  url: string
+  filename: string
+  mediaType: string
+  size: number
+}
+export type AgentRunContextTurn = {
+  authorName: string
+  content: string
+  images?: AgentRunContextImage[]
+}
+export type AgentRunContext = {
+  conversation: AgentRunContextTurn[]
+  brainContext: string
+  rosterText: string
+}
+
 export type AgentRun = typeof agentRun.$inferSelect
+export type AgentRunStep = typeof agentRunStep.$inferSelect
+export type AgentRunToolResult = typeof agentRunToolResult.$inferSelect
 export type AgentRunState = (typeof agentRunStateEnum.enumValues)[number]
 export type AgentRunPhase = (typeof agentRunPhaseEnum.enumValues)[number]
 export type AgentRunStopReason =

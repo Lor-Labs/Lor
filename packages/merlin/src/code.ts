@@ -4,6 +4,7 @@ import { z } from "zod"
 import { logger } from "./logger"
 import { getInstallationToken, type InstallationRepo } from "./providers/github"
 import { investigateCode } from "./sandbox/investigate"
+import { toolExecutionKey } from "./tool-guard"
 import type { OnUsage } from "./usage"
 
 const MAX_LISTED = 30
@@ -40,7 +41,6 @@ const codeContext = z.object({
   workspaceId: z.string(),
   installationId: z.string(),
   repos: z.custom<InstallationRepo[]>(),
-  nextBillingKey: z.custom<() => string>().optional(),
   onUsage: z.custom<OnUsage>().optional(),
   onToolEvent: z.custom<(e: MerlinToolCall) => void>().optional(),
 })
@@ -66,9 +66,15 @@ export const codeTools = {
     }),
     contextSchema: codeContext,
     execute: async ({ repo, question }, { toolCallId, context }) => {
-      const billingKey = context.nextBillingKey?.() ?? toolCallId
       const resolved = resolveRepo(repo, context.repos)
       if ("error" in resolved) return { error: resolved.error }
+      // Stable per-input identity (not toolCallId, which regenerates when a
+      // recovered step retries): the same investigation in the same response
+      // can never debit twice, across retries and run recovery alike.
+      const billingKey = toolExecutionKey("investigate_code", {
+        repo: resolved.repo,
+        question,
+      })
 
       const token = await getInstallationToken(context.installationId).catch(
         () => null

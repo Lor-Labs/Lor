@@ -136,7 +136,20 @@ Immutable version rows: `id`, `workspaceId`, `version` (unique per workspace, mo
 
 Each slice is independently shippable; 1–2 touch `packages/db` + `packages/merlin` + worker/realtime, 3 is mostly independent of 2, 4 depends on 1 (events/seq) and benefits from 2 (safe step boundaries for steering).
 
-## 9. Open decision points
+## 9. Implementation notes (as-built deltas)
+
+Slices 1–2 are built (2026-08-01). Where the code deviates from the sections above:
+
+- **No separate `checkpointStep`** — `agent_run.steps` doubles as the checkpoint pointer (transcript rows 1..steps are durable). Step-0 context lives on the run row (`context` + `instructions` columns); `agent_run_step` holds model steps only.
+- **Recovery resets clients with a `replace` text frame** (existing client path) instead of a `truncate` event; the enum value is kept unused. The claim also jumps `nextSeq` by 10,000 on takeover so a zombie's un-flushed live tail can never collide with recovered frames.
+- **`investigate_code` billing key** is now a stable hash of (repo, question) instead of a per-response counter — retry- and recovery-safe, and aligned with the `agent_run_tool_result` cache key so a recovered step returns cached findings without re-running or re-billing the sandbox.
+- **Checkpoint ordering**: `stopWhen` (async) performs the checkpoint for the just-finished step before the loop may continue; a post-loop sweep covers the final text-only step. `prepareStep` is the graceful enforcer (forces `toolChoice: "none"` when the next step would hit any ceiling); `stopWhen` is the hard backstop.
+- **Ledger billing stays per attempt**: a crashed attempt's tokens count toward the run's ceilings (counters) but are deliberately never re-billed — customer-favorable.
+- **Per-call tool output cap** (256 KB) is env-only, not a per-run column; the cumulative 2 MB cap is snapshotted.
+- **Dead-run sweep**: a 10-minute maintenance job force-fails non-terminal runs well past their deadline and settles their stuck pending placeholders — covers the double-crash case beyond the single recovery attempt.
+- **Context-per-request** stays governed by `MERLIN_COMPACT_INPUT_TOKENS` (gateway models don't expose window metadata); `MERLIN_RESPOND_TOKEN_BUDGET` is removed, superseded by the run budgets.
+
+## 10. Open decision points
 
 - **Channel-scope serialization:** `scopeKey = threadRootId ?? channelId` serializes *all* channel-level runs in one channel — two people asking unrelated in-channel questions queue behind each other. Recommended for v1 (placement usually ducks noisy asks into threads anyway; contradictory overlapping answers are worse), but it's one line to relax later.
 - **Event retention window** (proposed 7 days post-completion).

@@ -9,12 +9,13 @@ import { logger } from "@/lib/logger"
 const FLUSH_MS = 1000
 const FLUSH_MAX_BUFFERED = 50
 
-// Buffered writer for a run's ordered event log. The claiming worker is the
-// sole writer, so sequence numbers are allocated in memory and the high-water
-// mark is persisted with each flush. Socket frames carry the same seq, letting
-// clients replay persisted events and then drain buffered live frames without
-// gaps. A crash loses at most the un-flushed tail — pre-checkpoint output that
-// recovery discards anyway (see reference/agent-harness-plan.md).
+// Buffered writer for a run's ordered event log. The lease-holding worker is
+// the sole writer, so sequence numbers are allocated in memory and the
+// high-water mark is persisted with each flush. Socket frames carry the same
+// seq, letting clients replay persisted events and then drain buffered live
+// frames without gaps. A crash loses at most the un-flushed tail —
+// pre-checkpoint output that recovery discards anyway (the claim also jumps
+// the sequence past any such tail, so a zombie's frames can never collide).
 export type RunEventWriter = {
   runId: string | null
   // Buffer an event and return its seq (undefined on legacy runs without a row).
@@ -28,7 +29,7 @@ export type RunEventWriter = {
   close: () => Promise<void>
 }
 
-const noopWriter: RunEventWriter = {
+export const noopRunEventWriter: RunEventWriter = {
   runId: null,
   append: () => undefined,
   transition: async () => {},
@@ -76,32 +77,16 @@ function coalesce(events: BufferedEvent[]): BufferedEvent[] {
   return out
 }
 
-// Claim the run (queued → working) and build its writer. Returns a no-op
-// writer when the job predates the run table or the row is gone/terminal —
-// event persistence must never block an answer.
-export async function claimRunEventWriter(
-  runId: string | undefined
-): Promise<RunEventWriter> {
-  if (!runId) return noopWriter
-
-  const claimed = await db
-    .update(schema.agentRun)
-    .set({ state: "working", startedAt: new Date() })
-    .where(
-      and(
-        eq(schema.agentRun.id, runId),
-        inArray(schema.agentRun.state, ["queued", "working"])
-      )
-    )
-    .returning({ nextSeq: schema.agentRun.nextSeq })
-    .then((r) => r[0] ?? null)
-    .catch((err) => {
-      logger.warn({ err, runId }, "Agent run claim failed; events disabled")
-      return null
-    })
-  if (!claimed) return noopWriter
-
-  let nextSeq = claimed.nextSeq
+// Writer for a run this worker has already claimed (see claimAgentRun). All
+// persistence is guarded on the lease owner, so a zombie attempt that lost
+// its lease writes nothing.
+export function createRunEventWriter(args: {
+  runId: string
+  workerId: string
+  initialSeq: number
+}): RunEventWriter {
+  const { runId, workerId } = args
+  let nextSeq = args.initialSeq
   let buffer: BufferedEvent[] = []
   let timer: NodeJS.Timeout | null = null
   // Serializes flushes so batches land in seq order even if one stalls.
@@ -118,18 +103,26 @@ export async function claimRunEventWriter(
     const highWater = nextSeq
     try {
       await db.transaction(async (tx) => {
-        await tx.insert(schema.agentRunEvent).values(
-          batch.map((e) => ({
-            runId,
-            seq: e.seq,
-            kind: e.payload.kind,
-            payload: e.payload,
-          }))
-        )
+        await tx
+          .insert(schema.agentRunEvent)
+          .values(
+            batch.map((e) => ({
+              runId,
+              seq: e.seq,
+              kind: e.payload.kind,
+              payload: e.payload,
+            }))
+          )
+          .onConflictDoNothing()
         await tx
           .update(schema.agentRun)
           .set({ nextSeq: highWater })
-          .where(eq(schema.agentRun.id, runId))
+          .where(
+            and(
+              eq(schema.agentRun.id, runId),
+              eq(schema.agentRun.leaseOwner, workerId)
+            )
+          )
       })
     } catch (err) {
       // Dropped batch: replay loses these events but live frames already went
@@ -169,7 +162,15 @@ export async function claimRunEventWriter(
         ...(opts?.stopReason ? { stopReason: opts.stopReason } : {}),
         ...(terminal ? { finishedAt: new Date() } : {}),
       })
-      .where(eq(schema.agentRun.id, runId))
+      .where(
+        and(
+          eq(schema.agentRun.id, runId),
+          eq(schema.agentRun.leaseOwner, workerId),
+          // Never resurrect a terminal run (e.g. a failed transition racing a
+          // takeover that already finished).
+          inArray(schema.agentRun.state, ["queued", "working", "finalizing"])
+        )
+      )
       .catch((err) =>
         logger.warn({ err, runId, state }, "Agent run transition failed")
       )

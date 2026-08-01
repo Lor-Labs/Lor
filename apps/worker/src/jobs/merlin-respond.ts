@@ -42,8 +42,9 @@ import {
 import type { Emitter } from "@socket.io/redis-emitter"
 import type { Job } from "bullmq"
 import type { createClient } from "redis"
+import { claimAgentRun, LeaseLostError } from "@/lib/agent-run"
 import { logger } from "@/lib/logger"
-import { claimRunEventWriter } from "@/lib/run-events"
+import { noopRunEventWriter } from "@/lib/run-events"
 
 // Matches the worker's createClient (bare RedisClientType mismatches its generics).
 type RedisClient = ReturnType<typeof createClient>
@@ -53,6 +54,9 @@ const FLUSH_THRESHOLD = 24
 const CONTEXT_LIMIT = 30
 // Write-back lock TTL (s); auto-releases if the worker crashes.
 const WRITEBACK_LOCK_TTL = 120
+// Floor of remaining budget below which the optional write-back is skipped.
+const WRITEBACK_MIN_BUDGET_FRACTION = 0.15
+const WRITEBACK_MIN_CREDITS = 50
 
 const MERLIN_ERROR_FALLBACK =
   "⚠️ I ran into an error answering that. Please try again."
@@ -140,9 +144,20 @@ export function createMerlinRespondProcessor(
           ? threadRoom(threadRootId)
           : channelRoom(channelId)
 
-        // Durable event log for late-join replay. Claiming flips the run to
-        // "working"; a no-op writer (legacy job, missing row) changes nothing.
-        const runWriter = await claimRunEventWriter(job.data.runId)
+        // Claim the durable run: lease + attempt accounting + event writer.
+        // Legacy jobs (no run row) proceed with a no-op writer, exactly as
+        // before durable runs existed.
+        const claim = await claimAgentRun(job.data.runId)
+        if (claim.kind === "terminal") {
+          // Finished by (or currently owned by) another attempt.
+          logger.info(
+            { merlinMessageId, runId: job.data.runId },
+            "Run already terminal or owned elsewhere; skipping"
+          )
+          return
+        }
+        const execution = claim.kind === "claimed" ? claim.execution : null
+        const runWriter = execution?.writer ?? noopRunEventWriter
         // Frame fields tying a live socket event to its persisted log entry.
         const runRef = (seq: number | undefined) => ({
           ...(runWriter.runId ? { runId: runWriter.runId } : {}),
@@ -181,13 +196,40 @@ export function createMerlinRespondProcessor(
         // Register the stream so clients can show a thinking indicator.
         emit("", false)
 
+        if (claim.kind === "exhausted") {
+          // Recovery attempts used up — the run can never continue; settle the
+          // stuck pending placeholder.
+          logger.warn(
+            { merlinMessageId, runId: job.data.runId },
+            "Run out of recovery attempts; failing the message"
+          )
+          await db
+            .update(schema.message)
+            .set({ content: MERLIN_ERROR_FALLBACK, status: "failed" })
+            .where(eq(schema.message.id, merlinMessageId))
+            .catch(() => {})
+          emit(MERLIN_ERROR_FALLBACK, true, "failed", true)
+          return
+        }
+
+        // Recovered attempt: reset clients to the durable answer prefix — the
+        // dead attempt's un-checkpointed tail is discarded by design.
+        if (execution?.resume) {
+          emit(execution.resume.answerTextSoFar, false, undefined, true)
+        }
+
         // Reasoning is kept both as a legacy aggregate and ordered segments that
         // can be interleaved with tool calls at the same answer-text offset.
-        let reasoning = ""
+        // On recovery, all trails reseed from the event log so the streamed
+        // record persisted at the end covers the pre-crash steps too.
+        const trail = execution?.resume?.trail
+        let reasoning = trail?.reasoning ?? ""
         let pendingReasoning = ""
-        let eventOrder = 0
+        let eventOrder = trail?.nextOrder ?? 0
         let activeReasoningSegment: MerlinReasoningSegment | null = null
-        const reasoningSegments: MerlinReasoningSegment[] = []
+        const reasoningSegments: MerlinReasoningSegment[] = trail
+          ? [...trail.reasoningSegments]
+          : []
         const flushReasoning = () => {
           if (!pendingReasoning || !activeReasoningSegment) return
           const seq = runWriter.append({
@@ -219,11 +261,11 @@ export function createMerlinRespondProcessor(
         let gateText: string
         // Tools Merlin consults while answering — accumulated for the durable
         // trail persisted on the message, and streamed live via merlin:tool.
-        const toolCalls: MerlinToolCall[] = []
+        const toolCalls: MerlinToolCall[] = trail ? [...trail.toolCalls] : []
         // Brain pages Merlin saves (explicit during the answer + autonomous
         // write-back) — accumulated for the durable record and streamed live
         // via merlin:memory. Upsert by path (last write wins).
-        const remembered: MerlinMemory[] = []
+        const remembered: MerlinMemory[] = trail ? [...trail.remembered] : []
         const remember = (memory: MerlinMemory) => {
           const idx = remembered.findIndex((m) => m.path === memory.path)
           if (idx >= 0) remembered[idx] = memory
@@ -243,11 +285,15 @@ export function createMerlinRespondProcessor(
           })
         }
         try {
-          const conversation = await loadConversation({
-            channelId,
-            threadRootId: contextThreadRootId,
-            merlinMessageId,
-          })
+          // On recovery the persisted step-0 snapshot is the conversation —
+          // reloading would drift (new messages may have landed since).
+          const conversation = execution?.resume
+            ? execution.resume.conversation
+            : await loadConversation({
+                channelId,
+                threadRootId: contextThreadRootId,
+                merlinMessageId,
+              })
 
           const channel = await db
             .select({ workspaceId: schema.channel.workspaceId })
@@ -268,6 +314,7 @@ export function createMerlinRespondProcessor(
               .catch(() => {})
             emit(MERLIN_ERROR_FALLBACK, true, "failed")
             await runWriter.transition("failed", { stopReason: "error" })
+            execution?.stop()
             return
           }
           workspaceId = channel.workspaceId
@@ -289,6 +336,7 @@ export function createMerlinRespondProcessor(
             await runWriter.transition("failed", {
               stopReason: "out_of_credits",
             })
+            execution?.stop()
             emitter.to(workspaceRoom(workspaceId)).emit("billing:updated", {
               workspaceId,
               reason: "out_of_credits",
@@ -386,12 +434,16 @@ export function createMerlinRespondProcessor(
               },
               // Metered usage: every event lands in the usage_event ledger;
               // billable responses and code investigations debit credits.
-              // Fire-and-forget: billing must never fail the answer.
+              // Fire-and-forget: billing must never fail the answer. Nested
+              // billable usage also folds into the run's spend counter at the
+              // next checkpoint (the budget_spend ceiling).
               onUsage: (u) => {
                 logger.info({ ...u }, "Merlin usage")
+                if (u.tool === "investigate_code") execution?.noteNestedUsage(u)
                 void recordUsage(u, usageRefs)
               },
-            }
+            },
+            execution?.handle
           )
           flushPendingText()
           closeReasoningSegment()
@@ -400,6 +452,16 @@ export function createMerlinRespondProcessor(
             .map((t) => `${t.authorName}: ${t.content}`)
             .join("\n")}\n\nMerlin: ${answer.text}`
         } catch (err) {
+          // Superseded attempt (lease lost / takeover): another worker owns
+          // the message now — exit without touching it or emitting anything.
+          if (err instanceof LeaseLostError || execution?.aborted()) {
+            logger.warn(
+              { err, merlinMessageId, runId: execution?.runId },
+              "Attempt superseded mid-answer; exiting silently"
+            )
+            execution?.stop()
+            return
+          }
           logger.error({ err, merlinMessageId }, "Merlin response failed")
           await db
             .update(schema.message)
@@ -409,7 +471,14 @@ export function createMerlinRespondProcessor(
           // Replace (not append) so a partial answer streamed before the error
           // is dropped in favor of the fallback, matching the persisted row.
           emit(MERLIN_ERROR_FALLBACK, true, "failed", true)
-          await runWriter.transition("failed", { stopReason: "error" })
+          await runWriter.transition("failed", {
+            stopReason:
+              execution &&
+              Date.now() >= execution.handle.budgets.deadlineAt.getTime()
+                ? "budget_wall_clock"
+                : "error",
+          })
+          execution?.stop()
           return
         }
 
@@ -516,6 +585,7 @@ export function createMerlinRespondProcessor(
             .catch(() => {})
           emit(MERLIN_ERROR_FALLBACK, true, "failed", true)
           await runWriter.transition("failed", { stopReason: "error" })
+          execution?.stop()
           return
         }
 
@@ -584,11 +654,42 @@ export function createMerlinRespondProcessor(
           false,
           messageMentions
         )
-        await runWriter.transition("complete", { stopReason: "completed" })
+        await runWriter.transition("complete", {
+          stopReason: answer.stoppedFor ?? "completed",
+        })
+        // Heartbeat off: the run is terminal; write-back needs no lease.
+        execution?.stop()
         logger.info(
           { merlinMessageId, length: finalText.length },
           "Merlin reply complete"
         )
+
+        // Skip the optional write-back when the answer finished near a
+        // ceiling — never endanger an already-delivered response.
+        if (execution) {
+          const { budgets } = execution.handle
+          const c = execution.counters()
+          const inputLeft =
+            (budgets.inputTokens - c.inputTokens) / budgets.inputTokens
+          const outputLeft =
+            (budgets.outputTokens - c.outputTokens) / budgets.outputTokens
+          const creditsLeft = budgets.credits - c.creditsSpent
+          const wallLeftMs = budgets.deadlineAt.getTime() - Date.now()
+          if (
+            inputLeft < WRITEBACK_MIN_BUDGET_FRACTION ||
+            outputLeft < WRITEBACK_MIN_BUDGET_FRACTION ||
+            creditsLeft < WRITEBACK_MIN_CREDITS ||
+            wallLeftMs < 60_000
+          ) {
+            logger.info(
+              { merlinMessageId, runId: execution.runId, counters: c },
+              "Write-back skipped; run finished near a budget ceiling"
+            )
+            await runWriter.close()
+            return
+          }
+          await execution.setPhase("writeback")
+        }
 
         // Phase 3 — autonomous write-back. Per-workspace lock serializes brain
         // writes; skip if another holds it (resurfaces on a later mention).
@@ -609,9 +710,12 @@ export function createMerlinRespondProcessor(
             { workspaceId, priorMessages: answer.messages, gateText },
             {
               onMemoryWritten: remember,
-              // Autonomous — not attributed to the triggering user.
-              onUsage: (u) =>
-                void recordUsage(u, { messageId: merlinMessageId, channelId }),
+              // Autonomous — not attributed to the triggering user. Also
+              // folded into the run counters (all nested usage counts).
+              onUsage: (u) => {
+                execution?.addUsage(u)
+                void recordUsage(u, { messageId: merlinMessageId, channelId })
+              },
             }
           )
           // Persist what write-back committed so the chip survives a reload
