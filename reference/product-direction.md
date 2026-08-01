@@ -24,9 +24,9 @@ Allow each workspace to generate and evolve software around how its company oper
 
 ### Agent-built tools and integrations
 
-- Build connectors for services Townhall does not support
+- Build connectors for services Lor does not support
 - Make generated tools available to agents, workflows, and apps
-- Keep credentials and permissions securely governed by Townhall
+- Keep credentials and permissions securely governed by Lor
 
 ### Self-configuring agents
 
@@ -36,7 +36,7 @@ Allow each workspace to generate and evolve software around how its company oper
 
 ## Product thesis
 
-Most company-brain products stop at retrieving information. Townhall should use company memory to help teams act, collaborate, and eventually create the software they need.
+Most company-brain products stop at retrieving information. Lor should use company memory to help teams act, collaborate, and eventually create the software they need.
 
 **MVP:** a multiplayer workspace where humans and memory-backed agents work together.
 

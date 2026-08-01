@@ -10,6 +10,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
   lint-and-typecheck:
     name: Lint & Type Check
@@ -18,6 +22,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: pnpm/action-setup@v4
 
@@ -27,6 +33,61 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
+
+      - name: Detect affected apps
+        if: github.event_name == 'pull_request'
+        id: affected_apps
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          report="$RUNNER_TEMP/affected-apps.json"
+          node .github/scripts/affected-apps.mjs "$BASE_SHA" "$HEAD_SHA" > "$report"
+          jq -r '.body' "$report" >> "$GITHUB_STEP_SUMMARY"
+          echo "report_path=$report" >> "$GITHUB_OUTPUT"
+
+      - name: Update affected apps PR comment
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        uses: actions/github-script@v7
+        env:
+          REPORT_PATH: ${{ steps.affected_apps.outputs.report_path }}
+        with:
+          script: |
+            const fs = require("fs")
+            const marker = "<!-- affected-apps-report -->"
+            const { body } = JSON.parse(
+              fs.readFileSync(process.env.REPORT_PATH, "utf8")
+            )
+            const comments = await github.paginate(
+              github.rest.issues.listComments,
+              {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                per_page: 100,
+              }
+            )
+            const existing = comments.find(
+              (comment) =>
+                comment.user?.type === "Bot" && comment.body?.includes(marker)
+            )
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              })
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              })
+            }
 
       - name: Validate contributor checks
         run: pnpm run validate
