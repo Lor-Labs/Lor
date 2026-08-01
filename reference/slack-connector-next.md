@@ -25,7 +25,7 @@ Lor will not:
 - turn Slack channels into a second interface for Lor;
 - request write scopes merely to make the integration feel more bot-like.
 
-Slack event subscriptions or webhooks may be used privately to keep authorized data synchronized. Before processing, verify Slack's signature and timestamp freshness, reject replayed event IDs, bind the event to its installing workspace, and re-check source authorization before indexing. They are ingestion infrastructure, not a conversational or action surface, and they must never cause Lor to reply in Slack.
+Slack event subscriptions or webhooks may be used privately to keep authorized data synchronized. Process them in order: verify Slack's signature and timestamp freshness, bind the event to its installation, deduplicate its `event_id`, apply resource-specific timestamp or version ordering when available, and re-check source authorization before indexing. Never discard an event solely because it is older than an unrelated workspace event. If delivery is disabled, stale, or has a detected gap, run bounded reconciliation and quarantine affected records and derivatives until freshness is restored. This is ingestion infrastructure, not a conversational or action surface, and it must never cause Lor to reply in Slack.
 
 ## Product posture
 
