@@ -40,7 +40,7 @@ export function WorkspaceAvatar({
           className={cn("size-full object-contain", imgClassName)}
         />
       ) : (
-        initial
+        <span aria-hidden="true">{initial}</span>
       )}
     </div>
   )

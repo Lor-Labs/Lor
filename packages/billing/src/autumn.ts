@@ -79,21 +79,28 @@ export async function checkCredits(workspaceId: string): Promise<CreditCheck> {
 // negative), so the next check refuses instead of the overage being free.
 export async function trackCredits(
   workspaceId: string,
-  credits: number
+  credits: number,
+  debitId: string
 ): Promise<DebitStatus> {
   const autumn = getAutumn()
   if (!autumn) return "free"
   try {
-    await autumn.track({
-      customerId: workspaceId,
-      featureId: CREDITS_FEATURE_ID,
-      value: credits,
-      overageBehavior: "overflow",
-    })
+    await autumn.track(
+      {
+        customerId: workspaceId,
+        featureId: CREDITS_FEATURE_ID,
+        value: credits,
+        overageBehavior: "overflow",
+      },
+      { headers: { "Idempotency-Key": debitId } }
+    )
     return "debited"
   } catch (err) {
+    // Autumn rejects a duplicate idempotency key with 409. The original debit
+    // was already accepted, so recovery can safely finalize our pending row.
+    if ((err as { statusCode?: number }).statusCode === 409) return "debited"
     logger.error(
-      { err, workspaceId, credits },
+      { err, workspaceId, credits, debitId },
       "Autumn track failed; failing open"
     )
     return "fail_open"

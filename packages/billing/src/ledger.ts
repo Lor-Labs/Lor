@@ -43,10 +43,10 @@ const OPERATION_CLASS: Record<
   "source.embed": "embedding",
 }
 
-// Persist a ledger row and, for billable tools only, debit Autumn. The
-// idempotency key makes retries debit-safe: the insert conflict skips both
-// the duplicate row and the duplicate track. Only billable events carry a
-// key — repeatable events (e.g. two sandbox runs) keep null keys.
+// Persist a ledger row and, for billable tools only, debit Autumn. A billable
+// row starts pending; retries load it by idempotency key and resume only while
+// it remains pending. Its row id is also Autumn's idempotency identity, closing
+// the crash window between the provider debit and our terminal status update.
 export async function recordUsage(
   u: UsageLike,
   refs: UsageRefs = {}
@@ -61,6 +61,17 @@ export async function recordUsage(
     const costUsd = u.costUsd ?? (rate ? computeCostUsd(tokens, rate) : null)
     const billable = isBillableTool(u.tool)
     const credits = billable && rate ? computeCredits(tokens, rate) : 0
+    const debitKey = usageDebitKey({
+      billingKey: u.billingKey,
+      messageId: refs.messageId,
+      tool: u.tool,
+    })
+    const selection = {
+      creditsDebited: schema.usageEvent.creditsDebited,
+      debitStatus: schema.usageEvent.debitStatus,
+      id: schema.usageEvent.id,
+      workspaceId: schema.usageEvent.workspaceId,
+    }
     const inserted = await db
       .insert(schema.usageEvent)
       .values({
@@ -78,19 +89,28 @@ export async function recordUsage(
         toolCalls: u.toolCalls ?? null,
         costUsd: costUsd != null ? costUsd.toFixed(6) : null,
         creditsDebited: credits,
-        debitStatus: "free",
+        debitStatus: credits > 0 ? "pending" : "free",
         messageId: refs.messageId ?? null,
-        idempotencyKey: usageDebitKey({
-          billingKey: u.billingKey,
-          messageId: refs.messageId,
-          tool: u.tool,
-        }),
+        idempotencyKey: debitKey,
       })
       .onConflictDoNothing({ target: schema.usageEvent.idempotencyKey })
-      .returning({ id: schema.usageEvent.id })
-    const row = inserted[0]
-    if (credits > 0 && row) {
-      const status = await trackCredits(u.workspaceId, credits)
+      .returning(selection)
+    const existing =
+      inserted[0] || !debitKey
+        ? undefined
+        : await db
+            .select(selection)
+            .from(schema.usageEvent)
+            .where(eq(schema.usageEvent.idempotencyKey, debitKey))
+            .limit(1)
+            .then((rows) => rows[0])
+    const row = inserted[0] ?? existing
+    if (row?.debitStatus === "pending" && row.creditsDebited > 0) {
+      const status = await trackCredits(
+        row.workspaceId,
+        row.creditsDebited,
+        row.id
+      )
       await db
         .update(schema.usageEvent)
         .set({ debitStatus: status })

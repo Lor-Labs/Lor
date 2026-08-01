@@ -99,7 +99,7 @@ describe("createPiEventCollector", () => {
         requestedModel: "moonshotai/kimi-k3",
         inputTokens: 180,
         cachedInputTokens: 70,
-        outputTokens: 55,
+        outputTokens: 70,
         reasoningTokens: 15,
       },
     })

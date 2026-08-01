@@ -100,6 +100,8 @@ export function createPiEventCollector(onStep?: (step: PiCodeStep) => void) {
     if (!rawUsage) return
     const cost = asRecord(rawUsage.cost)
     const cachedInput = asNumber(rawUsage.cacheRead)
+    const reasoning = asNumber(rawUsage.reasoning)
+    const billedOutput = sum(asNumber(rawUsage.output), reasoning)
     const next: PiInvestigationUsage = {
       model:
         asString(message.responseModel) ??
@@ -108,11 +110,8 @@ export function createPiEventCollector(onStep?: (step: PiCodeStep) => void) {
       requestedModel: asString(message.model) ?? usage?.requestedModel,
       inputTokens: sum(usage?.inputTokens, asNumber(rawUsage.input)),
       cachedInputTokens: sum(usage?.cachedInputTokens, cachedInput),
-      outputTokens: sum(usage?.outputTokens, asNumber(rawUsage.output)),
-      reasoningTokens: sum(
-        usage?.reasoningTokens,
-        asNumber(rawUsage.reasoning)
-      ),
+      outputTokens: sum(usage?.outputTokens, billedOutput),
+      reasoningTokens: sum(usage?.reasoningTokens, reasoning),
     }
 
     // Townhall's billing ledger owns pricing. Pi still receives zero-valued

@@ -38,3 +38,5 @@ Allow people to send instructions while the agent is already working in a thread
 3. Build realtime steering and queued follow-ups on top of explicit run state.
 
 Together these move Merlin from a bounded request/response assistant toward a persistent, configurable multiplayer agent without prematurely introducing autonomous code-writing permissions.
+
+The next milestone after this harness work is the one-way, read-only [`Slack connector`](./slack-connector-next.md).

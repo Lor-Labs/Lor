@@ -9,7 +9,6 @@ dotenvConfig({ path: resolve(process.cwd(), "../../.env") })
 
 const CHECKS = [
   "echo hello from the sandbox",
-  "codex --version",
   "pi --version",
   "git --version",
   "node --version",
@@ -68,6 +67,7 @@ async function main(): Promise<void> {
       if (!result.findings.includes("townhall-pi-smoke")) {
         throw new Error(`Unexpected Pi answer: ${result.findings || "(empty)"}`)
       }
+      if (!result.usage) throw new Error("Pi returned no billable usage")
       console.log(`Pi (${result.usage?.model ?? model}): ${result.findings}`)
     },
     { env: { AI_GATEWAY_API_KEY: gatewayKey, IS_SANDBOX: "1" } }

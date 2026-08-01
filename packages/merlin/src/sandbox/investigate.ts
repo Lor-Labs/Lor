@@ -136,6 +136,13 @@ export async function investigateCode(opts: {
         if (collected.error && !collected.findings) {
           return { error: `code agent failed: ${collected.error}` }
         }
+        if (!collected.usage) {
+          logger.warn(
+            { repoFullName, stdoutSample: scrub(run.stdout.slice(0, 500)) },
+            "Sandbox: Pi returned findings without billable usage"
+          )
+          return { error: "code agent returned no billable usage" }
+        }
 
         const findings =
           collected.findings || "(no findings from the code agent)"

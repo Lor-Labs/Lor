@@ -16,7 +16,7 @@ Prove that humans and agents can work together inside one persistent, shared env
 
 Allow each workspace to generate and evolve software around how its company operates.
 
-### Multiplayer generated apps
+### Multiplayer-generated apps
 
 - Build small internal apps from conversation and company context
 - Give each app durable data, a generated interface, and realtime collaboration
