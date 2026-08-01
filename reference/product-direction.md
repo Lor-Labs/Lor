@@ -43,3 +43,5 @@ Most company-brain products stop at retrieving information. Townhall should use 
 **V2:** a multiplayer workspace that generates and evolves its own tools, agents, integrations, and applications.
 
 The MVP should not build the full v2 platform, but its artifacts, permissions, secrets, tools, memory, and realtime systems should have clean boundaries that leave this direction open.
+
+Immediate post-Pi harness priorities are captured in [`agent-harness-next.md`](./agent-harness-next.md).
