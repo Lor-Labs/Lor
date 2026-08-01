@@ -31,6 +31,8 @@ export const operationClassEnum = pgEnum("operation_class", [
 ])
 
 export const debitStatusEnum = pgEnum("debit_status", [
+  // Written before an external debit; retryable with the usage row id.
+  "pending",
   "debited",
   "free",
   "fail_open",

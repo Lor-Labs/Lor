@@ -15,6 +15,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { ArrowLeft, Check, Loader2, Plus, Users, X } from "lucide-react"
 import { useCallback, useEffect, useRef, useState } from "react"
+import { WorkspaceAvatar } from "@/components/workspace/workspace-avatar"
 import { apiClient } from "@/lib/api-client"
 import { hasValidUsername, MIN_USERNAME_LENGTH } from "@/lib/username"
 
@@ -429,19 +430,12 @@ export function OnboardingDialog({
                 ) : (
                   <div className="space-y-4">
                     <div className="flex items-center gap-3 rounded-lg border border-border bg-card p-4">
-                      {invitePreview.invite.workspace.logo ? (
-                        <img
-                          src={invitePreview.invite.workspace.logo}
-                          alt={invitePreview.invite.workspace.name}
-                          className="size-12 shrink-0 rounded-lg object-cover"
-                        />
-                      ) : (
-                        <div className="flex size-12 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-lg font-bold text-primary">
-                          {invitePreview.invite.workspace.name
-                            .charAt(0)
-                            .toUpperCase()}
-                        </div>
-                      )}
+                      <WorkspaceAvatar
+                        name={invitePreview.invite.workspace.name}
+                        logo={invitePreview.invite.workspace.logo}
+                        className="size-12 rounded-lg text-lg"
+                        imgClassName="rounded-md"
+                      />
                       <div className="min-w-0">
                         <p className="truncate font-medium">
                           {invitePreview.invite.workspace.name}

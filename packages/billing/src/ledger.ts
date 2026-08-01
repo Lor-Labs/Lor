@@ -2,6 +2,7 @@ import { db, eq, schema } from "@repo/db"
 import { createLogger } from "@repo/logger"
 import { trackCredits } from "./autumn"
 import { computeCostUsd, computeCredits } from "./credits"
+import { isBillableTool, usageDebitKey } from "./policy"
 import { getRate } from "./rates"
 
 const logger = createLogger("billing")
@@ -20,6 +21,8 @@ export type UsageLike = {
   wallMs?: number
   toolCalls?: number
   costUsd?: number
+  // Stable within a parent response so repeat jobs do not duplicate debits.
+  billingKey?: string
 }
 
 export type UsageRefs = {
@@ -28,24 +31,22 @@ export type UsageRefs = {
   userId?: string | null
 }
 
-// Analytics buckets, not prices — debits come from token math. Everything
-// that isn't the main answer is free.
+// Analytics buckets, not prices — debits come from token math.
 const OPERATION_CLASS: Record<
   string,
   (typeof schema.operationClassEnum.enumValues)[number]
 > = {
   "merlin.respond": "merlin.standard",
+  investigate_code: "merlin.deep",
   "merlin.embed": "embedding",
   "source.summarize": "ingestion",
   "source.embed": "embedding",
 }
 
-const BILLABLE_TOOLS = new Set(["merlin.respond"])
-
-// Persist a ledger row and, for billable tools only, debit Autumn. The
-// idempotency key makes retries debit-safe: the insert conflict skips both
-// the duplicate row and the duplicate track. Only billable events carry a
-// key — repeatable events (e.g. two sandbox runs) keep null keys.
+// Persist a ledger row and, for billable tools only, debit Autumn. A billable
+// row starts pending; retries load it by idempotency key and resume only while
+// it remains pending. Its row id is also Autumn's idempotency identity, closing
+// the crash window between the provider debit and our terminal status update.
 export async function recordUsage(
   u: UsageLike,
   refs: UsageRefs = {}
@@ -58,8 +59,19 @@ export async function recordUsage(
       outputTokens: u.outputTokens,
     }
     const costUsd = u.costUsd ?? (rate ? computeCostUsd(tokens, rate) : null)
-    const billable = BILLABLE_TOOLS.has(u.tool)
+    const billable = isBillableTool(u.tool)
     const credits = billable && rate ? computeCredits(tokens, rate) : 0
+    const debitKey = usageDebitKey({
+      billingKey: u.billingKey,
+      messageId: refs.messageId,
+      tool: u.tool,
+    })
+    const selection = {
+      creditsDebited: schema.usageEvent.creditsDebited,
+      debitStatus: schema.usageEvent.debitStatus,
+      id: schema.usageEvent.id,
+      workspaceId: schema.usageEvent.workspaceId,
+    }
     const inserted = await db
       .insert(schema.usageEvent)
       .values({
@@ -77,16 +89,28 @@ export async function recordUsage(
         toolCalls: u.toolCalls ?? null,
         costUsd: costUsd != null ? costUsd.toFixed(6) : null,
         creditsDebited: credits,
-        debitStatus: "free",
+        debitStatus: credits > 0 ? "pending" : "free",
         messageId: refs.messageId ?? null,
-        idempotencyKey:
-          billable && refs.messageId ? `${refs.messageId}:${u.tool}` : null,
+        idempotencyKey: debitKey,
       })
       .onConflictDoNothing({ target: schema.usageEvent.idempotencyKey })
-      .returning({ id: schema.usageEvent.id })
-    const row = inserted[0]
-    if (credits > 0 && row) {
-      const status = await trackCredits(u.workspaceId, credits)
+      .returning(selection)
+    const existing =
+      inserted[0] || !debitKey
+        ? undefined
+        : await db
+            .select(selection)
+            .from(schema.usageEvent)
+            .where(eq(schema.usageEvent.idempotencyKey, debitKey))
+            .limit(1)
+            .then((rows) => rows[0])
+    const row = inserted[0] ?? existing
+    if (row?.debitStatus === "pending" && row.creditsDebited > 0) {
+      const status = await trackCredits(
+        row.workspaceId,
+        row.creditsDebited,
+        row.id
+      )
       await db
         .update(schema.usageEvent)
         .set({ debitStatus: status })

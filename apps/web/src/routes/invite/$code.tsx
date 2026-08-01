@@ -5,6 +5,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
 import { Shield, Users } from "lucide-react"
 import { useEffect } from "react"
 import { toast } from "sonner"
+import { WorkspaceAvatar } from "@/components/workspace/workspace-avatar"
 import { SocketProvider, useSocket } from "@/context/socket-context"
 import { apiClient } from "@/lib/api-client"
 import { writePendingInvite } from "@/lib/pending-invite"
@@ -216,17 +217,12 @@ function InviteCard({
           </div>
         ) : invite ? (
           <div className="flex flex-col items-center gap-4 text-center">
-            {invite.workspace.logo ? (
-              <img
-                src={invite.workspace.logo}
-                alt={invite.workspace.name}
-                className="size-16 rounded-full object-cover"
-              />
-            ) : (
-              <div className="flex size-16 items-center justify-center rounded-full bg-primary/10 text-2xl font-bold text-primary">
-                {invite.workspace.name.charAt(0).toUpperCase()}
-              </div>
-            )}
+            <WorkspaceAvatar
+              name={invite.workspace.name}
+              logo={invite.workspace.logo}
+              className="size-16 rounded-2xl text-2xl"
+              imgClassName="rounded-xl"
+            />
 
             <div>
               <h2 className="text-lg font-semibold">{invite.workspace.name}</h2>

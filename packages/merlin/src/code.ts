@@ -40,6 +40,7 @@ const codeContext = z.object({
   workspaceId: z.string(),
   installationId: z.string(),
   repos: z.custom<InstallationRepo[]>(),
+  nextBillingKey: z.custom<() => string>().optional(),
   onUsage: z.custom<OnUsage>().optional(),
   onToolEvent: z.custom<(e: MerlinToolCall) => void>().optional(),
 })
@@ -65,6 +66,7 @@ export const codeTools = {
     }),
     contextSchema: codeContext,
     execute: async ({ repo, question }, { toolCallId, context }) => {
+      const billingKey = context.nextBillingKey?.() ?? toolCallId
       const resolved = resolveRepo(repo, context.repos)
       if ("error" in resolved) return { error: resolved.error }
 
@@ -102,10 +104,13 @@ export const codeTools = {
           context.onUsage?.({
             workspaceId: context.workspaceId,
             tool: "investigate_code",
+            billingKey,
             model: result.usage.model,
+            requestedModel: result.usage.requestedModel,
             inputTokens: result.usage.inputTokens,
+            cachedInputTokens: result.usage.cachedInputTokens,
             outputTokens: result.usage.outputTokens,
-            costUsd: result.usage.costUsd,
+            reasoningTokens: result.usage.reasoningTokens,
             metadata: { repo: resolved.repo },
           })
         } catch (err) {

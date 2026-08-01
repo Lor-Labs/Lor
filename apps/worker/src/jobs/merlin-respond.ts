@@ -342,8 +342,8 @@ export function createMerlinRespondProcessor(
                 })
               },
               // Metered usage: every event lands in the usage_event ledger;
-              // only merlin.respond debits credits (fire-and-forget — billing
-              // must never fail the answer).
+              // billable responses and code investigations debit credits.
+              // Fire-and-forget: billing must never fail the answer.
               onUsage: (u) => {
                 logger.info({ ...u }, "Merlin usage")
                 void recordUsage(u, usageRefs)

@@ -937,6 +937,7 @@ export async function respond(
     ...(datadogMcp ? datadogMcp.tools : {}),
   }
 
+  let codeInvestigationUsageIndex = 0
   const toolsContext = {
     ...coreToolsContext(ctx.workspaceId, onMemoryWritten),
     ...(github
@@ -947,6 +948,7 @@ export async function respond(
             workspaceId: ctx.workspaceId,
             installationId: github.installationId,
             repos: github.repos,
+            nextBillingKey: () => String(++codeInvestigationUsageIndex),
             onUsage,
             onToolEvent,
           },

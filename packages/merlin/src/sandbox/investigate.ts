@@ -1,15 +1,15 @@
 import { env } from "@repo/env/server"
 import { logger } from "../logger"
 import { withSandbox } from "./index"
+import { buildPiCommand, buildPiModelConfig } from "./pi-config"
+import {
+  createPiEventCollector,
+  type PiCodeStep,
+  type PiInvestigationUsage,
+} from "./pi-events"
 
-export type InvestigationUsage = {
-  model?: string
-  inputTokens?: number
-  outputTokens?: number
-  costUsd?: number
-}
-
-export type CodeStep = { toolName: string; label: string }
+export type InvestigationUsage = PiInvestigationUsage
+export type CodeStep = PiCodeStep
 
 export type InvestigationResult = {
   findings: string
@@ -18,7 +18,6 @@ export type InvestigationResult = {
 
 const AGENT_TIMEOUT_SEC = 600
 const CLONE_TIMEOUT_SEC = 180
-const FALLBACK_MAX = 8000
 
 function brief(question: string): string {
   return [
@@ -31,37 +30,6 @@ function brief(question: string): string {
     "",
     `Question: ${question}`,
   ].join("\n")
-}
-
-function asRecord(v: unknown): Record<string, unknown> | undefined {
-  return v && typeof v === "object" ? (v as Record<string, unknown>) : undefined
-}
-function asString(v: unknown): string | undefined {
-  return typeof v === "string" && v.trim() ? v : undefined
-}
-function asNumber(v: unknown): number | undefined {
-  return typeof v === "number" && Number.isFinite(v) ? v : undefined
-}
-
-function subToolLabel(name: string, input: unknown): string {
-  const r = asRecord(input)
-  const file = asString(r?.file_path)
-  const pattern = asString(r?.pattern)
-  const command = asString(r?.command)
-  switch (name) {
-    case "Read":
-      return file ? `Read ${file}` : "Read a file"
-    case "Grep":
-      return pattern ? `Searched for “${pattern}”` : "Searched the code"
-    case "Glob":
-      return pattern ? `Listed files: ${pattern}` : "Listed files"
-    case "Bash":
-      return command ? `Ran: ${command.slice(0, 60)}` : "Ran a command"
-    case "LS":
-      return "Listed a directory"
-    default:
-      return name
-  }
 }
 
 export async function investigateCode(opts: {
@@ -98,71 +66,45 @@ export async function investigateCode(opts: {
         )
         logger.info({ repoFullName }, "Sandbox: clone ok; running code agent")
 
-        // Parse Claude Code JSONL: tool_use blocks stream steps; result has findings.
-        let resultText = ""
-        let usage: InvestigationUsage | undefined
+        await sandbox.exec("mkdir -p /root/.pi/agent")
+        await sandbox.files.write(
+          "/root/.pi/agent/models.json",
+          JSON.stringify(
+            buildPiModelConfig({
+              baseUrl: env.AI_GATEWAY_BASE_URL,
+              model: env.MERLIN_MODEL,
+            })
+          )
+        )
+        await sandbox.files.write("/investigation.txt", brief(question))
+
+        const collector = createPiEventCollector((step) => {
+          logger.info(
+            { repoFullName, subTool: step.toolName },
+            "Sandbox: agent tool call"
+          )
+          onStep?.(step)
+        })
         let buffer = ""
         const onLine = (line: string) => {
-          const trimmed = line.trim()
-          if (!trimmed) return
-          let evt: Record<string, unknown> | undefined
-          try {
-            evt = asRecord(JSON.parse(trimmed))
-          } catch {
-            return
-          }
-          if (!evt) return
-          const type = asString(evt.type)
-          if (type === "assistant") {
-            const content = asRecord(evt.message)?.content
-            if (Array.isArray(content)) {
-              for (const block of content) {
-                const b = asRecord(block)
-                if (asString(b?.type) === "tool_use") {
-                  const name = asString(b?.name) ?? "tool"
-                  logger.info(
-                    { repoFullName, subTool: name },
-                    "Sandbox: agent tool call"
-                  )
-                  onStep?.({
-                    toolName: name,
-                    label: subToolLabel(name, b?.input),
-                  })
-                }
-              }
-            }
-          } else if (type === "result") {
-            resultText = asString(evt.result) ?? resultText
-            const u = asRecord(evt.usage)
-            const parsed: InvestigationUsage = {
-              model: asString(evt.model),
-              inputTokens: asNumber(u?.input_tokens),
-              outputTokens: asNumber(u?.output_tokens),
-              costUsd: asNumber(evt.total_cost_usd),
-            }
-            if (Object.values(parsed).some((x) => x !== undefined))
-              usage = parsed
-          }
+          collector.consume(line)
         }
 
-        await sandbox.files.write("/investigation.txt", brief(question))
-        const run = await sandbox.exec(
-          "sh -c 'cat /investigation.txt | claude -p --output-format stream-json --verbose --dangerously-skip-permissions'",
-          {
-            cwd: "/repo",
-            timeoutSec: AGENT_TIMEOUT_SEC,
-            onStdout: (chunk) => {
-              buffer += chunk
-              let nl = buffer.indexOf("\n")
-              while (nl >= 0) {
-                onLine(buffer.slice(0, nl))
-                buffer = buffer.slice(nl + 1)
-                nl = buffer.indexOf("\n")
-              }
-            },
-          }
-        )
+        const run = await sandbox.exec(buildPiCommand(env.MERLIN_MODEL), {
+          cwd: "/repo",
+          timeoutSec: AGENT_TIMEOUT_SEC,
+          onStdout: (chunk) => {
+            buffer += chunk
+            let nl = buffer.indexOf("\n")
+            while (nl >= 0) {
+              onLine(buffer.slice(0, nl))
+              buffer = buffer.slice(nl + 1)
+              nl = buffer.indexOf("\n")
+            }
+          },
+        })
         if (buffer.trim()) onLine(buffer)
+        const collected = collector.result()
 
         logger.info(
           {
@@ -191,20 +133,33 @@ export async function investigateCode(opts: {
           const detail = scrub((run.stderr || run.stdout).slice(0, 300))
           return { error: `code agent failed: ${detail || "unknown error"}` }
         }
-
-        const findings =
-          resultText.trim() ||
-          scrub(run.stdout).slice(0, FALLBACK_MAX) ||
-          "(no findings from the code agent)"
-        if (!resultText.trim()) {
+        if (collected.error && !collected.findings) {
+          return { error: `code agent failed: ${collected.error}` }
+        }
+        if (!collected.usage) {
           logger.warn(
             { repoFullName, stdoutSample: scrub(run.stdout.slice(0, 500)) },
-            "Sandbox: no result event parsed from agent stream"
+            "Sandbox: Pi returned findings without billable usage"
+          )
+          return { error: "code agent returned no billable usage" }
+        }
+
+        const findings =
+          collected.findings || "(no findings from the code agent)"
+        if (!collected.findings) {
+          logger.warn(
+            { repoFullName, stdoutSample: scrub(run.stdout.slice(0, 500)) },
+            "Sandbox: no final text parsed from Pi event stream"
           )
         }
-        return { findings, usage }
+        return { findings, usage: collected.usage }
       },
-      { env: { ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY, IS_SANDBOX: "1" } }
+      {
+        env: {
+          AI_GATEWAY_API_KEY: env.AI_GATEWAY_API_KEY,
+          IS_SANDBOX: "1",
+        },
+      }
     )
   } catch (err) {
     logger.error({ err, repoFullName }, "Sandbox: investigation failed")

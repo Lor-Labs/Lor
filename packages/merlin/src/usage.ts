@@ -12,6 +12,8 @@ export type UsageEvent = {
   wallMs?: number
   toolCalls?: number
   costUsd?: number
+  // Stable within the parent response; used for retry-safe tool debits.
+  billingKey?: string
   metadata?: Record<string, unknown>
 }
 

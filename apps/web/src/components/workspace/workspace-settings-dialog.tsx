@@ -8,7 +8,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@repo/ui/components/alert-dialog"
-import { Avatar, AvatarFallback } from "@repo/ui/components/avatar"
 import { Button } from "@repo/ui/components/button"
 import {
   Dialog,
@@ -49,6 +48,7 @@ import { createPortal } from "react-dom"
 import { toast } from "sonner"
 import { BillingSection } from "@/components/workspace/billing-section"
 import { MerlinProfilesSection } from "@/components/workspace/merlin-profiles-section"
+import { WorkspaceAvatar } from "@/components/workspace/workspace-avatar"
 import { apiClient } from "@/lib/api-client"
 import type { ConnectDatadogRequest } from "@/lib/api-types"
 import { connectorLogo } from "@/lib/connector-ui"
@@ -392,11 +392,6 @@ function GeneralSection({
   const hasChanges = name.trim() !== workspace.name || iconFile !== null
   const isValid = name.trim().length > 0
   const displayIcon = iconPreview ?? workspace.logo
-  const initials = workspace.name
-    .split(" ")
-    .map((w) => w[0])
-    .join("")
-    .slice(0, 2)
 
   return (
     <div className="space-y-6">
@@ -421,27 +416,13 @@ function GeneralSection({
         onClick={() => fileInputRef.current?.click()}
       >
         <span className="group relative shrink-0">
-          {displayIcon ? (
-            <span className="flex size-20 items-center justify-center overflow-hidden rounded-xl">
-              <img
-                src={displayIcon}
-                alt={workspace.name}
-                className="size-full object-contain"
-              />
-            </span>
-          ) : (
-            <Avatar className="size-20">
-              <AvatarFallback className="text-lg font-semibold">
-                {initials}
-              </AvatarFallback>
-            </Avatar>
-          )}
-          <span
-            className={cn(
-              "absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 transition-opacity group-hover:opacity-100",
-              displayIcon ? "rounded-xl" : "rounded-full"
-            )}
-          >
+          <WorkspaceAvatar
+            name={workspace.name}
+            logo={displayIcon}
+            className="size-20 rounded-xl text-2xl"
+            imgClassName="rounded-lg"
+          />
+          <span className="absolute inset-0 flex items-center justify-center rounded-xl bg-black/50 opacity-0 transition-opacity group-hover:opacity-100">
             <Camera className="size-5 text-white" />
           </span>
         </span>

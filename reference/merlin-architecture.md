@@ -234,7 +234,7 @@ These steps define *what gets produced* (a repo-map page, anchored citations) an
 
 ### 7.4 Execution environment: ephemeral Railway sandboxes (v1 direction)
 
-**Decision (2026-06-26): code work runs in ephemeral Railway sandboxes, driving a real agentic coding tool (Claude Code / Codex CLI) against a short-lived clone.** This flips the earlier "defer the sandbox, ship API-fetch first" stance — Railway's agent sandboxes make the sandbox the *cheaper and better* path now, and it lets us lean on proven coding-agent frameworks instead of reinventing repo reasoning over the REST API.
+**Decision (updated 2026-07-31): code investigation runs in ephemeral Railway sandboxes, driving Pi with Merlin's configured main model against a short-lived clone.** This flips the earlier "defer the sandbox, ship API-fetch first" stance — Railway's agent sandboxes make the sandbox the *cheaper and better* path now, and Pi gives us an open, model-neutral harness instead of tying repository reasoning to a proprietary coding CLI.
 
 **Still rejected — persistent clone at rest per workspace.** Storing customer source at rest reintroduces system-of-record/staleness/liability (a serious security surface for our privacy/compliance ICP) and the per-workspace-storage economics we already rejected. Nothing code-related persists except synthesized pages + SHA pointers.
 

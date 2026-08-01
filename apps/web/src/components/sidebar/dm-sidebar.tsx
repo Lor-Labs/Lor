@@ -17,6 +17,7 @@ import { useMemo, useState } from "react"
 import { SearchBar } from "@/components/sidebar/channel-panel/search-bar"
 import { DMList } from "@/components/sidebar/dm-panel/dm-list"
 import { NewDMDialog } from "@/components/sidebar/dm-panel/new-dm-dialog"
+import { WorkspaceAvatar } from "@/components/workspace/workspace-avatar"
 import { readLastWorkspaceSlug } from "@/lib/last-location"
 
 function useReturnWorkspace() {
@@ -71,8 +72,6 @@ export function DMSidebarContent() {
   const [newDMOpen, setNewDMOpen] = useState(false)
   const { slug, name, logo, isPending } = useReturnWorkspace()
 
-  const initial = (name ?? "L").charAt(0).toUpperCase()
-
   return (
     <>
       <SidebarHeader>
@@ -91,13 +90,12 @@ export function DMSidebarContent() {
               tooltip={name ? `Back to ${name}` : "Direct messages"}
               className="group/back"
             >
-              <div className="flex aspect-square size-8 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-sidebar-primary text-sidebar-primary-foreground text-sm font-semibold">
-                {logo ? (
-                  <img src={logo} alt="" className="size-full object-cover" />
-                ) : (
-                  initial
-                )}
-              </div>
+              <WorkspaceAvatar
+                name={name ?? "Lor"}
+                logo={logo}
+                className="size-8 rounded-lg text-sm"
+                imgClassName="rounded-md"
+              />
               <div className="grid flex-1 text-left text-sm leading-tight">
                 {isPending ? (
                   <Skeleton className="h-3.5 w-24 rounded" />

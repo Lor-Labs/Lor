@@ -35,18 +35,16 @@ function toolIcon(toolName: string): TrailIcon {
       return Code
     case "search_sources":
     case "search_messages":
-    // Claude Code sub-tools (capitalized) streamed from the sandbox agent:
-    case "Grep":
-    case "Glob":
+    case "grep":
+    case "find":
       return Search
     case "fetch_source":
       return Download
     case "ls":
     case "tree":
     case "read":
-    case "Read":
       return BookOpen
-    case "Bash":
+    case "bash":
       return Terminal
     case "write":
     case "mkdir":
