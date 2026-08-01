@@ -1,5 +1,6 @@
 export * from "./accounts"
 export * from "./agent-profiles"
+export * from "./agent-runs"
 export * from "./brain"
 export * from "./channel-mutes"
 export * from "./channel-read-states"

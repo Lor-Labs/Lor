@@ -387,6 +387,12 @@ export interface ServerToClientEvents {
     messageId: string
     delta: string
     done: boolean
+    // Durable-run identity + event-log sequence number for this frame, so a
+    // client can replay persisted events (GET run events ?after=seq) and then
+    // drain buffered live frames without gaps or reordering. Absent on frames
+    // from a run that predates the event log.
+    runId?: string
+    seq?: number
     // Terminal status on the final chunk, so the client clears the
     // placeholder's "pending" state live (not just on reload).
     status?: "complete" | "failed"
@@ -407,6 +413,8 @@ export interface ServerToClientEvents {
     delta: string
     at: number
     order: number
+    runId?: string
+    seq?: number
   }) => void
   // Merlin saved/updated a brain page during write-back (messageId = its reply).
   "merlin:memory": (payload: {
@@ -415,6 +423,8 @@ export interface ServerToClientEvents {
     messageId: string
     path: string
     action: "created" | "updated"
+    runId?: string
+    seq?: number
   }) => void
   // Merlin invoked a tool mid-answer (search, fetch, …). Sent on call (label
   // only) and again on completion (with detail + status). The client upserts it
@@ -437,6 +447,8 @@ export interface ServerToClientEvents {
       }
       status?: "ok" | "error"
     }
+    runId?: string
+    seq?: number
   }) => void
   "message:pin:toggled": (payload: RealtimeMessagePinToggled) => void
   "message:thread:updated": (payload: RealtimeMessageThreadUpdated) => void

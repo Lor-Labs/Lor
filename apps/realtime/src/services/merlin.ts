@@ -91,3 +91,29 @@ export async function createMerlinPlaceholder(args: {
   })
   return result.message
 }
+
+// Durable agent_run row backing a Merlin response (see
+// reference/agent-harness-plan.md). Best-effort: a failure here must never
+// block the answer — the worker treats a missing runId as a legacy job.
+export async function createAgentRun(args: {
+  workspaceId: string
+  channelId: string
+  messageId: string
+  threadRootId: string | null
+  triggerMessageId: string
+}): Promise<string | null> {
+  const row = await db
+    .insert(schema.agentRun)
+    .values({
+      workspaceId: args.workspaceId,
+      channelId: args.channelId,
+      messageId: args.messageId,
+      threadRootId: args.threadRootId,
+      triggerMessageId: args.triggerMessageId,
+      scopeKey: args.threadRootId ?? args.channelId,
+    })
+    .returning({ id: schema.agentRun.id })
+    .then((r) => r[0] ?? null)
+    .catch(() => null)
+  return row?.id ?? null
+}

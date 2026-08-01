@@ -43,6 +43,7 @@ import type { Emitter } from "@socket.io/redis-emitter"
 import type { Job } from "bullmq"
 import type { createClient } from "redis"
 import { logger } from "@/lib/logger"
+import { claimRunEventWriter } from "@/lib/run-events"
 
 // Matches the worker's createClient (bare RedisClientType mismatches its generics).
 type RedisClient = ReturnType<typeof createClient>
@@ -139,13 +140,31 @@ export function createMerlinRespondProcessor(
           ? threadRoom(threadRootId)
           : channelRoom(channelId)
 
+        // Durable event log for late-join replay. Claiming flips the run to
+        // "working"; a no-op writer (legacy job, missing row) changes nothing.
+        const runWriter = await claimRunEventWriter(job.data.runId)
+        // Frame fields tying a live socket event to its persisted log entry.
+        const runRef = (seq: number | undefined) => ({
+          ...(runWriter.runId ? { runId: runWriter.runId } : {}),
+          ...(seq !== undefined ? { seq } : {}),
+        })
+        runWriter.append({ kind: "state", state: "working" })
+
         const emit = (
           delta: string,
           done: boolean,
           status?: "complete" | "failed",
           replace?: boolean,
           mentions?: RealtimeMessageMention[]
-        ) =>
+        ) => {
+          const seq =
+            delta || replace
+              ? runWriter.append({
+                  kind: "text",
+                  delta,
+                  ...(replace ? { replace: true } : {}),
+                })
+              : undefined
           emitter.to(room).emit("message:stream", {
             channelId,
             threadRootId,
@@ -155,7 +174,9 @@ export function createMerlinRespondProcessor(
             ...(status ? { status } : {}),
             ...(replace ? { replace: true } : {}),
             ...(mentions && mentions.length > 0 ? { mentions } : {}),
+            ...runRef(seq),
           })
+        }
 
         // Register the stream so clients can show a thinking indicator.
         emit("", false)
@@ -169,6 +190,12 @@ export function createMerlinRespondProcessor(
         const reasoningSegments: MerlinReasoningSegment[] = []
         const flushReasoning = () => {
           if (!pendingReasoning || !activeReasoningSegment) return
+          const seq = runWriter.append({
+            kind: "reasoning",
+            delta: pendingReasoning,
+            at: activeReasoningSegment.at,
+            order: activeReasoningSegment.order,
+          })
           emitter.to(room).emit("merlin:reasoning", {
             channelId,
             threadRootId,
@@ -176,6 +203,7 @@ export function createMerlinRespondProcessor(
             delta: pendingReasoning,
             at: activeReasoningSegment.at,
             order: activeReasoningSegment.order,
+            ...runRef(seq),
           })
           pendingReasoning = ""
         }
@@ -200,12 +228,18 @@ export function createMerlinRespondProcessor(
           const idx = remembered.findIndex((m) => m.path === memory.path)
           if (idx >= 0) remembered[idx] = memory
           else remembered.push(memory)
+          const seq = runWriter.append({
+            kind: "memory",
+            path: memory.path,
+            action: memory.action,
+          })
           emitter.to(room).emit("merlin:memory", {
             channelId,
             threadRootId,
             messageId: merlinMessageId,
             path: memory.path,
             action: memory.action,
+            ...runRef(seq),
           })
         }
         try {
@@ -233,6 +267,7 @@ export function createMerlinRespondProcessor(
               .where(eq(schema.message.id, merlinMessageId))
               .catch(() => {})
             emit(MERLIN_ERROR_FALLBACK, true, "failed")
+            await runWriter.transition("failed", { stopReason: "error" })
             return
           }
           workspaceId = channel.workspaceId
@@ -251,6 +286,9 @@ export function createMerlinRespondProcessor(
               .where(eq(schema.message.id, merlinMessageId))
               .catch(() => {})
             emit(OUT_OF_CREDITS_MESSAGE, true, "failed")
+            await runWriter.transition("failed", {
+              stopReason: "out_of_credits",
+            })
             emitter.to(workspaceRoom(workspaceId)).emit("billing:updated", {
               workspaceId,
               reason: "out_of_credits",
@@ -334,11 +372,16 @@ export function createMerlinRespondProcessor(
                 }
                 if (idx >= 0) toolCalls[idx] = nextToolCall
                 else toolCalls.push(nextToolCall)
+                const seq = runWriter.append({
+                  kind: "tool",
+                  toolCall: nextToolCall,
+                })
                 emitter.to(room).emit("merlin:tool", {
                   channelId,
                   threadRootId,
                   messageId: merlinMessageId,
                   toolCall: nextToolCall,
+                  ...runRef(seq),
                 })
               },
               // Metered usage: every event lands in the usage_event ledger;
@@ -366,11 +409,13 @@ export function createMerlinRespondProcessor(
           // Replace (not append) so a partial answer streamed before the error
           // is dropped in favor of the fallback, matching the persisted row.
           emit(MERLIN_ERROR_FALLBACK, true, "failed", true)
+          await runWriter.transition("failed", { stopReason: "error" })
           return
         }
 
         // Phase 2 — persist, then fan out. Persistence decides the terminal
         // status; fanout is best-effort and never downgrades a saved reply.
+        await runWriter.transition("finalizing")
         let finalText = ""
         let emptyFallback = false
         // Resolved @mentions from fanout, delivered on the terminal stream frame
@@ -470,6 +515,7 @@ export function createMerlinRespondProcessor(
             .where(eq(schema.message.id, merlinMessageId))
             .catch(() => {})
           emit(MERLIN_ERROR_FALLBACK, true, "failed", true)
+          await runWriter.transition("failed", { stopReason: "error" })
           return
         }
 
@@ -538,6 +584,7 @@ export function createMerlinRespondProcessor(
           false,
           messageMentions
         )
+        await runWriter.transition("complete", { stopReason: "completed" })
         logger.info(
           { merlinMessageId, length: finalText.length },
           "Merlin reply complete"
@@ -592,6 +639,8 @@ export function createMerlinRespondProcessor(
               { keys: [lockKey], arguments: [lockToken] }
             )
             .catch(() => {})
+          // Flush any write-back memory events buffered after completion.
+          await runWriter.close()
         }
       }
     )

@@ -6,11 +6,19 @@ import {
   MERLIN_RESPOND_QUEUE,
 } from "@repo/realtime-types/queues"
 import { Emitter } from "@socket.io/redis-emitter"
-import { Worker } from "bullmq"
+import { Queue, Worker } from "bullmq"
 import { createClient } from "redis"
 import { createLinkUnfurlProcessor } from "@/jobs/link-unfurl"
 import { createMerlinRespondProcessor } from "@/jobs/merlin-respond"
+import {
+  pruneRunEvents,
+  RUN_EVENT_PRUNE_EVERY_MS,
+} from "@/jobs/prune-run-events"
 import { logger } from "@/lib/logger"
+
+// Worker-internal periodic upkeep, scheduled through BullMQ (not in-process
+// timers) so replicas share one schedule and runs are visible/retryable.
+const MAINTENANCE_QUEUE = "maintenance"
 
 function parseRedisUrl(url: string) {
   const parsed = new URL(url)
@@ -98,8 +106,50 @@ async function bootstrap() {
     )
   })
 
+  const maintenanceQueue = new Queue(MAINTENANCE_QUEUE, {
+    connection: {
+      ...redisOpts,
+      maxRetriesPerRequest: null,
+    },
+    defaultJobOptions: {
+      removeOnComplete: { age: 86400, count: 100 },
+      removeOnFail: { age: 86400, count: 100 },
+    },
+  })
+
+  const maintenanceWorker = new Worker(
+    MAINTENANCE_QUEUE,
+    async () => {
+      await pruneRunEvents()
+    },
+    {
+      connection: {
+        ...redisOpts,
+        maxRetriesPerRequest: null,
+      },
+      concurrency: 1,
+    }
+  )
+
+  maintenanceWorker.on("failed", (job, error) => {
+    logger.error({ jobId: job?.id, err: error }, "Maintenance job failed")
+  })
+
+  maintenanceWorker.on("error", (error) => {
+    logger.error(
+      { queue: MAINTENANCE_QUEUE, workerId: maintenanceWorker.id, err: error },
+      "Maintenance worker error"
+    )
+  })
+
+  // Upsert (idempotent across replicas/restarts): one shared schedule in
+  // Redis, first run fires immediately, then every interval.
+  await maintenanceQueue.upsertJobScheduler("prune-run-events", {
+    every: RUN_EVENT_PRUNE_EVERY_MS,
+  })
+
   logger.info(
-    { queues: [LINK_UNFURL_QUEUE, MERLIN_RESPOND_QUEUE] },
+    { queues: [LINK_UNFURL_QUEUE, MERLIN_RESPOND_QUEUE, MAINTENANCE_QUEUE] },
     "Worker started"
   )
 
@@ -107,6 +157,8 @@ async function bootstrap() {
     logger.info("Shutting down...")
     await linkUnfurlWorker.close()
     await merlinRespondWorker.close()
+    await maintenanceWorker.close()
+    await maintenanceQueue.close()
     await redisEmitterClient.quit()
     process.exit(0)
   }

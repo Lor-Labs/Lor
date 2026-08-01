@@ -2,6 +2,8 @@
 
 These are the immediate follow-ups once the basic Pi investigation harness is shipped.
 
+> Architecture + slicing for this work: [`agent-harness-plan.md`](./agent-harness-plan.md) (2026-08-01 decisions: durable runs on Postgres, BullMQ stays, Trigger.dev deferred).
+
 ## Agent-owned persistent instructions (`LOR.md`)
 
 Give each workspace an agent-owned instruction file that is injected at the beginning of every conversation, below higher-priority policy and without the ability to override it.
@@ -12,6 +14,7 @@ Give each workspace an agent-owned instruction file that is injected at the begi
 - Before reading or injecting `LOR.md`, verify that the requester currently belongs to the workspace, may access the target thread, and that both resources belong to the same tenant. Fail closed on an absent or ambiguous relationship, in addition to version and approval validation.
 - Let the agent propose updates when it learns an important reusable behavior, but keep each proposed version inactive until a human explicitly approves that exact change.
 - Keep an immutable audit record for every version with the proposing actor, approving actor, version, timestamps, and approval state; make changes shared, visible, reviewable, and reversible.
+- Notify workspace owners/admins of an agent-proposed version in the Lor mobile app. The notification must deep-link to an approval surface on mobile, web, or desktop that shows the complete diff, base version, proposing actor, and rationale before approve or reject; never allow blind approval from the push itself.
 - Reject secrets, credentials, PII, invalid versions, and unresolved conflicts during both writes and conversation-start injection. Revalidate before injection and fail closed.
 - Let humans inspect and edit it directly without allowing the agent to approve its own changes.
 - Use `LOR.md` as the product-owned name while keeping repository instruction-file conventions separate.

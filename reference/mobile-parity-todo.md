@@ -9,6 +9,7 @@ Last audited: 2026-07-23.
 
 - [~] **Push notifications** — code complete full-stack (see Done); blocked on EAS/APNs credentials + dev-client rebuild on a physical iPhone before it can be tested. Follow-ups once live: badge counts on the app icon, remote-clearing stale pushes after reading on desktop (needs background push), Expo push receipt sweep (delayed job checking receipts for DeviceNotRegistered beyond ticket-level pruning), mute control on the mobile DM screen (web DM header has it; mobile mute UI lives only in the channel options sheet), muted-channel visual styling in sidebars/lists.
 - [ ] **DM follow-ups** — DM search (`GET /v1/dms/search` exists, no mobile UI), group-DM member list sheet, DM threads (API exists; web has no DM thread UI either — do together or not at all).
+- [ ] **Merlin run replay on late join** — web replays a pending Merlin message's durable event log (`GET /v1/runs/by-message/:messageId/events`) and gates live frames by `seq` (see `apps/web/src/hooks/use-merlin-stream.ts` + `reference/agent-harness-plan.md` slice 1); mobile still shows only a thinking indicator when opening a thread mid-run. Needs `apps/api` + `packages/api-client` rebuilt for the route types.
 
 ## Tier 2 — admin & workspace management
 

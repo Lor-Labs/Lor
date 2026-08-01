@@ -19,4 +19,7 @@ export type MerlinRespondJobData = {
   threadRootId: string | null
   contextThreadRootId: string | null
   triggerMessageId: string
+  // Durable agent_run row backing this job. Optional only for jobs enqueued
+  // before the run table existed; new jobs always carry it.
+  runId?: string
 }

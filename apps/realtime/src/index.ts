@@ -45,6 +45,7 @@ import { toErrorMessage } from "@/lib/errors"
 import { logger } from "@/lib/logger"
 import { assertUserCanAccessChannel } from "@/services/channel-access"
 import {
+  createAgentRun,
   createMerlinPlaceholder,
   isMerlinMentioned,
   isMerlinThread,
@@ -680,12 +681,24 @@ io.on("connection", (socket) => {
                 placeholder
               )
             }
+            // Merlin only answers in workspace channels; without a workspace
+            // the worker rejects the job anyway, so skip the run row.
+            const runId = accessibleChannel.workspaceId
+              ? await createAgentRun({
+                  workspaceId: accessibleChannel.workspaceId,
+                  channelId: parsed.channelId,
+                  messageId: merlinMessage.id,
+                  threadRootId: merlinThreadRootId,
+                  triggerMessageId: createdMessage.message.id,
+                })
+              : null
             await merlinRespondQueue.add("respond", {
               merlinMessageId: merlinMessage.id,
               channelId: parsed.channelId,
               threadRootId: merlinThreadRootId,
               contextThreadRootId: parsed.threadRootId ?? null,
               triggerMessageId: createdMessage.message.id,
+              ...(runId ? { runId } : {}),
             })
           })
           .catch((err) => {

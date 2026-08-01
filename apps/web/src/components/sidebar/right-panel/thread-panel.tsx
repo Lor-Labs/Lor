@@ -24,6 +24,7 @@ import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-
 import type { ThreadSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
 import { useSocket } from "@/context/socket-context"
 import { useFileUpload } from "@/hooks/use-file-upload"
+import { useMerlinRunReplay } from "@/hooks/use-merlin-stream"
 import { useMessageDeletion } from "@/hooks/use-message-deletion"
 import { useMessageEditing } from "@/hooks/use-message-editing"
 import { useMessageReactions } from "@/hooks/use-message-reactions"
@@ -150,6 +151,13 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
   })
 
   const rootMessage = channelCacheRoot ?? threadApiRoot
+
+  // Opening a thread mid-run replays the durable trace into the thread cache.
+  useMerlinRunReplay({
+    queryClient,
+    channelId: view.channelId,
+    messages,
+  })
 
   const { handleReact } = useMessageReactions({
     socket,
