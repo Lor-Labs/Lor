@@ -2,6 +2,7 @@ import { db, eq, schema } from "@repo/db"
 import { createLogger } from "@repo/logger"
 import { trackCredits } from "./autumn"
 import { computeCostUsd, computeCredits } from "./credits"
+import { isBillableTool, usageDebitKey } from "./policy"
 import { getRate } from "./rates"
 
 const logger = createLogger("billing")
@@ -20,6 +21,8 @@ export type UsageLike = {
   wallMs?: number
   toolCalls?: number
   costUsd?: number
+  // Stable within a parent response so repeat jobs do not duplicate debits.
+  billingKey?: string
 }
 
 export type UsageRefs = {
@@ -28,19 +31,17 @@ export type UsageRefs = {
   userId?: string | null
 }
 
-// Analytics buckets, not prices — debits come from token math. Everything
-// that isn't the main answer is free.
+// Analytics buckets, not prices — debits come from token math.
 const OPERATION_CLASS: Record<
   string,
   (typeof schema.operationClassEnum.enumValues)[number]
 > = {
   "merlin.respond": "merlin.standard",
+  investigate_code: "merlin.deep",
   "merlin.embed": "embedding",
   "source.summarize": "ingestion",
   "source.embed": "embedding",
 }
-
-const BILLABLE_TOOLS = new Set(["merlin.respond"])
 
 // Persist a ledger row and, for billable tools only, debit Autumn. The
 // idempotency key makes retries debit-safe: the insert conflict skips both
@@ -58,7 +59,7 @@ export async function recordUsage(
       outputTokens: u.outputTokens,
     }
     const costUsd = u.costUsd ?? (rate ? computeCostUsd(tokens, rate) : null)
-    const billable = BILLABLE_TOOLS.has(u.tool)
+    const billable = isBillableTool(u.tool)
     const credits = billable && rate ? computeCredits(tokens, rate) : 0
     const inserted = await db
       .insert(schema.usageEvent)
@@ -79,8 +80,11 @@ export async function recordUsage(
         creditsDebited: credits,
         debitStatus: "free",
         messageId: refs.messageId ?? null,
-        idempotencyKey:
-          billable && refs.messageId ? `${refs.messageId}:${u.tool}` : null,
+        idempotencyKey: usageDebitKey({
+          billingKey: u.billingKey,
+          messageId: refs.messageId,
+          tool: u.tool,
+        }),
       })
       .onConflictDoNothing({ target: schema.usageEvent.idempotencyKey })
       .returning({ id: schema.usageEvent.id })

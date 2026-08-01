@@ -51,9 +51,6 @@ const serverSchema = z.object({
   REALTIME_CORS_ORIGIN: z.string().default(DEFAULT_REALTIME_CORS_ORIGIN),
   REDIS_URL: z.string().url(),
   BETTER_AUTH_SECRET: z.string().min(1),
-  // Claude Code CLI in the code-investigation sandbox only; all other
-  // inference and embeddings go through the AI Gateway.
-  ANTHROPIC_API_KEY: z.string().min(1),
   // Vercel AI Gateway is Merlin's explicit transport. Model-role selection
   // remains provider-neutral through the MERLIN_* model ids below.
   AI_GATEWAY_API_KEY: z.string().min(1),

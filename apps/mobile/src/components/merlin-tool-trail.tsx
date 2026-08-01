@@ -27,17 +27,16 @@ function builtinToolIcon(toolName: string): IconSvgElement {
       return CodeIcon
     case "search_sources":
     case "search_messages":
-    case "Grep":
-    case "Glob":
+    case "grep":
+    case "find":
       return Search01Icon
     case "fetch_source":
       return Download01Icon
     case "ls":
     case "tree":
     case "read":
-    case "Read":
       return BookOpen01Icon
-    case "Bash":
+    case "bash":
       return TerminalIcon
     default:
       return Wrench01Icon

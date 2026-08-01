@@ -16,7 +16,7 @@
 | Brain tool names | — | bare **`ls`/`read`/`tree`/`write`/`mkdir`/`move`/`link`** (models know these) |
 | Write-back | (implied) | **Autonomous** — Merlin decides salience itself; Inkling gate + Kimi K3 agent |
 | Grounding | Strict citations, hard-verified | Citation use is **prompt-conditional** (institutional vs general); emitted citations are hard-verified |
-| Self-host / BYO-key | First-class (AGPL) | model roles are configurable across AI Gateway's providers; the deferred code-investigation sandbox still uses Claude Code |
+| Self-host / BYO-key | First-class (AGPL) | model roles are configurable across AI Gateway's providers; code investigation uses the same main model through Pi |
 | Brain browser UI | Human-browsable | **Deferred** — agent-only brain |
 
 ---
@@ -49,7 +49,7 @@ The harness is the moat: tools, context construction, steering. Retrieval behind
 **Deferred (not built):**
 - Connectors beyond GitHub (Linear, …) — `source` ingestion, the GitHub connector, and the `search`/`fetch_source` tools are built; see `reference/github-connector.md`.
 - Default taxonomy seed — Merlin grows the tree organically via `mkdir`-on-write.
-- Code search, compaction/decay, brain browser UI, and broader eval coverage.
+- Code write-back, compaction/decay, brain browser UI, and broader eval coverage.
 
 ---
 
@@ -156,11 +156,12 @@ Socket events (in `@repo/realtime-types`): `message:stream { channelId, messageI
 - **Embedding migration:** `pnpm db:reembed` idempotently converts legacy columns, embeds every missing brain page and source summary, and restores both HNSW indexes. Tune bounded parallelism with `MERLIN_REEMBED_CONCURRENCY` (default 4).
 - **Answer + write-back:** Kimi K3 (`moonshotai/kimi-k3`).
 - **Salience gate, reply placement, source summaries:** Inkling (`thinkingmachines/inkling`).
-- **Code investigation only:** Claude Code remains isolated behind `investigateCode()` until the Pi coding-agent replacement is ready.
+- **Code investigation:** Railway's bundled Pi runs the configured main model (Kimi K3 by default). It has only read-only repository tools and ignores repo-provided extensions, skills, prompts, and context files.
+- **Code-investigation billing:** every successful Pi invocation records its token usage and debits customer credits at the centrally configured served-model rate; stable per-response invocation keys prevent duplicate retry charges while allowing multiple investigations in one answer.
 - **Ingestion is never metered** (product principle); write-back cost is bounded by the Inkling gate.
 - Gateway prompt caching is requested for the main tier with `caching: "auto"`.
 
-> Env note: `AI_GATEWAY_API_KEY` is the canonical inference credential. `ANTHROPIC_API_KEY` remains required only for the deferred Claude Code investigation sandbox and its smoke tests.
+> Env note: `AI_GATEWAY_API_KEY` is the canonical inference credential for both Merlin and Pi code investigations. `AI_GATEWAY_BASE_URL` remains an optional transport override.
 
 ---
 
