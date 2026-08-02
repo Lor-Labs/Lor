@@ -46,12 +46,13 @@ import { logger } from "./logger"
 import { MERLIN_MODEL, mainGatewayOptions, merlinModel } from "./models"
 import {
   addStepToCounters,
-  type BudgetStopReason,
   budgetViolation,
+  type ConversationUpdate,
   defaultRunBudgets,
   type RunCounters,
   type RunHandle,
   type RunStepRecord,
+  type RunStopCause,
   ZERO_RUN_COUNTERS,
 } from "./run"
 import { resolveSourceCitation, searchSources, sourceTools } from "./sources"
@@ -141,6 +142,28 @@ aliases: [terms or synonyms someone might search for this by]
 
 Decide for yourself. Don't reply to the user; just maintain memory. End with one short line of what you saved, or "nothing to save".`
 
+// Mid-run conversation updates, injected at a step boundary as a single user
+// message. Steered messages are directives aimed at the run; ambient ones are
+// context the model should act on only if they're addressed to it.
+function formatConversationUpdate(update: ConversationUpdate): string | null {
+  const parts: string[] = []
+  if (update.steered.length > 0) {
+    parts.push(
+      `New directions arrived while you were working — treat them as part of the request and adjust what you're doing:\n${update.steered
+        .map((m) => `${m.authorName}: ${m.content}`)
+        .join("\n")}`
+    )
+  }
+  if (update.ambient.length > 0) {
+    parts.push(
+      `The conversation continued while you were working. This is context, not a request — act on it only if it's addressed to you or changes your answer:\n${update.ambient
+        .map((m) => `${m.authorName}: ${m.content}`)
+        .join("\n")}`
+    )
+  }
+  return parts.length > 0 ? parts.join("\n\n") : null
+}
+
 export type ConversationImage = {
   url: string
   filename: string
@@ -199,6 +222,7 @@ export type { InstructionsProposalEvent } from "./instructions"
 export { MERLIN_MODEL } from "./models"
 export {
   type BudgetStopReason,
+  type ConversationUpdate,
   defaultRunBudgets,
   type ModelMessage,
   type RunBudgets,
@@ -206,16 +230,18 @@ export {
   type RunHandle,
   type RunResume,
   type RunStepRecord,
+  type RunStopCause,
   type RunToolResultStore,
+  type SteeredMessage,
 } from "./run"
 export type { OnUsage, UsageEvent } from "./usage"
 
 export type RespondResult = {
   text: string
   messages: ModelMessage[]
-  // Set when a budget ceiling ended (or gracefully forced the end of) the
-  // loop — recorded as the run's stop reason.
-  stoppedFor?: BudgetStopReason
+  // Set when a budget ceiling or an explicit user stop ended (or gracefully
+  // forced the end of) the loop — recorded as the run's stop reason.
+  stoppedFor?: RunStopCause
 }
 
 export type WriteBackContext = {
@@ -1106,10 +1132,15 @@ export async function respond(
 
     const baseStep = counters.steps
     let checkpointedLocal = 0
-    let stoppedFor: BudgetStopReason | undefined
-    const trip = (reason: BudgetStopReason) => {
+    let stoppedFor: RunStopCause | undefined
+    const trip = (reason: RunStopCause) => {
       if (!stoppedFor) stoppedFor = reason
     }
+
+    // Conversation updates injected by prepareStep ride the next step's
+    // checkpoint record, so the resumed transcript (flat concat of step rows)
+    // reproduces the runtime message order exactly.
+    const pendingInjected: ModelMessage[] = []
 
     type CompletedStep = {
       response: { messages: ReadonlyArray<ModelMessage>; modelId: string }
@@ -1124,7 +1155,7 @@ export async function respond(
       checkpointedLocal = localIndex
       const record: RunStepRecord = {
         step: baseStep + localIndex,
-        messages: [...step.response.messages],
+        messages: [...pendingInjected.splice(0), ...step.response.messages],
         model: step.response.modelId,
         inputTokens: step.usage.inputTokens,
         cachedInputTokens: step.usage.inputTokenDetails.cacheReadTokens,
@@ -1160,6 +1191,12 @@ export async function respond(
       stopWhen: async ({ steps }) => {
         const last = steps.at(-1)
         if (last) await checkpointStep(last, steps.length)
+        // Explicit user stop: end at this boundary with whatever streamed —
+        // the worker settles the run (and the partial answer) as stopped.
+        if (run?.stopRequested?.()) {
+          trip("stopped_by_user")
+          return true
+        }
         const violation = budgetViolation(counters, budgets)
         if (violation) {
           trip(violation)
@@ -1170,7 +1207,7 @@ export async function respond(
       timeout: {
         totalMs: Math.max(30_000, budgets.deadlineAt.getTime() - Date.now()),
       },
-      prepareStep: ({ steps, messages: stepMessages }) => {
+      prepareStep: async ({ steps, messages: stepMessages }) => {
         // Ceilings can land on tool use; when the next step is the last the
         // budgets allow, disable tools so the loop ends with a text answer.
         const next = budgetViolation(
@@ -1187,15 +1224,36 @@ export async function respond(
         // to the last checkpointed step's input size.
         const lastInput =
           steps.at(-1)?.usage.inputTokens ?? resumeLastInputTokens
-        if (lastInput > COMPACT_INPUT_TOKENS) {
-          return {
-            messages: pruneMessages({
-              messages: stepMessages,
-              toolCalls: "before-last-4-messages",
-            }),
+        let nextMessages =
+          lastInput > COMPACT_INPUT_TOKENS
+            ? pruneMessages({
+                messages: stepMessages,
+                toolCalls: "before-last-4-messages",
+              })
+            : stepMessages
+        // Steering: fold in messages that landed since the last boundary.
+        // Injected after pruning so an update can never be compacted away in
+        // the same breath, and buffered for the next checkpoint so recovery
+        // replays it at the same position.
+        if (run?.drainConversation) {
+          const update = await run.drainConversation().catch((err) => {
+            logger.warn({ err }, "Merlin conversation drain failed")
+            return null
+          })
+          const updateText = update && formatConversationUpdate(update)
+          if (updateText) {
+            const injected: ModelMessage = {
+              role: "user",
+              content: updateText,
+            }
+            pendingInjected.push(injected)
+            nextMessages =
+              nextMessages === stepMessages
+                ? [...stepMessages, injected]
+                : [...nextMessages, injected]
           }
         }
-        return {}
+        return nextMessages === stepMessages ? {} : { messages: nextMessages }
       },
       // Reasoning is provider-neutral in AI SDK v7. The gateway handles
       // provider routing and same-model retries; explicit model fallbacks stay

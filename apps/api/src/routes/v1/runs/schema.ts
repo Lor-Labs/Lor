@@ -71,8 +71,21 @@ export const runEventPayloadSchema = z.discriminatedUnion("kind", [
     phase: z.enum(agentRunPhaseEnum.enumValues).optional(),
     stopReason: z.enum(agentRunStopReasonEnum.enumValues).optional(),
   }),
+  z.object({
+    kind: z.literal("steer"),
+    messageId: z.string(),
+    authorName: z.string(),
+  }),
+  z.object({ kind: z.literal("queued"), messageId: z.string() }),
   z.object({ kind: z.literal("truncate"), contentLength: z.number() }),
 ])
+
+export const stopRunResponseSchema = z.object({
+  state: z.enum(agentRunStateEnum.enumValues),
+  // True when the run was settled immediately (never claimed); false when the
+  // lease holder will honor the request at its next step boundary.
+  stopped: z.boolean(),
+})
 
 export const runEventsResponseSchema = z.object({
   run: z.object({

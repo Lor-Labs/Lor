@@ -16,7 +16,7 @@ import { getRedisClient } from "@/lib/redis"
 
 let emitter: Emitter<ServerToClientEvents> | null = null
 
-async function getEmitter() {
+export async function getEmitter() {
   const redis = await getRedisClient()
   if (!emitter) {
     emitter = new Emitter<ServerToClientEvents>(redis)

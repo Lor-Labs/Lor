@@ -3,6 +3,7 @@ import {
   db,
   desc,
   eq,
+  inArray,
   isNotNull,
   isNull,
   MERLIN_USER_ID,
@@ -93,37 +94,160 @@ export async function createMerlinPlaceholder(args: {
   return result.message
 }
 
+function isUniqueViolation(err: unknown): boolean {
+  const code =
+    (err as { code?: string })?.code ??
+    (err as { cause?: { code?: string } })?.cause?.code
+  return code === "23505"
+}
+
 // Durable agent_run row backing a Merlin response (see
 // reference/agent-harness-plan.md). Budgets are snapshotted from env here so
 // an in-flight run keeps its ceilings across retries and config changes.
-// Best-effort: a failure here must never block the answer — the worker treats
-// a missing runId as a legacy job.
+// "conflict" = the scope's one-active-run index rejected the insert (another
+// mention won the race) — the caller re-routes at the winner. Other failures
+// must never block the answer; the worker treats a missing runId as legacy.
 export async function createAgentRun(args: {
   workspaceId: string
   channelId: string
   messageId: string
   threadRootId: string | null
   triggerMessageId: string
-}): Promise<string | null> {
-  const row = await db
-    .insert(schema.agentRun)
-    .values({
-      workspaceId: args.workspaceId,
-      channelId: args.channelId,
-      messageId: args.messageId,
-      threadRootId: args.threadRootId,
-      triggerMessageId: args.triggerMessageId,
-      scopeKey: args.threadRootId ?? args.channelId,
-      budgetSteps: env.AGENT_RUN_MAX_STEPS,
-      budgetInputTokens: env.AGENT_RUN_MAX_INPUT_TOKENS,
-      budgetOutputTokens: env.AGENT_RUN_MAX_OUTPUT_TOKENS,
-      budgetToolCalls: env.AGENT_RUN_MAX_TOOL_CALLS,
-      budgetToolOutputBytes: env.AGENT_RUN_MAX_TOOL_OUTPUT_BYTES,
-      budgetWallMs: env.AGENT_RUN_MAX_WALL_MS,
-      budgetCredits: env.AGENT_RUN_MAX_CREDITS,
+}): Promise<string | "conflict" | null> {
+  try {
+    const row = await db
+      .insert(schema.agentRun)
+      .values({
+        workspaceId: args.workspaceId,
+        channelId: args.channelId,
+        messageId: args.messageId,
+        threadRootId: args.threadRootId,
+        triggerMessageId: args.triggerMessageId,
+        scopeKey: args.threadRootId ?? args.channelId,
+        budgetSteps: env.AGENT_RUN_MAX_STEPS,
+        budgetInputTokens: env.AGENT_RUN_MAX_INPUT_TOKENS,
+        budgetOutputTokens: env.AGENT_RUN_MAX_OUTPUT_TOKENS,
+        budgetToolCalls: env.AGENT_RUN_MAX_TOOL_CALLS,
+        budgetToolOutputBytes: env.AGENT_RUN_MAX_TOOL_OUTPUT_BYTES,
+        budgetWallMs: env.AGENT_RUN_MAX_WALL_MS,
+        budgetCredits: env.AGENT_RUN_MAX_CREDITS,
+      })
+      .returning({ id: schema.agentRun.id })
+      .then((r) => r[0] ?? null)
+    return row?.id ?? null
+  } catch (err) {
+    return isUniqueViolation(err) ? "conflict" : null
+  }
+}
+
+export type RunRouteOutcome = {
+  outcome: "steered" | "queued"
+  runId: string
+  merlinMessageId: string
+}
+
+// Route a triggering message at the scope's active run instead of starting a
+// sibling: steer it (injected at the next step boundary) while the run can
+// still absorb it, else queue it for the follow-up run. Null = scope free.
+export async function routeToActiveRun(args: {
+  scopeKey: string
+  messageId: string
+  senderId: string
+}): Promise<RunRouteOutcome | null> {
+  const run = await db
+    .select({
+      id: schema.agentRun.id,
+      state: schema.agentRun.state,
+      messageId: schema.agentRun.messageId,
     })
-    .returning({ id: schema.agentRun.id })
+    .from(schema.agentRun)
+    .where(
+      and(
+        eq(schema.agentRun.scopeKey, args.scopeKey),
+        inArray(schema.agentRun.state, ["queued", "working", "finalizing"])
+      )
+    )
+    .limit(1)
+    .then((r) => r[0])
+  if (!run) return null
+
+  // queued/working runs absorb the message (a queued run's snapshot hasn't
+  // been taken yet; the claim-time sweep consumes rows the snapshot covers).
+  // finalizing can't be steered — defer to the follow-up run.
+  const state = run.state === "finalizing" ? "queued" : "steered"
+  const inserted = await db
+    .insert(schema.agentRunQueue)
+    .values({
+      scopeKey: args.scopeKey,
+      runId: run.id,
+      messageId: args.messageId,
+      senderId: args.senderId,
+      state,
+    })
+    .onConflictDoNothing({ target: schema.agentRunQueue.messageId })
+    .returning({ id: schema.agentRunQueue.id })
     .then((r) => r[0] ?? null)
-    .catch(() => null)
-  return row?.id ?? null
+
+  // Already routed (client resend): report the original outcome.
+  if (!inserted) {
+    const existing = await db
+      .select({ state: schema.agentRunQueue.state })
+      .from(schema.agentRunQueue)
+      .where(eq(schema.agentRunQueue.messageId, args.messageId))
+      .then((r) => r[0])
+    if (!existing) return null
+    return {
+      outcome: existing.state === "queued" ? "queued" : "steered",
+      runId: run.id,
+      merlinMessageId: run.messageId,
+    }
+  }
+
+  if (state === "steered") {
+    // The run may have moved on between the read and the insert — a steered
+    // row must never sit on a run that won't drain it.
+    const now = await db
+      .select({ state: schema.agentRun.state })
+      .from(schema.agentRun)
+      .where(eq(schema.agentRun.id, run.id))
+      .then((r) => r[0])
+    if (now?.state === "finalizing") {
+      await db
+        .update(schema.agentRunQueue)
+        .set({ state: "queued" })
+        .where(eq(schema.agentRunQueue.id, inserted.id))
+      return {
+        outcome: "queued",
+        runId: run.id,
+        merlinMessageId: run.messageId,
+      }
+    }
+    if (
+      !now ||
+      now.state === "complete" ||
+      now.state === "failed" ||
+      now.state === "stopped"
+    ) {
+      // Terminal already — its completion drain may have run before our row
+      // landed. Undo the row (unless the drain swept it first) and let the
+      // caller start a fresh run.
+      const undone = await db
+        .delete(schema.agentRunQueue)
+        .where(
+          and(
+            eq(schema.agentRunQueue.id, inserted.id),
+            eq(schema.agentRunQueue.state, "steered")
+          )
+        )
+        .returning({ id: schema.agentRunQueue.id })
+      if (undone.length > 0) return null
+      return {
+        outcome: "queued",
+        runId: run.id,
+        merlinMessageId: run.messageId,
+      }
+    }
+  }
+
+  return { outcome: state, runId: run.id, merlinMessageId: run.messageId }
 }

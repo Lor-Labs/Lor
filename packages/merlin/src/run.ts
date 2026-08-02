@@ -18,6 +18,25 @@ export type BudgetStopReason =
   | "budget_wall_clock"
   | "budget_spend"
 
+// Why the answer loop ended early: a budget ceiling or an explicit user stop.
+export type RunStopCause = BudgetStopReason | "stopped_by_user"
+
+// A mid-run message a user aimed at the run (steer row) — injected at the
+// next step boundary with attribution.
+export type SteeredMessage = {
+  messageId: string
+  authorName: string
+  content: string
+}
+
+// What arrived in the conversation since the last step boundary. Steered
+// messages carry the delivery guarantee; ambient ones are context only (the
+// model is told to act on them only if they're addressed to it).
+export type ConversationUpdate = {
+  steered: SteeredMessage[]
+  ambient: { authorName: string; content: string }[]
+}
+
 export type RunBudgets = {
   steps: number
   inputTokens: number
@@ -81,6 +100,13 @@ export type RunHandle = {
   checkpoint: (record: RunStepRecord) => Promise<RunCounters>
   toolResults: RunToolResultStore | null
   abortSignal?: AbortSignal
+  // Steering: drain messages that landed mid-run (marks steered rows
+  // consumed, emits their events). Called at step boundaries; absent for
+  // legacy/eval invocations.
+  drainConversation?: () => Promise<ConversationUpdate>
+  // Explicit user stop, observed at step boundaries — the loop ends
+  // gracefully and the worker settles the run as stopped_by_user.
+  stopRequested?: () => boolean
 }
 
 export const ZERO_RUN_COUNTERS: RunCounters = {

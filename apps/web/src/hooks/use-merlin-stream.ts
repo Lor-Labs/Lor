@@ -32,6 +32,8 @@ interface MessagePage {
     merlinReasoning?: string | null
     merlinReasoningSegments?: MerlinReasoningSegment[]
     mentions?: RealtimeMessageMention[]
+    steeringBy?: string
+    routedOutcome?: "steered" | "queued"
   }[]
 }
 
@@ -78,11 +80,31 @@ type ToolPayload = {
   seq?: number
 }
 
+type SteerPayload = {
+  channelId: string
+  threadRootId: string | null
+  messageId: string
+  steeredMessageId: string
+  authorName: string
+  runId?: string
+  seq?: number
+}
+
+type RoutedPayload = {
+  channelId: string
+  threadRootId: string | null
+  messageId: string
+  outcome: "steered" | "queued"
+  runId: string
+  merlinMessageId: string
+}
+
 type BufferedFrame =
   | { type: "stream"; payload: StreamPayload }
   | { type: "reasoning"; payload: ReasoningPayload }
   | { type: "memory"; payload: MemoryPayload }
   | { type: "tool"; payload: ToolPayload }
+  | { type: "steer"; payload: SteerPayload }
 
 // Late-join replay gate, keyed by placeholder message id. While the durable
 // event log is being fetched, live frames buffer here; once replay is applied
@@ -202,11 +224,23 @@ function applyToolFrame(queryClient: QueryClient, payload: ToolPayload) {
   )
 }
 
+// A steered message was injected mid-run — surface who's steering on the
+// placeholder ("applying new direction").
+function applySteerFrame(queryClient: QueryClient, payload: SteerPayload) {
+  patchMessage(
+    queryClient,
+    cacheKey(payload.channelId, payload.threadRootId),
+    payload.messageId,
+    (m) => ({ ...m, steeringBy: payload.authorName, streaming: true })
+  )
+}
+
 function applyBufferedFrame(queryClient: QueryClient, frame: BufferedFrame) {
   if (frame.type === "stream") applyStreamFrame(queryClient, frame.payload)
   else if (frame.type === "reasoning")
     applyReasoningFrame(queryClient, frame.payload)
   else if (frame.type === "memory") applyMemoryFrame(queryClient, frame.payload)
+  else if (frame.type === "steer") applySteerFrame(queryClient, frame.payload)
   else applyToolFrame(queryClient, frame.payload)
 }
 
@@ -218,6 +252,8 @@ type RunEvent = {
     | { kind: "tool"; toolCall: ToolCall }
     | { kind: "memory"; path: string; action: "created" | "updated" }
     | { kind: "state"; state: string }
+    | { kind: "steer"; messageId: string; authorName: string }
+    | { kind: "queued"; messageId: string }
     | { kind: "truncate"; contentLength: number }
 }
 
@@ -235,6 +271,7 @@ function applyReplayEvents(
   let segments: MerlinReasoningSegment[] | undefined
   let toolCalls: ToolCall[] | undefined
   let remembered: { path: string; action: "created" | "updated" }[] = []
+  let steeringBy: string | undefined
   for (const e of events) {
     const p = e.payload
     if (p.kind === "text") {
@@ -249,6 +286,8 @@ function applyReplayEvents(
         ...remembered.filter((r) => r.path !== p.path),
         { path: p.path, action: p.action },
       ]
+    } else if (p.kind === "steer") {
+      steeringBy = p.authorName
     }
   }
   patchMessage(queryClient, key, messageId, (m) => ({
@@ -258,6 +297,7 @@ function applyReplayEvents(
     ...(segments ? { merlinReasoningSegments: segments } : {}),
     ...(toolCalls ? { merlinToolCalls: toolCalls } : {}),
     ...(remembered.length > 0 ? { remembered } : {}),
+    ...(steeringBy ? { steeringBy } : {}),
     streaming: true,
   }))
 }
@@ -385,6 +425,35 @@ export function useMerlinStream({
     socket.on("merlin:tool", handleTool)
     return () => {
       socket.off("merlin:tool", handleTool)
+    }
+  }, [socket, channelId, queryClient])
+
+  useEffect(() => {
+    if (!socket) return
+
+    const handleSteer = (payload: SteerPayload) => {
+      if (payload.channelId !== channelId) return
+      if (gateFrame({ type: "steer", payload })) return
+      applySteerFrame(queryClient, payload)
+    }
+
+    // The sender's mid-run message was absorbed by the active run — chip the
+    // routed message so they see what happened (steered vs queued).
+    const handleRouted = (payload: RoutedPayload) => {
+      if (payload.channelId !== channelId) return
+      patchMessage(
+        queryClient,
+        cacheKey(payload.channelId, payload.threadRootId),
+        payload.messageId,
+        (m) => ({ ...m, routedOutcome: payload.outcome })
+      )
+    }
+
+    socket.on("merlin:steer", handleSteer)
+    socket.on("message:routed", handleRouted)
+    return () => {
+      socket.off("merlin:steer", handleSteer)
+      socket.off("message:routed", handleRouted)
     }
   }, [socket, channelId, queryClient])
 }

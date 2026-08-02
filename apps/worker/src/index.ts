@@ -4,6 +4,7 @@ import type { ServerToClientEvents } from "@repo/realtime-types/events"
 import {
   LINK_UNFURL_QUEUE,
   MERLIN_RESPOND_QUEUE,
+  type MerlinRespondJobData,
 } from "@repo/realtime-types/queues"
 import { Emitter } from "@socket.io/redis-emitter"
 import { Queue, Worker } from "bullmq"
@@ -81,9 +82,25 @@ async function bootstrap() {
     )
   })
 
+  // Producer handle on the same queue: the completion drain enqueues the
+  // follow-up run for messages queued behind an active scope.
+  const merlinRespondQueue = new Queue<MerlinRespondJobData>(
+    MERLIN_RESPOND_QUEUE,
+    {
+      connection: {
+        ...redisOpts,
+        maxRetriesPerRequest: null,
+      },
+    }
+  )
+
   const merlinRespondWorker = new Worker(
     MERLIN_RESPOND_QUEUE,
-    createMerlinRespondProcessor(emitter, redisEmitterClient),
+    createMerlinRespondProcessor(
+      emitter,
+      redisEmitterClient,
+      merlinRespondQueue
+    ),
     {
       connection: {
         ...redisOpts,
@@ -123,7 +140,8 @@ async function bootstrap() {
     MAINTENANCE_QUEUE,
     async (job) => {
       if (job.name === "prune-run-events") await pruneRunEvents()
-      else if (job.name === "sweep-dead-runs") await sweepDeadRuns(emitter)
+      else if (job.name === "sweep-dead-runs")
+        await sweepDeadRuns(emitter, merlinRespondQueue)
     },
     {
       connection: {
@@ -163,6 +181,7 @@ async function bootstrap() {
     logger.info("Shutting down...")
     await linkUnfurlWorker.close()
     await merlinRespondWorker.close()
+    await merlinRespondQueue.close()
     await maintenanceWorker.close()
     await maintenanceQueue.close()
     await redisEmitterClient.quit()

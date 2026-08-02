@@ -450,6 +450,13 @@ export interface ServerToClientEvents {
     runId?: string
     seq?: number
   }) => void
+  // A mid-run send was routed at the scope's active run instead of starting a
+  // new one: steered (injected at the next step boundary) or queued (answered
+  // by the follow-up run when the scope frees up).
+  "message:routed": (payload: MessageRoutedEvent) => void
+  // A steered message was injected into the running answer — the placeholder
+  // shows "applying new direction".
+  "merlin:steer": (payload: MerlinSteerEvent) => void
   "message:pin:toggled": (payload: RealtimeMessagePinToggled) => void
   "message:thread:updated": (payload: RealtimeMessageThreadUpdated) => void
   "notification:bootstrap": (payload: NotificationBootstrap) => void
@@ -469,6 +476,27 @@ export interface ServerToClientEvents {
 export type InstructionsProposalUpdate = {
   workspaceId: string
   version: number
+}
+
+export type MessageRoutedEvent = {
+  channelId: string
+  threadRootId: string | null
+  messageId: string
+  outcome: "steered" | "queued"
+  runId: string
+  // The active run's placeholder message — where the run-state chip lives.
+  merlinMessageId: string
+}
+
+export type MerlinSteerEvent = {
+  channelId: string
+  threadRootId: string | null
+  // The placeholder being answered into.
+  messageId: string
+  steeredMessageId: string
+  authorName: string
+  runId?: string
+  seq?: number
 }
 
 // Emitted to the workspace room; clients invalidate their billing query and

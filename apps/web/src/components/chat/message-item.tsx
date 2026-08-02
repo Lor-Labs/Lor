@@ -19,8 +19,14 @@ import {
 import { cn } from "@repo/ui/lib/utils"
 import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { formatTime, timeAgo } from "@repo/utils/date"
-import { Brain, ChevronRight } from "lucide-react"
+import {
+  type InfiniteData,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query"
+import { Brain, ChevronRight, Square } from "lucide-react"
 import { useCallback, useEffect, useState } from "react"
+import { toast } from "sonner"
 import type { MentionCandidate } from "@/components/chat/composer/mention-types"
 import { EmbedCard } from "@/components/chat/embed-card"
 import { MerlinMessageBody } from "@/components/chat/merlin-message-body"
@@ -31,8 +37,10 @@ import { MessageEditInput } from "@/components/chat/message-edit-input"
 import { MessageMarkdown } from "@/components/chat/message-markdown"
 import { ThinkingIndicator } from "@/components/chat/thinking-indicator"
 import { UserProfilePopover } from "@/components/ui/user-profile-card"
+import { apiClient } from "@/lib/api-client"
 import type { Message } from "@/lib/api-types"
 import { connectorForName, connectorLogo } from "@/lib/connector-ui"
+import { updateMessagesAcrossPages } from "@/lib/message-cache-utils"
 
 interface MessageItemProps {
   message: Message
@@ -105,6 +113,66 @@ function ReplyPreview({
         </span>
       )}
     </button>
+  )
+}
+
+// Steer status + explicit Stop for an in-flight Merlin reply. Stop is honored
+// by the run at its next safe step boundary; whatever streamed is kept.
+function MerlinRunControls({ message }: { message: Message }) {
+  const queryClient = useQueryClient()
+  const cacheKey = message.threadRootId
+    ? ["thread", message.threadRootId]
+    : ["messages", message.channelId]
+
+  const stop = useMutation({
+    mutationFn: async () => {
+      const res = await apiClient.v1.runs["by-message"][
+        ":messageId"
+      ].stop.$post({ param: { messageId: message.id } })
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as {
+          message?: string
+        } | null
+        throw new Error(body?.message ?? "Couldn't stop Merlin")
+      }
+    },
+    onSuccess: () => {
+      queryClient.setQueryData<InfiniteData<{ data: Message[] }>>(
+        cacheKey,
+        (old) =>
+          old
+            ? updateMessagesAcrossPages(old, (msgs) =>
+                msgs.map((m) =>
+                  m.id === message.id ? { ...m, stopRequested: true } : m
+                )
+              )
+            : old
+      )
+    },
+    onError: (err) => toast.error(err.message),
+  })
+
+  return (
+    <div className="mt-1.5 flex items-center gap-3">
+      {message.steeringBy && (
+        <span className="text-xs italic text-merlin">
+          Applying {message.steeringBy}'s new direction…
+        </span>
+      )}
+      {message.stopRequested ? (
+        <span className="text-xs text-muted-foreground italic">Stopping…</span>
+      ) : (
+        <button
+          type="button"
+          onClick={() => stop.mutate()}
+          disabled={stop.isPending}
+          className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-border/70 px-1.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        >
+          <Square className="size-2.5 fill-current" />
+          Stop
+        </button>
+      )}
+    </div>
   )
 }
 
@@ -449,6 +517,17 @@ export function MessageItem({
               editedAt={message.editedAt}
               onCitationJump={onJumpToMessage}
             />
+          )}
+          {!isEditing &&
+            (message.streaming || message.status === "pending") && (
+              <MerlinRunControls message={message} />
+            )}
+          {message.routedOutcome && (
+            <span className="mt-1 inline-flex w-fit items-center gap-1 rounded-md bg-merlin/10 px-1.5 py-0.5 text-[11px] text-merlin">
+              {message.routedOutcome === "steered"
+                ? "Steering Merlin's current answer"
+                : "Queued — Merlin will answer this next"}
+            </span>
           )}
           {message.remembered && message.remembered.length > 0 && (
             <div className="mt-3.5 flex flex-wrap gap-1.5">

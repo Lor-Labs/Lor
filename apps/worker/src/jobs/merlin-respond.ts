@@ -41,11 +41,12 @@ import {
   workspaceRoom,
 } from "@repo/realtime-types/rooms"
 import type { Emitter } from "@socket.io/redis-emitter"
-import type { Job } from "bullmq"
+import type { Job, Queue } from "bullmq"
 import type { createClient } from "redis"
 import { claimAgentRun, LeaseLostError } from "@/lib/agent-run"
 import { logger } from "@/lib/logger"
 import { noopRunEventWriter } from "@/lib/run-events"
+import { drainScopeQueue } from "@/lib/run-queue"
 
 // Matches the worker's createClient (bare RedisClientType mismatches its generics).
 type RedisClient = ReturnType<typeof createClient>
@@ -124,7 +125,8 @@ async function loadConversation(args: {
 
 export function createMerlinRespondProcessor(
   emitter: Emitter<ServerToClientEvents>,
-  redis: RedisClient
+  redis: RedisClient,
+  respondQueue: Queue<MerlinRespondJobData>
 ) {
   return (job: Job<MerlinRespondJobData>) =>
     withContext(
@@ -145,10 +147,35 @@ export function createMerlinRespondProcessor(
           ? threadRoom(threadRootId)
           : channelRoom(channelId)
 
+        // Once this run is terminal, start the follow-up run for anything the
+        // scope queued while it was active. Fire-and-forget: draining must
+        // never affect the finished run.
+        const drainQueue = () => {
+          const runId = job.data.runId
+          if (!runId) return
+          void drainScopeQueue({ runId, emitter, respondQueue }).catch((err) =>
+            logger.error({ err, runId }, "Scope queue drain failed")
+          )
+        }
+
         // Claim the durable run: lease + attempt accounting + event writer.
         // Legacy jobs (no run row) proceed with a no-op writer, exactly as
         // before durable runs existed.
-        const claim = await claimAgentRun(job.data.runId)
+        const claim = await claimAgentRun(job.data.runId, {
+          // Live frame for a steer injection — the placeholder chip flips to
+          // "applying new direction"; the event log already has the durable copy.
+          onSteered: (e) => {
+            emitter.to(room).emit("merlin:steer", {
+              channelId,
+              threadRootId,
+              messageId: merlinMessageId,
+              steeredMessageId: e.messageId,
+              authorName: e.authorName,
+              ...(job.data.runId ? { runId: job.data.runId } : {}),
+              seq: e.seq,
+            })
+          },
+        })
         if (claim.kind === "terminal") {
           // Finished by (or currently owned by) another attempt.
           logger.info(
@@ -210,6 +237,7 @@ export function createMerlinRespondProcessor(
             .where(eq(schema.message.id, merlinMessageId))
             .catch(() => {})
           emit(MERLIN_ERROR_FALLBACK, true, "failed", true)
+          drainQueue()
           return
         }
 
@@ -314,6 +342,11 @@ export function createMerlinRespondProcessor(
                 threadRootId: contextThreadRootId,
                 merlinMessageId,
               })
+          // The snapshot covers every steer row that predates it — consume
+          // them so the first boundary doesn't inject duplicates.
+          if (execution && !execution.resume) {
+            await execution.markConversationLoaded()
+          }
 
           const channel = await db
             .select({ workspaceId: schema.channel.workspaceId })
@@ -335,6 +368,7 @@ export function createMerlinRespondProcessor(
             emit(MERLIN_ERROR_FALLBACK, true, "failed")
             await runWriter.transition("failed", { stopReason: "error" })
             execution?.stop()
+            drainQueue()
             return
           }
           workspaceId = channel.workspaceId
@@ -357,6 +391,7 @@ export function createMerlinRespondProcessor(
               stopReason: "out_of_credits",
             })
             execution?.stop()
+            drainQueue()
             emitter.to(workspaceRoom(workspaceId)).emit("billing:updated", {
               workspaceId,
               reason: "out_of_credits",
@@ -500,8 +535,13 @@ export function createMerlinRespondProcessor(
                 : "error",
           })
           execution?.stop()
+          drainQueue()
           return
         }
+
+        // Explicit user stop: keep whatever partial answer streamed, settle
+        // the run as stopped, and skip the write-back.
+        const stoppedByUser = answer.stoppedFor === "stopped_by_user"
 
         // Phase 2 — persist, then fan out. Persistence decides the terminal
         // status; fanout is best-effort and never downgrades a saved reply.
@@ -528,13 +568,16 @@ export function createMerlinRespondProcessor(
           // would persist across reloads.
           finalText = grounded.text
           if (!finalText.trim()) {
-            finalText =
-              "I couldn't pull together an answer for that — could you add a bit more detail or rephrase?"
+            finalText = stoppedByUser
+              ? "⏹️ Stopped before I had an answer."
+              : "I couldn't pull together an answer for that — could you add a bit more detail or rephrase?"
             emptyFallback = true
-            logger.warn(
-              { merlinMessageId },
-              "Merlin produced no answer text; using empty fallback"
-            )
+            if (!stoppedByUser) {
+              logger.warn(
+                { merlinMessageId },
+                "Merlin produced no answer text; using empty fallback"
+              )
+            }
           }
 
           // Tool offsets (`at`) were measured against the pre-grounded stream,
@@ -607,6 +650,7 @@ export function createMerlinRespondProcessor(
           emit(MERLIN_ERROR_FALLBACK, true, "failed", true)
           await runWriter.transition("failed", { stopReason: "error" })
           execution?.stop()
+          drainQueue()
           return
         }
 
@@ -675,15 +719,20 @@ export function createMerlinRespondProcessor(
           false,
           messageMentions
         )
-        await runWriter.transition("complete", {
+        await runWriter.transition(stoppedByUser ? "stopped" : "complete", {
           stopReason: answer.stoppedFor ?? "completed",
         })
         // Heartbeat off: the run is terminal; write-back needs no lease.
         execution?.stop()
+        drainQueue()
         logger.info(
-          { merlinMessageId, length: finalText.length },
+          { merlinMessageId, length: finalText.length, stoppedByUser },
           "Merlin reply complete"
         )
+        if (stoppedByUser) {
+          await runWriter.close()
+          return
+        }
 
         // Skip the optional write-back when the answer finished near a
         // ceiling — never endanger an already-delivered response.

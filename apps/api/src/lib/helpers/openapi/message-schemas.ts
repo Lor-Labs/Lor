@@ -90,8 +90,8 @@ export const threadSummarySchema = z
 
 export const messageWithAuthorSchema = selectMessageSchema
   // Raw memory column is reshaped into `remembered` below; the memory
-  // exclusion flag is retrieval plumbing the client never needs.
-  .omit({ merlinMemories: true, excludedFromMemory: true })
+  // exclusion flag and send-idempotency key are plumbing the client never needs.
+  .omit({ merlinMemories: true, excludedFromMemory: true, clientKey: true })
   .extend({
     author: messageAuthorSchema,
     mentions: z.array(messageAuthorSchema),

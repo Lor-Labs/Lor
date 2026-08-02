@@ -1,4 +1,4 @@
-import { relations } from "drizzle-orm"
+import { relations, sql } from "drizzle-orm"
 import {
   index,
   integer,
@@ -14,6 +14,7 @@ import {
 import { channel } from "./channels"
 import type { MerlinToolCall } from "./messages"
 import { message } from "./messages"
+import { user } from "./users"
 import { workspace } from "./workspaces"
 
 // Durable agent run. BullMQ schedules the work; this row is the source of
@@ -73,14 +74,21 @@ export const agentRun = pgTable(
     triggerMessageId: uuid("trigger_message_id").references(() => message.id, {
       onDelete: "set null",
     }),
-    // Conversation scope = threadRootId ?? channelId. Indexed non-unique for
-    // now; the partial-unique "one active run per scope" constraint lands with
-    // the steering switch-over so it can't change trigger behavior early.
+    // Conversation scope = threadRootId ?? channelId. The partial unique
+    // index below enforces one active run per scope — a mention during an
+    // active run steers or queues instead of creating a sibling.
     scopeKey: uuid("scope_key").notNull(),
 
     state: agentRunStateEnum("state").notNull().default("queued"),
     phase: agentRunPhaseEnum("phase").notNull().default("answer"),
     stopReason: agentRunStopReasonEnum("stop_reason"),
+
+    // Explicit user stop: the API sets this; the lease holder honors it at
+    // the next step boundary (state flips to stopped there, not here).
+    stopRequestedAt: timestamp("stop_requested_at"),
+    stopRequestedBy: uuid("stop_requested_by").references(() => user.id, {
+      onDelete: "set null",
+    }),
 
     // Event-log sequence allocator. The lease-holding worker is the sole
     // writer: it numbers events in memory from this value and persists the
@@ -138,10 +146,58 @@ export const agentRun = pgTable(
   (table) => [
     uniqueIndex("agent_run_messageId_uidx").on(table.messageId),
     index("agent_run_scopeKey_state_idx").on(table.scopeKey, table.state),
+    // One active run per conversation scope, arbitrated by Postgres. The
+    // trigger path relies on this failing the insert to route a mid-run
+    // mention into steer/queue instead.
+    uniqueIndex("agent_run_scopeKey_active_uidx")
+      .on(table.scopeKey)
+      .where(sql`state in ('queued', 'working', 'finalizing')`),
     index("agent_run_workspaceId_createdAt_idx").on(
       table.workspaceId,
       table.createdAt
     ),
+  ]
+)
+
+export const agentRunQueueStateEnum = pgEnum("agent_run_queue_state", [
+  "queued",
+  "steered",
+  "consumed",
+  "rejected",
+])
+
+// Mid-run messages routed at the active run: `steered` rows are injected at
+// the next safe step boundary; `queued` rows start the follow-up run when the
+// scope frees up. The message row is the content — this table is ordering +
+// lifecycle. Never silently dropped: steered rows an ending run didn't drain
+// are swept into the completion drain as queued work.
+export const agentRunQueue = pgTable(
+  "agent_run_queue",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    scopeKey: uuid("scope_key").notNull(),
+    // The run that was active when this arrived (audit + steer drain target).
+    runId: uuid("run_id")
+      .notNull()
+      .references(() => agentRun.id, { onDelete: "cascade" }),
+    messageId: uuid("message_id")
+      .notNull()
+      .references(() => message.id, { onDelete: "cascade" }),
+    senderId: uuid("sender_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    state: agentRunQueueStateEnum("state").notNull().default("queued"),
+    // Step counter at injection time — resume replays steered messages at the
+    // same transcript position (informational; the step row itself carries
+    // the injected copy).
+    consumedAtStep: integer("consumed_at_step"),
+  },
+  (table) => [
+    index("agent_run_queue_scopeKey_state_idx").on(table.scopeKey, table.state),
+    index("agent_run_queue_runId_state_idx").on(table.runId, table.state),
+    // A message routes at a run exactly once.
+    uniqueIndex("agent_run_queue_messageId_uidx").on(table.messageId),
   ]
 )
 
@@ -274,8 +330,6 @@ export type AgentRunStopReason =
 export type AgentRunEventKind =
   (typeof agentRunEventKindEnum.enumValues)[number]
 
-// One shape per event kind the worker writes today; steer/queued payloads
-// arrive with the steering slice.
 export type AgentRunEventPayload =
   | { kind: "text"; delta: string; replace?: boolean }
   | { kind: "reasoning"; delta: string; at: number; order: number }
@@ -287,6 +341,13 @@ export type AgentRunEventPayload =
       phase?: AgentRunPhase
       stopReason?: AgentRunStopReason
     }
+  // A steered message was injected at a step boundary.
+  | { kind: "steer"; messageId: string; authorName: string }
+  // A mid-run message was deferred to the follow-up run.
+  | { kind: "queued"; messageId: string }
   | { kind: "truncate"; contentLength: number }
 
 export type AgentRunEvent = typeof agentRunEvent.$inferSelect
+export type AgentRunQueueRow = typeof agentRunQueue.$inferSelect
+export type AgentRunQueueState =
+  (typeof agentRunQueueStateEnum.enumValues)[number]

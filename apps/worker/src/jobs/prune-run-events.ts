@@ -10,9 +10,12 @@ import {
   schema,
 } from "@repo/db"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
+import type { MerlinRespondJobData } from "@repo/realtime-types/queues"
 import { channelRoom, threadRoom } from "@repo/realtime-types/rooms"
 import type { Emitter } from "@socket.io/redis-emitter"
+import type { Queue } from "bullmq"
 import { logger } from "@/lib/logger"
+import { drainScopeQueue } from "@/lib/run-queue"
 
 export const RUN_EVENT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000 // 7 days
 export const RUN_EVENT_PRUNE_EVERY_MS = 6 * 60 * 60 * 1000 // q 6 hrs
@@ -50,7 +53,8 @@ export async function pruneRunEvents(): Promise<void> {
 // without run-claiming code, or dropped entirely). Fail the run and settle
 // its stuck pending placeholder.
 export async function sweepDeadRuns(
-  emitter: Emitter<ServerToClientEvents>
+  emitter: Emitter<ServerToClientEvents>,
+  respondQueue: Queue<MerlinRespondJobData>
 ): Promise<void> {
   const cutoff = new Date(Date.now() - DEAD_RUN_GRACE_MS)
   const dead = await db
@@ -103,6 +107,13 @@ export async function sweepDeadRuns(
         replace: true,
       })
     }
+  }
+  // A dead run may have steered/queued messages behind it — drain each scope
+  // so they start a follow-up run instead of stranding.
+  for (const run of dead) {
+    await drainScopeQueue({ runId: run.id, emitter, respondQueue }).catch(
+      (err) => logger.error({ err, runId: run.id }, "Scope queue drain failed")
+    )
   }
   if (dead.length > 0) {
     logger.warn(

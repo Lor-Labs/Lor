@@ -6,9 +6,14 @@ import {
   asc,
   db,
   eq,
+  gt,
   inArray,
+  isNotNull,
   isNull,
   lt,
+  MERLIN_USER_ID,
+  ne,
+  notExists,
   or,
   schema,
   sql,
@@ -21,12 +26,14 @@ import type {
 } from "@repo/db/schema"
 import {
   buildInitialUserMessage,
+  type ConversationUpdate,
   type ModelMessage,
   type RunCounters,
   type RunHandle,
   type RunResume,
   type RunStepRecord,
   type UsageEvent,
+  userDisplayName,
 } from "@repo/merlin"
 import { logger } from "@/lib/logger"
 import { createRunEventWriter, type RunEventWriter } from "@/lib/run-events"
@@ -77,8 +84,22 @@ export type RunExecution = {
   // Post-answer usage (write-back) folds straight into the counters.
   addUsage: (u: UsageEvent) => void
   setPhase: (phase: "answer" | "writeback") => Promise<void>
+  // Fresh runs call this right after loading the conversation snapshot: steer
+  // rows that predate the snapshot are already in it, so they're consumed
+  // here instead of being injected again at the first boundary.
+  markConversationLoaded: () => Promise<void>
   aborted: () => boolean
   stop: () => void
+}
+
+// Live-socket hook for steer injections (the event log gets the durable copy;
+// this lets the processor emit the frame to the room).
+export type ClaimHooks = {
+  onSteered?: (e: {
+    messageId: string
+    authorName: string
+    seq?: number
+  }) => void
 }
 
 export type ClaimOutcome =
@@ -188,7 +209,8 @@ async function loadTrailSeed(runId: string): Promise<RunTrailSeed> {
 // gap all happen in the same guarded update, so concurrent workers can never
 // share a claim or reset each other's limits.
 export async function claimAgentRun(
-  runId: string | undefined
+  runId: string | undefined,
+  hooks: ClaimHooks = {}
 ): Promise<ClaimOutcome> {
   if (!runId) return { kind: "legacy" }
 
@@ -275,7 +297,15 @@ export async function claimAgentRun(
   })
   const abort = new AbortController()
   let counters = countersOf(claimed)
+  let stopRequested = claimed.stopRequestedAt != null
+  // Ambient-refresh watermark. Fresh runs start at claim time — the snapshot
+  // loads moments later, so a message landing in that window may be seen
+  // twice (harmless), never missed. Resumed runs restart from run start,
+  // re-reading what the dead attempt saw rather than losing it.
+  let conversationSeenAt = claimed.context ? (claimed.startedAt ?? now) : now
 
+  // The stop flag rides the heartbeat and every checkpoint, so a working run
+  // notices within one step boundary or one heartbeat, whichever is sooner.
   const heartbeat = setInterval(() => {
     void db
       .update(schema.agentRun)
@@ -287,13 +317,18 @@ export async function claimAgentRun(
           inArray(schema.agentRun.state, ["working", "finalizing"])
         )
       )
-      .returning({ id: schema.agentRun.id })
+      .returning({
+        id: schema.agentRun.id,
+        stopRequestedAt: schema.agentRun.stopRequestedAt,
+      })
       .then((r) => {
         if (!r[0]) {
           logger.warn({ runId }, "Agent run lease lost; aborting attempt")
           clearInterval(heartbeat)
           abort.abort()
+          return
         }
+        if (r[0].stopRequestedAt) stopRequested = true
       })
       .catch(() => {
         // Transient DB failure: keep going; the lease has a full TTL of slack.
@@ -352,9 +387,13 @@ export async function claimAgentRun(
             eq(schema.agentRun.state, "working")
           )
         )
-        .returning(COUNTER_SELECTION)
+        .returning({
+          ...COUNTER_SELECTION,
+          stopRequestedAt: schema.agentRun.stopRequestedAt,
+        })
         .then((r) => r[0])
       if (!row) throw new LeaseLostError()
+      if (row.stopRequestedAt) stopRequested = true
       await tx
         .insert(schema.agentRunStep)
         .values({
@@ -396,6 +435,112 @@ export async function claimAgentRun(
     }
   }
 
+  // Consume steer rows and gather ambient conversation activity for the next
+  // step boundary. Steered rows are the guaranteed tier: consumed
+  // transactionally with the fetch, replayed via the checkpoint they ride.
+  const drainConversation = async (): Promise<ConversationUpdate> => {
+    const steered = await db.transaction(async (tx) => {
+      const consumed = await tx
+        .update(schema.agentRunQueue)
+        .set({ state: "consumed", consumedAtStep: counters.steps })
+        .where(
+          and(
+            eq(schema.agentRunQueue.runId, runId),
+            eq(schema.agentRunQueue.state, "steered")
+          )
+        )
+        .returning({
+          messageId: schema.agentRunQueue.messageId,
+          createdAt: schema.agentRunQueue.createdAt,
+        })
+      if (consumed.length === 0) return []
+      const rows = await tx
+        .select({
+          id: schema.message.id,
+          content: schema.message.content,
+          name: schema.user.name,
+          username: schema.user.username,
+          displayUsername: schema.user.displayUsername,
+        })
+        .from(schema.message)
+        .innerJoin(schema.user, eq(schema.message.authorId, schema.user.id))
+        .where(
+          inArray(
+            schema.message.id,
+            consumed.map((c) => c.messageId)
+          )
+        )
+      const order = new Map(consumed.map((c, i) => [c.messageId, i]))
+      return rows
+        .filter((r) => r.content)
+        .sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0))
+        .map((r) => ({
+          messageId: r.id,
+          authorName: userDisplayName(r),
+          content: r.content ?? "",
+        }))
+    })
+    for (const m of steered) {
+      const seq = writer.append({
+        kind: "steer",
+        messageId: m.messageId,
+        authorName: m.authorName,
+      })
+      hooks.onSteered?.({
+        messageId: m.messageId,
+        authorName: m.authorName,
+        seq,
+      })
+    }
+
+    // Ambient tier: whatever else landed in the run's scope since the last
+    // boundary — context only, no delivery guarantee.
+    const scopeCond = claimed.threadRootId
+      ? eq(schema.message.threadRootId, claimed.threadRootId)
+      : and(
+          eq(schema.message.channelId, claimed.channelId),
+          isNull(schema.message.threadRootId)
+        )
+    const ambientRows = await db
+      .select({
+        content: schema.message.content,
+        createdAt: schema.message.createdAt,
+        name: schema.user.name,
+        username: schema.user.username,
+        displayUsername: schema.user.displayUsername,
+      })
+      .from(schema.message)
+      .innerJoin(schema.user, eq(schema.message.authorId, schema.user.id))
+      .where(
+        and(
+          scopeCond,
+          gt(schema.message.createdAt, conversationSeenAt),
+          ne(schema.message.authorId, MERLIN_USER_ID),
+          isNotNull(schema.message.content),
+          eq(schema.message.excludedFromMemory, false),
+          // Routed messages ride the steer/queue path — never both tiers.
+          notExists(
+            db
+              .select({ id: schema.agentRunQueue.id })
+              .from(schema.agentRunQueue)
+              .where(eq(schema.agentRunQueue.messageId, schema.message.id))
+          )
+        )
+      )
+      .orderBy(asc(schema.message.createdAt))
+      .limit(20)
+      .catch(() => [])
+    const newest = ambientRows.at(-1)
+    if (newest) conversationSeenAt = newest.createdAt
+    return {
+      steered,
+      ambient: ambientRows.map((r) => ({
+        authorName: userDisplayName(r),
+        content: r.content ?? "",
+      })),
+    }
+  }
+
   const handle: RunHandle = {
     budgets: {
       steps: claimed.budgetSteps,
@@ -431,6 +576,8 @@ export async function claimAgentRun(
         if (err instanceof LeaseLostError) abort.abort()
         throw err
       }),
+    drainConversation,
+    stopRequested: () => stopRequested,
     toolResults: {
       get: async (toolKey) => {
         const row = await db
@@ -490,6 +637,23 @@ export async function claimAgentRun(
           .set({ phase })
           .where(eq(schema.agentRun.id, runId))
           .catch(() => {})
+      },
+      // Steer rows that predate the just-loaded snapshot are already in it —
+      // consume them so the first boundary doesn't inject duplicates. (Resumed
+      // runs skip this: their snapshot is old, so pending rows must inject.)
+      markConversationLoaded: async () => {
+        await db
+          .update(schema.agentRunQueue)
+          .set({ state: "consumed", consumedAtStep: 0 })
+          .where(
+            and(
+              eq(schema.agentRunQueue.runId, runId),
+              eq(schema.agentRunQueue.state, "steered")
+            )
+          )
+          .catch((err) =>
+            logger.warn({ err, runId }, "Steer snapshot sweep failed")
+          )
       },
       aborted: () => abort.signal.aborted,
       stop: () => clearInterval(heartbeat),

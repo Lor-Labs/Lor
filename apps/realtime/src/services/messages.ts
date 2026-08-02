@@ -43,6 +43,102 @@ type ToggleMessageReactionInput = {
 export type CreateMessageResult = {
   message: RealtimeMessage
   channel: AccessibleChannel
+  // True when the clientKey matched an already-persisted send (client retry
+  // after a lost ack): the original row is returned and the caller must skip
+  // fanout/broadcast/triggers — they already ran the first time.
+  deduplicated?: boolean
+}
+
+function isClientKeyConflict(err: unknown): boolean {
+  const code =
+    (err as { code?: string })?.code ??
+    (err as { cause?: { code?: string } })?.cause?.code
+  return code === "23505"
+}
+
+async function loadMessageByClientKey(args: {
+  authorId: string
+  channelId: string
+  clientKey: string
+  workspaceId: string | null
+}): Promise<RealtimeMessage | null> {
+  const row = await db
+    .select({
+      id: schema.message.id,
+      channelId: schema.message.channelId,
+      content: schema.message.content,
+      type: schema.message.type,
+      status: schema.message.status,
+      createdAt: schema.message.createdAt,
+      editedAt: schema.message.editedAt,
+      threadRootId: schema.message.threadRootId,
+      attachments: schema.message.attachments,
+      embeds: schema.message.embeds,
+      pinned: schema.message.pinned,
+      authorId: schema.user.id,
+      authorName: schema.user.name,
+      authorUsername: schema.user.username,
+      authorDisplayUsername: schema.user.displayUsername,
+      authorImage: schema.user.image,
+    })
+    .from(schema.message)
+    .innerJoin(schema.user, eq(schema.message.authorId, schema.user.id))
+    .where(
+      and(
+        eq(schema.message.authorId, args.authorId),
+        eq(schema.message.channelId, args.channelId),
+        eq(schema.message.clientKey, args.clientKey)
+      )
+    )
+    .limit(1)
+    .then((rows) => rows[0])
+  if (!row) return null
+
+  const mentions = await db
+    .select({
+      id: schema.user.id,
+      name: schema.user.name,
+      username: schema.user.username,
+      displayUsername: schema.user.displayUsername,
+      image: schema.user.image,
+    })
+    .from(schema.messageMention)
+    .innerJoin(
+      schema.user,
+      eq(schema.messageMention.mentionedUserId, schema.user.id)
+    )
+    .where(
+      and(
+        eq(schema.messageMention.messageId, row.id),
+        eq(schema.messageMention.mentionType, "direct")
+      )
+    )
+
+  return {
+    id: row.id,
+    channelId: row.channelId,
+    content: row.content,
+    type: row.type,
+    status: row.status,
+    pinned: row.pinned,
+    createdAt: row.createdAt.toISOString(),
+    ...(row.editedAt ? { editedAt: row.editedAt.toISOString() } : {}),
+    author: {
+      id: row.authorId,
+      name: row.authorName,
+      username: row.authorUsername,
+      displayUsername: row.authorDisplayUsername,
+      image: row.authorImage,
+      avatarColor: await workspaceAvatarColor(args.workspaceId, row.authorId),
+    },
+    mentions,
+    reactions: [],
+    attachments: row.attachments ?? [],
+    embeds: row.embeds ?? [],
+    referencedMessage: null,
+    threadRootId: row.threadRootId,
+    nonce: args.clientKey,
+  }
 }
 
 export type DeleteMessageResult = {
@@ -89,118 +185,144 @@ export async function createMessage(input: CreateMessageInput) {
   let hasReply = !!input.payload.referencedMessageId
   const threadRootId: string | null = input.payload.threadRootId ?? null
 
-  const messageWithAuthor = await db.transaction(async (tx) => {
-    // Verify the referenced message exists in the same channel AND in the
-    // same thread context (or both at channel level). Prevents a thread
-    // reply from quoting a message in a different thread.
-    if (hasReply && input.payload.referencedMessageId) {
-      const ref = await tx
-        .select({
-          id: schema.message.id,
-          threadRootId: schema.message.threadRootId,
-        })
-        .from(schema.message)
-        .where(
-          and(
-            eq(schema.message.id, input.payload.referencedMessageId),
-            eq(schema.message.channelId, input.payload.channelId)
+  const runInsertTransaction = () =>
+    db.transaction(async (tx) => {
+      // Verify the referenced message exists in the same channel AND in the
+      // same thread context (or both at channel level). Prevents a thread
+      // reply from quoting a message in a different thread.
+      if (hasReply && input.payload.referencedMessageId) {
+        const ref = await tx
+          .select({
+            id: schema.message.id,
+            threadRootId: schema.message.threadRootId,
+          })
+          .from(schema.message)
+          .where(
+            and(
+              eq(schema.message.id, input.payload.referencedMessageId),
+              eq(schema.message.channelId, input.payload.channelId)
+            )
           )
-        )
-        .limit(1)
-        .then((rows) => rows[0])
+          .limit(1)
+          .then((rows) => rows[0])
 
-      if (!ref) {
-        hasReply = false
-      } else {
-        // Both must share the same effective thread scope (null === channel).
-        // A thread reply can only quote messages from the same thread root;
-        // a channel-level send can only quote channel-level messages.
-        const refRoot = ref.threadRootId ?? ref.id
-        if (threadRootId) {
-          if (refRoot !== threadRootId) hasReply = false
-        } else if (ref.threadRootId !== null) {
+        if (!ref) {
           hasReply = false
+        } else {
+          // Both must share the same effective thread scope (null === channel).
+          // A thread reply can only quote messages from the same thread root;
+          // a channel-level send can only quote channel-level messages.
+          const refRoot = ref.threadRootId ?? ref.id
+          if (threadRootId) {
+            if (refRoot !== threadRootId) hasReply = false
+          } else if (ref.threadRootId !== null) {
+            hasReply = false
+          }
         }
       }
-    }
 
-    // Verify the thread root exists, is in this channel, and is itself a
-    // channel-level message (threads are flat — replies can't host nested threads).
-    if (threadRootId) {
-      const root = await tx
+      // Verify the thread root exists, is in this channel, and is itself a
+      // channel-level message (threads are flat — replies can't host nested threads).
+      if (threadRootId) {
+        const root = await tx
+          .select({
+            id: schema.message.id,
+            threadRootId: schema.message.threadRootId,
+          })
+          .from(schema.message)
+          .where(
+            and(
+              eq(schema.message.id, threadRootId),
+              eq(schema.message.channelId, input.payload.channelId)
+            )
+          )
+          .limit(1)
+          .then((rows) => rows[0])
+
+        if (!root || root.threadRootId !== null) {
+          throw new Error("Invalid thread root")
+        }
+      }
+
+      const insertedMessage = await tx
+        .insert(schema.message)
+        .values({
+          channelId: input.payload.channelId,
+          authorId: input.userId,
+          content: input.payload.content ?? null,
+          type: hasReply ? "reply" : "default",
+          referencedMessageId: hasReply
+            ? (input.payload.referencedMessageId ?? null)
+            : null,
+          threadRootId,
+          attachments: input.payload.attachments ?? [],
+          status: input.status,
+          clientKey: input.payload.nonce ?? null,
+        })
+        .returning({
+          id: schema.message.id,
+        })
+        .then((rows) => rows[0])
+
+      if (!insertedMessage) {
+        throw new Error("Failed to create message")
+      }
+
+      await tx
+        .update(schema.channel)
+        .set({ updatedAt: new Date() })
+        .where(eq(schema.channel.id, input.payload.channelId))
+
+      const createdMessageWithAuthor = await tx
         .select({
           id: schema.message.id,
-          threadRootId: schema.message.threadRootId,
+          channelId: schema.message.channelId,
+          content: schema.message.content,
+          type: schema.message.type,
+          status: schema.message.status,
+          createdAt: schema.message.createdAt,
+          authorId: schema.user.id,
+          authorName: schema.user.name,
+          authorUsername: schema.user.username,
+          authorDisplayUsername: schema.user.displayUsername,
+          authorImage: schema.user.image,
         })
         .from(schema.message)
-        .where(
-          and(
-            eq(schema.message.id, threadRootId),
-            eq(schema.message.channelId, input.payload.channelId)
-          )
-        )
+        .innerJoin(schema.user, eq(schema.message.authorId, schema.user.id))
+        .where(eq(schema.message.id, insertedMessage.id))
         .limit(1)
         .then((rows) => rows[0])
 
-      if (!root || root.threadRootId !== null) {
-        throw new Error("Invalid thread root")
+      if (!createdMessageWithAuthor) {
+        throw new Error("Failed to fetch created message")
+      }
+
+      return createdMessageWithAuthor
+    })
+
+  let messageWithAuthor: Awaited<ReturnType<typeof runInsertTransaction>>
+  try {
+    messageWithAuthor = await runInsertTransaction()
+  } catch (err) {
+    // Same author + channel + nonce already persisted: a client retry after
+    // a lost ack. Return the original row; the caller skips fanout/triggers.
+    if (input.payload.nonce && isClientKeyConflict(err)) {
+      const existing = await loadMessageByClientKey({
+        authorId: input.userId,
+        channelId: input.payload.channelId,
+        clientKey: input.payload.nonce,
+        workspaceId: channelRecord.workspaceId,
+      })
+      if (existing) {
+        return {
+          message: existing,
+          channel: channelRecord,
+          deduplicated: true,
+        } satisfies CreateMessageResult
       }
     }
-
-    const insertedMessage = await tx
-      .insert(schema.message)
-      .values({
-        channelId: input.payload.channelId,
-        authorId: input.userId,
-        content: input.payload.content ?? null,
-        type: hasReply ? "reply" : "default",
-        referencedMessageId: hasReply
-          ? (input.payload.referencedMessageId ?? null)
-          : null,
-        threadRootId,
-        attachments: input.payload.attachments ?? [],
-        status: input.status,
-      })
-      .returning({
-        id: schema.message.id,
-      })
-      .then((rows) => rows[0])
-
-    if (!insertedMessage) {
-      throw new Error("Failed to create message")
-    }
-
-    await tx
-      .update(schema.channel)
-      .set({ updatedAt: new Date() })
-      .where(eq(schema.channel.id, input.payload.channelId))
-
-    const createdMessageWithAuthor = await tx
-      .select({
-        id: schema.message.id,
-        channelId: schema.message.channelId,
-        content: schema.message.content,
-        type: schema.message.type,
-        status: schema.message.status,
-        createdAt: schema.message.createdAt,
-        authorId: schema.user.id,
-        authorName: schema.user.name,
-        authorUsername: schema.user.username,
-        authorDisplayUsername: schema.user.displayUsername,
-        authorImage: schema.user.image,
-      })
-      .from(schema.message)
-      .innerJoin(schema.user, eq(schema.message.authorId, schema.user.id))
-      .where(eq(schema.message.id, insertedMessage.id))
-      .limit(1)
-      .then((rows) => rows[0])
-
-    if (!createdMessageWithAuthor) {
-      throw new Error("Failed to fetch created message")
-    }
-
-    return createdMessageWithAuthor
-  })
+    throw err
+  }
 
   let referencedMessage: RealtimeMessage["referencedMessage"] = null
   if (hasReply && input.payload.referencedMessageId) {
