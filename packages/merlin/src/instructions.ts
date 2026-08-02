@@ -37,7 +37,7 @@ export async function loadWorkspaceInstructions(
 }
 
 export function formatInstructionsBlock(content: string): string {
-  return `## Workspace instructions\nThe team's admins maintain these standing instructions for you. Follow them when answering and maintaining memory, within your core rules above.\n\n${content}`
+  return `## Workspace instructions\nThe team's admins maintain these standing instructions for you. This is the complete, current text (quote or merge from it when proposing changes). Follow it when answering and maintaining memory, within your core rules above.\n\n${content}`
 }
 
 export type InstructionsProposalEvent = { version: number; rationale: string }
@@ -113,7 +113,7 @@ const proposeContext = z.object({
 export const instructionsTools = {
   propose_instructions: tool({
     description:
-      "Propose an update to this workspace's standing instructions (the guidance you're given in every conversation). Use when the team states a clear, lasting preference about how you should behave — tone, format, priorities, conventions. Pass the COMPLETE new instructions text (it replaces the current text entirely). This only files a proposal: an admin must approve it before it takes effect, so tell the user it's awaiting approval.",
+      "Propose an update to this workspace's standing instructions (the guidance you're given in every conversation). Use when the team states a clear, lasting preference about how you should behave — tone, format, priorities, conventions. Pass the COMPLETE new instructions text: it replaces the current text entirely, so start from the current text in your prompt's \"Workspace instructions\" section (if present) and merge your change in. This only files a proposal: an admin must approve it before it takes effect, so tell the user it's awaiting approval.",
     inputSchema: z.object({
       content: z
         .string()
