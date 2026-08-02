@@ -259,6 +259,9 @@ export type AgentRunContext = {
   conversation: AgentRunContextTurn[]
   brainContext: string
   rosterText: string
+  // Optional so pre-existing snapshots (and DM channels, which have no name)
+  // keep parsing.
+  channelName?: string
 }
 
 export type AgentRun = typeof agentRun.$inferSelect

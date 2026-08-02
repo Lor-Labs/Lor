@@ -35,6 +35,12 @@ import { codeTools } from "./code"
 import { datadogMcpTools, resolveWorkspaceDatadog } from "./datadog"
 import { embedBrainQueryWithUsage, embedSourceQuery } from "./embeddings"
 import { githubTools, resolveWorkspaceGithub } from "./github"
+import {
+  formatInstructionsBlock,
+  type InstructionsProposalEvent,
+  instructionsTools,
+  loadWorkspaceInstructions,
+} from "./instructions"
 import { linearTools, linearWriteTools, resolveWorkspaceLinear } from "./linear"
 import { logger } from "./logger"
 import { MERLIN_MODEL, mainGatewayOptions, merlinModel } from "./models"
@@ -182,8 +188,12 @@ export type RespondCallbacks = {
   onMemoryWritten?: (e: { path: string; action: "created" | "updated" }) => void
   onToolEvent?: (e: ToolEvent) => void
   onUsage?: OnUsage
+  onInstructionsProposal?: (
+    e: InstructionsProposalEvent
+  ) => void | Promise<void>
 }
 
+export type { InstructionsProposalEvent } from "./instructions"
 export { MERLIN_MODEL } from "./models"
 export {
   type BudgetStopReason,
@@ -215,6 +225,9 @@ export type WriteBackContext = {
 export type WriteBackCallbacks = {
   onMemoryWritten?: (e: { path: string; action: "created" | "updated" }) => void
   onUsage?: OnUsage
+  onInstructionsProposal?: (
+    e: InstructionsProposalEvent
+  ) => void | Promise<void>
 }
 
 // How a person appears everywhere in the app (message author header, mention
@@ -455,7 +468,8 @@ const chatTools = {
 // call in respond() based on what the channel has bound.
 function coreToolsContext(
   workspaceId: string,
-  onWrite?: (e: BrainWriteEvent) => void
+  onWrite?: (e: BrainWriteEvent) => void,
+  onProposal?: (e: InstructionsProposalEvent) => void | Promise<void>
 ) {
   const workspace = { workspaceId }
   return {
@@ -469,6 +483,7 @@ function coreToolsContext(
     mkdir: workspace,
     move: workspace,
     link: workspace,
+    propose_instructions: { workspaceId, onProposal },
   }
 }
 
@@ -532,6 +547,8 @@ function toolLabel(toolName: string, input: unknown): string {
       return "Reorganizing memory"
     case "link":
       return "Linking pages"
+    case "propose_instructions":
+      return "Proposing workspace instructions"
     default:
       return `Working (${toolName})`
   }
@@ -870,7 +887,24 @@ async function buildRunContext(
           .join("\n")}`
       : ""
 
-  return { conversation: ctx.conversation, brainContext, rosterText }
+  // Channel name so workspace instructions can express per-channel behavior
+  // ("In #engineering, ..."). DM channels have no name — omitted.
+  const channelName = ctx.channelId
+    ? await db
+        .select({ name: schema.channel.name })
+        .from(schema.channel)
+        .where(eq(schema.channel.id, ctx.channelId))
+        .limit(1)
+        .then((rows) => rows[0]?.name ?? undefined)
+        .catch(() => undefined)
+    : undefined
+
+  return {
+    conversation: ctx.conversation,
+    brainContext,
+    rosterText,
+    ...(channelName ? { channelName } : {}),
+  }
 }
 
 type UserPart =
@@ -902,7 +936,12 @@ export async function buildInitialUserMessage(
   )
 
   const parts: UserPart[] = [
-    { type: "text", text: "Recent conversation in this channel:" },
+    {
+      type: "text",
+      text: context.channelName
+        ? `Recent conversation in the #${context.channelName} channel:`
+        : "Recent conversation in this channel:",
+    },
   ]
   context.conversation.forEach((t, turnIndex) => {
     parts.push({ type: "text", text: `\n${t.authorName}: ${t.content}` })
@@ -938,6 +977,7 @@ export async function respond(
     onMemoryWritten,
     onToolEvent,
     onUsage,
+    onInstructionsProposal,
   }: RespondCallbacks,
   run?: RunHandle
 ): Promise<RespondResult> {
@@ -977,6 +1017,7 @@ export async function respond(
     ...sourceTools,
     ...brainReadTools,
     ...brainWriteTools,
+    ...instructionsTools,
     ...(github && caps.includes("github") ? githubTools : {}),
     ...(env.RAILWAY_API_TOKEN && github && caps.includes("code_intelligence")
       ? codeTools
@@ -987,7 +1028,11 @@ export async function respond(
   }
 
   const toolsContext = {
-    ...coreToolsContext(ctx.workspaceId, onMemoryWritten),
+    ...coreToolsContext(
+      ctx.workspaceId,
+      onMemoryWritten,
+      onInstructionsProposal
+    ),
     ...(github
       ? {
           search_github: github,
@@ -1038,9 +1083,12 @@ export async function respond(
       text = run.resume.answerTextSoFar
       resumeLastInputTokens = run.resume.lastInputTokens
     } else {
-      const context = await buildRunContext(ctx, onUsage)
+      const [context, workspaceInstructions] = await Promise.all([
+        buildRunContext(ctx, onUsage),
+        loadWorkspaceInstructions(ctx.workspaceId),
+      ])
       const userMessage = await buildInitialUserMessage(context)
-      instructions = `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}${context.rosterText ? `\n\n${MENTION_GUIDANCE}` : ""}`
+      instructions = `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}${context.rosterText ? `\n\n${MENTION_GUIDANCE}` : ""}${workspaceInstructions ? `\n\n${formatInstructionsBlock(workspaceInstructions)}` : ""}`
       messages = [userMessage]
       counters = { ...ZERO_RUN_COUNTERS }
       text = ""
@@ -1239,7 +1287,7 @@ export async function respond(
 
 export async function writeBack(
   ctx: WriteBackContext,
-  { onMemoryWritten, onUsage }: WriteBackCallbacks
+  { onMemoryWritten, onUsage, onInstructionsProposal }: WriteBackCallbacks
 ): Promise<void> {
   const gate = await generateSmallObject({
     // reason first so the model commits to a justification before the verdict.
@@ -1253,10 +1301,11 @@ export async function writeBack(
   )
   if (!gate.object.worthSaving) return
 
+  const workspaceInstructions = await loadWorkspaceInstructions(ctx.workspaceId)
   const body = await generateText({
     model: merlinModel,
     reasoning: "high",
-    instructions: buildSystemPrompt([]),
+    instructions: `${buildSystemPrompt([])}${workspaceInstructions ? `\n\n${formatInstructionsBlock(workspaceInstructions)}` : ""}`,
     messages: [
       ...ctx.priorMessages,
       { role: "user", content: WRITEBACK_INSTRUCTION },
@@ -1267,8 +1316,13 @@ export async function writeBack(
       ...sourceTools,
       ...brainReadTools,
       ...brainWriteTools,
+      ...instructionsTools,
     },
-    toolsContext: coreToolsContext(ctx.workspaceId, onMemoryWritten),
+    toolsContext: coreToolsContext(
+      ctx.workspaceId,
+      onMemoryWritten,
+      onInstructionsProposal
+    ),
     stopWhen: isStepCount(WRITEBACK_MAX_STEPS),
     timeout: { totalMs: WRITEBACK_TIMEOUT_MS },
     providerOptions: {

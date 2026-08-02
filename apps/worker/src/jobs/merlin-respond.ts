@@ -26,6 +26,7 @@ import {
 } from "@repo/merlin"
 import {
   buildMessageFanout,
+  sendInstructionsProposalPush,
   sendMessagePushNotifications,
 } from "@repo/messaging"
 import type {
@@ -284,6 +285,18 @@ export function createMerlinRespondProcessor(
             ...runRef(seq),
           })
         }
+        // Push owner/admins toward the approval screen; delivery must never
+        // fail the answer.
+        const notifyInstructionsProposal = (e: {
+          version: number
+          rationale: string
+        }) =>
+          sendInstructionsProposalPush({ workspaceId, ...e }).catch((err) =>
+            logger.error(
+              { err, workspaceId },
+              "Instructions proposal push failed"
+            )
+          )
         try {
           // On recovery the persisted step-0 snapshot is the conversation —
           // reloading would drift (new messages may have landed since).
@@ -442,6 +455,7 @@ export function createMerlinRespondProcessor(
                 if (u.tool === "investigate_code") execution?.noteNestedUsage(u)
                 void recordUsage(u, usageRefs)
               },
+              onInstructionsProposal: notifyInstructionsProposal,
             },
             execution?.handle
           )
@@ -716,6 +730,7 @@ export function createMerlinRespondProcessor(
                 execution?.addUsage(u)
                 void recordUsage(u, { messageId: merlinMessageId, channelId })
               },
+              onInstructionsProposal: notifyInstructionsProposal,
             }
           )
           // Persist what write-back committed so the chip survives a reload

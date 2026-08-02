@@ -51,7 +51,10 @@ import {
 import { WorkspaceCommand } from "@/components/sidebar/channel-panel/workspace-command"
 import { CreateWorkspaceDialog } from "@/components/sidebar/create-workspace-dialog"
 import { WorkspaceAvatar } from "@/components/workspace/workspace-avatar"
-import { WorkspaceSettingsDialog } from "@/components/workspace/workspace-settings-dialog"
+import {
+  toSectionId,
+  WorkspaceSettingsDialog,
+} from "@/components/workspace/workspace-settings-dialog"
 import { useBillingUpdates } from "@/hooks/use-billing-updates"
 import { useSettings } from "@/hooks/use-settings"
 import { apiClient } from "@/lib/api-client"
@@ -93,14 +96,7 @@ function WorkspaceSidebarInner() {
   const [inviteOpen, setInviteOpen] = useState(false)
 
   const settingsOpen = target === "workspace"
-  const settingsSection =
-    tab === "integrations"
-      ? "integrations"
-      : tab === "merlin"
-        ? "merlin"
-        : tab === "billing"
-          ? "billing"
-          : "general"
+  const settingsSection = toSectionId(tab)
 
   const { data: workspaces, isPending } = useQuery({
     queryKey: ["workspaces"],

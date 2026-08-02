@@ -138,7 +138,7 @@ Each slice is independently shippable; 1–2 touch `packages/db` + `packages/mer
 
 ## 9. Implementation notes (as-built deltas)
 
-Slices 1–2 are built (2026-08-01). Where the code deviates from the sections above:
+Slices 1–3 are built (2026-08-01). Where the code deviates from the sections above:
 
 - **No separate `checkpointStep`** — `agent_run.steps` doubles as the checkpoint pointer (transcript rows 1..steps are durable). Step-0 context lives on the run row (`context` + `instructions` columns); `agent_run_step` holds model steps only.
 - **Recovery resets clients with a `replace` text frame** (existing client path) instead of a `truncate` event; the enum value is kept unused. The claim also jumps `nextSeq` by 10,000 on takeover so a zombie's un-flushed live tail can never collide with recovered frames.
@@ -149,11 +149,21 @@ Slices 1–2 are built (2026-08-01). Where the code deviates from the sections a
 - **Dead-run sweep**: a 10-minute maintenance job force-fails non-terminal runs well past their deadline and settles their stuck pending placeholders — covers the double-crash case beyond the single recovery attempt.
 - **Context-per-request** stays governed by `MERLIN_COMPACT_INPUT_TOKENS` (gateway models don't expose window metadata); `MERLIN_RESPOND_TOKEN_BUDGET` is removed, superseded by the run budgets.
 
+Slice 3 (`LOR.md`), as built:
+
+- **Validation lives in `packages/db`** (`validateWorkspaceInstructionsContent` next to the table): 8 KB byte cap + secret heuristics (PEM, AWS keys, `sk-`/GitHub/Slack tokens, JWTs, bearer strings). API rejects on write (400); merlin re-validates on injection and skips with a log (fail closed).
+- **Authorization** is a new `instructions: ["update", "approve"]` workspace statement — granted to owner/admin via the existing `workspaceGrants` spread, so members are read-only by construction.
+- **At most one pending proposal per workspace**: a newer agent proposal marks the previous pending row `superseded` in the same transaction. Pending proposals are visible to all members (read-only); only owner/admins see approve/reject.
+- **Activation races can't merge silently**: the supersede UPDATE is guarded on the exact active version read in the transaction, the partial unique active index backstops double-inserts, and unique violations surface as 409s. Direct edits guard on the client's `baseVersion`; approval guards on `proposal.baseVersion == current active` (stale proposals block approval in the UI with guidance to re-apply or reject).
+- **Injection** appends an "## Workspace instructions" block to the end of the assembled system prompt in both `respond()` and `writeBack()` (after connector lines + guidance, before the conversation). The run's `instructions` snapshot (slice 2) already carries it through recovery unchanged.
+- **`propose_instructions`** is registered as a side-effect tool in the tool guard, so a recovered step replays the cached result instead of filing a duplicate proposal. The push (`sendInstructionsProposalPush`) is presence-independent, goes to owner + admins only, and carries data-only deep-link fields — no approve action.
+- **Web UI** is an "Instructions" section in the workspace settings dialog (`instructions-section.tsx`): editor with byte meter for owner/admins, read-only view for members, pending-proposal card with a line-level diff + rationale + approve/reject, collapsible version history. The **mobile approval screen is deferred** — tracked in `reference/mobile-parity-todo.md` (push already fires; deep link is unrouted on mobile).
+
 ## 10. Open decision points
 
 - **Channel-scope serialization:** `scopeKey = threadRootId ?? channelId` serializes *all* channel-level runs in one channel — two people asking unrelated in-channel questions queue behind each other. Recommended for v1 (placement usually ducks noisy asks into threads anyway; contradictory overlapping answers are worse), but it's one line to relax later.
 - **Event retention window** (proposed 7 days post-completion).
 - **Write-back budget floor** numbers (proposed ≥15% token budget + ≥50 credits).
-- **`LOR.md` content cap** (proposed 8 KB) and whether pending proposals are visible to non-admin members.
+- ~~**`LOR.md` content cap** and pending-proposal visibility~~ — decided in slice 3: 8 KB, and pending proposals are visible to all members (read-only).
 
 Schema changes land via `db:push` (Jacob runs it); slices 1–2 add `agent_run`, `agent_run_step`, `agent_run_event`, `agent_run_tool_result`, `agent_run_queue` + `message.clientKey`; slice 3 adds `workspace_instructions`.

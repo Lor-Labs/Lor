@@ -38,6 +38,7 @@ import {
   Loader2,
   Lock,
   Plug,
+  ScrollText,
   Settings,
   Upload,
   X,
@@ -47,6 +48,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { toast } from "sonner"
 import { BillingSection } from "@/components/workspace/billing-section"
+import { InstructionsSection } from "@/components/workspace/instructions-section"
 import { MerlinProfilesSection } from "@/components/workspace/merlin-profiles-section"
 import { WorkspaceAvatar } from "@/components/workspace/workspace-avatar"
 import { apiClient } from "@/lib/api-client"
@@ -80,14 +82,26 @@ type Workspace = {
   logo?: string | null
 }
 
-export type SectionId = "general" | "integrations" | "merlin" | "billing"
+export type SectionId =
+  | "general"
+  | "integrations"
+  | "merlin"
+  | "instructions"
+  | "billing"
 
 const SECTIONS: { id: SectionId; label: string; icon: typeof Settings }[] = [
   { id: "general", label: "General", icon: Settings },
   { id: "integrations", label: "Integrations", icon: Plug },
   { id: "merlin", label: "Agent profiles", icon: Layers },
+  { id: "instructions", label: "Instructions", icon: ScrollText },
   { id: "billing", label: "Billing", icon: CreditCard },
 ]
+
+// Resolves the URL ?tab= value to a section, so openers don't hand-maintain
+// the section list.
+export function toSectionId(value: string | undefined): SectionId {
+  return SECTIONS.some((s) => s.id === value) ? (value as SectionId) : "general"
+}
 
 export function WorkspaceSettingsDialog({
   open,
@@ -260,6 +274,8 @@ export function WorkspaceSettingsDialog({
                     />
                   ) : section === "integrations" ? (
                     <IntegrationsSection workspaceSlug={workspace.slug} />
+                  ) : section === "instructions" ? (
+                    <InstructionsSection workspaceSlug={workspace.slug} />
                   ) : section === "billing" && canManageBilling ? (
                     <BillingSection workspaceSlug={workspace.slug} />
                   ) : (

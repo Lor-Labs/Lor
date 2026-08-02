@@ -9,6 +9,7 @@ import billingRouter from "@/routes/v1/billing/index"
 import channelMutesRouter from "@/routes/v1/channel-mutes/index"
 import channelsRouter from "@/routes/v1/channels/index"
 import dmsRouter from "@/routes/v1/dms/index"
+import instructionsRouter from "@/routes/v1/instructions/index"
 import integrationsRouter from "@/routes/v1/integrations/index"
 import invitesRouter from "@/routes/v1/invites/index"
 import notificationSettingsRouter from "@/routes/v1/notification-settings/index"
@@ -58,6 +59,7 @@ const routes = app
   .route("/v1", webhooksRouter)
   .route("/v1", billingRouter)
   .route("/v1", runsRouter)
+  .route("/v1", instructionsRouter)
 
 export type AppType = typeof routes
 
