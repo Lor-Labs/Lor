@@ -3,6 +3,7 @@ import type {
   ServerToClientEvents,
 } from "@repo/realtime-types"
 import { io, type Socket } from "socket.io-client"
+import { APP_SCHEME } from "./app-variant"
 import { env } from "./env"
 
 export type AppSocket = Socket<ServerToClientEvents, ClientToServerEvents>
@@ -19,7 +20,7 @@ export function getSocket(): AppSocket {
       // RN's WebSocket derives Origin from the connection URL (LAN IP in dev),
       // which the realtime server's CORS check rejects — send the app scheme,
       // which is always allowlisted (same pattern as desktop's tauri origin).
-      extraHeaders: { origin: "lor://" },
+      extraHeaders: { origin: `${APP_SCHEME}://` },
     })
   }
   return socket

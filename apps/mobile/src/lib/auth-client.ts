@@ -10,6 +10,7 @@ import {
 } from "better-auth/client/plugins"
 import { createAuthClient } from "better-auth/react"
 import * as SecureStore from "expo-secure-store"
+import { APP_SCHEME } from "./app-variant"
 import { env } from "./env"
 import { ac, admin, member, owner } from "./permissions"
 
@@ -19,7 +20,7 @@ export const authClient = createAuthClient({
   baseURL: API_URL,
   plugins: [
     expoClient({
-      scheme: "lor",
+      scheme: APP_SCHEME,
       storagePrefix: "lor",
       cookiePrefix: "lor",
       storage: SecureStore,

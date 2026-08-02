@@ -82,13 +82,13 @@
   },
   "scripts": {
     "eas-build-post-install": "pnpm -w exec turbo run build --filter=@repo/api-client",
-    "start": "expo start",
-    "dev": "expo start",
+    "start": "APP_VARIANT=development expo start",
+    "dev": "APP_VARIANT=development expo start",
     "check-types": "tsc --noEmit",
     "test": "vitest run",
     "reset-project": "node ./scripts/reset-project.js",
-    "android": "expo run:android",
-    "ios": "expo run:ios",
+    "android": "APP_VARIANT=development expo run:android",
+    "ios": "APP_VARIANT=development expo run:ios",
     "web": "expo start --web",
     "lint": "expo lint"
   },

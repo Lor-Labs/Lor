@@ -66,6 +66,24 @@ dev URLs). Apple processing after submit is ~5–15 min.
   inline — always pass `--environment production` when publishing to the
   production channel.
 
+## Development app variant
+
+Development builds install alongside TestFlight instead of replacing it:
+
+- production: `Lor`, bundle ID `chat.lor.app`, URL scheme `lor`
+- development: `Lor Dev`, bundle ID `chat.lor.app.dev`, URL scheme `lor-dev`
+
+`eas.json` sets `APP_VARIANT=development` for the development profiles. The
+local `start`, `dev`, `ios`, and `android` package scripts set the same value.
+Production builds and updates must leave `APP_VARIANT` unset so `app.config.ts`
+resolves the App Store identity. If running Expo commands directly rather than
+through a package script, prefix development commands with
+`APP_VARIANT=development`.
+
+The development bundle ID has separate signing credentials and app storage.
+EAS may prompt to create its Apple App ID and provisioning profile on the first
+device build.
+
 ## Gotchas (each one cost a failed build)
 
 - **Commit before building.** EAS builds from the repo; `pnpm-lock.yaml` must

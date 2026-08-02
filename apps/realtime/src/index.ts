@@ -125,7 +125,12 @@ const defaultOrigins = ["http://localhost:3000", "http://localhost:3001"]
 // (Tauri) serves from tauri://localhost (macOS/Linux) or http://tauri.localhost
 // (Windows); mobile sends its app scheme explicitly (RN's WebSocket otherwise
 // derives Origin from the connection URL, which can't be allowlisted).
-const nativeOrigins = ["tauri://localhost", "http://tauri.localhost", "lor://"]
+const nativeOrigins = [
+  "tauri://localhost",
+  "http://tauri.localhost",
+  "lor://",
+  "lor-dev://",
+]
 const corsOrigins = [
   ...(env.REALTIME_CORS_ORIGIN || defaultOrigins.join(","))
     .split(",")
