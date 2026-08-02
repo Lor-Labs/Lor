@@ -522,6 +522,41 @@ export function useThreadMessages({
         )
       )
     }
+    // A mid-run send was absorbed by the active run — chip the sender's
+    // message with what happened (steered vs queued).
+    const routeMessage: ServerToClientEvents["message:routed"] = (payload) => {
+      if (
+        payload.channelId !== channelId ||
+        payload.threadRootId !== threadRootId
+      ) {
+        return
+      }
+      updateMessages((current) =>
+        current.map((message) =>
+          message.id === payload.messageId
+            ? { ...message, routedOutcome: payload.outcome }
+            : message
+        )
+      )
+    }
+    // A steered message was injected — the placeholder shows who's steering.
+    const steerMessage: ServerToClientEvents["merlin:steer"] = (payload) => {
+      if (payload.channelId !== channelId) return
+      if (payload.messageId === threadRootId) {
+        updateRoot((current) =>
+          current ? { ...current, steeringBy: payload.authorName } : current
+        )
+        return
+      }
+      if (payload.threadRootId !== threadRootId) return
+      updateMessages((current) =>
+        current.map((message) =>
+          message.id === payload.messageId
+            ? { ...message, steeringBy: payload.authorName }
+            : message
+        )
+      )
+    }
     const updateMemory: ServerToClientEvents["merlin:memory"] = (payload) => {
       if (payload.channelId !== channelId) return
       if (payload.messageId === threadRootId) {
@@ -616,6 +651,8 @@ export function useThreadMessages({
     socket.on("merlin:reasoning", updateReasoning)
     socket.on("merlin:tool", updateTool)
     socket.on("merlin:memory", updateMemory)
+    socket.on("message:routed", routeMessage)
+    socket.on("merlin:steer", steerMessage)
     socket.on("message:embeds:updated", updateEmbeds)
     socket.on("message:reaction:updated", updateReaction)
     socket.on("message:pin:toggled", updatePin)
@@ -632,6 +669,8 @@ export function useThreadMessages({
       socket.off("merlin:reasoning", updateReasoning)
       socket.off("merlin:tool", updateTool)
       socket.off("merlin:memory", updateMemory)
+      socket.off("message:routed", routeMessage)
+      socket.off("merlin:steer", steerMessage)
       socket.off("message:embeds:updated", updateEmbeds)
       socket.off("message:reaction:updated", updateReaction)
       socket.off("message:pin:toggled", updatePin)
