@@ -3,7 +3,7 @@ import { SymbolView } from "expo-symbols"
 import { useThemeColor } from "heroui-native/hooks"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { Alert, Text, View } from "react-native"
-import { KeyboardAvoidingView } from "react-native-keyboard-controller"
+import { ChatKeyboardLayout } from "@/components/chat-keyboard-layout"
 import {
   MessageComposer,
   type MessageComposerMentionHandle,
@@ -214,97 +214,105 @@ export default function ThreadScreen() {
           participants={thread.participants}
         />
       </View>
-      <KeyboardAvoidingView
-        automaticOffset
-        behavior="translate-with-padding"
-        className="flex-1"
-      >
-        {thread.isLoading ? (
-          <ThreadMessageListSkeleton />
-        ) : thread.isMissing ? (
-          <StatePanel
-            action={{ label: "Back to channel", onPress: goBack }}
-            className="flex-1"
-            detail="The original message may have been deleted, or this thread is no longer available."
-            title="Thread not found"
-          />
-        ) : thread.error || !thread.root ? (
-          <StatePanel
-            action={{ label: "Try again", onPress: () => void thread.reload() }}
-            className="flex-1"
-            detail={thread.error ?? "The original message is unavailable."}
-            status="danger"
-            title="Thread is unavailable"
-          />
-        ) : (
-          <ThreadMessageList
-            avatarColorByUserId={avatarColorByUserId}
-            currentUserId={session?.user.id}
-            editingMessageId={editingMessage?.id}
-            focusMessageId={focusMessageId}
-            hasOlder={thread.hasOlder}
-            isLoadingOlder={thread.isLoadingOlder}
-            messages={thread.messages}
-            onLoadAround={thread.loadAround}
-            onLoadOlder={() => void thread.loadOlder()}
-            onDelete={confirmDelete}
-            onEdit={startEditing}
-            onPressAuthor={openAuthorProfile}
-            onReply={startReply}
-            onToggleReaction={thread.toggleReaction}
-            onTogglePin={
-              canPinMessages
-                ? (message) => {
-                    void thread.togglePin(message.id, message.pinned)
-                  }
-                : undefined
-            }
-            paginationError={thread.paginationError}
-            root={thread.root}
-            replyingToId={replyingTo?.id}
-            totalReplyCount={thread.totalReplyCount}
-          />
-        )}
-        {thread.root && !thread.isMissing && !thread.error ? (
-          <TypingIndicator users={typingUsers} />
-        ) : null}
-        {thread.root && !thread.isMissing && !thread.error ? (
-          <MessageComposer
-            accessibilityLabel="Reply in thread"
-            channelId={channelId}
-            channelName={channelName}
-            editingMessage={editingMessage}
-            isConnected={isSocketConnected}
-            isMentionCandidatesLoading={mentions.isLoading}
-            isSending={thread.isSending || isSavingEdit}
-            mentionCandidates={mentions.candidates}
-            mentionCandidatesError={mentions.error}
-            mentionRef={composerMentionRef}
-            onCancelEdit={() => setEditingMessage(null)}
-            onCancelReply={() => setReplyingTo(null)}
-            onTyping={emitTyping}
-            onEdit={async (messageId, content) => {
-              setIsSavingEdit(true)
-              try {
-                await thread.editMessage(messageId, content)
-                setEditingMessage(null)
-              } finally {
-                setIsSavingEdit(false)
+      <ChatKeyboardLayout
+        renderComposer={({ inputNativeID, onCustomInputViewChange }) =>
+          thread.root && !thread.isMissing && !thread.error ? (
+            <MessageComposer
+              accessibilityLabel="Reply in thread"
+              channelId={channelId}
+              channelName={channelName}
+              editingMessage={editingMessage}
+              inputNativeID={inputNativeID}
+              isConnected={isSocketConnected}
+              isMentionCandidatesLoading={mentions.isLoading}
+              isSending={thread.isSending || isSavingEdit}
+              mentionCandidates={mentions.candidates}
+              mentionCandidatesError={mentions.error}
+              mentionRef={composerMentionRef}
+              onCancelEdit={() => setEditingMessage(null)}
+              onCancelReply={() => setReplyingTo(null)}
+              onCustomInputViewChange={onCustomInputViewChange}
+              onTyping={emitTyping}
+              onEdit={async (messageId, content) => {
+                setIsSavingEdit(true)
+                try {
+                  await thread.editMessage(messageId, content)
+                  setEditingMessage(null)
+                } finally {
+                  setIsSavingEdit(false)
+                }
+              }}
+              onSend={async (content, attachments) => {
+                await thread.sendMessage(
+                  content,
+                  replyingTo ?? undefined,
+                  attachments
+                )
+                setReplyingTo(null)
+              }}
+              placeholder="Reply in thread"
+              replyingTo={replyingTo}
+            />
+          ) : null
+        }
+        renderMessageList={(renderScrollComponent) =>
+          thread.isLoading ? (
+            <ThreadMessageListSkeleton />
+          ) : thread.isMissing ? (
+            <StatePanel
+              action={{ label: "Back to channel", onPress: goBack }}
+              className="flex-1"
+              detail="The original message may have been deleted, or this thread is no longer available."
+              title="Thread not found"
+            />
+          ) : thread.error || !thread.root ? (
+            <StatePanel
+              action={{
+                label: "Try again",
+                onPress: () => void thread.reload(),
+              }}
+              className="flex-1"
+              detail={thread.error ?? "The original message is unavailable."}
+              status="danger"
+              title="Thread is unavailable"
+            />
+          ) : (
+            <ThreadMessageList
+              avatarColorByUserId={avatarColorByUserId}
+              currentUserId={session?.user.id}
+              editingMessageId={editingMessage?.id}
+              focusMessageId={focusMessageId}
+              hasOlder={thread.hasOlder}
+              isLoadingOlder={thread.isLoadingOlder}
+              messages={thread.messages}
+              onLoadAround={thread.loadAround}
+              onLoadOlder={() => void thread.loadOlder()}
+              onDelete={confirmDelete}
+              onEdit={startEditing}
+              onPressAuthor={openAuthorProfile}
+              onReply={startReply}
+              onToggleReaction={thread.toggleReaction}
+              onTogglePin={
+                canPinMessages
+                  ? (message) => {
+                      void thread.togglePin(message.id, message.pinned)
+                    }
+                  : undefined
               }
-            }}
-            onSend={async (content, attachments) => {
-              await thread.sendMessage(
-                content,
-                replyingTo ?? undefined,
-                attachments
-              )
-              setReplyingTo(null)
-            }}
-            placeholder="Reply in thread"
-            replyingTo={replyingTo}
-          />
-        ) : null}
-      </KeyboardAvoidingView>
+              paginationError={thread.paginationError}
+              renderScrollComponent={renderScrollComponent}
+              root={thread.root}
+              replyingToId={replyingTo?.id}
+              totalReplyCount={thread.totalReplyCount}
+            />
+          )
+        }
+        typingIndicator={
+          thread.root && !thread.isMissing && !thread.error ? (
+            <TypingIndicator users={typingUsers} />
+          ) : null
+        }
+      />
       <UserProfileSheet
         currentUserId={session?.user.id}
         onMention={mentionFromProfile}

@@ -1,6 +1,18 @@
 import { formatDateDivider } from "@repo/utils/date"
-import { useCallback, useEffect, useRef, useState } from "react"
-import { FlatList, Pressable, View, type ViewToken } from "react-native"
+import {
+  type ReactElement,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react"
+import {
+  FlatList,
+  Pressable,
+  type ScrollViewProps,
+  View,
+  type ViewToken,
+} from "react-native"
 import Animated, { FadeInUp, FadeOutUp } from "react-native-reanimated"
 import { MessageActionMenu } from "@/components/message-action-menu"
 import {
@@ -37,6 +49,7 @@ export function MessageList({
   editingMessageId,
   replyingToId,
   focusMessageId,
+  renderScrollComponent,
 }: {
   avatarColorByUserId?: ReadonlyMap<string, string>
   messages: Message[]
@@ -57,6 +70,9 @@ export function MessageList({
   editingMessageId?: string | null
   replyingToId?: string | null
   focusMessageId?: string | null
+  renderScrollComponent?: (
+    props: ScrollViewProps
+  ) => ReactElement<ScrollViewProps>
 }) {
   const [selectedMessage, setSelectedMessage] = useState<Message | null>(null)
   const [jumpTargetId, setJumpTargetId] = useState<string | null>(null)
@@ -167,6 +183,7 @@ export function MessageList({
           keyboardDismissMode="interactive"
           keyboardShouldPersistTaps="handled"
           keyExtractor={(message) => message.id}
+          renderScrollComponent={renderScrollComponent}
           onViewableItemsChanged={handleViewableItemsChanged}
           viewabilityConfig={viewabilityConfig}
           onScrollToIndexFailed={({ index, averageItemLength }) => {

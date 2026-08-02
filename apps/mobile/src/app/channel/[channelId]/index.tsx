@@ -6,9 +6,9 @@ import { useThemeColor } from "heroui-native/hooks"
 import { Spinner } from "heroui-native/spinner"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Alert, Pressable, Text, View } from "react-native"
-import { KeyboardAvoidingView } from "react-native-keyboard-controller"
 import { ChannelOptionsSheet } from "@/components/channel-options-sheet"
 import { ChannelSearchOverlay } from "@/components/channel-search-overlay"
+import { ChatKeyboardLayout } from "@/components/chat-keyboard-layout"
 import {
   type MemberListItem,
   MemberListSheet,
@@ -349,71 +349,74 @@ export default function ChannelScreen() {
             />
           </IconButton>
         </View>
-        <KeyboardAvoidingView
-          automaticOffset
-          behavior="translate-with-padding"
-          className="flex-1"
-        >
-          <MessageList
-            avatarColorByUserId={avatarColorByUserId}
-            channelName={channelName}
-            currentUserId={session?.user.id}
-            editingMessageId={editingMessage?.id}
-            error={chat.error}
-            focusMessageId={focusedMessageId}
-            isLoading={chat.isLoading}
-            messages={chat.messages}
-            onLoadAround={chat.loadAround}
-            onOpenThread={openThread}
-            onDelete={confirmDelete}
-            onEdit={startEditing}
-            onPressAuthor={openAuthorProfile}
-            onReply={startReply}
-            onRetry={() => void chat.reload()}
-            onToggleReaction={chat.toggleReaction}
-            onTogglePin={
-              permissions.canPinMessages
-                ? (message) => {
-                    void chat.togglePin(message.id, message.pinned)
-                  }
-                : undefined
-            }
-            replyingToId={replyingTo?.id}
-          />
-          <TypingIndicator users={typingUsers} />
-          <MessageComposer
-            channelId={channelId}
-            channelName={channelName}
-            editingMessage={editingMessage}
-            isConnected={isSocketConnected}
-            isMentionCandidatesLoading={mentions.isLoading}
-            isSending={chat.isSending || isSavingEdit}
-            mentionCandidates={mentions.candidates}
-            mentionCandidatesError={mentions.error}
-            mentionRef={composerMentionRef}
-            onCancelEdit={() => setEditingMessage(null)}
-            onCancelReply={() => setReplyingTo(null)}
-            onTyping={emitTyping}
-            onEdit={async (messageId, content) => {
-              setIsSavingEdit(true)
-              try {
-                await chat.editMessage(messageId, content)
-                setEditingMessage(null)
-              } finally {
-                setIsSavingEdit(false)
+        <ChatKeyboardLayout
+          renderComposer={({ inputNativeID, onCustomInputViewChange }) => (
+            <MessageComposer
+              channelId={channelId}
+              channelName={channelName}
+              editingMessage={editingMessage}
+              inputNativeID={inputNativeID}
+              isConnected={isSocketConnected}
+              isMentionCandidatesLoading={mentions.isLoading}
+              isSending={chat.isSending || isSavingEdit}
+              mentionCandidates={mentions.candidates}
+              mentionCandidatesError={mentions.error}
+              mentionRef={composerMentionRef}
+              onCancelEdit={() => setEditingMessage(null)}
+              onCancelReply={() => setReplyingTo(null)}
+              onCustomInputViewChange={onCustomInputViewChange}
+              onTyping={emitTyping}
+              onEdit={async (messageId, content) => {
+                setIsSavingEdit(true)
+                try {
+                  await chat.editMessage(messageId, content)
+                  setEditingMessage(null)
+                } finally {
+                  setIsSavingEdit(false)
+                }
+              }}
+              onSend={async (content, attachments) => {
+                await chat.sendMessage(
+                  content,
+                  replyingTo ?? undefined,
+                  attachments
+                )
+                setReplyingTo(null)
+              }}
+              replyingTo={replyingTo}
+            />
+          )}
+          renderMessageList={(renderScrollComponent) => (
+            <MessageList
+              avatarColorByUserId={avatarColorByUserId}
+              channelName={channelName}
+              currentUserId={session?.user.id}
+              editingMessageId={editingMessage?.id}
+              error={chat.error}
+              focusMessageId={focusedMessageId}
+              isLoading={chat.isLoading}
+              messages={chat.messages}
+              onLoadAround={chat.loadAround}
+              onOpenThread={openThread}
+              onDelete={confirmDelete}
+              onEdit={startEditing}
+              onPressAuthor={openAuthorProfile}
+              onReply={startReply}
+              onRetry={() => void chat.reload()}
+              onToggleReaction={chat.toggleReaction}
+              onTogglePin={
+                permissions.canPinMessages
+                  ? (message) => {
+                      void chat.togglePin(message.id, message.pinned)
+                    }
+                  : undefined
               }
-            }}
-            onSend={async (content, attachments) => {
-              await chat.sendMessage(
-                content,
-                replyingTo ?? undefined,
-                attachments
-              )
-              setReplyingTo(null)
-            }}
-            replyingTo={replyingTo}
-          />
-        </KeyboardAvoidingView>
+              renderScrollComponent={renderScrollComponent}
+              replyingToId={replyingTo?.id}
+            />
+          )}
+          typingIndicator={<TypingIndicator users={typingUsers} />}
+        />
       </View>
       {isSearchOpen ? (
         <ChannelSearchOverlay
