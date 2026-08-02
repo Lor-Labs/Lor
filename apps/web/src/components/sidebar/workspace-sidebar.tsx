@@ -50,6 +50,7 @@ import {
 } from "@/components/sidebar/channel-panel/create-channel-context"
 import { WorkspaceCommand } from "@/components/sidebar/channel-panel/workspace-command"
 import { CreateWorkspaceDialog } from "@/components/sidebar/create-workspace-dialog"
+import { InstructionsApprovalAlert } from "@/components/workspace/instructions-approval-alert"
 import { WorkspaceAvatar } from "@/components/workspace/workspace-avatar"
 import {
   toSectionId,
@@ -321,6 +322,13 @@ function WorkspaceSidebarInner() {
             </DropdownMenu>
           )}
         </div>
+
+        {workspaceSlug && (
+          <InstructionsApprovalAlert
+            workspaceSlug={workspaceSlug}
+            onReview={() => openSettings("workspace", "instructions")}
+          />
+        )}
       </SidebarHeader>
 
       <SidebarContent>

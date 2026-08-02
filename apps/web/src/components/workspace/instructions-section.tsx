@@ -1,14 +1,30 @@
+import {
+  DEFAULT_THEMES,
+  getFiletypeFromFileName,
+  getHighlighterOptions,
+  isHighlighterLoaded,
+  parseDiffFromFile,
+  preloadHighlighter,
+} from "@pierre/diffs"
+import { FileDiff } from "@pierre/diffs/react"
 import { Badge } from "@repo/ui/components/badge"
 import { Button } from "@repo/ui/components/button"
-import { Textarea } from "@repo/ui/components/textarea"
 import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import Link from "@tiptap/extension-link"
+import { Markdown } from "@tiptap/markdown"
+import { EditorContent, useEditor } from "@tiptap/react"
+import StarterKit from "@tiptap/starter-kit"
 import { Check, ChevronDown, Loader2, X } from "lucide-react"
-import { useEffect, useMemo, useState } from "react"
+import { useTheme } from "next-themes"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 import { apiClient } from "@/lib/api-client"
 
-const MAX_BYTES = 8 * 1024
+// Mirrors WORKSPACE_INSTRUCTIONS_MAX_TOKENS in packages/db (web can't import
+// the db package); ~4 chars/token estimate, same as the server validator.
+const MAX_TOKENS = 2000
+const estimateTokens = (content: string) => Math.ceil(content.length / 4)
 
 type InstructionsVersion = {
   version: number
@@ -28,72 +44,180 @@ type InstructionsData = {
   canManage: boolean
 }
 
-type DiffLine = { type: "same" | "add" | "del"; text: string }
-
-// Line-level LCS diff — content is capped at 8 KB, so the DP table stays tiny.
-function diffLines(before: string, after: string): DiffLine[] {
-  const a = before.split("\n")
-  const b = after.split("\n")
-  const lcs: number[][] = Array.from({ length: a.length + 1 }, () =>
-    new Array<number>(b.length + 1).fill(0)
-  )
-  const at = (i: number, j: number) => lcs[i]?.[j] ?? 0
-  for (let i = a.length - 1; i >= 0; i--) {
-    const row = lcs[i]
-    if (!row) continue
-    for (let j = b.length - 1; j >= 0; j--) {
-      row[j] =
-        a[i] === b[j]
-          ? at(i + 1, j + 1) + 1
-          : Math.max(at(i + 1, j), at(i, j + 1))
+// FileDiff paints nothing if it mounts before the shared Shiki highlighter
+// has ever loaded (its lazy init doesn't repaint this instance), so gate the
+// first mount on an explicit preload — later mounts find it warm and skip.
+function useDiffHighlighterReady() {
+  const [ready, setReady] = useState(isHighlighterLoaded)
+  useEffect(() => {
+    if (ready) return
+    let cancelled = false
+    void preloadHighlighter(
+      getHighlighterOptions(getFiletypeFromFileName("LOR.md"), {
+        theme: DEFAULT_THEMES,
+      })
+    ).then(() => {
+      if (!cancelled) setReady(true)
+    })
+    return () => {
+      cancelled = true
     }
-  }
-  const lines: DiffLine[] = []
-  let i = 0
-  let j = 0
-  while (i < a.length && j < b.length) {
-    if (a[i] === b[j]) {
-      lines.push({ type: "same", text: a[i] ?? "" })
-      i++
-      j++
-    } else if (at(i + 1, j) >= at(i, j + 1)) {
-      lines.push({ type: "del", text: a[i] ?? "" })
-      i++
-    } else {
-      lines.push({ type: "add", text: b[j] ?? "" })
-      j++
-    }
-  }
-  while (i < a.length) {
-    lines.push({ type: "del", text: a[i] ?? "" })
-    i++
-  }
-  while (j < b.length) {
-    lines.push({ type: "add", text: b[j] ?? "" })
-    j++
-  }
-  return lines
+  }, [ready])
+  return ready
 }
 
 function DiffView({ before, after }: { before: string; after: string }) {
-  const lines = useMemo(() => diffLines(before, after), [before, after])
+  const { resolvedTheme } = useTheme()
+  const highlighterReady = useDiffHighlighterReady()
+  // An empty base means "no instructions yet" — render as a new file rather
+  // than a modification of an empty one.
+  const fileDiff = useMemo(
+    () =>
+      parseDiffFromFile(before ? { name: "LOR.md", contents: before } : null, {
+        name: "LOR.md",
+        contents: after,
+      }),
+    [before, after]
+  )
+  if (!highlighterReady) {
+    return (
+      <div className="flex h-16 items-center justify-center rounded-md border border-border">
+        <Loader2 className="size-4 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
   return (
-    <pre className="max-h-72 overflow-auto rounded-md border border-border bg-muted/40 p-3 font-mono text-xs whitespace-pre-wrap">
-      {lines.map((line, index) => (
-        <div
-          key={`${index}-${line.text}`}
+    <div className="max-h-72 overflow-auto rounded-md border border-border text-xs">
+      <FileDiff
+        fileDiff={fileDiff}
+        options={{
+          themeType: resolvedTheme === "dark" ? "dark" : "light",
+          diffStyle: "unified",
+          overflow: "wrap",
+          disableFileHeader: true,
+        }}
+      />
+    </div>
+  )
+}
+
+// Rich Markdown editing over plain-Markdown storage: Tiptap parses the active
+// version in and serializes back with @tiptap/markdown, so the server, diff,
+// and prompt injection all keep seeing raw text.
+function InstructionsEditor({
+  activeContent,
+  activeVersion,
+  onSave,
+  isSaving,
+}: {
+  activeContent: string
+  activeVersion: number | null
+  onSave: (content: string) => void
+  isSaving: boolean
+}) {
+  const [draft, setDraft] = useState<string | null>(null)
+
+  const editor = useEditor(
+    {
+      extensions: [
+        StarterKit.configure({ link: false }),
+        Markdown,
+        Link.configure({
+          openOnClick: false,
+          autolink: true,
+          linkOnPaste: true,
+          HTMLAttributes: {
+            class:
+              "text-primary underline-offset-2 hover:underline cursor-pointer",
+            rel: "noreferrer noopener",
+            target: "_blank",
+          },
+        }),
+      ],
+      content: activeContent,
+      contentType: "markdown",
+      editorProps: {
+        attributes: {
+          class:
+            "min-h-56 max-h-96 overflow-y-auto rounded-md border border-input bg-muted/40 px-3 py-2 text-sm leading-6 text-foreground/90 outline-none [&_h1]:mt-3 [&_h1]:mb-1 [&_h1]:text-lg [&_h1]:font-semibold [&_h2]:mt-3 [&_h2]:mb-1 [&_h2]:text-base [&_h2]:font-semibold [&_h3]:mt-2 [&_h3]:mb-1 [&_h3]:text-sm [&_h3]:font-semibold [&_p]:my-1 [&_ul]:my-1 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-1 [&_ol]:list-decimal [&_ol]:pl-5 [&_blockquote]:my-1 [&_blockquote]:border-l-2 [&_blockquote]:border-border [&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground [&_hr]:my-2 [&_code]:rounded-[4px] [&_code]:border [&_code]:border-border/70 [&_code]:bg-primary/10 [&_code]:px-0.75 [&_code]:py-0.25 [&_code]:font-mono [&_code]:text-[0.92em] [&_code]:text-foreground [&_pre]:my-1 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:border-border/70 [&_pre]:bg-muted/50 [&_pre]:px-2 [&_pre]:py-1.5 [&_pre]:font-mono [&_pre]:text-[0.92em] [&_pre_code]:rounded-none [&_pre_code]:border-0 [&_pre_code]:bg-transparent [&_pre_code]:p-0",
+        },
+      },
+      onUpdate: ({ editor: tiptapEditor }) => {
+        setDraft(tiptapEditor.getMarkdown())
+      },
+    },
+    []
+  )
+
+  // A new active version (save, approval, concurrent edit) replaces the doc
+  // so the editor never shows stale text as "yours". Guarded by a ref so it
+  // never fires on mount — the initial content is set at editor creation, and
+  // a mount-time setContent can land before the editor view exists (or on a
+  // strict-mode remount after it's destroyed).
+  const lastAppliedVersion = useRef(activeVersion)
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return
+    if (lastAppliedVersion.current === activeVersion) return
+    lastAppliedVersion.current = activeVersion
+    editor.commands.setContent(activeContent, { contentType: "markdown" })
+    setDraft(null)
+  }, [activeVersion, activeContent, editor])
+
+  const editorValue = draft ?? activeContent
+  const editorTokens = estimateTokens(editorValue)
+  const overLimit = editorTokens > MAX_TOKENS
+  const hasChanges = draft !== null && draft !== activeContent
+  const isEmpty = editorValue.trim().length === 0
+
+  const discard = () => {
+    if (!editor) return
+    editor.commands.setContent(activeContent, { contentType: "markdown" })
+    setDraft(null)
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="relative">
+        {isEmpty && (
+          <span className="pointer-events-none absolute left-3 top-2 text-sm text-muted-foreground">
+            e.g. Answer in English. Prefer linking Linear issues over quoting
+            them. In #engineering, always link the PR.
+          </span>
+        )}
+        <EditorContent editor={editor} />
+      </div>
+      <div className="flex items-center justify-between gap-2">
+        <span
           className={cn(
-            line.type === "add" &&
-              "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
-            line.type === "del" &&
-              "bg-destructive/10 text-destructive line-through decoration-destructive/40"
+            "text-xs",
+            overLimit ? "text-destructive" : "text-muted-foreground"
           )}
         >
-          {line.type === "add" ? "+ " : line.type === "del" ? "- " : "  "}
-          {line.text || " "}
+          ~{editorTokens.toLocaleString()} / {MAX_TOKENS.toLocaleString()}{" "}
+          tokens
+        </span>
+        <div className="flex gap-2">
+          {hasChanges && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={discard}
+              disabled={isSaving}
+            >
+              Discard
+            </Button>
+          )}
+          <Button
+            size="sm"
+            disabled={!hasChanges || overLimit || isSaving}
+            onClick={() => onSave(editorValue)}
+          >
+            {isSaving && <Loader2 className="size-4 animate-spin" />}
+            Save
+          </Button>
         </div>
-      ))}
-    </pre>
+      </div>
+    </div>
   )
 }
 
@@ -103,7 +227,6 @@ export function InstructionsSection({
   workspaceSlug: string
 }) {
   const queryClient = useQueryClient()
-  const [draft, setDraft] = useState<string | null>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
 
   const { data, isPending, isError, refetch } = useQuery({
@@ -119,12 +242,6 @@ export function InstructionsSection({
 
   const activeContent = data?.active?.content ?? ""
   const activeVersion = data?.active?.version ?? null
-
-  // Reset the draft whenever a new active version lands (save, approval,
-  // concurrent edit) so the editor never shows stale text as "yours".
-  useEffect(() => {
-    setDraft(null)
-  }, [activeVersion])
 
   const invalidate = () =>
     queryClient.invalidateQueries({
@@ -155,7 +272,6 @@ export function InstructionsSection({
       toast.success(
         "Instructions updated — Merlin follows them from its next answer"
       )
-      setDraft(null)
       void invalidate()
     },
     onError: (err) => conflictToast(err.message),
@@ -219,10 +335,6 @@ export function InstructionsSection({
     )
   }
 
-  const editorValue = draft ?? activeContent
-  const editorBytes = new TextEncoder().encode(editorValue).length
-  const overLimit = editorBytes > MAX_BYTES
-  const hasChanges = draft !== null && draft !== activeContent
   const pending = data.pending
   const pendingIsStale =
     pending !== null && pending.baseVersion !== activeVersion
@@ -286,47 +398,13 @@ export function InstructionsSection({
       )}
 
       {data.canManage ? (
-        <div className="space-y-2">
-          <Textarea
-            value={editorValue}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder={
-              "e.g. Answer in English. Prefer linking Linear issues over quoting them. Our on-call rotation is documented in /processes/on-call."
-            }
-            className="min-h-56 font-mono text-xs"
-          />
-          <div className="flex items-center justify-between gap-2">
-            <span
-              className={cn(
-                "text-xs",
-                overLimit ? "text-destructive" : "text-muted-foreground"
-              )}
-            >
-              {editorBytes.toLocaleString()} / {MAX_BYTES.toLocaleString()}{" "}
-              bytes
-            </span>
-            <div className="flex gap-2">
-              {hasChanges && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setDraft(null)}
-                  disabled={save.isPending}
-                >
-                  Discard
-                </Button>
-              )}
-              <Button
-                size="sm"
-                disabled={!hasChanges || overLimit || save.isPending}
-                onClick={() => save.mutate(editorValue)}
-              >
-                {save.isPending && <Loader2 className="size-4 animate-spin" />}
-                Save
-              </Button>
-            </div>
-          </div>
-        </div>
+        <InstructionsEditor
+          key={workspaceSlug}
+          activeContent={activeContent}
+          activeVersion={activeVersion}
+          onSave={(content) => save.mutate(content)}
+          isSaving={save.isPending}
+        />
       ) : activeContent ? (
         <pre className="rounded-md border border-border bg-muted/40 p-3 font-mono text-xs whitespace-pre-wrap">
           {activeContent}

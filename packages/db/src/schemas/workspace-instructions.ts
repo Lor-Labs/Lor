@@ -90,7 +90,14 @@ export const selectWorkspaceInstructionsSchema = createSelectSchema(
   workspaceInstructions
 )
 
-export const WORKSPACE_INSTRUCTIONS_MAX_BYTES = 8 * 1024
+// Prompt-budget framing, so the cap reads in the same unit the cost is paid
+// in. No tokenizer dependency — ~4 chars/token is the standard estimate; the
+// validator labels it as an estimate.
+export const WORKSPACE_INSTRUCTIONS_MAX_TOKENS = 2000
+
+export function estimateInstructionsTokens(content: string): number {
+  return Math.ceil(content.length / 4)
+}
 
 // Content heuristics for credentials that must never reach a model prompt.
 // Checked on write (reject) and again on injection (skip + log) — fail closed.
@@ -118,11 +125,11 @@ export type WorkspaceInstructionsValidation =
 export function validateWorkspaceInstructionsContent(
   content: string
 ): WorkspaceInstructionsValidation {
-  const bytes = new TextEncoder().encode(content).length
-  if (bytes > WORKSPACE_INSTRUCTIONS_MAX_BYTES) {
+  const tokens = estimateInstructionsTokens(content)
+  if (tokens > WORKSPACE_INSTRUCTIONS_MAX_TOKENS) {
     return {
       ok: false,
-      reason: `Instructions are ${bytes} bytes; the limit is ${WORKSPACE_INSTRUCTIONS_MAX_BYTES} (about 8 KB). Trim them down.`,
+      reason: `Instructions are roughly ${tokens} tokens; the limit is ${WORKSPACE_INSTRUCTIONS_MAX_TOKENS}. Trim them down.`,
     }
   }
   for (const { pattern, label } of SECRET_PATTERNS) {

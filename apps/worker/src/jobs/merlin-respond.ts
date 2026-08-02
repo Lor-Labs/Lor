@@ -285,18 +285,25 @@ export function createMerlinRespondProcessor(
             ...runRef(seq),
           })
         }
-        // Push owner/admins toward the approval screen; delivery must never
-        // fail the answer.
+        // Point owner/admins at the approval screen the moment a proposal is
+        // filed: a workspace-room event pops the in-app alert immediately,
+        // and a push covers whoever is away. Neither may fail the answer.
         const notifyInstructionsProposal = (e: {
           version: number
           rationale: string
-        }) =>
-          sendInstructionsProposalPush({ workspaceId, ...e }).catch((err) =>
-            logger.error(
-              { err, workspaceId },
-              "Instructions proposal push failed"
-            )
+        }) => {
+          emitter.to(workspaceRoom(workspaceId)).emit("instructions:proposal", {
+            workspaceId,
+            version: e.version,
+          })
+          return sendInstructionsProposalPush({ workspaceId, ...e }).catch(
+            (err) =>
+              logger.error(
+                { err, workspaceId },
+                "Instructions proposal push failed"
+              )
           )
+        }
         try {
           // On recovery the persisted step-0 snapshot is the conversation —
           // reloading would drift (new messages may have landed since).

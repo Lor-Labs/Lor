@@ -1,4 +1,14 @@
-import { and, db, eq, inArray, isNotNull, lt, schema } from "@repo/db"
+import {
+  and,
+  db,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  or,
+  schema,
+} from "@repo/db"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
 import { channelRoom, threadRoom } from "@repo/realtime-types/rooms"
 import type { Emitter } from "@socket.io/redis-emitter"
@@ -34,9 +44,11 @@ export async function pruneRunEvents(): Promise<void> {
   logger.info("Pruned expired agent run events")
 }
 
-// Safety net for the double-crash case (initial attempt and its one recovery
-// both died): nothing else will ever finalize the run or its stuck pending
-// placeholder, so fail both once the run is unambiguously past its deadline.
+// Safety net for runs nothing will ever finalize: past-deadline runs whose
+// attempts all died (double-crash), and queued runs never claimed at all
+// (deadlineAt is only set at claim — e.g. the job was consumed by a worker
+// without run-claiming code, or dropped entirely). Fail the run and settle
+// its stuck pending placeholder.
 export async function sweepDeadRuns(
   emitter: Emitter<ServerToClientEvents>
 ): Promise<void> {
@@ -45,10 +57,17 @@ export async function sweepDeadRuns(
     .update(schema.agentRun)
     .set({ state: "failed", stopReason: "error", finishedAt: new Date() })
     .where(
-      and(
-        inArray(schema.agentRun.state, ["queued", "working", "finalizing"]),
-        isNotNull(schema.agentRun.deadlineAt),
-        lt(schema.agentRun.deadlineAt, cutoff)
+      or(
+        and(
+          inArray(schema.agentRun.state, ["queued", "working", "finalizing"]),
+          isNotNull(schema.agentRun.deadlineAt),
+          lt(schema.agentRun.deadlineAt, cutoff)
+        ),
+        and(
+          eq(schema.agentRun.state, "queued"),
+          isNull(schema.agentRun.deadlineAt),
+          lt(schema.agentRun.createdAt, cutoff)
+        )
       )
     )
     .returning({

@@ -12,6 +12,8 @@
     "generate:auth-schema": "pnpm --filter @repo/auth exec npx @better-auth/cli@latest generate --output ../../packages/db/src/generated-schema.ts",
     "db:push": "pnpm --filter @repo/db db:push",
     "db:reembed": "pnpm --filter @repo/merlin db:reembed",
+    "db:seed": "pnpm --filter @repo/db db:seed",
+    "credits:grant": "pnpm --filter @repo/billing credits:grant",
     "db:studio": "pnpm --filter @repo/db db:studio",
     "mobile:ios": "APP_VARIANT=development pnpm --filter mobile exec expo run:ios --device",
     "mobile:sim": "APP_VARIANT=development pnpm --filter mobile exec expo run:ios",

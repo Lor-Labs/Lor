@@ -460,6 +460,15 @@ export interface ServerToClientEvents {
   "workspace:member:joined": (payload: WorkspaceMemberJoinedEvent) => void
   "typing:update": (payload: TypingIndicatorEvent) => void
   "billing:updated": (payload: BillingUpdatedEvent) => void
+  "instructions:proposal": (payload: InstructionsProposalUpdate) => void
+}
+
+// Emitted to the workspace room when Merlin files a workspace-instructions
+// proposal; clients refresh the instructions query so admins see the
+// approval alert immediately.
+export type InstructionsProposalUpdate = {
+  workspaceId: string
+  version: number
 }
 
 // Emitted to the workspace room; clients invalidate their billing query and

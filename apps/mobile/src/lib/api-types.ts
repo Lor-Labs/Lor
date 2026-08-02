@@ -30,6 +30,10 @@ export type ChannelSearchResults = InferResponseType<
   200
 >
 export type ChannelSearchResult = ChannelSearchResults["data"][number]
+export type WorkspaceInstructions = InferResponseType<
+  WorkspaceClient["instructions"]["$get"],
+  200
+>
 export type NotificationSettings = InferResponseType<
   Client["v1"]["notification-settings"]["$get"],
   200

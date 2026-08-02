@@ -17,16 +17,32 @@ Notifications.setNotificationHandler({
   }),
 })
 
-type PushTarget = {
-  channelId: string
-  workspaceId: string | null
-  threadRootId: string | null
-}
+type PushTarget =
+  | {
+      kind: "message"
+      channelId: string
+      workspaceId: string | null
+      threadRootId: string | null
+    }
+  | {
+      kind: "instructions-proposal"
+      workspaceId: string
+      workspaceSlug: string
+    }
 
 function parsePushTarget(data: Record<string, unknown>): PushTarget | null {
+  if (data.type === "instructions-proposal") {
+    const workspaceId =
+      typeof data.workspaceId === "string" ? data.workspaceId : null
+    const workspaceSlug =
+      typeof data.workspaceSlug === "string" ? data.workspaceSlug : null
+    if (!workspaceId || !workspaceSlug) return null
+    return { kind: "instructions-proposal", workspaceId, workspaceSlug }
+  }
   const channelId = typeof data.channelId === "string" ? data.channelId : null
   if (!channelId) return null
   return {
+    kind: "message",
     channelId,
     workspaceId: typeof data.workspaceId === "string" ? data.workspaceId : null,
     threadRootId:
@@ -73,6 +89,17 @@ export function usePushNotifications() {
     if (!target) return
 
     void (async () => {
+      if (target.kind === "instructions-proposal") {
+        if (target.workspaceId !== activeWorkspaceId) {
+          const switched = await selectWorkspace(target.workspaceId)
+          if (!switched) return
+        }
+        router.push({
+          pathname: "/settings/instructions",
+          params: { workspaceSlug: target.workspaceSlug },
+        } as never)
+        return
+      }
       if (target.workspaceId === null) {
         router.push({
           pathname: "/dm/[dmId]",
