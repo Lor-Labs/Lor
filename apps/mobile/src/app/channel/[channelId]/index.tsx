@@ -424,7 +424,7 @@ export default function ChannelScreen() {
               }
             />
           )}
-          renderMessageList={(renderScrollComponent) => (
+          renderMessageList={(keyboardProps) => (
             <MessageList
               avatarColorByUserId={avatarColorByUserId}
               channelName={channelName}
@@ -433,6 +433,8 @@ export default function ChannelScreen() {
               error={chat.error}
               focusMessageId={focusedMessageId}
               isLoading={chat.isLoading}
+              keyboardProps={keyboardProps}
+              listKey={`channel-${channelId}`}
               messages={visibleMessages}
               onLoadAround={chat.loadAround}
               onOpenThread={openThread}
@@ -449,7 +451,6 @@ export default function ChannelScreen() {
                     }
                   : undefined
               }
-              renderScrollComponent={renderScrollComponent}
               replyingToId={replyingTo?.id}
             />
           )}

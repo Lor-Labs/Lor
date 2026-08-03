@@ -1,28 +1,14 @@
+import { type ReactNode, useCallback, useId, useMemo, useRef } from "react"
+import { type LayoutChangeEvent, StyleSheet, View } from "react-native"
 import {
-  type ComponentRef,
-  forwardRef,
-  type ReactElement,
-  type ReactNode,
-  useCallback,
-  useId,
-  useMemo,
-  useRef,
-} from "react"
-import {
-  Keyboard,
-  type LayoutChangeEvent,
-  type ScrollViewProps,
-  StyleSheet,
-  View,
-} from "react-native"
-import {
-  KeyboardChatScrollView,
-  type KeyboardChatScrollViewProps,
-  KeyboardController,
   KeyboardGestureArea,
   KeyboardStickyView,
 } from "react-native-keyboard-controller"
-import { useSharedValue, withTiming } from "react-native-reanimated"
+import {
+  type SharedValue,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 
 const COMPOSER_INPUT_HEIGHT = 48
@@ -34,40 +20,11 @@ export type ChatComposerKeyboardProps = {
   onInputLayout: (event: LayoutChangeEvent) => void
 }
 
-type ChatScrollViewProps = KeyboardChatScrollViewProps & {
+export type ChatMessageListKeyboardProps = {
   bottomOffset: number
+  contentInsetEndAdjustment: SharedValue<number>
+  freeze: SharedValue<boolean>
 }
-
-const ChatScrollView = forwardRef<
-  ComponentRef<typeof KeyboardChatScrollView>,
-  ChatScrollViewProps
->(({ bottomOffset, onTouchStart, ...props }, ref) => {
-  const dismissKeyboardOnTouch = useCallback<
-    NonNullable<ScrollViewProps["onTouchStart"]>
-  >(
-    (event) => {
-      Keyboard.dismiss()
-      void KeyboardController.dismiss().catch(() => undefined)
-      onTouchStart?.(event)
-    },
-    [onTouchStart]
-  )
-
-  return (
-    <KeyboardChatScrollView
-      {...props}
-      automaticallyAdjustContentInsets={false}
-      contentInsetAdjustmentBehavior="never"
-      inverted
-      keyboardLiftBehavior="whenAtEnd"
-      offset={bottomOffset}
-      ref={ref}
-      onTouchStart={dismissKeyboardOnTouch}
-    />
-  )
-})
-
-ChatScrollView.displayName = "ChatScrollView"
 
 export function ChatKeyboardLayout({
   renderComposer,
@@ -75,11 +32,7 @@ export function ChatKeyboardLayout({
   typingIndicator,
 }: {
   renderComposer: (props: ChatComposerKeyboardProps) => ReactNode
-  renderMessageList: (
-    renderScrollComponent: (
-      props: ScrollViewProps
-    ) => ReactElement<ScrollViewProps>
-  ) => ReactNode
+  renderMessageList: (keyboardProps: ChatMessageListKeyboardProps) => ReactNode
   typingIndicator?: ReactNode
 }) {
   const { bottom: bottomInset } = useSafeAreaInsets()
@@ -88,7 +41,7 @@ export function ChatKeyboardLayout({
     () => `message-composer-${reactId.replaceAll(":", "")}`,
     [reactId]
   )
-  const extraContentPadding = useSharedValue(0)
+  const contentInsetEndAdjustment = useSharedValue(0)
   const freeze = useSharedValue(false)
   const baselineInputHeightRef = useRef<number | null>(null)
 
@@ -102,11 +55,12 @@ export function ChatKeyboardLayout({
         previousBaseline === null ? height : Math.min(previousBaseline, height)
 
       baselineInputHeightRef.current = baseline
-      extraContentPadding.value = withTiming(Math.max(height - baseline, 0), {
-        duration: COMPOSER_RESIZE_DURATION_MS,
-      })
+      contentInsetEndAdjustment.value = withTiming(
+        Math.max(height - baseline, 0),
+        { duration: COMPOSER_RESIZE_DURATION_MS }
+      )
     },
-    [extraContentPadding]
+    [contentInsetEndAdjustment]
   )
 
   const onCustomInputViewChange = useCallback(
@@ -116,16 +70,13 @@ export function ChatKeyboardLayout({
     [freeze]
   )
 
-  const renderScrollComponent = useCallback(
-    (props: ScrollViewProps): ReactElement<ScrollViewProps> => (
-      <ChatScrollView
-        {...props}
-        bottomOffset={bottomInset}
-        extraContentPadding={extraContentPadding}
-        freeze={freeze}
-      />
-    ),
-    [bottomInset, extraContentPadding, freeze]
+  const messageListKeyboardProps = useMemo<ChatMessageListKeyboardProps>(
+    () => ({
+      bottomOffset: bottomInset,
+      contentInsetEndAdjustment,
+      freeze,
+    }),
+    [bottomInset, contentInsetEndAdjustment, freeze]
   )
 
   return (
@@ -135,7 +86,7 @@ export function ChatKeyboardLayout({
       style={styles.container}
       textInputNativeID={inputNativeID}
     >
-      {renderMessageList(renderScrollComponent)}
+      {renderMessageList(messageListKeyboardProps)}
       <KeyboardStickyView offset={{ opened: bottomInset }}>
         <View collapsable={false}>
           {typingIndicator}

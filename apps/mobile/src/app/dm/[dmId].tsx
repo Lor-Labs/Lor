@@ -251,7 +251,7 @@ export default function DMScreen() {
             replyingTo={replyingTo}
           />
         )}
-        renderMessageList={(renderScrollComponent) => (
+        renderMessageList={(keyboardProps) => (
           <MessageList
             channelName={name}
             currentUserId={session?.user.id}
@@ -265,6 +265,8 @@ export default function DMScreen() {
             }}
             error={chat.error}
             isLoading={chat.isLoading}
+            keyboardProps={keyboardProps}
+            listKey={`dm-${dmId}`}
             messages={chat.messages}
             onLoadAround={chat.loadAround}
             onDelete={confirmDelete}
@@ -273,7 +275,6 @@ export default function DMScreen() {
             onReply={startReply}
             onRetry={() => void chat.reload()}
             onToggleReaction={chat.toggleReaction}
-            renderScrollComponent={renderScrollComponent}
             replyingToId={replyingTo?.id}
           />
         )}

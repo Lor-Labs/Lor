@@ -1001,8 +1001,11 @@ export function MessageInput({
               size="icon"
               variant="ghost"
               className={cn(
-                "size-7 text-muted-foreground transition-colors",
-                (canSend || isStopMode) && "text-primary hover:text-primary"
+                "size-7 transition-colors",
+                isStopMode
+                  ? "text-destructive hover:text-destructive"
+                  : "text-muted-foreground",
+                canSend && !isStopMode && "text-primary hover:text-primary"
               )}
               onClick={isStopMode ? onStop : handleSend}
               disabled={isStopMode ? isStopping : !canSend}

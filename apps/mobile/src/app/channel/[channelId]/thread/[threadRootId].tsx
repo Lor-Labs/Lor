@@ -1,7 +1,8 @@
 import { router, useLocalSearchParams } from "expo-router"
 import { SymbolView } from "expo-symbols"
 import { useThemeColor } from "heroui-native/hooks"
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useToast } from "heroui-native/toast"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Alert, Text, View } from "react-native"
 import { ChatKeyboardLayout } from "@/components/chat-keyboard-layout"
 import {
@@ -30,6 +31,7 @@ import { useRunQueue } from "@/hooks/use-run-queue"
 import { useThreadMessages } from "@/hooks/use-thread-messages"
 import { useTypingIndicator } from "@/hooks/use-typing-indicator"
 import { useWorkspaceMentionCandidates } from "@/hooks/use-workspace-mention-candidates"
+import { api } from "@/lib/api"
 import type { Message } from "@/lib/api-types"
 import { authClient } from "@/lib/auth-client"
 
@@ -37,7 +39,11 @@ export default function ThreadScreen() {
   const [replyingTo, setReplyingTo] = useState<Message | null>(null)
   const [editingMessage, setEditingMessage] = useState<Message | null>(null)
   const [isSavingEdit, setIsSavingEdit] = useState(false)
+  const [stoppingMerlinMessageId, setStoppingMerlinMessageId] = useState<
+    string | null
+  >(null)
   const composerMentionRef = useRef<MessageComposerMentionHandle>(null)
+  const { toast } = useToast()
   const foreground = useThemeColor("foreground")
   const socket = useSocket()
   const isSocketConnected = useSocketConnected()
@@ -63,12 +69,13 @@ export default function ThreadScreen() {
   useAutoMarkRead(channelId)
   // Messages queued behind the active Merlin run — surfaced above the
   // composer with steer/remove actions while it's working.
-  const pendingMerlinMessageId = useMemo(
+  const pendingMerlinMessage = useMemo(
     () =>
-      thread.messages.find((message) => message.status === "pending")?.id ??
-      (thread.root?.status === "pending" ? thread.root.id : undefined),
+      thread.messages.find((message) => message.status === "pending") ??
+      (thread.root?.status === "pending" ? thread.root : undefined),
     [thread.messages, thread.root]
   )
+  const pendingMerlinMessageId = pendingMerlinMessage?.id
   const { queuedIds, addOptimistic, removeOptimistic } = useRunQueue({
     socket,
     channelId: channelId ?? "",
@@ -119,10 +126,27 @@ export default function ThreadScreen() {
   })
   const { openDM } = useOpenDM()
 
+  const stopPendingMerlin = useCallback(async () => {
+    const messageId = pendingMerlinMessage?.id
+    if (!messageId || stoppingMerlinMessageId === messageId) return
+
+    setStoppingMerlinMessageId(messageId)
+    try {
+      const response = await api.v1.runs["by-message"][":messageId"].stop.$post(
+        { param: { messageId } }
+      )
+      if (!response.ok) throw new Error("Couldn't stop Merlin")
+    } catch {
+      setStoppingMerlinMessageId(null)
+      toast.show({ variant: "danger", label: "Couldn't stop Merlin" })
+    }
+  }, [pendingMerlinMessage?.id, stoppingMerlinMessageId, toast])
+
   useEffect(() => {
     setReplyingTo(null)
     setEditingMessage(null)
     setIsSavingEdit(false)
+    setStoppingMerlinMessageId(null)
     resetProfileSheet()
   }, [channelId, threadRootId, resetProfileSheet])
 
@@ -257,6 +281,7 @@ export default function ThreadScreen() {
               editingMessage={editingMessage}
               inputNativeID={inputNativeID}
               onInputLayout={onInputLayout}
+              isStopping={stoppingMerlinMessageId === pendingMerlinMessageId}
               isConnected={isSocketConnected}
               isMentionCandidatesLoading={mentions.isLoading}
               isSending={thread.isSending || isSavingEdit}
@@ -300,6 +325,7 @@ export default function ThreadScreen() {
                 }
                 setReplyingTo(null)
               }}
+              onStop={pendingMerlinMessage ? stopPendingMerlin : undefined}
               placeholder="Reply in thread"
               replyingTo={replyingTo}
               topAccessory={
@@ -311,7 +337,7 @@ export default function ThreadScreen() {
             />
           ) : null
         }
-        renderMessageList={(renderScrollComponent) =>
+        renderMessageList={(keyboardProps) =>
           thread.isLoading ? (
             <ThreadMessageListSkeleton />
           ) : thread.isMissing ? (
@@ -340,6 +366,8 @@ export default function ThreadScreen() {
               focusMessageId={focusMessageId}
               hasOlder={thread.hasOlder}
               isLoadingOlder={thread.isLoadingOlder}
+              keyboardProps={keyboardProps}
+              listKey={`thread-${threadRootId}`}
               messages={visibleMessages}
               onLoadAround={thread.loadAround}
               onLoadOlder={() => void thread.loadOlder()}
@@ -356,7 +384,6 @@ export default function ThreadScreen() {
                   : undefined
               }
               paginationError={thread.paginationError}
-              renderScrollComponent={renderScrollComponent}
               root={thread.root}
               replyingToId={replyingTo?.id}
               totalReplyCount={thread.totalReplyCount}

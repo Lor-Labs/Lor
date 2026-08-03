@@ -4,6 +4,7 @@ import CommandLineIcon from "@hugeicons/core-free-icons/CommandLineIcon"
 import LaughingIcon from "@hugeicons/core-free-icons/LaughingIcon"
 import PlusSignIcon from "@hugeicons/core-free-icons/PlusSignIcon"
 import SentIcon from "@hugeicons/core-free-icons/SentIcon"
+import StopIcon from "@hugeicons/core-free-icons/StopIcon"
 import TextFontIcon from "@hugeicons/core-free-icons/TextFontIcon"
 import Tick02Icon from "@hugeicons/core-free-icons/Tick02Icon"
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react-native"
@@ -65,6 +66,8 @@ export function MessageComposer({
   isSending,
   isConnected,
   onSend,
+  onStop,
+  isStopping = false,
   placeholder,
   accessibilityLabel,
   replyingTo,
@@ -90,6 +93,8 @@ export function MessageComposer({
     content: string,
     attachments: NonNullable<Message["attachments"]>
   ) => Promise<void>
+  onStop?: () => Promise<void> | void
+  isStopping?: boolean
   placeholder?: string
   accessibilityLabel?: string
   replyingTo?: Message | null
@@ -111,8 +116,9 @@ export function MessageComposer({
 }) {
   const { bottom: bottomInset } = useSafeAreaInsets()
   const { height: windowHeight } = useWindowDimensions()
-  const [accent, foreground, muted, placeholderColor] = useThemeColor([
+  const [accent, danger, foreground, muted, placeholderColor] = useThemeColor([
     "accent",
+    "danger",
     "foreground",
     "muted",
     "field-placeholder",
@@ -159,6 +165,12 @@ export function MessageComposer({
         !attachmentUpload.isUploading) &&
     !isSending &&
     isConnected
+  const isStopMode =
+    Boolean(onStop) &&
+    !isEditing &&
+    !hasMessage &&
+    attachmentUpload.attachments.length === 0
+  const canActivateSubmit = isStopMode ? !isStopping && isConnected : canSend
   const isExpanded =
     isEditing ||
     isFocused ||
@@ -607,15 +619,24 @@ export function MessageComposer({
             <ComposerShortcut color={muted} icon={CommandLineIcon} />
             <ComposerSendButton
               accessibilityLabel={
-                isEditing ? "Save message changes" : "Send message"
+                isStopMode
+                  ? isStopping
+                    ? "Stopping Merlin"
+                    : "Stop Merlin"
+                  : isEditing
+                    ? "Save message changes"
+                    : "Send message"
               }
-              accent={accent}
-              canSend={canSend}
+              activeColor={isStopMode ? danger : accent}
+              canSend={canActivateSubmit}
               className="ml-auto"
-              icon={isEditing ? Tick02Icon : SentIcon}
-              isSending={isSending}
+              icon={isStopMode ? StopIcon : isEditing ? Tick02Icon : SentIcon}
+              isSending={isStopMode ? isStopping : isSending}
               muted={muted}
-              onPress={() => void send()}
+              onPress={() => {
+                if (isStopMode) void onStop?.()
+                else void send()
+              }}
             />
           </View>
         ) : (
@@ -630,14 +651,23 @@ export function MessageComposer({
               />
             </View>
             <ComposerSendButton
-              accessibilityLabel="Send message"
-              accent={accent}
-              canSend={canSend}
+              accessibilityLabel={
+                isStopMode
+                  ? isStopping
+                    ? "Stopping Merlin"
+                    : "Stop Merlin"
+                  : "Send message"
+              }
+              activeColor={isStopMode ? danger : accent}
+              canSend={canActivateSubmit}
               className="absolute bottom-one right-one"
-              icon={SentIcon}
-              isSending={isSending}
+              icon={isStopMode ? StopIcon : SentIcon}
+              isSending={isStopMode ? isStopping : isSending}
               muted={muted}
-              onPress={() => void send()}
+              onPress={() => {
+                if (isStopMode) void onStop?.()
+                else void send()
+              }}
             />
           </>
         )}
@@ -698,7 +728,7 @@ function ComposerShortcut({
 
 function ComposerSendButton({
   accessibilityLabel,
-  accent,
+  activeColor,
   canSend,
   className,
   icon,
@@ -707,7 +737,7 @@ function ComposerSendButton({
   onPress,
 }: {
   accessibilityLabel: string
-  accent: string
+  activeColor: string
   canSend: boolean
   className?: string
   icon: IconSvgElement
@@ -725,9 +755,13 @@ function ComposerSendButton({
       variant="secondary"
     >
       {isSending ? (
-        <Spinner color={accent} size="sm" />
+        <Spinner color={activeColor} size="sm" />
       ) : (
-        <HugeiconsIcon color={canSend ? accent : muted} icon={icon} size={16} />
+        <HugeiconsIcon
+          color={canSend ? activeColor : muted}
+          icon={icon}
+          size={16}
+        />
       )}
     </IconButton>
   )

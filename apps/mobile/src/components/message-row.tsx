@@ -171,11 +171,13 @@ function MessageRowBody({
   onOpenThread,
   onJumpToMessage,
   onToggleReaction,
+  showMerlinRunControls = true,
 }: {
   message: Message
   onOpenThread?: (message: Message) => void
   onJumpToMessage?: (messageId: string) => void
   onToggleReaction?: (message: Message, emoji: string) => void
+  showMerlinRunControls?: boolean
 }) {
   const accent = useThemeColor("accent")
   const isMerlin = message.authorId === MERLIN_USER_ID
@@ -225,7 +227,9 @@ function MessageRowBody({
           Merlin couldn&apos;t respond to that.
         </Text>
       ) : null}
-      {isStreaming ? <MerlinRunControls message={message} /> : null}
+      {showMerlinRunControls && isStreaming ? (
+        <MerlinRunControls message={message} />
+      ) : null}
       {message.routedOutcome === "steered" ? <RoutedChip /> : null}
       {message.editedAt ? (
         <Text className="text-[11px] text-muted">(edited)</Text>
@@ -303,6 +307,7 @@ export function MessageRow({
   isHighlighted = false,
   isActionHighlighted = false,
   onToggleReaction,
+  showMerlinRunControls = true,
 }: {
   avatarColorByUserId?: ReadonlyMap<string, string>
   message: Message
@@ -313,6 +318,7 @@ export function MessageRow({
   isHighlighted?: boolean
   isActionHighlighted?: boolean
   onToggleReaction?: (message: Message, emoji: string) => void
+  showMerlinRunControls?: boolean
 }) {
   const isMerlin = message.authorId === MERLIN_USER_ID
   const isApp = Boolean(message.overrideName || message.overrideAvatarUrl)
@@ -388,6 +394,7 @@ export function MessageRow({
           onJumpToMessage={onJumpToMessage}
           onOpenThread={onOpenThread}
           onToggleReaction={onToggleReaction}
+          showMerlinRunControls={showMerlinRunControls}
         />
       </View>
     </View>
@@ -402,6 +409,7 @@ export function ThreadRootMessage({
   onJumpToMessage,
   onPressAuthor,
   onToggleReaction,
+  showMerlinRunControls = true,
 }: {
   avatarColorByUserId?: ReadonlyMap<string, string>
   message: Message
@@ -410,6 +418,7 @@ export function ThreadRootMessage({
   onJumpToMessage?: (messageId: string) => void
   onPressAuthor?: (message: Message) => void
   onToggleReaction?: (message: Message, emoji: string) => void
+  showMerlinRunControls?: boolean
 }) {
   const isMerlin = message.authorId === MERLIN_USER_ID
   const isApp = Boolean(message.overrideName || message.overrideAvatarUrl)
@@ -482,6 +491,7 @@ export function ThreadRootMessage({
           message={message}
           onJumpToMessage={onJumpToMessage}
           onToggleReaction={onToggleReaction}
+          showMerlinRunControls={showMerlinRunControls}
         />
       </View>
     </View>
