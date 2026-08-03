@@ -196,11 +196,13 @@ async function bootstrap() {
     logger.info("Shutting down...")
     await linkUnfurlWorker.close()
     await merlinRespondWorker.close()
+    // The dead-run sweep also drains scopes — close it before waiting so no
+    // new drain can start after the wait completes.
+    await maintenanceWorker.close()
     // Completion drains are fire-and-forget from the processor — finish any
     // in flight before closing the queue they enqueue follow-up runs on.
     await awaitInflightDrains()
     await merlinRespondQueue.close()
-    await maintenanceWorker.close()
     await maintenanceQueue.close()
     await stopSubscriber.quit()
     await redisEmitterClient.quit()

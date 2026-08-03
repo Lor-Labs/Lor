@@ -167,9 +167,18 @@ function InstructionsEditor({
   useEffect(() => {
     if (!editor || editor.isDestroyed) return
     if (lastAppliedVersion.current === activeVersion) return
-    // A draft is in progress: keep it instead of silently clobbering the
-    // author's work. Saving still sends the draft's base version, so the
-    // server conflicts and forces an explicit reload; Discard resyncs.
+    // The new version matches the draft — this is the author's own save
+    // landing. Reconcile silently (no setContent, so the cursor stays put).
+    if (draft !== null && draft === activeContent) {
+      lastAppliedVersion.current = activeVersion
+      staleNoticeVersion.current = activeVersion
+      setDraft(null)
+      return
+    }
+    // A differing draft is in progress: keep it instead of silently
+    // clobbering the author's work. Saving still sends the draft's base
+    // version, so the server conflicts and forces an explicit reload;
+    // Discard resyncs.
     if (draft !== null) {
       if (staleNoticeVersion.current !== activeVersion) {
         staleNoticeVersion.current = activeVersion

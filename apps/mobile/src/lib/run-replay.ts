@@ -26,12 +26,29 @@ type ReplayGate =
 const replayGates = new Map<string, ReplayGate>()
 const replayStarted = new Set<string>()
 
-// Also exported for consumers (the channel/thread hooks) to release on
-// unmount: their message state dies with them, so a remount must be able to
-// replay an already-active run instead of being deduped forever.
-export function clearRunReplay(messageId: string) {
+function clearRunReplay(messageId: string) {
   replayGates.delete(messageId)
   replayStarted.delete(messageId)
+}
+
+// Consumer refcounts: a channel screen and a thread rooted at the same
+// placeholder can watch one message at once, so replay state is only cleared
+// when the LAST consumer detaches — a remount can then replay an active run
+// instead of being deduped forever.
+const replayHolds = new Map<string, number>()
+
+export function retainRunReplay(messageId: string) {
+  replayHolds.set(messageId, (replayHolds.get(messageId) ?? 0) + 1)
+}
+
+export function releaseRunReplay(messageId: string) {
+  const next = (replayHolds.get(messageId) ?? 0) - 1
+  if (next > 0) {
+    replayHolds.set(messageId, next)
+    return
+  }
+  replayHolds.delete(messageId)
+  clearRunReplay(messageId)
 }
 
 // Returns true when the frame was consumed (buffered or already covered by

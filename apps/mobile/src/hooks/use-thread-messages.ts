@@ -21,9 +21,10 @@ import {
 } from "@/lib/messages"
 import {
   applyMerlinFrame,
-  clearRunReplay,
   gateRunFrame,
   type MerlinFrame,
+  releaseRunReplay,
+  retainRunReplay,
   startRunReplay,
 } from "@/lib/run-replay"
 import type { AppSocket } from "@/lib/socket"
@@ -696,7 +697,10 @@ export function useThreadMessages({
     const candidates = root ? [root, ...messages] : messages
     for (const message of candidates) {
       if (message.status !== "pending") continue
-      startedReplays.current.add(message.id)
+      if (!startedReplays.current.has(message.id)) {
+        startedReplays.current.add(message.id)
+        retainRunReplay(message.id)
+      }
       startRunReplay({
         messageId: message.id,
         applyPatch: applyRunPatch,
@@ -707,7 +711,7 @@ export function useThreadMessages({
   }, [root, messages, applyRunPatch, applyFrame, reload])
   useEffect(
     () => () => {
-      for (const id of startedReplays.current) clearRunReplay(id)
+      for (const id of startedReplays.current) releaseRunReplay(id)
     },
     []
   )

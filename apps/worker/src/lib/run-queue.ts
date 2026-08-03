@@ -250,6 +250,9 @@ async function runDrain(args: {
 
   // Release exactly this message: it leaves the pill, materializes in the
   // transcript, and the new run's snapshot picks it up as the question.
+  // Deliberately BEFORE the enqueue — loadConversation excludes still-queued
+  // rows, so if the job started before this committed, the run would answer
+  // without its own question. The enqueue-failure catch below compensates.
   await db
     .update(schema.agentRunQueue)
     .set({ state: "consumed" })
