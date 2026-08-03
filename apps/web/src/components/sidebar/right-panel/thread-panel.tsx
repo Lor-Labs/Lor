@@ -1,6 +1,15 @@
 import { MessageMultiple01Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
+import {
+  MessageScroller,
+  MessageScrollerButton,
+  MessageScrollerContent,
+  MessageScrollerItem,
+  MessageScrollerProvider,
+  MessageScrollerViewport,
+  useMessageScroller,
+} from "@repo/ui/components/message-scroller"
 import { Skeleton } from "@repo/ui/components/skeleton"
 import { SidebarToggleIcon } from "@repo/ui/components/unlumen-ui/sidebar-toggle-icon"
 import { useIsMobile } from "@repo/ui/hooks/use-mobile"
@@ -13,7 +22,7 @@ import {
 import { useNavigate } from "@tanstack/react-router"
 import { ArrowLeft, CornerUpRight, Loader2 } from "lucide-react"
 import { motion } from "motion/react"
-import { useCallback, useEffect, useMemo, useRef } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react"
 import { useDropzone } from "react-dropzone"
 import { MessageInput } from "@/components/chat/composer/message-input"
 import { DropZoneOverlay } from "@/components/chat/drop-zone-overlay"
@@ -32,6 +41,7 @@ import { useMessageReactions } from "@/hooks/use-message-reactions"
 import { useMessageSending } from "@/hooks/use-message-sending"
 import { useReplyState } from "@/hooks/use-reply-state"
 import { useRunQueue } from "@/hooks/use-run-queue"
+import { useStopMerlinRun } from "@/hooks/use-stop-merlin-run"
 import { useThreadMessages } from "@/hooks/use-thread-messages"
 import { useTypingIndicator } from "@/hooks/use-typing-indicator"
 import { apiClient } from "@/lib/api-client"
@@ -45,6 +55,27 @@ const THREAD_SKELETON_GROUPS = [
   { key: "c", nameWidth: "4rem", lines: ["85%", "30%"] },
   { key: "d", nameWidth: "5.5rem", lines: ["50%"] },
 ]
+
+const MotionMessageScrollerContent = motion.create(MessageScrollerContent)
+const MotionMessageScrollerItem = motion.create(MessageScrollerItem)
+
+function MerlinTurnAnchor({ messageId }: { messageId: string | null }) {
+  const { scrollToMessage } = useMessageScroller()
+
+  // Lor learns the definitive turn boundary when Merlin's placeholder lands,
+  // after the human row already exists. Imperatively apply the same 64px peek
+  // as MessageScroller's built-in new-anchor behavior for that live transition.
+  useLayoutEffect(() => {
+    if (!messageId) return
+    scrollToMessage(messageId, {
+      align: "start",
+      behavior: "auto",
+      scrollMargin: 64,
+    })
+  }, [messageId, scrollToMessage])
+
+  return null
+}
 
 type ChannelMessagesCache = InfiniteData<{ data: Message[] }> | undefined
 
@@ -167,10 +198,14 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
 
   // Messages queued behind the active run — surfaced above the composer with
   // steer/remove actions while Merlin is working.
-  const pendingMerlinMessageId = useMemo(
-    () => messages.find((m) => m.status === "pending")?.id,
+  const pendingMerlinMessage = useMemo(
+    () => messages.find((message) => message.status === "pending"),
     [messages]
   )
+  const pendingMerlinMessageId = pendingMerlinMessage?.id
+  const activeMerlinTriggerMessageId =
+    pendingMerlinMessage?.merlinTriggerMessageId ?? null
+  const stopMerlin = useStopMerlinRun()
   const { queuedIds, addOptimistic, removeOptimistic } = useRunQueue({
     socket,
     channelId: view.channelId,
@@ -277,18 +312,17 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
     () => [...messages].reverse().filter((m) => !queuedIds.includes(m.id)),
     [messages, queuedIds]
   )
+  const merlinTriggerMessageIds = useMemo(
+    () =>
+      new Set(
+        messages
+          .map((message) => message.merlinTriggerMessageId)
+          .filter((id): id is string => Boolean(id))
+      ),
+    [messages]
+  )
 
-  // Auto-scroll to bottom when new replies arrive, but only if the user is
-  // already near the bottom (don't yank them while they're reading older
-  // context).
   const scrollRef = useRef<HTMLDivElement>(null)
-  const isNearBottomRef = useRef(true)
-  const handleScroll = useCallback(() => {
-    const el = scrollRef.current
-    if (!el) return
-    isNearBottomRef.current =
-      el.scrollHeight - el.scrollTop - el.clientHeight < 150
-  }, [])
 
   // Scoped to this panel's scroll container so it never grabs the channel
   // feed's copy of the same message id (the root appears in both).
@@ -308,18 +342,6 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
       el.style.backgroundColor = ""
     }, 2000)
   }, [])
-  const lastNewestIdRef = useRef<string | null>(null)
-  useEffect(() => {
-    const newest = orderedReplies[orderedReplies.length - 1]?.id ?? null
-    if (newest === lastNewestIdRef.current) return
-    const firstRender = lastNewestIdRef.current === null
-    lastNewestIdRef.current = newest
-    if (firstRender || isNearBottomRef.current) {
-      const el = scrollRef.current
-      if (el) el.scrollTop = el.scrollHeight
-    }
-  }, [orderedReplies])
-
   // Load-older sentinel at the top.
   const olderSentinelRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -403,134 +425,163 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
         </button>
       </div>
 
-      <motion.div
-        ref={scrollRef}
-        onScroll={handleScroll}
-        className="flex min-h-0 flex-1 flex-col overflow-y-auto"
-        initial="hidden"
-        animate="show"
-        variants={{
-          hidden: {},
-          show: { transition: { staggerChildren: 0.04, delayChildren: 0.08 } },
-        }}
+      <MessageScrollerProvider
+        autoScroll
+        defaultScrollPosition="last-anchor"
+        scrollEdgeThreshold={16}
       >
-        {rootMessage && (
-          <motion.div
-            variants={{
-              hidden: { opacity: 0, y: 8 },
-              show: {
-                opacity: 1,
-                y: 0,
-                transition: { duration: 0.32, ease: [0.16, 1, 0.3, 1] },
-              },
-            }}
-            className="pt-2"
-          >
-            <MessageItem
-              message={{ ...rootMessage, threadSummary: null }}
-              showHeader={true}
-              currentUserId={currentUserId}
-              isReplyTarget={replyingTo?.id === rootMessage.id}
-              onReact={handleReact}
-              onReply={setReplyingTo}
-              onDelete={handleDelete}
-              onEdit={handleEdit}
-              onJumpToMessage={handleJumpWithinThread}
-              mentionCandidates={mentionCandidates}
-            />
-          </motion.div>
-        )}
+        <MerlinTurnAnchor messageId={activeMerlinTriggerMessageId} />
+        <MessageScroller className="min-h-0 flex-1">
+          <MessageScrollerViewport ref={scrollRef}>
+            <MotionMessageScrollerContent
+              aria-busy={Boolean(pendingMerlinMessage)}
+              className="justify-end"
+              initial="hidden"
+              animate="show"
+              variants={{
+                hidden: {},
+                show: {
+                  transition: { staggerChildren: 0.04, delayChildren: 0.08 },
+                },
+              }}
+            >
+              {rootMessage && (
+                <MotionMessageScrollerItem
+                  messageId={rootMessage.id}
+                  scrollAnchor={merlinTriggerMessageIds.has(rootMessage.id)}
+                  variants={{
+                    hidden: { opacity: 0, y: 8 },
+                    show: {
+                      opacity: 1,
+                      y: 0,
+                      transition: {
+                        duration: 0.32,
+                        ease: [0.16, 1, 0.3, 1],
+                      },
+                    },
+                  }}
+                  className="pt-2"
+                >
+                  <MessageItem
+                    message={{ ...rootMessage, threadSummary: null }}
+                    showHeader={true}
+                    currentUserId={currentUserId}
+                    isReplyTarget={replyingTo?.id === rootMessage.id}
+                    onReact={handleReact}
+                    onReply={setReplyingTo}
+                    onDelete={handleDelete}
+                    onEdit={handleEdit}
+                    onJumpToMessage={handleJumpWithinThread}
+                    mentionCandidates={mentionCandidates}
+                    showMerlinRunControls={false}
+                  />
+                </MotionMessageScrollerItem>
+              )}
 
-        {showDivider && (
-          <div className="flex items-center gap-3 px-4 pt-3 pb-1 text-[12px] text-muted-foreground">
-            <span className="font-medium">
-              {dividerCount} {dividerCount === 1 ? "reply" : "replies"}
-            </span>
-            <div className="h-px flex-1 bg-border/60" />
-          </div>
-        )}
-
-        {hasOlder && (
-          <div ref={olderSentinelRef} className="flex justify-center py-3">
-            {isFetchingOlder && (
-              <Loader2 className="size-5 animate-spin text-muted-foreground" />
-            )}
-          </div>
-        )}
-
-        {isLoading && orderedReplies.length === 0 ? (
-          <div className="flex flex-col py-2">
-            {THREAD_SKELETON_GROUPS.map((group) => (
-              <div key={group.key} className="px-4 py-1">
-                <div className="flex gap-3">
-                  <Skeleton className="mt-0.5 size-9 shrink-0 rounded-full" />
-                  <div className="flex-1 space-y-2">
-                    <div className="flex items-baseline gap-2">
-                      <Skeleton
-                        className="h-3 rounded"
-                        style={{ width: group.nameWidth }}
-                      />
-                      <Skeleton className="h-2.5 w-10 rounded" />
-                    </div>
-                    {group.lines.map((width, i) => (
-                      <Skeleton
-                        key={`${group.key}-${i}`}
-                        className="h-3 rounded"
-                        style={{ width }}
-                      />
-                    ))}
+              {showDivider && (
+                <MessageScrollerItem>
+                  <div className="flex items-center gap-3 px-4 pt-3 pb-1 text-[12px] text-muted-foreground">
+                    <span className="font-medium">
+                      {dividerCount} {dividerCount === 1 ? "reply" : "replies"}
+                    </span>
+                    <div className="h-px flex-1 bg-border/60" />
                   </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          orderedReplies.map((msg, i) => {
-            const prev = orderedReplies[i - 1]
-            const isDateBoundary =
-              !prev || !isSameDay(msg.createdAt, prev.createdAt)
-            const isWithinGroupWindow =
-              !!prev &&
-              differenceInMinutes(msg.createdAt, prev.createdAt) <=
-                MESSAGE_GROUP_WINDOW_MINUTES
-            const showHeader =
-              isDateBoundary ||
-              !prev ||
-              prev.authorId !== msg.authorId ||
-              !isWithinGroupWindow
-            return (
-              <motion.div
-                key={msg.id}
-                variants={{
-                  hidden: { opacity: 0, y: 6 },
-                  show: {
-                    opacity: 1,
-                    y: 0,
-                    transition: { duration: 0.25, ease: [0.16, 1, 0.3, 1] },
-                  },
-                }}
-              >
-                <MessageItem
-                  message={msg}
-                  showHeader={showHeader}
-                  currentUserId={currentUserId}
-                  isReplyTarget={replyingTo?.id === msg.id}
-                  onReact={handleReact}
-                  onReply={setReplyingTo}
-                  onDelete={handleDelete}
-                  onEdit={handleEdit}
-                  onJumpToMessage={handleJumpWithinThread}
-                  mentionCandidates={mentionCandidates}
-                />
-              </motion.div>
-            )
-          })
-        )}
+                </MessageScrollerItem>
+              )}
 
-        {/* Composer sits right under the messages (Slack pattern). When the
-            thread is short the extra space falls below the composer instead
-            of between it and the last reply. */}
-        <div className="mt-2">
+              {hasOlder && (
+                <MessageScrollerItem>
+                  <div
+                    ref={olderSentinelRef}
+                    className="flex justify-center py-3"
+                  >
+                    {isFetchingOlder && (
+                      <Loader2 className="size-5 animate-spin text-muted-foreground" />
+                    )}
+                  </div>
+                </MessageScrollerItem>
+              )}
+
+              {isLoading && orderedReplies.length === 0 ? (
+                <MessageScrollerItem className="flex flex-col py-2">
+                  {THREAD_SKELETON_GROUPS.map((group) => (
+                    <div key={group.key} className="px-4 py-1">
+                      <div className="flex gap-3">
+                        <Skeleton className="mt-0.5 size-9 shrink-0 rounded-full" />
+                        <div className="flex-1 space-y-2">
+                          <div className="flex items-baseline gap-2">
+                            <Skeleton
+                              className="h-3 rounded"
+                              style={{ width: group.nameWidth }}
+                            />
+                            <Skeleton className="h-2.5 w-10 rounded" />
+                          </div>
+                          {group.lines.map((width, i) => (
+                            <Skeleton
+                              key={`${group.key}-${i}`}
+                              className="h-3 rounded"
+                              style={{ width }}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </MessageScrollerItem>
+              ) : (
+                orderedReplies.map((msg, i) => {
+                  const prev = orderedReplies[i - 1]
+                  const isDateBoundary =
+                    !prev || !isSameDay(msg.createdAt, prev.createdAt)
+                  const isWithinGroupWindow =
+                    !!prev &&
+                    differenceInMinutes(msg.createdAt, prev.createdAt) <=
+                      MESSAGE_GROUP_WINDOW_MINUTES
+                  const showHeader =
+                    isDateBoundary ||
+                    !prev ||
+                    prev.authorId !== msg.authorId ||
+                    !isWithinGroupWindow
+                  return (
+                    <MotionMessageScrollerItem
+                      key={msg.id}
+                      messageId={msg.id}
+                      scrollAnchor={merlinTriggerMessageIds.has(msg.id)}
+                      variants={{
+                        hidden: { opacity: 0, y: 6 },
+                        show: {
+                          opacity: 1,
+                          y: 0,
+                          transition: {
+                            duration: 0.25,
+                            ease: [0.16, 1, 0.3, 1],
+                          },
+                        },
+                      }}
+                    >
+                      <MessageItem
+                        message={msg}
+                        showHeader={showHeader}
+                        currentUserId={currentUserId}
+                        isReplyTarget={replyingTo?.id === msg.id}
+                        onReact={handleReact}
+                        onReply={setReplyingTo}
+                        onDelete={handleDelete}
+                        onEdit={handleEdit}
+                        onJumpToMessage={handleJumpWithinThread}
+                        mentionCandidates={mentionCandidates}
+                        showMerlinRunControls={false}
+                      />
+                    </MotionMessageScrollerItem>
+                  )
+                })
+              )}
+            </MotionMessageScrollerContent>
+          </MessageScrollerViewport>
+          <MessageScrollerButton />
+        </MessageScroller>
+
+        <div className="shrink-0 pt-2">
           <TypingIndicator users={typingUsers} />
           <RunQueuePill
             messages={queuedMessages}
@@ -558,9 +609,18 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
             getUploadedAttachments={fileUpload.getUploadedAttachments}
             isUploading={fileUpload.isUploading}
             onTyping={emitTyping}
+            onStop={
+              pendingMerlinMessage
+                ? () => stopMerlin.mutate(pendingMerlinMessage)
+                : undefined
+            }
+            isStopping={
+              stopMerlin.isPending ||
+              Boolean(pendingMerlinMessage?.stopRequested)
+            }
           />
         </div>
-      </motion.div>
+      </MessageScrollerProvider>
     </div>
   )
 }

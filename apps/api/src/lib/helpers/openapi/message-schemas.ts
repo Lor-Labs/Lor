@@ -104,6 +104,7 @@ export const messageWithAuthorSchema = selectMessageSchema
     merlinToolCalls: z.array(merlinToolCallSchema).optional(),
     merlinReasoningSegments: z.array(merlinReasoningSegmentSchema).optional(),
     remembered: z.array(merlinMemorySchema).optional(),
+    merlinTriggerMessageId: z.string().uuid().nullable().optional(),
   })
 
 // Cursor-based query: `around`, `before`, `after` are mutually exclusive

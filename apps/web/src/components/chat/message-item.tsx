@@ -19,14 +19,8 @@ import {
 import { cn } from "@repo/ui/lib/utils"
 import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { formatTime, timeAgo } from "@repo/utils/date"
-import {
-  type InfiniteData,
-  useMutation,
-  useQueryClient,
-} from "@tanstack/react-query"
 import { Brain, ChevronRight, Square } from "lucide-react"
 import { useCallback, useEffect, useState } from "react"
-import { toast } from "sonner"
 import type { MentionCandidate } from "@/components/chat/composer/mention-types"
 import { EmbedCard } from "@/components/chat/embed-card"
 import { MerlinMessageBody } from "@/components/chat/merlin-message-body"
@@ -37,11 +31,9 @@ import { MessageEditInput } from "@/components/chat/message-edit-input"
 import { MessageMarkdown } from "@/components/chat/message-markdown"
 import { ThinkingIndicator } from "@/components/chat/thinking-indicator"
 import { UserProfilePopover } from "@/components/ui/user-profile-card"
-import { messagesCacheKey } from "@/hooks/use-merlin-stream"
-import { apiClient } from "@/lib/api-client"
+import { useStopMerlinRun } from "@/hooks/use-stop-merlin-run"
 import type { Message } from "@/lib/api-types"
 import { connectorForName, connectorLogo } from "@/lib/connector-ui"
-import { updateMessagesAcrossPages } from "@/lib/message-cache-utils"
 
 interface MessageItemProps {
   message: Message
@@ -59,6 +51,7 @@ interface MessageItemProps {
   canPin?: boolean
   mentionCandidates?: MentionCandidate[]
   onJumpToMessage?: (messageId: string) => void
+  showMerlinRunControls?: boolean
 }
 
 function ReplyPreview({
@@ -120,36 +113,7 @@ function ReplyPreview({
 // Steer status + explicit Stop for an in-flight Merlin reply. Stop is honored
 // by the run at its next safe step boundary; whatever streamed is kept.
 function MerlinRunControls({ message }: { message: Message }) {
-  const queryClient = useQueryClient()
-  const cacheKey = messagesCacheKey(message.channelId, message.threadRootId)
-
-  const stop = useMutation({
-    mutationFn: async () => {
-      const res = await apiClient.v1.runs["by-message"][
-        ":messageId"
-      ].stop.$post({ param: { messageId: message.id } })
-      if (!res.ok) {
-        const body = (await res.json().catch(() => null)) as {
-          message?: string
-        } | null
-        throw new Error(body?.message ?? "Couldn't stop Merlin")
-      }
-    },
-    onSuccess: () => {
-      queryClient.setQueryData<InfiniteData<{ data: Message[] }>>(
-        cacheKey,
-        (old) =>
-          old
-            ? updateMessagesAcrossPages(old, (msgs) =>
-                msgs.map((m) =>
-                  m.id === message.id ? { ...m, stopRequested: true } : m
-                )
-              )
-            : old
-      )
-    },
-    onError: (err) => toast.error(err.message),
-  })
+  const stop = useStopMerlinRun()
 
   return (
     <div className="mt-1.5 flex items-center gap-3">
@@ -163,7 +127,7 @@ function MerlinRunControls({ message }: { message: Message }) {
       ) : (
         <button
           type="button"
-          onClick={() => stop.mutate()}
+          onClick={() => stop.mutate(message)}
           disabled={stop.isPending}
           className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-border/70 px-1.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
         >
@@ -244,6 +208,7 @@ export function MessageItem({
   canPin = false,
   mentionCandidates,
   onJumpToMessage,
+  showMerlinRunControls = true,
 }: MessageItemProps) {
   const author = message.author
   // Webhook/connector messages render an overridden identity and aren't a
@@ -517,7 +482,8 @@ export function MessageItem({
               onCitationJump={onJumpToMessage}
             />
           )}
-          {!isEditing &&
+          {showMerlinRunControls &&
+            !isEditing &&
             (message.streaming || message.status === "pending") && (
               <MerlinRunControls message={message} />
             )}

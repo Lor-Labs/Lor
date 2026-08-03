@@ -165,6 +165,9 @@ export type RealtimeMessage = {
   // thinking indicator persists across a reload/late thread join (not just the
   // transient `streaming` flag). Absent → treated as "complete".
   status?: "complete" | "pending" | "failed"
+  // The human message that started this Merlin response. Present only on
+  // Merlin placeholders so chat scrollers can anchor the start of the turn.
+  merlinTriggerMessageId?: string | null
 }
 
 export type RealtimeMessagePinToggled = {

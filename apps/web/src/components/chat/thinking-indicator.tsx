@@ -43,9 +43,8 @@ export function ThinkingIndicator() {
   }, [])
 
   return (
-    <span className="inline-flex items-center text-sm text-muted-foreground italic">
-      {WORDS[index]}
-      <span className="ml-1 animate-pulse">…</span>
+    <span className="shimmer inline-flex items-center text-sm text-muted-foreground italic">
+      {WORDS[index]}…
     </span>
   )
 }

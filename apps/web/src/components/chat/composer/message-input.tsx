@@ -1,4 +1,4 @@
-import { SentIcon } from "@hugeicons/core-free-icons"
+import { SentIcon, StopIcon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { Button } from "@repo/ui/components/button"
 import {
@@ -121,6 +121,8 @@ interface MessageInputProps {
   getUploadedAttachments: () => NonNullable<Message["attachments"]>
   isUploading: boolean
   onTyping?: () => void
+  onStop?: () => void
+  isStopping?: boolean
 }
 
 interface SuggestionPopupListRef {
@@ -430,6 +432,8 @@ export function MessageInput({
   getUploadedAttachments,
   isUploading,
   onTyping,
+  onStop,
+  isStopping = false,
 }: MessageInputProps) {
   const [plainText, setPlainText] = useState("")
   const [isAttachmentMenuOpen, setIsAttachmentMenuOpen] = useState(false)
@@ -655,6 +659,8 @@ export function MessageInput({
     !isSending &&
     !isUploading
   const isEmpty = trimmedValue.length === 0
+  const isStopMode =
+    Boolean(onStop) && isEmpty && pendingAttachments.length === 0
   const markState = useEditorState({
     editor,
     selector: ({ editor: tiptapEditor }) => {
@@ -974,13 +980,22 @@ export function MessageInput({
               variant="ghost"
               className={cn(
                 "size-7 text-muted-foreground transition-colors",
-                canSend && "text-primary hover:text-primary"
+                (canSend || isStopMode) && "text-primary hover:text-primary"
               )}
-              onClick={handleSend}
-              disabled={!canSend}
-              aria-label="Send message"
+              onClick={isStopMode ? onStop : handleSend}
+              disabled={isStopMode ? isStopping : !canSend}
+              aria-label={
+                isStopMode
+                  ? isStopping
+                    ? "Stopping Merlin"
+                    : "Stop Merlin"
+                  : "Send message"
+              }
             >
-              <HugeiconsIcon icon={SentIcon} size={16} />
+              <HugeiconsIcon
+                icon={isStopMode ? StopIcon : SentIcon}
+                size={16}
+              />
             </Button>
           </div>
         </div>

@@ -26,6 +26,7 @@ export function realtimeMessageToMessage(rm: RealtimeMessage): Message {
     threadSummary: null,
     merlinReasoning: null,
     merlinReasoningSegments: [],
+    merlinTriggerMessageId: rm.merlinTriggerMessageId ?? null,
     overrideName: rm.overrideName ?? null,
     overrideAvatarUrl: rm.overrideAvatarUrl ?? null,
     ...(rm.streaming ? { streaming: true } : {}),
