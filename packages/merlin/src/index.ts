@@ -61,7 +61,7 @@ import { guardTools } from "./tool-guard"
 import type { OnUsage } from "./usage"
 
 // Step cap for the background write-back pass only; the answer loop's
-// ceilings come from the run budgets (reference/agent-harness-plan.md §5).
+// ceilings come from the run budgets (reference/agent-harness.md, budgets).
 const WRITEBACK_MAX_STEPS = 30
 // Per-step input size that triggers pruning old tool results from the context.
 const COMPACT_INPUT_TOKENS = env.MERLIN_COMPACT_INPUT_TOKENS

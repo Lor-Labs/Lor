@@ -7,7 +7,7 @@ export type { ModelMessage } from "ai"
 
 // Contract between respond() and the durable-run executor (the worker). The
 // worker owns Postgres and billing; respond() owns the model loop and calls
-// back at step boundaries. See reference/agent-harness-plan.md §3.
+// back at step boundaries. See reference/agent-harness.md (execution engine).
 
 export type BudgetStopReason =
   | "budget_steps"

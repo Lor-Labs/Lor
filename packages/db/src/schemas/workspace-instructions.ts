@@ -16,7 +16,7 @@ import { workspace } from "./workspaces"
 // Workspace instructions ("LOR.md"): immutable version rows, exactly one
 // active per workspace. Owner/admin direct edits activate immediately; agent
 // proposals stay pending until a human approves that exact version.
-// See reference/agent-harness-plan.md §7.
+// See reference/agent-harness.md (LOR.md).
 export const workspaceInstructionsStateEnum = pgEnum(
   "workspace_instructions_state",
   ["active", "pending", "rejected", "superseded"]

@@ -1,6 +1,6 @@
 # Slack connector: read Slack from Lor, never become a Slack bot
 
-This is the next product milestone after the priorities in [`agent-harness-next.md`](./agent-harness-next.md).
+This is the next product milestone after the durable agent harness ([`agent-harness.md`](./agent-harness.md), shipped).
 
 ## Product goal
 

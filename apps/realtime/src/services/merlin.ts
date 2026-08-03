@@ -102,7 +102,7 @@ function isUniqueViolation(err: unknown): boolean {
 }
 
 // Durable agent_run row backing a Merlin response (see
-// reference/agent-harness-plan.md). Budgets are snapshotted from env here so
+// reference/agent-harness.md). Budgets are snapshotted from env here so
 // an in-flight run keeps its ceilings across retries and config changes.
 // "conflict" = the scope's one-active-run index rejected the insert (another
 // mention won the race) — the caller re-routes at the winner. Other failures

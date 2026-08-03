@@ -7,7 +7,6 @@ import { useQueryClient } from "@tanstack/react-query"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { api } from "@/lib/api"
 import type { Message, ThreadMessageList } from "@/lib/api-types"
-import { appendMerlinReasoning, upsertMerlinToolCall } from "@/lib/merlin"
 import {
   applyReactionUpdate,
   applyThreadSummaryUpdate,
@@ -20,6 +19,12 @@ import {
   rollbackOptimisticReply,
   updateMessageContent,
 } from "@/lib/messages"
+import {
+  applyMerlinFrame,
+  gateRunFrame,
+  type MerlinFrame,
+  startRunReplay,
+} from "@/lib/run-replay"
 import type { AppSocket } from "@/lib/socket"
 
 type CurrentUser = {
@@ -107,6 +112,40 @@ export function useThreadMessages({
       setRoot(next)
     },
     []
+  )
+
+  const applyFrame = useCallback(
+    (frame: MerlinFrame) => {
+      if (frame.payload.messageId === threadRootId) {
+        updateRoot((current) =>
+          current ? applyMerlinFrame(current, frame) : current
+        )
+        return
+      }
+      updateMessages((current) =>
+        current.map((message) =>
+          message.id === frame.payload.messageId
+            ? applyMerlinFrame(message, frame)
+            : message
+        )
+      )
+    },
+    [threadRootId, updateMessages, updateRoot]
+  )
+
+  const applyRunPatch = useCallback(
+    (messageId: string, patch: Partial<Message>) => {
+      if (messageId === threadRootId) {
+        updateRoot((current) => (current ? { ...current, ...patch } : current))
+        return
+      }
+      updateMessages((current) =>
+        current.map((message) =>
+          message.id === messageId ? { ...message, ...patch } : message
+        )
+      )
+    },
+    [threadRootId, updateMessages, updateRoot]
   )
 
   // `replace` drops local state in favor of the fetched page — used on socket
@@ -437,40 +476,15 @@ export function useThreadMessages({
     }
     const streamMessage: ServerToClientEvents["message:stream"] = (payload) => {
       if (payload.channelId !== channelId) return
-      if (payload.messageId === threadRootId) {
-        updateRoot((current) =>
-          current
-            ? {
-                ...current,
-                content: payload.replace
-                  ? payload.delta
-                  : `${current.content ?? ""}${payload.delta}`,
-                mentions: payload.mentions ?? current.mentions,
-                status: payload.done
-                  ? (payload.status ?? "complete")
-                  : "pending",
-              }
-            : current
-        )
+      if (
+        payload.messageId !== threadRootId &&
+        payload.threadRootId !== threadRootId
+      ) {
         return
       }
-      if (payload.threadRootId !== threadRootId) return
-      updateMessages((current) =>
-        current.map((message) =>
-          message.id === payload.messageId
-            ? {
-                ...message,
-                content: payload.replace
-                  ? payload.delta
-                  : `${message.content ?? ""}${payload.delta}`,
-                mentions: payload.mentions ?? message.mentions,
-                status: payload.done
-                  ? (payload.status ?? "complete")
-                  : "pending",
-              }
-            : message
-        )
-      )
+      const frame: MerlinFrame = { type: "stream", payload }
+      if (gateRunFrame(frame)) return
+      applyFrame(frame)
     }
     const updateThread = (payload: RealtimeMessageThreadUpdated) => {
       if (
@@ -490,37 +504,27 @@ export function useThreadMessages({
       payload
     ) => {
       if (payload.channelId !== channelId) return
-      if (payload.messageId === threadRootId) {
-        updateRoot((current) =>
-          current ? appendMerlinReasoning(current, payload) : current
-        )
+      if (
+        payload.messageId !== threadRootId &&
+        payload.threadRootId !== threadRootId
+      ) {
         return
       }
-      if (payload.threadRootId !== threadRootId) return
-      updateMessages((current) =>
-        current.map((message) =>
-          message.id === payload.messageId
-            ? appendMerlinReasoning(message, payload)
-            : message
-        )
-      )
+      const frame: MerlinFrame = { type: "reasoning", payload }
+      if (gateRunFrame(frame)) return
+      applyFrame(frame)
     }
     const updateTool: ServerToClientEvents["merlin:tool"] = (payload) => {
       if (payload.channelId !== channelId) return
-      if (payload.messageId === threadRootId) {
-        updateRoot((current) =>
-          current ? upsertMerlinToolCall(current, payload.toolCall) : current
-        )
+      if (
+        payload.messageId !== threadRootId &&
+        payload.threadRootId !== threadRootId
+      ) {
         return
       }
-      if (payload.threadRootId !== threadRootId) return
-      updateMessages((current) =>
-        current.map((message) =>
-          message.id === payload.messageId
-            ? upsertMerlinToolCall(message, payload.toolCall)
-            : message
-        )
-      )
+      const frame: MerlinFrame = { type: "tool", payload }
+      if (gateRunFrame(frame)) return
+      applyFrame(frame)
     }
     // A mid-run send was absorbed by the active run — chip the sender's
     // message with what happened (steered vs queued).
@@ -542,55 +546,27 @@ export function useThreadMessages({
     // A steered message was injected — the placeholder shows who's steering.
     const steerMessage: ServerToClientEvents["merlin:steer"] = (payload) => {
       if (payload.channelId !== channelId) return
-      if (payload.messageId === threadRootId) {
-        updateRoot((current) =>
-          current ? { ...current, steeringBy: payload.authorName } : current
-        )
+      if (
+        payload.messageId !== threadRootId &&
+        payload.threadRootId !== threadRootId
+      ) {
         return
       }
-      if (payload.threadRootId !== threadRootId) return
-      updateMessages((current) =>
-        current.map((message) =>
-          message.id === payload.messageId
-            ? { ...message, steeringBy: payload.authorName }
-            : message
-        )
-      )
+      const frame: MerlinFrame = { type: "steer", payload }
+      if (gateRunFrame(frame)) return
+      applyFrame(frame)
     }
     const updateMemory: ServerToClientEvents["merlin:memory"] = (payload) => {
       if (payload.channelId !== channelId) return
-      if (payload.messageId === threadRootId) {
-        updateRoot((current) =>
-          current
-            ? {
-                ...current,
-                remembered: [
-                  ...(current.remembered ?? []).filter(
-                    (memory) => memory.path !== payload.path
-                  ),
-                  { path: payload.path, action: payload.action },
-                ],
-              }
-            : current
-        )
+      if (
+        payload.messageId !== threadRootId &&
+        payload.threadRootId !== threadRootId
+      ) {
         return
       }
-      if (payload.threadRootId !== threadRootId) return
-      updateMessages((current) =>
-        current.map((message) =>
-          message.id === payload.messageId
-            ? {
-                ...message,
-                remembered: [
-                  ...(message.remembered ?? []).filter(
-                    (memory) => memory.path !== payload.path
-                  ),
-                  { path: payload.path, action: payload.action },
-                ],
-              }
-            : message
-        )
-      )
+      const frame: MerlinFrame = { type: "memory", payload }
+      if (gateRunFrame(frame)) return
+      applyFrame(frame)
     }
     const updateEmbeds: ServerToClientEvents["message:embeds:updated"] = (
       payload
@@ -684,7 +660,24 @@ export function useThreadMessages({
     updateMessages,
     updateRoot,
     currentUser?.id,
+    applyFrame,
   ])
+
+  // Late-join trace recovery: replay the durable event log of any pending
+  // Merlin placeholder in view — root included (no-ops for already-started
+  // replays).
+  useEffect(() => {
+    const candidates = root ? [root, ...messages] : messages
+    for (const message of candidates) {
+      if (message.status !== "pending") continue
+      startRunReplay({
+        messageId: message.id,
+        applyPatch: applyRunPatch,
+        applyFrame,
+        onTerminal: () => void reload({ silent: true }),
+      })
+    }
+  }, [root, messages, applyRunPatch, applyFrame, reload])
 
   const sendMessage = useCallback(
     async (

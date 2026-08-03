@@ -18,8 +18,8 @@ import { user } from "./users"
 import { workspace } from "./workspaces"
 
 // Durable agent run. BullMQ schedules the work; this row is the source of
-// truth for state, ordering, and (from slice 2) budgets and checkpoints.
-// See reference/agent-harness-plan.md.
+// truth for state, ordering, budgets, and checkpoints.
+// See reference/agent-harness.md.
 export const agentRunStateEnum = pgEnum("agent_run_state", [
   "queued",
   "working",

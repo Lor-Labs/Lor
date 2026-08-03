@@ -9,7 +9,7 @@ Last audited: 2026-07-23.
 
 - [~] **Push notifications** — code complete full-stack (see Done); blocked on EAS/APNs credentials + dev-client rebuild on a physical iPhone before it can be tested. Follow-ups once live: badge counts on the app icon, remote-clearing stale pushes after reading on desktop (needs background push), Expo push receipt sweep (delayed job checking receipts for DeviceNotRegistered beyond ticket-level pruning), mute control on the mobile DM screen (web DM header has it; mobile mute UI lives only in the channel options sheet), muted-channel visual styling in sidebars/lists.
 - [ ] **DM follow-ups** — DM search (`GET /v1/dms/search` exists, no mobile UI), group-DM member list sheet, DM threads (API exists; web has no DM thread UI either — do together or not at all).
-- [ ] **Merlin run replay on late join** — web replays a pending Merlin message's durable event log (`GET /v1/runs/by-message/:messageId/events`) and gates live frames by `seq` (see `apps/web/src/hooks/use-merlin-stream.ts` + `reference/agent-harness-plan.md` slice 1); mobile still shows only a thinking indicator when opening a thread mid-run. Needs `apps/api` + `packages/api-client` rebuilt for the route types.
+
 ## Tier 2 — admin & workspace management
 
 - [ ] **Member management** — role change + kick from the member sheet (API exists: `PATCH /members/:userId/role`, `POST /members/:userId/kick`; mobile sheet is read-only).
@@ -30,6 +30,7 @@ Last audited: 2026-07-23.
 
 ## Done (recent parity work)
 
+- [x] Merlin run replay on late join (`src/lib/run-replay.ts` mirrors web's `use-merlin-stream.ts` gate: pending Merlin placeholders fetch `GET /v1/runs/by-message/:messageId/events`, live frames buffer during the fetch then drain gated by `seq`, terminal runs silent-reload the page instead; both message hooks route stream/reasoning/tool/memory/steer frames through `gateRunFrame` + a shared `applyMerlinFrame`) — 2026-08-02
 - [x] Merlin run steering/stop affordances (`message:routed` steered/queued chip on the sender's message, "Applying {name}'s new direction…" via `merlin:steer`, Stop button on in-flight replies → `POST /v1/runs/by-message/:messageId/stop` with optimistic "Stopping…" — `MerlinRunControls`/`RoutedChip` in `message-row.tsx`, socket handlers in `use-channel-messages.ts` + `use-thread-messages.ts`; chips are transient client state, same as web) — 2026-08-02
 - [x] Workspace instructions (LOR.md) approval flow (`/settings/instructions` screen: jsdiff line diff vs active version, rationale, Approve/Reject with 409-stale handling, read-only for non-admins; `instructions-proposal` push taps deep-link to it incl. workspace switch — never approve from the push itself; web reference `instructions-section.tsx` + admin alert banner in the workspace sidebar) — 2026-08-01
 - [x] Channel mutes (`channel_mute` table + `/v1/channel-mutes` GET/PUT/DELETE with lazy expiry pruning; mute silences push + desktop notifications for everything incl. mentions, badges untouched; durations 15m/1h/8h/24h/forever; server-state so it syncs across devices, instant via `channel-mute:updated` user-room event; web bell menu in chat header + sidebar `⋯` menu for channels + DMs, mobile row in channel options sheet + long-press channel row → `channel-actions-sheet` with Mark as read / Mute / Copy ID) — 2026-07-23

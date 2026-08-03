@@ -67,7 +67,7 @@ const serverSchema = z.object({
     .int()
     .positive()
     .default(60_000),
-  // Agent-run hard ceilings (reference/agent-harness-plan.md §5). Snapshotted
+  // Agent-run hard ceilings (reference/agent-harness.md, budgets). Snapshotted
   // onto each agent_run row at creation, so changing these never alters an
   // in-flight run. Emergency rails, not normal stopping targets.
   AGENT_RUN_MAX_STEPS: z.coerce.number().int().positive().default(100),
