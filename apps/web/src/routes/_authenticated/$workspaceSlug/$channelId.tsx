@@ -8,7 +8,7 @@ import { ChatSkeleton } from "@/components/chat/chat-skeleton"
 import { MessageInput } from "@/components/chat/composer/message-input"
 import { DropZoneOverlay } from "@/components/chat/drop-zone-overlay"
 import { ChatHeader } from "@/components/chat/header"
-import { MessageList, scrollToMessage } from "@/components/chat/message-list"
+import { MessageList } from "@/components/chat/message-list"
 import { RunQueuePill } from "@/components/chat/run-queue-pill"
 import { TypingIndicator } from "@/components/chat/typing-indicator"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
@@ -176,24 +176,6 @@ function ChannelView() {
     pendingNoncesRef: pendingNonces,
   })
 
-  // Tracking by id (not a bool) re-triggers on a new msgId while ignoring
-  // re-renders for the same one.
-  const lastScrolledMsgIdRef = useRef<string | null>(null)
-  useEffect(() => {
-    if (!msgId) {
-      lastScrolledMsgIdRef.current = null
-      return
-    }
-    if (lastScrolledMsgIdRef.current === msgId) return
-    if (messagesLoading || !messages.length) return
-    const timer = setTimeout(() => {
-      if (scrollToMessage(msgId)) {
-        lastScrolledMsgIdRef.current = msgId
-      }
-    }, 100)
-    return () => clearTimeout(timer)
-  }, [msgId, messagesLoading, messages.length])
-
   const handleJumpToPresent = useCallback(() => {
     clearPending()
     void navigate({ search: {}, replace: true })
@@ -201,9 +183,7 @@ function ChannelView() {
 
   const handleJumpToMessage = useCallback(
     (messageId: string) => {
-      // Already on screen — just scroll. (Common for replies + same-channel.)
-      if (scrollToMessage(messageId)) return
-      // Otherwise resolve the message's channel (it may live elsewhere — e.g. a
+      // Resolve the message's channel (it may live elsewhere — e.g. a
       // Merlin citation to another channel) and navigate there to anchor on it.
       void (async () => {
         try {
@@ -501,6 +481,7 @@ function ChannelView() {
         onTogglePinnedMessages={togglePinnedMessages}
       />
       <MessageList
+        key={channelId}
         context={context}
         messages={visibleMessages}
         hasOlder={hasOlder}
@@ -511,6 +492,7 @@ function ChannelView() {
         isFetchingNewer={isFetchingNewer}
         pendingCount={pendingCount}
         onJumpToPresent={isAtPresent ? undefined : handleJumpToPresent}
+        scrollTargetId={msgId}
         onJumpToMessage={handleJumpToMessage}
         onReplyInThread={(msg) => handleOpenThread(msg.id)}
         onOpenThread={handleOpenThread}

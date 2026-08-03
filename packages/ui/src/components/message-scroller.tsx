@@ -92,7 +92,7 @@ function MessageScrollerButton({
       data-direction={direction}
       direction={direction}
       className={cn(
-        "absolute inset-x-1/2 z-10 -translate-x-1/2 transition-[translate,scale,opacity] duration-200",
+        "absolute left-1/2 z-10 -translate-x-1/2 transition-[translate,scale,opacity] duration-200 motion-reduce:transition-none",
         "data-[active=false]:pointer-events-none data-[active=false]:scale-95 data-[active=false]:opacity-0",
         "data-[active=true]:translate-y-0 data-[active=true]:scale-100 data-[active=true]:opacity-100",
         "data-[direction=end]:bottom-3 data-[direction=end]:data-[active=false]:translate-y-full",
