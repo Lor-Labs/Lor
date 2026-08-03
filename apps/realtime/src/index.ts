@@ -716,11 +716,17 @@ io.on("connection", (socket) => {
             if (runId === "conflict") {
               // Another mention claimed the scope between our check and the
               // insert: drop the never-emitted placeholder and route at the
-              // winner instead.
+              // winner instead. A failed delete leaves an orphaned pending
+              // row that reads as a stuck "thinking" message on reload.
               await db
                 .delete(schema.message)
                 .where(eq(schema.message.id, merlinMessage.id))
-                .catch(() => {})
+                .catch((err) =>
+                  logger.error(
+                    { err, messageId: merlinMessage.id },
+                    "Failed to delete orphaned Merlin placeholder"
+                  )
+                )
               const lateRouted = await routeToActiveRun({
                 scopeKey: merlinThreadRootId ?? parsed.channelId,
                 threadScope: merlinThreadRootId !== null,

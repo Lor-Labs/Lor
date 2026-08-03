@@ -103,6 +103,8 @@ export const rejectInstructionsProposal = createRoute({
   path: "/workspaces/{workspaceSlug}/instructions/{version}/reject",
   method: "post",
   summary: "Reject a pending instructions proposal",
+  description:
+    "Marks the exact pending version as rejected; the active instructions are untouched.",
   tags: ["Instructions"],
   middleware: [workspaceAuthMiddleware] as const,
   request: { params: instructionsVersionParamsSchema },
@@ -111,6 +113,7 @@ export const rejectInstructionsProposal = createRoute({
       schema: resolveProposalResponseSchema,
       description: "Proposal rejected",
     }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
     [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
     [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
     [HttpStatusCodes.NOT_FOUND]: notFoundSchema,

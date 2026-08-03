@@ -37,6 +37,7 @@ import { MessageEditInput } from "@/components/chat/message-edit-input"
 import { MessageMarkdown } from "@/components/chat/message-markdown"
 import { ThinkingIndicator } from "@/components/chat/thinking-indicator"
 import { UserProfilePopover } from "@/components/ui/user-profile-card"
+import { messagesCacheKey } from "@/hooks/use-merlin-stream"
 import { apiClient } from "@/lib/api-client"
 import type { Message } from "@/lib/api-types"
 import { connectorForName, connectorLogo } from "@/lib/connector-ui"
@@ -120,9 +121,7 @@ function ReplyPreview({
 // by the run at its next safe step boundary; whatever streamed is kept.
 function MerlinRunControls({ message }: { message: Message }) {
   const queryClient = useQueryClient()
-  const cacheKey = message.threadRootId
-    ? ["thread", message.threadRootId]
-    : ["messages", message.channelId]
+  const cacheKey = messagesCacheKey(message.channelId, message.threadRootId)
 
   const stop = useMutation({
     mutationFn: async () => {

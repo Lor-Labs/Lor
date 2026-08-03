@@ -23,6 +23,9 @@ export const DEAD_RUN_SWEEP_EVERY_MS = 10 * 60 * 1000 // q 10 min
 // Grace past the wall-clock deadline; an alive attempt errors out at the
 // deadline itself, so anything still non-terminal this far past it is dead.
 const DEAD_RUN_GRACE_MS = 10 * 60 * 1000
+// Unclaimed queued runs have no deadline yet — give them a much longer grace
+// so a worker-outage backlog isn't force-failed just before its jobs run.
+const UNCLAIMED_RUN_GRACE_MS = 30 * 60 * 1000
 
 const DEAD_RUN_MESSAGE =
   "⚠️ I ran into an error answering that. Please try again."
@@ -56,57 +59,88 @@ export async function sweepDeadRuns(
   emitter: Emitter<ServerToClientEvents>,
   respondQueue: Queue<MerlinRespondJobData>
 ): Promise<void> {
-  const cutoff = new Date(Date.now() - DEAD_RUN_GRACE_MS)
-  const dead = await db
-    .update(schema.agentRun)
-    .set({ state: "failed", stopReason: "error", finishedAt: new Date() })
-    .where(
-      or(
-        and(
-          inArray(schema.agentRun.state, ["queued", "working", "finalizing"]),
-          isNotNull(schema.agentRun.deadlineAt),
-          lt(schema.agentRun.deadlineAt, cutoff)
-        ),
-        and(
-          eq(schema.agentRun.state, "queued"),
-          isNull(schema.agentRun.deadlineAt),
-          lt(schema.agentRun.createdAt, cutoff)
+  const deadPredicate = () =>
+    or(
+      and(
+        inArray(schema.agentRun.state, ["queued", "working", "finalizing"]),
+        isNotNull(schema.agentRun.deadlineAt),
+        lt(schema.agentRun.deadlineAt, new Date(Date.now() - DEAD_RUN_GRACE_MS))
+      ),
+      and(
+        eq(schema.agentRun.state, "queued"),
+        isNull(schema.agentRun.deadlineAt),
+        lt(
+          schema.agentRun.createdAt,
+          new Date(Date.now() - UNCLAIMED_RUN_GRACE_MS)
         )
       )
     )
-    .returning({
-      id: schema.agentRun.id,
-      messageId: schema.agentRun.messageId,
-      channelId: schema.agentRun.channelId,
-      threadRootId: schema.agentRun.threadRootId,
-    })
-  for (const run of dead) {
-    const settled = await db
-      .update(schema.message)
-      .set({ content: DEAD_RUN_MESSAGE, status: "failed" })
-      .where(
-        and(
-          eq(schema.message.id, run.messageId),
-          eq(schema.message.status, "pending")
-        )
-      )
-      .returning({ id: schema.message.id })
-      .then((r) => r[0])
-      .catch(() => undefined)
-    if (settled) {
-      const room = run.threadRootId
-        ? threadRoom(run.threadRootId)
-        : channelRoom(run.channelId)
-      emitter.to(room).emit("message:stream", {
-        channelId: run.channelId,
-        threadRootId: run.threadRootId,
-        messageId: run.messageId,
-        delta: DEAD_RUN_MESSAGE,
-        done: true,
-        status: "failed",
-        replace: true,
+  const candidates = await db
+    .select({ id: schema.agentRun.id })
+    .from(schema.agentRun)
+    .where(deadPredicate())
+
+  // One transaction per run: the failure and its placeholder settle together,
+  // so a run can never go terminal while its message stays pending forever.
+  // The update re-checks the dead predicate, keeping concurrent sweeps (and a
+  // claim that landed since the select) from double-failing a run.
+  const dead: {
+    id: string
+    messageId: string
+    channelId: string
+    threadRootId: string | null
+    settled: boolean
+  }[] = []
+  for (const candidate of candidates) {
+    const result = await db
+      .transaction(async (tx) => {
+        const run = await tx
+          .update(schema.agentRun)
+          .set({ state: "failed", stopReason: "error", finishedAt: new Date() })
+          .where(and(eq(schema.agentRun.id, candidate.id), deadPredicate()))
+          .returning({
+            id: schema.agentRun.id,
+            messageId: schema.agentRun.messageId,
+            channelId: schema.agentRun.channelId,
+            threadRootId: schema.agentRun.threadRootId,
+          })
+          .then((r) => r[0])
+        if (!run) return null
+        const settled = await tx
+          .update(schema.message)
+          .set({ content: DEAD_RUN_MESSAGE, status: "failed" })
+          .where(
+            and(
+              eq(schema.message.id, run.messageId),
+              eq(schema.message.status, "pending")
+            )
+          )
+          .returning({ id: schema.message.id })
+        return { ...run, settled: settled.length > 0 }
       })
-    }
+      .catch((err) => {
+        logger.error(
+          { err, runId: candidate.id },
+          "Dead-run sweep failed; will retry next cycle"
+        )
+        return null
+      })
+    if (result) dead.push(result)
+  }
+  for (const run of dead) {
+    if (!run.settled) continue
+    const room = run.threadRootId
+      ? threadRoom(run.threadRootId)
+      : channelRoom(run.channelId)
+    emitter.to(room).emit("message:stream", {
+      channelId: run.channelId,
+      threadRootId: run.threadRootId,
+      messageId: run.messageId,
+      delta: DEAD_RUN_MESSAGE,
+      done: true,
+      status: "failed",
+      replace: true,
+    })
   }
   // A dead run may have steered/queued messages behind it — drain each scope
   // so they start a follow-up run instead of stranding.

@@ -33,21 +33,32 @@ export function useRunQueue({
     )
   }, [])
 
+  // Undo an optimistic add whose send failed — the nonce would otherwise
+  // linger and hide the real message if a delayed created echo swaps it in.
+  const removeOptimistic = useCallback((id: string) => {
+    setQueuedIds((current) => current.filter((queuedId) => queuedId !== id))
+  }, [])
+
   useEffect(() => {
     if (!socket) return
     const handleRouted: ServerToClientEvents["message:routed"] = (payload) => {
       if (
         payload.channelId !== channelId ||
-        payload.threadRootId !== threadRootId ||
-        payload.outcome !== "queued"
+        payload.threadRootId !== threadRootId
       ) {
         return
       }
-      setQueuedIds((current) =>
-        current.includes(payload.messageId)
+      // Only "queued" belongs in the pill; any other outcome (e.g. a
+      // channel-scope steer) clears an optimistic entry so the message isn't
+      // stuck hidden from the transcript.
+      setQueuedIds((current) => {
+        if (payload.outcome !== "queued") {
+          return current.filter((id) => id !== payload.messageId)
+        }
+        return current.includes(payload.messageId)
           ? current
           : [...current, payload.messageId]
-      )
+      })
     }
     const handleQueueUpdated: ServerToClientEvents["run:queue:updated"] = (
       payload
@@ -106,7 +117,9 @@ export function useRunQueue({
     void api.v1.runs["by-message"][":messageId"].events
       .$get({
         param: { messageId: pendingMerlinMessageId },
-        query: { after: String(Number.MAX_SAFE_INTEGER) },
+        // Postgres int4 max — seq is an integer column, so a larger sentinel
+        // would overflow the parameter. No real run reaches this many events.
+        query: { after: "2147483647" },
       })
       .then(async (res) => (res.ok ? await res.json() : null))
       .then((data) => {
@@ -124,5 +137,5 @@ export function useRunQueue({
     }
   }, [pendingMerlinMessageId])
 
-  return { queuedIds, addOptimistic }
+  return { queuedIds, addOptimistic, removeOptimistic }
 }

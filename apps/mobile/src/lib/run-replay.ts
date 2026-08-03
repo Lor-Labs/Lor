@@ -26,7 +26,10 @@ type ReplayGate =
 const replayGates = new Map<string, ReplayGate>()
 const replayStarted = new Set<string>()
 
-function clearRunReplay(messageId: string) {
+// Also exported for consumers (the channel/thread hooks) to release on
+// unmount: their message state dies with them, so a remount must be able to
+// replay an already-active run instead of being deduped forever.
+export function clearRunReplay(messageId: string) {
   replayGates.delete(messageId)
   replayStarted.delete(messageId)
 }
@@ -156,11 +159,15 @@ async function replayRun({
 }: ReplayOptions) {
   const gate: ReplayGate = { state: "buffering", frames: [] }
   replayGates.set(messageId, gate)
+  // Released (consumer unmounted) or superseded by a remount's replay while
+  // the fetch was in flight — this pass must not touch the fresh gate.
+  const isCurrent = () => replayGates.get(messageId) === gate
   try {
     const res = await api.v1.runs["by-message"][":messageId"].events.$get({
       param: { messageId },
       query: {},
     })
+    if (!isCurrent()) return
     // 404 = legacy run with no durable log; anything else is best-effort too —
     // fall back to live-frames-only. The replayStarted marker stays so render
     // churn doesn't re-fetch in a loop.
@@ -170,6 +177,7 @@ async function replayRun({
       return
     }
     const { run, events } = await res.json()
+    if (!isCurrent()) return
 
     // Terminal run: the message row already holds the final content, trail,
     // and mentions — refetch it instead of rebuilding from events.
@@ -198,6 +206,7 @@ async function replayRun({
       }
     }
   } catch {
+    if (!isCurrent()) return
     replayGates.delete(messageId)
     for (const frame of gate.frames) applyFrame(frame)
   }

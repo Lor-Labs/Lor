@@ -4,6 +4,7 @@ import {
   db,
   eq,
   inArray,
+  isUniqueViolation,
   MERLIN_USER_ID,
   schema,
   sql,
@@ -21,13 +22,32 @@ import { logger } from "@/lib/logger"
 
 const TERMINAL_RUN_STATES = ["complete", "failed", "stopped"] as const
 
+// In-flight drains, so shutdown can wait out the insert-run→enqueue-job
+// window instead of exiting in the middle of it.
+const inflightDrains = new Set<Promise<void>>()
+
+export function awaitInflightDrains(): Promise<void> {
+  return Promise.allSettled([...inflightDrains]).then(() => {})
+}
+
 // Drain the scope's queue once a run goes terminal: pop the FIRST queued
 // message (steered/promoted rows first), reauthorize its sender at dequeue
 // time, and start one follow-up run answering just that message. The rest
 // stay queued — each completion drains the next, so every queued message
 // gets its own run and answer. Best-effort: a failure here must never
 // affect the finished run.
-export async function drainScopeQueue(args: {
+export function drainScopeQueue(args: {
+  runId: string
+  emitter: Emitter<ServerToClientEvents>
+  respondQueue: Queue<MerlinRespondJobData>
+}): Promise<void> {
+  const drain = runDrain(args)
+  inflightDrains.add(drain)
+  void drain.catch(() => {}).finally(() => inflightDrains.delete(drain))
+  return drain
+}
+
+async function runDrain(args: {
   runId: string
   emitter: Emitter<ServerToClientEvents>
   respondQueue: Queue<MerlinRespondJobData>
@@ -204,7 +224,18 @@ export async function drainScopeQueue(args: {
     })
     .returning({ id: schema.agentRun.id })
     .then((r) => r[0] ?? null)
-    .catch(() => null)
+    .catch((err) => {
+      // Only the one-active-run-per-scope unique index is expected contention;
+      // anything else is a real failure worth surfacing (rows stay queued
+      // either way, so the next terminal retries).
+      if (!isUniqueViolation(err)) {
+        logger.error(
+          { err, scopeKey: run.scopeKey },
+          "Follow-up run insert failed"
+        )
+      }
+      return null
+    })
 
   if (!newRun) {
     // The scope was re-occupied first (a fresh mention won the race). Queued
@@ -255,22 +286,50 @@ export async function drainScopeQueue(args: {
     .to(threadRootId ? threadRoom(threadRootId) : channelRoom(run.channelId))
     .emit("message:created", realtimePlaceholder)
 
-  await args.respondQueue.add(
-    "respond",
-    {
-      merlinMessageId: placeholder.id,
+  try {
+    await args.respondQueue.add(
+      "respond",
+      {
+        merlinMessageId: placeholder.id,
+        channelId: run.channelId,
+        threadRootId,
+        contextThreadRootId: threadRootId,
+        triggerMessageId,
+        runId: newRun.id,
+      },
+      {
+        attempts: 2,
+        backoff: { type: "fixed", delay: 5000 },
+        jobId: newRun.id,
+      }
+    )
+  } catch (err) {
+    // No job means nothing will ever work this run — unwind so the message
+    // goes back to queued (next terminal retries) instead of being consumed
+    // by a run that never starts.
+    logger.error(
+      { err, scopeKey: run.scopeKey, runId: newRun.id },
+      "Follow-up run enqueue failed; requeuing message"
+    )
+    await db
+      .update(schema.agentRunQueue)
+      .set({ state: "queued" })
+      .where(eq(schema.agentRunQueue.id, winner.id))
+      .catch(() => {})
+    await db
+      .delete(schema.agentRun)
+      .where(eq(schema.agentRun.id, newRun.id))
+      .catch(() => {})
+    await db
+      .delete(schema.message)
+      .where(eq(schema.message.id, placeholder.id))
+      .catch(() => {})
+    args.emitter.to(scopeRoom).emit("message:deleted", {
       channelId: run.channelId,
-      threadRootId,
-      contextThreadRootId: threadRootId,
-      triggerMessageId,
-      runId: newRun.id,
-    },
-    {
-      attempts: 2,
-      backoff: { type: "fixed", delay: 5000 },
-      jobId: newRun.id,
-    }
-  )
+      messageId: placeholder.id,
+    })
+    return
+  }
   logger.info(
     {
       scopeKey: run.scopeKey,

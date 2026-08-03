@@ -20,6 +20,7 @@ import {
 } from "@/jobs/prune-run-events"
 import { signalRunStop } from "@/lib/agent-run"
 import { logger } from "@/lib/logger"
+import { awaitInflightDrains } from "@/lib/run-queue"
 
 // Worker-internal periodic upkeep, scheduled through BullMQ (not in-process
 // timers) so replicas share one schedule and runs are visible/retryable.
@@ -195,6 +196,9 @@ async function bootstrap() {
     logger.info("Shutting down...")
     await linkUnfurlWorker.close()
     await merlinRespondWorker.close()
+    // Completion drains are fire-and-forget from the processor — finish any
+    // in flight before closing the queue they enqueue follow-up runs on.
+    await awaitInflightDrains()
     await merlinRespondQueue.close()
     await maintenanceWorker.close()
     await maintenanceQueue.close()

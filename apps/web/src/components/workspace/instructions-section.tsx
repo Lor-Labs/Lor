@@ -56,9 +56,14 @@ function useDiffHighlighterReady() {
       getHighlighterOptions(getFiletypeFromFileName("LOR.md"), {
         theme: DEFAULT_THEMES,
       })
-    ).then(() => {
-      if (!cancelled) setReady(true)
-    })
+    )
+      .catch(() => {
+        // Failed preload: render the diff unhighlighted instead of spinning
+        // forever.
+      })
+      .then(() => {
+        if (!cancelled) setReady(true)
+      })
     return () => {
       cancelled = true
     }
@@ -112,7 +117,10 @@ function InstructionsEditor({
 }: {
   activeContent: string
   activeVersion: number | null
-  onSave: (content: string) => void
+  // baseVersion = the version the editor content was drafted from, which can
+  // lag activeVersion if the base changed mid-draft — the server's conflict
+  // check needs the stale base to catch it.
+  onSave: (content: string, baseVersion: number | null) => void
   isSaving: boolean
 }) {
   const [draft, setDraft] = useState<string | null>(null)
@@ -155,13 +163,27 @@ function InstructionsEditor({
   // a mount-time setContent can land before the editor view exists (or on a
   // strict-mode remount after it's destroyed).
   const lastAppliedVersion = useRef(activeVersion)
+  const staleNoticeVersion = useRef(activeVersion)
   useEffect(() => {
     if (!editor || editor.isDestroyed) return
     if (lastAppliedVersion.current === activeVersion) return
+    // A draft is in progress: keep it instead of silently clobbering the
+    // author's work. Saving still sends the draft's base version, so the
+    // server conflicts and forces an explicit reload; Discard resyncs.
+    if (draft !== null) {
+      if (staleNoticeVersion.current !== activeVersion) {
+        staleNoticeVersion.current = activeVersion
+        toast.info(
+          "The instructions changed while you were editing — saving will ask you to reload."
+        )
+      }
+      return
+    }
     lastAppliedVersion.current = activeVersion
+    staleNoticeVersion.current = activeVersion
     editor.commands.setContent(activeContent, { contentType: "markdown" })
     setDraft(null)
-  }, [activeVersion, activeContent, editor])
+  }, [activeVersion, activeContent, editor, draft])
 
   const editorValue = draft ?? activeContent
   const editorTokens = estimateTokens(editorValue)
@@ -171,6 +193,8 @@ function InstructionsEditor({
 
   const discard = () => {
     if (!editor) return
+    lastAppliedVersion.current = activeVersion
+    staleNoticeVersion.current = activeVersion
     editor.commands.setContent(activeContent, { contentType: "markdown" })
     setDraft(null)
   }
@@ -210,7 +234,7 @@ function InstructionsEditor({
           <Button
             size="sm"
             disabled={!hasChanges || overLimit || isSaving}
-            onClick={() => onSave(editorValue)}
+            onClick={() => onSave(editorValue, lastAppliedVersion.current)}
           >
             {isSaving && <Loader2 className="size-4 animate-spin" />}
             Save
@@ -254,12 +278,18 @@ export function InstructionsSection({
   }
 
   const save = useMutation({
-    mutationFn: async (content: string) => {
+    mutationFn: async ({
+      content,
+      baseVersion,
+    }: {
+      content: string
+      baseVersion: number | null
+    }) => {
       const res = await apiClient.v1.workspaces[
         ":workspaceSlug"
       ].instructions.$put({
         param: { workspaceSlug },
-        json: { content, baseVersion: activeVersion },
+        json: { content, baseVersion },
       })
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as {
@@ -402,7 +432,9 @@ export function InstructionsSection({
           key={workspaceSlug}
           activeContent={activeContent}
           activeVersion={activeVersion}
-          onSave={(content) => save.mutate(content)}
+          onSave={(content, baseVersion) =>
+            save.mutate({ content, baseVersion })
+          }
           isSaving={save.isPending}
         />
       ) : activeContent ? (

@@ -69,7 +69,7 @@ export default function ThreadScreen() {
       (thread.root?.status === "pending" ? thread.root.id : undefined),
     [thread.messages, thread.root]
   )
-  const { queuedIds, addOptimistic } = useRunQueue({
+  const { queuedIds, addOptimistic, removeOptimistic } = useRunQueue({
     socket,
     channelId: channelId ?? "",
     threadRootId: threadRootId ?? "",
@@ -274,13 +274,25 @@ export default function ThreadScreen() {
               onSend={async (content, attachments) => {
                 // Merlin is mid-answer in this thread, so the reply will
                 // queue — show it in the pill immediately instead of waiting
-                // for the routed round trip.
-                await thread.sendMessage(
-                  content,
-                  replyingTo ?? undefined,
-                  attachments,
-                  pendingMerlinMessageId ? addOptimistic : undefined
-                )
+                // for the routed round trip. A failed send drops the nonce
+                // again, so a late created echo can't hide the real message.
+                let nonce: string | undefined
+                try {
+                  await thread.sendMessage(
+                    content,
+                    replyingTo ?? undefined,
+                    attachments,
+                    pendingMerlinMessageId
+                      ? (id) => {
+                          nonce = id
+                          addOptimistic(id)
+                        }
+                      : undefined
+                  )
+                } catch (error) {
+                  if (nonce) removeOptimistic(nonce)
+                  throw error
+                }
                 setReplyingTo(null)
               }}
               placeholder="Reply in thread"

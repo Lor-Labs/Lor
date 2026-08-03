@@ -22,7 +22,7 @@ function toDiffRows(before: string, after: string): DiffRow[] {
     const type = change.added ? "add" : change.removed ? "del" : "same"
     const lines = change.value.split("\n")
     if (lines.at(-1) === "") lines.pop()
-    return lines.map((text) => ({ type: type as DiffRow["type"], text }))
+    return lines.map((text) => ({ type, text }))
   })
 }
 
@@ -149,7 +149,15 @@ export default function InstructionsApprovalScreen() {
         contentContainerClassName="gap-five px-four pb-eight pt-five"
         showsVerticalScrollIndicator={false}
       >
-        {instructionsQuery.isPending ? (
+        {workspaceSlug === null ? (
+          // Disabled query never resolves — an explicit state instead of the
+          // pending skeleton forever.
+          <StatePanel
+            detail="Open this screen from a workspace to review its instructions."
+            status="danger"
+            title="No workspace selected"
+          />
+        ) : instructionsQuery.isPending ? (
           <View className="gap-three">
             <Skeleton className="h-2.5 w-48 rounded-full" />
             <Skeleton className="h-40 rounded-lor-md" />

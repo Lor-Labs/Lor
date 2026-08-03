@@ -129,12 +129,16 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
     [view.workspaceSlug, view.channelId, view.threadRootId]
   )
 
+  // Latest-ref indirection: useRunQueue mounts below (it needs the thread
+  // messages), but a failed send must drop the nonce it mirrored there.
+  const removeQueuedOptimisticRef = useRef<(id: string) => void>(() => {})
   const { handleSend, pendingNonces } = useMessageSending({
     socket,
     queryClient,
     channelId: view.channelId,
     currentUser: session?.user,
     threadRootId: view.threadRootId,
+    onSendFailed: (nonce) => removeQueuedOptimisticRef.current(nonce),
   })
 
   const {
@@ -167,12 +171,15 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
     () => messages.find((m) => m.status === "pending")?.id,
     [messages]
   )
-  const { queuedIds, addOptimistic } = useRunQueue({
+  const { queuedIds, addOptimistic, removeOptimistic } = useRunQueue({
     socket,
     channelId: view.channelId,
     threadRootId: view.threadRootId,
     pendingMerlinMessageId,
   })
+  useEffect(() => {
+    removeQueuedOptimisticRef.current = removeOptimistic
+  }, [removeOptimistic])
   const queuedMessages = useMemo(
     () =>
       queuedIds
@@ -528,6 +535,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
           <RunQueuePill
             messages={queuedMessages}
             currentUserId={currentUserId}
+            pendingNonces={pendingNonces}
           />
           <MessageInput
             context={channelContext}

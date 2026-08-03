@@ -373,12 +373,15 @@ export const removeQueuedMessage: AppRouteHandler<
       state: schema.agentRunQueue.state,
       scopeKey: schema.agentRunQueue.scopeKey,
       channelId: schema.agentRun.channelId,
+      workspaceId: schema.agentRun.workspaceId,
+      channelWorkspaceId: schema.channel.workspaceId,
     })
     .from(schema.agentRunQueue)
     .innerJoin(
       schema.agentRun,
       eq(schema.agentRunQueue.runId, schema.agentRun.id)
     )
+    .innerJoin(schema.channel, eq(schema.agentRun.channelId, schema.channel.id))
     .where(eq(schema.agentRunQueue.messageId, messageId))
     .limit(1)
     .then((rows) => rows[0])
@@ -387,6 +390,19 @@ export const removeQueuedMessage: AppRouteHandler<
     return c.json(
       { success: false, message: "Queued message not found" },
       HttpStatusCodes.NOT_FOUND
+    )
+  }
+  if (row.channelWorkspaceId !== row.workspaceId) {
+    return c.json(
+      { success: false, message: "Forbidden" },
+      HttpStatusCodes.FORBIDDEN
+    )
+  }
+  const canAccess = await userCanAccessChannel(row.channelId, currentUser.id)
+  if (!canAccess) {
+    return c.json(
+      { success: false, message: "Forbidden" },
+      HttpStatusCodes.FORBIDDEN
     )
   }
   if (row.senderId !== currentUser.id) {

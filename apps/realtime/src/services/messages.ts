@@ -1,4 +1,14 @@
-import { and, count, db, desc, eq, inArray, max, schema } from "@repo/db"
+import {
+  and,
+  count,
+  db,
+  desc,
+  eq,
+  inArray,
+  isUniqueViolation,
+  max,
+  schema,
+} from "@repo/db"
 import { syncMessageMentions } from "@repo/messaging"
 import type {
   DeleteMessagePayload,
@@ -49,11 +59,43 @@ export type CreateMessageResult = {
   deduplicated?: boolean
 }
 
-function isClientKeyConflict(err: unknown): boolean {
-  const code =
-    (err as { code?: string })?.code ??
-    (err as { cause?: { code?: string } })?.cause?.code
-  return code === "23505"
+async function loadReferencedMessage(
+  referencedMessageId: string,
+  workspaceId: string | null
+): Promise<RealtimeMessage["referencedMessage"]> {
+  const refMsg = await db
+    .select({
+      id: schema.message.id,
+      content: schema.message.content,
+      authorId: schema.user.id,
+      authorName: schema.user.name,
+      authorUsername: schema.user.username,
+      authorDisplayUsername: schema.user.displayUsername,
+      authorImage: schema.user.image,
+      overrideName: schema.message.overrideName,
+      overrideAvatarUrl: schema.message.overrideAvatarUrl,
+    })
+    .from(schema.message)
+    .innerJoin(schema.user, eq(schema.message.authorId, schema.user.id))
+    .where(eq(schema.message.id, referencedMessageId))
+    .limit(1)
+    .then((rows) => rows[0])
+  if (!refMsg) return null
+
+  return {
+    id: refMsg.id,
+    content: refMsg.content,
+    author: {
+      id: refMsg.authorId,
+      name: refMsg.authorName,
+      username: refMsg.authorUsername,
+      displayUsername: refMsg.authorDisplayUsername,
+      image: refMsg.authorImage,
+      avatarColor: await workspaceAvatarColor(workspaceId, refMsg.authorId),
+    },
+    overrideName: refMsg.overrideName,
+    overrideAvatarUrl: refMsg.overrideAvatarUrl,
+  }
 }
 
 async function loadMessageByClientKey(args: {
@@ -72,6 +114,7 @@ async function loadMessageByClientKey(args: {
       createdAt: schema.message.createdAt,
       editedAt: schema.message.editedAt,
       threadRootId: schema.message.threadRootId,
+      referencedMessageId: schema.message.referencedMessageId,
       attachments: schema.message.attachments,
       embeds: schema.message.embeds,
       pinned: schema.message.pinned,
@@ -135,7 +178,9 @@ async function loadMessageByClientKey(args: {
     reactions: [],
     attachments: row.attachments ?? [],
     embeds: row.embeds ?? [],
-    referencedMessage: null,
+    referencedMessage: row.referencedMessageId
+      ? await loadReferencedMessage(row.referencedMessageId, args.workspaceId)
+      : null,
     threadRootId: row.threadRootId,
     nonce: args.clientKey,
   }
@@ -306,7 +351,7 @@ export async function createMessage(input: CreateMessageInput) {
   } catch (err) {
     // Same author + channel + nonce already persisted: a client retry after
     // a lost ack. Return the original row; the caller skips fanout/triggers.
-    if (input.payload.nonce && isClientKeyConflict(err)) {
+    if (input.payload.nonce && isUniqueViolation(err)) {
       const existing = await loadMessageByClientKey({
         authorId: input.userId,
         channelId: input.payload.channelId,
@@ -324,46 +369,13 @@ export async function createMessage(input: CreateMessageInput) {
     throw err
   }
 
-  let referencedMessage: RealtimeMessage["referencedMessage"] = null
-  if (hasReply && input.payload.referencedMessageId) {
-    const refMsg = await db
-      .select({
-        id: schema.message.id,
-        content: schema.message.content,
-        authorId: schema.user.id,
-        authorName: schema.user.name,
-        authorUsername: schema.user.username,
-        authorDisplayUsername: schema.user.displayUsername,
-        authorImage: schema.user.image,
-        overrideName: schema.message.overrideName,
-        overrideAvatarUrl: schema.message.overrideAvatarUrl,
-      })
-      .from(schema.message)
-      .innerJoin(schema.user, eq(schema.message.authorId, schema.user.id))
-      .where(eq(schema.message.id, input.payload.referencedMessageId))
-      .limit(1)
-      .then((rows) => rows[0])
-
-    if (refMsg) {
-      referencedMessage = {
-        id: refMsg.id,
-        content: refMsg.content,
-        author: {
-          id: refMsg.authorId,
-          name: refMsg.authorName,
-          username: refMsg.authorUsername,
-          displayUsername: refMsg.authorDisplayUsername,
-          image: refMsg.authorImage,
-          avatarColor: await workspaceAvatarColor(
-            channelRecord.workspaceId,
-            refMsg.authorId
-          ),
-        },
-        overrideName: refMsg.overrideName,
-        overrideAvatarUrl: refMsg.overrideAvatarUrl,
-      }
-    }
-  }
+  const referencedMessage =
+    hasReply && input.payload.referencedMessageId
+      ? await loadReferencedMessage(
+          input.payload.referencedMessageId,
+          channelRecord.workspaceId
+        )
+      : null
 
   const createdMessage: RealtimeMessage = {
     id: messageWithAuthor.id,

@@ -43,9 +43,11 @@ export const workspaceInstructions = pgTable(
     content: text("content").notNull(),
     state: workspaceInstructionsStateEnum("state").notNull(),
     authorType: workspaceInstructionsAuthorEnum("author_type").notNull(),
-    authorUserId: uuid("author_user_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
+    // Nullable + set-null so deleting a user never deletes instruction
+    // versions (the cascade could take out the workspace's active row).
+    authorUserId: uuid("author_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
     // The active version this was written against; approval is guarded on it
     // still being active so concurrent changes conflict instead of merging.
     baseVersion: integer("base_version"),

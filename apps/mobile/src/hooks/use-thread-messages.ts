@@ -21,6 +21,7 @@ import {
 } from "@/lib/messages"
 import {
   applyMerlinFrame,
+  clearRunReplay,
   gateRunFrame,
   type MerlinFrame,
   startRunReplay,
@@ -688,11 +689,14 @@ export function useThreadMessages({
 
   // Late-join trace recovery: replay the durable event log of any pending
   // Merlin placeholder in view — root included (no-ops for already-started
-  // replays).
+  // replays). Started replays are released on unmount — this hook's message
+  // state dies with it, so a remount mid-run must be able to replay again.
+  const startedReplays = useRef(new Set<string>())
   useEffect(() => {
     const candidates = root ? [root, ...messages] : messages
     for (const message of candidates) {
       if (message.status !== "pending") continue
+      startedReplays.current.add(message.id)
       startRunReplay({
         messageId: message.id,
         applyPatch: applyRunPatch,
@@ -701,6 +705,12 @@ export function useThreadMessages({
       })
     }
   }, [root, messages, applyRunPatch, applyFrame, reload])
+  useEffect(
+    () => () => {
+      for (const id of startedReplays.current) clearRunReplay(id)
+    },
+    []
+  )
 
   const sendMessage = useCallback(
     async (

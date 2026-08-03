@@ -146,7 +146,10 @@ function gateFrame(frame: BufferedFrame): boolean {
   return false
 }
 
-function cacheKey(channelId: string, threadRootId: string | null) {
+export function messagesCacheKey(
+  channelId: string,
+  threadRootId: string | null
+) {
   return threadRootId ? ["thread", threadRootId] : ["messages", channelId]
 }
 
@@ -167,7 +170,7 @@ function patchMessage(
 function applyStreamFrame(queryClient: QueryClient, payload: StreamPayload) {
   patchMessage(
     queryClient,
-    cacheKey(payload.channelId, payload.threadRootId),
+    messagesCacheKey(payload.channelId, payload.threadRootId),
     payload.messageId,
     (m) => ({
       ...m,
@@ -188,7 +191,7 @@ function applyReasoningFrame(
 ) {
   patchMessage(
     queryClient,
-    cacheKey(payload.channelId, payload.threadRootId),
+    messagesCacheKey(payload.channelId, payload.threadRootId),
     payload.messageId,
     (m) => ({
       ...m,
@@ -205,7 +208,7 @@ function applyReasoningFrame(
 function applyMemoryFrame(queryClient: QueryClient, payload: MemoryPayload) {
   patchMessage(
     queryClient,
-    cacheKey(payload.channelId, payload.threadRootId),
+    messagesCacheKey(payload.channelId, payload.threadRootId),
     payload.messageId,
     (m) => ({
       ...m,
@@ -220,7 +223,7 @@ function applyMemoryFrame(queryClient: QueryClient, payload: MemoryPayload) {
 function applyToolFrame(queryClient: QueryClient, payload: ToolPayload) {
   patchMessage(
     queryClient,
-    cacheKey(payload.channelId, payload.threadRootId),
+    messagesCacheKey(payload.channelId, payload.threadRootId),
     payload.messageId,
     (m) => ({
       ...m,
@@ -236,7 +239,7 @@ function applyToolFrame(queryClient: QueryClient, payload: ToolPayload) {
 function applySteerFrame(queryClient: QueryClient, payload: SteerPayload) {
   patchMessage(
     queryClient,
-    cacheKey(payload.channelId, payload.threadRootId),
+    messagesCacheKey(payload.channelId, payload.threadRootId),
     payload.messageId,
     (m) => ({ ...m, steeringBy: payload.authorName, streaming: true })
   )
@@ -273,8 +276,11 @@ function applyReplayEvents(
   messageId: string,
   events: RunEvent[]
 ) {
-  let content = ""
-  let reasoning = ""
+  // undefined = the event type never appeared; presence (not truthiness)
+  // decides application below, so a replay that nets out to "" still clears
+  // stale cached text.
+  let content: string | undefined
+  let reasoning: string | undefined
   let segments: MerlinReasoningSegment[] | undefined
   let toolCalls: ToolCall[] | undefined
   let remembered: { path: string; action: "created" | "updated" }[] = []
@@ -282,9 +288,9 @@ function applyReplayEvents(
   for (const e of events) {
     const p = e.payload
     if (p.kind === "text") {
-      content = p.replace ? p.delta : content + p.delta
+      content = p.replace ? p.delta : (content ?? "") + p.delta
     } else if (p.kind === "reasoning") {
-      reasoning += p.delta
+      reasoning = (reasoning ?? "") + p.delta
       segments = appendReasoningSegment(segments, p)
     } else if (p.kind === "tool") {
       toolCalls = upsertToolCall(toolCalls, p.toolCall)
@@ -299,8 +305,8 @@ function applyReplayEvents(
   }
   patchMessage(queryClient, key, messageId, (m) => ({
     ...m,
-    ...(content ? { content } : {}),
-    ...(reasoning ? { merlinReasoning: reasoning } : {}),
+    ...(content !== undefined ? { content } : {}),
+    ...(reasoning !== undefined ? { merlinReasoning: reasoning } : {}),
     ...(segments ? { merlinReasoningSegments: segments } : {}),
     ...(toolCalls ? { merlinToolCalls: toolCalls } : {}),
     ...(remembered.length > 0 ? { remembered } : {}),
@@ -313,7 +319,7 @@ async function replayRun(
   queryClient: QueryClient,
   args: { channelId: string; threadRootId: string | null; messageId: string }
 ) {
-  const key = cacheKey(args.channelId, args.threadRootId)
+  const key = messagesCacheKey(args.channelId, args.threadRootId)
   const gate: ReplayGate = { state: "buffering", frames: [] }
   replayGates.set(args.messageId, gate)
   try {
@@ -444,7 +450,7 @@ export function useMerlinStream({
       // Ungated: chips aren't replayed state, so clearing is always safe.
       patchMessage(
         queryClient,
-        cacheKey(payload.channelId, payload.threadRootId),
+        messagesCacheKey(payload.channelId, payload.threadRootId),
         payload.steeredMessageId,
         (m) => ({ ...m, routedOutcome: undefined })
       )
@@ -458,7 +464,7 @@ export function useMerlinStream({
       if (payload.channelId !== channelId) return
       patchMessage(
         queryClient,
-        cacheKey(payload.channelId, payload.threadRootId),
+        messagesCacheKey(payload.channelId, payload.threadRootId),
         payload.messageId,
         (m) => ({ ...m, routedOutcome: payload.outcome })
       )
@@ -469,7 +475,7 @@ export function useMerlinStream({
       if (payload.channelId !== channelId) return
       patchMessage(
         queryClient,
-        cacheKey(payload.channelId, payload.threadRootId),
+        messagesCacheKey(payload.channelId, payload.threadRootId),
         payload.messageId,
         (m) => ({ ...m, routedOutcome: undefined })
       )

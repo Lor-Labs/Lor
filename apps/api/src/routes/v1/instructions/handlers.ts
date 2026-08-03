@@ -1,4 +1,4 @@
-import { and, db, desc, eq, schema } from "@repo/db"
+import { and, db, desc, eq, inArray, isUniqueViolation, schema } from "@repo/db"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { assertWorkspacePermission } from "@/lib/permissions"
 import type { AppRouteHandler } from "@/lib/types/app-types"
@@ -10,6 +10,8 @@ import type {
 } from "@/routes/v1/instructions/routes"
 
 const VERSION_HISTORY_LIMIT = 50
+
+class ProposalRaceError extends Error {}
 
 type VersionRow = {
   version: number
@@ -35,14 +37,7 @@ function toVersionDto(row: VersionRow) {
   }
 }
 
-function isUniqueViolation(err: unknown): boolean {
-  const code =
-    (err as { code?: string })?.code ??
-    (err as { cause?: { code?: string } })?.cause?.code
-  return code === "23505"
-}
-
-async function listVersionRows(workspaceId: string): Promise<VersionRow[]> {
+function versionRowsQuery() {
   return db
     .select({
       version: schema.workspaceInstructions.version,
@@ -59,6 +54,10 @@ async function listVersionRows(workspaceId: string): Promise<VersionRow[]> {
       schema.user,
       eq(schema.workspaceInstructions.authorUserId, schema.user.id)
     )
+}
+
+async function listVersionRows(workspaceId: string): Promise<VersionRow[]> {
+  return versionRowsQuery()
     .where(eq(schema.workspaceInstructions.workspaceId, workspaceId))
     .orderBy(desc(schema.workspaceInstructions.version))
     .limit(VERSION_HISTORY_LIMIT)
@@ -70,9 +69,19 @@ export const getInstructions: AppRouteHandler<GetInstructionsRoute> = async (
   const workspace = c.var.workspace
   const member = c.var.member
 
-  const rows = await listVersionRows(workspace.id)
-  const active = rows.find((row) => row.state === "active")
-  const pending = rows.find((row) => row.state === "pending")
+  // Active/pending fetched outside the history window — the active version
+  // can be older than the newest VERSION_HISTORY_LIMIT rows.
+  const [rows, current] = await Promise.all([
+    listVersionRows(workspace.id),
+    versionRowsQuery().where(
+      and(
+        eq(schema.workspaceInstructions.workspaceId, workspace.id),
+        inArray(schema.workspaceInstructions.state, ["active", "pending"])
+      )
+    ),
+  ])
+  const active = current.find((row) => row.state === "active")
+  const pending = current.find((row) => row.state === "pending")
   const canManage =
     workspace.ownerId === member.userId || member.role === "admin"
 
@@ -252,7 +261,7 @@ export const approveInstructionsProposal: AppRouteHandler<
         if (superseded.length === 0) return "conflict" as const
       }
 
-      await tx
+      const activated = await tx
         .update(schema.workspaceInstructions)
         .set({ state: "active", approvedByUserId: user.id })
         .where(
@@ -262,6 +271,11 @@ export const approveInstructionsProposal: AppRouteHandler<
             eq(schema.workspaceInstructions.state, "pending")
           )
         )
+        .returning({ version: schema.workspaceInstructions.version })
+      // A concurrent approve/reject settled the proposal between the read and
+      // this update. Throw (not return) so the supersede above rolls back —
+      // committing it would leave the workspace with no active version.
+      if (activated.length === 0) throw new ProposalRaceError()
       return "approved" as const
     })
 
@@ -283,7 +297,7 @@ export const approveInstructionsProposal: AppRouteHandler<
     }
     return c.json({ success: true as const }, HttpStatusCodes.OK)
   } catch (err) {
-    if (isUniqueViolation(err)) {
+    if (isUniqueViolation(err) || err instanceof ProposalRaceError) {
       return c.json(
         {
           success: false,

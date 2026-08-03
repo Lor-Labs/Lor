@@ -96,6 +96,14 @@ export function guardTools<T extends Record<string, unknown>>(
           const cached = await opts.store.get(key).catch(() => undefined)
           if (cached !== undefined) {
             logger.info({ tool: name }, "Tool result served from run cache")
+            // A replayed output still enters the context (and its original
+            // count lives in an un-checkpointed step), so it counts here too.
+            const cachedSize = Math.min(
+              Buffer.byteLength(JSON.stringify(cached) ?? ""),
+              perCallBytes
+            )
+            totalBytes += cachedSize
+            stepBytes += cachedSize
             return cached
           }
         }

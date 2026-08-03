@@ -1,5 +1,6 @@
 import { z } from "@hono/zod-openapi"
 import {
+  WORKSPACE_INSTRUCTIONS_MAX_TOKENS,
   workspaceInstructionsAuthorEnum,
   workspaceInstructionsStateEnum,
 } from "@repo/db/schema"
@@ -38,7 +39,9 @@ export const getInstructionsResponseSchema = z.object({
 })
 
 export const updateInstructionsRequestSchema = z.object({
-  content: z.string(),
+  // Mirrors the handler's token cap (~4 chars/token) so the OpenAPI contract
+  // reflects the runtime limit.
+  content: z.string().max(WORKSPACE_INSTRUCTIONS_MAX_TOKENS * 4),
   // The active version this edit was written against (null = no active yet);
   // a mismatch means someone else changed it first — 409, never silent merge.
   baseVersion: z.number().int().positive().nullable(),

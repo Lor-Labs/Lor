@@ -13,3 +13,4 @@ export async function closeDb(): Promise<void> {
 export { schema }
 export * from "drizzle-orm"
 export * from "./constants"
+export * from "./errors"

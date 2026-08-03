@@ -438,6 +438,23 @@ export async function claimAgentRun(
 
   let resume: ResumeState | null = null
   if (claimed.context && claimed.instructions) {
+    // Steer rows consumed by a step the dead attempt never checkpointed were
+    // dropped with its transcript tail — put them back so this attempt
+    // injects them again. Snapshot-covered rows (consumedAtStep 0) stay
+    // consumed: they live in the persisted step-0 context.
+    await db
+      .update(schema.agentRunQueue)
+      .set({ state: "steered", consumedAtStep: null })
+      .where(
+        and(
+          eq(schema.agentRunQueue.runId, runId),
+          eq(schema.agentRunQueue.state, "consumed"),
+          gt(schema.agentRunQueue.consumedAtStep, claimed.steps)
+        )
+      )
+      .catch((err) =>
+        logger.warn({ err, runId }, "Steered-row requeue on takeover failed")
+      )
     const stepRows = await db
       .select()
       .from(schema.agentRunStep)
@@ -461,9 +478,11 @@ export async function claimAgentRun(
   // transactionally with the fetch, replayed via the checkpoint they ride.
   const drainConversation = async (): Promise<ConversationUpdate> => {
     const steered = await db.transaction(async (tx) => {
+      // consumedAtStep = the step whose checkpoint will carry the injection;
+      // a takeover requeues consumed rows past the last durable step.
       const consumed = await tx
         .update(schema.agentRunQueue)
-        .set({ state: "consumed", consumedAtStep: counters.steps })
+        .set({ state: "consumed", consumedAtStep: counters.steps + 1 })
         .where(
           and(
             eq(schema.agentRunQueue.runId, runId),

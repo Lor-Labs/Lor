@@ -41,7 +41,7 @@ import {
   Settings,
   UserPlus,
 } from "lucide-react"
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { CreateInviteDialog } from "@/components/invite/create-invite-dialog"
 import { ChannelList } from "@/components/sidebar/channel-panel/channel-list"
 import {
@@ -98,6 +98,12 @@ function WorkspaceSidebarInner() {
 
   const settingsOpen = target === "workspace"
   const settingsSection = toSectionId(tab)
+  // Stable so InstructionsApprovalAlert's socket-subscription effect doesn't
+  // re-run on every sidebar render.
+  const openInstructionsReview = useCallback(
+    () => openSettings("workspace", "instructions"),
+    [openSettings]
+  )
 
   const { data: workspaces, isPending } = useQuery({
     queryKey: ["workspaces"],
@@ -326,7 +332,7 @@ function WorkspaceSidebarInner() {
         {workspaceSlug && (
           <InstructionsApprovalAlert
             workspaceSlug={workspaceSlug}
-            onReview={() => openSettings("workspace", "instructions")}
+            onReview={openInstructionsReview}
           />
         )}
       </SidebarHeader>

@@ -6,6 +6,7 @@ import {
   inArray,
   isNotNull,
   isNull,
+  isUniqueViolation,
   MERLIN_USER_ID,
   schema,
 } from "@repo/db"
@@ -13,6 +14,7 @@ import { env } from "@repo/env/server"
 import type { PlacementTurn } from "@repo/merlin/placement"
 import { extractDirectMentionUserIds } from "@repo/messaging"
 import type { RealtimeMessage } from "@repo/realtime-types"
+import { logger } from "@/lib/logger"
 import type { AccessibleChannel } from "@/services/channel-access"
 import { createMessage } from "@/services/messages"
 
@@ -94,13 +96,6 @@ export async function createMerlinPlaceholder(args: {
   return result.message
 }
 
-function isUniqueViolation(err: unknown): boolean {
-  const code =
-    (err as { code?: string })?.code ??
-    (err as { cause?: { code?: string } })?.cause?.code
-  return code === "23505"
-}
-
 // Durable agent_run row backing a Merlin response (see
 // reference/agent-harness.md). Budgets are snapshotted from env here so
 // an in-flight run keeps its ceilings across retries and config changes.
@@ -136,7 +131,11 @@ export async function createAgentRun(args: {
       .then((r) => r[0] ?? null)
     return row?.id ?? null
   } catch (err) {
-    return isUniqueViolation(err) ? "conflict" : null
+    if (isUniqueViolation(err)) return "conflict"
+    // The answer proceeds as a legacy (non-durable) job — worth surfacing,
+    // since it silently loses replay/budgets/steering for this response.
+    logger.error({ err, channelId: args.channelId }, "Agent run insert failed")
+    return null
   }
 }
 

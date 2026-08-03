@@ -193,9 +193,9 @@ export const agentRunQueue = pgTable(
     // Steer promotes the row to the front of the drain order (before
     // unpromoted rows, FIFO among promoted).
     promotedAt: timestamp("promoted_at"),
-    // Step counter at injection time — resume replays steered messages at the
-    // same transcript position (informational; the step row itself carries
-    // the injected copy).
+    // The step whose checkpoint carries the injected copy (0 = covered by the
+    // step-0 snapshot). A takeover requeues consumed rows whose step never
+    // checkpointed, so a crash can't drop a steered message.
     consumedAtStep: integer("consumed_at_step"),
   },
   (table) => [

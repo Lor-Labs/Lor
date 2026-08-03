@@ -19,6 +19,7 @@ import {
 } from "@/lib/messages"
 import {
   applyMerlinFrame,
+  clearRunReplay,
   gateRunFrame,
   type MerlinFrame,
   startRunReplay,
@@ -181,10 +182,14 @@ export function useChannelMessages({
   )
 
   // Late-join trace recovery: replay the durable event log of any pending
-  // Merlin placeholder in view (no-ops for already-started replays).
+  // Merlin placeholder in view (no-ops for already-started replays). Started
+  // replays are released on unmount — this hook's message state dies with it,
+  // so a remount mid-run must be able to replay again.
+  const startedReplays = useRef(new Set<string>())
   useEffect(() => {
     for (const message of messages) {
       if (message.status !== "pending") continue
+      startedReplays.current.add(message.id)
       startRunReplay({
         messageId: message.id,
         applyPatch: applyRunPatch,
@@ -193,6 +198,12 @@ export function useChannelMessages({
       })
     }
   }, [messages, applyRunPatch, applyFrame, reload])
+  useEffect(
+    () => () => {
+      for (const id of startedReplays.current) clearRunReplay(id)
+    },
+    []
+  )
 
   // Seed from the last cached page so returning to a channel renders
   // instantly; the silent replace-reload reconciles against the server.

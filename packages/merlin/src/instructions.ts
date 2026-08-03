@@ -1,4 +1,12 @@
-import { and, db, desc, eq, MERLIN_USER_ID, schema } from "@repo/db"
+import {
+  and,
+  db,
+  desc,
+  eq,
+  isUniqueViolation,
+  MERLIN_USER_ID,
+  schema,
+} from "@repo/db"
 import { tool } from "ai"
 import { z } from "zod"
 import { logger } from "./logger"
@@ -94,8 +102,15 @@ async function proposeInstructions(
         return { version }
       })
     } catch (err) {
-      // Unique (workspaceId, version) race with a concurrent writer — retry once.
-      if (attempt === 0) continue
+      // Unique (workspaceId, version) race with a concurrent writer — retry
+      // once. Anything else fails immediately.
+      if (attempt === 0 && isUniqueViolation(err)) {
+        logger.warn(
+          { err, workspaceId },
+          "Instructions proposal version race; retrying"
+        )
+        continue
+      }
       logger.error({ err, workspaceId }, "Instructions proposal failed")
       return { error: "Couldn't save the proposal — try again later." }
     }

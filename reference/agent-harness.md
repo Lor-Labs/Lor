@@ -43,7 +43,7 @@ Immutable version rows: `version` (monotonic per workspace), `content`, `state` 
 
 ## Run lifecycle (worker: `apps/worker/src/lib/agent-run.ts`, `jobs/merlin-respond.ts`)
 
-```
+```text
 queued ──claim──▶ working ──answer done──▶ finalizing ──persisted──▶ complete
    │                 │  ▲                      │
    │                 │  └─recovery (attempt≤2) │

@@ -71,6 +71,12 @@ function QueueRow({
   }
 
   const remove = async () => {
+    // Deleting needs the socket — withdrawing the queue row without the
+    // delete would post the message instead of removing it.
+    if (!socket) {
+      toast.show({ variant: "danger", label: "Connection lost — try again" })
+      return
+    }
     setPending("remove")
     try {
       // Withdraw the queue row first (needs the message to still exist),
@@ -80,7 +86,7 @@ function QueueRow({
         param: { messageId: message.id },
       })
       if (!res.ok) throw new Error()
-      socket?.emit(
+      socket.emit(
         "message:delete",
         { channelId: message.channelId, messageId: message.id },
         (result) => {
@@ -122,7 +128,9 @@ function QueueRow({
       ) : (
         <Pressable
           accessibilityLabel="Steer this message"
-          className="min-h-7 flex-row items-center gap-one rounded-lor-sm px-two active:bg-accent-soft"
+          className={`min-h-7 flex-row items-center gap-one rounded-lor-sm px-two active:bg-accent-soft ${
+            disabled ? "opacity-40" : ""
+          }`}
           disabled={disabled}
           hitSlop={6}
           onPress={() => void steer()}
@@ -138,7 +146,9 @@ function QueueRow({
       {isOwn ? (
         <Pressable
           accessibilityLabel="Remove from queue"
-          className="min-h-7 items-center justify-center rounded-lor-sm px-one active:bg-accent-soft"
+          className={`min-h-7 items-center justify-center rounded-lor-sm px-one active:bg-accent-soft ${
+            disabled ? "opacity-40" : ""
+          }`}
           disabled={disabled}
           hitSlop={6}
           onPress={() => void remove()}

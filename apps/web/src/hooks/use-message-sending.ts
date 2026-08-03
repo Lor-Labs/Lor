@@ -34,6 +34,9 @@ interface UseMessageSendingOptions {
    * panel composer.
    */
   threadRootId?: string
+  /** Called with the send nonce when the server rejects the send, so callers
+   * can undo state they mirrored off the returned nonce (e.g. the run queue). */
+  onSendFailed?: (nonce: string) => void
 }
 
 export function useMessageSending({
@@ -42,6 +45,7 @@ export function useMessageSending({
   channelId,
   currentUser,
   threadRootId,
+  onSendFailed,
 }: UseMessageSendingOptions) {
   const pendingNonces = useRef(new Set<string>())
 
@@ -177,6 +181,7 @@ export function useMessageSending({
             updateMessagesInCache((messages) =>
               messages.filter((message) => message.id !== nonce)
             )
+            onSendFailed?.(nonce)
             return
           }
 
@@ -201,6 +206,7 @@ export function useMessageSending({
       threadRootId,
       prependToFirstPage,
       updateMessagesInCache,
+      onSendFailed,
     ]
   )
 
