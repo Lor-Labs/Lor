@@ -164,6 +164,8 @@ export const agentRunQueueStateEnum = pgEnum("agent_run_queue_state", [
   "steered",
   "consumed",
   "rejected",
+  // Sender withdrew the queued message before a drain picked it up.
+  "cancelled",
 ])
 
 // Mid-run messages routed at the active run: `steered` rows are injected at
@@ -188,6 +190,9 @@ export const agentRunQueue = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     state: agentRunQueueStateEnum("state").notNull().default("queued"),
+    // Steer promotes the row to the front of the drain order (before
+    // unpromoted rows, FIFO among promoted).
+    promotedAt: timestamp("promoted_at"),
     // Step counter at injection time — resume replays steered messages at the
     // same transcript position (informational; the step row itself carries
     // the injected copy).

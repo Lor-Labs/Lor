@@ -99,6 +99,13 @@ type RoutedPayload = {
   merlinMessageId: string
 }
 
+type QueueUpdatedPayload = {
+  channelId: string
+  threadRootId: string | null
+  messageId: string
+  state: "consumed" | "rejected" | "cancelled"
+}
+
 type BufferedFrame =
   | { type: "stream"; payload: StreamPayload }
   | { type: "reasoning"; payload: ReasoningPayload }
@@ -433,6 +440,14 @@ export function useMerlinStream({
 
     const handleSteer = (payload: SteerPayload) => {
       if (payload.channelId !== channelId) return
+      // The steer landed — the chip on the steered message has done its job.
+      // Ungated: chips aren't replayed state, so clearing is always safe.
+      patchMessage(
+        queryClient,
+        cacheKey(payload.channelId, payload.threadRootId),
+        payload.steeredMessageId,
+        (m) => ({ ...m, routedOutcome: undefined })
+      )
       if (gateFrame({ type: "steer", payload })) return
       applySteerFrame(queryClient, payload)
     }
@@ -449,11 +464,24 @@ export function useMerlinStream({
       )
     }
 
+    // The queue row settled (drained, rejected, or withdrawn) — drop the chip.
+    const handleQueueUpdated = (payload: QueueUpdatedPayload) => {
+      if (payload.channelId !== channelId) return
+      patchMessage(
+        queryClient,
+        cacheKey(payload.channelId, payload.threadRootId),
+        payload.messageId,
+        (m) => ({ ...m, routedOutcome: undefined })
+      )
+    }
+
     socket.on("merlin:steer", handleSteer)
     socket.on("message:routed", handleRouted)
+    socket.on("run:queue:updated", handleQueueUpdated)
     return () => {
       socket.off("merlin:steer", handleSteer)
       socket.off("message:routed", handleRouted)
+      socket.off("run:queue:updated", handleQueueUpdated)
     }
   }, [socket, channelId, queryClient])
 }

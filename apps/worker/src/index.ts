@@ -2,6 +2,7 @@ import { env } from "@repo/env/server"
 import { setRepoCacheStore } from "@repo/merlin/github"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
 import {
+  AGENT_RUN_STOP_CHANNEL,
   LINK_UNFURL_QUEUE,
   MERLIN_RESPOND_QUEUE,
   type MerlinRespondJobData,
@@ -17,6 +18,7 @@ import {
   RUN_EVENT_PRUNE_EVERY_MS,
   sweepDeadRuns,
 } from "@/jobs/prune-run-events"
+import { signalRunStop } from "@/lib/agent-run"
 import { logger } from "@/lib/logger"
 
 // Worker-internal periodic upkeep, scheduled through BullMQ (not in-process
@@ -55,6 +57,18 @@ async function bootstrap() {
   })
 
   const emitter = new Emitter<ServerToClientEvents>(redisEmitterClient)
+
+  // Immediate-stop fast path: abort the in-flight model request for runs this
+  // process holds a lease on. The stopRequestedAt flag stays the durable
+  // fallback if a publish is missed.
+  const stopSubscriber = redisEmitterClient.duplicate()
+  stopSubscriber.on("error", (error) => {
+    logger.error({ err: error }, "Redis stop subscriber error")
+  })
+  await stopSubscriber.connect()
+  await stopSubscriber.subscribe(AGENT_RUN_STOP_CHANNEL, (runId) => {
+    signalRunStop(runId)
+  })
 
   // BullMQ uses ioredis internally — pass connection options, not an instance
   const redisOpts = parseRedisUrl(env.REDIS_URL)
@@ -184,6 +198,7 @@ async function bootstrap() {
     await merlinRespondQueue.close()
     await maintenanceWorker.close()
     await maintenanceQueue.close()
+    await stopSubscriber.quit()
     await redisEmitterClient.quit()
     process.exit(0)
   }

@@ -298,9 +298,31 @@ export function useChannelMessages({
         )
       )
     }
+    // The queue row settled (drained, rejected, or withdrawn) — drop the chip.
+    const settleQueued: ServerToClientEvents["run:queue:updated"] = (
+      payload
+    ) => {
+      if (payload.channelId !== channelId) return
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === payload.messageId
+            ? { ...message, routedOutcome: undefined }
+            : message
+        )
+      )
+    }
     // A steered message was injected — the placeholder shows who's steering.
     const steerMessage: ServerToClientEvents["merlin:steer"] = (payload) => {
-      if (payload.channelId !== channelId || payload.threadRootId) return
+      if (payload.channelId !== channelId) return
+      // Chip clear is ungated: chips aren't replayed state.
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === payload.steeredMessageId
+            ? { ...message, routedOutcome: undefined }
+            : message
+        )
+      )
+      if (payload.threadRootId) return
       const frame: MerlinFrame = { type: "steer", payload }
       if (gateRunFrame(frame)) return
       applyFrame(frame)
@@ -350,6 +372,7 @@ export function useChannelMessages({
     socket.on("merlin:tool", updateTool)
     socket.on("merlin:memory", updateMemory)
     socket.on("message:routed", routeMessage)
+    socket.on("run:queue:updated", settleQueued)
     socket.on("merlin:steer", steerMessage)
     socket.on("message:embeds:updated", updateEmbeds)
     socket.on("message:reaction:updated", updateReaction)
@@ -367,6 +390,7 @@ export function useChannelMessages({
       socket.off("merlin:tool", updateTool)
       socket.off("merlin:memory", updateMemory)
       socket.off("message:routed", routeMessage)
+      socket.off("run:queue:updated", settleQueued)
       socket.off("merlin:steer", steerMessage)
       socket.off("message:embeds:updated", updateEmbeds)
       socket.off("message:reaction:updated", updateReaction)

@@ -19,6 +19,7 @@ import { MessageInput } from "@/components/chat/composer/message-input"
 import { DropZoneOverlay } from "@/components/chat/drop-zone-overlay"
 import { MessageItem } from "@/components/chat/message-item"
 import { scrollToMessage } from "@/components/chat/message-list"
+import { RunQueuePill } from "@/components/chat/run-queue-pill"
 import { TypingIndicator } from "@/components/chat/typing-indicator"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import type { ThreadSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
@@ -30,6 +31,7 @@ import { useMessageEditing } from "@/hooks/use-message-editing"
 import { useMessageReactions } from "@/hooks/use-message-reactions"
 import { useMessageSending } from "@/hooks/use-message-sending"
 import { useReplyState } from "@/hooks/use-reply-state"
+import { useRunQueue } from "@/hooks/use-run-queue"
 import { useThreadMessages } from "@/hooks/use-thread-messages"
 import { useTypingIndicator } from "@/hooks/use-typing-indicator"
 import { apiClient } from "@/lib/api-client"
@@ -159,6 +161,26 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
     messages,
   })
 
+  // Messages queued behind the active run — surfaced above the composer with
+  // steer/remove actions while Merlin is working.
+  const pendingMerlinMessageId = useMemo(
+    () => messages.find((m) => m.status === "pending")?.id,
+    [messages]
+  )
+  const { queuedIds, addOptimistic } = useRunQueue({
+    socket,
+    channelId: view.channelId,
+    threadRootId: view.threadRootId,
+    pendingMerlinMessageId,
+  })
+  const queuedMessages = useMemo(
+    () =>
+      queuedIds
+        .map((id) => messages.find((m) => m.id === id))
+        .filter((m): m is Message => Boolean(m)),
+    [queuedIds, messages]
+  )
+
   const { handleReact } = useMessageReactions({
     socket,
     queryClient,
@@ -242,7 +264,12 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
 
   // Threads render top-down (oldest → newest). The API + cache hold
   // newest-first, so reverse for display.
-  const orderedReplies = useMemo(() => [...messages].reverse(), [messages])
+  // Queued messages live only in the composer's queue pill until the drain
+  // releases them — the transcript skips them (Codex model).
+  const orderedReplies = useMemo(
+    () => [...messages].reverse().filter((m) => !queuedIds.includes(m.id)),
+    [messages, queuedIds]
+  )
 
   // Auto-scroll to bottom when new replies arrive, but only if the user is
   // already near the bottom (don't yank them while they're reading older
@@ -498,10 +525,20 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
             of between it and the last reply. */}
         <div className="mt-2">
           <TypingIndicator users={typingUsers} />
+          <RunQueuePill
+            messages={queuedMessages}
+            currentUserId={currentUserId}
+          />
           <MessageInput
             context={channelContext}
             placeholder="Reply…"
-            onSend={handleSend}
+            onSend={(content, options) => {
+              const nonce = handleSend(content, options)
+              // Merlin is mid-answer in this thread, so the reply will queue —
+              // show it in the pill immediately instead of waiting for the
+              // routed round trip.
+              if (nonce && pendingMerlinMessageId) addOptimistic(nonce)
+            }}
             currentUserId={currentUserId}
             replyingTo={replyingTo}
             onCancelReply={clearReply}

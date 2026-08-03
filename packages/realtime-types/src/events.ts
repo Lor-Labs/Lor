@@ -457,6 +457,10 @@ export interface ServerToClientEvents {
   // A steered message was injected into the running answer — the placeholder
   // shows "applying new direction".
   "merlin:steer": (payload: MerlinSteerEvent) => void
+  // A queued message left the queue (drained into a follow-up run, rejected at
+  // reauthorization, or withdrawn by its sender) — clients drop it from the
+  // queued-messages pill. Additions ride message:routed (outcome "queued").
+  "run:queue:updated": (payload: RunQueueUpdatedEvent) => void
   "message:pin:toggled": (payload: RealtimeMessagePinToggled) => void
   "message:thread:updated": (payload: RealtimeMessageThreadUpdated) => void
   "notification:bootstrap": (payload: NotificationBootstrap) => void
@@ -486,6 +490,14 @@ export type MessageRoutedEvent = {
   runId: string
   // The active run's placeholder message — where the run-state chip lives.
   merlinMessageId: string
+}
+
+export type RunQueueUpdatedEvent = {
+  channelId: string
+  threadRootId: string | null
+  // The queued (user) message that left the queue.
+  messageId: string
+  state: "consumed" | "rejected" | "cancelled"
 }
 
 export type MerlinSteerEvent = {

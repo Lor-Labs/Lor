@@ -147,10 +147,14 @@ export type RunRouteOutcome = {
 }
 
 // Route a triggering message at the scope's active run instead of starting a
-// sibling: steer it (injected at the next step boundary) while the run can
-// still absorb it, else queue it for the follow-up run. Null = scope free.
+// sibling. Channel scopes steer (injected at the next step boundary) while
+// the run can still absorb it, else queue. Thread scopes always queue — the
+// thread UI surfaces the queue with an explicit "steer" action (stop +
+// reprompt) instead of silently redirecting the in-flight answer. Null =
+// scope free.
 export async function routeToActiveRun(args: {
   scopeKey: string
+  threadScope: boolean
   messageId: string
   senderId: string
 }): Promise<RunRouteOutcome | null> {
@@ -174,7 +178,8 @@ export async function routeToActiveRun(args: {
   // queued/working runs absorb the message (a queued run's snapshot hasn't
   // been taken yet; the claim-time sweep consumes rows the snapshot covers).
   // finalizing can't be steered — defer to the follow-up run.
-  const state = run.state === "finalizing" ? "queued" : "steered"
+  const state =
+    run.state === "finalizing" || args.threadScope ? "queued" : "steered"
   const inserted = await db
     .insert(schema.agentRunQueue)
     .values({
@@ -203,49 +208,47 @@ export async function routeToActiveRun(args: {
     }
   }
 
-  if (state === "steered") {
-    // The run may have moved on between the read and the insert — a steered
-    // row must never sit on a run that won't drain it.
-    const now = await db
-      .select({ state: schema.agentRun.state })
-      .from(schema.agentRun)
-      .where(eq(schema.agentRun.id, run.id))
-      .then((r) => r[0])
-    if (now?.state === "finalizing") {
-      await db
-        .update(schema.agentRunQueue)
-        .set({ state: "queued" })
-        .where(eq(schema.agentRunQueue.id, inserted.id))
-      return {
-        outcome: "queued",
-        runId: run.id,
-        merlinMessageId: run.messageId,
-      }
+  // The run may have moved on between the read and the insert.
+  const now = await db
+    .select({ state: schema.agentRun.state })
+    .from(schema.agentRun)
+    .where(eq(schema.agentRun.id, run.id))
+    .then((r) => r[0])
+  if (state === "steered" && now?.state === "finalizing") {
+    // A steered row must never sit on a run that won't drain it.
+    await db
+      .update(schema.agentRunQueue)
+      .set({ state: "queued" })
+      .where(eq(schema.agentRunQueue.id, inserted.id))
+    return {
+      outcome: "queued",
+      runId: run.id,
+      merlinMessageId: run.messageId,
     }
-    if (
-      !now ||
-      now.state === "complete" ||
-      now.state === "failed" ||
-      now.state === "stopped"
-    ) {
-      // Terminal already — its completion drain may have run before our row
-      // landed. Undo the row (unless the drain swept it first) and let the
-      // caller start a fresh run.
-      const undone = await db
-        .delete(schema.agentRunQueue)
-        .where(
-          and(
-            eq(schema.agentRunQueue.id, inserted.id),
-            eq(schema.agentRunQueue.state, "steered")
-          )
+  }
+  if (
+    !now ||
+    now.state === "complete" ||
+    now.state === "failed" ||
+    now.state === "stopped"
+  ) {
+    // Terminal already — its completion drain may have run before our row
+    // landed, which would strand it. Undo the row (unless the drain swept it
+    // first) and let the caller start a fresh run.
+    const undone = await db
+      .delete(schema.agentRunQueue)
+      .where(
+        and(
+          eq(schema.agentRunQueue.id, inserted.id),
+          eq(schema.agentRunQueue.state, state)
         )
-        .returning({ id: schema.agentRunQueue.id })
-      if (undone.length > 0) return null
-      return {
-        outcome: "queued",
-        runId: run.id,
-        merlinMessageId: run.messageId,
-      }
+      )
+      .returning({ id: schema.agentRunQueue.id })
+    if (undone.length > 0) return null
+    return {
+      outcome: "queued",
+      runId: run.id,
+      merlinMessageId: run.messageId,
     }
   }
 

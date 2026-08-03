@@ -12,6 +12,7 @@ import { useThemeColor } from "heroui-native/hooks"
 import { Spinner } from "heroui-native/spinner"
 import { cn } from "heroui-native/utils"
 import {
+  type ReactNode,
   type Ref,
   useCallback,
   useEffect,
@@ -72,6 +73,7 @@ export function MessageComposer({
   onTyping,
   inputNativeID,
   onCustomInputViewChange,
+  topAccessory,
 }: {
   channelId: string
   channelName: string
@@ -95,6 +97,9 @@ export function MessageComposer({
   onTyping?: () => void
   inputNativeID?: string
   onCustomInputViewChange?: (isOpen: boolean) => void
+  // Rendered flush above the input card so accessories (run queue) can tuck
+  // behind its top edge.
+  topAccessory?: ReactNode
 }) {
   const { bottom: bottomInset } = useSafeAreaInsets()
   const { height: windowHeight } = useWindowDimensions()
@@ -464,6 +469,7 @@ export function MessageComposer({
           onSelect={insertMention}
         />
       ) : null}
+      {topAccessory}
       <Animated.View
         className="relative overflow-hidden rounded-lor-sm border border-border bg-surface"
         layout={composerLayoutTransition}

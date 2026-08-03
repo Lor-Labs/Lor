@@ -522,11 +522,9 @@ export function MessageItem({
             (message.streaming || message.status === "pending") && (
               <MerlinRunControls message={message} />
             )}
-          {message.routedOutcome && (
+          {message.routedOutcome === "steered" && (
             <span className="mt-1 inline-flex w-fit items-center gap-1 rounded-md bg-merlin/10 px-1.5 py-0.5 text-[11px] text-merlin">
-              {message.routedOutcome === "steered"
-                ? "Steering Merlin's current answer"
-                : "Queued — Merlin will answer this next"}
+              Steering Merlin's current answer
             </span>
           )}
           {message.remembered && message.remembered.length > 0 && (

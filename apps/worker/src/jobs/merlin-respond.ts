@@ -9,6 +9,7 @@ import {
   isNull,
   MERLIN_USER_ID,
   ne,
+  notExists,
   or,
   schema,
 } from "@repo/db"
@@ -96,7 +97,21 @@ async function loadConversation(args: {
       and(
         scope,
         ne(schema.message.id, args.merlinMessageId),
-        isNotNull(schema.message.content)
+        isNotNull(schema.message.content),
+        // Still-queued messages haven't been "sent" yet — each gets its own
+        // follow-up run, so they stay out of earlier runs' context (mirrors
+        // the clients hiding them from the transcript).
+        notExists(
+          db
+            .select({ id: schema.agentRunQueue.id })
+            .from(schema.agentRunQueue)
+            .where(
+              and(
+                eq(schema.agentRunQueue.messageId, schema.message.id),
+                eq(schema.agentRunQueue.state, "queued")
+              )
+            )
+        )
       )
     )
     .orderBy(desc(schema.message.createdAt))

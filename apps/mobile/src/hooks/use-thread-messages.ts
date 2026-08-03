@@ -543,9 +543,30 @@ export function useThreadMessages({
         )
       )
     }
+    // The queue row settled (drained, rejected, or withdrawn) — drop the chip.
+    const settleQueued: ServerToClientEvents["run:queue:updated"] = (
+      payload
+    ) => {
+      if (payload.channelId !== channelId) return
+      updateMessages((current) =>
+        current.map((message) =>
+          message.id === payload.messageId
+            ? { ...message, routedOutcome: undefined }
+            : message
+        )
+      )
+    }
     // A steered message was injected — the placeholder shows who's steering.
     const steerMessage: ServerToClientEvents["merlin:steer"] = (payload) => {
       if (payload.channelId !== channelId) return
+      // Chip clear is ungated: chips aren't replayed state.
+      updateMessages((current) =>
+        current.map((message) =>
+          message.id === payload.steeredMessageId
+            ? { ...message, routedOutcome: undefined }
+            : message
+        )
+      )
       if (
         payload.messageId !== threadRootId &&
         payload.threadRootId !== threadRootId
@@ -628,6 +649,7 @@ export function useThreadMessages({
     socket.on("merlin:tool", updateTool)
     socket.on("merlin:memory", updateMemory)
     socket.on("message:routed", routeMessage)
+    socket.on("run:queue:updated", settleQueued)
     socket.on("merlin:steer", steerMessage)
     socket.on("message:embeds:updated", updateEmbeds)
     socket.on("message:reaction:updated", updateReaction)
@@ -646,6 +668,7 @@ export function useThreadMessages({
       socket.off("merlin:tool", updateTool)
       socket.off("merlin:memory", updateMemory)
       socket.off("message:routed", routeMessage)
+      socket.off("run:queue:updated", settleQueued)
       socket.off("merlin:steer", steerMessage)
       socket.off("message:embeds:updated", updateEmbeds)
       socket.off("message:reaction:updated", updateReaction)
@@ -683,7 +706,11 @@ export function useThreadMessages({
     async (
       content: string,
       referencedMessage?: Message,
-      attachments: NonNullable<Message["attachments"]> = []
+      attachments: NonNullable<Message["attachments"]> = [],
+      // Invoked with the optimistic reply's id (the send nonce) before the
+      // socket round trip — lets callers mirror the send into other
+      // optimistic state (e.g. the run queue pill).
+      onOptimistic?: (id: string) => void
     ) => {
       const trimmed = content.trim()
       if ((!trimmed && attachments.length === 0) || sendingRef.current) return
@@ -719,6 +746,7 @@ export function useThreadMessages({
       updateMessages((current) => mergeMessages([optimistic], current))
       setTotalReplyCount((current) => current + 1)
       setIsSending(true)
+      onOptimistic?.(nonce)
 
       try {
         const result = await socket

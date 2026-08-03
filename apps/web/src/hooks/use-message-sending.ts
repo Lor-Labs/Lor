@@ -133,7 +133,7 @@ export function useMessageSending({
         attachments?: Message["attachments"]
       }
     ) => {
-      if (!socket?.connected || !currentUser) return
+      if (!socket?.connected || !currentUser) return undefined
 
       const nonce = crypto.randomUUID()
       pendingNonces.current.add(nonce)
@@ -190,6 +190,9 @@ export function useMessageSending({
           )
         }
       )
+      // The optimistic message's id until the created echo — callers use it
+      // to mirror the send into other optimistic state (e.g. the run queue).
+      return nonce
     },
     [
       socket,

@@ -1304,20 +1304,39 @@ export async function respond(
           at: text.length,
           ...resolved,
         })
+      } else if (part.type === "abort") {
+        // The in-flight request was killed. User stop keeps the partial text
+        // and settles gracefully; any other abort (lost lease) surfaces below
+        // when the result promises reject or the checkpoint CAS fails.
+        if (run?.stopRequested?.()) trip("stopped_by_user")
       } else if (part.type === "error") {
         throw part.error
       }
     }
 
+    const stoppedByUser = () => stoppedFor === "stopped_by_user"
+
     // A final text-only step ends the loop without consulting stopWhen —
-    // sweep any steps not yet folded so the transcript is complete.
-    const allSteps = await result.steps
+    // sweep any steps not yet folded so the transcript is complete. An abort
+    // with zero completed steps rejects these promises; for a user stop that
+    // just means there's nothing to checkpoint.
+    const allSteps = await Promise.resolve(result.steps).catch(
+      (err: unknown) => {
+        if (stoppedByUser()) return []
+        throw err
+      }
+    )
     for (let i = checkpointedLocal; i < allSteps.length; i++) {
       const step = allSteps[i]
       if (step) await checkpointStep(step, i + 1)
     }
 
-    const responseMessages = await result.responseMessages
+    const responseMessages = await Promise.resolve(
+      result.responseMessages
+    ).catch((err: unknown) => {
+      if (stoppedByUser()) return []
+      throw err
+    })
 
     try {
       const [usage, response] = await Promise.all([

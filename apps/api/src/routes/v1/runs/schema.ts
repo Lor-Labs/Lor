@@ -83,8 +83,12 @@ export const runEventPayloadSchema = z.discriminatedUnion("kind", [
 export const stopRunResponseSchema = z.object({
   state: z.enum(agentRunStateEnum.enumValues),
   // True when the run was settled immediately (never claimed); false when the
-  // lease holder will honor the request at its next step boundary.
+  // lease holder aborts the in-flight request on the stop signal.
   stopped: z.boolean(),
+})
+
+export const removeQueuedResponseSchema = z.object({
+  removed: z.boolean(),
 })
 
 export const runEventsResponseSchema = z.object({
@@ -101,6 +105,15 @@ export const runEventsResponseSchema = z.object({
       seq: z.number().int(),
       kind: z.enum(agentRunEventKindEnum.enumValues),
       payload: runEventPayloadSchema,
+    })
+  ),
+  // Messages waiting in the run's scope queue (oldest first) — the thread
+  // composer's queued pill rebuilds from this on late join. The messages
+  // themselves are ordinary thread replies the client already has.
+  queue: z.array(
+    z.object({
+      messageId: z.string().uuid(),
+      senderId: z.string(),
     })
   ),
 })

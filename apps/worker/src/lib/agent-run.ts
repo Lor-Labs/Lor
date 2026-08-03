@@ -46,6 +46,14 @@ const TAKEOVER_SEQ_GAP = 10_000
 
 const WORKER_ID = `${hostname()}:${process.pid}:${randomUUID().slice(0, 8)}`
 
+// Runs this process currently holds a lease on, keyed to their immediate-stop
+// trigger. The pub/sub subscriber (worker bootstrap) routes stop signals here.
+const activeRunStops = new Map<string, () => void>()
+
+export function signalRunStop(runId: string) {
+  activeRunStops.get(runId)?.()
+}
+
 // Thrown (and converted to an abort) when a lease-guarded write matches no
 // row: another worker owns the run now, so this attempt must stop touching
 // the message and exit without emitting anything.
@@ -296,8 +304,20 @@ export async function claimAgentRun(
     initialSeq: claimed.nextSeq,
   })
   const abort = new AbortController()
+  // User stop gets its own controller so the graceful path (keep the partial
+  // answer, settle as stopped) is distinguishable from a lost lease (exit
+  // silently — another attempt owns the message).
+  const stopAbort = new AbortController()
   let counters = countersOf(claimed)
   let stopRequested = claimed.stopRequestedAt != null
+  const requestStop = () => {
+    stopRequested = true
+    stopAbort.abort()
+  }
+  activeRunStops.set(runId, requestStop)
+  // Stop was requested while this run sat unclaimed (or before a recovery
+  // takeover) — honor it immediately rather than at the first boundary.
+  if (stopRequested) stopAbort.abort()
   // Ambient-refresh watermark. Fresh runs start at claim time — the snapshot
   // loads moments later, so a message landing in that window may be seen
   // twice (harmless), never missed. Resumed runs restart from run start,
@@ -325,10 +345,11 @@ export async function claimAgentRun(
         if (!r[0]) {
           logger.warn({ runId }, "Agent run lease lost; aborting attempt")
           clearInterval(heartbeat)
+          activeRunStops.delete(runId)
           abort.abort()
           return
         }
-        if (r[0].stopRequestedAt) stopRequested = true
+        if (r[0].stopRequestedAt) requestStop()
       })
       .catch(() => {
         // Transient DB failure: keep going; the lease has a full TTL of slack.
@@ -393,7 +414,7 @@ export async function claimAgentRun(
         })
         .then((r) => r[0])
       if (!row) throw new LeaseLostError()
-      if (row.stopRequestedAt) stopRequested = true
+      if (row.stopRequestedAt) requestStop()
       await tx
         .insert(schema.agentRunStep)
         .values({
@@ -599,7 +620,7 @@ export async function claimAgentRun(
           .onConflictDoNothing()
       },
     },
-    abortSignal: abort.signal,
+    abortSignal: AbortSignal.any([abort.signal, stopAbort.signal]),
   }
 
   return {
@@ -656,7 +677,10 @@ export async function claimAgentRun(
           )
       },
       aborted: () => abort.signal.aborted,
-      stop: () => clearInterval(heartbeat),
+      stop: () => {
+        clearInterval(heartbeat)
+        activeRunStops.delete(runId)
+      },
     },
   }
 }

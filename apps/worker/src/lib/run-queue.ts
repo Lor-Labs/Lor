@@ -1,4 +1,13 @@
-import { and, asc, db, eq, inArray, lt, MERLIN_USER_ID, schema } from "@repo/db"
+import {
+  and,
+  asc,
+  db,
+  eq,
+  inArray,
+  MERLIN_USER_ID,
+  schema,
+  sql,
+} from "@repo/db"
 import { env } from "@repo/env/server"
 import type {
   MerlinRespondJobData,
@@ -10,13 +19,14 @@ import type { Emitter } from "@socket.io/redis-emitter"
 import type { Queue } from "bullmq"
 import { logger } from "@/lib/logger"
 
-const ACTIVE_RUN_STATES = ["queued", "working", "finalizing"] as const
 const TERMINAL_RUN_STATES = ["complete", "failed", "stopped"] as const
 
-// Drain the scope's queue once a run goes terminal: reauthorize each sender
-// at dequeue time, then start one follow-up run — its conversation snapshot
-// at claim covers all the queued messages, so no explicit seeding is needed.
-// Best-effort: a failure here must never affect the finished run.
+// Drain the scope's queue once a run goes terminal: pop the FIRST queued
+// message (steered/promoted rows first), reauthorize its sender at dequeue
+// time, and start one follow-up run answering just that message. The rest
+// stay queued — each completion drains the next, so every queued message
+// gets its own run and answer. Best-effort: a failure here must never
+// affect the finished run.
 export async function drainScopeQueue(args: {
   runId: string
   emitter: Emitter<ServerToClientEvents>
@@ -54,6 +64,9 @@ export async function drainScopeQueue(args: {
       )
     )
 
+  // Steered rows jump the line: promoted first (FIFO among promoted), then
+  // arrival order. Each drain pops exactly ONE message — every queued message
+  // gets its own run and its own answer, never collapsed into a batch.
   const rows = await db
     .select({
       id: schema.agentRunQueue.id,
@@ -72,12 +85,36 @@ export async function drainScopeQueue(args: {
         eq(schema.agentRunQueue.state, "queued")
       )
     )
-    .orderBy(asc(schema.agentRunQueue.createdAt))
+    .orderBy(
+      sql`${schema.agentRunQueue.promotedAt} asc nulls last`,
+      asc(schema.agentRunQueue.createdAt)
+    )
   if (rows.length === 0) return
+
+  const threadRootId = run.scopeKey === run.channelId ? null : run.scopeKey
+  const scopeRoom = threadRootId
+    ? threadRoom(threadRootId)
+    : channelRoom(run.channelId)
+  // Clients drop drained/rejected messages from the queued pill.
+  const emitQueueUpdate = (
+    messageIds: string[],
+    state: "consumed" | "rejected"
+  ) => {
+    for (const messageId of messageIds) {
+      args.emitter.to(scopeRoom).emit("run:queue:updated", {
+        channelId: run.channelId,
+        threadRootId,
+        messageId,
+        state,
+      })
+    }
+  }
 
   // Dequeue reauthorization: queued work never rides send-time authorization.
   // The sender must still be a member of the run's workspace, and the message
-  // must live in the run's channel (tenant binding).
+  // must live in the run's channel (tenant binding). Walk in drain order to
+  // the first authorized row; unauthorized rows ahead of it are rejected,
+  // rows behind it stay queued for the next drain.
   const senderIds = [...new Set(rows.map((r) => r.senderId))]
   const members = await db
     .select({ userId: schema.workspaceMember.userId })
@@ -89,10 +126,15 @@ export async function drainScopeQueue(args: {
       )
     )
   const memberIds = new Set(members.map((m) => m.userId))
-  const authorized = rows.filter(
-    (r) => memberIds.has(r.senderId) && r.messageChannelId === run.channelId
-  )
-  const rejected = rows.filter((r) => !authorized.includes(r))
+  const rejected: typeof rows = []
+  let winner: (typeof rows)[number] | undefined
+  for (const row of rows) {
+    if (memberIds.has(row.senderId) && row.messageChannelId === run.channelId) {
+      winner = row
+      break
+    }
+    rejected.push(row)
+  }
   if (rejected.length > 0) {
     await db
       .update(schema.agentRunQueue)
@@ -103,16 +145,18 @@ export async function drainScopeQueue(args: {
           rejected.map((r) => r.id)
         )
       )
+    emitQueueUpdate(
+      rejected.map((r) => r.messageId),
+      "rejected"
+    )
     logger.warn(
       { scopeKey: run.scopeKey, count: rejected.length },
       "Rejected queued run messages at dequeue reauthorization"
     )
   }
-  if (authorized.length === 0) return
+  if (!winner) return
 
-  const threadRootId = run.scopeKey === run.channelId ? null : run.scopeKey
-  const triggerMessageId = authorized[authorized.length - 1]?.messageId
-  if (!triggerMessageId) return
+  const triggerMessageId = winner.messageId
 
   const merlinUser = await db
     .select({
@@ -163,51 +207,23 @@ export async function drainScopeQueue(args: {
     .catch(() => null)
 
   if (!newRun) {
-    // The scope was re-occupied first (a fresh mention won the race). That
-    // run's snapshot covers messages older than it — consume those; anything
-    // newer stays queued for the next drain.
+    // The scope was re-occupied first (a fresh mention won the race). Queued
+    // rows are excluded from every run's context until their own drain, so
+    // nothing to consume — everything stays queued for the next terminal.
     await db
       .delete(schema.message)
       .where(eq(schema.message.id, placeholder.id))
       .catch(() => {})
-    const active = await db
-      .select({ createdAt: schema.agentRun.createdAt })
-      .from(schema.agentRun)
-      .where(
-        and(
-          eq(schema.agentRun.scopeKey, run.scopeKey),
-          inArray(schema.agentRun.state, [...ACTIVE_RUN_STATES])
-        )
-      )
-      .then((r) => r[0])
-    if (active) {
-      await db
-        .update(schema.agentRunQueue)
-        .set({ state: "consumed" })
-        .where(
-          and(
-            inArray(
-              schema.agentRunQueue.id,
-              authorized.map((r) => r.id)
-            ),
-            lt(schema.agentRunQueue.createdAt, active.createdAt)
-          )
-        )
-        .catch(() => {})
-    }
     return
   }
 
-  // The new run's snapshot at claim covers these messages.
+  // Release exactly this message: it leaves the pill, materializes in the
+  // transcript, and the new run's snapshot picks it up as the question.
   await db
     .update(schema.agentRunQueue)
     .set({ state: "consumed" })
-    .where(
-      inArray(
-        schema.agentRunQueue.id,
-        authorized.map((r) => r.id)
-      )
-    )
+    .where(eq(schema.agentRunQueue.id, winner.id))
+  emitQueueUpdate([winner.messageId], "consumed")
 
   const realtimePlaceholder: RealtimeMessage = {
     id: placeholder.id,
@@ -256,7 +272,12 @@ export async function drainScopeQueue(args: {
     }
   )
   logger.info(
-    { scopeKey: run.scopeKey, runId: newRun.id, seeded: authorized.length },
-    "Drained scope queue into follow-up run"
+    {
+      scopeKey: run.scopeKey,
+      runId: newRun.id,
+      messageId: winner.messageId,
+      remaining: rows.length - rejected.length - 1,
+    },
+    "Drained next queued message into follow-up run"
   )
 }

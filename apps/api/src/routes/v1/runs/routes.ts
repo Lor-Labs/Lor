@@ -10,6 +10,7 @@ import {
 } from "@/lib/helpers/openapi/schemas"
 import { sessionAuthMiddleware } from "@/middleware/session-auth"
 import {
+  removeQueuedResponseSchema,
   runEventsParamsSchema,
   runEventsQuerySchema,
   runEventsResponseSchema,
@@ -69,3 +70,57 @@ export const stopRun = createRoute({
 })
 
 export type StopRunRoute = typeof stopRun
+
+export const steerQueuedMessage = createRoute({
+  path: "/runs/queued-messages/{messageId}/steer",
+  method: "post",
+  summary: "Steer a queued message past the active run",
+  description:
+    "Immediately stops the scope's active agent run so the queued message (and anything queued with it) reprompts the agent right away via the completion drain, instead of waiting for the current answer to finish.",
+  tags: ["Runs"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: {
+    params: runEventsParamsSchema,
+  },
+  hidden: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: stopRunResponseSchema,
+      description: "Active run stop requested",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.CONFLICT]: conflictSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type SteerQueuedMessageRoute = typeof steerQueuedMessage
+
+export const removeQueuedMessage = createRoute({
+  path: "/runs/queued-messages/{messageId}",
+  method: "delete",
+  summary: "Withdraw a queued message",
+  description:
+    "Removes the sender's own message from the scope's run queue so it never reprompts the agent. The message itself stays in the conversation.",
+  tags: ["Runs"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: {
+    params: runEventsParamsSchema,
+  },
+  hidden: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: removeQueuedResponseSchema,
+      description: "Queue row withdrawn",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.CONFLICT]: conflictSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type RemoveQueuedMessageRoute = typeof removeQueuedMessage

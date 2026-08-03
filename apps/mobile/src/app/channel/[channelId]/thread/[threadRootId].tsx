@@ -8,6 +8,7 @@ import {
   MessageComposer,
   type MessageComposerMentionHandle,
 } from "@/components/message-composer"
+import { RunQueuePill } from "@/components/run-queue-pill"
 import {
   ThreadMessageList,
   ThreadMessageListSkeleton,
@@ -25,6 +26,7 @@ import { useCanPinMessages } from "@/hooks/use-can-pin-messages"
 import { useChannelDetail } from "@/hooks/use-channel-detail"
 import { useOpenDM } from "@/hooks/use-open-dm"
 import { useProfileSheet } from "@/hooks/use-profile-sheet"
+import { useRunQueue } from "@/hooks/use-run-queue"
 import { useThreadMessages } from "@/hooks/use-thread-messages"
 import { useTypingIndicator } from "@/hooks/use-typing-indicator"
 import { useWorkspaceMentionCandidates } from "@/hooks/use-workspace-mention-candidates"
@@ -59,6 +61,33 @@ export default function ThreadScreen() {
     currentUser: session?.user,
   })
   useAutoMarkRead(channelId)
+  // Messages queued behind the active Merlin run — surfaced above the
+  // composer with steer/remove actions while it's working.
+  const pendingMerlinMessageId = useMemo(
+    () =>
+      thread.messages.find((message) => message.status === "pending")?.id ??
+      (thread.root?.status === "pending" ? thread.root.id : undefined),
+    [thread.messages, thread.root]
+  )
+  const { queuedIds, addOptimistic } = useRunQueue({
+    socket,
+    channelId: channelId ?? "",
+    threadRootId: threadRootId ?? "",
+    pendingMerlinMessageId,
+  })
+  const queuedMessages = useMemo(
+    () =>
+      queuedIds
+        .map((id) => thread.messages.find((message) => message.id === id))
+        .filter((message): message is Message => Boolean(message)),
+    [queuedIds, thread.messages]
+  )
+  // Queued messages live only in the composer's queue pill until the drain
+  // releases them — the transcript skips them (Codex model).
+  const visibleMessages = useMemo(
+    () => thread.messages.filter((message) => !queuedIds.includes(message.id)),
+    [thread.messages, queuedIds]
+  )
   const { typingUsers, emitTyping } = useTypingIndicator({
     socket,
     channelId: channelId ?? "",
@@ -243,15 +272,25 @@ export default function ThreadScreen() {
                 }
               }}
               onSend={async (content, attachments) => {
+                // Merlin is mid-answer in this thread, so the reply will
+                // queue — show it in the pill immediately instead of waiting
+                // for the routed round trip.
                 await thread.sendMessage(
                   content,
                   replyingTo ?? undefined,
-                  attachments
+                  attachments,
+                  pendingMerlinMessageId ? addOptimistic : undefined
                 )
                 setReplyingTo(null)
               }}
               placeholder="Reply in thread"
               replyingTo={replyingTo}
+              topAccessory={
+                <RunQueuePill
+                  currentUserId={session?.user.id}
+                  messages={queuedMessages}
+                />
+              }
             />
           ) : null
         }
@@ -284,7 +323,7 @@ export default function ThreadScreen() {
               focusMessageId={focusMessageId}
               hasOlder={thread.hasOlder}
               isLoadingOlder={thread.isLoadingOlder}
-              messages={thread.messages}
+              messages={visibleMessages}
               onLoadAround={thread.loadAround}
               onLoadOlder={() => void thread.loadOlder()}
               onDelete={confirmDelete}

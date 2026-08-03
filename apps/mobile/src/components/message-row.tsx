@@ -154,15 +154,13 @@ function MerlinRunControls({ message }: { message: Message }) {
   )
 }
 
-// What happened to a mid-run send: absorbed by the active run or queued for
-// the follow-up.
-function RoutedChip({ outcome }: { outcome: "steered" | "queued" }) {
+// A mid-run send was absorbed into the active run's next step boundary.
+// (Queued sends surface in the composer's run-queue pill instead.)
+function RoutedChip() {
   return (
     <View className="mt-one self-start rounded-lor-sm bg-accent-soft px-two py-one">
       <Text className="text-[11px] text-accent">
-        {outcome === "steered"
-          ? "Steering Merlin's current answer"
-          : "Queued — Merlin will answer this next"}
+        Steering Merlin&apos;s current answer
       </Text>
     </View>
   )
@@ -228,9 +226,7 @@ function MessageRowBody({
         </Text>
       ) : null}
       {isStreaming ? <MerlinRunControls message={message} /> : null}
-      {message.routedOutcome ? (
-        <RoutedChip outcome={message.routedOutcome} />
-      ) : null}
+      {message.routedOutcome === "steered" ? <RoutedChip /> : null}
       {message.editedAt ? (
         <Text className="text-[11px] text-muted">(edited)</Text>
       ) : null}

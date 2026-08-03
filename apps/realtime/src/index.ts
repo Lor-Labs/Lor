@@ -661,6 +661,7 @@ io.on("connection", (socket) => {
         }
         const routed = await routeToActiveRun({
           scopeKey: merlinScopeId,
+          threadScope: Boolean(parsed.threadRootId),
           messageId: createdMessage.message.id,
           senderId: socket.data.user.id,
         }).catch((err) => {
@@ -722,6 +723,7 @@ io.on("connection", (socket) => {
                 .catch(() => {})
               const lateRouted = await routeToActiveRun({
                 scopeKey: merlinThreadRootId ?? parsed.channelId,
+                threadScope: merlinThreadRootId !== null,
                 messageId: createdMessage.message.id,
                 senderId: socket.data.user.id,
               }).catch(() => null)
