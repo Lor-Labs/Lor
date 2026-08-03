@@ -41,7 +41,7 @@ import {
   Settings,
   UserPlus,
 } from "lucide-react"
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { CreateInviteDialog } from "@/components/invite/create-invite-dialog"
 import { ChannelList } from "@/components/sidebar/channel-panel/channel-list"
 import {
@@ -50,8 +50,12 @@ import {
 } from "@/components/sidebar/channel-panel/create-channel-context"
 import { WorkspaceCommand } from "@/components/sidebar/channel-panel/workspace-command"
 import { CreateWorkspaceDialog } from "@/components/sidebar/create-workspace-dialog"
+import { InstructionsApprovalAlert } from "@/components/workspace/instructions-approval-alert"
 import { WorkspaceAvatar } from "@/components/workspace/workspace-avatar"
-import { WorkspaceSettingsDialog } from "@/components/workspace/workspace-settings-dialog"
+import {
+  toSectionId,
+  WorkspaceSettingsDialog,
+} from "@/components/workspace/workspace-settings-dialog"
 import { useBillingUpdates } from "@/hooks/use-billing-updates"
 import { useSettings } from "@/hooks/use-settings"
 import { apiClient } from "@/lib/api-client"
@@ -93,14 +97,13 @@ function WorkspaceSidebarInner() {
   const [inviteOpen, setInviteOpen] = useState(false)
 
   const settingsOpen = target === "workspace"
-  const settingsSection =
-    tab === "integrations"
-      ? "integrations"
-      : tab === "merlin"
-        ? "merlin"
-        : tab === "billing"
-          ? "billing"
-          : "general"
+  const settingsSection = toSectionId(tab)
+  // Stable so InstructionsApprovalAlert's socket-subscription effect doesn't
+  // re-run on every sidebar render.
+  const openInstructionsReview = useCallback(
+    () => openSettings("workspace", "instructions"),
+    [openSettings]
+  )
 
   const { data: workspaces, isPending } = useQuery({
     queryKey: ["workspaces"],
@@ -325,6 +328,13 @@ function WorkspaceSidebarInner() {
             </DropdownMenu>
           )}
         </div>
+
+        {workspaceSlug && (
+          <InstructionsApprovalAlert
+            workspaceSlug={workspaceSlug}
+            onReview={openInstructionsReview}
+          />
+        )}
       </SidebarHeader>
 
       <SidebarContent>

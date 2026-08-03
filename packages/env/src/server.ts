@@ -62,16 +62,39 @@ const serverSchema = z.object({
   MERLIN_MODEL_FALLBACKS: defaultedString("thinkingmachines/inkling"),
   MERLIN_SMALL_MODEL: defaultedString("thinkingmachines/inkling"),
   MERLIN_SMALL_MODEL_FALLBACKS: defaultedString("moonshotai/kimi-k3"),
-  MERLIN_RESPOND_TOKEN_BUDGET: z.coerce
-    .number()
-    .int()
-    .positive()
-    .default(300_000),
   MERLIN_COMPACT_INPUT_TOKENS: z.coerce
     .number()
     .int()
     .positive()
     .default(60_000),
+  // Agent-run hard ceilings (reference/agent-harness.md, budgets). Snapshotted
+  // onto each agent_run row at creation, so changing these never alters an
+  // in-flight run. Emergency rails, not normal stopping targets.
+  AGENT_RUN_MAX_STEPS: z.coerce.number().int().positive().default(100),
+  AGENT_RUN_MAX_INPUT_TOKENS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(1_000_000),
+  AGENT_RUN_MAX_OUTPUT_TOKENS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(150_000),
+  AGENT_RUN_MAX_TOOL_CALLS: z.coerce.number().int().positive().default(200),
+  AGENT_RUN_MAX_TOOL_OUTPUT_BYTES_PER_CALL: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(262_144),
+  AGENT_RUN_MAX_TOOL_OUTPUT_BYTES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(2_097_152),
+  AGENT_RUN_MAX_WALL_MS: z.coerce.number().int().positive().default(1_800_000),
+  AGENT_RUN_MAX_PROVIDER_RETRIES: z.coerce.number().int().min(0).default(3),
+  AGENT_RUN_MAX_CREDITS: z.coerce.number().int().positive().default(500),
   MERLIN_EMBED_MODEL: defaultedString("alibaba/qwen3-embedding-4b"),
   MERLIN_EMBED_DIMENSIONS: z.coerce.number().int().positive().default(2560),
   GITHUB_WEBHOOK_SECRET: z.string().min(1).optional(),

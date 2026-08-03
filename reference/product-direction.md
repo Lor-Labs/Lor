@@ -44,4 +44,4 @@ Most company-brain products stop at retrieving information. Lor should use compa
 
 The MVP should not build the full v2 platform, but its artifacts, permissions, secrets, tools, memory, and realtime systems should have clean boundaries that leave this direction open.
 
-Immediate post-Pi harness priorities are captured in [`agent-harness-next.md`](./agent-harness-next.md).
+The post-Pi durable agent harness is built; as-built reference in [`agent-harness.md`](./agent-harness.md).

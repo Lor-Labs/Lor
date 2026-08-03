@@ -8,6 +8,7 @@ import {
   pgTable,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core"
 import { createInsertSchema, createSelectSchema } from "drizzle-zod"
@@ -103,6 +104,11 @@ export const message = pgTable(
 
     pinned: boolean("pinned").default(false).notNull(),
 
+    // Client-generated send nonce, persisted for idempotency: a resend after
+    // an ack was lost matches the unique index below and returns the original
+    // row instead of double-posting (and double-triggering Merlin).
+    clientKey: text("client_key"),
+
     editedAt: timestamp("edited_at"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
@@ -111,6 +117,9 @@ export const message = pgTable(
       table.channelId,
       table.createdAt
     ),
+    uniqueIndex("message_author_channel_clientKey_uidx")
+      .on(table.authorId, table.channelId, table.clientKey)
+      .where(sql`client_key is not null`),
     index("message_authorId_idx").on(table.authorId),
     index("message_referencedMessageId_idx").on(table.referencedMessageId),
     index("message_threadRootId_createdAt_idx").on(

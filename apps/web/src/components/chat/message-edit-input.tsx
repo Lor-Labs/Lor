@@ -12,7 +12,7 @@ import {
   createMentionSuggestion,
   SUGGESTION_MENU_SELECTOR,
 } from "@/components/chat/composer/message-input"
-import { toStoredMarkdown } from "@/lib/editor-utils"
+import { toStoredMarkdown, whenEditorMounted } from "@/lib/editor-utils"
 
 const MAX_MESSAGE_LENGTH = 2000
 
@@ -47,6 +47,7 @@ export function MessageEditInput({
           heading: false,
           blockquote: false,
           horizontalRule: false,
+          link: false,
         }),
         Markdown,
         Link.configure({
@@ -109,7 +110,7 @@ export function MessageEditInput({
   }, [editor, initialContent, onSave, onCancel])
 
   useEffect(() => {
-    if (!editor?.view?.dom) return
+    if (!editor) return
 
     const isSuggestionMenuOpen = () =>
       Boolean(document.querySelector(SUGGESTION_MENU_SELECTOR))
@@ -137,11 +138,15 @@ export function MessageEditInput({
       }
     }
 
-    const domNode = editor.view.dom
-    domNode.addEventListener("keydown", handleKeyDown, { capture: true })
-    return () => {
-      domNode.removeEventListener("keydown", handleKeyDown, { capture: true })
-    }
+    return whenEditorMounted(editor, () => {
+      const domNode = editor.view.dom
+      domNode.addEventListener("keydown", handleKeyDown, { capture: true })
+      return () => {
+        domNode.removeEventListener("keydown", handleKeyDown, {
+          capture: true,
+        })
+      }
+    })
   }, [editor, handleSave, onCancel])
 
   return (

@@ -6,9 +6,9 @@ import { useThemeColor } from "heroui-native/hooks"
 import { Spinner } from "heroui-native/spinner"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Alert, Pressable, Text, View } from "react-native"
-import { KeyboardAvoidingView } from "react-native-keyboard-controller"
 import { ChannelOptionsSheet } from "@/components/channel-options-sheet"
 import { ChannelSearchOverlay } from "@/components/channel-search-overlay"
+import { ChatKeyboardLayout } from "@/components/chat-keyboard-layout"
 import {
   type MemberListItem,
   MemberListSheet,
@@ -19,6 +19,7 @@ import {
   type MessageComposerMentionHandle,
 } from "@/components/message-composer"
 import { MessageList } from "@/components/message-list"
+import { RunQueuePill } from "@/components/run-queue-pill"
 import { TypingIndicator } from "@/components/typing-indicator"
 import { IconButton } from "@/components/ui/icon-button"
 import { Screen } from "@/components/ui/screen"
@@ -32,6 +33,7 @@ import { useChannelMessages } from "@/hooks/use-channel-messages"
 import { useChannelPermissions } from "@/hooks/use-channel-permissions"
 import { useOpenDM } from "@/hooks/use-open-dm"
 import { useProfileSheet } from "@/hooks/use-profile-sheet"
+import { useRunQueue } from "@/hooks/use-run-queue"
 import { useTypingIndicator } from "@/hooks/use-typing-indicator"
 import { useWorkspaceMentionCandidates } from "@/hooks/use-workspace-mention-candidates"
 import { api } from "@/lib/api"
@@ -73,6 +75,31 @@ export default function ChannelScreen() {
     currentUser: session?.user,
   })
   useAutoMarkRead(channelId)
+  // Channel-scope queue (a send can land while a run is finalizing) —
+  // surfaced in the same composer pill as thread queues.
+  const pendingMerlinMessageId = useMemo(
+    () => chat.messages.find((message) => message.status === "pending")?.id,
+    [chat.messages]
+  )
+  const { queuedIds } = useRunQueue({
+    socket,
+    channelId: channelId ?? "",
+    threadRootId: null,
+    pendingMerlinMessageId,
+  })
+  const queuedMessages = useMemo(
+    () =>
+      queuedIds
+        .map((id) => chat.messages.find((message) => message.id === id))
+        .filter((message): message is Message => Boolean(message)),
+    [queuedIds, chat.messages]
+  )
+  // Queued messages live only in the composer's queue pill until the drain
+  // releases them — the transcript skips them (Codex model).
+  const visibleMessages = useMemo(
+    () => chat.messages.filter((message) => !queuedIds.includes(message.id)),
+    [chat.messages, queuedIds]
+  )
   const { typingUsers, emitTyping } = useTypingIndicator({
     socket,
     channelId: channelId ?? "",
@@ -349,71 +376,80 @@ export default function ChannelScreen() {
             />
           </IconButton>
         </View>
-        <KeyboardAvoidingView
-          automaticOffset
-          behavior="translate-with-padding"
-          className="flex-1"
-        >
-          <MessageList
-            avatarColorByUserId={avatarColorByUserId}
-            channelName={channelName}
-            currentUserId={session?.user.id}
-            editingMessageId={editingMessage?.id}
-            error={chat.error}
-            focusMessageId={focusedMessageId}
-            isLoading={chat.isLoading}
-            messages={chat.messages}
-            onLoadAround={chat.loadAround}
-            onOpenThread={openThread}
-            onDelete={confirmDelete}
-            onEdit={startEditing}
-            onPressAuthor={openAuthorProfile}
-            onReply={startReply}
-            onRetry={() => void chat.reload()}
-            onToggleReaction={chat.toggleReaction}
-            onTogglePin={
-              permissions.canPinMessages
-                ? (message) => {
-                    void chat.togglePin(message.id, message.pinned)
-                  }
-                : undefined
-            }
-            replyingToId={replyingTo?.id}
-          />
-          <TypingIndicator users={typingUsers} />
-          <MessageComposer
-            channelId={channelId}
-            channelName={channelName}
-            editingMessage={editingMessage}
-            isConnected={isSocketConnected}
-            isMentionCandidatesLoading={mentions.isLoading}
-            isSending={chat.isSending || isSavingEdit}
-            mentionCandidates={mentions.candidates}
-            mentionCandidatesError={mentions.error}
-            mentionRef={composerMentionRef}
-            onCancelEdit={() => setEditingMessage(null)}
-            onCancelReply={() => setReplyingTo(null)}
-            onTyping={emitTyping}
-            onEdit={async (messageId, content) => {
-              setIsSavingEdit(true)
-              try {
-                await chat.editMessage(messageId, content)
-                setEditingMessage(null)
-              } finally {
-                setIsSavingEdit(false)
+        <ChatKeyboardLayout
+          renderComposer={({ inputNativeID, onCustomInputViewChange }) => (
+            <MessageComposer
+              channelId={channelId}
+              channelName={channelName}
+              editingMessage={editingMessage}
+              inputNativeID={inputNativeID}
+              isConnected={isSocketConnected}
+              isMentionCandidatesLoading={mentions.isLoading}
+              isSending={chat.isSending || isSavingEdit}
+              mentionCandidates={mentions.candidates}
+              mentionCandidatesError={mentions.error}
+              mentionRef={composerMentionRef}
+              onCancelEdit={() => setEditingMessage(null)}
+              onCancelReply={() => setReplyingTo(null)}
+              onCustomInputViewChange={onCustomInputViewChange}
+              onTyping={emitTyping}
+              onEdit={async (messageId, content) => {
+                setIsSavingEdit(true)
+                try {
+                  await chat.editMessage(messageId, content)
+                  setEditingMessage(null)
+                } finally {
+                  setIsSavingEdit(false)
+                }
+              }}
+              onSend={async (content, attachments) => {
+                await chat.sendMessage(
+                  content,
+                  replyingTo ?? undefined,
+                  attachments
+                )
+                setReplyingTo(null)
+              }}
+              replyingTo={replyingTo}
+              topAccessory={
+                <RunQueuePill
+                  currentUserId={session?.user.id}
+                  messages={queuedMessages}
+                />
               }
-            }}
-            onSend={async (content, attachments) => {
-              await chat.sendMessage(
-                content,
-                replyingTo ?? undefined,
-                attachments
-              )
-              setReplyingTo(null)
-            }}
-            replyingTo={replyingTo}
-          />
-        </KeyboardAvoidingView>
+            />
+          )}
+          renderMessageList={(renderScrollComponent) => (
+            <MessageList
+              avatarColorByUserId={avatarColorByUserId}
+              channelName={channelName}
+              currentUserId={session?.user.id}
+              editingMessageId={editingMessage?.id}
+              error={chat.error}
+              focusMessageId={focusedMessageId}
+              isLoading={chat.isLoading}
+              messages={visibleMessages}
+              onLoadAround={chat.loadAround}
+              onOpenThread={openThread}
+              onDelete={confirmDelete}
+              onEdit={startEditing}
+              onPressAuthor={openAuthorProfile}
+              onReply={startReply}
+              onRetry={() => void chat.reload()}
+              onToggleReaction={chat.toggleReaction}
+              onTogglePin={
+                permissions.canPinMessages
+                  ? (message) => {
+                      void chat.togglePin(message.id, message.pinned)
+                    }
+                  : undefined
+              }
+              renderScrollComponent={renderScrollComponent}
+              replyingToId={replyingTo?.id}
+            />
+          )}
+          typingIndicator={<TypingIndicator users={typingUsers} />}
+        />
       </View>
       {isSearchOpen ? (
         <ChannelSearchOverlay

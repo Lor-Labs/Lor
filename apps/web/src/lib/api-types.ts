@@ -62,6 +62,14 @@ export type Message = ListMessagesResponse["data"][number] & {
   streaming?: boolean
   // Tool calls in flight while Merlin streams, for a live "searching…" status.
   toolActivity?: { toolCallId: string; label: string }[]
+  // Author of the latest mid-run message steered into this in-flight reply.
+  steeringBy?: string
+  // What happened to this (user) message when it landed mid-run: absorbed by
+  // the active run, or queued for the follow-up.
+  routedOutcome?: "steered" | "queued"
+  // Stop was requested for this in-flight reply (optimistic until the run
+  // settles at its next boundary).
+  stopRequested?: boolean
 }
 export type MessageAuthor = Message["author"]
 // Entries in Merlin's chronological reasoning/tool trail.

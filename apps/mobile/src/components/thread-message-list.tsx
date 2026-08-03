@@ -1,7 +1,21 @@
 import { formatDateDivider } from "@repo/utils/date"
 import { Spinner } from "heroui-native/spinner"
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { FlatList, Pressable, Text, View, type ViewToken } from "react-native"
+import {
+  type ReactElement,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react"
+import {
+  FlatList,
+  Pressable,
+  type ScrollViewProps,
+  Text,
+  View,
+  type ViewToken,
+} from "react-native"
 import Animated, { FadeInUp, FadeOutUp } from "react-native-reanimated"
 import { MessageActionMenu } from "@/components/message-action-menu"
 import {
@@ -45,6 +59,7 @@ export function ThreadMessageList({
   editingMessageId,
   replyingToId,
   focusMessageId,
+  renderScrollComponent,
 }: {
   avatarColorByUserId?: ReadonlyMap<string, string>
   root: Message
@@ -65,6 +80,9 @@ export function ThreadMessageList({
   editingMessageId?: string | null
   replyingToId?: string | null
   focusMessageId?: string | null
+  renderScrollComponent?: (
+    props: ScrollViewProps
+  ) => ReactElement<ScrollViewProps>
 }) {
   const [selectedMessage, setSelectedMessage] = useState<Message | null>(null)
   const [jumpTargetId, setJumpTargetId] = useState<string | null>(null)
@@ -167,6 +185,7 @@ export function ThreadMessageList({
           inverted
           keyboardDismissMode="interactive"
           keyboardShouldPersistTaps="handled"
+          renderScrollComponent={renderScrollComponent}
           onViewableItemsChanged={handleViewableItemsChanged}
           viewabilityConfig={viewabilityConfig}
           keyExtractor={(item) => {

@@ -3,11 +3,12 @@ import { SymbolView } from "expo-symbols"
 import { useThemeColor } from "heroui-native/hooks"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { Alert, Text, View } from "react-native"
-import { KeyboardAvoidingView } from "react-native-keyboard-controller"
+import { ChatKeyboardLayout } from "@/components/chat-keyboard-layout"
 import {
   MessageComposer,
   type MessageComposerMentionHandle,
 } from "@/components/message-composer"
+import { RunQueuePill } from "@/components/run-queue-pill"
 import {
   ThreadMessageList,
   ThreadMessageListSkeleton,
@@ -25,6 +26,7 @@ import { useCanPinMessages } from "@/hooks/use-can-pin-messages"
 import { useChannelDetail } from "@/hooks/use-channel-detail"
 import { useOpenDM } from "@/hooks/use-open-dm"
 import { useProfileSheet } from "@/hooks/use-profile-sheet"
+import { useRunQueue } from "@/hooks/use-run-queue"
 import { useThreadMessages } from "@/hooks/use-thread-messages"
 import { useTypingIndicator } from "@/hooks/use-typing-indicator"
 import { useWorkspaceMentionCandidates } from "@/hooks/use-workspace-mention-candidates"
@@ -59,6 +61,33 @@ export default function ThreadScreen() {
     currentUser: session?.user,
   })
   useAutoMarkRead(channelId)
+  // Messages queued behind the active Merlin run — surfaced above the
+  // composer with steer/remove actions while it's working.
+  const pendingMerlinMessageId = useMemo(
+    () =>
+      thread.messages.find((message) => message.status === "pending")?.id ??
+      (thread.root?.status === "pending" ? thread.root.id : undefined),
+    [thread.messages, thread.root]
+  )
+  const { queuedIds, addOptimistic, removeOptimistic } = useRunQueue({
+    socket,
+    channelId: channelId ?? "",
+    threadRootId: threadRootId ?? "",
+    pendingMerlinMessageId,
+  })
+  const queuedMessages = useMemo(
+    () =>
+      queuedIds
+        .map((id) => thread.messages.find((message) => message.id === id))
+        .filter((message): message is Message => Boolean(message)),
+    [queuedIds, thread.messages]
+  )
+  // Queued messages live only in the composer's queue pill until the drain
+  // releases them — the transcript skips them (Codex model).
+  const visibleMessages = useMemo(
+    () => thread.messages.filter((message) => !queuedIds.includes(message.id)),
+    [thread.messages, queuedIds]
+  )
   const { typingUsers, emitTyping } = useTypingIndicator({
     socket,
     channelId: channelId ?? "",
@@ -214,97 +243,127 @@ export default function ThreadScreen() {
           participants={thread.participants}
         />
       </View>
-      <KeyboardAvoidingView
-        automaticOffset
-        behavior="translate-with-padding"
-        className="flex-1"
-      >
-        {thread.isLoading ? (
-          <ThreadMessageListSkeleton />
-        ) : thread.isMissing ? (
-          <StatePanel
-            action={{ label: "Back to channel", onPress: goBack }}
-            className="flex-1"
-            detail="The original message may have been deleted, or this thread is no longer available."
-            title="Thread not found"
-          />
-        ) : thread.error || !thread.root ? (
-          <StatePanel
-            action={{ label: "Try again", onPress: () => void thread.reload() }}
-            className="flex-1"
-            detail={thread.error ?? "The original message is unavailable."}
-            status="danger"
-            title="Thread is unavailable"
-          />
-        ) : (
-          <ThreadMessageList
-            avatarColorByUserId={avatarColorByUserId}
-            currentUserId={session?.user.id}
-            editingMessageId={editingMessage?.id}
-            focusMessageId={focusMessageId}
-            hasOlder={thread.hasOlder}
-            isLoadingOlder={thread.isLoadingOlder}
-            messages={thread.messages}
-            onLoadAround={thread.loadAround}
-            onLoadOlder={() => void thread.loadOlder()}
-            onDelete={confirmDelete}
-            onEdit={startEditing}
-            onPressAuthor={openAuthorProfile}
-            onReply={startReply}
-            onToggleReaction={thread.toggleReaction}
-            onTogglePin={
-              canPinMessages
-                ? (message) => {
-                    void thread.togglePin(message.id, message.pinned)
-                  }
-                : undefined
-            }
-            paginationError={thread.paginationError}
-            root={thread.root}
-            replyingToId={replyingTo?.id}
-            totalReplyCount={thread.totalReplyCount}
-          />
-        )}
-        {thread.root && !thread.isMissing && !thread.error ? (
-          <TypingIndicator users={typingUsers} />
-        ) : null}
-        {thread.root && !thread.isMissing && !thread.error ? (
-          <MessageComposer
-            accessibilityLabel="Reply in thread"
-            channelId={channelId}
-            channelName={channelName}
-            editingMessage={editingMessage}
-            isConnected={isSocketConnected}
-            isMentionCandidatesLoading={mentions.isLoading}
-            isSending={thread.isSending || isSavingEdit}
-            mentionCandidates={mentions.candidates}
-            mentionCandidatesError={mentions.error}
-            mentionRef={composerMentionRef}
-            onCancelEdit={() => setEditingMessage(null)}
-            onCancelReply={() => setReplyingTo(null)}
-            onTyping={emitTyping}
-            onEdit={async (messageId, content) => {
-              setIsSavingEdit(true)
-              try {
-                await thread.editMessage(messageId, content)
-                setEditingMessage(null)
-              } finally {
-                setIsSavingEdit(false)
+      <ChatKeyboardLayout
+        renderComposer={({ inputNativeID, onCustomInputViewChange }) =>
+          thread.root && !thread.isMissing && !thread.error ? (
+            <MessageComposer
+              accessibilityLabel="Reply in thread"
+              channelId={channelId}
+              channelName={channelName}
+              editingMessage={editingMessage}
+              inputNativeID={inputNativeID}
+              isConnected={isSocketConnected}
+              isMentionCandidatesLoading={mentions.isLoading}
+              isSending={thread.isSending || isSavingEdit}
+              mentionCandidates={mentions.candidates}
+              mentionCandidatesError={mentions.error}
+              mentionRef={composerMentionRef}
+              onCancelEdit={() => setEditingMessage(null)}
+              onCancelReply={() => setReplyingTo(null)}
+              onCustomInputViewChange={onCustomInputViewChange}
+              onTyping={emitTyping}
+              onEdit={async (messageId, content) => {
+                setIsSavingEdit(true)
+                try {
+                  await thread.editMessage(messageId, content)
+                  setEditingMessage(null)
+                } finally {
+                  setIsSavingEdit(false)
+                }
+              }}
+              onSend={async (content, attachments) => {
+                // Merlin is mid-answer in this thread, so the reply will
+                // queue — show it in the pill immediately instead of waiting
+                // for the routed round trip. A failed send drops the nonce
+                // again, so a late created echo can't hide the real message.
+                let nonce: string | undefined
+                try {
+                  await thread.sendMessage(
+                    content,
+                    replyingTo ?? undefined,
+                    attachments,
+                    pendingMerlinMessageId
+                      ? (id) => {
+                          nonce = id
+                          addOptimistic(id)
+                        }
+                      : undefined
+                  )
+                } catch (error) {
+                  if (nonce) removeOptimistic(nonce)
+                  throw error
+                }
+                setReplyingTo(null)
+              }}
+              placeholder="Reply in thread"
+              replyingTo={replyingTo}
+              topAccessory={
+                <RunQueuePill
+                  currentUserId={session?.user.id}
+                  messages={queuedMessages}
+                />
               }
-            }}
-            onSend={async (content, attachments) => {
-              await thread.sendMessage(
-                content,
-                replyingTo ?? undefined,
-                attachments
-              )
-              setReplyingTo(null)
-            }}
-            placeholder="Reply in thread"
-            replyingTo={replyingTo}
-          />
-        ) : null}
-      </KeyboardAvoidingView>
+            />
+          ) : null
+        }
+        renderMessageList={(renderScrollComponent) =>
+          thread.isLoading ? (
+            <ThreadMessageListSkeleton />
+          ) : thread.isMissing ? (
+            <StatePanel
+              action={{ label: "Back to channel", onPress: goBack }}
+              className="flex-1"
+              detail="The original message may have been deleted, or this thread is no longer available."
+              title="Thread not found"
+            />
+          ) : thread.error || !thread.root ? (
+            <StatePanel
+              action={{
+                label: "Try again",
+                onPress: () => void thread.reload(),
+              }}
+              className="flex-1"
+              detail={thread.error ?? "The original message is unavailable."}
+              status="danger"
+              title="Thread is unavailable"
+            />
+          ) : (
+            <ThreadMessageList
+              avatarColorByUserId={avatarColorByUserId}
+              currentUserId={session?.user.id}
+              editingMessageId={editingMessage?.id}
+              focusMessageId={focusMessageId}
+              hasOlder={thread.hasOlder}
+              isLoadingOlder={thread.isLoadingOlder}
+              messages={visibleMessages}
+              onLoadAround={thread.loadAround}
+              onLoadOlder={() => void thread.loadOlder()}
+              onDelete={confirmDelete}
+              onEdit={startEditing}
+              onPressAuthor={openAuthorProfile}
+              onReply={startReply}
+              onToggleReaction={thread.toggleReaction}
+              onTogglePin={
+                canPinMessages
+                  ? (message) => {
+                      void thread.togglePin(message.id, message.pinned)
+                    }
+                  : undefined
+              }
+              paginationError={thread.paginationError}
+              renderScrollComponent={renderScrollComponent}
+              root={thread.root}
+              replyingToId={replyingTo?.id}
+              totalReplyCount={thread.totalReplyCount}
+            />
+          )
+        }
+        typingIndicator={
+          thread.root && !thread.isMissing && !thread.error ? (
+            <TypingIndicator users={typingUsers} />
+          ) : null
+        }
+      />
       <UserProfileSheet
         currentUserId={session?.user.id}
         onMention={mentionFromProfile}

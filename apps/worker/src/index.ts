@@ -2,15 +2,29 @@ import { env } from "@repo/env/server"
 import { setRepoCacheStore } from "@repo/merlin/github"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
 import {
+  AGENT_RUN_STOP_CHANNEL,
   LINK_UNFURL_QUEUE,
   MERLIN_RESPOND_QUEUE,
+  type MerlinRespondJobData,
 } from "@repo/realtime-types/queues"
 import { Emitter } from "@socket.io/redis-emitter"
-import { Worker } from "bullmq"
+import { Queue, Worker } from "bullmq"
 import { createClient } from "redis"
 import { createLinkUnfurlProcessor } from "@/jobs/link-unfurl"
 import { createMerlinRespondProcessor } from "@/jobs/merlin-respond"
+import {
+  DEAD_RUN_SWEEP_EVERY_MS,
+  pruneRunEvents,
+  RUN_EVENT_PRUNE_EVERY_MS,
+  sweepDeadRuns,
+} from "@/jobs/prune-run-events"
+import { signalRunStop } from "@/lib/agent-run"
 import { logger } from "@/lib/logger"
+import { awaitInflightDrains } from "@/lib/run-queue"
+
+// Worker-internal periodic upkeep, scheduled through BullMQ (not in-process
+// timers) so replicas share one schedule and runs are visible/retryable.
+const MAINTENANCE_QUEUE = "maintenance"
 
 function parseRedisUrl(url: string) {
   const parsed = new URL(url)
@@ -45,6 +59,18 @@ async function bootstrap() {
 
   const emitter = new Emitter<ServerToClientEvents>(redisEmitterClient)
 
+  // Immediate-stop fast path: abort the in-flight model request for runs this
+  // process holds a lease on. The stopRequestedAt flag stays the durable
+  // fallback if a publish is missed.
+  const stopSubscriber = redisEmitterClient.duplicate()
+  stopSubscriber.on("error", (error) => {
+    logger.error({ err: error }, "Redis stop subscriber error")
+  })
+  await stopSubscriber.connect()
+  await stopSubscriber.subscribe(AGENT_RUN_STOP_CHANNEL, (runId) => {
+    signalRunStop(runId)
+  })
+
   // BullMQ uses ioredis internally — pass connection options, not an instance
   const redisOpts = parseRedisUrl(env.REDIS_URL)
 
@@ -71,9 +97,25 @@ async function bootstrap() {
     )
   })
 
+  // Producer handle on the same queue: the completion drain enqueues the
+  // follow-up run for messages queued behind an active scope.
+  const merlinRespondQueue = new Queue<MerlinRespondJobData>(
+    MERLIN_RESPOND_QUEUE,
+    {
+      connection: {
+        ...redisOpts,
+        maxRetriesPerRequest: null,
+      },
+    }
+  )
+
   const merlinRespondWorker = new Worker(
     MERLIN_RESPOND_QUEUE,
-    createMerlinRespondProcessor(emitter, redisEmitterClient),
+    createMerlinRespondProcessor(
+      emitter,
+      redisEmitterClient,
+      merlinRespondQueue
+    ),
     {
       connection: {
         ...redisOpts,
@@ -98,8 +140,55 @@ async function bootstrap() {
     )
   })
 
+  const maintenanceQueue = new Queue(MAINTENANCE_QUEUE, {
+    connection: {
+      ...redisOpts,
+      maxRetriesPerRequest: null,
+    },
+    defaultJobOptions: {
+      removeOnComplete: { age: 86400, count: 100 },
+      removeOnFail: { age: 86400, count: 100 },
+    },
+  })
+
+  const maintenanceWorker = new Worker(
+    MAINTENANCE_QUEUE,
+    async (job) => {
+      if (job.name === "prune-run-events") await pruneRunEvents()
+      else if (job.name === "sweep-dead-runs")
+        await sweepDeadRuns(emitter, merlinRespondQueue)
+    },
+    {
+      connection: {
+        ...redisOpts,
+        maxRetriesPerRequest: null,
+      },
+      concurrency: 1,
+    }
+  )
+
+  maintenanceWorker.on("failed", (job, error) => {
+    logger.error({ jobId: job?.id, err: error }, "Maintenance job failed")
+  })
+
+  maintenanceWorker.on("error", (error) => {
+    logger.error(
+      { queue: MAINTENANCE_QUEUE, workerId: maintenanceWorker.id, err: error },
+      "Maintenance worker error"
+    )
+  })
+
+  // Upsert (idempotent across replicas/restarts): one shared schedule in
+  // Redis, first run fires immediately, then every interval.
+  await maintenanceQueue.upsertJobScheduler("prune-run-events", {
+    every: RUN_EVENT_PRUNE_EVERY_MS,
+  })
+  await maintenanceQueue.upsertJobScheduler("sweep-dead-runs", {
+    every: DEAD_RUN_SWEEP_EVERY_MS,
+  })
+
   logger.info(
-    { queues: [LINK_UNFURL_QUEUE, MERLIN_RESPOND_QUEUE] },
+    { queues: [LINK_UNFURL_QUEUE, MERLIN_RESPOND_QUEUE, MAINTENANCE_QUEUE] },
     "Worker started"
   )
 
@@ -107,6 +196,15 @@ async function bootstrap() {
     logger.info("Shutting down...")
     await linkUnfurlWorker.close()
     await merlinRespondWorker.close()
+    // The dead-run sweep also drains scopes — close it before waiting so no
+    // new drain can start after the wait completes.
+    await maintenanceWorker.close()
+    // Completion drains are fire-and-forget from the processor — finish any
+    // in flight before closing the queue they enqueue follow-up runs on.
+    await awaitInflightDrains()
+    await merlinRespondQueue.close()
+    await maintenanceQueue.close()
+    await stopSubscriber.quit()
     await redisEmitterClient.quit()
     process.exit(0)
   }

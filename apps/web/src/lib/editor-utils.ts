@@ -1,4 +1,27 @@
+import type { Editor } from "@tiptap/react"
+
 const EVERYONE_MENTION_ID = "everyone"
+
+// Tiptap v3's editor.view is a truthy Proxy that THROWS on property access
+// until EditorContent mounts the real view — `editor.view.dom` in a mount
+// effect can crash the tree. Runs `attach` once the view exists (immediately
+// if it already does, again on every remount) and returns a cleanup.
+export function whenEditorMounted(
+  editor: Editor,
+  attach: () => () => void
+): () => void {
+  let detach: (() => void) | undefined
+  const onMount = () => {
+    detach?.()
+    detach = attach()
+  }
+  if (editor.isInitialized) detach = attach()
+  editor.on("mount", onMount)
+  return () => {
+    editor.off("mount", onMount)
+    detach?.()
+  }
+}
 
 export const TIPTAP_MARKDOWN_MENTION_REGEX = /\[@[^\]]*?\bid="([^"]+)"[^\]]*]/g
 export const STORED_MENTION_REGEX =

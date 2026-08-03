@@ -12,6 +12,7 @@ import { useThemeColor } from "heroui-native/hooks"
 import { Spinner } from "heroui-native/spinner"
 import { cn } from "heroui-native/utils"
 import {
+  type ReactNode,
   type Ref,
   useCallback,
   useEffect,
@@ -70,6 +71,9 @@ export function MessageComposer({
   mentionCandidatesError = null,
   mentionRef,
   onTyping,
+  inputNativeID,
+  onCustomInputViewChange,
+  topAccessory,
 }: {
   channelId: string
   channelName: string
@@ -91,6 +95,11 @@ export function MessageComposer({
   mentionCandidatesError?: string | null
   mentionRef?: Ref<MessageComposerMentionHandle>
   onTyping?: () => void
+  inputNativeID?: string
+  onCustomInputViewChange?: (isOpen: boolean) => void
+  // Rendered flush above the input card so accessories (run queue) can tuck
+  // behind its top edge.
+  topAccessory?: ReactNode
 }) {
   const { bottom: bottomInset } = useSafeAreaInsets()
   const { height: windowHeight } = useWindowDimensions()
@@ -101,6 +110,7 @@ export function MessageComposer({
     "field-placeholder",
   ])
   const inputRef = useRef<EnrichedMarkdownTextInputInstance>(null)
+  const focusStateFrameRef = useRef<number | null>(null)
   const onTypingRef = useRef(onTyping)
   onTypingRef.current = onTyping
   const activeEditingMessageIdRef = useRef<string | null>(null)
@@ -147,6 +157,18 @@ export function MessageComposer({
     isAttachmentPickerOpen ||
     plainText.length > 0 ||
     attachmentUpload.attachments.length > 0
+
+  // Avoid committing React state in the same frame that starts the native
+  // keyboard animation; that can suppress Reanimated's first iOS update.
+  const scheduleFocusState = useCallback((isInputFocused: boolean) => {
+    if (focusStateFrameRef.current !== null) {
+      cancelAnimationFrame(focusStateFrameRef.current)
+    }
+    focusStateFrameRef.current = requestAnimationFrame(() => {
+      focusStateFrameRef.current = null
+      setIsFocused(isInputFocused)
+    })
+  }, [])
 
   const filteredMentionCandidates = useMemo(
     () => filterMentionCandidates(mentionCandidates, mentionQuery),
@@ -226,6 +248,7 @@ export function MessageComposer({
       setPlainText(editContent)
       setSubmitError(null)
       setIsAttachmentPickerOpen(false)
+      onCustomInputViewChange?.(false)
       closeMentionMenu()
       inputRef.current?.setValue(editContent)
 
@@ -245,7 +268,7 @@ export function MessageComposer({
       setSubmitError(null)
       inputRef.current?.setValue(draft.content)
     }
-  }, [closeMentionMenu, editingMessage])
+  }, [closeMentionMenu, editingMessage, onCustomInputViewChange])
 
   const startMention = useCallback(() => {
     inputRef.current?.focus()
@@ -254,7 +277,8 @@ export function MessageComposer({
 
   const closeAttachmentPicker = useCallback(() => {
     setIsAttachmentPickerOpen(false)
-  }, [])
+    onCustomInputViewChange?.(false)
+  }, [onCustomInputViewChange])
 
   const returnToKeyboard = useCallback(() => {
     inputRef.current?.focus()
@@ -284,6 +308,7 @@ export function MessageComposer({
         ? keyboardHeight - bottomInset - attachmentPanelGap
         : fallbackHeight - attachmentPanelGap
 
+    onCustomInputViewChange?.(true)
     setAttachmentPickerHeight(Math.min(Math.max(nextHeight, 250), 360))
     setIsAttachmentPickerOpen(true)
 
@@ -292,7 +317,17 @@ export function MessageComposer({
       Keyboard.dismiss()
       void KeyboardController.dismiss().catch(() => undefined)
     })
-  }, [bottomInset, closeMentionMenu, windowHeight])
+  }, [bottomInset, closeMentionMenu, onCustomInputViewChange, windowHeight])
+
+  useEffect(
+    () => () => {
+      if (focusStateFrameRef.current !== null) {
+        cancelAnimationFrame(focusStateFrameRef.current)
+      }
+      onCustomInputViewChange?.(false)
+    },
+    [onCustomInputViewChange]
+  )
 
   const selectRecentPhoto = useCallback(
     (photo: RecentPhoto) => {
@@ -434,6 +469,7 @@ export function MessageComposer({
           onSelect={insertMention}
         />
       ) : null}
+      {topAccessory}
       <Animated.View
         className="relative overflow-hidden rounded-lor-sm border border-border bg-surface"
         layout={composerLayoutTransition}
@@ -498,8 +534,9 @@ export function MessageComposer({
           markdownStyle={markdownStyle}
           mentionIndicators={["@"]}
           multiline
+          nativeID={inputNativeID}
           onBlur={() => {
-            setIsFocused(false)
+            scheduleFocusState(false)
             closeMentionMenu()
           }}
           onChangeMarkdown={(markdown) => {
@@ -516,7 +553,7 @@ export function MessageComposer({
           }}
           onEndMention={closeMentionMenu}
           onFocus={() => {
-            setIsFocused(true)
+            scheduleFocusState(true)
           }}
           onStartMention={() => {
             setMentionQuery("")

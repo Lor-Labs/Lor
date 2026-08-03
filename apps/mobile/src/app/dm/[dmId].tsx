@@ -4,7 +4,7 @@ import { useThemeColor } from "heroui-native/hooks"
 import { Spinner } from "heroui-native/spinner"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Alert, Text, View } from "react-native"
-import { KeyboardAvoidingView } from "react-native-keyboard-controller"
+import { ChatKeyboardLayout } from "@/components/chat-keyboard-layout"
 import { DMAvatar } from "@/components/dm-avatar"
 import {
   MessageComposer,
@@ -209,68 +209,71 @@ export default function DMScreen() {
           </Text>
         </View>
       </View>
-      <KeyboardAvoidingView
-        automaticOffset
-        behavior="translate-with-padding"
-        className="flex-1"
-      >
-        <MessageList
-          channelName={name}
-          currentUserId={session?.user.id}
-          editingMessageId={editingMessage?.id}
-          emptyState={{
-            title: name,
-            detail:
-              dm.type === "dm"
-                ? `This is the beginning of your conversation with ${name}.`
-                : "This is the beginning of this group conversation.",
-          }}
-          error={chat.error}
-          isLoading={chat.isLoading}
-          messages={chat.messages}
-          onLoadAround={chat.loadAround}
-          onDelete={confirmDelete}
-          onEdit={startEditing}
-          onPressAuthor={openAuthorProfile}
-          onReply={startReply}
-          onRetry={() => void chat.reload()}
-          onToggleReaction={chat.toggleReaction}
-          replyingToId={replyingTo?.id}
-        />
-        <TypingIndicator users={typingUsers} />
-        <MessageComposer
-          accessibilityLabel={`Message ${name}`}
-          channelId={dmId}
-          channelName={name}
-          editingMessage={editingMessage}
-          isConnected={isSocketConnected}
-          isSending={chat.isSending || isSavingEdit}
-          mentionCandidates={mentionCandidates}
-          mentionRef={composerMentionRef}
-          onCancelEdit={() => setEditingMessage(null)}
-          onCancelReply={() => setReplyingTo(null)}
-          onTyping={emitTyping}
-          onEdit={async (messageId, content) => {
-            setIsSavingEdit(true)
-            try {
-              await chat.editMessage(messageId, content)
-              setEditingMessage(null)
-            } finally {
-              setIsSavingEdit(false)
-            }
-          }}
-          onSend={async (content, attachments) => {
-            await chat.sendMessage(
-              content,
-              replyingTo ?? undefined,
-              attachments
-            )
-            setReplyingTo(null)
-          }}
-          placeholder={`Message ${name}`}
-          replyingTo={replyingTo}
-        />
-      </KeyboardAvoidingView>
+      <ChatKeyboardLayout
+        renderComposer={({ inputNativeID, onCustomInputViewChange }) => (
+          <MessageComposer
+            accessibilityLabel={`Message ${name}`}
+            channelId={dmId}
+            channelName={name}
+            editingMessage={editingMessage}
+            inputNativeID={inputNativeID}
+            isConnected={isSocketConnected}
+            isSending={chat.isSending || isSavingEdit}
+            mentionCandidates={mentionCandidates}
+            mentionRef={composerMentionRef}
+            onCancelEdit={() => setEditingMessage(null)}
+            onCancelReply={() => setReplyingTo(null)}
+            onCustomInputViewChange={onCustomInputViewChange}
+            onTyping={emitTyping}
+            onEdit={async (messageId, content) => {
+              setIsSavingEdit(true)
+              try {
+                await chat.editMessage(messageId, content)
+                setEditingMessage(null)
+              } finally {
+                setIsSavingEdit(false)
+              }
+            }}
+            onSend={async (content, attachments) => {
+              await chat.sendMessage(
+                content,
+                replyingTo ?? undefined,
+                attachments
+              )
+              setReplyingTo(null)
+            }}
+            placeholder={`Message ${name}`}
+            replyingTo={replyingTo}
+          />
+        )}
+        renderMessageList={(renderScrollComponent) => (
+          <MessageList
+            channelName={name}
+            currentUserId={session?.user.id}
+            editingMessageId={editingMessage?.id}
+            emptyState={{
+              title: name,
+              detail:
+                dm.type === "dm"
+                  ? `This is the beginning of your conversation with ${name}.`
+                  : "This is the beginning of this group conversation.",
+            }}
+            error={chat.error}
+            isLoading={chat.isLoading}
+            messages={chat.messages}
+            onLoadAround={chat.loadAround}
+            onDelete={confirmDelete}
+            onEdit={startEditing}
+            onPressAuthor={openAuthorProfile}
+            onReply={startReply}
+            onRetry={() => void chat.reload()}
+            onToggleReaction={chat.toggleReaction}
+            renderScrollComponent={renderScrollComponent}
+            replyingToId={replyingTo?.id}
+          />
+        )}
+        typingIndicator={<TypingIndicator users={typingUsers} />}
+      />
       <UserProfileSheet
         currentUserId={session?.user.id}
         onMention={mentionFromProfile}

@@ -57,6 +57,39 @@ async function postPushChunk(chunk: unknown[]) {
   }
 }
 
+type ExpoPushMessage = {
+  to: string
+  title: string
+  body: string
+  sound: "default"
+  data: Record<string, unknown>
+}
+
+// Chunked delivery + dead-token cleanup shared by all push kinds.
+async function deliverExpoPush(messages: ExpoPushMessage[]) {
+  const deadTokens: string[] = []
+  for (let index = 0; index < messages.length; index += EXPO_PUSH_BATCH_SIZE) {
+    const chunk = messages.slice(index, index + EXPO_PUSH_BATCH_SIZE)
+    const result = await postPushChunk(chunk)
+    for (const [ticketIndex, ticket] of (result.data ?? []).entries()) {
+      const target = chunk[ticketIndex]
+      if (
+        target &&
+        ticket.status === "error" &&
+        ticket.details?.error === "DeviceNotRegistered"
+      ) {
+        deadTokens.push(target.to)
+      }
+    }
+  }
+
+  if (deadTokens.length > 0) {
+    await db
+      .delete(schema.pushToken)
+      .where(inArray(schema.pushToken.token, deadTokens))
+  }
+}
+
 // Push decisions are made exactly once, at send time: a user with any
 // connected socket gets nothing here (their client shows the message or an
 // OS notification), and suppressed pushes are never queued for later —
@@ -180,25 +213,66 @@ export async function sendMessagePushNotifications(input: {
     ]
   })
 
-  const deadTokens: string[] = []
-  for (let index = 0; index < messages.length; index += EXPO_PUSH_BATCH_SIZE) {
-    const chunk = messages.slice(index, index + EXPO_PUSH_BATCH_SIZE)
-    const result = await postPushChunk(chunk)
-    for (const [ticketIndex, ticket] of (result.data ?? []).entries()) {
-      const target = chunk[ticketIndex]
-      if (
-        target &&
-        ticket.status === "error" &&
-        ticket.details?.error === "DeviceNotRegistered"
-      ) {
-        deadTokens.push(target.to)
-      }
-    }
-  }
+  await deliverExpoPush(messages)
+}
 
-  if (deadTokens.length > 0) {
-    await db
-      .delete(schema.pushToken)
-      .where(inArray(schema.pushToken.token, deadTokens))
-  }
+// Notifies workspace owner/admins that Merlin filed an instructions proposal.
+// Deliberately presence-independent (approvals are rare and important) and
+// carries only deep-link data — approving from the push is never possible.
+export async function sendInstructionsProposalPush(input: {
+  workspaceId: string
+  version: number
+  rationale: string
+}) {
+  const workspace = await db
+    .select({
+      ownerId: schema.workspace.ownerId,
+      name: schema.workspace.name,
+      slug: schema.workspace.slug,
+    })
+    .from(schema.workspace)
+    .where(eq(schema.workspace.id, input.workspaceId))
+    .limit(1)
+    .then((rows) => rows[0])
+  if (!workspace) return
+
+  const admins = await db
+    .select({ userId: schema.workspaceMember.userId })
+    .from(schema.workspaceMember)
+    .where(
+      and(
+        eq(schema.workspaceMember.workspaceId, input.workspaceId),
+        eq(schema.workspaceMember.role, "admin")
+      )
+    )
+  const recipientIds = [
+    ...new Set([workspace.ownerId, ...admins.map((row) => row.userId)]),
+  ]
+
+  const tokens = await db
+    .select({ token: schema.pushToken.token })
+    .from(schema.pushToken)
+    .where(inArray(schema.pushToken.userId, recipientIds))
+  if (tokens.length === 0) return
+
+  const rationale = input.rationale.trim()
+  const body = rationale
+    ? rationale.length > 140
+      ? `${rationale.slice(0, 140)}…`
+      : rationale
+    : "Review and approve the proposed changes in workspace settings."
+  await deliverExpoPush(
+    tokens.map((row) => ({
+      to: row.token,
+      title: `Merlin proposed new instructions for ${workspace.name}`,
+      body,
+      sound: "default" as const,
+      data: {
+        type: "instructions-proposal",
+        workspaceId: input.workspaceId,
+        workspaceSlug: workspace.slug,
+        version: input.version,
+      },
+    }))
+  )
 }

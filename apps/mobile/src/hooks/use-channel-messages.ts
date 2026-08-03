@@ -6,7 +6,6 @@ import { useQueryClient } from "@tanstack/react-query"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { api } from "@/lib/api"
 import type { Message } from "@/lib/api-types"
-import { appendMerlinReasoning, upsertMerlinToolCall } from "@/lib/merlin"
 import {
   applyReactionUpdate,
   applyThreadSummaryUpdate,
@@ -18,6 +17,14 @@ import {
   replaceMessage,
   updateMessageContent,
 } from "@/lib/messages"
+import {
+  applyMerlinFrame,
+  gateRunFrame,
+  type MerlinFrame,
+  releaseRunReplay,
+  retainRunReplay,
+  startRunReplay,
+} from "@/lib/run-replay"
 import type { AppSocket } from "@/lib/socket"
 
 export type MessageSource =
@@ -154,6 +161,54 @@ export function useChannelMessages({
     messagesRef.current = messages
   }, [messages])
 
+  const applyFrame = useCallback((frame: MerlinFrame) => {
+    setMessages((current) =>
+      current.map((message) =>
+        message.id === frame.payload.messageId
+          ? applyMerlinFrame(message, frame)
+          : message
+      )
+    )
+  }, [])
+
+  const applyRunPatch = useCallback(
+    (messageId: string, patch: Partial<Message>) => {
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === messageId ? { ...message, ...patch } : message
+        )
+      )
+    },
+    []
+  )
+
+  // Late-join trace recovery: replay the durable event log of any pending
+  // Merlin placeholder in view (no-ops for already-started replays). Started
+  // replays are released on unmount — this hook's message state dies with it,
+  // so a remount mid-run must be able to replay again.
+  const startedReplays = useRef(new Set<string>())
+  useEffect(() => {
+    for (const message of messages) {
+      if (message.status !== "pending") continue
+      if (!startedReplays.current.has(message.id)) {
+        startedReplays.current.add(message.id)
+        retainRunReplay(message.id)
+      }
+      startRunReplay({
+        messageId: message.id,
+        applyPatch: applyRunPatch,
+        applyFrame,
+        onTerminal: () => void reload({ silent: true }),
+      })
+    }
+  }, [messages, applyRunPatch, applyFrame, reload])
+  useEffect(
+    () => () => {
+      for (const id of startedReplays.current) releaseRunReplay(id)
+    },
+    []
+  )
+
   // Seed from the last cached page so returning to a channel renders
   // instantly; the silent replace-reload reconciles against the server.
   useEffect(() => {
@@ -222,62 +277,70 @@ export function useChannelMessages({
     }
     const streamMessage: ServerToClientEvents["message:stream"] = (payload) => {
       if (payload.channelId !== channelId || payload.threadRootId) return
-      setMessages((current) =>
-        current.map((message) =>
-          message.id === payload.messageId
-            ? {
-                ...message,
-                content: payload.replace
-                  ? payload.delta
-                  : `${message.content ?? ""}${payload.delta}`,
-                mentions: payload.mentions ?? message.mentions,
-                status: payload.done
-                  ? (payload.status ?? "complete")
-                  : "pending",
-              }
-            : message
-        )
-      )
+      const frame: MerlinFrame = { type: "stream", payload }
+      if (gateRunFrame(frame)) return
+      applyFrame(frame)
     }
     const updateReasoning: ServerToClientEvents["merlin:reasoning"] = (
       payload
     ) => {
       if (payload.channelId !== channelId || payload.threadRootId) return
-      setMessages((current) =>
-        current.map((message) =>
-          message.id === payload.messageId
-            ? appendMerlinReasoning(message, payload)
-            : message
-        )
-      )
+      const frame: MerlinFrame = { type: "reasoning", payload }
+      if (gateRunFrame(frame)) return
+      applyFrame(frame)
     }
     const updateTool: ServerToClientEvents["merlin:tool"] = (payload) => {
       if (payload.channelId !== channelId || payload.threadRootId) return
-      setMessages((current) =>
-        current.map((message) =>
-          message.id === payload.messageId
-            ? upsertMerlinToolCall(message, payload.toolCall)
-            : message
-        )
-      )
+      const frame: MerlinFrame = { type: "tool", payload }
+      if (gateRunFrame(frame)) return
+      applyFrame(frame)
     }
     const updateMemory: ServerToClientEvents["merlin:memory"] = (payload) => {
+      if (payload.channelId !== channelId || payload.threadRootId) return
+      const frame: MerlinFrame = { type: "memory", payload }
+      if (gateRunFrame(frame)) return
+      applyFrame(frame)
+    }
+    // A mid-run send was absorbed by the active run — chip the sender's
+    // message with what happened (steered vs queued).
+    const routeMessage: ServerToClientEvents["message:routed"] = (payload) => {
       if (payload.channelId !== channelId || payload.threadRootId) return
       setMessages((current) =>
         current.map((message) =>
           message.id === payload.messageId
-            ? {
-                ...message,
-                remembered: [
-                  ...(message.remembered ?? []).filter(
-                    (memory) => memory.path !== payload.path
-                  ),
-                  { path: payload.path, action: payload.action },
-                ],
-              }
+            ? { ...message, routedOutcome: payload.outcome }
             : message
         )
       )
+    }
+    // The queue row settled (drained, rejected, or withdrawn) — drop the chip.
+    const settleQueued: ServerToClientEvents["run:queue:updated"] = (
+      payload
+    ) => {
+      if (payload.channelId !== channelId) return
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === payload.messageId
+            ? { ...message, routedOutcome: undefined }
+            : message
+        )
+      )
+    }
+    // A steered message was injected — the placeholder shows who's steering.
+    const steerMessage: ServerToClientEvents["merlin:steer"] = (payload) => {
+      if (payload.channelId !== channelId) return
+      // Chip clear is ungated: chips aren't replayed state.
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === payload.steeredMessageId
+            ? { ...message, routedOutcome: undefined }
+            : message
+        )
+      )
+      if (payload.threadRootId) return
+      const frame: MerlinFrame = { type: "steer", payload }
+      if (gateRunFrame(frame)) return
+      applyFrame(frame)
     }
     const updateEmbeds: ServerToClientEvents["message:embeds:updated"] = (
       payload
@@ -323,6 +386,9 @@ export function useChannelMessages({
     socket.on("merlin:reasoning", updateReasoning)
     socket.on("merlin:tool", updateTool)
     socket.on("merlin:memory", updateMemory)
+    socket.on("message:routed", routeMessage)
+    socket.on("run:queue:updated", settleQueued)
+    socket.on("merlin:steer", steerMessage)
     socket.on("message:embeds:updated", updateEmbeds)
     socket.on("message:reaction:updated", updateReaction)
     socket.on("message:pin:toggled", updatePin)
@@ -338,12 +404,15 @@ export function useChannelMessages({
       socket.off("merlin:reasoning", updateReasoning)
       socket.off("merlin:tool", updateTool)
       socket.off("merlin:memory", updateMemory)
+      socket.off("message:routed", routeMessage)
+      socket.off("run:queue:updated", settleQueued)
+      socket.off("merlin:steer", steerMessage)
       socket.off("message:embeds:updated", updateEmbeds)
       socket.off("message:reaction:updated", updateReaction)
       socket.off("message:pin:toggled", updatePin)
       socket.off("message:thread:updated", updateThreadSummary)
     }
-  }, [socket, channelId, reload, currentUser?.id])
+  }, [socket, channelId, reload, currentUser?.id, applyFrame])
 
   const loadAround = useCallback(
     async (messageId: string) => {

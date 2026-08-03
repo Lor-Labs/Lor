@@ -1,5 +1,6 @@
 import { and, asc, db, eq, MERLIN_USER_ID, ne, or, schema, sql } from "@repo/db"
 import {
+  type AgentRunContext,
   ALL_MERLIN_CAPABILITIES,
   type MerlinCapability,
   type MerlinToolCall,
@@ -34,20 +35,36 @@ import { codeTools } from "./code"
 import { datadogMcpTools, resolveWorkspaceDatadog } from "./datadog"
 import { embedBrainQueryWithUsage, embedSourceQuery } from "./embeddings"
 import { githubTools, resolveWorkspaceGithub } from "./github"
+import {
+  formatInstructionsBlock,
+  type InstructionsProposalEvent,
+  instructionsTools,
+  loadWorkspaceInstructions,
+} from "./instructions"
 import { linearTools, linearWriteTools, resolveWorkspaceLinear } from "./linear"
 import { logger } from "./logger"
 import { MERLIN_MODEL, mainGatewayOptions, merlinModel } from "./models"
+import {
+  addStepToCounters,
+  budgetViolation,
+  type ConversationUpdate,
+  defaultRunBudgets,
+  type RunCounters,
+  type RunHandle,
+  type RunStepRecord,
+  type RunStopCause,
+  ZERO_RUN_COUNTERS,
+} from "./run"
 import { resolveSourceCitation, searchSources, sourceTools } from "./sources"
 import { generateSmallObject } from "./structured"
+import { guardTools } from "./tool-guard"
 import type { OnUsage } from "./usage"
 
-const MAX_STEPS = 30
-// Total tokens (all steps summed) before the loop is forced to answer; the
-// backstop against deep runs re-billing a large context every step.
-const RESPOND_TOKEN_BUDGET = env.MERLIN_RESPOND_TOKEN_BUDGET
+// Step cap for the background write-back pass only; the answer loop's
+// ceilings come from the run budgets (reference/agent-harness.md, budgets).
+const WRITEBACK_MAX_STEPS = 30
 // Per-step input size that triggers pruning old tool results from the context.
 const COMPACT_INPUT_TOKENS = env.MERLIN_COMPACT_INPUT_TOKENS
-const RESPOND_TIMEOUT_MS = 10 * 60_000
 const WRITEBACK_TIMEOUT_MS = 5 * 60_000
 // search runs each backend independently, so the cap is per result kind
 // (messages vs. sources), not shared — one corpus can't starve the other.
@@ -92,7 +109,9 @@ function buildSystemPrompt(connectorLines: string[]): string {
 // mention token so its @mentions notify + highlight like a person's.
 const MENTION_GUIDANCE = `Mentioning teammates: each person under "People you can mention" below has a mention token like <@0b9c1d2e-...>. To @-mention someone — notifying and highlighting them exactly as a teammate tagging them would — write their token verbatim, copied character-for-character from the list. Typing their name as plain text, even with an "@" (e.g. @Jane), does NOT create a mention and does NOT notify them; only the exact token does. So whenever you address or refer to one of these people, use their token in place of their name. Mention people naturally where it fits — you needn't tag everyone, just those you're actually speaking to or about.`
 
-const ANSWER_WRITE_GUIDANCE = `Saving to your brain: only write (or mkdir / move / link) when the user explicitly asks you to remember, save, note, or organize something. When you do, make the change and briefly confirm what you saved and where (e.g. "Saved to /decisions/auth"). For ordinary questions, don't write — just answer; durable knowledge from this conversation is captured automatically afterward.`
+const ANSWER_WRITE_GUIDANCE = `Saving to your brain: only write (or mkdir / move / link) when the user explicitly asks you to remember, save, note, or organize something. When you do, make the change and briefly confirm what you saved and where (e.g. "Saved to /decisions/auth"). For ordinary questions, don't write — just answer; durable knowledge from this conversation is captured automatically afterward.
+
+Standing workspace instructions: when this workspace has instructions set, their complete current text appears in a "Workspace instructions" section of this prompt — there is no separate file to read. If that section is absent, none are set yet. To change them, call propose_instructions with the complete new text (merge your change into the current text from the prompt, don't drop existing guidance); it files a pending proposal that a workspace admin must approve before anything takes effect. This tool is always available to you — if a call fails, say what the error was; never claim the tool is missing from your session.`
 
 const GATE_QUESTION = `Decide whether the exchange above is worth saving to the team's long-term memory. The bar is high — memory is for knowledge a teammate would genuinely benefit from weeks from now.
 
@@ -122,6 +141,28 @@ aliases: [terms or synonyms someone might search for this by]
 (the markdown body)
 
 Decide for yourself. Don't reply to the user; just maintain memory. End with one short line of what you saved, or "nothing to save".`
+
+// Mid-run conversation updates, injected at a step boundary as a single user
+// message. Steered messages are directives aimed at the run; ambient ones are
+// context the model should act on only if they're addressed to it.
+function formatConversationUpdate(update: ConversationUpdate): string | null {
+  const parts: string[] = []
+  if (update.steered.length > 0) {
+    parts.push(
+      `New directions arrived while you were working — treat them as part of the request and adjust what you're doing:\n${update.steered
+        .map((m) => `${m.authorName}: ${m.content}`)
+        .join("\n")}`
+    )
+  }
+  if (update.ambient.length > 0) {
+    parts.push(
+      `The conversation continued while you were working. This is context, not a request — act on it only if it's addressed to you or changes your answer:\n${update.ambient
+        .map((m) => `${m.authorName}: ${m.content}`)
+        .join("\n")}`
+    )
+  }
+  return parts.length > 0 ? parts.join("\n\n") : null
+}
 
 export type ConversationImage = {
   url: string
@@ -172,14 +213,35 @@ export type RespondCallbacks = {
   onMemoryWritten?: (e: { path: string; action: "created" | "updated" }) => void
   onToolEvent?: (e: ToolEvent) => void
   onUsage?: OnUsage
+  onInstructionsProposal?: (
+    e: InstructionsProposalEvent
+  ) => void | Promise<void>
 }
 
+export type { InstructionsProposalEvent } from "./instructions"
 export { MERLIN_MODEL } from "./models"
+export {
+  type BudgetStopReason,
+  type ConversationUpdate,
+  defaultRunBudgets,
+  type ModelMessage,
+  type RunBudgets,
+  type RunCounters,
+  type RunHandle,
+  type RunResume,
+  type RunStepRecord,
+  type RunStopCause,
+  type RunToolResultStore,
+  type SteeredMessage,
+} from "./run"
 export type { OnUsage, UsageEvent } from "./usage"
 
 export type RespondResult = {
   text: string
   messages: ModelMessage[]
+  // Set when a budget ceiling or an explicit user stop ended (or gracefully
+  // forced the end of) the loop — recorded as the run's stop reason.
+  stoppedFor?: RunStopCause
 }
 
 export type WriteBackContext = {
@@ -191,6 +253,9 @@ export type WriteBackContext = {
 export type WriteBackCallbacks = {
   onMemoryWritten?: (e: { path: string; action: "created" | "updated" }) => void
   onUsage?: OnUsage
+  onInstructionsProposal?: (
+    e: InstructionsProposalEvent
+  ) => void | Promise<void>
 }
 
 // How a person appears everywhere in the app (message author header, mention
@@ -431,7 +496,8 @@ const chatTools = {
 // call in respond() based on what the channel has bound.
 function coreToolsContext(
   workspaceId: string,
-  onWrite?: (e: BrainWriteEvent) => void
+  onWrite?: (e: BrainWriteEvent) => void,
+  onProposal?: (e: InstructionsProposalEvent) => void | Promise<void>
 ) {
   const workspace = { workspaceId }
   return {
@@ -445,6 +511,7 @@ function coreToolsContext(
     mkdir: workspace,
     move: workspace,
     link: workspace,
+    propose_instructions: { workspaceId, onProposal },
   }
 }
 
@@ -508,6 +575,8 @@ function toolLabel(toolName: string, input: unknown): string {
       return "Reorganizing memory"
     case "link":
       return "Linking pages"
+    case "propose_instructions":
+      return "Proposing workspace instructions"
     default:
       return `Working (${toolName})`
   }
@@ -770,17 +839,13 @@ function toolDetail(
   }
 }
 
-export async function respond(
+// Brain prefetch + mention roster, captured (with the conversation snapshot)
+// as the durable step-0 context, so a recovered run replays the exact same
+// initial request — no re-query drift, no double embed billing.
+async function buildRunContext(
   ctx: RespondContext,
-  {
-    onDelta,
-    onReasoning,
-    onMemoryWritten,
-    onToolEvent,
-    onUsage,
-  }: RespondCallbacks
-): Promise<RespondResult> {
-  const respondStart = performance.now()
+  onUsage?: OnUsage
+): Promise<AgentRunContext> {
   const question = ctx.conversation[ctx.conversation.length - 1]?.content ?? ""
   let brainContext = ""
   if (question.trim()) {
@@ -850,11 +915,38 @@ export async function respond(
           .join("\n")}`
       : ""
 
-  type UserPart =
-    | { type: "text"; text: string }
-    | { type: "image"; image: Uint8Array; mediaType: string }
+  // Channel name so workspace instructions can express per-channel behavior
+  // ("In #engineering, ..."). DM channels have no name — omitted.
+  const channelName = ctx.channelId
+    ? await db
+        .select({ name: schema.channel.name })
+        .from(schema.channel)
+        .where(eq(schema.channel.id, ctx.channelId))
+        .limit(1)
+        .then((rows) => rows[0]?.name ?? undefined)
+        .catch(() => undefined)
+    : undefined
 
-  const eligible = ctx.conversation.flatMap((t, turnIndex) =>
+  return {
+    conversation: ctx.conversation,
+    brainContext,
+    rosterText,
+    ...(channelName ? { channelName } : {}),
+  }
+}
+
+type UserPart =
+  | { type: "text"; text: string }
+  | { type: "image"; image: Uint8Array; mediaType: string }
+
+// Deterministically assemble the initial user message from a run context.
+// Exported so the worker can rebuild the exact request when resuming a run;
+// image bytes are re-fetched from their URLs (a failed fetch degrades to the
+// same attachment placeholder as the original pass).
+export async function buildInitialUserMessage(
+  context: AgentRunContext
+): Promise<ModelMessage> {
+  const eligible = context.conversation.flatMap((t, turnIndex) =>
     (t.images ?? [])
       .filter(
         (img) =>
@@ -872,9 +964,14 @@ export async function respond(
   )
 
   const parts: UserPart[] = [
-    { type: "text", text: "Recent conversation in this channel:" },
+    {
+      type: "text",
+      text: context.channelName
+        ? `Recent conversation in the #${context.channelName} channel:`
+        : "Recent conversation in this channel:",
+    },
   ]
-  ctx.conversation.forEach((t, turnIndex) => {
+  context.conversation.forEach((t, turnIndex) => {
     parts.push({ type: "text", text: `\n${t.authorName}: ${t.content}` })
     for (const img of t.images ?? []) {
       const bytes = bytesByKey.get(`${turnIndex}:${img.url}`)
@@ -886,14 +983,34 @@ export async function respond(
       }
     }
   })
-  if (brainContext) parts.push({ type: "text", text: brainContext })
-  if (rosterText) parts.push({ type: "text", text: rosterText })
+  if (context.brainContext) {
+    parts.push({ type: "text", text: context.brainContext })
+  }
+  if (context.rosterText) {
+    parts.push({ type: "text", text: context.rosterText })
+  }
   parts.push({
     type: "text",
     text: "\n\n---\nAnswer the most recent message, grounded in the brain notes, images, and conversation above. Use your tools (brain ls/read, search) for anything they don't cover.",
   })
 
-  const userMessage: ModelMessage = { role: "user", content: parts }
+  return { role: "user", content: parts }
+}
+
+export async function respond(
+  ctx: RespondContext,
+  {
+    onDelta,
+    onReasoning,
+    onMemoryWritten,
+    onToolEvent,
+    onUsage,
+    onInstructionsProposal,
+  }: RespondCallbacks,
+  run?: RunHandle
+): Promise<RespondResult> {
+  const respondStart = performance.now()
+  const budgets = run?.budgets ?? defaultRunBudgets()
 
   // resolveChannelCapabilities already maps truly unprovisioned channels to the
   // permissive set; an actual throw here is an unexpected failure, so fail
@@ -928,6 +1045,7 @@ export async function respond(
     ...sourceTools,
     ...brainReadTools,
     ...brainWriteTools,
+    ...instructionsTools,
     ...(github && caps.includes("github") ? githubTools : {}),
     ...(env.RAILWAY_API_TOKEN && github && caps.includes("code_intelligence")
       ? codeTools
@@ -937,9 +1055,12 @@ export async function respond(
     ...(datadogMcp ? datadogMcp.tools : {}),
   }
 
-  let codeInvestigationUsageIndex = 0
   const toolsContext = {
-    ...coreToolsContext(ctx.workspaceId, onMemoryWritten),
+    ...coreToolsContext(
+      ctx.workspaceId,
+      onMemoryWritten,
+      onInstructionsProposal
+    ),
     ...(github
       ? {
           search_github: github,
@@ -948,7 +1069,6 @@ export async function respond(
             workspaceId: ctx.workspaceId,
             installationId: github.installationId,
             repos: github.repos,
-            nextBillingKey: () => String(++codeInvestigationUsageIndex),
             onUsage,
             onToolEvent,
           },
@@ -972,46 +1092,168 @@ export async function respond(
     linear && caps.includes("linear_write") ? LINEAR_WRITE_PROMPT_LINE : null,
     datadogMcp ? DATADOG_PROMPT_LINE : null,
   ].filter((line): line is string => line !== null)
-  const instructions = `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}${roster.length > 0 ? `\n\n${MENTION_GUIDANCE}` : ""}`
-
-  logger.info(
-    { ms: Math.round(performance.now() - respondStart) },
-    "Merlin pre-stream setup timing"
-  )
 
   // The finally closes the Datadog MCP session after the whole tool loop, even
-  // if streamText or step preparation throws before streaming completes.
+  // if setup, step preparation, or streaming throws.
   try {
+    let messages: ModelMessage[]
+    let instructions: string
+    let text: string
+    let counters: RunCounters
+    let resumeLastInputTokens = 0
+
+    if (run?.resume) {
+      // Recovery: continue from the durable transcript with the exact same
+      // instructions — never rebuild context (drift) or re-bill the prefetch.
+      messages = run.resume.messages
+      instructions = run.resume.instructions
+      counters = { ...run.resume.counters }
+      text = run.resume.answerTextSoFar
+      resumeLastInputTokens = run.resume.lastInputTokens
+    } else {
+      const [context, workspaceInstructions] = await Promise.all([
+        buildRunContext(ctx, onUsage),
+        loadWorkspaceInstructions(ctx.workspaceId),
+      ])
+      const userMessage = await buildInitialUserMessage(context)
+      instructions = `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}${context.rosterText ? `\n\n${MENTION_GUIDANCE}` : ""}${workspaceInstructions ? `\n\n${formatInstructionsBlock(workspaceInstructions)}` : ""}`
+      messages = [userMessage]
+      counters = { ...ZERO_RUN_COUNTERS }
+      text = ""
+      // Durable before the first model call — recovery depends on it.
+      await run?.saveContext({ context, instructions })
+    }
+
+    const guarded = guardTools(tools, {
+      priorBytes: counters.toolOutputBytes,
+      totalBudgetBytes: budgets.toolOutputBytes,
+      store: run?.toolResults ?? null,
+    })
+
+    const baseStep = counters.steps
+    let checkpointedLocal = 0
+    let stoppedFor: RunStopCause | undefined
+    const trip = (reason: RunStopCause) => {
+      if (!stoppedFor) stoppedFor = reason
+    }
+
+    // Conversation updates injected by prepareStep ride the next step's
+    // checkpoint record, so the resumed transcript (flat concat of step rows)
+    // reproduces the runtime message order exactly.
+    const pendingInjected: ModelMessage[] = []
+
+    type CompletedStep = {
+      response: { messages: ReadonlyArray<ModelMessage>; modelId: string }
+      usage: LanguageModelUsage
+      toolCalls: ReadonlyArray<unknown>
+    }
+    // Fold a completed step into the durable run. stopWhen awaits this before
+    // the loop may continue, so execution never advances past an uncommitted
+    // step — the durability boundary recovery resumes from.
+    const checkpointStep = async (step: CompletedStep, localIndex: number) => {
+      if (localIndex <= checkpointedLocal) return
+      checkpointedLocal = localIndex
+      const record: RunStepRecord = {
+        step: baseStep + localIndex,
+        messages: [...pendingInjected.splice(0), ...step.response.messages],
+        model: step.response.modelId,
+        inputTokens: step.usage.inputTokens,
+        cachedInputTokens: step.usage.inputTokenDetails.cacheReadTokens,
+        outputTokens: step.usage.outputTokens,
+        reasoningTokens: step.usage.outputTokenDetails.reasoningTokens,
+        toolCalls: step.toolCalls.length,
+        toolOutputBytes: guarded.guard.takeStepBytes(),
+      }
+      counters = run
+        ? await run.checkpoint(record)
+        : addStepToCounters(counters, record)
+    }
+
+    logger.info(
+      { ms: Math.round(performance.now() - respondStart) },
+      "Merlin pre-stream setup timing"
+    )
+
     const streamStart = performance.now()
     let firstPartLogged = false
     const result = streamText({
       model: merlinModel,
       reasoning: "high",
       instructions,
-      messages: [userMessage],
-      tools,
+      messages,
+      tools: guarded.tools,
       toolsContext,
-      stopWhen: isStepCount(MAX_STEPS),
-      timeout: { totalMs: RESPOND_TIMEOUT_MS },
-      prepareStep: ({ stepNumber, steps, messages }) => {
-        // The step cap and token budget can land on tool use; disabling tools
-        // on the last step forces the loop to end with a text answer.
-        const spent = steps.reduce((n, s) => n + (s.usage.totalTokens ?? 0), 0)
-        if (stepNumber === MAX_STEPS - 1 || spent >= RESPOND_TOKEN_BUDGET) {
+      maxRetries: env.AGENT_RUN_MAX_PROVIDER_RETRIES,
+      ...(run?.abortSignal ? { abortSignal: run.abortSignal } : {}),
+      // Backstop: checkpoint the finished step, then stop hard if a ceiling is
+      // already crossed. prepareStep below normally ends the run gracefully
+      // (forced text answer) before this trips.
+      stopWhen: async ({ steps }) => {
+        const last = steps.at(-1)
+        if (last) await checkpointStep(last, steps.length)
+        // Explicit user stop: end at this boundary with whatever streamed —
+        // the worker settles the run (and the partial answer) as stopped.
+        if (run?.stopRequested?.()) {
+          trip("stopped_by_user")
+          return true
+        }
+        const violation = budgetViolation(counters, budgets)
+        if (violation) {
+          trip(violation)
+          return true
+        }
+        return false
+      },
+      timeout: {
+        totalMs: Math.max(30_000, budgets.deadlineAt.getTime() - Date.now()),
+      },
+      prepareStep: async ({ steps, messages: stepMessages }) => {
+        // Ceilings can land on tool use; when the next step is the last the
+        // budgets allow, disable tools so the loop ends with a text answer.
+        const next = budgetViolation(
+          { ...counters, steps: counters.steps + 1 },
+          budgets
+        )
+        if (next) {
+          trip(next)
           return { toolChoice: "none" }
         }
         // Compact old tool calls/results once the context gets heavy. Preserve
         // reasoning parts so models can continue coherently across tool steps.
-        const lastInput = steps.at(-1)?.usage.inputTokens ?? 0
-        if (lastInput > COMPACT_INPUT_TOKENS) {
-          return {
-            messages: pruneMessages({
-              messages,
-              toolCalls: "before-last-4-messages",
-            }),
+        // A resumed run's first request has no local steps yet, so fall back
+        // to the last checkpointed step's input size.
+        const lastInput =
+          steps.at(-1)?.usage.inputTokens ?? resumeLastInputTokens
+        let nextMessages =
+          lastInput > COMPACT_INPUT_TOKENS
+            ? pruneMessages({
+                messages: stepMessages,
+                toolCalls: "before-last-4-messages",
+              })
+            : stepMessages
+        // Steering: fold in messages that landed since the last boundary.
+        // Injected after pruning so an update can never be compacted away in
+        // the same breath, and buffered for the next checkpoint so recovery
+        // replays it at the same position.
+        if (run?.drainConversation) {
+          const update = await run.drainConversation().catch((err) => {
+            logger.warn({ err }, "Merlin conversation drain failed")
+            return null
+          })
+          const updateText = update && formatConversationUpdate(update)
+          if (updateText) {
+            const injected: ModelMessage = {
+              role: "user",
+              content: updateText,
+            }
+            pendingInjected.push(injected)
+            nextMessages =
+              nextMessages === stepMessages
+                ? [...stepMessages, injected]
+                : [...nextMessages, injected]
           }
         }
-        return {}
+        return nextMessages === stepMessages ? {} : { messages: nextMessages }
       },
       // Reasoning is provider-neutral in AI SDK v7. The gateway handles
       // provider routing and same-model retries; explicit model fallbacks stay
@@ -1022,7 +1264,6 @@ export async function respond(
     })
 
     // stream exposes tool call/status + reasoning events; textStream does not.
-    let text = ""
     let toolCallCount = 0
     for await (const part of result.stream) {
       if (!firstPartLogged) {
@@ -1063,18 +1304,47 @@ export async function respond(
           at: text.length,
           ...resolved,
         })
+      } else if (part.type === "abort") {
+        // The in-flight request was killed. User stop keeps the partial text
+        // and settles gracefully; any other abort (lost lease) surfaces below
+        // when the result promises reject or the checkpoint CAS fails.
+        if (run?.stopRequested?.()) trip("stopped_by_user")
       } else if (part.type === "error") {
         throw part.error
       }
     }
 
-    const responseMessages = await result.responseMessages
+    const stoppedByUser = () => stoppedFor === "stopped_by_user"
+
+    // A final text-only step ends the loop without consulting stopWhen —
+    // sweep any steps not yet folded so the transcript is complete. An abort
+    // with zero completed steps rejects these promises; for a user stop that
+    // just means there's nothing to checkpoint.
+    const allSteps = await Promise.resolve(result.steps).catch(
+      (err: unknown) => {
+        if (stoppedByUser()) return []
+        throw err
+      }
+    )
+    for (let i = checkpointedLocal; i < allSteps.length; i++) {
+      const step = allSteps[i]
+      if (step) await checkpointStep(step, i + 1)
+    }
+
+    const responseMessages = await Promise.resolve(
+      result.responseMessages
+    ).catch((err: unknown) => {
+      if (stoppedByUser()) return []
+      throw err
+    })
 
     try {
       const [usage, response] = await Promise.all([
         result.totalUsage,
         result.response,
       ])
+      // Billed per attempt: a crashed attempt's tokens live in the run
+      // counters (for ceilings) but are deliberately never re-billed.
       onUsage?.({
         workspaceId: ctx.workspaceId,
         tool: "merlin.respond",
@@ -1088,7 +1358,7 @@ export async function respond(
       logger.warn({ err }, "Merlin respond usage capture failed")
     }
 
-    return { text, messages: [userMessage, ...responseMessages] }
+    return { text, messages: [...messages, ...responseMessages], stoppedFor }
   } finally {
     await datadogMcp?.close()
   }
@@ -1096,7 +1366,7 @@ export async function respond(
 
 export async function writeBack(
   ctx: WriteBackContext,
-  { onMemoryWritten, onUsage }: WriteBackCallbacks
+  { onMemoryWritten, onUsage, onInstructionsProposal }: WriteBackCallbacks
 ): Promise<void> {
   const gate = await generateSmallObject({
     // reason first so the model commits to a justification before the verdict.
@@ -1110,10 +1380,11 @@ export async function writeBack(
   )
   if (!gate.object.worthSaving) return
 
+  const workspaceInstructions = await loadWorkspaceInstructions(ctx.workspaceId)
   const body = await generateText({
     model: merlinModel,
     reasoning: "high",
-    instructions: buildSystemPrompt([]),
+    instructions: `${buildSystemPrompt([])}${workspaceInstructions ? `\n\n${formatInstructionsBlock(workspaceInstructions)}` : ""}`,
     messages: [
       ...ctx.priorMessages,
       { role: "user", content: WRITEBACK_INSTRUCTION },
@@ -1124,9 +1395,14 @@ export async function writeBack(
       ...sourceTools,
       ...brainReadTools,
       ...brainWriteTools,
+      ...instructionsTools,
     },
-    toolsContext: coreToolsContext(ctx.workspaceId, onMemoryWritten),
-    stopWhen: isStepCount(MAX_STEPS),
+    toolsContext: coreToolsContext(
+      ctx.workspaceId,
+      onMemoryWritten,
+      onInstructionsProposal
+    ),
+    stopWhen: isStepCount(WRITEBACK_MAX_STEPS),
     timeout: { totalMs: WRITEBACK_TIMEOUT_MS },
     providerOptions: {
       gateway: mainGatewayOptions,

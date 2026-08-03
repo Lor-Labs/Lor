@@ -387,6 +387,12 @@ export interface ServerToClientEvents {
     messageId: string
     delta: string
     done: boolean
+    // Durable-run identity + event-log sequence number for this frame, so a
+    // client can replay persisted events (GET run events ?after=seq) and then
+    // drain buffered live frames without gaps or reordering. Absent on frames
+    // from a run that predates the event log.
+    runId?: string
+    seq?: number
     // Terminal status on the final chunk, so the client clears the
     // placeholder's "pending" state live (not just on reload).
     status?: "complete" | "failed"
@@ -407,6 +413,8 @@ export interface ServerToClientEvents {
     delta: string
     at: number
     order: number
+    runId?: string
+    seq?: number
   }) => void
   // Merlin saved/updated a brain page during write-back (messageId = its reply).
   "merlin:memory": (payload: {
@@ -415,6 +423,8 @@ export interface ServerToClientEvents {
     messageId: string
     path: string
     action: "created" | "updated"
+    runId?: string
+    seq?: number
   }) => void
   // Merlin invoked a tool mid-answer (search, fetch, …). Sent on call (label
   // only) and again on completion (with detail + status). The client upserts it
@@ -437,7 +447,20 @@ export interface ServerToClientEvents {
       }
       status?: "ok" | "error"
     }
+    runId?: string
+    seq?: number
   }) => void
+  // A mid-run send was routed at the scope's active run instead of starting a
+  // new one: steered (injected at the next step boundary) or queued (answered
+  // by the follow-up run when the scope frees up).
+  "message:routed": (payload: MessageRoutedEvent) => void
+  // A steered message was injected into the running answer — the placeholder
+  // shows "applying new direction".
+  "merlin:steer": (payload: MerlinSteerEvent) => void
+  // A queued message left the queue (drained into a follow-up run, rejected at
+  // reauthorization, or withdrawn by its sender) — clients drop it from the
+  // queued-messages pill. Additions ride message:routed (outcome "queued").
+  "run:queue:updated": (payload: RunQueueUpdatedEvent) => void
   "message:pin:toggled": (payload: RealtimeMessagePinToggled) => void
   "message:thread:updated": (payload: RealtimeMessageThreadUpdated) => void
   "notification:bootstrap": (payload: NotificationBootstrap) => void
@@ -448,6 +471,44 @@ export interface ServerToClientEvents {
   "workspace:member:joined": (payload: WorkspaceMemberJoinedEvent) => void
   "typing:update": (payload: TypingIndicatorEvent) => void
   "billing:updated": (payload: BillingUpdatedEvent) => void
+  "instructions:proposal": (payload: InstructionsProposalUpdate) => void
+}
+
+// Emitted to the workspace room when Merlin files a workspace-instructions
+// proposal; clients refresh the instructions query so admins see the
+// approval alert immediately.
+export type InstructionsProposalUpdate = {
+  workspaceId: string
+  version: number
+}
+
+export type MessageRoutedEvent = {
+  channelId: string
+  threadRootId: string | null
+  messageId: string
+  outcome: "steered" | "queued"
+  runId: string
+  // The active run's placeholder message — where the run-state chip lives.
+  merlinMessageId: string
+}
+
+export type RunQueueUpdatedEvent = {
+  channelId: string
+  threadRootId: string | null
+  // The queued (user) message that left the queue.
+  messageId: string
+  state: "consumed" | "rejected" | "cancelled"
+}
+
+export type MerlinSteerEvent = {
+  channelId: string
+  threadRootId: string | null
+  // The placeholder being answered into.
+  messageId: string
+  steeredMessageId: string
+  authorName: string
+  runId?: string
+  seq?: number
 }
 
 // Emitted to the workspace room; clients invalidate their billing query and

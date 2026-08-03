@@ -34,6 +34,9 @@ interface UseMessageSendingOptions {
    * panel composer.
    */
   threadRootId?: string
+  /** Called with the send nonce when the server rejects the send, so callers
+   * can undo state they mirrored off the returned nonce (e.g. the run queue). */
+  onSendFailed?: (nonce: string) => void
 }
 
 export function useMessageSending({
@@ -42,6 +45,7 @@ export function useMessageSending({
   channelId,
   currentUser,
   threadRootId,
+  onSendFailed,
 }: UseMessageSendingOptions) {
   const pendingNonces = useRef(new Set<string>())
 
@@ -133,7 +137,7 @@ export function useMessageSending({
         attachments?: Message["attachments"]
       }
     ) => {
-      if (!socket?.connected || !currentUser) return
+      if (!socket?.connected || !currentUser) return undefined
 
       const nonce = crypto.randomUUID()
       pendingNonces.current.add(nonce)
@@ -177,6 +181,7 @@ export function useMessageSending({
             updateMessagesInCache((messages) =>
               messages.filter((message) => message.id !== nonce)
             )
+            onSendFailed?.(nonce)
             return
           }
 
@@ -190,6 +195,9 @@ export function useMessageSending({
           )
         }
       )
+      // The optimistic message's id until the created echo — callers use it
+      // to mirror the send into other optimistic state (e.g. the run queue).
+      return nonce
     },
     [
       socket,
@@ -198,6 +206,7 @@ export function useMessageSending({
       threadRootId,
       prependToFirstPage,
       updateMessagesInCache,
+      onSendFailed,
     ]
   )
 

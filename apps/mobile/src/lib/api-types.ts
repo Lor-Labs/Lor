@@ -11,7 +11,14 @@ export type Channel = ChannelList["uncategorized"][number]
 export type ChannelCategory = ChannelList["categories"][number]
 export type ChannelDetail = InferResponseType<ChannelClient["$get"], 200>
 export type MessageList = InferResponseType<MessagesClient["$get"], 200>
-export type Message = MessageList["data"][number]
+// Client-only transient fields (never on server payloads): steering/stop
+// feedback for in-flight Merlin runs, patched in via socket events.
+export type Message = MessageList["data"][number] & {
+  // Author of the latest mid-run message steered into this in-flight reply.
+  steeringBy?: string
+  // What happened to this (user) message when it landed mid-run.
+  routedOutcome?: "steered" | "queued"
+}
 export type ThreadMessageList = InferResponseType<
   MessageClient["thread"]["$get"],
   200
@@ -30,6 +37,10 @@ export type ChannelSearchResults = InferResponseType<
   200
 >
 export type ChannelSearchResult = ChannelSearchResults["data"][number]
+export type WorkspaceInstructions = InferResponseType<
+  WorkspaceClient["instructions"]["$get"],
+  200
+>
 export type NotificationSettings = InferResponseType<
   Client["v1"]["notification-settings"]["$get"],
   200

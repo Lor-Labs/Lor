@@ -9,22 +9,25 @@ import { MessageInput } from "@/components/chat/composer/message-input"
 import { DropZoneOverlay } from "@/components/chat/drop-zone-overlay"
 import { ChatHeader } from "@/components/chat/header"
 import { MessageList, scrollToMessage } from "@/components/chat/message-list"
+import { RunQueuePill } from "@/components/chat/run-queue-pill"
 import { TypingIndicator } from "@/components/chat/typing-indicator"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import { useSocket } from "@/context/socket-context"
 import { useAutoMarkRead } from "@/hooks/use-auto-mark-read"
 import { useChannelMessages } from "@/hooks/use-channel-messages"
 import { useFileUpload } from "@/hooks/use-file-upload"
-import { useMerlinStream } from "@/hooks/use-merlin-stream"
+import { useMerlinRunReplay, useMerlinStream } from "@/hooks/use-merlin-stream"
 import { useMessageDeletion } from "@/hooks/use-message-deletion"
 import { useMessageEditing } from "@/hooks/use-message-editing"
 import { useMessagePinning } from "@/hooks/use-message-pinning"
 import { useMessageReactions } from "@/hooks/use-message-reactions"
 import { useMessageSending } from "@/hooks/use-message-sending"
 import { useReplyState } from "@/hooks/use-reply-state"
+import { useRunQueue } from "@/hooks/use-run-queue"
 import { useThreadActivity } from "@/hooks/use-thread-activity"
 import { useTypingIndicator } from "@/hooks/use-typing-indicator"
 import { apiClient } from "@/lib/api-client"
+import type { Message } from "@/lib/api-types"
 import { writeLastChannelId } from "@/lib/last-location"
 import { canPinMessages } from "@/lib/permissions"
 
@@ -281,6 +284,33 @@ function ChannelView() {
   })
 
   useMerlinStream({ socket, queryClient, channelId })
+  useMerlinRunReplay({ queryClient, channelId, messages })
+
+  // Channel-scope queue (a send can land while a run is finalizing) —
+  // surfaced in the same composer pill as thread queues.
+  const pendingMerlinMessageId = useMemo(
+    () => messages.find((m) => m.status === "pending")?.id,
+    [messages]
+  )
+  const { queuedIds } = useRunQueue({
+    socket,
+    channelId,
+    threadRootId: null,
+    pendingMerlinMessageId,
+  })
+  const queuedMessages = useMemo(
+    () =>
+      queuedIds
+        .map((id) => messages.find((m) => m.id === id))
+        .filter((m): m is Message => Boolean(m)),
+    [queuedIds, messages]
+  )
+  // Queued messages live only in the composer's queue pill until the drain
+  // releases them — the transcript skips them (Codex model).
+  const visibleMessages = useMemo(
+    () => messages.filter((m) => !queuedIds.includes(m.id)),
+    [messages, queuedIds]
+  )
 
   const { data: activeMember } = useQuery({
     queryKey: ["active-workspace-member", workspaceSlug],
@@ -472,7 +502,7 @@ function ChannelView() {
       />
       <MessageList
         context={context}
-        messages={messages}
+        messages={visibleMessages}
         hasOlder={hasOlder}
         onLoadOlder={() => fetchOlder()}
         isFetchingOlder={isFetchingOlder}
@@ -499,6 +529,7 @@ function ChannelView() {
         isLoading={messagesLoading}
       />
       <TypingIndicator users={typingUsers} />
+      <RunQueuePill messages={queuedMessages} currentUserId={currentUserId} />
       <MessageInput
         context={context}
         onSend={handleSend}

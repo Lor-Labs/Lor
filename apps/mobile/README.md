@@ -1,20 +1,25 @@
-# Welcome to your Expo app 👋
+# Lor mobile
 
 This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
 
 ## Get started
 
-1. Install dependencies
+1. Install dependencies from the repository root:
 
    ```bash
-   npm install
+   pnpm install
    ```
 
-2. Start the app
+2. Start the development app:
 
    ```bash
-   npx expo start
+   pnpm --filter mobile dev
    ```
+
+   Local development resolves to the `Lor Dev` app variant. It has bundle ID
+   `chat.lor.app.dev`, so it can be installed alongside the TestFlight app.
+   When running Expo commands directly, prefix them with
+   `APP_VARIANT=development`.
 
 In the output, you'll find options to open the app in a
 

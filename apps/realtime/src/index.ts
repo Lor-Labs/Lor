@@ -45,11 +45,14 @@ import { toErrorMessage } from "@/lib/errors"
 import { logger } from "@/lib/logger"
 import { assertUserCanAccessChannel } from "@/services/channel-access"
 import {
+  createAgentRun,
   createMerlinPlaceholder,
   isMerlinMentioned,
   isMerlinThread,
   loadRecentChannelMessages,
   mentionsOtherUser,
+  type RunRouteOutcome,
+  routeToActiveRun,
 } from "@/services/merlin"
 import {
   closeMerlinSession,
@@ -124,7 +127,12 @@ const defaultOrigins = ["http://localhost:3000", "http://localhost:3001"]
 // (Tauri) serves from tauri://localhost (macOS/Linux) or http://tauri.localhost
 // (Windows); mobile sends its app scheme explicitly (RN's WebSocket otherwise
 // derives Origin from the connection URL, which can't be allowlisted).
-const nativeOrigins = ["tauri://localhost", "http://tauri.localhost", "lor://"]
+const nativeOrigins = [
+  "tauri://localhost",
+  "http://tauri.localhost",
+  "lor://",
+  "lor-dev://",
+]
 const corsOrigins = [
   ...(env.REALTIME_CORS_ORIGIN || defaultOrigins.join(","))
     .split(",")
@@ -484,6 +492,13 @@ io.on("connection", (socket) => {
         accessibleChannel,
       })
 
+      // Client retry of an already-persisted send: ack the original row and
+      // stop — fanout, broadcast, and triggers already ran the first time.
+      if (createdMessage.deduplicated) {
+        ack?.({ ok: true, message: createdMessage.message })
+        return
+      }
+
       const fanout = await buildMessageFanout({
         authorId: socket.data.user.id,
         channel: createdMessage.channel,
@@ -628,6 +643,36 @@ io.on("connection", (socket) => {
           logger.error({ err }, "Failed to open Merlin session")
         })
 
+        // One active run per scope: a mid-run send is absorbed by the active
+        // run — steered at its next step boundary, or queued for the
+        // follow-up run — instead of spawning a sibling.
+        const emitRouted = (routed: RunRouteOutcome) => {
+          const target = parsed.threadRootId
+            ? threadRoom(parsed.threadRootId)
+            : channelRoom(parsed.channelId)
+          io.to(target).emit("message:routed", {
+            channelId: parsed.channelId,
+            threadRootId: parsed.threadRootId ?? null,
+            messageId: createdMessage.message.id,
+            outcome: routed.outcome,
+            runId: routed.runId,
+            merlinMessageId: routed.merlinMessageId,
+          })
+        }
+        const routed = await routeToActiveRun({
+          scopeKey: merlinScopeId,
+          threadScope: Boolean(parsed.threadRootId),
+          messageId: createdMessage.message.id,
+          senderId: socket.data.user.id,
+        }).catch((err) => {
+          logger.error({ err }, "Merlin run routing failed")
+          return null
+        })
+        if (routed) {
+          emitRouted(routed)
+          return
+        }
+
         // Decide where Merlin replies. A mention already in a thread stays
         // there; a main-channel mention may answer in-channel (broadly useful)
         // or duck into a thread rooted at the triggering message (narrow/noisy).
@@ -657,6 +702,40 @@ io.on("connection", (socket) => {
           threadRootId: merlinThreadRootId,
         })
           .then(async (merlinMessage) => {
+            // Merlin only answers in workspace channels; without a workspace
+            // the worker rejects the job anyway, so skip the run row.
+            const runId = accessibleChannel.workspaceId
+              ? await createAgentRun({
+                  workspaceId: accessibleChannel.workspaceId,
+                  channelId: parsed.channelId,
+                  messageId: merlinMessage.id,
+                  threadRootId: merlinThreadRootId,
+                  triggerMessageId: createdMessage.message.id,
+                })
+              : null
+            if (runId === "conflict") {
+              // Another mention claimed the scope between our check and the
+              // insert: drop the never-emitted placeholder and route at the
+              // winner instead. A failed delete leaves an orphaned pending
+              // row that reads as a stuck "thinking" message on reload.
+              await db
+                .delete(schema.message)
+                .where(eq(schema.message.id, merlinMessage.id))
+                .catch((err) =>
+                  logger.error(
+                    { err, messageId: merlinMessage.id },
+                    "Failed to delete orphaned Merlin placeholder"
+                  )
+                )
+              const lateRouted = await routeToActiveRun({
+                scopeKey: merlinThreadRootId ?? parsed.channelId,
+                threadScope: merlinThreadRootId !== null,
+                messageId: createdMessage.message.id,
+                senderId: socket.data.user.id,
+              }).catch(() => null)
+              if (lateRouted) emitRouted(lateRouted)
+              return
+            }
             // Flag the placeholder as streaming so the "Merlin is thinking"
             // indicator shows the instant it lands (independent of the worker's
             // first stream event arriving).
@@ -680,13 +759,27 @@ io.on("connection", (socket) => {
                 placeholder
               )
             }
-            await merlinRespondQueue.add("respond", {
-              merlinMessageId: merlinMessage.id,
-              channelId: parsed.channelId,
-              threadRootId: merlinThreadRootId,
-              contextThreadRootId: parsed.threadRootId ?? null,
-              triggerMessageId: createdMessage.message.id,
-            })
+            // One recovery attempt: a crashed/stalled attempt is retried once
+            // and resumes from the run's last checkpoint (the run's own
+            // attempt cap is the authoritative guard). Handled errors don't
+            // retry — the worker catches them and posts a fallback instead of
+            // throwing. jobId = runId dedupes re-enqueues of the same run.
+            await merlinRespondQueue.add(
+              "respond",
+              {
+                merlinMessageId: merlinMessage.id,
+                channelId: parsed.channelId,
+                threadRootId: merlinThreadRootId,
+                contextThreadRootId: parsed.threadRootId ?? null,
+                triggerMessageId: createdMessage.message.id,
+                ...(runId ? { runId } : {}),
+              },
+              {
+                attempts: 2,
+                backoff: { type: "fixed", delay: 5000 },
+                ...(runId ? { jobId: runId } : {}),
+              }
+            )
           })
           .catch((err) => {
             logger.error({ err }, "Failed to start Merlin response")

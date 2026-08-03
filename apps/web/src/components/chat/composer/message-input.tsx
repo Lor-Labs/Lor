@@ -62,7 +62,11 @@ import {
 import type { ChatContext } from "@/components/chat/header"
 import type { PendingAttachment } from "@/hooks/use-file-upload"
 import type { Message } from "@/lib/api-types"
-import { extractMentionIds, toStoredMarkdown } from "@/lib/editor-utils"
+import {
+  extractMentionIds,
+  toStoredMarkdown,
+  whenEditorMounted,
+} from "@/lib/editor-utils"
 
 const MAX_MENTION_RESULTS = 8
 const MAX_SLASH_RESULTS = 8
@@ -487,6 +491,8 @@ export function MessageInput({
           blockquote: false,
           horizontalRule: false,
           codeBlock: false,
+          // Registered separately below with app-specific options.
+          link: false,
         }),
         CodeBlockLowlight.extend({
           addNodeView() {
@@ -606,7 +612,7 @@ export function MessageInput({
   }, [replyingTo, editor])
 
   useEffect(() => {
-    if (!editor || !editor.view || !editor.view.dom) {
+    if (!editor) {
       return
     }
 
@@ -633,11 +639,15 @@ export function MessageInput({
       }
     }
 
-    const domNode = editor.view.dom
-    domNode.addEventListener("keydown", handleKeyDown, { capture: true })
-    return () => {
-      domNode.removeEventListener("keydown", handleKeyDown, { capture: true })
-    }
+    return whenEditorMounted(editor, () => {
+      const domNode = editor.view.dom
+      domNode.addEventListener("keydown", handleKeyDown, { capture: true })
+      return () => {
+        domNode.removeEventListener("keydown", handleKeyDown, {
+          capture: true,
+        })
+      }
+    })
   }, [editor, handleSend])
 
   const trimmedValue = plainText.trim()
