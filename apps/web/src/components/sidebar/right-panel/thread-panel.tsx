@@ -49,6 +49,7 @@ import { useMessageDeletion } from "@/hooks/use-message-deletion"
 import { useMessageEditing } from "@/hooks/use-message-editing"
 import { useMessageReactions } from "@/hooks/use-message-reactions"
 import { useMessageSending } from "@/hooks/use-message-sending"
+import { useQueuedMessageSteering } from "@/hooks/use-queued-message-steering"
 import { useReplyState } from "@/hooks/use-reply-state"
 import { useRunQueue } from "@/hooks/use-run-queue"
 import { useStopMerlinRun } from "@/hooks/use-stop-merlin-run"
@@ -216,6 +217,11 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
         .filter((m): m is Message => Boolean(m)),
     [queuedIds, messages]
   )
+  const queuedMessageSteering = useQueuedMessageSteering({
+    messages: queuedMessages,
+    currentUserId,
+    pendingNonces,
+  })
 
   const { handleReact } = useMessageReactions({
     socket,
@@ -601,6 +607,8 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
             messages={queuedMessages}
             currentUserId={currentUserId}
             pendingNonces={pendingNonces}
+            onSteer={queuedMessageSteering.steerMessage}
+            steeringMessageId={queuedMessageSteering.steeringMessageId}
           />
           <MessageInput
             context={channelContext}
@@ -632,6 +640,9 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
               stopMerlin.isPending ||
               Boolean(pendingMerlinMessage?.stopRequested)
             }
+            canSteerQueued={queuedMessageSteering.canSteerLatestOwnMessage}
+            onSteerQueued={queuedMessageSteering.steerLatestOwnMessage}
+            isSteeringQueued={queuedMessageSteering.isSteering}
           />
         </div>
       </MessageScrollerProvider>

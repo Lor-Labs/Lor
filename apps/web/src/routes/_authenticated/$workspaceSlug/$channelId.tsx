@@ -22,6 +22,7 @@ import { useMessageEditing } from "@/hooks/use-message-editing"
 import { useMessagePinning } from "@/hooks/use-message-pinning"
 import { useMessageReactions } from "@/hooks/use-message-reactions"
 import { useMessageSending } from "@/hooks/use-message-sending"
+import { useQueuedMessageSteering } from "@/hooks/use-queued-message-steering"
 import { useReplyState } from "@/hooks/use-reply-state"
 import { useRunQueue } from "@/hooks/use-run-queue"
 import { useThreadActivity } from "@/hooks/use-thread-activity"
@@ -285,6 +286,11 @@ function ChannelView() {
         .filter((m): m is Message => Boolean(m)),
     [queuedIds, messages]
   )
+  const queuedMessageSteering = useQueuedMessageSteering({
+    messages: queuedMessages,
+    currentUserId,
+    pendingNonces,
+  })
   // Queued messages live only in the composer's queue pill until the drain
   // releases them — the transcript skips them (Codex model).
   const visibleMessages = useMemo(
@@ -511,7 +517,13 @@ function ChannelView() {
         isLoading={messagesLoading}
       />
       <TypingIndicator users={typingUsers} />
-      <RunQueuePill messages={queuedMessages} currentUserId={currentUserId} />
+      <RunQueuePill
+        messages={queuedMessages}
+        currentUserId={currentUserId}
+        pendingNonces={pendingNonces}
+        onSteer={queuedMessageSteering.steerMessage}
+        steeringMessageId={queuedMessageSteering.steeringMessageId}
+      />
       <MessageInput
         context={context}
         onSend={handleSend}
@@ -526,6 +538,9 @@ function ChannelView() {
         getUploadedAttachments={fileUpload.getUploadedAttachments}
         isUploading={fileUpload.isUploading}
         onTyping={emitTyping}
+        canSteerQueued={queuedMessageSteering.canSteerLatestOwnMessage}
+        onSteerQueued={queuedMessageSteering.steerLatestOwnMessage}
+        isSteeringQueued={queuedMessageSteering.isSteering}
       />
     </div>
   )

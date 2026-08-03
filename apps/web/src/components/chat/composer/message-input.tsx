@@ -123,6 +123,9 @@ interface MessageInputProps {
   onTyping?: () => void
   onStop?: () => void
   isStopping?: boolean
+  canSteerQueued?: boolean
+  onSteerQueued?: () => void
+  isSteeringQueued?: boolean
 }
 
 interface SuggestionPopupListRef {
@@ -434,12 +437,15 @@ export function MessageInput({
   onTyping,
   onStop,
   isStopping = false,
+  canSteerQueued = false,
+  onSteerQueued,
+  isSteeringQueued = false,
 }: MessageInputProps) {
   const [plainText, setPlainText] = useState("")
   const [isAttachmentMenuOpen, setIsAttachmentMenuOpen] = useState(false)
   const mentionCandidatesRef = useRef<MentionCandidate[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const handleSendRef = useRef<() => void>(() => undefined)
+  const handleSubmitRef = useRef<() => void>(() => undefined)
   const onTypingRef = useRef(onTyping)
   onTypingRef.current = onTyping
 
@@ -541,7 +547,7 @@ export function MessageInput({
 
           event.preventDefault()
           event.stopPropagation()
-          handleSendRef.current()
+          handleSubmitRef.current()
           return true
         },
       },
@@ -619,7 +625,23 @@ export function MessageInput({
     replyingTo,
     onCancelReply,
   ])
-  handleSendRef.current = handleSend
+  const handleSubmit = useCallback(() => {
+    const hasDraft =
+      plainText.trim().length > 0 || pendingAttachments.length > 0
+    if (hasDraft) {
+      handleSend()
+      return
+    }
+    if (canSteerQueued && !isSteeringQueued) onSteerQueued?.()
+  }, [
+    canSteerQueued,
+    handleSend,
+    isSteeringQueued,
+    onSteerQueued,
+    pendingAttachments.length,
+    plainText,
+  ])
+  handleSubmitRef.current = handleSubmit
 
   useEffect(() => {
     if (replyingTo && editor) {

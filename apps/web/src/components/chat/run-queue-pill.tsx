@@ -14,12 +14,16 @@ export function RunQueuePill({
   messages,
   currentUserId,
   pendingNonces,
+  onSteer,
+  steeringMessageId,
 }: {
   messages: Message[]
   currentUserId: string | undefined
   // Send nonces still awaiting their created echo — rows whose id is a nonce
   // aren't server-backed yet, so their actions are held.
   pendingNonces?: { current: Set<string> }
+  onSteer: (message: Message) => void
+  steeringMessageId?: string | null
 }) {
   if (messages.length === 0) return null
   return (
@@ -30,6 +34,8 @@ export function RunQueuePill({
           message={message}
           isOwn={message.authorId === currentUserId}
           isOptimistic={pendingNonces?.current.has(message.id) ?? false}
+          isSteering={steeringMessageId === message.id}
+          onSteer={onSteer}
         />
       ))}
     </div>
@@ -40,27 +46,16 @@ function QueueRow({
   message,
   isOwn,
   isOptimistic,
+  isSteering,
+  onSteer,
 }: {
   message: Message
   isOwn: boolean
   isOptimistic: boolean
+  isSteering: boolean
+  onSteer: (message: Message) => void
 }) {
   const socket = useSocket()
-  const steer = useMutation({
-    mutationFn: async () => {
-      const res = await apiClient.v1.runs["queued-messages"][
-        ":messageId"
-      ].steer.$post({ param: { messageId: message.id } })
-      if (!res.ok) {
-        const body = (await res.json().catch(() => null)) as {
-          message?: string
-        } | null
-        throw new Error(body?.message ?? "Couldn't steer this message")
-      }
-    },
-    onError: (err) => toast.error(err.message),
-  })
-
   const remove = useMutation({
     mutationFn: async () => {
       // Deleting needs the socket — withdrawing the queue row without the
@@ -89,7 +84,7 @@ function QueueRow({
     onError: (err) => toast.error(err.message),
   })
 
-  const pending = steer.isPending || remove.isPending || isOptimistic
+  const pending = isSteering || remove.isPending || isOptimistic
 
   return (
     <div className="flex items-center gap-2 px-2.5 py-1.5 text-[12.5px] not-last:border-b not-last:border-border/50">
@@ -102,15 +97,16 @@ function QueueRow({
       <span className="min-w-0 flex-1 truncate text-foreground/85">
         {message.content}
       </span>
-      {steer.isPending ? (
+      {isSteering ? (
         <span className="shrink-0 text-[11px] italic text-muted-foreground">
           Steering…
         </span>
       ) : (
         <button
           type="button"
-          onClick={() => steer.mutate()}
+          onClick={() => onSteer(message)}
           disabled={pending}
+          title={isOwn ? "Steer now (Enter)" : "Steer now"}
           className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-default disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
         >
           <CornerDownRight className="size-3 -scale-y-100" />
