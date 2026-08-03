@@ -180,7 +180,7 @@ export function ThreadMessageList({
         <FlatList
           ref={listRef}
           className="flex-1 bg-background"
-          contentContainerStyle={{ flexGrow: 1, justifyContent: "flex-end" }}
+          contentContainerStyle={{ flexGrow: 1 }}
           data={items}
           inverted
           keyboardDismissMode="interactive"

@@ -244,7 +244,11 @@ export default function ThreadScreen() {
         />
       </View>
       <ChatKeyboardLayout
-        renderComposer={({ inputNativeID, onCustomInputViewChange }) =>
+        renderComposer={({
+          inputNativeID,
+          onCustomInputViewChange,
+          onInputLayout,
+        }) =>
           thread.root && !thread.isMissing && !thread.error ? (
             <MessageComposer
               accessibilityLabel="Reply in thread"
@@ -252,6 +256,7 @@ export default function ThreadScreen() {
               channelName={channelName}
               editingMessage={editingMessage}
               inputNativeID={inputNativeID}
+              onInputLayout={onInputLayout}
               isConnected={isSocketConnected}
               isMentionCandidatesLoading={mentions.isLoading}
               isSending={thread.isSending || isSavingEdit}

@@ -377,12 +377,17 @@ export default function ChannelScreen() {
           </IconButton>
         </View>
         <ChatKeyboardLayout
-          renderComposer={({ inputNativeID, onCustomInputViewChange }) => (
+          renderComposer={({
+            inputNativeID,
+            onCustomInputViewChange,
+            onInputLayout,
+          }) => (
             <MessageComposer
               channelId={channelId}
               channelName={channelName}
               editingMessage={editingMessage}
               inputNativeID={inputNativeID}
+              onInputLayout={onInputLayout}
               isConnected={isSocketConnected}
               isMentionCandidatesLoading={mentions.isLoading}
               isSending={chat.isSending || isSavingEdit}

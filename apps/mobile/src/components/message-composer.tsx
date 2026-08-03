@@ -21,7 +21,13 @@ import {
   useRef,
   useState,
 } from "react"
-import { Keyboard, Text, useWindowDimensions, View } from "react-native"
+import {
+  Keyboard,
+  type LayoutChangeEvent,
+  Text,
+  useWindowDimensions,
+  View,
+} from "react-native"
 import {
   EnrichedMarkdownTextInput,
   type EnrichedMarkdownTextInputInstance,
@@ -72,6 +78,7 @@ export function MessageComposer({
   mentionRef,
   onTyping,
   inputNativeID,
+  onInputLayout,
   onCustomInputViewChange,
   topAccessory,
 }: {
@@ -96,6 +103,7 @@ export function MessageComposer({
   mentionRef?: Ref<MessageComposerMentionHandle>
   onTyping?: () => void
   inputNativeID?: string
+  onInputLayout?: (event: LayoutChangeEvent) => void
   onCustomInputViewChange?: (isOpen: boolean) => void
   // Rendered flush above the input card so accessories (run queue) can tuck
   // behind its top edge.
@@ -535,6 +543,7 @@ export function MessageComposer({
           mentionIndicators={["@"]}
           multiline
           nativeID={inputNativeID}
+          onLayout={onInputLayout}
           onBlur={() => {
             scheduleFocusState(false)
             closeMentionMenu()

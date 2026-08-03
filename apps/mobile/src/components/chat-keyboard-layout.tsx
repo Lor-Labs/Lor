@@ -9,6 +9,7 @@ import {
   useRef,
 } from "react"
 import {
+  Keyboard,
   type LayoutChangeEvent,
   type ScrollViewProps,
   StyleSheet,
@@ -17,6 +18,7 @@ import {
 import {
   KeyboardChatScrollView,
   type KeyboardChatScrollViewProps,
+  KeyboardController,
   KeyboardGestureArea,
   KeyboardStickyView,
 } from "react-native-keyboard-controller"
@@ -29,6 +31,7 @@ const COMPOSER_RESIZE_DURATION_MS = 100
 export type ChatComposerKeyboardProps = {
   inputNativeID: string
   onCustomInputViewChange: (isOpen: boolean) => void
+  onInputLayout: (event: LayoutChangeEvent) => void
 }
 
 type ChatScrollViewProps = KeyboardChatScrollViewProps & {
@@ -38,17 +41,31 @@ type ChatScrollViewProps = KeyboardChatScrollViewProps & {
 const ChatScrollView = forwardRef<
   ComponentRef<typeof KeyboardChatScrollView>,
   ChatScrollViewProps
->(({ bottomOffset, ...props }, ref) => (
-  <KeyboardChatScrollView
-    {...props}
-    automaticallyAdjustContentInsets={false}
-    contentInsetAdjustmentBehavior="never"
-    inverted
-    keyboardLiftBehavior="whenAtEnd"
-    offset={bottomOffset}
-    ref={ref}
-  />
-))
+>(({ bottomOffset, onTouchStart, ...props }, ref) => {
+  const dismissKeyboardOnTouch = useCallback<
+    NonNullable<ScrollViewProps["onTouchStart"]>
+  >(
+    (event) => {
+      Keyboard.dismiss()
+      void KeyboardController.dismiss().catch(() => undefined)
+      onTouchStart?.(event)
+    },
+    [onTouchStart]
+  )
+
+  return (
+    <KeyboardChatScrollView
+      {...props}
+      automaticallyAdjustContentInsets={false}
+      contentInsetAdjustmentBehavior="never"
+      inverted
+      keyboardLiftBehavior="whenAtEnd"
+      offset={bottomOffset}
+      ref={ref}
+      onTouchStart={dismissKeyboardOnTouch}
+    />
+  )
+})
 
 ChatScrollView.displayName = "ChatScrollView"
 
@@ -73,18 +90,18 @@ export function ChatKeyboardLayout({
   )
   const extraContentPadding = useSharedValue(0)
   const freeze = useSharedValue(false)
-  const baselineComposerHeightRef = useRef<number | null>(null)
+  const baselineInputHeightRef = useRef<number | null>(null)
 
-  const onComposerLayout = useCallback(
+  const onInputLayout = useCallback(
     (event: LayoutChangeEvent) => {
       const height = Math.round(event.nativeEvent.layout.height)
       if (height <= 0) return
 
-      const previousBaseline = baselineComposerHeightRef.current
+      const previousBaseline = baselineInputHeightRef.current
       const baseline =
         previousBaseline === null ? height : Math.min(previousBaseline, height)
 
-      baselineComposerHeightRef.current = baseline
+      baselineInputHeightRef.current = baseline
       extraContentPadding.value = withTiming(Math.max(height - baseline, 0), {
         duration: COMPOSER_RESIZE_DURATION_MS,
       })
@@ -120,11 +137,12 @@ export function ChatKeyboardLayout({
     >
       {renderMessageList(renderScrollComponent)}
       <KeyboardStickyView offset={{ opened: bottomInset }}>
-        <View collapsable={false} onLayout={onComposerLayout}>
+        <View collapsable={false}>
           {typingIndicator}
           {renderComposer({
             inputNativeID,
             onCustomInputViewChange,
+            onInputLayout,
           })}
         </View>
       </KeyboardStickyView>

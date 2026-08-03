@@ -210,13 +210,18 @@ export default function DMScreen() {
         </View>
       </View>
       <ChatKeyboardLayout
-        renderComposer={({ inputNativeID, onCustomInputViewChange }) => (
+        renderComposer={({
+          inputNativeID,
+          onCustomInputViewChange,
+          onInputLayout,
+        }) => (
           <MessageComposer
             accessibilityLabel={`Message ${name}`}
             channelId={dmId}
             channelName={name}
             editingMessage={editingMessage}
             inputNativeID={inputNativeID}
+            onInputLayout={onInputLayout}
             isConnected={isSocketConnected}
             isSending={chat.isSending || isSavingEdit}
             mentionCandidates={mentionCandidates}
