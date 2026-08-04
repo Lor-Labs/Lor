@@ -18,23 +18,30 @@ import { ChannelActionsSheet } from "@/components/channel-actions-sheet"
 import { ChannelList } from "@/components/channel-list"
 import { CreateChannelSheet } from "@/components/create-channel-sheet"
 import { CreateInviteSheet } from "@/components/create-invite-sheet"
+import type { MessageComposerMentionHandle } from "@/components/message-composer"
 import { Avatar } from "@/components/ui/avatar"
 import { IconButton } from "@/components/ui/icon-button"
 import { Screen } from "@/components/ui/screen"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatePanel } from "@/components/ui/state-panel"
+import { UserProfileSheet } from "@/components/user-profile-sheet"
 import { WorkspaceSearchResults } from "@/components/workspace-search-results"
 import { WorkspaceSheet } from "@/components/workspace-sheet"
 import { useWorkspace } from "@/context/workspace-context"
+import { useActiveMember } from "@/hooks/use-active-member"
 import { useChannelPermissions } from "@/hooks/use-channel-permissions"
 import { useMessageSearch } from "@/hooks/use-message-search"
+import { useOpenDM } from "@/hooks/use-open-dm"
+import { useProfileSheet } from "@/hooks/use-profile-sheet"
 import { useTheme } from "@/hooks/use-theme"
+import { useWorkspaceMembers } from "@/hooks/use-workspace-members"
 import { api } from "@/lib/api"
 import type {
   Channel,
   ChannelList as ChannelListData,
   ChannelSearchResult,
 } from "@/lib/api-types"
+import { authClient } from "@/lib/auth-client"
 
 export default function WorkspaceScreen() {
   const theme = useTheme()
@@ -54,6 +61,23 @@ export default function WorkspaceScreen() {
   const hasFocusedChannelsRef = useRef(false)
   const inviteTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const permissions = useChannelPermissions(workspace?.id)
+  const activeMember = useActiveMember(workspace?.id)
+  const memberRole = activeMember.data?.role
+  const canManageWorkspace = memberRole === "admin" || memberRole === "owner"
+  const { data: session } = authClient.useSession()
+  const { members } = useWorkspaceMembers(workspace?.slug ?? "")
+  const avatarColorByUserId = useMemo(
+    () => new Map(members.map((member) => [member.userId, member.avatarColor])),
+    [members]
+  )
+  // No composer on this screen — the profile sheet's Mention action stays off.
+  const mentionRef = useRef<MessageComposerMentionHandle>(null)
+  const { closeProfile, openAuthorProfile, profileUser } = useProfileSheet({
+    avatarColorByUserId,
+    members,
+    mentionRef,
+  })
+  const { openDM } = useOpenDM()
 
   useEffect(
     () => () => {
@@ -164,6 +188,21 @@ export default function WorkspaceScreen() {
   const addWorkspace = () => {
     setIsWorkspaceSheetOpen(false)
     router.push("/onboarding")
+  }
+
+  const openWorkspaceSettings = () => {
+    setIsWorkspaceSheetOpen(false)
+    router.push("/settings/workspace" as never)
+  }
+
+  const openAgentProfiles = () => {
+    setIsWorkspaceSheetOpen(false)
+    router.push("/settings/agent-profiles" as never)
+  }
+
+  const openInstructions = () => {
+    setIsWorkspaceSheetOpen(false)
+    router.push("/settings/instructions" as never)
   }
 
   const openSearchMessage = async (message: ChannelSearchResult) => {
@@ -308,6 +347,7 @@ export default function WorkspaceScreen() {
             channels={matchingChannels}
             onPressChannel={openChannel}
             onPressMessage={(message) => void openSearchMessage(message)}
+            onPressMessageAuthor={openAuthorProfile}
             query={query.trim()}
             search={search}
           />
@@ -346,11 +386,15 @@ export default function WorkspaceScreen() {
         workspaceSlug={workspace.slug}
       />
       <WorkspaceSheet
+        canManageWorkspace={canManageWorkspace}
         channelCount={channelCount}
         isOpen={isWorkspaceSheetOpen}
         onAddWorkspace={addWorkspace}
         onInvite={openInviteFromWorkspaceSheet}
+        onOpenAgentProfiles={openAgentProfiles}
         onOpenChange={setIsWorkspaceSheetOpen}
+        onOpenInstructions={openInstructions}
+        onOpenSettings={openWorkspaceSettings}
         onSelectWorkspace={switchWorkspace}
         workspace={workspace}
         workspaces={workspaces}
@@ -360,6 +404,17 @@ export default function WorkspaceScreen() {
         onOpenChange={setIsInviteOpen}
         workspaceName={workspace.name}
         workspaceSlug={workspace.slug}
+      />
+      <UserProfileSheet
+        currentUserId={session?.user.id}
+        onMessage={(target) => {
+          closeProfile()
+          void openDM(target.id)
+        }}
+        onOpenChange={(isOpen) => {
+          if (!isOpen) closeProfile()
+        }}
+        user={profileUser}
       />
     </Screen>
   )

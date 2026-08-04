@@ -5,25 +5,32 @@ import { router, useLocalSearchParams } from "expo-router"
 import { SymbolView } from "expo-symbols"
 import { useThemeColor } from "heroui-native/hooks"
 import { Spinner } from "heroui-native/spinner"
-import { useState } from "react"
+import { useMemo, useRef, useState } from "react"
 import { Alert, FlatList, Pressable, Text, View } from "react-native"
+import type { MessageComposerMentionHandle } from "@/components/message-composer"
 import { MessageRow } from "@/components/message-row"
 import { IconButton } from "@/components/ui/icon-button"
 import { Screen } from "@/components/ui/screen"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatePanel } from "@/components/ui/state-panel"
+import { UserProfileSheet } from "@/components/user-profile-sheet"
 import { useWorkspace } from "@/context/workspace-context"
 import { useChannelDetail } from "@/hooks/use-channel-detail"
 import { useChannelPermissions } from "@/hooks/use-channel-permissions"
+import { useOpenDM } from "@/hooks/use-open-dm"
 import { usePinnedMessages } from "@/hooks/use-pinned-messages"
+import { useProfileSheet } from "@/hooks/use-profile-sheet"
+import { useWorkspaceMembers } from "@/hooks/use-workspace-members"
 import { api } from "@/lib/api"
 import type { Message } from "@/lib/api-types"
+import { authClient } from "@/lib/auth-client"
 
 export default function PinnedMessagesScreen() {
   const [pendingMessageId, setPendingMessageId] = useState<string | null>(null)
   const foreground = useThemeColor("foreground")
   const { workspace } = useWorkspace()
   const { channelId } = useLocalSearchParams<{ channelId: string }>()
+  const { data: session } = authClient.useSession()
   const channelState = useChannelDetail({
     workspaceSlug: workspace?.slug ?? "",
     channelId: channelId ?? "",
@@ -34,6 +41,19 @@ export default function PinnedMessagesScreen() {
     enabled: Boolean(workspace?.slug && channelId),
     workspaceSlug: workspace?.slug ?? "",
   })
+  const { members } = useWorkspaceMembers(workspace?.slug ?? "")
+  const avatarColorByUserId = useMemo(
+    () => new Map(members.map((member) => [member.userId, member.avatarColor])),
+    [members]
+  )
+  // No composer on this screen — the profile sheet's Mention action stays off.
+  const mentionRef = useRef<MessageComposerMentionHandle>(null)
+  const { closeProfile, openAuthorProfile, profileUser } = useProfileSheet({
+    avatarColorByUserId,
+    members,
+    mentionRef,
+  })
+  const { openDM } = useOpenDM()
 
   const goBack = () => {
     if (router.canGoBack()) router.back()
@@ -165,7 +185,12 @@ export default function PinnedMessagesScreen() {
           }
           renderItem={({ item }) => (
             <View className="border-b border-separator pb-two pt-one">
-              <MessageRow message={item} onOpenThread={openThread} showHeader />
+              <MessageRow
+                message={item}
+                onOpenThread={openThread}
+                onPressAuthor={openAuthorProfile}
+                showHeader
+              />
               <View className="flex-row justify-end gap-two px-four">
                 <Pressable
                   accessibilityLabel="View message in conversation"
@@ -202,6 +227,17 @@ export default function PinnedMessagesScreen() {
           showsVerticalScrollIndicator={false}
         />
       )}
+      <UserProfileSheet
+        currentUserId={session?.user.id}
+        onMessage={(target) => {
+          closeProfile()
+          void openDM(target.id)
+        }}
+        onOpenChange={(isOpen) => {
+          if (!isOpen) closeProfile()
+        }}
+        user={profileUser}
+      />
     </Screen>
   )
 }

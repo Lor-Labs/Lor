@@ -4,9 +4,20 @@ import {
   workspaceMemberDetail,
 } from "@/components/member-list-sheet"
 import type { MessageComposerMentionHandle } from "@/components/message-composer"
-import { messageDisplayName } from "@/components/message-row"
 import type { UserProfileTarget } from "@/components/user-profile-sheet"
-import type { Message, WorkspaceMember } from "@/lib/api-types"
+import type { WorkspaceMember } from "@/lib/api-types"
+
+// Structural so search results (which aren't full Messages) open profiles too.
+type AuthorSource = {
+  author: {
+    id: string
+    name: string
+    displayUsername: string | null
+    image: string | null
+    avatarColor?: string | null
+  }
+  overrideName?: string | null
+}
 
 // Matches the bottom-sheet close animation so one sheet finishes
 // dismissing before the next opens (or a mention is inserted).
@@ -39,15 +50,19 @@ export function useProfileSheet({
     }, SHEET_TRANSITION_MS)
   }
 
-  const openAuthorProfile = (message: Message) => {
+  const openAuthorProfile = (message: AuthorSource) => {
     clearTransition()
     const member = members.find(
       (candidate) => candidate.userId === message.author.id
     )
+    const displayName =
+      message.overrideName ??
+      message.author.displayUsername ??
+      message.author.name
     setProfileUser({
       id: message.author.id,
-      name: messageDisplayName(message),
-      avatarName: messageDisplayName(message),
+      name: displayName,
+      avatarName: displayName,
       image: message.author.image,
       avatarColor:
         message.author.avatarColor ??

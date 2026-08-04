@@ -14,9 +14,11 @@ import { toSearchPreviewText } from "@/lib/message-markdown"
 function MessageResultRow({
   message,
   onPress,
+  onPressAuthor,
 }: {
   message: ChannelSearchResult
   onPress: (message: ChannelSearchResult) => void
+  onPressAuthor?: (message: ChannelSearchResult) => void
 }) {
   const displayName =
     message.author.displayUsername ?? message.author.name ?? "Unknown member"
@@ -30,13 +32,23 @@ function MessageResultRow({
       className="flex-row gap-three rounded-lor-sm px-two py-two active:bg-surface-secondary"
       onPress={() => onPress(message)}
     >
-      <Avatar
-        avatarColor={message.author.avatarColor}
-        fallback={getAvatarInitials(message.author.name)}
-        image={message.author.image}
-        name={displayName}
-        size="sm"
-      />
+      <Pressable
+        accessibilityHint="Opens their profile"
+        accessibilityLabel={`${displayName}'s profile`}
+        accessibilityRole="button"
+        className="active:opacity-70"
+        disabled={!onPressAuthor}
+        hitSlop={4}
+        onPress={onPressAuthor ? () => onPressAuthor(message) : undefined}
+      >
+        <Avatar
+          avatarColor={message.author.avatarColor}
+          fallback={getAvatarInitials(message.author.name)}
+          image={message.author.image}
+          name={displayName}
+          size="sm"
+        />
+      </Pressable>
       <View className="min-w-0 flex-1 gap-px">
         <View className="flex-row items-baseline gap-two">
           <Text
@@ -70,12 +82,14 @@ export function WorkspaceSearchResults({
   channels,
   onPressChannel,
   onPressMessage,
+  onPressMessageAuthor,
   query,
   search,
 }: {
   channels: Channel[]
   onPressChannel: (channel: Channel) => void
   onPressMessage: (message: ChannelSearchResult) => void
+  onPressMessageAuthor?: (message: ChannelSearchResult) => void
   query: string
   search: ReturnType<typeof useMessageSearch>
 }) {
@@ -150,6 +164,7 @@ export function WorkspaceSearchResults({
                 key={message.id}
                 message={message}
                 onPress={onPressMessage}
+                onPressAuthor={onPressMessageAuthor}
               />
             ))}
             {search.isLoadingMore ? (

@@ -17,7 +17,9 @@ export type MemberListItem = {
   detail: string
   id: string
   image: string | null
+  isBot?: boolean
   name: string
+  role?: string | null
   status: WorkspaceMember["status"]
 }
 
@@ -26,6 +28,7 @@ export function MemberListSheet({
   isLoading = false,
   isOpen,
   members,
+  onLongPressMember,
   onOpenChange,
   onPressMember,
   onRetry,
@@ -35,6 +38,7 @@ export function MemberListSheet({
   isLoading?: boolean
   isOpen: boolean
   members: MemberListItem[]
+  onLongPressMember?: (member: MemberListItem) => void
   onOpenChange: (isOpen: boolean) => void
   onPressMember?: (member: MemberListItem) => void
   onRetry?: () => void
@@ -132,6 +136,7 @@ export function MemberListSheet({
                   <MemberSection
                     label={`Online · ${onlineMembers.length}`}
                     members={onlineMembers}
+                    onLongPressMember={onLongPressMember}
                     onPressMember={onPressMember}
                   />
                 ) : null}
@@ -140,6 +145,7 @@ export function MemberListSheet({
                   <MemberSection
                     label={`Offline · ${offlineMembers.length}`}
                     members={offlineMembers}
+                    onLongPressMember={onLongPressMember}
                     onPressMember={onPressMember}
                   />
                 ) : null}
@@ -155,10 +161,12 @@ export function MemberListSheet({
 function MemberSection({
   label,
   members,
+  onLongPressMember,
   onPressMember,
 }: {
   label: string
   members: MemberListItem[]
+  onLongPressMember?: (member: MemberListItem) => void
   onPressMember?: (member: MemberListItem) => void
 }) {
   return (
@@ -172,6 +180,9 @@ function MemberSection({
             ) : null}
             <MemberRow
               member={member}
+              onLongPress={
+                onLongPressMember ? () => onLongPressMember(member) : undefined
+              }
               onPress={onPressMember ? () => onPressMember(member) : undefined}
             />
           </View>
@@ -183,20 +194,23 @@ function MemberSection({
 
 function MemberRow({
   member,
+  onLongPress,
   onPress,
 }: {
   member: MemberListItem
+  onLongPress?: () => void
   onPress?: () => void
 }) {
   return (
     <Pressable
       accessibilityHint={onPress ? "Opens their profile" : undefined}
       accessibilityLabel={`${member.name}, ${member.detail}, ${member.status}`}
-      accessibilityRole={onPress ? "button" : undefined}
+      accessibilityRole={onPress || onLongPress ? "button" : undefined}
       className={`min-h-[68px] flex-row items-center gap-three px-three py-two ${
-        onPress ? "active:bg-surface-tertiary" : ""
+        onPress || onLongPress ? "active:bg-surface-tertiary" : ""
       }`}
-      disabled={!onPress}
+      disabled={!onPress && !onLongPress}
+      onLongPress={onLongPress}
       onPress={onPress}
     >
       <View style={{ opacity: member.status === "offline" ? 0.5 : 1 }}>
@@ -262,7 +276,9 @@ export function workspaceMemberToListItem(
     detail: workspaceMemberDetail(member),
     id: member.userId,
     image: member.image,
+    isBot: member.isBot,
     name: memberDisplayName(member),
+    role: member.role,
     status: member.status,
   }
 }

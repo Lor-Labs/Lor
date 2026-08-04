@@ -8,12 +8,11 @@ Last audited: 2026-07-23.
 ## Tier 1 — big functional gaps
 
 - [~] **Push notifications** — code complete full-stack (see Done); blocked on EAS/APNs credentials + dev-client rebuild on a physical iPhone before it can be tested. Follow-ups once live: badge counts on the app icon, remote-clearing stale pushes after reading on desktop (needs background push), Expo push receipt sweep (delayed job checking receipts for DeviceNotRegistered beyond ticket-level pruning), mute control on the mobile DM screen (web DM header has it; mobile mute UI lives only in the channel options sheet), muted-channel visual styling in sidebars/lists.
-- [ ] **DM follow-ups** — DM search (`GET /v1/dms/search` exists, no mobile UI), group-DM member list sheet, DM threads (API exists; web has no DM thread UI either — do together or not at all).
+- [ ] **DM follow-ups** — group-DM member list sheet, DM threads (API exists; web has no DM thread UI either — do together or not at all). DM search shipped 2026-08-03 (see Done).
 
 ## Tier 2 — admin & workspace management
 
-- [ ] **Member management** — role change + kick from the member sheet (API exists: `PATCH /members/:userId/role`, `POST /members/:userId/kick`; mobile sheet is read-only).
-- [ ] **Workspace settings** — rename/logo + Merlin profiles section (web: `workspace-settings-dialog.tsx`, `merlin-profiles-section.tsx`). Natural home: rows in `workspace-sheet.tsx` (the Discord-style sheet opened from the home header).
+(all done — see Done)
 
 ## Tier 3 — composer & detail polish
 
@@ -21,7 +20,6 @@ Last audited: 2026-07-23.
 - [ ] **Slash commands** — mobile composer's `/` toolbar button is a dead placeholder (web: `composer/slash-command-list.tsx`).
 - [ ] **Formatting toolbar** — mobile composer's text-format button is also a no-op.
 - [ ] **Bio editing** — profile sheet displays bio but nothing can edit it anywhere (column is dormant since web removed it). Add to mobile account settings if bios should be real.
-- [ ] **Wire profile sheet into pins screen + home search results** — `MessageRow`s there don't pass `onPressAuthor` yet.
 
 ## Explicitly not gaps (don't chase)
 
@@ -29,6 +27,11 @@ Last audited: 2026-07-23.
 - **Onboarding dialog, integration OAuth setup (GitHub/Linear), channel webhooks tab** — inherently web-side.
 
 ## Done (recent parity work)
+
+- [x] Profile sheet in pins + home search results (`useProfileSheet.openAuthorProfile` widened to a structural author type so `ChannelSearchResult` rows qualify; pins screen `MessageRow` passes `onPressAuthor`, home search result avatars are now pressable; both screens render `UserProfileSheet` with the Message action wired to `useOpenDM`, Mention omitted — no composer there) — 2026-08-03
+- [x] DM search (search icon on the Messages tab → `dm-search-overlay` + `use-dm-search` hitting `GET /v1/dms/search`, debounced + paginated like channel search; tapping a result opens `/dm/[dmId]?focusMessageId=` — the DM screen gained the same loadAround + focus handling the channel screen has) — 2026-08-03
+- [x] Workspace settings + agent profiles (workspace sheet gained a management section: Instructions row for everyone → existing `/settings/instructions` screen — previously push-deep-link-only; admin/owner-gated rows → new `/settings/workspace` screen for rename + icon via `workspace-icon` presign upload, and `/settings/agent-profiles` screen mirroring web's profile cards + capability tile editor; refreshes workspace context via `reloadWorkspaces`) — 2026-08-03
+- [x] Member management (long-press a row in the channel member sheet → `member-actions-sheet` with Make admin/member + Kick; gating in `use-member-moderation.ts` mirrors the server hierarchy rules — self/bots excluded, admins can only kick members, only the owner can promote to admin; kick confirms via alert, mutations invalidate `workspace-members`) — 2026-08-03
 
 - [x] Merlin run replay on late join (`src/lib/run-replay.ts` mirrors web's `use-merlin-stream.ts` gate: pending Merlin placeholders fetch `GET /v1/runs/by-message/:messageId/events`, live frames buffer during the fetch then drain gated by `seq`, terminal runs silent-reload the page instead; both message hooks route stream/reasoning/tool/memory/steer frames through `gateRunFrame` + a shared `applyMerlinFrame`) — 2026-08-02
 - [x] Merlin run steering/stop affordances (`message:routed` steered/queued chip on the sender's message, "Applying {name}'s new direction…" via `merlin:steer`, Stop button on in-flight replies → `POST /v1/runs/by-message/:messageId/stop` with optimistic "Stopping…" — `MerlinRunControls`/`RoutedChip` in `message-row.tsx`, socket handlers in `use-channel-messages.ts` + `use-thread-messages.ts`; chips are transient client state, same as web) — 2026-08-02
