@@ -282,6 +282,7 @@ async function runDrain(args: {
     threadRootId,
     status: "pending",
     streaming: true,
+    merlinTriggerMessageId: triggerMessageId,
   }
   // Thread footer counts refresh with the next real reply; the worker skips
   // the summary recompute the realtime service does on its own placeholders.

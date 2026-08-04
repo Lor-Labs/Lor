@@ -1,14 +1,35 @@
 import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar"
+import {
+  MessageScroller,
+  MessageScrollerContent,
+  MessageScrollerItem,
+  MessageScrollerProvider,
+  MessageScrollerViewport,
+} from "@repo/ui/components/message-scroller"
 import { Skeleton } from "@repo/ui/components/skeleton"
-import { cn } from "@repo/ui/lib/utils"
 import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { differenceInMinutes, isSameDay } from "@repo/utils/date"
-import { ArrowDown, Hash, Loader2 } from "lucide-react"
-import { useCallback, useEffect, useRef, useState } from "react"
+import { Hash, Loader2 } from "lucide-react"
+import {
+  type PointerEvent as ReactPointerEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+} from "react"
 import type { MentionCandidate } from "@/components/chat/composer/mention-types"
 import { DateDivider } from "@/components/chat/date-divider"
 import type { ChatContext } from "@/components/chat/header"
 import { MessageItem } from "@/components/chat/message-item"
+import {
+  highlightMessage,
+  type MessageScrollCommand,
+  MessageScrollerCommandBridge,
+  MessageScrollerJumpToLatest,
+  MessageScrollTarget,
+  signalMessageScrollerInteraction,
+  useRegisteredMessageScroller,
+} from "@/components/chat/message-scroller-controls"
 import { ThreadActivityStack } from "@/components/chat/thread-activity"
 import type { ThreadActivity } from "@/hooks/use-thread-activity"
 import type { Message } from "@/lib/api-types"
@@ -42,6 +63,8 @@ interface MessageListProps {
    */
   pendingCount?: number
   onJumpToPresent?: () => void
+  /** Message to center after an anchored/permalink page has mounted. */
+  scrollTargetId?: string | null
   /**
    * Clicking a reply preview / citation jumps to the referenced message id.
    * The route translates this into URL-anchor navigation; MessageList just
@@ -108,6 +131,20 @@ const MESSAGE_SKELETON_GROUPS = [
 ]
 const MESSAGE_GROUP_WINDOW_MINUTES = 5
 
+let activeMessageScrollCommand: MessageScrollCommand | null = null
+
+export function scrollToMessage(messageId: string): boolean {
+  const didScroll =
+    activeMessageScrollCommand?.(messageId, {
+      align: "center",
+      behavior: "smooth",
+    }) ?? false
+  if (didScroll) {
+    window.requestAnimationFrame(() => highlightMessage(messageId))
+  }
+  return didScroll
+}
+
 export function MessageList({
   context,
   messages,
@@ -131,6 +168,7 @@ export function MessageList({
   isFetchingNewer,
   pendingCount = 0,
   onJumpToPresent,
+  scrollTargetId,
   onJumpToMessage,
   replyingToId,
   threadActivities,
@@ -140,15 +178,70 @@ export function MessageList({
   const scrollRef = useRef<HTMLDivElement>(null)
   const olderSentinelRef = useRef<HTMLDivElement>(null)
   const newerSentinelRef = useRef<HTMLDivElement>(null)
-  const isNearBottom = useRef(true)
-  const prevNewestId = useRef<string | null>(null)
-  const [stickyDate, setStickyDate] = useState<string | null>(null)
+  const stickyDateRef = useRef<HTMLDivElement>(null)
+  const {
+    commandRef: messageScrollCommandRef,
+    register: registerScrollCommand,
+  } = useRegisteredMessageScroller()
+  const ownedCommandRef = useRef<MessageScrollCommand | null>(null)
+
+  const orderedMessages = useMemo(() => [...messages].reverse(), [messages])
+  const pendingMerlinMessage = messages.find(
+    (message) => message.status === "pending"
+  )
+  const contentVersion = `${messages.length}:${messages[0]?.id ?? ""}:${messages.at(-1)?.id ?? ""}`
+
+  const scrollToLocalMessage = useCallback(
+    (messageId: string) => {
+      const didScroll =
+        messageScrollCommandRef.current?.(messageId, {
+          align: "center",
+          behavior: "smooth",
+        }) ?? false
+      if (didScroll) {
+        window.requestAnimationFrame(() =>
+          highlightMessage(messageId, scrollRef.current ?? document)
+        )
+      }
+      return didScroll
+    },
+    [messageScrollCommandRef]
+  )
+  const registerActiveScrollCommand = useCallback(
+    (command: MessageScrollCommand | null) => {
+      registerScrollCommand(command)
+      if (command) {
+        ownedCommandRef.current = command
+        activeMessageScrollCommand = command
+        return
+      }
+      if (activeMessageScrollCommand === ownedCommandRef.current) {
+        activeMessageScrollCommand = null
+      }
+      ownedCommandRef.current = null
+    },
+    [registerScrollCommand]
+  )
+
+  const handleMessageJump = useCallback(
+    (messageId: string) => {
+      if (!scrollToLocalMessage(messageId)) onJumpToMessage?.(messageId)
+    },
+    [onJumpToMessage, scrollToLocalMessage]
+  )
+  const handleReaderPointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      signalMessageScrollerInteraction(
+        event.target,
+        messageScrollCommandRef.current
+      )
+    },
+    [messageScrollCommandRef]
+  )
 
   const handleScroll = useCallback(() => {
     const el = scrollRef.current
     if (!el) return
-    // flex-col-reverse: scrollTop is 0 at bottom, negative when scrolled up
-    isNearBottom.current = Math.abs(el.scrollTop) < 150
 
     // Determine which date divider has scrolled past the top
     const containerTop = el.getBoundingClientRect().top
@@ -157,25 +250,18 @@ export function MessageList({
 
     for (const divider of dividers) {
       const rect = divider.getBoundingClientRect()
-      if (rect.bottom < containerTop + 8) {
+      if (rect.top <= containerTop + 8) {
         topDate = (divider as HTMLElement).dataset.dateDivider ?? null
+      } else {
         break
       }
     }
 
-    setStickyDate(topDate)
+    const stickyDate = stickyDateRef.current
+    if (!stickyDate) return
+    stickyDate.textContent = topDate ?? ""
+    stickyDate.dataset.visible = topDate ? "true" : "false"
   }, [])
-
-  // Auto-scroll only for new messages (not for older page loads)
-  useEffect(() => {
-    const newestId = messages[0]?.id ?? null
-    if (prevNewestId.current === null || isNearBottom.current) {
-      if (newestId !== prevNewestId.current) {
-        scrollRef.current?.scrollTo({ top: 0 })
-      }
-    }
-    prevNewestId.current = newestId
-  }, [messages])
 
   // IntersectionObserver for fetching older (top of viewport)
   useEffect(() => {
@@ -218,7 +304,7 @@ export function MessageList({
 
   if (isLoading) {
     return (
-      <div className="flex flex-1 flex-col-reverse overflow-hidden py-4">
+      <div className="flex flex-1 flex-col justify-end overflow-hidden py-4">
         {MESSAGE_SKELETON_GROUPS.map((group) => (
           <div key={group.key} className="px-4 py-0.5">
             <div className="flex gap-3">
@@ -250,250 +336,125 @@ export function MessageList({
     return <EmptyState context={context} />
   }
 
-  // The Jump-to-present pill shows when there are buffered live messages OR
-  // the user is in anchored mode with newer messages to fetch.
-  const showJumpToPresent =
-    !!onJumpToPresent && (pendingCount > 0 || !!hasNewer)
-
   return (
-    <div className="relative flex min-h-0 flex-1 flex-col">
-      <div
-        className={cn(
-          "pointer-events-none absolute top-2 left-1/2 z-30 -translate-x-1/2 rounded-full border border-border/70 bg-background px-2.5 py-0.5 text-xs font-medium text-muted-foreground shadow-sm transition-all duration-300 ease-out",
-          stickyDate ? "translate-y-0 opacity-100" : "-translate-y-2 opacity-0"
-        )}
-      >
-        {stickyDate}
-      </div>
-      <div
-        ref={scrollRef}
-        onScroll={handleScroll}
-        data-message-scroll
-        className="flex flex-1 select-text flex-col-reverse overflow-y-auto py-4"
-      >
-        {/* Thread-activity cards sit at the visual bottom (DOM-first because
-            col-reverse), just below the newest message. */}
-        {threadActivities &&
-          threadActivities.length > 0 &&
-          onOpenThreadActivity &&
-          onDismissThreadActivity && (
-            <div className="pt-1.5">
-              <ThreadActivityStack
-                activities={threadActivities}
-                onOpen={onOpenThreadActivity}
-                onDismiss={onDismissThreadActivity}
-              />
-            </div>
-          )}
-        {/* Sentinel at the visual bottom (DOM-first because col-reverse). */}
-        {hasNewer && (
-          <div ref={newerSentinelRef} className="flex justify-center py-3">
-            {isFetchingNewer && (
-              <Loader2 className="size-5 animate-spin text-muted-foreground" />
-            )}
-          </div>
-        )}
-        {messages.map((msg, i) => {
-          const next = messages[i + 1]
-          const isDateBoundary =
-            !next || !isSameDay(msg.createdAt, next.createdAt)
-          const isWithinGroupWindow =
-            !!next &&
-            differenceInMinutes(msg.createdAt, next.createdAt) <=
-              MESSAGE_GROUP_WINDOW_MINUTES
-          const showHeader =
-            isDateBoundary ||
-            !next ||
-            next.authorId !== msg.authorId ||
-            !isWithinGroupWindow ||
-            msg.type === "reply"
-
-          return (
-            <div key={msg.id}>
-              {isDateBoundary && <DateDivider date={msg.createdAt} />}
-              <MessageItem
-                message={msg}
-                showHeader={showHeader}
-                currentUserId={currentUserId}
-                isBlocked={blockedUserIds?.has(msg.authorId) ?? false}
-                onReact={onReact}
-                onReply={onReply}
-                onReplyInThread={onReplyInThread}
-                onOpenThread={onOpenThread}
-                isReplyTarget={replyingToId === msg.id}
-                onDelete={onDelete}
-                onEdit={onEdit}
-                onTogglePin={onTogglePin}
-                canPin={canPin}
-                mentionCandidates={mentionCandidates}
-                onJumpToMessage={onJumpToMessage}
-              />
-            </div>
-          )
-        })}
-        {/* Sentinel at the visual top. */}
-        {hasOlder && (
-          <div ref={olderSentinelRef} className="flex justify-center py-3">
-            {isFetchingOlder && (
-              <Loader2 className="size-5 animate-spin text-muted-foreground" />
-            )}
-          </div>
-        )}
-      </div>
-
-      {showJumpToPresent && (
-        <button
-          type="button"
-          onClick={onJumpToPresent}
-          className="absolute right-4 bottom-4 z-20 inline-flex items-center gap-1.5 rounded-full border border-border bg-background/95 px-3 py-1.5 text-xs font-medium text-foreground shadow-md backdrop-blur-md transition hover:bg-accent"
+    <MessageScrollerProvider
+      autoScroll
+      defaultScrollPosition={scrollTargetId ? "start" : "end"}
+      scrollEdgeThreshold={16}
+    >
+      <MessageScrollerCommandBridge register={registerActiveScrollCommand} />
+      <MessageScrollTarget
+        messageId={scrollTargetId}
+        contentVersion={contentVersion}
+        containerRef={scrollRef}
+      />
+      <MessageScroller className="min-h-0 flex-1">
+        <div
+          ref={stickyDateRef}
+          data-visible="false"
+          className="pointer-events-none absolute top-2 left-1/2 z-30 -translate-x-1/2 rounded-full border border-border/70 bg-background px-2.5 py-0.5 text-xs font-medium text-muted-foreground opacity-0 shadow-sm transition-[translate,opacity] duration-300 ease-out data-[visible=false]:-translate-y-2 data-[visible=true]:translate-y-0 data-[visible=true]:opacity-100 motion-reduce:transition-none"
+        />
+        <MessageScrollerViewport
+          ref={scrollRef}
+          onScroll={handleScroll}
+          reconcileFollowOutput={Boolean(pendingMerlinMessage)}
+          onPointerDown={handleReaderPointerDown}
+          data-message-scroll
+          aria-label={`${context.name} messages`}
+          className="select-text"
         >
-          {pendingCount > 0
-            ? `${pendingCount} new message${pendingCount === 1 ? "" : "s"}`
-            : "Jump to present"}
-          <ArrowDown className="size-3.5" strokeWidth={2.5} />
-        </button>
-      )}
-    </div>
+          <MessageScrollerContent
+            aria-busy={Boolean(pendingMerlinMessage)}
+            className="justify-end py-4"
+          >
+            {hasOlder && (
+              <MessageScrollerItem>
+                <div
+                  ref={olderSentinelRef}
+                  className="flex justify-center py-3"
+                >
+                  {isFetchingOlder && (
+                    <Loader2 className="size-5 animate-spin text-muted-foreground motion-reduce:animate-none" />
+                  )}
+                </div>
+              </MessageScrollerItem>
+            )}
+
+            {orderedMessages.map((msg, i) => {
+              const previous = orderedMessages[i - 1]
+              const isDateBoundary =
+                !previous || !isSameDay(msg.createdAt, previous.createdAt)
+              const isWithinGroupWindow =
+                !!previous &&
+                differenceInMinutes(msg.createdAt, previous.createdAt) <=
+                  MESSAGE_GROUP_WINDOW_MINUTES
+              const showHeader =
+                isDateBoundary ||
+                !previous ||
+                previous.authorId !== msg.authorId ||
+                !isWithinGroupWindow ||
+                msg.type === "reply"
+
+              return (
+                <MessageScrollerItem key={msg.id} messageId={msg.id}>
+                  {isDateBoundary && <DateDivider date={msg.createdAt} />}
+                  <MessageItem
+                    message={msg}
+                    showHeader={showHeader}
+                    currentUserId={currentUserId}
+                    isBlocked={blockedUserIds?.has(msg.authorId) ?? false}
+                    onReact={onReact}
+                    onReply={onReply}
+                    onReplyInThread={onReplyInThread}
+                    onOpenThread={onOpenThread}
+                    isReplyTarget={replyingToId === msg.id}
+                    onDelete={onDelete}
+                    onEdit={onEdit}
+                    onTogglePin={onTogglePin}
+                    canPin={canPin}
+                    mentionCandidates={mentionCandidates}
+                    onJumpToMessage={handleMessageJump}
+                  />
+                </MessageScrollerItem>
+              )
+            })}
+
+            {hasNewer && (
+              <MessageScrollerItem>
+                <div
+                  ref={newerSentinelRef}
+                  className="flex justify-center py-3"
+                >
+                  {isFetchingNewer && (
+                    <Loader2 className="size-5 animate-spin text-muted-foreground motion-reduce:animate-none" />
+                  )}
+                </div>
+              </MessageScrollerItem>
+            )}
+
+            {threadActivities &&
+              threadActivities.length > 0 &&
+              onOpenThreadActivity &&
+              onDismissThreadActivity && (
+                <MessageScrollerItem className="pt-1.5">
+                  <ThreadActivityStack
+                    activities={threadActivities}
+                    onOpen={onOpenThreadActivity}
+                    onDismiss={onDismissThreadActivity}
+                  />
+                </MessageScrollerItem>
+              )}
+          </MessageScrollerContent>
+        </MessageScrollerViewport>
+
+        <MessageScrollerJumpToLatest
+          newestMessageId={messages[0]?.id ?? null}
+          isMerlinResponding={Boolean(pendingMerlinMessage)}
+          pendingCount={pendingCount}
+          hasUnloadedNewer={Boolean(hasNewer)}
+          onJumpToPresent={onJumpToPresent}
+        />
+      </MessageScroller>
+    </MessageScrollerProvider>
   )
-}
-
-const HIGHLIGHT_HOLD_MS = 3500
-const HIGHLIGHT_FADE_MS = 1200
-const REANCHOR_START_DELAY_MS = 350
-const REANCHOR_WINDOW_MS = 6000
-
-/** Scrolls a message into view and keeps it centered against late layout shifts. */
-export function scrollToMessage(messageId: string): boolean {
-  // Scope to the channel feed's scroll container so we don't match the thread
-  // panel's duplicate copy of the same message (it has no [data-message-scroll]).
-  const el = document.querySelector(
-    `[data-message-scroll] [data-message-id="${messageId}"]`
-  ) as HTMLElement | null
-  if (!el) return false
-
-  const scrollContainer = el.closest(
-    "[data-message-scroll]"
-  ) as HTMLElement | null
-  if (!scrollContainer) return false
-
-  const computeOffset = () => {
-    const containerRect = scrollContainer.getBoundingClientRect()
-    const elRect = el.getBoundingClientRect()
-    return (
-      elRect.top -
-      containerRect.top -
-      containerRect.height / 2 +
-      elRect.height / 2
-    )
-  }
-
-  scrollContainer.scrollBy({ top: computeOffset(), behavior: "smooth" })
-
-  // Defer observer setup until smooth scroll finishes (avoids mid-animation yanks).
-  const startObserverTimer = window.setTimeout(() => {
-    let cancelled = false
-    let rafScheduled = false
-
-    const recenter = () => {
-      if (cancelled) return
-      const offset = computeOffset()
-      if (Math.abs(offset) < 1) return
-      scrollContainer.scrollBy({ top: offset, behavior: "auto" })
-    }
-
-    // Coalesce bursts of observer fires into one recenter per frame.
-    const scheduleRecenter = () => {
-      if (cancelled || rafScheduled) return
-      rafScheduled = true
-      requestAnimationFrame(() => {
-        rafScheduled = false
-        recenter()
-      })
-    }
-
-    const resizeObserver = new ResizeObserver(scheduleRecenter)
-    const observeAll = () => {
-      const messageEls =
-        scrollContainer.querySelectorAll<HTMLElement>("[data-message-id]")
-      for (const msgEl of messageEls) {
-        resizeObserver.observe(msgEl)
-      }
-    }
-    observeAll()
-
-    // Observe messages added later (fetchOlder/fetchNewer pages).
-    const mutationObserver = new MutationObserver((mutations) => {
-      let needsRecenter = false
-      for (const mut of mutations) {
-        for (const node of mut.addedNodes) {
-          if (!(node instanceof HTMLElement)) continue
-          if (node.dataset?.messageId) {
-            resizeObserver.observe(node)
-            needsRecenter = true
-          }
-          const nested =
-            node.querySelectorAll?.<HTMLElement>("[data-message-id]")
-          if (nested?.length) {
-            for (const n of nested) resizeObserver.observe(n)
-            needsRecenter = true
-          }
-        }
-      }
-      if (needsRecenter) scheduleRecenter()
-    })
-    mutationObserver.observe(scrollContainer, {
-      childList: true,
-      subtree: true,
-    })
-
-    const cleanup = () => {
-      if (cancelled) return
-      cancelled = true
-      resizeObserver.disconnect()
-      mutationObserver.disconnect()
-      scrollContainer.removeEventListener("wheel", onUserInput)
-      scrollContainer.removeEventListener("touchmove", onUserInput)
-      window.removeEventListener("keydown", onKeyDown)
-    }
-
-    const onUserInput = () => cleanup()
-    const onKeyDown = (e: KeyboardEvent) => {
-      // Only bail on scroll-causing keys (typing elsewhere shouldn't tear down).
-      if (
-        e.key === "ArrowUp" ||
-        e.key === "ArrowDown" ||
-        e.key === "PageUp" ||
-        e.key === "PageDown" ||
-        e.key === "Home" ||
-        e.key === "End" ||
-        e.key === " "
-      ) {
-        cleanup()
-      }
-    }
-    scrollContainer.addEventListener("wheel", onUserInput, { passive: true })
-    scrollContainer.addEventListener("touchmove", onUserInput, {
-      passive: true,
-    })
-    window.addEventListener("keydown", onKeyDown)
-
-    window.setTimeout(cleanup, REANCHOR_WINDOW_MS)
-  }, REANCHOR_START_DELAY_MS)
-
-  el.style.transition = "background-color 0.3s ease"
-  el.style.backgroundColor =
-    "color-mix(in oklch, var(--primary) 15%, transparent)"
-  window.setTimeout(() => {
-    el.style.transition = `background-color ${HIGHLIGHT_FADE_MS}ms ease-out`
-    el.style.backgroundColor = ""
-  }, HIGHLIGHT_HOLD_MS)
-  window.setTimeout(
-    () => {
-      el.style.transition = ""
-    },
-    HIGHLIGHT_HOLD_MS + HIGHLIGHT_FADE_MS + 100
-  )
-
-  void startObserverTimer
-  return true
 }

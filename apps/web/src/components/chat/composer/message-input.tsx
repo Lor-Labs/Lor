@@ -1,4 +1,4 @@
-import { SentIcon } from "@hugeicons/core-free-icons"
+import { SentIcon, StopIcon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { Button } from "@repo/ui/components/button"
 import {
@@ -121,6 +121,11 @@ interface MessageInputProps {
   getUploadedAttachments: () => NonNullable<Message["attachments"]>
   isUploading: boolean
   onTyping?: () => void
+  onStop?: () => void
+  isStopping?: boolean
+  canSteerQueued?: boolean
+  onSteerQueued?: () => void
+  isSteeringQueued?: boolean
 }
 
 interface SuggestionPopupListRef {
@@ -430,11 +435,17 @@ export function MessageInput({
   getUploadedAttachments,
   isUploading,
   onTyping,
+  onStop,
+  isStopping = false,
+  canSteerQueued = false,
+  onSteerQueued,
+  isSteeringQueued = false,
 }: MessageInputProps) {
   const [plainText, setPlainText] = useState("")
   const [isAttachmentMenuOpen, setIsAttachmentMenuOpen] = useState(false)
   const mentionCandidatesRef = useRef<MentionCandidate[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const handleSubmitRef = useRef<() => void>(() => undefined)
   const onTypingRef = useRef(onTyping)
   onTypingRef.current = onTyping
 
@@ -529,6 +540,16 @@ export function MessageInput({
           class:
             "min-h-[24px] max-h-[200px] overflow-y-auto whitespace-pre-wrap break-words text-sm leading-6 text-foreground/90 outline-none [&_code]:rounded-[4px] [&_code]:border [&_code]:border-border/70 [&_code]:bg-primary/10 [&_code]:px-0.75 [&_code]:py-0.25 [&_code]:font-mono [&_code]:text-[0.92em] [&_code]:text-foreground [&_pre]:mt-1 [&_pre]:mb-0 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:border-border/70 [&_pre]:bg-muted/50 [&_pre]:px-2 [&_pre]:py-1.5 [&_pre]:font-mono [&_pre]:text-[0.92em] [&_pre]:leading-6 [&_pre_code]:rounded-none [&_pre_code]:border-0 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-foreground",
         },
+        handleKeyDown: (_view, event) => {
+          if (event.key !== "Enter" || event.shiftKey) return false
+          if (event.isComposing) return false
+          if (document.querySelector(SUGGESTION_MENU_SELECTOR)) return false
+
+          event.preventDefault()
+          event.stopPropagation()
+          handleSubmitRef.current()
+          return true
+        },
       },
       onCreate: ({ editor: tiptapEditor }) => {
         setPlainText(tiptapEditor.getText({ blockSeparator: "\n" }))
@@ -604,6 +625,23 @@ export function MessageInput({
     replyingTo,
     onCancelReply,
   ])
+  const handleSubmit = useCallback(() => {
+    const hasDraft =
+      plainText.trim().length > 0 || pendingAttachments.length > 0
+    if (hasDraft) {
+      handleSend()
+      return
+    }
+    if (canSteerQueued && !isSteeringQueued) onSteerQueued?.()
+  }, [
+    canSteerQueued,
+    handleSend,
+    isSteeringQueued,
+    onSteerQueued,
+    pendingAttachments.length,
+    plainText,
+  ])
+  handleSubmitRef.current = handleSubmit
 
   useEffect(() => {
     if (replyingTo && editor) {
@@ -616,26 +654,12 @@ export function MessageInput({
       return
     }
 
-    const isSuggestionMenuOpen = () =>
-      Boolean(document.querySelector(SUGGESTION_MENU_SELECTOR))
-
     const handleKeyDown = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "b") {
         event.preventDefault()
         event.stopPropagation()
         editor.chain().focus().toggleBold().run()
         return
-      }
-      if (event.key === "Enter" && !event.shiftKey) {
-        if (event.isComposing) {
-          return
-        }
-        if (isSuggestionMenuOpen()) {
-          return
-        }
-        event.preventDefault()
-        event.stopPropagation()
-        handleSend()
       }
     }
 
@@ -648,7 +672,7 @@ export function MessageInput({
         })
       }
     })
-  }, [editor, handleSend])
+  }, [editor])
 
   const trimmedValue = plainText.trim()
   const canSend =
@@ -657,6 +681,8 @@ export function MessageInput({
     !isSending &&
     !isUploading
   const isEmpty = trimmedValue.length === 0
+  const isStopMode =
+    Boolean(onStop) && isEmpty && pendingAttachments.length === 0
   const markState = useEditorState({
     editor,
     selector: ({ editor: tiptapEditor }) => {
@@ -975,14 +1001,26 @@ export function MessageInput({
               size="icon"
               variant="ghost"
               className={cn(
-                "size-7 text-muted-foreground transition-colors",
-                canSend && "text-primary hover:text-primary"
+                "size-7 transition-colors",
+                isStopMode
+                  ? "text-destructive hover:text-destructive"
+                  : "text-muted-foreground",
+                canSend && !isStopMode && "text-primary hover:text-primary"
               )}
-              onClick={handleSend}
-              disabled={!canSend}
-              aria-label="Send message"
+              onClick={isStopMode ? onStop : handleSend}
+              disabled={isStopMode ? isStopping : !canSend}
+              aria-label={
+                isStopMode
+                  ? isStopping
+                    ? "Stopping Merlin"
+                    : "Stop Merlin"
+                  : "Send message"
+              }
             >
-              <HugeiconsIcon icon={SentIcon} size={16} />
+              <HugeiconsIcon
+                icon={isStopMode ? StopIcon : SentIcon}
+                size={16}
+              />
             </Button>
           </div>
         </div>

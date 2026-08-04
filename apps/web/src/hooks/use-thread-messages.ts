@@ -8,7 +8,11 @@ import type { Message } from "@/lib/api-types"
 import { realtimeMessageToMessage } from "@/lib/realtime-adapter"
 import type { AppSocket } from "@/lib/socket"
 
-export type ThreadPageParam = { before: string } | { after: string } | null
+export type ThreadPageParam =
+  | { around: string }
+  | { before: string }
+  | { after: string }
+  | null
 
 export type ThreadPage = {
   data: Message[]
@@ -22,6 +26,7 @@ export type ThreadPage = {
 }
 
 type FetchPageParams = {
+  around?: string
   before?: string
   after?: string
   limit: number
@@ -64,7 +69,8 @@ export function useThreadMessages({
     queryFn: async ({ pageParam }) => {
       const params: FetchPageParams = { limit: perPage }
       if (pageParam) {
-        if ("before" in pageParam) params.before = pageParam.before
+        if ("around" in pageParam) params.around = pageParam.around
+        else if ("before" in pageParam) params.before = pageParam.before
         else if ("after" in pageParam) params.after = pageParam.after
       }
       return fetchPage(params)
@@ -140,13 +146,71 @@ export function useThreadMessages({
         deduped.push(m)
       }
     }
-    return deduped
+    return deduped.sort((a, b) => {
+      const timeDifference =
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      return timeDifference || b.id.localeCompare(a.id)
+    })
   }, [query.data])
 
   // pages[0] is the initial (newest) page; older pages append after it.
   const root = query.data?.pages[0]?.root ?? null
 
   const fetchOlder = useCallback(() => query.fetchNextPage(), [query])
+
+  const ensureMessage = useCallback(
+    async (messageId: string) => {
+      const cached = queryClient.getQueryData<
+        InfiniteData<ThreadPage, ThreadPageParam>
+      >(["thread", threadRootId])
+      if (
+        cached?.pages.some((page) =>
+          page.data.some((message) => message.id === messageId)
+        )
+      ) {
+        return true
+      }
+
+      const page = await fetchPage({ around: messageId, limit: perPage })
+      if (!page.data.some((message) => message.id === messageId)) return false
+
+      queryClient.setQueryData<InfiniteData<ThreadPage, ThreadPageParam>>(
+        ["thread", threadRootId],
+        (old) => {
+          if (!old) return old
+          if (
+            old.pages.some((existingPage) =>
+              existingPage.data.some((message) => message.id === messageId)
+            )
+          ) {
+            return old
+          }
+          const existingIds = new Set(
+            old.pages.flatMap((existingPage) =>
+              existingPage.data.map((message) => message.id)
+            )
+          )
+          const contextMessages = page.data.filter(
+            (message) => !existingIds.has(message.id)
+          )
+          if (contextMessages.length === 0) return old
+          return {
+            ...old,
+            pages: old.pages.map((existingPage, index) =>
+              index === 0
+                ? {
+                    ...existingPage,
+                    data: [...existingPage.data, ...contextMessages],
+                  }
+                : existingPage
+            ),
+          }
+        }
+      )
+      return true
+    },
+    [fetchPage, perPage, queryClient, threadRootId]
+  )
 
   return {
     messages,
@@ -157,5 +221,6 @@ export function useThreadMessages({
     fetchOlder,
     hasOlder: query.hasNextPage,
     isFetchingOlder: query.isFetchingNextPage,
+    ensureMessage,
   }
 }

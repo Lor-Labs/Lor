@@ -1,19 +1,9 @@
+import type { LegendListRef } from "@legendapp/list/react-native"
 import { formatDateDivider } from "@repo/utils/date"
-import {
-  type ReactElement,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from "react"
-import {
-  FlatList,
-  Pressable,
-  type ScrollViewProps,
-  View,
-  type ViewToken,
-} from "react-native"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { Pressable, View } from "react-native"
 import Animated, { FadeInUp, FadeOutUp } from "react-native-reanimated"
+import type { ChatMessageListKeyboardProps } from "@/components/chat-keyboard-layout"
 import { MessageActionMenu } from "@/components/message-action-menu"
 import {
   areMessagesOnSameDay,
@@ -23,6 +13,7 @@ import {
   MessageRow,
   messageDisplayName,
 } from "@/components/message-row"
+import { MobileMessageScroller } from "@/components/mobile-message-scroller"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatePanel } from "@/components/ui/state-panel"
 import { useMessageActionPress } from "@/hooks/use-message-action-press"
@@ -49,7 +40,8 @@ export function MessageList({
   editingMessageId,
   replyingToId,
   focusMessageId,
-  renderScrollComponent,
+  keyboardProps,
+  listKey,
 }: {
   avatarColorByUserId?: ReadonlyMap<string, string>
   messages: Message[]
@@ -70,66 +62,87 @@ export function MessageList({
   editingMessageId?: string | null
   replyingToId?: string | null
   focusMessageId?: string | null
-  renderScrollComponent?: (
-    props: ScrollViewProps
-  ) => ReactElement<ScrollViewProps>
+  keyboardProps: ChatMessageListKeyboardProps
+  listKey: string
 }) {
   const [selectedMessage, setSelectedMessage] = useState<Message | null>(null)
   const [jumpTargetId, setJumpTargetId] = useState<string | null>(null)
   const [stickyDate, setStickyDate] = useState<string | null>(null)
-  const listRef = useRef<FlatList<Message>>(null)
-  const messageCountRef = useRef(0)
-  messageCountRef.current = messages.length
+  const listRef = useRef<LegendListRef>(null)
+  const externalFocusRef = useRef<string | null>(null)
+  const scrolledJumpTargetRef = useRef<string | null>(null)
+  const orderedMessages = useMemo(() => [...messages].reverse(), [messages])
   const { handleLongPress, highlightedMessageId } =
     useMessageActionPress(setSelectedMessage)
 
-  // In an inverted list the highest-index viewable item sits at the visual
-  // top; its day is what the floating pill shows. Hidden once the oldest
-  // loaded message (whose inline divider marks the start) is on screen.
-  const handleViewableItemsChanged = useRef(
-    ({ viewableItems }: { viewableItems: ViewToken<Message>[] }) => {
-      let top: ViewToken<Message> | null = null
-      for (const token of viewableItems) {
-        if (
-          token.index != null &&
-          (top?.index == null || token.index > top.index)
-        ) {
-          top = token
-        }
-      }
-      setStickyDate(
-        !top || top.index === messageCountRef.current - 1
-          ? null
-          : formatDateDivider(top.item.createdAt)
-      )
-    }
-  ).current
-  const viewabilityConfig = useRef({
-    viewAreaCoveragePercentThreshold: 0,
-  }).current
+  const handleFirstVisibleItemChanged = useCallback(
+    ({ index, item }: { index: number; item: Message }) => {
+      setStickyDate(index === 0 ? null : formatDateDivider(item.createdAt))
+    },
+    []
+  )
 
-  useEffect(() => {
-    if (focusMessageId) setJumpTargetId(focusMessageId)
-  }, [focusMessageId])
+  const scrollToJumpTarget = useCallback(
+    (messageId: string) => {
+      const index = orderedMessages.findIndex(
+        (message) => message.id === messageId
+      )
+      const list = listRef.current
+      if (index < 0 || !list) return false
+      void list.scrollToIndex({
+        animated: true,
+        index,
+        viewPosition: 0.5,
+      })
+      return true
+    },
+    [orderedMessages]
+  )
 
   useEffect(() => {
     if (!jumpTargetId) return
-    const index = messages.findIndex((message) => message.id === jumpTargetId)
-    if (index < 0) return
-    listRef.current?.scrollToIndex({ animated: true, index, viewPosition: 0.5 })
+    if (
+      scrolledJumpTargetRef.current !== jumpTargetId &&
+      scrollToJumpTarget(jumpTargetId)
+    ) {
+      scrolledJumpTargetRef.current = jumpTargetId
+    }
+  }, [jumpTargetId, scrollToJumpTarget])
+
+  useEffect(() => {
+    if (!jumpTargetId) {
+      scrolledJumpTargetRef.current = null
+      return
+    }
     const timeout = setTimeout(() => setJumpTargetId(null), 3500)
     return () => clearTimeout(timeout)
-  }, [jumpTargetId, messages])
+  }, [jumpTargetId])
 
   const jumpToMessage = useCallback(
     async (messageId: string) => {
-      setJumpTargetId(messageId)
-      if (messages.some((message) => message.id === messageId)) return
+      if (messages.some((message) => message.id === messageId)) {
+        setJumpTargetId(messageId)
+        return
+      }
       const loaded = await onLoadAround?.(messageId)
-      if (!loaded) setJumpTargetId(null)
+      if (!loaded) {
+        setJumpTargetId(null)
+        return
+      }
+      requestAnimationFrame(() => setJumpTargetId(messageId))
     },
     [messages, onLoadAround]
   )
+
+  useEffect(() => {
+    if (!focusMessageId) {
+      externalFocusRef.current = null
+      return
+    }
+    if (externalFocusRef.current === focusMessageId) return
+    externalFocusRef.current = focusMessageId
+    void jumpToMessage(focusMessageId)
+  }, [focusMessageId, jumpToMessage])
 
   if (isLoading) return <MessageListSkeleton />
   if (error) {
@@ -175,32 +188,22 @@ export function MessageList({
   return (
     <>
       <View className="relative flex-1">
-        <FlatList
+        <MobileMessageScroller
+          key={listKey}
           ref={listRef}
           className="flex-1 bg-background"
-          data={messages}
-          inverted
-          keyboardDismissMode="interactive"
-          keyboardShouldPersistTaps="handled"
+          data={orderedMessages}
+          estimatedItemSize={88}
+          initialScrollAtEnd
+          isMerlinResponding={messages.some(
+            (message) => message.status === "pending"
+          )}
           keyExtractor={(message) => message.id}
-          renderScrollComponent={renderScrollComponent}
-          onViewableItemsChanged={handleViewableItemsChanged}
-          viewabilityConfig={viewabilityConfig}
-          onScrollToIndexFailed={({ index, averageItemLength }) => {
-            listRef.current?.scrollToOffset({
-              animated: false,
-              offset: Math.max(0, index * averageItemLength),
-            })
-            setTimeout(() => {
-              listRef.current?.scrollToIndex({
-                animated: true,
-                index,
-                viewPosition: 0.5,
-              })
-            }, 80)
-          }}
+          keyboardProps={keyboardProps}
+          newestItemKey={orderedMessages.at(-1)?.id}
+          onFirstVisibleItemChanged={handleFirstVisibleItemChanged}
           renderItem={({ item, index }) => {
-            const older = messages[index + 1]
+            const older = orderedMessages[index - 1]
             const showHeader =
               !older ||
               item.type === "reply" ||

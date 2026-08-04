@@ -377,12 +377,17 @@ export default function ChannelScreen() {
           </IconButton>
         </View>
         <ChatKeyboardLayout
-          renderComposer={({ inputNativeID, onCustomInputViewChange }) => (
+          renderComposer={({
+            inputNativeID,
+            onCustomInputViewChange,
+            onInputLayout,
+          }) => (
             <MessageComposer
               channelId={channelId}
               channelName={channelName}
               editingMessage={editingMessage}
               inputNativeID={inputNativeID}
+              onInputLayout={onInputLayout}
               isConnected={isSocketConnected}
               isMentionCandidatesLoading={mentions.isLoading}
               isSending={chat.isSending || isSavingEdit}
@@ -419,7 +424,7 @@ export default function ChannelScreen() {
               }
             />
           )}
-          renderMessageList={(renderScrollComponent) => (
+          renderMessageList={(keyboardProps) => (
             <MessageList
               avatarColorByUserId={avatarColorByUserId}
               channelName={channelName}
@@ -428,6 +433,8 @@ export default function ChannelScreen() {
               error={chat.error}
               focusMessageId={focusedMessageId}
               isLoading={chat.isLoading}
+              keyboardProps={keyboardProps}
+              listKey={`channel-${channelId}`}
               messages={visibleMessages}
               onLoadAround={chat.loadAround}
               onOpenThread={openThread}
@@ -444,7 +451,6 @@ export default function ChannelScreen() {
                     }
                   : undefined
               }
-              renderScrollComponent={renderScrollComponent}
               replyingToId={replyingTo?.id}
             />
           )}

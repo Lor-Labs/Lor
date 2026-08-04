@@ -80,6 +80,7 @@ export function useThreadMessages({
   const [participants, setParticipants] = useState<ThreadParticipant[]>([])
   const [totalReplyCount, setTotalReplyCount] = useState(0)
   const [isLoading, setIsLoading] = useState(true)
+  const [isRefreshing, setIsRefreshing] = useState(false)
   const [isLoadingOlder, setIsLoadingOlder] = useState(false)
   const [reachedOldest, setReachedOldest] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -177,11 +178,16 @@ export function useThreadMessages({
           setError(null)
           setIsMissing(true)
           setIsLoading(false)
+          setIsRefreshing(false)
         }
         return null
       }
 
-      if (!silent) setIsLoading(true)
+      if (silent) setIsRefreshing(true)
+      else {
+        setIsLoading(true)
+        setIsRefreshing(false)
+      }
       setError(null)
       setPaginationError(null)
       setIsMissing(false)
@@ -263,6 +269,7 @@ export function useThreadMessages({
           requestIdentity === identityRef.current
         ) {
           setIsLoading(false)
+          setIsRefreshing(false)
         }
       }
     },
@@ -290,6 +297,7 @@ export function useThreadMessages({
     setRoot(cached?.root ?? null)
     setParticipants(cached?.participants ?? [])
     setTotalReplyCount(cached?.totalReplyCount ?? 0)
+    setIsRefreshing(false)
     setIsLoadingOlder(false)
     setReachedOldest(cached?.reachedOldest ?? true)
     setPaginationError(null)
@@ -1036,6 +1044,7 @@ export function useThreadMessages({
     participants,
     totalReplyCount,
     isLoading,
+    isRefreshing,
     isLoadingOlder,
     hasOlder: !reachedOldest,
     error,

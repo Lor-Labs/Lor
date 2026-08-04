@@ -48,6 +48,7 @@ import { claimAgentRun, LeaseLostError } from "@/lib/agent-run"
 import { logger } from "@/lib/logger"
 import { noopRunEventWriter } from "@/lib/run-events"
 import { drainScopeQueue } from "@/lib/run-queue"
+import { updateStreamMentionState } from "@/lib/stream-mentions"
 
 // Matches the worker's createClient (bare RedisClientType mismatches its generics).
 type RedisClient = ReturnType<typeof createClient>
@@ -211,6 +212,8 @@ export function createMerlinRespondProcessor(
             ...(runWriter.runId ? { runId: runWriter.runId } : {}),
             ...(seq !== undefined ? { seq } : {}),
           })
+          let streamedContent = ""
+          let streamMentionRoster: RealtimeMessageMention[] = []
           runWriter.append({ kind: "state", state: "working" })
 
           const emit = (
@@ -220,6 +223,15 @@ export function createMerlinRespondProcessor(
             replace?: boolean,
             mentions?: RealtimeMessageMention[]
           ) => {
+            const streamState = updateStreamMentionState({
+              content: streamedContent,
+              delta,
+              replace,
+              roster: streamMentionRoster,
+            })
+            streamedContent = streamState.content
+            const resolvedMentions =
+              mentions && mentions.length > 0 ? mentions : streamState.mentions
             const seq =
               delta || replace
                 ? runWriter.append({
@@ -236,7 +248,9 @@ export function createMerlinRespondProcessor(
               done,
               ...(status ? { status } : {}),
               ...(replace ? { replace: true } : {}),
-              ...(mentions && mentions.length > 0 ? { mentions } : {}),
+              ...(resolvedMentions.length > 0 || replace
+                ? { mentions: resolvedMentions }
+                : {}),
               ...runRef(seq),
             })
           }
@@ -394,6 +408,27 @@ export function createMerlinRespondProcessor(
               return
             }
             workspaceId = channel.workspaceId
+            streamMentionRoster = await db
+              .select({
+                id: schema.user.id,
+                name: schema.user.name,
+                username: schema.user.username,
+                displayUsername: schema.user.displayUsername,
+                image: schema.user.image,
+                avatarColor: schema.workspaceMember.avatarColor,
+              })
+              .from(schema.workspaceMember)
+              .innerJoin(
+                schema.user,
+                eq(schema.workspaceMember.userId, schema.user.id)
+              )
+              .where(
+                and(
+                  eq(schema.workspaceMember.workspaceId, workspaceId),
+                  ne(schema.user.id, MERLIN_USER_ID)
+                )
+              )
+              .catch(() => [])
 
             // Pre-flight credit gate. Autumn failures never land here — the
             // check fails open inside @repo/billing (serve, log, skip debit).

@@ -1,6 +1,13 @@
 import { MessageMultiple01Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
+import {
+  MessageScroller,
+  MessageScrollerContent,
+  MessageScrollerItem,
+  MessageScrollerProvider,
+  MessageScrollerViewport,
+} from "@repo/ui/components/message-scroller"
 import { Skeleton } from "@repo/ui/components/skeleton"
 import { SidebarToggleIcon } from "@repo/ui/components/unlumen-ui/sidebar-toggle-icon"
 import { useIsMobile } from "@repo/ui/hooks/use-mobile"
@@ -12,13 +19,26 @@ import {
 } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { ArrowLeft, CornerUpRight, Loader2 } from "lucide-react"
-import { motion } from "motion/react"
-import { useCallback, useEffect, useMemo, useRef } from "react"
+import {
+  type PointerEvent as ReactPointerEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+} from "react"
 import { useDropzone } from "react-dropzone"
+import { toast } from "sonner"
 import { MessageInput } from "@/components/chat/composer/message-input"
 import { DropZoneOverlay } from "@/components/chat/drop-zone-overlay"
 import { MessageItem } from "@/components/chat/message-item"
 import { scrollToMessage } from "@/components/chat/message-list"
+import {
+  highlightMessage,
+  MessageScrollerCommandBridge,
+  MessageScrollerJumpToLatest,
+  signalMessageScrollerInteraction,
+  useRegisteredMessageScroller,
+} from "@/components/chat/message-scroller-controls"
 import { RunQueuePill } from "@/components/chat/run-queue-pill"
 import { TypingIndicator } from "@/components/chat/typing-indicator"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
@@ -30,8 +50,10 @@ import { useMessageDeletion } from "@/hooks/use-message-deletion"
 import { useMessageEditing } from "@/hooks/use-message-editing"
 import { useMessageReactions } from "@/hooks/use-message-reactions"
 import { useMessageSending } from "@/hooks/use-message-sending"
+import { useQueuedMessageSteering } from "@/hooks/use-queued-message-steering"
 import { useReplyState } from "@/hooks/use-reply-state"
 import { useRunQueue } from "@/hooks/use-run-queue"
+import { useStopMerlinRun } from "@/hooks/use-stop-merlin-run"
 import { useThreadMessages } from "@/hooks/use-thread-messages"
 import { useTypingIndicator } from "@/hooks/use-typing-indicator"
 import { apiClient } from "@/lib/api-client"
@@ -109,8 +131,14 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
   )
 
   const fetchThreadPage = useCallback(
-    async (params: { before?: string; after?: string; limit: number }) => {
+    async (params: {
+      around?: string
+      before?: string
+      after?: string
+      limit: number
+    }) => {
       const query: Record<string, string> = { limit: String(params.limit) }
+      if (params.around) query.around = params.around
       if (params.before) query.before = params.before
       if (params.after) query.after = params.after
       const res = await apiClient.v1.workspaces[":workspaceSlug"].channels[
@@ -148,6 +176,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
     fetchOlder,
     hasOlder,
     isFetchingOlder,
+    ensureMessage,
   } = useThreadMessages({
     channelId: view.channelId,
     threadRootId: view.threadRootId,
@@ -167,10 +196,12 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
 
   // Messages queued behind the active run — surfaced above the composer with
   // steer/remove actions while Merlin is working.
-  const pendingMerlinMessageId = useMemo(
-    () => messages.find((m) => m.status === "pending")?.id,
+  const pendingMerlinMessage = useMemo(
+    () => messages.find((message) => message.status === "pending"),
     [messages]
   )
+  const pendingMerlinMessageId = pendingMerlinMessage?.id
+  const stopMerlin = useStopMerlinRun()
   const { queuedIds, addOptimistic, removeOptimistic } = useRunQueue({
     socket,
     channelId: view.channelId,
@@ -187,6 +218,11 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
         .filter((m): m is Message => Boolean(m)),
     [queuedIds, messages]
   )
+  const queuedMessageSteering = useQueuedMessageSteering({
+    messages: queuedMessages,
+    currentUserId,
+    pendingNonces,
+  })
 
   const { handleReact } = useMessageReactions({
     socket,
@@ -277,49 +313,75 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
     () => [...messages].reverse().filter((m) => !queuedIds.includes(m.id)),
     [messages, queuedIds]
   )
+  // Anchors are only for the initial view of an existing thread. Freeze them
+  // from the first loaded snapshot so a message sent while this panel is open
+  // stays at the live edge instead of creating an empty anchored viewport.
+  const openingAnchorsRef = useRef({
+    threadRootId: view.threadRootId,
+    initialized: false,
+    messageIds: new Set<string>(),
+  })
+  if (openingAnchorsRef.current.threadRootId !== view.threadRootId) {
+    openingAnchorsRef.current = {
+      threadRootId: view.threadRootId,
+      initialized: false,
+      messageIds: new Set<string>(),
+    }
+  }
+  if (!isLoading && !openingAnchorsRef.current.initialized) {
+    openingAnchorsRef.current.initialized = true
+    openingAnchorsRef.current.messageIds = new Set(
+      messages
+        .filter((message) => message.status !== "pending")
+        .map((message) => message.merlinTriggerMessageId)
+        .filter((id): id is string => Boolean(id))
+    )
+  }
+  const openingMerlinTriggerMessageIds = openingAnchorsRef.current.messageIds
 
-  // Auto-scroll to bottom when new replies arrive, but only if the user is
-  // already near the bottom (don't yank them while they're reading older
-  // context).
   const scrollRef = useRef<HTMLDivElement>(null)
-  const isNearBottomRef = useRef(true)
-  const handleScroll = useCallback(() => {
-    const el = scrollRef.current
-    if (!el) return
-    isNearBottomRef.current =
-      el.scrollHeight - el.scrollTop - el.clientHeight < 150
-  }, [])
+  const {
+    commandRef: messageScrollCommandRef,
+    register: registerScrollCommand,
+  } = useRegisteredMessageScroller()
 
   // Scoped to this panel's scroll container so it never grabs the channel
   // feed's copy of the same message id (the root appears in both).
-  const handleJumpWithinThread = useCallback((messageId: string) => {
-    const container = scrollRef.current
-    if (!container) return
-    const el = container.querySelector(
-      `[data-message-id="${CSS.escape(messageId)}"]`
-    ) as HTMLElement | null
-    if (!el) return
-    el.scrollIntoView({ behavior: "smooth", block: "center" })
-    el.style.transition = "background-color 0.3s ease"
-    el.style.backgroundColor =
-      "color-mix(in oklch, var(--primary) 15%, transparent)"
-    window.setTimeout(() => {
-      el.style.transition = "background-color 1200ms ease-out"
-      el.style.backgroundColor = ""
-    }, 2000)
-  }, [])
-  const lastNewestIdRef = useRef<string | null>(null)
-  useEffect(() => {
-    const newest = orderedReplies[orderedReplies.length - 1]?.id ?? null
-    if (newest === lastNewestIdRef.current) return
-    const firstRender = lastNewestIdRef.current === null
-    lastNewestIdRef.current = newest
-    if (firstRender || isNearBottomRef.current) {
-      const el = scrollRef.current
-      if (el) el.scrollTop = el.scrollHeight
-    }
-  }, [orderedReplies])
+  const handleJumpWithinThread = useCallback(
+    (messageId: string) => {
+      const scrollToTarget = () => {
+        const didScroll =
+          messageScrollCommandRef.current?.(messageId, {
+            align: "center",
+            behavior: "smooth",
+          }) ?? false
+        if (didScroll) {
+          window.requestAnimationFrame(() =>
+            highlightMessage(messageId, scrollRef.current ?? document)
+          )
+        }
+        return didScroll
+      }
 
+      if (scrollToTarget()) return
+      void ensureMessage(messageId)
+        .then((loaded) => {
+          if (!loaded) return
+          window.requestAnimationFrame(scrollToTarget)
+        })
+        .catch(() => toast.error("Couldn't load that message"))
+    },
+    [ensureMessage, messageScrollCommandRef]
+  )
+  const handleReaderPointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      signalMessageScrollerInteraction(
+        event.target,
+        messageScrollCommandRef.current
+      )
+    },
+    [messageScrollCommandRef]
+  )
   // Load-older sentinel at the top.
   const olderSentinelRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -403,139 +465,154 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
         </button>
       </div>
 
-      <motion.div
-        ref={scrollRef}
-        onScroll={handleScroll}
-        className="flex min-h-0 flex-1 flex-col overflow-y-auto"
-        initial="hidden"
-        animate="show"
-        variants={{
-          hidden: {},
-          show: { transition: { staggerChildren: 0.04, delayChildren: 0.08 } },
-        }}
+      <MessageScrollerProvider
+        key={view.threadRootId}
+        autoScroll
+        defaultScrollPosition="last-anchor"
+        scrollEdgeThreshold={16}
+        scrollPreviousItemPeek={64}
       >
-        {rootMessage && (
-          <motion.div
-            variants={{
-              hidden: { opacity: 0, y: 8 },
-              show: {
-                opacity: 1,
-                y: 0,
-                transition: { duration: 0.32, ease: [0.16, 1, 0.3, 1] },
-              },
-            }}
-            className="pt-2"
+        <MessageScrollerCommandBridge register={registerScrollCommand} />
+        <MessageScroller className="min-h-0 flex-1">
+          <MessageScrollerViewport
+            ref={scrollRef}
+            onPointerDown={handleReaderPointerDown}
+            reconcileFollowOutput={Boolean(pendingMerlinMessage)}
+            aria-label="Thread messages"
           >
-            <MessageItem
-              message={{ ...rootMessage, threadSummary: null }}
-              showHeader={true}
-              currentUserId={currentUserId}
-              isReplyTarget={replyingTo?.id === rootMessage.id}
-              onReact={handleReact}
-              onReply={setReplyingTo}
-              onDelete={handleDelete}
-              onEdit={handleEdit}
-              onJumpToMessage={handleJumpWithinThread}
-              mentionCandidates={mentionCandidates}
-            />
-          </motion.div>
-        )}
+            <MessageScrollerContent
+              aria-busy={Boolean(pendingMerlinMessage)}
+              className="justify-end"
+            >
+              {rootMessage && (
+                <MessageScrollerItem
+                  messageId={rootMessage.id}
+                  scrollAnchor={openingMerlinTriggerMessageIds.has(
+                    rootMessage.id
+                  )}
+                  className="pt-2"
+                >
+                  <MessageItem
+                    message={{ ...rootMessage, threadSummary: null }}
+                    showHeader={true}
+                    currentUserId={currentUserId}
+                    isReplyTarget={replyingTo?.id === rootMessage.id}
+                    onReact={handleReact}
+                    onReply={setReplyingTo}
+                    onDelete={handleDelete}
+                    onEdit={handleEdit}
+                    onJumpToMessage={handleJumpWithinThread}
+                    mentionCandidates={mentionCandidates}
+                    showMerlinRunControls={false}
+                  />
+                </MessageScrollerItem>
+              )}
 
-        {showDivider && (
-          <div className="flex items-center gap-3 px-4 pt-3 pb-1 text-[12px] text-muted-foreground">
-            <span className="font-medium">
-              {dividerCount} {dividerCount === 1 ? "reply" : "replies"}
-            </span>
-            <div className="h-px flex-1 bg-border/60" />
-          </div>
-        )}
-
-        {hasOlder && (
-          <div ref={olderSentinelRef} className="flex justify-center py-3">
-            {isFetchingOlder && (
-              <Loader2 className="size-5 animate-spin text-muted-foreground" />
-            )}
-          </div>
-        )}
-
-        {isLoading && orderedReplies.length === 0 ? (
-          <div className="flex flex-col py-2">
-            {THREAD_SKELETON_GROUPS.map((group) => (
-              <div key={group.key} className="px-4 py-1">
-                <div className="flex gap-3">
-                  <Skeleton className="mt-0.5 size-9 shrink-0 rounded-full" />
-                  <div className="flex-1 space-y-2">
-                    <div className="flex items-baseline gap-2">
-                      <Skeleton
-                        className="h-3 rounded"
-                        style={{ width: group.nameWidth }}
-                      />
-                      <Skeleton className="h-2.5 w-10 rounded" />
-                    </div>
-                    {group.lines.map((width, i) => (
-                      <Skeleton
-                        key={`${group.key}-${i}`}
-                        className="h-3 rounded"
-                        style={{ width }}
-                      />
-                    ))}
+              {showDivider && (
+                <MessageScrollerItem>
+                  <div className="flex items-center gap-3 px-4 pt-3 pb-1 text-[12px] text-muted-foreground">
+                    <span className="font-medium">
+                      {dividerCount} {dividerCount === 1 ? "reply" : "replies"}
+                    </span>
+                    <div className="h-px flex-1 bg-border/60" />
                   </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          orderedReplies.map((msg, i) => {
-            const prev = orderedReplies[i - 1]
-            const isDateBoundary =
-              !prev || !isSameDay(msg.createdAt, prev.createdAt)
-            const isWithinGroupWindow =
-              !!prev &&
-              differenceInMinutes(msg.createdAt, prev.createdAt) <=
-                MESSAGE_GROUP_WINDOW_MINUTES
-            const showHeader =
-              isDateBoundary ||
-              !prev ||
-              prev.authorId !== msg.authorId ||
-              !isWithinGroupWindow
-            return (
-              <motion.div
-                key={msg.id}
-                variants={{
-                  hidden: { opacity: 0, y: 6 },
-                  show: {
-                    opacity: 1,
-                    y: 0,
-                    transition: { duration: 0.25, ease: [0.16, 1, 0.3, 1] },
-                  },
-                }}
-              >
-                <MessageItem
-                  message={msg}
-                  showHeader={showHeader}
-                  currentUserId={currentUserId}
-                  isReplyTarget={replyingTo?.id === msg.id}
-                  onReact={handleReact}
-                  onReply={setReplyingTo}
-                  onDelete={handleDelete}
-                  onEdit={handleEdit}
-                  onJumpToMessage={handleJumpWithinThread}
-                  mentionCandidates={mentionCandidates}
-                />
-              </motion.div>
-            )
-          })
-        )}
+                </MessageScrollerItem>
+              )}
 
-        {/* Composer sits right under the messages (Slack pattern). When the
-            thread is short the extra space falls below the composer instead
-            of between it and the last reply. */}
-        <div className="mt-2">
+              {hasOlder && (
+                <MessageScrollerItem>
+                  <div
+                    ref={olderSentinelRef}
+                    className="flex justify-center py-3"
+                  >
+                    {isFetchingOlder && (
+                      <Loader2 className="size-5 animate-spin text-muted-foreground motion-reduce:animate-none" />
+                    )}
+                  </div>
+                </MessageScrollerItem>
+              )}
+
+              {isLoading && orderedReplies.length === 0 ? (
+                <MessageScrollerItem className="flex flex-col py-2">
+                  {THREAD_SKELETON_GROUPS.map((group) => (
+                    <div key={group.key} className="px-4 py-1">
+                      <div className="flex gap-3">
+                        <Skeleton className="mt-0.5 size-9 shrink-0 rounded-full" />
+                        <div className="flex-1 space-y-2">
+                          <div className="flex items-baseline gap-2">
+                            <Skeleton
+                              className="h-3 rounded"
+                              style={{ width: group.nameWidth }}
+                            />
+                            <Skeleton className="h-2.5 w-10 rounded" />
+                          </div>
+                          {group.lines.map((width, i) => (
+                            <Skeleton
+                              key={`${group.key}-${i}`}
+                              className="h-3 rounded"
+                              style={{ width }}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </MessageScrollerItem>
+              ) : (
+                orderedReplies.map((msg, i) => {
+                  const prev = orderedReplies[i - 1]
+                  const isDateBoundary =
+                    !prev || !isSameDay(msg.createdAt, prev.createdAt)
+                  const isWithinGroupWindow =
+                    !!prev &&
+                    differenceInMinutes(msg.createdAt, prev.createdAt) <=
+                      MESSAGE_GROUP_WINDOW_MINUTES
+                  const showHeader =
+                    isDateBoundary ||
+                    !prev ||
+                    prev.authorId !== msg.authorId ||
+                    !isWithinGroupWindow
+                  return (
+                    <MessageScrollerItem
+                      key={msg.id}
+                      messageId={msg.id}
+                      scrollAnchor={openingMerlinTriggerMessageIds.has(msg.id)}
+                    >
+                      <MessageItem
+                        message={msg}
+                        showHeader={showHeader}
+                        currentUserId={currentUserId}
+                        isReplyTarget={replyingTo?.id === msg.id}
+                        onReact={handleReact}
+                        onReply={setReplyingTo}
+                        onDelete={handleDelete}
+                        onEdit={handleEdit}
+                        onJumpToMessage={handleJumpWithinThread}
+                        mentionCandidates={mentionCandidates}
+                        showMerlinRunControls={false}
+                      />
+                    </MessageScrollerItem>
+                  )
+                })
+              )}
+            </MessageScrollerContent>
+          </MessageScrollerViewport>
+          <MessageScrollerJumpToLatest
+            newestMessageId={
+              orderedReplies.at(-1)?.id ?? rootMessage?.id ?? null
+            }
+            isMerlinResponding={Boolean(pendingMerlinMessage)}
+          />
+        </MessageScroller>
+
+        <div className="shrink-0 pt-2">
           <TypingIndicator users={typingUsers} />
           <RunQueuePill
             messages={queuedMessages}
             currentUserId={currentUserId}
             pendingNonces={pendingNonces}
+            onSteer={queuedMessageSteering.steerMessage}
+            steeringMessageId={queuedMessageSteering.steeringMessageId}
           />
           <MessageInput
             context={channelContext}
@@ -558,9 +635,21 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
             getUploadedAttachments={fileUpload.getUploadedAttachments}
             isUploading={fileUpload.isUploading}
             onTyping={emitTyping}
+            onStop={
+              pendingMerlinMessage
+                ? () => stopMerlin.mutate(pendingMerlinMessage)
+                : undefined
+            }
+            isStopping={
+              stopMerlin.isPending ||
+              Boolean(pendingMerlinMessage?.stopRequested)
+            }
+            canSteerQueued={queuedMessageSteering.canSteerLatestOwnMessage}
+            onSteerQueued={queuedMessageSteering.steerLatestOwnMessage}
+            isSteeringQueued={queuedMessageSteering.isSteering}
           />
         </div>
-      </motion.div>
+      </MessageScrollerProvider>
     </div>
   )
 }

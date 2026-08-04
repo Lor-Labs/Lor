@@ -8,7 +8,7 @@ import { ChatSkeleton } from "@/components/chat/chat-skeleton"
 import { MessageInput } from "@/components/chat/composer/message-input"
 import { DropZoneOverlay } from "@/components/chat/drop-zone-overlay"
 import { ChatHeader } from "@/components/chat/header"
-import { MessageList, scrollToMessage } from "@/components/chat/message-list"
+import { MessageList } from "@/components/chat/message-list"
 import { RunQueuePill } from "@/components/chat/run-queue-pill"
 import { TypingIndicator } from "@/components/chat/typing-indicator"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
@@ -22,6 +22,7 @@ import { useMessageEditing } from "@/hooks/use-message-editing"
 import { useMessagePinning } from "@/hooks/use-message-pinning"
 import { useMessageReactions } from "@/hooks/use-message-reactions"
 import { useMessageSending } from "@/hooks/use-message-sending"
+import { useQueuedMessageSteering } from "@/hooks/use-queued-message-steering"
 import { useReplyState } from "@/hooks/use-reply-state"
 import { useRunQueue } from "@/hooks/use-run-queue"
 import { useThreadActivity } from "@/hooks/use-thread-activity"
@@ -176,24 +177,6 @@ function ChannelView() {
     pendingNoncesRef: pendingNonces,
   })
 
-  // Tracking by id (not a bool) re-triggers on a new msgId while ignoring
-  // re-renders for the same one.
-  const lastScrolledMsgIdRef = useRef<string | null>(null)
-  useEffect(() => {
-    if (!msgId) {
-      lastScrolledMsgIdRef.current = null
-      return
-    }
-    if (lastScrolledMsgIdRef.current === msgId) return
-    if (messagesLoading || !messages.length) return
-    const timer = setTimeout(() => {
-      if (scrollToMessage(msgId)) {
-        lastScrolledMsgIdRef.current = msgId
-      }
-    }, 100)
-    return () => clearTimeout(timer)
-  }, [msgId, messagesLoading, messages.length])
-
   const handleJumpToPresent = useCallback(() => {
     clearPending()
     void navigate({ search: {}, replace: true })
@@ -201,9 +184,7 @@ function ChannelView() {
 
   const handleJumpToMessage = useCallback(
     (messageId: string) => {
-      // Already on screen — just scroll. (Common for replies + same-channel.)
-      if (scrollToMessage(messageId)) return
-      // Otherwise resolve the message's channel (it may live elsewhere — e.g. a
+      // Resolve the message's channel (it may live elsewhere — e.g. a
       // Merlin citation to another channel) and navigate there to anchor on it.
       void (async () => {
         try {
@@ -305,6 +286,11 @@ function ChannelView() {
         .filter((m): m is Message => Boolean(m)),
     [queuedIds, messages]
   )
+  const queuedMessageSteering = useQueuedMessageSteering({
+    messages: queuedMessages,
+    currentUserId,
+    pendingNonces,
+  })
   // Queued messages live only in the composer's queue pill until the drain
   // releases them — the transcript skips them (Codex model).
   const visibleMessages = useMemo(
@@ -501,6 +487,7 @@ function ChannelView() {
         onTogglePinnedMessages={togglePinnedMessages}
       />
       <MessageList
+        key={channelId}
         context={context}
         messages={visibleMessages}
         hasOlder={hasOlder}
@@ -511,6 +498,7 @@ function ChannelView() {
         isFetchingNewer={isFetchingNewer}
         pendingCount={pendingCount}
         onJumpToPresent={isAtPresent ? undefined : handleJumpToPresent}
+        scrollTargetId={msgId}
         onJumpToMessage={handleJumpToMessage}
         onReplyInThread={(msg) => handleOpenThread(msg.id)}
         onOpenThread={handleOpenThread}
@@ -529,7 +517,13 @@ function ChannelView() {
         isLoading={messagesLoading}
       />
       <TypingIndicator users={typingUsers} />
-      <RunQueuePill messages={queuedMessages} currentUserId={currentUserId} />
+      <RunQueuePill
+        messages={queuedMessages}
+        currentUserId={currentUserId}
+        pendingNonces={pendingNonces}
+        onSteer={queuedMessageSteering.steerMessage}
+        steeringMessageId={queuedMessageSteering.steeringMessageId}
+      />
       <MessageInput
         context={context}
         onSend={handleSend}
@@ -544,6 +538,9 @@ function ChannelView() {
         getUploadedAttachments={fileUpload.getUploadedAttachments}
         isUploading={fileUpload.isUploading}
         onTyping={emitTyping}
+        canSteerQueued={queuedMessageSteering.canSteerLatestOwnMessage}
+        onSteerQueued={queuedMessageSteering.steerLatestOwnMessage}
+        isSteeringQueued={queuedMessageSteering.isSteering}
       />
     </div>
   )

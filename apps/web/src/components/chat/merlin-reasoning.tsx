@@ -30,7 +30,7 @@ export function MerlinReasoning({ text, active }: MerlinReasoningProps) {
           className={cn("size-3 transition-transform", open && "rotate-90")}
         />
         {active ? (
-          <span className="animate-pulse">Thinking…</span>
+          <span className="shimmer">Thinking…</span>
         ) : (
           <span>Thought process</span>
         )}

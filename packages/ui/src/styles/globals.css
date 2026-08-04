@@ -210,6 +210,93 @@
   }
 }
 
+/* shadcn text shimmer utility. Kept local so the shared UI package does not
+   ship the shadcn CLI as an application dependency. */
+@property --shimmer-angle {
+  syntax: "<angle>";
+  inherits: true;
+  initial-value: 20deg;
+}
+
+@property --shimmer-image {
+  syntax: "*";
+  inherits: false;
+}
+
+@property --shimmer-text-fill {
+  syntax: "*";
+  inherits: false;
+}
+
+@theme inline {
+  @keyframes tw-shimmer {
+    from {
+      background-position: 100% 0;
+    }
+
+    to {
+      background-position: 0 0;
+    }
+  }
+}
+
+@utility shimmer {
+  --_spread: var(--shimmer-spread, calc(3ch + 40px));
+  --_base: currentcolor;
+  --_highlight: var(
+    --shimmer-color,
+    oklch(from currentcolor l c h / calc(alpha * 0.2))
+  );
+
+  background-image: var(
+    --shimmer-image,
+    linear-gradient(
+      calc(90deg + var(--shimmer-angle)),
+      var(--_base) calc(50% - var(--_spread)),
+      color-mix(in oklch, var(--_highlight), var(--_base) 50%)
+        calc(50% - var(--_spread) * 0.5),
+      var(--_highlight) 50%,
+      color-mix(in oklch, var(--_highlight), var(--_base) 50%)
+        calc(50% + var(--_spread) * 0.5),
+      var(--_base) calc(50% + var(--_spread))
+    )
+  );
+  background-repeat: no-repeat;
+  background-position: 0 0;
+  background-size: calc(200% + var(--_spread) * 2) 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  animation: tw-shimmer var(--shimmer-duration, 2s) linear infinite;
+  @supports (
+      background-image: linear-gradient(
+        90deg,
+        color-mix(in oklch, currentcolor, transparent),
+        oklch(from currentcolor l c h)
+      )
+    ) {
+    -webkit-text-fill-color: var(--shimmer-text-fill, transparent);
+  }
+
+  @variant dark {
+    --_highlight: var(
+      --shimmer-color,
+      oklch(from currentcolor max(0.8, calc(l + 0.4)) c h / calc(alpha + 0.4))
+    );
+  }
+
+  &:where([dir="rtl"], [dir="rtl"] *) {
+    animation-direction: reverse;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shimmer {
+    animation: none;
+    background-image: none;
+    -webkit-text-fill-color: currentcolor;
+  }
+}
+
 @keyframes theme-reveal {
   from {
     clip-path: circle(0% at var(--vt-x) var(--vt-y));

@@ -17,6 +17,7 @@
     "@gorhom/bottom-sheet": "^5.2.9",
     "@hugeicons/core-free-icons": "^4.2.0",
     "@hugeicons/react-native": "^1.0.15",
+    "@legendapp/list": "3.3.3",
     "@repo/api-client": "workspace:*",
     "@repo/auth": "workspace:*",
     "@repo/db": "workspace:*",

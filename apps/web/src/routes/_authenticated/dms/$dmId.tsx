@@ -1,13 +1,13 @@
 import { authClient } from "@repo/auth/client"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
-import { useCallback, useEffect, useRef } from "react"
+import { useCallback, useEffect } from "react"
 import { useDropzone } from "react-dropzone"
 import { ChatSkeleton } from "@/components/chat/chat-skeleton"
 import { MessageInput } from "@/components/chat/composer/message-input"
 import { DropZoneOverlay } from "@/components/chat/drop-zone-overlay"
 import { ChatHeader } from "@/components/chat/header"
-import { MessageList, scrollToMessage } from "@/components/chat/message-list"
+import { MessageList } from "@/components/chat/message-list"
 import { TypingIndicator } from "@/components/chat/typing-indicator"
 import { useSocket } from "@/context/socket-context"
 import { useAutoMarkRead } from "@/hooks/use-auto-mark-read"
@@ -100,24 +100,6 @@ function DMConversation() {
     pendingNoncesRef: pendingNonces,
   })
 
-  // Tracking by id (not a bool) re-triggers on a new msgId while ignoring
-  // re-renders for the same one.
-  const lastScrolledMsgIdRef = useRef<string | null>(null)
-  useEffect(() => {
-    if (!msgId) {
-      lastScrolledMsgIdRef.current = null
-      return
-    }
-    if (lastScrolledMsgIdRef.current === msgId) return
-    if (messagesLoading || !messages.length) return
-    const timer = setTimeout(() => {
-      if (scrollToMessage(msgId)) {
-        lastScrolledMsgIdRef.current = msgId
-      }
-    }, 100)
-    return () => clearTimeout(timer)
-  }, [msgId, messagesLoading, messages.length])
-
   const handleJumpToPresent = useCallback(() => {
     clearPending()
     void navigate({ search: {}, replace: true })
@@ -125,7 +107,6 @@ function DMConversation() {
 
   const handleJumpToMessage = useCallback(
     (messageId: string) => {
-      if (scrollToMessage(messageId)) return
       void navigate({ search: { msgId: messageId } })
     },
     [navigate]
@@ -245,6 +226,7 @@ function DMConversation() {
       <DropZoneOverlay isDragActive={isDragActive} />
       <ChatHeader context={context} channelId={dmId} />
       <MessageList
+        key={dmId}
         context={context}
         messages={messages}
         hasOlder={hasOlder}
@@ -255,6 +237,7 @@ function DMConversation() {
         isFetchingNewer={isFetchingNewer}
         pendingCount={pendingCount}
         onJumpToPresent={isAtPresent ? undefined : handleJumpToPresent}
+        scrollTargetId={msgId}
         onJumpToMessage={handleJumpToMessage}
         replyingToId={replyingTo?.id ?? null}
         currentUserId={currentUserId}

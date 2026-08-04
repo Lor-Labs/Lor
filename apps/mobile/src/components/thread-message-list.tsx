@@ -1,22 +1,10 @@
+import type { LegendListRef } from "@legendapp/list/react-native"
 import { formatDateDivider } from "@repo/utils/date"
 import { Spinner } from "heroui-native/spinner"
-import {
-  type ReactElement,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react"
-import {
-  FlatList,
-  Pressable,
-  type ScrollViewProps,
-  Text,
-  View,
-  type ViewToken,
-} from "react-native"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { Pressable, Text, View } from "react-native"
 import Animated, { FadeInUp, FadeOutUp } from "react-native-reanimated"
+import type { ChatMessageListKeyboardProps } from "@/components/chat-keyboard-layout"
 import { MessageActionMenu } from "@/components/message-action-menu"
 import {
   areMessagesOnSameDay,
@@ -27,6 +15,7 @@ import {
   messageDisplayName,
   ThreadRootMessage,
 } from "@/components/message-row"
+import { MobileMessageScroller } from "@/components/mobile-message-scroller"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useMessageActionPress } from "@/hooks/use-message-action-press"
@@ -45,6 +34,7 @@ export function ThreadMessageList({
   messages,
   totalReplyCount,
   hasOlder,
+  isRefreshing,
   isLoadingOlder,
   paginationError,
   onLoadOlder,
@@ -59,13 +49,15 @@ export function ThreadMessageList({
   editingMessageId,
   replyingToId,
   focusMessageId,
-  renderScrollComponent,
+  keyboardProps,
+  listKey,
 }: {
   avatarColorByUserId?: ReadonlyMap<string, string>
   root: Message
   messages: Message[]
   totalReplyCount: number
   hasOlder: boolean
+  isRefreshing: boolean
   isLoadingOlder: boolean
   paginationError: string | null
   onLoadOlder: () => void
@@ -80,58 +72,87 @@ export function ThreadMessageList({
   editingMessageId?: string | null
   replyingToId?: string | null
   focusMessageId?: string | null
-  renderScrollComponent?: (
-    props: ScrollViewProps
-  ) => ReactElement<ScrollViewProps>
+  keyboardProps: ChatMessageListKeyboardProps
+  listKey: string
 }) {
   const [selectedMessage, setSelectedMessage] = useState<Message | null>(null)
   const [jumpTargetId, setJumpTargetId] = useState<string | null>(null)
   const [stickyDate, setStickyDate] = useState<string | null>(null)
-  const listRef = useRef<FlatList<ThreadListItem>>(null)
+  const listRef = useRef<LegendListRef>(null)
   const externalFocusRef = useRef<string | null>(null)
   const { handleLongPress, highlightedMessageId } =
     useMessageActionPress(setSelectedMessage)
 
-  // Highest-index viewable item sits at the visual top (inverted list). The
-  // pill shows the day of the topmost visible reply and hides once the root
-  // (whose header carries the full date) is on screen.
-  const handleViewableItemsChanged = useRef(
-    ({ viewableItems }: { viewableItems: ViewToken<ThreadListItem>[] }) => {
-      let rootVisible = false
-      let topReply: Message | null = null
-      let topIndex = -1
-      for (const token of viewableItems) {
-        if (token.item.kind === "root") rootVisible = true
-        if (
-          token.item.kind === "reply" &&
-          token.index != null &&
-          token.index > topIndex
-        ) {
-          topIndex = token.index
-          topReply = token.item.message
-        }
-      }
-      setStickyDate(
-        rootVisible || !topReply ? null : formatDateDivider(topReply.createdAt)
-      )
-    }
-  ).current
-  const viewabilityConfig = useRef({
-    viewAreaCoveragePercentThreshold: 0,
-  }).current
+  const orderedMessages = useMemo(() => [...messages].reverse(), [messages])
   const items = useMemo<ThreadListItem[]>(() => {
-    const next: ThreadListItem[] = messages.map((message, replyIndex) => ({
-      kind: "reply",
-      message,
-      replyIndex,
-    }))
+    const next: ThreadListItem[] = [
+      { kind: "root", message: root },
+      { kind: "count" },
+    ]
     if (hasOlder || isLoadingOlder || paginationError) {
       next.push({ kind: "pagination" })
     }
-    next.push({ kind: "count" })
-    next.push({ kind: "root", message: root })
+    next.push(
+      ...orderedMessages.map((message, replyIndex) => ({
+        kind: "reply" as const,
+        message,
+        replyIndex,
+      }))
+    )
     return next
-  }, [messages, hasOlder, isLoadingOlder, paginationError, root])
+  }, [orderedMessages, hasOlder, isLoadingOlder, paginationError, root])
+
+  const handleFirstVisibleItemChanged = useCallback(
+    ({ item }: { item: ThreadListItem }) => {
+      setStickyDate(
+        item.kind === "reply" ? formatDateDivider(item.message.createdAt) : null
+      )
+    },
+    []
+  )
+
+  const openingPositionRef = useRef<{
+    listKey: string
+    position?: { index: number; viewOffset: number; viewPosition: number }
+    resolved: boolean
+  } | null>(null)
+  if (openingPositionRef.current?.listKey !== listKey) {
+    openingPositionRef.current = { listKey, resolved: false }
+  }
+  if (!openingPositionRef.current.resolved) {
+    let latestCompletedMerlinReply: Message | undefined
+    for (let index = orderedMessages.length - 1; index >= 0; index -= 1) {
+      const message = orderedMessages[index]
+      if (
+        message &&
+        message.status !== "pending" &&
+        message.merlinTriggerMessageId
+      ) {
+        latestCompletedMerlinReply = message
+        break
+      }
+    }
+    const triggerId = latestCompletedMerlinReply?.merlinTriggerMessageId
+    const anchorIndex = triggerId
+      ? items.findIndex(
+          (item) =>
+            (item.kind === "root" || item.kind === "reply") &&
+            item.message.id === triggerId
+        )
+      : -1
+    openingPositionRef.current = {
+      listKey,
+      position:
+        anchorIndex >= 0
+          ? { index: anchorIndex, viewOffset: 64, viewPosition: 0 }
+          : undefined,
+      resolved: anchorIndex >= 0 || !isRefreshing,
+    }
+  }
+  const openingPosition = openingPositionRef.current?.position
+  const openingScrollerKey = openingPosition
+    ? `${listKey}:anchor-${openingPosition.index}`
+    : `${listKey}:end`
 
   useEffect(() => {
     if (!jumpTargetId) return
@@ -141,7 +162,11 @@ export function ThreadMessageList({
         item.message.id === jumpTargetId
     )
     if (index < 0) return
-    listRef.current?.scrollToIndex({ animated: true, index, viewPosition: 0.5 })
+    void listRef.current?.scrollToIndex({
+      animated: true,
+      index,
+      viewPosition: 0.5,
+    })
     const timeout = setTimeout(() => setJumpTargetId(null), 3500)
     return () => clearTimeout(timeout)
   }, [items, jumpTargetId])
@@ -177,42 +202,33 @@ export function ThreadMessageList({
   return (
     <>
       <View className="relative flex-1">
-        <FlatList
+        <MobileMessageScroller
+          key={openingScrollerKey}
           ref={listRef}
           className="flex-1 bg-background"
-          contentContainerStyle={{ flexGrow: 1, justifyContent: "flex-end" }}
           data={items}
-          inverted
-          keyboardDismissMode="interactive"
-          keyboardShouldPersistTaps="handled"
-          renderScrollComponent={renderScrollComponent}
-          onViewableItemsChanged={handleViewableItemsChanged}
-          viewabilityConfig={viewabilityConfig}
+          estimatedItemSize={96}
+          getItemType={(item) => item.kind}
+          initialScrollAtEnd={!openingPosition}
+          initialScrollIndex={openingPosition}
+          isMerlinResponding={
+            root.status === "pending" ||
+            messages.some((message) => message.status === "pending")
+          }
+          keyboardProps={keyboardProps}
           keyExtractor={(item) => {
             if (item.kind === "reply" || item.kind === "root") {
               return `${item.kind}-${item.message.id}`
             }
             return item.kind
           }}
-          maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
-          onEndReached={() => {
+          newestItemKey={orderedMessages.at(-1)?.id ?? `root-${root.id}`}
+          onFirstVisibleItemChanged={handleFirstVisibleItemChanged}
+          onStartReached={() => {
             // Don't auto-retry after a failed page — that's the Try again button.
             if (hasOlder && !isLoadingOlder && !paginationError) onLoadOlder()
           }}
-          onEndReachedThreshold={0.25}
-          onScrollToIndexFailed={({ index, averageItemLength }) => {
-            listRef.current?.scrollToOffset({
-              animated: false,
-              offset: Math.max(0, index * averageItemLength),
-            })
-            setTimeout(() => {
-              listRef.current?.scrollToIndex({
-                animated: true,
-                index,
-                viewPosition: 0.5,
-              })
-            }, 80)
-          }}
+          onStartReachedThreshold={0.25}
           renderItem={({ item }) => {
             if (item.kind === "root") {
               const canManageMessage =
@@ -271,6 +287,7 @@ export function ThreadMessageList({
                     onToggleReaction={(message, emoji) =>
                       onToggleReaction?.(message.id, emoji)
                     }
+                    showMerlinRunControls={false}
                   />
                 </Pressable>
               )
@@ -311,7 +328,7 @@ export function ThreadMessageList({
             }
 
             const { message, replyIndex } = item
-            const older = messages[replyIndex + 1]
+            const older = orderedMessages[replyIndex - 1]
             const showHeader =
               !older ||
               message.type === "reply" ||
@@ -384,13 +401,14 @@ export function ThreadMessageList({
                     onToggleReaction={(message, emoji) =>
                       onToggleReaction?.(message.id, emoji)
                     }
+                    showMerlinRunControls={false}
                     showHeader={showHeader}
                   />
                 </View>
               </Pressable>
             )
           }}
-          ListHeaderComponent={
+          ListFooterComponent={
             messages.length === 0 ? (
               <View className="items-center px-five py-eight">
                 <Text className="text-sm font-medium text-muted">

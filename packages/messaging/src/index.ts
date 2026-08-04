@@ -4,6 +4,13 @@ import type {
   RealtimeMessageMention,
   UnreadNotification,
 } from "@repo/realtime-types"
+import {
+  extractDirectMentionUserIds,
+  MARKDOWN_USER_MENTION_REGEX,
+  USER_MENTION_REGEX,
+} from "./mentions"
+
+export { extractDirectMentionUserIds } from "./mentions"
 
 // Minimal shapes so both realtime (human send) and worker (Merlin reply) can call this.
 type FanoutChannel = {
@@ -37,32 +44,8 @@ type NotificationInsertType = Extract<
   "direct_mention" | "everyone_mention"
 >
 
-const USER_MENTION_REGEX =
-  /<@([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})>/gi
-const MARKDOWN_USER_MENTION_REGEX =
-  /\[@[^\]]*?\bid="([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})"[^\]]*]/gi
 const EVERYONE_MENTION_REGEX = /(^|\s)@everyone\b/i
 const mentionNotificationTypes = ["direct_mention", "everyone_mention"] as const
-
-export function extractDirectMentionUserIds(content: string) {
-  const userIds = new Set<string>()
-
-  for (const match of content.matchAll(USER_MENTION_REGEX)) {
-    const userId = match[1]
-    if (userId) {
-      userIds.add(userId)
-    }
-  }
-
-  for (const match of content.matchAll(MARKDOWN_USER_MENTION_REGEX)) {
-    const userId = match[1]
-    if (userId) {
-      userIds.add(userId)
-    }
-  }
-
-  return userIds
-}
 
 async function listRecipientUserIds(channel: FanoutChannel) {
   if (channel.workspaceId) {

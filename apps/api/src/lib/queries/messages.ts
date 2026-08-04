@@ -7,6 +7,7 @@ import type {
   MerlinToolCall,
 } from "@repo/db/schema"
 import {
+  agentRun,
   channel,
   message,
   messageMention,
@@ -372,6 +373,7 @@ export async function fetchMessages({
     mentionRows,
     reactionRows,
     referencedMessageRows,
+    merlinRunRows,
     threadSummaryRows,
     threadParticipantRows,
   ] = await Promise.all([
@@ -417,6 +419,15 @@ export async function fetchMessages({
         .innerJoin(user, eq(message.authorId, user.id))
         .where(inArray(message.id, referencedMessageIds))
     })(),
+    messageIds.length > 0
+      ? db
+          .select({
+            messageId: agentRun.messageId,
+            triggerMessageId: agentRun.triggerMessageId,
+          })
+          .from(agentRun)
+          .where(inArray(agentRun.messageId, messageIds))
+      : Promise.resolve([]),
     // Thread summaries only when fetching channel messages, not thread replies.
     threadRootId || messageIds.length === 0
       ? Promise.resolve([])
@@ -511,6 +522,9 @@ export async function fetchMessages({
       ]
     })
   )
+  const merlinTriggerByMessageId = new Map(
+    merlinRunRows.map((row) => [row.messageId, row.triggerMessageId])
+  )
 
   const mentionsByMessageId = new Map<
     string,
@@ -583,6 +597,7 @@ export async function fetchMessages({
     merlinReasoningSegments: msg.merlinReasoningSegments ?? [],
     // Serialized as `remembered` (the brain pages saved during this answer).
     remembered: merlinMemories ?? [],
+    merlinTriggerMessageId: merlinTriggerByMessageId.get(msg.id) ?? null,
     mentions: mentionsByMessageId.get(msg.id) ?? [],
     reactions: Array.from(reactionsByMessageId.get(msg.id)?.values() ?? []),
     referencedMessage: msg.referencedMessageId

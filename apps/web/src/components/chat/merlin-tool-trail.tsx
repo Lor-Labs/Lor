@@ -102,7 +102,9 @@ export function MerlinToolTrail({
             streaming && "animate-pulse"
           )}
         />
-        <span className="truncate">{summary}</span>
+        <span className={cn("truncate", streaming && "shimmer")}>
+          {summary}
+        </span>
       </button>
 
       {expanded && (

@@ -739,7 +739,11 @@ io.on("connection", (socket) => {
             // Flag the placeholder as streaming so the "Merlin is thinking"
             // indicator shows the instant it lands (independent of the worker's
             // first stream event arriving).
-            const placeholder = { ...merlinMessage, streaming: true }
+            const placeholder = {
+              ...merlinMessage,
+              streaming: true,
+              merlinTriggerMessageId: createdMessage.message.id,
+            }
             if (placeholder.threadRootId) {
               io.to(threadRoom(placeholder.threadRootId)).emit(
                 "message:created",
