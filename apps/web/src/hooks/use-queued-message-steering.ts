@@ -4,6 +4,8 @@ import { toast } from "sonner"
 import { apiClient } from "@/lib/api-client"
 import type { Message } from "@/lib/api-types"
 
+const STEER_WHEN_READY_TIMEOUT_MS = 10_000
+
 export function useQueuedMessageSteering({
   messages,
   currentUserId,
@@ -19,6 +21,14 @@ export function useQueuedMessageSteering({
   const steerWhenReadyScopeRef = useRef<string | null>(null)
   const steerWhenReadyKnownIdsRef = useRef<Set<string>>(new Set())
   steerWhenReadyRef.current = steerWhenReady
+
+  const clearDeferredSteering = useCallback(() => {
+    steerWhenReadyRef.current = false
+    steerWhenReadyNonceRef.current = null
+    steerWhenReadyScopeRef.current = null
+    steerWhenReadyKnownIdsRef.current = new Set()
+    setSteerWhenReady(false)
+  }, [])
 
   const latestOwnMessage = useMemo(
     () =>
@@ -81,6 +91,15 @@ export function useQueuedMessageSteering({
   // id, remember the intent and steer as soon as that id is actionable.
   useEffect(() => {
     if (!steerWhenReady) return
+    const timeout = setTimeout(
+      clearDeferredSteering,
+      STEER_WHEN_READY_TIMEOUT_MS
+    )
+    return () => clearTimeout(timeout)
+  }, [clearDeferredSteering, steerWhenReady])
+
+  useEffect(() => {
+    if (!steerWhenReady) return
     const nonce = steerWhenReadyNonceRef.current
     const scope = steerWhenReadyScopeRef.current
     if (!nonce || !scope || pendingNonces?.current.has(nonce)) return
@@ -93,13 +112,16 @@ export function useQueuedMessageSteering({
         !pendingNonces?.current.has(message.id)
     )
 
-    steerWhenReadyRef.current = false
-    steerWhenReadyNonceRef.current = null
-    steerWhenReadyScopeRef.current = null
-    steerWhenReadyKnownIdsRef.current = new Set()
-    setSteerWhenReady(false)
+    clearDeferredSteering()
     if (replacement) steer.mutate(replacement.id)
-  }, [currentUserId, messages, pendingNonces, steer, steerWhenReady])
+  }, [
+    clearDeferredSteering,
+    currentUserId,
+    messages,
+    pendingNonces,
+    steer,
+    steerWhenReady,
+  ])
 
   return {
     canSteerLatestOwnMessage: Boolean(latestOwnMessage),

@@ -1,4 +1,4 @@
-import { extractDirectMentionUserIds } from "@repo/messaging"
+import { extractDirectMentionUserIds } from "@repo/messaging/mentions"
 import type { RealtimeMessageMention } from "@repo/realtime-types"
 
 export function updateStreamMentionState(args: {

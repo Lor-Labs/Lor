@@ -177,9 +177,7 @@ export function useThreadMessages({
       queryClient.setQueryData<InfiniteData<ThreadPage, ThreadPageParam>>(
         ["thread", threadRootId],
         (old) => {
-          if (!old) {
-            return { pages: [page], pageParams: [{ around: messageId }] }
-          }
+          if (!old) return old
           if (
             old.pages.some((existingPage) =>
               existingPage.data.some((message) => message.id === messageId)

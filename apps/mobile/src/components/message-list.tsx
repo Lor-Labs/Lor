@@ -70,9 +70,8 @@ export function MessageList({
   const [stickyDate, setStickyDate] = useState<string | null>(null)
   const listRef = useRef<LegendListRef>(null)
   const externalFocusRef = useRef<string | null>(null)
+  const scrolledJumpTargetRef = useRef<string | null>(null)
   const orderedMessages = useMemo(() => [...messages].reverse(), [messages])
-  const orderedMessagesRef = useRef(orderedMessages)
-  orderedMessagesRef.current = orderedMessages
   const { handleLongPress, highlightedMessageId } =
     useMessageActionPress(setSelectedMessage)
 
@@ -83,25 +82,41 @@ export function MessageList({
     []
   )
 
-  const scrollToJumpTarget = useCallback((messageId: string) => {
-    const index = orderedMessagesRef.current.findIndex(
-      (message) => message.id === messageId
-    )
-    if (index < 0) return false
-    void listRef.current?.scrollToIndex({
-      animated: true,
-      index,
-      viewPosition: 0.5,
-    })
-    return true
-  }, [])
+  const scrollToJumpTarget = useCallback(
+    (messageId: string) => {
+      const index = orderedMessages.findIndex(
+        (message) => message.id === messageId
+      )
+      const list = listRef.current
+      if (index < 0 || !list) return false
+      void list.scrollToIndex({
+        animated: true,
+        index,
+        viewPosition: 0.5,
+      })
+      return true
+    },
+    [orderedMessages]
+  )
 
   useEffect(() => {
     if (!jumpTargetId) return
-    if (!scrollToJumpTarget(jumpTargetId)) return
+    if (
+      scrolledJumpTargetRef.current !== jumpTargetId &&
+      scrollToJumpTarget(jumpTargetId)
+    ) {
+      scrolledJumpTargetRef.current = jumpTargetId
+    }
+  }, [jumpTargetId, scrollToJumpTarget])
+
+  useEffect(() => {
+    if (!jumpTargetId) {
+      scrolledJumpTargetRef.current = null
+      return
+    }
     const timeout = setTimeout(() => setJumpTargetId(null), 3500)
     return () => clearTimeout(timeout)
-  }, [jumpTargetId, scrollToJumpTarget])
+  }, [jumpTargetId])
 
   const jumpToMessage = useCallback(
     async (messageId: string) => {

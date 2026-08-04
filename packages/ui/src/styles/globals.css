@@ -266,6 +266,7 @@
   background-size: calc(200% + var(--_spread) * 2) 100%;
   background-clip: text;
   -webkit-background-clip: text;
+  animation: tw-shimmer var(--shimmer-duration, 2s) linear infinite;
   @supports (
       background-image: linear-gradient(
         90deg,
@@ -275,7 +276,6 @@
     ) {
     -webkit-text-fill-color: var(--shimmer-text-fill, transparent);
   }
-  animation: tw-shimmer var(--shimmer-duration, 2s) linear infinite;
 
   @variant dark {
     --_highlight: var(

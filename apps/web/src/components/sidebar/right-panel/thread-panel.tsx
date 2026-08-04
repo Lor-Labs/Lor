@@ -27,6 +27,7 @@ import {
   useRef,
 } from "react"
 import { useDropzone } from "react-dropzone"
+import { toast } from "sonner"
 import { MessageInput } from "@/components/chat/composer/message-input"
 import { DropZoneOverlay } from "@/components/chat/drop-zone-overlay"
 import { MessageItem } from "@/components/chat/message-item"
@@ -368,7 +369,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
           if (!loaded) return
           window.requestAnimationFrame(scrollToTarget)
         })
-        .catch(() => undefined)
+        .catch(() => toast.error("Couldn't load that message"))
     },
     [ensureMessage, messageScrollCommandRef]
   )
