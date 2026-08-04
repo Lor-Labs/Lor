@@ -7,10 +7,10 @@ import { SymbolView } from "expo-symbols"
 import { useThemeColor } from "heroui-native/hooks"
 import { Spinner } from "heroui-native/spinner"
 import {
-  forwardRef,
-  type RefAttributes,
+  type Ref,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react"
@@ -21,6 +21,7 @@ import {
   useAnimatedReaction,
   useSharedValue,
 } from "react-native-reanimated"
+import { withUniwind } from "uniwind"
 import type { ChatMessageListKeyboardProps } from "@/components/chat-keyboard-layout"
 import { Button } from "@/components/ui/button"
 
@@ -31,28 +32,31 @@ type MobileMessageScrollerProps<ItemT> = Omit<
   isMerlinResponding?: boolean
   keyboardProps: ChatMessageListKeyboardProps
   newestItemKey?: string | null
+  ref?: Ref<LegendListRef>
 }
 
 const CHAT_MAINTAIN_SCROLL_AT_END = { animated: false } as const
 const CHAT_MAINTAIN_VISIBLE_CONTENT = { data: true } as const
 
-function MobileMessageScrollerInner<ItemT>(
-  {
-    alignItemsAtEnd = true,
-    isMerlinResponding = false,
-    keyboardProps,
-    maintainScrollAtEnd = CHAT_MAINTAIN_SCROLL_AT_END,
-    maintainScrollAtEndThreshold = 0.08,
-    maintainVisibleContentPosition = CHAT_MAINTAIN_VISIBLE_CONTENT,
-    newestItemKey,
-    onTouchStart,
-    // Message rows own local UI state (reasoning disclosure, image viewer,
-    // stop controls), so view reuse stays opt-in until those use recycling state.
-    recycleItems = false,
-    ...props
-  }: MobileMessageScrollerProps<ItemT>,
-  ref: React.ForwardedRef<LegendListRef>
-) {
+export function MobileMessageScroller<ItemT>({
+  alignItemsAtEnd = true,
+  isMerlinResponding = false,
+  keyboardProps,
+  maintainScrollAtEnd = CHAT_MAINTAIN_SCROLL_AT_END,
+  maintainScrollAtEndThreshold = 0.08,
+  maintainVisibleContentPosition = CHAT_MAINTAIN_VISIBLE_CONTENT,
+  newestItemKey,
+  onTouchStart,
+  ref,
+  // Message rows own local UI state (reasoning disclosure, image viewer,
+  // stop controls), so view reuse stays opt-in until those use recycling state.
+  recycleItems = false,
+  ...props
+}: MobileMessageScrollerProps<ItemT>) {
+  const UniwindKeyboardAwareLegendList = useMemo(
+    () => withUniwind(KeyboardAwareLegendList<ItemT>),
+    []
+  )
   const internalRef = useRef<LegendListRef>(null)
   const combinedRef = useCallback(
     (value: LegendListRef | null) => {
@@ -117,7 +121,7 @@ function MobileMessageScrollerInner<ItemT>(
 
   return (
     <View className="relative flex-1">
-      <KeyboardAwareLegendList
+      <UniwindKeyboardAwareLegendList
         {...props}
         ref={combinedRef}
         alignItemsAtEnd={alignItemsAtEnd}
@@ -166,9 +170,3 @@ function MobileMessageScrollerInner<ItemT>(
     </View>
   )
 }
-
-export const MobileMessageScroller = forwardRef(MobileMessageScrollerInner) as <
-  ItemT,
->(
-  props: MobileMessageScrollerProps<ItemT> & RefAttributes<LegendListRef>
-) => React.ReactElement

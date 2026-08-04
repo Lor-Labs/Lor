@@ -7,8 +7,6 @@ import { MERLIN_USER_ID } from "@repo/db/constants"
 import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { formatDateDivider, formatDateTime, timeAgo } from "@repo/utils/date"
 import { useThemeColor } from "heroui-native/hooks"
-import { useToast } from "heroui-native/toast"
-import { useState } from "react"
 import { Pressable, Text, View } from "react-native"
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated"
 import { ConnectorIcon, connectorForName } from "@/components/connector-icon"
@@ -19,7 +17,7 @@ import { MessageContent } from "@/components/message-content"
 import { MessageEmbed } from "@/components/message-embed"
 import { ThinkingIndicator } from "@/components/thinking-indicator"
 import { Avatar } from "@/components/ui/avatar"
-import { api } from "@/lib/api"
+import { useStopMerlinRun } from "@/hooks/use-stop-merlin-run"
 import type { Message } from "@/lib/api-types"
 import { isOptimisticMessage } from "@/lib/messages"
 
@@ -114,21 +112,8 @@ function AppBadge() {
 // by the run at its next safe step boundary; whatever streamed is kept.
 function MerlinRunControls({ message }: { message: Message }) {
   const muted = useThemeColor("muted")
-  const { toast } = useToast()
-  const [stopRequested, setStopRequested] = useState(false)
-
-  const requestStop = async () => {
-    setStopRequested(true)
-    try {
-      const response = await api.v1.runs["by-message"][":messageId"].stop.$post(
-        { param: { messageId: message.id } }
-      )
-      if (!response.ok) throw new Error("Couldn't stop Merlin")
-    } catch {
-      setStopRequested(false)
-      toast.show({ variant: "danger", label: "Couldn't stop Merlin" })
-    }
-  }
+  const { requestStop, stoppingMessageId } = useStopMerlinRun()
+  const isStopping = stoppingMessageId === message.id
 
   return (
     <View className="mt-one flex-row items-center gap-three">
@@ -137,14 +122,14 @@ function MerlinRunControls({ message }: { message: Message }) {
           Applying {message.steeringBy}&apos;s new direction…
         </Text>
       ) : null}
-      {stopRequested ? (
+      {isStopping ? (
         <Text className="text-xs italic text-muted">Stopping…</Text>
       ) : (
         <Pressable
           accessibilityLabel="Stop Merlin's reply"
           accessibilityRole="button"
           className="min-h-7 flex-row items-center gap-one self-start rounded-lor-sm border border-border px-two py-one"
-          onPress={requestStop}
+          onPress={() => void requestStop(message.id)}
         >
           <HugeiconsIcon color={muted} icon={StopIcon} size={12} />
           <Text className="text-xs font-semibold text-muted">Stop</Text>

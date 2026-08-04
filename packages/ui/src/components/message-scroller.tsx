@@ -9,7 +9,7 @@ import {
   useMessageScrollerVisibility,
 } from "@shadcn/react/message-scroller"
 import { ArrowDown } from "lucide-react"
-import type * as React from "react"
+import * as React from "react"
 
 function MessageScrollerProvider(
   props: React.ComponentProps<typeof MessageScrollerPrimitive.Provider>
@@ -35,8 +35,44 @@ function MessageScroller({
 
 function MessageScrollerViewport({
   className,
+  onTouchMove,
+  onWheel,
+  reconcileFollowOutput = false,
   ...props
-}: React.ComponentProps<typeof MessageScrollerPrimitive.Viewport>) {
+}: React.ComponentProps<typeof MessageScrollerPrimitive.Viewport> & {
+  reconcileFollowOutput?: boolean
+}) {
+  const { scrollToEnd } = useMessageScroller()
+  const reconcileFrameRef = React.useRef<number | null>(null)
+
+  const reconcileUnmovedGesture = React.useCallback(
+    (viewport: HTMLDivElement, initialScrollTop: number) => {
+      if (!reconcileFollowOutput) return
+      if (reconcileFrameRef.current !== null) {
+        window.cancelAnimationFrame(reconcileFrameRef.current)
+      }
+      reconcileFrameRef.current = window.requestAnimationFrame(() => {
+        reconcileFrameRef.current = null
+        const stayedStill =
+          Math.abs(viewport.scrollTop - initialScrollTop) <= 0.5
+        const isAtEnd =
+          viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop <=
+          1
+        if (stayedStill && isAtEnd) scrollToEnd({ behavior: "auto" })
+      })
+    },
+    [reconcileFollowOutput, scrollToEnd]
+  )
+
+  React.useEffect(
+    () => () => {
+      if (reconcileFrameRef.current !== null) {
+        window.cancelAnimationFrame(reconcileFrameRef.current)
+      }
+    },
+    []
+  )
+
   return (
     <MessageScrollerPrimitive.Viewport
       data-slot="message-scroller-viewport"
@@ -44,6 +80,20 @@ function MessageScrollerViewport({
         "size-full min-h-0 min-w-0 overflow-y-auto overscroll-contain",
         className
       )}
+      onTouchMove={(event) => {
+        const viewport = event.currentTarget
+        const initialScrollTop = viewport.scrollTop
+        onTouchMove?.(event)
+        reconcileUnmovedGesture(viewport, initialScrollTop)
+      }}
+      onWheel={(event) => {
+        const viewport = event.currentTarget
+        const initialScrollTop = viewport.scrollTop
+        onWheel?.(event)
+        if (event.deltaY >= 0) {
+          reconcileUnmovedGesture(viewport, initialScrollTop)
+        }
+      }}
       {...props}
     />
   )
@@ -97,7 +147,7 @@ function MessageScrollerButton({
         "data-[active=true]:translate-y-0 data-[active=true]:scale-100 data-[active=true]:opacity-100",
         "data-[direction=end]:bottom-3 data-[direction=end]:data-[active=false]:translate-y-full",
         "data-[direction=start]:top-3 data-[direction=start]:data-[active=false]:-translate-y-full",
-        "data-[direction=start]:[&_svg]:rotate-180 rtl:translate-x-1/2",
+        "data-[direction=start]:[&_svg]:rotate-180",
         className
       )}
       render={

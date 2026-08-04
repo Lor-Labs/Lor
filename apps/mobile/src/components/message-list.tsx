@@ -69,7 +69,10 @@ export function MessageList({
   const [jumpTargetId, setJumpTargetId] = useState<string | null>(null)
   const [stickyDate, setStickyDate] = useState<string | null>(null)
   const listRef = useRef<LegendListRef>(null)
+  const externalFocusRef = useRef<string | null>(null)
   const orderedMessages = useMemo(() => [...messages].reverse(), [messages])
+  const orderedMessagesRef = useRef(orderedMessages)
+  orderedMessagesRef.current = orderedMessages
   const { handleLongPress, highlightedMessageId } =
     useMessageActionPress(setSelectedMessage)
 
@@ -80,34 +83,51 @@ export function MessageList({
     []
   )
 
-  useEffect(() => {
-    if (focusMessageId) setJumpTargetId(focusMessageId)
-  }, [focusMessageId])
-
-  useEffect(() => {
-    if (!jumpTargetId) return
-    const index = orderedMessages.findIndex(
-      (message) => message.id === jumpTargetId
+  const scrollToJumpTarget = useCallback((messageId: string) => {
+    const index = orderedMessagesRef.current.findIndex(
+      (message) => message.id === messageId
     )
-    if (index < 0) return
+    if (index < 0) return false
     void listRef.current?.scrollToIndex({
       animated: true,
       index,
       viewPosition: 0.5,
     })
+    return true
+  }, [])
+
+  useEffect(() => {
+    if (!jumpTargetId) return
+    if (!scrollToJumpTarget(jumpTargetId)) return
     const timeout = setTimeout(() => setJumpTargetId(null), 3500)
     return () => clearTimeout(timeout)
-  }, [jumpTargetId, orderedMessages])
+  }, [jumpTargetId, scrollToJumpTarget])
 
   const jumpToMessage = useCallback(
     async (messageId: string) => {
-      setJumpTargetId(messageId)
-      if (messages.some((message) => message.id === messageId)) return
+      if (messages.some((message) => message.id === messageId)) {
+        setJumpTargetId(messageId)
+        return
+      }
       const loaded = await onLoadAround?.(messageId)
-      if (!loaded) setJumpTargetId(null)
+      if (!loaded) {
+        setJumpTargetId(null)
+        return
+      }
+      requestAnimationFrame(() => setJumpTargetId(messageId))
     },
     [messages, onLoadAround]
   )
+
+  useEffect(() => {
+    if (!focusMessageId) {
+      externalFocusRef.current = null
+      return
+    }
+    if (externalFocusRef.current === focusMessageId) return
+    externalFocusRef.current = focusMessageId
+    void jumpToMessage(focusMessageId)
+  }, [focusMessageId, jumpToMessage])
 
   if (isLoading) return <MessageListSkeleton />
   if (error) {

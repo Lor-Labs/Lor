@@ -34,6 +34,7 @@ export function ThreadMessageList({
   messages,
   totalReplyCount,
   hasOlder,
+  isRefreshing,
   isLoadingOlder,
   paginationError,
   onLoadOlder,
@@ -56,6 +57,7 @@ export function ThreadMessageList({
   messages: Message[]
   totalReplyCount: number
   hasOlder: boolean
+  isRefreshing: boolean
   isLoadingOlder: boolean
   paginationError: string | null
   onLoadOlder: () => void
@@ -112,8 +114,12 @@ export function ThreadMessageList({
   const openingPositionRef = useRef<{
     listKey: string
     position?: { index: number; viewOffset: number; viewPosition: number }
+    resolved: boolean
   } | null>(null)
   if (openingPositionRef.current?.listKey !== listKey) {
+    openingPositionRef.current = { listKey, resolved: false }
+  }
+  if (!openingPositionRef.current.resolved) {
     let latestCompletedMerlinReply: Message | undefined
     for (let index = orderedMessages.length - 1; index >= 0; index -= 1) {
       const message = orderedMessages[index]
@@ -140,9 +146,13 @@ export function ThreadMessageList({
         anchorIndex >= 0
           ? { index: anchorIndex, viewOffset: 64, viewPosition: 0 }
           : undefined,
+      resolved: anchorIndex >= 0 || !isRefreshing,
     }
   }
   const openingPosition = openingPositionRef.current?.position
+  const openingScrollerKey = openingPosition
+    ? `${listKey}:anchor-${openingPosition.index}`
+    : `${listKey}:end`
 
   useEffect(() => {
     if (!jumpTargetId) return
@@ -193,7 +203,7 @@ export function ThreadMessageList({
     <>
       <View className="relative flex-1">
         <MobileMessageScroller
-          key={listKey}
+          key={openingScrollerKey}
           ref={listRef}
           className="flex-1 bg-background"
           data={items}

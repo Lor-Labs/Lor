@@ -363,10 +363,12 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
       }
 
       if (scrollToTarget()) return
-      void ensureMessage(messageId).then((loaded) => {
-        if (!loaded) return
-        window.requestAnimationFrame(scrollToTarget)
-      })
+      void ensureMessage(messageId)
+        .then((loaded) => {
+          if (!loaded) return
+          window.requestAnimationFrame(scrollToTarget)
+        })
+        .catch(() => undefined)
     },
     [ensureMessage, messageScrollCommandRef]
   )
@@ -474,6 +476,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
           <MessageScrollerViewport
             ref={scrollRef}
             onPointerDown={handleReaderPointerDown}
+            reconcileFollowOutput={Boolean(pendingMerlinMessage)}
             aria-label="Thread messages"
           >
             <MessageScrollerContent

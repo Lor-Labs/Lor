@@ -183,6 +183,7 @@ export function MessageList({
     commandRef: messageScrollCommandRef,
     register: registerScrollCommand,
   } = useRegisteredMessageScroller()
+  const ownedCommandRef = useRef<MessageScrollCommand | null>(null)
 
   const orderedMessages = useMemo(() => [...messages].reverse(), [messages])
   const pendingMerlinMessage = messages.find(
@@ -209,7 +210,15 @@ export function MessageList({
   const registerActiveScrollCommand = useCallback(
     (command: MessageScrollCommand | null) => {
       registerScrollCommand(command)
-      activeMessageScrollCommand = command
+      if (command) {
+        ownedCommandRef.current = command
+        activeMessageScrollCommand = command
+        return
+      }
+      if (activeMessageScrollCommand === ownedCommandRef.current) {
+        activeMessageScrollCommand = null
+      }
+      ownedCommandRef.current = null
     },
     [registerScrollCommand]
   )
@@ -348,6 +357,7 @@ export function MessageList({
         <MessageScrollerViewport
           ref={scrollRef}
           onScroll={handleScroll}
+          reconcileFollowOutput={Boolean(pendingMerlinMessage)}
           onPointerDown={handleReaderPointerDown}
           data-message-scroll
           aria-label={`${context.name} messages`}

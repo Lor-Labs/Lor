@@ -242,10 +242,10 @@
 
 @utility shimmer {
   --_spread: var(--shimmer-spread, calc(3ch + 40px));
-  --_base: currentColor;
+  --_base: currentcolor;
   --_highlight: var(
     --shimmer-color,
-    oklch(from currentColor l c h / calc(alpha * 0.2))
+    oklch(from currentcolor l c h / calc(alpha * 0.2))
   );
 
   background-image: var(
@@ -266,13 +266,21 @@
   background-size: calc(200% + var(--_spread) * 2) 100%;
   background-clip: text;
   -webkit-background-clip: text;
-  -webkit-text-fill-color: var(--shimmer-text-fill, transparent);
+  @supports (
+      background-image: linear-gradient(
+        90deg,
+        color-mix(in oklch, currentcolor, transparent),
+        oklch(from currentcolor l c h)
+      )
+    ) {
+    -webkit-text-fill-color: var(--shimmer-text-fill, transparent);
+  }
   animation: tw-shimmer var(--shimmer-duration, 2s) linear infinite;
 
   @variant dark {
     --_highlight: var(
       --shimmer-color,
-      oklch(from currentColor max(0.8, calc(l + 0.4)) c h / calc(alpha + 0.4))
+      oklch(from currentcolor max(0.8, calc(l + 0.4)) c h / calc(alpha + 0.4))
     );
   }
 
@@ -285,7 +293,7 @@
   .shimmer {
     animation: none;
     background-image: none;
-    -webkit-text-fill-color: currentColor;
+    -webkit-text-fill-color: currentcolor;
   }
 }
 

@@ -170,7 +170,7 @@ export function MessageComposer({
     !isEditing &&
     !hasMessage &&
     attachmentUpload.attachments.length === 0
-  const canActivateSubmit = isStopMode ? !isStopping && isConnected : canSend
+  const canActivateSubmit = isStopMode ? !isStopping : canSend
   const isExpanded =
     isEditing ||
     isFocused ||
@@ -493,6 +493,7 @@ export function MessageComposer({
       <Animated.View
         className="relative overflow-hidden rounded-lor-sm border border-border bg-surface"
         layout={composerLayoutTransition}
+        onLayout={onInputLayout}
       >
         {editingMessage ? (
           <View className="min-h-10 flex-row items-center gap-two border-b border-border px-three py-two">
@@ -555,7 +556,6 @@ export function MessageComposer({
           mentionIndicators={["@"]}
           multiline
           nativeID={inputNativeID}
-          onLayout={onInputLayout}
           onBlur={() => {
             scheduleFocusState(false)
             closeMentionMenu()

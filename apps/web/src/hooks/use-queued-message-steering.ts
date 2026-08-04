@@ -15,7 +15,9 @@ export function useQueuedMessageSteering({
 }) {
   const [steerWhenReady, setSteerWhenReady] = useState(false)
   const steerWhenReadyRef = useRef(false)
+  const steerWhenReadyNonceRef = useRef<string | null>(null)
   const steerWhenReadyScopeRef = useRef<string | null>(null)
+  const steerWhenReadyKnownIdsRef = useRef<Set<string>>(new Set())
   steerWhenReadyRef.current = steerWhenReady
 
   const latestOwnMessage = useMemo(
@@ -54,45 +56,50 @@ export function useQueuedMessageSteering({
       return
     }
     if (pendingNonces?.current.has(latestOwnMessage.id)) {
+      const scope = `${latestOwnMessage.channelId}:${latestOwnMessage.threadRootId ?? "channel"}`
       steerWhenReadyRef.current = true
-      steerWhenReadyScopeRef.current = `${latestOwnMessage.channelId}:${latestOwnMessage.threadRootId ?? "channel"}`
+      steerWhenReadyNonceRef.current = latestOwnMessage.id
+      steerWhenReadyScopeRef.current = scope
+      steerWhenReadyKnownIdsRef.current = new Set(
+        messages
+          .filter(
+            (message) =>
+              message.authorId === currentUserId &&
+              `${message.channelId}:${message.threadRootId ?? "channel"}` ===
+                scope
+          )
+          .map((message) => message.id)
+      )
       setSteerWhenReady(true)
       return
     }
     steer.mutate(latestOwnMessage.id)
-  }, [latestOwnMessage, pendingNonces, steer])
+  }, [currentUserId, latestOwnMessage, messages, pendingNonces, steer])
 
   // A thread send appears in the queue immediately under its optimistic
   // nonce. If Enter is pressed again before the server echo swaps in the real
   // id, remember the intent and steer as soon as that id is actionable.
   useEffect(() => {
     if (!steerWhenReady) return
-    const latestScope = latestOwnMessage
-      ? `${latestOwnMessage.channelId}:${latestOwnMessage.threadRootId ?? "channel"}`
-      : null
-    if (
-      latestScope &&
-      steerWhenReadyScopeRef.current &&
-      latestScope !== steerWhenReadyScopeRef.current
-    ) {
-      steerWhenReadyRef.current = false
-      steerWhenReadyScopeRef.current = null
-      setSteerWhenReady(false)
-      return
-    }
-    if (latestOwnMessage && !pendingNonces?.current.has(latestOwnMessage.id)) {
-      steerWhenReadyRef.current = false
-      steerWhenReadyScopeRef.current = null
-      setSteerWhenReady(false)
-      steer.mutate(latestOwnMessage.id)
-      return
-    }
-    if (!latestOwnMessage && (pendingNonces?.current.size ?? 0) === 0) {
-      steerWhenReadyRef.current = false
-      steerWhenReadyScopeRef.current = null
-      setSteerWhenReady(false)
-    }
-  }, [latestOwnMessage, pendingNonces, steer, steerWhenReady])
+    const nonce = steerWhenReadyNonceRef.current
+    const scope = steerWhenReadyScopeRef.current
+    if (!nonce || !scope || pendingNonces?.current.has(nonce)) return
+
+    const replacement = messages.find(
+      (message) =>
+        message.authorId === currentUserId &&
+        `${message.channelId}:${message.threadRootId ?? "channel"}` === scope &&
+        !steerWhenReadyKnownIdsRef.current.has(message.id) &&
+        !pendingNonces?.current.has(message.id)
+    )
+
+    steerWhenReadyRef.current = false
+    steerWhenReadyNonceRef.current = null
+    steerWhenReadyScopeRef.current = null
+    steerWhenReadyKnownIdsRef.current = new Set()
+    setSteerWhenReady(false)
+    if (replacement) steer.mutate(replacement.id)
+  }, [currentUserId, messages, pendingNonces, steer, steerWhenReady])
 
   return {
     canSteerLatestOwnMessage: Boolean(latestOwnMessage),
@@ -102,7 +109,7 @@ export function useQueuedMessageSteering({
     steeringMessageId: steer.isPending
       ? (steer.variables ?? null)
       : steerWhenReady
-        ? (latestOwnMessage?.id ?? null)
+        ? steerWhenReadyNonceRef.current
         : null,
   }
 }

@@ -187,10 +187,25 @@ export function useThreadMessages({
           ) {
             return old
           }
+          const existingIds = new Set(
+            old.pages.flatMap((existingPage) =>
+              existingPage.data.map((message) => message.id)
+            )
+          )
+          const contextMessages = page.data.filter(
+            (message) => !existingIds.has(message.id)
+          )
+          if (contextMessages.length === 0) return old
           return {
             ...old,
-            pages: [...old.pages, page],
-            pageParams: [...old.pageParams, { around: messageId }],
+            pages: old.pages.map((existingPage, index) =>
+              index === 0
+                ? {
+                    ...existingPage,
+                    data: [...existingPage.data, ...contextMessages],
+                  }
+                : existingPage
+            ),
           }
         }
       )

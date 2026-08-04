@@ -1,5 +1,17 @@
-import { type ReactNode, useCallback, useId, useMemo, useRef } from "react"
-import { type LayoutChangeEvent, StyleSheet, View } from "react-native"
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+} from "react"
+import {
+  type LayoutChangeEvent,
+  StyleSheet,
+  useWindowDimensions,
+  View,
+} from "react-native"
 import {
   KeyboardGestureArea,
   KeyboardStickyView,
@@ -36,6 +48,7 @@ export function ChatKeyboardLayout({
   typingIndicator?: ReactNode
 }) {
   const { bottom: bottomInset } = useSafeAreaInsets()
+  const { fontScale, height, width } = useWindowDimensions()
   const reactId = useId()
   const inputNativeID = useMemo(
     () => `message-composer-${reactId.replaceAll(":", "")}`,
@@ -44,11 +57,25 @@ export function ChatKeyboardLayout({
   const contentInsetEndAdjustment = useSharedValue(0)
   const freeze = useSharedValue(false)
   const baselineInputHeightRef = useRef<number | null>(null)
+  const measurementContext = `${width}:${height}:${fontScale}`
+  const baselineMeasurementContextRef = useRef(measurementContext)
+  const adjustmentMeasurementContextRef = useRef(measurementContext)
+
+  useEffect(() => {
+    if (adjustmentMeasurementContextRef.current === measurementContext) return
+    adjustmentMeasurementContextRef.current = measurementContext
+    contentInsetEndAdjustment.value = 0
+  }, [contentInsetEndAdjustment, measurementContext])
 
   const onInputLayout = useCallback(
     (event: LayoutChangeEvent) => {
       const height = Math.round(event.nativeEvent.layout.height)
       if (height <= 0) return
+
+      if (baselineMeasurementContextRef.current !== measurementContext) {
+        baselineMeasurementContextRef.current = measurementContext
+        baselineInputHeightRef.current = null
+      }
 
       const previousBaseline = baselineInputHeightRef.current
       const baseline =
@@ -60,7 +87,7 @@ export function ChatKeyboardLayout({
         { duration: COMPOSER_RESIZE_DURATION_MS }
       )
     },
-    [contentInsetEndAdjustment]
+    [contentInsetEndAdjustment, measurementContext]
   )
 
   const onCustomInputViewChange = useCallback(

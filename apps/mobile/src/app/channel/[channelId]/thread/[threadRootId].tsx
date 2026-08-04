@@ -1,7 +1,6 @@
 import { router, useLocalSearchParams } from "expo-router"
 import { SymbolView } from "expo-symbols"
 import { useThemeColor } from "heroui-native/hooks"
-import { useToast } from "heroui-native/toast"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Alert, Text, View } from "react-native"
 import { ChatKeyboardLayout } from "@/components/chat-keyboard-layout"
@@ -28,10 +27,10 @@ import { useChannelDetail } from "@/hooks/use-channel-detail"
 import { useOpenDM } from "@/hooks/use-open-dm"
 import { useProfileSheet } from "@/hooks/use-profile-sheet"
 import { useRunQueue } from "@/hooks/use-run-queue"
+import { useStopMerlinRun } from "@/hooks/use-stop-merlin-run"
 import { useThreadMessages } from "@/hooks/use-thread-messages"
 import { useTypingIndicator } from "@/hooks/use-typing-indicator"
 import { useWorkspaceMentionCandidates } from "@/hooks/use-workspace-mention-candidates"
-import { api } from "@/lib/api"
 import type { Message } from "@/lib/api-types"
 import { authClient } from "@/lib/auth-client"
 
@@ -39,11 +38,8 @@ export default function ThreadScreen() {
   const [replyingTo, setReplyingTo] = useState<Message | null>(null)
   const [editingMessage, setEditingMessage] = useState<Message | null>(null)
   const [isSavingEdit, setIsSavingEdit] = useState(false)
-  const [stoppingMerlinMessageId, setStoppingMerlinMessageId] = useState<
-    string | null
-  >(null)
   const composerMentionRef = useRef<MessageComposerMentionHandle>(null)
-  const { toast } = useToast()
+  const { requestStop, stoppingMessageId } = useStopMerlinRun()
   const foreground = useThemeColor("foreground")
   const socket = useSocket()
   const isSocketConnected = useSocketConnected()
@@ -128,25 +124,14 @@ export default function ThreadScreen() {
 
   const stopPendingMerlin = useCallback(async () => {
     const messageId = pendingMerlinMessage?.id
-    if (!messageId || stoppingMerlinMessageId === messageId) return
-
-    setStoppingMerlinMessageId(messageId)
-    try {
-      const response = await api.v1.runs["by-message"][":messageId"].stop.$post(
-        { param: { messageId } }
-      )
-      if (!response.ok) throw new Error("Couldn't stop Merlin")
-    } catch {
-      setStoppingMerlinMessageId(null)
-      toast.show({ variant: "danger", label: "Couldn't stop Merlin" })
-    }
-  }, [pendingMerlinMessage?.id, stoppingMerlinMessageId, toast])
+    if (!messageId) return
+    await requestStop(messageId)
+  }, [pendingMerlinMessage?.id, requestStop])
 
   useEffect(() => {
     setReplyingTo(null)
     setEditingMessage(null)
     setIsSavingEdit(false)
-    setStoppingMerlinMessageId(null)
     resetProfileSheet()
   }, [channelId, threadRootId, resetProfileSheet])
 
@@ -281,7 +266,7 @@ export default function ThreadScreen() {
               editingMessage={editingMessage}
               inputNativeID={inputNativeID}
               onInputLayout={onInputLayout}
-              isStopping={stoppingMerlinMessageId === pendingMerlinMessageId}
+              isStopping={stoppingMessageId === pendingMerlinMessageId}
               isConnected={isSocketConnected}
               isMentionCandidatesLoading={mentions.isLoading}
               isSending={thread.isSending || isSavingEdit}
@@ -365,6 +350,7 @@ export default function ThreadScreen() {
               editingMessageId={editingMessage?.id}
               focusMessageId={focusMessageId}
               hasOlder={thread.hasOlder}
+              isRefreshing={thread.isRefreshing}
               isLoadingOlder={thread.isLoadingOlder}
               keyboardProps={keyboardProps}
               listKey={`thread-${threadRootId}`}
