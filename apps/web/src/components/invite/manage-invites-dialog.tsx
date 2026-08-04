@@ -22,6 +22,7 @@ import { Copy, Trash2 } from "lucide-react"
 import { useState } from "react"
 import { toast } from "sonner"
 import { apiClient } from "@/lib/api-client"
+import { getInviteUrl } from "@/lib/invite-url"
 
 export function ManageInvitesDialog({
   open,
@@ -71,9 +72,7 @@ export function ManageInvitesDialog({
 
   async function handleCopy(code: string) {
     try {
-      await navigator.clipboard.writeText(
-        `${window.location.origin}/invite/${code}`
-      )
+      await navigator.clipboard.writeText(getInviteUrl(code))
       toast.success("Invite link copied!")
     } catch {
       toast.error("Failed to copy")
