@@ -3,23 +3,31 @@
 Tracking what's left to bring `apps/mobile` close to `apps/web` functionality.
 Status: `[ ]` todo · `[~]` in progress · `[x]` done. Keep this file updated as items land.
 
-Last audited: 2026-07-23.
+Last audited: 2026-08-04. Tiers 1–2 are done — nothing here gates the TestFlight beta. Everything below is deferred post-launch polish.
 
-## Tier 1 — big functional gaps
+## Post-launch — push notification follow-ups
 
-- [~] **Push notifications** — code complete full-stack (see Done); blocked on EAS/APNs credentials + dev-client rebuild on a physical iPhone before it can be tested. Follow-ups once live: badge counts on the app icon, remote-clearing stale pushes after reading on desktop (needs background push), Expo push receipt sweep (delayed job checking receipts for DeviceNotRegistered beyond ticket-level pruning), mute control on the mobile DM screen (web DM header has it; mobile mute UI lives only in the channel options sheet), muted-channel visual styling in sidebars/lists.
-- [ ] **DM follow-ups** — group-DM member list sheet, DM threads (API exists; web has no DM thread UI either — do together or not at all). DM search shipped 2026-08-03 (see Done).
+Core push is live and verified on TestFlight (2026-08-04).
 
-## Tier 2 — admin & workspace management
+- [ ] Badge counts on the app icon.
+- [ ] Remote-clearing stale pushes after reading on desktop (needs background push).
+- [ ] Expo push receipt sweep (delayed job checking receipts for DeviceNotRegistered beyond ticket-level pruning).
+- [ ] Mute control on the mobile DM screen (web DM header has it; mobile mute UI lives only in the channel options sheet).
+- [ ] Muted-channel visual styling in sidebars/lists.
 
-(all done — see Done)
+## Post-launch — DM follow-ups
 
-## Tier 3 — composer & detail polish
+- [ ] Group-DM member list sheet (group DMs can't be created from either client yet).
+- [ ] DM threads (API exists; web has no DM thread UI either — do together or not at all).
+
+## Post-launch — composer & detail polish
+
+Deliberately parked until the composer/keyboard rework settles (active in message-composer.tsx / chat-keyboard-layout.tsx).
 
 - [ ] **Full emoji reaction picker** — mobile has only 6 quick reactions in the long-press menu.
 - [ ] **Slash commands** — mobile composer's `/` toolbar button is a dead placeholder (web: `composer/slash-command-list.tsx`).
 - [ ] **Formatting toolbar** — mobile composer's text-format button is also a no-op.
-- [ ] **Bio editing** — profile sheet displays bio but nothing can edit it anywhere (column is dormant since web removed it). Add to mobile account settings if bios should be real.
+- [ ] **Bio editing** — profile sheet displays bio but nothing can edit it anywhere (column is dormant since web removed it). Needs a product call on whether bios come back before any UI work.
 
 ## Explicitly not gaps (don't chase)
 
@@ -28,6 +36,7 @@ Last audited: 2026-07-23.
 
 ## Done (recent parity work)
 
+- [x] Push notifications verified live on TestFlight (EAS/APNs credentials in place; code was complete since 2026-07-23, see entry below) — 2026-08-04
 - [x] Profile sheet in pins + home search results (`useProfileSheet.openAuthorProfile` widened to a structural author type so `ChannelSearchResult` rows qualify; pins screen `MessageRow` passes `onPressAuthor`, home search result avatars are now pressable; both screens render `UserProfileSheet` with the Message action wired to `useOpenDM`, Mention omitted — no composer there) — 2026-08-03
 - [x] DM search (search icon on the Messages tab → `dm-search-overlay` + `use-dm-search` hitting `GET /v1/dms/search`, debounced + paginated like channel search; tapping a result opens `/dm/[dmId]?focusMessageId=` — the DM screen gained the same loadAround + focus handling the channel screen has) — 2026-08-03
 - [x] Workspace settings + agent profiles (workspace sheet gained a management section: Instructions row for everyone → existing `/settings/instructions` screen — previously push-deep-link-only; admin/owner-gated rows → new `/settings/workspace` screen for rename + icon via `workspace-icon` presign upload, and `/settings/agent-profiles` screen mirroring web's profile cards + capability tile editor; refreshes workspace context via `reloadWorkspaces`) — 2026-08-03
