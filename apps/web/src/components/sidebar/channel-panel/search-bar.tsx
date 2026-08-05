@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import { Loader2, Search, X } from "lucide-react"
 import { useCallback, useEffect, useRef, useState } from "react"
+import { useMessageSearchNavigation } from "@/hooks/use-message-search-navigation"
 import { apiClient } from "@/lib/api-client"
 import { toSearchPreviewText } from "@/lib/search-preview"
 
@@ -14,6 +15,7 @@ type SearchResult = {
   createdAt: string
   channelId: string
   channelName: string
+  threadRootId?: string | null
   author: {
     id: string
     name: string
@@ -44,6 +46,7 @@ export function SearchBar({
 }) {
   const { workspaceSlug } = useParams({ strict: false })
   const navigate = useNavigate()
+  const navigateToWorkspaceMessage = useMessageSearchNavigation()
   const [isOpen, setIsOpen] = useState(false)
   const [query, setQuery] = useState("")
   const [debouncedQuery, setDebouncedQuery] = useState("")
@@ -109,7 +112,7 @@ export function SearchBar({
     enabled: debouncedQuery.length > 0 && (mode === "dm" || !!workspaceSlug),
   })
 
-  const handleResultClick = (channelId: string, messageId: string) => {
+  const handleResultClick = (message: SearchResult) => {
     if (debounceTimer.current) {
       clearTimeout(debounceTimer.current)
       debounceTimer.current = null
@@ -120,14 +123,14 @@ export function SearchBar({
     if (mode === "dm") {
       void navigate({
         to: "/dms/$dmId",
-        params: { dmId: channelId },
-        search: { msgId: messageId },
+        params: { dmId: message.channelId },
+        search: { msgId: message.id },
       })
     } else {
-      void navigate({
-        to: "/$workspaceSlug/$channelId",
-        params: { workspaceSlug: workspaceSlug as string, channelId },
-        search: { msgId: messageId },
+      navigateToWorkspaceMessage({
+        id: message.id,
+        channelId: message.channelId,
+        threadRootId: message.threadRootId ?? null,
       })
     }
   }
@@ -189,7 +192,7 @@ export function SearchBar({
               key={msg.id}
               type="button"
               className="w-full border-b border-border/50 px-3 py-2.5 text-left transition-colors hover:bg-accent last:border-b-0"
-              onClick={() => handleResultClick(msg.channelId, msg.id)}
+              onClick={() => handleResultClick(msg)}
             >
               <div className="flex items-center gap-1.5">
                 <Avatar size="sm">

@@ -373,6 +373,15 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
     },
     [ensureMessage, messageScrollCommandRef]
   )
+
+  // Search results can deep-link to an older reply that is outside the
+  // thread's initial live-tail page. Load that slice, then center + highlight
+  // the exact result once the panel's scroller is ready.
+  useEffect(() => {
+    if (!view.targetMessageId) return
+    handleJumpWithinThread(view.targetMessageId)
+  }, [view.targetMessageId, handleJumpWithinThread])
+
   const handleReaderPointerDown = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
       signalMessageScrollerInteraction(
