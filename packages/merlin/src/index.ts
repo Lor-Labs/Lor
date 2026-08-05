@@ -86,7 +86,7 @@ You have two kinds of memory:
 
 const GITHUB_PROMPT_LINE = `- The team's GitHub: search_github finds pull requests and issues by keyword across the connected repos, and fetch_github pulls one's full body and discussion. Reference a PR or issue with a normal Markdown link to the result's url (these are live results, not [[src:]] citations).`
 
-const LINEAR_PROMPT_LINE = `- The team's Linear: search_linear finds issues by keyword and fetch_linear pulls one's full description and comments. Reference a Linear issue with a normal Markdown link to its url (live results, not [[src:]] citations).`
+const LINEAR_PROMPT_LINE = `- The team's Linear: search_linear finds issues by keyword relevance; list_linear_issues lists structured recent work by Linear lifecycle state (triage, backlog, unstarted, started, completed, canceled, duplicate), assignee, team, project, or label, and can order by updatedAt, createdAt, or completedAt; fetch_linear pulls one issue's full description and comments. Use list_linear_issues—not keyword search—for questions like what the team is working on or what shipped recently. Reference a Linear issue with a normal Markdown link to its url (live results, not [[src:]] citations).`
 
 const LINEAR_WRITE_PROMPT_LINE = `- When asked to file or follow up in Linear: create_linear_issue opens an issue. A Linear team is required — it's picked automatically when the workspace has one team, but if there are several you must say which (by key or name); the tool lists them if you don't. You can also assign the issue by passing a person's name or email (matched to a Linear member). update_linear_issue changes an existing issue — assignee (or "none" to unassign), workflow state (Todo, In Progress, Done, …), title, description, priority, labels, due date — pass only the fields to change. comment_linear adds a comment to an existing issue.`
 
@@ -536,6 +536,10 @@ function toolLabel(toolName: string, input: unknown): string {
       return ref ? `Reading ${ref}` : "Reading a pull request/issue"
     case "search_linear":
       return query ? `Searching Linear for “${query}”` : "Searching Linear"
+    case "list_linear_issues": {
+      const state = field("state")
+      return state ? `Listing ${state} Linear issues` : "Listing Linear issues"
+    }
     case "fetch_linear":
       return "Reading a Linear issue"
     case "create_linear_issue": {
@@ -697,6 +701,25 @@ function toolDetail(
               ? "No results"
               : plural(results.length, "result"),
           items: results.slice(0, 8).map((it) => {
+            const r = asRecord(it)
+            const identifier = asString(r?.identifier)
+            const title = asString(r?.title) ?? "untitled"
+            return {
+              title: identifier ? `${identifier} ${title}` : title,
+              url: asString(r?.url),
+            }
+          }),
+        },
+      }
+    }
+    case "list_linear_issues": {
+      const issues = Array.isArray(rec?.issues) ? rec.issues : []
+      return {
+        status: "ok",
+        detail: {
+          summary:
+            issues.length === 0 ? "No issues" : plural(issues.length, "issue"),
+          items: issues.slice(0, 8).map((it) => {
             const r = asRecord(it)
             const identifier = asString(r?.identifier)
             const title = asString(r?.title) ?? "untitled"
@@ -1077,6 +1100,7 @@ export async function respond(
     ...(linear
       ? {
           search_linear: linear,
+          list_linear_issues: linear,
           fetch_linear: linear,
           create_linear_issue: linear,
           comment_linear: linear,

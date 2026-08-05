@@ -40,6 +40,7 @@ const CONNECTOR_UI: Record<ConnectorKey, ConnectorUI> = {
     urlHost: /(^|\.)linear\.app\b/i,
     tools: [
       "search_linear",
+      "list_linear_issues",
       "fetch_linear",
       "create_linear_issue",
       "comment_linear",
