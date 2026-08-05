@@ -495,6 +495,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
                   <MessageItem
                     message={{ ...rootMessage, threadSummary: null }}
                     showHeader={true}
+                    wrapContentAroundAvatar
                     currentUserId={currentUserId}
                     isReplyTarget={replyingTo?.id === rootMessage.id}
                     onReact={handleReact}
@@ -581,6 +582,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
                       <MessageItem
                         message={msg}
                         showHeader={showHeader}
+                        wrapContentAroundAvatar
                         currentUserId={currentUserId}
                         isReplyTarget={replyingTo?.id === msg.id}
                         onReact={handleReact}
