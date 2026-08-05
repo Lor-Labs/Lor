@@ -33,13 +33,13 @@ function MessageResultRow({
       onPress={() => onPress(message)}
     >
       <Pressable
-        accessibilityHint="Opens their profile"
-        accessibilityLabel={`${displayName}'s profile`}
-        accessibilityRole="button"
+        accessibilityElementsHidden
+        accessible={false}
         className="active:opacity-70"
         disabled={!onPressAuthor}
         hitSlop={4}
-        onPress={onPressAuthor ? () => onPressAuthor(message) : undefined}
+        importantForAccessibility="no-hide-descendants"
+        onPress={() => onPressAuthor?.(message)}
       >
         <Avatar
           avatarColor={message.author.avatarColor}

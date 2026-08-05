@@ -27,6 +27,7 @@ export function MemberListSheet({
   error = null,
   isLoading = false,
   isOpen,
+  memberHasActions,
   members,
   onLongPressMember,
   onOpenChange,
@@ -37,6 +38,7 @@ export function MemberListSheet({
   error?: string | null
   isLoading?: boolean
   isOpen: boolean
+  memberHasActions?: (member: MemberListItem) => boolean
   members: MemberListItem[]
   onLongPressMember?: (member: MemberListItem) => void
   onOpenChange: (isOpen: boolean) => void
@@ -135,6 +137,7 @@ export function MemberListSheet({
                 {onlineMembers.length > 0 ? (
                   <MemberSection
                     label={`Online · ${onlineMembers.length}`}
+                    memberHasActions={memberHasActions}
                     members={onlineMembers}
                     onLongPressMember={onLongPressMember}
                     onPressMember={onPressMember}
@@ -144,6 +147,7 @@ export function MemberListSheet({
                 {offlineMembers.length > 0 ? (
                   <MemberSection
                     label={`Offline · ${offlineMembers.length}`}
+                    memberHasActions={memberHasActions}
                     members={offlineMembers}
                     onLongPressMember={onLongPressMember}
                     onPressMember={onPressMember}
@@ -160,11 +164,13 @@ export function MemberListSheet({
 
 function MemberSection({
   label,
+  memberHasActions,
   members,
   onLongPressMember,
   onPressMember,
 }: {
   label: string
+  memberHasActions?: (member: MemberListItem) => boolean
   members: MemberListItem[]
   onLongPressMember?: (member: MemberListItem) => void
   onPressMember?: (member: MemberListItem) => void
@@ -173,20 +179,26 @@ function MemberSection({
     <View className="gap-two px-one">
       <SectionLabel>{label}</SectionLabel>
       <View className="overflow-hidden rounded-lor-lg bg-surface-secondary">
-        {members.map((member, index) => (
-          <View key={member.id}>
-            {index > 0 ? (
-              <View className="ml-[68px] h-px bg-separator" />
-            ) : null}
-            <MemberRow
-              member={member}
-              onLongPress={
-                onLongPressMember ? () => onLongPressMember(member) : undefined
-              }
-              onPress={onPressMember ? () => onPressMember(member) : undefined}
-            />
-          </View>
-        ))}
+        {members.map((member, index) => {
+          const hasActions =
+            onLongPressMember && (memberHasActions?.(member) ?? true)
+          return (
+            <View key={member.id}>
+              {index > 0 ? (
+                <View className="ml-[68px] h-px bg-separator" />
+              ) : null}
+              <MemberRow
+                member={member}
+                onLongPress={
+                  hasActions ? () => onLongPressMember(member) : undefined
+                }
+                onPress={
+                  onPressMember ? () => onPressMember(member) : undefined
+                }
+              />
+            </View>
+          )
+        })}
       </View>
     </View>
   )
@@ -203,6 +215,11 @@ function MemberRow({
 }) {
   return (
     <Pressable
+      accessibilityActions={
+        onLongPress
+          ? [{ name: "longpress", label: "Member options" }]
+          : undefined
+      }
       accessibilityHint={onPress ? "Opens their profile" : undefined}
       accessibilityLabel={`${member.name}, ${member.detail}, ${member.status}`}
       accessibilityRole={onPress || onLongPress ? "button" : undefined}
@@ -210,6 +227,9 @@ function MemberRow({
         onPress || onLongPress ? "active:bg-surface-tertiary" : ""
       }`}
       disabled={!onPress && !onLongPress}
+      onAccessibilityAction={(event) => {
+        if (event.nativeEvent.actionName === "longpress") onLongPress?.()
+      }}
       onLongPress={onLongPress}
       onPress={onPress}
     >

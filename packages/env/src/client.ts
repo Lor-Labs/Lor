@@ -12,6 +12,37 @@ const addProtocol = (url: string) => {
   return isLocal ? `http://${trimmed}` : `https://${trimmed}`
 }
 
+const isLoopbackHost = (hostname: string) =>
+  hostname === "localhost" ||
+  hostname.endsWith(".localhost") ||
+  hostname === "127.0.0.1" ||
+  hostname === "[::1]"
+
+/** Web (invite-link) origin: http(s) only, http:// inferred only for true loopback hosts. */
+const normalizeWebUrl = (value: string, ctx: z.RefinementCtx) => {
+  const trimmed = value.trim().replace(/\/+$/, "")
+  const hasProtocol = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)
+  let parsed: URL
+  try {
+    parsed = new URL(hasProtocol ? trimmed : `https://${trimmed}`)
+  } catch {
+    ctx.addIssue({
+      code: "custom",
+      message: "NEXT_PUBLIC_WEB_URL must be a valid URL",
+    })
+    return z.NEVER
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    ctx.addIssue({
+      code: "custom",
+      message: "NEXT_PUBLIC_WEB_URL must use http:// or https://",
+    })
+    return z.NEVER
+  }
+  if (hasProtocol) return trimmed
+  return `${isLoopbackHost(parsed.hostname) ? "http" : "https"}://${trimmed}`
+}
+
 const clientSchema = z.object({
   NODE_ENV: z
     .enum(["development", "staging", "production", "test"])
@@ -22,8 +53,7 @@ const clientSchema = z.object({
     .string()
     .min(1)
     .default("https://app.lor.chat")
-    .transform(addProtocol)
-    .transform((url) => url.replace(/\/+$/, "")),
+    .transform(normalizeWebUrl),
   NEXT_PUBLIC_MAX_FILE_UPLOAD_SIZE: z.coerce
     .number()
     .default(DEFAULT_MAX_FILE_UPLOAD_SIZE),

@@ -24,6 +24,7 @@ import type {
   AvailableCapability,
   MerlinCapabilityKey,
 } from "@/lib/api-types"
+import { confirmDiscard } from "@/lib/confirm-discard"
 
 // Group capabilities by their connector, preserving first-seen order.
 function groupByConnector(caps: AvailableCapability[]) {
@@ -295,7 +296,10 @@ export default function AgentProfilesScreen() {
       <View className="min-h-[60px] flex-row items-center gap-two border-b border-separator px-three">
         <IconButton
           accessibilityLabel="Back"
-          onPress={() => router.back()}
+          onPress={() => {
+            if (editingId !== null) confirmDiscard(() => router.back())
+            else router.back()
+          }}
           variant="ghost"
         >
           <SymbolView

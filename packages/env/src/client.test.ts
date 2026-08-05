@@ -90,5 +90,24 @@ describe("client env", () => {
       NEXT_PUBLIC_WEB_URL: " chat.example.com/// ",
     })
     expect(customEnv.NEXT_PUBLIC_WEB_URL).toBe("https://chat.example.com")
+
+    const loopbackEnv = await loadClientEnv({
+      NEXT_PUBLIC_WEB_URL: "localhost:3000",
+    })
+    expect(loopbackEnv.NEXT_PUBLIC_WEB_URL).toBe("http://localhost:3000")
+
+    const lookalikeEnv = await loadClientEnv({
+      NEXT_PUBLIC_WEB_URL: "localhost.evil.com",
+    })
+    expect(lookalikeEnv.NEXT_PUBLIC_WEB_URL).toBe("https://localhost.evil.com")
+  })
+
+  it("rejects websocket protocols for the public web URL", async () => {
+    await expect(
+      loadClientEnv({ NEXT_PUBLIC_WEB_URL: "ws://app.lor.test" })
+    ).rejects.toThrow()
+    await expect(
+      loadClientEnv({ NEXT_PUBLIC_WEB_URL: "wss://app.lor.test" })
+    ).rejects.toThrow()
   })
 })

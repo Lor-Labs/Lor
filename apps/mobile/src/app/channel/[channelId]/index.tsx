@@ -507,6 +507,7 @@ export default function ChannelScreen() {
         error={mentions.error}
         isLoading={mentions.isLoading}
         isOpen={isMembersOpen}
+        memberHasActions={moderation.canModerate}
         members={memberItems}
         onLongPressMember={openMemberActions}
         onOpenChange={setIsMembersOpen}

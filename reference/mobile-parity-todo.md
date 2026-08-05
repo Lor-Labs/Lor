@@ -3,7 +3,7 @@
 Tracking what's left to bring `apps/mobile` close to `apps/web` functionality.
 Status: `[ ]` todo · `[~]` in progress · `[x]` done. Keep this file updated as items land.
 
-Last audited: 2026-08-04. Tiers 1–2 are done — nothing here gates the TestFlight beta. Everything below is deferred post-launch polish.
+Last audited: 2026-08-04. Nothing here gates the TestFlight beta — everything below is deferred post-launch polish.
 
 ## Post-launch — push notification follow-ups
 
