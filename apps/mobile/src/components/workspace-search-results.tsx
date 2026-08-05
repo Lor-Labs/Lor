@@ -26,10 +26,25 @@ function MessageResultRow({
 
   return (
     <Pressable
+      accessibilityActions={
+        onPressAuthor
+          ? [
+              {
+                name: "viewAuthorProfile",
+                label: `Open ${displayName}'s profile`,
+              },
+            ]
+          : undefined
+      }
       accessibilityHint="Opens the channel and focuses this message"
       accessibilityLabel={`Message from ${displayName} in ${message.channelName}: ${preview}`}
       accessibilityRole="button"
       className="flex-row gap-three rounded-lor-sm px-two py-two active:bg-surface-secondary"
+      onAccessibilityAction={(event) => {
+        if (event.nativeEvent.actionName === "viewAuthorProfile") {
+          onPressAuthor?.(message)
+        }
+      }}
       onPress={() => onPress(message)}
     >
       <Pressable

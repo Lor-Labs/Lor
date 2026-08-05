@@ -296,7 +296,9 @@ export default function AgentProfilesScreen() {
       <View className="min-h-[60px] flex-row items-center gap-two border-b border-separator px-three">
         <IconButton
           accessibilityLabel="Back"
+          isDisabled={save.isPending}
           onPress={() => {
+            if (save.isPending) return
             if (editingId !== null) confirmDiscard(() => router.back())
             else router.back()
           }}

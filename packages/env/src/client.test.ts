@@ -110,4 +110,24 @@ describe("client env", () => {
       loadClientEnv({ NEXT_PUBLIC_WEB_URL: "wss://app.lor.test" })
     ).rejects.toThrow()
   })
+
+  it("allows explicit http only for loopback web URLs", async () => {
+    const loopbackEnv = await loadClientEnv({
+      NEXT_PUBLIC_WEB_URL: "http://127.0.0.1:3000",
+    })
+    expect(loopbackEnv.NEXT_PUBLIC_WEB_URL).toBe("http://127.0.0.1:3000")
+
+    await expect(
+      loadClientEnv({ NEXT_PUBLIC_WEB_URL: "http://app.lor.test" })
+    ).rejects.toThrow()
+  })
+
+  it("rejects query strings and fragments in the public web URL", async () => {
+    await expect(
+      loadClientEnv({ NEXT_PUBLIC_WEB_URL: "chat.example.com/?next=1" })
+    ).rejects.toThrow()
+    await expect(
+      loadClientEnv({ NEXT_PUBLIC_WEB_URL: "chat.example.com/#invite" })
+    ).rejects.toThrow()
+  })
 })

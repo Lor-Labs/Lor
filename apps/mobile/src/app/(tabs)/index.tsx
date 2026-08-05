@@ -37,6 +37,7 @@ import type {
   ChannelList as ChannelListData,
   ChannelSearchResult,
 } from "@/lib/api-types"
+import { authClient } from "@/lib/auth-client"
 
 export default function WorkspaceScreen() {
   const theme = useTheme()
@@ -57,8 +58,12 @@ export default function WorkspaceScreen() {
   const inviteTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const permissions = useChannelPermissions(workspace?.id)
   const activeMember = useActiveMember(workspace?.id)
-  const memberRole = activeMember.data?.role
-  const canManageWorkspace = memberRole === "admin" || memberRole === "owner"
+  const { data: session } = authClient.useSession()
+  const isWorkspaceOwner = Boolean(
+    session?.user.id && workspace?.ownerId === session.user.id
+  )
+  const canManageWorkspace =
+    isWorkspaceOwner || activeMember.data?.role === "admin"
   const { openAuthorProfile, profileSheet } = useAuthorProfileSheet(
     workspace?.slug ?? ""
   )

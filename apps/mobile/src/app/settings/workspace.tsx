@@ -120,11 +120,13 @@ function WorkspaceSettingsForm({
   const canSave = dirty && nameValid && !isSaving
 
   const goBack = () => {
+    if (isSaving) return
     if (dirty) confirmDiscard(() => router.back())
     else router.back()
   }
 
   const pickIcon = async () => {
+    if (isSaving) return
     setIconError(null)
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
@@ -200,7 +202,12 @@ function WorkspaceSettingsForm({
   return (
     <Screen className="bg-background" edges={["top", "bottom"]}>
       <View className="min-h-[60px] flex-row items-center gap-two border-b border-separator px-three">
-        <IconButton accessibilityLabel="Back" onPress={goBack} variant="ghost">
+        <IconButton
+          accessibilityLabel="Back"
+          isDisabled={isSaving}
+          onPress={goBack}
+          variant="ghost"
+        >
           <SymbolView
             name={{
               ios: "chevron.left",
@@ -231,6 +238,7 @@ function WorkspaceSettingsForm({
             accessibilityLabel="Change workspace icon"
             accessibilityRole="button"
             className="active:opacity-70"
+            disabled={isSaving}
             onPress={() => void pickIcon()}
           >
             <Avatar
@@ -268,6 +276,7 @@ function WorkspaceSettingsForm({
         <TextField isInvalid={!nameValid} isRequired>
           <Label>Workspace Name</Label>
           <Input
+            isDisabled={isSaving}
             maxLength={MAX_NAME_LENGTH}
             onChangeText={setName}
             placeholder="My workspace"

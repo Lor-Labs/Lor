@@ -7,6 +7,7 @@ export type Workspace = {
   name: string
   slug: string
   logo: string | null
+  ownerId: string | null
 }
 
 type WorkspaceContextValue = {
@@ -25,12 +26,14 @@ function toWorkspace(item: {
   name: string
   slug: string
   logo?: string | null
+  ownerId?: string | null
 }): Workspace {
   return {
     id: item.id,
     name: item.name,
     slug: item.slug,
     logo: item.logo ?? null,
+    ownerId: item.ownerId ?? null,
   }
 }
 
