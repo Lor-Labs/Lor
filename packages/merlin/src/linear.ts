@@ -10,6 +10,7 @@ const LIST_DEFAULT = 10
 const LIST_MAX = 20
 const MAX_COMMENTS = 10
 const MAX_LISTED = 30
+const LINEAR_PAGE_SIZE = 250
 
 export async function activeLinearConnection(
   workspaceId: string
@@ -108,7 +109,10 @@ async function compactLinearIssues(
       : [],
     labelIds.length > 0
       ? client
-          .issueLabels({ first: 250, filter: { id: { in: labelIds } } })
+          .issueLabels({
+            first: Math.min(labelIds.length, LINEAR_PAGE_SIZE),
+            filter: { id: { in: labelIds } },
+          })
           .then((result) => result.nodes)
           .catch(() => [])
       : [],
@@ -365,7 +369,7 @@ async function resolveAssignee(
   try {
     matched = (
       await client.users({
-        first: 250,
+        first: LINEAR_PAGE_SIZE,
         filter: {
           or: [
             { name: { containsIgnoreCase: raw } },
@@ -385,7 +389,7 @@ async function resolveAssignee(
     // Hand back the member list so the model can pick the right person and
     // retry instead of dead-ending on a handle Linear doesn't know.
     const all = await client
-      .users({ first: 250 })
+      .users({ first: LINEAR_PAGE_SIZE })
       .then((u) => u.nodes)
       .catch(() => null)
     const members = all
@@ -515,7 +519,7 @@ async function resolveLabels(
   const changes: string[] = []
   if (add.length > 0) {
     const all = await client
-      .issueLabels({ first: 250 })
+      .issueLabels({ first: LINEAR_PAGE_SIZE })
       .then((l) => l.nodes)
       .catch(() => null)
     if (!all) return { error: "couldn't load Linear labels" }

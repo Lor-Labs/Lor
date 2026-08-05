@@ -619,6 +619,16 @@ function toolDetail(
       }
     })
   }
+  const toLinearItems = (arr: unknown[]) =>
+    arr.slice(0, 8).map((it) => {
+      const r = asRecord(it)
+      const identifier = asString(r?.identifier)
+      const title = asString(r?.title) ?? "untitled"
+      return {
+        title: identifier ? `${identifier} ${title}` : title,
+        url: asString(r?.url),
+      }
+    })
   const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`
   switch (toolName) {
     case "search": {
@@ -700,15 +710,7 @@ function toolDetail(
             results.length === 0
               ? "No results"
               : plural(results.length, "result"),
-          items: results.slice(0, 8).map((it) => {
-            const r = asRecord(it)
-            const identifier = asString(r?.identifier)
-            const title = asString(r?.title) ?? "untitled"
-            return {
-              title: identifier ? `${identifier} ${title}` : title,
-              url: asString(r?.url),
-            }
-          }),
+          items: toLinearItems(results),
         },
       }
     }
@@ -719,15 +721,7 @@ function toolDetail(
         detail: {
           summary:
             issues.length === 0 ? "No issues" : plural(issues.length, "issue"),
-          items: issues.slice(0, 8).map((it) => {
-            const r = asRecord(it)
-            const identifier = asString(r?.identifier)
-            const title = asString(r?.title) ?? "untitled"
-            return {
-              title: identifier ? `${identifier} ${title}` : title,
-              url: asString(r?.url),
-            }
-          }),
+          items: toLinearItems(issues),
         },
       }
     }
