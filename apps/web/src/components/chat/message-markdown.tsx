@@ -10,6 +10,7 @@ import { createCodePlugin } from "@streamdown/code"
 import { type ReactNode, useMemo } from "react"
 import { type Components, Streamdown } from "streamdown"
 import type { Message } from "@/lib/api-types"
+import { connectorForUrl, connectorLogo } from "@/lib/connector-ui"
 
 const USER_MENTION_TOKEN_REGEX =
   /<@([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})>/gi
@@ -46,6 +47,35 @@ function isHttpUrl(value: string): boolean {
 
 function getMentionLabel(mention: Message["mentions"][number]) {
   return mention.displayUsername ?? mention.username ?? mention.name
+}
+
+// Codex-style link icon, a renderer concern only (the markdown stays a plain
+// link): connector hosts wear their brand mark, other external links get the
+// site's favicon by domain.
+function LinkIcon({ href }: { href?: string }) {
+  if (!href || !isHttpUrl(href)) return null
+  const connector = connectorForUrl(href)
+  if (connector) {
+    const Logo = connectorLogo(connector)
+    return <Logo className="mr-1 inline-block size-3.5 align-[-0.2em]" />
+  }
+  let host: string
+  try {
+    host = new URL(href).hostname
+  } catch {
+    return null
+  }
+  return (
+    <img
+      src={`https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=32`}
+      alt=""
+      loading="lazy"
+      className="mr-1 inline-block size-3.5 rounded-[3px] align-[-0.2em]"
+      onError={(e) => {
+        e.currentTarget.style.display = "none"
+      }}
+    />
+  )
 }
 
 // Mentions are emitted as a custom <mention> tag rather than a link so they
@@ -148,6 +178,7 @@ export function MessageMarkdown({
           rel="noreferrer noopener"
           className="break-words text-primary underline-offset-2 hover:underline"
         >
+          <LinkIcon href={href} />
           {children}
         </a>
       ),
