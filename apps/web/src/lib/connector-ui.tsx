@@ -1,3 +1,5 @@
+import { Globe02Icon } from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
 import { AttioLogo } from "@repo/ui/components/logos/attio"
 import { DatadogLogo } from "@repo/ui/components/logos/datadog"
 import { LinearLogo } from "@repo/ui/components/logos/linear"
@@ -25,6 +27,11 @@ function AttioMark({ className }: { className?: string }) {
 
 function NotionMark({ className }: { className?: string }) {
   return <NotionLogo className={className} />
+}
+
+// Same glyph as mobile's Globe02Icon so web capabilities match across surfaces.
+export function GlobeMark({ className }: { className?: string }) {
+  return <HugeiconsIcon icon={Globe02Icon} className={className} />
 }
 
 type ConnectorUI = {
@@ -87,8 +94,9 @@ const CONNECTOR_UI: Record<ConnectorKey, ConnectorUI> = {
 
 const CONNECTOR_KEYS = Object.keys(CONNECTOR_UI) as ConnectorKey[]
 
-export function connectorLogo(key: ConnectorKey): Logo {
-  return CONNECTOR_UI[key].logo
+// Null = a built-in capability with no connector (web) — wears the globe.
+export function connectorLogo(key: ConnectorKey | null): Logo {
+  return key ? CONNECTOR_UI[key].logo : GlobeMark
 }
 
 // The connector behind a bot display name ("GitHub" → github) — used to brand

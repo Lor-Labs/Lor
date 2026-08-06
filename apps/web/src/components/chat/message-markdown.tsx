@@ -1,3 +1,4 @@
+import { env } from "@repo/env/client"
 import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar"
 import {
   HoverCard,
@@ -7,9 +8,10 @@ import {
 import { cn } from "@repo/ui/lib/utils"
 import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { createCodePlugin } from "@streamdown/code"
-import { type ReactNode, useMemo } from "react"
+import { type ReactNode, useMemo, useState } from "react"
 import { type Components, Streamdown } from "streamdown"
 import type { Message } from "@/lib/api-types"
+import { connectorForUrl, connectorLogo } from "@/lib/connector-ui"
 
 const USER_MENTION_TOKEN_REGEX =
   /<@([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})>/gi
@@ -46,6 +48,50 @@ function isHttpUrl(value: string): boolean {
 
 function getMentionLabel(mention: Message["mentions"][number]) {
   return mention.displayUsername ?? mention.username ?? mention.name
+}
+
+// Codex-style link icon, a renderer concern only (the markdown stays a plain
+// link): connector hosts wear their brand mark, other external links get the
+// site's favicon by domain. The rounded plate normalizes favicons of any
+// shape/resolution to one consistent glyph; a failed favicon drops the plate
+// entirely rather than leaving an empty square.
+function IconPlate({ children }: { children: ReactNode }) {
+  return (
+    <span className="mr-[5px] inline-flex size-4 items-center justify-center rounded-[4px] bg-muted align-[-0.22em] ring-1 ring-border ring-inset">
+      {children}
+    </span>
+  )
+}
+
+function LinkIcon({ href }: { href?: string }) {
+  const [failed, setFailed] = useState(false)
+  if (!href || !isHttpUrl(href) || failed) return null
+  const connector = connectorForUrl(href)
+  if (connector) {
+    const Logo = connectorLogo(connector)
+    return (
+      <IconPlate>
+        <Logo className="size-3" />
+      </IconPlate>
+    )
+  }
+  let host: string
+  try {
+    host = new URL(href).hostname
+  } catch {
+    return null
+  }
+  return (
+    <IconPlate>
+      <img
+        src={`${env.NEXT_PUBLIC_API_URL}/v1/favicon/${encodeURIComponent(host)}`}
+        alt=""
+        loading="lazy"
+        className="size-3 rounded-[2px] object-contain"
+        onError={() => setFailed(true)}
+      />
+    </IconPlate>
+  )
 }
 
 // Mentions are emitted as a custom <mention> tag rather than a link so they
@@ -146,8 +192,9 @@ export function MessageMarkdown({
           href={href}
           target="_blank"
           rel="noreferrer noopener"
-          className="break-words text-primary underline-offset-2 hover:underline"
+          className="break-words font-medium text-primary underline-offset-2 hover:underline"
         >
+          <LinkIcon href={href} />
           {children}
         </a>
       ),

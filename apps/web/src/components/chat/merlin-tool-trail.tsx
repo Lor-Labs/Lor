@@ -1,3 +1,4 @@
+import { env } from "@repo/env/client"
 import { cn } from "@repo/ui/lib/utils"
 import {
   BookOpen,
@@ -17,6 +18,7 @@ import {
   connectorForTool,
   connectorForUrl,
   connectorLogo,
+  GlobeMark,
 } from "@/lib/connector-ui"
 
 // Codex/Cursor-style tool trail: a collapsible summary of the tools Merlin used
@@ -38,6 +40,9 @@ function toolIcon(toolName: string): TrailIcon {
     case "grep":
     case "find":
       return Search
+    case "search_web":
+    case "fetch_web":
+      return GlobeMark
     case "fetch_source":
       return Download
     case "ls":
@@ -61,6 +66,34 @@ function toolIcon(toolName: string): TrailIcon {
 function itemIcon(url?: string): TrailIcon {
   const connector = connectorForUrl(url)
   return connector ? connectorLogo(connector) : ExternalLink
+}
+
+// Web results carry a favicon marker — badge them Codex-style, loading the
+// icon through our /v1/favicon proxy by the result url's hostname (never the
+// third-party favicon url directly). Everything else, and any result whose
+// url is missing/unparseable or whose favicon fails to load, keeps the
+// connector/external-link glyph.
+function ItemGlyph({ item }: { item: { url?: string; favicon?: string } }) {
+  const [failed, setFailed] = useState(false)
+  const Icon = itemIcon(item.url)
+  let host: string | null = null
+  if (item.favicon && item.url && !failed) {
+    try {
+      host = new URL(item.url).hostname
+    } catch {
+      host = null
+    }
+  }
+  if (!host) return <Icon className="size-3 shrink-0" />
+  return (
+    <img
+      src={`${env.NEXT_PUBLIC_API_URL}/v1/favicon/${encodeURIComponent(host)}`}
+      alt=""
+      loading="lazy"
+      className="size-3 shrink-0 rounded-[3px] object-contain"
+      onError={() => setFailed(true)}
+    />
+  )
 }
 
 function hasDetail(t: MerlinToolCallView): boolean {
@@ -175,7 +208,6 @@ export function MerlinToolTrail({
                       </div>
                     )}
                     {t.detail?.items?.map((it) => {
-                      const ItemIcon = itemIcon(it.url)
                       const key = `${t.toolCallId}:${it.url ?? it.title}`
                       return it.url ? (
                         <a
@@ -185,7 +217,7 @@ export function MerlinToolTrail({
                           rel="noreferrer noopener"
                           className="inline-flex cursor-pointer items-center gap-1 text-primary hover:text-primary/80"
                         >
-                          <ItemIcon className="size-3 shrink-0" />
+                          <ItemGlyph item={it} />
                           <span className="truncate underline-offset-2 hover:underline">
                             {it.title}
                           </span>
@@ -195,7 +227,7 @@ export function MerlinToolTrail({
                           key={key}
                           className="inline-flex items-center gap-1"
                         >
-                          <ItemIcon className="size-3 shrink-0" />
+                          <ItemGlyph item={it} />
                           <span className="truncate">{it.title}</span>
                         </span>
                       )

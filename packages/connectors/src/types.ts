@@ -34,6 +34,7 @@ export type CapabilityDescriptor = {
   key: MerlinCapability
   label: string
   description: string
-  // The connector that must be connected to grant this capability.
-  connector: IntegrationProvider
+  // The connector that must be connected to grant this capability, or null for
+  // built-in capabilities (e.g. web) that need no workspace connection.
+  connector: IntegrationProvider | null
 }

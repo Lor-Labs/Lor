@@ -1,10 +1,15 @@
-import { availableCapabilities, CONNECTORS } from "@repo/connectors"
+import {
+  availableCapabilities,
+  type CapabilityDescriptor,
+  CONNECTORS,
+} from "@repo/connectors"
 import { db } from "@repo/db"
 import {
   agentProfile,
   integrationConnection,
   type MerlinCapability,
 } from "@repo/db/schema"
+import { env } from "@repo/env/server"
 import { and, asc, desc, eq } from "drizzle-orm"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { assertWorkspacePermission } from "@/lib/permissions"
@@ -34,6 +39,15 @@ async function ensureDefaultProfile(workspaceId: string): Promise<void> {
     .onConflictDoNothing()
 }
 
+// Built-in capabilities are connection-less but still need their backing
+// service configured server-side; hide web from the editor (and grant
+// validation) when the deployment has no Exa key.
+function configuredCapabilities(
+  caps: CapabilityDescriptor[]
+): CapabilityDescriptor[] {
+  return caps.filter((c) => c.key !== "web" || Boolean(env.EXA_API_KEY))
+}
+
 // Capabilities the workspace can actually grant given its active connectors —
 // the same set surfaced in the editor. Used to reject grants for disconnected
 // providers before they're persisted.
@@ -50,7 +64,9 @@ async function grantableCapabilities(
       )
     )
   const connected = new Set(connections.map((r) => r.provider))
-  return new Set(availableCapabilities(connected).map((c) => c.key))
+  return new Set(
+    configuredCapabilities(availableCapabilities(connected)).map((c) => c.key)
+  )
 }
 
 export const listAgentProfiles: AppRouteHandler<
@@ -75,13 +91,15 @@ export const listAgentProfiles: AppRouteHandler<
       )
     )
   const connected = new Set(connections.map((r) => r.provider))
-  const caps = availableCapabilities(connected).map((c) => ({
-    key: c.key,
-    label: c.label,
-    description: c.description,
-    connector: c.connector,
-    connectorLabel: CONNECTORS[c.connector].label,
-  }))
+  const caps = configuredCapabilities(availableCapabilities(connected)).map(
+    (c) => ({
+      key: c.key,
+      label: c.label,
+      description: c.description,
+      connector: c.connector,
+      connectorLabel: c.connector ? CONNECTORS[c.connector].label : c.label,
+    })
+  )
 
   return c.json({ profiles, availableCapabilities: caps }, HttpStatusCodes.OK)
 }

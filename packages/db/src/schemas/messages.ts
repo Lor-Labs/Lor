@@ -206,7 +206,8 @@ export type MerlinToolCall = {
   // label already says everything).
   detail?: {
     summary?: string
-    items?: { title: string; url?: string }[]
+    // favicon: site icon url for web results — rendered on the item's badge.
+    items?: { title: string; url?: string; favicon?: string }[]
   }
   status?: "ok" | "error"
 }
