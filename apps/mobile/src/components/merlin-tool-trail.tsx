@@ -12,7 +12,7 @@ import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react-native"
 import { BottomSheet } from "heroui-native/bottom-sheet"
 import { useThemeColor } from "heroui-native/hooks"
 import { useState } from "react"
-import { Pressable, Text, View } from "react-native"
+import { Image, Pressable, Text, View } from "react-native"
 import {
   ConnectorIcon,
   connectorForTool,
@@ -239,7 +239,12 @@ export function MerlinToolTrail({
                         if (item.url) openExternalUrl(item.url)
                       }}
                     >
-                      {connector ? (
+                      {item.favicon?.startsWith("https://") ? (
+                        <Image
+                          source={{ uri: item.favicon }}
+                          style={{ width: 16, height: 16, borderRadius: 3 }}
+                        />
+                      ) : connector ? (
                         <ConnectorIcon
                           color={accent}
                           connector={connector}

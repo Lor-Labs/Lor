@@ -67,6 +67,22 @@ function itemIcon(url?: string): TrailIcon {
   return connector ? connectorLogo(connector) : ExternalLink
 }
 
+// Web results carry the site's favicon — badge it Codex-style; everything else
+// keeps the connector/external-link glyph.
+function ItemGlyph({ item }: { item: { url?: string; favicon?: string } }) {
+  if (item.favicon?.startsWith("https://")) {
+    return (
+      <img
+        src={item.favicon}
+        alt=""
+        className="size-3 shrink-0 rounded-[3px]"
+      />
+    )
+  }
+  const Icon = itemIcon(item.url)
+  return <Icon className="size-3 shrink-0" />
+}
+
 function hasDetail(t: MerlinToolCallView): boolean {
   return Boolean(t.detail?.summary || (t.detail?.items?.length ?? 0) > 0)
 }
@@ -179,7 +195,6 @@ export function MerlinToolTrail({
                       </div>
                     )}
                     {t.detail?.items?.map((it) => {
-                      const ItemIcon = itemIcon(it.url)
                       const key = `${t.toolCallId}:${it.url ?? it.title}`
                       return it.url ? (
                         <a
@@ -189,7 +204,7 @@ export function MerlinToolTrail({
                           rel="noreferrer noopener"
                           className="inline-flex cursor-pointer items-center gap-1 text-primary hover:text-primary/80"
                         >
-                          <ItemIcon className="size-3 shrink-0" />
+                          <ItemGlyph item={it} />
                           <span className="truncate underline-offset-2 hover:underline">
                             {it.title}
                           </span>
@@ -199,7 +214,7 @@ export function MerlinToolTrail({
                           key={key}
                           className="inline-flex items-center gap-1"
                         >
-                          <ItemIcon className="size-3 shrink-0" />
+                          <ItemGlyph item={it} />
                           <span className="truncate">{it.title}</span>
                         </span>
                       )

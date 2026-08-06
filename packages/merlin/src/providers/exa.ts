@@ -1,60 +1,77 @@
 import { env } from "@repo/env/server"
+import Exa, {
+  type BaseSearchOptions,
+  ExaError,
+  type SearchResult,
+} from "exa-js"
 import { logger } from "../logger"
 
-const API_URL = "https://api.exa.ai"
-const REQUEST_TIMEOUT_MS = 20_000
 // Exa's maximum supported maxCharacters for page text.
 const PAGE_TEXT_MAX = 10_000
 
-export type ExaResult = {
-  title?: string | null
-  url: string
-  publishedDate?: string | null
-  author?: string | null
-  text?: string
+// Highlights over text for search: the most relevant excerpts per result at a
+// fraction of the tokens (Exa's recommended mode for agent loops).
+const SEARCH_CONTENTS = { highlights: true } as const
+const FETCH_CONTENTS = { text: { maxCharacters: PAGE_TEXT_MAX } } as const
+
+export type WebSearchResult = SearchResult<typeof SEARCH_CONTENTS>
+export type WebPageResult = SearchResult<typeof FETCH_CONTENTS>
+
+export type WebSearchOptions = {
+  numResults: number
+  category?: BaseSearchOptions["category"]
+  includeDomains?: string[]
+  excludeDomains?: string[]
+  startPublishedDate?: string
+  endPublishedDate?: string
 }
 
-type ExaResponse = { results?: ExaResult[] }
+let client: Exa | null = null
+function exa(): Exa | null {
+  if (!env.EXA_API_KEY) return null
+  client ??= new Exa(env.EXA_API_KEY)
+  return client
+}
 
-async function exaRequest<T>(path: string, body: unknown): Promise<T | null> {
-  const key = env.EXA_API_KEY
-  if (!key) return null
+// Surface the API's own message (e.g. "excludeDomains is not supported with
+// category company") so the model can correct its next call.
+function failure(err: unknown, op: string): { error: string } {
+  logger.warn({ err, op }, "Exa request failed")
+  return { error: err instanceof ExaError ? err.message : `${op} failed` }
+}
+
+export async function searchWeb(
+  query: string,
+  opts: WebSearchOptions
+): Promise<{ results: WebSearchResult[] } | { error: string }> {
+  const api = exa()
+  if (!api) return { error: "web search isn't configured" }
   try {
-    const res = await fetch(`${API_URL}${path}`, {
-      method: "POST",
-      headers: { "x-api-key": key, "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    const res = await api.search(query, {
+      type: "auto",
+      numResults: opts.numResults,
+      category: opts.category,
+      includeDomains: opts.includeDomains,
+      excludeDomains: opts.excludeDomains,
+      startPublishedDate: opts.startPublishedDate,
+      endPublishedDate: opts.endPublishedDate,
+      contents: SEARCH_CONTENTS,
     })
-    if (!res.ok) {
-      logger.warn({ path, status: res.status }, "Exa API request failed")
-      return null
-    }
-    return (await res.json()) as T
+    return { results: res.results }
   } catch (err) {
-    logger.warn({ err, path }, "Exa API request error")
-    return null
+    return failure(err, "web search")
   }
 }
 
-export async function searchWeb(opts: {
-  query: string
-  numResults: number
-  snippetCharacters: number
-}): Promise<ExaResult[] | null> {
-  const res = await exaRequest<ExaResponse>("/search", {
-    query: opts.query,
-    type: "auto",
-    numResults: opts.numResults,
-    contents: { text: { maxCharacters: opts.snippetCharacters } },
-  })
-  return res?.results ?? null
-}
-
-export async function fetchWebPage(url: string): Promise<ExaResult | null> {
-  const res = await exaRequest<ExaResponse>("/contents", {
-    urls: [url],
-    text: { maxCharacters: PAGE_TEXT_MAX },
-  })
-  return res?.results?.[0] ?? null
+export async function fetchWebPage(
+  url: string
+): Promise<{ page: WebPageResult | undefined } | { error: string }> {
+  const api = exa()
+  if (!api) return { error: "web fetch isn't configured" }
+  try {
+    const res = await api.getContents(url, FETCH_CONTENTS)
+    return { page: res.results[0] }
+  } catch (err) {
+    return failure(err, "web fetch")
+  }
 }

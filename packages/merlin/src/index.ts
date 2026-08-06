@@ -783,7 +783,14 @@ function toolDetail(
             results.length === 0
               ? "No results"
               : plural(results.length, "result"),
-          items: toItems(results),
+          items: results.slice(0, 8).map((it) => {
+            const r = asRecord(it)
+            return {
+              title: asString(r?.title) ?? "untitled",
+              url: asString(r?.url),
+              favicon: asString(r?.favicon),
+            }
+          }),
         },
       }
     }
@@ -793,7 +800,15 @@ function toolDetail(
         status: "ok",
         detail: {
           summary: "Fetched a web page",
-          items: title ? [{ title, url: asString(rec?.url) }] : undefined,
+          items: title
+            ? [
+                {
+                  title,
+                  url: asString(rec?.url),
+                  favicon: asString(rec?.favicon),
+                },
+              ]
+            : undefined,
         },
       }
     }

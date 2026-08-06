@@ -44,7 +44,13 @@ export const merlinToolCallSchema = z.object({
     .object({
       summary: z.string().optional(),
       items: z
-        .array(z.object({ title: z.string(), url: z.string().optional() }))
+        .array(
+          z.object({
+            title: z.string(),
+            url: z.string().optional(),
+            favicon: z.string().optional(),
+          })
+        )
         .optional(),
     })
     .optional(),
