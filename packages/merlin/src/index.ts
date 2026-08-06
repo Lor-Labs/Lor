@@ -16,6 +16,7 @@ import {
   tool,
 } from "ai"
 import { z } from "zod"
+import { attioTools, resolveWorkspaceAttio } from "./attio"
 import {
   type BrainWriteEvent,
   brainReadTools,
@@ -91,6 +92,8 @@ const LINEAR_PROMPT_LINE = `- The team's Linear: search_linear finds issues by k
 const LINEAR_WRITE_PROMPT_LINE = `- When asked to file or follow up in Linear: create_linear_issue opens an issue. A Linear team is required — it's picked automatically when the workspace has one team, but if there are several you must say which (by key or name); the tool lists them if you don't. You can also assign the issue by passing a person's name or email (matched to a Linear member). update_linear_issue changes an existing issue — assignee (or "none" to unassign), workflow state (Todo, In Progress, Done, …), title, description, priority, labels, due date — pass only the fields to change. comment_linear adds a comment to an existing issue.`
 
 const DATADOG_PROMPT_LINE = `- The team's Datadog: search_datadog_logs searches indexed logs (query syntax like service:checkout status:error) and analyze_datadog_logs runs counts/aggregations over them. Default to the last hour unless the question implies a range, keep result limits small, and reference Datadog links with normal Markdown links (live results, not [[src:]] citations).`
+
+const ATTIO_PROMPT_LINE = `- The team's Attio CRM (read-only): search_attio fuzzy-searches people, companies, deals, and custom objects; fetch_attio_record returns a record's complete current values and relationships; query_attio discovers the dynamic object/list schema or queries records and pipeline entries; fetch_attio_activity returns list memberships, notes, tasks, comment threads, meetings, files, and optionally call transcripts. Start with search_attio for a named account/person and query_attio mode=catalog when you need to discover custom objects or pipelines. Reference Attio records and transcripts with normal Markdown links to their url (live results, not [[src:]] citations).`
 
 const SYSTEM_PROMPT_TAIL = `You can also see images people share in the channel — they're included inline in the conversation below.
 
@@ -560,6 +563,16 @@ function toolLabel(toolName: string, input: unknown): string {
         : "Searching Datadog logs"
     case "analyze_datadog_logs":
       return "Analyzing Datadog logs"
+    case "search_attio":
+      return query ? `Searching Attio for “${query}”` : "Searching Attio"
+    case "fetch_attio_record":
+      return "Reading an Attio record"
+    case "query_attio": {
+      const mode = field("mode")
+      return mode === "catalog" ? "Inspecting Attio" : "Querying Attio"
+    }
+    case "fetch_attio_activity":
+      return "Reading Attio activity"
     case "search":
       return query ? `Searching for “${query}”` : "Searching"
     case "read_thread":
@@ -737,6 +750,60 @@ function toolDetail(
             ? [{ title: label, url: asString(rec?.url) }]
             : undefined,
         },
+      }
+    }
+    case "search_attio": {
+      const results = Array.isArray(rec?.results) ? rec.results : []
+      return {
+        status: "ok",
+        detail: {
+          summary:
+            results.length === 0
+              ? "No results"
+              : plural(results.length, "result"),
+          items: toItems(results),
+        },
+      }
+    }
+    case "fetch_attio_record": {
+      const title = asString(rec?.title)
+      return {
+        status: "ok",
+        detail: {
+          summary: "Fetched an Attio record",
+          items: title ? [{ title, url: asString(rec?.url) }] : undefined,
+        },
+      }
+    }
+    case "query_attio": {
+      const results = Array.isArray(rec?.results) ? rec.results : []
+      const objects = Array.isArray(rec?.objects) ? rec.objects : []
+      const lists = Array.isArray(rec?.lists) ? rec.lists : []
+      const count = results.length || objects.length + lists.length
+      return {
+        status: "ok",
+        detail: {
+          summary: count === 0 ? "No results" : plural(count, "Attio item"),
+          items: results.length > 0 ? toItems(results) : undefined,
+        },
+      }
+    }
+    case "fetch_attio_activity": {
+      const notes = Array.isArray(rec?.notes) ? rec.notes.length : 0
+      const tasks = Array.isArray(rec?.tasks) ? rec.tasks.length : 0
+      const meetings = Array.isArray(rec?.meetings) ? rec.meetings.length : 0
+      const transcripts = Array.isArray(rec?.transcripts)
+        ? rec.transcripts.length
+        : 0
+      const groups = [
+        notes ? plural(notes, "note") : null,
+        tasks ? plural(tasks, "task") : null,
+        meetings ? plural(meetings, "meeting") : null,
+        transcripts ? plural(transcripts, "transcript") : null,
+      ].filter((value): value is string => value !== null)
+      return {
+        status: "ok",
+        detail: { summary: groups.join(", ") || "No activity" },
       }
     }
     case "create_linear_issue": {
@@ -1040,14 +1107,18 @@ export async function respond(
   const needsGithub =
     caps.includes("github") || caps.includes("code_intelligence")
   const needsLinear = caps.includes("linear") || caps.includes("linear_write")
+  const needsAttio = caps.includes("attio")
   // Independent lookups run concurrently; the Datadog MCP handshake is the
   // slow one and is itself time-bounded inside datadogMcpTools.
-  const [github, linear, datadogMcp] = await Promise.all([
+  const [github, linear, attio, datadogMcp] = await Promise.all([
     needsGithub
       ? resolveWorkspaceGithub(ctx.workspaceId).catch(() => null)
       : null,
     needsLinear
       ? resolveWorkspaceLinear(ctx.workspaceId).catch(() => null)
+      : null,
+    needsAttio
+      ? resolveWorkspaceAttio(ctx.workspaceId).catch(() => null)
       : null,
     caps.includes("datadog")
       ? resolveWorkspaceDatadog(ctx.workspaceId)
@@ -1069,6 +1140,7 @@ export async function respond(
       : {}),
     ...(linear && caps.includes("linear") ? linearTools : {}),
     ...(linear && caps.includes("linear_write") ? linearWriteTools : {}),
+    ...(attio && caps.includes("attio") ? attioTools : {}),
     ...(datadogMcp ? datadogMcp.tools : {}),
   }
 
@@ -1101,6 +1173,14 @@ export async function respond(
           update_linear_issue: linear,
         }
       : {}),
+    ...(attio
+      ? {
+          search_attio: attio,
+          fetch_attio_record: attio,
+          query_attio: attio,
+          fetch_attio_activity: attio,
+        }
+      : {}),
   }
 
   // Only describe the connectors actually bound for this channel.
@@ -1109,6 +1189,7 @@ export async function respond(
     linear && caps.includes("linear") ? LINEAR_PROMPT_LINE : null,
     linear && caps.includes("linear_write") ? LINEAR_WRITE_PROMPT_LINE : null,
     datadogMcp ? DATADOG_PROMPT_LINE : null,
+    attio && caps.includes("attio") ? ATTIO_PROMPT_LINE : null,
   ].filter((line): line is string => line !== null)
 
   // The finally closes the Datadog MCP session after the whole tool loop, even

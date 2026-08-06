@@ -22,6 +22,7 @@ export const merlinCapabilityEnum = pgEnum("merlin_capability", [
   "linear",
   "linear_write",
   "datadog",
+  "attio",
 ])
 
 export type MerlinCapability = (typeof merlinCapabilityEnum.enumValues)[number]

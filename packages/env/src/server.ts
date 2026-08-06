@@ -107,6 +107,8 @@ const serverSchema = z.object({
   LINEAR_CLIENT_ID: z.string().min(1).optional(),
   LINEAR_CLIENT_SECRET: z.string().min(1).optional(),
   LINEAR_WEBHOOK_SECRET: z.string().min(1).optional(),
+  ATTIO_CLIENT_ID: z.string().min(1).optional(),
+  ATTIO_CLIENT_SECRET: z.string().min(1).optional(),
   INTEGRATION_ENCRYPTION_KEY: z
     .string()
     .regex(/^[0-9a-f]{64}$/i)
@@ -168,6 +170,21 @@ const refinedServerSchema = serverSchema.superRefine((val, ctx) => {
       code: z.ZodIssueCode.custom,
       message:
         "INTEGRATION_ENCRYPTION_KEY is required when Linear (a token-persisting connector) is configured",
+      path: ["INTEGRATION_ENCRYPTION_KEY"],
+    })
+  }
+  if (Boolean(val.ATTIO_CLIENT_ID) !== Boolean(val.ATTIO_CLIENT_SECRET)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "ATTIO_CLIENT_ID and ATTIO_CLIENT_SECRET must be set together",
+      path: [val.ATTIO_CLIENT_ID ? "ATTIO_CLIENT_SECRET" : "ATTIO_CLIENT_ID"],
+    })
+  }
+  if (val.ATTIO_CLIENT_ID && !val.INTEGRATION_ENCRYPTION_KEY) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message:
+        "INTEGRATION_ENCRYPTION_KEY is required when Attio (a token-persisting connector) is configured",
       path: ["INTEGRATION_ENCRYPTION_KEY"],
     })
   }

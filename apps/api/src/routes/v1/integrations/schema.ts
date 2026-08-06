@@ -80,6 +80,16 @@ export const connectLinearResponseSchema = z.object({
   accountLogin: z.string().nullable(),
 })
 
+export const connectAttioRequestSchema = z.object({
+  code: z.string().min(1),
+  state: z.string().min(1),
+})
+
+export const connectAttioResponseSchema = z.object({
+  success: z.literal(true),
+  accountLogin: z.string().nullable(),
+})
+
 export const connectDatadogRequestSchema = z.object({
   site: z.enum(DATADOG_SITES),
   apiKey: z.string().min(1),

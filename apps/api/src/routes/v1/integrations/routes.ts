@@ -11,6 +11,8 @@ import {
 } from "@/lib/helpers/openapi/schemas"
 import { workspaceAuthMiddleware } from "@/middleware/workspace-auth"
 import {
+  connectAttioRequestSchema,
+  connectAttioResponseSchema,
   connectDatadogRequestSchema,
   connectDatadogResponseSchema,
   connectGithubRequestSchema,
@@ -134,6 +136,36 @@ export const connectDatadog = createRoute({
   },
 })
 
+export const connectAttio = createRoute({
+  path: "/workspaces/{workspaceSlug}/integrations/attio/connect",
+  method: "post",
+  summary: "Link an Attio workspace to a workspace",
+  description:
+    "Exchanges an Attio OAuth authorization code and stores the workspace-scoped, read-only token encrypted.",
+  tags: ["Integrations"],
+  middleware: [workspaceAuthMiddleware] as const,
+  request: {
+    params: integrationsWorkspaceParamsSchema,
+    body: jsonContent({
+      schema: connectAttioRequestSchema,
+      description: "The Attio OAuth authorization code",
+    }),
+  },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: connectAttioResponseSchema,
+      description: "Connected",
+    }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.CONFLICT]: conflictSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
 export const updateIntegration = createRoute({
   path: "/workspaces/{workspaceSlug}/integrations/{connectionId}",
   method: "patch",
@@ -184,6 +216,7 @@ export const disconnectIntegration = createRoute({
 export type ListIntegrationsRoute = typeof listIntegrations
 export type ConnectGithubRoute = typeof connectGithub
 export type ConnectLinearRoute = typeof connectLinear
+export type ConnectAttioRoute = typeof connectAttio
 export type ConnectDatadogRoute = typeof connectDatadog
 export type UpdateIntegrationRoute = typeof updateIntegration
 export type DisconnectIntegrationRoute = typeof disconnectIntegration

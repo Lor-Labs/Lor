@@ -589,8 +589,8 @@ function IntegrationsSection({ workspaceSlug }: { workspaceSlug: string }) {
     <div className="space-y-3">
       <p className="text-sm text-muted-foreground">
         Connect tools so Merlin can draw on your team's work — searching pull
-        requests, issues, code, and logs on demand, and summarizing what matters
-        into your workspace's memory.
+        requests, issues, CRM records, meetings, code, and logs on demand, and
+        summarizing what matters into your workspace's memory.
       </p>
       {data?.providers.map((p) => {
         const Icon = connectorLogo(p.id)
