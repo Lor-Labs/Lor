@@ -1,3 +1,4 @@
+import { env } from "@repo/env/client"
 import { cn } from "@repo/ui/lib/utils"
 import {
   BookOpen,
@@ -67,20 +68,32 @@ function itemIcon(url?: string): TrailIcon {
   return connector ? connectorLogo(connector) : ExternalLink
 }
 
-// Web results carry the site's favicon — badge it Codex-style; everything else
-// keeps the connector/external-link glyph.
+// Web results carry a favicon marker — badge them Codex-style, loading the
+// icon through our /v1/favicon proxy by the result url's hostname (never the
+// third-party favicon url directly). Everything else, and any result whose
+// url is missing/unparseable or whose favicon fails to load, keeps the
+// connector/external-link glyph.
 function ItemGlyph({ item }: { item: { url?: string; favicon?: string } }) {
-  if (item.favicon?.startsWith("https://")) {
-    return (
-      <img
-        src={item.favicon}
-        alt=""
-        className="size-3 shrink-0 rounded-[3px]"
-      />
-    )
-  }
+  const [failed, setFailed] = useState(false)
   const Icon = itemIcon(item.url)
-  return <Icon className="size-3 shrink-0" />
+  let host: string | null = null
+  if (item.favicon && item.url && !failed) {
+    try {
+      host = new URL(item.url).hostname
+    } catch {
+      host = null
+    }
+  }
+  if (!host) return <Icon className="size-3 shrink-0" />
+  return (
+    <img
+      src={`${env.NEXT_PUBLIC_API_URL}/v1/favicon/${encodeURIComponent(host)}`}
+      alt=""
+      loading="lazy"
+      className="size-3 shrink-0 rounded-[3px] object-contain"
+      onError={() => setFailed(true)}
+    />
+  )
 }
 
 function hasDetail(t: MerlinToolCallView): boolean {
