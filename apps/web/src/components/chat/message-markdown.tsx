@@ -8,7 +8,7 @@ import {
 import { cn } from "@repo/ui/lib/utils"
 import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { createCodePlugin } from "@streamdown/code"
-import { type ReactNode, useMemo } from "react"
+import { type ReactNode, useMemo, useState } from "react"
 import { type Components, Streamdown } from "streamdown"
 import type { Message } from "@/lib/api-types"
 import { connectorForUrl, connectorLogo } from "@/lib/connector-ui"
@@ -52,13 +52,28 @@ function getMentionLabel(mention: Message["mentions"][number]) {
 
 // Codex-style link icon, a renderer concern only (the markdown stays a plain
 // link): connector hosts wear their brand mark, other external links get the
-// site's favicon by domain.
+// site's favicon by domain. The rounded plate normalizes favicons of any
+// shape/resolution to one consistent glyph; a failed favicon drops the plate
+// entirely rather than leaving an empty square.
+function IconPlate({ children }: { children: ReactNode }) {
+  return (
+    <span className="mr-[5px] inline-flex size-4 items-center justify-center rounded-[4px] bg-muted align-[-0.22em] ring-1 ring-border ring-inset">
+      {children}
+    </span>
+  )
+}
+
 function LinkIcon({ href }: { href?: string }) {
-  if (!href || !isHttpUrl(href)) return null
+  const [failed, setFailed] = useState(false)
+  if (!href || !isHttpUrl(href) || failed) return null
   const connector = connectorForUrl(href)
   if (connector) {
     const Logo = connectorLogo(connector)
-    return <Logo className="mr-1 inline-block size-3.5 align-[-0.2em]" />
+    return (
+      <IconPlate>
+        <Logo className="size-3" />
+      </IconPlate>
+    )
   }
   let host: string
   try {
@@ -67,15 +82,15 @@ function LinkIcon({ href }: { href?: string }) {
     return null
   }
   return (
-    <img
-      src={`${env.NEXT_PUBLIC_API_URL}/v1/favicon/${encodeURIComponent(host)}`}
-      alt=""
-      loading="lazy"
-      className="mr-1 inline-block size-3.5 rounded-[3px] align-[-0.2em]"
-      onError={(e) => {
-        e.currentTarget.style.display = "none"
-      }}
-    />
+    <IconPlate>
+      <img
+        src={`${env.NEXT_PUBLIC_API_URL}/v1/favicon/${encodeURIComponent(host)}`}
+        alt=""
+        loading="lazy"
+        className="size-3 rounded-[2px] object-contain"
+        onError={() => setFailed(true)}
+      />
+    </IconPlate>
   )
 }
 
@@ -177,7 +192,7 @@ export function MessageMarkdown({
           href={href}
           target="_blank"
           rel="noreferrer noopener"
-          className="break-words text-primary underline-offset-2 hover:underline"
+          className="break-words font-medium text-primary underline-offset-2 hover:underline"
         >
           <LinkIcon href={href} />
           {children}
