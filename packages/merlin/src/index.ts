@@ -45,6 +45,7 @@ import {
 import { linearTools, linearWriteTools, resolveWorkspaceLinear } from "./linear"
 import { logger } from "./logger"
 import { MERLIN_MODEL, mainGatewayOptions, merlinModel } from "./models"
+import { notionTools, resolveWorkspaceNotion } from "./notion"
 import {
   addStepToCounters,
   budgetViolation,
@@ -94,6 +95,8 @@ const LINEAR_WRITE_PROMPT_LINE = `- When asked to file or follow up in Linear: c
 const DATADOG_PROMPT_LINE = `- The team's Datadog: search_datadog_logs searches indexed logs (query syntax like service:checkout status:error) and analyze_datadog_logs runs counts/aggregations over them. Default to the last hour unless the question implies a range, keep result limits small, and reference Datadog links with normal Markdown links (live results, not [[src:]] citations).`
 
 const ATTIO_PROMPT_LINE = `- The team's Attio CRM (read-only): search_attio fuzzy-searches people, companies, deals, and custom objects; fetch_attio_record returns a record's complete current values and relationships; query_attio discovers the dynamic object/list schema or queries records and pipeline entries; fetch_attio_activity returns list memberships, notes, tasks, comment threads, meetings, files, and optionally call transcripts. Start with search_attio for a named account/person and query_attio mode=catalog when you need to discover custom objects or pipelines. Reference Attio records and transcripts with normal Markdown links to their url (live results, not [[src:]] citations).`
+
+const NOTION_PROMPT_LINE = `- The team's selected Notion content (read-only): search_notion searches page and data-source titles (not page-body text); fetch_notion_page reads a known page as Markdown with properties and comments; query_notion_data_source retrieves a database schema and structured rows; list_notion_users resolves workspace people without email addresses. Meetings are ordinary selected pages or rows—do not attempt user-specific meeting search. Reference Notion pages with normal Markdown links to their url (live results, not [[src:]] citations).`
 
 const SYSTEM_PROMPT_TAIL = `You can also see images people share in the channel — they're included inline in the conversation below.
 
@@ -573,6 +576,16 @@ function toolLabel(toolName: string, input: unknown): string {
     }
     case "fetch_attio_activity":
       return "Reading Attio activity"
+    case "search_notion":
+      return query ? `Searching Notion for “${query}”` : "Browsing Notion"
+    case "fetch_notion_page":
+      return "Reading a Notion page"
+    case "query_notion_data_source":
+      return "Querying a Notion data source"
+    case "list_notion_users":
+      return query
+        ? `Finding Notion users matching “${query}”`
+        : "Listing Notion users"
     case "search":
       return query ? `Searching for “${query}”` : "Searching"
     case "read_thread":
@@ -804,6 +817,61 @@ function toolDetail(
       return {
         status: "ok",
         detail: { summary: groups.join(", ") || "No activity" },
+      }
+    }
+    case "search_notion": {
+      const results = Array.isArray(rec?.results) ? rec.results : []
+      return {
+        status: "ok",
+        detail: {
+          summary:
+            results.length === 0
+              ? "No results"
+              : plural(results.length, "Notion result"),
+          items: toItems(results),
+        },
+      }
+    }
+    case "fetch_notion_page": {
+      const title = asString(rec?.title)
+      return {
+        status: "ok",
+        detail: {
+          summary: "Fetched a Notion page",
+          items: title ? [{ title, url: asString(rec?.url) }] : undefined,
+        },
+      }
+    }
+    case "query_notion_data_source": {
+      // results is an { error } record when the rows request failed.
+      const rowError = Array.isArray(rec?.results)
+        ? undefined
+        : asString(asRecord(rec?.results)?.error)
+      if (rowError) {
+        return { status: "error", detail: { summary: rowError } }
+      }
+      const results = Array.isArray(rec?.results) ? rec.results : []
+      return {
+        status: "ok",
+        detail: {
+          summary:
+            results.length === 0
+              ? "No rows"
+              : plural(results.length, "Notion row"),
+          items: toItems(results),
+        },
+      }
+    }
+    case "list_notion_users": {
+      const users = Array.isArray(rec?.users) ? rec.users : []
+      return {
+        status: "ok",
+        detail: {
+          summary:
+            users.length === 0
+              ? "No users"
+              : plural(users.length, "Notion user"),
+        },
       }
     }
     case "create_linear_issue": {
@@ -1108,9 +1176,10 @@ export async function respond(
     caps.includes("github") || caps.includes("code_intelligence")
   const needsLinear = caps.includes("linear") || caps.includes("linear_write")
   const needsAttio = caps.includes("attio")
+  const needsNotion = caps.includes("notion")
   // Independent lookups run concurrently; the Datadog MCP handshake is the
   // slow one and is itself time-bounded inside datadogMcpTools.
-  const [github, linear, attio, datadogMcp] = await Promise.all([
+  const [github, linear, attio, notion, datadogMcp] = await Promise.all([
     needsGithub
       ? resolveWorkspaceGithub(ctx.workspaceId).catch(() => null)
       : null,
@@ -1119,6 +1188,9 @@ export async function respond(
       : null,
     needsAttio
       ? resolveWorkspaceAttio(ctx.workspaceId).catch(() => null)
+      : null,
+    needsNotion
+      ? resolveWorkspaceNotion(ctx.workspaceId).catch(() => null)
       : null,
     caps.includes("datadog")
       ? resolveWorkspaceDatadog(ctx.workspaceId)
@@ -1141,6 +1213,7 @@ export async function respond(
     ...(linear && caps.includes("linear") ? linearTools : {}),
     ...(linear && caps.includes("linear_write") ? linearWriteTools : {}),
     ...(attio && caps.includes("attio") ? attioTools : {}),
+    ...(notion && caps.includes("notion") ? notionTools : {}),
     ...(datadogMcp ? datadogMcp.tools : {}),
   }
 
@@ -1181,6 +1254,14 @@ export async function respond(
           fetch_attio_activity: attio,
         }
       : {}),
+    ...(notion
+      ? {
+          search_notion: notion,
+          fetch_notion_page: notion,
+          query_notion_data_source: notion,
+          list_notion_users: notion,
+        }
+      : {}),
   }
 
   // Only describe the connectors actually bound for this channel.
@@ -1190,6 +1271,7 @@ export async function respond(
     linear && caps.includes("linear_write") ? LINEAR_WRITE_PROMPT_LINE : null,
     datadogMcp ? DATADOG_PROMPT_LINE : null,
     attio && caps.includes("attio") ? ATTIO_PROMPT_LINE : null,
+    notion && caps.includes("notion") ? NOTION_PROMPT_LINE : null,
   ].filter((line): line is string => line !== null)
 
   // The finally closes the Datadog MCP session after the whole tool loop, even

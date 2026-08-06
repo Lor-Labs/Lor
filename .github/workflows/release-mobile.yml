@@ -1,0 +1,261 @@
+# Manual TestFlight override. apps/mobile/.eas/workflows/deploy.yml decides
+# between an OTA update and a full build on its own (by native fingerprint);
+# this is the escape hatch for "I want a real TestFlight build for this merge".
+#
+# CI posts a "Release options" comment on every PR into main. Tick its checkbox
+# and the `mobile:testflight` label appears in the sidebar; merging then cuts a
+# production build and submits it to App Store Connect. The checkbox lives in a
+# CI-owned comment rather than the PR description because CodeRabbit rewrites
+# descriptions and would wipe it.
+#
+# Also runnable on demand from the Actions tab.
+# Runbook: reference/mobile-release.md
+name: Release mobile
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    branches: [main]
+  # NOTE: issue_comment always runs the workflow file from the DEFAULT branch,
+  # so the checkbox does nothing until this file is on main.
+  issue_comment:
+    types: [edited]
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      message:
+        description: Why this build is being cut (shows in the run summary)
+        required: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.issue.number || github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  RELEASE_LABEL: mobile:testflight
+
+jobs:
+  # Posts the checkbox comment on new PRs. Deliberately does not touch labels —
+  # only an explicit tick/untick does, so a hand-applied label is never fought.
+  post-options:
+    name: Post release options
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      # PR conversation comments are governed by pull-requests, not issues —
+      # and this repo has Issues disabled, so a requested issues permission is
+      # silently dropped from the token.
+      pull-requests: write
+    steps:
+      - uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+        with:
+          script: |
+            const marker = "<!-- lor-release-options -->"
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              per_page: 100,
+            })
+
+            if (comments.some((c) => c.body?.includes(marker))) {
+              core.info("Release options comment already present.")
+              return
+            }
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body: [
+                marker,
+                "### Release options",
+                "",
+                "- [ ] **Ship a TestFlight build** — merging cuts a full iOS production build and submits it to App Store Connect.",
+                "",
+                "<sub>Tick any time before merging. Leave unchecked for the normal fingerprint-gated path: an OTA update, or an automatic build when the native fingerprint changed.</sub>",
+              ].join("\n"),
+            })
+
+  # Ticking/unticking the checkbox fires issue_comment.edited; mirror it onto
+  # the label so the state is visible next to the merge box.
+  sync-label:
+    name: Sync TestFlight label
+    if: github.event_name == 'issue_comment' && github.event.issue.pull_request && contains(github.event.comment.body, '<!-- lor-release-options -->')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      # Covers label add/remove on the PR. Repo-level label creation would need
+      # issues: write, but Issues are disabled on this repo so that permission
+      # can't be granted — creation is best-effort below.
+      pull-requests: write
+    steps:
+      - uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+        env:
+          RELEASE_LABEL: ${{ env.RELEASE_LABEL }}
+        with:
+          script: |
+            const label = process.env.RELEASE_LABEL
+            const issue = context.payload.issue
+            const wanted = /^[ \t]*[-*][ \t]*\[[xX]\][^\n]*testflight/im.test(
+              context.payload.comment.body ?? ""
+            )
+            const present = (issue.labels ?? []).some((l) => l.name === label)
+
+            if (wanted === present) {
+              core.info(`Label already ${present ? "set" : "unset"} — nothing to do.`)
+              return
+            }
+
+            const args = {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+            }
+
+            // The label is cosmetic — the decide job reads the checkbox itself
+            // on merge — so never fail the run over it.
+            if (wanted) {
+              try {
+                await github.rest.issues.addLabels({ ...args, labels: [label] })
+              } catch (error) {
+                core.warning(
+                  `Couldn't add the ${label} label (${error.message}). ` +
+                    `Create it once at https://github.com/${context.repo.owner}/${context.repo.repo}/labels — ` +
+                    `either way, the checked box alone triggers the release on merge.`
+                )
+              }
+              core.notice("Merging this PR will cut a TestFlight build.")
+            } else {
+              await github.rest.issues
+                .removeLabel({ ...args, name: label })
+                .catch((error) =>
+                  core.warning(`Couldn't remove the ${label} label: ${error.message}`)
+                )
+            }
+
+  decide:
+    name: Check for release request
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+    outputs:
+      release: ${{ steps.check.outputs.release }}
+    steps:
+      - uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+        id: check
+        env:
+          RELEASE_LABEL: ${{ env.RELEASE_LABEL }}
+        with:
+          script: |
+            if (context.eventName === "workflow_dispatch") {
+              core.setOutput("release", "true")
+              core.notice("Manual TestFlight build requested.")
+              return
+            }
+
+            const label = process.env.RELEASE_LABEL
+            const { data: prs } =
+              await github.rest.repos.listPullRequestsAssociatedWithCommit({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                commit_sha: context.sha,
+              })
+            // Only the PR this push actually merged — the commit can also be
+            // contained in other (even open) PRs, whose labels must not leak.
+            const pr = prs.find(
+              (p) => p.merged_at && p.merge_commit_sha === context.sha
+            )
+
+            if (!pr) {
+              core.info("No PR merged as this commit — skipping.")
+              core.setOutput("release", "false")
+              return
+            }
+
+            const labelled = pr.labels.some((l) => l.name === label)
+
+            // Fall back to the checkbox itself, in case the label sync failed
+            // or the PR predates it.
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pr.number,
+              per_page: 100,
+            })
+            const re = /^[ \t]*[-*][ \t]*\[[xX]\][^\n]*testflight/im
+            const checked =
+              comments.some(
+                (c) => c.body?.includes("<!-- lor-release-options -->") && re.test(c.body)
+              ) || re.test(pr.body ?? "")
+
+            const release = labelled || checked
+            core.info(
+              `PR #${pr.number}: label=${labelled} checkbox=${checked} → release=${release}`
+            )
+            core.setOutput("release", String(release))
+
+  release:
+    name: Build & submit to TestFlight
+    needs: [decide]
+    if: needs.decide.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    # The job waits on the EAS build so this run turns red if the build or the
+    # App Store Connect submission fails. iOS builds are ~20-30 min.
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      # eas-cli evaluates app.config.ts locally to resolve the SDK version, so
+      # the workspace has to be installed even though the build itself runs on
+      # Expo's infra.
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build and submit
+        working-directory: apps/mobile
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        # Pinned exactly — this step runs with EXPO_TOKEN. Bump deliberately.
+        run: |
+          npx --yes eas-cli@21.6.0 build \
+            --platform ios \
+            --profile production \
+            --auto-submit \
+            --non-interactive
+
+      - name: Summary
+        if: always()
+        env:
+          REASON: ${{ inputs.message }}
+        run: |
+          {
+            echo "### TestFlight build"
+            echo
+            echo "Commit: \`${GITHUB_SHA}\`"
+            if [ -n "${REASON:-}" ]; then echo "Reason: ${REASON}"; fi
+            echo
+            echo "Builds: https://expo.dev/accounts/lor-chat/projects/lor/builds"
+            echo
+            echo "Still manual: App Store Connect → TestFlight → external group → add build + \"What to Test\"."
+          } >> "$GITHUB_STEP_SUMMARY"
