@@ -12,6 +12,7 @@ const TRANSCRIPT_MEETING_MAX = 5
 const TRANSCRIPT_RECORDING_MAX = 2
 const TRANSCRIPT_PAGE_MAX = 5
 const TRANSCRIPT_TEXT_MAX = 20_000
+const TRANSCRIPT_CONCURRENCY = 3
 
 type Envelope<T = unknown> = {
   data: T
@@ -29,6 +30,10 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 function asString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null
+}
+
+function asArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : []
 }
 
 function idField(value: unknown, key: string): string | null {
@@ -109,12 +114,14 @@ function queryString(values: Record<string, string | number | boolean>) {
 async function fetchTranscript(
   externalId: string,
   meetingId: string,
-  recordingId: string
+  recordingId: string,
+  budget: { used: number }
 ): Promise<{ url: string | null; rawTranscript: string | null } | null> {
   let cursor: string | null = null
   let url: string | null = null
   const pages: string[] = []
   for (let page = 0; page < TRANSCRIPT_PAGE_MAX; page++) {
+    if (budget.used >= TRANSCRIPT_TEXT_MAX) break
     const suffix: string = cursor ? `?${queryString({ cursor })}` : ""
     const response: Envelope | null = await attioRequest<Envelope>(
       externalId,
@@ -125,17 +132,26 @@ async function fetchTranscript(
     const data = asRecord(response.data)
     url ??= asString(data?.web_url)
     const raw = asString(data?.raw_transcript)
-    if (raw && !pages.includes(raw)) pages.push(raw)
+    if (raw && !pages.includes(raw)) {
+      const separatorLength = pages.length > 0 ? 1 : 0
+      const available = Math.max(
+        TRANSCRIPT_TEXT_MAX - budget.used - separatorLength,
+        0
+      )
+      if (available === 0) budget.used = TRANSCRIPT_TEXT_MAX
+      const clipped = raw.slice(0, available)
+      if (clipped) {
+        pages.push(clipped)
+        budget.used += clipped.length + separatorLength
+      }
+    }
     cursor = response.pagination?.next_cursor ?? null
-    if (!cursor || pages.join("\n").length >= TRANSCRIPT_TEXT_MAX) break
+    if (!cursor || budget.used >= TRANSCRIPT_TEXT_MAX) break
   }
   const rawTranscript = pages.join("\n")
   return {
     url,
-    rawTranscript:
-      rawTranscript.length > TRANSCRIPT_TEXT_MAX
-        ? `${rawTranscript.slice(0, TRANSCRIPT_TEXT_MAX)}…`
-        : rawTranscript || null,
+    rawTranscript: rawTranscript || null,
   }
 }
 
@@ -180,7 +196,7 @@ export const attioTools = {
           context.externalId,
           "/objects"
         )
-        targets = (catalog?.data ?? []).flatMap((item) => {
+        targets = asArray(catalog?.data).flatMap((item) => {
           const slug = asString(asRecord(item)?.api_slug)
           return slug ? [slug] : []
         })
@@ -205,7 +221,9 @@ export const attioTools = {
         }
       )
       if (!response) return { error: "Attio search failed" }
-      return { results: response.data.map((item) => searchResult(item)) }
+      return {
+        results: asArray(response.data).map((item) => searchResult(item)),
+      }
     },
   }),
 
@@ -269,9 +287,15 @@ export const attioTools = {
           return { error: "Attio catalog fetch failed" }
         }
         return {
-          objects: compact(objects?.data ?? []),
-          lists: compact(lists?.data ?? []),
-          workspaceMembers: compact(members?.data ?? []),
+          objects: objects
+            ? compact(asArray(objects.data))
+            : { error: "Attio objects request failed" },
+          lists: lists
+            ? compact(asArray(lists.data))
+            : { error: "Attio lists request failed" },
+          workspaceMembers: members
+            ? compact(asArray(members.data))
+            : { error: "Attio workspace members request failed" },
         }
       }
       if (!target) return { error: `target is required for ${mode}` }
@@ -301,8 +325,8 @@ export const attioTools = {
         target,
         results:
           mode === "records"
-            ? response.data.map((item) => searchResult(item, target))
-            : compact(response.data),
+            ? asArray(response.data).map((item) => searchResult(item, target))
+            : compact(asArray(response.data)),
       }
     },
   }),
@@ -355,36 +379,72 @@ export const attioTools = {
           ),
         ])
 
-      const meetingData = meetings?.data ?? []
+      const meetingData = asArray(meetings?.data)
       const transcripts: unknown[] = []
       if (includeTranscripts) {
-        for (const meeting of meetingData.slice(0, TRANSCRIPT_MEETING_MAX)) {
-          const meetingId = idField(meeting, "meeting_id")
-          if (!meetingId) continue
-          const recordings = await attioRequest<Envelope<unknown[]>>(
-            context.externalId,
-            `/meetings/${encodeURIComponent(meetingId)}/call_recordings`
-          )
-          for (const recording of (recordings?.data ?? []).slice(
-            0,
-            TRANSCRIPT_RECORDING_MAX
-          )) {
-            const recordingId = idField(recording, "call_recording_id")
-            if (!recordingId) continue
+        const meetingIds = meetingData
+          .slice(0, TRANSCRIPT_MEETING_MAX)
+          .flatMap((meeting) => {
+            const meetingId = idField(meeting, "meeting_id")
+            return meetingId ? [meetingId] : []
+          })
+        const recordingResponses = await Promise.all(
+          meetingIds.map(async (meetingId) => ({
+            meetingId,
+            response: await attioRequest<Envelope<unknown[]>>(
+              context.externalId,
+              `/meetings/${encodeURIComponent(meetingId)}/call_recordings`
+            ),
+          }))
+        )
+        const recordings = recordingResponses.flatMap(
+          ({ meetingId, response }) =>
+            asArray(response?.data)
+              .slice(0, TRANSCRIPT_RECORDING_MAX)
+              .flatMap((recording) => {
+                const recordingId = idField(recording, "call_recording_id")
+                return recordingId
+                  ? [{ meetingId, recordingId, recording }]
+                  : []
+              })
+        )
+        const budget = { used: 0 }
+        let nextRecording = 0
+        const results: Array<unknown | null> = Array.from(
+          { length: recordings.length },
+          () => null
+        )
+        const worker = async () => {
+          while (budget.used < TRANSCRIPT_TEXT_MAX) {
+            const index = nextRecording++
+            const recording = recordings[index]
+            if (!recording) return
             const transcript = await fetchTranscript(
               context.externalId,
-              meetingId,
-              recordingId
+              recording.meetingId,
+              recording.recordingId,
+              budget
             )
             if (!transcript) continue
-            transcripts.push({
-              meetingId,
-              callRecordingId: recordingId,
-              url: transcript.url ?? asString(asRecord(recording)?.web_url),
+            results[index] = {
+              meetingId: recording.meetingId,
+              callRecordingId: recording.recordingId,
+              url:
+                transcript.url ??
+                asString(asRecord(recording.recording)?.web_url),
               rawTranscript: transcript.rawTranscript,
-            })
+            }
           }
         }
+        await Promise.all(
+          Array.from(
+            {
+              length: Math.min(TRANSCRIPT_CONCURRENCY, recordings.length),
+            },
+            worker
+          )
+        )
+        transcripts.push(...results.filter((result) => result !== null))
       }
 
       return {

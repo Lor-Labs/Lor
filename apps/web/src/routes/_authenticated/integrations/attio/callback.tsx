@@ -39,6 +39,9 @@ function AttioCallback() {
         await navigate({ to: "/" })
         return
       }
+      // signOAuthState in apps/api/src/lib/oauth-state.ts emits
+      // `${slug}.${expMs}.${sig}`. This split is only for callback routing;
+      // verifyOAuthState in the API remains authoritative for validation.
       const slug = state.split(".")[0] ?? state
       let connected = false
       try {

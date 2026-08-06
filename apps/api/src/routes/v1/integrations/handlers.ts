@@ -57,6 +57,10 @@ function linearConnectUrl(state: string): string | null {
 
 function attioConnectUrl(state: string): string | null {
   if (!env.ATTIO_CLIENT_ID) return null
+  // Attio OAuth scopes are configured on the app in the Developer Console,
+  // not requested on this URL. It must include all eleven scopes in
+  // ATTIO_REQUIRED_READ_SCOPES (packages/merlin/src/providers/attio.ts) and no
+  // read-write scopes; connectAttio enforces that exact policy after exchange.
   const params = new URLSearchParams({
     response_type: "code",
     client_id: env.ATTIO_CLIENT_ID,
