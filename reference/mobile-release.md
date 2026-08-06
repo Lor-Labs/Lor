@@ -43,6 +43,12 @@ comment CI posts on every PR into `main`:
 `.github/workflows/release-mobile.yml` mirrors that checkbox to the
 `mobile:testflight` label so the state is visible next to the merge box; adding
 the label by hand works too, and nothing removes it except unticking the box.
+The label sync is best-effort: Issues are disabled on this repo, so the
+workflow token can't create the label itself (that needs `issues: write`,
+which GitHub silently drops for a disabled feature — PR comment/label calls go
+through `pull-requests` instead). If the label is missing, create it once at
+github.com/BuckyMcYolo/Lor/labels; the checkbox alone still triggers the
+release either way.
 
 The checkbox lives in a CI-owned comment rather than the PR description because
 CodeRabbit rewrites descriptions and would wipe it. `issue_comment` events only

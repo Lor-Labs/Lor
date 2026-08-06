@@ -48,7 +48,10 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
-      issues: write
+      # PR conversation comments are governed by pull-requests, not issues —
+      # and this repo has Issues disabled, so a requested issues permission is
+      # silently dropped from the token.
+      pull-requests: write
     steps:
       - uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
         with:
@@ -89,9 +92,10 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
+      # Covers label add/remove on the PR. Repo-level label creation would need
+      # issues: write, but Issues are disabled on this repo so that permission
+      # can't be granted — creation is best-effort below.
       pull-requests: write
-      # Repo label creation is scoped to Issues, not Pull requests.
-      issues: write
     steps:
       - uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
         env:
@@ -116,22 +120,25 @@ jobs:
               issue_number: issue.number,
             }
 
+            // The label is cosmetic — the decide job reads the checkbox itself
+            // on merge — so never fail the run over it.
             if (wanted) {
               try {
-                await github.rest.issues.getLabel({ ...args, name: label })
-              } catch {
-                await github.rest.issues.createLabel({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  name: label,
-                  color: "0e8a16",
-                  description: "Merging cuts a full iOS build and submits it to TestFlight",
-                })
+                await github.rest.issues.addLabels({ ...args, labels: [label] })
+              } catch (error) {
+                core.warning(
+                  `Couldn't add the ${label} label (${error.message}). ` +
+                    `Create it once at https://github.com/${context.repo.owner}/${context.repo.repo}/labels — ` +
+                    `either way, the checked box alone triggers the release on merge.`
+                )
               }
-              await github.rest.issues.addLabels({ ...args, labels: [label] })
               core.notice("Merging this PR will cut a TestFlight build.")
             } else {
-              await github.rest.issues.removeLabel({ ...args, name: label })
+              await github.rest.issues
+                .removeLabel({ ...args, name: label })
+                .catch((error) =>
+                  core.warning(`Couldn't remove the ${label} label: ${error.message}`)
+                )
             }
 
   decide:
