@@ -1,0 +1,188 @@
+# Manual TestFlight override. apps/mobile/.eas/workflows/deploy.yml decides
+# between an OTA update and a full build on its own (by native fingerprint);
+# this is the escape hatch for "I want a real TestFlight build for this merge".
+# Tick the TestFlight checkbox in the PR description — CI mirrors it to the
+# `mobile:testflight` label so it shows next to the merge box — and merging to
+# main cuts a production build and submits it to App Store Connect.
+# Also runnable on demand from the Actions tab.
+# Runbook: reference/mobile-release.md
+name: Release mobile
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      message:
+        description: Why this build is being cut (shows in the run summary)
+        required: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  RELEASE_LABEL: mobile:testflight
+
+jobs:
+  sync-label:
+    name: Sync TestFlight label
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+      # Repo label creation is scoped to Issues, not Pull requests.
+      issues: write
+    steps:
+      - uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+        env:
+          RELEASE_LABEL: ${{ env.RELEASE_LABEL }}
+        with:
+          script: |
+            const label = process.env.RELEASE_LABEL
+            const pr = context.payload.pull_request
+            const wanted = /^[ \t]*[-*][ \t]*\[[xX]\][^\n]*testflight/im.test(pr.body ?? "")
+            const present = pr.labels.some((l) => l.name === label)
+
+            if (wanted === present) {
+              core.info(`Label already ${present ? "set" : "unset"} — nothing to do.`)
+              return
+            }
+
+            const args = {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pr.number,
+            }
+
+            if (wanted) {
+              try {
+                await github.rest.issues.getLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  name: label,
+                })
+              } catch {
+                await github.rest.issues.createLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  name: label,
+                  color: "0e8a16",
+                  description: "Merging cuts a full iOS build and submits it to TestFlight",
+                })
+              }
+              await github.rest.issues.addLabels({ ...args, labels: [label] })
+              core.notice(`Merging this PR will cut a TestFlight build.`)
+            } else {
+              await github.rest.issues.removeLabel({ ...args, name: label })
+            }
+
+  decide:
+    name: Check for release request
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      release: ${{ steps.check.outputs.release }}
+    steps:
+      - uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+        id: check
+        env:
+          RELEASE_LABEL: ${{ env.RELEASE_LABEL }}
+        with:
+          script: |
+            if (context.eventName === "workflow_dispatch") {
+              core.setOutput("release", "true")
+              core.notice("Manual TestFlight build requested.")
+              return
+            }
+
+            const label = process.env.RELEASE_LABEL
+            const { data: prs } =
+              await github.rest.repos.listPullRequestsAssociatedWithCommit({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                commit_sha: context.sha,
+              })
+            const pr = prs.find((p) => p.merged_at) ?? prs[0]
+
+            if (!pr) {
+              core.info("No PR associated with this commit — skipping.")
+              core.setOutput("release", "false")
+              return
+            }
+
+            const labelled = pr.labels.some((l) => l.name === label)
+            const checked = /^[ \t]*[-*][ \t]*\[[xX]\][^\n]*testflight/im.test(
+              pr.body ?? ""
+            )
+            const release = labelled || checked
+
+            core.info(
+              `PR #${pr.number}: label=${labelled} checkbox=${checked} → release=${release}`
+            )
+            core.setOutput("release", String(release))
+
+  release:
+    name: Build & submit to TestFlight
+    needs: [decide]
+    if: needs.decide.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    # The job waits on the EAS build so this run turns red if the build or the
+    # App Store Connect submission fails. iOS builds are ~20-30 min.
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      # eas-cli evaluates app.config.ts locally to resolve the SDK version, so
+      # the workspace has to be installed even though the build itself runs on
+      # Expo's infra.
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build and submit
+        working-directory: apps/mobile
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          npx --yes eas-cli@latest build \
+            --platform ios \
+            --profile production \
+            --auto-submit \
+            --non-interactive
+
+      - name: Summary
+        if: always()
+        env:
+          REASON: ${{ inputs.message }}
+        run: |
+          {
+            echo "### TestFlight build"
+            echo
+            echo "Commit: \`${GITHUB_SHA}\`"
+            if [ -n "${REASON:-}" ]; then echo "Reason: ${REASON}"; fi
+            echo
+            echo "Builds: https://expo.dev/accounts/lor-chat/projects/lor/builds"
+            echo
+            echo "Still manual: App Store Connect → TestFlight → external group → add build + \"What to Test\"."
+          } >> "$GITHUB_STEP_SUMMARY"

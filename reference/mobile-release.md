@@ -29,6 +29,31 @@ TestFlight → external group → add build + "What to Test" line (internal
 testers get it with no action). Public tester link:
 https://testflight.apple.com/join/uJfqWwxJ
 
+## Forcing a TestFlight build from a PR
+
+The fingerprint gate above only cuts a build when native code changed, so a
+JS-only merge normally reaches testers as an OTA update. To force a real
+TestFlight build for a merge, tick the checkbox in the PR description:
+
+```
+- [x] **Ship a TestFlight build**
+```
+
+CI (`.github/workflows/release-mobile.yml`) mirrors that checkbox to the
+`mobile:testflight` label so the state is visible next to the merge box; adding
+the label by hand works too. On merge to `main` the workflow runs
+`eas build --platform ios --profile production --auto-submit` and waits, so the
+Actions run goes red if the build or the App Store Connect submission fails.
+The same workflow has a `workflow_dispatch` trigger — Actions → Release mobile →
+Run workflow — for cutting a build off current `main` with no PR involved.
+
+Requires the `EXPO_TOKEN` repository secret (expo.dev → account settings →
+access tokens).
+
+Ticking the box on a merge that *also* changes the native fingerprint produces
+two builds (this workflow's and the EAS workflow's automatic one) — harmless,
+but leave the box unchecked for native changes since they build anyway.
+
 ## Manual fallback
 
 ```bash
