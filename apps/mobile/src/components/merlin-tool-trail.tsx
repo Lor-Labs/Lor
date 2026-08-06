@@ -19,6 +19,7 @@ import {
   connectorForUrl,
 } from "@/components/connector-icon"
 import { MessageContent } from "@/components/message-content"
+import { API_URL } from "@/lib/auth-client"
 import type { MerlinToolCall } from "@/lib/merlin"
 import { openExternalUrl } from "@/lib/open-url"
 
@@ -63,6 +64,42 @@ function ToolGlyph({
   return (
     <HugeiconsIcon color={color} icon={builtinToolIcon(toolName)} size={size} />
   )
+}
+
+// Web results carry a favicon marker — load the icon through the API's
+// /v1/favicon proxy by the result url's hostname (never the third-party
+// favicon url directly); fall back to the connector/external-link glyph when
+// the url is missing/unparseable or the proxy has no icon.
+function ItemGlyph({
+  item,
+  color,
+}: {
+  item: { url?: string; favicon?: string }
+  color: string
+}) {
+  const [failed, setFailed] = useState(false)
+  let host: string | null = null
+  if (item.favicon && item.url && !failed) {
+    try {
+      host = new URL(item.url).hostname
+    } catch {
+      host = null
+    }
+  }
+  if (host) {
+    return (
+      <Image
+        onError={() => setFailed(true)}
+        source={{ uri: `${API_URL}/v1/favicon/${encodeURIComponent(host)}` }}
+        style={{ width: 16, height: 16, borderRadius: 3 }}
+      />
+    )
+  }
+  const connector = connectorForUrl(item.url)
+  if (connector) {
+    return <ConnectorIcon color={color} connector={connector} size={16} />
+  }
+  return <HugeiconsIcon color={color} icon={ExternalLinkIcon} size={16} />
 }
 
 function hasDetail(toolCall: MerlinToolCall) {
@@ -225,7 +262,6 @@ export function MerlinToolTrail({
                   </View>
                 ) : null}
                 {selectedTool.detail?.items?.map((item) => {
-                  const connector = connectorForUrl(item.url)
                   return (
                     <Pressable
                       accessibilityHint={
@@ -239,24 +275,7 @@ export function MerlinToolTrail({
                         if (item.url) openExternalUrl(item.url)
                       }}
                     >
-                      {item.favicon?.startsWith("https://") ? (
-                        <Image
-                          source={{ uri: item.favicon }}
-                          style={{ width: 16, height: 16, borderRadius: 3 }}
-                        />
-                      ) : connector ? (
-                        <ConnectorIcon
-                          color={accent}
-                          connector={connector}
-                          size={16}
-                        />
-                      ) : (
-                        <HugeiconsIcon
-                          color={accent}
-                          icon={ExternalLinkIcon}
-                          size={16}
-                        />
-                      )}
+                      <ItemGlyph color={accent} item={item} />
                       <Text
                         className="min-w-0 flex-1 text-sm font-medium text-accent"
                         numberOfLines={2}

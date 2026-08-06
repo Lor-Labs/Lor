@@ -78,7 +78,10 @@ export const webTools = {
       url: z.string().describe("the page url to fetch"),
     }),
     execute: async ({ url }) => {
-      const res = await fetchWebPage(url)
+      if (!/^https?:\/\//i.test(url.trim())) {
+        return { error: "only http(s) urls can be fetched" }
+      }
+      const res = await fetchWebPage(url.trim())
       if ("error" in res) return res
       const page = res.page
       if (!page?.text) return { error: "couldn't fetch that page" }
