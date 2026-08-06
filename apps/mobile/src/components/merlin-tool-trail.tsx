@@ -4,6 +4,7 @@ import BookOpen01Icon from "@hugeicons/core-free-icons/BookOpen01Icon"
 import CodeIcon from "@hugeicons/core-free-icons/CodeIcon"
 import Download01Icon from "@hugeicons/core-free-icons/Download01Icon"
 import ExternalLinkIcon from "@hugeicons/core-free-icons/ExternalLinkIcon"
+import Globe02Icon from "@hugeicons/core-free-icons/Globe02Icon"
 import Search01Icon from "@hugeicons/core-free-icons/Search01Icon"
 import TerminalIcon from "@hugeicons/core-free-icons/TerminalIcon"
 import Wrench01Icon from "@hugeicons/core-free-icons/Wrench01Icon"
@@ -30,6 +31,9 @@ function builtinToolIcon(toolName: string): IconSvgElement {
     case "grep":
     case "find":
       return Search01Icon
+    case "search_web":
+    case "fetch_web":
+      return Globe02Icon
     case "fetch_source":
       return Download01Icon
     case "ls":

@@ -97,6 +97,9 @@ const serverSchema = z.object({
   AGENT_RUN_MAX_CREDITS: z.coerce.number().int().positive().default(500),
   MERLIN_EMBED_MODEL: defaultedString("alibaba/qwen3-embedding-4b"),
   MERLIN_EMBED_DIMENSIONS: z.coerce.number().int().positive().default(2560),
+  // Exa, backing Merlin's search_web/fetch_web tools. Optional: the tools are
+  // omitted when unset.
+  EXA_API_KEY: z.string().min(1).optional(),
   GITHUB_WEBHOOK_SECRET: z.string().min(1).optional(),
   // GitHub App identity for installation-authed REST (fetch_source). Optional:
   // fetch_source falls back to the stored summary when unset.

@@ -5,6 +5,7 @@ import {
   Code,
   Download,
   ExternalLink,
+  Globe,
   PencilLine,
   Search,
   Terminal,
@@ -38,6 +39,9 @@ function toolIcon(toolName: string): TrailIcon {
     case "grep":
     case "find":
       return Search
+    case "search_web":
+    case "fetch_web":
+      return Globe
     case "fetch_source":
       return Download
     case "ls":
