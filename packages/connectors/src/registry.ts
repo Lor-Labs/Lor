@@ -125,6 +125,12 @@ export const CAPABILITIES: Record<MerlinCapability, CapabilityDescriptor> = {
     description: "Search and read selected pages, databases & comments",
     connector: "notion",
   },
+  web: {
+    key: "web",
+    label: "Web Search",
+    description: "Search the web and read public pages",
+    connector: null,
+  },
 }
 
 // Exhaustive over integrationProviderEnum — a new provider must declare its
@@ -165,9 +171,12 @@ export function connectorCapabilities(
   return CAPABILITY_LIST.filter((c) => c.connector === connector)
 }
 
-// Capabilities a workspace can grant given its active connections.
+// Capabilities a workspace can grant given its active connections. Built-in
+// capabilities (connector: null) are always available.
 export function availableCapabilities(
   connectedProviders: Set<IntegrationProvider>
 ): CapabilityDescriptor[] {
-  return CAPABILITY_LIST.filter((c) => connectedProviders.has(c.connector))
+  return CAPABILITY_LIST.filter(
+    (c) => c.connector === null || connectedProviders.has(c.connector)
+  )
 }

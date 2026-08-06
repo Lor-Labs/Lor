@@ -138,7 +138,7 @@ function ProfileEditor({
           </Text>
         ) : (
           groupByConnector(available).map((group) => (
-            <View className="gap-two" key={group.connector}>
+            <View className="gap-two" key={group.connector ?? "web"}>
               <View className="flex-row items-center gap-one">
                 <ConnectorIcon
                   color={foreground}

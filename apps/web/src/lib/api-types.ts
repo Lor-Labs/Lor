@@ -34,8 +34,9 @@ export type MerlinCapabilityKey = AgentProfile["capabilities"][number]
 export type AvailableCapability =
   AgentProfilesResponse["availableCapabilities"][number]
 // The set of connector ids (the integration provider enum), shared by the
-// capability + integration-status shapes.
-export type ConnectorKey = AvailableCapability["connector"]
+// capability + integration-status shapes. NonNullable: a capability's
+// connector is null for built-in capabilities (web).
+export type ConnectorKey = NonNullable<AvailableCapability["connector"]>
 
 // ── Integrations ──────────────────────────────────────────
 

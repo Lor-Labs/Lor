@@ -222,7 +222,7 @@ function ProfileRow({
           groupByConnector(available).map((group) => {
             const Logo = connectorLogo(group.connector)
             return (
-              <div key={group.connector} className="space-y-2">
+              <div key={group.connector ?? "web"} className="space-y-2">
                 <div className="flex items-center gap-1.5 text-muted-foreground">
                   <Logo className="size-3.5 shrink-0" />
                   <span className="text-xs font-medium">

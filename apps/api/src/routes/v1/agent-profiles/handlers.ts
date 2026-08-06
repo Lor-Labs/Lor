@@ -80,7 +80,7 @@ export const listAgentProfiles: AppRouteHandler<
     label: c.label,
     description: c.description,
     connector: c.connector,
-    connectorLabel: CONNECTORS[c.connector].label,
+    connectorLabel: c.connector ? CONNECTORS[c.connector].label : c.label,
   }))
 
   return c.json({ profiles, availableCapabilities: caps }, HttpStatusCodes.OK)

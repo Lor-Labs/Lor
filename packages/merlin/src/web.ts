@@ -48,7 +48,9 @@ export const webTools = {
         title: page.title ?? undefined,
         url: page.url,
         publishedDate: page.publishedDate ?? undefined,
-        text: page.text,
+        // Delimited so the model treats page text as untrusted reference
+        // material, per the web prompt line.
+        text: `<untrusted_web_content>\n${page.text}\n</untrusted_web_content>`,
       }
     },
     strict: true,

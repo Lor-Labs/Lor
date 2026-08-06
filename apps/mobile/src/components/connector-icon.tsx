@@ -1,4 +1,5 @@
 import GithubIcon from "@hugeicons/core-free-icons/GithubIcon"
+import Globe02Icon from "@hugeicons/core-free-icons/Globe02Icon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
 import {
   ATTIO_LOGO_PATHS,
@@ -82,10 +83,14 @@ export function ConnectorIcon({
   color,
   size = 16,
 }: {
-  connector: ConnectorKey
+  // Null = a built-in capability with no connector (web) — wears the globe.
+  connector: ConnectorKey | null
   color: string
   size?: number
 }) {
+  if (connector === null) {
+    return <HugeiconsIcon color={color} icon={Globe02Icon} size={size} />
+  }
   if (connector === "github") {
     return <HugeiconsIcon color={color} icon={GithubIcon} size={size} />
   }

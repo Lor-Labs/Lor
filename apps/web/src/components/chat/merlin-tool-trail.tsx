@@ -5,7 +5,6 @@ import {
   Code,
   Download,
   ExternalLink,
-  Globe,
   PencilLine,
   Search,
   Terminal,
@@ -18,6 +17,7 @@ import {
   connectorForTool,
   connectorForUrl,
   connectorLogo,
+  GlobeMark,
 } from "@/lib/connector-ui"
 
 // Codex/Cursor-style tool trail: a collapsible summary of the tools Merlin used
@@ -41,7 +41,7 @@ function toolIcon(toolName: string): TrailIcon {
       return Search
     case "search_web":
     case "fetch_web":
-      return Globe
+      return GlobeMark
     case "fetch_source":
       return Download
     case "ls":
