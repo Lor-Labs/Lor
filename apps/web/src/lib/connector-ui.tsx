@@ -1,3 +1,4 @@
+import { AttioLogo } from "@repo/ui/components/logos/attio"
 import { DatadogLogo } from "@repo/ui/components/logos/datadog"
 import { LinearLogo } from "@repo/ui/components/logos/linear"
 import { cn } from "@repo/ui/lib/utils"
@@ -15,6 +16,10 @@ function LinearMark({ className }: { className?: string }) {
 // The Datadog mark hardcodes its brand fill on the path; override via CSS.
 function DatadogMark({ className }: { className?: string }) {
   return <DatadogLogo className={cn(className, "[&_path]:fill-current")} />
+}
+
+function AttioMark({ className }: { className?: string }) {
+  return <AttioLogo className={className} />
 }
 
 type ConnectorUI = {
@@ -52,6 +57,16 @@ const CONNECTOR_UI: Record<ConnectorKey, ConnectorUI> = {
     // Anchored to the hostname end so datadoghq.com.evil.com can't wear the mark.
     urlHost: /(^|\.)datadoghq\.(com|eu)$/i,
     tools: ["search_datadog_logs", "analyze_datadog_logs"],
+  },
+  attio: {
+    logo: AttioMark,
+    urlHost: /(^|\.)attio\.com$/i,
+    tools: [
+      "search_attio",
+      "fetch_attio_record",
+      "query_attio",
+      "fetch_attio_activity",
+    ],
   },
 }
 

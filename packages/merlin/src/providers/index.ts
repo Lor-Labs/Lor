@@ -1,4 +1,5 @@
 import type { IntegrationProvider } from "@repo/db/schema"
+import { attioProvider } from "./attio"
 import { datadogProvider } from "./datadog"
 import { githubProvider } from "./github"
 import { linearProvider } from "./linear"
@@ -10,6 +11,7 @@ const providers: Record<IntegrationProvider, SourceProvider> = {
   github: githubProvider,
   linear: linearProvider,
   datadog: datadogProvider,
+  attio: attioProvider,
 }
 
 export function getSourceProvider(
@@ -18,6 +20,12 @@ export function getSourceProvider(
   return providers[provider]
 }
 
+export {
+  ATTIO_REQUIRED_READ_SCOPES,
+  attioRequest,
+  connectAttio,
+  getAttioAccessToken,
+} from "./attio"
 export { connectDatadog } from "./datadog"
 export {
   type FetchedIssue,

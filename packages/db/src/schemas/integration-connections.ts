@@ -19,6 +19,7 @@ export const integrationProviderEnum = pgEnum("integration_provider", [
   "github",
   "linear",
   "datadog",
+  "attio",
 ])
 
 export type IntegrationProvider =

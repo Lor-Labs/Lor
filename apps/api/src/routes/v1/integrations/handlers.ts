@@ -12,6 +12,7 @@ import {
 } from "@repo/db/schema"
 import { env } from "@repo/env/server"
 import {
+  connectAttio as exchangeAttioCode,
   connectLinear as exchangeLinearCode,
   getInstallationOverview,
   getSourceProvider,
@@ -24,6 +25,7 @@ import { logger } from "@/lib/logger"
 import { signOAuthState, verifyOAuthState } from "@/lib/oauth-state"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
+  ConnectAttioRoute,
   ConnectDatadogRoute,
   ConnectGithubRoute,
   ConnectLinearRoute,
@@ -35,6 +37,8 @@ import type {
 // Used for both the authorize URL and the token exchange — they must match.
 const linearRedirectUri = () =>
   `${env.APP_BASE_URL}/integrations/linear/callback`
+
+const attioRedirectUri = () => `${env.APP_BASE_URL}/integrations/attio/callback`
 
 // actor=app: actions are attributed to the Merlin app (and its app user costs
 // no Linear seat). Scope is comma-separated per Linear — keep the comma literal.
@@ -51,6 +55,17 @@ function linearConnectUrl(state: string): string | null {
   return `https://linear.app/oauth/authorize?${params.toString()}&scope=read,write`
 }
 
+function attioConnectUrl(state: string): string | null {
+  if (!env.ATTIO_CLIENT_ID) return null
+  const params = new URLSearchParams({
+    response_type: "code",
+    client_id: env.ATTIO_CLIENT_ID,
+    redirect_uri: attioRedirectUri(),
+    state,
+  })
+  return `https://app.attio.com/authorize?${params.toString()}`
+}
+
 // The connect entry point per auth type. The `state` round-trips back to the
 // callback/setup redirect: OAuth uses a short-lived signed state (CSRF-bound to
 // the user + workspace); the GitHub App install carries the raw slug. null → the
@@ -65,11 +80,14 @@ function connectUrlFor(
         ? `https://github.com/apps/${env.GITHUB_APP_SLUG}/installations/new?state=${ctx.slug}`
         : null
     case "oauth":
-      // Linear is the only OAuth connector today; per-descriptor OAuth config
-      // will generalize this when a second lands.
-      return descriptor.id === "linear"
-        ? linearConnectUrl(signOAuthState(ctx.slug, ctx.userId))
-        : null
+      switch (descriptor.id) {
+        case "linear":
+          return linearConnectUrl(signOAuthState(ctx.slug, ctx.userId))
+        case "attio":
+          return attioConnectUrl(signOAuthState(ctx.slug, ctx.userId))
+        default:
+          return null
+      }
     case "api-key":
       // Keyed connectors are entered in-app, not via a redirect.
       return null
@@ -489,6 +507,116 @@ export const connectDatadog: AppRouteHandler<ConnectDatadogRoute> = async (
       {
         success: false,
         message: "These Datadog keys are connected to another workspace",
+      },
+      HttpStatusCodes.CONFLICT
+    )
+  }
+
+  return c.json(
+    { success: true as const, accountLogin: result.accountLabel },
+    HttpStatusCodes.OK
+  )
+}
+
+export const connectAttio: AppRouteHandler<ConnectAttioRoute> = async (c) => {
+  const workspace = c.var.workspace
+  const { code, state } = c.req.valid("json")
+
+  if (verifyOAuthState(state, c.var.user.id) !== workspace.slug) {
+    return c.json(
+      { success: false, message: "Invalid or expired connection request" },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+
+  const result = await exchangeAttioCode(code, attioRedirectUri()).catch(
+    () => null
+  )
+  if (!result) {
+    return c.json(
+      {
+        success: false,
+        message:
+          "Couldn't connect Attio — verify the app has every required read scope and no read-write scopes",
+      },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+
+  const ok = await db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${`${workspace.id}:attio`}, 0))`
+    )
+
+    const existing = await tx
+      .select({ workspaceId: integrationConnection.workspaceId })
+      .from(integrationConnection)
+      .where(
+        and(
+          eq(integrationConnection.provider, "attio"),
+          eq(integrationConnection.externalId, result.externalId)
+        )
+      )
+      .limit(1)
+      .then((rows) => rows[0])
+    if (existing && existing.workspaceId !== workspace.id) return false
+
+    await tx
+      .update(integrationConnection)
+      .set({
+        status: "revoked",
+        accessToken: null,
+        refreshToken: null,
+        tokenExpiresAt: null,
+        scope: null,
+      })
+      .where(
+        and(
+          eq(integrationConnection.workspaceId, workspace.id),
+          eq(integrationConnection.provider, "attio"),
+          eq(integrationConnection.status, "active"),
+          ne(integrationConnection.externalId, result.externalId)
+        )
+      )
+
+    const written = await tx
+      .insert(integrationConnection)
+      .values({
+        workspaceId: workspace.id,
+        provider: "attio",
+        externalId: result.externalId,
+        accountLogin: result.accountLabel,
+        accessToken: result.accessToken,
+        tokenExpiresAt: result.tokenExpiresAt,
+        scope: result.scope,
+        status: "active",
+      })
+      .onConflictDoUpdate({
+        target: [
+          integrationConnection.provider,
+          integrationConnection.externalId,
+        ],
+        set: {
+          workspaceId: workspace.id,
+          accountLogin: result.accountLabel,
+          accessToken: result.accessToken,
+          refreshToken: null,
+          tokenExpiresAt: result.tokenExpiresAt,
+          scope: result.scope,
+          status: "active",
+        },
+        setWhere: eq(integrationConnection.workspaceId, workspace.id),
+      })
+      .returning({ id: integrationConnection.id })
+
+    return written.length > 0
+  })
+
+  if (!ok) {
+    return c.json(
+      {
+        success: false,
+        message: "This Attio workspace is connected to another workspace",
       },
       HttpStatusCodes.CONFLICT
     )

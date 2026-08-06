@@ -40,6 +40,17 @@ export const CONNECTORS: Record<IntegrationProvider, ConnectorDescriptor> = {
     authType: "api-key",
     envKeys: ["INTEGRATION_ENCRYPTION_KEY"],
   },
+  attio: {
+    id: "attio",
+    label: "Attio",
+    description: "CRM records, pipelines, notes, meetings, and transcripts.",
+    authType: "oauth",
+    envKeys: [
+      "ATTIO_CLIENT_ID",
+      "ATTIO_CLIENT_SECRET",
+      "INTEGRATION_ENCRYPTION_KEY",
+    ],
+  },
 }
 
 // Datadog is multi-region: the API/MCP hosts derive from the site. Validated at
@@ -91,6 +102,12 @@ export const CAPABILITIES: Record<MerlinCapability, CapabilityDescriptor> = {
     description: "Search and analyze logs",
     connector: "datadog",
   },
+  attio: {
+    key: "attio",
+    label: "Attio",
+    description: "Search and read CRM records, activity & call transcripts",
+    connector: "attio",
+  },
 }
 
 // Exhaustive over integrationProviderEnum — a new provider must declare its
@@ -110,6 +127,7 @@ export const CONNECTOR_EVENTS: Record<
     { key: "issue_completed", label: "Issue completed" },
   ],
   datadog: [],
+  attio: [],
 }
 
 export function isConnectorEvent(
