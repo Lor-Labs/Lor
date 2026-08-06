@@ -36,7 +36,7 @@ function NotionCallback() {
         toast.error(
           error ? "Notion connection cancelled" : "Missing Notion authorization"
         )
-        await navigate({ to: "/" })
+        await navigate({ to: "/", replace: true })
         return
       }
       // signOAuthState in apps/api/src/lib/oauth-state.ts emits

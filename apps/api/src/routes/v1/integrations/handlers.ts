@@ -193,12 +193,10 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
         }
       }
       const canManage = descriptor.id !== "notion" || canManageNotion
-      const connectUrl = canManage
-        ? connectUrlFor(descriptor, {
-            slug: workspace.slug,
-            userId: c.var.user.id,
-          })
-        : null
+      const configuredUrl = connectUrlFor(descriptor, {
+        slug: workspace.slug,
+        userId: c.var.user.id,
+      })
       return {
         id: descriptor.id,
         name: descriptor.label,
@@ -207,13 +205,14 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
         connectionId: conn?.id ?? null,
         authType: descriptor.authType,
         canManage,
-        // api-key connectors have no connect URL; they only need the encryption
-        // key configured server-side to accept pasted credentials.
+        // Whether the connector is configured server-side — independent of the
+        // caller's permission. api-key connectors have no connect URL; they only
+        // need the encryption key configured to accept pasted credentials.
         available:
           descriptor.authType === "api-key"
             ? Boolean(env.INTEGRATION_ENCRYPTION_KEY)
-            : connectUrl !== null,
-        connectUrl,
+            : configuredUrl !== null,
+        connectUrl: canManage ? configuredUrl : null,
         repos,
         repoCount,
         manageUrl,
@@ -325,6 +324,87 @@ export const connectGithub: AppRouteHandler<ConnectGithubRoute> = async (c) => {
   return c.json({ success: true as const, accountLogin }, HttpStatusCodes.OK)
 }
 
+type ConnectionWrite = Partial<typeof integrationConnection.$inferInsert>
+
+// Shared connect transaction: serialize concurrent connects for this
+// workspace+provider (advisory lock, held until commit/rollback), refuse an
+// externalId owned by another workspace, retire this workspace's other active
+// rows (wiping their secrets via clearOnRevoke), and upsert the new connection.
+// Returns false when the externalId is connected elsewhere.
+async function replaceActiveConnection(opts: {
+  workspaceId: string
+  provider: ConnectorDescriptor["id"]
+  externalId: string
+  clearOnRevoke: ConnectionWrite
+  values: ConnectionWrite
+  // Upsert set when it differs from the insert values (defaults to values).
+  set?: ConnectionWrite
+}): Promise<boolean> {
+  const { workspaceId, provider, externalId } = opts
+  return db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${`${workspaceId}:${provider}`}, 0))`
+    )
+
+    const existing = await tx
+      .select({ workspaceId: integrationConnection.workspaceId })
+      .from(integrationConnection)
+      .where(
+        and(
+          eq(integrationConnection.provider, provider),
+          eq(integrationConnection.externalId, externalId)
+        )
+      )
+      .limit(1)
+      .then((rows) => rows[0])
+    if (existing && existing.workspaceId !== workspaceId) return false
+
+    await tx
+      .update(integrationConnection)
+      .set({ status: "revoked", ...opts.clearOnRevoke })
+      .where(
+        and(
+          eq(integrationConnection.workspaceId, workspaceId),
+          eq(integrationConnection.provider, provider),
+          eq(integrationConnection.status, "active"),
+          ne(integrationConnection.externalId, externalId)
+        )
+      )
+
+    const written = await tx
+      .insert(integrationConnection)
+      .values({
+        workspaceId,
+        provider,
+        externalId,
+        status: "active",
+        ...opts.values,
+      })
+      .onConflictDoUpdate({
+        target: [
+          integrationConnection.provider,
+          integrationConnection.externalId,
+        ],
+        // Guards the reassignment race the pre-check can't: only update a row
+        // this workspace already owns.
+        set: { workspaceId, status: "active", ...(opts.set ?? opts.values) },
+        setWhere: eq(integrationConnection.workspaceId, workspaceId),
+      })
+      .returning({ id: integrationConnection.id })
+
+    return written.length > 0
+  })
+}
+
+// Every OAuth connector stores the same rotating-credential columns; wipe them
+// all when retiring a row.
+const OAUTH_TOKEN_WIPE = {
+  accessToken: null,
+  refreshToken: null,
+  tokenExpiresAt: null,
+  scope: null,
+} satisfies ConnectionWrite
+
 export const connectLinear: AppRouteHandler<ConnectLinearRoute> = async (c) => {
   const workspace = c.var.workspace
   const { code, state } = c.req.valid("json")
@@ -349,78 +429,18 @@ export const connectLinear: AppRouteHandler<ConnectLinearRoute> = async (c) => {
     )
   }
 
-  const ok = await db.transaction(async (tx) => {
-    await tx.execute(
-      sql`select pg_advisory_xact_lock(hashtextextended(${`${workspace.id}:linear`}, 0))`
-    )
-
-    // The Linear org is globally unique; don't let one workspace hijack an org
-    // already linked to another.
-    const existing = await tx
-      .select({ workspaceId: integrationConnection.workspaceId })
-      .from(integrationConnection)
-      .where(
-        and(
-          eq(integrationConnection.provider, "linear"),
-          eq(integrationConnection.externalId, result.externalId)
-        )
-      )
-      .limit(1)
-      .then((rows) => rows[0])
-    if (existing && existing.workspaceId !== workspace.id) return false
-
-    // One active Linear connection per workspace: retire any others and wipe
-    // their encrypted tokens so stale secrets don't linger on revoked rows.
-    await tx
-      .update(integrationConnection)
-      .set({
-        status: "revoked",
-        accessToken: null,
-        refreshToken: null,
-        tokenExpiresAt: null,
-        scope: null,
-      })
-      .where(
-        and(
-          eq(integrationConnection.workspaceId, workspace.id),
-          eq(integrationConnection.provider, "linear"),
-          eq(integrationConnection.status, "active"),
-          ne(integrationConnection.externalId, result.externalId)
-        )
-      )
-
-    const written = await tx
-      .insert(integrationConnection)
-      .values({
-        workspaceId: workspace.id,
-        provider: "linear",
-        externalId: result.externalId,
-        accountLogin: result.accountLabel,
-        accessToken: result.accessToken,
-        refreshToken: result.refreshToken,
-        tokenExpiresAt: result.tokenExpiresAt,
-        scope: result.scope,
-        status: "active",
-      })
-      .onConflictDoUpdate({
-        target: [
-          integrationConnection.provider,
-          integrationConnection.externalId,
-        ],
-        set: {
-          workspaceId: workspace.id,
-          accountLogin: result.accountLabel,
-          accessToken: result.accessToken,
-          refreshToken: result.refreshToken,
-          tokenExpiresAt: result.tokenExpiresAt,
-          scope: result.scope,
-          status: "active",
-        },
-        setWhere: eq(integrationConnection.workspaceId, workspace.id),
-      })
-      .returning({ id: integrationConnection.id })
-
-    return written.length > 0
+  const ok = await replaceActiveConnection({
+    workspaceId: workspace.id,
+    provider: "linear",
+    externalId: result.externalId,
+    clearOnRevoke: OAUTH_TOKEN_WIPE,
+    values: {
+      accountLogin: result.accountLabel,
+      accessToken: result.accessToken,
+      refreshToken: result.refreshToken,
+      tokenExpiresAt: result.tokenExpiresAt,
+      scope: result.scope,
+    },
   })
 
   if (!ok) {
@@ -468,70 +488,17 @@ export const connectDatadog: AppRouteHandler<ConnectDatadogRoute> = async (
     )
   }
 
-  const ok = await db.transaction(async (tx) => {
-    await tx.execute(
-      sql`select pg_advisory_xact_lock(hashtextextended(${`${workspace.id}:datadog`}, 0))`
-    )
-
-    // The key fingerprint is globally unique; don't let one workspace attach
-    // credentials already linked to another.
-    const existing = await tx
-      .select({ workspaceId: integrationConnection.workspaceId })
-      .from(integrationConnection)
-      .where(
-        and(
-          eq(integrationConnection.provider, "datadog"),
-          eq(integrationConnection.externalId, result.externalId)
-        )
-      )
-      .limit(1)
-      .then((rows) => rows[0])
-    if (existing && existing.workspaceId !== workspace.id) return false
-
-    // One active Datadog connection per workspace: retire any others and wipe
-    // their encrypted keys so stale secrets don't linger on revoked rows.
-    await tx
-      .update(integrationConnection)
-      .set({ status: "revoked", apiKey: null, appKey: null, site: null })
-      .where(
-        and(
-          eq(integrationConnection.workspaceId, workspace.id),
-          eq(integrationConnection.provider, "datadog"),
-          eq(integrationConnection.status, "active"),
-          ne(integrationConnection.externalId, result.externalId)
-        )
-      )
-
-    const written = await tx
-      .insert(integrationConnection)
-      .values({
-        workspaceId: workspace.id,
-        provider: "datadog",
-        externalId: result.externalId,
-        accountLogin: result.accountLabel,
-        apiKey: result.apiKey,
-        appKey: result.appKey,
-        site,
-        status: "active",
-      })
-      .onConflictDoUpdate({
-        target: [
-          integrationConnection.provider,
-          integrationConnection.externalId,
-        ],
-        set: {
-          workspaceId: workspace.id,
-          accountLogin: result.accountLabel,
-          apiKey: result.apiKey,
-          appKey: result.appKey,
-          site,
-          status: "active",
-        },
-        setWhere: eq(integrationConnection.workspaceId, workspace.id),
-      })
-      .returning({ id: integrationConnection.id })
-
-    return written.length > 0
+  const ok = await replaceActiveConnection({
+    workspaceId: workspace.id,
+    provider: "datadog",
+    externalId: result.externalId,
+    clearOnRevoke: { apiKey: null, appKey: null, site: null },
+    values: {
+      accountLogin: result.accountLabel,
+      apiKey: result.apiKey,
+      appKey: result.appKey,
+      site,
+    },
   })
 
   if (!ok) {
@@ -575,73 +542,25 @@ export const connectAttio: AppRouteHandler<ConnectAttioRoute> = async (c) => {
     )
   }
 
-  const ok = await db.transaction(async (tx) => {
-    await tx.execute(
-      sql`select pg_advisory_xact_lock(hashtextextended(${`${workspace.id}:attio`}, 0))`
-    )
-
-    const existing = await tx
-      .select({ workspaceId: integrationConnection.workspaceId })
-      .from(integrationConnection)
-      .where(
-        and(
-          eq(integrationConnection.provider, "attio"),
-          eq(integrationConnection.externalId, result.externalId)
-        )
-      )
-      .limit(1)
-      .then((rows) => rows[0])
-    if (existing && existing.workspaceId !== workspace.id) return false
-
-    await tx
-      .update(integrationConnection)
-      .set({
-        status: "revoked",
-        accessToken: null,
-        refreshToken: null,
-        tokenExpiresAt: null,
-        scope: null,
-      })
-      .where(
-        and(
-          eq(integrationConnection.workspaceId, workspace.id),
-          eq(integrationConnection.provider, "attio"),
-          eq(integrationConnection.status, "active"),
-          ne(integrationConnection.externalId, result.externalId)
-        )
-      )
-
-    const written = await tx
-      .insert(integrationConnection)
-      .values({
-        workspaceId: workspace.id,
-        provider: "attio",
-        externalId: result.externalId,
-        accountLogin: result.accountLabel,
-        accessToken: result.accessToken,
-        tokenExpiresAt: result.tokenExpiresAt,
-        scope: result.scope,
-        status: "active",
-      })
-      .onConflictDoUpdate({
-        target: [
-          integrationConnection.provider,
-          integrationConnection.externalId,
-        ],
-        set: {
-          workspaceId: workspace.id,
-          accountLogin: result.accountLabel,
-          accessToken: result.accessToken,
-          refreshToken: null,
-          tokenExpiresAt: result.tokenExpiresAt,
-          scope: result.scope,
-          status: "active",
-        },
-        setWhere: eq(integrationConnection.workspaceId, workspace.id),
-      })
-      .returning({ id: integrationConnection.id })
-
-    return written.length > 0
+  const ok = await replaceActiveConnection({
+    workspaceId: workspace.id,
+    provider: "attio",
+    externalId: result.externalId,
+    clearOnRevoke: OAUTH_TOKEN_WIPE,
+    values: {
+      accountLogin: result.accountLabel,
+      accessToken: result.accessToken,
+      tokenExpiresAt: result.tokenExpiresAt,
+      scope: result.scope,
+    },
+    // Attio issues no refresh token; a reused row must not keep a stale one.
+    set: {
+      accountLogin: result.accountLabel,
+      accessToken: result.accessToken,
+      refreshToken: null,
+      tokenExpiresAt: result.tokenExpiresAt,
+      scope: result.scope,
+    },
   })
 
   if (!ok) {
@@ -691,78 +610,19 @@ export const connectNotion: AppRouteHandler<ConnectNotionRoute> = async (c) => {
     )
   }
 
-  const ok = await db.transaction(async (tx) => {
-    await tx.execute(
-      sql`select pg_advisory_xact_lock(hashtextextended(${`${workspace.id}:notion`}, 0))`
-    )
-
-    const existing = await tx
-      .select({ workspaceId: integrationConnection.workspaceId })
-      .from(integrationConnection)
-      .where(
-        and(
-          eq(integrationConnection.provider, "notion"),
-          eq(integrationConnection.externalId, result.externalId)
-        )
-      )
-      .limit(1)
-      .then((rows) => rows[0])
-    if (existing && existing.workspaceId !== workspace.id) return false
-
-    // Reauthorization is an explicit replacement: keep one active Notion
-    // authorization per Lor workspace and wipe the old rotated credentials.
-    await tx
-      .update(integrationConnection)
-      .set({
-        status: "revoked",
-        accessToken: null,
-        refreshToken: null,
-        tokenExpiresAt: null,
-        scope: null,
-      })
-      .where(
-        and(
-          eq(integrationConnection.workspaceId, workspace.id),
-          eq(integrationConnection.provider, "notion"),
-          eq(integrationConnection.status, "active"),
-          ne(integrationConnection.externalId, result.externalId)
-        )
-      )
-
-    const written = await tx
-      .insert(integrationConnection)
-      .values({
-        workspaceId: workspace.id,
-        provider: "notion",
-        externalId: result.externalId,
-        providerWorkspaceId: result.providerWorkspaceId,
-        accountLogin: result.accountLabel,
-        accessToken: result.accessToken,
-        refreshToken: result.refreshToken,
-        tokenExpiresAt: null,
-        scope: result.scope,
-        status: "active",
-      })
-      .onConflictDoUpdate({
-        target: [
-          integrationConnection.provider,
-          integrationConnection.externalId,
-        ],
-        set: {
-          workspaceId: workspace.id,
-          providerWorkspaceId: result.providerWorkspaceId,
-          accountLogin: result.accountLabel,
-          accessToken: result.accessToken,
-          refreshToken: result.refreshToken,
-          tokenExpiresAt: null,
-          scope: result.scope,
-          status: "active",
-        },
-        setWhere: eq(integrationConnection.workspaceId, workspace.id),
-      })
-      .returning({ id: integrationConnection.id })
-
-    return written.length > 0
+  const ok = await replaceActiveConnection({
+    workspaceId: workspace.id,
+    provider: "notion",
+    externalId: result.externalId,
+    clearOnRevoke: OAUTH_TOKEN_WIPE,
+    values: {
+      providerWorkspaceId: result.providerWorkspaceId,
+      accountLogin: result.accountLabel,
+      accessToken: result.accessToken,
+      refreshToken: result.refreshToken,
+      tokenExpiresAt: null,
+      scope: result.scope,
+    },
   })
 
   if (!ok) {

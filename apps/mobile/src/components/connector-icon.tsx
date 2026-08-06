@@ -42,7 +42,7 @@ const CONNECTORS: Record<
     ],
   },
   notion: {
-    host: /(^|\.)notion\.(so|site)$/i,
+    host: /(^|\.)notion\.(so|site|com)$/i,
     tools: [
       "search_notion",
       "fetch_notion_page",

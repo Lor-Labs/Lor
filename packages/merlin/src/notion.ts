@@ -10,6 +10,7 @@ const QUERY_DEFAULT = 20
 const QUERY_MAX = 50
 const COMMENT_MAX = 50
 const USER_MAX = 100
+const USER_PAGE_CAP = 5
 const MARKDOWN_MAX = 40_000
 
 const notionContext = z.object({ externalId: z.string() })
@@ -100,14 +101,17 @@ async function listComments(client: Client, blockId: string) {
     block_id: blockId,
     page_size: COMMENT_MAX,
   })
-  return response.results.map((comment) => ({
-    id: comment.id,
-    author: comment.display_name.resolved_name,
-    createdTime: comment.created_time,
-    lastEditedTime: comment.last_edited_time,
-    text: richText(comment.rich_text),
-    attachments: compact(comment.attachments ?? []),
-  }))
+  return {
+    comments: response.results.map((comment) => ({
+      id: comment.id,
+      author: comment.display_name.resolved_name,
+      createdTime: comment.created_time,
+      lastEditedTime: comment.last_edited_time,
+      text: richText(comment.rich_text),
+      attachments: compact(comment.attachments ?? []),
+    })),
+    truncated: response.has_more,
+  }
 }
 
 export async function resolveWorkspaceNotion(
@@ -202,7 +206,9 @@ export const notionTools = {
           Boolean(markdown && markdown.markdown.length > MARKDOWN_MAX),
         unknownBlockIds: markdown?.unknown_block_ids ?? [],
         comments:
-          comments ?? ({ error: "Notion comments request failed" } as const),
+          comments?.comments ??
+          ({ error: "Notion comments request failed" } as const),
+        commentsTruncated: comments?.truncated ?? false,
       }
     },
   }),
@@ -273,9 +279,22 @@ export const notionTools = {
     }),
     contextSchema: notionContext,
     execute: async ({ query, limit }, { context }) => {
-      const response = await notionCall(context.externalId, (client) =>
-        client.users.list({ page_size: USER_MAX })
-      )
+      const response = await notionCall(context.externalId, async (client) => {
+        const results: Awaited<ReturnType<Client["users"]["list"]>>["results"] =
+          []
+        let cursor: string | undefined
+        let hasMore = true
+        for (let page = 0; hasMore && page < USER_PAGE_CAP; page++) {
+          const batch = await client.users.list({
+            page_size: USER_MAX,
+            ...(cursor ? { start_cursor: cursor } : {}),
+          })
+          results.push(...batch.results)
+          hasMore = batch.has_more
+          cursor = batch.next_cursor ?? undefined
+        }
+        return { results, truncated: hasMore }
+      })
       if (!response) return { error: "Notion user lookup failed" }
       const normalized = query?.toLocaleLowerCase()
       const users = response.results
@@ -285,7 +304,7 @@ export const notionTools = {
             !normalized || user.name?.toLocaleLowerCase().includes(normalized)
         )
         .slice(0, limit)
-      return { users }
+      return { users, truncated: response.truncated }
     },
   }),
 }

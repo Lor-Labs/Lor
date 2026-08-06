@@ -843,6 +843,13 @@ function toolDetail(
       }
     }
     case "query_notion_data_source": {
+      // results is an { error } record when the rows request failed.
+      const rowError = Array.isArray(rec?.results)
+        ? undefined
+        : asString(asRecord(rec?.results)?.error)
+      if (rowError) {
+        return { status: "error", detail: { summary: rowError } }
+      }
       const results = Array.isArray(rec?.results) ? rec.results : []
       return {
         status: "ok",

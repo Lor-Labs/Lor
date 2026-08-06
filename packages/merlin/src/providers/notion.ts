@@ -195,7 +195,14 @@ export async function getNotionAccessToken(
   if (!row?.accessToken) return null
   try {
     return decryptSecret(row.accessToken, encryptionKey())
-  } catch {
+  } catch (error) {
+    // Deliberately not revoked: this usually means INTEGRATION_ENCRYPTION_KEY
+    // is misconfigured, and redeploying the right key restores service —
+    // revoking would wipe the stored tokens irrecoverably.
+    logger.error(
+      { error, externalId },
+      "Notion access token could not be decrypted"
+    )
     return null
   }
 }

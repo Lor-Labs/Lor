@@ -33,15 +33,23 @@ https://testflight.apple.com/join/uJfqWwxJ
 
 The fingerprint gate above only cuts a build when native code changed, so a
 JS-only merge normally reaches testers as an OTA update. To force a real
-TestFlight build for a merge, tick the checkbox in the PR description:
+TestFlight build for a merge, tick the checkbox in the **Release options**
+comment CI posts on every PR into `main`:
 
-```
+```markdown
 - [x] **Ship a TestFlight build**
 ```
 
-CI (`.github/workflows/release-mobile.yml`) mirrors that checkbox to the
+`.github/workflows/release-mobile.yml` mirrors that checkbox to the
 `mobile:testflight` label so the state is visible next to the merge box; adding
-the label by hand works too. On merge to `main` the workflow runs
+the label by hand works too, and nothing removes it except unticking the box.
+
+The checkbox lives in a CI-owned comment rather than the PR description because
+CodeRabbit rewrites descriptions and would wipe it. `issue_comment` events only
+run the workflow file from the **default branch**, so the checkbox is inert
+until this workflow is on `main` — until then, apply the label by hand.
+
+On merge to `main` the workflow runs
 `eas build --platform ios --profile production --auto-submit` and waits, so the
 Actions run goes red if the build or the App Store Connect submission fails.
 The same workflow has a `workflow_dispatch` trigger — Actions → Release mobile →

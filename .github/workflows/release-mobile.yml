@@ -1,17 +1,25 @@
 # Manual TestFlight override. apps/mobile/.eas/workflows/deploy.yml decides
 # between an OTA update and a full build on its own (by native fingerprint);
 # this is the escape hatch for "I want a real TestFlight build for this merge".
-# Tick the TestFlight checkbox in the PR description — CI mirrors it to the
-# `mobile:testflight` label so it shows next to the merge box — and merging to
-# main cuts a production build and submits it to App Store Connect.
+#
+# CI posts a "Release options" comment on every PR into main. Tick its checkbox
+# and the `mobile:testflight` label appears in the sidebar; merging then cuts a
+# production build and submits it to App Store Connect. The checkbox lives in a
+# CI-owned comment rather than the PR description because CodeRabbit rewrites
+# descriptions and would wipe it.
+#
 # Also runnable on demand from the Actions tab.
 # Runbook: reference/mobile-release.md
 name: Release mobile
 
 on:
   pull_request:
-    types: [opened, edited, synchronize, reopened]
+    types: [opened, reopened, synchronize]
     branches: [main]
+  # NOTE: issue_comment always runs the workflow file from the DEFAULT branch,
+  # so the checkbox does nothing until this file is on main.
+  issue_comment:
+    types: [edited]
   push:
     branches: [main]
   workflow_dispatch:
@@ -21,7 +29,7 @@ on:
         required: false
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.issue.number || github.ref }}
   cancel-in-progress: false
 
 permissions:
@@ -31,9 +39,52 @@ env:
   RELEASE_LABEL: mobile:testflight
 
 jobs:
+  # Posts the checkbox comment on new PRs. Deliberately does not touch labels —
+  # only an explicit tick/untick does, so a hand-applied label is never fought.
+  post-options:
+    name: Post release options
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+        with:
+          script: |
+            const marker = "<!-- lor-release-options -->"
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              per_page: 100,
+            })
+
+            if (comments.some((c) => c.body?.includes(marker))) {
+              core.info("Release options comment already present.")
+              return
+            }
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body: [
+                marker,
+                "### Release options",
+                "",
+                "- [ ] **Ship a TestFlight build** — merging cuts a full iOS production build and submits it to App Store Connect.",
+                "",
+                "<sub>Tick any time before merging. Leave unchecked for the normal fingerprint-gated path: an OTA update, or an automatic build when the native fingerprint changed.</sub>",
+              ].join("\n"),
+            })
+
+  # Ticking/unticking the checkbox fires issue_comment.edited; mirror it onto
+  # the label so the state is visible next to the merge box.
   sync-label:
     name: Sync TestFlight label
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name == 'issue_comment' && github.event.issue.pull_request && contains(github.event.comment.body, '<!-- lor-release-options -->')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -48,9 +99,11 @@ jobs:
         with:
           script: |
             const label = process.env.RELEASE_LABEL
-            const pr = context.payload.pull_request
-            const wanted = /^[ \t]*[-*][ \t]*\[[xX]\][^\n]*testflight/im.test(pr.body ?? "")
-            const present = pr.labels.some((l) => l.name === label)
+            const issue = context.payload.issue
+            const wanted = /^[ \t]*[-*][ \t]*\[[xX]\][^\n]*testflight/im.test(
+              context.payload.comment.body ?? ""
+            )
+            const present = (issue.labels ?? []).some((l) => l.name === label)
 
             if (wanted === present) {
               core.info(`Label already ${present ? "set" : "unset"} — nothing to do.`)
@@ -60,16 +113,12 @@ jobs:
             const args = {
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: pr.number,
+              issue_number: issue.number,
             }
 
             if (wanted) {
               try {
-                await github.rest.issues.getLabel({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  name: label,
-                })
+                await github.rest.issues.getLabel({ ...args, name: label })
               } catch {
                 await github.rest.issues.createLabel({
                   owner: context.repo.owner,
@@ -80,19 +129,20 @@ jobs:
                 })
               }
               await github.rest.issues.addLabels({ ...args, labels: [label] })
-              core.notice(`Merging this PR will cut a TestFlight build.`)
+              core.notice("Merging this PR will cut a TestFlight build.")
             } else {
               await github.rest.issues.removeLabel({ ...args, name: label })
             }
 
   decide:
     name: Check for release request
-    if: github.event_name != 'pull_request'
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       contents: read
       pull-requests: read
+      issues: read
     outputs:
       release: ${{ steps.check.outputs.release }}
     steps:
@@ -115,20 +165,35 @@ jobs:
                 repo: context.repo.repo,
                 commit_sha: context.sha,
               })
-            const pr = prs.find((p) => p.merged_at) ?? prs[0]
+            // Only the PR this push actually merged — the commit can also be
+            // contained in other (even open) PRs, whose labels must not leak.
+            const pr = prs.find(
+              (p) => p.merged_at && p.merge_commit_sha === context.sha
+            )
 
             if (!pr) {
-              core.info("No PR associated with this commit — skipping.")
+              core.info("No PR merged as this commit — skipping.")
               core.setOutput("release", "false")
               return
             }
 
             const labelled = pr.labels.some((l) => l.name === label)
-            const checked = /^[ \t]*[-*][ \t]*\[[xX]\][^\n]*testflight/im.test(
-              pr.body ?? ""
-            )
-            const release = labelled || checked
 
+            // Fall back to the checkbox itself, in case the label sync failed
+            // or the PR predates it.
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pr.number,
+              per_page: 100,
+            })
+            const re = /^[ \t]*[-*][ \t]*\[[xX]\][^\n]*testflight/im
+            const checked =
+              comments.some(
+                (c) => c.body?.includes("<!-- lor-release-options -->") && re.test(c.body)
+              ) || re.test(pr.body ?? "")
+
+            const release = labelled || checked
             core.info(
               `PR #${pr.number}: label=${labelled} checkbox=${checked} → release=${release}`
             )
@@ -164,8 +229,9 @@ jobs:
         working-directory: apps/mobile
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        # Pinned exactly — this step runs with EXPO_TOKEN. Bump deliberately.
         run: |
-          npx --yes eas-cli@latest build \
+          npx --yes eas-cli@21.6.0 build \
             --platform ios \
             --profile production \
             --auto-submit \

@@ -75,7 +75,7 @@ const CONNECTOR_UI: Record<ConnectorKey, ConnectorUI> = {
   },
   notion: {
     logo: NotionMark,
-    urlHost: /(^|\.)notion\.(so|site)$/i,
+    urlHost: /(^|\.)notion\.(so|site|com)$/i,
     tools: [
       "search_notion",
       "fetch_notion_page",
