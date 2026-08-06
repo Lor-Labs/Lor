@@ -20,6 +20,8 @@ import {
   connectionIdParamsSchema,
   connectLinearRequestSchema,
   connectLinearResponseSchema,
+  connectNotionRequestSchema,
+  connectNotionResponseSchema,
   disconnectResponseSchema,
   integrationsWorkspaceParamsSchema,
   listIntegrationsResponseSchema,
@@ -166,6 +168,36 @@ export const connectAttio = createRoute({
   },
 })
 
+export const connectNotion = createRoute({
+  path: "/workspaces/{workspaceSlug}/integrations/notion/connect",
+  method: "post",
+  summary: "Link a Notion authorization to a workspace",
+  description:
+    "Exchanges a Notion OAuth code and stores the org-shared, page-picker-scoped read-only token pair encrypted. Requires a Lor workspace admin.",
+  tags: ["Integrations"],
+  middleware: [workspaceAuthMiddleware] as const,
+  request: {
+    params: integrationsWorkspaceParamsSchema,
+    body: jsonContent({
+      schema: connectNotionRequestSchema,
+      description: "The Notion OAuth authorization code and signed state",
+    }),
+  },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: connectNotionResponseSchema,
+      description: "Connected",
+    }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.CONFLICT]: conflictSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
 export const updateIntegration = createRoute({
   path: "/workspaces/{workspaceSlug}/integrations/{connectionId}",
   method: "patch",
@@ -217,6 +249,7 @@ export type ListIntegrationsRoute = typeof listIntegrations
 export type ConnectGithubRoute = typeof connectGithub
 export type ConnectLinearRoute = typeof connectLinear
 export type ConnectAttioRoute = typeof connectAttio
+export type ConnectNotionRoute = typeof connectNotion
 export type ConnectDatadogRoute = typeof connectDatadog
 export type UpdateIntegrationRoute = typeof updateIntegration
 export type DisconnectIntegrationRoute = typeof disconnectIntegration

@@ -51,6 +51,17 @@ export const CONNECTORS: Record<IntegrationProvider, ConnectorDescriptor> = {
       "INTEGRATION_ENCRYPTION_KEY",
     ],
   },
+  notion: {
+    id: "notion",
+    label: "Notion",
+    description: "Selected pages, databases, comments, and workspace users.",
+    authType: "oauth",
+    envKeys: [
+      "NOTION_CLIENT_ID",
+      "NOTION_CLIENT_SECRET",
+      "INTEGRATION_ENCRYPTION_KEY",
+    ],
+  },
 }
 
 // Datadog is multi-region: the API/MCP hosts derive from the site. Validated at
@@ -108,6 +119,12 @@ export const CAPABILITIES: Record<MerlinCapability, CapabilityDescriptor> = {
     description: "Search and read CRM records, activity & call transcripts",
     connector: "attio",
   },
+  notion: {
+    key: "notion",
+    label: "Notion",
+    description: "Search and read selected pages, databases & comments",
+    connector: "notion",
+  },
 }
 
 // Exhaustive over integrationProviderEnum — a new provider must declare its
@@ -128,6 +145,7 @@ export const CONNECTOR_EVENTS: Record<
   ],
   datadog: [],
   attio: [],
+  notion: [],
 }
 
 export function isConnectorEvent(

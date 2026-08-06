@@ -20,6 +20,7 @@ export const integrationProviderEnum = pgEnum("integration_provider", [
   "linear",
   "datadog",
   "attio",
+  "notion",
 ])
 
 export type IntegrationProvider =
@@ -45,6 +46,9 @@ export const integrationConnection = pgTable(
     provider: integrationProviderEnum("provider").notNull(),
     // Provider-side handle: the GitHub App installation id, etc.
     externalId: text("external_id").notNull(),
+    // Secondary provider workspace/account id when the authorization itself has
+    // a distinct primary id (Notion uses bot_id above and workspace_id here).
+    providerWorkspaceId: text("provider_workspace_id"),
     // Display label for the connected account (e.g. the GitHub org/user login).
     accountLogin: text("account_login"),
     // OAuth token storage for connectors that persist tokens (e.g. Linear).

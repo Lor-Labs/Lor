@@ -14,6 +14,7 @@ import { env } from "@repo/env/server"
 import {
   connectAttio as exchangeAttioCode,
   connectLinear as exchangeLinearCode,
+  connectNotion as exchangeNotionCode,
   getInstallationOverview,
   getSourceProvider,
   connectDatadog as verifyDatadogKeys,
@@ -29,6 +30,7 @@ import type {
   ConnectDatadogRoute,
   ConnectGithubRoute,
   ConnectLinearRoute,
+  ConnectNotionRoute,
   DisconnectIntegrationRoute,
   ListIntegrationsRoute,
   UpdateIntegrationRoute,
@@ -39,6 +41,9 @@ const linearRedirectUri = () =>
   `${env.APP_BASE_URL}/integrations/linear/callback`
 
 const attioRedirectUri = () => `${env.APP_BASE_URL}/integrations/attio/callback`
+
+const notionRedirectUri = () =>
+  `${env.APP_BASE_URL}/integrations/notion/callback`
 
 // actor=app: actions are attributed to the Merlin app (and its app user costs
 // no Linear seat). Scope is comma-separated per Linear — keep the comma literal.
@@ -70,6 +75,21 @@ function attioConnectUrl(state: string): string | null {
   return `https://app.attio.com/authorize?${params.toString()}`
 }
 
+function notionConnectUrl(state: string): string | null {
+  if (!env.NOTION_CLIENT_ID) return null
+  // Notion capabilities are configured in the Developer portal, not requested
+  // on this URL. Configure only Read content, Read comments, and User
+  // information without email addresses; the connector exposes no write tools.
+  const params = new URLSearchParams({
+    owner: "user",
+    client_id: env.NOTION_CLIENT_ID,
+    redirect_uri: notionRedirectUri(),
+    response_type: "code",
+    state,
+  })
+  return `https://api.notion.com/v1/oauth/authorize?${params.toString()}`
+}
+
 // The connect entry point per auth type. The `state` round-trips back to the
 // callback/setup redirect: OAuth uses a short-lived signed state (CSRF-bound to
 // the user + workspace); the GitHub App install carries the raw slug. null → the
@@ -89,6 +109,8 @@ function connectUrlFor(
           return linearConnectUrl(signOAuthState(ctx.slug, ctx.userId))
         case "attio":
           return attioConnectUrl(signOAuthState(ctx.slug, ctx.userId))
+        case "notion":
+          return notionConnectUrl(signOAuthState(ctx.slug, ctx.userId))
         default:
           return null
       }
@@ -102,6 +124,8 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
   c
 ) => {
   const workspace = c.var.workspace
+  const canManageNotion =
+    workspace.ownerId === c.var.user.id || c.var.member.role === "admin"
 
   const connections = await db
     .select({
@@ -168,10 +192,13 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
           manageUrl = overview.manageUrl
         }
       }
-      const connectUrl = connectUrlFor(descriptor, {
-        slug: workspace.slug,
-        userId: c.var.user.id,
-      })
+      const canManage = descriptor.id !== "notion" || canManageNotion
+      const connectUrl = canManage
+        ? connectUrlFor(descriptor, {
+            slug: workspace.slug,
+            userId: c.var.user.id,
+          })
+        : null
       return {
         id: descriptor.id,
         name: descriptor.label,
@@ -179,6 +206,7 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
         accountLogin: conn?.accountLogin ?? null,
         connectionId: conn?.id ?? null,
         authType: descriptor.authType,
+        canManage,
         // api-key connectors have no connect URL; they only need the encryption
         // key configured server-side to accept pasted credentials.
         available:
@@ -632,6 +660,127 @@ export const connectAttio: AppRouteHandler<ConnectAttioRoute> = async (c) => {
   )
 }
 
+export const connectNotion: AppRouteHandler<ConnectNotionRoute> = async (c) => {
+  const workspace = c.var.workspace
+  const { code, state } = c.req.valid("json")
+
+  if (!(workspace.ownerId === c.var.user.id || c.var.member.role === "admin")) {
+    return c.json(
+      { success: false, message: "Only workspace admins can connect Notion" },
+      HttpStatusCodes.FORBIDDEN
+    )
+  }
+  if (verifyOAuthState(state, c.var.user.id) !== workspace.slug) {
+    return c.json(
+      { success: false, message: "Invalid or expired connection request" },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+
+  const result = await exchangeNotionCode(code, notionRedirectUri()).catch(
+    () => null
+  )
+  if (!result) {
+    return c.json(
+      {
+        success: false,
+        message:
+          "Couldn't connect Notion — verify the connection has Read content, Read comments, and user information without email addresses",
+      },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+
+  const ok = await db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${`${workspace.id}:notion`}, 0))`
+    )
+
+    const existing = await tx
+      .select({ workspaceId: integrationConnection.workspaceId })
+      .from(integrationConnection)
+      .where(
+        and(
+          eq(integrationConnection.provider, "notion"),
+          eq(integrationConnection.externalId, result.externalId)
+        )
+      )
+      .limit(1)
+      .then((rows) => rows[0])
+    if (existing && existing.workspaceId !== workspace.id) return false
+
+    // Reauthorization is an explicit replacement: keep one active Notion
+    // authorization per Lor workspace and wipe the old rotated credentials.
+    await tx
+      .update(integrationConnection)
+      .set({
+        status: "revoked",
+        accessToken: null,
+        refreshToken: null,
+        tokenExpiresAt: null,
+        scope: null,
+      })
+      .where(
+        and(
+          eq(integrationConnection.workspaceId, workspace.id),
+          eq(integrationConnection.provider, "notion"),
+          eq(integrationConnection.status, "active"),
+          ne(integrationConnection.externalId, result.externalId)
+        )
+      )
+
+    const written = await tx
+      .insert(integrationConnection)
+      .values({
+        workspaceId: workspace.id,
+        provider: "notion",
+        externalId: result.externalId,
+        providerWorkspaceId: result.providerWorkspaceId,
+        accountLogin: result.accountLabel,
+        accessToken: result.accessToken,
+        refreshToken: result.refreshToken,
+        tokenExpiresAt: null,
+        scope: result.scope,
+        status: "active",
+      })
+      .onConflictDoUpdate({
+        target: [
+          integrationConnection.provider,
+          integrationConnection.externalId,
+        ],
+        set: {
+          workspaceId: workspace.id,
+          providerWorkspaceId: result.providerWorkspaceId,
+          accountLogin: result.accountLabel,
+          accessToken: result.accessToken,
+          refreshToken: result.refreshToken,
+          tokenExpiresAt: null,
+          scope: result.scope,
+          status: "active",
+        },
+        setWhere: eq(integrationConnection.workspaceId, workspace.id),
+      })
+      .returning({ id: integrationConnection.id })
+
+    return written.length > 0
+  })
+
+  if (!ok) {
+    return c.json(
+      {
+        success: false,
+        message: "This Notion authorization is connected elsewhere",
+      },
+      HttpStatusCodes.CONFLICT
+    )
+  }
+
+  return c.json(
+    { success: true as const, accountLogin: result.accountLabel },
+    HttpStatusCodes.OK
+  )
+}
+
 export const updateIntegration: AppRouteHandler<
   UpdateIntegrationRoute
 > = async (c) => {
@@ -721,6 +870,36 @@ export const disconnectIntegration: AppRouteHandler<
 > = async (c) => {
   const workspace = c.var.workspace
   const { connectionId } = c.req.valid("param")
+
+  const connection = await db
+    .select({ provider: integrationConnection.provider })
+    .from(integrationConnection)
+    .where(
+      and(
+        eq(integrationConnection.id, connectionId),
+        eq(integrationConnection.workspaceId, workspace.id)
+      )
+    )
+    .limit(1)
+    .then((rows) => rows[0])
+  if (!connection) {
+    return c.json(
+      { success: false, message: "Connection not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  if (
+    connection.provider === "notion" &&
+    !(workspace.ownerId === c.var.user.id || c.var.member.role === "admin")
+  ) {
+    return c.json(
+      {
+        success: false,
+        message: "Only workspace admins can disconnect Notion",
+      },
+      HttpStatusCodes.FORBIDDEN
+    )
+  }
 
   const deleted = await db
     .delete(integrationConnection)

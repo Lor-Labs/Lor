@@ -1,6 +1,7 @@
 import { AttioLogo } from "@repo/ui/components/logos/attio"
 import { DatadogLogo } from "@repo/ui/components/logos/datadog"
 import { LinearLogo } from "@repo/ui/components/logos/linear"
+import { NotionLogo } from "@repo/ui/components/logos/notion"
 import { cn } from "@repo/ui/lib/utils"
 import { Github } from "lucide-react"
 import type { ComponentType } from "react"
@@ -20,6 +21,10 @@ function DatadogMark({ className }: { className?: string }) {
 
 function AttioMark({ className }: { className?: string }) {
   return <AttioLogo className={className} />
+}
+
+function NotionMark({ className }: { className?: string }) {
+  return <NotionLogo className={className} />
 }
 
 type ConnectorUI = {
@@ -66,6 +71,16 @@ const CONNECTOR_UI: Record<ConnectorKey, ConnectorUI> = {
       "fetch_attio_record",
       "query_attio",
       "fetch_attio_activity",
+    ],
+  },
+  notion: {
+    logo: NotionMark,
+    urlHost: /(^|\.)notion\.(so|site)$/i,
+    tools: [
+      "search_notion",
+      "fetch_notion_page",
+      "query_notion_data_source",
+      "list_notion_users",
     ],
   },
 }

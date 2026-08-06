@@ -487,6 +487,10 @@ const NOTIFY_OFF = "__off__"
 function IntegrationsSection({ workspaceSlug }: { workspaceSlug: string }) {
   const queryClient = useQueryClient()
   const [datadogOpen, setDatadogOpen] = useState(false)
+  const [notionConnect, setNotionConnect] = useState<{
+    url: string
+    replacing: boolean
+  } | null>(null)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [disconnectTarget, setDisconnectTarget] = useState<{
     connectionId: string
@@ -628,20 +632,41 @@ function IntegrationsSection({ workspaceSlug }: { workspaceSlug: string }) {
               </div>
               {p.connected && p.connectionId ? (
                 <div className="flex shrink-0 items-center gap-1">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={disconnect.isPending}
-                    onClick={() =>
-                      p.connectionId &&
-                      setDisconnectTarget({
-                        connectionId: p.connectionId,
-                        name: p.name,
-                      })
-                    }
-                  >
-                    Disconnect
-                  </Button>
+                  {p.id === "notion" && p.canManage && p.connectUrl && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        p.connectUrl &&
+                        setNotionConnect({
+                          url: p.connectUrl,
+                          replacing: true,
+                        })
+                      }
+                    >
+                      Reconnect
+                    </Button>
+                  )}
+                  {p.canManage ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={disconnect.isPending}
+                      onClick={() =>
+                        p.connectionId &&
+                        setDisconnectTarget({
+                          connectionId: p.connectionId,
+                          name: p.name,
+                        })
+                      }
+                    >
+                      Disconnect
+                    </Button>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">
+                      Admin managed
+                    </span>
+                  )}
                   {hasDetails && (
                     <Button
                       variant="ghost"
@@ -676,12 +701,24 @@ function IntegrationsSection({ workspaceSlug }: { workspaceSlug: string }) {
               ) : (
                 <Button
                   size="sm"
-                  disabled={!p.connectUrl}
+                  disabled={!p.canManage || !p.connectUrl}
                   onClick={() => {
-                    if (p.connectUrl) openExternal(p.connectUrl)
+                    if (!p.connectUrl) return
+                    if (p.id === "notion") {
+                      setNotionConnect({
+                        url: p.connectUrl,
+                        replacing: false,
+                      })
+                      return
+                    }
+                    openExternal(p.connectUrl)
                   }}
                 >
-                  {p.connectUrl ? "Connect" : "Unavailable"}
+                  {!p.canManage
+                    ? "Admin only"
+                    : p.connectUrl
+                      ? "Connect"
+                      : "Unavailable"}
                 </Button>
               )}
             </div>
@@ -780,6 +817,43 @@ function IntegrationsSection({ workspaceSlug }: { workspaceSlug: string }) {
         open={datadogOpen}
         onOpenChange={setDatadogOpen}
       />
+      <AlertDialog
+        open={!!notionConnect}
+        onOpenChange={(open) => {
+          if (!open) setNotionConnect(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {notionConnect?.replacing
+                ? "Reconnect Notion?"
+                : "Connect Notion?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Pages selected here will be available to members of this Lor
+              workspace. The Notion member authorizing the connection remains
+              responsible for managing which pages it can access.
+              {notionConnect?.replacing
+                ? " This will replace the current Notion authorization."
+                : ""}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogClose render={<Button variant="outline" />}>
+              Cancel
+            </AlertDialogClose>
+            <Button
+              onClick={() => {
+                if (notionConnect) openExternal(notionConnect.url)
+                setNotionConnect(null)
+              }}
+            >
+              Continue to Notion
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <AlertDialog
         open={!!disconnectTarget}
         onOpenChange={(open) => {

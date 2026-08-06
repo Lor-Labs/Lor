@@ -109,6 +109,8 @@ const serverSchema = z.object({
   LINEAR_WEBHOOK_SECRET: z.string().min(1).optional(),
   ATTIO_CLIENT_ID: z.string().min(1).optional(),
   ATTIO_CLIENT_SECRET: z.string().min(1).optional(),
+  NOTION_CLIENT_ID: z.string().min(1).optional(),
+  NOTION_CLIENT_SECRET: z.string().min(1).optional(),
   INTEGRATION_ENCRYPTION_KEY: z
     .string()
     .regex(/^[0-9a-f]{64}$/i)
@@ -185,6 +187,23 @@ const refinedServerSchema = serverSchema.superRefine((val, ctx) => {
       code: z.ZodIssueCode.custom,
       message:
         "INTEGRATION_ENCRYPTION_KEY is required when Attio (a token-persisting connector) is configured",
+      path: ["INTEGRATION_ENCRYPTION_KEY"],
+    })
+  }
+  if (Boolean(val.NOTION_CLIENT_ID) !== Boolean(val.NOTION_CLIENT_SECRET)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "NOTION_CLIENT_ID and NOTION_CLIENT_SECRET must be set together",
+      path: [
+        val.NOTION_CLIENT_ID ? "NOTION_CLIENT_SECRET" : "NOTION_CLIENT_ID",
+      ],
+    })
+  }
+  if (val.NOTION_CLIENT_ID && !val.INTEGRATION_ENCRYPTION_KEY) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message:
+        "INTEGRATION_ENCRYPTION_KEY is required when Notion (a token-persisting connector) is configured",
       path: ["INTEGRATION_ENCRYPTION_KEY"],
     })
   }

@@ -34,6 +34,9 @@ export const integrationStatusSchema = z.object({
   // Mirrors ConnectorAuthType — api-key connectors connect via an in-app form
   // instead of a redirect, so they have no connectUrl.
   authType: z.enum(["github-app", "oauth", "api-key"]),
+  // Some org-shared connectors (currently Notion) can only be managed by a
+  // Lor workspace admin even though every member may use the granted tools.
+  canManage: z.boolean(),
   // Whether the server is configured to accept a connection right now.
   available: z.boolean(),
   connectUrl: z.string().nullable(), // null when the provider isn't configured
@@ -86,6 +89,16 @@ export const connectAttioRequestSchema = z.object({
 })
 
 export const connectAttioResponseSchema = z.object({
+  success: z.literal(true),
+  accountLogin: z.string().nullable(),
+})
+
+export const connectNotionRequestSchema = z.object({
+  code: z.string().min(1),
+  state: z.string().min(1),
+})
+
+export const connectNotionResponseSchema = z.object({
   success: z.literal(true),
   accountLogin: z.string().nullable(),
 })
