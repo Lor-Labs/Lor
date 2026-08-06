@@ -1,3 +1,4 @@
+import { env } from "@repo/env/client"
 import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar"
 import {
   HoverCard,
@@ -67,7 +68,7 @@ function LinkIcon({ href }: { href?: string }) {
   }
   return (
     <img
-      src={`https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=32`}
+      src={`${env.NEXT_PUBLIC_API_URL}/v1/favicon/${encodeURIComponent(host)}`}
       alt=""
       loading="lazy"
       className="mr-1 inline-block size-3.5 rounded-[3px] align-[-0.2em]"
