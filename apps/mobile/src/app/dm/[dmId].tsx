@@ -32,12 +32,16 @@ export default function DMScreen() {
   const [replyingTo, setReplyingTo] = useState<Message | null>(null)
   const [editingMessage, setEditingMessage] = useState<Message | null>(null)
   const [isSavingEdit, setIsSavingEdit] = useState(false)
+  const [focusedMessageId, setFocusedMessageId] = useState<string | null>(null)
   const hasFocusedRef = useRef(false)
   const composerMentionRef = useRef<MessageComposerMentionHandle>(null)
   const foreground = useThemeColor("foreground")
   const socket = useSocket()
   const isSocketConnected = useSocketConnected()
-  const { dmId } = useLocalSearchParams<{ dmId: string }>()
+  const { dmId, focusMessageId } = useLocalSearchParams<{
+    dmId: string
+    focusMessageId?: string
+  }>()
   const { data: session } = authClient.useSession()
   const dmState = useDM(dmId ?? "")
 
@@ -73,8 +77,16 @@ export default function DMScreen() {
     setReplyingTo(null)
     setEditingMessage(null)
     setIsSavingEdit(false)
+    setFocusedMessageId(null)
     resetProfileSheet()
   }, [dmId, resetProfileSheet])
+
+  useEffect(() => {
+    if (!focusMessageId) return
+    void chat.loadAround(focusMessageId).then((loaded) => {
+      if (loaded) setFocusedMessageId(focusMessageId)
+    })
+  }, [chat.loadAround, focusMessageId])
 
   useEffect(() => {
     if (
@@ -264,6 +276,7 @@ export default function DMScreen() {
                   : "This is the beginning of this group conversation.",
             }}
             error={chat.error}
+            focusMessageId={focusedMessageId}
             isLoading={chat.isLoading}
             keyboardProps={keyboardProps}
             listKey={`dm-${dmId}`}

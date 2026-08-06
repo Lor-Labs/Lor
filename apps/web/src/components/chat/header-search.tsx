@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import { Loader2, Search, X } from "lucide-react"
 import { useCallback, useEffect, useRef, useState } from "react"
+import { useMessageSearchNavigation } from "@/hooks/use-message-search-navigation"
 import { apiClient } from "@/lib/api-client"
 import { toSearchPreviewText } from "@/lib/search-preview"
 
@@ -14,6 +15,7 @@ type SearchResult = {
   createdAt: string
   channelId: string
   channelName: string
+  threadRootId?: string | null
   author: {
     id: string
     name: string
@@ -44,6 +46,7 @@ export function HeaderSearch({
 }) {
   const { workspaceSlug } = useParams({ strict: false })
   const navigate = useNavigate()
+  const navigateToWorkspaceMessage = useMessageSearchNavigation()
   const [isOpen, setIsOpen] = useState(false)
   const [query, setQuery] = useState("")
   const [debouncedQuery, setDebouncedQuery] = useState("")
@@ -105,7 +108,7 @@ export function HeaderSearch({
     enabled: debouncedQuery.length > 0,
   })
 
-  const handleResultClick = (msgId: string) => {
+  const handleResultClick = (msg: SearchResult) => {
     if (debounceTimer.current) {
       clearTimeout(debounceTimer.current)
       debounceTimer.current = null
@@ -113,18 +116,17 @@ export function HeaderSearch({
     setIsOpen(false)
     setQuery("")
     setDebouncedQuery("")
-    // Same channel — just scroll to message via search param
     if (mode === "dm") {
       void navigate({
         to: "/dms/$dmId",
         params: { dmId: channelId },
-        search: { msgId },
+        search: { msgId: msg.id },
       })
     } else {
-      void navigate({
-        to: "/$workspaceSlug/$channelId",
-        params: { workspaceSlug: workspaceSlug as string, channelId },
-        search: { msgId },
+      navigateToWorkspaceMessage({
+        id: msg.id,
+        channelId: msg.channelId,
+        threadRootId: msg.threadRootId ?? null,
       })
     }
   }
@@ -197,7 +199,7 @@ export function HeaderSearch({
               key={msg.id}
               type="button"
               className="w-full border-b border-border/50 px-3 py-2 text-left transition-colors hover:bg-accent last:border-b-0"
-              onClick={() => handleResultClick(msg.id)}
+              onClick={() => handleResultClick(msg)}
             >
               <div className="flex items-center gap-1.5">
                 <Avatar size="sm">

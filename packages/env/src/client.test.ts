@@ -14,6 +14,12 @@ async function loadClientEnv(overrides: Partial<Record<string, string>> = {}) {
     overrides.NEXT_PUBLIC_REALTIME_URL ?? "localhost:8081"
   )
 
+  if (Object.hasOwn(overrides, "NEXT_PUBLIC_WEB_URL")) {
+    vi.stubEnv("NEXT_PUBLIC_WEB_URL", overrides.NEXT_PUBLIC_WEB_URL)
+  } else {
+    vi.stubEnv("NEXT_PUBLIC_WEB_URL", undefined)
+  }
+
   if (Object.hasOwn(overrides, "NEXT_PUBLIC_MAX_FILE_UPLOAD_SIZE")) {
     vi.stubEnv(
       "NEXT_PUBLIC_MAX_FILE_UPLOAD_SIZE",
@@ -74,5 +80,54 @@ describe("client env", () => {
     expect(env.NEXT_PUBLIC_MAX_FILE_UPLOAD_SIZE).toBe(
       DEFAULT_MAX_FILE_UPLOAD_SIZE
     )
+  })
+
+  it("defaults and normalizes the public web URL", async () => {
+    const defaultEnv = await loadClientEnv()
+    expect(defaultEnv.NEXT_PUBLIC_WEB_URL).toBe("https://app.lor.chat")
+
+    const customEnv = await loadClientEnv({
+      NEXT_PUBLIC_WEB_URL: " chat.example.com/// ",
+    })
+    expect(customEnv.NEXT_PUBLIC_WEB_URL).toBe("https://chat.example.com")
+
+    const loopbackEnv = await loadClientEnv({
+      NEXT_PUBLIC_WEB_URL: "localhost:3000",
+    })
+    expect(loopbackEnv.NEXT_PUBLIC_WEB_URL).toBe("http://localhost:3000")
+
+    const lookalikeEnv = await loadClientEnv({
+      NEXT_PUBLIC_WEB_URL: "localhost.evil.com",
+    })
+    expect(lookalikeEnv.NEXT_PUBLIC_WEB_URL).toBe("https://localhost.evil.com")
+  })
+
+  it("rejects websocket protocols for the public web URL", async () => {
+    await expect(
+      loadClientEnv({ NEXT_PUBLIC_WEB_URL: "ws://app.lor.test" })
+    ).rejects.toThrow()
+    await expect(
+      loadClientEnv({ NEXT_PUBLIC_WEB_URL: "wss://app.lor.test" })
+    ).rejects.toThrow()
+  })
+
+  it("allows explicit http only for loopback web URLs", async () => {
+    const loopbackEnv = await loadClientEnv({
+      NEXT_PUBLIC_WEB_URL: "http://127.0.0.1:3000",
+    })
+    expect(loopbackEnv.NEXT_PUBLIC_WEB_URL).toBe("http://127.0.0.1:3000")
+
+    await expect(
+      loadClientEnv({ NEXT_PUBLIC_WEB_URL: "http://app.lor.test" })
+    ).rejects.toThrow()
+  })
+
+  it("rejects query strings and fragments in the public web URL", async () => {
+    await expect(
+      loadClientEnv({ NEXT_PUBLIC_WEB_URL: "chat.example.com/?next=1" })
+    ).rejects.toThrow()
+    await expect(
+      loadClientEnv({ NEXT_PUBLIC_WEB_URL: "chat.example.com/#invite" })
+    ).rejects.toThrow()
   })
 })

@@ -9,6 +9,7 @@ import { Alert, Pressable, Text, View } from "react-native"
 import { ChannelOptionsSheet } from "@/components/channel-options-sheet"
 import { ChannelSearchOverlay } from "@/components/channel-search-overlay"
 import { ChatKeyboardLayout } from "@/components/chat-keyboard-layout"
+import { MemberActionsSheet } from "@/components/member-actions-sheet"
 import {
   type MemberListItem,
   MemberListSheet,
@@ -21,6 +22,7 @@ import {
 import { MessageList } from "@/components/message-list"
 import { RunQueuePill } from "@/components/run-queue-pill"
 import { TypingIndicator } from "@/components/typing-indicator"
+import { triggerHaptic } from "@/components/ui/haptics"
 import { IconButton } from "@/components/ui/icon-button"
 import { Screen } from "@/components/ui/screen"
 import { StatePanel } from "@/components/ui/state-panel"
@@ -31,6 +33,7 @@ import { useAutoMarkRead } from "@/hooks/use-auto-mark-read"
 import { useChannelDetail } from "@/hooks/use-channel-detail"
 import { useChannelMessages } from "@/hooks/use-channel-messages"
 import { useChannelPermissions } from "@/hooks/use-channel-permissions"
+import { useMemberModeration } from "@/hooks/use-member-moderation"
 import { useOpenDM } from "@/hooks/use-open-dm"
 import { useProfileSheet } from "@/hooks/use-profile-sheet"
 import { useRunQueue } from "@/hooks/use-run-queue"
@@ -47,6 +50,8 @@ export default function ChannelScreen() {
   const [isSearchOpen, setIsSearchOpen] = useState(false)
   const [isOptionsOpen, setIsOptionsOpen] = useState(false)
   const [isMembersOpen, setIsMembersOpen] = useState(false)
+  const [moderationMember, setModerationMember] =
+    useState<MemberListItem | null>(null)
   const [focusedMessageId, setFocusedMessageId] = useState<string | null>(null)
   const hasFocusedRef = useRef(false)
   const composerMentionRef = useRef<MessageComposerMentionHandle>(null)
@@ -129,6 +134,11 @@ export default function ChannelScreen() {
     mentionRef: composerMentionRef,
   })
   const { openDM } = useOpenDM()
+  const moderation = useMemberModeration({
+    currentUserId: session?.user.id,
+    workspaceId: workspace?.id,
+    workspaceSlug: workspace?.slug ?? "",
+  })
 
   useEffect(() => {
     hasFocusedRef.current = false
@@ -138,6 +148,7 @@ export default function ChannelScreen() {
     setIsSearchOpen(false)
     setIsOptionsOpen(false)
     setIsMembersOpen(false)
+    setModerationMember(null)
     setFocusedMessageId(null)
     resetProfileSheet()
   }, [channelId, resetProfileSheet])
@@ -225,6 +236,12 @@ export default function ChannelScreen() {
   const openProfileFromMemberList = (member: MemberListItem) => {
     setIsMembersOpen(false)
     openMemberProfile(member)
+  }
+  const openMemberActions = (member: MemberListItem) => {
+    if (!moderation.canModerate(member)) return
+    triggerHaptic("soft")
+    setIsMembersOpen(false)
+    setModerationMember(member)
   }
   const startEditing = (message: Message) => {
     setReplyingTo(null)
@@ -490,11 +507,28 @@ export default function ChannelScreen() {
         error={mentions.error}
         isLoading={mentions.isLoading}
         isOpen={isMembersOpen}
+        memberHasActions={moderation.canModerate}
         members={memberItems}
+        onLongPressMember={openMemberActions}
         onOpenChange={setIsMembersOpen}
         onPressMember={openProfileFromMemberList}
         onRetry={() => void mentions.reload()}
         title="Channel members"
+      />
+      <MemberActionsSheet
+        canKick={
+          moderationMember ? moderation.canKick(moderationMember) : false
+        }
+        isBusy={moderation.isBusy}
+        member={moderationMember}
+        onChangeRole={(userId, role) => moderation.changeRole({ userId, role })}
+        onKick={(userId) => moderation.kick(userId)}
+        onOpenChange={(isOpen) => {
+          if (!isOpen) setModerationMember(null)
+        }}
+        roleOptions={
+          moderationMember ? moderation.roleOptionsFor(moderationMember) : []
+        }
       />
       <UserProfileSheet
         currentUserId={session?.user.id}

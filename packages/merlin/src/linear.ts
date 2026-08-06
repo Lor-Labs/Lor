@@ -1,3 +1,4 @@
+import { PaginationNulls, PaginationSortOrder } from "@linear/sdk"
 import { and, db, eq, schema } from "@repo/db"
 import { tool } from "ai"
 import { z } from "zod"
@@ -5,8 +6,11 @@ import { linearClientFor } from "./providers/linear"
 
 const SEARCH_DEFAULT = 8
 const SEARCH_MAX = 20
+const LIST_DEFAULT = 10
+const LIST_MAX = 20
 const MAX_COMMENTS = 10
 const MAX_LISTED = 30
+const LINEAR_PAGE_SIZE = 250
 
 export async function activeLinearConnection(
   workspaceId: string
@@ -34,6 +38,127 @@ export async function resolveWorkspaceLinear(
 }
 
 const linearContext = z.object({ externalId: z.string() })
+const linearStateType = z.enum([
+  "triage",
+  "backlog",
+  "unstarted",
+  "started",
+  "completed",
+  "canceled",
+  "duplicate",
+])
+const linearIssueOrder = z.enum(["createdAt", "updatedAt", "completedAt"])
+
+type LinearClient = NonNullable<Awaited<ReturnType<typeof linearClientFor>>>
+type LinearIssue = NonNullable<Awaited<ReturnType<LinearClient["issue"]>>>
+type IssueUpdate = Parameters<LinearClient["updateIssue"]>[1]
+type IssuesArgs = NonNullable<Parameters<LinearClient["issues"]>[0]>
+type IssueFilter = NonNullable<IssuesArgs["filter"]>
+
+const compactName = (value: { displayName?: string | null; name: string }) =>
+  value.displayName || value.name
+
+async function compactLinearIssues(
+  client: LinearClient,
+  issues: LinearIssue[]
+) {
+  const unique = (ids: Array<string | undefined>) => [
+    ...new Set(ids.filter((id): id is string => Boolean(id))),
+  ]
+  const stateIds = unique(issues.map((issue) => issue.stateId))
+  const teamIds = unique(issues.map((issue) => issue.teamId))
+  const assigneeIds = unique(issues.map((issue) => issue.assigneeId))
+  const projectIds = unique(issues.map((issue) => issue.projectId))
+  const labelIds = unique(issues.flatMap((issue) => issue.labelIds))
+
+  // The SDK's issue connection only embeds relation IDs. Resolve each relation
+  // kind in one batched query instead of doing several lazy fetches per issue.
+  const [states, teams, assignees, projects, labels] = await Promise.all([
+    stateIds.length > 0
+      ? client
+          .workflowStates({
+            first: stateIds.length,
+            filter: { id: { in: stateIds } },
+          })
+          .then((result) => result.nodes)
+          .catch(() => [])
+      : [],
+    teamIds.length > 0
+      ? client
+          .teams({ first: teamIds.length, filter: { id: { in: teamIds } } })
+          .then((result) => result.nodes)
+          .catch(() => [])
+      : [],
+    assigneeIds.length > 0
+      ? client
+          .users({
+            first: assigneeIds.length,
+            filter: { id: { in: assigneeIds } },
+          })
+          .then((result) => result.nodes)
+          .catch(() => [])
+      : [],
+    projectIds.length > 0
+      ? client
+          .projects({
+            first: projectIds.length,
+            filter: { id: { in: projectIds } },
+          })
+          .then((result) => result.nodes)
+          .catch(() => [])
+      : [],
+    labelIds.length > 0
+      ? client
+          .issueLabels({
+            first: Math.min(labelIds.length, LINEAR_PAGE_SIZE),
+            filter: { id: { in: labelIds } },
+          })
+          .then((result) => result.nodes)
+          .catch(() => [])
+      : [],
+  ])
+  const byId = <T extends { id: string }>(values: T[]) =>
+    new Map(values.map((value) => [value.id, value]))
+  const stateById = byId(states)
+  const teamById = byId(teams)
+  const assigneeById = byId(assignees)
+  const projectById = byId(projects)
+  const labelById = byId(labels)
+
+  return issues.map((issue) => {
+    const workflowState = issue.stateId
+      ? stateById.get(issue.stateId)
+      : undefined
+    const team = issue.teamId ? teamById.get(issue.teamId) : undefined
+    const assignee = issue.assigneeId
+      ? assigneeById.get(issue.assigneeId)
+      : undefined
+    const project = issue.projectId
+      ? projectById.get(issue.projectId)
+      : undefined
+    return {
+      id: issue.id,
+      identifier: issue.identifier,
+      title: issue.title,
+      url: issue.url,
+      state: workflowState?.type ?? null,
+      status: workflowState?.name ?? null,
+      priority: issue.priorityLabel,
+      assignee: assignee ? compactName(assignee) : null,
+      team: team?.name ?? null,
+      project: project?.name ?? null,
+      labels: issue.labelIds.flatMap((id) => {
+        const label = labelById.get(id)
+        return label ? [label.name] : []
+      }),
+      createdAt: issue.createdAt.toISOString(),
+      updatedAt: issue.updatedAt.toISOString(),
+      startedAt: issue.startedAt?.toISOString() ?? null,
+      completedAt: issue.completedAt?.toISOString() ?? null,
+      dueDate: issue.dueDate ?? null,
+    }
+  })
+}
 
 export const linearTools = {
   search_linear: tool({
@@ -60,6 +185,132 @@ export const linearTools = {
           url: i.url,
           updatedAt: i.updatedAt.toISOString(),
         })),
+      }
+    },
+    strict: true,
+  }),
+  list_linear_issues: tool({
+    description:
+      "List the team's Linear issues with structured filters and newest-first ordering. Use this for recent work, what is in progress, what shipped, or work by team/person/project/label; use search_linear instead for keyword relevance. State uses Linear's native lifecycle types: triage, backlog, unstarted, started, completed, canceled, or duplicate. Results include the exact workspace-specific status label but omit descriptions; call fetch_linear for details and comments.",
+    inputSchema: z.object({
+      state: linearStateType
+        .optional()
+        .describe("Linear lifecycle state type to include"),
+      assignee: z
+        .string()
+        .optional()
+        .describe("assignee ID, name, display name, or email"),
+      team: z.string().optional().describe("team ID, key, or name"),
+      project: z.string().optional().describe("project ID, slug, or name"),
+      label: z.string().optional().describe("issue label ID or name"),
+      updatedSince: z
+        .string()
+        .optional()
+        .describe("ISO-8601 date/time or duration, e.g. -P7D"),
+      completedSince: z
+        .string()
+        .optional()
+        .describe("ISO-8601 date/time or duration, e.g. -P7D"),
+      orderBy: linearIssueOrder
+        .optional()
+        .describe("newest-first order (default updatedAt)"),
+      limit: z.number().optional().describe("max results, 1–20 (default 10)"),
+      cursor: z
+        .string()
+        .optional()
+        .describe("next-page cursor from a prior list"),
+    }),
+    contextSchema: linearContext,
+    execute: async (input, { context }) => {
+      const client = await linearClientFor(context.externalId)
+      if (!client) return { error: "couldn't authenticate with Linear" }
+      const n = Math.floor(
+        Math.min(Math.max(input.limit ?? LIST_DEFAULT, 1), LIST_MAX)
+      )
+      const filters: IssueFilter[] = []
+      if (input.state) {
+        filters.push({ state: { type: { eq: input.state } } })
+      }
+      if (input.assignee) {
+        filters.push({
+          assignee: {
+            or: [
+              { id: { eq: input.assignee } },
+              { name: { eqIgnoreCase: input.assignee } },
+              { displayName: { eqIgnoreCase: input.assignee } },
+              { email: { eqIgnoreCase: input.assignee } },
+            ],
+          },
+        })
+      }
+      if (input.team) {
+        filters.push({
+          team: {
+            or: [
+              { id: { eq: input.team } },
+              { key: { eqIgnoreCase: input.team } },
+              { name: { eqIgnoreCase: input.team } },
+            ],
+          },
+        })
+      }
+      if (input.project) {
+        filters.push({
+          project: {
+            or: [
+              { id: { eq: input.project } },
+              { slugId: { eqIgnoreCase: input.project } },
+              { name: { eqIgnoreCase: input.project } },
+            ],
+          },
+        })
+      }
+      if (input.label) {
+        filters.push({
+          labels: {
+            some: {
+              or: [
+                { id: { eq: input.label } },
+                { name: { eqIgnoreCase: input.label } },
+              ],
+            },
+          },
+        })
+      }
+      if (input.updatedSince) {
+        filters.push({ updatedAt: { gte: input.updatedSince } })
+      }
+      if (input.completedSince) {
+        filters.push({ completedAt: { gte: input.completedSince } })
+      }
+
+      const order = {
+        order: PaginationSortOrder.Descending,
+        nulls: PaginationNulls.Last,
+      }
+      const orderBy = input.orderBy ?? "updatedAt"
+      const sort =
+        orderBy === "completedAt"
+          ? [{ completedAt: order }]
+          : orderBy === "createdAt"
+            ? [{ createdAt: order }]
+            : [{ updatedAt: order }]
+      const payload = await client
+        .issues({
+          first: n,
+          after: input.cursor,
+          includeArchived: false,
+          filter: filters.length > 0 ? { and: filters } : undefined,
+          sort,
+        })
+        .catch(() => null)
+      if (!payload) return { error: "Linear issue list failed" }
+      const issues = await compactLinearIssues(client, payload.nodes)
+      return {
+        issues,
+        nextCursor: payload.pageInfo.hasNextPage
+          ? (payload.pageInfo.endCursor ?? undefined)
+          : undefined,
       }
     },
     strict: true,
@@ -96,10 +347,6 @@ export const linearTools = {
   }),
 }
 
-type LinearClient = NonNullable<Awaited<ReturnType<typeof linearClientFor>>>
-type LinearIssue = NonNullable<Awaited<ReturnType<LinearClient["issue"]>>>
-type IssueUpdate = Parameters<LinearClient["updateIssue"]>[1]
-
 const PRIORITY_NAMES = ["none", "urgent", "high", "medium", "low"] as const
 const UNASSIGN = new Set(["none", "nobody", "unassigned", "unassign"])
 
@@ -122,7 +369,7 @@ async function resolveAssignee(
   try {
     matched = (
       await client.users({
-        first: 250,
+        first: LINEAR_PAGE_SIZE,
         filter: {
           or: [
             { name: { containsIgnoreCase: raw } },
@@ -142,7 +389,7 @@ async function resolveAssignee(
     // Hand back the member list so the model can pick the right person and
     // retry instead of dead-ending on a handle Linear doesn't know.
     const all = await client
-      .users({ first: 250 })
+      .users({ first: LINEAR_PAGE_SIZE })
       .then((u) => u.nodes)
       .catch(() => null)
     const members = all
@@ -272,7 +519,7 @@ async function resolveLabels(
   const changes: string[] = []
   if (add.length > 0) {
     const all = await client
-      .issueLabels({ first: 250 })
+      .issueLabels({ first: LINEAR_PAGE_SIZE })
       .then((l) => l.nodes)
       .catch(() => null)
     if (!all) return { error: "couldn't load Linear labels" }

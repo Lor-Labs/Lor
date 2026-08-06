@@ -46,6 +46,8 @@ export default defineConfig(({ mode }) => {
       "process.env.NEXT_PUBLIC_REALTIME_URL": JSON.stringify(
         env.NEXT_PUBLIC_REALTIME_URL
       ),
+      "process.env.NEXT_PUBLIC_WEB_URL":
+        JSON.stringify(env.NEXT_PUBLIC_WEB_URL) ?? "undefined",
       "process.env.NEXT_PUBLIC_MAX_FILE_UPLOAD_SIZE": JSON.stringify(
         env.NEXT_PUBLIC_MAX_FILE_UPLOAD_SIZE
       ),

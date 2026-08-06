@@ -36,6 +36,8 @@ type ChannelSearchParams = {
   msgId?: string
   // Persists the open thread so a refresh reopens the right-panel thread.
   threadId?: string
+  // Focuses a reply inside the open thread (for search/deep links).
+  threadMessageId?: string
 }
 
 export const Route = createFileRoute(
@@ -45,12 +47,16 @@ export const Route = createFileRoute(
   validateSearch: (search: Record<string, unknown>): ChannelSearchParams => ({
     msgId: typeof search.msgId === "string" ? search.msgId : undefined,
     threadId: typeof search.threadId === "string" ? search.threadId : undefined,
+    threadMessageId:
+      typeof search.threadMessageId === "string"
+        ? search.threadMessageId
+        : undefined,
   }),
 })
 
 function ChannelView() {
   const { workspaceSlug, channelId } = Route.useParams()
-  const { msgId, threadId } = Route.useSearch()
+  const { msgId, threadId, threadMessageId } = Route.useSearch()
   const navigate = Route.useNavigate()
   const socket = useSocket()
   const isMobile = useIsMobile()
@@ -70,22 +76,23 @@ function ChannelView() {
   // changes (runtime open/close is driven by the URL-sync effect below).
   const threadIdRef = useRef(threadId)
   threadIdRef.current = threadId
+  const threadMessageIdRef = useRef(threadMessageId)
+  threadMessageIdRef.current = threadMessageId
 
   // Set the initial right-panel view when entering a channel: reopen the
   // thread from the URL (refresh / deep link) or fall back to members.
   useEffect(() => {
-    if (isMobile === false) {
-      const initialThreadId = threadIdRef.current
-      setView(
-        initialThreadId
-          ? {
-              type: "thread",
-              workspaceSlug,
-              channelId,
-              threadRootId: initialThreadId,
-            }
-          : { type: "workspace-members", workspaceSlug, channelId }
-      )
+    const initialThreadId = threadIdRef.current
+    if (initialThreadId) {
+      setView({
+        type: "thread",
+        workspaceSlug,
+        channelId,
+        threadRootId: initialThreadId,
+        targetMessageId: threadMessageIdRef.current,
+      })
+    } else if (isMobile === false) {
+      setView({ type: "workspace-members", workspaceSlug, channelId })
     }
     return () => {
       clearView()
@@ -97,21 +104,32 @@ function ChannelView() {
   useEffect(() => {
     if (isMobile !== false) return
     if (view?.type === "thread") {
-      if (view.threadRootId !== threadId) {
+      if (
+        view.threadRootId !== threadId ||
+        view.targetMessageId !== threadMessageId
+      ) {
         void navigate({
-          search: (prev) => ({ ...prev, threadId: view.threadRootId }),
+          search: (prev) => ({
+            ...prev,
+            threadId: view.threadRootId,
+            threadMessageId: view.targetMessageId,
+          }),
           replace: true,
         })
       }
-    } else if (view && threadId) {
+    } else if (view && (threadId || threadMessageId)) {
       // Only clear once a real non-thread view is set — `view === null` is the
       // pre-hydration state on refresh and must not wipe the URL's threadId.
       void navigate({
-        search: (prev) => ({ ...prev, threadId: undefined }),
+        search: (prev) => ({
+          ...prev,
+          threadId: undefined,
+          threadMessageId: undefined,
+        }),
         replace: true,
       })
     }
-  }, [view, threadId, isMobile, navigate])
+  }, [view, threadId, threadMessageId, isMobile, navigate])
 
   const { data, isPending, isError, error } = useQuery({
     queryKey: ["channel", workspaceSlug, channelId],

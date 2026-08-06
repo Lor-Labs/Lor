@@ -1,25 +1,32 @@
+import Search01Icon from "@hugeicons/core-free-icons/Search01Icon"
+import { HugeiconsIcon } from "@hugeicons/react-native"
 import type { UnreadNotification } from "@repo/realtime-types"
 import { timeAgo } from "@repo/utils/date"
 import { useQueryClient } from "@tanstack/react-query"
 import { router, useFocusEffect } from "expo-router"
+import { useThemeColor } from "heroui-native/hooks"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { FlatList, Pressable, RefreshControl, Text, View } from "react-native"
 import { DMAvatar } from "@/components/dm-avatar"
+import { DMSearchOverlay } from "@/components/dm-search-overlay"
+import { IconButton } from "@/components/ui/icon-button"
 import { Screen } from "@/components/ui/screen"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatePanel } from "@/components/ui/state-panel"
 import { useSocket } from "@/context/socket-context"
 import { useUnread } from "@/context/unread-context"
 import { useDMs } from "@/hooks/use-dms"
-import type { DM } from "@/lib/api-types"
+import type { DM, DMSearchResult } from "@/lib/api-types"
 import { dmDisplayName, dmMemberName } from "@/lib/dms"
 
 export default function DMsScreen() {
   const socket = useSocket()
   const queryClient = useQueryClient()
+  const foreground = useThemeColor("foreground")
   const { dms, isLoading, error, refetch } = useDMs()
   const { getUnreadCount, getMentionCount } = useUnread()
   const [isPullRefreshing, setIsPullRefreshing] = useState(false)
+  const [isSearchOpen, setIsSearchOpen] = useState(false)
   const hasFocusedRef = useRef(false)
 
   useFocusEffect(
@@ -55,12 +62,39 @@ export default function DMsScreen() {
     router.push({ pathname: "/dm/[dmId]", params: { dmId: dm.id } } as never)
   }
 
+  const openSearchResult = (result: DMSearchResult) => {
+    setIsSearchOpen(false)
+    router.push({
+      pathname: "/dm/[dmId]",
+      params: { dmId: result.channelId, focusMessageId: result.id },
+    } as never)
+  }
+
+  if (isSearchOpen) {
+    return (
+      <Screen className="bg-background" edges={["top", "bottom"]}>
+        <DMSearchOverlay
+          onClose={() => setIsSearchOpen(false)}
+          onSelectMessage={openSearchResult}
+          visible
+        />
+      </Screen>
+    )
+  }
+
   return (
     <Screen className="bg-background" edges={["top", "bottom"]}>
-      <View className="min-h-[60px] justify-center border-b border-separator px-four">
-        <Text className="text-[22px] font-bold tracking-[-0.4px] text-foreground">
+      <View className="min-h-[60px] flex-row items-center border-b border-separator px-four">
+        <Text className="flex-1 text-[22px] font-bold tracking-[-0.4px] text-foreground">
           Messages
         </Text>
+        <IconButton
+          accessibilityLabel="Search direct messages"
+          onPress={() => setIsSearchOpen(true)}
+          variant="ghost"
+        >
+          <HugeiconsIcon color={foreground} icon={Search01Icon} size={19} />
+        </IconButton>
       </View>
       {isLoading ? (
         <DMListSkeleton />

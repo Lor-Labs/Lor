@@ -16,6 +16,7 @@ const CONNECTORS: Record<
     host: /(^|\.)linear\.app$/i,
     tools: [
       "search_linear",
+      "list_linear_issues",
       "fetch_linear",
       "create_linear_issue",
       "comment_linear",

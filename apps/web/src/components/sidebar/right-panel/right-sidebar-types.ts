@@ -9,6 +9,8 @@ export type ThreadSidebarView = {
   workspaceSlug: string
   channelId: string
   threadRootId: string
+  /** Message to reveal when the thread was opened from search or a citation. */
+  targetMessageId?: string
 }
 
 export type AttachmentsSidebarView = {

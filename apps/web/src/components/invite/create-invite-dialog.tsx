@@ -23,6 +23,7 @@ import { Check, Copy, Link } from "lucide-react"
 import { useState } from "react"
 import { toast } from "sonner"
 import { apiClient } from "@/lib/api-client"
+import { getInviteUrl } from "@/lib/invite-url"
 
 const EXPIRY_OPTIONS = [
   { label: "30 minutes", value: "30" },
@@ -94,10 +95,6 @@ export function CreateInviteDialog({
       )
     },
   })
-
-  function getInviteUrl(code: string) {
-    return `${window.location.origin}/invite/${code}`
-  }
 
   async function handleCopy() {
     if (!inviteCode) return

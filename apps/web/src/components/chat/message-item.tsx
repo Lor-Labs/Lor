@@ -38,6 +38,8 @@ import { connectorForName, connectorLogo } from "@/lib/connector-ui"
 interface MessageItemProps {
   message: Message
   showHeader: boolean
+  /** Let thread message bodies reclaim the avatar gutter once they clear it. */
+  wrapContentAroundAvatar?: boolean
   currentUserId?: string
   isBlocked?: boolean
   isReplyTarget?: boolean
@@ -195,6 +197,7 @@ function ThreadFooter({
 export function MessageItem({
   message,
   showHeader,
+  wrapContentAroundAvatar = false,
   currentUserId,
   isBlocked = false,
   isReplyTarget = false,
@@ -355,10 +358,15 @@ export function MessageItem({
           onJumpToMessage={onJumpToMessage}
         />
       )}
-      <div className="flex gap-3">
+      <div className={cn(wrapContentAroundAvatar ? "flow-root" : "flex gap-3")}>
         {showHeader ? (
           isApp ? (
-            <div className="mt-0.5 self-start">
+            <div
+              className={cn(
+                "mt-0.5 self-start",
+                wrapContentAroundAvatar && "float-left mr-3"
+              )}
+            >
               <Avatar size="lg">
                 {avatarUrl && <AvatarImage src={avatarUrl} alt={displayName} />}
                 <AvatarFallback
@@ -383,7 +391,10 @@ export function MessageItem({
             >
               <button
                 type="button"
-                className="mt-0.5 cursor-pointer self-start"
+                className={cn(
+                  "mt-0.5 cursor-pointer self-start",
+                  wrapContentAroundAvatar && "float-left mr-3"
+                )}
               >
                 <Avatar size="lg">
                   {avatarUrl && (
@@ -401,13 +412,18 @@ export function MessageItem({
             </UserProfilePopover>
           )
         ) : (
-          <div className="w-10 shrink-0 text-right text-[10px] leading-6 text-muted-foreground opacity-0 transition-opacity duration-100 group-hover:opacity-100">
+          <div
+            className={cn(
+              "w-10 shrink-0 text-right text-[10px] leading-6 text-muted-foreground opacity-0 transition-opacity duration-100 group-hover:opacity-100",
+              wrapContentAroundAvatar && "float-left mr-3"
+            )}
+          >
             <span className="whitespace-nowrap">
               {formatTime(message.createdAt)}
             </span>
           </div>
         )}
-        <div className="min-w-0 flex-1">
+        <div className={cn("min-w-0", !wrapContentAroundAvatar && "flex-1")}>
           {showHeader && (
             <div className="flex items-baseline gap-2">
               {isApp ? (

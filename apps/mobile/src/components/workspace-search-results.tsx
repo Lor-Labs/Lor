@@ -14,9 +14,11 @@ import { toSearchPreviewText } from "@/lib/message-markdown"
 function MessageResultRow({
   message,
   onPress,
+  onPressAuthor,
 }: {
   message: ChannelSearchResult
   onPress: (message: ChannelSearchResult) => void
+  onPressAuthor?: (message: ChannelSearchResult) => void
 }) {
   const displayName =
     message.author.displayUsername ?? message.author.name ?? "Unknown member"
@@ -24,19 +26,44 @@ function MessageResultRow({
 
   return (
     <Pressable
+      accessibilityActions={
+        onPressAuthor
+          ? [
+              {
+                name: "viewAuthorProfile",
+                label: `Open ${displayName}'s profile`,
+              },
+            ]
+          : undefined
+      }
       accessibilityHint="Opens the channel and focuses this message"
       accessibilityLabel={`Message from ${displayName} in ${message.channelName}: ${preview}`}
       accessibilityRole="button"
       className="flex-row gap-three rounded-lor-sm px-two py-two active:bg-surface-secondary"
+      onAccessibilityAction={(event) => {
+        if (event.nativeEvent.actionName === "viewAuthorProfile") {
+          onPressAuthor?.(message)
+        }
+      }}
       onPress={() => onPress(message)}
     >
-      <Avatar
-        avatarColor={message.author.avatarColor}
-        fallback={getAvatarInitials(message.author.name)}
-        image={message.author.image}
-        name={displayName}
-        size="sm"
-      />
+      <Pressable
+        accessibilityElementsHidden
+        accessible={false}
+        className="active:opacity-70"
+        disabled={!onPressAuthor}
+        hitSlop={4}
+        importantForAccessibility="no-hide-descendants"
+        onPress={() => onPressAuthor?.(message)}
+      >
+        <Avatar
+          avatarColor={message.author.avatarColor}
+          fallback={getAvatarInitials(message.author.name)}
+          image={message.author.image}
+          name={displayName}
+          size="sm"
+        />
+      </Pressable>
       <View className="min-w-0 flex-1 gap-px">
         <View className="flex-row items-baseline gap-two">
           <Text
@@ -70,12 +97,14 @@ export function WorkspaceSearchResults({
   channels,
   onPressChannel,
   onPressMessage,
+  onPressMessageAuthor,
   query,
   search,
 }: {
   channels: Channel[]
   onPressChannel: (channel: Channel) => void
   onPressMessage: (message: ChannelSearchResult) => void
+  onPressMessageAuthor?: (message: ChannelSearchResult) => void
   query: string
   search: ReturnType<typeof useMessageSearch>
 }) {
@@ -150,6 +179,7 @@ export function WorkspaceSearchResults({
                 key={message.id}
                 message={message}
                 onPress={onPressMessage}
+                onPressAuthor={onPressMessageAuthor}
               />
             ))}
             {search.isLoadingMore ? (

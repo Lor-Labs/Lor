@@ -26,6 +26,8 @@ import { StatePanel } from "@/components/ui/state-panel"
 import { WorkspaceSearchResults } from "@/components/workspace-search-results"
 import { WorkspaceSheet } from "@/components/workspace-sheet"
 import { useWorkspace } from "@/context/workspace-context"
+import { useActiveMember } from "@/hooks/use-active-member"
+import { useAuthorProfileSheet } from "@/hooks/use-author-profile-sheet"
 import { useChannelPermissions } from "@/hooks/use-channel-permissions"
 import { useMessageSearch } from "@/hooks/use-message-search"
 import { useTheme } from "@/hooks/use-theme"
@@ -35,6 +37,7 @@ import type {
   ChannelList as ChannelListData,
   ChannelSearchResult,
 } from "@/lib/api-types"
+import { authClient } from "@/lib/auth-client"
 
 export default function WorkspaceScreen() {
   const theme = useTheme()
@@ -54,6 +57,16 @@ export default function WorkspaceScreen() {
   const hasFocusedChannelsRef = useRef(false)
   const inviteTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const permissions = useChannelPermissions(workspace?.id)
+  const activeMember = useActiveMember(workspace?.id)
+  const { data: session } = authClient.useSession()
+  const isWorkspaceOwner = Boolean(
+    session?.user.id && workspace?.ownerId === session.user.id
+  )
+  const canManageWorkspace =
+    isWorkspaceOwner || activeMember.data?.role === "admin"
+  const { openAuthorProfile, profileSheet } = useAuthorProfileSheet(
+    workspace?.slug ?? ""
+  )
 
   useEffect(
     () => () => {
@@ -164,6 +177,21 @@ export default function WorkspaceScreen() {
   const addWorkspace = () => {
     setIsWorkspaceSheetOpen(false)
     router.push("/onboarding")
+  }
+
+  const openWorkspaceSettings = () => {
+    setIsWorkspaceSheetOpen(false)
+    router.push("/settings/workspace" as never)
+  }
+
+  const openAgentProfiles = () => {
+    setIsWorkspaceSheetOpen(false)
+    router.push("/settings/agent-profiles" as never)
+  }
+
+  const openInstructions = () => {
+    setIsWorkspaceSheetOpen(false)
+    router.push("/settings/instructions" as never)
   }
 
   const openSearchMessage = async (message: ChannelSearchResult) => {
@@ -308,6 +336,7 @@ export default function WorkspaceScreen() {
             channels={matchingChannels}
             onPressChannel={openChannel}
             onPressMessage={(message) => void openSearchMessage(message)}
+            onPressMessageAuthor={openAuthorProfile}
             query={query.trim()}
             search={search}
           />
@@ -346,11 +375,15 @@ export default function WorkspaceScreen() {
         workspaceSlug={workspace.slug}
       />
       <WorkspaceSheet
+        canManageWorkspace={canManageWorkspace}
         channelCount={channelCount}
         isOpen={isWorkspaceSheetOpen}
         onAddWorkspace={addWorkspace}
         onInvite={openInviteFromWorkspaceSheet}
+        onOpenAgentProfiles={openAgentProfiles}
         onOpenChange={setIsWorkspaceSheetOpen}
+        onOpenInstructions={openInstructions}
+        onOpenSettings={openWorkspaceSettings}
         onSelectWorkspace={switchWorkspace}
         workspace={workspace}
         workspaces={workspaces}
@@ -361,6 +394,7 @@ export default function WorkspaceScreen() {
         workspaceName={workspace.name}
         workspaceSlug={workspace.slug}
       />
+      {profileSheet}
     </Screen>
   )
 }

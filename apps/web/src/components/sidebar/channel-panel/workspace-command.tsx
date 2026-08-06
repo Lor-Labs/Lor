@@ -13,11 +13,12 @@ import {
 } from "@repo/ui/components/command"
 import { Kbd } from "@repo/ui/components/unlumen-ui/kbd"
 import { useQuery } from "@tanstack/react-query"
-import { useNavigate, useParams } from "@tanstack/react-router"
+import { useParams } from "@tanstack/react-router"
 import { Loader2, Monitor, Moon, Search, Sun } from "lucide-react"
 import { useTheme } from "next-themes"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { MessageMarkdown } from "@/components/chat/message-markdown"
+import { useMessageSearchNavigation } from "@/hooks/use-message-search-navigation"
 import { apiClient } from "@/lib/api-client"
 
 type SearchResult = {
@@ -25,6 +26,7 @@ type SearchResult = {
   content: string
   channelId: string
   channelName: string
+  threadRootId: string | null
   author: {
     displayUsername: string | null
     name: string
@@ -45,7 +47,7 @@ type SearchResponse = {
 
 export function WorkspaceCommand() {
   const { workspaceSlug } = useParams({ strict: false })
-  const navigate = useNavigate()
+  const navigateToWorkspaceMessage = useMessageSearchNavigation()
   const { setTheme } = useTheme()
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
@@ -99,16 +101,15 @@ export function WorkspaceCommand() {
   })
 
   const goToMessage = useCallback(
-    (channelId: string, messageId: string) => {
+    (message: SearchResult) => {
       setOpen(false)
-      if (!workspaceSlug) return
-      void navigate({
-        to: "/$workspaceSlug/$channelId",
-        params: { workspaceSlug, channelId },
-        search: { msgId: messageId },
+      navigateToWorkspaceMessage({
+        id: message.id,
+        channelId: message.channelId,
+        threadRootId: message.threadRootId,
       })
     },
-    [navigate, workspaceSlug]
+    [navigateToWorkspaceMessage]
   )
 
   const runTheme = useCallback(
@@ -165,7 +166,7 @@ export function WorkspaceCommand() {
                       <CommandItem
                         key={msg.id}
                         value={msg.id}
-                        onClick={() => goToMessage(msg.channelId, msg.id)}
+                        onClick={() => goToMessage(msg)}
                         className="items-start"
                       >
                         <div className="flex min-w-0 flex-1 flex-col gap-0.5">

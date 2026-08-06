@@ -13,6 +13,7 @@ import { Screen } from "@/components/ui/screen"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatePanel } from "@/components/ui/state-panel"
 import { useWorkspace } from "@/context/workspace-context"
+import { useAuthorProfileSheet } from "@/hooks/use-author-profile-sheet"
 import { useChannelDetail } from "@/hooks/use-channel-detail"
 import { useChannelPermissions } from "@/hooks/use-channel-permissions"
 import { usePinnedMessages } from "@/hooks/use-pinned-messages"
@@ -34,6 +35,8 @@ export default function PinnedMessagesScreen() {
     enabled: Boolean(workspace?.slug && channelId),
     workspaceSlug: workspace?.slug ?? "",
   })
+  const { avatarColorByUserId, openAuthorProfile, profileSheet } =
+    useAuthorProfileSheet(workspace?.slug ?? "")
 
   const goBack = () => {
     if (router.canGoBack()) router.back()
@@ -165,7 +168,13 @@ export default function PinnedMessagesScreen() {
           }
           renderItem={({ item }) => (
             <View className="border-b border-separator pb-two pt-one">
-              <MessageRow message={item} onOpenThread={openThread} showHeader />
+              <MessageRow
+                avatarColorByUserId={avatarColorByUserId}
+                message={item}
+                onOpenThread={openThread}
+                onPressAuthor={openAuthorProfile}
+                showHeader
+              />
               <View className="flex-row justify-end gap-two px-four">
                 <Pressable
                   accessibilityLabel="View message in conversation"
@@ -202,6 +211,7 @@ export default function PinnedMessagesScreen() {
           showsVerticalScrollIndicator={false}
         />
       )}
+      {profileSheet}
     </Screen>
   )
 }

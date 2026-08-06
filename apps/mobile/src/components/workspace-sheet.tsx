@@ -1,7 +1,10 @@
 import { BottomSheetScrollView } from "@gorhom/bottom-sheet"
+import MagicWand01Icon from "@hugeicons/core-free-icons/MagicWand01Icon"
 import PlusSignIcon from "@hugeicons/core-free-icons/PlusSignIcon"
+import ScrollIcon from "@hugeicons/core-free-icons/ScrollIcon"
+import Settings01Icon from "@hugeicons/core-free-icons/Settings01Icon"
 import UserAdd01Icon from "@hugeicons/core-free-icons/UserAdd01Icon"
-import { HugeiconsIcon } from "@hugeicons/react-native"
+import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react-native"
 import { SymbolView } from "expo-symbols"
 import { BottomSheet } from "heroui-native/bottom-sheet"
 import { useThemeColor } from "heroui-native/hooks"
@@ -11,20 +14,28 @@ import { SectionLabel } from "@/components/ui/section-label"
 import type { Workspace } from "@/context/workspace-context"
 
 export function WorkspaceSheet({
+  canManageWorkspace,
   channelCount,
   isOpen,
   onAddWorkspace,
   onInvite,
+  onOpenAgentProfiles,
   onOpenChange,
+  onOpenInstructions,
+  onOpenSettings,
   onSelectWorkspace,
   workspace,
   workspaces,
 }: {
+  canManageWorkspace: boolean
   channelCount: number | null
   isOpen: boolean
   onAddWorkspace: () => void
   onInvite: () => void
+  onOpenAgentProfiles: () => void
   onOpenChange: (isOpen: boolean) => void
+  onOpenInstructions: () => void
+  onOpenSettings: () => void
   onSelectWorkspace: (workspaceId: string) => void
   workspace: Workspace
   workspaces: Workspace[]
@@ -63,38 +74,38 @@ export function WorkspaceSheet({
             </View>
 
             <View className="gap-three px-one">
-              <Pressable
-                accessibilityHint="Opens invite link options"
-                accessibilityLabel="Invite people"
-                accessibilityRole="button"
-                className="min-h-14 flex-row items-center gap-three rounded-lor-sm bg-surface-secondary px-three py-three active:bg-surface-tertiary"
+              <SheetActionRow
+                detail="Share an invite link to bring in your team"
+                hint="Opens invite link options"
+                icon={UserAdd01Icon}
+                label="Invite people"
                 onPress={onInvite}
-              >
-                <View className="size-9 items-center justify-center rounded-lor-sm bg-surface-tertiary">
-                  <HugeiconsIcon
-                    color={foreground}
-                    icon={UserAdd01Icon}
-                    size={19}
+              />
+              <SheetActionRow
+                detail="What your team has taught Merlin"
+                hint="Opens the workspace instructions"
+                icon={ScrollIcon}
+                label="Instructions"
+                onPress={onOpenInstructions}
+              />
+              {canManageWorkspace ? (
+                <>
+                  <SheetActionRow
+                    detail="Which tools Merlin can use per channel"
+                    hint="Opens agent profiles"
+                    icon={MagicWand01Icon}
+                    label="Agent profiles"
+                    onPress={onOpenAgentProfiles}
                   />
-                </View>
-                <View className="min-w-0 flex-1 gap-px">
-                  <Text className="text-[15px] font-semibold text-foreground">
-                    Invite people
-                  </Text>
-                  <Text className="text-xs leading-4 text-muted">
-                    Share an invite link to bring in your team
-                  </Text>
-                </View>
-                <SymbolView
-                  name={{
-                    ios: "chevron.right",
-                    android: "chevron_right",
-                    web: "chevron_right",
-                  }}
-                  size={17}
-                  tintColor={foreground}
-                />
-              </Pressable>
+                  <SheetActionRow
+                    detail="Rename the workspace or change its icon"
+                    hint="Opens workspace settings"
+                    icon={Settings01Icon}
+                    label="Workspace settings"
+                    onPress={onOpenSettings}
+                  />
+                </>
+              ) : null}
             </View>
 
             <View className="gap-three px-one">
@@ -172,5 +183,49 @@ export function WorkspaceSheet({
         </BottomSheet.Content>
       </BottomSheet.Portal>
     </BottomSheet>
+  )
+}
+
+function SheetActionRow({
+  detail,
+  hint,
+  icon,
+  label,
+  onPress,
+}: {
+  detail: string
+  hint: string
+  icon: IconSvgElement
+  label: string
+  onPress: () => void
+}) {
+  const foreground = useThemeColor("foreground")
+  return (
+    <Pressable
+      accessibilityHint={hint}
+      accessibilityLabel={label}
+      accessibilityRole="button"
+      className="min-h-14 flex-row items-center gap-three rounded-lor-sm bg-surface-secondary px-three py-three active:bg-surface-tertiary"
+      onPress={onPress}
+    >
+      <View className="size-9 items-center justify-center rounded-lor-sm bg-surface-tertiary">
+        <HugeiconsIcon color={foreground} icon={icon} size={19} />
+      </View>
+      <View className="min-w-0 flex-1 gap-px">
+        <Text className="text-[15px] font-semibold text-foreground">
+          {label}
+        </Text>
+        <Text className="text-xs leading-4 text-muted">{detail}</Text>
+      </View>
+      <SymbolView
+        name={{
+          ios: "chevron.right",
+          android: "chevron_right",
+          web: "chevron_right",
+        }}
+        size={17}
+        tintColor={foreground}
+      />
+    </Pressable>
   )
 }

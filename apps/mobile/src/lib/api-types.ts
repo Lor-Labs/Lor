@@ -41,6 +41,14 @@ export type WorkspaceInstructions = InferResponseType<
   WorkspaceClient["instructions"]["$get"],
   200
 >
+export type AgentProfilesResponse = InferResponseType<
+  WorkspaceClient["agent-profiles"]["$get"],
+  200
+>
+export type AgentProfile = AgentProfilesResponse["profiles"][number]
+export type MerlinCapabilityKey = AgentProfile["capabilities"][number]
+export type AvailableCapability =
+  AgentProfilesResponse["availableCapabilities"][number]
 export type NotificationSettings = InferResponseType<
   Client["v1"]["notification-settings"]["$get"],
   200
@@ -52,3 +60,8 @@ export type UserProfile = InferResponseType<
 export type DMList = InferResponseType<Client["v1"]["dms"]["$get"], 200>
 export type DM = DMList["data"][number]
 export type DMMember = DM["members"][number]
+export type DMSearchResults = InferResponseType<
+  Client["v1"]["dms"]["search"]["$get"],
+  200
+>
+export type DMSearchResult = DMSearchResults["data"][number]
