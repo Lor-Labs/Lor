@@ -6,7 +6,8 @@ import {
   useLocation,
   useNavigate,
 } from "@tanstack/react-router"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
+import { OfflineScreen } from "@/components/offline-screen"
 import { OnboardingDialog } from "@/components/onboarding/onboarding-dialog"
 import { SettingsDialog } from "@/components/settings/settings-dialog"
 import { Sidebar } from "@/components/sidebar/index"
@@ -14,6 +15,7 @@ import { MobileSidebarProvider } from "@/context/mobile-sidebar-context"
 import { SocketProvider } from "@/context/socket-context"
 import { UnreadProvider } from "@/context/unread-context"
 import { useBrowserNotifications } from "@/hooks/use-browser-notifications"
+import { useConnectivity } from "@/hooks/use-connectivity"
 import { useUpdateCheck } from "@/hooks/use-update-check"
 import { clearPendingInvite, readPendingInvite } from "@/lib/pending-invite"
 import { hasValidUsername } from "@/lib/username"
@@ -73,7 +75,13 @@ export const Route = createFileRoute("/_authenticated")({
 function AuthenticatedLayout() {
   const navigate = useNavigate()
   const location = useLocation()
-  const { data: session, isPending } = authClient.useSession()
+  const { data: session, isPending, refetch } = authClient.useSession()
+  // Without a connection the session request fails and looks exactly like a
+  // signed-out user, so the desktop app would drop to the sign-in form. Hold
+  // the redirect until the probe answers, and show the offline screen instead.
+  const { status: connectivity } = useConnectivity()
+  const isOffline = connectivity === "offline"
+  const connectivityUnknown = connectivity === "unknown"
   // Consume any invite stashed by /invite/$code exactly once, so onboarding
   // can pre-fill the join step. Cleared immediately — it only needs to survive
   // the redirect, and lives in state for the dialog's lifetime after that.
@@ -90,15 +98,34 @@ function AuthenticatedLayout() {
   const [onboardingDone, setOnboardingDone] = useState(false)
 
   useEffect(() => {
-    if (!isPending && !session) {
-      navigate({
-        to: "/login",
-        search: {
-          redirect: location.href === "/" ? undefined : location.href,
-        },
-      })
+    if (isPending || session || isOffline || connectivityUnknown) return
+    navigate({
+      to: "/login",
+      search: {
+        redirect: location.href === "/" ? undefined : location.href,
+      },
+    })
+  }, [
+    isPending,
+    session,
+    isOffline,
+    connectivityUnknown,
+    navigate,
+    location.href,
+  ])
+
+  // better-auth refetches the session on the window's own `online` event; this
+  // covers the case where the probe recovers without one firing.
+  const wasOffline = useRef(false)
+  useEffect(() => {
+    if (isOffline) {
+      wasOffline.current = true
+      return
     }
-  }, [isPending, session, navigate, location.href])
+    if (!wasOffline.current) return
+    wasOffline.current = false
+    void refetch()
+  }, [isOffline, refetch])
 
   useEffect(() => {
     if (location.pathname !== "/") {
@@ -115,7 +142,7 @@ function AuthenticatedLayout() {
     enabled: !!session,
   })
 
-  if (isPending) {
+  if (isPending || (!session && connectivityUnknown)) {
     return (
       <div className="flex h-screen items-center justify-center">
         <div className="text-muted-foreground text-sm">Loading...</div>
@@ -124,7 +151,7 @@ function AuthenticatedLayout() {
   }
 
   if (!session) {
-    return null
+    return isOffline ? <OfflineScreen /> : null
   }
 
   // Show onboarding when the account isn't set up yet: either no workspace, or
