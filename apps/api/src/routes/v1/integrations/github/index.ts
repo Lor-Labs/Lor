@@ -34,7 +34,15 @@ githubRouter.post("/integrations/github/webhook", async (c) => {
 
   const raw = await c.req.text()
   const signature = c.req.header("x-hub-signature-256") ?? ""
-  if (!(await webhooks.verify(raw, signature))) {
+  // An absent or malformed signature makes verify throw rather than return
+  // false; that's a rejected delivery, not a server error.
+  let verified = false
+  try {
+    verified = await webhooks.verify(raw, signature)
+  } catch {
+    verified = false
+  }
+  if (!verified) {
     return c.json({ ok: false }, 401)
   }
 
