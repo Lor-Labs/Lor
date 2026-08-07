@@ -159,8 +159,9 @@ export function connectorLogo(key: ConnectorKey | null): Logo {
   return (key ? CONNECTOR_UI[key]?.logo : null) ?? GlobeMark
 }
 
+// hasOwn, not `in` — otherwise "toString" and friends read as connectors.
 export function isConnectorKey(value: unknown): value is ConnectorKey {
-  return typeof value === "string" && value in CONNECTOR_UI
+  return typeof value === "string" && Object.hasOwn(CONNECTOR_UI, value)
 }
 
 // The connector behind a bot display name ("GitHub" → github) — used to brand

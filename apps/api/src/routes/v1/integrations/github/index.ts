@@ -42,10 +42,11 @@ githubRouter.post("/integrations/github/webhook", async (c) => {
   // handlers post channel messages, so claim the delivery id before processing.
   // Redis trouble → proceed: a duplicate notification beats a dropped event.
   const deliveryId = c.req.header("x-github-delivery") ?? ""
-  if (deliveryId) {
+  const deliveryKey = deliveryId ? `lor:github:webhook:${deliveryId}` : null
+  if (deliveryKey) {
     try {
       const redis = await getRedisClient()
-      const first = await redis.set(`lor:github:webhook:${deliveryId}`, "1", {
+      const first = await redis.set(deliveryKey, "1", {
         NX: true,
         EX: DELIVERY_DEDUP_TTL_SECONDS,
       })
@@ -59,12 +60,26 @@ githubRouter.post("/integrations/github/webhook", async (c) => {
   const name = c.req.header("x-github-event") ?? ""
   void webhooks
     .verifyAndReceive({
-      id: c.req.header("x-github-delivery") ?? "",
+      id: deliveryId,
       name: name as Parameters<typeof webhooks.verifyAndReceive>[0]["name"],
       payload: raw,
       signature,
     })
-    .catch((err) => logger.error({ err, name }, "GitHub webhook failed"))
+    .catch(async (err) => {
+      logger.error({ err, name }, "GitHub webhook failed")
+      // Dispatch failed, so the claim would otherwise swallow the operator's
+      // manual redelivery — the only recovery path once we've acked.
+      if (!deliveryKey) return
+      try {
+        const redis = await getRedisClient()
+        await redis.del(deliveryKey)
+      } catch (releaseErr) {
+        logger.warn(
+          { err: releaseErr, deliveryId },
+          "Failed to release GitHub webhook claim"
+        )
+      }
+    })
 
   return c.json({ ok: true })
 })

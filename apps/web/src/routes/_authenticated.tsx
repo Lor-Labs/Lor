@@ -97,8 +97,33 @@ function AuthenticatedLayout() {
   }, [])
   const [onboardingDone, setOnboardingDone] = useState(false)
 
+  // better-auth refetches the session on the window's own `online` event; this
+  // covers the case where the probe recovers without one firing. Declared above
+  // the redirect effect so the ref is set before that effect reads it in the
+  // same commit; the state is what re-runs the redirect once this settles.
+  const wasOffline = useRef(false)
+  const isRecovering = useRef(false)
+  const [recovering, setRecovering] = useState(false)
+  useEffect(() => {
+    if (isOffline) {
+      wasOffline.current = true
+      return
+    }
+    if (!wasOffline.current) return
+    wasOffline.current = false
+    isRecovering.current = true
+    setRecovering(true)
+    void refetch().finally(() => {
+      isRecovering.current = false
+      setRecovering(false)
+    })
+  }, [isOffline, refetch])
+
   useEffect(() => {
     if (isPending || session || isOffline || connectivityUnknown) return
+    // The session is still absent from the fetch that failed while offline,
+    // which is indistinguishable from signed out — wait for the refetch.
+    if (recovering || isRecovering.current) return
     navigate({
       to: "/login",
       search: {
@@ -110,22 +135,10 @@ function AuthenticatedLayout() {
     session,
     isOffline,
     connectivityUnknown,
+    recovering,
     navigate,
     location.href,
   ])
-
-  // better-auth refetches the session on the window's own `online` event; this
-  // covers the case where the probe recovers without one firing.
-  const wasOffline = useRef(false)
-  useEffect(() => {
-    if (isOffline) {
-      wasOffline.current = true
-      return
-    }
-    if (!wasOffline.current) return
-    wasOffline.current = false
-    void refetch()
-  }, [isOffline, refetch])
 
   useEffect(() => {
     if (location.pathname !== "/") {
@@ -148,7 +161,9 @@ function AuthenticatedLayout() {
     return <OfflineScreen />
   }
 
-  if (isPending || (!session && connectivityUnknown)) {
+  // `recovering` only gates the signed-out case: a signed-in user reconnecting
+  // must not have the whole app replaced by a spinner.
+  if (isPending || (!session && (recovering || connectivityUnknown))) {
     return (
       <div className="flex h-screen items-center justify-center">
         <div className="text-muted-foreground text-sm">Loading...</div>
