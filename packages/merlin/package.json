@@ -5,6 +5,8 @@
   "private": true,
   "exports": {
     ".": "./src/index.ts",
+    "./capabilities": "./src/capabilities.ts",
+    "./connector-search": "./src/connector-search.ts",
     "./github": "./src/github.ts",
     "./placement": "./src/placement.ts",
     "./providers": "./src/providers/index.ts",

@@ -3,8 +3,10 @@ import { tool } from "ai"
 import { z } from "zod"
 import {
   fetchIssueOrPr,
+  fetchRepoTree,
   type InstallationRepo,
   listInstallationRepos,
+  type RepoTree,
   searchIssues,
 } from "./providers/github"
 
@@ -46,8 +48,18 @@ export function githubReposCacheKey(installationId: string): string {
   return `github:repos:${installationId}`
 }
 
+export function githubTreeCacheKey(
+  installationId: string,
+  repoFullName: string,
+  ref: string
+): string {
+  return `github:tree:${installationId}:${repoFullName}@${ref}`
+}
+
 const REPO_CACHE_TTL_SECONDS = 60 * 60
+const TREE_CACHE_TTL_SECONDS = 10 * 60
 const REPO_FETCH_TIMEOUT_MS = 10_000
+const TREE_FETCH_TIMEOUT_MS = 15_000
 
 function isInstallationRepo(v: unknown): v is InstallationRepo {
   if (!v || typeof v !== "object") return false
@@ -115,6 +127,47 @@ export async function resolveWorkspaceGithub(
       .catch(() => {})
   }
   return { installationId, repos }
+}
+
+function parseCachedTree(raw: string): RepoTree | null {
+  try {
+    const parsed = JSON.parse(raw)
+    if (!parsed || typeof parsed !== "object") return null
+    const tree = parsed as RepoTree
+    return Array.isArray(tree.entries) && typeof tree.ref === "string"
+      ? tree
+      : null
+  } catch {
+    return null
+  }
+}
+
+// A repo's full path listing, cached because the composer's file picker filters
+// it on every keystroke. Without an injected store this is one GitHub call per
+// search, so hosts should provide one.
+export async function resolveRepoTree(
+  installationId: string,
+  repoFullName: string,
+  ref: string
+): Promise<RepoTree | null> {
+  const key = githubTreeCacheKey(installationId, repoFullName, ref)
+  if (repoCacheStore) {
+    const cached = await repoCacheStore.get(key).catch(() => null)
+    const tree = cached ? parseCachedTree(cached) : null
+    if (tree) return tree
+  }
+
+  const tree = await withTimeout(
+    fetchRepoTree(installationId, repoFullName, ref),
+    TREE_FETCH_TIMEOUT_MS,
+    null
+  )
+  if (repoCacheStore && tree && tree.entries.length > 0) {
+    await repoCacheStore
+      .set(key, JSON.stringify(tree), TREE_CACHE_TTL_SECONDS)
+      .catch(() => {})
+  }
+  return tree
 }
 
 function repoListText(repoNames: string[]): string {

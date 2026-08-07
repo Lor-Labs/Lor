@@ -74,7 +74,7 @@ function compact(value: unknown, depth = 0): unknown {
   )
 }
 
-function searchHit(value: unknown) {
+export function notionSearchHit(value: unknown) {
   const record = asRecord(value)
   return {
     id: asString(record?.id),
@@ -165,7 +165,7 @@ export const notionTools = {
         })
       )
       if (!response) return { error: "Notion search failed" }
-      return { results: response.results.map(searchHit) }
+      return { results: response.results.map(notionSearchHit) }
     },
   }),
 
@@ -261,7 +261,7 @@ export const notionTools = {
           : { error: "Notion data-source schema request failed" },
         results: rows
           ? rows.results.map((row) => ({
-              ...searchHit(row),
+              ...notionSearchHit(row),
               properties: compact(asRecord(row)?.properties ?? {}),
             }))
           : { error: "Notion data-source rows request failed" },

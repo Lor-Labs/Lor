@@ -7,6 +7,8 @@ import {
   PopoverTrigger,
 } from "@repo/ui/components/popover"
 import { cn } from "@repo/ui/lib/utils"
+import { useQuery } from "@tanstack/react-query"
+import { useParams } from "@tanstack/react-router"
 import { CodeBlockLowlight } from "@tiptap/extension-code-block-lowlight"
 import Link from "@tiptap/extension-link"
 import Mention, { type MentionOptions } from "@tiptap/extension-mention"
@@ -28,15 +30,7 @@ import Suggestion, {
   type SuggestionProps,
 } from "@tiptap/suggestion"
 import { common, createLowlight } from "lowlight"
-import {
-  Bold,
-  Code,
-  FileUp,
-  Italic,
-  Plus,
-  Strikethrough,
-  X,
-} from "lucide-react"
+import { Bold, Code, Italic, Plus, Strikethrough, X } from "lucide-react"
 import {
   type ComponentType,
   useCallback,
@@ -47,6 +41,12 @@ import {
 } from "react"
 import { AttachmentPreview } from "@/components/chat/composer/attachment-preview"
 import { CodeBlockView } from "@/components/chat/composer/code-block-view"
+import {
+  type AttachableConnector,
+  ConnectorAttachMenu,
+  type ConnectorRecord,
+} from "@/components/chat/composer/connector-attach-menu"
+import { ConnectorChip } from "@/components/chat/composer/connector-chip"
 import {
   MentionSuggestionList,
   type MentionSuggestionListProps,
@@ -61,7 +61,8 @@ import {
 } from "@/components/chat/composer/slash-command-list"
 import type { ChatContext } from "@/components/chat/header"
 import type { PendingAttachment } from "@/hooks/use-file-upload"
-import type { Message } from "@/lib/api-types"
+import { apiClient } from "@/lib/api-client"
+import type { ConnectorKey, Message } from "@/lib/api-types"
 import {
   extractMentionIds,
   toStoredMarkdown,
@@ -70,6 +71,7 @@ import {
 
 const MAX_MENTION_RESULTS = 8
 const MAX_SLASH_RESULTS = 8
+const CONNECTORS_STALE_MS = 5 * 60 * 1000
 const MAX_MESSAGE_LENGTH = 2000
 const POPUP_HORIZONTAL_PADDING = 8
 const POPUP_VERTICAL_PADDING = 8
@@ -98,6 +100,8 @@ const SLASH_COMMANDS: SlashCommandItem[] = [
 
 interface MessageInputProps {
   context: ChatContext
+  // Enables connector attachments — omitted in DMs, which have no workspace.
+  channelId?: string
   placeholder?: string
   disabled?: boolean
   disabledReason?: string
@@ -419,6 +423,7 @@ function getActiveCodeBlockPos(editor: {
 
 export function MessageInput({
   context,
+  channelId,
   placeholder: placeholderOverride,
   disabled,
   disabledReason,
@@ -448,6 +453,29 @@ export function MessageInput({
   const handleSubmitRef = useRef<() => void>(() => undefined)
   const onTypingRef = useRef(onTyping)
   onTypingRef.current = onTyping
+
+  // DMs are user-scoped and have no workspace slug — no connectors to attach.
+  // Fetched on mount (not on menu open) so the + menu is instant.
+  const { workspaceSlug } = useParams({ strict: false })
+  const { data: connectorsData } = useQuery({
+    queryKey: ["channel-connectors", workspaceSlug, channelId],
+    queryFn: async () => {
+      const res = await apiClient.v1.workspaces[":workspaceSlug"].channels[
+        ":channelId"
+      ].connectors.$get({
+        param: {
+          workspaceSlug: workspaceSlug as string,
+          channelId: channelId as string,
+        },
+      })
+      if (!res.ok) throw new Error("Failed to load channel connectors")
+      return res.json()
+    },
+    enabled: Boolean(workspaceSlug && channelId),
+    staleTime: CONNECTORS_STALE_MS,
+  })
+  const attachableConnectors: AttachableConnector[] =
+    connectorsData?.connectors ?? []
 
   const placeholder =
     placeholderOverride ??
@@ -533,6 +561,7 @@ export function MessageInput({
             `${options.suggestion.char}${node.attrs.label ?? node.attrs.id}`,
           suggestion: mentionSuggestion,
         }),
+        ConnectorChip,
         slashCommandExtension,
       ],
       editorProps: {
@@ -746,6 +775,26 @@ export function MessageInput({
     [codeBlockPos, editor]
   )
 
+  const handleAttachRecord = useCallback(
+    (connector: ConnectorKey, record: ConnectorRecord) => {
+      if (!editor) return
+
+      editor
+        .chain()
+        .focus()
+        .insertContent([
+          {
+            type: "connectorChip",
+            attrs: { connector, url: record.url, label: record.title },
+          },
+          { type: "text", text: " " },
+        ])
+        .run()
+      setIsAttachmentMenuOpen(false)
+    },
+    [editor]
+  )
+
   const handleFileInputChange = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {
       const files = event.target.files
@@ -846,22 +895,19 @@ export function MessageInput({
               side="top"
               align="start"
               sideOffset={10}
-              className="w-64"
+              className="w-72"
               viewportClassName="p-2"
             >
-              <div className="grid gap-1">
-                <button
-                  type="button"
-                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-foreground/90 hover:bg-accent hover:text-accent-foreground"
-                  onClick={() => {
-                    fileInputRef.current?.click()
-                    setIsAttachmentMenuOpen(false)
-                  }}
-                >
-                  <FileUp className="size-4 text-muted-foreground" />
-                  Upload File
-                </button>
-              </div>
+              <ConnectorAttachMenu
+                connectors={attachableConnectors}
+                workspaceSlug={workspaceSlug}
+                channelId={channelId}
+                onUploadFile={() => {
+                  fileInputRef.current?.click()
+                  setIsAttachmentMenuOpen(false)
+                }}
+                onAttach={handleAttachRecord}
+              />
             </PopoverContent>
           </Popover>
           <div

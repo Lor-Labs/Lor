@@ -86,7 +86,7 @@ function compact(value: unknown, depth = 0): unknown {
   )
 }
 
-function searchResult(value: unknown, fallbackObject?: string) {
+export function attioSearchResult(value: unknown, fallbackObject?: string) {
   const record = asRecord(value)
   const nestedRecord = asRecord(record?.record)
   const source = nestedRecord ?? record
@@ -222,7 +222,7 @@ export const attioTools = {
       )
       if (!response) return { error: "Attio search failed" }
       return {
-        results: asArray(response.data).map((item) => searchResult(item)),
+        results: asArray(response.data).map((item) => attioSearchResult(item)),
       }
     },
   }),
@@ -325,7 +325,9 @@ export const attioTools = {
         target,
         results:
           mode === "records"
-            ? asArray(response.data).map((item) => searchResult(item, target))
+            ? asArray(response.data).map((item) =>
+                attioSearchResult(item, target)
+              )
             : compact(asArray(response.data)),
       }
     },
