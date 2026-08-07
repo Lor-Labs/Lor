@@ -1,6 +1,7 @@
 import { z } from "@hono/zod-openapi"
 import {
   insertChannelSchema,
+  integrationProviderEnum,
   selectChannelSchema,
   updateChannelSchema,
 } from "@repo/db/schema"
@@ -187,4 +188,49 @@ export const reorderChannelsRequestSchema = z.object({
 
 export const reorderChannelsResponseSchema = z.object({
   success: z.literal(true),
+})
+
+// ── Connectors ──────────────────────────────────────────
+
+export const channelConnectorParamsSchema = channelParamsSchema.extend({
+  provider: z.enum(integrationProviderEnum.enumValues).openapi({
+    param: { name: "provider", in: "path", required: true },
+  }),
+})
+
+export const listChannelConnectorsResponseSchema = z.object({
+  connectors: z.array(
+    z.object({
+      id: z.enum(integrationProviderEnum.enumValues),
+      label: z.string(),
+      supportsFiles: z.boolean(),
+    })
+  ),
+})
+
+export const listConnectorScopesResponseSchema = z.object({
+  // The containers a connector's files live in (GitHub repositories).
+  scopes: z.array(z.object({ id: z.string(), label: z.string() })),
+})
+
+export const connectorSearchQuerySchema = z.object({
+  // Empty is valid: connectors that can list recent records return those.
+  q: z.string().max(200).optional(),
+  limit: z.coerce.number().int().min(1).max(15).optional(),
+})
+
+export const connectorFilesQuerySchema = connectorSearchQuerySchema.extend({
+  // The container to browse — a GitHub repo as "owner/repo".
+  scope: z.string().min(1),
+})
+
+export const connectorSearchResponseSchema = z.object({
+  results: z.array(
+    z.object({
+      id: z.string(),
+      title: z.string(),
+      subtitle: z.string().nullable(),
+      url: z.string(),
+    })
+  ),
 })

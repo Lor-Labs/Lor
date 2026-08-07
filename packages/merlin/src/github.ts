@@ -1,10 +1,14 @@
+import { gunzipSync, gzipSync } from "node:zlib"
 import { and, db, eq, schema } from "@repo/db"
 import { tool } from "ai"
 import { z } from "zod"
 import {
   fetchIssueOrPr,
+  fetchRepoTree,
   type InstallationRepo,
   listInstallationRepos,
+  type RepoTree,
+  type RepoTreeEntry,
   searchIssues,
 } from "./providers/github"
 
@@ -46,8 +50,18 @@ export function githubReposCacheKey(installationId: string): string {
   return `github:repos:${installationId}`
 }
 
+export function githubTreeCacheKey(
+  installationId: string,
+  repoFullName: string,
+  ref: string
+): string {
+  return `github:tree:${installationId}:${repoFullName}@${ref}`
+}
+
 const REPO_CACHE_TTL_SECONDS = 60 * 60
+const TREE_CACHE_TTL_SECONDS = 10 * 60
 const REPO_FETCH_TIMEOUT_MS = 10_000
+const TREE_FETCH_TIMEOUT_MS = 15_000
 
 function isInstallationRepo(v: unknown): v is InstallationRepo {
   if (!v || typeof v !== "object") return false
@@ -115,6 +129,86 @@ export async function resolveWorkspaceGithub(
       .catch(() => {})
   }
   return { installationId, repos }
+}
+
+function isRepoTreeEntry(value: unknown): value is RepoTreeEntry {
+  if (!value || typeof value !== "object") return false
+  const entry = value as Record<string, unknown>
+  return (
+    typeof entry.path === "string" &&
+    (entry.type === "blob" || entry.type === "tree")
+  )
+}
+
+// Paths compress ~10x, and an uncompressed monorepo tree is megabytes of Redis
+// per repo. Base64 so the store stays a plain string store. Exported with its
+// reader so the round trip is testable — a silent decode failure would turn the
+// cache into a permanent miss.
+export function encodeTree(tree: RepoTree): string {
+  return gzipSync(Buffer.from(JSON.stringify(tree))).toString("base64")
+}
+
+export function parseCachedTree(raw: string): RepoTree | null {
+  try {
+    // Values written before compression landed are plain JSON.
+    const json = raw.startsWith("{")
+      ? raw
+      : gunzipSync(Buffer.from(raw, "base64")).toString("utf8")
+    const parsed = JSON.parse(json)
+    if (!parsed || typeof parsed !== "object") return null
+    const tree = parsed as RepoTree
+    if (!(Array.isArray(tree.entries) && typeof tree.ref === "string")) {
+      return null
+    }
+    // Drop anything that doesn't match the shape the picker reads, so a stale
+    // cache from an older entry shape degrades instead of throwing downstream.
+    return { ...tree, entries: tree.entries.filter(isRepoTreeEntry) }
+  } catch {
+    return null
+  }
+}
+
+// Concurrent searches on the same repo (the menu fires one on open, another as
+// soon as you type) would each pull the whole tree before the first one caches.
+const inFlightTrees = new Map<string, Promise<RepoTree | null>>()
+
+// A repo's full path listing, cached because the composer's file picker filters
+// it on every keystroke. Without an injected store this is one GitHub call per
+// search, so hosts should provide one.
+export async function resolveRepoTree(
+  installationId: string,
+  repoFullName: string,
+  ref: string
+): Promise<RepoTree | null> {
+  const key = githubTreeCacheKey(installationId, repoFullName, ref)
+  if (repoCacheStore) {
+    const cached = await repoCacheStore.get(key).catch(() => null)
+    const tree = cached ? parseCachedTree(cached) : null
+    if (tree) return tree
+  }
+
+  const pending = inFlightTrees.get(key)
+  if (pending) return pending
+
+  const fetching = withTimeout(
+    fetchRepoTree(installationId, repoFullName, ref),
+    TREE_FETCH_TIMEOUT_MS,
+    null
+  )
+    .then(async (tree) => {
+      if (repoCacheStore && tree && tree.entries.length > 0) {
+        await repoCacheStore
+          .set(key, encodeTree(tree), TREE_CACHE_TTL_SECONDS)
+          .catch(() => {})
+      }
+      return tree
+    })
+    .finally(() => {
+      inFlightTrees.delete(key)
+    })
+
+  inFlightTrees.set(key, fetching)
+  return fetching
 }
 
 function repoListText(repoNames: string[]): string {

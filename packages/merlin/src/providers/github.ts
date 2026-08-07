@@ -233,6 +233,63 @@ export async function searchIssues(
   }
 }
 
+export type RepoTreeEntry = {
+  path: string
+  type: "blob" | "tree"
+}
+
+export type RepoTree = {
+  ref: string
+  entries: RepoTreeEntry[]
+  // GitHub caps the recursive tree response; past that the listing is partial.
+  truncated: boolean
+}
+
+// Cap what we keep per repo — a monorepo tree can be six figures of paths, and
+// the picker only ever shows a handful.
+const MAX_TREE_ENTRIES = 20_000
+// Longer than the per-request default: a whole tree is a big response.
+const TREE_REQUEST_TIMEOUT_MS = 15_000
+
+// One recursive call returns every path in the repo, which the composer's file
+// picker then filters locally. Callers are expected to cache this.
+export async function fetchRepoTree(
+  installationId: string,
+  repoFullName: string,
+  ref: string
+): Promise<RepoTree | null> {
+  const app = getApp()
+  if (!app) return null
+  const id = Number(installationId)
+  if (!Number.isFinite(id)) return null
+  const [owner, repo] = repoFullName.split("/")
+  if (!(owner && repo)) return null
+
+  try {
+    const octokit = await app.getInstallationOctokit(id)
+    const { data } = await octokit.rest.git.getTree({
+      owner,
+      repo,
+      tree_sha: ref,
+      recursive: "1",
+      request: { signal: AbortSignal.timeout(TREE_REQUEST_TIMEOUT_MS) },
+    })
+    const entries = data.tree.flatMap<RepoTreeEntry>((entry) =>
+      entry.path && (entry.type === "blob" || entry.type === "tree")
+        ? [{ path: entry.path, type: entry.type }]
+        : []
+    )
+    return {
+      ref,
+      entries: entries.slice(0, MAX_TREE_ENTRIES),
+      truncated: Boolean(data.truncated) || entries.length > MAX_TREE_ENTRIES,
+    }
+  } catch (err) {
+    logger.error({ err, repoFullName, ref }, "GitHub tree fetch failed")
+    return null
+  }
+}
+
 export type FetchedIssue = {
   ref: string
   type: "pull_request" | "issue"

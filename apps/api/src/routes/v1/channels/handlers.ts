@@ -1,4 +1,5 @@
 import { db, schema } from "@repo/db"
+import type { IntegrationProvider } from "@repo/db/schema"
 import {
   agentProfile,
   channel,
@@ -7,7 +8,13 @@ import {
   messageReaction,
   user,
 } from "@repo/db/schema"
+import {
+  listConnectorScopes as listScopes,
+  searchConnector,
+  searchConnectorFiles as searchFiles,
+} from "@repo/merlin/connector-search"
 import { and, asc, desc, eq, inArray, or } from "drizzle-orm"
+import { allowedChannelConnectors } from "@/lib/channel-connectors"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { assertWorkspacePermission } from "@/lib/permissions"
 import {
@@ -24,15 +31,21 @@ import type {
   DeleteChannelRoute,
   GetChannelRoute,
   GetMessageLocationRoute,
+  ListChannelConnectorsRoute,
   ListChannelMessagesRoute,
   ListChannelsRoute,
+  ListConnectorScopesRoute,
   ListPinnedMessagesRoute,
   ListThreadActivityRoute,
   ListThreadRepliesRoute,
   ReorderChannelsRoute,
+  SearchChannelConnectorRoute,
+  SearchConnectorFilesRoute,
   ToggleMessagePinRoute,
   UpdateChannelRoute,
 } from "@/routes/v1/channels/routes"
+
+const DEFAULT_CONNECTOR_SEARCH_LIMIT = 8
 
 export const listChannels: AppRouteHandler<ListChannelsRoute> = async (c) => {
   const workspace = c.var.workspace
@@ -679,4 +692,110 @@ export const getMessageLocation: AppRouteHandler<
   }
 
   return c.json(row, HttpStatusCodes.OK)
+}
+
+async function channelInWorkspace(channelId: string, workspaceId: string) {
+  return db
+    .select({ id: channel.id })
+    .from(channel)
+    .where(and(eq(channel.id, channelId), eq(channel.workspaceId, workspaceId)))
+    .limit(1)
+    .then((rows) => rows[0] ?? null)
+}
+
+// The channel must exist in this workspace and actually grant the connector.
+// Returns the failure to send, or null when the caller may proceed.
+async function assertConnectorAllowed(
+  workspaceId: string,
+  channelId: string,
+  provider: IntegrationProvider
+) {
+  if (!(await channelInWorkspace(channelId, workspaceId))) {
+    return {
+      body: { success: false as const, message: "Channel not found" },
+      status: HttpStatusCodes.NOT_FOUND,
+    } as const
+  }
+
+  const connectors = await allowedChannelConnectors(workspaceId, channelId)
+  if (!connectors.some((connector) => connector.id === provider)) {
+    return {
+      body: {
+        success: false as const,
+        message: "That connector isn't available here",
+      },
+      status: HttpStatusCodes.FORBIDDEN,
+    } as const
+  }
+
+  return null
+}
+
+export const listChannelConnectors: AppRouteHandler<
+  ListChannelConnectorsRoute
+> = async (c) => {
+  const workspace = c.var.workspace
+  const { channelId } = c.req.valid("param")
+
+  if (!(await channelInWorkspace(channelId, workspace.id))) {
+    return c.json(
+      { success: false, message: "Channel not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+
+  const connectors = await allowedChannelConnectors(workspace.id, channelId)
+  return c.json({ connectors }, HttpStatusCodes.OK)
+}
+
+export const searchChannelConnector: AppRouteHandler<
+  SearchChannelConnectorRoute
+> = async (c) => {
+  const workspace = c.var.workspace
+  const { channelId, provider } = c.req.valid("param")
+  const { q, limit } = c.req.valid("query")
+
+  const denied = await assertConnectorAllowed(workspace.id, channelId, provider)
+  if (denied) return c.json(denied.body, denied.status)
+
+  const results = await searchConnector(
+    provider,
+    workspace.id,
+    q ?? "",
+    limit ?? DEFAULT_CONNECTOR_SEARCH_LIMIT
+  )
+  return c.json({ results: results ?? [] }, HttpStatusCodes.OK)
+}
+
+export const listConnectorScopes: AppRouteHandler<
+  ListConnectorScopesRoute
+> = async (c) => {
+  const workspace = c.var.workspace
+  const { channelId, provider } = c.req.valid("param")
+
+  const denied = await assertConnectorAllowed(workspace.id, channelId, provider)
+  if (denied) return c.json(denied.body, denied.status)
+
+  const scopes = await listScopes(provider, workspace.id)
+  return c.json({ scopes: scopes ?? [] }, HttpStatusCodes.OK)
+}
+
+export const searchConnectorFiles: AppRouteHandler<
+  SearchConnectorFilesRoute
+> = async (c) => {
+  const workspace = c.var.workspace
+  const { channelId, provider } = c.req.valid("param")
+  const { scope, q, limit } = c.req.valid("query")
+
+  const denied = await assertConnectorAllowed(workspace.id, channelId, provider)
+  if (denied) return c.json(denied.body, denied.status)
+
+  const results = await searchFiles(
+    provider,
+    workspace.id,
+    scope,
+    q ?? "",
+    limit ?? DEFAULT_CONNECTOR_SEARCH_LIMIT
+  )
+  return c.json({ results: results ?? [] }, HttpStatusCodes.OK)
 }

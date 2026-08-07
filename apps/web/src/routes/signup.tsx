@@ -19,6 +19,8 @@ import {
 import { AlertCircle, Loader2 } from "lucide-react"
 import { type FormEvent, useEffect, useState } from "react"
 import { PasswordInput } from "@/components/auth/password-input"
+import { OfflineScreen } from "@/components/offline-screen"
+import { useConnectivity } from "@/hooks/use-connectivity"
 import { sanitizeRedirect } from "@/lib/auth-redirect"
 
 export const Route = createFileRoute("/signup")({
@@ -33,6 +35,7 @@ function SignUpPage() {
   const router = useRouter()
   const { redirect } = Route.useSearch()
   const { data: session, isPending: sessionPending } = authClient.useSession()
+  const { status: connectivity } = useConnectivity()
   const [name, setName] = useState("")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
@@ -69,6 +72,8 @@ function SignUpPage() {
         search: { email, redirect },
       }),
   })
+
+  if (connectivity === "offline") return <OfflineScreen />
 
   return (
     <div className="flex min-h-svh flex-col items-center justify-center gap-6 bg-background p-6 md:p-10">

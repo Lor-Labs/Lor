@@ -7,14 +7,21 @@ import {
   notFoundSchema,
   unauthorizedSchema,
 } from "@/lib/helpers/openapi/schemas"
+import { connectorLookupRateLimit } from "@/middleware/rate-limit"
 import { workspaceAuthMiddleware } from "@/middleware/workspace-auth"
 import {
+  channelConnectorParamsSchema,
   channelParamsSchema,
   channelResponseSchema,
+  connectorFilesQuerySchema,
+  connectorSearchQuerySchema,
+  connectorSearchResponseSchema,
   createChannelRequestSchema,
   createChannelResponseSchema,
   deleteChannelResponseSchema,
+  listChannelConnectorsResponseSchema,
   listChannelsResponseSchema,
+  listConnectorScopesResponseSchema,
   listMessagesQuerySchema,
   listMessagesResponseSchema,
   listPinnedMessagesResponseSchema,
@@ -313,6 +320,96 @@ export const getMessageLocation = createRoute({
   },
 })
 
+export const listChannelConnectors = createRoute({
+  path: "/workspaces/{workspaceSlug}/channels/{channelId}/connectors",
+  method: "get",
+  summary: "List the connectors attachable in a channel",
+  description:
+    "Connected workspace connectors that this channel's agent profile grants and that have attachable records. Backs the composer's + menu, which prefetches it so availability shows instantly.",
+  tags: ["Channels"],
+  middleware: [workspaceAuthMiddleware] as const,
+  request: { params: channelParamsSchema },
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: listChannelConnectorsResponseSchema,
+      description: "Attachable connectors",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export const searchChannelConnector = createRoute({
+  path: "/workspaces/{workspaceSlug}/channels/{channelId}/connectors/{provider}/search",
+  method: "get",
+  summary: "Search a connector's attachable records",
+  description:
+    "Returns records (issues, pull requests, pages) as title + url for the composer's attach menu. An empty query returns recent records where the provider supports it. Gated by the same channel capabilities as the connector list.",
+  tags: ["Channels"],
+  middleware: [workspaceAuthMiddleware, connectorLookupRateLimit] as const,
+  request: {
+    params: channelConnectorParamsSchema,
+    query: connectorSearchQuerySchema,
+  },
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: connectorSearchResponseSchema,
+      description: "Matching records",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export const listConnectorScopes = createRoute({
+  path: "/workspaces/{workspaceSlug}/channels/{channelId}/connectors/{provider}/scopes",
+  method: "get",
+  summary: "List the containers a connector's files live in",
+  description:
+    "GitHub returns the installation's repositories. Connectors without file browsing return an empty list.",
+  tags: ["Channels"],
+  middleware: [workspaceAuthMiddleware, connectorLookupRateLimit] as const,
+  request: { params: channelConnectorParamsSchema },
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: listConnectorScopesResponseSchema,
+      description: "Available scopes",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export const searchConnectorFiles = createRoute({
+  path: "/workspaces/{workspaceSlug}/channels/{channelId}/connectors/{provider}/files",
+  method: "get",
+  summary: "Search a scope's file and folder paths",
+  description:
+    "Filters the container's full path listing (for GitHub, one cached recursive git tree per repo). An empty query returns the root entries, folders first.",
+  tags: ["Channels"],
+  middleware: [workspaceAuthMiddleware, connectorLookupRateLimit] as const,
+  request: {
+    params: channelConnectorParamsSchema,
+    query: connectorFilesQuerySchema,
+  },
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: connectorSearchResponseSchema,
+      description: "Matching paths",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
 export type ListChannelsRoute = typeof listChannels
 export type CreateChannelRoute = typeof createChannel
 export type ReorderChannelsRoute = typeof reorderChannels
@@ -325,3 +422,7 @@ export type ListPinnedMessagesRoute = typeof listPinnedMessages
 export type ListThreadRepliesRoute = typeof listThreadReplies
 export type ListThreadActivityRoute = typeof listThreadActivity
 export type GetMessageLocationRoute = typeof getMessageLocation
+export type ListChannelConnectorsRoute = typeof listChannelConnectors
+export type SearchChannelConnectorRoute = typeof searchChannelConnector
+export type ListConnectorScopesRoute = typeof listConnectorScopes
+export type SearchConnectorFilesRoute = typeof searchConnectorFiles

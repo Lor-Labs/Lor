@@ -15,5 +15,9 @@ const channelsRouter = createRouter()
   .openapi(routes.listThreadReplies, handlers.listThreadReplies)
   .openapi(routes.listThreadActivity, handlers.listThreadActivity)
   .openapi(routes.getMessageLocation, handlers.getMessageLocation)
+  .openapi(routes.listChannelConnectors, handlers.listChannelConnectors)
+  .openapi(routes.searchChannelConnector, handlers.searchChannelConnector)
+  .openapi(routes.listConnectorScopes, handlers.listConnectorScopes)
+  .openapi(routes.searchConnectorFiles, handlers.searchConnectorFiles)
 
 export default channelsRouter

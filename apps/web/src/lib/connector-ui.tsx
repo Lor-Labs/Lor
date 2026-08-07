@@ -40,6 +40,59 @@ type ConnectorUI = {
   urlHost: RegExp
   // Tool names the connector contributes (tool-trail row icons).
   tools: readonly string[]
+  // Chip label for a pasted url of this connector, derived without a round trip.
+  linkLabel: (url: URL) => string | null
+}
+
+// "meeting-notes-2f0a…" → "meeting notes"
+function prettifySlug(segment: string): string {
+  return decodeURIComponent(segment)
+    .replace(/-?[0-9a-f]{32}$/i, "")
+    .replaceAll("-", " ")
+    .trim()
+}
+
+function lastSegment(url: URL): string {
+  const segments = url.pathname.split("/").filter(Boolean)
+  return segments.at(-1) ?? url.hostname
+}
+
+// "#L12-L20" → ":12-20", the line range a file link was copied with.
+function lineRange(url: URL): string {
+  const match = url.hash.match(/^#L(\d+)(?:-L(\d+))?$/)
+  if (!match) return ""
+  return match[2] ? `:${match[1]}-${match[2]}` : `:${match[1]}`
+}
+
+function githubLabel(url: URL): string {
+  const segments = url.pathname.split("/").filter(Boolean)
+  const [owner, repo, kind, rest] = segments
+  if (!(owner && repo)) return lastSegment(url)
+  if (!(kind && rest)) return `${owner}/${repo}`
+  if (kind === "pull" || kind === "issues") return `${owner}/${repo}#${rest}`
+  if (kind === "commit") return `${owner}/${repo}@${rest.slice(0, 7)}`
+  // blob/tree carry the ref in `rest`, then the path — which is the useful
+  // label. Falls back to the repo for a bare branch link.
+  if (kind === "blob" || kind === "tree") {
+    const path = segments.slice(4).map(decodeURIComponent).join("/")
+    return path ? `${path}${lineRange(url)}` : `${owner}/${repo}`
+  }
+  return `${owner}/${repo}`
+}
+
+function linearLabel(url: URL): string {
+  const segments = url.pathname.split("/").filter(Boolean)
+  const issueIndex = segments.indexOf("issue")
+  const identifier = issueIndex >= 0 ? segments[issueIndex + 1] : null
+  return identifier ?? (prettifySlug(lastSegment(url)) || lastSegment(url))
+}
+
+function attioLabel(url: URL): string {
+  // app.attio.com/<workspace>/<object>/<recordId>/<tab>
+  const [, object, recordId] = url.pathname.split("/").filter(Boolean)
+  if (!object) return lastSegment(url)
+  const name = prettifySlug(object)
+  return recordId ? `${name} ${recordId.slice(0, 8)}` : name
 }
 
 // The single client-side registry for connector branding — exhaustive over the
@@ -51,6 +104,7 @@ const CONNECTOR_UI: Record<ConnectorKey, ConnectorUI> = {
     logo: Github,
     urlHost: /(^|\.)github\.com\b/i,
     tools: ["search_github", "fetch_github"],
+    linkLabel: githubLabel,
   },
   linear: {
     logo: LinearMark,
@@ -63,12 +117,14 @@ const CONNECTOR_UI: Record<ConnectorKey, ConnectorUI> = {
       "comment_linear",
       "update_linear_issue",
     ],
+    linkLabel: linearLabel,
   },
   datadog: {
     logo: DatadogMark,
     // Anchored to the hostname end so datadoghq.com.evil.com can't wear the mark.
     urlHost: /(^|\.)datadoghq\.(com|eu)$/i,
     tools: ["search_datadog_logs", "analyze_datadog_logs"],
+    linkLabel: () => "Datadog",
   },
   attio: {
     logo: AttioMark,
@@ -79,6 +135,7 @@ const CONNECTOR_UI: Record<ConnectorKey, ConnectorUI> = {
       "query_attio",
       "fetch_attio_activity",
     ],
+    linkLabel: attioLabel,
   },
   notion: {
     logo: NotionMark,
@@ -89,14 +146,22 @@ const CONNECTOR_UI: Record<ConnectorKey, ConnectorUI> = {
       "query_notion_data_source",
       "list_notion_users",
     ],
+    linkLabel: (url) => prettifySlug(lastSegment(url)) || lastSegment(url),
   },
 }
 
 const CONNECTOR_KEYS = Object.keys(CONNECTOR_UI) as ConnectorKey[]
 
-// Null = a built-in capability with no connector (web) — wears the globe.
+// Null = a built-in capability with no connector (web) — wears the globe, which
+// is also the fallback for a key outside the registry (pasted HTML can carry an
+// arbitrary data-connector into a composer chip).
 export function connectorLogo(key: ConnectorKey | null): Logo {
-  return key ? CONNECTOR_UI[key].logo : GlobeMark
+  return (key ? CONNECTOR_UI[key]?.logo : null) ?? GlobeMark
+}
+
+// hasOwn, not `in` — otherwise "toString" and friends read as connectors.
+export function isConnectorKey(value: unknown): value is ConnectorKey {
+  return typeof value === "string" && Object.hasOwn(CONNECTOR_UI, value)
 }
 
 // The connector behind a bot display name ("GitHub" → github) — used to brand
@@ -127,4 +192,15 @@ export function connectorForUrl(url?: string): ConnectorKey | null {
   return (
     CONNECTOR_KEYS.find((key) => CONNECTOR_UI[key].urlHost.test(host)) ?? null
   )
+}
+
+// Chip label for a connector url, derived from the url alone.
+export function connectorLinkLabel(url: string): string | null {
+  const connector = connectorForUrl(url)
+  if (!connector) return null
+  try {
+    return CONNECTOR_UI[connector].linkLabel(new URL(url)) || null
+  } catch {
+    return null
+  }
 }
