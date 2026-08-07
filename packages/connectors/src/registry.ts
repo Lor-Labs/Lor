@@ -140,6 +140,7 @@ export const CONNECTOR_EVENTS: Record<
   readonly ConnectorEventDescriptor[]
 > = {
   github: [
+    { key: "pr_opened", label: "Pull request opened" },
     { key: "pr_merged", label: "Pull request merged" },
     { key: "issue_opened", label: "Issue opened" },
     { key: "issue_closed", label: "Issue closed" },

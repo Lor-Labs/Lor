@@ -81,6 +81,18 @@ async function notifyForInstallation(
 
 // Register the salient events. Payloads are fully typed by @octokit/webhooks.
 export function registerGithubHandlers(webhooks: Webhooks): void {
+  // Opened PRs are notify-only: an unmerged description isn't a unit of change
+  // worth ingesting. Drafts are labelled rather than dropped.
+  webhooks.on("pull_request.opened", async ({ payload }) => {
+    const pr = payload.pull_request
+    const repo = payload.repository.full_name
+    await notifyForInstallation(
+      payload.installation?.id,
+      "pr_opened",
+      `**${pr.draft ? "Draft PR" : "PR"} opened** [${repo}#${pr.number}](${pr.html_url}) ${pr.title}${pr.user ? ` — by ${pr.user.login}` : ""}`
+    )
+  })
+
   // Merged PRs — high-signal units of change.
   webhooks.on("pull_request.closed", async ({ payload }) => {
     const pr = payload.pull_request

@@ -18,6 +18,7 @@ export type ConnectorDescriptor = {
 // `connector_notification_route.event` — validated against the registry, so
 // renaming a key orphans existing routes.
 export type ConnectorEventKey =
+  | "pr_opened"
   | "pr_merged"
   | "issue_opened"
   | "issue_closed"
