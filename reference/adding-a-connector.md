@@ -39,10 +39,11 @@ The two DB enums are the source of truth: `integrationProviderEnum` (`packages/d
 ## 5. Composer attachments
 
 14. **Attachable records** — add a searcher to `SEARCHERS` in `packages/merlin/src/connector-search.ts`, returning `{ id, title, subtitle, url }` per record (reuse the provider client the tools already use). `[compiler]` — exhaustive `Record<IntegrationProvider, …>`; `null` means the connector has nothing to attach (Datadog is live log queries), and the composer hides it. An empty query should return recent records where the provider supports it. Both endpoints are registry-driven — no per-connector work: `GET /workspaces/{slug}/channels/{channelId}/connectors` lists what a channel can attach (connected ∩ granted by the channel's agent profile ∩ searchable, via `apps/api/src/lib/channel-connectors.ts`), and `…/connectors/{provider}/search` returns the records.
+15. **Attachable files** (optional) — add an entry to `FILE_BROWSERS` in the same file: `listScopes` (the containers files live in — GitHub returns the installation's repos) plus a `search` over one scope's paths. `[compiler]` — exhaustive `Record<IntegrationProvider, …>`; `null` means no file browsing, which is the right answer for most connectors. This registry alone drives the `supportsFiles` flag on the connector list and the `…/connectors/{provider}/scopes` + `…/connectors/{provider}/files` endpoints, so the composer's "Browse files" step appears without any UI change.
 
 ## 6. UI
 
-15. **Connector presentation** — one entry in `apps/web/src/lib/connector-ui.tsx` `CONNECTOR_UI`: `logo`, `urlHost` (matches result URLs → connector, for trail link icons), `tools` (the **hand-maintained list** of this connector's tool names, for trail row icons — keep it in sync with the tool module), and `linkLabel` (composer chip text for a pasted url of this connector, derived from the url alone). `[compiler]` for all fields (exhaustive `Record<ConnectorKey, …>`); the compiler can't check the *content* of `tools`/`urlHost`.
+16. **Connector presentation** — one entry in `apps/web/src/lib/connector-ui.tsx` `CONNECTOR_UI`: `logo`, `urlHost` (matches result URLs → connector, for trail link icons), `tools` (the **hand-maintained list** of this connector's tool names, for trail row icons — keep it in sync with the tool module), and `linkLabel` (composer chip text for a pasted url of this connector, derived from the url alone). `[compiler]` for all fields (exhaustive `Record<ConnectorKey, …>`); the compiler can't check the *content* of `tools`/`urlHost`.
     - Everything else derives from here: capability tile/chip icons, the profile-editor group header, and the integration card all call `connectorLogo(connector)`. There is **no** separate capability-icon or provider-icon map to maintain.
     - Logo asset: `@repo/ui/components/logos/<provider>` (brand SVGs live there) or a lucide glyph. Wrap a filled logomark with `fill-current` so it inherits the surrounding color. (Settings/config dialogs use lucide, not HugeIcons.)
 
@@ -64,6 +65,7 @@ The two DB enums are the source of truth: `integrationProviderEnum` (`packages/d
 - [ ] System-prompt line in `connectorPromptLines`
 - [ ] `toolLabel` / `toolDetail` cases
 - [ ] `connector-search.ts` searcher (or explicit `null`) — compiler-forced
+- [ ] `connector-search.ts` `FILE_BROWSERS` entry (or explicit `null`) — compiler-forced
 - [ ] `connector-ui.tsx` entry: `logo` + `linkLabel` (compiler-forced) + hand-kept `tools` + `urlHost`
 
 ## Registry status

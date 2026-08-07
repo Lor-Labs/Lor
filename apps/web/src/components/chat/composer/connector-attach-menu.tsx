@@ -8,6 +8,8 @@ import type { ConnectorKey } from "@/lib/api-types"
 import { connectorLogo } from "@/lib/connector-ui"
 
 const SEARCH_DEBOUNCE_MS = 200
+const LISTBOX_ID = "connector-attach-listbox"
+const optionId = (index: number) => `${LISTBOX_ID}-option-${index}`
 const RECORDS_STALE_MS = 30 * 1000
 const SCOPES_STALE_MS = 5 * 60 * 1000
 
@@ -218,9 +220,12 @@ export function ConnectorAttachMenu({
         ? scopeItems
         : fileItems
 
+  // Reset on anything that changes *which* records are listed, not just how
+  // many — a new query can return a different set of the same size.
+  const selectionKey = `${view.kind}:${scope?.id ?? ""}:${query}:${items.length}`
   useEffect(() => {
     setSelectedIndex(0)
-  }, [items.length, view.kind])
+  }, [selectionKey])
 
   const isFetching =
     view.kind === "records"
@@ -316,9 +321,15 @@ export function ConnectorAttachMenu({
         onChange={(event) => setQuery(event.target.value)}
         onKeyDown={handleKeyDown}
         placeholder={placeholder}
+        role="combobox"
+        aria-expanded={items.length > 0}
+        aria-controls={LISTBOX_ID}
+        aria-activedescendant={
+          items[selectedIndex] ? optionId(selectedIndex) : undefined
+        }
         className="w-full rounded-md border border-input bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring"
       />
-      <div className="max-h-64 overflow-y-auto">
+      <div id={LISTBOX_ID} role="listbox" className="max-h-64 overflow-y-auto">
         {items.length === 0 ? (
           <div className="px-2 py-3 text-sm text-muted-foreground">
             {isFetching ? "Searching…" : "No results"}
@@ -327,7 +338,10 @@ export function ConnectorAttachMenu({
           items.map((item, index) => (
             <button
               key={item.key}
+              id={optionId(index)}
               type="button"
+              role="option"
+              aria-selected={index === selectedIndex}
               className={cn(
                 "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left",
                 index === selectedIndex

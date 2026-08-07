@@ -69,7 +69,7 @@ const searchLinear: ConnectorSearcher = async (workspaceId, query, limit) => {
   // moment it opens.
   const issues = query
     ? await client
-        .searchIssues(query)
+        .searchIssues(query, { first: limit })
         .then((payload) => payload.nodes)
         .catch(() => [])
     : await client
@@ -226,9 +226,11 @@ export function matchTreeEntries(
   const matches = normalized
     ? entries
         .filter((entry) => entry.path.toLowerCase().includes(normalized))
-        .sort(
-          (a, b) => rankPath(a.path, normalized) - rankPath(b.path, normalized)
-        )
+        // Rank once per entry rather than twice per comparison — a monorepo
+        // tree is tens of thousands of paths.
+        .map((entry) => ({ entry, rank: rankPath(entry.path, normalized) }))
+        .sort((a, b) => a.rank - b.rank)
+        .map(({ entry }) => entry)
     : entries
         .filter((entry) => !entry.path.includes("/"))
         .sort((a, b) =>

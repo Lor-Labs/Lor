@@ -84,7 +84,7 @@ function linearLabel(url: URL): string {
   const segments = url.pathname.split("/").filter(Boolean)
   const issueIndex = segments.indexOf("issue")
   const identifier = issueIndex >= 0 ? segments[issueIndex + 1] : null
-  return identifier ?? prettifySlug(lastSegment(url)) ?? lastSegment(url)
+  return identifier ?? (prettifySlug(lastSegment(url)) || lastSegment(url))
 }
 
 function attioLabel(url: URL): string {
@@ -152,9 +152,15 @@ const CONNECTOR_UI: Record<ConnectorKey, ConnectorUI> = {
 
 const CONNECTOR_KEYS = Object.keys(CONNECTOR_UI) as ConnectorKey[]
 
-// Null = a built-in capability with no connector (web) — wears the globe.
+// Null = a built-in capability with no connector (web) — wears the globe, which
+// is also the fallback for a key outside the registry (pasted HTML can carry an
+// arbitrary data-connector into a composer chip).
 export function connectorLogo(key: ConnectorKey | null): Logo {
-  return key ? CONNECTOR_UI[key].logo : GlobeMark
+  return (key ? CONNECTOR_UI[key]?.logo : null) ?? GlobeMark
+}
+
+export function isConnectorKey(value: unknown): value is ConnectorKey {
+  return typeof value === "string" && value in CONNECTOR_UI
 }
 
 // The connector behind a bot display name ("GitHub" → github) — used to brand

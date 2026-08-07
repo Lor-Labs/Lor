@@ -89,3 +89,15 @@ export const writeRateLimit = rateLimiter({
   max: 30,
   keyExtractor: (c) => c.get("user")?.id ?? getIp(c),
 })
+
+/**
+ * Composer connector lookups: 60 requests/min per user. Each one can hit a
+ * third-party API on a quota the whole workspace shares, so one member typing
+ * (or scripting) must not drain it. Runs after workspace auth, so the user is
+ * resolved by the time the key is built.
+ */
+export const connectorLookupRateLimit = rateLimiter({
+  prefix: "connector-lookup",
+  max: 60,
+  keyExtractor: (c) => c.get("user")?.id ?? getIp(c),
+})

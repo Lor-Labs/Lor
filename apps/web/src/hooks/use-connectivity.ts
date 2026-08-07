@@ -25,6 +25,7 @@ let snapshot: Connectivity = {
 
 const listeners = new Set<() => void>()
 let probe: Promise<void> | null = null
+let probeGeneration = 0
 let retryTimer: ReturnType<typeof setTimeout> | null = null
 let started = false
 
@@ -46,6 +47,8 @@ function clearRetry() {
 }
 
 function goOffline() {
+  // Any probe still in flight predates this signal — its result is stale.
+  probeGeneration += 1
   emit({ status: "offline", isChecking: false })
   if (retryTimer !== null) return
   retryTimer = setTimeout(() => {
@@ -70,6 +73,7 @@ export function checkConnectivity(): Promise<void> {
   }
 
   emit({ ...snapshot, isChecking: true })
+  const generation = probeGeneration
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), PROBE_TIMEOUT)
   probe = appFetch(env.NEXT_PUBLIC_API_URL, {
@@ -77,6 +81,12 @@ export function checkConnectivity(): Promise<void> {
     signal: controller.signal,
   })
     .then(() => {
+      // The OS reported offline while this was in flight — don't resurrect
+      // "online"; re-assert offline so the retry stays scheduled.
+      if (generation !== probeGeneration) {
+        goOffline()
+        return
+      }
       emit({ status: "online", isChecking: false })
     })
     .catch(() => {

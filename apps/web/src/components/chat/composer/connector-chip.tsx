@@ -12,6 +12,7 @@ import {
   connectorForUrl,
   connectorLinkLabel,
   connectorLogo,
+  isConnectorKey,
 } from "@/lib/connector-ui"
 
 export interface ConnectorChipAttrs {
@@ -42,7 +43,9 @@ export function connectorChipAttrs(url: string): ConnectorChipAttrs | null {
 
 function ConnectorChipView({ node, selected }: NodeViewProps) {
   const attrs = node.attrs as ConnectorChipAttrs
-  const Logo = connectorLogo(attrs.connector)
+  const Logo = connectorLogo(
+    isConnectorKey(attrs.connector) ? attrs.connector : null
+  )
 
   return (
     <NodeViewWrapper as="span" className="align-baseline">
@@ -76,7 +79,12 @@ export const ConnectorChip = Node.create({
     return {
       connector: {
         default: null,
-        parseHTML: (element) => element.getAttribute("data-connector"),
+        // Pasted HTML can carry any data-connector; keep unknown values out of
+        // the node so nothing downstream indexes the registry with them.
+        parseHTML: (element) => {
+          const value = element.getAttribute("data-connector")
+          return isConnectorKey(value) ? value : null
+        },
         renderHTML: (attributes) => ({
           "data-connector": attributes.connector,
         }),

@@ -248,6 +248,8 @@ export type RepoTree = {
 // Cap what we keep per repo — a monorepo tree can be six figures of paths, and
 // the picker only ever shows a handful.
 const MAX_TREE_ENTRIES = 20_000
+// Longer than the per-request default: a whole tree is a big response.
+const TREE_REQUEST_TIMEOUT_MS = 15_000
 
 // One recursive call returns every path in the repo, which the composer's file
 // picker then filters locally. Callers are expected to cache this.
@@ -270,6 +272,7 @@ export async function fetchRepoTree(
       repo,
       tree_sha: ref,
       recursive: "1",
+      request: { signal: AbortSignal.timeout(TREE_REQUEST_TIMEOUT_MS) },
     })
     const entries = data.tree.flatMap<RepoTreeEntry>((entry) =>
       entry.path && (entry.type === "blob" || entry.type === "tree")

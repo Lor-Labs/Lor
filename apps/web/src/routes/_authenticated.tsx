@@ -142,6 +142,12 @@ function AuthenticatedLayout() {
     enabled: !!session,
   })
 
+  // Offline wins over the session fetch: with no connection it can only fail,
+  // so waiting on it would leave a spinner where the reason belongs.
+  if (!session && isOffline) {
+    return <OfflineScreen />
+  }
+
   if (isPending || (!session && connectivityUnknown)) {
     return (
       <div className="flex h-screen items-center justify-center">

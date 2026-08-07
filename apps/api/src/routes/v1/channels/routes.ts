@@ -7,6 +7,7 @@ import {
   notFoundSchema,
   unauthorizedSchema,
 } from "@/lib/helpers/openapi/schemas"
+import { connectorLookupRateLimit } from "@/middleware/rate-limit"
 import { workspaceAuthMiddleware } from "@/middleware/workspace-auth"
 import {
   channelConnectorParamsSchema,
@@ -347,7 +348,7 @@ export const searchChannelConnector = createRoute({
   description:
     "Returns records (issues, pull requests, pages) as title + url for the composer's attach menu. An empty query returns recent records where the provider supports it. Gated by the same channel capabilities as the connector list.",
   tags: ["Channels"],
-  middleware: [workspaceAuthMiddleware] as const,
+  middleware: [workspaceAuthMiddleware, connectorLookupRateLimit] as const,
   request: {
     params: channelConnectorParamsSchema,
     query: connectorSearchQuerySchema,
@@ -371,7 +372,7 @@ export const listConnectorScopes = createRoute({
   description:
     "GitHub returns the installation's repositories. Connectors without file browsing return an empty list.",
   tags: ["Channels"],
-  middleware: [workspaceAuthMiddleware] as const,
+  middleware: [workspaceAuthMiddleware, connectorLookupRateLimit] as const,
   request: { params: channelConnectorParamsSchema },
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
@@ -392,7 +393,7 @@ export const searchConnectorFiles = createRoute({
   description:
     "Filters the container's full path listing (for GitHub, one cached recursive git tree per repo). An empty query returns the root entries, folders first.",
   tags: ["Channels"],
-  middleware: [workspaceAuthMiddleware] as const,
+  middleware: [workspaceAuthMiddleware, connectorLookupRateLimit] as const,
   request: {
     params: channelConnectorParamsSchema,
     query: connectorFilesQuerySchema,
