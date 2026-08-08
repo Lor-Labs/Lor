@@ -1,13 +1,18 @@
-import { MERLIN_USER_ID } from "@repo/db"
+import { and, db, eq, MERLIN_USER_ID, schema } from "@repo/db"
 import type { MerlinToolCall } from "@repo/db/schema"
 import { env } from "@repo/env/server"
 import { tool } from "ai"
 import { z } from "zod"
 import { logger } from "../logger"
-import { runWorkbenchSession, type WorkbenchInput } from "../sandbox/workbench"
+import {
+  deleteWorkbenchCheckpoint,
+  runWorkbenchSession,
+  type WorkbenchInput,
+  type WorkbenchTaskContinuity,
+} from "../sandbox/workbench"
 import { toolExecutionKey } from "../tool-guard"
 import type { OnUsage } from "../usage"
-import { writeArtifactVersion } from "./service"
+import { artifactPublicUrl, writeArtifactVersion } from "./service"
 
 // A session must have this much wall clock left to be worth starting: the
 // tools-off margin only triggers between steps, so the tool bounds itself.
@@ -18,11 +23,55 @@ const MAX_INPUT_FILES = 8
 const artifactsContext = z.object({
   workspaceId: z.string(),
   channelId: z.string(),
-  taskId: z.string().nullable(),
+  // Task runs get continuity: checkpoint boot, Pi session resume, artifact
+  // reseeding. Null for plain-answer sessions.
+  task: z.custom<{ id: string; sandboxCheckpoint: string | null } | null>(),
   deadlineAt: z.custom<Date>().optional(),
   onUsage: z.custom<OnUsage>().optional(),
   onToolEvent: z.custom<(e: MerlinToolCall) => void>().optional(),
 })
+
+// Current versions of the task's artifacts, reseeded into /workspace/out so
+// the agent always works from artifact truth (humans may have edited).
+async function loadTaskOutSeed(
+  taskId: string
+): Promise<WorkbenchTaskContinuity["outSeed"]> {
+  const rows = await db
+    .select({
+      path: schema.artifact.path,
+      blobKey: schema.artifactVersion.blobKey,
+      size: schema.artifactVersion.size,
+    })
+    .from(schema.artifact)
+    .innerJoin(
+      schema.artifactVersion,
+      and(
+        eq(schema.artifactVersion.artifactId, schema.artifact.id),
+        eq(schema.artifactVersion.version, schema.artifact.currentVersion)
+      )
+    )
+    .where(eq(schema.artifact.taskId, taskId))
+  const seeds: WorkbenchTaskContinuity["outSeed"] = []
+  let total = 0
+  for (const row of rows) {
+    if (
+      row.size > env.MERLIN_WORKBENCH_MAX_FILE_BYTES ||
+      total + row.size > env.MERLIN_WORKBENCH_MAX_TOTAL_BYTES
+    ) {
+      continue
+    }
+    try {
+      const res = await fetch(artifactPublicUrl(row.blobKey))
+      if (!res.ok) continue
+      const bytes = new Uint8Array(await res.arrayBuffer())
+      total += bytes.byteLength
+      seeds.push({ path: row.path, bytes })
+    } catch {
+      // Missing blob degrades to a cold file, never fails the session.
+    }
+  }
+  return seeds
+}
 
 // Only files from our own bucket (message attachments, prior artifacts) can
 // seed a session — the model can't point the worker at arbitrary URLs.
@@ -113,6 +162,15 @@ export const artifactTools = {
         inputs,
         timeoutSec,
         abortSignal,
+        ...(context.task
+          ? {
+              task: {
+                id: context.task.id,
+                bootCheckpoint: context.task.sandboxCheckpoint,
+                outSeed: await loadTaskOutSeed(context.task.id),
+              },
+            }
+          : {}),
         onStep: (s) => {
           step += 1
           // A failing listener must not abort or fail the session.
@@ -149,6 +207,21 @@ export const artifactTools = {
         logger.error({ err }, "Merlin onUsage listener failed")
       }
 
+      // Persist the new checkpoint pointer, then retire the superseded one.
+      if (context.task && result.checkpoint) {
+        const previous = context.task.sandboxCheckpoint
+        await db
+          .update(schema.task)
+          .set({ sandboxCheckpoint: result.checkpoint })
+          .where(eq(schema.task.id, context.task.id))
+          .catch((err) => {
+            logger.warn({ err }, "Workbench: checkpoint pointer update failed")
+          })
+        if (previous && previous !== result.checkpoint) {
+          void deleteWorkbenchCheckpoint(previous)
+        }
+      }
+
       try {
         const manifest = []
         for (const file of result.files) {
@@ -156,7 +229,7 @@ export const artifactTools = {
             await writeArtifactVersion({
               workspaceId: context.workspaceId,
               channelId: context.channelId,
-              taskId: context.taskId,
+              taskId: context.task?.id ?? null,
               path: file.path,
               contentType: file.contentType,
               bytes: file.bytes,

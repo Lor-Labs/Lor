@@ -64,6 +64,10 @@ export const task = pgTable(
     activeRunId: uuid("active_run_id").references(() => agentRun.id, {
       onDelete: "set null",
     }),
+    // Railway checkpoint holding the task's last workbench disk (the
+    // sub-agent's scripts and scratch state). A cache, not truth — losing it
+    // degrades a follow-up edit to a cold start, nothing worse.
+    sandboxCheckpoint: text("sandbox_checkpoint"),
   },
   (table) => [
     uniqueIndex("task_cardMessageId_uidx").on(table.cardMessageId),

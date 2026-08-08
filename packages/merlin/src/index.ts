@@ -4,6 +4,7 @@ import {
   ALL_MERLIN_CAPABILITIES,
   type MerlinCapability,
   type MerlinToolCall,
+  type Task,
 } from "@repo/db/schema"
 import { env } from "@repo/env/server"
 import {
@@ -60,6 +61,7 @@ import {
 } from "./run"
 import { resolveSourceCitation, searchSources, sourceTools } from "./sources"
 import { generateSmallObject } from "./structured"
+import { type RunTaskContext, taskPromptSection, taskTools } from "./tasks"
 import { guardTools } from "./tool-guard"
 import type { OnUsage } from "./usage"
 import { webTools } from "./web"
@@ -219,6 +221,11 @@ export type RespondContext = {
   workspaceId: string
   conversation: ConversationTurn[]
   channelId?: string
+  runId?: string
+  // Set when this run belongs to a cowork task (the scope's thread root is a
+  // task card): binds the task tools, task prompt rules, and workbench
+  // continuity.
+  task?: RunTaskContext
 }
 
 export type ToolEvent = MerlinToolCall
@@ -233,6 +240,9 @@ export type RespondCallbacks = {
   onInstructionsProposal?: (
     e: InstructionsProposalEvent
   ) => void | Promise<void>
+  // Fired whenever a task tool changes the task row — the worker broadcasts
+  // the snapshot to the channel room.
+  onTaskUpdated?: (task: Task) => void
 }
 
 export type { InstructionsProposalEvent } from "./instructions"
@@ -549,6 +559,12 @@ function toolLabel(toolName: string, input: unknown): string {
       return repo ? `Investigating ${repo}` : "Investigating the codebase"
     case "create_artifacts":
       return "Working on files"
+    case "set_plan":
+      return "Updating the plan"
+    case "complete_task":
+      return "Completing the task"
+    case "request_approval":
+      return "Requesting approval"
     case "search_github":
       return query ? `Searching GitHub for “${query}”` : "Searching GitHub"
     case "fetch_github":
@@ -1241,11 +1257,15 @@ export async function respond(
     onToolEvent,
     onUsage,
     onInstructionsProposal,
+    onTaskUpdated,
   }: RespondCallbacks,
   run?: RunHandle
 ): Promise<RespondResult> {
   const respondStart = performance.now()
   const budgets = run?.budgets ?? defaultRunBudgets()
+  // Set by request_approval: prepareStep then forces a final text step so the
+  // run ends cleanly while the task parks in waiting_for_approval.
+  let approvalRequested = false
 
   // resolveChannelCapabilities already maps truly unprovisioned channels to the
   // permissive set; an actual throw here is an unexpected failure, so fail
@@ -1297,6 +1317,7 @@ export async function respond(
     ...(env.RAILWAY_API_TOKEN && ctx.channelId && caps.includes("artifacts")
       ? artifactTools
       : {}),
+    ...(ctx.task ? taskTools : {}),
     ...(linear && caps.includes("linear") ? linearTools : {}),
     ...(linear && caps.includes("linear_write") ? linearWriteTools : {}),
     ...(attio && caps.includes("attio") ? attioTools : {}),
@@ -1328,14 +1349,37 @@ export async function respond(
           create_artifacts: {
             workspaceId: ctx.workspaceId,
             channelId: ctx.channelId,
-            // Task runs thread their taskId here (slice 3); plain answers
-            // produce standalone artifacts.
-            taskId: null,
+            // Task runs get workbench continuity (checkpoint + pi session);
+            // plain answers produce standalone artifacts ephemerally.
+            task: ctx.task
+              ? {
+                  id: ctx.task.id,
+                  sandboxCheckpoint: ctx.task.sandboxCheckpoint,
+                }
+              : null,
             deadlineAt: budgets.deadlineAt,
             onUsage,
             onToolEvent,
           },
         }
+      : {}),
+    ...(ctx.task
+      ? (() => {
+          const taskToolContext = {
+            taskId: ctx.task.id,
+            workspaceId: ctx.workspaceId,
+            runId: ctx.runId ?? null,
+            onTaskUpdated,
+            onApprovalRequested: () => {
+              approvalRequested = true
+            },
+          }
+          return {
+            set_plan: taskToolContext,
+            complete_task: taskToolContext,
+            request_approval: taskToolContext,
+          }
+        })()
       : {}),
     ...(linear
       ? {
@@ -1402,7 +1446,7 @@ export async function respond(
         loadWorkspaceInstructions(ctx.workspaceId),
       ])
       const userMessage = await buildInitialUserMessage(context)
-      instructions = `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}${context.rosterText ? `\n\n${MENTION_GUIDANCE}` : ""}${workspaceInstructions ? `\n\n${formatInstructionsBlock(workspaceInstructions)}` : ""}`
+      instructions = `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}${context.rosterText ? `\n\n${MENTION_GUIDANCE}` : ""}${workspaceInstructions ? `\n\n${formatInstructionsBlock(workspaceInstructions)}` : ""}${ctx.task ? `\n\n${taskPromptSection(ctx.task)}` : ""}`
       messages = [userMessage]
       counters = { ...ZERO_RUN_COUNTERS }
       text = ""
@@ -1502,6 +1546,11 @@ export async function respond(
         )
         if (next) {
           trip(next)
+          return { toolChoice: "none" }
+        }
+        // A pending approval means the run must wrap up — the task resumes
+        // through a fresh run when a human resolves it.
+        if (approvalRequested) {
           return { toolChoice: "none" }
         }
         // Compact old tool calls/results once the context gets heavy. Preserve

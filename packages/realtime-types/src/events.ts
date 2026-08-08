@@ -465,6 +465,9 @@ export interface ServerToClientEvents {
   // reauthorization, or withdrawn by its sender) — clients drop it from the
   // queued-messages pill. Additions ride message:routed (outcome "queued").
   "run:queue:updated": (payload: RunQueueUpdatedEvent) => void
+
+  // Cowork task snapshot changed (status, plan, summary). Channel room.
+  "task:updated": (payload: TaskUpdatedEvent) => void
   "message:pin:toggled": (payload: RealtimeMessagePinToggled) => void
   "message:thread:updated": (payload: RealtimeMessageThreadUpdated) => void
   "notification:bootstrap": (payload: NotificationBootstrap) => void
@@ -502,6 +505,41 @@ export type RunQueueUpdatedEvent = {
   // The queued (user) message that left the queue.
   messageId: string
   state: "consumed" | "rejected" | "cancelled"
+}
+
+export type RealtimeTaskStatus =
+  | "running"
+  | "waiting_for_input"
+  | "waiting_for_approval"
+  | "completed"
+  | "failed"
+  | "stopped"
+
+export type RealtimeTaskPlanItem = {
+  text: string
+  status: "pending" | "active" | "done"
+}
+
+// Snapshot of a cowork task, emitted to the channel room on every status,
+// plan, or summary change — the task card and header chip render from it.
+export type RealtimeTask = {
+  id: string
+  workspaceId: string
+  channelId: string
+  cardMessageId: string
+  creatorId: string | null
+  title: string
+  goal: string
+  status: RealtimeTaskStatus
+  plan: RealtimeTaskPlanItem[]
+  summary: string | null
+  activeRunId: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export type TaskUpdatedEvent = {
+  task: RealtimeTask
 }
 
 export type MerlinSteerEvent = {

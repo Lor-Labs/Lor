@@ -1,5 +1,6 @@
+import { createHash, randomUUID } from "node:crypto"
 import { env } from "@repo/env/server"
-import { Sandbox, type SandboxTemplate } from "railway"
+import { Sandbox } from "railway"
 import { logger } from "../logger"
 import { type Sandbox as SandboxInstance, withSandbox } from "./index"
 import {
@@ -34,6 +35,19 @@ export type WorkbenchResult = {
   usage: WorkbenchUsage
   // Output files dropped by the harvest caps, so the caller can say so.
   skipped: string[]
+  // Name of the checkpoint saved after a task session (absent when saving
+  // failed or the session wasn't task-scoped) — the caller persists it.
+  checkpoint?: string
+}
+
+// Task continuity: boot from the task's last checkpoint (Pi's scripts,
+// scratch state, and session file), reconcile /workspace/out with the current
+// artifact versions, resume Pi's own conversation, and checkpoint again at
+// the end.
+export type WorkbenchTaskContinuity = {
+  id: string
+  bootCheckpoint: string | null
+  outSeed: { path: string; bytes: Uint8Array }[]
 }
 
 const IN_DIR = "/workspace/in"
@@ -41,18 +55,77 @@ const OUT_DIR = "/workspace/out"
 const BRIEF_FILE = "/workbench.txt"
 const MAX_WALK_DEPTH = 4
 
-// Debian packages: python3 + the data/report toolchain. Content-addressed and
-// cached server-side, so this builds once and later sandboxes boot from the
-// cached image. Extending to pptx/docx later = more packages here.
-let template: SandboxTemplate | null = null
-function workbenchTemplate(): SandboxTemplate {
-  template ??= Sandbox.template().withPackages(
-    "python3",
-    "python3-pandas",
-    "python3-matplotlib",
-    "python3-openpyxl"
+// Workbench image = the base sandbox image (which ships pi, git, node — the
+// bare Debian that templates build on can't run pi) + the Python toolchain,
+// captured once as a named checkpoint. Sessions boot from the checkpoint in a
+// few seconds. Bump the version suffix when changing the package set.
+const WORKBENCH_CHECKPOINT = "workbench-base-v1"
+const PROVISION_CMD =
+  "apt-get update -qq && apt-get install -y -qq python3-pandas python3-matplotlib python3-openpyxl"
+const PROVISION_TIMEOUT_SEC = 420
+
+// Checkpoint boots restore the disk but not the base image's PATH; pi and
+// node live behind mise shims, so every command re-exports it.
+const PATH_PREFIX = "PATH=/root/.local/bin:/root/.local/share/mise/shims:$PATH "
+
+const SESSION_DIR = "/workspace/.pi-sessions"
+
+async function resolveBootCheckpoint(
+  taskCheckpoint: string | null
+): Promise<string> {
+  await ensureWorkbenchCheckpoint()
+  if (!taskCheckpoint) return WORKBENCH_CHECKPOINT
+  const list = await Sandbox.checkpoints().catch(() => [])
+  if (list.some((c) => c.key === taskCheckpoint)) return taskCheckpoint
+  logger.warn(
+    { checkpoint: taskCheckpoint },
+    "Workbench: task checkpoint missing; cold start"
   )
-  return template
+  return WORKBENCH_CHECKPOINT
+}
+
+// Best-effort removal of a superseded task checkpoint (delete is by id).
+export async function deleteWorkbenchCheckpoint(name: string): Promise<void> {
+  const list = await Sandbox.checkpoints().catch(() => [])
+  const found = list.find((c) => c.key === name)
+  if (!found) return
+  await Sandbox.deleteCheckpoint(found.id).catch((err) => {
+    logger.warn(
+      { err, checkpoint: name },
+      "Workbench: checkpoint delete failed"
+    )
+  })
+}
+
+let checkpointEnsured = false
+async function ensureWorkbenchCheckpoint(): Promise<void> {
+  if (checkpointEnsured) return
+  const existing = await Sandbox.checkpoints().catch(() => [])
+  if (existing.some((c) => c.key === WORKBENCH_CHECKPOINT)) {
+    checkpointEnsured = true
+    return
+  }
+  logger.info(
+    { checkpoint: WORKBENCH_CHECKPOINT },
+    "Workbench: provisioning checkpoint"
+  )
+  await withSandbox(async (sandbox) => {
+    const r = await sandbox.exec(PROVISION_CMD, {
+      timeoutSec: PROVISION_TIMEOUT_SEC,
+    })
+    if (r.exitCode !== 0) {
+      throw new Error(
+        `workbench provisioning failed: ${(r.stderr || r.stdout).slice(0, 300)}`
+      )
+    }
+    // A concurrent worker may have saved the same name — that's a win, not
+    // an error.
+    await sandbox.checkpoint(WORKBENCH_CHECKPOINT).catch(async (err) => {
+      const now = await Sandbox.checkpoints().catch(() => [])
+      if (!now.some((c) => c.key === WORKBENCH_CHECKPOINT)) throw err
+    })
+  })
+  checkpointEnsured = true
 }
 
 function brief(instructions: string, inputFilenames: string[]): string {
@@ -132,25 +205,41 @@ async function walkOutputs(
   return found
 }
 
-// One ephemeral workbench session: boot from the template, seed inputs, run
-// the Pi coding agent with write tools, harvest the output directory, destroy
-// the sandbox. Files live on only through what the caller persists.
+// One ephemeral workbench session: boot from the provisioned checkpoint, seed
+// inputs, run the Pi coding agent with write tools, harvest the output
+// directory, destroy the sandbox. Files live on only through what the caller
+// persists.
 export async function runWorkbenchSession(opts: {
   instructions: string
   inputs: WorkbenchInput[]
   timeoutSec: number
   abortSignal?: AbortSignal
   onStep?: (step: WorkbenchStep) => void
+  task?: WorkbenchTaskContinuity
 }): Promise<WorkbenchResult | { error: string }> {
-  const { instructions, inputs, timeoutSec, abortSignal, onStep } = opts
+  const { instructions, inputs, timeoutSec, abortSignal, onStep, task } = opts
   if (abortSignal?.aborted) return { error: "cancelled" }
 
   try {
+    const bootFrom = await resolveBootCheckpoint(task?.bootCheckpoint ?? null)
     return await withSandbox(
       async (sandbox) => {
-        await sandbox.exec(`mkdir -p ${IN_DIR} ${OUT_DIR} /root/.pi/agent`, {
-          timeoutSec: 30,
-        })
+        await sandbox.exec(
+          `mkdir -p ${IN_DIR} ${OUT_DIR} ${SESSION_DIR} /root/.pi/agent`,
+          { timeoutSec: 30 }
+        )
+
+        // Reconcile the (possibly checkpoint-stale) output dir with the
+        // current artifact versions — humans may have edited since. Digests
+        // let the harvest skip files the agent didn't touch, so reseeding
+        // never churns identical artifact versions.
+        const digest = (bytes: Uint8Array) =>
+          createHash("sha256").update(bytes).digest("hex")
+        const seedDigests = new Map<string, string>()
+        for (const seed of task?.outSeed ?? []) {
+          await sandbox.files.write(`${OUT_DIR}/${seed.path}`, seed.bytes)
+          seedDigests.set(seed.path, digest(seed.bytes))
+        }
 
         const seeded: string[] = []
         for (const input of inputs) {
@@ -180,10 +269,12 @@ export async function runWorkbenchSession(opts: {
         }
 
         const handle = sandbox.exec(
-          buildPiCommand(env.MERLIN_MODEL, {
-            tools: WORKBENCH_PI_TOOLS,
-            promptFile: BRIEF_FILE,
-          }),
+          PATH_PREFIX +
+            buildPiCommand(env.MERLIN_MODEL, {
+              tools: WORKBENCH_PI_TOOLS,
+              promptFile: BRIEF_FILE,
+              ...(task ? { session: { dir: SESSION_DIR, id: task.id } } : {}),
+            }),
           {
             cwd: "/workspace",
             timeoutSec,
@@ -250,6 +341,7 @@ export async function runWorkbenchSession(opts: {
             format: "bytes",
           })
           if (!bytes) continue
+          if (seedDigests.get(rel) === digest(bytes)) continue
           totalBytes += bytes.byteLength
           files.push({ path: rel, bytes, contentType: contentTypeFor(rel) })
         }
@@ -257,11 +349,26 @@ export async function runWorkbenchSession(opts: {
           logger.warn({ skipped }, "Workbench: output files dropped by caps")
         }
 
+        // Preserve the sub-agent's working state (scripts, scratch files,
+        // session) for the task's next session. Failure only costs warmth.
+        let checkpoint: string | undefined
+        if (task) {
+          const name = `task-${task.id}-${randomUUID().slice(0, 8)}`
+          checkpoint = await sandbox.checkpoint(name).then(
+            () => name,
+            (err) => {
+              logger.warn({ err, name }, "Workbench: checkpoint save failed")
+              return undefined
+            }
+          )
+        }
+
         return {
           files,
           summary: collected.findings || "(no summary from the agent)",
           usage: collected.usage,
           skipped,
+          ...(checkpoint ? { checkpoint } : {}),
         }
       },
       {
@@ -270,10 +377,12 @@ export async function runWorkbenchSession(opts: {
           IS_SANDBOX: "1",
         },
       },
-      workbenchTemplate()
+      bootFrom
     )
   } catch (err) {
     logger.error({ err }, "Workbench: session failed")
+    // If the checkpoint was deleted out from under us, re-verify next call.
+    checkpointEnsured = false
     return { error: "workbench session failed (sandbox error)" }
   }
 }

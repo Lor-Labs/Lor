@@ -51,11 +51,20 @@ export const WORKBENCH_PI_TOOLS = [
 ] as const
 
 const TOOL_NAME = /^[a-z_-]+$/
-const PROMPT_FILE = /^\/[a-zA-Z0-9._/-]+$/
+const PATH_ARG = /^\/[a-zA-Z0-9._/-]+$/
+const SESSION_ID = /^[a-f0-9-]{36}$/
 
 export function buildPiCommand(
   model: string,
-  opts?: { tools?: readonly string[]; promptFile?: string }
+  opts?: {
+    tools?: readonly string[]
+    promptFile?: string
+    // Persistent session (task continuity): the session file lives under
+    // `dir`, so a sandbox checkpoint carries Pi's conversation memory across
+    // sessions. Verified: resuming does not re-emit prior events (no double
+    // usage). Omit for ephemeral --no-session runs.
+    session?: { dir: string; id: string }
+  }
 ): string {
   if (!MODEL_ID.test(model)) {
     throw new Error(`Invalid Pi model id: ${model}`)
@@ -65,14 +74,25 @@ export function buildPiCommand(
     if (!TOOL_NAME.test(t)) throw new Error(`Invalid Pi tool name: ${t}`)
   }
   const promptFile = opts?.promptFile ?? "/investigation.txt"
-  if (!PROMPT_FILE.test(promptFile)) {
+  if (!PATH_ARG.test(promptFile)) {
     throw new Error(`Invalid Pi prompt file: ${promptFile}`)
+  }
+  const session = opts?.session
+  if (session) {
+    if (!PATH_ARG.test(session.dir)) {
+      throw new Error(`Invalid Pi session dir: ${session.dir}`)
+    }
+    if (!SESSION_ID.test(session.id)) {
+      throw new Error(`Invalid Pi session id: ${session.id}`)
+    }
   }
 
   return [
     "pi",
     "--mode json",
-    "--no-session",
+    session
+      ? `--session-dir ${session.dir} --session-id ${session.id}`
+      : "--no-session",
     `--provider ${PI_PROVIDER}`,
     `--model ${model}`,
     "--thinking max",

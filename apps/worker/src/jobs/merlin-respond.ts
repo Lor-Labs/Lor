@@ -34,7 +34,10 @@ import type {
   MerlinRespondJobData,
   RealtimeMessageMention,
 } from "@repo/realtime-types"
-import type { ServerToClientEvents } from "@repo/realtime-types/events"
+import type {
+  RealtimeTask,
+  ServerToClientEvents,
+} from "@repo/realtime-types/events"
 import {
   channelRoom,
   threadRoom,
@@ -144,6 +147,24 @@ async function loadConversation(args: {
   })
 }
 
+function serializeTask(row: typeof schema.task.$inferSelect): RealtimeTask {
+  return {
+    id: row.id,
+    workspaceId: row.workspaceId,
+    channelId: row.channelId,
+    cardMessageId: row.cardMessageId,
+    creatorId: row.creatorId,
+    title: row.title,
+    goal: row.goal,
+    status: row.status,
+    plan: row.plan,
+    summary: row.summary,
+    activeRunId: row.activeRunId,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  }
+}
+
 export function createMerlinRespondProcessor(
   emitter: Emitter<ServerToClientEvents>,
   redis: RedisClient,
@@ -179,6 +200,55 @@ export function createMerlinRespondProcessor(
           )
         }
 
+        // Cowork task, when this run's thread root is a task card.
+        const task = threadRootId
+          ? await db
+              .select()
+              .from(schema.task)
+              .where(eq(schema.task.cardMessageId, threadRootId))
+              .limit(1)
+              .then((rows) => rows[0] ?? null)
+              .catch(() => null)
+          : null
+        const emitTaskUpdated = (row: typeof schema.task.$inferSelect) => {
+          emitter
+            .to(channelRoom(channelId))
+            .emit("task:updated", { task: serializeTask(row) })
+        }
+        // Park the task when its run ends. `waiting_for_input` only from
+        // `running` — completed/waiting_for_approval set by tools stand.
+        const settleTask = async (
+          outcome: "complete" | "failed" | "stopped"
+        ) => {
+          if (!task) return
+          try {
+            const fresh = await db
+              .select({ status: schema.task.status })
+              .from(schema.task)
+              .where(eq(schema.task.id, task.id))
+              .limit(1)
+              .then((rows) => rows[0])
+            if (!fresh) return
+            const status =
+              outcome === "failed"
+                ? "failed"
+                : outcome === "stopped"
+                  ? "stopped"
+                  : fresh.status === "running"
+                    ? "waiting_for_input"
+                    : fresh.status
+            const updated = await db
+              .update(schema.task)
+              .set({ status, activeRunId: null })
+              .where(eq(schema.task.id, task.id))
+              .returning()
+              .then((rows) => rows[0])
+            if (updated) emitTaskUpdated(updated)
+          } catch (err) {
+            logger.warn({ err, taskId: task.id }, "Task settle failed")
+          }
+        }
+
         // Claim the durable run: lease + attempt accounting + event writer.
         // Legacy jobs (no run row) proceed with a no-op writer, exactly as
         // before durable runs existed.
@@ -210,6 +280,18 @@ export function createMerlinRespondProcessor(
           return
         }
         const execution = claim.kind === "claimed" ? claim.execution : null
+        if (task && execution) {
+          await db
+            .update(schema.task)
+            .set({ status: "running", activeRunId: job.data.runId ?? null })
+            .where(eq(schema.task.id, task.id))
+            .returning()
+            .then((rows) => {
+              const row = rows[0]
+              if (row) emitTaskUpdated(row)
+            })
+            .catch(() => {})
+        }
         try {
           const runWriter = execution?.writer ?? noopRunEventWriter
           // Frame fields tying a live socket event to its persisted log entry.
@@ -276,6 +358,7 @@ export function createMerlinRespondProcessor(
               .where(eq(schema.message.id, merlinMessageId))
               .catch(() => {})
             emit(MERLIN_ERROR_FALLBACK, true, "failed", true)
+            await settleTask("failed")
             drainQueue()
             return
           }
@@ -409,6 +492,7 @@ export function createMerlinRespondProcessor(
               emit(MERLIN_ERROR_FALLBACK, true, "failed")
               await runWriter.transition("failed", { stopReason: "error" })
               execution?.stop()
+              await settleTask("failed")
               drainQueue()
               return
             }
@@ -453,6 +537,7 @@ export function createMerlinRespondProcessor(
                 stopReason: "out_of_credits",
               })
               execution?.stop()
+              await settleTask("failed")
               drainQueue()
               emitter.to(workspaceRoom(workspaceId)).emit("billing:updated", {
                 workspaceId,
@@ -484,8 +569,27 @@ export function createMerlinRespondProcessor(
               pending = ""
             }
             answer = await respond(
-              { workspaceId, conversation, channelId },
               {
+                workspaceId,
+                conversation,
+                channelId,
+                ...(job.data.runId ? { runId: job.data.runId } : {}),
+                ...(task
+                  ? {
+                      task: {
+                        id: task.id,
+                        title: task.title,
+                        goal: task.goal,
+                        status: task.status,
+                        plan: task.plan,
+                        summary: task.summary,
+                        sandboxCheckpoint: task.sandboxCheckpoint,
+                      },
+                    }
+                  : {}),
+              },
+              {
+                onTaskUpdated: emitTaskUpdated,
                 onDelta: (d) => {
                   pending += d
                   if (pending.length >= FLUSH_THRESHOLD) flushPendingText()
@@ -602,6 +706,7 @@ export function createMerlinRespondProcessor(
                   : "error",
             })
             execution?.stop()
+            await settleTask("failed")
             drainQueue()
             return
           }
@@ -717,6 +822,7 @@ export function createMerlinRespondProcessor(
             emit(MERLIN_ERROR_FALLBACK, true, "failed", true)
             await runWriter.transition("failed", { stopReason: "error" })
             execution?.stop()
+            await settleTask("failed")
             drainQueue()
             return
           }
@@ -791,6 +897,7 @@ export function createMerlinRespondProcessor(
           })
           // Heartbeat off: the run is terminal; write-back needs no lease.
           execution?.stop()
+          await settleTask(stoppedByUser ? "stopped" : "complete")
           drainQueue()
           logger.info(
             { merlinMessageId, length: finalText.length, stoppedByUser },

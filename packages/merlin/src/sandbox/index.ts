@@ -13,14 +13,17 @@ const DEFAULTS: SandboxOptions = {
 export async function withSandbox<T>(
   fn: (sandbox: Sandbox) => Promise<T>,
   options?: SandboxOptions,
-  // Boot from a template (content-addressed, cached server-side) instead of
-  // the base image — how the workbench gets Python/pandas preinstalled.
-  from?: SandboxTemplate
+  // Boot from a named checkpoint (string) or a template instead of the base
+  // image — how the workbench gets its provisioned toolchain.
+  from?: SandboxTemplate | string
 ): Promise<T> {
   const merged = { ...DEFAULTS, ...options }
-  const sandbox = from
-    ? await Sandbox.create(from, merged)
-    : await Sandbox.create(merged)
+  const sandbox =
+    from === undefined
+      ? await Sandbox.create(merged)
+      : typeof from === "string"
+        ? await Sandbox.create(from, merged)
+        : await Sandbox.create(from, merged)
   logger.info({ sandboxId: sandbox.id }, "Sandbox: created")
   try {
     return await fn(sandbox)

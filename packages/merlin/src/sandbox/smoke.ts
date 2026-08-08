@@ -75,11 +75,12 @@ async function main(): Promise<void> {
   console.log("Sandbox destroyed. ✓")
 }
 
-// Write-mode workbench: template boots with Python/pandas, Pi gets write+bash
-// tools, deliverables are harvested from /workspace/out. Dynamic import so the
-// @repo/env parse inside workbench.ts happens after dotenv has loaded.
+// Write-mode workbench: boots from the provisioned checkpoint (base image +
+// Python toolchain), Pi gets write+bash tools, deliverables are harvested from
+// /workspace/out. Dynamic import so the @repo/env parse inside workbench.ts
+// happens after dotenv has loaded.
 async function workbenchSmoke(): Promise<void> {
-  console.log("\nRunning a write-mode workbench session (template boot)…")
+  console.log("\nRunning a write-mode workbench session (checkpoint boot)…")
   const { runWorkbenchSession } = await import("./workbench")
   const csv = "name,amount\nalpha,2\nbeta,3\n"
   const result = await runWorkbenchSession({
