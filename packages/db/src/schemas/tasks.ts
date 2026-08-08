@@ -15,7 +15,7 @@ import { message } from "./messages"
 import { user } from "./users"
 import { workspace } from "./workspaces"
 
-// A cowork task: a delegated outcome Merlin works toward across a chain of
+// A quest: a delegated outcome Merlin works toward across a chain of
 // agent runs. The card message is the thread root, so the task's conversation
 // scope is that thread — steering, queueing, stop, and replay reuse the
 // thread-scope machinery unchanged. Never `waiting_for_*` while a run is

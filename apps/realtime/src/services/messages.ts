@@ -32,7 +32,7 @@ type CreateMessageInput = {
   // Internal: Merlin's placeholder lands as "pending"; everything else defaults
   // to "complete" via the column default.
   status?: RealtimeMessage["status"]
-  // Internal: a cowork task card; normal sends derive reply/default.
+  // Internal: a quest's task card; normal sends derive reply/default.
   type?: "task_card"
 }
 

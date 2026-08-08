@@ -46,7 +46,7 @@ export const listTaskArtifacts = createRoute({
   method: "get",
   summary: "List a task's artifacts",
   description:
-    "Returns the artifacts belonging to a cowork task, each at its current version with a public blob URL.",
+    "Returns the artifacts belonging to a quest task, each at its current version with a public blob URL.",
   tags: ["Artifacts"],
   middleware: [sessionAuthMiddleware] as const,
   request: {

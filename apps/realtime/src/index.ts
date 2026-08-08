@@ -677,7 +677,7 @@ io.on("connection", (socket) => {
         // Decide where Merlin replies. A mention already in a thread stays
         // there; a main-channel mention may answer in-channel (broadly useful),
         // duck into a thread rooted at the triggering message (narrow/noisy),
-        // or become a cowork task (clear delegation with a deliverable) whose
+        // or become a quest (clear delegation with a deliverable) whose
         // card message roots the task's thread.
         let merlinThreadRootId = parsed.threadRootId ?? null
         if (merlinThreadRootId === null) {
