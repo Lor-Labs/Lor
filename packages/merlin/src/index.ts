@@ -16,6 +16,7 @@ import {
   tool,
 } from "ai"
 import { z } from "zod"
+import { artifactTools } from "./artifacts/tool"
 import { attioTools, resolveWorkspaceAttio } from "./attio"
 import {
   type BrainWriteEvent,
@@ -101,6 +102,8 @@ const WEB_PROMPT_LINE = `- The public web: search_web searches the web for curre
 
 const NOTION_PROMPT_LINE = `- The team's selected Notion content (read-only): search_notion searches page and data-source titles (not page-body text); fetch_notion_page reads a known page as Markdown with properties and comments; query_notion_data_source retrieves a database schema and structured rows; list_notion_users resolves workspace people without email addresses. Meetings are ordinary selected pages or rows—do not attempt user-specific meeting search. Reference Notion pages with normal Markdown links to their url (live results, not [[src:]] citations).`
 
+const ARTIFACTS_PROMPT_LINE = `- File deliverables: create_artifacts runs a coding agent in a clean sandbox (Python with pandas, matplotlib, openpyxl) that produces real files — reports, cleaned or analyzed data, generated documents or code. Every file it delivers is stored and returned with a link; share those links in your answer. Use it when someone asks for a file, document, or dataset — never for ordinary answers (it's slow). Non-image files people share appear in the conversation as [file: name — type, size — url] lines; pass those URLs as inputFileUrls when the work needs them. Write complete, self-contained instructions including desired filenames and formats — the agent can't ask follow-ups.`
+
 const SYSTEM_PROMPT_TAIL = `You can also see images people share in the channel — they're included inline in the conversation below.
 
 How to answer:
@@ -180,10 +183,15 @@ export type ConversationImage = {
   size: number
 }
 
+// Non-image attachments, surfaced as [file: …] text lines so file tools can
+// take their URLs as inputs.
+export type ConversationFile = ConversationImage
+
 export type ConversationTurn = {
   authorName: string
   content: string
   images?: ConversationImage[]
+  files?: ConversationFile[]
 }
 
 const VISION_MEDIA_TYPES = new Set([
@@ -539,6 +547,8 @@ function toolLabel(toolName: string, input: unknown): string {
   switch (toolName) {
     case "investigate_code":
       return repo ? `Investigating ${repo}` : "Investigating the codebase"
+    case "create_artifacts":
+      return "Working on files"
     case "search_github":
       return query ? `Searching GitHub for “${query}”` : "Searching GitHub"
     case "fetch_github":
@@ -733,6 +743,26 @@ function toolDetail(
         status: "ok",
         detail: {
           summary: findings?.slice(0, 16000) ?? "Explored the codebase",
+        },
+      }
+    }
+    case "create_artifacts": {
+      const files = Array.isArray(rec?.files) ? rec.files : []
+      const summary = asString(rec?.summary)?.slice(0, 16000)
+      return {
+        status: "ok",
+        detail: {
+          summary:
+            files.length === 0
+              ? (summary ?? "No files produced")
+              : `${plural(files.length, "file")} delivered${summary ? ` · ${summary}` : ""}`,
+          items: files.slice(0, 8).map((it) => {
+            const r = asRecord(it)
+            return {
+              title: asString(r?.path) ?? "file",
+              url: asString(r?.url),
+            }
+          }),
         },
       }
     }
@@ -1181,6 +1211,12 @@ export async function buildInitialUserMessage(
         parts.push({ type: "text", text: `\n[attachment: ${img.filename}]` })
       }
     }
+    for (const f of t.files ?? []) {
+      parts.push({
+        type: "text",
+        text: `\n[file: ${f.filename} — ${f.mediaType}, ${f.size} bytes — ${f.url}]`,
+      })
+    }
   })
   if (context.brainContext) {
     parts.push({ type: "text", text: context.brainContext })
@@ -1258,6 +1294,9 @@ export async function respond(
     ...(env.RAILWAY_API_TOKEN && github && caps.includes("code_intelligence")
       ? codeTools
       : {}),
+    ...(env.RAILWAY_API_TOKEN && ctx.channelId && caps.includes("artifacts")
+      ? artifactTools
+      : {}),
     ...(linear && caps.includes("linear") ? linearTools : {}),
     ...(linear && caps.includes("linear_write") ? linearWriteTools : {}),
     ...(attio && caps.includes("attio") ? attioTools : {}),
@@ -1279,6 +1318,20 @@ export async function respond(
             workspaceId: ctx.workspaceId,
             installationId: github.installationId,
             repos: github.repos,
+            onUsage,
+            onToolEvent,
+          },
+        }
+      : {}),
+    ...(env.RAILWAY_API_TOKEN && ctx.channelId && caps.includes("artifacts")
+      ? {
+          create_artifacts: {
+            workspaceId: ctx.workspaceId,
+            channelId: ctx.channelId,
+            // Task runs thread their taskId here (slice 3); plain answers
+            // produce standalone artifacts.
+            taskId: null,
+            deadlineAt: budgets.deadlineAt,
             onUsage,
             onToolEvent,
           },
@@ -1321,6 +1374,9 @@ export async function respond(
     datadogMcp ? DATADOG_PROMPT_LINE : null,
     attio && caps.includes("attio") ? ATTIO_PROMPT_LINE : null,
     notion && caps.includes("notion") ? NOTION_PROMPT_LINE : null,
+    env.RAILWAY_API_TOKEN && ctx.channelId && caps.includes("artifacts")
+      ? ARTIFACTS_PROMPT_LINE
+      : null,
   ].filter((line): line is string => line !== null)
 
   // The finally closes the Datadog MCP session after the whole tool loop, even

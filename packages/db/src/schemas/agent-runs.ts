@@ -311,10 +311,14 @@ export type AgentRunContextImage = {
   mediaType: string
   size: number
 }
+// Non-image attachments (CSVs, documents) — surfaced to the model as text
+// lines with their URLs so file tools can pull them as inputs.
+export type AgentRunContextFile = AgentRunContextImage
 export type AgentRunContextTurn = {
   authorName: string
   content: string
   images?: AgentRunContextImage[]
+  files?: AgentRunContextFile[]
 }
 export type AgentRunContext = {
   conversation: AgentRunContextTurn[]

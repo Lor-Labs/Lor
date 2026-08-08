@@ -1,4 +1,4 @@
-import { Sandbox } from "railway"
+import { Sandbox, type SandboxTemplate } from "railway"
 import { logger } from "../logger"
 
 // Railway does not export create options; derive them from Sandbox.create.
@@ -12,9 +12,15 @@ const DEFAULTS: SandboxOptions = {
 
 export async function withSandbox<T>(
   fn: (sandbox: Sandbox) => Promise<T>,
-  options?: SandboxOptions
+  options?: SandboxOptions,
+  // Boot from a template (content-addressed, cached server-side) instead of
+  // the base image — how the workbench gets Python/pandas preinstalled.
+  from?: SandboxTemplate
 ): Promise<T> {
-  const sandbox = await Sandbox.create({ ...DEFAULTS, ...options })
+  const merged = { ...DEFAULTS, ...options }
+  const sandbox = from
+    ? await Sandbox.create(from, merged)
+    : await Sandbox.create(merged)
   logger.info({ sandboxId: sandbox.id }, "Sandbox: created")
   try {
     return await fn(sandbox)

@@ -75,13 +75,40 @@ async function main(): Promise<void> {
   console.log("Sandbox destroyed. ✓")
 }
 
+// Write-mode workbench: template boots with Python/pandas, Pi gets write+bash
+// tools, deliverables are harvested from /workspace/out. Dynamic import so the
+// @repo/env parse inside workbench.ts happens after dotenv has loaded.
+async function workbenchSmoke(): Promise<void> {
+  console.log("\nRunning a write-mode workbench session (template boot)…")
+  const { runWorkbenchSession } = await import("./workbench")
+  const csv = "name,amount\nalpha,2\nbeta,3\n"
+  const result = await runWorkbenchSession({
+    instructions:
+      "Read /workspace/in/numbers.csv with pandas and compute the total of the amount column. Deliver two files: total.md (one sentence stating the total) and total.csv (the input rows plus a final TOTAL row).",
+    inputs: [{ filename: "numbers.csv", bytes: new TextEncoder().encode(csv) }],
+    timeoutSec: 300,
+  })
+  if ("error" in result) throw new Error(result.error)
+  console.log(`Agent summary: ${result.summary}`)
+  for (const f of result.files) {
+    console.log(`  out: ${f.path} (${f.contentType}, ${f.bytes.byteLength}b)`)
+  }
+  const md = result.files.find((f) => f.path === "total.md")
+  if (!md) throw new Error("expected total.md in workbench outputs")
+  const text = new TextDecoder().decode(md.bytes)
+  if (!text.includes("5")) throw new Error(`unexpected total.md: ${text}`)
+  console.log("Workbench smoke ✓")
+}
+
 if (!(process.env.RAILWAY_API_TOKEN && process.env.RAILWAY_ENVIRONMENT_ID)) {
   console.log(
     "RAILWAY_API_TOKEN / RAILWAY_ENVIRONMENT_ID not set — skipping sandbox smoke test."
   )
 } else {
-  main().catch((err) => {
-    console.error("Sandbox smoke test failed:", err)
-    process.exitCode = 1
-  })
+  main()
+    .then(workbenchSmoke)
+    .catch((err) => {
+      console.error("Sandbox smoke test failed:", err)
+      process.exitCode = 1
+    })
 }

@@ -119,14 +119,18 @@ async function loadConversation(args: {
     .limit(CONTEXT_LIMIT)
 
   return rows.reverse().map((r) => {
+    const toRef = (a: NonNullable<typeof r.attachments>[number]) => ({
+      url: a.url,
+      filename: a.filename,
+      mediaType: a.contentType,
+      size: a.size,
+    })
     const images = (r.attachments ?? [])
       .filter((a) => a.contentType.startsWith("image/"))
-      .map((a) => ({
-        url: a.url,
-        filename: a.filename,
-        mediaType: a.contentType,
-        size: a.size,
-      }))
+      .map(toRef)
+    const files = (r.attachments ?? [])
+      .filter((a) => !a.contentType.startsWith("image/"))
+      .map(toRef)
     return {
       authorName: userDisplayName({
         name: r.authorName,
@@ -135,6 +139,7 @@ async function loadConversation(args: {
       }),
       content: r.content ?? "",
       ...(images.length > 0 ? { images } : {}),
+      ...(files.length > 0 ? { files } : {}),
     }
   })
 }
@@ -552,7 +557,10 @@ export function createMerlinRespondProcessor(
                 // next checkpoint (the budget_spend ceiling).
                 onUsage: (u) => {
                   logger.info({ ...u }, "Merlin usage")
-                  if (u.tool === "investigate_code")
+                  if (
+                    u.tool === "investigate_code" ||
+                    u.tool === "create_artifacts"
+                  )
                     execution?.noteNestedUsage(u)
                   void recordUsage(u, usageRefs)
                 },
