@@ -875,6 +875,9 @@ importers:
       '@ai-sdk/mcp':
         specifier: ^2.0.5
         version: 2.0.5(zod@4.3.6)
+      '@aws-sdk/client-s3':
+        specifier: ^3.1004.0
+        version: 3.1004.0
       '@linear/sdk':
         specifier: ^87.0.0
         version: 87.0.0(graphql@16.12.0)

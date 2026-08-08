@@ -89,6 +89,7 @@ export type RealtimeMessageType =
   | "system_leave"
   | "system_pin"
   | "channel_name_change"
+  | "task_card"
 
 export type RealtimeAuthor = {
   id: string

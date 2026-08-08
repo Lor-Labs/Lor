@@ -25,6 +25,8 @@ export const merlinCapabilityEnum = pgEnum("merlin_capability", [
   "attio",
   "notion",
   "web",
+  // Sandbox workbench sessions that produce file deliverables (artifacts).
+  "artifacts",
 ])
 
 export type MerlinCapability = (typeof merlinCapabilityEnum.enumValues)[number]

@@ -22,6 +22,10 @@ export const messageTypeEnum = pgEnum("message_type", [
   "system_leave",
   "system_pin",
   "channel_name_change",
+  // A cowork task's card — rendered as the live task card and acting as the
+  // thread root of the task's conversation. The task row (see tasks.ts) is
+  // looked up by cardMessageId.
+  "task_card",
 ])
 
 // Lifecycle of a message row. Everything is "complete" except a Merlin
