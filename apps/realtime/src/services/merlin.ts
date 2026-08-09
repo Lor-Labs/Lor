@@ -97,7 +97,7 @@ export async function createMerlinPlaceholder(args: {
   return result.message
 }
 
-// A quest task and its card message. The card is a channel-level message that
+// A task and its card message. The card is a channel-level message that
 // acts as the thread root of all the task's runs — steering, queueing, stop,
 // and replay reuse the thread-scope machinery unchanged. Returns null on any
 // failure so the caller can fall back to a plain threaded answer.

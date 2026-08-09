@@ -52,7 +52,7 @@ function ApprovalCard({
   )
 }
 
-// Pinned quest header at the top of a task thread: goal, status, plan,
+// Pinned task header at the top of a task thread: goal, status, plan,
 // pending approval, and delivered artifacts (click one to open the viewer).
 export function TaskThreadHeader({
   workspaceSlug,

@@ -15,6 +15,16 @@ Core push is live and verified on TestFlight (2026-08-04).
 - [ ] Mute control on the mobile DM screen (web DM header has it; mobile mute UI lives only in the channel options sheet).
 - [ ] Muted-channel visual styling in sidebars/lists.
 
+## Post-launch — Tasks (shipped web-only 2026-08-08)
+
+Mobile has no task surfaces yet; the data layer (task rows, `task:updated` channel-room event, `/v1/channels/:id/tasks`, `/v1/tasks/:id`, approval endpoints, artifact endpoints) is shared and ready.
+
+- [ ] `task_card` messages render as plain text (goal string) — need a task card (web: `components/chat/task-card.tsx`).
+- [ ] Task thread header with plan/status/approval actions (web: `task-thread-header.tsx`).
+- [ ] Approve/reject from mobile (`POST /v1/approvals/:id/approve|reject`) — highest-value slice; approvals block tasks while the approver is away from a desk.
+- [ ] Artifact viewer (web: `?artifactId=` overlay + renderer registry; mobile likely a screen).
+- [ ] Active-tasks indicator in the channel header.
+
 ## Post-launch — DM follow-ups
 
 - [ ] Group-DM member list sheet (group DMs can't be created from either client yet).

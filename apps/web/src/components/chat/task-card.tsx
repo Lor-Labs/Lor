@@ -33,8 +33,8 @@ function PlanItemMarker({ status }: { status: "pending" | "active" | "done" }) {
   )
 }
 
-// The quest card a task_card message renders as: live status, plan checklist,
-// summary. Clicking opens the quest's thread — the full workspace (steering,
+// The card a task_card message renders as: live status, plan checklist,
+// summary. Clicking opens the task's thread — the full workspace (steering,
 // approvals, artifacts) lives there.
 export function TaskCard({
   message,
@@ -50,7 +50,7 @@ export function TaskCard({
       <div className="my-1 w-full max-w-xl rounded-lg border bg-card p-3 text-muted-foreground text-sm">
         <div className="flex items-center gap-2">
           <HugeiconsIcon icon={MagicWand01Icon} size={16} />
-          <span>Quest</span>
+          <span>Task</span>
         </div>
         <p className="mt-1 line-clamp-2">{message.content}</p>
       </div>
@@ -72,7 +72,7 @@ export function TaskCard({
           className="shrink-0 text-primary"
         />
         <span className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
-          Quest
+          Task
         </span>
         <Badge variant={meta.badgeVariant} size="sm" className="ml-auto">
           <HugeiconsIcon

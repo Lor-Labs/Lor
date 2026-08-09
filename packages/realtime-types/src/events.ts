@@ -470,7 +470,7 @@ export interface ServerToClientEvents {
   // queued-messages pill. Additions ride message:routed (outcome "queued").
   "run:queue:updated": (payload: RunQueueUpdatedEvent) => void
 
-  // Quest task snapshot changed (status, plan, summary). Channel room.
+  // Task snapshot changed (status, plan, summary). Channel room.
   "task:updated": (payload: TaskUpdatedEvent) => void
   "message:pin:toggled": (payload: RealtimeMessagePinToggled) => void
   "message:thread:updated": (payload: RealtimeMessageThreadUpdated) => void
@@ -524,7 +524,7 @@ export type RealtimeTaskPlanItem = {
   status: "pending" | "active" | "done"
 }
 
-// Snapshot of a quest task, emitted to the channel room on every status,
+// Snapshot of a task, emitted to the channel room on every status,
 // plan, or summary change — the task card and header chip render from it.
 export type RealtimeTask = {
   id: string

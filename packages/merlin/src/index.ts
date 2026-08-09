@@ -222,7 +222,7 @@ export type RespondContext = {
   conversation: ConversationTurn[]
   channelId?: string
   runId?: string
-  // Set when this run belongs to a quest task (the scope's thread root is a
+  // Set when this run belongs to a task (the scope's thread root is a
   // task card): binds the task tools, task prompt rules, and workbench
   // continuity.
   task?: RunTaskContext

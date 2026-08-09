@@ -6,9 +6,9 @@ import {
   useChannelTasks,
 } from "@/hooks/use-channel-tasks"
 
-// Persistent "quests in flight" affordance — the anti-lost-in-scroll anchor.
-// Clicking opens the most recent active quest's thread.
-export function ActiveQuestsChip({
+// Persistent "tasks in flight" affordance — the anti-lost-in-scroll anchor.
+// Clicking opens the most recent active task's thread.
+export function ActiveTasksChip({
   workspaceSlug,
   channelId,
 }: {
@@ -23,7 +23,7 @@ export function ActiveQuestsChip({
   const latest = active[0]
   if (!latest) return null
 
-  const openQuest = () => {
+  const openTask = () => {
     setView({
       type: "thread",
       workspaceSlug,
@@ -36,7 +36,7 @@ export function ActiveQuestsChip({
   return (
     <button
       type="button"
-      onClick={openQuest}
+      onClick={openTask}
       className="flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-muted-foreground text-sm transition-colors hover:bg-accent hover:text-foreground"
     >
       <HugeiconsIcon
@@ -44,7 +44,7 @@ export function ActiveQuestsChip({
         size={15}
         className="text-primary"
       />
-      <span>{active.length === 1 ? "1 quest" : `${active.length} quests`}</span>
+      <span>{active.length === 1 ? "1 task" : `${active.length} tasks`}</span>
     </button>
   )
 }

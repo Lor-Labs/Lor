@@ -22,7 +22,7 @@ export const approvalStatusEnum = pgEnum("approval_status", [
 ])
 
 // A consequential action an agent wants a human to authorize. Workflow-
-// agnostic: a quest task is one anchor (taskId set), future workflows attach
+// agnostic: a task is one anchor (taskId set), future workflows attach
 // their own. For tasks, requesting one ends the run; resolution posts a
 // message into the task thread, which starts the continuation run through the
 // normal thread-reply path.
@@ -34,7 +34,7 @@ export const approval = pgTable(
     workspaceId: uuid("workspace_id")
       .notNull()
       .references(() => workspace.id, { onDelete: "cascade" }),
-    // Set when a quest task requested it; null for other workflows.
+    // Set when a task requested it; null for other workflows.
     taskId: uuid("task_id").references(() => task.id, { onDelete: "cascade" }),
     // The run that requested it (audit).
     runId: uuid("run_id").references(() => agentRun.id, {

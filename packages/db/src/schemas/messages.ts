@@ -22,7 +22,7 @@ export const messageTypeEnum = pgEnum("message_type", [
   "system_leave",
   "system_pin",
   "channel_name_change",
-  // A quest's card — rendered as the live task card and acting as the
+  // A task's card — rendered as the live task card and acting as the
   // thread root of the task's conversation. The task row (see tasks.ts) is
   // looked up by cardMessageId.
   "task_card",

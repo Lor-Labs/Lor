@@ -206,7 +206,7 @@ export function createMerlinRespondProcessor(
           )
         }
 
-        // Quest task, when this run's thread root is a task card.
+        // The task, when this run's thread root is a task card.
         const task = threadRootId
           ? await db
               .select()

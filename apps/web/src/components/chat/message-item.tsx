@@ -316,8 +316,8 @@ export function MessageItem({
     )
   }
 
-  // A quest card renders as its own surface; the thread behind it is the
-  // quest's workspace.
+  // A task card renders as its own surface; the thread behind it is the
+  // task's workspace.
   if (message.type === "task_card") {
     return (
       <div data-message-id={message.id} className="px-4 py-1">

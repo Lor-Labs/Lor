@@ -22,7 +22,7 @@ import {
 export const listChannelTasks = createRoute({
   path: "/channels/{channelId}/tasks",
   method: "get",
-  summary: "List a channel's quests",
+  summary: "List a channel's tasks",
   description:
     "Returns the channel's tasks, newest first. Pass active=true for only tasks that are running or waiting on the team.",
   tags: ["Tasks"],
@@ -49,7 +49,7 @@ export type ListChannelTasksRoute = typeof listChannelTasks
 export const getTask = createRoute({
   path: "/tasks/{taskId}",
   method: "get",
-  summary: "Get a quest task",
+  summary: "Get a task",
   description:
     "Returns the task snapshot plus its pending approval, if one is waiting on the team.",
   tags: ["Tasks"],
