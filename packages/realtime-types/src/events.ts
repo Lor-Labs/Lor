@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { MAX_ATTACHMENTS_PER_MESSAGE } from "./uploads"
 
 export type PresenceStatus = "online" | "offline" | "idle" | "dnd"
 export const PRESENCE_ONLINE_USERS_SET_KEY = "presence:online-users"
@@ -31,7 +32,10 @@ export const sendMessagePayloadSchema = z
     nonce: z.string().max(100).optional(),
     referencedMessageId: z.string().uuid().optional(),
     threadRootId: z.string().uuid().optional(),
-    attachments: z.array(attachmentPayloadSchema).max(10).optional(),
+    attachments: z
+      .array(attachmentPayloadSchema)
+      .max(MAX_ATTACHMENTS_PER_MESSAGE)
+      .optional(),
   })
   .refine(
     (data) =>

@@ -32,12 +32,17 @@ export type WorkbenchFile = {
 export type WorkbenchResult = {
   files: WorkbenchFile[]
   summary: string
-  usage: WorkbenchUsage
+  // Absent when the session failed before pi reported usage.
+  usage?: WorkbenchUsage
   // Output files dropped by the harvest caps, so the caller can say so.
   skipped: string[]
   // Name of the checkpoint saved after a task session (absent when saving
   // failed or the session wasn't task-scoped) — the caller persists it.
   checkpoint?: string
+  // Set when the agent didn't finish cleanly (timeout, crash) but partial
+  // work was still harvested/checkpointed — the caller tells the model so it
+  // can continue instead of starting over.
+  failure?: string
 }
 
 // Task continuity: boot from the task's last checkpoint (Pi's scripts,
@@ -59,9 +64,9 @@ const MAX_WALK_DEPTH = 4
 // bare Debian that templates build on can't run pi) + the Python toolchain,
 // captured once as a named checkpoint. Sessions boot from the checkpoint in a
 // few seconds. Bump the version suffix when changing the package set.
-const WORKBENCH_CHECKPOINT = "workbench-base-v1"
+const WORKBENCH_CHECKPOINT = "workbench-base-v2"
 const PROVISION_CMD =
-  "apt-get update -qq && apt-get install -y -qq python3-pandas python3-matplotlib python3-openpyxl"
+  "apt-get update -qq && apt-get install -y -qq python3-pandas python3-matplotlib python3-openpyxl && pip install --break-system-packages --quiet pdfplumber"
 const PROVISION_TIMEOUT_SEC = 420
 
 // Checkpoint boots restore the disk but not the base image's PATH; pi and
@@ -141,8 +146,8 @@ function brief(instructions: string, inputFilenames: string[]): string {
     "delivered to the team when you finish — and nothing else is. Keep scripts",
     "and scratch work elsewhere unless they are themselves deliverables.",
     "",
-    "Python 3 is installed with pandas, matplotlib, and openpyxl. Write and run",
-    "scripts as needed.",
+    "Python 3 is installed with pandas, matplotlib, openpyxl, and pdfplumber.",
+    "Write and run scripts as needed.",
     "",
     "When you finish, reply with a short summary of what you produced and any",
     "assumptions you made.",
@@ -305,21 +310,24 @@ export async function runWorkbenchSession(opts: {
           "Workbench: agent finished"
         )
         if (abortSignal?.aborted) return { error: "cancelled" }
-        if (run.timedOut) return { error: "workbench session timed out" }
-        if (run.exitCode !== 0) {
-          const detail = (run.stderr || run.stdout).slice(0, 300)
+
+        // A timeout or crash must not vaporize finished work: fall through to
+        // harvest whatever reached /workspace/out and (for tasks) checkpoint
+        // the workspace, so a follow-up session resumes instead of restarting.
+        const failure = run.timedOut
+          ? "timed out"
+          : run.exitCode !== 0
+            ? `failed: ${(run.stderr || run.stdout).slice(0, 300) || "unknown error"}`
+            : collected.error && !collected.findings
+              ? `failed: ${collected.error}`
+              : null
+        if (failure) {
           logger.warn(
-            { exitCode: run.exitCode, detail },
-            "Workbench: agent exited non-zero"
+            { failure, exitCode: run.exitCode },
+            "Workbench: agent did not finish cleanly"
           )
-          return {
-            error: `workbench agent failed: ${detail || "unknown error"}`,
-          }
-        }
-        if (collected.error && !collected.findings) {
-          return { error: `workbench agent failed: ${collected.error}` }
-        }
-        if (!collected.usage) {
+        } else if (!collected.usage) {
+          // Clean exit but no usage means pi silently did nothing — reject.
           return { error: "workbench agent returned no billable usage" }
         }
 
@@ -363,11 +371,20 @@ export async function runWorkbenchSession(opts: {
           )
         }
 
+        if (failure && files.length === 0 && !checkpoint) {
+          return { error: `workbench session ${failure}` }
+        }
+
         return {
           files,
-          summary: collected.findings || "(no summary from the agent)",
-          usage: collected.usage,
+          summary:
+            collected.findings ||
+            (failure
+              ? "(the session was cut short before the agent could summarize)"
+              : "(no summary from the agent)"),
+          ...(collected.usage ? { usage: collected.usage } : {}),
           skipped,
+          ...(failure ? { failure } : {}),
           ...(checkpoint ? { checkpoint } : {}),
         }
       },

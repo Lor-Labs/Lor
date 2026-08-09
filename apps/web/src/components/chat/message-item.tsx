@@ -29,6 +29,7 @@ import { MessageActionBar } from "@/components/chat/message-action-bar"
 import { AttachmentGrid } from "@/components/chat/message-attachment"
 import { MessageEditInput } from "@/components/chat/message-edit-input"
 import { MessageMarkdown } from "@/components/chat/message-markdown"
+import { TaskCard } from "@/components/chat/task-card"
 import { ThinkingIndicator } from "@/components/chat/thinking-indicator"
 import { UserProfilePopover } from "@/components/ui/user-profile-card"
 import { useStopMerlinRun } from "@/hooks/use-stop-merlin-run"
@@ -311,6 +312,16 @@ export function MessageItem({
         >
           Blocked message — click to reveal
         </button>
+      </div>
+    )
+  }
+
+  // A quest card renders as its own surface; the thread behind it is the
+  // quest's workspace.
+  if (message.type === "task_card") {
+    return (
+      <div data-message-id={message.id} className="px-4 py-1">
+        <TaskCard message={message} onOpenThread={onOpenThread} />
       </div>
     )
   }

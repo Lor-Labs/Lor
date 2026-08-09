@@ -9,6 +9,7 @@ import {
 import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { useParams } from "@tanstack/react-router"
 import { Hash } from "lucide-react"
+import { ActiveQuestsChip } from "@/components/chat/active-quests-chip"
 import { ChannelMuteMenu } from "@/components/chat/channel-mute-menu"
 import { HeaderSearch } from "@/components/chat/header-search"
 import { HeaderNavControls } from "@/components/desktop-titlebar"
@@ -64,6 +65,12 @@ export function ChatHeader({
         </span>
       )}
       <div className="ml-auto flex items-center gap-1">
+        {context.type === "channel" && workspaceSlug && (
+          <ActiveQuestsChip
+            workspaceSlug={workspaceSlug}
+            channelId={channelId}
+          />
+        )}
         <HeaderSearch
           mode={context.type === "channel" ? "workspace" : "dm"}
           channelId={channelId}

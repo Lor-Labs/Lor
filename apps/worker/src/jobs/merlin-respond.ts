@@ -12,6 +12,7 @@ import {
   notExists,
   or,
   schema,
+  sql,
 } from "@repo/db"
 import type {
   MerlinMemory,
@@ -101,7 +102,12 @@ async function loadConversation(args: {
       and(
         scope,
         ne(schema.message.id, args.merlinMessageId),
-        isNotNull(schema.message.content),
+        // Attachment-only messages have null content but are real turns —
+        // dropping them made Merlin blind to uploaded files.
+        or(
+          isNotNull(schema.message.content),
+          sql`jsonb_array_length(coalesce(${schema.message.attachments}, '[]'::jsonb)) > 0`
+        ),
         // Still-queued messages haven't been "sent" yet — each gets its own
         // follow-up run, so they stay out of earlier runs' context (mirrors
         // the clients hiding them from the transcript).

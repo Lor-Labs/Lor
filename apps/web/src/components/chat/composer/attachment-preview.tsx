@@ -29,7 +29,9 @@ function FilePreviewTile({ attachment }: { attachment: PendingAttachment }) {
         {attachment.filename}
       </span>
       <span className="text-[10px] text-muted-foreground">
-        {label} · {formatFileSize(attachment.size)}
+        {attachment.status === "error"
+          ? "Upload failed"
+          : `${label} · ${formatFileSize(attachment.size)}`}
       </span>
     </div>
   )

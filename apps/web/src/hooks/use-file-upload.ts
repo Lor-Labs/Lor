@@ -3,7 +3,7 @@ import {
   ALLOWED_MIME_TYPES,
   MAX_ATTACHMENTS_PER_MESSAGE,
 } from "@repo/realtime-types/uploads"
-import { useCallback, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 import { apiClient } from "@/lib/api-client"
 import type { Message } from "@/lib/api-types"
@@ -37,38 +37,117 @@ async function getImageDimensions(
   }
 }
 
+const PRESIGN_TIMEOUT_MS = 20_000
+const PUT_TIMEOUT_MS = 180_000
+const READ_TIMEOUT_MS = 15_000
+const UPLOAD_CONCURRENCY = 4
+
+export class FileReadError extends Error {}
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new FileReadError("file read timed out")),
+      ms
+    )
+    promise.then(
+      (value) => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      (err) => {
+        clearTimeout(timer)
+        reject(err)
+      }
+    )
+  })
+}
+
+function readViaFileReader(file: File): Promise<ArrayBuffer> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result as ArrayBuffer)
+    reader.onerror = () =>
+      reject(reader.error ?? new FileReadError("file read failed"))
+    reader.readAsArrayBuffer(file)
+  })
+}
+
+// Dropped Files are lazy handles into browser drag plumbing; WKWebView (the
+// desktop app) can stall Blob.arrayBuffer() on them forever while the same
+// file reads fine through FileReader. Try both, each with a timeout, so a
+// broken handle becomes a fast visible error instead of an infinite spinner.
+async function readFileBytes(file: File): Promise<ArrayBuffer> {
+  try {
+    return await withTimeout(file.arrayBuffer(), READ_TIMEOUT_MS)
+  } catch {
+    try {
+      return await withTimeout(readViaFileReader(file), READ_TIMEOUT_MS)
+    } catch (err) {
+      throw err instanceof FileReadError
+        ? err
+        : new FileReadError("file read failed")
+    }
+  }
+}
+
 async function uploadFile(
   channelId: string,
   attachment: PendingAttachment
 ): Promise<{ url: string } | null> {
-  const presignRes = await apiClient.v1.uploads.presign.$post({
-    json: {
-      channelId,
-      filename: attachment.filename,
-      contentType: attachment.contentType,
-      size: attachment.size,
-    },
-  })
+  // Read the bytes BEFORE sending: streaming the handle as the fetch body
+  // hangs on unreadable handles, and reading up front also guarantees the
+  // signed Content-Length matches what we actually send.
+  const body = await readFileBytes(attachment.file)
 
-  if (!presignRes.ok) return null
+  const presignRes = await apiClient.v1.uploads.presign.$post(
+    {
+      json: {
+        channelId,
+        filename: attachment.filename,
+        contentType: attachment.contentType,
+        size: body.byteLength,
+      },
+    },
+    { init: { signal: AbortSignal.timeout(PRESIGN_TIMEOUT_MS) } }
+  )
+
+  if (!presignRes.ok) {
+    console.error(
+      `attachment presign failed: ${attachment.contentType} → ${presignRes.status}`
+    )
+    return null
+  }
 
   const { uploadUrl, fileUrl } = await presignRes.json()
 
   const uploadRes = await fetch(uploadUrl, {
     method: "PUT",
-    body: attachment.file,
+    body,
     headers: {
       "Content-Type": attachment.contentType,
     },
+    signal: AbortSignal.timeout(PUT_TIMEOUT_MS),
   })
 
-  if (!uploadRes.ok) return null
+  if (!uploadRes.ok) {
+    console.error(
+      `attachment upload failed: ${attachment.contentType} → ${uploadRes.status}`
+    )
+    return null
+  }
 
   return { url: fileUrl }
 }
 
 export function useFileUpload(channelId: string) {
   const [attachments, setAttachments] = useState<PendingAttachment[]>([])
+  // Mirror for reads outside render: state updaters must stay pure (React
+  // defers them in batched async contexts), so slot checks read this instead.
+  const attachmentsRef = useRef<PendingAttachment[]>([])
+  useEffect(() => {
+    attachmentsRef.current = attachments
+  }, [attachments])
 
   const addFiles = useCallback(
     async (files: File[]) => {
@@ -109,25 +188,31 @@ export function useFileUpload(channelId: string) {
         })
       )
 
-      // Atomically check remaining slots and append
-      let accepted: PendingAttachment[] = []
-      setAttachments((prev) => {
-        const remaining = MAX_ATTACHMENTS_PER_MESSAGE - prev.length
-        accepted = prepared.slice(0, remaining)
-        if (prepared.length > remaining) {
-          toast.error(
-            `You can only attach up to ${MAX_ATTACHMENTS_PER_MESSAGE} files per message`
-          )
-        }
-        if (accepted.length === 0) return prev
-        return [...prev, ...accepted]
-      })
-
+      // Check remaining slots OUTSIDE the state updater: React defers
+      // updaters in batched async contexts, so a closure variable assigned
+      // inside one is not readable synchronously after — that pattern
+      // silently dropped every upload whose updater ran deferred.
+      const remaining =
+        MAX_ATTACHMENTS_PER_MESSAGE - attachmentsRef.current.length
+      const accepted = prepared.slice(0, Math.max(0, remaining))
+      if (prepared.length > accepted.length) {
+        toast.error(
+          `You can only attach up to ${MAX_ATTACHMENTS_PER_MESSAGE} files per message`
+        )
+      }
       if (accepted.length === 0) return
+      setAttachments((prev) => [...prev, ...accepted])
 
-      // Upload each file immediately in parallel
-      await Promise.all(
-        accepted.map(async (attachment) => {
+      // Upload immediately, a few at a time: each upload buffers the whole
+      // file in memory, so unbounded parallelism over 20×100MB would spike
+      // gigabytes. A small pool keeps peak memory flat.
+      const queue = [...accepted]
+      const worker = async () => {
+        for (
+          let attachment = queue.shift();
+          attachment;
+          attachment = queue.shift()
+        ) {
           try {
             const result = await uploadFile(channelId, attachment)
             if (result) {
@@ -139,6 +224,7 @@ export function useFileUpload(channelId: string) {
                 )
               )
             } else {
+              toast.error("Upload failed", { description: attachment.filename })
               setAttachments((prev) =>
                 prev.map((a) =>
                   a.id === attachment.id
@@ -147,14 +233,31 @@ export function useFileUpload(channelId: string) {
                 )
               )
             }
-          } catch {
+          } catch (err) {
+            const timedOut =
+              err instanceof DOMException && err.name === "TimeoutError"
+            const unreadable = err instanceof FileReadError
+            toast.error(
+              unreadable
+                ? "Couldn't read the dropped file — try the + upload button"
+                : timedOut
+                  ? "Upload timed out"
+                  : "Upload failed",
+              { description: attachment.filename }
+            )
             setAttachments((prev) =>
               prev.map((a) =>
                 a.id === attachment.id ? { ...a, status: "error" as const } : a
               )
             )
           }
-        })
+        }
+      }
+      await Promise.all(
+        Array.from(
+          { length: Math.min(UPLOAD_CONCURRENCY, accepted.length) },
+          worker
+        )
       )
     },
     [channelId]

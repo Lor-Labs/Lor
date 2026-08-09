@@ -46,6 +46,21 @@ const TAKEOVER_SEQ_GAP = 10_000
 
 const WORKER_ID = `${hostname()}:${process.pid}:${randomUUID().slice(0, 8)}`
 
+// Attachment-only messages have null content; render their files as the same
+// [file: …] lines the initial context uses so mid-run injections carry them.
+function withAttachmentLines(
+  content: string | null,
+  attachments:
+    | { url: string; filename: string; size: number; contentType: string }[]
+    | null
+): string {
+  const lines = (attachments ?? []).map(
+    (a) =>
+      `[file: ${a.filename} — ${a.contentType}, ${a.size} bytes — ${a.url}]`
+  )
+  return [content ?? "", ...lines].filter(Boolean).join("\n")
+}
+
 // Runs this process currently holds a lease on, keyed to their immediate-stop
 // trigger. The pub/sub subscriber (worker bootstrap) routes stop signals here.
 const activeRunStops = new Map<string, () => void>()
@@ -498,6 +513,7 @@ export async function claimAgentRun(
         .select({
           id: schema.message.id,
           content: schema.message.content,
+          attachments: schema.message.attachments,
           name: schema.user.name,
           username: schema.user.username,
           displayUsername: schema.user.displayUsername,
@@ -512,12 +528,12 @@ export async function claimAgentRun(
         )
       const order = new Map(consumed.map((c, i) => [c.messageId, i]))
       return rows
-        .filter((r) => r.content)
+        .filter((r) => r.content || (r.attachments?.length ?? 0) > 0)
         .sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0))
         .map((r) => ({
           messageId: r.id,
           authorName: userDisplayName(r),
-          content: r.content ?? "",
+          content: withAttachmentLines(r.content, r.attachments),
         }))
     })
     for (const m of steered) {
@@ -544,6 +560,7 @@ export async function claimAgentRun(
     const ambientRows = await db
       .select({
         content: schema.message.content,
+        attachments: schema.message.attachments,
         createdAt: schema.message.createdAt,
         name: schema.user.name,
         username: schema.user.username,
@@ -556,7 +573,10 @@ export async function claimAgentRun(
           scopeCond,
           gt(schema.message.createdAt, conversationSeenAt),
           ne(schema.message.authorId, MERLIN_USER_ID),
-          isNotNull(schema.message.content),
+          or(
+            isNotNull(schema.message.content),
+            sql`jsonb_array_length(coalesce(${schema.message.attachments}, '[]'::jsonb)) > 0`
+          ),
           eq(schema.message.excludedFromMemory, false),
           // Routed messages ride the steer/queue path — never both tiers.
           notExists(
@@ -576,7 +596,7 @@ export async function claimAgentRun(
       steered,
       ambient: ambientRows.map((r) => ({
         authorName: userDisplayName(r),
-        content: r.content ?? "",
+        content: withAttachmentLines(r.content, r.attachments),
       })),
     }
   }

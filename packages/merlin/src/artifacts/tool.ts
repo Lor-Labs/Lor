@@ -18,7 +18,7 @@ import { artifactPublicUrl, writeArtifactVersion } from "./service"
 // tools-off margin only triggers between steps, so the tool bounds itself.
 const MIN_REMAINING_MS = 4 * 60_000
 const FINISH_MARGIN_MS = 2 * 60_000
-const MAX_INPUT_FILES = 8
+const MAX_INPUT_FILES = 20
 
 const artifactsContext = z.object({
   workspaceId: z.string(),
@@ -190,21 +190,23 @@ export const artifactTools = {
         return { error: result?.error ?? "workbench session failed" }
       }
 
-      try {
-        context.onUsage?.({
-          workspaceId: context.workspaceId,
-          tool: "create_artifacts",
-          billingKey,
-          model: result.usage.model,
-          requestedModel: result.usage.requestedModel,
-          inputTokens: result.usage.inputTokens,
-          cachedInputTokens: result.usage.cachedInputTokens,
-          outputTokens: result.usage.outputTokens,
-          reasoningTokens: result.usage.reasoningTokens,
-          metadata: { files: result.files.length },
-        })
-      } catch (err) {
-        logger.error({ err }, "Merlin onUsage listener failed")
+      if (result.usage) {
+        try {
+          context.onUsage?.({
+            workspaceId: context.workspaceId,
+            tool: "create_artifacts",
+            billingKey,
+            model: result.usage.model,
+            requestedModel: result.usage.requestedModel,
+            inputTokens: result.usage.inputTokens,
+            cachedInputTokens: result.usage.cachedInputTokens,
+            outputTokens: result.usage.outputTokens,
+            reasoningTokens: result.usage.reasoningTokens,
+            metadata: { files: result.files.length },
+          })
+        } catch (err) {
+          logger.error({ err }, "Merlin onUsage listener failed")
+        }
       }
 
       // Persist the new checkpoint pointer, then retire the superseded one.
@@ -251,6 +253,11 @@ export const artifactTools = {
           ...(result.skipped.length
             ? {
                 note: `some output files exceeded size caps and were dropped: ${result.skipped.join(", ")}`,
+              }
+            : {}),
+          ...(result.failure
+            ? {
+                warning: `the workbench session ${result.failure} before finishing. Any files listed above were still delivered, and the workspace (scripts, parsed data, progress) is preserved. Call create_artifacts again — reword the instructions to say what remains to be done — and the agent will continue from where it left off instead of starting over.`,
               }
             : {}),
         }

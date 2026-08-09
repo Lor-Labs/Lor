@@ -40,6 +40,7 @@ import {
   useRegisteredMessageScroller,
 } from "@/components/chat/message-scroller-controls"
 import { RunQueuePill } from "@/components/chat/run-queue-pill"
+import { TaskThreadHeader } from "@/components/chat/task-thread-header"
 import { TypingIndicator } from "@/components/chat/typing-indicator"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import type { ThreadSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
@@ -473,6 +474,14 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
           />
         </button>
       </div>
+
+      {rootMessage?.type === "task_card" && (
+        <TaskThreadHeader
+          workspaceSlug={view.workspaceSlug}
+          channelId={view.channelId}
+          cardMessageId={view.threadRootId}
+        />
+      )}
 
       <MessageScrollerProvider
         key={view.threadRootId}
