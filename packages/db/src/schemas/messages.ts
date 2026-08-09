@@ -213,6 +213,15 @@ export type MerlinToolCall = {
     // favicon: site icon url for web results — rendered on the item's badge.
     items?: { title: string; url?: string; favicon?: string }[]
   }
+  // Artifact deliverables this call produced (create_artifacts) — presented
+  // as file cards at the end of the message, opening the artifact viewer.
+  files?: {
+    artifactId: string
+    path: string
+    contentType: string
+    size: number
+    url: string
+  }[]
   status?: "ok" | "error"
 }
 

@@ -107,14 +107,18 @@ export async function createTaskWithCard(args: {
   channelId: string
   creatorId: string
   goal: string
+  // Short issue-style title from the placement call; falls back to the goal.
+  title?: string | null
 }): Promise<{ card: RealtimeMessage; task: Task } | null> {
   try {
     const title =
+      args.title?.trim().slice(0, 80) ||
       args.goal
         .replace(/<@[0-9a-fA-F-]+>/g, "")
         .replace(/\s+/g, " ")
         .trim()
-        .slice(0, 80) || "Task"
+        .slice(0, 80) ||
+      "Task"
     const { message: card } = await createMessage({
       userId: MERLIN_USER_ID,
       payload: { channelId: args.channelId, content: args.goal },

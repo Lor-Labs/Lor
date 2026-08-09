@@ -659,7 +659,7 @@ function asString(v: unknown): string | undefined {
 function toolDetail(
   toolName: string,
   output: unknown
-): Pick<MerlinToolCall, "detail" | "status"> {
+): Pick<MerlinToolCall, "detail" | "status" | "files"> {
   const rec = asRecord(output)
   if (rec && "error" in rec) {
     return {
@@ -765,20 +765,25 @@ function toolDetail(
     case "create_artifacts": {
       const files = Array.isArray(rec?.files) ? rec.files : []
       const summary = asString(rec?.summary)?.slice(0, 16000)
+      const deliverables = files.flatMap((it) => {
+        const r = asRecord(it)
+        const artifactId = asString(r?.artifactId)
+        const path = asString(r?.path)
+        const contentType = asString(r?.contentType)
+        const url = asString(r?.url)
+        const size = typeof r?.size === "number" ? r.size : null
+        return artifactId && path && contentType && url && size !== null
+          ? [{ artifactId, path, contentType, size, url }]
+          : []
+      })
       return {
         status: "ok",
+        ...(deliverables.length > 0 ? { files: deliverables } : {}),
         detail: {
           summary:
             files.length === 0
               ? (summary ?? "No files produced")
               : `${plural(files.length, "file")} delivered${summary ? ` · ${summary}` : ""}`,
-          items: files.slice(0, 8).map((it) => {
-            const r = asRecord(it)
-            return {
-              title: asString(r?.path) ?? "file",
-              url: asString(r?.url),
-            }
-          }),
         },
       }
     }

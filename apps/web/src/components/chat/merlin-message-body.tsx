@@ -1,4 +1,5 @@
 import { useMemo } from "react"
+import { ArtifactFileCard } from "@/components/chat/artifact-file-card"
 import { MerlinReasoning } from "@/components/chat/merlin-reasoning"
 import { MerlinToolTrail } from "@/components/chat/merlin-tool-trail"
 import { MessageMarkdown } from "@/components/chat/message-markdown"
@@ -125,7 +126,7 @@ export function MerlinMessageBody({
 }) {
   // Only top-level calls drive timeline segmentation; nested sub-steps render
   // inside their parent tool's trail.
-  const { segments, childrenByParent } = useMemo(() => {
+  const { segments, childrenByParent, deliverables } = useMemo(() => {
     const children = new Map<string, MerlinToolCallView[]>()
     for (const toolCall of toolCalls) {
       if (!toolCall.parentToolCallId) continue
@@ -134,9 +135,21 @@ export function MerlinMessageBody({
       children.set(toolCall.parentToolCallId, childCalls)
     }
     const topLevel = toolCalls.filter((toolCall) => !toolCall.parentToolCallId)
+    // Files this answer produced, presented as cards at the end of the
+    // message — deduped by artifact so a re-run keeps the latest version.
+    const files = new Map<
+      string,
+      NonNullable<MerlinToolCallView["files"]>[number]
+    >()
+    for (const toolCall of topLevel) {
+      for (const file of toolCall.files ?? []) {
+        files.set(file.artifactId, file)
+      }
+    }
     return {
       segments: buildSegments(content ?? "", topLevel, reasoningSegments),
       childrenByParent: children,
+      deliverables: [...files.values()],
     }
   }, [content, toolCalls, reasoningSegments])
 
@@ -176,6 +189,19 @@ export function MerlinMessageBody({
           />
         )
       })}
+      {deliverables.length > 0 && (
+        <div className="mt-2 flex flex-col gap-1.5">
+          {deliverables.map((file) => (
+            <ArtifactFileCard
+              key={file.artifactId}
+              artifactId={file.artifactId}
+              name={file.path}
+              contentType={file.contentType}
+              size={file.size}
+            />
+          ))}
+        </div>
+      )}
     </>
   )
 }

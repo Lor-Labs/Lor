@@ -684,7 +684,7 @@ io.on("connection", (socket) => {
           const placementStart = performance.now()
           try {
             const recent = await loadRecentChannelMessages(parsed.channelId)
-            const placement = await decideReplyPlacement(recent)
+            const { placement, taskTitle } = await decideReplyPlacement(recent)
             if (placement === "thread") {
               merlinThreadRootId = createdMessage.message.id
             } else if (placement === "task" && accessibleChannel.workspaceId) {
@@ -694,6 +694,7 @@ io.on("connection", (socket) => {
                 channelId: parsed.channelId,
                 creatorId: socket.data.user.id,
                 goal: parsed.content ?? "",
+                title: taskTitle,
               })
               if (created) {
                 merlinThreadRootId = created.card.id

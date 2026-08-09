@@ -453,6 +453,13 @@ export interface ServerToClientEvents {
         summary?: string
         items?: { title: string; url?: string }[]
       }
+      files?: {
+        artifactId: string
+        path: string
+        contentType: string
+        size: number
+        url: string
+      }[]
       status?: "ok" | "error"
     }
     runId?: string
