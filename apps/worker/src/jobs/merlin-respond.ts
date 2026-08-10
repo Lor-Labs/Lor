@@ -604,7 +604,6 @@ export function createMerlinRespondProcessor(
                         status: task.status,
                         plan: task.plan,
                         summary: task.summary,
-                        sandboxCheckpoint: task.sandboxCheckpoint,
                       },
                     }
                   : {}),

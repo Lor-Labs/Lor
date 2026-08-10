@@ -5,7 +5,6 @@ import { tool } from "ai"
 import { z } from "zod"
 import { logger } from "../logger"
 import {
-  deleteWorkbenchCheckpoint,
   runWorkbenchSession,
   type WorkbenchInput,
   type WorkbenchTaskContinuity,
@@ -24,9 +23,9 @@ const FETCH_TIMEOUT_MS = 30_000
 const artifactsContext = z.object({
   workspaceId: z.string(),
   channelId: z.string(),
-  // Task runs get continuity: checkpoint boot, Pi session resume, artifact
-  // reseeding. Null for plain-answer sessions.
-  task: z.custom<{ id: string; sandboxCheckpoint: string | null } | null>(),
+  // Task runs get continuity: the task's persistent sandbox, Pi session
+  // resume, artifact reseeding. Null for plain-answer sessions.
+  task: z.custom<{ id: string } | null>(),
   deadlineAt: z.custom<Date>().optional(),
   onUsage: z.custom<OnUsage>().optional(),
   onToolEvent: z.custom<(e: MerlinToolCall) => void>().optional(),
@@ -180,7 +179,6 @@ export const artifactTools = {
           ? {
               task: {
                 id: context.task.id,
-                bootCheckpoint: context.task.sandboxCheckpoint,
                 outSeed: await loadTaskOutSeed(context.task.id),
               },
             }
@@ -220,25 +218,6 @@ export const artifactTools = {
           })
         } catch (err) {
           logger.error({ err }, "Merlin onUsage listener failed")
-        }
-      }
-
-      // Persist the new checkpoint pointer, then retire the superseded one —
-      // only if the pointer actually moved, or we'd delete the checkpoint the
-      // task still boots from.
-      if (context.task && result.checkpoint) {
-        const previous = context.task.sandboxCheckpoint
-        const updated = await db
-          .update(schema.task)
-          .set({ sandboxCheckpoint: result.checkpoint })
-          .where(eq(schema.task.id, context.task.id))
-          .then(() => true)
-          .catch((err) => {
-            logger.warn({ err }, "Workbench: checkpoint pointer update failed")
-            return false
-          })
-        if (updated && previous && previous !== result.checkpoint) {
-          void deleteWorkbenchCheckpoint(previous)
         }
       }
 

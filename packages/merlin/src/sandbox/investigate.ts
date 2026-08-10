@@ -1,12 +1,13 @@
 import { env } from "@repo/env/server"
 import { logger } from "../logger"
-import { withSandbox } from "./index"
-import { buildPiCommand, buildPiModelConfig } from "./pi-config"
 import {
-  createPiEventCollector,
-  type PiCodeStep,
-  type PiInvestigationUsage,
-} from "./pi-events"
+  execToCompletion,
+  runPi,
+  withEphemeralSandbox,
+  writeText,
+} from "./blaxel"
+import { buildPiCommand, buildPiModelConfig } from "./pi-config"
+import type { PiCodeStep, PiInvestigationUsage } from "./pi-events"
 
 export type InvestigationUsage = PiInvestigationUsage
 export type CodeStep = PiCodeStep
@@ -39,128 +40,108 @@ export async function investigateCode(opts: {
   onStep?: (step: CodeStep) => void
 }): Promise<InvestigationResult | { error: string }> {
   const { repoFullName, cloneToken, question, onStep } = opts
-  // Token is in the clone URL; scrub command output before logging.
-  const cloneUrl = `https://x-access-token:${cloneToken}@github.com/${repoFullName}.git`
+  // The token reaches the sandbox as process env, never in the persisted
+  // command string; scrub any output before logging regardless.
   const scrub = (s: string) => s.split(cloneToken).join("***")
 
   try {
-    return await withSandbox(
-      async (sandbox) => {
-        logger.info({ repoFullName }, "Sandbox: cloning repo for investigation")
-        const clone = await sandbox.exec(
-          `git clone --depth 1 --single-branch ${cloneUrl} /repo`,
-          { timeoutSec: CLONE_TIMEOUT_SEC }
+    return await withEphemeralSandbox("inv", async (sandbox) => {
+      logger.info({ repoFullName }, "Sandbox: cloning repo for investigation")
+      const clone = await execToCompletion(sandbox, {
+        command: `git clone --depth 1 --single-branch "https://x-access-token:$CLONE_TOKEN@github.com/${repoFullName}.git" /repo && git -C /repo remote set-url origin https://github.com/${repoFullName}.git`,
+        env: { CLONE_TOKEN: cloneToken },
+        timeoutSec: CLONE_TIMEOUT_SEC,
+      })
+      if (clone.status !== "completed" || clone.exitCode !== 0) {
+        const stderr = scrub(clone.stderr.slice(0, 300))
+        logger.warn(
+          { repoFullName, exitCode: clone.exitCode, stderr },
+          "Sandbox: git clone failed"
         )
-        if (clone.exitCode !== 0) {
-          const stderr = scrub(clone.stderr.slice(0, 300))
-          logger.warn(
-            { repoFullName, exitCode: clone.exitCode, stderr },
-            "Sandbox: git clone failed"
-          )
-          return { error: `clone failed: ${stderr}` }
-        }
-        // Strip the embedded access token from .git/config before the agent
-        // explores — otherwise the (semi-trusted) checkout can read it back.
-        await sandbox.exec(
-          `git -C /repo remote set-url origin https://github.com/${repoFullName}.git`
+        return { error: `clone failed: ${stderr}` }
+      }
+      logger.info({ repoFullName }, "Sandbox: clone ok; running code agent")
+
+      await sandbox.process.exec({
+        command: "mkdir -p /root/.pi/agent",
+        waitForCompletion: true,
+        timeout: 30,
+      })
+      await writeText(
+        sandbox,
+        "/root/.pi/agent/models.json",
+        JSON.stringify(
+          buildPiModelConfig({
+            baseUrl: env.AI_GATEWAY_BASE_URL,
+            model: env.MERLIN_MODEL,
+          })
         )
-        logger.info({ repoFullName }, "Sandbox: clone ok; running code agent")
+      )
+      await writeText(sandbox, "/investigation.txt", brief(question))
 
-        await sandbox.exec("mkdir -p /root/.pi/agent")
-        await sandbox.files.write(
-          "/root/.pi/agent/models.json",
-          JSON.stringify(
-            buildPiModelConfig({
-              baseUrl: env.AI_GATEWAY_BASE_URL,
-              model: env.MERLIN_MODEL,
-            })
-          )
-        )
-        await sandbox.files.write("/investigation.txt", brief(question))
+      const run = await runPi(sandbox, {
+        command: buildPiCommand(env.MERLIN_MODEL, { print: true }),
+        timeoutSec: AGENT_TIMEOUT_SEC,
+        workingDir: "/repo",
+        onStep,
+        logLabel: "Sandbox",
+      })
 
-        const collector = createPiEventCollector((step) => {
-          logger.info(
-            { repoFullName, subTool: step.toolName },
-            "Sandbox: agent tool call"
-          )
-          onStep?.(step)
-        })
-        let buffer = ""
-        const onLine = (line: string) => {
-          collector.consume(line)
-        }
-
-        const run = await sandbox.exec(buildPiCommand(env.MERLIN_MODEL), {
-          cwd: "/repo",
-          timeoutSec: AGENT_TIMEOUT_SEC,
-          onStdout: (chunk) => {
-            buffer += chunk
-            let nl = buffer.indexOf("\n")
-            while (nl >= 0) {
-              onLine(buffer.slice(0, nl))
-              buffer = buffer.slice(nl + 1)
-              nl = buffer.indexOf("\n")
-            }
-          },
-        })
-        if (buffer.trim()) onLine(buffer)
-        const collected = collector.result()
-
-        logger.info(
+      logger.info(
+        {
+          repoFullName,
+          exitCode: run.result.exitCode,
+          status: run.result.status,
+          stdoutLen: run.result.stdout.length,
+          stderrLen: run.result.stderr.length,
+        },
+        "Sandbox: code agent finished"
+      )
+      if (run.result.status === "killed" || run.result.status === "lost") {
+        logger.warn({ repoFullName }, "Sandbox: code agent timed out")
+        return { error: "code investigation timed out" }
+      }
+      if (run.result.status !== "completed" || run.result.exitCode !== 0) {
+        logger.warn(
           {
             repoFullName,
-            exitCode: run.exitCode,
-            timedOut: run.timedOut,
-            stdoutLen: run.stdout.length,
-            stderrLen: run.stderr.length,
+            exitCode: run.result.exitCode,
+            stderr: scrub(run.result.stderr.slice(0, 500)),
+            stdout: scrub(run.result.stdout.slice(0, 500)),
           },
-          "Sandbox: code agent finished"
+          "Sandbox: code agent exited non-zero"
         )
-        if (run.timedOut) {
-          logger.warn({ repoFullName }, "Sandbox: code agent timed out")
-          return { error: "code investigation timed out" }
-        }
-        if (run.exitCode !== 0) {
-          logger.warn(
-            {
-              repoFullName,
-              exitCode: run.exitCode,
-              stderr: scrub(run.stderr.slice(0, 500)),
-              stdout: scrub(run.stdout.slice(0, 500)),
-            },
-            "Sandbox: code agent exited non-zero"
-          )
-          const detail = scrub((run.stderr || run.stdout).slice(0, 300))
-          return { error: `code agent failed: ${detail || "unknown error"}` }
-        }
-        if (collected.error && !collected.findings) {
-          return { error: `code agent failed: ${collected.error}` }
-        }
-        if (!collected.usage) {
-          logger.warn(
-            { repoFullName, stdoutSample: scrub(run.stdout.slice(0, 500)) },
-            "Sandbox: Pi returned findings without billable usage"
-          )
-          return { error: "code agent returned no billable usage" }
-        }
-
-        const findings =
-          collected.findings || "(no findings from the code agent)"
-        if (!collected.findings) {
-          logger.warn(
-            { repoFullName, stdoutSample: scrub(run.stdout.slice(0, 500)) },
-            "Sandbox: no final text parsed from Pi event stream"
-          )
-        }
-        return { findings, usage: collected.usage }
-      },
-      {
-        env: {
-          AI_GATEWAY_API_KEY: env.AI_GATEWAY_API_KEY,
-          IS_SANDBOX: "1",
-        },
+        const detail = scrub(
+          (run.result.stderr || run.result.stdout).slice(0, 300)
+        )
+        return { error: `code agent failed: ${detail || "unknown error"}` }
       }
-    )
+      if (run.error && !run.findings) {
+        return { error: `code agent failed: ${run.error}` }
+      }
+      if (!run.usage) {
+        logger.warn(
+          {
+            repoFullName,
+            stdoutSample: scrub(run.result.stdout.slice(0, 500)),
+          },
+          "Sandbox: Pi returned findings without billable usage"
+        )
+        return { error: "code agent returned no billable usage" }
+      }
+
+      const findings = run.findings || "(no findings from the code agent)"
+      if (!run.findings) {
+        logger.warn(
+          {
+            repoFullName,
+            stdoutSample: scrub(run.result.stdout.slice(0, 500)),
+          },
+          "Sandbox: no final text parsed from Pi event stream"
+        )
+      }
+      return { findings, usage: run.usage }
+    })
   } catch (err) {
     logger.error({ err, repoFullName }, "Sandbox: investigation failed")
     return { error: "code investigation failed (sandbox error)" }

@@ -232,9 +232,11 @@ These steps define *what gets produced* (a repo-map page, anchored citations) an
 4. **Short-term cache** keyed by `repo@sha:path`. Code at a given SHA is immutable, so the cache is trivially safe and never stale; repeated reads in one investigation cost one fetch.
 5. **Durable artifact = the synthesized page**, not the code. "Auth service had an incident on date X caused by a token-expiry bug in `jwt.ts`; here's the fix PR" lives in the brain with SHA pointers. The code stays in GitHub. Each incident enriches the repo map → future investigations need *fewer* fetches. (This compounding is the moat showing up in the code layer — a static clone never gets cheaper.)
 
-### 7.4 Execution environment: ephemeral Railway sandboxes (v1 direction)
+### 7.4 Execution environment: ephemeral sandboxes (v1 direction)
 
-**Decision (updated 2026-07-31): code investigation runs in ephemeral Railway sandboxes, driving Pi with Merlin's configured main model against a short-lived clone.** This flips the earlier "defer the sandbox, ship API-fetch first" stance — Railway's agent sandboxes make the sandbox the *cheaper and better* path now, and Pi gives us an open, model-neutral harness instead of tying repository reasoning to a proprietary coding CLI.
+> 2026-08-10: the sandbox provider is **Blaxel** (Railway sandboxes fully removed). The architecture below is unchanged; read "Railway sandbox" as "Blaxel sandbox". As-built details live in `reference/artifacts.md`.
+
+**Decision (updated 2026-07-31): code investigation runs in ephemeral sandboxes, driving Pi with Merlin's configured main model against a short-lived clone.** This flips the earlier "defer the sandbox, ship API-fetch first" stance — Railway's agent sandboxes make the sandbox the *cheaper and better* path now, and Pi gives us an open, model-neutral harness instead of tying repository reasoning to a proprietary coding CLI.
 
 **Still rejected — persistent clone at rest per workspace.** Storing customer source at rest reintroduces system-of-record/staleness/liability (a serious security surface for our privacy/compliance ICP) and the per-workspace-storage economics we already rejected. Nothing code-related persists except synthesized pages + SHA pointers.
 

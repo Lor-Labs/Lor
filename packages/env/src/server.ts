@@ -44,8 +44,6 @@ const serverSchema = z.object({
   // Railway Sandboxes (ephemeral code-exec for GitHub code intelligence, §7.4).
   // Optional: sandbox features are skipped when unset. The `railway` SDK reads
   // these from the environment directly.
-  RAILWAY_API_TOKEN: z.string().min(1).optional(),
-  RAILWAY_ENVIRONMENT_ID: z.string().min(1).optional(),
   PORT: z.coerce.number().int().min(1).max(65535).default(8080),
   REALTIME_PORT: z.coerce.number().int().min(1).max(65535).default(8000),
   REALTIME_CORS_ORIGIN: z.string().default(DEFAULT_REALTIME_CORS_ORIGIN),
@@ -114,6 +112,17 @@ const serverSchema = z.object({
     .positive()
     .default(524_288_000),
   MERLIN_WORKBENCH_MAX_FILES: z.coerce.number().int().positive().default(20),
+  // Blaxel sandbox provider. When both are set, the workbench runs on Blaxel
+  // (per-task persistent sandboxes with standby); otherwise Railway. The BL_*
+  // names are fixed — @blaxel/core reads them from process.env directly.
+  BL_API_KEY: z.string().min(1).optional(),
+  BL_WORKSPACE: z.string().min(1).optional(),
+  // Custom sandbox image (pushed via `bl push` from packages/merlin/sandbox-image).
+  MERLIN_WORKBENCH_IMAGE: defaultedString("sandbox/workbench:latest"),
+  // Idle lifetime of a task's Blaxel sandbox before auto-delete. Deletion only
+  // costs warmth: the next run recreates it and reseeds from artifact truth.
+  MERLIN_WORKBENCH_SANDBOX_TTL: defaultedString("14d"),
+  MERLIN_WORKBENCH_MEMORY_MB: z.coerce.number().int().positive().default(4096),
   MERLIN_EMBED_MODEL: defaultedString("alibaba/qwen3-embedding-4b"),
   MERLIN_EMBED_DIMENSIONS: z.coerce.number().int().positive().default(2560),
   // Exa, backing Merlin's search_web/fetch_web tools. Optional: the tools are
@@ -170,14 +179,11 @@ const serverSchema = z.object({
 })
 
 const refinedServerSchema = serverSchema.superRefine((val, ctx) => {
-  if (Boolean(val.RAILWAY_API_TOKEN) !== Boolean(val.RAILWAY_ENVIRONMENT_ID)) {
+  if (Boolean(val.BL_API_KEY) !== Boolean(val.BL_WORKSPACE)) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message:
-        "RAILWAY_API_TOKEN and RAILWAY_ENVIRONMENT_ID must be set together",
-      path: [
-        val.RAILWAY_API_TOKEN ? "RAILWAY_ENVIRONMENT_ID" : "RAILWAY_API_TOKEN",
-      ],
+      message: "BL_API_KEY and BL_WORKSPACE must be set together",
+      path: [val.BL_API_KEY ? "BL_WORKSPACE" : "BL_API_KEY"],
     })
   }
   if (Boolean(val.LINEAR_CLIENT_ID) !== Boolean(val.LINEAR_CLIENT_SECRET)) {

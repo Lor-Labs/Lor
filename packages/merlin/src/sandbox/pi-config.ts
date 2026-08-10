@@ -60,10 +60,15 @@ export function buildPiCommand(
     tools?: readonly string[]
     promptFile?: string
     // Persistent session (task continuity): the session file lives under
-    // `dir`, so a sandbox checkpoint carries Pi's conversation memory across
-    // sessions. Verified: resuming does not re-emit prior events (no double
-    // usage). Omit for ephemeral --no-session runs.
+    // `dir` and --session-id creates it if missing (restored in pi 0.84 —
+    // 0.71–0.73 could only resume by id). Verified: resuming does not
+    // re-emit prior events (no double usage). Omit for ephemeral
+    // --no-session runs.
     session?: { dir: string; id: string }
+    // Explicit non-interactive mode, required by pi ≥0.71 (the Blaxel image,
+    // pinned 0.84.1). Railway's older pi build predates the flag and runs
+    // non-interactively without it.
+    print?: boolean
   }
 ): string {
   if (!MODEL_ID.test(model)) {
@@ -90,6 +95,7 @@ export function buildPiCommand(
   return [
     "pi",
     "--mode json",
+    ...(opts?.print ? ["-p"] : []),
     session
       ? `--session-dir ${session.dir} --session-id ${session.id}`
       : "--no-session",

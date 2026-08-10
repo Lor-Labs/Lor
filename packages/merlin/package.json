@@ -23,8 +23,9 @@
   },
   "dependencies": {
     "@ai-sdk/gateway": "^4.0.8",
-    "@aws-sdk/client-s3": "^3.1004.0",
     "@ai-sdk/mcp": "^2.0.5",
+    "@aws-sdk/client-s3": "^3.1004.0",
+    "@blaxel/core": "^0.3.11",
     "@linear/sdk": "^87.0.0",
     "@notionhq/client": "^5.24.0",
     "@repo/db": "workspace:^",
@@ -34,7 +35,6 @@
     "ai": "^7.0.11",
     "exa-js": "^2.16.3",
     "octokit": "^5.0.5",
-    "railway": "^3.4.1",
     "zod": "^4.3.6"
   },
   "devDependencies": {

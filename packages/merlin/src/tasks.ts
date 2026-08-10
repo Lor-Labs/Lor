@@ -151,7 +151,6 @@ export type RunTaskContext = {
   status: Task["status"]
   plan: TaskPlanItem[]
   summary: string | null
-  sandboxCheckpoint: string | null
 }
 
 export function taskPromptSection(
