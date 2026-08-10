@@ -8,8 +8,10 @@ FROM python:3.12-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl ca-certificates \
-  && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+  && curl -fsSL https://deb.nodesource.com/setup_22.x -o /tmp/nodesource-setup.sh \
+  && bash /tmp/nodesource-setup.sh \
   && apt-get install -y --no-install-recommends nodejs \
+  && rm -f /tmp/nodesource-setup.sh \
   && rm -rf /var/lib/apt/lists/*
 
 # Exact-pinned: buildPiCommand's flag set is validated against this version.

@@ -127,6 +127,9 @@ export async function execToCompletion(
     onStdout?: (chunk: string) => void
   }
 ): Promise<SandboxExecResult> {
+  if (opts.abortSignal?.aborted) {
+    return { status: "stopped", exitCode: -1, stdout: "", stderr: "" }
+  }
   const name = `exec-${randomUUID().slice(0, 8)}`
   const started = await sandbox.process.exec({
     name,
@@ -142,6 +145,8 @@ export async function execToCompletion(
     sandbox.process.kill(name).catch(() => {})
   }
   opts.abortSignal?.addEventListener("abort", onAbort, { once: true })
+  // An abort during the exec await fired before the listener existed.
+  if (opts.abortSignal?.aborted) onAbort()
   const done = await sandbox.process
     .wait(name, { maxWait: (opts.timeoutSec + 60) * 1000, interval: 2000 })
     .catch(() => null)
@@ -149,7 +154,10 @@ export async function execToCompletion(
   if ("close" in started) started.close()
 
   if (!done) {
-    // wait() gave up or errored; recover what the process record has.
+    // wait() gave up or errored; the process may still be running (pinning
+    // the sandbox active via keepAlive) — kill it, then recover what the
+    // process record has.
+    await sandbox.process.kill(name).catch(() => {})
     const stdout = await sandbox.process.logs(name, "stdout").catch(() => "")
     const stderr = await sandbox.process.logs(name, "stderr").catch(() => "")
     return { status: "lost", exitCode: -1, stdout, stderr }

@@ -31,6 +31,28 @@ const artifactsContext = z.object({
   onToolEvent: z.custom<(e: MerlinToolCall) => void>().optional(),
 })
 
+// Parallel create_artifacts calls in one step must not share a task's sandbox
+// (or its Pi session) concurrently — serialize per task. Cross-process overlap
+// can't happen: a task has at most one active run.
+const taskSessions = new Map<string, Promise<unknown>>()
+
+function serializeTaskSession<T>(
+  taskId: string,
+  fn: () => Promise<T>
+): Promise<T> {
+  const prev = taskSessions.get(taskId) ?? Promise.resolve()
+  const run = prev.then(fn)
+  const settled = run.then(
+    () => {},
+    () => {}
+  )
+  taskSessions.set(taskId, settled)
+  void settled.then(() => {
+    if (taskSessions.get(taskId) === settled) taskSessions.delete(taskId)
+  })
+  return run
+}
+
 // Current versions of the task's artifacts, reseeded into /workspace/out so
 // the agent always works from artifact truth (humans may have edited).
 async function loadTaskOutSeed(
@@ -170,34 +192,35 @@ export const artifactTools = {
       }
 
       let step = 0
-      const result = await runWorkbenchSession({
-        instructions,
-        inputs,
-        timeoutSec,
-        abortSignal,
-        ...(context.task
-          ? {
-              task: {
-                id: context.task.id,
-                outSeed: await loadTaskOutSeed(context.task.id),
-              },
+      const task = context.task
+      const startSession = async () =>
+        runWorkbenchSession({
+          instructions,
+          inputs,
+          timeoutSec,
+          abortSignal,
+          ...(task
+            ? { task: { id: task.id, outSeed: await loadTaskOutSeed(task.id) } }
+            : {}),
+          onStep: (s) => {
+            step += 1
+            // A failing listener must not abort or fail the session.
+            try {
+              context.onToolEvent?.({
+                toolCallId: `${toolCallId}:sub:${step}`,
+                parentToolCallId: toolCallId,
+                toolName: s.toolName,
+                label: s.label,
+              })
+            } catch (err) {
+              logger.error({ err }, "Merlin onToolEvent listener failed")
             }
-          : {}),
-        onStep: (s) => {
-          step += 1
-          // A failing listener must not abort or fail the session.
-          try {
-            context.onToolEvent?.({
-              toolCallId: `${toolCallId}:sub:${step}`,
-              parentToolCallId: toolCallId,
-              toolName: s.toolName,
-              label: s.label,
-            })
-          } catch (err) {
-            logger.error({ err }, "Merlin onToolEvent listener failed")
-          }
-        },
-      }).catch(() => null)
+          },
+        })
+      const result = await (task
+        ? serializeTaskSession(task.id, startSession)
+        : startSession()
+      ).catch(() => null)
       if (!result || "error" in result) {
         return { error: result?.error ?? "workbench session failed" }
       }

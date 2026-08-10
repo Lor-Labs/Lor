@@ -236,7 +236,7 @@ These steps define *what gets produced* (a repo-map page, anchored citations) an
 
 > 2026-08-10: the sandbox provider is **Blaxel** (Railway sandboxes fully removed). The architecture below is unchanged; read "Railway sandbox" as "Blaxel sandbox". As-built details live in `reference/artifacts.md`.
 
-**Decision (updated 2026-07-31): code investigation runs in ephemeral sandboxes, driving Pi with Merlin's configured main model against a short-lived clone.** This flips the earlier "defer the sandbox, ship API-fetch first" stance — Railway's agent sandboxes make the sandbox the *cheaper and better* path now, and Pi gives us an open, model-neutral harness instead of tying repository reasoning to a proprietary coding CLI.
+**Decision (updated 2026-07-31): code investigation runs in ephemeral sandboxes, driving Pi with Merlin's configured main model against a short-lived clone.** This flips the earlier "defer the sandbox, ship API-fetch first" stance — hosted agent sandboxes make the sandbox the *cheaper and better* path now, and Pi gives us an open, model-neutral harness instead of tying repository reasoning to a proprietary coding CLI.
 
 **Still rejected — persistent clone at rest per workspace.** Storing customer source at rest reintroduces system-of-record/staleness/liability (a serious security surface for our privacy/compliance ICP) and the per-workspace-storage economics we already rejected. Nothing code-related persists except synthesized pages + SHA pointers.
 

@@ -112,8 +112,9 @@ const serverSchema = z.object({
     .positive()
     .default(524_288_000),
   MERLIN_WORKBENCH_MAX_FILES: z.coerce.number().int().positive().default(20),
-  // Blaxel sandbox provider. When both are set, the workbench runs on Blaxel
-  // (per-task persistent sandboxes with standby); otherwise Railway. The BL_*
+  // Blaxel sandbox provider — the only one. When both are set, the workbench
+  // runs on Blaxel (per-task persistent sandboxes with standby); when unset,
+  // sandbox tools (create_artifacts, investigate_code) are not bound. The BL_*
   // names are fixed — @blaxel/core reads them from process.env directly.
   BL_API_KEY: z.string().min(1).optional(),
   BL_WORKSPACE: z.string().min(1).optional(),

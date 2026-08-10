@@ -20,6 +20,11 @@ export type InvestigationResult = {
 const AGENT_TIMEOUT_SEC = 600
 const CLONE_TIMEOUT_SEC = 180
 
+// The repo name is interpolated into a shell command; accept only the
+// canonical owner/repo shape (resolveRepo passes the raw request through
+// when the installation has no repo list to match against).
+const REPO_FULL_NAME = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/
+
 function brief(question: string): string {
   return [
     "You are investigating a codebase to answer a specific question. The repo is",
@@ -40,6 +45,9 @@ export async function investigateCode(opts: {
   onStep?: (step: CodeStep) => void
 }): Promise<InvestigationResult | { error: string }> {
   const { repoFullName, cloneToken, question, onStep } = opts
+  if (!REPO_FULL_NAME.test(repoFullName)) {
+    return { error: `not a valid owner/repo name: ${repoFullName}` }
+  }
   // The token reaches the sandbox as process env, never in the persisted
   // command string; scrub any output before logging regardless.
   const scrub = (s: string) => s.split(cloneToken).join("***")

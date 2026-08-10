@@ -115,10 +115,16 @@ function sanitizeFilename(filename: string): string {
   return base.replace(/[^a-zA-Z0-9._-]/g, "_")
 }
 
-// Artifact paths come from our own harvest, but never let one escape the
-// output dir.
+// Artifact paths come from our own harvest, but they originate as filenames
+// the agent chose — never let one escape the output dir or break the shell
+// quoting in the mkdir command.
+const SAFE_SEED_PATH = /^[A-Za-z0-9 ._/-]+$/
 function isUnsafeSeedPath(path: string): boolean {
-  return path.startsWith("/") || path.split("/").includes("..")
+  return (
+    path.startsWith("/") ||
+    path.split("/").includes("..") ||
+    !SAFE_SEED_PATH.test(path)
+  )
 }
 
 async function walkOutputs(
@@ -126,7 +132,10 @@ async function walkOutputs(
   dir: string,
   depth: number
 ): Promise<{ path: string; size: number }[]> {
-  if (depth > MAX_WALK_DEPTH) return []
+  if (depth > MAX_WALK_DEPTH) {
+    logger.warn({ dir }, "Workbench: output dir deeper than walk cap; skipped")
+    return []
+  }
   const listing = await sandbox.fs.ls(dir).catch(() => null)
   if (!listing) return []
   const found: { path: string; size: number }[] = (listing.files ?? []).map(
@@ -223,13 +232,15 @@ export async function runWorkbenchSession(opts: {
     // A timeout or crash must not vaporize finished work: fall through and
     // harvest whatever reached /workspace/out — the task's next session
     // resumes the same sandbox instead of restarting.
+    const errorDetail =
+      (run.result.stderr || run.result.stdout).slice(0, 300) || "unknown error"
     const failure =
       run.result.status !== "completed"
         ? run.result.status === "killed" || run.result.status === "lost"
           ? "timed out"
-          : `failed: ${(run.result.stderr || run.result.stdout).slice(0, 300) || "unknown error"}`
+          : `failed: ${errorDetail}`
         : run.result.exitCode !== 0
-          ? `failed: ${(run.result.stderr || run.result.stdout).slice(0, 300) || "unknown error"}`
+          ? `failed: ${errorDetail}`
           : run.error && !run.findings
             ? `failed: ${run.error}`
             : null

@@ -53,7 +53,12 @@ async function workbenchSmoke(): Promise<void> {
   console.log("Workbench smoke ✓")
 }
 
-if (!(process.env.BL_API_KEY && process.env.BL_WORKSPACE)) {
+if (Boolean(process.env.BL_API_KEY) !== Boolean(process.env.BL_WORKSPACE)) {
+  console.error(
+    "Only one of BL_API_KEY / BL_WORKSPACE is set — set both (or neither)."
+  )
+  process.exitCode = 1
+} else if (!process.env.BL_API_KEY) {
   console.log(
     "BL_API_KEY / BL_WORKSPACE not set — skipping sandbox smoke test."
   )
