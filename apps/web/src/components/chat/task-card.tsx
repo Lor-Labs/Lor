@@ -64,12 +64,14 @@ export function TaskCard({
         isOpenThread ? "bg-muted ring-1 ring-primary/40" : "hover:bg-muted"
       )}
     >
-      <button
-        type="button"
-        aria-label="Open task thread"
-        onClick={() => onOpenThread?.(message.id)}
-        className="absolute inset-0 z-10 cursor-pointer rounded-2xl"
-      />
+      {onOpenThread && (
+        <button
+          type="button"
+          aria-label="Open task thread"
+          onClick={() => onOpenThread(message.id)}
+          className="absolute inset-0 z-10 cursor-pointer rounded-2xl"
+        />
+      )}
       <FrameHeader className="flex-row items-center gap-2 px-4 py-2.5">
         <HugeiconsIcon
           icon={CheckListIcon}

@@ -1307,6 +1307,9 @@ export async function respond(
       : null,
   ])
 
+  const artifactsEnabled = Boolean(
+    env.RAILWAY_API_TOKEN && ctx.channelId && caps.includes("artifacts")
+  )
   const tools = {
     ...searchTools,
     ...chatTools,
@@ -1319,9 +1322,7 @@ export async function respond(
     ...(env.RAILWAY_API_TOKEN && github && caps.includes("code_intelligence")
       ? codeTools
       : {}),
-    ...(env.RAILWAY_API_TOKEN && ctx.channelId && caps.includes("artifacts")
-      ? artifactTools
-      : {}),
+    ...(artifactsEnabled ? artifactTools : {}),
     ...(ctx.task ? taskTools : {}),
     ...(linear && caps.includes("linear") ? linearTools : {}),
     ...(linear && caps.includes("linear_write") ? linearWriteTools : {}),
@@ -1349,7 +1350,7 @@ export async function respond(
           },
         }
       : {}),
-    ...(env.RAILWAY_API_TOKEN && ctx.channelId && caps.includes("artifacts")
+    ...(artifactsEnabled && ctx.channelId
       ? {
           create_artifacts: {
             workspaceId: ctx.workspaceId,
@@ -1423,9 +1424,7 @@ export async function respond(
     datadogMcp ? DATADOG_PROMPT_LINE : null,
     attio && caps.includes("attio") ? ATTIO_PROMPT_LINE : null,
     notion && caps.includes("notion") ? NOTION_PROMPT_LINE : null,
-    env.RAILWAY_API_TOKEN && ctx.channelId && caps.includes("artifacts")
-      ? ARTIFACTS_PROMPT_LINE
-      : null,
+    artifactsEnabled ? ARTIFACTS_PROMPT_LINE : null,
   ].filter((line): line is string => line !== null)
 
   // The finally closes the Datadog MCP session after the whole tool loop, even
@@ -1451,7 +1450,7 @@ export async function respond(
         loadWorkspaceInstructions(ctx.workspaceId),
       ])
       const userMessage = await buildInitialUserMessage(context)
-      instructions = `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}${context.rosterText ? `\n\n${MENTION_GUIDANCE}` : ""}${workspaceInstructions ? `\n\n${formatInstructionsBlock(workspaceInstructions)}` : ""}${ctx.task ? `\n\n${taskPromptSection(ctx.task)}` : ""}`
+      instructions = `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}${context.rosterText ? `\n\n${MENTION_GUIDANCE}` : ""}${workspaceInstructions ? `\n\n${formatInstructionsBlock(workspaceInstructions)}` : ""}${ctx.task ? `\n\n${taskPromptSection(ctx.task, artifactsEnabled)}` : ""}`
       messages = [userMessage]
       counters = { ...ZERO_RUN_COUNTERS }
       text = ""

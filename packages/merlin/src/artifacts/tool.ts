@@ -209,17 +209,21 @@ export const artifactTools = {
         }
       }
 
-      // Persist the new checkpoint pointer, then retire the superseded one.
+      // Persist the new checkpoint pointer, then retire the superseded one —
+      // only if the pointer actually moved, or we'd delete the checkpoint the
+      // task still boots from.
       if (context.task && result.checkpoint) {
         const previous = context.task.sandboxCheckpoint
-        await db
+        const updated = await db
           .update(schema.task)
           .set({ sandboxCheckpoint: result.checkpoint })
           .where(eq(schema.task.id, context.task.id))
+          .then(() => true)
           .catch((err) => {
             logger.warn({ err }, "Workbench: checkpoint pointer update failed")
+            return false
           })
-        if (previous && previous !== result.checkpoint) {
+        if (updated && previous && previous !== result.checkpoint) {
           void deleteWorkbenchCheckpoint(previous)
         }
       }

@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 import { apiClient } from "@/lib/api-client"
 
-const MAX_INLINE_BYTES = 2 * 1024 * 1024
+export const MAX_INLINE_BYTES = 2 * 1024 * 1024
 
 export function artifactQueryOptions(artifactId: string) {
   return {

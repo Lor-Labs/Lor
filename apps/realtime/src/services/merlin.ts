@@ -111,13 +111,16 @@ export async function createTaskWithCard(args: {
   title?: string | null
 }): Promise<{ card: RealtimeMessage; task: Task } | null> {
   try {
+    // Code-point slice: a UTF-16 slice can cut an emoji in half.
+    const truncate = (value: string) => Array.from(value).slice(0, 80).join("")
     const title =
-      args.title?.trim().slice(0, 80) ||
-      args.goal
-        .replace(/<@[0-9a-fA-F-]+>/g, "")
-        .replace(/\s+/g, " ")
-        .trim()
-        .slice(0, 80) ||
+      truncate(args.title?.trim() ?? "") ||
+      truncate(
+        args.goal
+          .replace(/<@[0-9a-fA-F-]+>/g, "")
+          .replace(/\s+/g, " ")
+          .trim()
+      ) ||
       "Task"
     const { message: card } = await createMessage({
       userId: MERLIN_USER_ID,

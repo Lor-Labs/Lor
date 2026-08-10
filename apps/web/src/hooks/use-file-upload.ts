@@ -201,6 +201,9 @@ export function useFileUpload(channelId: string) {
         )
       }
       if (accepted.length === 0) return
+      // Advance the mirror synchronously: a second addFiles arriving before
+      // React flushes must see these slots as taken.
+      attachmentsRef.current = [...attachmentsRef.current, ...accepted]
       setAttachments((prev) => [...prev, ...accepted])
 
       // Upload immediately, a few at a time: each upload buffers the whole

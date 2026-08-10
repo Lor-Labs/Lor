@@ -85,7 +85,7 @@ export function parseCsvData(
   const rows: GridRow[] = dataRows.map((rowData) => {
     const gridRow: GridRow = { __rowId: generateRowId() }
     headerRow.forEach((_, idx) => {
-      gridRow[`col_${idx}`] = rowData[idx]?.trim() ?? ""
+      gridRow[`col_${idx}`] = rowData[idx] ?? ""
     })
     return gridRow
   })

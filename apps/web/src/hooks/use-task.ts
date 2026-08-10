@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { toast } from "sonner"
 import { apiClient } from "@/lib/api-client"
 
 export type TaskApproval = {
@@ -85,6 +86,13 @@ export function useResolveApproval(taskId: string | null) {
       })
       if (!res.ok) throw new Error("Failed to resolve approval")
       return res.json()
+    },
+    onError: (_err, args) => {
+      toast.error(
+        args.resolution === "approve"
+          ? "Couldn't approve — try again"
+          : "Couldn't reject — try again"
+      )
     },
     onSettled: () => {
       if (taskId) {

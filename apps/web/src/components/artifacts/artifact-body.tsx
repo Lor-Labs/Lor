@@ -1,5 +1,9 @@
 import { MessageMarkdown } from "@/components/chat/message-markdown"
-import { isTextRenderable, useArtifactContent } from "@/hooks/use-artifact"
+import {
+  isTextRenderable,
+  MAX_INLINE_BYTES,
+  useArtifactContent,
+} from "@/hooks/use-artifact"
 
 const CODE_LANGUAGES: Record<string, string> = {
   py: "python",
@@ -40,10 +44,12 @@ export function ArtifactBody({
     )
   }
 
-  if (!url || !isTextRenderable(mime)) {
+  // Must mirror useArtifactContent's enabled guard: a file it refuses to
+  // fetch (too big, wrong type) would otherwise sit in isPending forever.
+  if (!url || !isTextRenderable(mime) || (size ?? 0) > MAX_INLINE_BYTES) {
     return (
       <p className="text-muted-foreground text-sm">
-        No preview for this file type — use Download.
+        No preview for this file — use Download.
       </p>
     )
   }
@@ -61,7 +67,13 @@ export function ArtifactBody({
   if (mime === "text/markdown") {
     return <MessageMarkdown content={content.data} mentions={[]} />
   }
-  const fence = "```"
+  // Fence longer than any backtick run in the content, so embedded ``` can't
+  // close the block early.
+  const longestRun =
+    content.data
+      .match(/`+/g)
+      ?.reduce((max, run) => Math.max(max, run.length), 0) ?? 0
+  const fence = "`".repeat(Math.max(3, longestRun + 1))
   return (
     <MessageMarkdown
       content={`${fence}${codeLanguage(path)}\n${content.data}\n${fence}`}

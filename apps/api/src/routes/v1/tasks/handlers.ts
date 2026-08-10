@@ -1,6 +1,7 @@
 import { and, db, desc, eq, inArray, schema } from "@repo/db"
 import type { Approval } from "@repo/db/schema"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
+import { logger } from "@/lib/logger"
 import { userCanAccessChannel } from "@/lib/queries/channel-access"
 import {
   emitTaskUpdated,
@@ -172,32 +173,52 @@ async function resolveApproval(
     return { kind: "conflict" }
   }
 
-  // The resolution message is the continuation trigger: it lands in the task
-  // thread as the resolver, and the next run answers it.
-  const content =
-    resolution === "approved"
-      ? `✅ Approved — go ahead: ${resolved.description}`
-      : `❌ Rejected — do not proceed: ${resolved.description}`
-  const messageId = await postTaskThreadMessage({
-    task: row.task,
-    authorId: userId,
-    content,
-  })
-
-  const updatedTask = await db
-    .update(schema.task)
-    .set({ status: "running" })
-    .where(eq(schema.task.id, row.task.id))
-    .returning()
-    .then((rows) => rows[0] ?? null)
-  if (updatedTask) await emitTaskUpdated(updatedTask)
-
-  if (messageId) {
-    await startTaskContinuationRun({
-      task: updatedTask ?? row.task,
-      triggerMessageId: messageId,
-      senderId: userId,
+  // Everything past the CAS is a side effect of an already-committed
+  // resolution — a failure here is logged, never surfaced as a 500.
+  try {
+    // The resolution message is the continuation trigger: it lands in the
+    // task thread as the resolver, and the next run answers it.
+    const content =
+      resolution === "approved"
+        ? `✅ Approved — go ahead: ${resolved.description}`
+        : `❌ Rejected — do not proceed: ${resolved.description}`
+    const messageId = await postTaskThreadMessage({
+      task: row.task,
+      authorId: userId,
+      content,
     })
+
+    if (messageId) {
+      // Only a parked task moves back to running, and only when the trigger
+      // message exists — never resurrect a terminal task (the continuation
+      // run re-claims status itself if it does start).
+      const updatedTask = await db
+        .update(schema.task)
+        .set({ status: "running" })
+        .where(
+          and(
+            eq(schema.task.id, row.task.id),
+            inArray(schema.task.status, [
+              "waiting_for_approval",
+              "waiting_for_input",
+            ])
+          )
+        )
+        .returning()
+        .then((rows) => rows[0] ?? null)
+      if (updatedTask) await emitTaskUpdated(updatedTask)
+
+      await startTaskContinuationRun({
+        task: updatedTask ?? row.task,
+        triggerMessageId: messageId,
+        senderId: userId,
+      })
+    }
+  } catch (err) {
+    logger.error(
+      { err, approvalId, taskId: row.task.id },
+      "Approval post-resolution side effects failed"
+    )
   }
 
   return { kind: "resolved", approval: resolved }

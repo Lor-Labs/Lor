@@ -18,7 +18,7 @@ const addProtocol = (url: string) => {
   return isLocal ? `http://${trimmed}` : `https://${trimmed}`
 }
 
-/** 20 MB default — keep in sync with client.ts */
+/** 100 MB default — keep in sync with client.ts */
 const DEFAULT_MAX_FILE_UPLOAD_SIZE = 100 * 1024 * 1024
 const DEFAULT_REALTIME_CORS_ORIGIN =
   "http://localhost:3000,http://localhost:3001,tauri://localhost"

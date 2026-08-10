@@ -42,8 +42,11 @@ export function TaskPlanList({
   if (items.length === 0) return null
   return (
     <ul className={cn("space-y-1.5", className)}>
-      {items.map((item) => (
-        <li key={item.text} className="flex gap-2 text-sm leading-5">
+      {items.map((item, idx) => (
+        <li
+          key={`${idx}:${item.text}`}
+          className="flex gap-2 text-sm leading-5"
+        >
           <span className="flex h-5 w-4 shrink-0 items-center justify-center">
             <Marker status={item.status} />
           </span>

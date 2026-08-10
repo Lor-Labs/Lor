@@ -107,7 +107,9 @@ export async function postTaskThreadMessage(args: {
     })
   if (!inserted) return null
 
-  const author = await loadAuthor(args.authorId)
+  // The message is committed; a failed author lookup only costs the live
+  // broadcast (clients catch up on refetch) — never the caller's 200.
+  const author = await loadAuthor(args.authorId).catch(() => null)
   if (author) {
     const message: RealtimeMessage = {
       id: inserted.id,
@@ -228,7 +230,7 @@ export async function startTaskContinuationRun(args: {
     return
   }
 
-  const merlin = await loadAuthor(MERLIN_USER_ID)
+  const merlin = await loadAuthor(MERLIN_USER_ID).catch(() => null)
   if (merlin) {
     const message: RealtimeMessage = {
       id: placeholder.id,
@@ -278,6 +280,24 @@ export async function startTaskContinuationRun(args: {
     await db
       .delete(schema.message)
       .where(eq(schema.message.id, placeholder.id))
+      .catch(() => {})
+    // Clients already saw the placeholder via message:created — retract it,
+    // and put the task back in the team's court since no run is coming.
+    try {
+      const io = await getEmitter()
+      io.to(threadRoom(scopeKey)).emit("message:deleted", {
+        channelId: task.channelId,
+        messageId: placeholder.id,
+      })
+    } catch {}
+    await db
+      .update(schema.task)
+      .set({ status: "waiting_for_input" })
+      .where(
+        and(eq(schema.task.id, task.id), eq(schema.task.status, "running"))
+      )
+      .returning()
+      .then((rows) => (rows[0] ? emitTaskUpdated(rows[0]) : undefined))
       .catch(() => {})
   }
 }

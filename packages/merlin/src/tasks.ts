@@ -154,7 +154,10 @@ export type RunTaskContext = {
   sandboxCheckpoint: string | null
 }
 
-export function taskPromptSection(task: RunTaskContext): string {
+export function taskPromptSection(
+  task: RunTaskContext,
+  artifactsEnabled: boolean
+): string {
   const plan = task.plan.length
     ? task.plan.map((i) => `- [${i.status}] ${i.text}`).join("\n")
     : "(no plan yet)"
@@ -166,7 +169,11 @@ export function taskPromptSection(task: RunTaskContext): string {
     "",
     "Task rules:",
     "- Keep the plan current with set_plan: set it when you start, mark items done as you finish them. The team watches it live.",
-    "- Produce real deliverables with create_artifacts; share their links.",
+    ...(artifactsEnabled
+      ? [
+          "- Produce real deliverables with create_artifacts; share their links.",
+        ]
+      : []),
     "- Before consequential external actions (writes to third-party tools), call request_approval and stop; act only after a human approves.",
     "- When the work is fully done, call complete_task with a summary. If you need input from the team, ask and end your message — the task waits for their reply.",
     "- Anyone on the team may reply with new instructions mid-task; treat the newest instruction as authoritative.",

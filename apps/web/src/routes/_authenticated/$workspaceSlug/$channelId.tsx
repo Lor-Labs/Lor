@@ -574,7 +574,7 @@ function ChannelView() {
             key={artifactId}
             artifactId={artifactId}
             onClose={() =>
-              navigate({
+              void navigate({
                 search: (prev) => ({ ...prev, artifactId: undefined }),
                 replace: true,
               })

@@ -50,11 +50,14 @@ export const getArtifact: AppRouteHandler<GetArtifactRoute> = async (c) => {
     )
   }
 
+  // Bounded: versions are append-only and currentVersion is always the max,
+  // so the newest page always contains the current version.
   const versions = await db
     .select()
     .from(schema.artifactVersion)
     .where(eq(schema.artifactVersion.artifactId, artifactId))
     .orderBy(desc(schema.artifactVersion.version))
+    .limit(200)
 
   const current = versions.find(
     (v) => v.version === row.artifact.currentVersion
@@ -133,6 +136,7 @@ export const listTaskArtifacts: AppRouteHandler<
     )
     .where(eq(schema.artifact.taskId, taskId))
     .orderBy(desc(schema.artifact.createdAt))
+    .limit(100)
 
   return c.json(
     {

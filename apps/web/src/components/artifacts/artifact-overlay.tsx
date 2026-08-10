@@ -9,7 +9,11 @@ import { motion } from "framer-motion"
 import { useMemo, useState } from "react"
 import { ArtifactBody } from "@/components/artifacts/artifact-body"
 import { CsvGrid } from "@/components/artifacts/csv-grid"
-import { useArtifact, useArtifactContent } from "@/hooks/use-artifact"
+import {
+  MAX_INLINE_BYTES,
+  useArtifact,
+  useArtifactContent,
+} from "@/hooks/use-artifact"
 import { formatFileSize } from "@/lib/attachments"
 import { csvDelimiterForMime, isCsvMime, parseCsvData } from "@/lib/csv"
 
@@ -52,6 +56,9 @@ export function ArtifactOverlay({
   const { data, isPending, isError } = useArtifact(artifactId)
   const artifact = data?.artifact ?? null
   const csv = artifact !== null && isCsvMime(artifact.mime)
+  // Mirrors useArtifactContent's enabled guard — a CSV it refuses to fetch
+  // must show the fallback, not wait on a query that never runs.
+  const csvPreviewable = csv && (artifact.size ?? 0) <= MAX_INLINE_BYTES
   const content = useArtifactContent({
     url: artifact?.url ?? null,
     mime: artifact?.mime ?? null,
@@ -126,12 +133,17 @@ export function ArtifactOverlay({
             <CsvGrid columns={parsed.columns} rows={parsed.rows} />
           ) : (
             <div className="flex h-full flex-col overflow-auto p-6">
-              {(isPending || (csv && content.isPending)) && (
+              {(isPending || (csvPreviewable && content.isPending)) && (
                 <p className="text-muted-foreground text-sm">Loading…</p>
               )}
-              {isError && (
+              {(isError || (csvPreviewable && content.isError)) && (
                 <p className="text-muted-foreground text-sm">
                   Couldn't load this artifact.
+                </p>
+              )}
+              {csv && !csvPreviewable && (
+                <p className="text-muted-foreground text-sm">
+                  Too large to preview — use Download.
                 </p>
               )}
               {artifact && !csv && (

@@ -122,7 +122,11 @@ export function guardTools<T extends Record<string, unknown>>(
         const counted = Math.min(size, perCallBytes)
         totalBytes += counted
         stepBytes += counted
-        if (key && opts.store) {
+        // Error results are not cached: the side effect didn't complete, so a
+        // retry with the same input must re-attempt, not replay the failure.
+        const failed =
+          typeof output === "object" && output !== null && "error" in output
+        if (key && opts.store && !failed) {
           await opts.store.put(key, name, output).catch((err) => {
             logger.warn({ err, tool: name }, "Tool result store write failed")
           })
