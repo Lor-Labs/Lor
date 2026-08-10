@@ -2,6 +2,7 @@ import { authClient } from "@repo/auth/client"
 import { useIsMobile } from "@repo/ui/hooks/use-mobile"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
+import { AnimatePresence } from "framer-motion"
 import { useCallback, useEffect, useMemo, useRef } from "react"
 import { useDropzone } from "react-dropzone"
 import { ArtifactOverlay } from "@/components/artifacts/artifact-overlay"
@@ -567,17 +568,20 @@ function ChannelView() {
         onSteerQueued={queuedMessageSteering.steerLatestOwnMessage}
         isSteeringQueued={queuedMessageSteering.isSteering}
       />
-      {artifactId && (
-        <ArtifactOverlay
-          artifactId={artifactId}
-          onClose={() =>
-            navigate({
-              search: (prev) => ({ ...prev, artifactId: undefined }),
-              replace: true,
-            })
-          }
-        />
-      )}
+      <AnimatePresence>
+        {artifactId && (
+          <ArtifactOverlay
+            key={artifactId}
+            artifactId={artifactId}
+            onClose={() =>
+              navigate({
+                search: (prev) => ({ ...prev, artifactId: undefined }),
+                replace: true,
+              })
+            }
+          />
+        )}
+      </AnimatePresence>
     </div>
   )
 }

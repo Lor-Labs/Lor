@@ -1,4 +1,3 @@
-import { CsvTable } from "@/components/artifacts/csv-table"
 import { MessageMarkdown } from "@/components/chat/message-markdown"
 import { isTextRenderable, useArtifactContent } from "@/hooks/use-artifact"
 
@@ -61,14 +60,6 @@ export function ArtifactBody({
 
   if (mime === "text/markdown") {
     return <MessageMarkdown content={content.data} mentions={[]} />
-  }
-  if (mime === "text/csv" || mime === "text/tab-separated-values") {
-    return (
-      <CsvTable
-        content={content.data}
-        delimiter={mime === "text/csv" ? "," : "\t"}
-      />
-    )
   }
   const fence = "```"
   return (

@@ -1,4 +1,5 @@
 import { useMemo } from "react"
+import { ArtifactCsvPreviewCard } from "@/components/artifacts/csv-preview"
 import { ArtifactFileCard } from "@/components/chat/artifact-file-card"
 import { MerlinReasoning } from "@/components/chat/merlin-reasoning"
 import { MerlinToolTrail } from "@/components/chat/merlin-tool-trail"
@@ -8,6 +9,7 @@ import type {
   MerlinToolCallView,
   Message,
 } from "@/lib/api-types"
+import { isCsvMime } from "@/lib/csv"
 
 type Segment =
   | { kind: "text"; key: string; text: string }
@@ -191,15 +193,26 @@ export function MerlinMessageBody({
       })}
       {deliverables.length > 0 && (
         <div className="mt-2 flex flex-col gap-1.5">
-          {deliverables.map((file) => (
-            <ArtifactFileCard
-              key={file.artifactId}
-              artifactId={file.artifactId}
-              name={file.path}
-              contentType={file.contentType}
-              size={file.size}
-            />
-          ))}
+          {deliverables.map((file) =>
+            isCsvMime(file.contentType) ? (
+              <ArtifactCsvPreviewCard
+                key={file.artifactId}
+                artifactId={file.artifactId}
+                name={file.path}
+                contentType={file.contentType}
+                size={file.size}
+                url={file.url}
+              />
+            ) : (
+              <ArtifactFileCard
+                key={file.artifactId}
+                artifactId={file.artifactId}
+                name={file.path}
+                contentType={file.contentType}
+                size={file.size}
+              />
+            )
+          )}
         </div>
       )}
     </>

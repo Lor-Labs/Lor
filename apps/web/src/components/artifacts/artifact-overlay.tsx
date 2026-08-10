@@ -1,13 +1,47 @@
-import { Cancel01Icon, Download01Icon } from "@hugeicons/core-free-icons"
+import {
+  Cancel01Icon,
+  Copy01Icon,
+  Download01Icon,
+  Tick02Icon,
+} from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
-import { Button } from "@repo/ui/components/button"
+import { motion } from "framer-motion"
+import { useMemo, useState } from "react"
 import { ArtifactBody } from "@/components/artifacts/artifact-body"
-import { useArtifact } from "@/hooks/use-artifact"
+import { CsvGrid } from "@/components/artifacts/csv-grid"
+import { useArtifact, useArtifactContent } from "@/hooks/use-artifact"
 import { formatFileSize } from "@/lib/attachments"
+import { csvDelimiterForMime, isCsvMime, parseCsvData } from "@/lib/csv"
 
-// Center-stage artifact viewer, addressed by ?artifactId= — the URL is the
-// share link today and the multiplayer room key when live editing lands.
-// Read-only in v1; the shell stays when the body becomes an editor.
+const toolbarButton =
+  "inline-flex size-8 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <button
+      type="button"
+      title="Copy contents"
+      className={toolbarButton}
+      onClick={() => {
+        void navigator.clipboard.writeText(text).then(() => {
+          setCopied(true)
+          setTimeout(() => setCopied(false), 2000)
+        })
+      }}
+    >
+      <HugeiconsIcon icon={copied ? Tick02Icon : Copy01Icon} size={16} />
+    </button>
+  )
+}
+
+// Artifact viewer over the channel panel — NOT fullscreen: the workspace
+// sidebar and the right thread panel stay, so opening a task's CSV gives
+// file-wide-center with the conversation still beside it. Addressed by
+// ?artifactId= — the URL is the share link today and the multiplayer room
+// key when live editing lands. Opens by morphing out of the in-chat CSV
+// preview card (shared layoutId). Read-only: edits go through Merlin or
+// Download, by decision.
 export function ArtifactOverlay({
   artifactId,
   onClose,
@@ -17,55 +51,103 @@ export function ArtifactOverlay({
 }) {
   const { data, isPending, isError } = useArtifact(artifactId)
   const artifact = data?.artifact ?? null
+  const csv = artifact !== null && isCsvMime(artifact.mime)
+  const content = useArtifactContent({
+    url: artifact?.url ?? null,
+    mime: artifact?.mime ?? null,
+    size: artifact?.size ?? null,
+  })
+
+  const parsed = useMemo(
+    () =>
+      csv && content.data !== undefined
+        ? parseCsvData(content.data, csvDelimiterForMime(artifact.mime))
+        : null,
+    [csv, content.data, artifact?.mime]
+  )
 
   return (
-    <div className="absolute inset-0 z-30 flex flex-col bg-background">
-      <div className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
-        <span className="min-w-0 truncate font-medium text-sm">
-          {artifact ? artifact.path : "Artifact"}
-        </span>
-        {artifact && (
-          <span className="shrink-0 text-muted-foreground text-xs">
-            v{artifact.currentVersion}
-            {artifact.size !== null
-              ? ` · ${formatFileSize(artifact.size)}`
-              : ""}
-          </span>
-        )}
-        <div className="ml-auto flex shrink-0 items-center gap-1">
-          {artifact?.url && (
-            <a
-              href={artifact.url}
-              download={artifact.path}
-              className="flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-muted-foreground text-sm transition-colors hover:bg-accent hover:text-foreground"
-            >
-              <HugeiconsIcon icon={Download01Icon} size={16} />
-              Download
-            </a>
-          )}
-          <Button size="sm" variant="ghost" onClick={onClose}>
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.15 }}
+      className="absolute inset-0 z-30 bg-background"
+    >
+      <motion.div
+        layoutId={`artifact:${artifactId}`}
+        transition={{ type: "spring", damping: 30, stiffness: 300 }}
+        className="flex h-full flex-col bg-background"
+      >
+        <div className="flex h-12 shrink-0 items-center gap-2 border-b px-3">
+          <button
+            type="button"
+            aria-label="Close"
+            onClick={onClose}
+            className={toolbarButton}
+          >
             <HugeiconsIcon icon={Cancel01Icon} size={16} />
-          </Button>
-        </div>
-      </div>
-      <div className="flex flex-1 flex-col overflow-auto p-6">
-        {isPending && <p className="text-muted-foreground text-sm">Loading…</p>}
-        {isError && (
-          <p className="text-muted-foreground text-sm">
-            Couldn't load this artifact.
-          </p>
-        )}
-        {artifact && (
-          <div className="mx-auto w-full max-w-3xl">
-            <ArtifactBody
-              path={artifact.path}
-              mime={artifact.mime}
-              url={artifact.url}
-              size={artifact.size}
-            />
+          </button>
+          <div className="flex min-w-0 flex-col">
+            <span className="min-w-0 truncate font-medium text-sm leading-4">
+              {artifact ? artifact.path : "Artifact"}
+            </span>
+            {artifact && (
+              <span className="text-muted-foreground text-xs leading-4">
+                {parsed
+                  ? `${parsed.rows.length.toLocaleString()} rows · ${parsed.columns.length.toLocaleString()} columns`
+                  : `v${artifact.currentVersion}${
+                      artifact.size !== null
+                        ? ` · ${formatFileSize(artifact.size)}`
+                        : ""
+                    }`}
+              </span>
+            )}
           </div>
-        )}
-      </div>
-    </div>
+          <div className="ml-auto flex shrink-0 items-center gap-1">
+            {content.data !== undefined && <CopyButton text={content.data} />}
+            {artifact?.url && (
+              <a
+                href={artifact.url}
+                download={artifact.path}
+                title="Download"
+                className={toolbarButton}
+              >
+                <HugeiconsIcon icon={Download01Icon} size={16} />
+              </a>
+            )}
+          </div>
+        </div>
+
+        {/* min-h-0 / min-w-0 are load-bearing: without them the flex child
+              refuses to shrink and the grid blows out of the viewport. */}
+        <div className="min-h-0 min-w-0 flex-1">
+          {parsed ? (
+            <CsvGrid columns={parsed.columns} rows={parsed.rows} />
+          ) : (
+            <div className="flex h-full flex-col overflow-auto p-6">
+              {(isPending || (csv && content.isPending)) && (
+                <p className="text-muted-foreground text-sm">Loading…</p>
+              )}
+              {isError && (
+                <p className="text-muted-foreground text-sm">
+                  Couldn't load this artifact.
+                </p>
+              )}
+              {artifact && !csv && (
+                <div className="mx-auto w-full max-w-3xl">
+                  <ArtifactBody
+                    path={artifact.path}
+                    mime={artifact.mime}
+                    url={artifact.url}
+                    size={artifact.size}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </motion.div>
+    </motion.div>
   )
 }
