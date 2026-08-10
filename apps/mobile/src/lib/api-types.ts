@@ -65,3 +65,18 @@ export type DMSearchResults = InferResponseType<
   200
 >
 export type DMSearchResult = DMSearchResults["data"][number]
+export type ChannelTaskList = InferResponseType<
+  Client["v1"]["channels"][":channelId"]["tasks"]["$get"],
+  200
+>
+export type ChannelTask = ChannelTaskList["tasks"][number]
+export type TaskPlanItem = ChannelTask["plan"][number]
+export type TaskDetail = InferResponseType<
+  Client["v1"]["tasks"][":taskId"]["$get"],
+  200
+>
+export type TaskApproval = NonNullable<TaskDetail["pendingApproval"]>
+export type TaskArtifact = InferResponseType<
+  Client["v1"]["tasks"][":taskId"]["artifacts"]["$get"],
+  200
+>["artifacts"][number]

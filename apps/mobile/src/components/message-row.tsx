@@ -15,6 +15,7 @@ import { MerlinReasoning } from "@/components/merlin-reasoning"
 import { MessageAttachments } from "@/components/message-attachments"
 import { MessageContent } from "@/components/message-content"
 import { MessageEmbed } from "@/components/message-embed"
+import { TaskCard } from "@/components/task-card"
 import { ThinkingIndicator } from "@/components/thinking-indicator"
 import { Avatar } from "@/components/ui/avatar"
 import { useStopMerlinRun } from "@/hooks/use-stop-merlin-run"
@@ -179,46 +180,52 @@ function MessageRowBody({
           Sending
         </Text>
       ) : null}
-      {message.type === "reply" ? (
-        <ReplyPreview message={message} onJumpToMessage={onJumpToMessage} />
-      ) : null}
-      {isMerlin &&
-      message.merlinReasoning &&
-      (message.merlinReasoningSegments?.length ?? 0) === 0 ? (
-        <MerlinReasoning
-          active={isStreaming && !message.content}
-          text={message.merlinReasoning}
-        />
-      ) : null}
-      {isMerlin && hasTimeline ? (
-        <MerlinMessageBody
-          message={message}
-          onCitationJump={onJumpToMessage}
-          streaming={isStreaming}
-        />
-      ) : message.content ? (
-        <MessageContent
-          content={message.content}
-          mentions={message.mentions}
-          onCitationJump={onJumpToMessage}
-          streaming={isStreaming}
-        />
-      ) : null}
-      {isStreaming && !message.content && !hasTimeline ? (
-        <ThinkingIndicator />
-      ) : null}
-      {isMerlin && message.status === "failed" && !message.content ? (
-        <Text className="text-sm italic text-muted">
-          Merlin couldn&apos;t respond to that.
-        </Text>
-      ) : null}
-      {showMerlinRunControls && isStreaming ? (
-        <MerlinRunControls message={message} />
-      ) : null}
-      {message.routedOutcome === "steered" ? <RoutedChip /> : null}
-      {message.editedAt ? (
-        <Text className="text-[11px] text-muted">(edited)</Text>
-      ) : null}
+      {message.type === "task_card" ? (
+        <TaskCard message={message} onOpenThread={onOpenThread} />
+      ) : (
+        <>
+          {message.type === "reply" ? (
+            <ReplyPreview message={message} onJumpToMessage={onJumpToMessage} />
+          ) : null}
+          {isMerlin &&
+          message.merlinReasoning &&
+          (message.merlinReasoningSegments?.length ?? 0) === 0 ? (
+            <MerlinReasoning
+              active={isStreaming && !message.content}
+              text={message.merlinReasoning}
+            />
+          ) : null}
+          {isMerlin && hasTimeline ? (
+            <MerlinMessageBody
+              message={message}
+              onCitationJump={onJumpToMessage}
+              streaming={isStreaming}
+            />
+          ) : message.content ? (
+            <MessageContent
+              content={message.content}
+              mentions={message.mentions}
+              onCitationJump={onJumpToMessage}
+              streaming={isStreaming}
+            />
+          ) : null}
+          {isStreaming && !message.content && !hasTimeline ? (
+            <ThinkingIndicator />
+          ) : null}
+          {isMerlin && message.status === "failed" && !message.content ? (
+            <Text className="text-sm italic text-muted">
+              Merlin couldn&apos;t respond to that.
+            </Text>
+          ) : null}
+          {showMerlinRunControls && isStreaming ? (
+            <MerlinRunControls message={message} />
+          ) : null}
+          {message.routedOutcome === "steered" ? <RoutedChip /> : null}
+          {message.editedAt ? (
+            <Text className="text-[11px] text-muted">(edited)</Text>
+          ) : null}
+        </>
+      )}
       {message.remembered?.length ? (
         <View className="mt-two flex-row flex-wrap gap-one">
           {message.remembered.map((memory) => (

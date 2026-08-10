@@ -10,6 +10,10 @@ import {
 } from "@/components/message-composer"
 import { RunQueuePill } from "@/components/run-queue-pill"
 import {
+  type TaskSourceFile,
+  TaskThreadHeader,
+} from "@/components/task-thread-header"
+import {
   ThreadMessageList,
   ThreadMessageListSkeleton,
 } from "@/components/thread-message-list"
@@ -121,6 +125,24 @@ export default function ThreadScreen() {
     mentionRef: composerMentionRef,
   })
   const { openDM } = useOpenDM()
+
+  const isTaskThread = thread.root?.type === "task_card"
+  // Files uploaded into the task thread (from any loaded message) — the
+  // "Sources" side of the task header's Files section.
+  const taskSources = useMemo<TaskSourceFile[]>(() => {
+    if (!isTaskThread) return []
+    const byUrl = new Map<string, TaskSourceFile>()
+    for (const message of [thread.root, ...thread.messages]) {
+      for (const attachment of message?.attachments ?? []) {
+        byUrl.set(attachment.url, {
+          url: attachment.url,
+          filename: attachment.filename,
+          size: attachment.size,
+        })
+      }
+    }
+    return [...byUrl.values()]
+  }, [isTaskThread, thread.root, thread.messages])
 
   const stopPendingMerlin = useCallback(async () => {
     const messageId = pendingMerlinMessage?.id
@@ -237,7 +259,7 @@ export default function ThreadScreen() {
         </IconButton>
         <View className="min-w-0 flex-1 gap-px">
           <Text className="text-[17px] font-bold tracking-[-0.2px] text-foreground">
-            Thread
+            {isTaskThread ? "Task" : "Thread"}
           </Text>
           <Text
             className="text-xs font-medium leading-4 text-muted"
@@ -252,6 +274,13 @@ export default function ThreadScreen() {
           participants={thread.participants}
         />
       </View>
+      {isTaskThread ? (
+        <TaskThreadHeader
+          cardMessageId={threadRootId}
+          channelId={channelId}
+          sources={taskSources}
+        />
+      ) : null}
       <ChatKeyboardLayout
         renderComposer={({
           inputNativeID,
