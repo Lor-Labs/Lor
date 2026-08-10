@@ -18,8 +18,8 @@ const addProtocol = (url: string) => {
   return isLocal ? `http://${trimmed}` : `https://${trimmed}`
 }
 
-/** 20 MB default — keep in sync with client.ts */
-const DEFAULT_MAX_FILE_UPLOAD_SIZE = 20 * 1024 * 1024
+/** 100 MB default — keep in sync with client.ts */
+const DEFAULT_MAX_FILE_UPLOAD_SIZE = 100 * 1024 * 1024
 const DEFAULT_REALTIME_CORS_ORIGIN =
   "http://localhost:3000,http://localhost:3001,tauri://localhost"
 
@@ -95,6 +95,25 @@ const serverSchema = z.object({
   AGENT_RUN_MAX_WALL_MS: z.coerce.number().int().positive().default(1_800_000),
   AGENT_RUN_MAX_PROVIDER_RETRIES: z.coerce.number().int().min(0).default(3),
   AGENT_RUN_MAX_CREDITS: z.coerce.number().int().positive().default(500),
+  // Workbench sandbox sessions (create_artifacts): a coding agent produces
+  // deliverable files. The timeout bounds one session; the byte/file caps
+  // bound what gets harvested out of the sandbox into artifact storage.
+  MERLIN_WORKBENCH_TIMEOUT_SEC: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(1200),
+  MERLIN_WORKBENCH_MAX_FILE_BYTES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(104_857_600),
+  MERLIN_WORKBENCH_MAX_TOTAL_BYTES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(524_288_000),
+  MERLIN_WORKBENCH_MAX_FILES: z.coerce.number().int().positive().default(20),
   MERLIN_EMBED_MODEL: defaultedString("alibaba/qwen3-embedding-4b"),
   MERLIN_EMBED_DIMENSIONS: z.coerce.number().int().positive().default(2560),
   // Exa, backing Merlin's search_web/fetch_web tools. Optional: the tools are

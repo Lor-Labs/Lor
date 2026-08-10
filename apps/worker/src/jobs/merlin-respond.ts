@@ -12,6 +12,7 @@ import {
   notExists,
   or,
   schema,
+  sql,
 } from "@repo/db"
 import type {
   MerlinMemory,
@@ -34,7 +35,10 @@ import type {
   MerlinRespondJobData,
   RealtimeMessageMention,
 } from "@repo/realtime-types"
-import type { ServerToClientEvents } from "@repo/realtime-types/events"
+import type {
+  RealtimeTask,
+  ServerToClientEvents,
+} from "@repo/realtime-types/events"
 import {
   channelRoom,
   threadRoom,
@@ -98,7 +102,12 @@ async function loadConversation(args: {
       and(
         scope,
         ne(schema.message.id, args.merlinMessageId),
-        isNotNull(schema.message.content),
+        // Attachment-only messages have null content but are real turns —
+        // dropping them made Merlin blind to uploaded files.
+        or(
+          isNotNull(schema.message.content),
+          sql`jsonb_array_length(coalesce(${schema.message.attachments}, '[]'::jsonb)) > 0`
+        ),
         // Still-queued messages haven't been "sent" yet — each gets its own
         // follow-up run, so they stay out of earlier runs' context (mirrors
         // the clients hiding them from the transcript).
@@ -119,14 +128,18 @@ async function loadConversation(args: {
     .limit(CONTEXT_LIMIT)
 
   return rows.reverse().map((r) => {
+    const toRef = (a: NonNullable<typeof r.attachments>[number]) => ({
+      url: a.url,
+      filename: a.filename,
+      mediaType: a.contentType,
+      size: a.size,
+    })
     const images = (r.attachments ?? [])
       .filter((a) => a.contentType.startsWith("image/"))
-      .map((a) => ({
-        url: a.url,
-        filename: a.filename,
-        mediaType: a.contentType,
-        size: a.size,
-      }))
+      .map(toRef)
+    const files = (r.attachments ?? [])
+      .filter((a) => !a.contentType.startsWith("image/"))
+      .map(toRef)
     return {
       authorName: userDisplayName({
         name: r.authorName,
@@ -135,8 +148,27 @@ async function loadConversation(args: {
       }),
       content: r.content ?? "",
       ...(images.length > 0 ? { images } : {}),
+      ...(files.length > 0 ? { files } : {}),
     }
   })
+}
+
+function serializeTask(row: typeof schema.task.$inferSelect): RealtimeTask {
+  return {
+    id: row.id,
+    workspaceId: row.workspaceId,
+    channelId: row.channelId,
+    cardMessageId: row.cardMessageId,
+    creatorId: row.creatorId,
+    title: row.title,
+    goal: row.goal,
+    status: row.status,
+    plan: row.plan,
+    summary: row.summary,
+    activeRunId: row.activeRunId,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  }
 }
 
 export function createMerlinRespondProcessor(
@@ -174,6 +206,70 @@ export function createMerlinRespondProcessor(
           )
         }
 
+        // The task, when this run's thread root is a task card.
+        const task = threadRootId
+          ? await db
+              .select()
+              .from(schema.task)
+              .where(eq(schema.task.cardMessageId, threadRootId))
+              .limit(1)
+              .then((rows) => rows[0] ?? null)
+              .catch(() => null)
+          : null
+        const emitTaskUpdated = (row: typeof schema.task.$inferSelect) => {
+          emitter
+            .to(channelRoom(channelId))
+            .emit("task:updated", { task: serializeTask(row) })
+        }
+        // Park the task when its run ends. `waiting_for_input` only from
+        // `running` — completed/waiting_for_approval set by tools stand.
+        const settleTask = async (
+          outcome: "complete" | "failed" | "stopped"
+        ) => {
+          if (!task) return
+          try {
+            const fresh = await db
+              .select({ status: schema.task.status })
+              .from(schema.task)
+              .where(eq(schema.task.id, task.id))
+              .limit(1)
+              .then((rows) => rows[0])
+            if (!fresh) return
+            const status =
+              outcome === "failed"
+                ? "failed"
+                : outcome === "stopped"
+                  ? "stopped"
+                  : fresh.status === "running"
+                    ? "waiting_for_input"
+                    : fresh.status
+            // CAS: settle only the state this run observed, and only while
+            // the task is still ours — a fast approval can start a
+            // continuation before this run finishes finalizing, and that
+            // run's state must not be clobbered.
+            const updated = await db
+              .update(schema.task)
+              .set({ status, activeRunId: null })
+              .where(
+                and(
+                  eq(schema.task.id, task.id),
+                  eq(schema.task.status, fresh.status),
+                  job.data.runId
+                    ? or(
+                        eq(schema.task.activeRunId, job.data.runId),
+                        isNull(schema.task.activeRunId)
+                      )
+                    : undefined
+                )
+              )
+              .returning()
+              .then((rows) => rows[0])
+            if (updated) emitTaskUpdated(updated)
+          } catch (err) {
+            logger.warn({ err, taskId: task.id }, "Task settle failed")
+          }
+        }
+
         // Claim the durable run: lease + attempt accounting + event writer.
         // Legacy jobs (no run row) proceed with a no-op writer, exactly as
         // before durable runs existed.
@@ -205,6 +301,18 @@ export function createMerlinRespondProcessor(
           return
         }
         const execution = claim.kind === "claimed" ? claim.execution : null
+        if (task && execution) {
+          await db
+            .update(schema.task)
+            .set({ status: "running", activeRunId: job.data.runId ?? null })
+            .where(eq(schema.task.id, task.id))
+            .returning()
+            .then((rows) => {
+              const row = rows[0]
+              if (row) emitTaskUpdated(row)
+            })
+            .catch(() => {})
+        }
         try {
           const runWriter = execution?.writer ?? noopRunEventWriter
           // Frame fields tying a live socket event to its persisted log entry.
@@ -271,6 +379,7 @@ export function createMerlinRespondProcessor(
               .where(eq(schema.message.id, merlinMessageId))
               .catch(() => {})
             emit(MERLIN_ERROR_FALLBACK, true, "failed", true)
+            await settleTask("failed")
             drainQueue()
             return
           }
@@ -404,6 +513,7 @@ export function createMerlinRespondProcessor(
               emit(MERLIN_ERROR_FALLBACK, true, "failed")
               await runWriter.transition("failed", { stopReason: "error" })
               execution?.stop()
+              await settleTask("failed")
               drainQueue()
               return
             }
@@ -448,6 +558,7 @@ export function createMerlinRespondProcessor(
                 stopReason: "out_of_credits",
               })
               execution?.stop()
+              await settleTask("failed")
               drainQueue()
               emitter.to(workspaceRoom(workspaceId)).emit("billing:updated", {
                 workspaceId,
@@ -479,8 +590,27 @@ export function createMerlinRespondProcessor(
               pending = ""
             }
             answer = await respond(
-              { workspaceId, conversation, channelId },
               {
+                workspaceId,
+                conversation,
+                channelId,
+                ...(job.data.runId ? { runId: job.data.runId } : {}),
+                ...(task
+                  ? {
+                      task: {
+                        id: task.id,
+                        title: task.title,
+                        goal: task.goal,
+                        status: task.status,
+                        plan: task.plan,
+                        summary: task.summary,
+                        sandboxCheckpoint: task.sandboxCheckpoint,
+                      },
+                    }
+                  : {}),
+              },
+              {
+                onTaskUpdated: emitTaskUpdated,
                 onDelta: (d) => {
                   pending += d
                   if (pending.length >= FLUSH_THRESHOLD) flushPendingText()
@@ -552,7 +682,10 @@ export function createMerlinRespondProcessor(
                 // next checkpoint (the budget_spend ceiling).
                 onUsage: (u) => {
                   logger.info({ ...u }, "Merlin usage")
-                  if (u.tool === "investigate_code")
+                  if (
+                    u.tool === "investigate_code" ||
+                    u.tool === "create_artifacts"
+                  )
                     execution?.noteNestedUsage(u)
                   void recordUsage(u, usageRefs)
                 },
@@ -594,6 +727,7 @@ export function createMerlinRespondProcessor(
                   : "error",
             })
             execution?.stop()
+            await settleTask("failed")
             drainQueue()
             return
           }
@@ -709,6 +843,7 @@ export function createMerlinRespondProcessor(
             emit(MERLIN_ERROR_FALLBACK, true, "failed", true)
             await runWriter.transition("failed", { stopReason: "error" })
             execution?.stop()
+            await settleTask("failed")
             drainQueue()
             return
           }
@@ -783,6 +918,7 @@ export function createMerlinRespondProcessor(
           })
           // Heartbeat off: the run is terminal; write-back needs no lease.
           execution?.stop()
+          await settleTask(stoppedByUser ? "stopped" : "complete")
           drainQueue()
           logger.info(
             { merlinMessageId, length: finalText.length, stoppedByUser },

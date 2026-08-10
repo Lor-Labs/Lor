@@ -10,6 +10,7 @@ import {
   MERLIN_USER_ID,
   schema,
 } from "@repo/db"
+import type { Task } from "@repo/db/schema"
 import { env } from "@repo/env/server"
 import type { PlacementTurn } from "@repo/merlin/placement"
 import { extractDirectMentionUserIds } from "@repo/messaging"
@@ -94,6 +95,60 @@ export async function createMerlinPlaceholder(args: {
     status: "pending",
   })
   return result.message
+}
+
+// A task and its card message. The card is a channel-level message that
+// acts as the thread root of all the task's runs — steering, queueing, stop,
+// and replay reuse the thread-scope machinery unchanged. Returns null on any
+// failure so the caller can fall back to a plain threaded answer.
+export async function createTaskWithCard(args: {
+  accessibleChannel: AccessibleChannel
+  workspaceId: string
+  channelId: string
+  creatorId: string
+  goal: string
+  // Short issue-style title from the placement call; falls back to the goal.
+  title?: string | null
+}): Promise<{ card: RealtimeMessage; task: Task } | null> {
+  try {
+    // Code-point slice: a UTF-16 slice can cut an emoji in half.
+    const truncate = (value: string) => Array.from(value).slice(0, 80).join("")
+    const title =
+      truncate(args.title?.trim() ?? "") ||
+      truncate(
+        args.goal
+          .replace(/<@[0-9a-fA-F-]+>/g, "")
+          .replace(/\s+/g, " ")
+          .trim()
+      ) ||
+      "Task"
+    const { message: card } = await createMessage({
+      userId: MERLIN_USER_ID,
+      payload: { channelId: args.channelId, content: args.goal },
+      accessibleChannel: args.accessibleChannel,
+      type: "task_card",
+    })
+    const task = await db
+      .insert(schema.task)
+      .values({
+        workspaceId: args.workspaceId,
+        channelId: args.channelId,
+        cardMessageId: card.id,
+        creatorId: args.creatorId,
+        title,
+        goal: args.goal,
+      })
+      .returning()
+      .then((rows) => rows[0] ?? null)
+    if (!task) {
+      await db.delete(schema.message).where(eq(schema.message.id, card.id))
+      return null
+    }
+    return { card, task }
+  } catch (err) {
+    logger.error({ err, channelId: args.channelId }, "Task creation failed")
+    return null
+  }
 }
 
 // Durable agent_run row backing a Merlin response (see

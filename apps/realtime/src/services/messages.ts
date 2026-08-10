@@ -32,6 +32,8 @@ type CreateMessageInput = {
   // Internal: Merlin's placeholder lands as "pending"; everything else defaults
   // to "complete" via the column default.
   status?: RealtimeMessage["status"]
+  // Internal: a task's card; normal sends derive reply/default.
+  type?: "task_card"
 }
 
 type DeleteMessageInput = {
@@ -295,7 +297,7 @@ export async function createMessage(input: CreateMessageInput) {
           channelId: input.payload.channelId,
           authorId: input.userId,
           content: input.payload.content ?? null,
-          type: hasReply ? "reply" : "default",
+          type: input.type ?? (hasReply ? "reply" : "default"),
           referencedMessageId: hasReply
             ? (input.payload.referencedMessageId ?? null)
             : null,

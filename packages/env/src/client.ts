@@ -1,7 +1,7 @@
 import { z } from "zod"
 
 /** 20 MB default — keep in sync with server.ts */
-const DEFAULT_MAX_FILE_UPLOAD_SIZE = 20 * 1024 * 1024
+const DEFAULT_MAX_FILE_UPLOAD_SIZE = 100 * 1024 * 1024
 
 /** Adds a protocol to a URL if missing. Defaults to http:// for localhost/loopback, https:// otherwise. Preserves ws:// and wss:// schemes. */
 const addProtocol = (url: string) => {

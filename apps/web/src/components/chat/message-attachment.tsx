@@ -279,8 +279,15 @@ export function AttachmentGrid({
   const [lightboxIndex, setLightboxIndex] = useState(0)
 
   const images = attachments.filter((a) => a.contentType.startsWith("image/"))
-  const nonImages = attachments.filter(
-    (a) => !a.contentType.startsWith("image/")
+  const media = attachments.filter(
+    (a) =>
+      a.contentType.startsWith("video/") || a.contentType.startsWith("audio/")
+  )
+  const files = attachments.filter(
+    (a) =>
+      !a.contentType.startsWith("image/") &&
+      !a.contentType.startsWith("video/") &&
+      !a.contentType.startsWith("audio/")
   )
 
   const handleImageClick = (index: number) => {
@@ -301,19 +308,21 @@ export function AttachmentGrid({
           />
         </>
       )}
-      {nonImages.map((attachment) => {
-        if (attachment.contentType.startsWith("video/")) {
-          return (
-            <VideoAttachment key={attachment.url} attachment={attachment} />
-          )
-        }
-        if (attachment.contentType.startsWith("audio/")) {
-          return (
-            <AudioAttachment key={attachment.url} attachment={attachment} />
-          )
-        }
-        return <FileAttachment key={attachment.url} attachment={attachment} />
-      })}
+      {media.map((attachment) =>
+        attachment.contentType.startsWith("video/") ? (
+          <VideoAttachment key={attachment.url} attachment={attachment} />
+        ) : (
+          <AudioAttachment key={attachment.url} attachment={attachment} />
+        )
+      )}
+      {/* A batch of files packs into columns instead of a tall stack. */}
+      {files.length > 0 && (
+        <div className="grid max-w-3xl grid-cols-[repeat(auto-fill,minmax(230px,1fr))] gap-1">
+          {files.map((attachment) => (
+            <FileAttachment key={attachment.url} attachment={attachment} />
+          ))}
+        </div>
+      )}
     </div>
   )
 }

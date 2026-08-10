@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-const DEFAULT_MAX_FILE_UPLOAD_SIZE = 20 * 1024 * 1024
+const DEFAULT_MAX_FILE_UPLOAD_SIZE = 100 * 1024 * 1024
 
 async function loadClientEnv(overrides: Partial<Record<string, string>> = {}) {
   vi.resetModules()

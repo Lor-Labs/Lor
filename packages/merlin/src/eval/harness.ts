@@ -174,7 +174,7 @@ async function runFixture(
   if (fixture.kind === "placement") {
     return {
       ...emptyResult(),
-      placement: await decideReplyPlacement(fixture.conversation),
+      placement: (await decideReplyPlacement(fixture.conversation)).placement,
     }
   }
   if (fixture.kind === "retrieval") {

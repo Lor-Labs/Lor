@@ -131,6 +131,12 @@ export const CAPABILITIES: Record<MerlinCapability, CapabilityDescriptor> = {
     description: "Search the web and read public pages",
     connector: null,
   },
+  artifacts: {
+    key: "artifacts",
+    label: "Artifacts",
+    description: "Create files (documents, data, code) in a sandbox workbench",
+    connector: null,
+  },
 }
 
 // Exhaustive over integrationProviderEnum — a new provider must declare its

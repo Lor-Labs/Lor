@@ -1,6 +1,10 @@
-import { MessageMultiple01Icon } from "@hugeicons/core-free-icons"
+import {
+  CheckListIcon,
+  MessageMultiple01Icon,
+} from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
+import { Badge } from "@repo/ui/components/badge"
 import {
   MessageScroller,
   MessageScrollerContent,
@@ -40,10 +44,15 @@ import {
   useRegisteredMessageScroller,
 } from "@/components/chat/message-scroller-controls"
 import { RunQueuePill } from "@/components/chat/run-queue-pill"
+import {
+  type TaskSourceFile,
+  TaskThreadHeader,
+} from "@/components/chat/task-thread-header"
 import { TypingIndicator } from "@/components/chat/typing-indicator"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import type { ThreadSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
 import { useSocket } from "@/context/socket-context"
+import { useTaskForCard } from "@/hooks/use-channel-tasks"
 import { useFileUpload } from "@/hooks/use-file-upload"
 import { useMerlinRunReplay } from "@/hooks/use-merlin-stream"
 import { useMessageDeletion } from "@/hooks/use-message-deletion"
@@ -58,6 +67,7 @@ import { useThreadMessages } from "@/hooks/use-thread-messages"
 import { useTypingIndicator } from "@/hooks/use-typing-indicator"
 import { apiClient } from "@/lib/api-client"
 import type { Message } from "@/lib/api-types"
+import { TASK_STATUS_META } from "@/lib/task-ui"
 
 const MESSAGE_GROUP_WINDOW_MINUTES = 5
 
@@ -186,6 +196,34 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
   })
 
   const rootMessage = channelCacheRoot ?? threadApiRoot
+
+  // Task threads get their own panel identity: header says Task + live
+  // status, and the docked strip below carries plan/files/approval.
+  const isTask = rootMessage?.type === "task_card"
+  const task = useTaskForCard(view.channelId, view.threadRootId)
+  const taskStatusMeta = isTask && task ? TASK_STATUS_META[task.status] : null
+
+  // Files the team fed the task, gathered from the loaded slice of the
+  // thread (sources ≠ outputs: uploads stay plain links, artifacts open the
+  // viewer).
+  const taskSources = useMemo<TaskSourceFile[]>(() => {
+    if (!isTask) return []
+    const seen = new Map<string, TaskSourceFile>()
+    const collect = (msg: Message | null) => {
+      for (const attachment of msg?.attachments ?? []) {
+        if (seen.has(attachment.url)) continue
+        seen.set(attachment.url, {
+          url: attachment.url,
+          filename: attachment.filename,
+          size: attachment.size,
+          contentType: attachment.contentType,
+        })
+      }
+    }
+    collect(rootMessage)
+    for (const msg of [...messages].reverse()) collect(msg)
+    return [...seen.values()]
+  }, [isTask, rootMessage, messages])
 
   // Opening a thread mid-run replays the durable trace into the thread cache.
   useMerlinRunReplay({
@@ -444,13 +482,23 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
           <ArrowLeft className="size-4" />
         </button>
         <HugeiconsIcon
-          icon={MessageMultiple01Icon}
+          icon={isTask ? CheckListIcon : MessageMultiple01Icon}
           size={16}
           className="text-muted-foreground"
         />
         <span className="text-[13px] font-semibold tracking-tight text-foreground">
-          Thread
+          {isTask ? "Task" : "Thread"}
         </span>
+        {taskStatusMeta && (
+          <Badge variant={taskStatusMeta.badgeVariant} size="sm">
+            <HugeiconsIcon
+              icon={taskStatusMeta.icon}
+              size={12}
+              className={taskStatusMeta.spin ? "animate-spin" : undefined}
+            />
+            {taskStatusMeta.label}
+          </Badge>
+        )}
         <button
           type="button"
           onClick={handleViewInChannel}
@@ -473,6 +521,14 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
           />
         </button>
       </div>
+
+      {isTask && (
+        <TaskThreadHeader
+          channelId={view.channelId}
+          cardMessageId={view.threadRootId}
+          sources={taskSources}
+        />
+      )}
 
       <MessageScrollerProvider
         key={view.threadRootId}

@@ -2,8 +2,10 @@ import { authClient } from "@repo/auth/client"
 import { useIsMobile } from "@repo/ui/hooks/use-mobile"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
+import { AnimatePresence } from "framer-motion"
 import { useCallback, useEffect, useMemo, useRef } from "react"
 import { useDropzone } from "react-dropzone"
+import { ArtifactOverlay } from "@/components/artifacts/artifact-overlay"
 import { ChatSkeleton } from "@/components/chat/chat-skeleton"
 import { MessageInput } from "@/components/chat/composer/message-input"
 import { DropZoneOverlay } from "@/components/chat/drop-zone-overlay"
@@ -38,6 +40,9 @@ type ChannelSearchParams = {
   threadId?: string
   // Focuses a reply inside the open thread (for search/deep links).
   threadMessageId?: string
+  // Opens the artifact viewer; shareable — everyone opening the same URL
+  // lands on the same artifact (and, later, in the same live session).
+  artifactId?: string
 }
 
 export const Route = createFileRoute(
@@ -51,12 +56,14 @@ export const Route = createFileRoute(
       typeof search.threadMessageId === "string"
         ? search.threadMessageId
         : undefined,
+    artifactId:
+      typeof search.artifactId === "string" ? search.artifactId : undefined,
   }),
 })
 
 function ChannelView() {
   const { workspaceSlug, channelId } = Route.useParams()
-  const { msgId, threadId, threadMessageId } = Route.useSearch()
+  const { msgId, threadId, threadMessageId, artifactId } = Route.useSearch()
   const navigate = Route.useNavigate()
   const socket = useSocket()
   const isMobile = useIsMobile()
@@ -561,6 +568,20 @@ function ChannelView() {
         onSteerQueued={queuedMessageSteering.steerLatestOwnMessage}
         isSteeringQueued={queuedMessageSteering.isSteering}
       />
+      <AnimatePresence>
+        {artifactId && (
+          <ArtifactOverlay
+            key={artifactId}
+            artifactId={artifactId}
+            onClose={() =>
+              void navigate({
+                search: (prev) => ({ ...prev, artifactId: undefined }),
+                replace: true,
+              })
+            }
+          />
+        )}
+      </AnimatePresence>
     </div>
   )
 }

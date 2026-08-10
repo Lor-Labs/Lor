@@ -54,6 +54,17 @@ export const merlinToolCallSchema = z.object({
         .optional(),
     })
     .optional(),
+  files: z
+    .array(
+      z.object({
+        artifactId: z.string(),
+        path: z.string(),
+        contentType: z.string(),
+        size: z.number(),
+        url: z.string(),
+      })
+    )
+    .optional(),
   status: z.enum(["ok", "error"]).optional(),
 })
 

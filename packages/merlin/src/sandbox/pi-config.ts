@@ -36,24 +36,72 @@ export function buildPiModelConfig(options: {
   }
 }
 
-export function buildPiCommand(model: string): string {
+// Read-only exploration (code investigations).
+export const READ_ONLY_PI_TOOLS = ["read", "grep", "find", "ls"] as const
+// Full workbench: the agent writes files and runs scripts to produce
+// deliverables. Verified against the sandbox image by sandbox:smoke.
+export const WORKBENCH_PI_TOOLS = [
+  "read",
+  "grep",
+  "find",
+  "ls",
+  "write",
+  "edit",
+  "bash",
+] as const
+
+const TOOL_NAME = /^[a-z_-]+$/
+const PATH_ARG = /^\/[a-zA-Z0-9._/-]+$/
+const SESSION_ID = /^[a-f0-9-]{36}$/
+
+export function buildPiCommand(
+  model: string,
+  opts?: {
+    tools?: readonly string[]
+    promptFile?: string
+    // Persistent session (task continuity): the session file lives under
+    // `dir`, so a sandbox checkpoint carries Pi's conversation memory across
+    // sessions. Verified: resuming does not re-emit prior events (no double
+    // usage). Omit for ephemeral --no-session runs.
+    session?: { dir: string; id: string }
+  }
+): string {
   if (!MODEL_ID.test(model)) {
     throw new Error(`Invalid Pi model id: ${model}`)
+  }
+  const tools = opts?.tools ?? READ_ONLY_PI_TOOLS
+  for (const t of tools) {
+    if (!TOOL_NAME.test(t)) throw new Error(`Invalid Pi tool name: ${t}`)
+  }
+  const promptFile = opts?.promptFile ?? "/investigation.txt"
+  if (!PATH_ARG.test(promptFile)) {
+    throw new Error(`Invalid Pi prompt file: ${promptFile}`)
+  }
+  const session = opts?.session
+  if (session) {
+    if (!PATH_ARG.test(session.dir)) {
+      throw new Error(`Invalid Pi session dir: ${session.dir}`)
+    }
+    if (!SESSION_ID.test(session.id)) {
+      throw new Error(`Invalid Pi session id: ${session.id}`)
+    }
   }
 
   return [
     "pi",
     "--mode json",
-    "--no-session",
+    session
+      ? `--session-dir ${session.dir} --session-id ${session.id}`
+      : "--no-session",
     `--provider ${PI_PROVIDER}`,
     `--model ${model}`,
     "--thinking max",
-    "--tools read,grep,find,ls",
+    `--tools ${tools.join(",")}`,
     "--no-extensions",
     "--no-skills",
     "--no-prompt-templates",
     "--no-context-files",
     "--no-approve",
-    "@/investigation.txt",
+    `@${promptFile}`,
   ].join(" ")
 }

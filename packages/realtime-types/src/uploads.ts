@@ -29,4 +29,4 @@ export const ALLOWED_MIME_TYPES = [
 
 export type AllowedMimeType = (typeof ALLOWED_MIME_TYPES)[number]
 
-export const MAX_ATTACHMENTS_PER_MESSAGE = 10
+export const MAX_ATTACHMENTS_PER_MESSAGE = 20

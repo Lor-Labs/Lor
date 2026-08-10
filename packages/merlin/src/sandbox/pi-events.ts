@@ -45,6 +45,14 @@ export function piToolLabel(name: string, input: unknown): string {
       return pattern ? `Listed files: ${pattern}` : "Listed files"
     case "ls":
       return path ? `Listed ${path}` : "Listed a directory"
+    case "write":
+      return path ? `Wrote ${path}` : "Wrote a file"
+    case "edit":
+      return path ? `Edited ${path}` : "Edited a file"
+    case "bash": {
+      const command = asString(args?.command)
+      return command ? `Ran ${command.slice(0, 60)}` : "Ran a command"
+    }
     default:
       return name
   }

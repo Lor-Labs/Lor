@@ -22,6 +22,10 @@ export const messageTypeEnum = pgEnum("message_type", [
   "system_leave",
   "system_pin",
   "channel_name_change",
+  // A task's card — rendered as the live task card and acting as the
+  // thread root of the task's conversation. The task row (see tasks.ts) is
+  // looked up by cardMessageId.
+  "task_card",
 ])
 
 // Lifecycle of a message row. Everything is "complete" except a Merlin
@@ -209,6 +213,15 @@ export type MerlinToolCall = {
     // favicon: site icon url for web results — rendered on the item's badge.
     items?: { title: string; url?: string; favicon?: string }[]
   }
+  // Artifact deliverables this call produced (create_artifacts) — presented
+  // as file cards at the end of the message, opening the artifact viewer.
+  files?: {
+    artifactId: string
+    path: string
+    contentType: string
+    size: number
+    url: string
+  }[]
   status?: "ok" | "error"
 }
 
