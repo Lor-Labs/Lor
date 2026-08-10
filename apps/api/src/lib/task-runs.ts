@@ -230,28 +230,34 @@ export async function startTaskContinuationRun(args: {
     return
   }
 
-  const merlin = await loadAuthor(MERLIN_USER_ID).catch(() => null)
-  if (merlin) {
-    const message: RealtimeMessage = {
-      id: placeholder.id,
-      channelId: task.channelId,
-      content: null,
-      type: "default",
-      pinned: false,
-      createdAt: placeholder.createdAt.toISOString(),
-      author: { ...merlin, avatarColor: null },
-      mentions: [],
-      reactions: [],
-      attachments: [],
-      embeds: [],
-      referencedMessage: null,
-      threadRootId: scopeKey,
-      status: "pending",
-      streaming: true,
-      merlinTriggerMessageId: triggerMessageId,
+  // Best effort: the run row exists, so the enqueue below must happen no
+  // matter what — a failed broadcast only costs the live placeholder.
+  try {
+    const merlin = await loadAuthor(MERLIN_USER_ID)
+    if (merlin) {
+      const message: RealtimeMessage = {
+        id: placeholder.id,
+        channelId: task.channelId,
+        content: null,
+        type: "default",
+        pinned: false,
+        createdAt: placeholder.createdAt.toISOString(),
+        author: { ...merlin, avatarColor: null },
+        mentions: [],
+        reactions: [],
+        attachments: [],
+        embeds: [],
+        referencedMessage: null,
+        threadRootId: scopeKey,
+        status: "pending",
+        streaming: true,
+        merlinTriggerMessageId: triggerMessageId,
+      }
+      const io = await getEmitter()
+      io.to(threadRoom(scopeKey)).emit("message:created", message)
     }
-    const io = await getEmitter()
-    io.to(threadRoom(scopeKey)).emit("message:created", message)
+  } catch (err) {
+    logger.warn({ err, taskId: task.id }, "Placeholder broadcast failed")
   }
 
   try {

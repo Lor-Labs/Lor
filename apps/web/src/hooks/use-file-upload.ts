@@ -196,6 +196,11 @@ export function useFileUpload(channelId: string) {
         MAX_ATTACHMENTS_PER_MESSAGE - attachmentsRef.current.length
       const accepted = prepared.slice(0, Math.max(0, remaining))
       if (prepared.length > accepted.length) {
+        // The cut-off items never reach state, so nothing else revokes their
+        // preview URLs.
+        for (const rejected of prepared.slice(accepted.length)) {
+          if (rejected.previewUrl) URL.revokeObjectURL(rejected.previewUrl)
+        }
         toast.error(
           `You can only attach up to ${MAX_ATTACHMENTS_PER_MESSAGE} files per message`
         )

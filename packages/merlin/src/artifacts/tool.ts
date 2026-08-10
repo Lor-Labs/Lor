@@ -242,9 +242,13 @@ export const artifactTools = {
         }
       }
 
-      try {
-        const manifest = []
-        for (const file of result.files) {
+      // Per-file persistence: a failure mid-list must not hide the files that
+      // WERE stored (their versions are committed and visible), or the model
+      // re-runs the whole session for deliverables it already has.
+      const manifest = []
+      const unstored: string[] = []
+      for (const file of result.files) {
+        try {
           manifest.push(
             await writeArtifactVersion({
               workspaceId: context.workspaceId,
@@ -257,31 +261,45 @@ export const artifactTools = {
               authorId: MERLIN_USER_ID,
             })
           )
+        } catch (err) {
+          logger.error(
+            { err, path: file.path },
+            "Workbench: artifact persistence failed"
+          )
+          unstored.push(file.path)
         }
-        return {
-          files: manifest.map((m) => ({
-            path: m.path,
-            contentType: m.contentType,
-            size: m.size,
-            version: m.version,
-            artifactId: m.artifactId,
-            url: m.url,
-          })),
-          summary: result.summary,
-          ...(result.skipped.length
-            ? {
-                note: `some output files exceeded size caps and were dropped: ${result.skipped.join(", ")}`,
-              }
-            : {}),
-          ...(result.failure
-            ? {
-                warning: `the workbench session ${result.failure} before finishing. Any files listed above were still delivered, and the workspace (scripts, parsed data, progress) is preserved. Call create_artifacts again — reword the instructions to say what remains to be done — and the agent will continue from where it left off instead of starting over.`,
-              }
-            : {}),
-        }
-      } catch (err) {
-        logger.error({ err }, "Workbench: artifact persistence failed")
+      }
+      if (result.files.length > 0 && manifest.length === 0) {
         return { error: "produced files couldn't be stored; try again" }
+      }
+      const warnings = [
+        ...(unstored.length
+          ? [
+              `these produced files could not be stored and were NOT delivered: ${unstored.join(", ")}. Call create_artifacts again to reproduce just those files.`,
+            ]
+          : []),
+        ...(result.failure
+          ? [
+              `the workbench session ${result.failure} before finishing. Any files listed above were still delivered, and the workspace (scripts, parsed data, progress) is preserved. Call create_artifacts again — reword the instructions to say what remains to be done — and the agent will continue from where it left off instead of starting over.`,
+            ]
+          : []),
+      ]
+      return {
+        files: manifest.map((m) => ({
+          path: m.path,
+          contentType: m.contentType,
+          size: m.size,
+          version: m.version,
+          artifactId: m.artifactId,
+          url: m.url,
+        })),
+        summary: result.summary,
+        ...(result.skipped.length
+          ? {
+              note: `some output files exceeded size caps and were dropped: ${result.skipped.join(", ")}`,
+            }
+          : {}),
+        ...(warnings.length ? { warning: warnings.join("\n") } : {}),
       }
     },
     strict: true,
