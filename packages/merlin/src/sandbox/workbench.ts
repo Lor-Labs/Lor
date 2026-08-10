@@ -102,14 +102,20 @@ export async function deleteWorkbenchCheckpoint(name: string): Promise<void> {
   })
 }
 
-let checkpointEnsured = false
-async function ensureWorkbenchCheckpoint(): Promise<void> {
-  if (checkpointEnsured) return
+// Single-flight: concurrent sessions await the one in-flight provisioning
+// run instead of each booting a sandbox to build the same checkpoint.
+let checkpointReady: Promise<void> | null = null
+function ensureWorkbenchCheckpoint(): Promise<void> {
+  checkpointReady ??= provisionWorkbenchCheckpoint().catch((err) => {
+    checkpointReady = null
+    throw err
+  })
+  return checkpointReady
+}
+
+async function provisionWorkbenchCheckpoint(): Promise<void> {
   const existing = await Sandbox.checkpoints().catch(() => [])
-  if (existing.some((c) => c.key === WORKBENCH_CHECKPOINT)) {
-    checkpointEnsured = true
-    return
-  }
+  if (existing.some((c) => c.key === WORKBENCH_CHECKPOINT)) return
   logger.info(
     { checkpoint: WORKBENCH_CHECKPOINT },
     "Workbench: provisioning checkpoint"
@@ -130,7 +136,6 @@ async function ensureWorkbenchCheckpoint(): Promise<void> {
       if (!now.some((c) => c.key === WORKBENCH_CHECKPOINT)) throw err
     })
   })
-  checkpointEnsured = true
 }
 
 function brief(instructions: string, inputFilenames: string[]): string {
@@ -242,6 +247,18 @@ export async function runWorkbenchSession(opts: {
           createHash("sha256").update(bytes).digest("hex")
         const seedDigests = new Map<string, string>()
         for (const seed of task?.outSeed ?? []) {
+          // Artifact paths come from our own harvest, but never let one
+          // escape the output dir.
+          if (
+            seed.path.startsWith("/") ||
+            seed.path.split("/").includes("..")
+          ) {
+            logger.warn(
+              { path: seed.path },
+              "Workbench: skipped unsafe seed path"
+            )
+            continue
+          }
           await sandbox.files.write(`${OUT_DIR}/${seed.path}`, seed.bytes)
           seedDigests.set(seed.path, digest(seed.bytes))
         }
@@ -399,7 +416,7 @@ export async function runWorkbenchSession(opts: {
   } catch (err) {
     logger.error({ err }, "Workbench: session failed")
     // If the checkpoint was deleted out from under us, re-verify next call.
-    checkpointEnsured = false
+    checkpointReady = null
     return { error: "workbench session failed (sandbox error)" }
   }
 }

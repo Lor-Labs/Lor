@@ -56,10 +56,11 @@ export const artifact = pgTable(
   },
   (table) => [
     // Within a task, a path names one artifact — repeated writes version it.
+    // Also serves plain taskId lookups (all of them filter non-null), so no
+    // standalone taskId index.
     uniqueIndex("artifact_task_path_uidx")
       .on(table.taskId, table.path)
       .where(sql`task_id is not null`),
-    index("artifact_taskId_idx").on(table.taskId),
     index("artifact_channelId_idx").on(table.channelId),
     index("artifact_workspaceId_createdAt_idx").on(
       table.workspaceId,

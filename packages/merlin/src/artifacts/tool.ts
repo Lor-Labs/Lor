@@ -19,6 +19,7 @@ import { artifactPublicUrl, writeArtifactVersion } from "./service"
 const MIN_REMAINING_MS = 4 * 60_000
 const FINISH_MARGIN_MS = 2 * 60_000
 const MAX_INPUT_FILES = 20
+const FETCH_TIMEOUT_MS = 30_000
 
 const artifactsContext = z.object({
   workspaceId: z.string(),
@@ -61,7 +62,10 @@ async function loadTaskOutSeed(
       continue
     }
     try {
-      const res = await fetch(artifactPublicUrl(row.blobKey))
+      const res = await fetch(artifactPublicUrl(row.blobKey), {
+        redirect: "error",
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      })
       if (!res.ok) continue
       const bytes = new Uint8Array(await res.arrayBuffer())
       total += bytes.byteLength
@@ -81,8 +85,18 @@ function invalidInputUrl(url: string): boolean {
 
 async function fetchInput(url: string): Promise<WorkbenchInput | null> {
   try {
-    const res = await fetch(url)
+    const res = await fetch(url, {
+      redirect: "error",
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    })
     if (!res.ok) return null
+    const declared = Number(res.headers.get("content-length"))
+    if (
+      Number.isFinite(declared) &&
+      declared > env.MERLIN_WORKBENCH_MAX_FILE_BYTES
+    ) {
+      return null
+    }
     const bytes = new Uint8Array(await res.arrayBuffer())
     if (bytes.byteLength > env.MERLIN_WORKBENCH_MAX_FILE_BYTES) return null
     const filename = decodeURIComponent(

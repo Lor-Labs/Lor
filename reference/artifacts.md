@@ -66,3 +66,5 @@ Deliberate choices:
 ## Punts (recorded; don't re-litigate)
 
 Artifact ACLs (public-by-obscurity stands), pptx/docx (workbench package additions), diff/HTML previews, version-history UI (data is there; viewer shows current), artifact FTS/brain integration, mobile task surfaces (see `mobile-parity-todo.md`), hard per-tool approval gating (approval is prompt-policy in v1).
+
+From the 2026-08-09 review round (deferred deliberately): harvest memory bounding (harvest buffers up to `MERLIN_WORKBENCH_MAX_TOTAL_BYTES` in worker RAM — fix as upload-per-file during the provider swap), `createTaskWithCard` transactionality (compensation delete exists; orphan card renders a benign fallback), worker task-lookup retry-on-DB-error, task-list pagination (limit 50, no cursor), strict CSV unterminated-quote fallback (parser is deliberately lenient), FileReader abort-on-timeout, shared `serializeTask`/Redis-helper dedupe across api/worker/realtime.

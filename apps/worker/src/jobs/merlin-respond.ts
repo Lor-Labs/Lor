@@ -243,10 +243,25 @@ export function createMerlinRespondProcessor(
                   : fresh.status === "running"
                     ? "waiting_for_input"
                     : fresh.status
+            // CAS: settle only the state this run observed, and only while
+            // the task is still ours — a fast approval can start a
+            // continuation before this run finishes finalizing, and that
+            // run's state must not be clobbered.
             const updated = await db
               .update(schema.task)
               .set({ status, activeRunId: null })
-              .where(eq(schema.task.id, task.id))
+              .where(
+                and(
+                  eq(schema.task.id, task.id),
+                  eq(schema.task.status, fresh.status),
+                  job.data.runId
+                    ? or(
+                        eq(schema.task.activeRunId, job.data.runId),
+                        isNull(schema.task.activeRunId)
+                      )
+                    : undefined
+                )
+              )
               .returning()
               .then((rows) => rows[0])
             if (updated) emitTaskUpdated(updated)

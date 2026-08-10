@@ -6,7 +6,7 @@ import {
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { motion } from "framer-motion"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { ArtifactBody } from "@/components/artifacts/artifact-body"
 import { CsvGrid } from "@/components/artifacts/csv-grid"
 import {
@@ -73,8 +73,18 @@ export function ArtifactOverlay({
     [csv, content.data, artifact?.mime]
   )
 
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose()
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+  }, [onClose])
+
   return (
     <motion.div
+      role="dialog"
+      aria-label={artifact?.path ?? "Artifact"}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}

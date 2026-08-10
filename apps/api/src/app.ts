@@ -1,4 +1,5 @@
 import { auth } from "@repo/auth"
+import { env } from "@repo/env/server"
 import { cors } from "hono/cors"
 import createApp from "@/lib/helpers/app/create-app"
 import configureOpenAPI from "@/lib/helpers/openapi/configure-openapi"
@@ -26,10 +27,23 @@ import waitlistRouter from "@/routes/waitlist/index"
 
 const app = createApp()
 
+// Same allowlist model as the realtime gateway: env-driven web origins plus
+// the fixed native-app origins. Reflecting arbitrary origins while
+// credentials are on would let any site make cookie-authenticated calls.
+const corsOrigins = new Set([
+  ...env.REALTIME_CORS_ORIGIN.split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean),
+  "tauri://localhost",
+  "http://tauri.localhost",
+  "lor://",
+  "lor-dev://",
+])
+
 app.use(
   "*",
   cors({
-    origin: (origin) => origin,
+    origin: (origin) => (corsOrigins.has(origin) ? origin : null),
     credentials: true,
   })
 )
