@@ -2,7 +2,7 @@ import ArrowRight01Icon from "@hugeicons/core-free-icons/ArrowRight01Icon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
 import { useThemeColor } from "heroui-native/hooks"
 import { Popover } from "heroui-native/popover"
-import type { ReactNode } from "react"
+import { type ReactNode, useState } from "react"
 import { Text, View } from "react-native"
 import {
   TaskFileRow,
@@ -66,16 +66,18 @@ function ApprovalCard({
 }
 
 // Anchored popover chip — the mobile analogue of web's Plan/Files popovers.
+// Controlled so content actions (opening a file) can close it.
 function SectionPopover({
   label,
   children,
 }: {
   label: string
-  children: ReactNode
+  children: (close: () => void) => ReactNode
 }) {
+  const [open, setOpen] = useState(false)
   const muted = useThemeColor("muted")
   return (
-    <Popover>
+    <Popover isOpen={open} onOpenChange={setOpen}>
       <Popover.Trigger className="min-h-7 flex-row items-center gap-one rounded-lor-sm px-two py-one">
         <HugeiconsIcon color={muted} icon={ArrowRight01Icon} size={12} />
         <Text className="text-xs font-medium text-muted">{label}</Text>
@@ -90,7 +92,7 @@ function SectionPopover({
           presentation="popover"
           width={300}
         >
-          {children}
+          {children(() => setOpen(false))}
         </Popover.Content>
       </Popover.Portal>
     </Popover>
@@ -133,47 +135,51 @@ export function TaskThreadHeader({
         <TaskStatusBadge status={task.status} />
         {showPlan ? (
           <SectionPopover label={`Plan · ${doneCount}/${task.plan.length}`}>
-            <TaskPlanList items={task.plan} />
+            {() => <TaskPlanList items={task.plan} />}
           </SectionPopover>
         ) : null}
         {showFiles ? (
           <SectionPopover label={`Files · ${fileCount}`}>
-            <View className="gap-two">
-              {outputs.length > 0 ? (
-                <View className="gap-one">
-                  {sources.length > 0 ? (
-                    <Text className="text-xs font-semibold text-muted">
-                      Outputs
-                    </Text>
-                  ) : null}
-                  {outputs.map((artifact) => (
-                    <TaskFileRow
-                      key={artifact.id}
-                      name={artifact.path}
-                      size={artifact.size}
-                      url={artifact.url}
-                    />
-                  ))}
-                </View>
-              ) : null}
-              {sources.length > 0 ? (
-                <View className="gap-one">
-                  {outputs.length > 0 ? (
-                    <Text className="text-xs font-semibold text-muted">
-                      Sources
-                    </Text>
-                  ) : null}
-                  {sources.map((source) => (
-                    <TaskFileRow
-                      key={source.url}
-                      name={source.filename}
-                      size={source.size}
-                      url={source.url}
-                    />
-                  ))}
-                </View>
-              ) : null}
-            </View>
+            {(close) => (
+              <View className="gap-two">
+                {outputs.length > 0 ? (
+                  <View className="gap-one">
+                    {sources.length > 0 ? (
+                      <Text className="text-xs font-semibold text-muted">
+                        Outputs
+                      </Text>
+                    ) : null}
+                    {outputs.map((artifact) => (
+                      <TaskFileRow
+                        key={artifact.id}
+                        name={artifact.path}
+                        onOpen={close}
+                        size={artifact.size}
+                        url={artifact.url}
+                      />
+                    ))}
+                  </View>
+                ) : null}
+                {sources.length > 0 ? (
+                  <View className="gap-one">
+                    {outputs.length > 0 ? (
+                      <Text className="text-xs font-semibold text-muted">
+                        Sources
+                      </Text>
+                    ) : null}
+                    {sources.map((source) => (
+                      <TaskFileRow
+                        key={source.url}
+                        name={source.filename}
+                        onOpen={close}
+                        size={source.size}
+                        url={source.url}
+                      />
+                    ))}
+                  </View>
+                ) : null}
+              </View>
+            )}
           </SectionPopover>
         ) : null}
       </View>
