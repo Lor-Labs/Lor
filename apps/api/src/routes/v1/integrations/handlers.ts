@@ -2,6 +2,7 @@ import {
   CONNECTOR_EVENTS,
   CONNECTOR_LIST,
   type ConnectorDescriptor,
+  connectorCapabilities,
   isConnectorEvent,
 } from "@repo/connectors"
 import { db } from "@repo/db"
@@ -200,6 +201,14 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
       return {
         id: descriptor.id,
         name: descriptor.label,
+        description: descriptor.description,
+        capabilities: connectorCapabilities(descriptor.id).map(
+          (capability) => ({
+            key: capability.key,
+            label: capability.label,
+            description: capability.description,
+          })
+        ),
         connected: !!conn,
         accountLogin: conn?.accountLogin ?? null,
         connectionId: conn?.id ?? null,

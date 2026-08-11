@@ -114,7 +114,7 @@ export function ChannelActionsSheet({
                     detail={
                       copied
                         ? "Copied to clipboard"
-                        : "For webhooks and integrations"
+                        : "For webhooks and connectors"
                     }
                     icon={Copy01Icon}
                     label="Copy channel ID"

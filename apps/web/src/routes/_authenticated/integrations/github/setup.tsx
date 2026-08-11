@@ -61,12 +61,12 @@ function GithubSetup() {
       } catch {
         toast.error("Couldn't connect GitHub")
       }
-      // Only deep-link into the Integrations tab on success; on failure just
+      // Only deep-link into the Connectors tab on success; on failure just
       // return to the workspace.
       await navigate({
         to: "/$workspaceSlug",
         params: { workspaceSlug: state },
-        search: connected ? { settings: "workspace", tab: "integrations" } : {},
+        search: connected ? { settings: "workspace", tab: "connectors" } : {},
         replace: true,
       })
     })()
