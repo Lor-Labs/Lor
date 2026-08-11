@@ -1,6 +1,6 @@
 import { z } from "@hono/zod-openapi"
 import { DATADOG_SITES } from "@repo/connectors"
-import { integrationProviderEnum } from "@repo/db/schema"
+import { integrationProviderEnum, merlinCapabilityEnum } from "@repo/db/schema"
 
 export const integrationsWorkspaceParamsSchema = z.object({
   workspaceSlug: z.string().openapi({
@@ -28,6 +28,14 @@ export const integrationRepoSchema = z.object({
 export const integrationStatusSchema = z.object({
   id: z.enum(integrationProviderEnum.enumValues), // provider id, e.g. "github"
   name: z.string(), // display name, e.g. "GitHub"
+  description: z.string(),
+  capabilities: z.array(
+    z.object({
+      key: z.enum(merlinCapabilityEnum.enumValues),
+      label: z.string(),
+      description: z.string(),
+    })
+  ),
   connected: z.boolean(),
   accountLogin: z.string().nullable(),
   connectionId: z.string().nullable(),

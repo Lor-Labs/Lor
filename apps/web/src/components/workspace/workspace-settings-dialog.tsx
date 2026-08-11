@@ -591,11 +591,15 @@ function IntegrationsSection({ workspaceSlug }: { workspaceSlug: string }) {
 
   return (
     <div className="space-y-3">
-      <p className="text-sm text-muted-foreground">
-        Connect tools so Merlin can draw on your team's work — searching pull
-        requests, issues, CRM records, meetings, code, and logs on demand, and
-        summarizing what matters into your workspace's memory.
-      </p>
+      <div className="space-y-1 text-sm text-muted-foreground">
+        <p>
+          Connect tools so Merlin can draw on your team's work and act on it
+          when allowed.
+        </p>
+        <p className="text-xs">
+          Agent profiles control which channels can use each connector's tools.
+        </p>
+      </div>
       {data?.providers.map((p) => {
         const Icon = connectorLogo(p.id)
         const repos = p.repos ?? []
@@ -604,7 +608,7 @@ function IntegrationsSection({ workspaceSlug }: { workspaceSlug: string }) {
         const showRepos = p.connected && (repoCount > 0 || !!p.manageUrl)
         const showNotify =
           p.connected && !!p.connectionId && p.events.length > 0
-        const hasDetails = showNotify || showRepos
+        const hasDetails = p.capabilities.length > 0 || showNotify || showRepos
         const isExpanded = expandedId === p.id
         const activeEvents = p.events.filter((ev) => ev.channelId).length
         const statusParts = p.connected
@@ -625,103 +629,131 @@ function IntegrationsSection({ workspaceSlug }: { workspaceSlug: string }) {
                 <Icon className="size-6 shrink-0" />
                 <div className="min-w-0">
                   <div className="text-sm font-medium">{p.name}</div>
-                  <div className="truncate text-xs text-muted-foreground">
+                  <p className="text-xs text-muted-foreground">
+                    {p.description}
+                  </p>
+                  <div className="mt-1 truncate text-xs text-muted-foreground/80">
                     {statusParts.join(" · ")}
                   </div>
                 </div>
               </div>
-              {p.connected && p.connectionId ? (
-                <div className="flex shrink-0 items-center gap-1">
-                  {p.id === "notion" && p.canManage && p.connectUrl && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() =>
-                        p.connectUrl &&
+              <div className="flex shrink-0 items-center gap-1">
+                {p.connected && p.connectionId ? (
+                  <>
+                    {p.id === "notion" && p.canManage && p.connectUrl && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          p.connectUrl &&
+                          setNotionConnect({
+                            url: p.connectUrl,
+                            replacing: true,
+                          })
+                        }
+                      >
+                        Reconnect
+                      </Button>
+                    )}
+                    {p.canManage ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={disconnect.isPending}
+                        onClick={() =>
+                          p.connectionId &&
+                          setDisconnectTarget({
+                            connectionId: p.connectionId,
+                            name: p.name,
+                          })
+                        }
+                      >
+                        Disconnect
+                      </Button>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">
+                        Admin managed
+                      </span>
+                    )}
+                  </>
+                ) : p.authType === "api-key" ? (
+                  // Keyed connectors connect via an in-app form, not a redirect.
+                  // Datadog is the only one today.
+                  <Button
+                    size="sm"
+                    disabled={!p.available}
+                    onClick={() => setDatadogOpen(true)}
+                  >
+                    {p.available ? "Connect" : "Unavailable"}
+                  </Button>
+                ) : (
+                  <Button
+                    size="sm"
+                    disabled={!p.canManage || !p.connectUrl}
+                    onClick={() => {
+                      if (!p.connectUrl) return
+                      if (p.id === "notion") {
                         setNotionConnect({
                           url: p.connectUrl,
-                          replacing: true,
+                          replacing: false,
                         })
+                        return
                       }
-                    >
-                      Reconnect
-                    </Button>
-                  )}
-                  {p.canManage ? (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={disconnect.isPending}
-                      onClick={() =>
-                        p.connectionId &&
-                        setDisconnectTarget({
-                          connectionId: p.connectionId,
-                          name: p.name,
-                        })
-                      }
-                    >
-                      Disconnect
-                    </Button>
-                  ) : (
-                    <span className="text-xs text-muted-foreground">
-                      Admin managed
-                    </span>
-                  )}
-                  {hasDetails && (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-8 text-muted-foreground"
-                      aria-label={
-                        isExpanded
-                          ? `Collapse ${p.name} settings`
-                          : `Expand ${p.name} settings`
-                      }
-                      onClick={() => setExpandedId(isExpanded ? null : p.id)}
-                    >
-                      <ChevronDown
-                        className={cn(
-                          "size-4 transition-transform",
-                          isExpanded && "rotate-180"
-                        )}
-                      />
-                    </Button>
-                  )}
-                </div>
-              ) : p.authType === "api-key" ? (
-                // Keyed connectors connect via an in-app form, not a redirect.
-                // Datadog is the only one today.
-                <Button
-                  size="sm"
-                  disabled={!p.available}
-                  onClick={() => setDatadogOpen(true)}
-                >
-                  {p.available ? "Connect" : "Unavailable"}
-                </Button>
-              ) : (
-                <Button
-                  size="sm"
-                  disabled={!p.canManage || !p.connectUrl}
-                  onClick={() => {
-                    if (!p.connectUrl) return
-                    if (p.id === "notion") {
-                      setNotionConnect({
-                        url: p.connectUrl,
-                        replacing: false,
-                      })
-                      return
+                      openExternal(p.connectUrl)
+                    }}
+                  >
+                    {!p.canManage
+                      ? "Admin only"
+                      : p.connectUrl
+                        ? "Connect"
+                        : "Unavailable"}
+                  </Button>
+                )}
+                {hasDetails && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-8 text-muted-foreground"
+                    aria-expanded={isExpanded}
+                    aria-label={
+                      isExpanded
+                        ? `Hide what ${p.name} can do`
+                        : `Show what ${p.name} can do`
                     }
-                    openExternal(p.connectUrl)
-                  }}
-                >
-                  {!p.canManage
-                    ? "Admin only"
-                    : p.connectUrl
-                      ? "Connect"
-                      : "Unavailable"}
-                </Button>
-              )}
+                    onClick={() => setExpandedId(isExpanded ? null : p.id)}
+                  >
+                    <ChevronDown
+                      className={cn(
+                        "size-4 transition-transform",
+                        isExpanded && "rotate-180"
+                      )}
+                    />
+                  </Button>
+                )}
+              </div>
             </div>
+
+            {isExpanded && p.capabilities.length > 0 && (
+              <div className="mt-3 border-border/60 border-t pt-3">
+                <div className="mb-2 text-xs font-medium text-muted-foreground">
+                  What Merlin can do
+                </div>
+                <ul className="space-y-1.5">
+                  {p.capabilities.map((capability) => (
+                    <li
+                      key={capability.key}
+                      className="flex gap-2 text-xs text-muted-foreground/80"
+                    >
+                      <span
+                        className="mt-1.5 size-1 shrink-0 rounded-full bg-current"
+                        aria-hidden="true"
+                      />
+                      <span>{capability.description}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             {isExpanded && showNotify && (
               <div className="mt-3 space-y-2 border-border/60 border-t pt-3">

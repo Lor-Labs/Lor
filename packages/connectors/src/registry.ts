@@ -12,7 +12,8 @@ export const CONNECTORS: Record<IntegrationProvider, ConnectorDescriptor> = {
   github: {
     id: "github",
     label: "GitHub",
-    description: "Pull requests, issues, and code intelligence.",
+    description:
+      "Search pull requests and issues, and analyze connected repositories.",
     authType: "github-app",
     envKeys: [
       "GITHUB_APP_ID",
@@ -24,7 +25,8 @@ export const CONNECTORS: Record<IntegrationProvider, ConnectorDescriptor> = {
   linear: {
     id: "linear",
     label: "Linear",
-    description: "Issues, projects, and comments.",
+    description:
+      "Search issues and projects, and create, update, or comment on issues.",
     authType: "oauth",
     envKeys: [
       "LINEAR_CLIENT_ID",
@@ -36,14 +38,15 @@ export const CONNECTORS: Record<IntegrationProvider, ConnectorDescriptor> = {
   datadog: {
     id: "datadog",
     label: "Datadog",
-    description: "Log search and analysis.",
+    description: "Search and analyze logs from your Datadog account.",
     authType: "api-key",
     envKeys: ["INTEGRATION_ENCRYPTION_KEY"],
   },
   attio: {
     id: "attio",
     label: "Attio",
-    description: "CRM records, pipelines, notes, meetings, and transcripts.",
+    description:
+      "Search CRM records and inspect pipelines, activity, meetings, and transcripts.",
     authType: "oauth",
     envKeys: [
       "ATTIO_CLIENT_ID",
@@ -54,7 +57,8 @@ export const CONNECTORS: Record<IntegrationProvider, ConnectorDescriptor> = {
   notion: {
     id: "notion",
     label: "Notion",
-    description: "Selected pages, databases, comments, and workspace users.",
+    description:
+      "Search and read selected pages, databases, comments, and workspace users.",
     authType: "oauth",
     envKeys: [
       "NOTION_CLIENT_ID",
