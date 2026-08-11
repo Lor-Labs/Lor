@@ -41,9 +41,6 @@ const serverSchema = z.object({
   // eval`). When unset, the eval is skipped. Read by the eval bootstrap before
   // @repo/db loads, so it can point the shared client here instead of prod.
   EVAL_DB_URL: z.string().url().optional(),
-  // Railway Sandboxes (ephemeral code-exec for GitHub code intelligence, §7.4).
-  // Optional: sandbox features are skipped when unset. The `railway` SDK reads
-  // these from the environment directly.
   PORT: z.coerce.number().int().min(1).max(65535).default(8080),
   REALTIME_PORT: z.coerce.number().int().min(1).max(65535).default(8000),
   REALTIME_CORS_ORIGIN: z.string().default(DEFAULT_REALTIME_CORS_ORIGIN),
@@ -122,7 +119,11 @@ const serverSchema = z.object({
   MERLIN_WORKBENCH_IMAGE: defaultedString("sandbox/workbench:latest"),
   // Idle lifetime of a task's Blaxel sandbox before auto-delete. Deletion only
   // costs warmth: the next run recreates it and reseeds from artifact truth.
-  MERLIN_WORKBENCH_SANDBOX_TTL: defaultedString("14d"),
+  // Blaxel expiration policies accept hours, days, or weeks only.
+  MERLIN_WORKBENCH_SANDBOX_TTL: z
+    .string()
+    .regex(/^\d+[hdw]$/, "must be a duration like 24h, 14d, or 2w")
+    .default("14d"),
   MERLIN_WORKBENCH_MEMORY_MB: z.coerce.number().int().positive().default(4096),
   MERLIN_EMBED_MODEL: defaultedString("alibaba/qwen3-embedding-4b"),
   MERLIN_EMBED_DIMENSIONS: z.coerce.number().int().positive().default(2560),

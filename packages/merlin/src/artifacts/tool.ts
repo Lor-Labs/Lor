@@ -152,21 +152,29 @@ export const artifactTools = {
       { instructions, inputFileUrls },
       { toolCallId, context, abortSignal }
     ) => {
-      const remainingMs = context.deadlineAt
-        ? context.deadlineAt.getTime() - Date.now()
-        : null
-      if (remainingMs !== null && remainingMs < MIN_REMAINING_MS) {
+      // Re-derived when the session actually starts: a task session can wait
+      // behind a sibling call, and the deadline moves on meanwhile.
+      const sessionBudget = (): { timeoutSec: number } | { error: string } => {
+        const remainingMs = context.deadlineAt
+          ? context.deadlineAt.getTime() - Date.now()
+          : null
+        if (remainingMs !== null && remainingMs < MIN_REMAINING_MS) {
+          return {
+            error:
+              "not enough time left in this run for a workbench session; answer with what you have and suggest re-asking",
+          }
+        }
         return {
-          error:
-            "not enough time left in this run for a workbench session; answer with what you have and suggest re-asking",
+          timeoutSec: Math.min(
+            env.MERLIN_WORKBENCH_TIMEOUT_SEC,
+            remainingMs !== null
+              ? Math.floor((remainingMs - FINISH_MARGIN_MS) / 1000)
+              : env.MERLIN_WORKBENCH_TIMEOUT_SEC
+          ),
         }
       }
-      const timeoutSec = Math.min(
-        env.MERLIN_WORKBENCH_TIMEOUT_SEC,
-        remainingMs !== null
-          ? Math.floor((remainingMs - FINISH_MARGIN_MS) / 1000)
-          : env.MERLIN_WORKBENCH_TIMEOUT_SEC
-      )
+      const upfrontBudget = sessionBudget()
+      if ("error" in upfrontBudget) return upfrontBudget
 
       // Stable per-input identity: recovery replays the stored manifest
       // instead of re-running the sandbox or re-billing.
@@ -193,11 +201,13 @@ export const artifactTools = {
 
       let step = 0
       const task = context.task
-      const startSession = async () =>
-        runWorkbenchSession({
+      const startSession = async () => {
+        const budget = sessionBudget()
+        if ("error" in budget) return budget
+        return runWorkbenchSession({
           instructions,
           inputs,
-          timeoutSec,
+          timeoutSec: budget.timeoutSec,
           abortSignal,
           ...(task
             ? { task: { id: task.id, outSeed: await loadTaskOutSeed(task.id) } }
@@ -217,10 +227,14 @@ export const artifactTools = {
             }
           },
         })
+      }
       const result = await (task
         ? serializeTaskSession(task.id, startSession)
         : startSession()
-      ).catch(() => null)
+      ).catch((err) => {
+        logger.error({ err, taskId: task?.id }, "Workbench: session threw")
+        return null
+      })
       if (!result || "error" in result) {
         return { error: result?.error ?? "workbench session failed" }
       }

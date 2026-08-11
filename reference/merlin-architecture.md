@@ -235,6 +235,8 @@ These steps define *what gets produced* (a repo-map page, anchored citations) an
 ### 7.4 Execution environment: ephemeral sandboxes (v1 direction)
 
 > 2026-08-10: the sandbox provider is **Blaxel** (Railway sandboxes fully removed). The architecture below is unchanged; read "Railway sandbox" as "Blaxel sandbox". As-built details live in `reference/artifacts.md`.
+>
+> As-built gap: `investigate_code` shallow-clones the **default branch head**, not a caller-supplied SHA — citations are therefore branch-relative and can rot. SHA pinning below is the target, not current behavior; it needs a validated `ref` input plus an explicit checkout.
 
 **Decision (updated 2026-07-31): code investigation runs in ephemeral sandboxes, driving Pi with Merlin's configured main model against a short-lived clone.** This flips the earlier "defer the sandbox, ship API-fetch first" stance — hosted agent sandboxes make the sandbox the *cheaper and better* path now, and Pi gives us an open, model-neutral harness instead of tying repository reasoning to a proprietary coding CLI.
 

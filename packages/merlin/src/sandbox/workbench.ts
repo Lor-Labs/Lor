@@ -138,11 +138,17 @@ async function walkOutputs(
   }
   const listing = await sandbox.fs.ls(dir).catch(() => null)
   if (!listing) return []
+  // Listings report absolute paths; a bare name would slice into a corrupted
+  // artifact path downstream, so root it against the directory we listed.
   const found: { path: string; size: number }[] = (listing.files ?? []).map(
-    (f) => ({ path: f.path, size: f.size })
+    (f) => ({
+      path: f.path.startsWith("/") ? f.path : `${dir}/${f.path}`,
+      size: f.size,
+    })
   )
   for (const sub of listing.subdirectories ?? []) {
-    found.push(...(await walkOutputs(sandbox, sub.path, depth + 1)))
+    const path = sub.path.startsWith("/") ? sub.path : `${dir}/${sub.path}`
+    found.push(...(await walkOutputs(sandbox, path, depth + 1)))
   }
   return found
 }
@@ -172,11 +178,15 @@ export async function runWorkbenchSession(opts: {
       const parent = seed.path.split("/").slice(0, -1).join("/")
       if (parent) seedDirs.add(`${OUT_DIR}/${parent}`)
     }
-    await sandbox.process.exec({
+    const mkdir = await sandbox.process.exec({
       command: `mkdir -p ${IN_DIR} ${OUT_DIR} ${SESSION_DIR} /root/.pi/agent ${[...seedDirs].map((d) => `'${d}'`).join(" ")}`,
       waitForCompletion: true,
       timeout: 30,
     })
+    // Without the directories every seed write fails; stop with a clear cause.
+    if ("exitCode" in mkdir && mkdir.exitCode !== 0) {
+      return { error: `workbench setup failed (mkdir exit ${mkdir.exitCode})` }
+    }
 
     const digest = (bytes: Uint8Array) =>
       createHash("sha256").update(bytes).digest("hex")

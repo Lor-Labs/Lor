@@ -168,7 +168,9 @@ export async function execToCompletion(
     stdout:
       done.stdout ||
       (await sandbox.process.logs(name, "stdout").catch(() => "")),
-    stderr: done.stderr ?? "",
+    stderr:
+      done.stderr ||
+      (await sandbox.process.logs(name, "stderr").catch(() => "")),
   }
 }
 
