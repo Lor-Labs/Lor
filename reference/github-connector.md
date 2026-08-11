@@ -1,17 +1,17 @@
 # GitHub Connector — Status & Definition of Done
 
-Status as of 2026-07-31. The **code-investigation core works end-to-end** (verified live: Railway-bundled Pi → Kimi K3 through Vercel AI Gateway → read-only tool loop → findings → metered → torn down). It is **NOT "done"** by our bar yet. This is the resume-here doc.
+Status as of 2026-07-31. The **code-investigation core works end-to-end** (verified live: sandboxed Pi → Kimi K3 through Vercel AI Gateway → read-only tool loop → findings → metered → torn down). It is **NOT "done"** by our bar yet. This is the resume-here doc. (2026-08-10: the sandbox provider moved Railway → **Blaxel** — same flow, engine details updated below; the ported path needs a live GitHub e2e re-verify.)
 
 ## How it works today (as-built)
 
-The flow: Merlin calls the `investigate_code(repo, question)` tool → clone the repo into an ephemeral Railway sandbox at query time → run Pi with the configured Merlin main model as a read-only sub-agent → stream its tool calls back live → return findings → Merlin composes the answer.
+The flow: Merlin calls the `investigate_code(repo, question)` tool → clone the repo into an ephemeral Blaxel sandbox at query time → run Pi with the configured Merlin main model as a read-only sub-agent → stream its tool calls back live → return findings → Merlin composes the answer.
 
-- **Tool:** `packages/merlin/src/code.ts` (`buildCodeTools`) — registered in `respond()` (`index.ts`) only when `env.RAILWAY_API_TOKEN` is set. Resolves the workspace's active GitHub connection → mints a short-lived installation token (`getInstallationToken`, `providers/github.ts`).
-- **Engine:** `packages/merlin/src/sandbox/investigate.ts` → `withSandbox` (`sandbox/index.ts`). It uses Railway's bundled Pi runtime and shallow-clones the repository fresh per query (`git clone --depth 1 --single-branch`, no deps or repo checkpoint). Pi runs Kimi K3 through Vercel AI Gateway with only `read`, `grep`, `find`, and `ls`; sessions, extensions, skills, prompt templates, and repo context files are disabled. The live smoke test checks the bundled Pi CLI so incompatible image changes fail visibly.
-- **Realtime trail:** Pi JSON events are parsed off `exec` `onStdout` → each `tool_execution_start` is emitted as a `merlin:tool` with `parentToolCallId` = the investigate_code call id. Web nests it: `merlin-message-body.tsx` (`childrenByParent`) + `merlin-tool-trail.tsx`. Findings rendered as markdown (small/dimmed). Findings + usage come from assistant `message_end` events.
+- **Tool:** `packages/merlin/src/code.ts` (`buildCodeTools`) — registered in `respond()` (`index.ts`) only when Blaxel is configured (`BL_API_KEY`+`BL_WORKSPACE`). Resolves the workspace's active GitHub connection → mints a short-lived installation token (`getInstallationToken`, `providers/github.ts`).
+- **Engine:** `packages/merlin/src/sandbox/investigate.ts` → `withEphemeralSandbox` (`sandbox/blaxel.ts`). It runs the same workbench image (Pi pinned, see `reference/artifacts.md`) and shallow-clones the repository fresh per query (`git clone --depth 1 --single-branch`, no deps or repo caching; the clone token reaches the sandbox as process env, never in the persisted command string). Pi runs Kimi K3 through Vercel AI Gateway with only `read`, `grep`, `find`, and `ls`; sessions, extensions, skills, prompt templates, and repo context files are disabled. The live smoke test probes the image's Pi CLI so incompatible image changes fail visibly.
+- **Realtime trail:** Pi JSON events feed the live `onStdout` stream → each `tool_execution_start` is emitted as a `merlin:tool` with `parentToolCallId` = the investigate_code call id (live stream is UX-only; findings + usage are parsed from the complete stdout after completion). Web nests it: `merlin-message-body.tsx` (`childrenByParent`) + `merlin-tool-trail.tsx`. Findings rendered as markdown (small/dimmed).
 - **Usage metering:** `packages/merlin/src/usage.ts` (`UsageEvent`/`OnUsage`) forwards each Pi run's token counts to the central usage ledger. Every successful `investigate_code` invocation is priced from the served model's database rate and debited from the workspace's customer credits with a retry-safe per-response invocation key.
 - **Sandbox lifecycle:** `"Sandbox: created"` / `"Sandbox: destroyed"` logs confirm teardown (no surprise billing).
-- **SDK:** `railway@3.4.1`; `authType: "project-token"` in `withSandbox` DEFAULTS (RAILWAY_API_TOKEN is a project token); env `RAILWAY_API_TOKEN` + `RAILWAY_ENVIRONMENT_ID`.
+- **SDK:** `@blaxel/core`; env `BL_API_KEY` + `BL_WORKSPACE` (read by the SDK from process.env), optional `BL_REGION`.
 
 ## Definition of Done
 
@@ -44,7 +44,7 @@ The flow: Merlin calls the `investigate_code(repo, question)` tool → clone the
 
 ## Decisions locked (do NOT re-litigate)
 - **No embedding** of GitHub PRs/issues — brain-centric. `SOURCE_INGEST_ENABLED = false` in `github/events.ts` (code kept; user may revisit).
-- **No repo checkpoints** (100/env cap + freshness) → clone-per-query, shallow, no deps. Pi comes from Railway's sandbox image.
+- **No repo caching** (freshness) → clone-per-query, shallow, no deps. Pi comes from our workbench image (exact-pinned).
 - **Draft PRs only**, never auto-merge.
 - **Webhooks not needed** for GitHub's core loop (brain-centric → no index to sync). They'd only return for proactive notifs/synthesis.
 - **Linear is deferred** until GitHub is done; when resumed: proper OAuth + write scope + webhooks from day 1 (tokens expire ~24h w/ refresh — design researched).

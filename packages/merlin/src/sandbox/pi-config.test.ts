@@ -55,4 +55,23 @@ describe("buildPiCommand", () => {
       "Invalid Pi model id"
     )
   })
+
+  it("adds explicit print mode for pi ≥0.71 (Blaxel) while leaving legacy commands unchanged", () => {
+    const printCmd = buildPiCommand("moonshotai/kimi-k3", {
+      print: true,
+      session: {
+        dir: "/workspace/.pi-sessions",
+        id: "0f0e0d0c-0b0a-4988-8766-554433221100",
+      },
+    })
+    expect(printCmd).toContain(" -p ")
+    expect(printCmd).toContain(
+      "--session-dir /workspace/.pi-sessions --session-id 0f0e0d0c-0b0a-4988-8766-554433221100"
+    )
+    expect(printCmd).toContain("--thinking max")
+    expect(printCmd).toContain("--no-approve")
+
+    const legacy = buildPiCommand("moonshotai/kimi-k3")
+    expect(legacy).not.toContain(" -p ")
+  })
 })

@@ -59,6 +59,7 @@ import {
   type RunStopCause,
   ZERO_RUN_COUNTERS,
 } from "./run"
+import { blaxelConfigured } from "./sandbox/blaxel"
 import { resolveSourceCitation, searchSources, sourceTools } from "./sources"
 import { generateSmallObject } from "./structured"
 import { type RunTaskContext, taskPromptSection, taskTools } from "./tasks"
@@ -1308,7 +1309,7 @@ export async function respond(
   ])
 
   const artifactsEnabled = Boolean(
-    env.RAILWAY_API_TOKEN && ctx.channelId && caps.includes("artifacts")
+    blaxelConfigured() && ctx.channelId && caps.includes("artifacts")
   )
   const tools = {
     ...searchTools,
@@ -1319,7 +1320,7 @@ export async function respond(
     ...instructionsTools,
     ...(env.EXA_API_KEY && caps.includes("web") ? webTools : {}),
     ...(github && caps.includes("github") ? githubTools : {}),
-    ...(env.RAILWAY_API_TOKEN && github && caps.includes("code_intelligence")
+    ...(blaxelConfigured() && github && caps.includes("code_intelligence")
       ? codeTools
       : {}),
     ...(artifactsEnabled ? artifactTools : {}),
@@ -1355,14 +1356,9 @@ export async function respond(
           create_artifacts: {
             workspaceId: ctx.workspaceId,
             channelId: ctx.channelId,
-            // Task runs get workbench continuity (checkpoint + pi session);
-            // plain answers produce standalone artifacts ephemerally.
-            task: ctx.task
-              ? {
-                  id: ctx.task.id,
-                  sandboxCheckpoint: ctx.task.sandboxCheckpoint,
-                }
-              : null,
+            // Task runs get workbench continuity (persistent sandbox + pi
+            // session); plain answers produce standalone artifacts ephemerally.
+            task: ctx.task ? { id: ctx.task.id } : null,
             deadlineAt: budgets.deadlineAt,
             onUsage,
             onToolEvent,

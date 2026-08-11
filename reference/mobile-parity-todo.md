@@ -15,15 +15,17 @@ Core push is live and verified on TestFlight (2026-08-04).
 - [ ] Mute control on the mobile DM screen (web DM header has it; mobile mute UI lives only in the channel options sheet).
 - [ ] Muted-channel visual styling in sidebars/lists.
 
-## Post-launch — Tasks (shipped web-only 2026-08-08)
+## Post-launch — Tasks
 
-Mobile has no task surfaces yet; the data layer (task rows, `task:updated` channel-room event, `/v1/channels/:id/tasks`, `/v1/tasks/:id`, approval endpoints, artifact endpoints) is shared and ready.
+Core task surfaces shipped 2026-08-10 (`use-tasks.ts`, `task-ui.tsx`, `task-card.tsx`, `task-thread-header.tsx`; needs on-device QA):
 
-- [ ] `task_card` messages render as plain text (goal string) — need a task card (web: `components/chat/task-card.tsx`).
-- [ ] Task thread header with plan/status/approval actions (web: `task-thread-header.tsx`).
-- [ ] Approve/reject from mobile (`POST /v1/approvals/:id/approve|reject`) — highest-value slice; approvals block tasks while the approver is away from a desk.
-- [ ] Artifact viewer (web: `?artifactId=` overlay + renderer registry; mobile likely a screen).
-- [ ] Active-tasks indicator in the channel header.
+- [x] `task_card` messages render as a task card (title, status badge, live plan, deliverable file rows; tap opens the thread) — 2026-08-10
+- [x] Task thread: header says **Task**, docked strip with status + Plan/Files anchored popovers (heroui-native `Popover`, Outputs vs Sources split) + always-visible approval card — 2026-08-10
+- [x] Approve/reject from mobile (`POST /v1/approvals/:id/approve|reject`) — 2026-08-10
+- [x] Deliverables at the end of Merlin messages (`files` on create_artifacts tool calls) as tappable file rows — 2026-08-10
+- [ ] Artifact viewer — deliberately punted: artifacts open in the in-app browser sheet (`openExternalUrl`), same as attachments. A native CSV/markdown viewer screen is post-demand, mirroring web's read-only decision.
+- Known gap: `task:updated` arrives via the channel room; a deep-linked thread (push tap) without the channel screen mounted misses live task flips until refetch-on-mount/focus. Fine for v1.
+- Active-tasks indicator in the channel header — dropped; web removed its own header chip in the 2026-08-09 design round.
 
 ## Post-launch — DM follow-ups
 

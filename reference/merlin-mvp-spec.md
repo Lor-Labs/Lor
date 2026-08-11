@@ -156,7 +156,7 @@ Socket events (in `@repo/realtime-types`): `message:stream { channelId, messageI
 - **Embedding migration:** `pnpm db:reembed` idempotently converts legacy columns, embeds every missing brain page and source summary, and restores both HNSW indexes. Tune bounded parallelism with `MERLIN_REEMBED_CONCURRENCY` (default 4).
 - **Answer + write-back:** Kimi K3 (`moonshotai/kimi-k3`).
 - **Salience gate, reply placement, source summaries:** Inkling (`thinkingmachines/inkling`).
-- **Code investigation:** Railway's bundled Pi runs the configured main model (Kimi K3 by default). It has only read-only repository tools and ignores repo-provided extensions, skills, prompts, and context files.
+- **Code investigation:** Pi (from our Blaxel sandbox image, exact-pinned) runs the configured main model (Kimi K3 by default). It has only read-only repository tools and ignores repo-provided extensions, skills, prompts, and context files.
 - **Code-investigation billing:** every successful Pi invocation records its token usage and debits customer credits at the centrally configured served-model rate; stable per-response invocation keys prevent duplicate retry charges while allowing multiple investigations in one answer.
 - **Ingestion is never metered** (product principle); write-back cost is bounded by the Inkling gate.
 - Gateway prompt caching is requested for the main tier with `caching: "auto"`.

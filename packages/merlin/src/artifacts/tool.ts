@@ -5,7 +5,6 @@ import { tool } from "ai"
 import { z } from "zod"
 import { logger } from "../logger"
 import {
-  deleteWorkbenchCheckpoint,
   runWorkbenchSession,
   type WorkbenchInput,
   type WorkbenchTaskContinuity,
@@ -24,13 +23,35 @@ const FETCH_TIMEOUT_MS = 30_000
 const artifactsContext = z.object({
   workspaceId: z.string(),
   channelId: z.string(),
-  // Task runs get continuity: checkpoint boot, Pi session resume, artifact
-  // reseeding. Null for plain-answer sessions.
-  task: z.custom<{ id: string; sandboxCheckpoint: string | null } | null>(),
+  // Task runs get continuity: the task's persistent sandbox, Pi session
+  // resume, artifact reseeding. Null for plain-answer sessions.
+  task: z.custom<{ id: string } | null>(),
   deadlineAt: z.custom<Date>().optional(),
   onUsage: z.custom<OnUsage>().optional(),
   onToolEvent: z.custom<(e: MerlinToolCall) => void>().optional(),
 })
+
+// Parallel create_artifacts calls in one step must not share a task's sandbox
+// (or its Pi session) concurrently — serialize per task. Cross-process overlap
+// can't happen: a task has at most one active run.
+const taskSessions = new Map<string, Promise<unknown>>()
+
+function serializeTaskSession<T>(
+  taskId: string,
+  fn: () => Promise<T>
+): Promise<T> {
+  const prev = taskSessions.get(taskId) ?? Promise.resolve()
+  const run = prev.then(fn)
+  const settled = run.then(
+    () => {},
+    () => {}
+  )
+  taskSessions.set(taskId, settled)
+  void settled.then(() => {
+    if (taskSessions.get(taskId) === settled) taskSessions.delete(taskId)
+  })
+  return run
+}
 
 // Current versions of the task's artifacts, reseeded into /workspace/out so
 // the agent always works from artifact truth (humans may have edited).
@@ -131,21 +152,29 @@ export const artifactTools = {
       { instructions, inputFileUrls },
       { toolCallId, context, abortSignal }
     ) => {
-      const remainingMs = context.deadlineAt
-        ? context.deadlineAt.getTime() - Date.now()
-        : null
-      if (remainingMs !== null && remainingMs < MIN_REMAINING_MS) {
+      // Re-derived when the session actually starts: a task session can wait
+      // behind a sibling call, and the deadline moves on meanwhile.
+      const sessionBudget = (): { timeoutSec: number } | { error: string } => {
+        const remainingMs = context.deadlineAt
+          ? context.deadlineAt.getTime() - Date.now()
+          : null
+        if (remainingMs !== null && remainingMs < MIN_REMAINING_MS) {
+          return {
+            error:
+              "not enough time left in this run for a workbench session; answer with what you have and suggest re-asking",
+          }
+        }
         return {
-          error:
-            "not enough time left in this run for a workbench session; answer with what you have and suggest re-asking",
+          timeoutSec: Math.min(
+            env.MERLIN_WORKBENCH_TIMEOUT_SEC,
+            remainingMs !== null
+              ? Math.floor((remainingMs - FINISH_MARGIN_MS) / 1000)
+              : env.MERLIN_WORKBENCH_TIMEOUT_SEC
+          ),
         }
       }
-      const timeoutSec = Math.min(
-        env.MERLIN_WORKBENCH_TIMEOUT_SEC,
-        remainingMs !== null
-          ? Math.floor((remainingMs - FINISH_MARGIN_MS) / 1000)
-          : env.MERLIN_WORKBENCH_TIMEOUT_SEC
-      )
+      const upfrontBudget = sessionBudget()
+      if ("error" in upfrontBudget) return upfrontBudget
 
       // Stable per-input identity: recovery replays the stored manifest
       // instead of re-running the sandbox or re-billing.
@@ -171,35 +200,41 @@ export const artifactTools = {
       }
 
       let step = 0
-      const result = await runWorkbenchSession({
-        instructions,
-        inputs,
-        timeoutSec,
-        abortSignal,
-        ...(context.task
-          ? {
-              task: {
-                id: context.task.id,
-                bootCheckpoint: context.task.sandboxCheckpoint,
-                outSeed: await loadTaskOutSeed(context.task.id),
-              },
+      const task = context.task
+      const startSession = async () => {
+        const budget = sessionBudget()
+        if ("error" in budget) return budget
+        return runWorkbenchSession({
+          instructions,
+          inputs,
+          timeoutSec: budget.timeoutSec,
+          abortSignal,
+          ...(task
+            ? { task: { id: task.id, outSeed: await loadTaskOutSeed(task.id) } }
+            : {}),
+          onStep: (s) => {
+            step += 1
+            // A failing listener must not abort or fail the session.
+            try {
+              context.onToolEvent?.({
+                toolCallId: `${toolCallId}:sub:${step}`,
+                parentToolCallId: toolCallId,
+                toolName: s.toolName,
+                label: s.label,
+              })
+            } catch (err) {
+              logger.error({ err }, "Merlin onToolEvent listener failed")
             }
-          : {}),
-        onStep: (s) => {
-          step += 1
-          // A failing listener must not abort or fail the session.
-          try {
-            context.onToolEvent?.({
-              toolCallId: `${toolCallId}:sub:${step}`,
-              parentToolCallId: toolCallId,
-              toolName: s.toolName,
-              label: s.label,
-            })
-          } catch (err) {
-            logger.error({ err }, "Merlin onToolEvent listener failed")
-          }
-        },
-      }).catch(() => null)
+          },
+        })
+      }
+      const result = await (task
+        ? serializeTaskSession(task.id, startSession)
+        : startSession()
+      ).catch((err) => {
+        logger.error({ err, taskId: task?.id }, "Workbench: session threw")
+        return null
+      })
       if (!result || "error" in result) {
         return { error: result?.error ?? "workbench session failed" }
       }
@@ -220,25 +255,6 @@ export const artifactTools = {
           })
         } catch (err) {
           logger.error({ err }, "Merlin onUsage listener failed")
-        }
-      }
-
-      // Persist the new checkpoint pointer, then retire the superseded one —
-      // only if the pointer actually moved, or we'd delete the checkpoint the
-      // task still boots from.
-      if (context.task && result.checkpoint) {
-        const previous = context.task.sandboxCheckpoint
-        const updated = await db
-          .update(schema.task)
-          .set({ sandboxCheckpoint: result.checkpoint })
-          .where(eq(schema.task.id, context.task.id))
-          .then(() => true)
-          .catch((err) => {
-            logger.warn({ err }, "Workbench: checkpoint pointer update failed")
-            return false
-          })
-        if (updated && previous && previous !== result.checkpoint) {
-          void deleteWorkbenchCheckpoint(previous)
         }
       }
 
