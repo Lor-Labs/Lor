@@ -84,14 +84,14 @@ type Workspace = {
 
 export type SectionId =
   | "general"
-  | "integrations"
+  | "connectors"
   | "merlin"
   | "instructions"
   | "billing"
 
 const SECTIONS: { id: SectionId; label: string; icon: typeof Settings }[] = [
   { id: "general", label: "General", icon: Settings },
-  { id: "integrations", label: "Integrations", icon: Plug },
+  { id: "connectors", label: "Connectors", icon: Plug },
   { id: "merlin", label: "Agent profiles", icon: Layers },
   { id: "instructions", label: "Instructions", icon: ScrollText },
   { id: "billing", label: "Billing", icon: CreditCard },
@@ -100,6 +100,7 @@ const SECTIONS: { id: SectionId; label: string; icon: typeof Settings }[] = [
 // Resolves the URL ?tab= value to a section, so openers don't hand-maintain
 // the section list.
 export function toSectionId(value: string | undefined): SectionId {
+  if (value === "integrations") return "connectors"
   return SECTIONS.some((s) => s.id === value) ? (value as SectionId) : "general"
 }
 
@@ -272,8 +273,8 @@ export function WorkspaceSettingsDialog({
                       workspace={workspace}
                       onClose={() => onOpenChange(false)}
                     />
-                  ) : section === "integrations" ? (
-                    <IntegrationsSection workspaceSlug={workspace.slug} />
+                  ) : section === "connectors" ? (
+                    <ConnectorsSection workspaceSlug={workspace.slug} />
                   ) : section === "instructions" ? (
                     <InstructionsSection workspaceSlug={workspace.slug} />
                   ) : section === "billing" && canManageBilling ? (
@@ -484,7 +485,7 @@ const REPO_DISPLAY_LIMIT = 8
 
 const NOTIFY_OFF = "__off__"
 
-function IntegrationsSection({ workspaceSlug }: { workspaceSlug: string }) {
+function ConnectorsSection({ workspaceSlug }: { workspaceSlug: string }) {
   const queryClient = useQueryClient()
   const [datadogOpen, setDatadogOpen] = useState(false)
   const [notionConnect, setNotionConnect] = useState<{
@@ -503,7 +504,7 @@ function IntegrationsSection({ workspaceSlug }: { workspaceSlug: string }) {
       const res = await apiClient.v1.workspaces[
         ":workspaceSlug"
       ].integrations.$get({ param: { workspaceSlug } })
-      if (!res.ok) throw new Error("Failed to load integrations")
+      if (!res.ok) throw new Error("Failed to load connectors")
       return res.json()
     },
   })
@@ -580,7 +581,7 @@ function IntegrationsSection({ workspaceSlug }: { workspaceSlug: string }) {
     return (
       <div className="flex flex-col items-center gap-3 py-10 text-center">
         <p className="text-sm text-muted-foreground">
-          Couldn't load integrations.
+          Couldn't load connectors.
         </p>
         <Button variant="outline" size="sm" onClick={() => refetch()}>
           Try again

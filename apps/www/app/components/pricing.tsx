@@ -7,7 +7,7 @@ const CLOUD_FEATURES = [
   "Merlin on every channel: answers, actions, memory",
   "AI credits included, pooled across your whole team",
   "Buy additional credits anytime usage runs hot",
-  "All integrations: GitHub, Linear, Notion, and more",
+  "All connectors: GitHub, Linear, Notion, and more",
 ]
 
 function FeatureList({ items }: { items: string[] }) {

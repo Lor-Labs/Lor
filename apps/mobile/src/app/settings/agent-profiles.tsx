@@ -134,7 +134,7 @@ function ProfileEditor({
         {available.length === 0 ? (
           <Text className="text-xs leading-4 text-muted">
             No connectors are connected yet — connect one from the web app's
-            Integrations settings to grant tools.
+            Connectors settings to grant tools.
           </Text>
         ) : (
           groupByConnector(available).map((group) => (

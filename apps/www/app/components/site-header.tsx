@@ -126,7 +126,7 @@ export function SiteHeader() {
                       className="rounded-lg p-3"
                     >
                       <span className="block text-[13px] font-medium text-foreground">
-                        Integrations
+                        Connectors
                       </span>
                       <span className="mt-0.5 block text-[12px] leading-snug text-foreground/55">
                         GitHub, Linear, Notion. Permissions carry through.

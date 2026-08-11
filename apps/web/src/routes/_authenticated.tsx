@@ -54,7 +54,7 @@ function UpdateBanner() {
 const LAST_PATH_KEY = "lor:last-path"
 
 // Settings dialogs are URL-driven so they survive refresh and deep-link
-// (e.g. the GitHub setup redirect reopens the Integrations tab):
+// (e.g. the GitHub setup redirect reopens the Connectors tab):
 // ?settings=user|workspace&tab=<section>.
 type SettingsSearch = {
   settings?: "user" | "workspace"

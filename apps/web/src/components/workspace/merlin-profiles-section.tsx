@@ -215,7 +215,7 @@ function ProfileRow({
         <div className="font-medium text-muted-foreground text-xs">Tools</div>
         {available.length === 0 ? (
           <p className="text-muted-foreground text-xs">
-            No connectors are connected yet — connect one under Integrations to
+            No connectors are connected yet — connect one under Connectors to
             grant tools.
           </p>
         ) : (
