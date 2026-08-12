@@ -23,6 +23,7 @@ import {
   SidebarMenuItem,
   SidebarProvider,
 } from "@repo/ui/components/sidebar"
+import { listen } from "@tauri-apps/api/event"
 import {
   Bell,
   Globe,
@@ -34,7 +35,7 @@ import {
   Settings,
   User,
 } from "lucide-react"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { AppearanceSettings } from "@/components/settings/appearance-settings"
 import { MyAccountSettings } from "@/components/settings/my-account-settings"
 import { NotificationSettings } from "@/components/settings/notification-settings"
@@ -47,6 +48,8 @@ interface SettingsNav {
   icon: LucideIcon
 }
 
+const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window
+
 const settingsNav = [
   { id: "account", name: "My Account", icon: User },
   { id: "appearance", name: "Appearance", icon: Paintbrush },
@@ -58,10 +61,44 @@ const settingsNav = [
 ] as const satisfies readonly SettingsNav[]
 
 export function SettingsDialog() {
-  const { target, tab, close, setTab } = useSettings()
+  const { target, tab, open, close, setTab } = useSettings()
   const isOpen = target === "user"
   const [search, setSearch] = useState("")
   const appVersion = useAppVersion()
+
+  useEffect(() => {
+    if (isTauri) {
+      let disposed = false
+      let stopListening: (() => void) | undefined
+
+      listen("open-settings", () => open("user"))
+        .then((unlisten) => {
+          if (disposed) {
+            unlisten()
+          } else {
+            stopListening = unlisten
+          }
+        })
+        .catch((error) => {
+          console.error("[settings] failed to register desktop menu:", error)
+        })
+
+      return () => {
+        disposed = true
+        stopListening?.()
+      }
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "," && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault()
+        open("user")
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown)
+    return () => document.removeEventListener("keydown", handleKeyDown)
+  }, [open])
 
   const activeItem =
     settingsNav.find((item) => item.id === tab) ?? settingsNav[0]

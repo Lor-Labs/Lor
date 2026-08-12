@@ -6,6 +6,7 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from "@repo/ui/components/menu"
 import {
@@ -99,6 +100,7 @@ export function UserBar() {
               <DropdownMenuItem onClick={() => openSettings("user")}>
                 <Settings />
                 Settings
+                <DropdownMenuShortcut>⌘,</DropdownMenuShortcut>
               </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
