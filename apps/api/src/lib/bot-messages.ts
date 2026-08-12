@@ -25,7 +25,12 @@ export async function getEmitter() {
 }
 
 type PostBotMessageInput = {
-  channel: { id: string; workspaceId: string | null; name: string | null }
+  channel: {
+    id: string
+    workspaceId: string | null
+    name: string | null
+    workspaceName?: string | null
+  }
   authorId: string
   content: string
   overrideName?: string
@@ -74,13 +79,26 @@ export async function postBotMessage(
   // Fanout failure must not fail the post — the message row is persisted.
   let mentions: RealtimeMessage["mentions"] = []
   try {
+    const workspaceName =
+      input.channel.workspaceName ??
+      (input.channel.workspaceId
+        ? await db
+            .select({ name: schema.workspace.name })
+            .from(schema.workspace)
+            .where(eq(schema.workspace.id, input.channel.workspaceId))
+            .limit(1)
+            .then((rows) => rows[0]?.name ?? null)
+        : null)
     const fanout = await buildMessageFanout({
       authorId: input.authorId,
-      channel: input.channel,
+      channel: { ...input.channel, workspaceName },
       message: {
         id: inserted.id,
         content: input.content,
-        author: { name: input.overrideName ?? author.name },
+        author: {
+          name: input.overrideName ?? author.name,
+          image: input.overrideAvatarUrl ?? author.image,
+        },
         attachments: [],
       },
     })

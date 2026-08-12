@@ -10,6 +10,7 @@
     }
   },
   "dependencies": {
+    "@bacons/apple-targets": "5.0.0",
     "@better-auth/expo": "1.4.18",
     "@expo/dom-webview": "~57.0.1",
     "@expo/metro-runtime": "~57.0.5",

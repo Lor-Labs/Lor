@@ -31,6 +31,8 @@
     "@repo/db": "workspace:^",
     "@repo/env": "workspace:^",
     "@repo/logger": "workspace:^",
+    "@repo/messaging": "workspace:^",
+    "@repo/realtime-types": "workspace:^",
     "@repo/utils": "workspace:^",
     "ai": "^7.0.11",
     "exa-js": "^2.16.3",

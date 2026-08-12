@@ -1,6 +1,10 @@
 import { and, db, eq, inArray, schema } from "@repo/db"
 import {
+  buildNotificationConversationName,
+  buildNotificationTitle,
+  buildReactionNotificationBody,
   PRESENCE_ONLINE_USERS_SET_KEY,
+  type ReactionNotification,
   type UnreadNotification,
 } from "@repo/realtime-types"
 
@@ -62,6 +66,9 @@ type ExpoPushMessage = {
   title: string
   body: string
   sound: "default"
+  channelId: "default"
+  mutableContent?: boolean
+  richContent?: { image: string }
   data: Record<string, unknown>
 }
 
@@ -192,28 +199,121 @@ export async function sendMessagePushNotifications(input: {
   const messages = tokens.flatMap((row) => {
     const payload = payloadByUserId.get(row.userId)
     if (!payload) return []
-    const body = payload.contentPreview
-      ? payload.channelName
-        ? `#${payload.channelName}: ${payload.contentPreview}`
-        : payload.contentPreview
-      : "Sent an attachment"
+    const conversationName = buildNotificationConversationName(payload)
     return [
       {
         to: row.token,
-        title: payload.authorName,
-        body,
+        title: buildNotificationTitle({
+          actorName: payload.authorName,
+          channelName: payload.channelName,
+          workspaceName: payload.workspaceName,
+        }),
+        body: payload.contentPreview ?? "Sent a message",
         sound: "default" as const,
+        channelId: "default" as const,
+        mutableContent: true,
+        ...(payload.authorImage
+          ? { richContent: { image: payload.authorImage } }
+          : {}),
         data: {
+          type: "message",
+          communication: true,
           channelId: payload.channelId,
           workspaceId: payload.workspaceId,
           threadRootId: input.threadRootId ?? null,
           messageId: payload.messageId,
+          senderId: payload.authorUserId,
+          senderName: payload.authorName,
+          senderImage: payload.authorImage,
+          ...(conversationName ? { conversationName } : {}),
         },
       },
     ]
   })
 
   await deliverExpoPush(messages)
+}
+
+export async function sendReactionPushNotification(input: {
+  authorUserId: string
+  notification: ReactionNotification
+  redis: PresenceRedisClient
+}) {
+  const [isOnline] = await input.redis.smIsMember(
+    PRESENCE_ONLINE_USERS_SET_KEY,
+    [input.authorUserId]
+  )
+  if (toRedisBoolean(isOnline)) return
+
+  const settings = await db
+    .select({
+      desktopNotifications:
+        schema.userNotificationSettings.desktopNotifications,
+      dmNotifications: schema.userNotificationSettings.dmNotifications,
+    })
+    .from(schema.userNotificationSettings)
+    .where(eq(schema.userNotificationSettings.userId, input.authorUserId))
+    .limit(1)
+    .then((rows) => rows[0])
+  const enabled =
+    input.notification.workspaceId === null
+      ? (settings?.dmNotifications ?? "all_messages") !== "nothing"
+      : (settings?.desktopNotifications ?? "all_messages") === "all_messages"
+  if (!enabled) return
+
+  const mute = await db
+    .select({ mutedUntil: schema.channelMute.mutedUntil })
+    .from(schema.channelMute)
+    .where(
+      and(
+        eq(schema.channelMute.channelId, input.notification.channelId),
+        eq(schema.channelMute.userId, input.authorUserId)
+      )
+    )
+    .limit(1)
+    .then((rows) => rows[0])
+  const isMuted =
+    mute !== undefined &&
+    (mute.mutedUntil === null || mute.mutedUntil.getTime() > Date.now())
+  if (isMuted) return
+
+  const tokens = await db
+    .select({ token: schema.pushToken.token })
+    .from(schema.pushToken)
+    .where(eq(schema.pushToken.userId, input.authorUserId))
+  if (tokens.length === 0) return
+
+  const conversationName = buildNotificationConversationName(input.notification)
+  await deliverExpoPush(
+    tokens.map((row) => ({
+      to: row.token,
+      title: buildNotificationTitle({
+        actorName: input.notification.actorName,
+        channelName: input.notification.channelName,
+        workspaceName: input.notification.workspaceName,
+      }),
+      body: buildReactionNotificationBody(input.notification),
+      sound: "default" as const,
+      channelId: "default" as const,
+      mutableContent: true,
+      ...(input.notification.actorImage
+        ? { richContent: { image: input.notification.actorImage } }
+        : {}),
+      data: {
+        type: "reaction",
+        communication: true,
+        channelId: input.notification.channelId,
+        workspaceId: input.notification.workspaceId,
+        threadRootId: input.notification.threadRootId,
+        messageId: input.notification.messageId,
+        emoji: input.notification.emoji,
+        senderId: input.notification.actorUserId,
+        senderName: input.notification.actorName,
+        senderImage: input.notification.actorImage,
+        ...(conversationName ? { conversationName } : {}),
+      },
+    }))
+  )
 }
 
 // Notifies workspace owner/admins that Merlin filed an instructions proposal.
@@ -267,6 +367,7 @@ export async function sendInstructionsProposalPush(input: {
       title: `Merlin proposed new instructions for ${workspace.name}`,
       body,
       sound: "default" as const,
+      channelId: "default" as const,
       data: {
         type: "instructions-proposal",
         workspaceId: input.workspaceId,

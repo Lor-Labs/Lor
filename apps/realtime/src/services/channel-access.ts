@@ -5,6 +5,7 @@ export type AccessibleChannel = {
   name: string | null
   type: (typeof schema.channel.$inferSelect)["type"]
   workspaceId: string | null
+  workspaceName: string | null
   memberRole: string | null
   memberIsOwner: boolean
 }
@@ -19,8 +20,13 @@ export async function assertUserCanAccessChannel(
       name: schema.channel.name,
       type: schema.channel.type,
       workspaceId: schema.channel.workspaceId,
+      workspaceName: schema.workspace.name,
     })
     .from(schema.channel)
+    .leftJoin(
+      schema.workspace,
+      eq(schema.workspace.id, schema.channel.workspaceId)
+    )
     .where(eq(schema.channel.id, channelId))
     .limit(1)
     .then((rows) => rows[0])

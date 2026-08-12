@@ -18,6 +18,7 @@ const SIDE_EFFECT_TOOLS = new Set([
   "investigate_code",
   "propose_instructions",
   "create_artifacts",
+  "react_to_message",
 ])
 
 // Canonical JSON (sorted object keys) so the same logical input always hashes

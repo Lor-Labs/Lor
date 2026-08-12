@@ -46,6 +46,7 @@ import {
 } from "./instructions"
 import { linearTools, linearWriteTools, resolveWorkspaceLinear } from "./linear"
 import { logger } from "./logger"
+import { messageActionTools, type OnMessageReaction } from "./message-actions"
 import { MERLIN_MODEL, mainGatewayOptions, merlinModel } from "./models"
 import { notionTools, resolveWorkspaceNotion } from "./notion"
 import {
@@ -112,6 +113,8 @@ const SYSTEM_PROMPT_TAIL = `You can also see images people share in the channel 
 How to answer:
 - For questions about THIS team/workspace, check your brain first, then use search for anything it doesn't cover. Ground your answer in what you find; note who said it and roughly when. Cite your sources inline in double brackets: a brain page by its exact path, e.g. [[/decisions/auth]]; a specific message by its id, e.g. [[msg:0b9c…]]; or a connected-tool source by its id, e.g. [[src:0b9c…]]. If nothing turns up, say you don't have it in memory yet — never invent specifics or cite pages, messages, or sources you didn't read.
 - For general questions (how-to, definitions, quick help), just answer directly; no lookup needed.
+
+Use reactions naturally and sparingly to complement your response. Always still answer in text, and don't narrate the reaction or mention the tool use.
 
 Use your tools silently — don't narrate that you're searching. Gather what you need, then give one clear answer. Be concise. Use Markdown. Speak in the first person; never claim to be human.`
 
@@ -222,6 +225,7 @@ export type RespondContext = {
   workspaceId: string
   conversation: ConversationTurn[]
   channelId?: string
+  triggerMessageId?: string
   runId?: string
   // Set when this run belongs to a task (the scope's thread root is a
   // task card): binds the task tools, task prompt rules, and workbench
@@ -241,6 +245,7 @@ export type RespondCallbacks = {
   onInstructionsProposal?: (
     e: InstructionsProposalEvent
   ) => void | Promise<void>
+  onMessageReaction?: OnMessageReaction
   // Fired whenever a task tool changes the task row — the worker broadcasts
   // the snapshot to the channel room.
   onTaskUpdated?: (task: Task) => void
@@ -555,7 +560,10 @@ function toolLabel(toolName: string, input: unknown): string {
   const path = field("path")
   const repo = field("repo")
   const ref = field("ref")
+  const emoji = field("emoji")
   switch (toolName) {
+    case "react_to_message":
+      return emoji ? `Reacting ${emoji}` : "Reacting to a message"
     case "investigate_code":
       return repo ? `Investigating ${repo}` : "Investigating the codebase"
     case "create_artifacts":
@@ -693,6 +701,13 @@ function toolDetail(
     })
   const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`
   switch (toolName) {
+    case "react_to_message": {
+      const emoji = asString(rec?.emoji)
+      return {
+        status: "ok",
+        detail: { summary: emoji ? `Reacted ${emoji}` : "Reacted" },
+      }
+    }
     case "search": {
       const items = Array.isArray(output) ? output : []
       const msgs = items.filter((it) => asRecord(it)?.type === "message").length
@@ -1263,6 +1278,7 @@ export async function respond(
     onToolEvent,
     onUsage,
     onInstructionsProposal,
+    onMessageReaction,
     onTaskUpdated,
   }: RespondCallbacks,
   run?: RunHandle
@@ -1318,6 +1334,7 @@ export async function respond(
     ...brainReadTools,
     ...brainWriteTools,
     ...instructionsTools,
+    ...(ctx.channelId ? messageActionTools : {}),
     ...(env.EXA_API_KEY && caps.includes("web") ? webTools : {}),
     ...(github && caps.includes("github") ? githubTools : {}),
     ...(blaxelConfigured() && github && caps.includes("code_intelligence")
@@ -1338,6 +1355,16 @@ export async function respond(
       onMemoryWritten,
       onInstructionsProposal
     ),
+    ...(ctx.channelId
+      ? {
+          react_to_message: {
+            workspaceId: ctx.workspaceId,
+            channelId: ctx.channelId,
+            triggerMessageId: ctx.triggerMessageId,
+            onMessageReaction,
+          },
+        }
+      : {}),
     ...(github
       ? {
           search_github: github,

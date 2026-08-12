@@ -9,10 +9,11 @@ import {
   max,
   schema,
 } from "@repo/db"
-import { syncMessageMentions } from "@repo/messaging"
+import { buildReactionNotification, syncMessageMentions } from "@repo/messaging"
 import type {
   DeleteMessagePayload,
   EditMessagePayload,
+  ReactionNotification,
   RealtimeMessage,
   RealtimeMessageMention,
   RealtimeMessageReactionUpdated,
@@ -49,6 +50,7 @@ type EditMessageInput = {
 type ToggleMessageReactionInput = {
   userId: string
   userName: string
+  userImage: string | null
   payload: ToggleMessageReactionPayload
 }
 
@@ -198,6 +200,10 @@ export type DeleteMessageResult = {
 export type ToggleMessageReactionResult = {
   update: RealtimeMessageReactionUpdated
   channel: AccessibleChannel
+  notification: {
+    authorUserId: string
+    payload: ReactionNotification
+  } | null
 }
 
 async function workspaceAvatarColor(
@@ -673,6 +679,9 @@ export async function toggleMessageReaction(input: ToggleMessageReactionInput) {
   const messageRecord = await db
     .select({
       id: schema.message.id,
+      authorId: schema.message.authorId,
+      content: schema.message.content,
+      threadRootId: schema.message.threadRootId,
     })
     .from(schema.message)
     .where(
@@ -729,6 +738,49 @@ export async function toggleMessageReaction(input: ToggleMessageReactionInput) {
     .limit(1)
     .then((rows) => rows[0]?.total ?? 0)
 
+  const shouldNotifyAuthor =
+    nextReactionState && messageRecord.authorId !== input.userId
+  const notificationMentions = shouldNotifyAuthor
+    ? await db
+        .select({
+          id: schema.user.id,
+          name: schema.user.name,
+          username: schema.user.username,
+          displayUsername: schema.user.displayUsername,
+        })
+        .from(schema.messageMention)
+        .innerJoin(
+          schema.user,
+          eq(schema.messageMention.mentionedUserId, schema.user.id)
+        )
+        .where(
+          and(
+            eq(schema.messageMention.messageId, messageRecord.id),
+            eq(schema.messageMention.mentionType, "direct")
+          )
+        )
+    : []
+  const notification = shouldNotifyAuthor
+    ? {
+        authorUserId: messageRecord.authorId,
+        payload: buildReactionNotification({
+          channel: channelRecord,
+          message: {
+            id: messageRecord.id,
+            threadRootId: messageRecord.threadRootId,
+            content: messageRecord.content,
+            mentions: notificationMentions,
+          },
+          actor: {
+            id: input.userId,
+            name: input.userName,
+            image: input.userImage,
+          },
+          emoji: input.payload.emoji,
+        }),
+      }
+    : null
+
   return {
     update: {
       channelId: input.payload.channelId,
@@ -740,5 +792,6 @@ export async function toggleMessageReaction(input: ToggleMessageReactionInput) {
       reactedByActor: nextReactionState,
     },
     channel: channelRecord,
+    notification,
   } satisfies ToggleMessageReactionResult
 }
