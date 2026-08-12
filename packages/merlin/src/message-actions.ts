@@ -29,51 +29,54 @@ const messageActionContext = z.object({
   onMessageReaction: z.custom<OnMessageReaction>().optional(),
 })
 
+// Read once per call so the realtime broadcast and the push/browser
+// notification can never disagree on how Merlin is named.
+async function loadMerlinIdentity(): Promise<{
+  name: string
+  image: string | null
+}> {
+  const row = await db
+    .select({ name: schema.user.name, image: schema.user.image })
+    .from(schema.user)
+    .where(eq(schema.user.id, MERLIN_USER_ID))
+    .limit(1)
+    .then((rows) => rows[0])
+    .catch(() => undefined)
+  return { name: row?.name ?? "Merlin", image: row?.image ?? null }
+}
+
 async function buildTargetedNotification(input: {
   workspaceId: string
   channelId: string
   messageId: string
   emoji: string
+  actor: { name: string; image: string | null }
 }): Promise<TargetedReactionNotification | undefined> {
-  const [target, merlin] = await Promise.all([
-    db
-      .select({
-        authorId: schema.message.authorId,
-        content: schema.message.content,
-        threadRootId: schema.message.threadRootId,
-        channelId: schema.channel.id,
-        channelName: schema.channel.name,
-        workspaceId: schema.workspace.id,
-        workspaceName: schema.workspace.name,
-      })
-      .from(schema.message)
-      .innerJoin(
-        schema.channel,
-        eq(schema.message.channelId, schema.channel.id)
+  const target = await db
+    .select({
+      authorId: schema.message.authorId,
+      content: schema.message.content,
+      threadRootId: schema.message.threadRootId,
+      channelId: schema.channel.id,
+      channelName: schema.channel.name,
+      workspaceId: schema.workspace.id,
+      workspaceName: schema.workspace.name,
+    })
+    .from(schema.message)
+    .innerJoin(schema.channel, eq(schema.message.channelId, schema.channel.id))
+    .innerJoin(
+      schema.workspace,
+      eq(schema.channel.workspaceId, schema.workspace.id)
+    )
+    .where(
+      and(
+        eq(schema.message.id, input.messageId),
+        eq(schema.message.channelId, input.channelId),
+        eq(schema.channel.workspaceId, input.workspaceId)
       )
-      .innerJoin(
-        schema.workspace,
-        eq(schema.channel.workspaceId, schema.workspace.id)
-      )
-      .where(
-        and(
-          eq(schema.message.id, input.messageId),
-          eq(schema.message.channelId, input.channelId),
-          eq(schema.channel.workspaceId, input.workspaceId)
-        )
-      )
-      .limit(1)
-      .then((rows) => rows[0]),
-    db
-      .select({
-        name: schema.user.name,
-        image: schema.user.image,
-      })
-      .from(schema.user)
-      .where(eq(schema.user.id, MERLIN_USER_ID))
-      .limit(1)
-      .then((rows) => rows[0]),
-  ])
+    )
+    .limit(1)
+    .then((rows) => rows[0])
 
   if (!target || target.authorId === MERLIN_USER_ID) return undefined
 
@@ -98,8 +101,8 @@ async function buildTargetedNotification(input: {
 
   const actor = {
     id: MERLIN_USER_ID,
-    name: merlin?.name ?? "Merlin",
-    image: merlin?.image ?? null,
+    name: input.actor.name,
+    image: input.actor.image,
   }
   const message = {
     id: input.messageId,
@@ -185,13 +188,14 @@ export const messageActionTools = {
 
         if (!result) return { error: "message not found in this channel" }
 
+        const merlin = await loadMerlinIdentity()
         const update: RealtimeMessageReactionUpdated = {
           channelId: context.channelId,
           messageId: targetMessageId,
           emoji,
           count: result.count,
           actorUserId: MERLIN_USER_ID,
-          actorName: "Merlin",
+          actorName: merlin.name,
           reactedByActor: true,
         }
 
@@ -203,6 +207,7 @@ export const messageActionTools = {
               channelId: context.channelId,
               messageId: targetMessageId,
               emoji,
+              actor: merlin,
             })
           } catch (err) {
             logger.error(

@@ -109,7 +109,11 @@ final class NotificationService: UNNotificationServiceExtension {
 
         var request = URLRequest(url: url)
         request.timeoutInterval = 5
-        URLSession.shared.dataTask(with: request) { data, response, _ in
+
+        let configuration = URLSessionConfiguration.default
+        configuration.timeoutIntervalForResource = 5
+        let session = URLSession(configuration: configuration)
+        session.dataTask(with: request) { data, response, _ in
             guard
                 let httpResponse = response as? HTTPURLResponse,
                 (200..<300).contains(httpResponse.statusCode),
@@ -121,6 +125,7 @@ final class NotificationService: UNNotificationServiceExtension {
             }
             completion(INImage(imageData: data))
         }.resume()
+        session.finishTasksAndInvalidate()
     }
 
     private func stringValue(
@@ -130,8 +135,7 @@ final class NotificationService: UNNotificationServiceExtension {
         if let value = userInfo[key] as? String, !value.isEmpty {
             return value
         }
-        if
-            let data = userInfo["data"] as? [String: Any],
+        if let data = userInfo["data"] as? [String: Any],
             let value = data[key] as? String,
             !value.isEmpty
         {
@@ -147,8 +151,7 @@ final class NotificationService: UNNotificationServiceExtension {
         if let value = userInfo[key] as? Bool {
             return value
         }
-        if
-            let data = userInfo["data"] as? [String: Any],
+        if let data = userInfo["data"] as? [String: Any],
             let value = data[key] as? Bool
         {
             return value
