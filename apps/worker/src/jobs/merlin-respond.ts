@@ -30,6 +30,7 @@ import {
   buildMessageFanout,
   sendInstructionsProposalPush,
   sendMessagePushNotifications,
+  sendReactionPushNotification,
 } from "@repo/messaging"
 import type {
   MerlinRespondJobData,
@@ -594,6 +595,7 @@ export function createMerlinRespondProcessor(
                 workspaceId,
                 conversation,
                 channelId,
+                triggerMessageId,
                 ...(job.data.runId ? { runId: job.data.runId } : {}),
                 ...(task
                   ? {
@@ -610,6 +612,31 @@ export function createMerlinRespondProcessor(
               },
               {
                 onTaskUpdated: emitTaskUpdated,
+                onMessageReaction: ({ update, notification }) => {
+                  emitter
+                    .to(channelRoom(update.channelId))
+                    .emit("message:reaction:updated", update)
+                  if (!notification) return
+
+                  emitter
+                    .to(userRoom(notification.authorUserId))
+                    .emit("notification:reaction", notification.payload)
+
+                  void sendReactionPushNotification({
+                    authorUserId: notification.authorUserId,
+                    notification: notification.payload,
+                    redis,
+                  }).catch((err) => {
+                    logger.error(
+                      {
+                        err,
+                        messageId: update.messageId,
+                        userId: notification.authorUserId,
+                      },
+                      "Merlin reaction push failed"
+                    )
+                  })
+                },
                 onDelta: (d) => {
                   pending += d
                   if (pending.length >= FLUSH_THRESHOLD) flushPendingText()
@@ -851,15 +878,27 @@ export function createMerlinRespondProcessor(
           // unread/mention like a normal message. Best-effort: a fanout failure
           // must not downgrade the reply we already saved.
           try {
-            const channelRow = await db
-              .select({
-                id: schema.channel.id,
-                workspaceId: schema.channel.workspaceId,
-                name: schema.channel.name,
-              })
-              .from(schema.channel)
-              .where(eq(schema.channel.id, channelId))
-              .then((r) => r[0])
+            const [channelRow, merlinAuthor] = await Promise.all([
+              db
+                .select({
+                  id: schema.channel.id,
+                  workspaceId: schema.channel.workspaceId,
+                  name: schema.channel.name,
+                  workspaceName: schema.workspace.name,
+                })
+                .from(schema.channel)
+                .leftJoin(
+                  schema.workspace,
+                  eq(schema.workspace.id, schema.channel.workspaceId)
+                )
+                .where(eq(schema.channel.id, channelId))
+                .then((r) => r[0]),
+              db
+                .select({ name: schema.user.name, image: schema.user.image })
+                .from(schema.user)
+                .where(eq(schema.user.id, MERLIN_USER_ID))
+                .then((r) => r[0]),
+            ])
 
             if (channelRow) {
               const fanout = await buildMessageFanout({
@@ -868,7 +907,10 @@ export function createMerlinRespondProcessor(
                 message: {
                   id: merlinMessageId,
                   content: finalText,
-                  author: { name: "Merlin" },
+                  author: {
+                    name: merlinAuthor?.name ?? "Merlin",
+                    image: merlinAuthor?.image ?? null,
+                  },
                   attachments: [],
                 },
               })

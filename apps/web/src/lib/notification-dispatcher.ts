@@ -55,6 +55,7 @@ export async function showNotification(
   body: string,
   options?: {
     tag?: string
+    icon?: string | null
     onClick?: () => void
   }
 ) {
@@ -82,7 +83,7 @@ export async function showNotification(
   const notification = new Notification(title, {
     body,
     tag: options?.tag,
-    icon: "/favicon.ico",
+    icon: options?.icon ?? "/favicon.ico",
   })
 
   if (options?.onClick) {

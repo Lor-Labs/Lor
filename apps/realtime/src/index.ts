@@ -7,6 +7,7 @@ import { decideReplyPlacement } from "@repo/merlin/placement"
 import {
   buildMessageFanout,
   sendMessagePushNotifications,
+  sendReactionPushNotification,
 } from "@repo/messaging"
 import type {
   ClientToServerEvents,
@@ -892,12 +893,35 @@ io.on("connection", (socket) => {
       const reactionUpdate = await toggleMessageReaction({
         userId: socket.data.user.id,
         userName: socket.data.user.name,
+        userImage: socket.data.user.image ?? null,
         payload: parsed,
       })
 
       socket
         .to(channelRoom(parsed.channelId))
         .emit("message:reaction:updated", reactionUpdate.update)
+
+      const reactionNotification = reactionUpdate.notification
+      if (reactionNotification) {
+        io.to(userRoom(reactionNotification.authorUserId)).emit(
+          "notification:reaction",
+          reactionNotification.payload
+        )
+        void sendReactionPushNotification({
+          authorUserId: reactionNotification.authorUserId,
+          notification: reactionNotification.payload,
+          redis: redisPresenceClient,
+        }).catch((err) => {
+          logger.error(
+            {
+              err,
+              messageId: reactionNotification.payload.messageId,
+              authorUserId: reactionNotification.authorUserId,
+            },
+            "Reaction push notification send failed"
+          )
+        })
+      }
 
       ack?.({
         ok: true,

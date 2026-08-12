@@ -14,6 +14,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ios: {
     ...config.ios,
     bundleIdentifier: appIdentifier,
+    ...(process.env.APPLE_TEAM_ID
+      ? { appleTeamId: process.env.APPLE_TEAM_ID }
+      : {}),
   },
   android: {
     ...config.android,

@@ -270,9 +270,26 @@ export type UnreadNotification = {
   workspaceId: string | null
   messageId: string
   unreadCountDelta: number
+  authorUserId: string
   authorName: string
+  authorImage: string | null
   contentPreview: string | null
   channelName: string | null
+  workspaceName: string | null
+}
+
+export type ReactionNotification = {
+  channelId: string
+  workspaceId: string | null
+  messageId: string
+  threadRootId: string | null
+  emoji: string
+  actorUserId: string
+  actorName: string
+  actorImage: string | null
+  channelName: string | null
+  workspaceName: string | null
+  messagePreview: string | null
 }
 
 export type MentionNotification = {
@@ -484,6 +501,7 @@ export interface ServerToClientEvents {
   "notification:bootstrap": (payload: NotificationBootstrap) => void
   "notification:unread": (payload: UnreadNotification) => void
   "notification:mention": (payload: MentionNotification) => void
+  "notification:reaction": (payload: ReactionNotification) => void
   "channel:read-state": (payload: ChannelReadState) => void
   "channel-mute:updated": (payload: ChannelMuteUpdated) => void
   "workspace:member:joined": (payload: WorkspaceMemberJoinedEvent) => void

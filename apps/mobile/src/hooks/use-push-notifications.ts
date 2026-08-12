@@ -5,6 +5,7 @@ import { AppState } from "react-native"
 import { useWorkspace } from "@/context/workspace-context"
 import { authClient } from "@/lib/auth-client"
 import { registerPushToken } from "@/lib/push-notifications"
+import { parsePushTarget } from "@/lib/push-target"
 
 // While the app is foregrounded the socket already renders messages and
 // in-app badges, so any push that races through stays silent.
@@ -16,39 +17,6 @@ Notifications.setNotificationHandler({
     shouldSetBadge: false,
   }),
 })
-
-type PushTarget =
-  | {
-      kind: "message"
-      channelId: string
-      workspaceId: string | null
-      threadRootId: string | null
-    }
-  | {
-      kind: "instructions-proposal"
-      workspaceId: string
-      workspaceSlug: string
-    }
-
-function parsePushTarget(data: Record<string, unknown>): PushTarget | null {
-  if (data.type === "instructions-proposal") {
-    const workspaceId =
-      typeof data.workspaceId === "string" ? data.workspaceId : null
-    const workspaceSlug =
-      typeof data.workspaceSlug === "string" ? data.workspaceSlug : null
-    if (!workspaceId || !workspaceSlug) return null
-    return { kind: "instructions-proposal", workspaceId, workspaceSlug }
-  }
-  const channelId = typeof data.channelId === "string" ? data.channelId : null
-  if (!channelId) return null
-  return {
-    kind: "message",
-    channelId,
-    workspaceId: typeof data.workspaceId === "string" ? data.workspaceId : null,
-    threadRootId:
-      typeof data.threadRootId === "string" ? data.threadRootId : null,
-  }
-}
 
 export function usePushNotifications() {
   const { data: session } = authClient.useSession()
@@ -81,35 +49,54 @@ export function usePushNotifications() {
     const identifier = lastResponse.notification.request.identifier
     if (handledResponseRef.current === identifier) return
     handledResponseRef.current = identifier
-    void Notifications.clearLastNotificationResponseAsync()
+    const clearResponse = () => {
+      void Notifications.clearLastNotificationResponseAsync()
+    }
+    const retryResponseLater = () => {
+      handledResponseRef.current = null
+    }
 
     const target = parsePushTarget(
       lastResponse.notification.request.content.data ?? {}
     )
-    if (!target) return
+    if (!target) {
+      clearResponse()
+      return
+    }
 
     void (async () => {
       if (target.kind === "instructions-proposal") {
         if (target.workspaceId !== activeWorkspaceId) {
           const switched = await selectWorkspace(target.workspaceId)
-          if (!switched) return
+          if (!switched) {
+            retryResponseLater()
+            return
+          }
         }
         router.push({
           pathname: "/settings/instructions",
           params: { workspaceSlug: target.workspaceSlug },
         } as never)
+        clearResponse()
         return
       }
       if (target.workspaceId === null) {
         router.push({
           pathname: "/dm/[dmId]",
-          params: { dmId: target.channelId },
+          params: {
+            dmId: target.channelId,
+            ...(target.messageId ? { focusMessageId: target.messageId } : {}),
+          },
         } as never)
+        clearResponse()
         return
       }
       if (target.workspaceId !== activeWorkspaceId) {
         const switched = await selectWorkspace(target.workspaceId)
-        if (!switched) return
+        if (!switched) {
+          retryResponseLater()
+          return
+        }
       }
       if (target.threadRootId) {
         router.push({
@@ -117,14 +104,19 @@ export function usePushNotifications() {
           params: {
             channelId: target.channelId,
             threadRootId: target.threadRootId,
+            ...(target.messageId ? { focusMessageId: target.messageId } : {}),
           },
         } as never)
       } else {
         router.push({
           pathname: "/channel/[channelId]",
-          params: { channelId: target.channelId },
+          params: {
+            channelId: target.channelId,
+            ...(target.messageId ? { focusMessageId: target.messageId } : {}),
+          },
         } as never)
       }
+      clearResponse()
     })()
   }, [lastResponse, userId, isLoading, activeWorkspaceId, selectWorkspace])
 

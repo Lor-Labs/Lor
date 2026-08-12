@@ -1,6 +1,9 @@
-import type {
-  MentionNotification,
-  UnreadNotification,
+import {
+  buildNotificationTitle,
+  buildReactionNotificationBody,
+  type MentionNotification,
+  type ReactionNotification,
+  type UnreadNotification,
 } from "@repo/realtime-types"
 import { useQuery } from "@tanstack/react-query"
 import { useEffect } from "react"
@@ -63,34 +66,58 @@ export function useBrowserNotifications() {
       if (document.hasFocus()) return
       if (!(settings && mutes)) return
       if (findActiveMute(mutes, payload.channelId)) return
-      if (settings.desktopNotifications !== "all_messages") return
+      const enabled =
+        payload.workspaceId === null
+          ? settings.dmNotifications === "all_messages"
+          : settings.desktopNotifications === "all_messages"
+      if (!enabled) return
 
-      // For DMs, check dmNotifications setting
-      if (
-        payload.workspaceId === null &&
-        settings.dmNotifications === "nothing"
-      ) {
-        return
-      }
+      showNotification(
+        buildNotificationTitle({
+          actorName: payload.authorName,
+          channelName: payload.channelName,
+          workspaceName: payload.workspaceName,
+        }),
+        payload.contentPreview ?? "Sent a message",
+        {
+          tag: `unread-${payload.channelId}`,
+          icon: payload.authorImage,
+        }
+      )
+    }
 
-      const title = payload.authorName
-      const body = payload.contentPreview
-        ? payload.channelName
-          ? `#${payload.channelName}: ${payload.contentPreview}`
-          : payload.contentPreview
-        : "Sent an attachment"
+    const onReaction = (payload: ReactionNotification) => {
+      if (document.hasFocus()) return
+      if (!(settings && mutes)) return
+      if (findActiveMute(mutes, payload.channelId)) return
+      const enabled =
+        payload.workspaceId === null
+          ? settings.dmNotifications === "all_messages"
+          : settings.desktopNotifications === "all_messages"
+      if (!enabled) return
 
-      showNotification(title, body, {
-        tag: `unread-${payload.channelId}`,
-      })
+      showNotification(
+        buildNotificationTitle({
+          actorName: payload.actorName,
+          channelName: payload.channelName,
+          workspaceName: payload.workspaceName,
+        }),
+        buildReactionNotificationBody(payload),
+        {
+          tag: `reaction-${payload.messageId}-${payload.emoji}`,
+          icon: payload.actorImage,
+        }
+      )
     }
 
     socket.on("notification:mention", onMention)
     socket.on("notification:unread", onUnread)
+    socket.on("notification:reaction", onReaction)
 
     return () => {
       socket.off("notification:mention", onMention)
       socket.off("notification:unread", onUnread)
+      socket.off("notification:reaction", onReaction)
     }
   }, [socket, settings, mutes])
 }

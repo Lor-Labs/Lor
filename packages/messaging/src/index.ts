@@ -1,6 +1,7 @@
 import { and, db, eq, inArray, schema } from "@repo/db"
 import type {
   MentionNotification,
+  ReactionNotification,
   RealtimeMessageMention,
   UnreadNotification,
 } from "@repo/realtime-types"
@@ -17,12 +18,13 @@ type FanoutChannel = {
   id: string
   workspaceId: string | null
   name: string | null
+  workspaceName?: string | null
 }
 
 type FanoutMessage = {
   id: string
   content: string | null
-  author: { name: string }
+  author: { name: string; image?: string | null }
   attachments: readonly unknown[]
 }
 
@@ -200,29 +202,29 @@ export async function syncMessageMentions(input: {
   return listMentionUsers(mentionTypeByUserId)
 }
 
+export type NotificationPreviewMention = {
+  id: string
+  name: string
+  username?: string | null
+  displayUsername?: string | null
+}
+
 // Plain-text preview for notification surfaces (desktop notifications, push).
 // Mention/citation/markdown handling mirrors apps/web/src/lib/search-preview.ts.
-async function buildNotificationPreview(content: string) {
-  const mentionIds = [...extractDirectMentionUserIds(content)]
-  const users =
-    mentionIds.length > 0
-      ? await db
-          .select({
-            id: schema.user.id,
-            name: schema.user.name,
-            username: schema.user.username,
-            displayUsername: schema.user.displayUsername,
-          })
-          .from(schema.user)
-          .where(inArray(schema.user.id, mentionIds))
-      : []
-  const userById = new Map(users.map((user) => [user.id, user]))
+export function buildNotificationContentPreview(input: {
+  content: string
+  mentions?: readonly NotificationPreviewMention[]
+  maxLength?: number
+}) {
+  const userById = new Map(
+    (input.mentions ?? []).map((user) => [user.id, user])
+  )
   const mentionLabel = (id: string) => {
     const user = userById.get(id)
     return `@${user ? (user.displayUsername ?? user.username ?? user.name) : "unknown-user"}`
   }
 
-  return content
+  const normalized = input.content
     .replace(MARKDOWN_USER_MENTION_REGEX, (_match, id: string) =>
       mentionLabel(id)
     )
@@ -246,6 +248,66 @@ async function buildNotificationPreview(content: string) {
     .replace(/~~(\S(?:[\s\S]*?\S)?)~~/g, "$1")
     .replace(/`([^`\n]+)`/g, "$1")
     .trim()
+
+  const maxLength = input.maxLength ?? 100
+  if (normalized.length <= maxLength) return normalized
+  return `${normalized.slice(0, maxLength)}…`
+}
+
+async function buildResolvedNotificationContentPreview(content: string) {
+  const mentionIds = [...extractDirectMentionUserIds(content)]
+  const mentions =
+    mentionIds.length > 0
+      ? await db
+          .select({
+            id: schema.user.id,
+            name: schema.user.name,
+            username: schema.user.username,
+            displayUsername: schema.user.displayUsername,
+          })
+          .from(schema.user)
+          .where(inArray(schema.user.id, mentionIds))
+      : []
+  return buildNotificationContentPreview({ content, mentions })
+}
+
+export function buildReactionNotification(input: {
+  channel: {
+    id: string
+    workspaceId: string | null
+    name: string | null
+    workspaceName?: string | null
+  }
+  message: {
+    id: string
+    threadRootId?: string | null
+    content: string | null
+    mentions?: readonly NotificationPreviewMention[]
+  }
+  actor: { id: string; name: string; image?: string | null }
+  emoji: string
+}): ReactionNotification {
+  const contentPreview = input.message.content
+    ? buildNotificationContentPreview({
+        content: input.message.content,
+        mentions: input.message.mentions,
+      })
+    : ""
+  const messagePreview = contentPreview || null
+
+  return {
+    channelId: input.channel.id,
+    workspaceId: input.channel.workspaceId,
+    messageId: input.message.id,
+    threadRootId: input.message.threadRootId ?? null,
+    emoji: input.emoji,
+    actorUserId: input.actor.id,
+    actorName: input.actor.name,
+    actorImage: input.actor.image ?? null,
+    channelName: input.channel.name,
+    workspaceName: input.channel.workspaceName ?? null,
+    messagePreview,
+  }
 }
 
 export async function buildMessageFanout(input: MessageFanoutInput) {
@@ -255,12 +317,10 @@ export async function buildMessageFanout(input: MessageFanoutInput) {
   )
 
   const previewText = input.message.content
-    ? await buildNotificationPreview(input.message.content)
+    ? await buildResolvedNotificationContentPreview(input.message.content)
     : ""
   const contentPreview = previewText
-    ? previewText.length > 100
-      ? `${previewText.slice(0, 100)}…`
-      : previewText
+    ? previewText
     : input.message.attachments.length > 0
       ? `sent ${input.message.attachments.length} attachment${input.message.attachments.length > 1 ? "s" : ""}`
       : null
@@ -273,9 +333,12 @@ export async function buildMessageFanout(input: MessageFanoutInput) {
         workspaceId: input.channel.workspaceId,
         messageId: input.message.id,
         unreadCountDelta: 1,
+        authorUserId: input.authorId,
         authorName: input.message.author.name,
+        authorImage: input.message.author.image ?? null,
         contentPreview,
         channelName: input.channel.name,
+        workspaceName: input.channel.workspaceName ?? null,
       },
     }))
 

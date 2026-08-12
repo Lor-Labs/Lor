@@ -16,8 +16,12 @@
       },
       "bundleIdentifier": "chat.lor.app",
       "supportsTablet": false,
+      "entitlements": {
+        "com.apple.developer.usernotifications.communication": true
+      },
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSUserActivityTypes": ["INSendMessageIntent"]
       }
     },
     "android": {
@@ -38,6 +42,7 @@
     "plugins": [
       "expo-router",
       "expo-notifications",
+      "@bacons/apple-targets",
       [
         "expo-splash-screen",
         {
