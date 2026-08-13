@@ -21,15 +21,55 @@ interface RightSidebarContextValue {
 }
 
 const PANEL_COLLAPSED_KEY = "lor-right-panel-collapsed"
-const PANEL_WIDTH_KEY = "lor-right-panel-width"
-const DEFAULT_WIDTH = 280
+const PANEL_WIDTH_KEYS = {
+  wide: "lor-right-panel-width-wide",
+  compact: "lor-right-panel-width-compact",
+} as const
+
+/**
+ * Threads and tasks are reading/working surfaces, so they open roughly half
+ * the viewport. Members / pinned / attachments are lists — they get a narrow
+ * fixed width. Each class remembers its own user-dragged width.
+ */
+type PanelSizeClass = keyof typeof PANEL_WIDTH_KEYS
+
+const COMPACT_DEFAULT_WIDTH = 280
+const WIDE_DEFAULT_RATIO = 0.5
 
 export const MIN_PANEL_WIDTH = 240
 export const MAX_PANEL_WIDTH_RATIO = 0.75
 
+/**
+ * Minimum comfortable chat width. The resize handle uses it to auto-collapse
+ * the left sidebar while dragging, and the wide default backs off from 50% on
+ * narrow viewports so opening a thread never leaves the chat cramped.
+ */
+export const CENTER_MIN_WIDTH = 400
+const ASSUMED_LEFT_SIDEBAR_WIDTH = 240
+
 export function clampPanelWidth(width: number, viewportWidth: number): number {
   const max = Math.max(viewportWidth * MAX_PANEL_WIDTH_RATIO, MIN_PANEL_WIDTH)
   return Math.min(Math.max(width, MIN_PANEL_WIDTH), max)
+}
+
+function sizeClassForView(view: RightSidebarView | null): PanelSizeClass {
+  return view?.type === "thread" ? "wide" : "compact"
+}
+
+function defaultWidth(
+  sizeClass: PanelSizeClass,
+  viewportWidth: number
+): number {
+  if (sizeClass === "compact") return COMPACT_DEFAULT_WIDTH
+  return clampPanelWidth(
+    Math.round(
+      Math.min(
+        viewportWidth * WIDE_DEFAULT_RATIO,
+        viewportWidth - ASSUMED_LEFT_SIDEBAR_WIDTH - CENTER_MIN_WIDTH
+      )
+    ),
+    viewportWidth
+  )
 }
 
 function getStoredCollapsed(): boolean {
@@ -40,9 +80,9 @@ function getStoredCollapsed(): boolean {
   }
 }
 
-function getStoredWidth(): number {
+function getStoredWidth(sizeClass: PanelSizeClass): number {
   try {
-    const stored = localStorage.getItem(PANEL_WIDTH_KEY)
+    const stored = localStorage.getItem(PANEL_WIDTH_KEYS[sizeClass])
     if (stored) {
       const parsed = Number.parseInt(stored, 10)
       if (Number.isFinite(parsed)) {
@@ -50,7 +90,7 @@ function getStoredWidth(): number {
       }
     }
   } catch {}
-  return DEFAULT_WIDTH
+  return defaultWidth(sizeClass, window.innerWidth)
 }
 
 const RightSidebarContext = createContext<RightSidebarContextValue | null>(null)
@@ -58,15 +98,24 @@ const RightSidebarContext = createContext<RightSidebarContextValue | null>(null)
 export function RightSidebarProvider({ children }: { children: ReactNode }) {
   const [view, setView] = useState<RightSidebarView | null>(null)
   const [isCollapsed, setIsCollapsed] = useState(true)
-  const [panelWidth, setPanelWidthState] = useState(DEFAULT_WIDTH)
+  const [widths, setWidths] = useState<Record<PanelSizeClass, number>>({
+    wide: COMPACT_DEFAULT_WIDTH,
+    compact: COMPACT_DEFAULT_WIDTH,
+  })
   const [isHydrated, setIsHydrated] = useState(false)
 
   // Hydrate from localStorage on mount
   useEffect(() => {
     setIsCollapsed(getStoredCollapsed())
-    setPanelWidthState(getStoredWidth())
+    setWidths({
+      wide: getStoredWidth("wide"),
+      compact: getStoredWidth("compact"),
+    })
     setIsHydrated(true)
   }, [])
+
+  const sizeClass = sizeClassForView(view)
+  const panelWidth = widths[sizeClass]
 
   const clearView = useCallback(() => {
     setView(null)
@@ -82,12 +131,15 @@ export function RightSidebarProvider({ children }: { children: ReactNode }) {
     })
   }, [])
 
-  const setPanelWidth = useCallback((width: number) => {
-    setPanelWidthState(width)
-    try {
-      localStorage.setItem(PANEL_WIDTH_KEY, String(width))
-    } catch {}
-  }, [])
+  const setPanelWidth = useCallback(
+    (width: number) => {
+      setWidths((prev) => ({ ...prev, [sizeClass]: width }))
+      try {
+        localStorage.setItem(PANEL_WIDTH_KEYS[sizeClass], String(width))
+      } catch {}
+    },
+    [sizeClass]
+  )
 
   const value = useMemo<RightSidebarContextValue>(
     () => ({

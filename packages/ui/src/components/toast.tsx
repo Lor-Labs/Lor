@@ -209,7 +209,7 @@ function AnchoredToasts({
           return (
             <Toast.Positioner
               key={toast.id}
-              className="z-50 max-w-[min(--spacing(64),var(--available-width))]"
+              className="z-60 max-w-[min(--spacing(64),var(--available-width))]"
               data-slot="toast-positioner"
               sideOffset={positionerProps.sideOffset ?? 4}
               toast={toast}

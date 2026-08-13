@@ -14,6 +14,7 @@ import {
   MessageScrollerViewport,
 } from "@repo/ui/components/message-scroller"
 import { Skeleton } from "@repo/ui/components/skeleton"
+import { anchoredToastManager } from "@repo/ui/components/toast"
 
 import {
   differenceInMinutes,
@@ -132,6 +133,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
   const currentUserId = session?.user.id
 
   const navigate = useNavigate()
+  const actionsMenuTriggerRef = useRef<HTMLButtonElement>(null)
 
   // Jump the main channel feed to the thread root. Scroll in place if it's
   // already rendered; otherwise anchor the feed on it via ?msgId (the channel
@@ -295,7 +297,18 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
       }
 
       await navigator.clipboard.writeText(sections.join("\n").trim())
-      toast.success(`${isTask ? "Task" : "Thread"} copied as Markdown`)
+      if (actionsMenuTriggerRef.current) {
+        anchoredToastManager.add({
+          data: { tooltipStyle: true },
+          id: `copy-${isTask ? "task" : "thread"}-markdown`,
+          positionerProps: {
+            anchor: actionsMenuTriggerRef.current,
+            sideOffset: 6,
+          },
+          timeout: 1800,
+          title: `${isTask ? "Task" : "Thread"} copied`,
+        })
+      }
     } catch {
       toast.error(`Couldn't copy ${isTask ? "task" : "thread"}`)
     }
@@ -596,6 +609,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
             <DropdownMenuTrigger
               render={
                 <button
+                  ref={actionsMenuTriggerRef}
                   type="button"
                   aria-label={`${isTask ? "Task" : "Thread"} actions`}
                   className="flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground data-popup-open:bg-foreground/5 data-popup-open:text-foreground"

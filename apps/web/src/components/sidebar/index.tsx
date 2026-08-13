@@ -15,6 +15,7 @@ import { DesktopSidebarTitlebar } from "@/components/desktop-titlebar"
 import { UserBar } from "@/components/sidebar/channel-panel/user-bar"
 import { DMSidebarContent } from "@/components/sidebar/dm-sidebar"
 import {
+  CENTER_MIN_WIDTH,
   clampPanelWidth,
   RightSidebarProvider,
   useRightSidebar,
@@ -79,13 +80,12 @@ function LeftSidebar() {
  * Merlin threads (and members / pinned / threads), so it needs its own
  * visual identity rather than blending into the main chat surface.
  */
-// Minimum comfortable chat width. When dragging the right panel makes the
-// center narrower than this, the left sidebar auto-collapses to give the room
-// back; dragging the panel back reopens it (see handleMouseDown). Note the
-// right panel is capped at 75% of the viewport (MAX_PANEL_WIDTH_RATIO), so the
-// center can't shrink below ~0.25·viewport − leftWidth; this must sit above
+// While dragging the right panel, if the center (chat) gets narrower than
+// CENTER_MIN_WIDTH the left sidebar auto-collapses to give the room back;
+// dragging the panel back reopens it (see handleMouseDown). Note the right
+// panel is capped at 75% of the viewport (MAX_PANEL_WIDTH_RATIO), so the center
+// can't shrink below ~0.25·viewport − leftWidth; CENTER_MIN_WIDTH must sit above
 // that floor to fire.
-const CENTER_MIN_WIDTH = 400
 
 function RightPanelDock() {
   const { workspaceSlug } = useParams({ strict: false })
