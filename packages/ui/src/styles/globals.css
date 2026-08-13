@@ -308,11 +308,11 @@
    single block. These sit between the two. All rules clear the utilities they
    override on specificity, since Typography wraps its selectors in :where(). */
 .message-markdown .prose {
-  @apply leading-[1.55];
+  @apply leading-normal;
 }
 
 .message-markdown p {
-  @apply my-2;
+  @apply my-1.5;
 }
 
 /* Never let the rhythm push the bubble's first/last line off-baseline. */
@@ -410,11 +410,11 @@
 }
 
 .message-markdown [data-streamdown="unordered-list"] {
-  @apply my-1 list-disc pl-5;
+  @apply my-0.5 list-disc pl-5;
 }
 
 .message-markdown [data-streamdown="ordered-list"] {
-  @apply my-1 list-decimal pl-5;
+  @apply my-0.5 list-decimal pl-5;
 }
 
 @keyframes shimmer {

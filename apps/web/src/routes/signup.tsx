@@ -8,6 +8,7 @@ import {
   CardTitle,
 } from "@repo/ui/components/card"
 import { Input } from "@repo/ui/components/input"
+import { InlineValidation } from "@repo/ui/components/interior/inline-validation"
 import { Label } from "@repo/ui/components/label"
 import { useMutation } from "@tanstack/react-query"
 import {
@@ -22,6 +23,7 @@ import { PasswordInput } from "@/components/auth/password-input"
 import { OfflineScreen } from "@/components/offline-screen"
 import { useConnectivity } from "@/hooks/use-connectivity"
 import { sanitizeRedirect } from "@/lib/auth-redirect"
+import { validateEmail } from "@/lib/email-validation"
 
 export const Route = createFileRoute("/signup")({
   component: SignUpPage,
@@ -97,6 +99,7 @@ function SignUpPage() {
               <form
                 onSubmit={(e: FormEvent) => {
                   e.preventDefault()
+                  if (validateEmail(email)) return
                   signUp()
                 }}
               >
@@ -119,18 +122,18 @@ function SignUpPage() {
                       required
                     />
                   </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="email">Email</Label>
-                    <Input
-                      id="email"
-                      type="email"
-                      placeholder="you@example.com"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      autoComplete="email"
-                      required
-                    />
-                  </div>
+                  <InlineValidation
+                    id="email"
+                    name="email"
+                    label="Email"
+                    type="email"
+                    placeholder="you@example.com"
+                    value={email}
+                    onChange={setEmail}
+                    validate={validateEmail}
+                    autoComplete="email"
+                    required
+                  />
                   <div className="grid gap-2">
                     <Label htmlFor="password">Password</Label>
                     <PasswordInput

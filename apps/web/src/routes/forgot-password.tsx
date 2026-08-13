@@ -8,13 +8,13 @@ import {
   CardHeader,
   CardTitle,
 } from "@repo/ui/components/card"
-import { Input } from "@repo/ui/components/input"
-import { Label } from "@repo/ui/components/label"
+import { InlineValidation } from "@repo/ui/components/interior/inline-validation"
 import { useMutation } from "@tanstack/react-query"
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { AlertCircle, ArrowLeft, Loader2, MailCheck } from "lucide-react"
 import { type FormEvent, useState } from "react"
 import { AuthLayout } from "@/components/auth/auth-layout"
+import { validateEmail } from "@/lib/email-validation"
 
 export const Route = createFileRoute("/forgot-password")({
   component: ForgotPasswordPage,
@@ -85,6 +85,7 @@ function ForgotPasswordPage() {
         <form
           onSubmit={(e: FormEvent) => {
             e.preventDefault()
+            if (validateEmail(email)) return
             sendReset()
           }}
         >
@@ -95,18 +96,18 @@ function ForgotPasswordPage() {
                 <span>{error.message}</span>
               </div>
             )}
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="you@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                autoComplete="email"
-                required
-              />
-            </div>
+            <InlineValidation
+              id="email"
+              name="email"
+              label="Email"
+              type="email"
+              placeholder="you@example.com"
+              value={email}
+              onChange={setEmail}
+              validate={validateEmail}
+              autoComplete="email"
+              required
+            />
           </CardContent>
           <CardFooter className="flex flex-col gap-4">
             <Button type="submit" className="w-full" disabled={isPending}>
