@@ -1,5 +1,6 @@
 import { env } from "@repo/env/client"
 import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar"
+import { MessageMarkdown as NexusMessageMarkdown } from "@repo/ui/components/nexus-ui/message"
 import {
   HoverCard,
   HoverCardContent,
@@ -7,9 +8,8 @@ import {
 } from "@repo/ui/components/preview-card"
 import { cn } from "@repo/ui/lib/utils"
 import { getAvatarInitials } from "@repo/utils/avatar-colors"
-import { createCodePlugin } from "@streamdown/code"
 import { type ReactNode, useMemo, useState } from "react"
-import { type Components, Streamdown } from "streamdown"
+import type { Components } from "streamdown"
 import type { Message } from "@/lib/api-types"
 import { connectorForUrl, connectorLogo } from "@/lib/connector-ui"
 
@@ -22,11 +22,6 @@ const EVERYONE_MENTION_REGEX = /(^|\s)@everyone\b/gi
 // page), [[msg:<id>]] (message), or [[src:<id>|<title>|<url>]] (connected-tool
 // source, enriched with its verified title + url at grounding time).
 const CITATION_REGEX = /\[\[([^\]]+)\]\]/g
-
-// Shared Shiki highlighter instance; loads languages lazily as code streams in.
-const codePlugin = createCodePlugin({
-  themes: ["github-light", "github-dark-dimmed"],
-})
 
 // Escapes for both text and double-quoted attribute contexts (data-id below),
 // so a citation token can't break out of its attribute.
@@ -312,8 +307,11 @@ export function MessageMarkdown({
         className
       )}
     >
-      <Streamdown
-        plugins={{ code: codePlugin }}
+      <NexusMessageMarkdown
+        // Nexus supplies the code/math/mermaid/cjk plugin bundle and the
+        // codeblock + table UI; only the dark theme is overridden to keep
+        // parity with the rest of the app's chrome.
+        shikiTheme={["github-light", "github-dark-dimmed"]}
         // Keys here are matched by hast-util-sanitize against the HAST property
         // names, which rehype-raw camelCases — so it MUST be `dataId`/`dataUrl`,
         // not `data-id`/`data-url`. With the hyphenated form the attribute is
@@ -331,7 +329,7 @@ export function MessageMarkdown({
         components={components}
       >
         {markdown}
-      </Streamdown>
+      </NexusMessageMarkdown>
       {editedAt && (
         <span className="ml-1 text-[10px] leading-snug text-muted-foreground/50">
           (edited)

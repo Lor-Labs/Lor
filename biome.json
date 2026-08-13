@@ -160,6 +160,19 @@
       }
     },
     {
+      "includes": ["packages/ui/src/components/nexus-ui/**/*.tsx"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noArrayIndexKey": "off"
+          },
+          "a11y": {
+            "useSemanticElements": "off"
+          }
+        }
+      }
+    },
+    {
       "includes": ["**/*.js", "**/*.mjs", "**/*.cjs"],
       "javascript": {
         "globals": ["exports", "module", "require", "__dirname", "__filename"]

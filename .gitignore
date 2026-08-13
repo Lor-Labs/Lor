@@ -5,6 +5,10 @@ node_modules
 .pnp
 .pnp.js
 
+# pnpm content-addressable store must never live inside the worktree:
+# Tailwind's `@source` scanning, Vite's watcher and Biome all crawl it.
+.pnpm-store/
+
 # Local env files
 .env
 .env.local

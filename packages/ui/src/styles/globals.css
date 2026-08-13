@@ -2,10 +2,22 @@
 @import "tw-animate-css";
 @import "./lor-tokens.css";
 
+/* Nexus UI's message markdown is built on prose/prose-* variants. */
+@plugin "@tailwindcss/typography";
+
 @source "../../../apps/**/*.{ts,tsx}";
 @source "../**/*.{ts,tsx}";
 @source "../../../../apps/web/node_modules/streamdown/dist/*.js";
 @source "../../../../apps/web/node_modules/@streamdown/code/dist/*.js";
+/* Streamdown + its plugins emit utility classes from inside their dist bundles,
+   so those bundles must be scanned or the classes get purged. These resolve to
+   packages/ui/node_modules, where @repo/ui's own copies live (the Nexus message
+   and codeblock components import them from here, not from apps/web). */
+@source "../../node_modules/streamdown/dist/index.js";
+@source "../../node_modules/@streamdown/code/dist/*.js";
+@source "../../node_modules/@streamdown/math/dist/*.js";
+@source "../../node_modules/@streamdown/mermaid/dist/*.js";
+@source "../../node_modules/@streamdown/cjk/dist/*.js";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -71,80 +83,101 @@
   --color-info-foreground: var(--info-foreground);
   --color-info: var(--info);
   --color-destructive-foreground: var(--destructive-foreground);
+
   @keyframes skeleton {
     to {
       background-position: -200% 0;
     }
   }
+
   @keyframes caret-blink {
     0%,
     70%,
     to {
       opacity: 1;
     }
+
     20%,
     50% {
       opacity: 0;
     }
   }
+
   @keyframes toast-success-odd {
     0% {
       scale: 1;
     }
+
     30% {
       scale: 1.025;
     }
+
     60% {
       scale: 0.99;
     }
+
     100% {
       scale: 1;
     }
   }
+
   @keyframes toast-error-odd {
     0% {
       translate: 0 0;
     }
+
     25% {
       translate: -3px 0;
     }
+
     50% {
       translate: 3px 0;
     }
+
     75% {
       translate: -3px 0;
     }
+
     100% {
       translate: 0 0;
     }
   }
+
   @keyframes toast-success-even {
     0% {
       scale: 1;
     }
+
     30% {
       scale: 1.025;
     }
+
     60% {
       scale: 0.99;
     }
+
     100% {
       scale: 1;
     }
   }
+
   @keyframes toast-error-even {
     0% {
       translate: 0 0;
     }
+
     25% {
       translate: -3px 0;
     }
+
     50% {
       translate: 3px 0;
     }
+
     75% {
       translate: -3px 0;
     }
+
     100% {
       translate: 0 0;
     }
@@ -163,6 +196,37 @@
   button,
   [role="button"] {
     @apply cursor-pointer;
+  }
+
+  /* Code gutters for the Nexus codeblock only — scoped to its <pre> slot so the
+     counters can't add line numbers to every other <code> in the apps. */
+  [data-slot="nexus-code-block-body"] code {
+    counter-reset: line;
+  }
+
+  [data-slot="nexus-code-block-body"] code .line::before {
+    counter-increment: line;
+    content: counter(line);
+    display: inline-block;
+    width: 1rem;
+    margin-right: 1.25rem;
+    text-align: right;
+    color: var(--muted-foreground);
+    padding-left: 0;
+    font-size: 14px;
+  }
+
+  [data-slot="nexus-code-block-body"] code .line {
+    padding-left: 0px;
+  }
+
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
   }
 }
 
@@ -185,15 +249,135 @@
     transparent;
 }
 
-/* Chat-message markdown: tighten Streamdown's prose defaults for chat density.
-   Targets Streamdown's data-streamdown elements; scoped to .message-markdown so
-   it only affects message bubbles. Same utilities as the old wrapper classes. */
+/* Nexus UI's MessageMarkdown is built for stock shadcn tokens (where `primary`
+   is near-neutral ink) plus Tailwind Typography's light-mode prose palette.
+   Here --primary is a violet brand hue and the app themes dark, so both have to
+   be remapped or body text turns violet and code/headings render near-black on
+   dark surfaces. Scoped at (0,2,0) so it beats those single-class utilities
+   regardless of Tailwind's layer order. Body color is inherited on purpose:
+   callers dim whole blocks via the wrapper (e.g. the Merlin tool trail). */
+.message-markdown .prose {
+  color: inherit;
+  --tw-prose-body: inherit;
+  --tw-prose-lead: inherit;
+  --tw-prose-headings: var(--foreground);
+  --tw-prose-bold: var(--foreground);
+  --tw-prose-quotes: var(--foreground);
+  --tw-prose-kbd: var(--foreground);
+  --tw-prose-code: var(--foreground);
+  --tw-prose-pre-code: var(--foreground);
+  --tw-prose-pre-bg: transparent;
+  --tw-prose-links: var(--primary);
+  --tw-prose-counters: var(--muted-foreground);
+  --tw-prose-captions: var(--muted-foreground);
+  --tw-prose-bullets: var(--border);
+  --tw-prose-hr: var(--border);
+  --tw-prose-quote-borders: var(--border);
+  --tw-prose-th-borders: var(--border);
+  --tw-prose-td-borders: var(--border);
+}
+
+/* Typography decorates inline code with literal backticks. */
+.message-markdown .prose :where(code)::before,
+.message-markdown .prose :where(code)::after {
+  content: none;
+}
+
+/* Chat-density rhythm over Nexus's prose scale. Nexus is tuned for a docs page
+   (prose-p:mt-4, prose-headings:mt-6, table my-6, cells px-5 py-3), which reads
+   loose at message width — while the previous `p { my-0 }` collapsed every
+   paragraph gap to zero against a 26px line-height, so prose ran together as a
+   single block. These sit between the two. All rules clear the utilities they
+   override on specificity, since Typography wraps its selectors in :where(). */
+.message-markdown .prose {
+  @apply leading-[1.55];
+}
+
 .message-markdown p {
+  @apply my-2;
+}
+
+/* Never let the rhythm push the bubble's first/last line off-baseline. */
+.message-markdown .prose > :first-child {
+  @apply mt-0;
+}
+
+.message-markdown .prose > :last-child {
+  @apply mb-0;
+}
+
+.message-markdown li p,
+.message-markdown td p,
+.message-markdown th p {
   @apply my-0;
 }
 
+.message-markdown :is(h1, h2, h3, h4, h5, h6) {
+  @apply mt-4 mb-1.5;
+}
+
+.message-markdown h1 {
+  @apply text-[1.0625rem];
+}
+
+.message-markdown h2 {
+  @apply text-[1rem];
+}
+
+.message-markdown h3 {
+  @apply text-[0.9375rem];
+}
+
+.message-markdown [data-slot="message-markdown-table-wrap"] {
+  @apply my-2.5;
+}
+
+/* Nexus tags that wrapper with `prose-no-margin`, a Fumadocs utility that does
+   not exist in this repo, so Typography's `table { margin: 2em 0 }` survived and
+   padded ~28px of dead space inside the rounded container — above the header row
+   and below the last row. */
+.message-markdown [data-slot="message-markdown-table-wrap"] > table {
+  @apply my-0;
+}
+
+.message-markdown [data-slot="message-markdown-table"] {
+  @apply leading-[1.45];
+}
+
+.message-markdown [data-slot="message-markdown-th"] {
+  @apply px-2.5 py-1.5;
+}
+
+/* Nexus paints cells with `text-primary` — neutral ink in stock shadcn, but the
+   violet brand hue here, so table copy has to inherit the bubble's color. */
+.message-markdown [data-slot="message-markdown-td"] {
+  @apply px-2.5 py-1.5 text-inherit;
+}
+
+/* Chat-message markdown: tighten Streamdown's prose defaults for chat density.
+   Targets Streamdown's data-streamdown elements; scoped to .message-markdown so
+   it only affects message bubbles. Same utilities as the old wrapper classes. */
+
+/* Inline code: fill only, no border. Three signals (border + fill + tinted text)
+   for one idea turns to sticker soup where most table cells are code, and the
+   bordered pill read like an @mention. box-decoration-break keeps the padding
+   and radius intact on both halves when a long token wraps mid-chip.
+   --accent is the warm near-neutral that steps the right way in both themes:
+   0.95L in light (darker than the 0.995L card) and 0.27L in dark (lighter than
+   the 0.19L card), so one token covers both without a per-theme override and
+   violet stays reserved for links and mentions.
+   Linear-style outline: the border, not the fill, defines the chip. Mixing it
+   toward --foreground flips direction per theme on its own — ~0.86L in light
+   (darker than the fill) and ~0.35L in dark (lighter than it) — which is what
+   keeps the fill quiet instead of reading as a solid gray block.
+   box-decoration-break keeps the padding, radius and border intact on both
+   halves when a long token wraps mid-chip. */
+.message-markdown [data-slot="message-markdown-inline-code"],
 .message-markdown [data-streamdown="inline-code"] {
-  @apply rounded-[4px] border border-border/70 bg-primary/10 px-0.75 py-0.25 font-mono text-[0.92em] text-foreground;
+  @apply rounded-[4px] border bg-accent px-1 py-[0.1em] font-mono text-[0.92em] text-foreground;
+  border-color: color-mix(in oklab, var(--foreground) 12%, var(--accent));
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
 }
 
 .message-markdown [data-streamdown="unordered-list"] {
@@ -267,6 +451,7 @@
   background-clip: text;
   -webkit-background-clip: text;
   animation: tw-shimmer var(--shimmer-duration, 2s) linear infinite;
+
   @supports (
       background-image: linear-gradient(
         90deg,
