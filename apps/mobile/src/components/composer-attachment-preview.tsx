@@ -4,7 +4,6 @@ import Image01Icon from "@hugeicons/core-free-icons/Image01Icon"
 import RefreshIcon from "@hugeicons/core-free-icons/RefreshIcon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
 import { useThemeColor } from "heroui-native/hooks"
-import { Spinner } from "heroui-native/spinner"
 import { useState } from "react"
 import { Image, Pressable, ScrollView, Text, View } from "react-native"
 import { IconButton } from "@/components/ui/icon-button"
@@ -55,6 +54,24 @@ export function ComposerAttachmentPreview({
   )
 }
 
+// Bottom-edge bar, mirroring web's attachment tiles. Progress is 0–1 here (web
+// carries 0–100), so it's converted rather than reused directly.
+function UploadProgressBar({ label, value }: { label: string; value: number }) {
+  const clamped = Math.min(1, Math.max(0, value))
+  return (
+    <View
+      accessibilityLabel={label}
+      accessibilityLiveRegion="polite"
+      className="absolute inset-x-0 bottom-0 h-1 bg-border"
+    >
+      <View
+        className="h-full bg-foreground"
+        style={{ width: `${Math.round(clamped * 100)}%` }}
+      />
+    </View>
+  )
+}
+
 function AttachmentPreviewItem({
   attachment,
   background,
@@ -73,88 +90,93 @@ function AttachmentPreviewItem({
   const [failedPreviewUri, setFailedPreviewUri] = useState<string | null>(null)
   const isImage = attachment.contentType.startsWith("image/")
   const isUploadError = attachment.status === "error"
+  const isUploading = attachment.status === "uploading"
   const previewUri = attachment.url ?? attachment.uri
   const previewFailed = failedPreviewUri === previewUri
 
+  // Images speak for themselves as a square; files need their name and size.
+  // Both are 60px tall so a mixed row lines up — same as web.
   return (
     <View
-      className={`relative size-20 shrink-0 overflow-visible rounded-lor-sm border bg-background ${
-        isUploadError ? "border-danger" : "border-border"
+      className={`relative shrink-0 overflow-visible ${
+        isImage ? "size-15" : "h-15 w-[220px]"
       }`}
     >
-      {isImage ? (
-        <View className="size-full overflow-hidden rounded-lor-sm bg-default">
-          {previewFailed ? (
-            <View className="absolute inset-0 items-center justify-center">
-              <HugeiconsIcon color={danger} icon={Image01Icon} size={20} />
-              <Text className="mt-one text-[9px] font-medium text-muted">
-                No preview
+      <View
+        className={`size-full overflow-hidden rounded-lor-sm border bg-background ${
+          isUploadError ? "border-danger" : "border-border"
+        }`}
+      >
+        {isImage ? (
+          <View className="size-full bg-default">
+            {previewFailed ? (
+              <View className="absolute inset-0 items-center justify-center">
+                <HugeiconsIcon color={danger} icon={Image01Icon} size={20} />
+                <Text className="mt-one text-[9px] font-medium text-muted">
+                  No preview
+                </Text>
+              </View>
+            ) : null}
+            <Image
+              accessibilityLabel={attachment.filename}
+              key={previewUri}
+              onError={() => setFailedPreviewUri(previewUri)}
+              resizeMode="cover"
+              source={{ uri: previewUri }}
+              style={{
+                height: "100%",
+                // Dimmed while bytes are still going out, so the tile reads as
+                // in-flight at a glance and the bar stays legible over it.
+                opacity: isUploadError ? 0.5 : isUploading ? 0.65 : 1,
+                width: "100%",
+              }}
+            />
+          </View>
+        ) : (
+          <View
+            className={`size-full flex-row items-center gap-two p-two ${
+              isUploadError ? "opacity-50" : ""
+            }`}
+          >
+            <View className="size-11 items-center justify-center rounded-lor-sm border border-border bg-default">
+              <HugeiconsIcon color={foreground} icon={File01Icon} size={20} />
+            </View>
+            <View className="min-w-0 flex-1">
+              <Text
+                className="text-[13px] font-medium text-foreground"
+                numberOfLines={1}
+              >
+                {attachment.filename}
+              </Text>
+              <Text className="text-[11px] text-muted">
+                {formatFileSize(attachment.size)}
               </Text>
             </View>
-          ) : null}
-          <Image
-            accessibilityLabel={attachment.filename}
-            key={previewUri}
-            onError={() => setFailedPreviewUri(previewUri)}
-            resizeMode="cover"
-            source={{ uri: previewUri }}
-            style={{
-              height: "100%",
-              opacity: isUploadError ? 0.5 : 1,
-              width: "100%",
-            }}
-          />
-        </View>
-      ) : (
-        <View
-          className={`size-full items-center justify-center gap-one p-two ${
-            isUploadError ? "opacity-50" : ""
-          }`}
-        >
-          <View className="size-8 items-center justify-center rounded-lor-sm bg-default">
-            <HugeiconsIcon color={foreground} icon={File01Icon} size={17} />
           </View>
-          <Text
-            className="w-full text-center text-[10px] font-semibold text-foreground"
-            numberOfLines={1}
+        )}
+
+        {isUploading ? (
+          <UploadProgressBar
+            label={`Uploading ${attachment.filename}, ${Math.round(
+              attachment.progress * 100
+            )} percent`}
+            value={attachment.progress}
+          />
+        ) : null}
+
+        {isUploadError ? (
+          <Pressable
+            accessibilityHint={attachment.error}
+            accessibilityLabel={`Retry ${attachment.filename}`}
+            accessibilityRole="button"
+            className="absolute inset-0 flex-row items-center justify-center gap-one bg-danger-soft/80"
+            onPress={() => onRetry(attachment.id)}
           >
-            {attachment.filename}
-          </Text>
-          <Text className="text-[9px] text-muted">
-            {formatFileSize(attachment.size)}
-          </Text>
-        </View>
-      )}
-
-      {attachment.status === "uploading" ? (
-        <View
-          accessibilityLabel={`Uploading ${attachment.filename}, ${Math.round(
-            attachment.progress * 100
-          )} percent`}
-          accessibilityLiveRegion="polite"
-          className="absolute inset-0 items-center justify-center rounded-lor-sm bg-background/50"
-        >
-          <Spinner color={foreground} size="sm" />
-          <Text className="mt-one text-[9px] font-semibold text-foreground">
-            {Math.round(attachment.progress * 100)}%
-          </Text>
-        </View>
-      ) : null}
-
-      {isUploadError ? (
-        <Pressable
-          accessibilityHint={attachment.error}
-          accessibilityLabel={`Retry ${attachment.filename}`}
-          accessibilityRole="button"
-          className="absolute inset-0 items-center justify-center rounded-lor-sm bg-danger-soft/80"
-          onPress={() => onRetry(attachment.id)}
-        >
-          <HugeiconsIcon color={danger} icon={RefreshIcon} size={20} />
-          <Text className="mt-one text-[9px] font-semibold text-danger">
-            Retry
-          </Text>
-        </Pressable>
-      ) : null}
+            <HugeiconsIcon color={danger} icon={RefreshIcon} size={18} />
+            <Text className="text-[11px] font-semibold text-danger">Retry</Text>
+          </Pressable>
+        ) : null}
+      </View>
 
       <IconButton
         accessibilityLabel={`Remove ${attachment.filename}`}
