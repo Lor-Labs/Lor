@@ -49,6 +49,8 @@ function buildMarkdownStyle(theme: MessageTheme): MarkdownStyle {
     code: {
       color: theme.text,
       backgroundColor: theme.backgroundSelected,
+      // `CodeStyle` takes borderColor but not borderWidth — the renderer owns the
+      // edge, so this is as close to web's outlined chip as the library allows.
       borderColor: theme.border,
       fontFamily: Fonts?.mono,
       fontSize: 14,
