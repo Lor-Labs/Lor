@@ -547,6 +547,7 @@ export type RealtimeTaskStatus =
 export type RealtimeTaskPlanItem = {
   text: string
   status: "pending" | "active" | "done"
+  description?: string
 }
 
 // Snapshot of a task, emitted to the channel room on every status,

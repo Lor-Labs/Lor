@@ -316,12 +316,76 @@ export function MessageItem({
     )
   }
 
-  // A task card renders as its own surface; the thread behind it is the
-  // task's workspace.
+  // A task card renders as its own surface, but inside the normal message row —
+  // so it keeps Merlin's avatar, name and timestamp, and lines up with every
+  // other message in the channel. The thread behind it is the task's workspace.
   if (message.type === "task_card") {
+    const taskAvatar = (
+      <Avatar size="lg">
+        {avatarUrl && <AvatarImage src={avatarUrl} alt={displayName} />}
+        <AvatarFallback
+          avatarColor={author.avatarColor}
+          className="text-xs font-semibold"
+          fallbackSeed={author.name}
+        >
+          {getAvatarInitials(author.name)}
+        </AvatarFallback>
+      </Avatar>
+    )
     return (
-      <div data-message-id={message.id} className="px-4 py-1">
-        <TaskCard message={message} onOpenThread={onOpenThread} />
+      <div data-message-id={message.id} className="group px-4 py-0.5">
+        <div className="flex gap-3">
+          {showHeader ? (
+            isApp ? (
+              <div className="mt-0.5 self-start">{taskAvatar}</div>
+            ) : (
+              <UserProfilePopover
+                align="start"
+                avatarColor={author.avatarColor}
+                side="right"
+                userId={author.id}
+              >
+                <button
+                  type="button"
+                  className="mt-0.5 cursor-pointer self-start"
+                >
+                  {taskAvatar}
+                </button>
+              </UserProfilePopover>
+            )
+          ) : (
+            <div className="w-10 shrink-0" />
+          )}
+          <div className="min-w-0 flex-1">
+            {showHeader && (
+              <div className="flex items-baseline gap-2">
+                {isApp ? (
+                  <span className="text-sm font-semibold leading-snug">
+                    {displayName}
+                  </span>
+                ) : (
+                  <UserProfilePopover
+                    avatarColor={author.avatarColor}
+                    userId={author.id}
+                    side="right"
+                    align="start"
+                  >
+                    <button
+                      type="button"
+                      className="cursor-pointer text-sm font-semibold leading-snug hover:underline"
+                    >
+                      {displayName}
+                    </button>
+                  </UserProfilePopover>
+                )}
+                <span className="text-xs text-muted-foreground">
+                  {formatTime(message.createdAt)}
+                </span>
+              </div>
+            )}
+            <TaskCard message={message} onOpenThread={onOpenThread} />
+          </div>
+        </div>
       </div>
     )
   }

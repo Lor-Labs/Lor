@@ -1,34 +1,248 @@
 import {
-  CheckmarkCircle02Icon,
-  Loading03Icon,
+  ArrowDown01Icon,
+  MoreHorizontalIcon,
+  Tick02Icon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@repo/ui/components/collapsible"
 import { cn } from "@repo/ui/lib/utils"
+import { Loader2 } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
 import type { ChannelTask } from "@/hooks/use-channel-tasks"
 
 type PlanItem = ChannelTask["plan"][number]
 
-function Marker({ status }: { status: PlanItem["status"] }) {
+// Long plans collapse behind a "N more" row so a 20-step breakdown doesn't push
+// the delivered files off the card.
+const INITIAL_VISIBLE_STEPS = 4
+
+// Plan items have no id — set_plan replaces the whole list, so the text is the
+// only stable identity we get.
+function stepKey(item: PlanItem) {
+  return item.text
+}
+
+const MARKER_BASE =
+  "flex size-6 shrink-0 items-center justify-center rounded-full border"
+
+// Rendered with `key={status}` at the call site, so a status flip remounts the
+// marker and its enter animation actually replays.
+function StepMarker({ status }: { status: PlanItem["status"] }) {
   if (status === "done") {
     return (
-      <HugeiconsIcon
-        icon={CheckmarkCircle02Icon}
-        size={15}
-        className="text-success"
-      />
+      <span
+        className={cn(
+          MARKER_BASE,
+          "border-foreground bg-foreground shadow-sm",
+          "motion-safe:zoom-in-75 motion-safe:fade-in motion-safe:animate-in motion-safe:duration-300 motion-safe:ease-out"
+        )}
+      >
+        <HugeiconsIcon
+          icon={Tick02Icon}
+          size={16}
+          strokeWidth={3}
+          className="motion-safe:zoom-in-75 motion-safe:fade-in text-background motion-safe:animate-in motion-safe:fill-mode-both motion-safe:delay-75 motion-safe:duration-200"
+        />
+      </span>
     )
   }
   if (status === "active") {
     return (
-      <HugeiconsIcon
-        icon={Loading03Icon}
-        size={15}
-        className="animate-spin text-primary"
-      />
+      <span
+        className={cn(
+          MARKER_BASE,
+          "border-border bg-background shadow-[0_0_0_4px_--theme(--color-foreground/6%)]",
+          "motion-safe:transition-all motion-safe:duration-300"
+        )}
+      >
+        <Loader2
+          className="size-5 animate-spin text-foreground motion-reduce:animate-none"
+          strokeWidth={2}
+        />
+      </span>
     )
   }
   return (
-    <span className="size-[9px] rounded-full border-[1.5px] border-muted-foreground/40" />
+    <span
+      className={cn(
+        MARKER_BASE,
+        "border-border bg-background",
+        "motion-safe:transition-all motion-safe:duration-200"
+      )}
+    />
+  )
+}
+
+function StepLabel({ item }: { item: PlanItem }) {
+  return (
+    <span
+      className={cn(
+        "break-words font-medium text-sm leading-6",
+        item.status === "active" && "shimmer text-foreground",
+        item.status !== "active" && "text-muted-foreground"
+      )}
+    >
+      {item.text}
+    </span>
+  )
+}
+
+// left-5 lands on the marker's centre: the row's px-2 padding plus half of the
+// size-6 marker.
+function StepConnector() {
+  return (
+    <span
+      aria-hidden="true"
+      className="absolute top-6 left-5 w-px bg-border"
+      style={{ height: "calc(100% + 0.25rem)" }}
+    />
+  )
+}
+
+function Step({
+  item,
+  showConnector,
+  isFresh,
+  index,
+}: {
+  item: PlanItem
+  showConnector: boolean
+  isFresh: boolean
+  index: number
+}) {
+  const [open, setOpen] = useState(false)
+
+  const enterClasses =
+    "motion-safe:fade-in motion-safe:slide-in-from-bottom-1 motion-safe:animate-in motion-safe:duration-300 motion-safe:ease-out"
+  // `backwards` matters: without it a delayed item paints at its final position
+  // for the length of the delay, then jumps back to animate — the flash that
+  // made the stagger look broken.
+  const enterStyle = isFresh
+    ? {
+        animationDelay: `${index * 50}ms`,
+        animationFillMode: "backwards" as const,
+      }
+    : undefined
+
+  if (!item.description) {
+    return (
+      <li
+        className={cn(
+          "relative -mx-2 flex min-w-0 items-start gap-3 rounded-md px-2 py-1.5",
+          isFresh && enterClasses
+        )}
+        style={enterStyle}
+      >
+        {showConnector && <StepConnector />}
+        <span className="relative z-10">
+          <StepMarker key={item.status} status={item.status} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <StepLabel item={item} />
+        </div>
+      </li>
+    )
+  }
+
+  return (
+    <li
+      className={cn(
+        "relative -mx-2 min-w-0 rounded-md",
+        isFresh && enterClasses
+      )}
+      style={enterStyle}
+    >
+      {showConnector && <StepConnector />}
+      <Collapsible open={open} onOpenChange={setOpen}>
+        <div
+          className={cn(
+            "min-w-0 rounded-md motion-safe:transition-all motion-safe:duration-200",
+            open && "bg-foreground/5"
+          )}
+        >
+          {/* z-20 clears the card's stretched "open thread" overlay, so the row
+              toggles its detail instead of opening the thread. */}
+          <CollapsibleTrigger className="group/step relative z-20 flex w-full cursor-pointer items-start gap-3 px-2 py-1.5 text-left">
+            <span className="relative z-10">
+              <StepMarker key={item.status} status={item.status} />
+            </span>
+            <span className="min-w-0 flex-1">
+              <StepLabel item={item} />
+            </span>
+            <HugeiconsIcon
+              icon={ArrowDown01Icon}
+              size={16}
+              className={cn(
+                "mt-1 shrink-0 text-muted-foreground/50 group-hover/step:text-muted-foreground",
+                "motion-safe:transition-transform motion-safe:duration-300 motion-safe:ease-[cubic-bezier(0.34,1.56,0.64,1)]",
+                open && "rotate-180"
+              )}
+            />
+          </CollapsibleTrigger>
+          {/* Base UI drives the height both ways off --collapsible-panel-height
+              and holds the panel mounted through data-ending-style, so this
+              collapses smoothly instead of snapping shut on unmount. */}
+          <CollapsibleContent className="transition-[height,opacity] duration-200 data-ending-style:opacity-0 data-starting-style:opacity-0">
+            <p className="min-w-0 break-words pr-2 pb-1.5 pl-11 text-pretty text-muted-foreground text-sm">
+              {item.description}
+            </p>
+          </CollapsibleContent>
+        </div>
+      </Collapsible>
+    </li>
+  )
+}
+
+export function TaskPlanProgress({
+  items,
+  className,
+}: {
+  items: PlanItem[]
+  className?: string
+}) {
+  const total = items.length
+  const done = items.filter((item) => item.status === "done").length
+  const activeIndex = items.findIndex((item) => item.status === "active")
+
+  // The label tracks whichever reading is true right now: the step being worked,
+  // the finished count, or a stall between steps.
+  const label =
+    activeIndex >= 0
+      ? `Step ${activeIndex + 1} of ${total}`
+      : `${done} of ${total} complete`
+
+  return (
+    <div className={className}>
+      <div className="mb-2 font-medium text-[11px] text-muted-foreground uppercase tracking-[0.08em]">
+        {label}
+      </div>
+      {/* A segment per step, so the bar carries the same structure as the list
+          below it instead of abstracting it into one percentage. */}
+      <div
+        aria-label={label}
+        aria-valuemax={total}
+        aria-valuemin={0}
+        aria-valuenow={done}
+        className="flex gap-1.5"
+        role="progressbar"
+      >
+        {items.map((item) => (
+          <span
+            key={stepKey(item)}
+            className={cn(
+              "h-1 flex-1 rounded-full transition-colors duration-500",
+              item.status === "done" && "bg-foreground",
+              item.status === "active" && "bg-foreground/40",
+              item.status === "pending" && "bg-foreground/10"
+            )}
+          />
+        ))}
+      </div>
+    </div>
   )
 }
 
@@ -39,28 +253,68 @@ export function TaskPlanList({
   items: PlanItem[]
   className?: string
 }) {
+  const [expanded, setExpanded] = useState(false)
+  // Steps that arrive after mount animate in; everything already on screen (or
+  // restored from history on scrollback) must not.
+  const seenSteps = useRef(new Set<string>())
+  const hasMounted = useRef(false)
+  const [freshSteps, setFreshSteps] = useState<Set<string>>(new Set())
+
+  useEffect(() => {
+    if (!hasMounted.current) {
+      hasMounted.current = true
+      for (const item of items) seenSteps.current.add(stepKey(item))
+      return
+    }
+    const added = new Set<string>()
+    for (const item of items) {
+      const key = stepKey(item)
+      if (!seenSteps.current.has(key)) {
+        seenSteps.current.add(key)
+        added.add(key)
+      }
+    }
+    if (added.size === 0) return
+    setFreshSteps(added)
+    const timer = setTimeout(() => setFreshSteps(new Set()), 500)
+    return () => clearTimeout(timer)
+  }, [items])
+
   if (items.length === 0) return null
+
+  const visible = expanded ? items : items.slice(0, INITIAL_VISIBLE_STEPS)
+  const hiddenCount = items.length - visible.length
+
   return (
-    <ul className={cn("space-y-1.5", className)}>
-      {items.map((item, idx) => (
-        <li
-          key={`${idx}:${item.text}`}
-          className="flex gap-2 text-sm leading-5"
-        >
-          <span className="flex h-5 w-4 shrink-0 items-center justify-center">
-            <Marker status={item.status} />
-          </span>
-          <span
-            className={
-              item.status === "active"
-                ? "text-foreground"
-                : "text-muted-foreground"
-            }
-          >
-            {item.text}
-          </span>
-        </li>
+    <ul className={cn("min-w-0 space-y-1", className)}>
+      {visible.map((item, idx) => (
+        <Step
+          index={idx}
+          isFresh={freshSteps.has(stepKey(item))}
+          item={item}
+          key={stepKey(item)}
+          showConnector={idx < visible.length - 1 || hiddenCount > 0}
+        />
       ))}
+
+      {(hiddenCount > 0 || expanded) && (
+        <li className="mt-1">
+          <button
+            type="button"
+            onClick={() => setExpanded((value) => !value)}
+            className="relative z-20 flex cursor-pointer items-start gap-2 py-1 text-muted-foreground text-sm transition-colors hover:text-foreground"
+          >
+            <HugeiconsIcon
+              icon={MoreHorizontalIcon}
+              size={16}
+              className="mt-1 shrink-0 text-muted-foreground/70"
+            />
+            <span>
+              {hiddenCount > 0 ? `${hiddenCount} more` : "Show fewer"}
+            </span>
+          </button>
+        </li>
+      )}
     </ul>
   )
 }
