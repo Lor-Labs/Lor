@@ -135,6 +135,11 @@ export function createPiEventCollector(onStep?: (step: PiCodeStep) => void) {
 
   return {
     consume,
+    // Blaxel's live-log callback is line-framed and strips the trailing newline.
+    // Also accept multiple lines so completed stdout can use the same path.
+    consumeOutput(output: string) {
+      for (const line of output.split(/\r?\n/)) consume(line)
+    },
     result(): PiEventResult {
       return { findings, usage, error }
     },

@@ -62,6 +62,27 @@ describe("createPiEventCollector", () => {
     })
   })
 
+  it("consumes newline-stripped Blaxel callbacks as they arrive", () => {
+    const onStep = vi.fn()
+    const collector = createPiEventCollector(onStep)
+    const event = (toolName: string) =>
+      JSON.stringify({
+        type: "tool_execution_start",
+        toolName,
+        args: { path: "src/index.ts" },
+      })
+
+    collector.consumeOutput(event("read"))
+    expect(onStep).toHaveBeenCalledTimes(1)
+    expect(onStep).toHaveBeenLastCalledWith({
+      toolName: "read",
+      label: "Read src/index.ts",
+    })
+
+    collector.consumeOutput(`${event("ls")}\n${event("write")}`)
+    expect(onStep).toHaveBeenCalledTimes(3)
+  })
+
   it("keeps the final answer and accumulates usage across assistant turns", () => {
     const collector = createPiEventCollector()
     collector.consume(

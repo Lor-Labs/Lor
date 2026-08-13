@@ -1,14 +1,12 @@
 import { Pin02Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar"
-import { SidebarToggleIcon } from "@repo/ui/components/unlumen-ui/sidebar-toggle-icon"
-import { useIsMobile } from "@repo/ui/hooks/use-mobile"
+
 import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { formatTime } from "@repo/utils/date"
 import { useQuery } from "@tanstack/react-query"
-import { ArrowLeft } from "lucide-react"
 import { MessageMarkdown } from "@/components/chat/message-markdown"
-import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
+import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-header"
 import type { PinnedMessagesSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
 import { apiClient } from "@/lib/api-client"
 
@@ -17,17 +15,6 @@ export function PinnedMessagesPanel({
 }: {
   view: PinnedMessagesSidebarView
 }) {
-  const { setView, toggleCollapsed, clearView } = useRightSidebar()
-  const isMobile = useIsMobile()
-
-  const goBack = () => {
-    setView({
-      type: "workspace-members",
-      workspaceSlug: view.workspaceSlug,
-      channelId: view.channelId,
-    })
-  }
-
   const { data, isPending } = useQuery({
     queryKey: ["pinned-messages", view.channelId],
     queryFn: async () => {
@@ -43,35 +30,11 @@ export function PinnedMessagesPanel({
 
   return (
     <div className="flex h-full w-full flex-col">
-      <div className="flex h-12 shrink-0 items-center gap-2 px-4">
-        <button
-          type="button"
-          onClick={goBack}
-          aria-label="Back"
-          className="rounded-sm p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-        >
-          <ArrowLeft className="size-4" />
-        </button>
-        <span className="text-[13px] font-semibold tracking-tight text-foreground">
-          Pinned Messages
-        </span>
-        <button
-          type="button"
-          onClick={isMobile ? clearView : toggleCollapsed}
-          aria-label={
-            isMobile
-              ? "Close pinned messages panel"
-              : "Collapse pinned messages panel"
-          }
-          className="-mr-1.5 ml-auto flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
-        >
-          <SidebarToggleIcon
-            isOpen={true}
-            className="size-4 -scale-x-100"
-            strokeWidth={1.5}
-          />
-        </button>
-      </div>
+      <RightPanelHeader
+        title="Pinned messages"
+        workspaceSlug={view.workspaceSlug}
+        channelId={view.channelId}
+      />
       <div className="flex-1 overflow-y-auto">
         {isPending && (
           <div className="p-4 text-center text-sm text-muted-foreground">

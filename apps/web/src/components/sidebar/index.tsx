@@ -197,7 +197,11 @@ function RightPanelDock() {
             ref={panelRef}
             initial={{ width: 0, opacity: 0 }}
             animate={{ width: panelWidth, opacity: 1 }}
-            exit={{ width: 0, opacity: 0 }}
+            exit={{
+              width: 0,
+              opacity: 0,
+              transition: { duration: 0.06, ease: "linear" },
+            }}
             transition={{
               duration: isResizing ? 0 : 0.2,
               ease: [0.4, 0, 0.2, 1],

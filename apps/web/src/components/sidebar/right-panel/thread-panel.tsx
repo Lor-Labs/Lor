@@ -1,10 +1,11 @@
-import {
-  CheckListIcon,
-  MessageMultiple01Icon,
-} from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
-import { Badge } from "@repo/ui/components/badge"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@repo/ui/components/menu"
 import {
   MessageScroller,
   MessageScrollerContent,
@@ -13,16 +14,19 @@ import {
   MessageScrollerViewport,
 } from "@repo/ui/components/message-scroller"
 import { Skeleton } from "@repo/ui/components/skeleton"
-import { SidebarToggleIcon } from "@repo/ui/components/unlumen-ui/sidebar-toggle-icon"
-import { useIsMobile } from "@repo/ui/hooks/use-mobile"
-import { differenceInMinutes, isSameDay } from "@repo/utils/date"
+
+import {
+  differenceInMinutes,
+  formatDateTime,
+  isSameDay,
+} from "@repo/utils/date"
 import {
   type InfiniteData,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { ArrowLeft, CornerUpRight, Loader2 } from "lucide-react"
+import { Copy, CornerUpRight, Loader2, MoreHorizontal } from "lucide-react"
 import {
   type PointerEvent as ReactPointerEvent,
   useCallback,
@@ -49,7 +53,7 @@ import {
   TaskThreadHeader,
 } from "@/components/chat/task-thread-header"
 import { TypingIndicator } from "@/components/chat/typing-indicator"
-import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
+import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-header"
 import type { ThreadSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
 import { useSocket } from "@/context/socket-context"
 import { useTaskForCard } from "@/hooks/use-channel-tasks"
@@ -63,6 +67,7 @@ import { useQueuedMessageSteering } from "@/hooks/use-queued-message-steering"
 import { useReplyState } from "@/hooks/use-reply-state"
 import { useRunQueue } from "@/hooks/use-run-queue"
 import { useStopMerlinRun } from "@/hooks/use-stop-merlin-run"
+import { useTaskArtifacts } from "@/hooks/use-task"
 import { useThreadMessages } from "@/hooks/use-thread-messages"
 import { useTypingIndicator } from "@/hooks/use-typing-indicator"
 import { apiClient } from "@/lib/api-client"
@@ -92,23 +97,41 @@ function findMessageInChannelCache(
   return null
 }
 
+function messageAuthor(message: Message): string {
+  return (
+    message.overrideName ??
+    message.author.displayUsername ??
+    message.author.username ??
+    message.author.name
+  )
+}
+
+function messageToMarkdown(message: Message, headingLevel: 2 | 3): string {
+  const heading = "#".repeat(headingLevel)
+  const lines = [
+    `${heading} ${messageAuthor(message)} — ${formatDateTime(message.createdAt)}`,
+    "",
+    message.content?.trim() || "_No text content._",
+  ]
+  const attachments = message.attachments ?? []
+  if (attachments.length > 0) {
+    lines.push("", "Attachments:")
+    for (const attachment of attachments) {
+      lines.push(
+        `- [${attachment.filename}](${attachment.url}) (${attachment.contentType})`
+      )
+    }
+  }
+  return lines.join("\n")
+}
+
 export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
-  const { setView, toggleCollapsed, clearView } = useRightSidebar()
-  const isMobile = useIsMobile()
   const queryClient = useQueryClient()
   const socket = useSocket()
   const { data: session } = authClient.useSession()
   const currentUserId = session?.user.id
 
   const navigate = useNavigate()
-
-  const goBack = () => {
-    setView({
-      type: "workspace-members",
-      workspaceSlug: view.workspaceSlug,
-      channelId: view.channelId,
-    })
-  }
 
   // Jump the main channel feed to the thread root. Scroll in place if it's
   // already rendered; otherwise anchor the feed on it via ?msgId (the channel
@@ -202,6 +225,81 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
   const isTask = rootMessage?.type === "task_card"
   const task = useTaskForCard(view.channelId, view.threadRootId)
   const taskStatusMeta = isTask && task ? TASK_STATUS_META[task.status] : null
+  const { data: taskArtifacts } = useTaskArtifacts(
+    isTask ? (task?.id ?? null) : null
+  )
+
+  const handleCopyAsMarkdown = useCallback(async () => {
+    try {
+      const firstPage = await fetchThreadPage({ limit: 50 })
+      const replies = new Map<string, Message>()
+      for (const message of [...messages, ...firstPage.data]) {
+        if (message.status !== "pending") replies.set(message.id, message)
+      }
+
+      let page = firstPage
+      const visitedCursors = new Set<string>()
+      while (!page.reachedOldest && page.beforeCursor) {
+        if (visitedCursors.has(page.beforeCursor)) break
+        visitedCursors.add(page.beforeCursor)
+        page = await fetchThreadPage({ before: page.beforeCursor, limit: 50 })
+        for (const message of page.data) {
+          if (message.status !== "pending") replies.set(message.id, message)
+        }
+      }
+
+      const root = rootMessage ?? firstPage.root ?? null
+      const orderedMessages = [...replies.values()].sort(
+        (a, b) =>
+          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime() ||
+          a.id.localeCompare(b.id)
+      )
+      const sections: string[] = []
+
+      if (isTask && task) {
+        sections.push(`# ${task.title}`, "", task.goal)
+        sections.push(
+          "",
+          `**Status:** ${TASK_STATUS_META[task.status].label}`,
+          `**Created:** ${formatDateTime(task.createdAt)}`
+        )
+        if (task.plan.length > 0) {
+          sections.push("", "## Plan", "")
+          for (const item of task.plan) {
+            const marker = item.status === "done" ? "x" : " "
+            const active = item.status === "active" ? " _(in progress)_" : ""
+            sections.push(`- [${marker}] ${item.text}${active}`)
+            if (item.description) sections.push(`  - ${item.description}`)
+          }
+        }
+        if (task.summary) sections.push("", "## Summary", "", task.summary)
+        if (taskArtifacts && taskArtifacts.length > 0) {
+          sections.push("", "## Outputs", "")
+          for (const artifact of taskArtifacts) {
+            sections.push(
+              artifact.url
+                ? `- [${artifact.path}](${artifact.url})`
+                : `- \`${artifact.path}\``
+            )
+          }
+        }
+        sections.push("", "## Conversation", "")
+      } else {
+        sections.push("# Thread", "")
+      }
+
+      const headingLevel = isTask ? 3 : 2
+      if (root) sections.push(messageToMarkdown(root, headingLevel))
+      for (const message of orderedMessages) {
+        sections.push("", messageToMarkdown(message, headingLevel))
+      }
+
+      await navigator.clipboard.writeText(sections.join("\n").trim())
+      toast.success(`${isTask ? "Task" : "Thread"} copied as Markdown`)
+    } catch {
+      toast.error(`Couldn't copy ${isTask ? "task" : "thread"}`)
+    }
+  }, [fetchThreadPage, isTask, messages, rootMessage, task, taskArtifacts])
 
   // Files the team fed the task, gathered from the loaded slice of the
   // thread (sources ≠ outputs: uploads stay plain links, artifacts open the
@@ -472,55 +570,53 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
       className="@container relative flex h-full w-full flex-col"
     >
       <DropZoneOverlay isDragActive={isDragActive} />
-      <div className="flex h-12 shrink-0 items-center gap-2 px-4">
-        <button
-          type="button"
-          onClick={goBack}
-          aria-label="Back"
-          className="rounded-sm p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-        >
-          <ArrowLeft className="size-4" />
-        </button>
-        <HugeiconsIcon
-          icon={isTask ? CheckListIcon : MessageMultiple01Icon}
-          size={16}
-          className="text-muted-foreground"
-        />
-        <span className="text-[13px] font-semibold tracking-tight text-foreground">
-          {isTask ? "Task" : "Thread"}
-        </span>
-        {taskStatusMeta && (
-          <Badge variant={taskStatusMeta.badgeVariant} size="sm">
-            <HugeiconsIcon
-              icon={taskStatusMeta.icon}
-              size={12}
-              className={taskStatusMeta.spin ? "animate-spin" : undefined}
-            />
-            {taskStatusMeta.label}
-          </Badge>
-        )}
-        <button
-          type="button"
-          onClick={handleViewInChannel}
-          aria-label="Go to message in channel"
-          className="ml-auto flex cursor-pointer items-center gap-1 rounded-md px-1.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
-        >
-          <CornerUpRight className="size-3.5" />
-          <span className="hidden @min-[20rem]:inline">Go to message</span>
-        </button>
-        <button
-          type="button"
-          onClick={isMobile ? clearView : toggleCollapsed}
-          aria-label={isMobile ? "Close thread panel" : "Collapse thread panel"}
-          className="-mr-1.5 flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
-        >
-          <SidebarToggleIcon
-            isOpen={true}
-            className="size-4 -scale-x-100"
-            strokeWidth={1.5}
-          />
-        </button>
-      </div>
+      <RightPanelHeader
+        title={isTask ? "Task" : "Thread"}
+        workspaceSlug={view.workspaceSlug}
+        channelId={view.channelId}
+        titleAdornment={
+          taskStatusMeta ? (
+            <span className="inline-flex items-center gap-1.5 text-muted-foreground text-xs">
+              <HugeiconsIcon
+                icon={taskStatusMeta.icon}
+                size={14}
+                className={
+                  taskStatusMeta.spin
+                    ? "animate-spin text-primary"
+                    : "text-primary"
+                }
+              />
+              {taskStatusMeta.label}
+            </span>
+          ) : undefined
+        }
+        className={isTask ? "border-b-0" : undefined}
+        actions={
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <button
+                  type="button"
+                  aria-label={`${isTask ? "Task" : "Thread"} actions`}
+                  className="flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground data-popup-open:bg-foreground/5 data-popup-open:text-foreground"
+                />
+              }
+            >
+              <MoreHorizontal className="size-4" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent side="bottom" align="end" className="w-60">
+              <DropdownMenuItem onClick={handleViewInChannel}>
+                <CornerUpRight />
+                Go to message
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => void handleCopyAsMarkdown()}>
+                <Copy />
+                {`Copy ${isTask ? "task" : "thread"} as Markdown`}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        }
+      />
 
       {isTask && (
         <TaskThreadHeader
