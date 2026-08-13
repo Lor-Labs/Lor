@@ -56,12 +56,18 @@ function Reasoning({
   const [hasStreamed, setHasStreamed] = React.useState(isStreaming)
   const startedAtRef = React.useRef<number | null>(null)
 
+  // Only needed for a stream that is already running on mount: useOnChange sees
+  // no transition in that case. Deliberately not dependent on `isStreaming` or
+  // `onOpenChange` — an inline onOpenChange would re-run this on every parent
+  // render and keep resetting the start time, so the duration always read "1
+  // second". Every later transition is useOnChange's job.
+  const notifiedInitialStream = React.useRef(false)
   React.useEffect(() => {
-    if (isStreaming) {
-      startedAtRef.current = Date.now()
-      onOpenChange?.(true)
-    }
-  }, [isStreaming, onOpenChange])
+    if (notifiedInitialStream.current || !isStreaming) return
+    notifiedInitialStream.current = true
+    startedAtRef.current = Date.now()
+    onOpenChange?.(true)
+  })
 
   useOnChange(isStreaming, (current, previous) => {
     if (!previous && current) {

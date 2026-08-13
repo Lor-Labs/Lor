@@ -58,16 +58,17 @@ export function ComposerAttachmentPreview({
 // carries 0–100), so it's converted rather than reused directly.
 function UploadProgressBar({ label, value }: { label: string; value: number }) {
   const clamped = Math.min(1, Math.max(0, value))
+  const percent = Math.round(clamped * 100)
   return (
     <View
+      accessible
       accessibilityLabel={label}
+      accessibilityRole="progressbar"
+      accessibilityValue={{ min: 0, max: 100, now: percent }}
       accessibilityLiveRegion="polite"
       className="absolute inset-x-0 bottom-0 h-1 bg-border"
     >
-      <View
-        className="h-full bg-foreground"
-        style={{ width: `${Math.round(clamped * 100)}%` }}
-      />
+      <View className="h-full bg-foreground" style={{ width: `${percent}%` }} />
     </View>
   )
 }

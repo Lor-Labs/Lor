@@ -176,12 +176,18 @@ function useCopyButton(
 
   const onClick = useCallback<MouseEventHandler>(() => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current)
-    void Promise.resolve(callbackRef.current()).then(() => {
-      setChecked(true)
-      timeoutRef.current = setTimeout(() => {
+    // Only confirm on success, and keep the rejection handled: clipboard writes
+    // fail on insecure origins and when permission is denied.
+    void Promise.resolve(callbackRef.current())
+      .then(() => {
+        setChecked(true)
+        timeoutRef.current = setTimeout(() => {
+          setChecked(false)
+        }, COPIED_RESET_MS)
+      })
+      .catch(() => {
         setChecked(false)
-      }, COPIED_RESET_MS)
-    })
+      })
   }, [])
 
   useEffect(() => {
@@ -202,9 +208,9 @@ function CodeBlockCopyButton({
   showGlow?: boolean
   className?: string
 }) {
-  const [checked, onClick] = useCopyButton(() => {
-    void navigator.clipboard.writeText(text)
-  })
+  const [checked, onClick] = useCopyButton(() =>
+    navigator.clipboard.writeText(text)
+  )
 
   return (
     <div className="relative">
@@ -366,8 +372,14 @@ function CodeBlockTokenSpan({
       } else if (key === "background-color") {
         tokenStyle["--sdm-tbg"] = String(value)
         hasBg = true
-      } else {
+      } else if (key.startsWith("--")) {
         tokenStyle[key] = String(value)
+      } else {
+        // Shiki emits CSS-cased keys (font-style, text-decoration); React style
+        // objects need camelCase for anything that isn't a custom property.
+        tokenStyle[
+          key.replace(/-([a-z])/g, (_m, c: string) => c.toUpperCase())
+        ] = String(value)
       }
     }
   }
@@ -479,14 +491,27 @@ function CodeBlockShikiPre({
   const [result, setResult] = useState<HighlightResult>(raw)
 
   useEffect(() => {
-    codePlugin.highlight(
+    // Track validity so a slow highlight for previous code can't overwrite the
+    // current one, and reset to the unhighlighted tokens while the new request
+    // is in flight.
+    let active = true
+    setResult(raw)
+    const immediate = codePlugin.highlight(
       {
         code,
         language: language as BundledLanguage,
         themes: shikiTheme,
       },
-      (highlighted) => setResult(highlighted)
+      (highlighted) => {
+        if (active) setResult(highlighted)
+      }
     )
+    // A warm cache returns synchronously; applying it avoids a frame of
+    // unhighlighted code.
+    if (immediate) setResult(immediate)
+    return () => {
+      active = false
+    }
   }, [code, language, shikiTheme, codePlugin, raw])
 
   return (
@@ -589,6 +614,9 @@ export const CodeBlock = memo(
   (p, n) =>
     p.className === n.className &&
     sameNodePosition(p.node, n.node) &&
-    p.showTitleRow === n.showTitleRow
+    p.showTitleRow === n.showTitleRow &&
+    // Streaming appends to the same fence, and position alone can compare equal
+    // while the code grows — so the text itself has to be part of the check.
+    extractCodeString(p.children) === extractCodeString(n.children)
 )
 CodeBlock.displayName = "CodeBlock"

@@ -60,10 +60,25 @@ export function AttachmentPreview({
                 // Dim the thumbnail while bytes are still going out, so an
                 // image tile reads as in-flight even at a glance.
                 attachment.status === "uploading" && "[&_img]:opacity-65",
-                previewable && "cursor-pointer"
+                previewable &&
+                  "cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
               )}
+              // Inside AttachmentList (role="list"), so tiles carry listitem —
+              // except previewable images, where an actionable button is the
+              // more useful semantic for the lightbox.
+              role={previewable ? "button" : "listitem"}
+              tabIndex={previewable ? 0 : undefined}
               onClick={
                 previewable ? () => setLightboxUrl(previewable) : undefined
+              }
+              onKeyDown={
+                previewable
+                  ? (event) => {
+                      if (event.key !== "Enter" && event.key !== " ") return
+                      event.preventDefault()
+                      setLightboxUrl(previewable)
+                    }
+                  : undefined
               }
             />
           )

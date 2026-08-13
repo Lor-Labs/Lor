@@ -9,7 +9,7 @@ import { ChevronLeft, ChevronRight, Download, X } from "lucide-react"
 import { useCallback, useEffect, useState } from "react"
 import { createPortal } from "react-dom"
 import type { Message } from "@/lib/api-types"
-import { formatFileSize, toAttachmentMeta } from "@/lib/attachments"
+import { toAttachmentMeta } from "@/lib/attachments"
 
 type Attachment = NonNullable<Message["attachments"]>[number]
 
@@ -64,9 +64,7 @@ function FileAttachment({ attachment }: { attachment: Attachment }) {
           <AttachmentThumb />
           <div className="flex min-w-0 flex-col">
             <AttachmentProperty as="name" />
-            <span className="text-muted-foreground text-xs">
-              {formatFileSize(attachment.size)}
-            </span>
+            <AttachmentProperty as="size" />
           </div>
         </div>
         <Download className="size-4 shrink-0 text-muted-foreground transition-colors group-hover/file:text-foreground" />

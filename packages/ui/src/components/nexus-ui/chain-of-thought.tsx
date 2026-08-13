@@ -14,6 +14,7 @@ import * as React from "react"
 
 type ChainOfThoughtRootContextValue = {
   registerStep: (id: string, status: ChainOfThoughtStepStatus) => void
+  unregisterStep: (id: string) => void
   allStepsComplete: boolean
   hasAnyError: boolean
 }
@@ -100,9 +101,17 @@ function ChainOfThought({
     []
   )
 
+  const unregisterStep = React.useCallback((id: string) => {
+    setStepStatuses((prev) => {
+      if (!(id in prev)) return prev
+      const { [id]: _removed, ...rest } = prev
+      return rest
+    })
+  }, [])
+
   const contextValue = React.useMemo(
-    () => ({ registerStep, allStepsComplete, hasAnyError }),
-    [allStepsComplete, hasAnyError, registerStep]
+    () => ({ registerStep, unregisterStep, allStepsComplete, hasAnyError }),
+    [allStepsComplete, hasAnyError, registerStep, unregisterStep]
   )
 
   const handleOpenChange = React.useCallback(
@@ -251,7 +260,8 @@ function ChainOfThoughtStep({
   children,
   ...props
 }: ChainOfThoughtStepProps) {
-  const { registerStep } = useChainOfThoughtRootContext("ChainOfThoughtStep")
+  const { registerStep, unregisterStep } =
+    useChainOfThoughtRootContext("ChainOfThoughtStep")
   const stepId = React.useId()
   const showConnectorResolved = showConnector ?? hasIconInStepTitle(children)
   const isControlled = openProp !== undefined
@@ -264,7 +274,11 @@ function ChainOfThoughtStep({
 
   React.useEffect(() => {
     registerStep(stepId, status)
-  }, [registerStep, status, stepId])
+    // Without this, a step that unmounts (a shorter plan, a re-rendered trail)
+    // leaves its last status behind, so a stale pending/active/error entry keeps
+    // allStepsComplete false or hasAnyError true forever.
+    return () => unregisterStep(stepId)
+  }, [registerStep, unregisterStep, status, stepId])
 
   const handleOpenChange = React.useCallback(
     (nextOpen: boolean) => {

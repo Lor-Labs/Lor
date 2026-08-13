@@ -21,9 +21,11 @@ type PlanItem = ChannelTask["plan"][number]
 const INITIAL_VISIBLE_STEPS = 4
 
 // Plan items have no id — set_plan replaces the whole list, so the text is the
-// only stable identity we get.
-function stepKey(item: PlanItem) {
-  return item.text
+// only stable identity we get. The occurrence index is folded in so two steps
+// with the same label stay distinct as React keys and as separate entries in the
+// seen/fresh sets.
+function stepKey(item: PlanItem, index: number) {
+  return `${index}:${item.text}`
 }
 
 const MARKER_BASE =
@@ -228,9 +230,9 @@ export function TaskPlanProgress({
         className="flex gap-1.5"
         role="progressbar"
       >
-        {items.map((item) => (
+        {items.map((item, idx) => (
           <span
-            key={stepKey(item)}
+            key={stepKey(item, idx)}
             className="h-1.5 flex-1 overflow-hidden rounded-full bg-foreground/8"
           >
             <span
@@ -265,12 +267,13 @@ export function TaskPlanList({
   useEffect(() => {
     if (!hasMounted.current) {
       hasMounted.current = true
-      for (const item of items) seenSteps.current.add(stepKey(item))
+      for (const [idx, item] of items.entries())
+        seenSteps.current.add(stepKey(item, idx))
       return
     }
     const added = new Set<string>()
-    for (const item of items) {
-      const key = stepKey(item)
+    for (const [idx, item] of items.entries()) {
+      const key = stepKey(item, idx)
       if (!seenSteps.current.has(key)) {
         seenSteps.current.add(key)
         added.add(key)
@@ -292,9 +295,9 @@ export function TaskPlanList({
       {visible.map((item, idx) => (
         <Step
           index={idx}
-          isFresh={freshSteps.has(stepKey(item))}
+          isFresh={freshSteps.has(stepKey(item, idx))}
           item={item}
-          key={stepKey(item)}
+          key={stepKey(item, idx)}
           showConnector={idx < visible.length - 1 || hiddenCount > 0}
         />
       ))}

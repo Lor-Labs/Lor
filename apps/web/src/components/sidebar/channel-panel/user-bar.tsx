@@ -20,6 +20,14 @@ import { ChevronsUpDown, LogOut, Settings } from "lucide-react"
 import { UserAvatar } from "@/components/ui/user-avatar"
 import { useSettings } from "@/hooks/use-settings"
 
+// The shortcut handler in settings-dialog accepts metaKey || ctrlKey, so the
+// label has to follow the platform rather than always showing ⌘ (the desktop
+// app ships on Windows and Linux too).
+const SETTINGS_SHORTCUT =
+  typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform)
+    ? "⌘,"
+    : "Ctrl+,"
+
 export function UserBar() {
   const { data: session } = authClient.useSession()
   const { open: openSettings } = useSettings()
@@ -100,7 +108,7 @@ export function UserBar() {
               <DropdownMenuItem onClick={() => openSettings("user")}>
                 <Settings />
                 Settings
-                <DropdownMenuShortcut>⌘,</DropdownMenuShortcut>
+                <DropdownMenuShortcut>{SETTINGS_SHORTCUT}</DropdownMenuShortcut>
               </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />

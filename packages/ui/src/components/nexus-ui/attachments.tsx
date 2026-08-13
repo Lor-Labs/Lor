@@ -814,7 +814,9 @@ function Attachment({
       <div
         data-slot="attachment"
         data-variant={variant}
-        role="listitem"
+        // No hardcoded role: tiles are used inside AttachmentList (role="list")
+        // but also standalone inside links and buttons, where claiming
+        // `listitem` would be orphaned ARIA. Callers opt in via `role`.
         className={cn(attachmentVariants({ variant }), className)}
         {...props}
       >

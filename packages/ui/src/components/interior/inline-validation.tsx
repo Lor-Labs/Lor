@@ -273,7 +273,11 @@ export function InlineValidation({
         </span>
       </div>
 
+      {/* aria-live lives on this always-mounted wrapper: a live region that
+          mounts together with its text is generally not announced. */}
       <div
+        aria-atomic="true"
+        aria-live="polite"
         style={
           reserveLines > 0 ? { minHeight: reserveLines * LINE } : undefined
         }
@@ -283,8 +287,6 @@ export function InlineValidation({
             <motion.p
               key="error"
               id={errorId}
-              aria-live="polite"
-              aria-atomic="true"
               style={clamp}
               className="overflow-hidden text-xs leading-4 text-destructive"
               initial={{ height: 0, marginTop: 0, opacity: 0, y: -2 }}

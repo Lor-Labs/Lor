@@ -35,7 +35,15 @@ export function TaskCard({
 
   if (!task) {
     return (
-      <div className={SURFACE_CLASS}>
+      <div className={cn("group/task", SURFACE_CLASS)}>
+        {onOpenThread && (
+          <button
+            type="button"
+            aria-label="Open task thread"
+            onClick={() => onOpenThread(message.id)}
+            className="absolute inset-0 z-10 cursor-pointer rounded-xl"
+          />
+        )}
         <p className="line-clamp-2 px-4 py-3.5 text-muted-foreground text-sm leading-5">
           {message.content}
         </p>

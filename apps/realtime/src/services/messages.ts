@@ -108,6 +108,30 @@ async function loadReferencedMessage(
       )
     )
 
+  // One set-based lookup rather than workspaceAvatarColor per mention, which
+  // would be a query each.
+  const mentionColors = new Map<string, string | null>()
+  if (workspaceId && refMentions.length > 0) {
+    const colorRows = await db
+      .select({
+        userId: schema.workspaceMember.userId,
+        avatarColor: schema.workspaceMember.avatarColor,
+      })
+      .from(schema.workspaceMember)
+      .where(
+        and(
+          eq(schema.workspaceMember.workspaceId, workspaceId),
+          inArray(
+            schema.workspaceMember.userId,
+            refMentions.map((mention) => mention.id)
+          )
+        )
+      )
+    for (const row of colorRows) {
+      mentionColors.set(row.userId, row.avatarColor)
+    }
+  }
+
   return {
     id: refMsg.id,
     content: refMsg.content,
@@ -121,12 +145,10 @@ async function loadReferencedMessage(
     },
     overrideName: refMsg.overrideName,
     overrideAvatarUrl: refMsg.overrideAvatarUrl,
-    mentions: await Promise.all(
-      refMentions.map(async (mention) => ({
-        ...mention,
-        avatarColor: await workspaceAvatarColor(workspaceId, mention.id),
-      }))
-    ),
+    mentions: refMentions.map((mention) => ({
+      ...mention,
+      avatarColor: mentionColors.get(mention.id) ?? null,
+    })),
   }
 }
 

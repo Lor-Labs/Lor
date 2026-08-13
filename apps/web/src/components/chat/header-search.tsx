@@ -113,7 +113,15 @@ export function HeaderSearch({
           setQuery(value)
           if (!value.trim()) setDebouncedQuery("")
         }}
-        onSearch={(value) => setDebouncedQuery(value.trim())}
+        onSearch={(value) => {
+          // A debounce pending from a previous keystroke still fires after the
+          // field is cleared or reset by handleResultClick; applying it would
+          // resurrect stale results, so only accept values that still match the
+          // current input.
+          const next = value.trim()
+          if (next !== query.trim()) return
+          setDebouncedQuery(next)
+        }}
         open={isOpen}
         onOpenChange={setIsOpen}
         debounce={300}
