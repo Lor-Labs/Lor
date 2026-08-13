@@ -1,5 +1,8 @@
-import { cn } from "@repo/ui/lib/utils"
-import { ChevronRight } from "lucide-react"
+import {
+  Reasoning,
+  ReasoningContent,
+  ReasoningTrigger,
+} from "@repo/ui/components/nexus-ui/reasoning"
 import { useEffect, useState } from "react"
 
 interface MerlinReasoningProps {
@@ -12,34 +15,22 @@ interface MerlinReasoningProps {
 // Merlin's summarized extended-thinking, shown live while it thinks and left as
 // a collapsible "thought process" once the answer lands.
 export function MerlinReasoning({ text, active }: MerlinReasoningProps) {
-  const [open, setOpen] = useState(active)
-
-  // Auto-collapse once the answer starts (streaming reasoning ended).
+  // Nexus derives its label from whether it has *observed* a stream, so a
+  // segment restored from history (which never streams in this session) would
+  // read "Thinking..." forever. Track whether this instance ever streamed and
+  // supply a settled label when it didn't; live segments keep Nexus's
+  // "Thinking..." → "Thought for N seconds" progression.
+  const [everStreamed, setEverStreamed] = useState(active)
   useEffect(() => {
-    if (!active) setOpen(false)
+    if (active) setEverStreamed(true)
   }, [active])
 
   return (
-    <div className="mb-2">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="inline-flex cursor-pointer items-center gap-1 text-xs text-muted-foreground italic hover:text-foreground"
-      >
-        <ChevronRight
-          className={cn("size-3 transition-transform", open && "rotate-90")}
-        />
-        {active ? (
-          <span className="shimmer">Thinking…</span>
-        ) : (
-          <span>Thought process</span>
-        )}
-      </button>
-      {open && (
-        <div className="mt-1 whitespace-pre-wrap border-l-2 border-border pl-3 text-xs leading-relaxed text-muted-foreground">
-          {text}
-        </div>
-      )}
-    </div>
+    <Reasoning className="mb-2" isStreaming={active}>
+      <ReasoningTrigger>
+        {everStreamed ? undefined : "Thought process"}
+      </ReasoningTrigger>
+      <ReasoningContent>{text}</ReasoningContent>
+    </Reasoning>
   )
 }

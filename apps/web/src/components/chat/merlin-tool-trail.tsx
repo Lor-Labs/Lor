@@ -1,8 +1,15 @@
 import { env } from "@repo/env/client"
-import { cn } from "@repo/ui/lib/utils"
+import {
+  ChainOfThought,
+  ChainOfThoughtContent,
+  ChainOfThoughtStep,
+  ChainOfThoughtStepContent,
+  type ChainOfThoughtStepStatus,
+  ChainOfThoughtStepTitle,
+  ChainOfThoughtTrigger,
+} from "@repo/ui/components/nexus-ui/chain-of-thought"
 import {
   BookOpen,
-  ChevronRight,
   Code,
   Download,
   ExternalLink,
@@ -22,8 +29,11 @@ import {
 } from "@/lib/connector-ui"
 
 // Codex/Cursor-style tool trail: a collapsible summary of the tools Merlin used
-// to answer, each row drillable into its result. Expanded live while streaming
-// (so progress shows), collapsed once settled; persisted, so it survives reload.
+// to answer, each row drillable into its result. Built on Nexus's Chain of
+// Thought, which supplies the timeline rail, per-step status, shimmer while a
+// step runs, and auto-open/close as steps change state. Expanded live while
+// streaming (so progress shows), collapsed once settled; the root stays
+// controlled so history doesn't flash open before auto-closing.
 
 // Brand marks and lucide glyphs share one shape here.
 type TrailIcon = ComponentType<{ className?: string }>
@@ -100,6 +110,18 @@ function hasDetail(t: MerlinToolCallView): boolean {
   return Boolean(t.detail?.summary || (t.detail?.items?.length ?? 0) > 0)
 }
 
+// `status` is absent while a call is in flight. During streaming that means
+// "running"; on a settled message it's a legacy row from before status was
+// recorded, so it must not sit forever as pending.
+function stepStatus(
+  t: MerlinToolCallView,
+  streaming?: boolean
+): ChainOfThoughtStepStatus {
+  if (t.status === "error") return "error"
+  if (t.status === "ok") return "completed"
+  return streaming ? "active" : "completed"
+}
+
 export function MerlinToolTrail({
   toolCalls,
   childrenByParent,
@@ -110,135 +132,98 @@ export function MerlinToolTrail({
   streaming?: boolean
 }) {
   const [open, setOpen] = useState(false)
-  const [openRows, setOpenRows] = useState<Record<string, boolean>>({})
   if (toolCalls.length === 0) return null
 
-  // Force open while streaming so live progress is visible; collapse to a summary
-  // once the answer settles (the user can re-open).
+  // Force open while streaming so live progress is visible; collapse to a
+  // summary once the answer settles (the user can re-open).
   const expanded = open || Boolean(streaming)
   const summary = streaming
     ? (toolCalls[toolCalls.length - 1]?.label ?? "Working…")
     : `Used ${toolCalls.length} tool${toolCalls.length === 1 ? "" : "s"}`
 
   return (
-    <div className="mt-1 text-[11px] text-muted-foreground">
-      <button
-        type="button"
-        aria-expanded={expanded}
-        onClick={() => setOpen((v) => !v)}
-        className="inline-flex max-w-full cursor-pointer items-center gap-1 rounded px-0.5 hover:text-foreground"
-      >
-        <ChevronRight
-          className={cn(
-            "size-3 shrink-0 transition-transform",
-            expanded && "rotate-90",
-            streaming && "animate-pulse"
-          )}
-        />
-        <span className={cn("truncate", streaming && "shimmer")}>
-          {summary}
-        </span>
-      </button>
-
-      {expanded && (
-        <div className="mt-0.5 flex flex-col gap-0.5 border-muted-foreground/15 border-l pl-2">
-          {toolCalls.map((t) => {
-            const Icon = toolIcon(t.toolName)
-            const drillable = hasDetail(t)
-            const rowOpen = openRows[t.toolCallId] ?? false
-            const children = childrenByParent?.get(t.toolCallId) ?? []
-            return (
-              <div key={t.toolCallId}>
-                <button
-                  type="button"
-                  disabled={!drillable}
-                  aria-expanded={drillable ? rowOpen : undefined}
-                  onClick={() =>
-                    setOpenRows((m) => ({ ...m, [t.toolCallId]: !rowOpen }))
-                  }
-                  className={cn(
-                    "flex w-full items-center gap-1.5 rounded px-0.5 text-left",
-                    drillable && "cursor-pointer hover:text-foreground"
+    <ChainOfThought className="mt-1" open={expanded} onOpenChange={setOpen}>
+      <ChainOfThoughtTrigger>{summary}</ChainOfThoughtTrigger>
+      <ChainOfThoughtContent className="mt-1.5 space-y-1.5">
+        {toolCalls.map((t) => {
+          const Icon = toolIcon(t.toolName)
+          const children = childrenByParent?.get(t.toolCallId) ?? []
+          const drillable = hasDetail(t) || children.length > 0
+          return (
+            <ChainOfThoughtStep
+              key={t.toolCallId}
+              status={stepStatus(t, streaming)}
+              hasContent={drillable}
+              // Nexus opens steps by default; the trail is a summary, so rows
+              // start closed and only auto-open while one is running.
+              defaultOpen={false}
+            >
+              <ChainOfThoughtStepTitle icon={<Icon className="size-3.5" />}>
+                {t.label}
+              </ChainOfThoughtStepTitle>
+              {drillable && (
+                <ChainOfThoughtStepContent className="space-y-1">
+                  {t.detail?.summary && (
+                    // Full output, markdown parsed but kept dim and small so it
+                    // reads as detail under the step; scrollable so the user can
+                    // read everything.
+                    <div className="max-h-80 overflow-y-auto">
+                      <MessageMarkdown
+                        content={t.detail.summary}
+                        mentions={[]}
+                        className="text-muted-foreground/80 text-xs [&_*]:!text-xs"
+                      />
+                    </div>
                   )}
-                >
-                  <Icon className="size-3 shrink-0" />
-                  <span className="truncate">{t.label}</span>
-                  {t.status === "error" && (
-                    <span className="shrink-0 text-destructive">failed</span>
-                  )}
-                  {drillable && (
-                    <ChevronRight
-                      className={cn(
-                        "ml-auto size-3 shrink-0 transition-transform",
-                        rowOpen && "rotate-90"
-                      )}
-                    />
-                  )}
-                </button>
-                {/* Nested sub-steps (e.g. the code agent's own tool calls),
-                    streamed live as it explores. */}
-                {children.length > 0 && (
-                  <div className="mt-0.5 ml-[18px] flex flex-col gap-0.5 border-muted-foreground/15 border-l pl-2">
-                    {children.map((c) => {
-                      const ChildIcon = toolIcon(c.toolName)
-                      return (
-                        <span
-                          key={c.toolCallId}
-                          className="inline-flex items-center gap-1.5"
-                        >
-                          <ChildIcon className="size-3 shrink-0" />
-                          <span className="truncate">{c.label}</span>
-                        </span>
-                      )
-                    })}
-                  </div>
-                )}
-                {drillable && rowOpen && (
-                  <div className="mt-0.5 mb-1 ml-[18px] flex flex-col gap-1">
-                    {t.detail?.summary && (
-                      // Full output, markdown parsed but kept dimmed + 11px to
-                      // match the trail (the [&_*] rule downsizes Streamdown's
-                      // headings); scrollable so the user can read everything.
-                      <div className="max-h-80 overflow-y-auto">
-                        <MessageMarkdown
-                          content={t.detail.summary}
-                          mentions={[]}
-                          className="text-[11px] text-muted-foreground/80 [&_*]:!text-[11px]"
-                        />
-                      </div>
-                    )}
-                    {t.detail?.items?.map((it) => {
-                      const key = `${t.toolCallId}:${it.url ?? it.title}`
-                      return it.url ? (
-                        <a
-                          key={key}
-                          href={it.url}
-                          target="_blank"
-                          rel="noreferrer noopener"
-                          className="inline-flex cursor-pointer items-center gap-1 text-primary hover:text-primary/80"
-                        >
-                          <ItemGlyph item={it} />
-                          <span className="truncate underline-offset-2 hover:underline">
-                            {it.title}
+                  {/* Nested sub-steps (e.g. the code agent's own tool calls),
+                      streamed live as it explores. */}
+                  {children.length > 0 && (
+                    <div className="flex flex-col gap-1 border-border/50 border-l pl-2.5">
+                      {children.map((c) => {
+                        const ChildIcon = toolIcon(c.toolName)
+                        return (
+                          <span
+                            key={c.toolCallId}
+                            className="inline-flex items-center gap-1.5 text-muted-foreground text-xs"
+                          >
+                            <ChildIcon className="size-3 shrink-0" />
+                            <span className="truncate">{c.label}</span>
                           </span>
-                        </a>
-                      ) : (
-                        <span
-                          key={key}
-                          className="inline-flex items-center gap-1"
-                        >
-                          <ItemGlyph item={it} />
-                          <span className="truncate">{it.title}</span>
+                        )
+                      })}
+                    </div>
+                  )}
+                  {t.detail?.items?.map((it) => {
+                    const key = `${t.toolCallId}:${it.url ?? it.title}`
+                    return it.url ? (
+                      <a
+                        key={key}
+                        href={it.url}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                        className="inline-flex cursor-pointer items-center gap-1 text-primary text-xs hover:text-primary/80"
+                      >
+                        <ItemGlyph item={it} />
+                        <span className="truncate underline-offset-2 hover:underline">
+                          {it.title}
                         </span>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
-      )}
-    </div>
+                      </a>
+                    ) : (
+                      <span
+                        key={key}
+                        className="inline-flex items-center gap-1 text-muted-foreground text-xs"
+                      >
+                        <ItemGlyph item={it} />
+                        <span className="truncate">{it.title}</span>
+                      </span>
+                    )
+                  })}
+                </ChainOfThoughtStepContent>
+              )}
+            </ChainOfThoughtStep>
+          )
+        })}
+      </ChainOfThoughtContent>
+    </ChainOfThought>
   )
 }

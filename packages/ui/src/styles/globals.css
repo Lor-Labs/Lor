@@ -254,12 +254,10 @@
    Here --primary is a violet brand hue and the app themes dark, so both have to
    be remapped or body text turns violet and code/headings render near-black on
    dark surfaces. Scoped at (0,2,0) so it beats those single-class utilities
-   regardless of Tailwind's layer order. Body color is inherited on purpose:
-   callers dim whole blocks via the wrapper (e.g. the Merlin tool trail). */
-.message-markdown .prose {
-  color: inherit;
-  --tw-prose-body: inherit;
-  --tw-prose-lead: inherit;
+   regardless of Tailwind's layer order. Reasoning content renders Streamdown
+   with bare `prose` too, so it shares everything except the body colour. */
+.message-markdown .prose,
+[data-slot="reasoning-content"] .prose {
   --tw-prose-headings: var(--foreground);
   --tw-prose-bold: var(--foreground);
   --tw-prose-quotes: var(--foreground);
@@ -277,9 +275,29 @@
   --tw-prose-td-borders: var(--border);
 }
 
+/* Message bodies inherit the bubble's colour on purpose, so callers can dim a
+   whole block (e.g. the Merlin tool trail passes muted text down). */
+.message-markdown .prose {
+  color: inherit;
+  --tw-prose-body: inherit;
+  --tw-prose-lead: inherit;
+}
+
+/* A reasoning trace is secondary to the answer, so it stays muted rather than
+   inheriting. Set here rather than relying on Nexus's own text-muted-foreground:
+   that utility and Typography's `.prose` colour are both (0,1,0), so which one
+   wins depends on layer order. */
+[data-slot="reasoning-content"] .prose {
+  color: var(--muted-foreground);
+  --tw-prose-body: var(--muted-foreground);
+  --tw-prose-lead: var(--muted-foreground);
+}
+
 /* Typography decorates inline code with literal backticks. */
 .message-markdown .prose :where(code)::before,
-.message-markdown .prose :where(code)::after {
+.message-markdown .prose :where(code)::after,
+[data-slot="reasoning-content"] .prose :where(code)::before,
+[data-slot="reasoning-content"] .prose :where(code)::after {
   content: none;
 }
 
