@@ -380,6 +380,17 @@
   box-decoration-break: clone;
 }
 
+/* Nexus paints the codeblock copy control with --ring, hovering to --primary —
+   both violet here. It's chrome, so it reads as muted gray and resolves to full
+   foreground on hover. Covers the title-row and floating placements. */
+[data-slot="nexus-code-block"] button {
+  @apply text-muted-foreground;
+}
+
+[data-slot="nexus-code-block"] button:hover {
+  @apply text-foreground;
+}
+
 .message-markdown [data-streamdown="unordered-list"] {
   @apply my-1 list-disc pl-5;
 }
