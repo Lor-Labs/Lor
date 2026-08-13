@@ -54,9 +54,7 @@ export function TaskCard({
       className={cn(
         "group/task",
         SURFACE_CLASS,
-        isOpenThread
-          ? "border-foreground/25 bg-foreground/[0.03]"
-          : "hover:bg-muted/30"
+        isOpenThread ? "border-foreground/25" : "hover:bg-muted/30"
       )}
     >
       {onOpenThread && (
@@ -83,7 +81,7 @@ export function TaskCard({
           <HugeiconsIcon
             icon={CheckmarkCircle02Icon}
             size={18}
-            className="mt-0.5 shrink-0 text-foreground"
+            className="mt-0.5 shrink-0 text-primary"
           />
         ) : (
           <Badge variant={meta.badgeVariant} size="sm" className="shrink-0">
@@ -98,7 +96,7 @@ export function TaskCard({
       </div>
 
       <div className="px-4 py-4">
-        <div className="min-w-0 rounded-lg bg-muted/70 px-4 py-3.5">
+        <div className="min-w-0 rounded-lg bg-secondary/60 px-4 py-3.5 ring-1 ring-border/40 ring-inset">
           {task.plan.length > 1 && <TaskPlanProgress items={task.plan} />}
           {task.plan.length > 0 && (
             <TaskPlanList
@@ -114,7 +112,7 @@ export function TaskCard({
         </div>
 
         {artifacts && artifacts.length > 0 && (
-          <div className="relative z-20 mt-3 flex flex-wrap gap-1.5">
+          <div className="relative z-20 mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
             {artifacts.map((artifact) => (
               <ArtifactFileCard
                 key={artifact.id}
@@ -123,6 +121,7 @@ export function TaskCard({
                 contentType={artifact.mime}
                 size={artifact.size}
                 variant="chip"
+                className="w-full max-w-none"
               />
             ))}
           </div>

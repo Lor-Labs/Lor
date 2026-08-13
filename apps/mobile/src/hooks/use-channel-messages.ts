@@ -473,6 +473,9 @@ export function useChannelMessages({
               author: referencedMessage.author,
               overrideName: referencedMessage.overrideName,
               overrideAvatarUrl: referencedMessage.overrideAvatarUrl,
+              // Carried so the optimistic preview resolves mention tokens
+              // straight away instead of showing raw ids until the ack.
+              mentions: referencedMessage.mentions,
             }
           : null,
       })

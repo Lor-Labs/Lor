@@ -37,7 +37,7 @@ function StepMarker({ status }: { status: PlanItem["status"] }) {
       <span
         className={cn(
           MARKER_BASE,
-          "border-foreground bg-foreground shadow-sm",
+          "border-primary bg-primary shadow-sm",
           "motion-safe:zoom-in-75 motion-safe:fade-in motion-safe:animate-in motion-safe:duration-300 motion-safe:ease-out"
         )}
       >
@@ -45,7 +45,7 @@ function StepMarker({ status }: { status: PlanItem["status"] }) {
           icon={Tick02Icon}
           size={16}
           strokeWidth={3}
-          className="motion-safe:zoom-in-75 motion-safe:fade-in text-background motion-safe:animate-in motion-safe:fill-mode-both motion-safe:delay-75 motion-safe:duration-200"
+          className="motion-safe:zoom-in-75 motion-safe:fade-in text-primary-foreground motion-safe:animate-in motion-safe:fill-mode-both motion-safe:delay-75 motion-safe:duration-200"
         />
       </span>
     )
@@ -55,12 +55,12 @@ function StepMarker({ status }: { status: PlanItem["status"] }) {
       <span
         className={cn(
           MARKER_BASE,
-          "border-border bg-background shadow-[0_0_0_4px_--theme(--color-foreground/6%)]",
+          "border-primary/25 bg-background shadow-[0_0_0_4px_--theme(--color-primary/8%)]",
           "motion-safe:transition-all motion-safe:duration-300"
         )}
       >
         <Loader2
-          className="size-5 animate-spin text-foreground motion-reduce:animate-none"
+          className="size-5 animate-spin text-primary motion-reduce:animate-none"
           strokeWidth={2}
         />
       </span>
@@ -220,8 +220,6 @@ export function TaskPlanProgress({
       <div className="mb-2 font-medium text-[11px] text-muted-foreground uppercase tracking-[0.08em]">
         {label}
       </div>
-      {/* A segment per step, so the bar carries the same structure as the list
-          below it instead of abstracting it into one percentage. */}
       <div
         aria-label={label}
         aria-valuemax={total}
@@ -233,13 +231,17 @@ export function TaskPlanProgress({
         {items.map((item) => (
           <span
             key={stepKey(item)}
-            className={cn(
-              "h-1 flex-1 rounded-full transition-colors duration-500",
-              item.status === "done" && "bg-foreground",
-              item.status === "active" && "bg-foreground/40",
-              item.status === "pending" && "bg-foreground/10"
-            )}
-          />
+            className="h-1.5 flex-1 overflow-hidden rounded-full bg-foreground/8"
+          >
+            <span
+              className={cn(
+                "block h-full rounded-full transition-[width,background-color] duration-500 ease-out motion-reduce:transition-none",
+                item.status === "done" && "w-full bg-primary",
+                item.status === "active" && "w-1/3 bg-primary",
+                item.status === "pending" && "w-0 bg-transparent"
+              )}
+            />
+          </span>
         ))}
       </div>
     </div>

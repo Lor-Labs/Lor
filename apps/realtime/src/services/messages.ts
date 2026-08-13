@@ -86,6 +86,28 @@ async function loadReferencedMessage(
     .then((rows) => rows[0])
   if (!refMsg) return null
 
+  // Mentions inside the quoted content, so reply previews resolve stored
+  // `<@uuid>` tokens to names on live sends too — not just after a refetch.
+  const refMentions = await db
+    .select({
+      id: schema.user.id,
+      name: schema.user.name,
+      username: schema.user.username,
+      displayUsername: schema.user.displayUsername,
+      image: schema.user.image,
+    })
+    .from(schema.messageMention)
+    .innerJoin(
+      schema.user,
+      eq(schema.messageMention.mentionedUserId, schema.user.id)
+    )
+    .where(
+      and(
+        eq(schema.messageMention.messageId, refMsg.id),
+        eq(schema.messageMention.mentionType, "direct")
+      )
+    )
+
   return {
     id: refMsg.id,
     content: refMsg.content,
@@ -99,6 +121,12 @@ async function loadReferencedMessage(
     },
     overrideName: refMsg.overrideName,
     overrideAvatarUrl: refMsg.overrideAvatarUrl,
+    mentions: await Promise.all(
+      refMentions.map(async (mention) => ({
+        ...mention,
+        avatarColor: await workspaceAvatarColor(workspaceId, mention.id),
+      }))
+    ),
   }
 }
 

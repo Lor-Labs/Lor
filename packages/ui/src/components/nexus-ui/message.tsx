@@ -164,7 +164,7 @@ function MessageMarkdown({
         <div
           data-slot="message-markdown-table-wrap"
           className={[
-            "my-6 prose-no-margin overflow-hidden rounded-2xl border border-border bg-muted dark:border-accent dark:bg-background",
+            "my-6 prose-no-margin max-w-full overflow-x-auto overscroll-x-contain rounded-2xl border border-border bg-muted scrollbar-thin dark:border-accent dark:bg-background",
             "[&_tbody_tr:first-child_td:first-child]:rounded-ss-xl",
             "[&_tbody_tr:first-child_td:last-child]:rounded-se-xl",
             "[&_tbody_tr:last-child_td:first-child]:rounded-es-xl",

@@ -35,6 +35,7 @@ import { UserProfilePopover } from "@/components/ui/user-profile-card"
 import { useStopMerlinRun } from "@/hooks/use-stop-merlin-run"
 import type { Message } from "@/lib/api-types"
 import { connectorForName, connectorLogo } from "@/lib/connector-ui"
+import { toSearchPreviewText } from "@/lib/search-preview"
 
 interface MessageItemProps {
   message: Message
@@ -57,11 +58,37 @@ interface MessageItemProps {
   showMerlinRunControls?: boolean
 }
 
+const PREVIEW_MAX_CHARS = 100
+
+// Prefer the mentions the API now attaches to the quoted message; fall back to
+// the channel's mentionable users for optimistic sends and older payloads that
+// predate that field. Converting before truncating also stops a token being
+// sliced in half mid-uuid.
+function replyPreviewText(
+  referencedMessage: NonNullable<Message["referencedMessage"]>,
+  mentionCandidates?: MentionCandidate[]
+) {
+  const mentions = referencedMessage.mentions?.length
+    ? referencedMessage.mentions
+    : (mentionCandidates ?? []).map((candidate) => ({
+        id: candidate.id,
+        name: candidate.name ?? candidate.label,
+        username: candidate.username ?? null,
+        displayUsername: candidate.displayUsername ?? null,
+      }))
+  const text = toSearchPreviewText(referencedMessage.content, mentions)
+  return text.length > PREVIEW_MAX_CHARS
+    ? `${text.slice(0, PREVIEW_MAX_CHARS)}...`
+    : text
+}
+
 function ReplyPreview({
   referencedMessage,
+  mentionCandidates,
   onJumpToMessage,
 }: {
   referencedMessage: Message["referencedMessage"]
+  mentionCandidates?: MentionCandidate[]
   onJumpToMessage?: (messageId: string) => void
 }) {
   if (!referencedMessage) {
@@ -77,10 +104,10 @@ function ReplyPreview({
   const referencedName =
     referencedMessage.overrideName ?? author.displayUsername ?? author.name
   const referencedAvatar = referencedMessage.overrideAvatarUrl ?? author.image
-  const truncatedContent =
-    referencedMessage.content && referencedMessage.content.length > 100
-      ? `${referencedMessage.content.slice(0, 100)}...`
-      : referencedMessage.content
+  const truncatedContent = replyPreviewText(
+    referencedMessage,
+    mentionCandidates
+  )
 
   return (
     <button
@@ -430,6 +457,7 @@ export function MessageItem({
       {isReply && (
         <ReplyPreview
           referencedMessage={message.referencedMessage}
+          mentionCandidates={mentionCandidates}
           onJumpToMessage={onJumpToMessage}
         />
       )}

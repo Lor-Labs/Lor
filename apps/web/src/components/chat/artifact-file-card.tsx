@@ -1,6 +1,11 @@
+import { Attachment } from "@repo/ui/components/nexus-ui/attachments"
 import { cn } from "@repo/ui/lib/utils"
 import { useNavigate } from "@tanstack/react-router"
-import { formatFileSize, getFileKind } from "@/lib/attachments"
+import {
+  formatFileSize,
+  getFileKind,
+  toAttachmentMeta,
+} from "@/lib/attachments"
 
 // One file surface for artifacts everywhere: a `row` presents a deliverable
 // (Merlin message endings, the task panel's Files list), a `chip` packs into
@@ -32,22 +37,27 @@ export function ArtifactFileCard({
   }
 
   if (variant === "chip") {
+    const attachment = toAttachmentMeta({
+      filename: name,
+      contentType,
+      size: size ?? undefined,
+    })
+
     return (
       <button
         type="button"
         onClick={open}
         className={cn(
-          "flex cursor-pointer items-center gap-1.5 rounded-md border bg-background px-2 py-1 text-sm transition-colors hover:bg-accent",
+          "group/file block min-w-0 cursor-pointer rounded-sm text-left outline-none transition-transform focus-visible:ring-2 focus-visible:ring-ring/50 active:translate-y-px",
           className
         )}
       >
-        <kind.Icon className="size-3.5 shrink-0 text-muted-foreground" />
-        <span className="max-w-44 truncate">{name}</span>
-        {size !== null && (
-          <span className="shrink-0 text-muted-foreground text-xs">
-            {formatFileSize(size)}
-          </span>
-        )}
+        <Attachment
+          readOnly
+          variant="detailed"
+          attachment={attachment}
+          className="w-full max-w-none cursor-pointer transition-colors group-hover/file:bg-secondary/70"
+        />
       </button>
     )
   }
