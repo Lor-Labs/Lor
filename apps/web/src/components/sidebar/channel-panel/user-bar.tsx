@@ -6,6 +6,7 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from "@repo/ui/components/menu"
 import {
@@ -18,6 +19,14 @@ import { ThemeSwitcher } from "@repo/ui/components/unlumen-ui/theme-switcher"
 import { ChevronsUpDown, LogOut, Settings } from "lucide-react"
 import { UserAvatar } from "@/components/ui/user-avatar"
 import { useSettings } from "@/hooks/use-settings"
+
+// The shortcut handler in settings-dialog accepts metaKey || ctrlKey, so the
+// label has to follow the platform rather than always showing ⌘ (the desktop
+// app ships on Windows and Linux too).
+const SETTINGS_SHORTCUT =
+  typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform)
+    ? "⌘,"
+    : "Ctrl+,"
 
 export function UserBar() {
   const { data: session } = authClient.useSession()
@@ -99,6 +108,7 @@ export function UserBar() {
               <DropdownMenuItem onClick={() => openSettings("user")}>
                 <Settings />
                 Settings
+                <DropdownMenuShortcut>{SETTINGS_SHORTCUT}</DropdownMenuShortcut>
               </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />

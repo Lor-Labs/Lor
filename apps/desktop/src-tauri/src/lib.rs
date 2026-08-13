@@ -1,5 +1,17 @@
 #[cfg(debug_assertions)]
 use tauri::Manager;
+use tauri::{
+    menu::{Menu, MenuItem},
+    AppHandle, Emitter,
+};
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+use tauri::menu::PredefinedMenuItem;
+#[cfg(target_os = "linux")]
+use tauri::menu::Submenu;
+
+const SETTINGS_MENU_ID: &str = "settings";
+const OPEN_SETTINGS_EVENT: &str = "open-settings";
 
 // Dev servers (API :8080, realtime :8081) are plain HTTP on localhost, which
 // the production http scope (https://*.lor.chat) rejects. Grant them only in
@@ -22,9 +34,52 @@ const DEV_LOCALHOST_CAPABILITY: &str = r#"{
   ]
 }"#;
 
+fn desktop_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
+    let menu = Menu::default(app)?;
+    let settings = MenuItem::with_id(
+        app,
+        SETTINGS_MENU_ID,
+        "Settings…",
+        true,
+        Some("CmdOrCtrl+,"),
+    )?;
+
+    #[cfg(target_os = "macos")]
+    {
+        let items = menu.items()?;
+        if let Some(app_menu) = items.first().and_then(|item| item.as_submenu()) {
+            let separator = PredefinedMenuItem::separator(app)?;
+            app_menu.insert_items(&[&settings, &separator], 2)?;
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let items = menu.items()?;
+        if let Some(file_menu) = items.first().and_then(|item| item.as_submenu()) {
+            let separator = PredefinedMenuItem::separator(app)?;
+            file_menu.insert_items(&[&settings, &separator], 0)?;
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let file_menu = Submenu::with_items(app, "File", true, &[&settings])?;
+        menu.insert(&file_menu, 0)?;
+    }
+
+    Ok(menu)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .menu(desktop_menu)
+        .on_menu_event(|app, event| {
+            if event.id() == SETTINGS_MENU_ID {
+                let _ = app.emit(OPEN_SETTINGS_EVENT, ());
+            }
+        })
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())

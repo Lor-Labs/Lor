@@ -2,6 +2,7 @@ import { Image } from "lucide-react"
 import { AnimatePresence, motion } from "motion/react"
 import type { ReactNode } from "react"
 import { PinnedMessagesPanel } from "@/components/sidebar/right-panel/pinned-messages-panel"
+import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-header"
 import type { RightSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
 import { ThreadPanel } from "@/components/sidebar/right-panel/thread-panel"
 import { WorkspaceMembersPanel } from "@/components/sidebar/right-panel/workspace-members-panel"
@@ -10,18 +11,29 @@ function PlaceholderSidebar({
   title,
   description,
   icon,
+  workspaceSlug,
+  channelId,
 }: {
   title: string
   description: string
   icon: ReactNode
+  workspaceSlug: string
+  channelId: string
 }) {
   return (
-    <div className="flex h-full w-full flex-col items-center justify-center px-6 text-center">
-      <div className="mb-3 rounded-full bg-foreground/5 p-3 text-muted-foreground">
-        {icon}
+    <div className="flex h-full w-full flex-col">
+      <RightPanelHeader
+        title={title}
+        workspaceSlug={workspaceSlug}
+        channelId={channelId}
+      />
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-6 text-center">
+        <div className="mb-3 rounded-full bg-foreground/5 p-3 text-muted-foreground">
+          {icon}
+        </div>
+        <h3 className="text-sm font-semibold">{title}</h3>
+        <p className="mt-1 text-xs text-muted-foreground">{description}</p>
       </div>
-      <h3 className="text-sm font-semibold">{title}</h3>
-      <p className="mt-1 text-xs text-muted-foreground">{description}</p>
     </div>
   )
 }
@@ -29,6 +41,11 @@ function PlaceholderSidebar({
 const viewTransition = {
   duration: 0.28,
   ease: [0.16, 1, 0.3, 1] as const,
+}
+
+const threadExitTransition = {
+  duration: 0.06,
+  ease: "linear" as const,
 }
 
 export function RightSidebarPanel({ view }: { view: RightSidebarView }) {
@@ -45,7 +62,12 @@ export function RightSidebarPanel({ view }: { view: RightSidebarView }) {
           key={key}
           initial={{ x: 18, opacity: 0 }}
           animate={{ x: 0, opacity: 1 }}
-          exit={{ x: -12, opacity: 0 }}
+          exit={{
+            x: -4,
+            opacity: 0,
+            transition:
+              view.type === "thread" ? threadExitTransition : viewTransition,
+          }}
           transition={viewTransition}
           className="flex h-full w-full flex-col"
         >
@@ -61,6 +83,8 @@ export function RightSidebarPanel({ view }: { view: RightSidebarView }) {
               title="Attachments"
               description="This mode can show channel attachments and media history."
               icon={<Image className="size-5" />}
+              workspaceSlug={view.workspaceSlug}
+              channelId={view.channelId}
             />
           )}
         </motion.div>

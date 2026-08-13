@@ -50,9 +50,8 @@ export function LeftSidebarToggle({ className }: { className?: string }) {
 
 /**
  * Right-panel "open" affordance for the chat header. Renders only when the
- * right panel is currently CLOSED — when it's open, the panel itself
- * carries the close button in its top-right corner, so showing this here
- * would duplicate the control.
+ * right panel is currently CLOSED — when it's open, the panel header carries
+ * its own collapse/close control, so showing this here would duplicate it.
  */
 export function RightPanelToggle({
   workspaceSlug,

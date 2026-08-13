@@ -21,6 +21,8 @@ export type PendingAttachment = {
   status: "uploading" | "done" | "error"
   previewUrl?: string
   url?: string
+  /** 0–100 while uploading; cleared once the upload settles. */
+  progress?: number
 }
 
 async function getImageDimensions(
@@ -43,6 +45,16 @@ const READ_TIMEOUT_MS = 15_000
 const UPLOAD_CONCURRENCY = 4
 
 export class FileReadError extends Error {}
+
+// Non-2xx from the storage PUT. Carries the status so the caller can log it and
+// fall back to the generic "Upload failed" path.
+class UploadHttpError extends Error {
+  status: number
+  constructor(status: number) {
+    super(`upload failed with ${status}`)
+    this.status = status
+  }
+}
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -91,9 +103,50 @@ async function readFileBytes(file: File): Promise<ArrayBuffer> {
   }
 }
 
+// fetch() can't report upload progress — request streaming needs HTTP/2 and a
+// duplex body, which the presigned PUT doesn't give us. XHR still exposes
+// upload.onprogress, so it's the only way to get real byte counts here.
+function putWithProgress(
+  uploadUrl: string,
+  body: ArrayBuffer,
+  contentType: string,
+  onProgress: (percent: number) => void
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open("PUT", uploadUrl, true)
+    xhr.setRequestHeader("Content-Type", contentType)
+    xhr.timeout = PUT_TIMEOUT_MS
+
+    // Bytes sent is the only phase with real numbers, so hold at 99 until the
+    // response lands — otherwise the bar sits at "finished" while storage is
+    // still replying.
+    xhr.upload.onprogress = (event) => {
+      if (!event.lengthComputable || event.total === 0) return
+      onProgress(Math.min(99, Math.round((event.loaded / event.total) * 100)))
+    }
+
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve()
+        return
+      }
+      reject(new UploadHttpError(xhr.status))
+    }
+    xhr.onerror = () => reject(new Error("upload network error"))
+    // Mirrors the old AbortSignal.timeout so the caller's existing TimeoutError
+    // branch still produces the "Upload timed out" toast.
+    xhr.ontimeout = () =>
+      reject(new DOMException("upload timed out", "TimeoutError"))
+
+    xhr.send(body)
+  })
+}
+
 async function uploadFile(
   channelId: string,
-  attachment: PendingAttachment
+  attachment: PendingAttachment,
+  onProgress: (percent: number) => void
 ): Promise<{ url: string } | null> {
   // Read the bytes BEFORE sending: streaming the handle as the fetch body
   // hangs on unreadable handles, and reading up front also guarantees the
@@ -121,20 +174,17 @@ async function uploadFile(
 
   const { uploadUrl, fileUrl } = await presignRes.json()
 
-  const uploadRes = await fetch(uploadUrl, {
-    method: "PUT",
-    body,
-    headers: {
-      "Content-Type": attachment.contentType,
-    },
-    signal: AbortSignal.timeout(PUT_TIMEOUT_MS),
-  })
-
-  if (!uploadRes.ok) {
-    console.error(
-      `attachment upload failed: ${attachment.contentType} → ${uploadRes.status}`
-    )
-    return null
+  try {
+    await putWithProgress(uploadUrl, body, attachment.contentType, onProgress)
+  } catch (err) {
+    if (err instanceof UploadHttpError) {
+      console.error(
+        `attachment upload failed: ${attachment.contentType} → ${err.status}`
+      )
+      return null
+    }
+    // Timeouts and network failures keep their own toasts upstream.
+    throw err
   }
 
   return { url: fileUrl }
@@ -184,6 +234,7 @@ export function useFileUpload(channelId: string) {
             height: dims?.height,
             status: "uploading" as const,
             previewUrl,
+            progress: 0,
           }
         })
       )
@@ -222,12 +273,33 @@ export function useFileUpload(channelId: string) {
           attachment = queue.shift()
         ) {
           try {
-            const result = await uploadFile(channelId, attachment)
+            // XHR fires progress far more often than the percentage changes;
+            // gate on the rounded value so a 100MB upload costs ~100 renders
+            // rather than thousands.
+            let lastPercent = -1
+            const result = await uploadFile(
+              channelId,
+              attachment,
+              (percent) => {
+                if (percent === lastPercent) return
+                lastPercent = percent
+                setAttachments((prev) =>
+                  prev.map((a) =>
+                    a.id === attachment.id ? { ...a, progress: percent } : a
+                  )
+                )
+              }
+            )
             if (result) {
               setAttachments((prev) =>
                 prev.map((a) =>
                   a.id === attachment.id
-                    ? { ...a, status: "done" as const, url: result.url }
+                    ? {
+                        ...a,
+                        status: "done" as const,
+                        url: result.url,
+                        progress: undefined,
+                      }
                     : a
                 )
               )
@@ -236,7 +308,7 @@ export function useFileUpload(channelId: string) {
               setAttachments((prev) =>
                 prev.map((a) =>
                   a.id === attachment.id
-                    ? { ...a, status: "error" as const }
+                    ? { ...a, status: "error" as const, progress: undefined }
                     : a
                 )
               )
@@ -255,7 +327,9 @@ export function useFileUpload(channelId: string) {
             )
             setAttachments((prev) =>
               prev.map((a) =>
-                a.id === attachment.id ? { ...a, status: "error" as const } : a
+                a.id === attachment.id
+                  ? { ...a, status: "error" as const, progress: undefined }
+                  : a
               )
             )
           }

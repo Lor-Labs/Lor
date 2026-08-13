@@ -1,3 +1,4 @@
+import type { AttachmentMeta } from "@repo/ui/components/nexus-ui/attachments"
 import {
   FileArchive,
   FileIcon,
@@ -7,6 +8,37 @@ import {
   type LucideIcon,
   Presentation,
 } from "lucide-react"
+
+// Single mapper to Nexus's AttachmentMeta, so a PDF (or any file) renders the
+// same tile in the composer and in message history. Only image/video types use
+// `url` for a built-in preview; everything else keeps the type icon.
+export function toAttachmentMeta(input: {
+  filename: string
+  contentType: string
+  size?: number
+  url?: string
+  width?: number | null
+  height?: number | null
+}): AttachmentMeta {
+  const mime = input.contentType.toLowerCase()
+  const type: AttachmentMeta["type"] = mime.startsWith("image/")
+    ? "image"
+    : mime.startsWith("video/")
+      ? "video"
+      : mime.startsWith("audio/")
+        ? "audio"
+        : "file"
+
+  return {
+    type,
+    name: input.filename,
+    url: input.url,
+    mimeType: input.contentType || undefined,
+    size: input.size,
+    width: input.width ?? undefined,
+    height: input.height ?? undefined,
+  }
+}
 
 export function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`

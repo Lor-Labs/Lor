@@ -35,6 +35,7 @@ import { UserProfilePopover } from "@/components/ui/user-profile-card"
 import { useStopMerlinRun } from "@/hooks/use-stop-merlin-run"
 import type { Message } from "@/lib/api-types"
 import { connectorForName, connectorLogo } from "@/lib/connector-ui"
+import { toSearchPreviewText } from "@/lib/search-preview"
 
 interface MessageItemProps {
   message: Message
@@ -57,11 +58,37 @@ interface MessageItemProps {
   showMerlinRunControls?: boolean
 }
 
+const PREVIEW_MAX_CHARS = 100
+
+// Prefer the mentions the API now attaches to the quoted message; fall back to
+// the channel's mentionable users for optimistic sends and older payloads that
+// predate that field. Converting before truncating also stops a token being
+// sliced in half mid-uuid.
+function replyPreviewText(
+  referencedMessage: NonNullable<Message["referencedMessage"]>,
+  mentionCandidates?: MentionCandidate[]
+) {
+  const mentions = referencedMessage.mentions?.length
+    ? referencedMessage.mentions
+    : (mentionCandidates ?? []).map((candidate) => ({
+        id: candidate.id,
+        name: candidate.name ?? candidate.label,
+        username: candidate.username ?? null,
+        displayUsername: candidate.displayUsername ?? null,
+      }))
+  const text = toSearchPreviewText(referencedMessage.content, mentions)
+  return text.length > PREVIEW_MAX_CHARS
+    ? `${text.slice(0, PREVIEW_MAX_CHARS)}...`
+    : text
+}
+
 function ReplyPreview({
   referencedMessage,
+  mentionCandidates,
   onJumpToMessage,
 }: {
   referencedMessage: Message["referencedMessage"]
+  mentionCandidates?: MentionCandidate[]
   onJumpToMessage?: (messageId: string) => void
 }) {
   if (!referencedMessage) {
@@ -77,10 +104,10 @@ function ReplyPreview({
   const referencedName =
     referencedMessage.overrideName ?? author.displayUsername ?? author.name
   const referencedAvatar = referencedMessage.overrideAvatarUrl ?? author.image
-  const truncatedContent =
-    referencedMessage.content && referencedMessage.content.length > 100
-      ? `${referencedMessage.content.slice(0, 100)}...`
-      : referencedMessage.content
+  const truncatedContent = replyPreviewText(
+    referencedMessage,
+    mentionCandidates
+  )
 
   return (
     <button
@@ -316,12 +343,76 @@ export function MessageItem({
     )
   }
 
-  // A task card renders as its own surface; the thread behind it is the
-  // task's workspace.
+  // A task card renders as its own surface, but inside the normal message row —
+  // so it keeps Merlin's avatar, name and timestamp, and lines up with every
+  // other message in the channel. The thread behind it is the task's workspace.
   if (message.type === "task_card") {
+    const taskAvatar = (
+      <Avatar size="lg">
+        {avatarUrl && <AvatarImage src={avatarUrl} alt={displayName} />}
+        <AvatarFallback
+          avatarColor={author.avatarColor}
+          className="text-xs font-semibold"
+          fallbackSeed={author.name}
+        >
+          {getAvatarInitials(author.name)}
+        </AvatarFallback>
+      </Avatar>
+    )
     return (
-      <div data-message-id={message.id} className="px-4 py-1">
-        <TaskCard message={message} onOpenThread={onOpenThread} />
+      <div data-message-id={message.id} className="group px-4 py-0.5">
+        <div className="flex gap-3">
+          {showHeader ? (
+            isApp ? (
+              <div className="mt-0.5 self-start">{taskAvatar}</div>
+            ) : (
+              <UserProfilePopover
+                align="start"
+                avatarColor={author.avatarColor}
+                side="right"
+                userId={author.id}
+              >
+                <button
+                  type="button"
+                  className="mt-0.5 cursor-pointer self-start"
+                >
+                  {taskAvatar}
+                </button>
+              </UserProfilePopover>
+            )
+          ) : (
+            <div className="w-10 shrink-0" />
+          )}
+          <div className="min-w-0 flex-1">
+            {showHeader && (
+              <div className="flex items-baseline gap-2">
+                {isApp ? (
+                  <span className="text-sm font-semibold leading-snug">
+                    {displayName}
+                  </span>
+                ) : (
+                  <UserProfilePopover
+                    avatarColor={author.avatarColor}
+                    userId={author.id}
+                    side="right"
+                    align="start"
+                  >
+                    <button
+                      type="button"
+                      className="cursor-pointer text-sm font-semibold leading-snug hover:underline"
+                    >
+                      {displayName}
+                    </button>
+                  </UserProfilePopover>
+                )}
+                <span className="text-xs text-muted-foreground">
+                  {formatTime(message.createdAt)}
+                </span>
+              </div>
+            )}
+            <TaskCard message={message} onOpenThread={onOpenThread} />
+          </div>
+        </div>
       </div>
     )
   }
@@ -366,6 +457,7 @@ export function MessageItem({
       {isReply && (
         <ReplyPreview
           referencedMessage={message.referencedMessage}
+          mentionCandidates={mentionCandidates}
           onJumpToMessage={onJumpToMessage}
         />
       )}

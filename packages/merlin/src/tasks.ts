@@ -6,6 +6,13 @@ import { logger } from "./logger"
 
 const MAX_PLAN_ITEMS = 30
 const MAX_ITEM_CHARS = 200
+// Deliberately tight: the card renders this as a single muted line under the
+// step, so it has to stay one clause rather than a paragraph.
+const MAX_DESCRIPTION_CHARS = 120
+// The card clamps the summary to three lines (~270 chars at its max width), so
+// anything longer is written to be truncated. Detail belongs in Merlin's final
+// message, where the team can actually read it.
+const MAX_SUMMARY_CHARS = 300
 
 export type OnTaskUpdated = (task: Task) => void
 
@@ -42,20 +49,31 @@ async function updateTask(
 const planItemSchema = z.object({
   text: z.string().min(1).max(MAX_ITEM_CHARS),
   status: z.enum(["pending", "active", "done"]),
+  // Nullable rather than optional to stay valid under `strict: true`, which
+  // requires every property to be present. Nulls are dropped on the way in.
+  description: z.string().max(MAX_DESCRIPTION_CHARS).nullable(),
 })
 
 export const taskTools = {
   set_plan: tool({
     description:
-      "Replace the task's plan checklist — the team sees it live on the task card. Call it when you first break the work down, and again whenever an item's status changes (mark items done as you finish them, active while you work on them). Pass the FULL plan every time; it replaces the previous one.",
+      "Replace the task's plan checklist — the team sees it live on the task card. Call it when you first break the work down, and again whenever an item's status changes (mark items done as you finish them, active while you work on them). Pass the FULL plan every time; it replaces the previous one. An item may carry a `description`: ONE short clause (under 120 chars) adding context the label itself doesn't convey — pass null for every other item, which is most of them. Preserve the descriptions already on the plan when you resend it.",
     inputSchema: z.object({
       items: z.array(planItemSchema).min(1).max(MAX_PLAN_ITEMS),
     }),
     contextSchema: taskContext,
     execute: async ({ items }, { context }) => {
+      const plan: TaskPlanItem[] = items.map(
+        ({ text, status, description }) => {
+          const detail = description?.trim()
+          return detail
+            ? { text, status, description: detail }
+            : { text, status }
+        }
+      )
       const row = await updateTask(
         context.taskId,
-        { plan: items as TaskPlanItem[] },
+        { plan },
         context.onTaskUpdated
       )
       if (!row) return { error: "task not found" }
@@ -66,9 +84,15 @@ export const taskTools = {
 
   complete_task: tool({
     description:
-      "Mark the task completed, with a short summary of what was delivered. Call this ONLY when the work is genuinely done and the deliverables exist — never to give up (just explain instead; the task stays open for the team). After calling it, wrap up with a final message.",
+      "Mark the task completed, with a one-line summary of what was delivered. Call this ONLY when the work is genuinely done and the deliverables exist — never to give up (just explain instead; the task stays open for the team). The summary is a headline on the task card, not a report: ONE sentence (two at most, 300 chars hard limit) naming what the team now has and anything they must know. No methodology, no per-file walkthrough, no restating counts or filenames — delivered files are already linked on the card. Put the detail in the final message you write straight after this call.",
     inputSchema: z.object({
-      summary: z.string().min(1).max(2000),
+      summary: z
+        .string()
+        .min(1)
+        .max(MAX_SUMMARY_CHARS)
+        .describe(
+          "one sentence, headline style — what was delivered and any caveat"
+        ),
     }),
     contextSchema: taskContext,
     execute: async ({ summary }, { context }) => {
@@ -158,7 +182,12 @@ export function taskPromptSection(
   artifactsEnabled: boolean
 ): string {
   const plan = task.plan.length
-    ? task.plan.map((i) => `- [${i.status}] ${i.text}`).join("\n")
+    ? task.plan
+        .map(
+          (i) =>
+            `- [${i.status}] ${i.text}${i.description ? ` — ${i.description}` : ""}`
+        )
+        .join("\n")
     : "(no plan yet)"
   return [
     "## Active task",
@@ -175,6 +204,7 @@ export function taskPromptSection(
       : []),
     "- Before consequential external actions (writes to third-party tools), call request_approval and stop; act only after a human approves.",
     "- When the work is fully done, call complete_task with a summary. If you need input from the team, ask and end your message — the task waits for their reply.",
+    "- complete_task's summary is a one-sentence headline for the card — keep the detail for the message you write after it.",
     "- Anyone on the team may reply with new instructions mid-task; treat the newest instruction as authoritative.",
   ].join("\n")
 }

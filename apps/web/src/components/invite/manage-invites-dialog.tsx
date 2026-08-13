@@ -16,6 +16,7 @@ import {
   DialogPanel,
   DialogTitle,
 } from "@repo/ui/components/dialog"
+import { anchoredToastManager } from "@repo/ui/components/toast"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useParams } from "@tanstack/react-router"
 import { Copy, Trash2 } from "lucide-react"
@@ -70,10 +71,16 @@ export function ManageInvitesDialog({
     },
   })
 
-  async function handleCopy(code: string) {
+  async function handleCopy(code: string, anchor: HTMLButtonElement) {
     try {
       await navigator.clipboard.writeText(getInviteUrl(code))
-      toast.success("Invite link copied!")
+      anchoredToastManager.add({
+        data: { tooltipStyle: true },
+        id: `copy-invite-${code}`,
+        positionerProps: { anchor, sideOffset: 6 },
+        timeout: 1800,
+        title: "Invite link copied",
+      })
     } catch {
       toast.error("Failed to copy")
     }
@@ -147,7 +154,9 @@ export function ManageInvitesDialog({
                         size="icon"
                         className="size-8"
                         aria-label={`Copy invite ${invite.code}`}
-                        onClick={() => handleCopy(invite.code)}
+                        onClick={(event) =>
+                          void handleCopy(invite.code, event.currentTarget)
+                        }
                       >
                         <Copy className="size-3.5" />
                       </Button>

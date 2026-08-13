@@ -368,6 +368,15 @@ export async function fetchMessages({
   }
 
   const messageIds = messages.map((msg) => msg.id)
+  const referencedMessageIds = messages
+    .map((msg) => msg.referencedMessageId)
+    .filter((id): id is string => id !== null)
+  // Referenced messages are joined into the same mention lookup rather than
+  // getting their own query: a reply preview has to resolve the stored `<@uuid>`
+  // tokens in the message it quotes, or it renders raw ids.
+  const mentionLookupIds = [
+    ...new Set([...messageIds, ...referencedMessageIds]),
+  ]
 
   const [
     mentionRows,
@@ -377,7 +386,7 @@ export async function fetchMessages({
     threadSummaryRows,
     threadParticipantRows,
   ] = await Promise.all([
-    messageIds.length > 0
+    mentionLookupIds.length > 0
       ? db
           .select({
             messageId: messageMention.messageId,
@@ -391,7 +400,7 @@ export async function fetchMessages({
           .innerJoin(user, eq(messageMention.mentionedUserId, user.id))
           .where(
             and(
-              inArray(messageMention.messageId, messageIds),
+              inArray(messageMention.messageId, mentionLookupIds),
               eq(messageMention.mentionType, "direct")
             )
           )
@@ -409,9 +418,6 @@ export async function fetchMessages({
           .where(inArray(messageReaction.messageId, messageIds))
       : Promise.resolve([]),
     (async () => {
-      const referencedMessageIds = messages
-        .map((msg) => msg.referencedMessageId)
-        .filter((id): id is string => id !== null)
       if (referencedMessageIds.length === 0) return []
       return db
         .select(referencedMessageSelect)
@@ -506,22 +512,6 @@ export async function fetchMessages({
     })
   }
 
-  const referencedMessagesById = new Map(
-    referencedMessageRows.map((row) => {
-      const referencedMessage = toReferencedMessage(row)
-      return [
-        row.id,
-        {
-          ...referencedMessage,
-          author: {
-            ...referencedMessage.author,
-            avatarColor:
-              avatarColorByUserId.get(referencedMessage.author.id) ?? null,
-          },
-        },
-      ]
-    })
-  )
   const merlinTriggerByMessageId = new Map(
     merlinRunRows.map((row) => [row.messageId, row.triggerMessageId])
   )
@@ -562,6 +552,26 @@ export async function fetchMessages({
     })
     mentionsByMessageId.set(mentionRow.messageId, existingMentions)
   }
+
+  // Built after the mention map so each quoted message can carry the mentions
+  // its own content references.
+  const referencedMessagesById = new Map(
+    referencedMessageRows.map((row) => {
+      const referencedMessage = toReferencedMessage(row)
+      return [
+        row.id,
+        {
+          ...referencedMessage,
+          author: {
+            ...referencedMessage.author,
+            avatarColor:
+              avatarColorByUserId.get(referencedMessage.author.id) ?? null,
+          },
+          mentions: mentionsByMessageId.get(row.id) ?? [],
+        },
+      ]
+    })
+  )
 
   for (const reactionRow of reactionRows) {
     const reactionsByEmoji =

@@ -17,10 +17,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@repo/ui/components/select"
+import { anchoredToastManager } from "@repo/ui/components/toast"
 import { useMutation } from "@tanstack/react-query"
 import { useParams } from "@tanstack/react-router"
 import { Check, Copy, Link } from "lucide-react"
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { toast } from "sonner"
 import { apiClient } from "@/lib/api-client"
 import { getInviteUrl } from "@/lib/invite-url"
@@ -57,6 +58,7 @@ export function CreateInviteDialog({
   const [maxUses, setMaxUses] = useState("none")
   const [inviteCode, setInviteCode] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const copyButtonRef = useRef<HTMLButtonElement>(null)
 
   const createMutation = useMutation({
     mutationFn: async () => {
@@ -101,7 +103,15 @@ export function CreateInviteDialog({
     try {
       await navigator.clipboard.writeText(getInviteUrl(inviteCode))
       setCopied(true)
-      toast.success("Invite link copied!")
+      if (copyButtonRef.current) {
+        anchoredToastManager.add({
+          data: { tooltipStyle: true },
+          id: "copy-created-invite-link",
+          positionerProps: { anchor: copyButtonRef.current, sideOffset: 6 },
+          timeout: 1800,
+          title: "Invite link copied",
+        })
+      }
       setTimeout(() => setCopied(false), 2000)
     } catch {
       toast.error("Failed to copy to clipboard")
@@ -141,6 +151,7 @@ export function CreateInviteDialog({
                     className="font-mono text-sm"
                   />
                   <Button
+                    ref={copyButtonRef}
                     type="button"
                     variant="outline"
                     size="icon"

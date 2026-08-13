@@ -20,6 +20,7 @@ import { ThinkingIndicator } from "@/components/thinking-indicator"
 import { Avatar } from "@/components/ui/avatar"
 import { useStopMerlinRun } from "@/hooks/use-stop-merlin-run"
 import type { Message } from "@/lib/api-types"
+import { toSearchPreviewText } from "@/lib/message-markdown"
 import { isOptimisticMessage } from "@/lib/messages"
 
 export const MESSAGE_GROUP_WINDOW_MS = 5 * 60 * 1000
@@ -536,7 +537,9 @@ function ReplyPreview({
       </Text>
       {referenced?.content ? (
         <Text className="min-w-0 flex-1 text-xs text-muted" numberOfLines={1}>
-          {referenced.content}
+          {/* Resolve the quoted message's stored `<@uuid>` mention tokens; the
+              API attaches the mentions its content references. */}
+          {toSearchPreviewText(referenced.content, referenced.mentions ?? [])}
         </Text>
       ) : null}
     </Pressable>

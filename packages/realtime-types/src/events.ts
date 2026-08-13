@@ -139,6 +139,10 @@ export type RealtimeReferencedMessage = {
   // previews show the same name/avatar as the referenced message itself.
   overrideName: string | null
   overrideAvatarUrl: string | null
+  // Users mentioned in `content`, so a reply preview can resolve stored
+  // `<@uuid>` tokens to names instead of leaking raw ids. Optional: optimistic
+  // sends and older payloads omit it.
+  mentions?: RealtimeAuthor[]
 }
 
 export type RealtimeMessage = {
@@ -547,6 +551,7 @@ export type RealtimeTaskStatus =
 export type RealtimeTaskPlanItem = {
   text: string
   status: "pending" | "active" | "done"
+  description?: string
 }
 
 // Snapshot of a task, emitted to the channel room on every status,

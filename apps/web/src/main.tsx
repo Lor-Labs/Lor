@@ -1,4 +1,5 @@
 import { Toaster } from "@repo/ui/components/sonner"
+import { AnchoredToastProvider } from "@repo/ui/components/toast"
 import { TooltipProvider } from "@repo/ui/components/tooltip"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { createRouter, RouterProvider } from "@tanstack/react-router"
@@ -69,10 +70,12 @@ createRoot(rootElement).render(
         enableSystem
         disableTransitionOnChange
       >
-        <TooltipProvider>
-          <RouterProvider router={router} />
-          <Toaster richColors />
-        </TooltipProvider>
+        <AnchoredToastProvider>
+          <TooltipProvider>
+            <RouterProvider router={router} />
+            <Toaster richColors />
+          </TooltipProvider>
+        </AnchoredToastProvider>
       </ThemeProvider>
       {/*<ReactQueryDevtools initialIsOpen={false} buttonPosition="top-right" />*/}
     </QueryClientProvider>

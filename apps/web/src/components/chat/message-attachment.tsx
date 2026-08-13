@@ -1,10 +1,15 @@
+import {
+  AttachmentProperty,
+  AttachmentPreview as AttachmentThumb,
+  Attachment as AttachmentTile,
+} from "@repo/ui/components/nexus-ui/attachments"
 import { VideoAmbient } from "@repo/ui/components/unlumen-ui/video-ambient"
 import { cn } from "@repo/ui/lib/utils"
 import { ChevronLeft, ChevronRight, Download, X } from "lucide-react"
 import { useCallback, useEffect, useState } from "react"
 import { createPortal } from "react-dom"
 import type { Message } from "@/lib/api-types"
-import { formatFileSize, getFileKind } from "@/lib/attachments"
+import { toAttachmentMeta } from "@/lib/attachments"
 
 type Attachment = NonNullable<Message["attachments"]>[number]
 
@@ -29,36 +34,41 @@ function AudioAttachment({ attachment }: { attachment: Attachment }) {
   )
 }
 
+// Sent files (PDFs, sheets, archives…) wear the same Nexus tile as the
+// composer's pending attachments, wrapped in a download link. `readOnly` drops
+// the remove control and progress bar; the custom children keep the download
+// affordance the default layout has no slot for.
 function FileAttachment({ attachment }: { attachment: Attachment }) {
-  const { Icon, tint, label } = getFileKind(
-    attachment.contentType,
-    attachment.filename
-  )
+  const meta = toAttachmentMeta({
+    filename: attachment.filename,
+    contentType: attachment.contentType,
+    size: attachment.size,
+    url: attachment.url,
+  })
+
   return (
     <a
       href={attachment.url}
       target="_blank"
       rel="noopener noreferrer"
       download={attachment.filename}
-      className="group flex w-full max-w-[420px] items-center gap-3 rounded-lg border border-border bg-secondary/40 p-2.5 transition-colors hover:bg-secondary"
+      className="group/file block min-w-0"
     >
-      <div
-        className={cn(
-          "flex size-10 flex-shrink-0 items-center justify-center rounded-md",
-          tint
-        )}
+      <AttachmentTile
+        readOnly
+        variant="detailed"
+        attachment={meta}
+        className="w-full max-w-none transition-colors hover:bg-secondary/70"
       >
-        <Icon className="size-5" />
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-sm font-medium text-foreground">
-          {attachment.filename}
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <AttachmentThumb />
+          <div className="flex min-w-0 flex-col">
+            <AttachmentProperty as="name" />
+            <AttachmentProperty as="size" />
+          </div>
         </div>
-        <div className="text-xs text-muted-foreground">
-          {label} · {formatFileSize(attachment.size)}
-        </div>
-      </div>
-      <Download className="size-4 flex-shrink-0 text-muted-foreground transition-colors group-hover:text-foreground" />
+        <Download className="size-4 shrink-0 text-muted-foreground transition-colors group-hover/file:text-foreground" />
+      </AttachmentTile>
     </a>
   )
 }

@@ -1,27 +1,25 @@
-import { CheckListIcon } from "@hugeicons/core-free-icons"
+import { CheckmarkCircle02Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { Badge } from "@repo/ui/components/badge"
-import {
-  Frame,
-  FrameFooter,
-  FrameHeader,
-  FramePanel,
-  FrameTitle,
-} from "@repo/ui/components/frame"
 import { cn } from "@repo/ui/lib/utils"
 import { ArtifactFileCard } from "@/components/chat/artifact-file-card"
-import { TaskPlanList } from "@/components/chat/task-plan-list"
+import {
+  TaskPlanList,
+  TaskPlanProgress,
+} from "@/components/chat/task-plan-list"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import { useTaskForCard } from "@/hooks/use-channel-tasks"
 import { useTaskArtifacts } from "@/hooks/use-task"
 import type { Message } from "@/lib/api-types"
 import { TASK_STATUS_META } from "@/lib/task-ui"
 
-// The card a task_card message renders as: the stock coss Frame — title +
-// status in the FrameHeader chrome, the live plan in the FramePanel,
-// delivered files in the FrameFooter. Clicking opens the task's thread — a
-// stretched overlay button carries the click so the file chips stay
-// interactive.
+// The card a task_card message renders as: title and outcome in the header, the
+// live plan in a recessed well, delivered files underneath. Clicking opens the
+// task's thread — a stretched overlay button carries the click, so the step rows
+// and file chips (both z-20) stay interactive.
+const SURFACE_CLASS =
+  "relative mt-1.5 w-full max-w-xl overflow-hidden rounded-xl border bg-card transition-colors"
+
 export function TaskCard({
   message,
   onOpenThread,
@@ -37,31 +35,34 @@ export function TaskCard({
 
   if (!task) {
     return (
-      <Frame className="my-1 w-full">
-        <FrameHeader className="flex-row items-center gap-2 px-4 py-2.5">
-          <HugeiconsIcon
-            icon={CheckListIcon}
-            size={15}
-            className="shrink-0 text-muted-foreground"
+      <div className={cn("group/task", SURFACE_CLASS)}>
+        {onOpenThread && (
+          <button
+            type="button"
+            aria-label="Open task thread"
+            onClick={() => onOpenThread(message.id)}
+            className="absolute inset-0 z-10 cursor-pointer rounded-xl"
           />
-          <FrameTitle>Task</FrameTitle>
-        </FrameHeader>
-        <FramePanel>
-          <p className="line-clamp-2 text-muted-foreground text-sm leading-5">
-            {message.content}
-          </p>
-        </FramePanel>
-      </Frame>
+        )}
+        <p className="line-clamp-2 px-4 py-3.5 text-muted-foreground text-sm leading-5">
+          {message.content}
+        </p>
+      </div>
     )
   }
 
   const meta = TASK_STATUS_META[task.status]
+  const isComplete = task.status === "completed"
+  // One description slot, showing whatever matters most right now: the outcome
+  // once delivered, otherwise the ask that started the task.
+  const description = (isComplete ? task.summary : null) ?? task.goal
 
   return (
-    <Frame
+    <div
       className={cn(
-        "group/task relative my-1 w-full transition-colors",
-        isOpenThread ? "bg-muted ring-1 ring-primary/40" : "hover:bg-muted"
+        "group/task",
+        SURFACE_CLASS,
+        isOpenThread ? "border-foreground/25" : "hover:bg-muted/30"
       )}
     >
       {onOpenThread && (
@@ -69,59 +70,71 @@ export function TaskCard({
           type="button"
           aria-label="Open task thread"
           onClick={() => onOpenThread(message.id)}
-          className="absolute inset-0 z-10 cursor-pointer rounded-2xl"
+          className="absolute inset-0 z-10 cursor-pointer rounded-xl"
         />
       )}
-      <FrameHeader className="flex-row items-center gap-2 px-4 py-2.5">
-        <HugeiconsIcon
-          icon={CheckListIcon}
-          size={15}
-          className="shrink-0 text-muted-foreground"
-        />
-        <FrameTitle>Task</FrameTitle>
-        <Badge
-          variant={meta.badgeVariant}
-          size="sm"
-          className="ml-auto shrink-0"
-        >
+
+      <div className="flex items-start justify-between gap-4 px-4 pt-4">
+        <div className="min-w-0 space-y-1">
+          <p className="text-pretty font-medium text-sm leading-5">
+            {task.title}
+          </p>
+          {description && (
+            <p className="line-clamp-2 text-pretty text-muted-foreground text-sm leading-5">
+              {description}
+            </p>
+          )}
+        </div>
+        {isComplete ? (
           <HugeiconsIcon
-            icon={meta.icon}
-            size={12}
-            className={meta.spin ? "animate-spin" : undefined}
+            icon={CheckmarkCircle02Icon}
+            size={18}
+            className="mt-0.5 shrink-0 text-primary"
           />
-          {meta.label}
-        </Badge>
-      </FrameHeader>
-      <FramePanel>
-        <p className="font-medium text-sm leading-5">{task.title}</p>
-        {task.plan.length > 0 && (
-          <TaskPlanList items={task.plan} className="mt-2.5" />
-        )}
-        {task.status === "running" && task.plan.length === 0 && (
-          <p className="shimmer mt-2 text-muted-foreground text-sm">
-            Merlin is working…
-          </p>
-        )}
-        {task.status === "completed" && task.summary && (
-          <p className="mt-3 border-t pt-3 text-muted-foreground text-sm leading-5">
-            {task.summary}
-          </p>
-        )}
-      </FramePanel>
-      {artifacts && artifacts.length > 0 && (
-        <FrameFooter className="relative z-20 flex flex-wrap gap-1.5 px-4 py-2.5">
-          {artifacts.map((artifact) => (
-            <ArtifactFileCard
-              key={artifact.id}
-              artifactId={artifact.id}
-              name={artifact.path}
-              contentType={artifact.mime}
-              size={artifact.size}
-              variant="chip"
+        ) : (
+          <Badge variant={meta.badgeVariant} size="sm" className="shrink-0">
+            <HugeiconsIcon
+              icon={meta.icon}
+              size={12}
+              className={meta.spin ? "animate-spin" : undefined}
             />
-          ))}
-        </FrameFooter>
-      )}
-    </Frame>
+            {meta.label}
+          </Badge>
+        )}
+      </div>
+
+      <div className="px-4 py-4">
+        <div className="min-w-0 rounded-lg bg-secondary/60 px-4 py-3.5 ring-1 ring-border/40 ring-inset">
+          {task.plan.length > 1 && <TaskPlanProgress items={task.plan} />}
+          {task.plan.length > 0 && (
+            <TaskPlanList
+              items={task.plan}
+              className={task.plan.length > 1 ? "mt-4" : undefined}
+            />
+          )}
+          {task.status === "running" && task.plan.length === 0 && (
+            <p className="shimmer text-muted-foreground text-sm">
+              Merlin is working…
+            </p>
+          )}
+        </div>
+
+        {artifacts && artifacts.length > 0 && (
+          <div className="relative z-20 mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {artifacts.map((artifact) => (
+              <ArtifactFileCard
+                key={artifact.id}
+                artifactId={artifact.id}
+                name={artifact.path}
+                contentType={artifact.mime}
+                size={artifact.size}
+                variant="chip"
+                className="w-full max-w-none"
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
   )
 }

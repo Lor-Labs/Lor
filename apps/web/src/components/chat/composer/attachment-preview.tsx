@@ -1,47 +1,25 @@
+import {
+  Attachment,
+  AttachmentList,
+} from "@repo/ui/components/nexus-ui/attachments"
 import { cn } from "@repo/ui/lib/utils"
-import { Loader2, X } from "lucide-react"
+import { X } from "lucide-react"
 import { useState } from "react"
 import { createPortal } from "react-dom"
 import type { PendingAttachment } from "@/hooks/use-file-upload"
-import { formatFileSize, getFileKind } from "@/lib/attachments"
-
-function FilePreviewTile({ attachment }: { attachment: PendingAttachment }) {
-  const { Icon, tint, label } = getFileKind(
-    attachment.contentType,
-    attachment.filename
-  )
-  return (
-    <div
-      className={cn(
-        "flex size-20 flex-col items-center justify-center gap-1 rounded-md p-2",
-        attachment.status === "error" && "opacity-50"
-      )}
-    >
-      <div
-        className={cn(
-          "flex size-8 items-center justify-center rounded-md",
-          tint
-        )}
-      >
-        <Icon className="size-4" />
-      </div>
-      <span className="max-w-full truncate text-[10px] font-medium text-foreground">
-        {attachment.filename}
-      </span>
-      <span className="text-[10px] text-muted-foreground">
-        {attachment.status === "error"
-          ? "Upload failed"
-          : `${label} · ${formatFileSize(attachment.size)}`}
-      </span>
-    </div>
-  )
-}
+import { toAttachmentMeta } from "@/lib/attachments"
 
 interface AttachmentPreviewProps {
   attachments: PendingAttachment[]
   onRemove: (id: string) => void
 }
 
+// Pending composer attachments, rendered with the Nexus attachment tiles so
+// they match message history. Only the presentational primitives are used —
+// not the `Attachments` root — because useFileUpload already owns the picker,
+// the MIME/size/count validation, the object-URL lifecycle and the presigned
+// upload, and the routes already own drag-and-drop. Mounting the root would
+// duplicate all of it (two file inputs, two document drop listeners).
 export function AttachmentPreview({
   attachments,
   onRemove,
@@ -52,48 +30,60 @@ export function AttachmentPreview({
 
   return (
     <>
-      <div className="flex gap-2 overflow-x-auto px-4 pb-2 pt-3">
-        {attachments.map((attachment) => (
-          <div
-            key={attachment.id}
-            className="relative flex-shrink-0 rounded-md border border-border bg-background"
-          >
-            <button
-              type="button"
-              onClick={() => onRemove(attachment.id)}
-              aria-label={`Remove ${attachment.filename}`}
-              className="absolute -right-1.5 -top-1.5 z-10 flex size-5 items-center justify-center rounded-full bg-foreground text-background hover:bg-foreground/80"
-            >
-              <X className="size-3.5" />
-            </button>
+      <AttachmentList className="justify-start px-4 pt-3 pb-2">
+        {attachments.map((attachment) => {
+          const isImage = attachment.contentType.startsWith("image/")
+          const previewable = isImage ? attachment.previewUrl : undefined
+          const meta = toAttachmentMeta({
+            filename: attachment.filename,
+            contentType: attachment.contentType,
+            size: attachment.size,
+            // Blob preview while uploading, then the stored URL once it lands.
+            url: attachment.previewUrl ?? attachment.url,
+            width: attachment.width,
+            height: attachment.height,
+          })
 
-            {attachment.status === "uploading" && (
-              <div className="absolute inset-0 z-[5] flex items-center justify-center rounded-md bg-background/60">
-                <Loader2 className="size-5 animate-spin text-muted-foreground" />
-              </div>
-            )}
-
-            {attachment.previewUrl ? (
-              <button
-                type="button"
-                onClick={() => setLightboxUrl(attachment.previewUrl ?? null)}
-                className="cursor-pointer"
-              >
-                <img
-                  src={attachment.previewUrl}
-                  alt={attachment.filename}
-                  className={cn(
-                    "size-20 rounded-md object-cover",
-                    attachment.status === "error" && "opacity-50"
-                  )}
-                />
-              </button>
-            ) : (
-              <FilePreviewTile attachment={attachment} />
-            )}
-          </div>
-        ))}
-      </div>
+          return (
+            <Attachment
+              key={attachment.id}
+              // Images speak for themselves as a square thumbnail; everything
+              // else needs its name and size. Both variants are 60px tall, so
+              // a mixed row still lines up.
+              variant={isImage ? "compact" : "detailed"}
+              attachment={meta}
+              progress={attachment.progress}
+              onRemove={() => onRemove(attachment.id)}
+              className={cn(
+                attachment.status === "error" &&
+                  "border-destructive/50 opacity-60",
+                // Dim the thumbnail while bytes are still going out, so an
+                // image tile reads as in-flight even at a glance.
+                attachment.status === "uploading" && "[&_img]:opacity-65",
+                previewable &&
+                  "cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+              )}
+              // Inside AttachmentList (role="list"), so tiles carry listitem —
+              // except previewable images, where an actionable button is the
+              // more useful semantic for the lightbox.
+              role={previewable ? "button" : "listitem"}
+              tabIndex={previewable ? 0 : undefined}
+              onClick={
+                previewable ? () => setLightboxUrl(previewable) : undefined
+              }
+              onKeyDown={
+                previewable
+                  ? (event) => {
+                      if (event.key !== "Enter" && event.key !== " ") return
+                      event.preventDefault()
+                      setLightboxUrl(previewable)
+                    }
+                  : undefined
+              }
+            />
+          )
+        })}
+      </AttachmentList>
 
       {lightboxUrl &&
         createPortal(

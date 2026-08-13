@@ -761,6 +761,7 @@ export function useThreadMessages({
               author: referencedMessage.author,
               overrideName: referencedMessage.overrideName,
               overrideAvatarUrl: referencedMessage.overrideAvatarUrl,
+              mentions: referencedMessage.mentions,
             }
           : null,
       })

@@ -51,6 +51,7 @@ export const taskSchema = z.object({
     z.object({
       text: z.string(),
       status: z.enum(["pending", "active", "done"]),
+      description: z.string().optional(),
     })
   ),
   summary: z.string().nullable(),

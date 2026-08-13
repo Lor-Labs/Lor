@@ -86,6 +86,52 @@ async function loadReferencedMessage(
     .then((rows) => rows[0])
   if (!refMsg) return null
 
+  // Mentions inside the quoted content, so reply previews resolve stored
+  // `<@uuid>` tokens to names on live sends too — not just after a refetch.
+  const refMentions = await db
+    .select({
+      id: schema.user.id,
+      name: schema.user.name,
+      username: schema.user.username,
+      displayUsername: schema.user.displayUsername,
+      image: schema.user.image,
+    })
+    .from(schema.messageMention)
+    .innerJoin(
+      schema.user,
+      eq(schema.messageMention.mentionedUserId, schema.user.id)
+    )
+    .where(
+      and(
+        eq(schema.messageMention.messageId, refMsg.id),
+        eq(schema.messageMention.mentionType, "direct")
+      )
+    )
+
+  // One set-based lookup rather than workspaceAvatarColor per mention, which
+  // would be a query each.
+  const mentionColors = new Map<string, string | null>()
+  if (workspaceId && refMentions.length > 0) {
+    const colorRows = await db
+      .select({
+        userId: schema.workspaceMember.userId,
+        avatarColor: schema.workspaceMember.avatarColor,
+      })
+      .from(schema.workspaceMember)
+      .where(
+        and(
+          eq(schema.workspaceMember.workspaceId, workspaceId),
+          inArray(
+            schema.workspaceMember.userId,
+            refMentions.map((mention) => mention.id)
+          )
+        )
+      )
+    for (const row of colorRows) {
+      mentionColors.set(row.userId, row.avatarColor)
+    }
+  }
+
   return {
     id: refMsg.id,
     content: refMsg.content,
@@ -99,6 +145,10 @@ async function loadReferencedMessage(
     },
     overrideName: refMsg.overrideName,
     overrideAvatarUrl: refMsg.overrideAvatarUrl,
+    mentions: refMentions.map((mention) => ({
+      ...mention,
+      avatarColor: mentionColors.get(mention.id) ?? null,
+    })),
   }
 }
 

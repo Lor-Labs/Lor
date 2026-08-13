@@ -93,6 +93,9 @@ export const taskRelations = relations(task, ({ one }) => ({
 export type TaskPlanItem = {
   text: string
   status: "pending" | "active" | "done"
+  // One short clause of extra context, when the label alone isn't enough.
+  // Absent on most items — the card renders it as a muted second line.
+  description?: string
 }
 
 export type Task = typeof task.$inferSelect

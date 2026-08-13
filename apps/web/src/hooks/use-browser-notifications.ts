@@ -6,6 +6,7 @@ import {
   type UnreadNotification,
 } from "@repo/realtime-types"
 import { useQuery } from "@tanstack/react-query"
+import { useParams } from "@tanstack/react-router"
 import { useEffect } from "react"
 import { useSocket } from "@/context/socket-context"
 import {
@@ -21,12 +22,14 @@ type NotificationSettings = {
 }
 
 /**
- * Fires browser/desktop notifications for incoming messages and mentions
- * based on user's notification preferences.
- * Only fires when the tab is not focused.
+ * Fires browser/desktop notifications for incoming messages, mentions, and
+ * reactions based on the user's notification preferences.
+ * Suppressed only when the event is already on screen — see isAlreadyVisible.
  */
 export function useBrowserNotifications() {
   const socket = useSocket()
+  const { channelId, dmId } = useParams({ strict: false })
+  const viewedChannelId = channelId ?? dmId ?? null
   const { data: settings } = useQuery({
     queryKey: ["notification-settings"],
     queryFn: async () => {
@@ -40,8 +43,14 @@ export function useBrowserNotifications() {
   useEffect(() => {
     if (!socket) return
 
+    // A focused window is not enough to assume the user saw it: sitting in
+    // #general while a message lands in #test leaves only a sidebar badge,
+    // which is easy to miss. Suppress only for the channel actually on screen.
+    const isAlreadyVisible = (eventChannelId: string) =>
+      document.hasFocus() && viewedChannelId === eventChannelId
+
     const onMention = (payload: MentionNotification) => {
-      if (document.hasFocus()) return
+      if (isAlreadyVisible(payload.channelId)) return
       if (!(settings && mutes)) return
       if (findActiveMute(mutes, payload.channelId)) return
       if (settings.desktopNotifications === "nothing") return
@@ -63,7 +72,7 @@ export function useBrowserNotifications() {
     }
 
     const onUnread = (payload: UnreadNotification) => {
-      if (document.hasFocus()) return
+      if (isAlreadyVisible(payload.channelId)) return
       if (!(settings && mutes)) return
       if (findActiveMute(mutes, payload.channelId)) return
       const enabled =
@@ -87,7 +96,7 @@ export function useBrowserNotifications() {
     }
 
     const onReaction = (payload: ReactionNotification) => {
-      if (document.hasFocus()) return
+      if (isAlreadyVisible(payload.channelId)) return
       if (!(settings && mutes)) return
       if (findActiveMute(mutes, payload.channelId)) return
       const enabled =
@@ -119,5 +128,5 @@ export function useBrowserNotifications() {
       socket.off("notification:unread", onUnread)
       socket.off("notification:reaction", onReaction)
     }
-  }, [socket, settings, mutes])
+  }, [socket, settings, mutes, viewedChannelId])
 }

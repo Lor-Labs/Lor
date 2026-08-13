@@ -422,9 +422,17 @@ export const listPinnedMessages: AppRouteHandler<
     .orderBy(desc(message.createdAt))
 
   const messageIds = messages.map((msg) => msg.id)
+  const referencedMessageIds = messages
+    .map((msg) => msg.referencedMessageId)
+    .filter((id): id is string => id !== null)
+  // Quoted messages join the same mention lookup so reply previews can resolve
+  // the `<@uuid>` tokens inside the content they quote.
+  const mentionLookupIds = [
+    ...new Set([...messageIds, ...referencedMessageIds]),
+  ]
 
   const mentionRows =
-    messageIds.length > 0
+    mentionLookupIds.length > 0
       ? await db
           .select({
             messageId: messageMention.messageId,
@@ -438,7 +446,7 @@ export const listPinnedMessages: AppRouteHandler<
           .innerJoin(user, eq(messageMention.mentionedUserId, user.id))
           .where(
             and(
-              inArray(messageMention.messageId, messageIds),
+              inArray(messageMention.messageId, mentionLookupIds),
               eq(messageMention.mentionType, "direct")
             )
           )
@@ -458,10 +466,6 @@ export const listPinnedMessages: AppRouteHandler<
           .where(inArray(messageReaction.messageId, messageIds))
       : []
 
-  const referencedMessageIds = messages
-    .map((msg) => msg.referencedMessageId)
-    .filter((id): id is string => id !== null)
-
   const referencedMessageRows =
     referencedMessageIds.length > 0
       ? await db
@@ -480,6 +484,14 @@ export const listPinnedMessages: AppRouteHandler<
     ]
   )
 
+  const mentionsByReferencedId = new Map<string, typeof mentionRows>()
+  for (const row of mentionRows) {
+    if (!referencedMessageIds.includes(row.messageId)) continue
+    const existing = mentionsByReferencedId.get(row.messageId) ?? []
+    existing.push(row)
+    mentionsByReferencedId.set(row.messageId, existing)
+  }
+
   const referencedMessagesById = new Map(
     referencedMessageRows.map((row) => {
       const referencedMessage = toReferencedMessage(row)
@@ -492,6 +504,12 @@ export const listPinnedMessages: AppRouteHandler<
             avatarColor:
               avatarColorByUserId.get(referencedMessage.author.id) ?? null,
           },
+          mentions: (mentionsByReferencedId.get(row.id) ?? []).map(
+            ({ messageId: _messageId, ...mention }) => ({
+              ...mention,
+              avatarColor: avatarColorByUserId.get(mention.id) ?? null,
+            })
+          ),
         },
       ]
     })

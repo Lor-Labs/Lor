@@ -198,10 +198,6 @@ export async function runPi(
     logger.info({ subTool: step.toolName }, `${opts.logLabel}: agent tool call`)
     opts.onStep?.(step)
   })
-  let buffer = ""
-  const onLine = (line: string) => {
-    live.consume(line)
-  }
 
   const result = await execToCompletion(sandbox, {
     command: opts.command,
@@ -209,20 +205,14 @@ export async function runPi(
     workingDir: opts.workingDir,
     env: { AI_GATEWAY_API_KEY: env.AI_GATEWAY_API_KEY, IS_SANDBOX: "1" },
     abortSignal: opts.abortSignal,
-    onStdout: (chunk) => {
-      buffer += chunk
-      let nl = buffer.indexOf("\n")
-      while (nl >= 0) {
-        onLine(buffer.slice(0, nl))
-        buffer = buffer.slice(nl + 1)
-        nl = buffer.indexOf("\n")
-      }
-    },
+    // streamLogs invokes onStdout once per line after removing the newline.
+    // Consume each callback now instead of buffering for a delimiter that will
+    // never arrive, otherwise every nested tool event appears only at the end.
+    onStdout: (output) => live.consumeOutput(output),
   })
-  if (buffer.trim()) onLine(buffer)
 
   const collector = createPiEventCollector()
-  for (const line of result.stdout.split("\n")) collector.consume(line)
+  collector.consumeOutput(result.stdout)
   const collected = collector.result()
   return {
     result,

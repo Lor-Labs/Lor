@@ -1,10 +1,11 @@
 import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar"
+import { ExpandingSearch } from "@repo/ui/components/interior/expanding-search"
 import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { formatTime } from "@repo/utils/date"
 import { useQuery } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
-import { Loader2, Search, X } from "lucide-react"
-import { useCallback, useEffect, useRef, useState } from "react"
+import { Loader2 } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
 import { useMessageSearchNavigation } from "@/hooks/use-message-search-navigation"
 import { apiClient } from "@/lib/api-client"
 import { toSearchPreviewText } from "@/lib/search-preview"
@@ -50,30 +51,7 @@ export function HeaderSearch({
   const [isOpen, setIsOpen] = useState(false)
   const [query, setQuery] = useState("")
   const [debouncedQuery, setDebouncedQuery] = useState("")
-  const inputRef = useRef<HTMLInputElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
-  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  const handleQueryChange = useCallback((value: string) => {
-    setQuery(value)
-    if (debounceTimer.current) {
-      clearTimeout(debounceTimer.current)
-      debounceTimer.current = null
-    }
-    if (!value.trim()) {
-      setDebouncedQuery("")
-      return
-    }
-    debounceTimer.current = setTimeout(() => {
-      setDebouncedQuery(value.trim())
-    }, 300)
-  }, [])
-
-  useEffect(() => {
-    return () => {
-      if (debounceTimer.current) clearTimeout(debounceTimer.current)
-    }
-  }, [])
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -109,10 +87,6 @@ export function HeaderSearch({
   })
 
   const handleResultClick = (msg: SearchResult) => {
-    if (debounceTimer.current) {
-      clearTimeout(debounceTimer.current)
-      debounceTimer.current = null
-    }
     setIsOpen(false)
     setQuery("")
     setDebouncedQuery("")
@@ -131,59 +105,38 @@ export function HeaderSearch({
     }
   }
 
-  const handleClose = () => {
-    if (debounceTimer.current) {
-      clearTimeout(debounceTimer.current)
-      debounceTimer.current = null
-    }
-    setQuery("")
-    setDebouncedQuery("")
-    setIsOpen(false)
-  }
-
-  if (!isOpen) {
-    return (
-      <button
-        type="button"
-        onClick={() => {
-          setIsOpen(true)
-          setTimeout(() => inputRef.current?.focus(), 0)
-        }}
-        className="rounded-sm p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-      >
-        <Search className="size-4" />
-      </button>
-    )
-  }
-
   return (
-    <div ref={containerRef} className="relative">
-      <div className="flex h-7 w-56 items-center gap-1.5 rounded-md border border-border bg-background px-2 text-xs">
-        <Search className="size-3 shrink-0 text-muted-foreground" />
-        <input
-          ref={inputRef}
-          type="text"
-          placeholder={
-            mode === "dm"
-              ? "Search this conversation..."
-              : "Search this channel..."
-          }
-          value={query}
-          onChange={(e) => handleQueryChange(e.target.value)}
-          onKeyDown={(e) => e.key === "Escape" && handleClose()}
-          className="flex-1 bg-transparent outline-none placeholder:text-muted-foreground"
-        />
-        <button
-          type="button"
-          onClick={handleClose}
-          className="shrink-0 rounded-sm p-0.5 text-muted-foreground hover:text-foreground"
-        >
-          <X className="size-3" />
-        </button>
-      </div>
+    <div ref={containerRef} className="relative h-10 w-10 shrink-0">
+      <ExpandingSearch
+        value={query}
+        onChange={(value) => {
+          setQuery(value)
+          if (!value.trim()) setDebouncedQuery("")
+        }}
+        onSearch={(value) => {
+          // A debounce pending from a previous keystroke still fires after the
+          // field is cleared or reset by handleResultClick; applying it would
+          // resurrect stale results, so only accept values that still match the
+          // current input.
+          const next = value.trim()
+          if (next !== query.trim()) return
+          setDebouncedQuery(next)
+        }}
+        open={isOpen}
+        onOpenChange={setIsOpen}
+        debounce={300}
+        placeholder={
+          mode === "dm"
+            ? "Search this conversation..."
+            : "Search this channel..."
+        }
+        resultCount={debouncedQuery ? data?.itemsTotal : undefined}
+        showCollapsedFrame={false}
+        className="pointer-events-none absolute right-0 w-56"
+      />
 
-      {debouncedQuery.length > 0 && (
-        <div className="absolute right-0 z-50 mt-1 max-h-72 w-80 overflow-y-auto rounded-md border border-border bg-popover shadow-lg">
+      {isOpen && debouncedQuery.length > 0 && (
+        <div className="absolute top-full right-0 z-50 mt-1 max-h-72 w-80 overflow-y-auto rounded-md border border-border bg-popover shadow-lg">
           {isPending && (
             <div className="flex items-center justify-center py-6">
               <Loader2 className="size-4 animate-spin text-muted-foreground" />
