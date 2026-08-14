@@ -22,6 +22,7 @@
     "@nexus-ui": "https://nexus-ui.dev/r/{name}.json",
     "@coss": "https://coss.com/ui/r/{name}.json",
     "@unlumen-ui": "https://ui.unlumen.com/r/{name}.json",
-    "@elements": "https://www.tryelements.dev/r/{name}.json"
+    "@elements": "https://www.tryelements.dev/r/{name}.json",
+    "@tool-ui": "https://www.tool-ui.com/r/{name}.json"
   }
 }

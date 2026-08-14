@@ -24,6 +24,11 @@ import {
 } from "@repo/ui/components/alert-dialog"
 import { Button } from "@repo/ui/components/button"
 import {
+  Collapsible,
+  CollapsiblePanel,
+  CollapsibleTrigger,
+} from "@repo/ui/components/collapsible"
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -43,6 +48,7 @@ import {
 } from "@repo/ui/components/select"
 import { Spinner } from "@repo/ui/components/spinner"
 import { toast } from "@repo/ui/components/toast"
+import { CodeBlock } from "@repo/ui/components/tool-ui/code-block"
 import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { AnimatePresence, motion } from "motion/react"
@@ -1112,6 +1118,13 @@ const AWS_REGION_LABELS: Record<AwsRegion, string> = {
 }
 const AWS_REGIONS = Object.keys(AWS_REGION_LABELS) as AwsRegion[]
 
+// One paste-able run for the user (or their agent) with IAM admin access: it
+// provisions the read-only IAM user this connector expects — the policy is
+// exactly the calls the tools make — and prints the two keys to enter above.
+const CLOUDWATCH_KEY_COMMAND = `aws iam create-user --user-name lor-cloudwatch && \\
+aws iam put-user-policy --user-name lor-cloudwatch --policy-name lor-cloudwatch-readonly --policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["logs:DescribeLogGroups","logs:StartQuery","logs:GetQueryResults","logs:StopQuery","cloudwatch:ListMetrics","cloudwatch:GetMetricData"],"Resource":"*"}]}' && \\
+aws iam create-access-key --user-name lor-cloudwatch --query 'AccessKey.[AccessKeyId,SecretAccessKey]' --output text`
+
 function CloudwatchConnectDialog({
   workspaceSlug,
   open,
@@ -1168,6 +1181,33 @@ function CloudwatchConnectDialog({
           </DialogDescription>
         </DialogHeader>
         <DialogPanel className="space-y-4">
+          <Collapsible>
+            <CollapsibleTrigger className="group flex w-full cursor-pointer items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground">
+              <HugeiconsIcon
+                icon={ArrowDown01Icon}
+                className="size-4 transition-transform group-data-[panel-open]:rotate-180"
+              />
+              No keys yet? Create them with the AWS CLI
+            </CollapsibleTrigger>
+            <CollapsiblePanel>
+              <div className="space-y-1.5 pt-2">
+                <CodeBlock
+                  id="cloudwatch-provision-keys"
+                  code={CLOUDWATCH_KEY_COMMAND}
+                  language="bash"
+                  lineNumbers="hidden"
+                  // min-w-0 so the block fits the dialog instead of forcing
+                  // its min-w-80 floor; long lines scroll horizontally.
+                  className="min-w-0"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Run this with the AWS CLI (needs IAM admin) — it creates a
+                  read-only user and prints the access key ID and secret to
+                  paste below.
+                </p>
+              </div>
+            </CollapsiblePanel>
+          </Collapsible>
           <div className="space-y-1.5">
             <Label htmlFor="cloudwatch-region">Region</Label>
             <Select
