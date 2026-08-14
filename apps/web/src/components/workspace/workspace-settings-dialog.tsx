@@ -1121,9 +1121,11 @@ const AWS_REGIONS = Object.keys(AWS_REGION_LABELS) as AwsRegion[]
 // One paste-able run for the user (or their agent) with IAM admin access: it
 // provisions the read-only IAM user this connector expects — the policy is
 // exactly the calls the tools make — and prints the two keys to enter above.
-const CLOUDWATCH_KEY_COMMAND = `aws iam create-user --user-name lor-cloudwatch && \\
-aws iam put-user-policy --user-name lor-cloudwatch --policy-name lor-cloudwatch-readonly --policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["logs:DescribeLogGroups","logs:StartQuery","logs:GetQueryResults","logs:StopQuery","cloudwatch:ListMetrics","cloudwatch:GetMetricData"],"Resource":"*"}]}' && \\
-aws iam create-access-key --user-name lor-cloudwatch --query 'AccessKey.[AccessKeyId,SecretAccessKey]' --output text`
+// --no-cli-pager everywhere: the CLI v2 pager would otherwise swallow the
+// output and stall the && chain until the user quits less.
+const CLOUDWATCH_KEY_COMMAND = `aws iam create-user --user-name lor-cloudwatch --no-cli-pager --output text --query User.Arn && \\
+aws iam put-user-policy --user-name lor-cloudwatch --policy-name lor-cloudwatch-readonly --no-cli-pager --policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["logs:DescribeLogGroups","logs:StartQuery","logs:GetQueryResults","logs:StopQuery","cloudwatch:ListMetrics","cloudwatch:GetMetricData"],"Resource":"*"}]}' && \\
+aws iam create-access-key --user-name lor-cloudwatch --no-cli-pager --output text --query 'AccessKey.[AccessKeyId,SecretAccessKey]'`
 
 function CloudwatchConnectDialog({
   workspaceSlug,
