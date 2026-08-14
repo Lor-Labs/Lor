@@ -29,6 +29,7 @@ const QUERY_DEADLINE_MS = 25_000
 const QUERY_POLL_MS = 1_000
 const METRICS_LIST_MAX = 50
 const DATAPOINTS_MAX = 500
+const ERROR_MESSAGE_MAX = 300
 
 const cloudwatchContext = z.object({ externalId: z.string() })
 
@@ -76,10 +77,18 @@ const NOT_CONNECTED = {
 }
 
 // Tool results must be the { error } record shape, never a thrown rejection —
-// the tool trail and the model both consume the error text.
+// the tool trail and the model both consume the error text. AWS SDK errors
+// carry the useful classification in `name` (e.g. AccessDeniedException).
 function awsError(err: unknown): { error: string } {
-  const message = err instanceof Error ? err.message : String(err)
-  return { error: `CloudWatch request failed: ${message}` }
+  const name =
+    err instanceof Error && err.name && err.name !== "Error"
+      ? `${err.name}: `
+      : ""
+  const message = (err instanceof Error ? err.message : String(err)).slice(
+    0,
+    ERROR_MESSAGE_MAX
+  )
+  return { error: `CloudWatch request failed: ${name}${message}` }
 }
 
 const HOUR_MS = 60 * 60 * 1000
@@ -340,6 +349,9 @@ export const cloudwatchTools = {
           new GetMetricDataCommand({
             StartTime: range.start,
             EndTime: range.end,
+            // Newest first, so the DATAPOINTS_MAX slice below is guaranteed to
+            // keep the most recent datapoints.
+            ScanBy: "TimestampDescending",
             MetricDataQueries: [
               {
                 Id: "m1",
@@ -362,6 +374,22 @@ export const cloudwatchTools = {
         const series = response.MetricDataResults?.[0]
         const times = series?.Timestamps ?? []
         const values = series?.Values ?? []
+        // Surface everything that means "you're not seeing the full picture":
+        // AWS-side partial data / pagination, AWS diagnostic messages, and our
+        // own local truncation.
+        const awsMessages = [
+          ...(response.Messages ?? []),
+          ...(series?.Messages ?? []),
+        ].flatMap((m) => (m.Value ? [m.Value] : []))
+        const notes = [
+          series?.StatusCode === "PartialData" || response.NextToken
+            ? "AWS returned partial data for this range"
+            : null,
+          times.length > DATAPOINTS_MAX
+            ? `showing the newest ${DATAPOINTS_MAX} of ${times.length} datapoints — use a larger periodSeconds or a narrower time range for full coverage`
+            : null,
+          ...awsMessages,
+        ].filter((n): n is string => n !== null)
         return {
           region: clients.region,
           metric: `${namespace} ${metricName} (${stat ?? "Average"})`,
@@ -369,9 +397,7 @@ export const cloudwatchTools = {
             time: time.toISOString(),
             value: values[i] ?? null,
           })),
-          ...(series?.StatusCode === "PartialData"
-            ? { note: "AWS returned partial data for this range" }
-            : {}),
+          ...(notes.length > 0 ? { note: notes.join(" · ") } : {}),
         }
       } catch (err) {
         return awsError(err)
