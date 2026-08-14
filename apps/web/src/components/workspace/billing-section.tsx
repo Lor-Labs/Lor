@@ -1,3 +1,5 @@
+import { LinkSquare02Icon } from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
 import { Button } from "@repo/ui/components/button"
 import { Input } from "@repo/ui/components/input"
 import { Progress } from "@repo/ui/components/progress"
@@ -9,11 +11,11 @@ import {
   SelectValue,
 } from "@repo/ui/components/select"
 import { Skeleton } from "@repo/ui/components/skeleton"
+import { Spinner } from "@repo/ui/components/spinner"
 import { Switch } from "@repo/ui/components/switch"
+import { toast } from "@repo/ui/components/toast"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ExternalLink, Loader2 } from "lucide-react"
 import { useEffect, useState } from "react"
-import { toast } from "sonner"
 import { useSocket } from "@/context/socket-context"
 import { apiClient } from "@/lib/api-client"
 import { openExternal } from "@/lib/open-external"
@@ -152,7 +154,7 @@ export function BillingSection({ workspaceSlug }: { workspaceSlug: string }) {
             onClick={() => subscribe.mutate()}
             disabled={subscribe.isPending}
           >
-            {subscribe.isPending && <Loader2 className="size-4 animate-spin" />}
+            {subscribe.isPending && <Spinner className="size-4" />}
             Subscribe
           </Button>
         </div>
@@ -194,9 +196,13 @@ export function BillingSection({ workspaceSlug }: { workspaceSlug: string }) {
             disabled={portal.isPending}
           >
             {portal.isPending ? (
-              <Loader2 className="size-4 animate-spin" />
+              <Spinner className="size-4" />
             ) : (
-              <ExternalLink className="size-4" />
+              <HugeiconsIcon
+                icon={LinkSquare02Icon}
+                className="size-4"
+                strokeWidth={2}
+              />
             )}
             Manage billing
           </Button>
@@ -358,7 +364,7 @@ function AutoTopupCard({
           onClick={() => save.mutate()}
           disabled={save.isPending || threshold < 100}
         >
-          {save.isPending && <Loader2 className="size-4 animate-spin" />}
+          {save.isPending && <Spinner className="size-4" />}
           {buysFirstPack ? `Enable & buy first pack (${pack?.price})` : "Save"}
         </Button>
       )}

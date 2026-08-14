@@ -1,3 +1,5 @@
+import { ArrowLeft01Icon, PlusSignIcon } from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
 import {
   Sidebar,
@@ -12,7 +14,6 @@ import {
 import { Skeleton } from "@repo/ui/components/skeleton"
 import { useQuery } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { ArrowLeft, Plus } from "lucide-react"
 import { useMemo, useState } from "react"
 import { SearchBar } from "@/components/sidebar/channel-panel/search-bar"
 import { DMList } from "@/components/sidebar/dm-panel/dm-list"
@@ -105,7 +106,8 @@ export function DMSidebarContent() {
                   </span>
                 )}
                 <span className="flex items-center gap-1 truncate text-xs text-sidebar-foreground/70">
-                  <ArrowLeft
+                  <HugeiconsIcon
+                    icon={ArrowLeft01Icon}
                     className="size-3 transition-transform group-hover/back:-translate-x-0.5"
                     strokeWidth={2.25}
                   />
@@ -132,7 +134,11 @@ export function DMSidebarContent() {
               onClick={() => setNewDMOpen(true)}
               className="flex size-5 cursor-pointer items-center justify-center rounded text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
             >
-              <Plus className="size-3.5" strokeWidth={2.25} />
+              <HugeiconsIcon
+                icon={PlusSignIcon}
+                className="size-3.5"
+                strokeWidth={2.25}
+              />
             </button>
           </SidebarGroupLabel>
           <div className="-mx-2 min-h-0 flex-1 overflow-hidden px-2">

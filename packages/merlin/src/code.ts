@@ -1,9 +1,10 @@
-import type { MerlinToolCall } from "@repo/db/schema"
+import type { MerlinToolCallUpdate } from "@repo/db/schema"
 import { tool } from "ai"
 import { z } from "zod"
 import { logger } from "./logger"
 import { getInstallationToken, type InstallationRepo } from "./providers/github"
 import { investigateCode } from "./sandbox/investigate"
+import { subagentToolEvents } from "./sandbox/sub-events"
 import { toolExecutionKey } from "./tool-guard"
 import type { OnUsage } from "./usage"
 
@@ -42,7 +43,7 @@ const codeContext = z.object({
   installationId: z.string(),
   repos: z.custom<InstallationRepo[]>(),
   onUsage: z.custom<OnUsage>().optional(),
-  onToolEvent: z.custom<(e: MerlinToolCall) => void>().optional(),
+  onToolEvent: z.custom<(e: MerlinToolCallUpdate) => void>().optional(),
 })
 
 function repoHint(repos: InstallationRepo[]): string {
@@ -81,25 +82,14 @@ export const codeTools = {
       )
       if (!token) return { error: "couldn't authenticate with GitHub" }
 
-      let step = 0
       const result = await investigateCode({
         repoFullName: resolved.repo,
         cloneToken: token,
         question,
-        onStep: (s) => {
-          step += 1
-          // A failing listener must not abort or fail the investigation.
-          try {
-            context.onToolEvent?.({
-              toolCallId: `${toolCallId}:sub:${step}`,
-              parentToolCallId: toolCallId,
-              toolName: s.toolName,
-              label: s.label,
-            })
-          } catch (err) {
-            logger.error({ err }, "Merlin onToolEvent listener failed")
-          }
-        },
+        ...subagentToolEvents({
+          parentToolCallId: toolCallId,
+          onToolEvent: context.onToolEvent,
+        }),
       }).catch(() => null)
       if (!result || "error" in result) {
         return { error: result?.error ?? "code investigation failed" }

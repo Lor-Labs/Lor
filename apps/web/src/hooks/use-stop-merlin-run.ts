@@ -1,6 +1,6 @@
+import { toast } from "@repo/ui/components/toast"
 import type { InfiniteData } from "@tanstack/react-query"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { toast } from "sonner"
 import { messagesCacheKey } from "@/hooks/use-merlin-stream"
 import { apiClient } from "@/lib/api-client"
 import type { Message } from "@/lib/api-types"

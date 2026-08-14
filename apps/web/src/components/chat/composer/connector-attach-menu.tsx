@@ -1,7 +1,13 @@
+import {
+  ArrowLeft01Icon,
+  ArrowRight01Icon,
+  FolderOpenIcon,
+} from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
 import { Spinner } from "@repo/ui/components/spinner"
 import { cn } from "@repo/ui/lib/utils"
 import { useQuery } from "@tanstack/react-query"
-import { ChevronLeft, ChevronRight, FileUp, FolderOpen } from "lucide-react"
+import { FileUp } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 import { apiClient } from "@/lib/api-client"
 import type { ConnectorKey } from "@/lib/api-types"
@@ -255,7 +261,11 @@ export function ConnectorAttachMenu({
             >
               <Logo className="size-4 text-muted-foreground" />
               Add from {candidate.label}
-              <ChevronRight className="ml-auto size-4 text-muted-foreground" />
+              <HugeiconsIcon
+                icon={ArrowRight01Icon}
+                className="ml-auto size-4 text-muted-foreground"
+                strokeWidth={2}
+              />
             </button>
           )
         })}
@@ -305,10 +315,18 @@ export function ConnectorAttachMenu({
           className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
           aria-label="Back"
         >
-          <ChevronLeft className="size-4" />
+          <HugeiconsIcon
+            icon={ArrowLeft01Icon}
+            className="size-4"
+            strokeWidth={2}
+          />
         </button>
         {view.kind === "files" ? (
-          <FolderOpen className="size-4 shrink-0 text-muted-foreground" />
+          <HugeiconsIcon
+            icon={FolderOpenIcon}
+            className="size-4 shrink-0 text-muted-foreground"
+            strokeWidth={2}
+          />
         ) : (
           <ActiveLogo className="size-4 shrink-0 text-muted-foreground" />
         )}
@@ -360,7 +378,11 @@ export function ConnectorAttachMenu({
                 )}
               </span>
               {item.chevron && (
-                <ChevronRight className="ml-auto size-4 shrink-0 text-muted-foreground" />
+                <HugeiconsIcon
+                  icon={ArrowRight01Icon}
+                  className="ml-auto size-4 shrink-0 text-muted-foreground"
+                  strokeWidth={2}
+                />
               )}
             </button>
           ))

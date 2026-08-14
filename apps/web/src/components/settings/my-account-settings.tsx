@@ -1,14 +1,21 @@
+import {
+  Camera01Icon,
+  Cancel01Icon,
+  Tick02Icon,
+  Upload01Icon,
+} from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
 import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar"
 import { Button } from "@repo/ui/components/button"
 import { Input } from "@repo/ui/components/input"
 import { Label } from "@repo/ui/components/label"
 import { Separator } from "@repo/ui/components/separator"
+import { Spinner } from "@repo/ui/components/spinner"
+import { toast } from "@repo/ui/components/toast"
 import { cn } from "@repo/ui/lib/utils"
 import { getAvatarInitials } from "@repo/utils/avatar-colors"
-import { Camera, Check, Loader2, Upload, X } from "lucide-react"
 import { useCallback, useEffect, useRef, useState } from "react"
-import { toast } from "sonner"
 import { apiClient } from "@/lib/api-client"
 import { MIN_USERNAME_LENGTH } from "@/lib/username"
 
@@ -293,7 +300,11 @@ export function MyAccountSettings() {
             </AvatarFallback>
           </Avatar>
           <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/50 opacity-0 transition-opacity group-hover:opacity-100">
-            <Camera className="size-5 text-white" />
+            <HugeiconsIcon
+              icon={Camera01Icon}
+              className="size-5 text-white"
+              strokeWidth={2}
+            />
           </div>
           <input
             ref={fileInputRef}
@@ -320,7 +331,11 @@ export function MyAccountSettings() {
               Change avatar
             </Button>
             <span className="flex items-center gap-1 text-xs text-muted-foreground">
-              <Upload className="size-3" />
+              <HugeiconsIcon
+                icon={Upload01Icon}
+                className="size-3"
+                strokeWidth={2}
+              />
               or drag & drop
             </span>
           </div>
@@ -353,16 +368,28 @@ export function MyAccountSettings() {
             {usernameChanged && (
               <div className="absolute top-1/2 right-3 -translate-y-1/2">
                 {usernameAvailability === "checking" && (
-                  <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                  <Spinner className="size-4 text-muted-foreground" />
                 )}
                 {usernameAvailability === "available" && (
-                  <Check className="size-4 text-emerald-500" />
+                  <HugeiconsIcon
+                    icon={Tick02Icon}
+                    className="size-4 text-emerald-500"
+                    strokeWidth={2}
+                  />
                 )}
                 {usernameAvailability === "taken" && (
-                  <X className="size-4 text-destructive" />
+                  <HugeiconsIcon
+                    icon={Cancel01Icon}
+                    className="size-4 text-destructive"
+                    strokeWidth={2}
+                  />
                 )}
                 {usernameAvailability === "invalid" && (
-                  <X className="size-4 text-destructive" />
+                  <HugeiconsIcon
+                    icon={Cancel01Icon}
+                    className="size-4 text-destructive"
+                    strokeWidth={2}
+                  />
                 )}
               </div>
             )}
@@ -408,7 +435,7 @@ export function MyAccountSettings() {
           onClick={handleSave}
           disabled={!hasChanges || !isValid || isSaving}
         >
-          {isSaving && <Loader2 className="size-4 animate-spin" />}
+          {isSaving && <Spinner className="size-4" />}
           Save Changes
         </Button>
       </div>

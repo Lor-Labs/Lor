@@ -1,3 +1,5 @@
+import { HashtagIcon } from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
 import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar"
 import {
   MessageScroller,
@@ -7,9 +9,9 @@ import {
   MessageScrollerViewport,
 } from "@repo/ui/components/message-scroller"
 import { Skeleton } from "@repo/ui/components/skeleton"
+import { Spinner } from "@repo/ui/components/spinner"
 import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { differenceInMinutes, isSameDay } from "@repo/utils/date"
-import { Hash, Loader2 } from "lucide-react"
 import {
   type PointerEvent as ReactPointerEvent,
   useCallback,
@@ -86,7 +88,11 @@ function EmptyState({ context }: { context: ChatContext }) {
       <div className="flex flex-col items-start gap-3">
         {context.type === "channel" ? (
           <div className="flex size-14 items-center justify-center rounded-full bg-accent text-foreground">
-            <Hash className="size-7" strokeWidth={2.25} />
+            <HugeiconsIcon
+              icon={HashtagIcon}
+              className="size-7"
+              strokeWidth={2.25}
+            />
           </div>
         ) : (
           <Avatar className="size-14">
@@ -374,7 +380,7 @@ export function MessageList({
                   className="flex justify-center py-3"
                 >
                   {isFetchingOlder && (
-                    <Loader2 className="size-5 animate-spin text-muted-foreground motion-reduce:animate-none" />
+                    <Spinner className="size-5 text-muted-foreground motion-reduce:animate-none" />
                   )}
                 </div>
               </MessageScrollerItem>
@@ -426,7 +432,7 @@ export function MessageList({
                   className="flex justify-center py-3"
                 >
                   {isFetchingNewer && (
-                    <Loader2 className="size-5 animate-spin text-muted-foreground motion-reduce:animate-none" />
+                    <Spinner className="size-5 text-muted-foreground motion-reduce:animate-none" />
                   )}
                 </div>
               </MessageScrollerItem>

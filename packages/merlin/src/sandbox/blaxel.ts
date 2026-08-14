@@ -4,7 +4,7 @@ import { env } from "@repo/env/server"
 import { logger } from "../logger"
 import {
   createPiEventCollector,
-  type PiCodeStep,
+  type PiCodeHandlers,
   type PiInvestigationUsage,
 } from "./pi-events"
 
@@ -110,12 +110,15 @@ export type SandboxExecResult = {
   stderr: string
 }
 
+const STDOUT_POLL_MS = 1500
+
 // Run one command to completion. keepAlive pins the sandbox awake for the
 // whole run (no mid-session standby) and enforces `timeoutSec` as an
-// auto-kill; a timed-out process surfaces as status "killed". The optional
-// live stdout stream drives UX only — it can attach late and miss lines, so
-// callers needing complete output must use the returned stdout, which is
-// fetched from the process record after completion.
+// auto-kill; a timed-out process surfaces as status "killed". Live stdout is
+// POLLED from the authoritative process record — the push stream
+// (process/logs/stream) drops lines under load, which starved the nested
+// tool-event UX — and delivered to onStdout on newline boundaries, with the
+// final tail flushed from the complete stdout after completion.
 export async function execToCompletion(
   sandbox: SandboxInstance,
   opts: {
@@ -131,15 +134,48 @@ export async function execToCompletion(
     return { status: "stopped", exitCode: -1, stdout: "", stderr: "" }
   }
   const name = `exec-${randomUUID().slice(0, 8)}`
-  const started = await sandbox.process.exec({
+  await sandbox.process.exec({
     name,
     command: opts.command,
     ...(opts.workingDir ? { workingDir: opts.workingDir } : {}),
     ...(opts.env ? { env: opts.env } : {}),
     keepAlive: true,
     timeout: opts.timeoutSec,
-    ...(opts.onStdout ? { onStdout: opts.onStdout } : {}),
   })
+
+  let seen = 0
+  let pollStop = false
+  const deliver = (chunk: string) => {
+    if (!chunk) return
+    try {
+      opts.onStdout?.(chunk)
+    } catch {}
+  }
+  const poller = opts.onStdout
+    ? (async () => {
+        while (!pollStop) {
+          await new Promise((resolve) => setTimeout(resolve, STDOUT_POLL_MS))
+          if (pollStop) return
+          const stdout = await sandbox.process
+            .logs(name, "stdout")
+            .catch(() => null)
+          if (pollStop || !stdout || stdout.length <= seen) continue
+          // Whole lines only — a snapshot can end mid-line, and a partial
+          // JSON line would be dropped by the consumer, losing the event.
+          const cut = stdout.lastIndexOf("\n")
+          if (cut < seen) continue
+          const chunk = stdout.slice(seen, cut + 1)
+          seen = cut + 1
+          deliver(chunk)
+        }
+      })()
+    : null
+  const finishPolling = async (finalStdout: string) => {
+    pollStop = true
+    if (!poller) return
+    await poller
+    if (finalStdout.length > seen) deliver(finalStdout.slice(seen))
+  }
 
   const onAbort = () => {
     sandbox.process.kill(name).catch(() => {})
@@ -151,7 +187,6 @@ export async function execToCompletion(
     .wait(name, { maxWait: (opts.timeoutSec + 60) * 1000, interval: 2000 })
     .catch(() => null)
   opts.abortSignal?.removeEventListener("abort", onAbort)
-  if ("close" in started) started.close()
 
   if (!done) {
     // wait() gave up or errored; the process may still be running (pinning
@@ -160,14 +195,16 @@ export async function execToCompletion(
     await sandbox.process.kill(name).catch(() => {})
     const stdout = await sandbox.process.logs(name, "stdout").catch(() => "")
     const stderr = await sandbox.process.logs(name, "stderr").catch(() => "")
+    await finishPolling(stdout)
     return { status: "lost", exitCode: -1, stdout, stderr }
   }
+  const stdout =
+    done.stdout || (await sandbox.process.logs(name, "stdout").catch(() => ""))
+  await finishPolling(stdout)
   return {
     status: done.status,
     exitCode: done.exitCode,
-    stdout:
-      done.stdout ||
-      (await sandbox.process.logs(name, "stdout").catch(() => "")),
+    stdout,
     stderr:
       done.stderr ||
       (await sandbox.process.logs(name, "stderr").catch(() => "")),
@@ -181,22 +218,28 @@ export type PiRunResult = {
   error?: string
 }
 
-// Run a Pi command: live events feed onStep (sub-tool UX), the authoritative
-// findings/usage/error are parsed from the complete stdout after completion.
+// Run a Pi command: live events feed onStep/onAssistantText (sub-tool and
+// streamed-summary UX), the authoritative findings/usage/error are parsed
+// from the complete stdout after completion.
 export async function runPi(
   sandbox: SandboxInstance,
-  opts: {
+  opts: PiCodeHandlers & {
     command: string
     timeoutSec: number
     workingDir: string
     abortSignal?: AbortSignal
-    onStep?: (step: PiCodeStep) => void
     logLabel: string
   }
 ): Promise<PiRunResult> {
-  const live = createPiEventCollector((step) => {
-    logger.info({ subTool: step.toolName }, `${opts.logLabel}: agent tool call`)
-    opts.onStep?.(step)
+  const live = createPiEventCollector({
+    onStep: (step) => {
+      logger.info(
+        { subTool: step.toolName },
+        `${opts.logLabel}: agent tool call`
+      )
+      opts.onStep?.(step)
+    },
+    ...(opts.onAssistantText ? { onAssistantText: opts.onAssistantText } : {}),
   })
 
   const result = await execToCompletion(sandbox, {
@@ -205,9 +248,7 @@ export async function runPi(
     workingDir: opts.workingDir,
     env: { AI_GATEWAY_API_KEY: env.AI_GATEWAY_API_KEY, IS_SANDBOX: "1" },
     abortSignal: opts.abortSignal,
-    // streamLogs invokes onStdout once per line after removing the newline.
-    // Consume each callback now instead of buffering for a delimiter that will
-    // never arrive, otherwise every nested tool event appears only at the end.
+    // Polled delivery: each chunk is one or more complete NDJSON lines.
     onStdout: (output) => live.consumeOutput(output),
   })
 

@@ -1,8 +1,8 @@
 import { authClient } from "@repo/auth/client"
+import { toast } from "@repo/ui/components/toast"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, Outlet } from "@tanstack/react-router"
 import { useEffect, useMemo, useRef, useState } from "react"
-import { toast } from "sonner"
 
 export const Route = createFileRoute("/_authenticated/$workspaceSlug")({
   component: WorkspaceLayout,

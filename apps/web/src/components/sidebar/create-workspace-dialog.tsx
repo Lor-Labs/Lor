@@ -11,10 +11,10 @@ import {
 } from "@repo/ui/components/dialog"
 import { Input } from "@repo/ui/components/input"
 import { Label } from "@repo/ui/components/label"
+import { Spinner } from "@repo/ui/components/spinner"
 import { sluggify } from "@repo/utils/slug"
 import { useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { Loader2 } from "lucide-react"
 import { useEffect, useState } from "react"
 import { apiClient } from "@/lib/api-client"
 
@@ -169,7 +169,7 @@ export function CreateWorkspaceDialog({
               Cancel
             </Button>
             <Button type="submit" disabled={!canSubmit}>
-              {loading && <Loader2 className="size-4 animate-spin" />}
+              {loading && <Spinner className="size-4" />}
               Create
             </Button>
           </DialogFooter>

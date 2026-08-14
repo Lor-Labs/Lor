@@ -49,6 +49,15 @@ const toolCallSchema = z.object({
         .optional(),
     })
     .optional(),
+  diff: z
+    .object({
+      path: z.string(),
+      additions: z.number().int().nonnegative(),
+      deletions: z.number().int().nonnegative(),
+      patch: z.string().optional(),
+      truncated: z.boolean().optional(),
+    })
+    .optional(),
   status: z.enum(["ok", "error"]).optional(),
 })
 

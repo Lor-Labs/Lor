@@ -1,6 +1,7 @@
+import { SourceCodeSquareIcon } from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
 import { cn } from "@repo/ui/lib/utils"
 import type { SuggestionKeyDownProps } from "@tiptap/suggestion"
-import { Code2 } from "lucide-react"
 import {
   forwardRef,
   useCallback,
@@ -28,7 +29,13 @@ export interface SlashCommandListProps {
 
 function CommandIcon({ id }: { id: SlashCommandItem["id"] }) {
   if (id.startsWith("code-block")) {
-    return <Code2 className="size-4" />
+    return (
+      <HugeiconsIcon
+        icon={SourceCodeSquareIcon}
+        className="size-4"
+        strokeWidth={2}
+      />
+    )
   }
 
   return null

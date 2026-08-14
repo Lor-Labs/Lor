@@ -1,10 +1,12 @@
+import { ArrowDown01Icon } from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
 import { Button } from "@repo/ui/components/button"
 import {
   MessageScrollerButton,
   useMessageScroller,
   useMessageScrollerScrollable,
 } from "@repo/ui/components/message-scroller"
-import { ArrowDown, LoaderCircle } from "lucide-react"
+import { Spinner } from "@repo/ui/components/spinner"
 import {
   type RefObject,
   useCallback,
@@ -173,13 +175,14 @@ export function MessageScrollerJumpToLatest({
   const content = (
     <>
       {isMerlinResponding && (
-        <LoaderCircle
-          className="size-3.5 animate-spin motion-reduce:animate-none"
-          strokeWidth={2}
-        />
+        <Spinner className="size-3.5 motion-reduce:animate-none" />
       )}
       <span>{label}</span>
-      <ArrowDown className="size-3.5" strokeWidth={2.25} />
+      <HugeiconsIcon
+        icon={ArrowDown01Icon}
+        className="size-3.5"
+        strokeWidth={2.25}
+      />
     </>
   )
 

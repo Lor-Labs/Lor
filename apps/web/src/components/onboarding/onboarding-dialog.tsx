@@ -1,3 +1,11 @@
+import {
+  ArrowLeft01Icon,
+  Cancel01Icon,
+  PlusSignIcon,
+  Tick02Icon,
+  UserGroupIcon,
+} from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
 import { Button } from "@repo/ui/components/button"
 import {
@@ -9,11 +17,11 @@ import {
 } from "@repo/ui/components/dialog"
 import { Input } from "@repo/ui/components/input"
 import { Label } from "@repo/ui/components/label"
+import { Spinner } from "@repo/ui/components/spinner"
 import { cn } from "@repo/ui/lib/utils"
 import { sluggify } from "@repo/utils/slug"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { ArrowLeft, Check, Loader2, Plus, Users, X } from "lucide-react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { WorkspaceAvatar } from "@/components/workspace/workspace-avatar"
 import { apiClient } from "@/lib/api-client"
@@ -350,16 +358,28 @@ export function OnboardingDialog({
                       />
                       <div className="absolute right-3 top-1/2 -translate-y-1/2">
                         {usernameAvailability === "checking" && (
-                          <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                          <Spinner className="size-4 text-muted-foreground" />
                         )}
                         {usernameAvailability === "available" && (
-                          <Check className="size-4 text-green-500" />
+                          <HugeiconsIcon
+                            icon={Tick02Icon}
+                            className="size-4 text-green-500"
+                            strokeWidth={2}
+                          />
                         )}
                         {usernameAvailability === "taken" && (
-                          <X className="size-4 text-destructive" />
+                          <HugeiconsIcon
+                            icon={Cancel01Icon}
+                            className="size-4 text-destructive"
+                            strokeWidth={2}
+                          />
                         )}
                         {usernameAvailability === "invalid" && (
-                          <X className="size-4 text-destructive" />
+                          <HugeiconsIcon
+                            icon={Cancel01Icon}
+                            className="size-4 text-destructive"
+                            strokeWidth={2}
+                          />
                         )}
                       </div>
                     </div>
@@ -388,9 +408,7 @@ export function OnboardingDialog({
                     className="w-full"
                     disabled={loading || usernameAvailability !== "available"}
                   >
-                    {loading && (
-                      <Loader2 className="mr-2 size-4 animate-spin" />
-                    )}
+                    {loading && <Spinner className="mr-2 size-4" />}
                     Continue
                   </Button>
                 </form>
@@ -411,7 +429,7 @@ export function OnboardingDialog({
 
                 {invitePreviewPending ? (
                   <div className="flex items-center justify-center py-8 text-sm text-muted-foreground">
-                    <Loader2 className="mr-2 size-4 animate-spin" />
+                    <Spinner className="mr-2 size-4" />
                     Loading invite…
                   </div>
                 ) : inviteUnavailable || !invitePreview ? (
@@ -441,7 +459,11 @@ export function OnboardingDialog({
                           {invitePreview.invite.workspace.name}
                         </p>
                         <p className="flex items-center gap-1 text-sm text-muted-foreground">
-                          <Users className="size-3.5" />
+                          <HugeiconsIcon
+                            icon={UserGroupIcon}
+                            className="size-3.5"
+                            strokeWidth={2}
+                          />
                           {invitePreview.invite.workspace.memberCount}{" "}
                           {invitePreview.invite.workspace.memberCount === 1
                             ? "member"
@@ -459,9 +481,7 @@ export function OnboardingDialog({
                       disabled={loading}
                       onClick={handleAcceptInvite}
                     >
-                      {loading && (
-                        <Loader2 className="mr-2 size-4 animate-spin" />
-                      )}
+                      {loading && <Spinner className="mr-2 size-4" />}
                       Join {invitePreview.invite.workspace.name}
                     </Button>
                     <button
@@ -496,7 +516,11 @@ export function OnboardingDialog({
                     className="group flex w-full items-center gap-4 rounded-lg border border-border bg-card p-4 text-left transition-colors hover:border-primary/50 hover:bg-accent"
                   >
                     <div className="flex size-10 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary group-hover:bg-primary/20">
-                      <Plus className="size-5" />
+                      <HugeiconsIcon
+                        icon={PlusSignIcon}
+                        className="size-5"
+                        strokeWidth={2}
+                      />
                     </div>
                     <div>
                       <p className="font-medium">Create a Workspace</p>
@@ -512,7 +536,11 @@ export function OnboardingDialog({
                     className="group flex w-full items-center gap-4 rounded-lg border border-border bg-card p-4 text-left transition-colors hover:border-primary/50 hover:bg-accent"
                   >
                     <div className="flex size-10 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary group-hover:bg-primary/20">
-                      <Users className="size-5" />
+                      <HugeiconsIcon
+                        icon={UserGroupIcon}
+                        className="size-5"
+                        strokeWidth={2}
+                      />
                     </div>
                     <div>
                       <p className="font-medium">Join an Existing Workspace</p>
@@ -535,7 +563,11 @@ export function OnboardingDialog({
                   }}
                   className="mb-6 flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
                 >
-                  <ArrowLeft className="size-3.5" />
+                  <HugeiconsIcon
+                    icon={ArrowLeft01Icon}
+                    className="size-3.5"
+                    strokeWidth={2}
+                  />
                   Back
                 </button>
 
@@ -591,9 +623,7 @@ export function OnboardingDialog({
                     className="w-full"
                     disabled={loading || !name.trim() || !sluggify(slug)}
                   >
-                    {loading && (
-                      <Loader2 className="mr-2 size-4 animate-spin" />
-                    )}
+                    {loading && <Spinner className="mr-2 size-4" />}
                     Create Workspace
                   </Button>
                 </form>
@@ -610,7 +640,11 @@ export function OnboardingDialog({
                   }}
                   className="mb-6 flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
                 >
-                  <ArrowLeft className="size-3.5" />
+                  <HugeiconsIcon
+                    icon={ArrowLeft01Icon}
+                    className="size-3.5"
+                    strokeWidth={2}
+                  />
                   Back
                 </button>
 
@@ -643,9 +677,7 @@ export function OnboardingDialog({
                     className="w-full"
                     disabled={loading || !inviteLink.trim()}
                   >
-                    {loading && (
-                      <Loader2 className="mr-2 size-4 animate-spin" />
-                    )}
+                    {loading && <Spinner className="mr-2 size-4" />}
                     Join Workspace
                   </Button>
                 </form>

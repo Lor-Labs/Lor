@@ -1,10 +1,11 @@
+import { ArrowRight01Icon } from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
 import { Button } from "@repo/ui/components/button"
 import {
   Popover,
   PopoverPopup,
   PopoverTrigger,
 } from "@repo/ui/components/popover"
-import { ChevronRight } from "lucide-react"
 import { ArtifactFileCard } from "@/components/chat/artifact-file-card"
 import { TaskPlanList } from "@/components/chat/task-plan-list"
 import { useTaskForCard } from "@/hooks/use-channel-tasks"
@@ -67,7 +68,11 @@ const SECTION_TRIGGER_CLASS =
 
 function SectionChevron() {
   return (
-    <ChevronRight className="size-3 transition-transform group-data-popup-open:rotate-90" />
+    <HugeiconsIcon
+      icon={ArrowRight01Icon}
+      className="size-3 transition-transform group-data-popup-open:rotate-90"
+      strokeWidth={2}
+    />
   )
 }
 
@@ -111,7 +116,10 @@ export function TaskThreadHeader({
       ? detail.pendingApproval
       : null
   const outputs = artifacts ?? []
-  const doneCount = task.plan.filter((item) => item.status === "done").length
+  const doneCount =
+    task.status === "completed"
+      ? task.plan.length
+      : task.plan.filter((item) => item.status === "done").length
   const fileCount = outputs.length + sources.length
   const showPlan = task.plan.length > 0
   const showFiles = fileCount > 0

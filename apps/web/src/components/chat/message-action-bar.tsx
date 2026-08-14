@@ -1,5 +1,7 @@
 import {
+  ArrowTurnBackwardIcon,
   MessageMultiple01Icon,
+  MoreHorizontalIcon,
   Pin02Icon,
   PinOffIcon,
 } from "@hugeicons/core-free-icons"
@@ -17,7 +19,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@repo/ui/components/tooltip"
-import { MoreHorizontal, Reply } from "lucide-react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { EmojiReactionPicker } from "@/components/chat/emoji-reaction-picker"
 
@@ -93,7 +94,11 @@ export function MessageActionBar({
             />
           }
         >
-          <Reply className="size-4" strokeWidth={1.5} />
+          <HugeiconsIcon
+            icon={ArrowTurnBackwardIcon}
+            className="size-4"
+            strokeWidth={1.5}
+          />
         </TooltipTrigger>
         <TooltipContent side="top">Reply</TooltipContent>
       </Tooltip>
@@ -135,7 +140,11 @@ export function MessageActionBar({
               />
             }
           >
-            <MoreHorizontal className="size-4" />
+            <HugeiconsIcon
+              icon={MoreHorizontalIcon}
+              className="size-4"
+              strokeWidth={2}
+            />
           </TooltipTrigger>
           <TooltipContent side="top">More actions</TooltipContent>
         </Tooltip>

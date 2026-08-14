@@ -1,4 +1,4 @@
-import { Pin02Icon } from "@hugeicons/core-free-icons"
+import { HashtagIcon, Pin02Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar"
 import {
@@ -8,7 +8,6 @@ import {
 } from "@repo/ui/components/tooltip"
 import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { useParams } from "@tanstack/react-router"
-import { Hash } from "lucide-react"
 import { ChannelMuteMenu } from "@/components/chat/channel-mute-menu"
 import { HeaderSearch } from "@/components/chat/header-search"
 import { HeaderNavControls } from "@/components/desktop-titlebar"
@@ -34,7 +33,11 @@ export function ChatHeader({
     <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-4">
       <HeaderNavControls className="-ml-2" withDivider />
       {context.type === "channel" && (
-        <Hash className="size-5 shrink-0 text-muted-foreground" />
+        <HugeiconsIcon
+          icon={HashtagIcon}
+          className="size-5 shrink-0 text-muted-foreground"
+          strokeWidth={2}
+        />
       )}
       {context.type === "dm" && (
         <Avatar size="sm">

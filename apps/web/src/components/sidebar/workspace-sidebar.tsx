@@ -1,4 +1,15 @@
-import { FolderAddIcon, Message01Icon } from "@hugeicons/core-free-icons"
+import {
+  FolderAddIcon,
+  HashtagIcon,
+  Message01Icon,
+  PlusSignCircleIcon,
+  PlusSignIcon,
+  RepeatIcon,
+  Settings01Icon,
+  Tick02Icon,
+  UnfoldMoreIcon,
+  UserAdd01Icon,
+} from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
 import { Button } from "@repo/ui/components/button"
@@ -31,16 +42,6 @@ import {
 } from "@repo/ui/components/tooltip"
 import { useQuery } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
-import {
-  Check,
-  ChevronsUpDown,
-  Hash,
-  Plus,
-  PlusCircle,
-  Repeat,
-  Settings,
-  UserPlus,
-} from "lucide-react"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { CreateInviteDialog } from "@/components/invite/create-invite-dialog"
 import { ChannelList } from "@/components/sidebar/channel-panel/channel-list"
@@ -199,7 +200,11 @@ function WorkspaceSidebarInner() {
                     </span>
                   )}
                 </div>
-                <ChevronsUpDown className="size-4 shrink-0 text-muted-foreground" />
+                <HugeiconsIcon
+                  icon={UnfoldMoreIcon}
+                  className="size-4 shrink-0 text-muted-foreground"
+                  strokeWidth={2}
+                />
               </DropdownMenuTrigger>
               <DropdownMenuContent
                 align="start"
@@ -214,21 +219,33 @@ function WorkspaceSidebarInner() {
                     onClick={() => openSettings("workspace")}
                     disabled={!activeWorkspace}
                   >
-                    <Settings className="size-4 text-muted-foreground" />
+                    <HugeiconsIcon
+                      icon={Settings01Icon}
+                      className="size-4 text-muted-foreground"
+                      strokeWidth={2}
+                    />
                     Workspace settings
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onClick={() => setInviteOpen(true)}
                     disabled={!activeWorkspace}
                   >
-                    <UserPlus className="size-4 text-muted-foreground" />
+                    <HugeiconsIcon
+                      icon={UserAdd01Icon}
+                      className="size-4 text-muted-foreground"
+                      strokeWidth={2}
+                    />
                     Invite people
                   </DropdownMenuItem>
                 </DropdownMenuGroup>
                 <DropdownMenuSeparator />
                 <DropdownMenuSub>
                   <DropdownMenuSubTrigger>
-                    <Repeat className="size-4 text-muted-foreground" />
+                    <HugeiconsIcon
+                      icon={RepeatIcon}
+                      className="size-4 text-muted-foreground"
+                      strokeWidth={2}
+                    />
                     Switch workspace
                   </DropdownMenuSubTrigger>
                   <DropdownMenuSubContent className="min-w-56">
@@ -253,7 +270,11 @@ function WorkspaceSidebarInner() {
                           />
                           <span className="truncate">{ws.name}</span>
                           {isActive && (
-                            <Check className="ml-auto size-4 text-muted-foreground" />
+                            <HugeiconsIcon
+                              icon={Tick02Icon}
+                              className="ml-auto size-4 text-muted-foreground"
+                              strokeWidth={2}
+                            />
                           )}
                         </DropdownMenuItem>
                       )
@@ -262,7 +283,11 @@ function WorkspaceSidebarInner() {
                     <DropdownMenuItem
                       onClick={() => setCreateWorkspaceOpen(true)}
                     >
-                      <PlusCircle className="size-4 text-muted-foreground" />
+                      <HugeiconsIcon
+                        icon={PlusSignCircleIcon}
+                        className="size-4 text-muted-foreground"
+                        strokeWidth={2}
+                      />
                       Create workspace
                     </DropdownMenuItem>
                   </DropdownMenuSubContent>
@@ -311,13 +336,17 @@ function WorkspaceSidebarInner() {
                     />
                   }
                 >
-                  <Plus />
+                  <HugeiconsIcon icon={PlusSignIcon} strokeWidth={2} />
                 </TooltipTrigger>
                 <TooltipContent>Create</TooltipContent>
               </Tooltip>
               <DropdownMenuContent align="end" sideOffset={6}>
                 <DropdownMenuItem onClick={() => openCreateChannel()}>
-                  <Hash className="size-4 mr-2" />
+                  <HugeiconsIcon
+                    icon={HashtagIcon}
+                    className="size-4 mr-2"
+                    strokeWidth={2}
+                  />
                   New channel
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={openCreateCategory}>

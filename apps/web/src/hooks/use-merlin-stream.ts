@@ -18,6 +18,13 @@ type ToolCall = {
   order?: number
   parentToolCallId?: string
   detail?: { summary?: string; items?: { title: string; url?: string }[] }
+  diff?: {
+    path: string
+    additions: number
+    deletions: number
+    patch?: string
+    truncated?: boolean
+  }
   status?: "ok" | "error"
 }
 

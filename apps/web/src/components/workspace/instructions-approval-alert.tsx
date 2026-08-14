@@ -1,7 +1,8 @@
+import { Scroll01Icon } from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
+import { toast } from "@repo/ui/components/toast"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { ScrollText } from "lucide-react"
 import { useEffect } from "react"
-import { toast } from "sonner"
 import { useSocket } from "@/context/socket-context"
 import { apiClient } from "@/lib/api-client"
 
@@ -60,7 +61,11 @@ export function InstructionsApprovalAlert({
       onClick={onReview}
       className="flex w-full cursor-pointer items-start gap-2 rounded-md border border-merlin/30 bg-merlin/10 px-2 py-1.5 text-left transition-colors hover:bg-merlin/15"
     >
-      <ScrollText className="mt-0.5 size-3.5 shrink-0 text-merlin" />
+      <HugeiconsIcon
+        icon={Scroll01Icon}
+        className="mt-0.5 size-3.5 shrink-0 text-merlin"
+        strokeWidth={2}
+      />
       <span className="min-w-0 text-xs leading-snug">
         <span className="font-medium">Merlin proposed new instructions</span>
         <span className="block text-muted-foreground">

@@ -1,4 +1,9 @@
 import {
+  Notification01Icon,
+  NotificationOff01Icon,
+} from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuGroup,
@@ -12,7 +17,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@repo/ui/components/tooltip"
-import { Bell, BellOff } from "lucide-react"
 import { MUTE_DURATIONS, useChannelMutes } from "@/hooks/use-channel-mutes"
 
 function mutedUntilLabel(mutedUntil: string | null) {
@@ -49,9 +53,19 @@ export function ChannelMuteMenu({ channelId }: { channelId: string }) {
           }
         >
           {mute ? (
-            <BellOff className="size-4" aria-hidden="true" />
+            <HugeiconsIcon
+              icon={NotificationOff01Icon}
+              className="size-4"
+              aria-hidden="true"
+              strokeWidth={2}
+            />
           ) : (
-            <Bell className="size-4" aria-hidden="true" />
+            <HugeiconsIcon
+              icon={Notification01Icon}
+              className="size-4"
+              aria-hidden="true"
+              strokeWidth={2}
+            />
           )}
         </TooltipTrigger>
         <TooltipContent>

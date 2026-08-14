@@ -16,12 +16,16 @@ type PreviewMention = {
 
 export function toSearchPreviewText(
   content: string | null,
-  mentions: PreviewMention[]
+  mentions: PreviewMention[],
+  // Task cards carry no mention rows, so an unresolvable token is dropped
+  // rather than rendered as @unknown-user.
+  options?: { dropUnresolvedMentions?: boolean }
 ) {
   if (!content) return ""
   const mentionById = new Map(mentions.map((mention) => [mention.id, mention]))
   const mentionLabel = (id: string) => {
     const mention = mentionById.get(id)
+    if (!mention && options?.dropUnresolvedMentions) return ""
     return `@${mention ? (mention.displayUsername ?? mention.username ?? mention.name) : "unknown-user"}`
   }
 
@@ -46,5 +50,6 @@ export function toSearchPreviewText(
     .replace(/(^|\W)_(\S(?:[^_\n]*?\S)?)_(?=\W|$)/g, "$1$2")
     .replace(/~~(\S(?:[\s\S]*?\S)?)~~/g, "$1")
     .replace(/`([^`\n]+)`/g, "$1")
+    .replace(/[^\S\n]{2,}/g, " ")
     .trim()
 }

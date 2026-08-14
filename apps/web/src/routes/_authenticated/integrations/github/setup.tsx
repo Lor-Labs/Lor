@@ -1,7 +1,7 @@
+import { Spinner } from "@repo/ui/components/spinner"
+import { toast } from "@repo/ui/components/toast"
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
-import { Loader2 } from "lucide-react"
 import { useEffect, useRef } from "react"
-import { toast } from "sonner"
 import { apiClient } from "@/lib/api-client"
 
 type SetupSearch = {
@@ -74,7 +74,7 @@ function GithubSetup() {
 
   return (
     <div className="flex h-full flex-1 items-center justify-center gap-2 text-sm text-muted-foreground">
-      <Loader2 className="size-4 animate-spin" />
+      <Spinner className="size-4" />
       Connecting GitHub…
     </div>
   )

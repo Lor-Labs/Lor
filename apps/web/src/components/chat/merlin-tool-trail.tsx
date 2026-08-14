@@ -1,3 +1,16 @@
+import {
+  ArrowRight01Icon,
+  BookOpen01Icon,
+  ComputerTerminal01Icon,
+  Download01Icon,
+  LinkSquare02Icon,
+  Message01Icon,
+  PencilEdit02Icon,
+  Search01Icon,
+  SourceCodeIcon,
+  Wrench01Icon,
+} from "@hugeicons/core-free-icons"
+import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react"
 import { env } from "@repo/env/client"
 import {
   ChainOfThought,
@@ -8,16 +21,6 @@ import {
   ChainOfThoughtStepTitle,
   ChainOfThoughtTrigger,
 } from "@repo/ui/components/nexus-ui/chain-of-thought"
-import {
-  BookOpen,
-  Code,
-  Download,
-  ExternalLink,
-  PencilLine,
-  Search,
-  Terminal,
-  Wrench,
-} from "lucide-react"
 import { type ComponentType, useState } from "react"
 import { MessageMarkdown } from "@/components/chat/message-markdown"
 import type { MerlinToolCallView } from "@/lib/api-types"
@@ -35,8 +38,23 @@ import {
 // streaming (so progress shows), collapsed once settled; the root stays
 // controlled so history doesn't flash open before auto-closing.
 
-// Brand marks and lucide glyphs share one shape here.
+// Brand marks and hugeicons glyphs share one shape here.
 type TrailIcon = ComponentType<{ className?: string }>
+
+function glyph(icon: IconSvgElement): TrailIcon {
+  return (props: { className?: string }) => (
+    <HugeiconsIcon icon={icon} strokeWidth={2} {...props} />
+  )
+}
+
+const CodeGlyph = glyph(SourceCodeIcon)
+const SearchGlyph = glyph(Search01Icon)
+const DownloadGlyph = glyph(Download01Icon)
+const ReadGlyph = glyph(BookOpen01Icon)
+const TerminalGlyph = glyph(ComputerTerminal01Icon)
+const WriteGlyph = glyph(PencilEdit02Icon)
+const WrenchGlyph = glyph(Wrench01Icon)
+const ExternalLinkGlyph = glyph(LinkSquare02Icon)
 
 function toolIcon(toolName: string): TrailIcon {
   // Connector tools wear their brand mark; built-in tools get an action glyph.
@@ -44,30 +62,30 @@ function toolIcon(toolName: string): TrailIcon {
   if (connector) return connectorLogo(connector)
   switch (toolName) {
     case "investigate_code":
-      return Code
+      return CodeGlyph
     case "search_sources":
     case "search_messages":
     case "grep":
     case "find":
-      return Search
+      return SearchGlyph
     case "search_web":
     case "fetch_web":
       return GlobeMark
     case "fetch_source":
-      return Download
+      return DownloadGlyph
     case "ls":
     case "tree":
     case "read":
-      return BookOpen
+      return ReadGlyph
     case "bash":
-      return Terminal
+      return TerminalGlyph
     case "write":
     case "mkdir":
     case "move":
     case "link":
-      return PencilLine
+      return WriteGlyph
     default:
-      return Wrench
+      return WrenchGlyph
   }
 }
 
@@ -75,7 +93,7 @@ function toolIcon(toolName: string): TrailIcon {
 // generic external-link glyph.
 function itemIcon(url?: string): TrailIcon {
   const connector = connectorForUrl(url)
-  return connector ? connectorLogo(connector) : ExternalLink
+  return connector ? connectorLogo(connector) : ExternalLinkGlyph
 }
 
 // Web results carry a favicon marker — badge them Codex-style, loading the
@@ -108,6 +126,122 @@ function ItemGlyph({ item }: { item: { url?: string; favicon?: string } }) {
 
 function hasDetail(t: MerlinToolCallView): boolean {
   return Boolean(t.detail?.summary || (t.detail?.items?.length ?? 0) > 0)
+}
+
+const SummaryGlyph = glyph(Message01Icon)
+
+// The sandbox agent's narration, presented as a final sub-step: expand for
+// the raw markdown — the polished version of this text is the answer itself.
+function SummaryRow({ text }: { text: string }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="flex flex-col gap-1">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="inline-flex cursor-pointer items-center gap-1.5 text-left text-muted-foreground text-xs hover:text-foreground"
+      >
+        <SummaryGlyph className="size-3 shrink-0" />
+        <span className="truncate">Summary</span>
+        <HugeiconsIcon
+          icon={ArrowRight01Icon}
+          className={`size-3 shrink-0 transition-transform ${open ? "rotate-90" : ""}`}
+          strokeWidth={2}
+        />
+      </button>
+      {open && (
+        <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border/50 bg-muted/30 p-2 font-mono text-[11px] text-muted-foreground/80 leading-4">
+          {text}
+        </pre>
+      )}
+    </div>
+  )
+}
+
+function diffLineClass(line: string): string {
+  if (
+    line.startsWith("+++") ||
+    line.startsWith("---") ||
+    line.startsWith("@@")
+  ) {
+    return "text-muted-foreground/60"
+  }
+  if (line.startsWith("+")) return "bg-success/10 text-success"
+  if (line.startsWith("-")) return "bg-destructive/10 text-destructive"
+  return "text-muted-foreground/80"
+}
+
+function DiffCounts({
+  diff,
+}: {
+  diff: NonNullable<MerlinToolCallView["diff"]>
+}) {
+  return (
+    <span className="shrink-0 tabular-nums">
+      <span className="text-success">+{diff.additions}</span>
+      {diff.deletions > 0 && (
+        <span className="ml-1 text-destructive">−{diff.deletions}</span>
+      )}
+    </span>
+  )
+}
+
+// A nested sandbox sub-step. File changes (write/edit) get Codex-style
+// +N/−N counts and expand into the unified diff.
+function SubStepRow({ toolCall }: { toolCall: MerlinToolCallView }) {
+  const [open, setOpen] = useState(false)
+  const Icon = toolIcon(toolCall.toolName)
+  const diff = toolCall.diff
+
+  const row = (
+    <>
+      <Icon className="size-3 shrink-0" />
+      <span className="truncate">{toolCall.label}</span>
+      {diff && <DiffCounts diff={diff} />}
+    </>
+  )
+  if (!diff?.patch) {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-muted-foreground text-xs">
+        {row}
+      </span>
+    )
+  }
+  return (
+    <div className="flex flex-col gap-1">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="inline-flex cursor-pointer items-center gap-1.5 text-left text-muted-foreground text-xs hover:text-foreground"
+      >
+        {row}
+        <HugeiconsIcon
+          icon={ArrowRight01Icon}
+          className={`size-3 shrink-0 transition-transform ${open ? "rotate-90" : ""}`}
+          strokeWidth={2}
+        />
+      </button>
+      {open && (
+        <pre className="max-h-64 overflow-auto rounded-md border border-border/50 bg-muted/30 p-2 font-mono text-[11px] leading-4">
+          {diff.patch.split("\n").map((line, i) => (
+            <div
+              // Patch lines have no identity beyond position.
+              // biome-ignore lint/suspicious/noArrayIndexKey: static content
+              key={i}
+              className={`whitespace-pre-wrap break-all px-1 ${diffLineClass(line)}`}
+            >
+              {line || " "}
+            </div>
+          ))}
+          {diff.truncated && (
+            <div className="px-1 text-muted-foreground/60">
+              … diff truncated
+            </div>
+          )}
+        </pre>
+      )}
+    </div>
+  )
 }
 
 // `status` is absent while a call is in flight. During streaming that means
@@ -163,7 +297,7 @@ export function MerlinToolTrail({
               </ChainOfThoughtStepTitle>
               {drillable && (
                 <ChainOfThoughtStepContent className="space-y-1">
-                  {t.detail?.summary && (
+                  {t.detail?.summary && children.length === 0 && (
                     // Full output, markdown parsed but kept dim and small so it
                     // reads as detail under the step; scrollable so the user can
                     // read everything.
@@ -179,18 +313,12 @@ export function MerlinToolTrail({
                       streamed live as it explores. */}
                   {children.length > 0 && (
                     <div className="flex flex-col gap-1 border-border/50 border-l pl-2.5">
-                      {children.map((c) => {
-                        const ChildIcon = toolIcon(c.toolName)
-                        return (
-                          <span
-                            key={c.toolCallId}
-                            className="inline-flex items-center gap-1.5 text-muted-foreground text-xs"
-                          >
-                            <ChildIcon className="size-3 shrink-0" />
-                            <span className="truncate">{c.label}</span>
-                          </span>
-                        )
-                      })}
+                      {children.map((c) => (
+                        <SubStepRow key={c.toolCallId} toolCall={c} />
+                      ))}
+                      {t.detail?.summary && (
+                        <SummaryRow text={t.detail.summary} />
+                      )}
                     </div>
                   )}
                   {t.detail?.items?.map((it) => {

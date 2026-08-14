@@ -213,6 +213,15 @@ export type MerlinToolCall = {
     // favicon: site icon url for web results — rendered on the item's badge.
     items?: { title: string; url?: string; favicon?: string }[]
   }
+  // File change a nested sandbox sub-step made (write/edit): line counts for
+  // the row label and a bounded unified diff for the expandable view.
+  diff?: {
+    path: string
+    additions: number
+    deletions: number
+    patch?: string
+    truncated?: boolean
+  }
   // Artifact deliverables this call produced (create_artifacts) — presented
   // as file cards at the end of the message, opening the artifact viewer.
   files?: {
@@ -223,6 +232,13 @@ export type MerlinToolCall = {
     url: string
   }[]
   status?: "ok" | "error"
+}
+
+// Streamed tool-trail frame: a start/result frame carries the full row, a
+// mid-flight update (sandbox summary text, diffs) may be partial — merged
+// onto the existing row by toolCallId.
+export type MerlinToolCallUpdate = Partial<MerlinToolCall> & {
+  toolCallId: string
 }
 
 export type MerlinReasoningSegment = {

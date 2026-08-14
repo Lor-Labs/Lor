@@ -1,3 +1,5 @@
+import { Message01Icon } from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
 import { Badge } from "@repo/ui/components/badge"
 import { Button } from "@repo/ui/components/button"
@@ -7,12 +9,11 @@ import {
   PopoverTrigger,
 } from "@repo/ui/components/popover"
 import { Skeleton } from "@repo/ui/components/skeleton"
+import { toast } from "@repo/ui/components/toast"
 import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { MessageCircle } from "lucide-react"
 import { useState } from "react"
-import { toast } from "sonner"
 import { UserAvatar } from "@/components/ui/user-avatar"
 import { apiClient } from "@/lib/api-client"
 
@@ -142,7 +143,11 @@ function ProfileCardContent({
             disabled={isMutating}
             onClick={() => createDM.mutate()}
           >
-            <MessageCircle className="size-4" />
+            <HugeiconsIcon
+              icon={Message01Icon}
+              className="size-4"
+              strokeWidth={2}
+            />
             Message
           </Button>
         </div>

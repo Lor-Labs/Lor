@@ -1,6 +1,6 @@
+import { toast } from "@repo/ui/components/toast"
 import { useQueryClient } from "@tanstack/react-query"
 import { useEffect } from "react"
-import { toast } from "sonner"
 import { useSocket } from "@/context/socket-context"
 
 // Global billing listener: keeps billing queries fresh everywhere and

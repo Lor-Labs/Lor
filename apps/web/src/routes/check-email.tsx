@@ -1,3 +1,5 @@
+import { Mail01Icon, MailValidation01Icon } from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
 import { Button } from "@repo/ui/components/button"
 import {
@@ -6,9 +8,9 @@ import {
   CardFooter,
   CardHeader,
 } from "@repo/ui/components/card"
+import { Spinner } from "@repo/ui/components/spinner"
 import { useMutation } from "@tanstack/react-query"
 import { createFileRoute, Link } from "@tanstack/react-router"
-import { Loader2, Mail, MailCheck } from "lucide-react"
 import { AuthLayout } from "@/components/auth/auth-layout"
 import { sanitizeRedirect } from "@/lib/auth-redirect"
 
@@ -46,7 +48,11 @@ function CheckEmailPage() {
       <Card className="w-full border-border/50 bg-card/80 shadow-xl backdrop-blur-sm">
         <CardHeader className="flex flex-col items-center gap-4 pt-8">
           <div className="flex size-16 items-center justify-center rounded-full bg-primary/10 ring-1 ring-primary/20">
-            <Mail className="size-8 text-primary" />
+            <HugeiconsIcon
+              icon={Mail01Icon}
+              className="size-8 text-primary"
+              strokeWidth={2}
+            />
           </div>
           <div className="space-y-1 text-center">
             <h2 className="text-xl font-semibold text-foreground">
@@ -74,12 +80,16 @@ function CheckEmailPage() {
             >
               {isPending ? (
                 <>
-                  <Loader2 className="size-4 animate-spin" />
+                  <Spinner className="size-4" />
                   Sending...
                 </>
               ) : isSuccess ? (
                 <>
-                  <MailCheck className="size-4" />
+                  <HugeiconsIcon
+                    icon={MailValidation01Icon}
+                    className="size-4"
+                    strokeWidth={2}
+                  />
                   Email sent!
                 </>
               ) : (

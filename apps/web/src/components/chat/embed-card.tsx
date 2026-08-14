@@ -1,5 +1,6 @@
+import { LinkSquare02Icon } from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
 import { cn } from "@repo/ui/lib/utils"
-import { ExternalLink } from "lucide-react"
 import type { Message } from "@/lib/api-types"
 
 type Embed = Message["embeds"][number]
@@ -43,7 +44,11 @@ export function EmbedCard({ embed, className }: EmbedCardProps) {
             rel="noreferrer noopener"
             className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
           >
-            <ExternalLink className="size-3.5" />
+            <HugeiconsIcon
+              icon={LinkSquare02Icon}
+              className="size-3.5"
+              strokeWidth={2}
+            />
             {embed.url}
           </a>
         )}

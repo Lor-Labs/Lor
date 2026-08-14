@@ -1,4 +1,9 @@
-import { Pin02Icon } from "@hugeicons/core-free-icons"
+import {
+  ArrowRight01Icon,
+  BrainIcon,
+  Pin02Icon,
+  SquareIcon,
+} from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
   AlertDialog,
@@ -19,7 +24,6 @@ import {
 import { cn } from "@repo/ui/lib/utils"
 import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { formatTime, timeAgo } from "@repo/utils/date"
-import { Brain, ChevronRight, Square } from "lucide-react"
 import { useCallback, useEffect, useState } from "react"
 import type { MentionCandidate } from "@/components/chat/composer/mention-types"
 import { EmbedCard } from "@/components/chat/embed-card"
@@ -161,7 +165,11 @@ function MerlinRunControls({ message }: { message: Message }) {
           disabled={stop.isPending}
           className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-border/70 px-1.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
         >
-          <Square className="size-2.5 fill-current" />
+          <HugeiconsIcon
+            icon={SquareIcon}
+            className="size-2.5 fill-current"
+            strokeWidth={2}
+          />
           Stop
         </button>
       )}
@@ -214,7 +222,8 @@ function ThreadFooter({
       <span className="truncate text-muted-foreground">
         Last reply {timeAgo(summary.lastReplyAt)}
       </span>
-      <ChevronRight
+      <HugeiconsIcon
+        icon={ArrowRight01Icon}
         className="-mr-0.5 ml-auto size-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover/thread:opacity-100"
         strokeWidth={2.25}
       />
@@ -618,7 +627,11 @@ export function MessageItem({
                   key={r.path}
                   className="inline-flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 py-1 pr-2.5 pl-2 text-xs text-muted-foreground"
                 >
-                  <Brain className="size-3.5 shrink-0 text-primary" />
+                  <HugeiconsIcon
+                    icon={BrainIcon}
+                    className="size-3.5 shrink-0 text-primary"
+                    strokeWidth={2}
+                  />
                   <span>
                     {r.action === "created"
                       ? "Saved to memory"

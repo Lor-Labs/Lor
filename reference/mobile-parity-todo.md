@@ -24,6 +24,7 @@ Core task surfaces shipped 2026-08-10 (`use-tasks.ts`, `task-ui.tsx`, `task-card
 - [x] Approve/reject from mobile (`POST /v1/approvals/:id/approve|reject`) — 2026-08-10
 - [x] Deliverables at the end of Merlin messages (`files` on create_artifacts tool calls) as tappable file rows — 2026-08-10
 - [ ] Artifact viewer — deliberately punted: artifacts open in the in-app browser sheet (`openExternalUrl`), same as attachments. A native CSV/markdown viewer screen is post-demand, mirroring web's read-only decision.
+- [ ] Sandbox sub-step diffs + live summary (2026-08-13, web shipped): `merlin:tool` frames now carry `diff` ({path, additions, deletions, patch}) on write/edit sub-steps and stream the sandbox agent's text into the parent call's `detail.summary` mid-run. Mobile's `merlin-message-body.tsx` ignores both (additive, nothing breaks) — needs +N/−N counts and an expandable diff row to match web's `merlin-tool-trail.tsx`.
 - Known gap: `task:updated` arrives via the channel room; a deep-linked thread (push tap) without the channel screen mounted misses live task flips until refetch-on-mount/focus. Fine for v1.
 - Active-tasks indicator in the channel header — dropped; web removed its own header chip in the 2026-08-09 design round.
 

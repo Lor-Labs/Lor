@@ -278,6 +278,57 @@ export const toastManager: ReturnType<typeof Toast.createToastManager> =
 export const anchoredToastManager: ReturnType<typeof Toast.createToastManager> =
   Toast.createToastManager()
 
+type ToastOptions = {
+  description?: string
+  action?: { label: string; onClick: () => void }
+}
+
+let toastSeq = 0
+
+function addToast(
+  type: "success" | "error" | "info" | "warning" | "loading" | undefined,
+  title: string,
+  options?: ToastOptions
+): string {
+  const id = `toast-${++toastSeq}`
+  const action = options?.action
+  toastManager.add({
+    id,
+    title,
+    ...(type ? { type } : {}),
+    ...(options?.description ? { description: options.description } : {}),
+    ...(action
+      ? {
+          actionProps: {
+            children: action.label,
+            // Toast.Action does not close on click by itself.
+            onClick: () => {
+              action.onClick()
+              toastManager.close(id)
+            },
+          },
+        }
+      : {}),
+  })
+  return id
+}
+
+// Imperative API over the global manager: toast.success("…", { description }).
+export const toast = Object.assign(
+  (title: string, options?: ToastOptions) =>
+    addToast(undefined, title, options),
+  {
+    success: (title: string, options?: ToastOptions) =>
+      addToast("success", title, options),
+    error: (title: string, options?: ToastOptions) =>
+      addToast("error", title, options),
+    info: (title: string, options?: ToastOptions) =>
+      addToast("info", title, options),
+    warning: (title: string, options?: ToastOptions) =>
+      addToast("warning", title, options),
+  }
+)
+
 export type ToastPosition =
   | "top-left"
   | "top-center"

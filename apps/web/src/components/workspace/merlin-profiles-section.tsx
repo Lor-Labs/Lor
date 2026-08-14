@@ -1,11 +1,18 @@
+import {
+  Delete02Icon,
+  PencilEdit01Icon,
+  PlusSignIcon,
+  Tick02Icon,
+} from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
 import { Badge } from "@repo/ui/components/badge"
 import { Button } from "@repo/ui/components/button"
 import { Input } from "@repo/ui/components/input"
+import { Spinner } from "@repo/ui/components/spinner"
+import { toast } from "@repo/ui/components/toast"
 import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Check, Loader2, Pencil, Plus, Trash2 } from "lucide-react"
 import { useState } from "react"
-import { toast } from "sonner"
 import { apiClient } from "@/lib/api-client"
 import type {
   AgentProfile,
@@ -107,7 +114,9 @@ function CapabilityTile({
             : "border-muted-foreground/30"
         )}
       >
-        {selected && <Check className="size-3" />}
+        {selected && (
+          <HugeiconsIcon icon={Tick02Icon} className="size-3" strokeWidth={2} />
+        )}
       </span>
     </button>
   )
@@ -186,7 +195,11 @@ function ProfileRow({
             aria-label="Edit profile"
             onClick={() => setEditing(true)}
           >
-            <Pencil className="size-3.5" />
+            <HugeiconsIcon
+              icon={PencilEdit01Icon}
+              className="size-3.5"
+              strokeWidth={2}
+            />
           </Button>
           {onDelete && (
             <Button
@@ -195,7 +208,11 @@ function ProfileRow({
               aria-label="Delete profile"
               onClick={onDelete}
             >
-              <Trash2 className="size-3.5" />
+              <HugeiconsIcon
+                icon={Delete02Icon}
+                className="size-3.5"
+                strokeWidth={2}
+              />
             </Button>
           )}
         </div>
@@ -327,7 +344,7 @@ export function MerlinProfilesSection({
   if (isPending) {
     return (
       <div className="flex justify-center py-10">
-        <Loader2 className="size-5 animate-spin text-muted-foreground" />
+        <Spinner className="size-5 text-muted-foreground" />
       </div>
     )
   }
@@ -371,7 +388,11 @@ export function MerlinProfilesSection({
         />
       ) : (
         <Button variant="outline" size="sm" onClick={() => setCreating(true)}>
-          <Plus className="size-4" />
+          <HugeiconsIcon
+            icon={PlusSignIcon}
+            className="size-4"
+            strokeWidth={2}
+          />
           New profile
         </Button>
       )}

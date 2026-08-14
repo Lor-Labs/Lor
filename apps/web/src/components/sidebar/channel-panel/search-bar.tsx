@@ -1,9 +1,11 @@
+import { Cancel01Icon, Search01Icon } from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
 import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar"
+import { Spinner } from "@repo/ui/components/spinner"
 import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { formatTime } from "@repo/utils/date"
 import { useQuery } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
-import { Loader2, Search, X } from "lucide-react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useMessageSearchNavigation } from "@/hooks/use-message-search-navigation"
 import { apiClient } from "@/lib/api-client"
@@ -149,7 +151,11 @@ export function SearchBar({
     <div ref={containerRef} className="relative shrink-0 pt-3 pb-1">
       <div className="flex min-w-0 items-center gap-1.5">
         <div className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md border border-border bg-background px-2.5 text-[13px]">
-          <Search className="size-3.5 shrink-0 text-muted-foreground" />
+          <HugeiconsIcon
+            icon={Search01Icon}
+            className="size-3.5 shrink-0 text-muted-foreground"
+            strokeWidth={2}
+          />
           <input
             ref={inputRef}
             type="text"
@@ -168,7 +174,12 @@ export function SearchBar({
               aria-label="Clear search"
               className="cursor-pointer text-muted-foreground hover:text-foreground"
             >
-              <X className="size-3.5" aria-hidden="true" />
+              <HugeiconsIcon
+                icon={Cancel01Icon}
+                className="size-3.5"
+                aria-hidden="true"
+                strokeWidth={2}
+              />
             </button>
           )}
         </div>
@@ -179,7 +190,7 @@ export function SearchBar({
         <div className="absolute right-3 left-3 z-50 mt-1 max-h-80 overflow-y-auto rounded-md border border-border bg-popover shadow-lg">
           {isPending && (
             <div className="flex items-center justify-center py-6">
-              <Loader2 className="size-4 animate-spin text-muted-foreground" />
+              <Spinner className="size-4 text-muted-foreground" />
             </div>
           )}
           {data && data.data.length === 0 && (

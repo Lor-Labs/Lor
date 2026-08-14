@@ -1,19 +1,20 @@
+import {
+  ArrowDown01Icon,
+  Clock01Icon,
+  ImageAdd01Icon,
+  Tick02Icon,
+  WebhookIcon,
+} from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
 import { env } from "@repo/env/client"
 import { Button } from "@repo/ui/components/button"
 import { Input } from "@repo/ui/components/input"
 import { Label } from "@repo/ui/components/label"
+import { Spinner } from "@repo/ui/components/spinner"
+import { toast } from "@repo/ui/components/toast"
 import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import {
-  Check,
-  ChevronDown,
-  Clock,
-  ImagePlus,
-  Loader2,
-  Webhook,
-} from "lucide-react"
 import { useRef, useState } from "react"
-import { toast } from "sonner"
 import { apiClient } from "@/lib/api-client"
 
 const AVATAR_MIME_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"]
@@ -84,7 +85,11 @@ function WebhookAvatar({
       {src ? (
         <img src={src} alt="" className="size-full object-cover" />
       ) : (
-        <Webhook className={iconClassName} />
+        <HugeiconsIcon
+          icon={WebhookIcon}
+          className={iconClassName}
+          strokeWidth={2}
+        />
       )}
     </span>
   )
@@ -117,9 +122,13 @@ function AvatarPicker({
         />
         <span className="absolute -top-1.5 -right-1.5 flex items-center justify-center rounded-full border border-border bg-background p-1.5 text-muted-foreground shadow-sm transition-colors group-hover:text-foreground">
           {busy ? (
-            <Loader2 className="size-3.5 animate-spin" />
+            <Spinner className="size-3.5" />
           ) : (
-            <ImagePlus className="size-3.5" />
+            <HugeiconsIcon
+              icon={ImageAdd01Icon}
+              className="size-3.5"
+              strokeWidth={2}
+            />
           )}
         </span>
       </button>
@@ -262,7 +271,7 @@ export function ChannelWebhooksTab({
 
       {isPending ? (
         <div className="flex justify-center py-6">
-          <Loader2 className="size-4 animate-spin text-muted-foreground" />
+          <Spinner className="size-4 text-muted-foreground" />
         </div>
       ) : webhooks.length === 0 ? (
         <p className="text-xs text-muted-foreground">No webhooks yet.</p>
@@ -300,7 +309,11 @@ export function ChannelWebhooksTab({
                         {hook.name}
                       </div>
                       <div className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
-                        <Clock className="size-3" />
+                        <HugeiconsIcon
+                          icon={Clock01Icon}
+                          className="size-3"
+                          strokeWidth={2}
+                        />
                         <span className="truncate">
                           Created on {formatCreatedAt(hook.createdAt)}
                           {hook.createdByName
@@ -309,11 +322,13 @@ export function ChannelWebhooksTab({
                         </span>
                       </div>
                     </div>
-                    <ChevronDown
+                    <HugeiconsIcon
+                      icon={ArrowDown01Icon}
                       className={cn(
                         "size-4 shrink-0 text-muted-foreground transition-transform",
                         isOpen && "rotate-180"
                       )}
+                      strokeWidth={2}
                     />
                   </button>
 
@@ -372,7 +387,11 @@ export function ChannelWebhooksTab({
                           onClick={() => handleCopy(hook.id, hook.token)}
                         >
                           {copiedId === hook.id && (
-                            <Check className="size-3.5" />
+                            <HugeiconsIcon
+                              icon={Tick02Icon}
+                              className="size-3.5"
+                              strokeWidth={2}
+                            />
                           )}
                           Copy Webhook URL
                         </Button>

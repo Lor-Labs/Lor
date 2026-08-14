@@ -1,3 +1,17 @@
+import {
+  ArrowDown01Icon,
+  Camera01Icon,
+  Cancel01Icon,
+  CreditCardIcon,
+  Layers01Icon,
+  LinkSquare02Icon,
+  Plug01Icon,
+  Scroll01Icon,
+  Settings01Icon,
+  SquareLock02Icon,
+  Upload01Icon,
+} from "@hugeicons/core-free-icons"
+import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
 import {
   AlertDialog,
@@ -27,26 +41,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@repo/ui/components/select"
+import { Spinner } from "@repo/ui/components/spinner"
+import { toast } from "@repo/ui/components/toast"
 import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import {
-  Camera,
-  ChevronDown,
-  CreditCard,
-  ExternalLink,
-  Layers,
-  Loader2,
-  Lock,
-  Plug,
-  ScrollText,
-  Settings,
-  Upload,
-  X,
-} from "lucide-react"
 import { AnimatePresence, motion } from "motion/react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
-import { toast } from "sonner"
 import { BillingSection } from "@/components/workspace/billing-section"
 import { InstructionsSection } from "@/components/workspace/instructions-section"
 import { MerlinProfilesSection } from "@/components/workspace/merlin-profiles-section"
@@ -89,12 +90,12 @@ export type SectionId =
   | "instructions"
   | "billing"
 
-const SECTIONS: { id: SectionId; label: string; icon: typeof Settings }[] = [
-  { id: "general", label: "General", icon: Settings },
-  { id: "connectors", label: "Connectors", icon: Plug },
-  { id: "merlin", label: "Agent profiles", icon: Layers },
-  { id: "instructions", label: "Instructions", icon: ScrollText },
-  { id: "billing", label: "Billing", icon: CreditCard },
+const SECTIONS: { id: SectionId; label: string; icon: IconSvgElement }[] = [
+  { id: "general", label: "General", icon: Settings01Icon },
+  { id: "connectors", label: "Connectors", icon: Plug01Icon },
+  { id: "merlin", label: "Agent profiles", icon: Layers01Icon },
+  { id: "instructions", label: "Instructions", icon: Scroll01Icon },
+  { id: "billing", label: "Billing", icon: CreditCardIcon },
 ]
 
 // Resolves the URL ?tab= value to a section, so openers don't hand-maintain
@@ -242,7 +243,11 @@ export function WorkspaceSettingsDialog({
                       : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"
                   )}
                 >
-                  <s.icon className="size-4" />
+                  <HugeiconsIcon
+                    icon={s.icon}
+                    className="size-4"
+                    strokeWidth={2}
+                  />
                   {s.label}
                 </button>
               ))}
@@ -260,7 +265,11 @@ export function WorkspaceSettingsDialog({
                   aria-label="Close"
                   className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
                 >
-                  <X className="size-4" />
+                  <HugeiconsIcon
+                    icon={Cancel01Icon}
+                    className="size-4"
+                    strokeWidth={2}
+                  />
                 </button>
               </div>
               <div className="min-h-0 flex-1 overflow-y-auto p-6">
@@ -440,11 +449,19 @@ function GeneralSection({
             imgClassName="rounded-lg"
           />
           <span className="absolute inset-0 flex items-center justify-center rounded-xl bg-black/50 opacity-0 transition-opacity group-hover:opacity-100">
-            <Camera className="size-5 text-white" />
+            <HugeiconsIcon
+              icon={Camera01Icon}
+              className="size-5 text-white"
+              strokeWidth={2}
+            />
           </span>
         </span>
         <span className="flex items-center gap-1 text-xs text-muted-foreground">
-          <Upload className="size-3" />
+          <HugeiconsIcon
+            icon={Upload01Icon}
+            className="size-3"
+            strokeWidth={2}
+          />
           Click or drag & drop to change icon
         </span>
         <input
@@ -472,7 +489,7 @@ function GeneralSection({
           onClick={handleSave}
           disabled={!hasChanges || !isValid || isSaving}
         >
-          {isSaving && <Loader2 className="size-4 animate-spin" />}
+          {isSaving && <Spinner className="size-4" />}
           Save Changes
         </Button>
       </div>
@@ -572,7 +589,7 @@ function ConnectorsSection({ workspaceSlug }: { workspaceSlug: string }) {
   if (isPending) {
     return (
       <div className="flex justify-center py-10">
-        <Loader2 className="size-5 animate-spin text-muted-foreground" />
+        <Spinner className="size-5 text-muted-foreground" />
       </div>
     )
   }
@@ -723,11 +740,13 @@ function ConnectorsSection({ workspaceSlug }: { workspaceSlug: string }) {
                     }
                     onClick={() => setExpandedId(isExpanded ? null : p.id)}
                   >
-                    <ChevronDown
+                    <HugeiconsIcon
+                      icon={ArrowDown01Icon}
                       className={cn(
                         "size-4 transition-transform",
                         isExpanded && "rotate-180"
                       )}
+                      strokeWidth={2}
                     />
                   </Button>
                 )}
@@ -818,7 +837,11 @@ function ConnectorsSection({ workspaceSlug }: { workspaceSlug: string }) {
                       className="inline-flex shrink-0 cursor-pointer items-center gap-1 text-xs text-muted-foreground hover:text-foreground hover:underline"
                     >
                       Manage on {p.name}
-                      <ExternalLink className="size-3" />
+                      <HugeiconsIcon
+                        icon={LinkSquare02Icon}
+                        className="size-3"
+                        strokeWidth={2}
+                      />
                     </a>
                   )}
                 </div>
@@ -829,7 +852,13 @@ function ConnectorsSection({ workspaceSlug }: { workspaceSlug: string }) {
                         key={r.fullName}
                         className="inline-flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-xs text-muted-foreground"
                       >
-                        {r.private && <Lock className="size-2.5 shrink-0" />}
+                        {r.private && (
+                          <HugeiconsIcon
+                            icon={SquareLock02Icon}
+                            className="size-2.5 shrink-0"
+                            strokeWidth={2}
+                          />
+                        )}
                         {r.fullName}
                       </span>
                     ))}
@@ -1039,7 +1068,7 @@ function DatadogConnectDialog({
             onClick={() => connect.mutate()}
             disabled={!apiKey.trim() || !appKey.trim() || connect.isPending}
           >
-            {connect.isPending && <Loader2 className="size-4 animate-spin" />}
+            {connect.isPending && <Spinner className="size-4" />}
             Connect
           </Button>
         </DialogFooter>

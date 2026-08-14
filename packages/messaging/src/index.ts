@@ -11,7 +11,11 @@ import {
   USER_MENTION_REGEX,
 } from "./mentions"
 
-export { extractDirectMentionUserIds } from "./mentions"
+export {
+  extractDirectMentionUserIds,
+  MARKDOWN_USER_MENTION_REGEX,
+  USER_MENTION_REGEX,
+} from "./mentions"
 
 // Minimal shapes so both realtime (human send) and worker (Merlin reply) can call this.
 type FanoutChannel = {

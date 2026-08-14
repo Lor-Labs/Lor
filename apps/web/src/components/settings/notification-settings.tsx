@@ -1,3 +1,5 @@
+import { Notification01Icon } from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
 import { Button } from "@repo/ui/components/button"
 import { Label } from "@repo/ui/components/label"
 import {
@@ -8,10 +10,10 @@ import {
   SelectValue,
 } from "@repo/ui/components/select"
 import { Separator } from "@repo/ui/components/separator"
+import { Spinner } from "@repo/ui/components/spinner"
+import { toast } from "@repo/ui/components/toast"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Bell, Loader2 } from "lucide-react"
 import { useEffect, useState } from "react"
-import { toast } from "sonner"
 import { apiClient } from "@/lib/api-client"
 import {
   getNotificationPermission,
@@ -86,7 +88,7 @@ export function NotificationSettings() {
   if (isPending) {
     return (
       <div className="flex items-center justify-center py-12">
-        <Loader2 className="size-5 animate-spin text-muted-foreground" />
+        <Spinner className="size-5 text-muted-foreground" />
       </div>
     )
   }
@@ -104,7 +106,11 @@ export function NotificationSettings() {
 
       {permissionState !== "granted" && (
         <div className="flex items-center gap-3 rounded-lg border p-4">
-          <Bell className="size-5 shrink-0 text-muted-foreground" />
+          <HugeiconsIcon
+            icon={Notification01Icon}
+            className="size-5 shrink-0 text-muted-foreground"
+            strokeWidth={2}
+          />
           <div className="flex-1">
             <p className="text-sm font-medium">Enable Desktop Notifications</p>
             <p className="text-xs text-muted-foreground">

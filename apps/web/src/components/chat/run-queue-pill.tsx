@@ -1,6 +1,7 @@
+import { CornerDownRightIcon, Delete02Icon } from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
+import { toast } from "@repo/ui/components/toast"
 import { useMutation } from "@tanstack/react-query"
-import { CornerDownRight, Trash2 } from "lucide-react"
-import { toast } from "sonner"
 import { useSocket } from "@/context/socket-context"
 import { apiClient } from "@/lib/api-client"
 import type { Message } from "@/lib/api-types"
@@ -88,7 +89,11 @@ function QueueRow({
 
   return (
     <div className="flex items-center gap-2 px-2.5 py-1.5 text-[12.5px] not-last:border-b not-last:border-border/50">
-      <CornerDownRight className="size-3.5 shrink-0 text-muted-foreground" />
+      <HugeiconsIcon
+        icon={CornerDownRightIcon}
+        className="size-3.5 shrink-0 text-muted-foreground"
+        strokeWidth={2}
+      />
       {!isOwn && (
         <span className="shrink-0 font-medium text-muted-foreground">
           {message.overrideName ?? message.author.name}
@@ -109,7 +114,11 @@ function QueueRow({
           title={isOwn ? "Steer now (Enter)" : "Steer now"}
           className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-default disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
         >
-          <CornerDownRight className="size-3 -scale-y-100" />
+          <HugeiconsIcon
+            icon={CornerDownRightIcon}
+            className="size-3 -scale-y-100"
+            strokeWidth={2}
+          />
           Steer
         </button>
       )}
@@ -121,7 +130,11 @@ function QueueRow({
           aria-label="Remove from queue"
           className="inline-flex shrink-0 cursor-pointer items-center rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-default disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
         >
-          <Trash2 className="size-3" />
+          <HugeiconsIcon
+            icon={Delete02Icon}
+            className="size-3"
+            strokeWidth={2}
+          />
         </button>
       )}
     </div>

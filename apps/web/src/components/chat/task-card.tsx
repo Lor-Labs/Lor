@@ -11,6 +11,7 @@ import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-
 import { useTaskForCard } from "@/hooks/use-channel-tasks"
 import { useTaskArtifacts } from "@/hooks/use-task"
 import type { Message } from "@/lib/api-types"
+import { toSearchPreviewText } from "@/lib/search-preview"
 import { TASK_STATUS_META } from "@/lib/task-ui"
 
 // The card a task_card message renders as: title and outcome in the header, the
@@ -45,7 +46,9 @@ export function TaskCard({
           />
         )}
         <p className="line-clamp-2 px-4 py-3.5 text-muted-foreground text-sm leading-5">
-          {message.content}
+          {toSearchPreviewText(message.content, message.mentions ?? [], {
+            dropUnresolvedMentions: true,
+          })}
         </p>
       </div>
     )
@@ -54,8 +57,13 @@ export function TaskCard({
   const meta = TASK_STATUS_META[task.status]
   const isComplete = task.status === "completed"
   // One description slot, showing whatever matters most right now: the outcome
-  // once delivered, otherwise the ask that started the task.
-  const description = (isComplete ? task.summary : null) ?? task.goal
+  // once delivered, otherwise the ask that started the task. Rendered as plain
+  // text, so mention tokens and markdown are flattened.
+  const description = toSearchPreviewText(
+    (isComplete ? task.summary : null) ?? task.goal,
+    message.mentions ?? [],
+    { dropUnresolvedMentions: true }
+  )
 
   return (
     <div

@@ -1,4 +1,5 @@
-import { Image } from "lucide-react"
+import { Image01Icon } from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
 import { AnimatePresence, motion } from "motion/react"
 import type { ReactNode } from "react"
 import { PinnedMessagesPanel } from "@/components/sidebar/right-panel/pinned-messages-panel"
@@ -82,7 +83,13 @@ export function RightSidebarPanel({ view }: { view: RightSidebarView }) {
             <PlaceholderSidebar
               title="Attachments"
               description="This mode can show channel attachments and media history."
-              icon={<Image className="size-5" />}
+              icon={
+                <HugeiconsIcon
+                  icon={Image01Icon}
+                  className="size-5"
+                  strokeWidth={2}
+                />
+              }
               workspaceSlug={view.workspaceSlug}
               channelId={view.channelId}
             />

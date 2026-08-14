@@ -1,4 +1,11 @@
 import {
+  ComputerIcon,
+  Moon02Icon,
+  Search01Icon,
+  Sun01Icon,
+} from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
+import {
   Command,
   CommandDialog,
   CommandDialogPopup,
@@ -11,10 +18,10 @@ import {
   CommandPanel,
   CommandSeparator,
 } from "@repo/ui/components/command"
+import { Spinner } from "@repo/ui/components/spinner"
 import { Kbd } from "@repo/ui/components/unlumen-ui/kbd"
 import { useQuery } from "@tanstack/react-query"
 import { useParams } from "@tanstack/react-router"
-import { Loader2, Monitor, Moon, Search, Sun } from "lucide-react"
 import { useTheme } from "next-themes"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { MessageMarkdown } from "@/components/chat/message-markdown"
@@ -133,7 +140,11 @@ export function WorkspaceCommand() {
         onClick={() => setOpen(true)}
         className="flex h-8 w-full min-w-0 cursor-pointer items-center gap-2 rounded-md border border-border bg-background px-2.5 text-[13px] text-muted-foreground transition-colors hover:bg-foreground/[0.04]"
       >
-        <Search className="size-3.5 shrink-0" />
+        <HugeiconsIcon
+          icon={Search01Icon}
+          className="size-3.5 shrink-0"
+          strokeWidth={2}
+        />
         <span className="min-w-0 flex-1 truncate text-left">Search...</span>
         <Kbd size="sm" className="shrink-0 px-1.5 font-sans tracking-wide">
           ⌘K
@@ -148,7 +159,7 @@ export function WorkspaceCommand() {
               <CommandList className="max-h-[420px]">
                 {showLoader && (
                   <div className="flex items-center justify-center gap-2 py-6 text-sm text-muted-foreground">
-                    <Loader2 className="size-4 animate-spin" />
+                    <Spinner className="size-4" />
                     Searching…
                   </div>
                 )}
@@ -199,7 +210,11 @@ export function WorkspaceCommand() {
                       className="gap-2"
                       onClick={() => runTheme("light")}
                     >
-                      <Sun className="size-4 text-muted-foreground" />
+                      <HugeiconsIcon
+                        icon={Sun01Icon}
+                        className="size-4 text-muted-foreground"
+                        strokeWidth={2}
+                      />
                       <span className="flex-1">Light mode</span>
                     </CommandItem>
                     <CommandItem
@@ -207,7 +222,11 @@ export function WorkspaceCommand() {
                       className="gap-2"
                       onClick={() => runTheme("dark")}
                     >
-                      <Moon className="size-4 text-muted-foreground" />
+                      <HugeiconsIcon
+                        icon={Moon02Icon}
+                        className="size-4 text-muted-foreground"
+                        strokeWidth={2}
+                      />
                       <span className="flex-1">Dark mode</span>
                     </CommandItem>
                     <CommandItem
@@ -215,7 +234,11 @@ export function WorkspaceCommand() {
                       className="gap-2"
                       onClick={() => runTheme("system")}
                     >
-                      <Monitor className="size-4 text-muted-foreground" />
+                      <HugeiconsIcon
+                        icon={ComputerIcon}
+                        className="size-4 text-muted-foreground"
+                        strokeWidth={2}
+                      />
                       <span className="flex-1">System theme</span>
                     </CommandItem>
                   </CommandGroup>

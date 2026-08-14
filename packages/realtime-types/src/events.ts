@@ -474,6 +474,13 @@ export interface ServerToClientEvents {
         summary?: string
         items?: { title: string; url?: string }[]
       }
+      diff?: {
+        path: string
+        additions: number
+        deletions: number
+        patch?: string
+        truncated?: boolean
+      }
       files?: {
         artifactId: string
         path: string

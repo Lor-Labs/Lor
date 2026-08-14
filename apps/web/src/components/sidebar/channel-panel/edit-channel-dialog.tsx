@@ -1,3 +1,9 @@
+import {
+  Layers01Icon,
+  Settings01Icon,
+  WebhookIcon,
+} from "@hugeicons/core-free-icons"
+import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react"
 import { Button } from "@repo/ui/components/button"
 import {
   Dialog,
@@ -17,12 +23,11 @@ import {
   SelectValue,
 } from "@repo/ui/components/select"
 import { Textarea } from "@repo/ui/components/textarea"
+import { toast } from "@repo/ui/components/toast"
 import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useParams } from "@tanstack/react-router"
-import { Layers, Settings, Webhook } from "lucide-react"
 import { useEffect, useState } from "react"
-import { toast } from "sonner"
 import { ChannelWebhooksTab } from "@/components/sidebar/channel-panel/channel-webhooks-tab"
 import { apiClient } from "@/lib/api-client"
 import type {
@@ -35,10 +40,10 @@ import { connectorLogo } from "@/lib/connector-ui"
 const INHERIT = "__inherit__"
 
 type Tab = "overview" | "profile" | "webhooks"
-const TABS: { id: Tab; label: string; icon: typeof Settings }[] = [
-  { id: "overview", label: "Overview", icon: Settings },
-  { id: "profile", label: "Agent profile", icon: Layers },
-  { id: "webhooks", label: "Webhooks", icon: Webhook },
+const TABS: { id: Tab; label: string; icon: IconSvgElement }[] = [
+  { id: "overview", label: "Overview", icon: Settings01Icon },
+  { id: "profile", label: "Agent profile", icon: Layers01Icon },
+  { id: "webhooks", label: "Webhooks", icon: WebhookIcon },
 ]
 
 function ProfileCapabilities({
@@ -232,7 +237,11 @@ export function EditChannelDialog({
                       : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"
                   )}
                 >
-                  <t.icon className="size-4" />
+                  <HugeiconsIcon
+                    icon={t.icon}
+                    className="size-4"
+                    strokeWidth={2}
+                  />
                   {t.label}
                 </button>
               ))}

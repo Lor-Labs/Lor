@@ -9,8 +9,8 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@repo/ui/components/collapsible"
+import { Spinner } from "@repo/ui/components/spinner"
 import { cn } from "@repo/ui/lib/utils"
-import { Loader2 } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 import type { ChannelTask } from "@/hooks/use-channel-tasks"
 
@@ -61,10 +61,7 @@ function StepMarker({ status }: { status: PlanItem["status"] }) {
           "motion-safe:transition-all motion-safe:duration-300"
         )}
       >
-        <Loader2
-          className="size-5 animate-spin text-primary motion-reduce:animate-none"
-          strokeWidth={2}
-        />
+        <Spinner className="size-5 text-primary motion-reduce:animate-none" />
       </span>
     )
   }
@@ -239,7 +236,7 @@ export function TaskPlanProgress({
               className={cn(
                 "block h-full rounded-full transition-[width,background-color] duration-500 ease-out motion-reduce:transition-none",
                 item.status === "done" && "w-full bg-primary",
-                item.status === "active" && "w-1/3 bg-primary",
+                item.status === "active" && "w-full bg-primary/40",
                 item.status === "pending" && "w-0 bg-transparent"
               )}
             />

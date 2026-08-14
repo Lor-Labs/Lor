@@ -674,11 +674,20 @@ export function createMerlinRespondProcessor(
                     (t) => t.toolCallId === toolCall.toolCallId
                   )
                   const existing = idx >= 0 ? toolCalls[idx] : undefined
+                  // Frames may be partial updates (streamed sandbox summary,
+                  // diffs); one for a row that never got its start frame
+                  // can't render — drop it.
+                  const base =
+                    existing ??
+                    (toolCall.toolName && toolCall.label
+                      ? { toolName: toolCall.toolName, label: toolCall.label }
+                      : undefined)
+                  if (!base) return
                   if (!existing && !toolCall.parentToolCallId) {
                     closeReasoningSegment()
                   }
                   const nextToolCall: MerlinToolCall = {
-                    ...existing,
+                    ...base,
                     ...toolCall,
                     ...(existing?.at !== undefined ? { at: existing.at } : {}),
                     ...(existing?.order !== undefined

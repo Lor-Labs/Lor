@@ -1,4 +1,13 @@
-import { SentIcon, StopIcon } from "@hugeicons/core-free-icons"
+import {
+  Cancel01Icon,
+  PlusSignIcon,
+  SentIcon,
+  SourceCodeIcon,
+  StopIcon,
+  TextBoldIcon,
+  TextItalicIcon,
+  TextStrikethroughIcon,
+} from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { Button } from "@repo/ui/components/button"
 import {
@@ -30,7 +39,6 @@ import Suggestion, {
   type SuggestionProps,
 } from "@tiptap/suggestion"
 import { common, createLowlight } from "lowlight"
-import { Bold, Code, Italic, Plus, Strikethrough, X } from "lucide-react"
 import {
   type ComponentType,
   useCallback,
@@ -853,7 +861,11 @@ export function MessageInput({
             className="ml-auto shrink-0 text-muted-foreground hover:text-foreground"
             aria-label="Cancel reply"
           >
-            <X className="size-4" />
+            <HugeiconsIcon
+              icon={Cancel01Icon}
+              className="size-4"
+              strokeWidth={2}
+            />
           </button>
         </div>
       )}
@@ -884,11 +896,13 @@ export function MessageInput({
                 />
               }
             >
-              <Plus
+              <HugeiconsIcon
+                icon={PlusSignIcon}
                 className={cn(
                   "size-4 transition-transform duration-200 ease-out",
                   isAttachmentMenuOpen && "rotate-45"
                 )}
+                strokeWidth={2}
               />
             </PopoverTrigger>
             <PopoverContent
@@ -973,7 +987,8 @@ export function MessageInput({
                   }}
                   disabled={!editor.can().chain().focus().toggleBold().run()}
                 >
-                  <Bold
+                  <HugeiconsIcon
+                    icon={TextBoldIcon}
                     className="size-3.5"
                     strokeWidth={isBoldActive ? 2.5 : 2}
                   />
@@ -993,7 +1008,8 @@ export function MessageInput({
                   }}
                   disabled={!editor.can().chain().focus().toggleItalic().run()}
                 >
-                  <Italic
+                  <HugeiconsIcon
+                    icon={TextItalicIcon}
                     className="size-3.5"
                     strokeWidth={isItalicActive ? 2.5 : 2}
                   />
@@ -1013,7 +1029,8 @@ export function MessageInput({
                   }}
                   disabled={!editor.can().chain().focus().toggleCode().run()}
                 >
-                  <Code
+                  <HugeiconsIcon
+                    icon={SourceCodeIcon}
                     className="size-3.5"
                     strokeWidth={isCodeActive ? 2.5 : 2}
                   />
@@ -1033,7 +1050,8 @@ export function MessageInput({
                   }}
                   disabled={!editor.can().chain().focus().toggleStrike().run()}
                 >
-                  <Strikethrough
+                  <HugeiconsIcon
+                    icon={TextStrikethroughIcon}
                     className="size-3.5"
                     strokeWidth={isStrikeActive ? 2.5 : 2}
                   />
