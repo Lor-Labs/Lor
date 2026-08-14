@@ -1122,10 +1122,11 @@ const AWS_REGIONS = Object.keys(AWS_REGION_LABELS) as AwsRegion[]
 // provisions the read-only IAM user this connector expects — the policy is
 // exactly the calls the tools make — and prints the two keys to enter above.
 // --no-cli-pager everywhere: the CLI v2 pager would otherwise swallow the
-// output and stall the && chain until the user quits less.
+// output and stall the && chain until the user quits less. The awk labels the
+// key lines to match the dialog's field names.
 const CLOUDWATCH_KEY_COMMAND = `aws iam create-user --user-name lor-cloudwatch --no-cli-pager --output text --query User.Arn && \\
 aws iam put-user-policy --user-name lor-cloudwatch --policy-name lor-cloudwatch-readonly --no-cli-pager --policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["logs:DescribeLogGroups","logs:StartQuery","logs:GetQueryResults","logs:StopQuery","cloudwatch:ListMetrics","cloudwatch:GetMetricData"],"Resource":"*"}]}' && \\
-aws iam create-access-key --user-name lor-cloudwatch --no-cli-pager --output text --query 'AccessKey.[AccessKeyId,SecretAccessKey]'`
+aws iam create-access-key --user-name lor-cloudwatch --no-cli-pager --output text --query 'AccessKey.[AccessKeyId,SecretAccessKey]' | awk '{print "Access key ID:     " $1; print "Secret access key: " $2}'`
 
 function CloudwatchConnectDialog({
   workspaceSlug,
