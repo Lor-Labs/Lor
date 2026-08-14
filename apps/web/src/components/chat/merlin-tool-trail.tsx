@@ -10,6 +10,7 @@ import {
 } from "@repo/ui/components/nexus-ui/chain-of-thought"
 import {
   BookOpen,
+  ChevronRight,
   Code,
   Download,
   ExternalLink,
@@ -110,6 +111,90 @@ function hasDetail(t: MerlinToolCallView): boolean {
   return Boolean(t.detail?.summary || (t.detail?.items?.length ?? 0) > 0)
 }
 
+function diffLineClass(line: string): string {
+  if (
+    line.startsWith("+++") ||
+    line.startsWith("---") ||
+    line.startsWith("@@")
+  ) {
+    return "text-muted-foreground/60"
+  }
+  if (line.startsWith("+")) return "bg-success/10 text-success"
+  if (line.startsWith("-")) return "bg-destructive/10 text-destructive"
+  return "text-muted-foreground/80"
+}
+
+function DiffCounts({
+  diff,
+}: {
+  diff: NonNullable<MerlinToolCallView["diff"]>
+}) {
+  return (
+    <span className="shrink-0 tabular-nums">
+      <span className="text-success">+{diff.additions}</span>
+      {diff.deletions > 0 && (
+        <span className="ml-1 text-destructive">−{diff.deletions}</span>
+      )}
+    </span>
+  )
+}
+
+// A nested sandbox sub-step. File changes (write/edit) get Codex-style
+// +N/−N counts and expand into the unified diff.
+function SubStepRow({ toolCall }: { toolCall: MerlinToolCallView }) {
+  const [open, setOpen] = useState(false)
+  const Icon = toolIcon(toolCall.toolName)
+  const diff = toolCall.diff
+
+  const row = (
+    <>
+      <Icon className="size-3 shrink-0" />
+      <span className="truncate">{toolCall.label}</span>
+      {diff && <DiffCounts diff={diff} />}
+    </>
+  )
+  if (!diff?.patch) {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-muted-foreground text-xs">
+        {row}
+      </span>
+    )
+  }
+  return (
+    <div className="flex flex-col gap-1">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="inline-flex cursor-pointer items-center gap-1.5 text-left text-muted-foreground text-xs hover:text-foreground"
+      >
+        {row}
+        <ChevronRight
+          className={`size-3 shrink-0 transition-transform ${open ? "rotate-90" : ""}`}
+        />
+      </button>
+      {open && (
+        <pre className="max-h-64 overflow-auto rounded-md border border-border/50 bg-muted/30 p-2 font-mono text-[11px] leading-4">
+          {diff.patch.split("\n").map((line, i) => (
+            <div
+              // Patch lines have no identity beyond position.
+              // biome-ignore lint/suspicious/noArrayIndexKey: static content
+              key={i}
+              className={`whitespace-pre-wrap break-all px-1 ${diffLineClass(line)}`}
+            >
+              {line || " "}
+            </div>
+          ))}
+          {diff.truncated && (
+            <div className="px-1 text-muted-foreground/60">
+              … diff truncated
+            </div>
+          )}
+        </pre>
+      )}
+    </div>
+  )
+}
+
 // `status` is absent while a call is in flight. During streaming that means
 // "running"; on a settled message it's a legacy row from before status was
 // recorded, so it must not sit forever as pending.
@@ -179,18 +264,9 @@ export function MerlinToolTrail({
                       streamed live as it explores. */}
                   {children.length > 0 && (
                     <div className="flex flex-col gap-1 border-border/50 border-l pl-2.5">
-                      {children.map((c) => {
-                        const ChildIcon = toolIcon(c.toolName)
-                        return (
-                          <span
-                            key={c.toolCallId}
-                            className="inline-flex items-center gap-1.5 text-muted-foreground text-xs"
-                          >
-                            <ChildIcon className="size-3 shrink-0" />
-                            <span className="truncate">{c.label}</span>
-                          </span>
-                        )
-                      })}
+                      {children.map((c) => (
+                        <SubStepRow key={c.toolCallId} toolCall={c} />
+                      ))}
                     </div>
                   )}
                   {t.detail?.items?.map((it) => {

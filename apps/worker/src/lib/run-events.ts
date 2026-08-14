@@ -70,6 +70,16 @@ function coalesce(events: BufferedEvent[]): BufferedEvent[] {
         delta: prev.payload.delta + e.payload.delta,
       }
       prev.seq = e.seq
+    } else if (
+      prev &&
+      prev.payload.kind === "tool" &&
+      e.payload.kind === "tool" &&
+      prev.payload.toolCall.toolCallId === e.payload.toolCall.toolCallId
+    ) {
+      // Tool frames are whole-row snapshots (streamed sandbox summaries
+      // arrive many times per call) — the latest supersedes.
+      prev.payload = e.payload
+      prev.seq = e.seq
     } else {
       out.push({ seq: e.seq, payload: e.payload })
     }

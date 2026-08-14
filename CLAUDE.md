@@ -88,4 +88,5 @@ When adding a new integration (Linear, Notion, Datadog, …), follow the runbook
 ### Conventions
 
 - DO NOT make extremely verbose comments for every tiny detail or every line of code changed. this bloats the codebase and makes it harder to read and maintain. THIS IS VERY IMPORTANT.
+- When a comment IS warranted, keep it short and write it for search: use the plain domain terms a person (or AI) would grep or semantically search for when asking about that behavior, and state rationale/constraints that the code itself can't show. Comments exist to make code findable and to explain "why" to future AIs — not to narrate "what" the next line does.
 - Default to use HugeIcons and not lucide icons

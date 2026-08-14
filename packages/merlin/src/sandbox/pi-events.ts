@@ -1,3 +1,5 @@
+import type { MerlinToolCall } from "@repo/db/schema"
+
 export type PiInvestigationUsage = {
   model?: string
   requestedModel?: string
@@ -7,7 +9,25 @@ export type PiInvestigationUsage = {
   reasoningTokens?: number
 }
 
-export type PiCodeStep = { toolName: string; label: string }
+export type PiFileDiff = NonNullable<MerlinToolCall["diff"]>
+
+// One sub-tool frame. Pi's toolCallId is stable across the start/end events
+// of a call, so consumers can upsert: start sets the label, end adds status
+// (and the computed diff for edits).
+export type PiCodeStep = {
+  toolCallId: string
+  toolName: string
+  label: string
+  status?: "ok" | "error"
+  diff?: PiFileDiff
+}
+
+export type PiCodeHandlers = {
+  onStep?: (step: PiCodeStep) => void
+  // Snapshot of the assistant message currently streaming (resets on each new
+  // message) — drives the parent tool's live summary.
+  onAssistantText?: (text: string) => void
+}
 
 export type PiEventResult = {
   findings: string
@@ -58,6 +78,58 @@ export function piToolLabel(name: string, input: unknown): string {
   }
 }
 
+const MAX_PATCH_CHARS = 12_000
+
+// Bound a patch for transport/persistence, cutting on a line boundary.
+function boundPatch(patch: string): Pick<PiFileDiff, "patch" | "truncated"> {
+  if (patch.length <= MAX_PATCH_CHARS) return { patch }
+  const cut = patch.lastIndexOf("\n", MAX_PATCH_CHARS)
+  return {
+    patch: patch.slice(0, cut > 0 ? cut : MAX_PATCH_CHARS),
+    truncated: true,
+  }
+}
+
+function countPatchLines(patch: string): {
+  additions: number
+  deletions: number
+} {
+  let additions = 0
+  let deletions = 0
+  for (const line of patch.split("\n")) {
+    if (line.startsWith("+++") || line.startsWith("---")) continue
+    if (line.startsWith("+")) additions++
+    else if (line.startsWith("-")) deletions++
+  }
+  return { additions, deletions }
+}
+
+// `write` carries the full file content in its start args — present it as an
+// all-added diff, Codex-style.
+function writeDiff(args: unknown): PiFileDiff | undefined {
+  const rec = asRecord(args)
+  const path = asString(rec?.path)
+  const content = typeof rec?.content === "string" ? rec.content : undefined
+  if (!path || content === undefined) return undefined
+  const lines = content.split("\n")
+  if (lines.at(-1) === "") lines.pop()
+  return {
+    path,
+    additions: lines.length,
+    deletions: 0,
+    ...boundPatch(lines.map((l) => `+${l}`).join("\n")),
+  }
+}
+
+// `edit` computes a standard unified patch itself, returned in the end
+// event's result details.
+function editDiff(args: unknown, result: unknown): PiFileDiff | undefined {
+  const path = asString(asRecord(args)?.path)
+  const patch = asString(asRecord(asRecord(result)?.details)?.patch)
+  if (!path || !patch) return undefined
+  return { path, ...countPatchLines(patch), ...boundPatch(patch) }
+}
+
 function messageText(message: Record<string, unknown>): string {
   const content = message.content
   if (!Array.isArray(content)) return ""
@@ -69,10 +141,15 @@ function messageText(message: Record<string, unknown>): string {
     .trim()
 }
 
-export function createPiEventCollector(onStep?: (step: PiCodeStep) => void) {
+export function createPiEventCollector(handlers?: PiCodeHandlers) {
   let findings = ""
   let error: string | undefined
   let usage: PiInvestigationUsage | undefined
+  // Args by Pi toolCallId, so the end event (which carries none) can rebuild
+  // the label and locate the edited path.
+  const startedTools = new Map<string, { toolName: string; args: unknown }>()
+  let assistantStreaming = false
+  let assistantText = ""
 
   const consume = (line: string) => {
     const trimmed = line.trim()
@@ -88,15 +165,58 @@ export function createPiEventCollector(onStep?: (step: PiCodeStep) => void) {
 
     const type = asString(event.type)
     if (type === "tool_execution_start") {
+      const toolCallId = asString(event.toolCallId)
       const toolName = asString(event.toolName) ?? "tool"
-      onStep?.({
+      if (!toolCallId) return
+      startedTools.set(toolCallId, { toolName, args: event.args })
+      const diff = toolName === "write" ? writeDiff(event.args) : undefined
+      handlers?.onStep?.({
+        toolCallId,
         toolName,
         label: piToolLabel(toolName, event.args),
+        ...(diff ? { diff } : {}),
       })
       return
     }
 
+    if (type === "tool_execution_end") {
+      const toolCallId = asString(event.toolCallId)
+      const started = toolCallId && startedTools.get(toolCallId)
+      if (!toolCallId || !started) return
+      startedTools.delete(toolCallId)
+      const diff =
+        started.toolName === "edit" && event.isError !== true
+          ? editDiff(started.args, event.result)
+          : undefined
+      handlers?.onStep?.({
+        toolCallId,
+        toolName: started.toolName,
+        label: piToolLabel(started.toolName, started.args),
+        status: event.isError === true ? "error" : "ok",
+        ...(diff ? { diff } : {}),
+      })
+      return
+    }
+
+    if (type === "message_start") {
+      assistantStreaming =
+        asString(asRecord(event.message)?.role) === "assistant"
+      if (assistantStreaming) assistantText = ""
+      return
+    }
+
+    if (type === "message_update") {
+      if (!assistantStreaming) return
+      const inner = asRecord(event.assistantMessageEvent)
+      if (asString(inner?.type) !== "text_delta") return
+      if (typeof inner?.delta !== "string" || !inner.delta) return
+      assistantText += inner.delta
+      handlers?.onAssistantText?.(assistantText)
+      return
+    }
+
     if (type !== "message_end") return
+    assistantStreaming = false
     const message = asRecord(event.message)
     if (!message || asString(message.role) !== "assistant") return
 

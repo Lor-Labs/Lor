@@ -13,7 +13,11 @@ import {
   buildPiModelConfig,
   WORKBENCH_PI_TOOLS,
 } from "./pi-config"
-import type { PiCodeStep, PiInvestigationUsage } from "./pi-events"
+import type {
+  PiCodeHandlers,
+  PiCodeStep,
+  PiInvestigationUsage,
+} from "./pi-events"
 
 export type WorkbenchStep = PiCodeStep
 export type WorkbenchUsage = PiInvestigationUsage
@@ -156,15 +160,24 @@ async function walkOutputs(
 // One workbench session: connect the (task-persistent or ephemeral) sandbox,
 // reconcile seeds, run the Pi coding agent with write tools, harvest the
 // output directory. Files live on only through what the caller persists.
-export async function runWorkbenchSession(opts: {
-  instructions: string
-  inputs: WorkbenchInput[]
-  timeoutSec: number
-  abortSignal?: AbortSignal
-  onStep?: (step: WorkbenchStep) => void
-  task?: WorkbenchTaskContinuity
-}): Promise<WorkbenchResult | { error: string }> {
-  const { instructions, inputs, timeoutSec, abortSignal, onStep, task } = opts
+export async function runWorkbenchSession(
+  opts: PiCodeHandlers & {
+    instructions: string
+    inputs: WorkbenchInput[]
+    timeoutSec: number
+    abortSignal?: AbortSignal
+    task?: WorkbenchTaskContinuity
+  }
+): Promise<WorkbenchResult | { error: string }> {
+  const {
+    instructions,
+    inputs,
+    timeoutSec,
+    abortSignal,
+    onStep,
+    onAssistantText,
+    task,
+  } = opts
   if (abortSignal?.aborted) return { error: "cancelled" }
 
   const session = async (
@@ -229,7 +242,8 @@ export async function runWorkbenchSession(opts: {
       timeoutSec,
       workingDir: "/workspace",
       abortSignal,
-      onStep,
+      ...(onStep ? { onStep } : {}),
+      ...(onAssistantText ? { onAssistantText } : {}),
       logLabel: "Workbench",
     })
 

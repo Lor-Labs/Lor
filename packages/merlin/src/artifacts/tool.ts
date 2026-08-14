@@ -1,9 +1,10 @@
 import { and, db, eq, MERLIN_USER_ID, schema } from "@repo/db"
-import type { MerlinToolCall } from "@repo/db/schema"
+import type { MerlinToolCallUpdate } from "@repo/db/schema"
 import { env } from "@repo/env/server"
 import { tool } from "ai"
 import { z } from "zod"
 import { logger } from "../logger"
+import { subagentToolEvents } from "../sandbox/sub-events"
 import {
   runWorkbenchSession,
   type WorkbenchInput,
@@ -28,7 +29,7 @@ const artifactsContext = z.object({
   task: z.custom<{ id: string } | null>(),
   deadlineAt: z.custom<Date>().optional(),
   onUsage: z.custom<OnUsage>().optional(),
-  onToolEvent: z.custom<(e: MerlinToolCall) => void>().optional(),
+  onToolEvent: z.custom<(e: MerlinToolCallUpdate) => void>().optional(),
 })
 
 // Parallel create_artifacts calls in one step must not share a task's sandbox
@@ -199,7 +200,6 @@ export const artifactTools = {
         inputs.push(input)
       }
 
-      let step = 0
       const task = context.task
       const startSession = async () => {
         const budget = sessionBudget()
@@ -212,20 +212,10 @@ export const artifactTools = {
           ...(task
             ? { task: { id: task.id, outSeed: await loadTaskOutSeed(task.id) } }
             : {}),
-          onStep: (s) => {
-            step += 1
-            // A failing listener must not abort or fail the session.
-            try {
-              context.onToolEvent?.({
-                toolCallId: `${toolCallId}:sub:${step}`,
-                parentToolCallId: toolCallId,
-                toolName: s.toolName,
-                label: s.label,
-              })
-            } catch (err) {
-              logger.error({ err }, "Merlin onToolEvent listener failed")
-            }
-          },
+          ...subagentToolEvents({
+            parentToolCallId: toolCallId,
+            onToolEvent: context.onToolEvent,
+          }),
         })
       }
       const result = await (task

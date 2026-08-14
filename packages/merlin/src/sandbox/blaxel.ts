@@ -4,7 +4,7 @@ import { env } from "@repo/env/server"
 import { logger } from "../logger"
 import {
   createPiEventCollector,
-  type PiCodeStep,
+  type PiCodeHandlers,
   type PiInvestigationUsage,
 } from "./pi-events"
 
@@ -181,22 +181,28 @@ export type PiRunResult = {
   error?: string
 }
 
-// Run a Pi command: live events feed onStep (sub-tool UX), the authoritative
-// findings/usage/error are parsed from the complete stdout after completion.
+// Run a Pi command: live events feed onStep/onAssistantText (sub-tool and
+// streamed-summary UX), the authoritative findings/usage/error are parsed
+// from the complete stdout after completion.
 export async function runPi(
   sandbox: SandboxInstance,
-  opts: {
+  opts: PiCodeHandlers & {
     command: string
     timeoutSec: number
     workingDir: string
     abortSignal?: AbortSignal
-    onStep?: (step: PiCodeStep) => void
     logLabel: string
   }
 ): Promise<PiRunResult> {
-  const live = createPiEventCollector((step) => {
-    logger.info({ subTool: step.toolName }, `${opts.logLabel}: agent tool call`)
-    opts.onStep?.(step)
+  const live = createPiEventCollector({
+    onStep: (step) => {
+      logger.info(
+        { subTool: step.toolName },
+        `${opts.logLabel}: agent tool call`
+      )
+      opts.onStep?.(step)
+    },
+    ...(opts.onAssistantText ? { onAssistantText: opts.onAssistantText } : {}),
   })
 
   const result = await execToCompletion(sandbox, {

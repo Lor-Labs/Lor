@@ -117,7 +117,9 @@ async function runRespondFixture(
         reasoningParts++
       },
       onToolEvent: (event) => {
-        if (!toolNames.includes(event.toolName)) toolNames.push(event.toolName)
+        if (event.toolName && !toolNames.includes(event.toolName)) {
+          toolNames.push(event.toolName)
+        }
       },
       onUsage,
     }

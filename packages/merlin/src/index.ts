@@ -4,6 +4,7 @@ import {
   ALL_MERLIN_CAPABILITIES,
   type MerlinCapability,
   type MerlinToolCall,
+  type MerlinToolCallUpdate,
   type Task,
 } from "@repo/db/schema"
 import { env } from "@repo/env/server"
@@ -233,7 +234,7 @@ export type RespondContext = {
   task?: RunTaskContext
 }
 
-export type ToolEvent = MerlinToolCall
+export type ToolEvent = MerlinToolCallUpdate
 
 export type RespondCallbacks = {
   onDelta: (delta: string) => void | Promise<void>

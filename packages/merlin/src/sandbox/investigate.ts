@@ -7,7 +7,11 @@ import {
   writeText,
 } from "./blaxel"
 import { buildPiCommand, buildPiModelConfig } from "./pi-config"
-import type { PiCodeStep, PiInvestigationUsage } from "./pi-events"
+import type {
+  PiCodeHandlers,
+  PiCodeStep,
+  PiInvestigationUsage,
+} from "./pi-events"
 
 export type InvestigationUsage = PiInvestigationUsage
 export type CodeStep = PiCodeStep
@@ -38,13 +42,14 @@ function brief(question: string): string {
   ].join("\n")
 }
 
-export async function investigateCode(opts: {
-  repoFullName: string
-  cloneToken: string
-  question: string
-  onStep?: (step: CodeStep) => void
-}): Promise<InvestigationResult | { error: string }> {
-  const { repoFullName, cloneToken, question, onStep } = opts
+export async function investigateCode(
+  opts: PiCodeHandlers & {
+    repoFullName: string
+    cloneToken: string
+    question: string
+  }
+): Promise<InvestigationResult | { error: string }> {
+  const { repoFullName, cloneToken, question, onStep, onAssistantText } = opts
   if (!REPO_FULL_NAME.test(repoFullName)) {
     return { error: `not a valid owner/repo name: ${repoFullName}` }
   }
@@ -91,7 +96,8 @@ export async function investigateCode(opts: {
         command: buildPiCommand(env.MERLIN_MODEL, { print: true }),
         timeoutSec: AGENT_TIMEOUT_SEC,
         workingDir: "/repo",
-        onStep,
+        ...(onStep ? { onStep } : {}),
+        ...(onAssistantText ? { onAssistantText } : {}),
         logLabel: "Sandbox",
       })
 
