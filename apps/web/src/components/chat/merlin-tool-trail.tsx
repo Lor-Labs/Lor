@@ -4,6 +4,7 @@ import {
   ComputerTerminal01Icon,
   Download01Icon,
   LinkSquare02Icon,
+  Message01Icon,
   PencilEdit02Icon,
   Search01Icon,
   SourceCodeIcon,
@@ -125,6 +126,36 @@ function ItemGlyph({ item }: { item: { url?: string; favicon?: string } }) {
 
 function hasDetail(t: MerlinToolCallView): boolean {
   return Boolean(t.detail?.summary || (t.detail?.items?.length ?? 0) > 0)
+}
+
+const SummaryGlyph = glyph(Message01Icon)
+
+// The sandbox agent's narration, presented as a final sub-step: expand for
+// the raw markdown — the polished version of this text is the answer itself.
+function SummaryRow({ text }: { text: string }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="flex flex-col gap-1">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="inline-flex cursor-pointer items-center gap-1.5 text-left text-muted-foreground text-xs hover:text-foreground"
+      >
+        <SummaryGlyph className="size-3 shrink-0" />
+        <span className="truncate">Summary</span>
+        <HugeiconsIcon
+          icon={ArrowRight01Icon}
+          className={`size-3 shrink-0 transition-transform ${open ? "rotate-90" : ""}`}
+          strokeWidth={2}
+        />
+      </button>
+      {open && (
+        <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border/50 bg-muted/30 p-2 font-mono text-[11px] text-muted-foreground/80 leading-4">
+          {text}
+        </pre>
+      )}
+    </div>
+  )
 }
 
 function diffLineClass(line: string): string {
@@ -266,7 +297,7 @@ export function MerlinToolTrail({
               </ChainOfThoughtStepTitle>
               {drillable && (
                 <ChainOfThoughtStepContent className="space-y-1">
-                  {t.detail?.summary && (
+                  {t.detail?.summary && children.length === 0 && (
                     // Full output, markdown parsed but kept dim and small so it
                     // reads as detail under the step; scrollable so the user can
                     // read everything.
@@ -285,6 +316,9 @@ export function MerlinToolTrail({
                       {children.map((c) => (
                         <SubStepRow key={c.toolCallId} toolCall={c} />
                       ))}
+                      {t.detail?.summary && (
+                        <SummaryRow text={t.detail.summary} />
+                      )}
                     </div>
                   )}
                   {t.detail?.items?.map((it) => {
