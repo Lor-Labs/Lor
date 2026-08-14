@@ -47,6 +47,10 @@ export type ConnectDatadogRequest = InferRequestType<
   IntegrationsClient["datadog"]["connect"]["$post"]
 >["json"]
 
+export type ConnectCloudwatchRequest = InferRequestType<
+  IntegrationsClient["cloudwatch"]["connect"]["$post"]
+>["json"]
+
 // ── Messages ──────────────────────────────────────────
 
 type MessagesClient =

@@ -1,5 +1,6 @@
 import type { IntegrationProvider } from "@repo/db/schema"
 import { attioProvider } from "./attio"
+import { cloudwatchProvider } from "./cloudwatch"
 import { datadogProvider } from "./datadog"
 import { githubProvider } from "./github"
 import { linearProvider } from "./linear"
@@ -14,6 +15,7 @@ const providers: Record<IntegrationProvider, SourceProvider> = {
   datadog: datadogProvider,
   attio: attioProvider,
   notion: notionProvider,
+  cloudwatch: cloudwatchProvider,
 }
 
 export function getSourceProvider(
@@ -28,6 +30,7 @@ export {
   connectAttio,
   getAttioAccessToken,
 } from "./attio"
+export { connectCloudwatch } from "./cloudwatch"
 export { connectDatadog } from "./datadog"
 export {
   type FetchedIssue,

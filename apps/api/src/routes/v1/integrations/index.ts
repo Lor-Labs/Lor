@@ -15,6 +15,7 @@ const integrationsRouter = createRouter()
   .openapi(routes.connectAttio, handlers.connectAttio)
   .openapi(routes.connectNotion, handlers.connectNotion)
   .openapi(routes.connectDatadog, handlers.connectDatadog)
+  .openapi(routes.connectCloudwatch, handlers.connectCloudwatch)
   .openapi(routes.updateIntegration, handlers.updateIntegration)
   .openapi(routes.disconnectIntegration, handlers.disconnectIntegration)
 

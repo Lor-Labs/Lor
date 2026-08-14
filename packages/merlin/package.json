@@ -24,7 +24,10 @@
   "dependencies": {
     "@ai-sdk/gateway": "^4.0.8",
     "@ai-sdk/mcp": "^2.0.5",
+    "@aws-sdk/client-cloudwatch": "^3.1004.0",
+    "@aws-sdk/client-cloudwatch-logs": "^3.1004.0",
     "@aws-sdk/client-s3": "^3.1004.0",
+    "@aws-sdk/client-sts": "^3.1004.0",
     "@blaxel/core": "^0.3.11",
     "@linear/sdk": "^87.0.0",
     "@notionhq/client": "^5.24.0",

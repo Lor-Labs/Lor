@@ -21,6 +21,7 @@ export const integrationProviderEnum = pgEnum("integration_provider", [
   "datadog",
   "attio",
   "notion",
+  "cloudwatch",
 ])
 
 export type IntegrationProvider =

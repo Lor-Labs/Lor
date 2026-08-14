@@ -53,7 +53,10 @@ import { InstructionsSection } from "@/components/workspace/instructions-section
 import { MerlinProfilesSection } from "@/components/workspace/merlin-profiles-section"
 import { WorkspaceAvatar } from "@/components/workspace/workspace-avatar"
 import { apiClient } from "@/lib/api-client"
-import type { ConnectDatadogRequest } from "@/lib/api-types"
+import type {
+  ConnectCloudwatchRequest,
+  ConnectDatadogRequest,
+} from "@/lib/api-types"
 import { connectorLogo } from "@/lib/connector-ui"
 import { openExternal } from "@/lib/open-external"
 import { isAdminOrOwner } from "@/lib/permissions"
@@ -505,6 +508,7 @@ const NOTIFY_OFF = "__off__"
 function ConnectorsSection({ workspaceSlug }: { workspaceSlug: string }) {
   const queryClient = useQueryClient()
   const [datadogOpen, setDatadogOpen] = useState(false)
+  const [cloudwatchOpen, setCloudwatchOpen] = useState(false)
   const [notionConnect, setNotionConnect] = useState<{
     url: string
     replacing: boolean
@@ -696,11 +700,14 @@ function ConnectorsSection({ workspaceSlug }: { workspaceSlug: string }) {
                   </>
                 ) : p.authType === "api-key" ? (
                   // Keyed connectors connect via an in-app form, not a redirect.
-                  // Datadog is the only one today.
                   <Button
                     size="sm"
                     disabled={!p.available}
-                    onClick={() => setDatadogOpen(true)}
+                    onClick={() =>
+                      p.id === "cloudwatch"
+                        ? setCloudwatchOpen(true)
+                        : setDatadogOpen(true)
+                    }
                   >
                     {p.available ? "Connect" : "Unavailable"}
                   </Button>
@@ -878,6 +885,11 @@ function ConnectorsSection({ workspaceSlug }: { workspaceSlug: string }) {
         workspaceSlug={workspaceSlug}
         open={datadogOpen}
         onOpenChange={setDatadogOpen}
+      />
+      <CloudwatchConnectDialog
+        workspaceSlug={workspaceSlug}
+        open={cloudwatchOpen}
+        onOpenChange={setCloudwatchOpen}
       />
       <AlertDialog
         open={!!notionConnect}
@@ -1067,6 +1079,147 @@ function DatadogConnectDialog({
           <Button
             onClick={() => connect.mutate()}
             disabled={!apiKey.trim() || !appKey.trim() || connect.isPending}
+          >
+            {connect.isPending && <Spinner className="size-4" />}
+            Connect
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+type AwsRegion = ConnectCloudwatchRequest["region"]
+
+// Keyed by the API's region union so a new region is a compile error here.
+const AWS_REGION_LABELS: Record<AwsRegion, string> = {
+  "us-east-1": "US East (N. Virginia) · us-east-1",
+  "us-east-2": "US East (Ohio) · us-east-2",
+  "us-west-1": "US West (N. California) · us-west-1",
+  "us-west-2": "US West (Oregon) · us-west-2",
+  "ca-central-1": "Canada (Central) · ca-central-1",
+  "eu-west-1": "Europe (Ireland) · eu-west-1",
+  "eu-west-2": "Europe (London) · eu-west-2",
+  "eu-west-3": "Europe (Paris) · eu-west-3",
+  "eu-central-1": "Europe (Frankfurt) · eu-central-1",
+  "eu-north-1": "Europe (Stockholm) · eu-north-1",
+  "ap-south-1": "Asia Pacific (Mumbai) · ap-south-1",
+  "ap-southeast-1": "Asia Pacific (Singapore) · ap-southeast-1",
+  "ap-southeast-2": "Asia Pacific (Sydney) · ap-southeast-2",
+  "ap-northeast-1": "Asia Pacific (Tokyo) · ap-northeast-1",
+  "ap-northeast-2": "Asia Pacific (Seoul) · ap-northeast-2",
+  "sa-east-1": "South America (São Paulo) · sa-east-1",
+}
+const AWS_REGIONS = Object.keys(AWS_REGION_LABELS) as AwsRegion[]
+
+function CloudwatchConnectDialog({
+  workspaceSlug,
+  open,
+  onOpenChange,
+}: {
+  workspaceSlug: string
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  const queryClient = useQueryClient()
+  const [region, setRegion] = useState<AwsRegion>("us-east-1")
+  const [accessKeyId, setAccessKeyId] = useState("")
+  const [secretAccessKey, setSecretAccessKey] = useState("")
+
+  const connect = useMutation({
+    mutationFn: async () => {
+      const res = await apiClient.v1.workspaces[
+        ":workspaceSlug"
+      ].integrations.cloudwatch.connect.$post({
+        param: { workspaceSlug },
+        json: {
+          region,
+          accessKeyId: accessKeyId.trim(),
+          secretAccessKey: secretAccessKey.trim(),
+        },
+      })
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as {
+          message?: string
+        } | null
+        throw new Error(body?.message ?? "Couldn't connect CloudWatch")
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["integrations", workspaceSlug],
+      })
+      toast.success("CloudWatch connected")
+      setAccessKeyId("")
+      setSecretAccessKey("")
+      onOpenChange(false)
+    },
+    onError: (err) => toast.error(err.message),
+  })
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Connect CloudWatch</DialogTitle>
+          <DialogDescription>
+            Paste an access key for a read-only IAM user with CloudWatch logs
+            and metrics read access. It's stored encrypted.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogPanel className="space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="cloudwatch-region">Region</Label>
+            <Select
+              items={AWS_REGIONS.map((r) => ({
+                value: r,
+                label: AWS_REGION_LABELS[r],
+              }))}
+              value={region}
+              onValueChange={(v) => setRegion(v as AwsRegion)}
+            >
+              <SelectTrigger id="cloudwatch-region" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {AWS_REGIONS.map((r) => (
+                  <SelectItem key={r} value={r}>
+                    {AWS_REGION_LABELS[r]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="cloudwatch-access-key-id">Access key ID</Label>
+            <Input
+              id="cloudwatch-access-key-id"
+              autoComplete="off"
+              value={accessKeyId}
+              onChange={(e) => setAccessKeyId(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="cloudwatch-secret-access-key">
+              Secret access key
+            </Label>
+            <Input
+              id="cloudwatch-secret-access-key"
+              type="password"
+              autoComplete="off"
+              value={secretAccessKey}
+              onChange={(e) => setSecretAccessKey(e.target.value)}
+            />
+          </div>
+        </DialogPanel>
+        <DialogFooter>
+          <Button
+            onClick={() => connect.mutate()}
+            disabled={
+              !accessKeyId.trim() ||
+              !secretAccessKey.trim() ||
+              connect.isPending
+            }
           >
             {connect.isPending && <Spinner className="size-4" />}
             Connect
