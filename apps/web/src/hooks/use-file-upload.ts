@@ -3,8 +3,8 @@ import {
   ALLOWED_MIME_TYPES,
   MAX_ATTACHMENTS_PER_MESSAGE,
 } from "@repo/realtime-types/uploads"
+import { toast } from "@repo/ui/components/toast"
 import { useCallback, useEffect, useRef, useState } from "react"
-import { toast } from "sonner"
 import { apiClient } from "@/lib/api-client"
 import type { Message } from "@/lib/api-types"
 

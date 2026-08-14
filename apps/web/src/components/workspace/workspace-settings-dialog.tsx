@@ -42,12 +42,12 @@ import {
   SelectValue,
 } from "@repo/ui/components/select"
 import { Spinner } from "@repo/ui/components/spinner"
+import { toast } from "@repo/ui/components/toast"
 import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { AnimatePresence, motion } from "motion/react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
-import { toast } from "sonner"
 import { BillingSection } from "@/components/workspace/billing-section"
 import { InstructionsSection } from "@/components/workspace/instructions-section"
 import { MerlinProfilesSection } from "@/components/workspace/merlin-profiles-section"

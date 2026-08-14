@@ -1,6 +1,6 @@
+import { toast } from "@repo/ui/components/toast"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useCallback, useEffect } from "react"
-import { toast } from "sonner"
 import { useSocket } from "@/context/socket-context"
 import { apiClient } from "@/lib/api-client"
 

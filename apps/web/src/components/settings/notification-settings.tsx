@@ -11,9 +11,9 @@ import {
 } from "@repo/ui/components/select"
 import { Separator } from "@repo/ui/components/separator"
 import { Spinner } from "@repo/ui/components/spinner"
+import { toast } from "@repo/ui/components/toast"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect, useState } from "react"
-import { toast } from "sonner"
 import { apiClient } from "@/lib/api-client"
 import {
   getNotificationPermission,

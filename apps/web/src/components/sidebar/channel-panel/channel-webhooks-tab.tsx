@@ -11,10 +11,10 @@ import { Button } from "@repo/ui/components/button"
 import { Input } from "@repo/ui/components/input"
 import { Label } from "@repo/ui/components/label"
 import { Spinner } from "@repo/ui/components/spinner"
+import { toast } from "@repo/ui/components/toast"
 import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useRef, useState } from "react"
-import { toast } from "sonner"
 import { apiClient } from "@/lib/api-client"
 
 const AVATAR_MIME_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"]

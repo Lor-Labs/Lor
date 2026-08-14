@@ -18,11 +18,10 @@ import {
   DialogPanel,
   DialogTitle,
 } from "@repo/ui/components/dialog"
-import { anchoredToastManager } from "@repo/ui/components/toast"
+import { anchoredToastManager, toast } from "@repo/ui/components/toast"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useParams } from "@tanstack/react-router"
 import { useState } from "react"
-import { toast } from "sonner"
 import { apiClient } from "@/lib/api-client"
 import { getInviteUrl } from "@/lib/invite-url"
 

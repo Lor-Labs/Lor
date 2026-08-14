@@ -1,8 +1,8 @@
 import { LinearLogo } from "@repo/ui/components/logos/linear"
 import { Spinner } from "@repo/ui/components/spinner"
+import { toast } from "@repo/ui/components/toast"
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
 import { useEffect, useRef } from "react"
-import { toast } from "sonner"
 import { apiClient } from "@/lib/api-client"
 
 type CallbackSearch = {

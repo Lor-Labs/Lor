@@ -258,7 +258,9 @@ export type ExpandingSearchProps = UseExpandingSearchOptions & {
   resultCount?: number
   align?: "left" | "right"
   showCollapsedFrame?: boolean
+  collapsedSize?: number
   className?: string
+  triggerClassName?: string
 }
 
 export function ExpandingSearch({
@@ -267,7 +269,9 @@ export function ExpandingSearch({
   resultCount,
   align = "right",
   showCollapsedFrame = true,
+  collapsedSize = COLLAPSED,
   className,
+  triggerClassName,
   ...options
 }: ExpandingSearchProps) {
   const reduced = useReducedMotion()
@@ -316,7 +320,7 @@ export function ExpandingSearch({
     return () => clearTimeout(id)
   }, [open, query, resultCount])
 
-  const expanded = Math.max(COLLAPSED, track)
+  const expanded = Math.max(collapsedSize, track)
   const rightInset = CLEAR_SLOT + (resultCount === undefined ? 0 : COUNT_SLOT)
   const inner = Math.max(0, expanded - TEXT_LEFT - rightInset)
   const filled = query.length > 0
@@ -332,7 +336,7 @@ export function ExpandingSearch({
     >
       <motion.div
         initial={false}
-        animate={{ width: open ? expanded : COLLAPSED }}
+        animate={{ width: open ? expanded : collapsedSize }}
         transition={shellMotion}
         onMouseDown={(event) => {
           if (event.target !== event.currentTarget) return
@@ -424,12 +428,22 @@ export function ExpandingSearch({
         aria-controls={inputId}
         initial={false}
         animate={{
-          x: align === "right" && open ? -(expanded - COLLAPSED) : 0,
+          // keep the open-state icon centered in the standard icon zone even
+          // when the collapsed trigger is smaller than it
+          x:
+            align === "right" && open
+              ? -(expanded - COLLAPSED / 2 - collapsedSize / 2)
+              : 0,
+          y: "-50%",
         }}
         transition={shellMotion}
-        className={`pointer-events-auto absolute inset-y-0 z-10 grid w-10 place-items-center rounded-lg text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/24 disabled:opacity-50 ${
-          align === "right" ? "right-0" : "left-0"
-        } ${open ? "pointer-events-none" : ""}`}
+        style={{ width: collapsedSize, height: collapsedSize }}
+        className={cn(
+          "pointer-events-auto absolute top-1/2 z-10 grid place-items-center rounded-lg text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/24 disabled:opacity-50",
+          align === "right" ? "right-0" : "left-0",
+          open && "pointer-events-none",
+          triggerClassName
+        )}
       >
         <svg
           width="15"

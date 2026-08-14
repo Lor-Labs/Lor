@@ -20,8 +20,7 @@ import {
 } from "@repo/ui/components/message-scroller"
 import { Skeleton } from "@repo/ui/components/skeleton"
 import { Spinner } from "@repo/ui/components/spinner"
-import { anchoredToastManager } from "@repo/ui/components/toast"
-
+import { anchoredToastManager, toast } from "@repo/ui/components/toast"
 import {
   differenceInMinutes,
   formatDateTime,
@@ -41,7 +40,6 @@ import {
   useRef,
 } from "react"
 import { useDropzone } from "react-dropzone"
-import { toast } from "sonner"
 import { MessageInput } from "@/components/chat/composer/message-input"
 import { DropZoneOverlay } from "@/components/chat/drop-zone-overlay"
 import { MessageItem } from "@/components/chat/message-item"

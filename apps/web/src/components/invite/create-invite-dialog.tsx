@@ -19,11 +19,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@repo/ui/components/select"
-import { anchoredToastManager } from "@repo/ui/components/toast"
+import { anchoredToastManager, toast } from "@repo/ui/components/toast"
 import { useMutation } from "@tanstack/react-query"
 import { useParams } from "@tanstack/react-router"
 import { useRef, useState } from "react"
-import { toast } from "sonner"
 import { apiClient } from "@/lib/api-client"
 import { getInviteUrl } from "@/lib/invite-url"
 

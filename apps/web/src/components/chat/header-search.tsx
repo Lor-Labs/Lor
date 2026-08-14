@@ -106,7 +106,7 @@ export function HeaderSearch({
   }
 
   return (
-    <div ref={containerRef} className="relative h-10 w-10 shrink-0">
+    <div ref={containerRef} className="relative h-10 w-7 shrink-0">
       <ExpandingSearch
         value={query}
         onChange={(value) => {
@@ -132,6 +132,8 @@ export function HeaderSearch({
         }
         resultCount={debouncedQuery ? data?.itemsTotal : undefined}
         showCollapsedFrame={false}
+        collapsedSize={28}
+        triggerClassName="rounded-sm"
         className="pointer-events-none absolute right-0 w-56"
       />
 

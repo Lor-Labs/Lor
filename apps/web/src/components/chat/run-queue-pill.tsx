@@ -1,7 +1,7 @@
 import { CornerDownRightIcon, Delete02Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
+import { toast } from "@repo/ui/components/toast"
 import { useMutation } from "@tanstack/react-query"
-import { toast } from "sonner"
 import { useSocket } from "@/context/socket-context"
 import { apiClient } from "@/lib/api-client"
 import type { Message } from "@/lib/api-types"

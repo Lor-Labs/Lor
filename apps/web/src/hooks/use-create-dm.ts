@@ -1,6 +1,6 @@
+import { toast } from "@repo/ui/components/toast"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { toast } from "sonner"
 import { apiClient } from "@/lib/api-client"
 
 export function useCreateDM() {

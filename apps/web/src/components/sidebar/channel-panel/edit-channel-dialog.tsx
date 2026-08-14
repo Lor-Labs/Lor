@@ -23,11 +23,11 @@ import {
   SelectValue,
 } from "@repo/ui/components/select"
 import { Textarea } from "@repo/ui/components/textarea"
+import { toast } from "@repo/ui/components/toast"
 import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useParams } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
-import { toast } from "sonner"
 import { ChannelWebhooksTab } from "@/components/sidebar/channel-panel/channel-webhooks-tab"
 import { apiClient } from "@/lib/api-client"
 import type {
