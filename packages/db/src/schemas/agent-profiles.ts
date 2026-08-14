@@ -24,6 +24,7 @@ export const merlinCapabilityEnum = pgEnum("merlin_capability", [
   "datadog",
   "attio",
   "notion",
+  "cloudwatch",
   "web",
   // Sandbox workbench sessions that produce file deliverables (artifacts).
   "artifacts",

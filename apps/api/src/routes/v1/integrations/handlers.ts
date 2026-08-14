@@ -18,6 +18,7 @@ import {
   connectNotion as exchangeNotionCode,
   getInstallationOverview,
   getSourceProvider,
+  connectCloudwatch as verifyCloudwatchKeys,
   connectDatadog as verifyDatadogKeys,
 } from "@repo/merlin/providers"
 import { and, eq, inArray, ne, sql } from "drizzle-orm"
@@ -28,6 +29,7 @@ import { signOAuthState, verifyOAuthState } from "@/lib/oauth-state"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
   ConnectAttioRoute,
+  ConnectCloudwatchRoute,
   ConnectDatadogRoute,
   ConnectGithubRoute,
   ConnectLinearRoute,
@@ -515,6 +517,69 @@ export const connectDatadog: AppRouteHandler<ConnectDatadogRoute> = async (
       {
         success: false,
         message: "These Datadog keys are connected to another workspace",
+      },
+      HttpStatusCodes.CONFLICT
+    )
+  }
+
+  return c.json(
+    { success: true as const, accountLogin: result.accountLabel },
+    HttpStatusCodes.OK
+  )
+}
+
+export const connectCloudwatch: AppRouteHandler<
+  ConnectCloudwatchRoute
+> = async (c) => {
+  const workspace = c.var.workspace
+  const { region, accessKeyId, secretAccessKey } = c.req.valid("json")
+
+  if (!env.INTEGRATION_ENCRYPTION_KEY) {
+    return c.json(
+      {
+        success: false,
+        message: "CloudWatch isn't available on this server",
+      },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+
+  // Verify the keys can resolve their account and read logs before
+  // persisting (returns them encrypted, external id = the AWS account id).
+  const result = await verifyCloudwatchKeys({
+    region,
+    accessKeyId,
+    secretAccessKey,
+  }).catch(() => null)
+  if (!result) {
+    return c.json(
+      {
+        success: false,
+        message:
+          "Couldn't verify the AWS credentials — check the region, access key, and that the key can read CloudWatch logs",
+      },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+
+  const ok = await replaceActiveConnection({
+    workspaceId: workspace.id,
+    provider: "cloudwatch",
+    externalId: result.externalId,
+    clearOnRevoke: { apiKey: null, appKey: null, site: null },
+    values: {
+      accountLogin: result.accountLabel,
+      apiKey: result.accessKeyId,
+      appKey: result.secretAccessKey,
+      site: region,
+    },
+  })
+
+  if (!ok) {
+    return c.json(
+      {
+        success: false,
+        message: "This AWS account is connected to another workspace",
       },
       HttpStatusCodes.CONFLICT
     )

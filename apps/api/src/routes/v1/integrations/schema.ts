@@ -1,5 +1,5 @@
 import { z } from "@hono/zod-openapi"
-import { DATADOG_SITES } from "@repo/connectors"
+import { AWS_REGIONS, DATADOG_SITES } from "@repo/connectors"
 import { integrationProviderEnum, merlinCapabilityEnum } from "@repo/db/schema"
 
 export const integrationsWorkspaceParamsSchema = z.object({
@@ -119,6 +119,19 @@ export const connectDatadogRequestSchema = z.object({
 })
 
 export const connectDatadogResponseSchema = z.object({
+  success: z.literal(true),
+  accountLogin: z.string().nullable(),
+})
+
+export const connectCloudwatchRequestSchema = z.object({
+  region: z.enum(AWS_REGIONS),
+  accessKeyId: z.string().min(1),
+  // The secret for a read-only IAM user (logs + cloudwatch read), ideally
+  // scoped to just DescribeLogGroups/StartQuery/GetQueryResults/GetMetricData.
+  secretAccessKey: z.string().min(1),
+})
+
+export const connectCloudwatchResponseSchema = z.object({
   success: z.literal(true),
   accountLogin: z.string().nullable(),
 })

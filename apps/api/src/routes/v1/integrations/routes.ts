@@ -13,6 +13,8 @@ import { workspaceAuthMiddleware } from "@/middleware/workspace-auth"
 import {
   connectAttioRequestSchema,
   connectAttioResponseSchema,
+  connectCloudwatchRequestSchema,
+  connectCloudwatchResponseSchema,
   connectDatadogRequestSchema,
   connectDatadogResponseSchema,
   connectGithubRequestSchema,
@@ -138,6 +140,36 @@ export const connectDatadog = createRoute({
   },
 })
 
+export const connectCloudwatch = createRoute({
+  path: "/workspaces/{workspaceSlug}/integrations/cloudwatch/connect",
+  method: "post",
+  summary: "Link an AWS CloudWatch account to a workspace",
+  description:
+    "Verifies the pasted access key against the selected region (STS identity + logs read), then stores it encrypted.",
+  tags: ["Integrations"],
+  middleware: [workspaceAuthMiddleware] as const,
+  request: {
+    params: integrationsWorkspaceParamsSchema,
+    body: jsonContent({
+      schema: connectCloudwatchRequestSchema,
+      description: "The AWS region + access key pair",
+    }),
+  },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: connectCloudwatchResponseSchema,
+      description: "Connected",
+    }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.CONFLICT]: conflictSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
 export const connectAttio = createRoute({
   path: "/workspaces/{workspaceSlug}/integrations/attio/connect",
   method: "post",
@@ -251,5 +283,6 @@ export type ConnectLinearRoute = typeof connectLinear
 export type ConnectAttioRoute = typeof connectAttio
 export type ConnectNotionRoute = typeof connectNotion
 export type ConnectDatadogRoute = typeof connectDatadog
+export type ConnectCloudwatchRoute = typeof connectCloudwatch
 export type UpdateIntegrationRoute = typeof updateIntegration
 export type DisconnectIntegrationRoute = typeof disconnectIntegration

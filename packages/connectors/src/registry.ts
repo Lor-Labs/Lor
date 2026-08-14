@@ -66,6 +66,13 @@ export const CONNECTORS: Record<IntegrationProvider, ConnectorDescriptor> = {
       "INTEGRATION_ENCRYPTION_KEY",
     ],
   },
+  cloudwatch: {
+    id: "cloudwatch",
+    label: "CloudWatch",
+    description: "Query logs and metrics from your AWS account.",
+    authType: "api-key",
+    envKeys: ["INTEGRATION_ENCRYPTION_KEY"],
+  },
 }
 
 // Datadog is multi-region: the API/MCP hosts derive from the site. Validated at
@@ -82,6 +89,48 @@ export const DATADOG_SITES = [
 ] as const
 
 export type DatadogSite = (typeof DATADOG_SITES)[number]
+
+// CloudWatch is region-scoped: one connection queries one region's logs and
+// metrics (stored on the connection's `site` column, like the Datadog site).
+// Commercial partitions only — GovCloud and China use different endpoints and
+// credentials.
+export const AWS_REGIONS = [
+  "us-east-1",
+  "us-east-2",
+  "us-west-1",
+  "us-west-2",
+  "ca-central-1",
+  "ca-west-1",
+  "mx-central-1",
+  "eu-west-1",
+  "eu-west-2",
+  "eu-west-3",
+  "eu-central-1",
+  "eu-central-2",
+  "eu-north-1",
+  "eu-south-1",
+  "eu-south-2",
+  "il-central-1",
+  "ap-east-1",
+  "ap-east-2",
+  "ap-south-1",
+  "ap-south-2",
+  "ap-southeast-1",
+  "ap-southeast-2",
+  "ap-southeast-3",
+  "ap-southeast-4",
+  "ap-southeast-5",
+  "ap-southeast-7",
+  "ap-northeast-1",
+  "ap-northeast-2",
+  "ap-northeast-3",
+  "af-south-1",
+  "me-south-1",
+  "me-central-1",
+  "sa-east-1",
+] as const
+
+export type AwsRegion = (typeof AWS_REGIONS)[number]
 
 // Exhaustive over merlinCapabilityEnum — adding a capability value without a
 // descriptor here is a compile error.
@@ -129,6 +178,12 @@ export const CAPABILITIES: Record<MerlinCapability, CapabilityDescriptor> = {
     description: "Search and read selected pages, databases & comments",
     connector: "notion",
   },
+  cloudwatch: {
+    key: "cloudwatch",
+    label: "CloudWatch",
+    description: "Query logs (Logs Insights) and metrics",
+    connector: "cloudwatch",
+  },
   web: {
     key: "web",
     label: "Web Search",
@@ -163,6 +218,7 @@ export const CONNECTOR_EVENTS: Record<
   datadog: [],
   attio: [],
   notion: [],
+  cloudwatch: [],
 }
 
 export function isConnectorEvent(

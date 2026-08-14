@@ -284,6 +284,7 @@ const FILE_BROWSERS: Record<IntegrationProvider, ConnectorFileBrowser | null> =
     datadog: null,
     attio: null,
     notion: null,
+    cloudwatch: null,
   }
 
 export function connectorSupportsFiles(provider: IntegrationProvider): boolean {
@@ -324,6 +325,8 @@ const SEARCHERS: Record<IntegrationProvider, ConnectorSearcher | null> = {
   notion: searchNotion,
   attio: searchAttio,
   datadog: null,
+  // Live log/metric queries, not documents — nothing to attach.
+  cloudwatch: null,
 }
 
 export function isSearchableConnector(provider: IntegrationProvider): boolean {

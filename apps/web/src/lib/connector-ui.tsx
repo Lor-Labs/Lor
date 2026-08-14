@@ -1,6 +1,7 @@
 import { GithubIcon, Globe02Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { AttioLogo } from "@repo/ui/components/logos/attio"
+import { AWSCloudWatchLogo } from "@repo/ui/components/logos/aws-cloudwatch"
 import { DatadogLogo } from "@repo/ui/components/logos/datadog"
 import { LinearLogo } from "@repo/ui/components/logos/linear"
 import { NotionLogo } from "@repo/ui/components/logos/notion"
@@ -26,6 +27,19 @@ function AttioMark({ className }: { className?: string }) {
 
 function NotionMark({ className }: { className?: string }) {
   return <NotionLogo className={className} />
+}
+
+// The CloudWatch mark ships a brand-pink tile behind a white glyph; drop the
+// tile and let the glyph inherit the surrounding color, like the other marks.
+function CloudwatchMark({ className }: { className?: string }) {
+  return (
+    <AWSCloudWatchLogo
+      className={cn(
+        className,
+        "[&_rect]:fill-transparent [&_path]:fill-current"
+      )}
+    />
+  )
 }
 
 function GithubMark({ className }: { className?: string }) {
@@ -152,6 +166,18 @@ const CONNECTOR_UI: Record<ConnectorKey, ConnectorUI> = {
       "list_notion_users",
     ],
     linkLabel: (url) => prettifySlug(lastSegment(url)) || lastSegment(url),
+  },
+  cloudwatch: {
+    logo: CloudwatchMark,
+    // Regional consoles are subdomains (us-east-1.console.aws.amazon.com).
+    urlHost: /(^|\.)console\.aws\.amazon\.com$/i,
+    tools: [
+      "list_cloudwatch_log_groups",
+      "search_cloudwatch_logs",
+      "list_cloudwatch_metrics",
+      "get_cloudwatch_metrics",
+    ],
+    linkLabel: () => "CloudWatch",
   },
 }
 

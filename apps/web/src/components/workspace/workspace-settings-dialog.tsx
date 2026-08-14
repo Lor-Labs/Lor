@@ -24,6 +24,11 @@ import {
 } from "@repo/ui/components/alert-dialog"
 import { Button } from "@repo/ui/components/button"
 import {
+  Collapsible,
+  CollapsiblePanel,
+  CollapsibleTrigger,
+} from "@repo/ui/components/collapsible"
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -43,6 +48,7 @@ import {
 } from "@repo/ui/components/select"
 import { Spinner } from "@repo/ui/components/spinner"
 import { toast } from "@repo/ui/components/toast"
+import { CodeBlock } from "@repo/ui/components/tool-ui/code-block"
 import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { AnimatePresence, motion } from "motion/react"
@@ -53,7 +59,10 @@ import { InstructionsSection } from "@/components/workspace/instructions-section
 import { MerlinProfilesSection } from "@/components/workspace/merlin-profiles-section"
 import { WorkspaceAvatar } from "@/components/workspace/workspace-avatar"
 import { apiClient } from "@/lib/api-client"
-import type { ConnectDatadogRequest } from "@/lib/api-types"
+import type {
+  ConnectCloudwatchRequest,
+  ConnectDatadogRequest,
+} from "@/lib/api-types"
 import { connectorLogo } from "@/lib/connector-ui"
 import { openExternal } from "@/lib/open-external"
 import { isAdminOrOwner } from "@/lib/permissions"
@@ -505,6 +514,7 @@ const NOTIFY_OFF = "__off__"
 function ConnectorsSection({ workspaceSlug }: { workspaceSlug: string }) {
   const queryClient = useQueryClient()
   const [datadogOpen, setDatadogOpen] = useState(false)
+  const [cloudwatchOpen, setCloudwatchOpen] = useState(false)
   const [notionConnect, setNotionConnect] = useState<{
     url: string
     replacing: boolean
@@ -696,11 +706,14 @@ function ConnectorsSection({ workspaceSlug }: { workspaceSlug: string }) {
                   </>
                 ) : p.authType === "api-key" ? (
                   // Keyed connectors connect via an in-app form, not a redirect.
-                  // Datadog is the only one today.
                   <Button
                     size="sm"
                     disabled={!p.available}
-                    onClick={() => setDatadogOpen(true)}
+                    onClick={() =>
+                      p.id === "cloudwatch"
+                        ? setCloudwatchOpen(true)
+                        : setDatadogOpen(true)
+                    }
                   >
                     {p.available ? "Connect" : "Unavailable"}
                   </Button>
@@ -878,6 +891,11 @@ function ConnectorsSection({ workspaceSlug }: { workspaceSlug: string }) {
         workspaceSlug={workspaceSlug}
         open={datadogOpen}
         onOpenChange={setDatadogOpen}
+      />
+      <CloudwatchConnectDialog
+        workspaceSlug={workspaceSlug}
+        open={cloudwatchOpen}
+        onOpenChange={setCloudwatchOpen}
       />
       <AlertDialog
         open={!!notionConnect}
@@ -1067,6 +1085,201 @@ function DatadogConnectDialog({
           <Button
             onClick={() => connect.mutate()}
             disabled={!apiKey.trim() || !appKey.trim() || connect.isPending}
+          >
+            {connect.isPending && <Spinner className="size-4" />}
+            Connect
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+type AwsRegion = ConnectCloudwatchRequest["region"]
+
+// Keyed by the API's region union so a new region is a compile error here.
+const AWS_REGION_LABELS: Record<AwsRegion, string> = {
+  "us-east-1": "US East (N. Virginia) · us-east-1",
+  "us-east-2": "US East (Ohio) · us-east-2",
+  "us-west-1": "US West (N. California) · us-west-1",
+  "us-west-2": "US West (Oregon) · us-west-2",
+  "ca-central-1": "Canada (Central) · ca-central-1",
+  "ca-west-1": "Canada West (Calgary) · ca-west-1",
+  "mx-central-1": "Mexico (Central) · mx-central-1",
+  "eu-west-1": "Europe (Ireland) · eu-west-1",
+  "eu-west-2": "Europe (London) · eu-west-2",
+  "eu-west-3": "Europe (Paris) · eu-west-3",
+  "eu-central-1": "Europe (Frankfurt) · eu-central-1",
+  "eu-central-2": "Europe (Zurich) · eu-central-2",
+  "eu-north-1": "Europe (Stockholm) · eu-north-1",
+  "eu-south-1": "Europe (Milan) · eu-south-1",
+  "eu-south-2": "Europe (Spain) · eu-south-2",
+  "il-central-1": "Israel (Tel Aviv) · il-central-1",
+  "ap-east-1": "Asia Pacific (Hong Kong) · ap-east-1",
+  "ap-east-2": "Asia Pacific (Taipei) · ap-east-2",
+  "ap-south-1": "Asia Pacific (Mumbai) · ap-south-1",
+  "ap-south-2": "Asia Pacific (Hyderabad) · ap-south-2",
+  "ap-southeast-1": "Asia Pacific (Singapore) · ap-southeast-1",
+  "ap-southeast-2": "Asia Pacific (Sydney) · ap-southeast-2",
+  "ap-southeast-3": "Asia Pacific (Jakarta) · ap-southeast-3",
+  "ap-southeast-4": "Asia Pacific (Melbourne) · ap-southeast-4",
+  "ap-southeast-5": "Asia Pacific (Malaysia) · ap-southeast-5",
+  "ap-southeast-7": "Asia Pacific (Thailand) · ap-southeast-7",
+  "ap-northeast-1": "Asia Pacific (Tokyo) · ap-northeast-1",
+  "ap-northeast-2": "Asia Pacific (Seoul) · ap-northeast-2",
+  "ap-northeast-3": "Asia Pacific (Osaka) · ap-northeast-3",
+  "af-south-1": "Africa (Cape Town) · af-south-1",
+  "me-south-1": "Middle East (Bahrain) · me-south-1",
+  "me-central-1": "Middle East (UAE) · me-central-1",
+  "sa-east-1": "South America (São Paulo) · sa-east-1",
+}
+const AWS_REGIONS = Object.keys(AWS_REGION_LABELS) as AwsRegion[]
+
+// One paste-able run for the user (or their agent) with IAM admin access: it
+// provisions the read-only IAM user this connector expects — the policy is
+// exactly the calls the tools make — and prints the two keys to enter above.
+// --no-cli-pager everywhere: the CLI v2 pager would otherwise swallow the
+// output and stall the && chain until the user quits less. The awk labels the
+// key lines to match the dialog's field names.
+const CLOUDWATCH_KEY_COMMAND = `aws iam create-user --user-name lor-cloudwatch --no-cli-pager --output text --query User.Arn && \\
+aws iam put-user-policy --user-name lor-cloudwatch --policy-name lor-cloudwatch-readonly --no-cli-pager --policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["logs:DescribeLogGroups","logs:StartQuery","logs:GetQueryResults","logs:StopQuery","cloudwatch:ListMetrics","cloudwatch:GetMetricData"],"Resource":"*"}]}' && \\
+aws iam create-access-key --user-name lor-cloudwatch --no-cli-pager --output text --query 'AccessKey.[AccessKeyId,SecretAccessKey]' | awk '{print "Access key ID:     " $1; print "Secret access key: " $2}'`
+
+function CloudwatchConnectDialog({
+  workspaceSlug,
+  open,
+  onOpenChange,
+}: {
+  workspaceSlug: string
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  const queryClient = useQueryClient()
+  const [region, setRegion] = useState<AwsRegion>("us-east-1")
+  const [accessKeyId, setAccessKeyId] = useState("")
+  const [secretAccessKey, setSecretAccessKey] = useState("")
+
+  const connect = useMutation({
+    mutationFn: async () => {
+      const res = await apiClient.v1.workspaces[
+        ":workspaceSlug"
+      ].integrations.cloudwatch.connect.$post({
+        param: { workspaceSlug },
+        json: {
+          region,
+          accessKeyId: accessKeyId.trim(),
+          secretAccessKey: secretAccessKey.trim(),
+        },
+      })
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as {
+          message?: string
+        } | null
+        throw new Error(body?.message ?? "Couldn't connect CloudWatch")
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["integrations", workspaceSlug],
+      })
+      toast.success("CloudWatch connected")
+      setAccessKeyId("")
+      setSecretAccessKey("")
+      onOpenChange(false)
+    },
+    onError: (err) => toast.error(err.message),
+  })
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Connect CloudWatch</DialogTitle>
+          <DialogDescription>
+            Paste an access key for a read-only IAM user with CloudWatch logs
+            and metrics read access. It's stored encrypted.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogPanel className="space-y-4">
+          <Collapsible>
+            <CollapsibleTrigger className="group flex w-full cursor-pointer items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground">
+              <HugeiconsIcon
+                icon={ArrowDown01Icon}
+                className="size-4 transition-transform group-data-[panel-open]:rotate-180"
+              />
+              No keys yet? Create them with the AWS CLI
+            </CollapsibleTrigger>
+            <CollapsiblePanel>
+              <div className="space-y-1.5 pt-2">
+                <CodeBlock
+                  id="cloudwatch-provision-keys"
+                  code={CLOUDWATCH_KEY_COMMAND}
+                  language="bash"
+                  lineNumbers="hidden"
+                  // min-w-0 so the block fits the dialog instead of forcing
+                  // its min-w-80 floor; long lines scroll horizontally.
+                  className="min-w-0"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Run this with the AWS CLI (needs IAM admin) — it creates a
+                  read-only user and prints the access key ID and secret to
+                  paste below.
+                </p>
+              </div>
+            </CollapsiblePanel>
+          </Collapsible>
+          <div className="space-y-1.5">
+            <Label htmlFor="cloudwatch-region">Region</Label>
+            <Select
+              items={AWS_REGIONS.map((r) => ({
+                value: r,
+                label: AWS_REGION_LABELS[r],
+              }))}
+              value={region}
+              onValueChange={(v) => setRegion(v as AwsRegion)}
+            >
+              <SelectTrigger id="cloudwatch-region" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {AWS_REGIONS.map((r) => (
+                  <SelectItem key={r} value={r}>
+                    {AWS_REGION_LABELS[r]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="cloudwatch-access-key-id">Access key ID</Label>
+            <Input
+              id="cloudwatch-access-key-id"
+              autoComplete="off"
+              value={accessKeyId}
+              onChange={(e) => setAccessKeyId(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="cloudwatch-secret-access-key">
+              Secret access key
+            </Label>
+            <Input
+              id="cloudwatch-secret-access-key"
+              type="password"
+              autoComplete="off"
+              value={secretAccessKey}
+              onChange={(e) => setSecretAccessKey(e.target.value)}
+            />
+          </div>
+        </DialogPanel>
+        <DialogFooter>
+          <Button
+            onClick={() => connect.mutate()}
+            disabled={
+              !accessKeyId.trim() ||
+              !secretAccessKey.trim() ||
+              connect.isPending
+            }
           >
             {connect.isPending && <Spinner className="size-4" />}
             Connect

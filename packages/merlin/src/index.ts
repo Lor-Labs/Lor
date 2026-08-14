@@ -35,6 +35,7 @@ import {
   type Resolution,
   rewriteCitations,
 } from "./citations"
+import { cloudwatchTools, resolveWorkspaceCloudwatch } from "./cloudwatch"
 import { codeTools } from "./code"
 import { datadogMcpTools, resolveWorkspaceDatadog } from "./datadog"
 import { embedBrainQueryWithUsage, embedSourceQuery } from "./embeddings"
@@ -100,6 +101,8 @@ const LINEAR_PROMPT_LINE = `- The team's Linear: search_linear finds issues by k
 const LINEAR_WRITE_PROMPT_LINE = `- When asked to file or follow up in Linear: create_linear_issue opens an issue. A Linear team is required — it's picked automatically when the workspace has one team, but if there are several you must say which (by key or name); the tool lists them if you don't. You can also assign the issue by passing a person's name or email (matched to a Linear member). update_linear_issue changes an existing issue — assignee (or "none" to unassign), workflow state (Todo, In Progress, Done, …), title, description, priority, labels, due date — pass only the fields to change. comment_linear adds a comment to an existing issue.`
 
 const DATADOG_PROMPT_LINE = `- The team's Datadog: search_datadog_logs searches indexed logs (query syntax like service:checkout status:error) and analyze_datadog_logs runs counts/aggregations over them. Default to the last hour unless the question implies a range, keep result limits small, and reference Datadog links with normal Markdown links (live results, not [[src:]] citations).`
+
+const CLOUDWATCH_PROMPT_LINE = `- The team's AWS CloudWatch (one account + region): list_cloudwatch_log_groups discovers log groups; search_cloudwatch_logs runs a Logs Insights query over them (syntax like fields @timestamp, @message | filter @message like /error/ | sort @timestamp desc | limit 50); list_cloudwatch_metrics discovers metric namespaces and dimensions; get_cloudwatch_metrics fetches one metric's datapoints. Default to the last hour of logs unless the question implies a range, keep result limits small, and reference AWS console links with normal Markdown links (live results, not [[src:]] citations).`
 
 const ATTIO_PROMPT_LINE = `- The team's Attio CRM (read-only): search_attio fuzzy-searches people, companies, deals, and custom objects; fetch_attio_record returns a record's complete current values and relationships; query_attio discovers the dynamic object/list schema or queries records and pipeline entries; fetch_attio_activity returns list memberships, notes, tasks, comment threads, meetings, files, and optionally call transcripts. Start with search_attio for a named account/person and query_attio mode=catalog when you need to discover custom objects or pipelines. Reference Attio records and transcripts with normal Markdown links to their url (live results, not [[src:]] citations).`
 
@@ -605,6 +608,18 @@ function toolLabel(toolName: string, input: unknown): string {
         : "Searching Datadog logs"
     case "analyze_datadog_logs":
       return "Analyzing Datadog logs"
+    case "list_cloudwatch_log_groups":
+      return "Listing CloudWatch log groups"
+    case "search_cloudwatch_logs":
+      return "Searching CloudWatch logs"
+    case "list_cloudwatch_metrics":
+      return "Browsing CloudWatch metrics"
+    case "get_cloudwatch_metrics": {
+      const metricName = field("metricName")
+      return metricName
+        ? `Fetching CloudWatch metric ${metricName}`
+        : "Fetching CloudWatch metrics"
+    }
     case "search_attio":
       return query ? `Searching Attio for “${query}”` : "Searching Attio"
     case "fetch_attio_record":
@@ -1062,6 +1077,58 @@ function toolDetail(
         },
       }
     }
+    case "list_cloudwatch_log_groups": {
+      const groups = Array.isArray(rec?.groups) ? rec.groups : []
+      return {
+        status: "ok",
+        detail: {
+          summary:
+            groups.length === 0
+              ? "No log groups"
+              : plural(groups.length, "log group"),
+          items: groups.slice(0, 8).map((it) => {
+            const r = asRecord(it)
+            return {
+              title: asString(r?.name) ?? "untitled",
+              url: asString(r?.url),
+            }
+          }),
+        },
+      }
+    }
+    case "search_cloudwatch_logs": {
+      const rows = Array.isArray(rec?.rows) ? rec.rows : []
+      const note = asString(rec?.note)
+      const base = rows.length === 0 ? "No results" : plural(rows.length, "row")
+      return {
+        status: "ok",
+        detail: { summary: note ? `${base} · ${note}` : base },
+      }
+    }
+    case "list_cloudwatch_metrics": {
+      const metrics = Array.isArray(rec?.metrics) ? rec.metrics : []
+      return {
+        status: "ok",
+        detail: {
+          summary:
+            metrics.length === 0
+              ? "No metrics"
+              : plural(metrics.length, "metric"),
+        },
+      }
+    }
+    case "get_cloudwatch_metrics": {
+      const datapoints = Array.isArray(rec?.datapoints) ? rec.datapoints : []
+      const metric = asString(rec?.metric)
+      const base =
+        datapoints.length === 0
+          ? "No datapoints"
+          : plural(datapoints.length, "datapoint")
+      return {
+        status: "ok",
+        detail: { summary: metric ? `${metric} · ${base}` : base },
+      }
+    }
     case "write": {
       const path = asString(rec?.path)
       const body = asString(rec?.body)
@@ -1303,27 +1370,32 @@ export async function respond(
   const needsLinear = caps.includes("linear") || caps.includes("linear_write")
   const needsAttio = caps.includes("attio")
   const needsNotion = caps.includes("notion")
+  const needsCloudwatch = caps.includes("cloudwatch")
   // Independent lookups run concurrently; the Datadog MCP handshake is the
   // slow one and is itself time-bounded inside datadogMcpTools.
-  const [github, linear, attio, notion, datadogMcp] = await Promise.all([
-    needsGithub
-      ? resolveWorkspaceGithub(ctx.workspaceId).catch(() => null)
-      : null,
-    needsLinear
-      ? resolveWorkspaceLinear(ctx.workspaceId).catch(() => null)
-      : null,
-    needsAttio
-      ? resolveWorkspaceAttio(ctx.workspaceId).catch(() => null)
-      : null,
-    needsNotion
-      ? resolveWorkspaceNotion(ctx.workspaceId).catch(() => null)
-      : null,
-    caps.includes("datadog")
-      ? resolveWorkspaceDatadog(ctx.workspaceId)
-          .then((d) => (d ? datadogMcpTools(d.externalId) : null))
-          .catch(() => null)
-      : null,
-  ])
+  const [github, linear, attio, notion, datadogMcp, cloudwatch] =
+    await Promise.all([
+      needsGithub
+        ? resolveWorkspaceGithub(ctx.workspaceId).catch(() => null)
+        : null,
+      needsLinear
+        ? resolveWorkspaceLinear(ctx.workspaceId).catch(() => null)
+        : null,
+      needsAttio
+        ? resolveWorkspaceAttio(ctx.workspaceId).catch(() => null)
+        : null,
+      needsNotion
+        ? resolveWorkspaceNotion(ctx.workspaceId).catch(() => null)
+        : null,
+      caps.includes("datadog")
+        ? resolveWorkspaceDatadog(ctx.workspaceId)
+            .then((d) => (d ? datadogMcpTools(d.externalId) : null))
+            .catch(() => null)
+        : null,
+      needsCloudwatch
+        ? resolveWorkspaceCloudwatch(ctx.workspaceId).catch(() => null)
+        : null,
+    ])
 
   const artifactsEnabled = Boolean(
     blaxelConfigured() && ctx.channelId && caps.includes("artifacts")
@@ -1348,6 +1420,7 @@ export async function respond(
     ...(attio && caps.includes("attio") ? attioTools : {}),
     ...(notion && caps.includes("notion") ? notionTools : {}),
     ...(datadogMcp ? datadogMcp.tools : {}),
+    ...(cloudwatch && caps.includes("cloudwatch") ? cloudwatchTools : {}),
   }
 
   const toolsContext = {
@@ -1437,6 +1510,14 @@ export async function respond(
           list_notion_users: notion,
         }
       : {}),
+    ...(cloudwatch
+      ? {
+          list_cloudwatch_log_groups: cloudwatch,
+          search_cloudwatch_logs: cloudwatch,
+          list_cloudwatch_metrics: cloudwatch,
+          get_cloudwatch_metrics: cloudwatch,
+        }
+      : {}),
   }
 
   // Only describe the connectors actually bound for this channel.
@@ -1446,6 +1527,7 @@ export async function respond(
     linear && caps.includes("linear") ? LINEAR_PROMPT_LINE : null,
     linear && caps.includes("linear_write") ? LINEAR_WRITE_PROMPT_LINE : null,
     datadogMcp ? DATADOG_PROMPT_LINE : null,
+    cloudwatch && caps.includes("cloudwatch") ? CLOUDWATCH_PROMPT_LINE : null,
     attio && caps.includes("attio") ? ATTIO_PROMPT_LINE : null,
     notion && caps.includes("notion") ? NOTION_PROMPT_LINE : null,
     artifactsEnabled ? ARTIFACTS_PROMPT_LINE : null,
