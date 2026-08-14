@@ -1,8 +1,9 @@
+import { Shield01Icon, UserGroupIcon } from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
 import { Button } from "@repo/ui/components/button"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
-import { Shield, Users } from "lucide-react"
 import { useEffect } from "react"
 import { toast } from "sonner"
 import { WorkspaceAvatar } from "@/components/workspace/workspace-avatar"
@@ -143,7 +144,11 @@ function InviteCard({
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4 rounded-xl border border-border bg-card p-8 shadow-2xl">
-          <Shield className="size-12 text-muted-foreground" />
+          <HugeiconsIcon
+            icon={Shield01Icon}
+            className="size-12 text-muted-foreground"
+            strokeWidth={2}
+          />
           <h2 className="text-lg font-semibold">{errorContent.title}</h2>
           <p className="text-sm text-muted-foreground">
             {errorContent.description}
@@ -227,7 +232,11 @@ function InviteCard({
             <div>
               <h2 className="text-lg font-semibold">{invite.workspace.name}</h2>
               <p className="flex items-center justify-center gap-1 text-sm text-muted-foreground">
-                <Users className="size-3.5" />
+                <HugeiconsIcon
+                  icon={UserGroupIcon}
+                  className="size-3.5"
+                  strokeWidth={2}
+                />
                 {invite.workspace.memberCount}{" "}
                 {invite.workspace.memberCount === 1 ? "member" : "members"}
               </p>

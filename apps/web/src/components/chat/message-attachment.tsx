@@ -1,11 +1,17 @@
 import {
+  ArrowLeft01Icon,
+  ArrowRight01Icon,
+  Cancel01Icon,
+  Download01Icon,
+} from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
+import {
   AttachmentProperty,
   AttachmentPreview as AttachmentThumb,
   Attachment as AttachmentTile,
 } from "@repo/ui/components/nexus-ui/attachments"
 import { VideoAmbient } from "@repo/ui/components/unlumen-ui/video-ambient"
 import { cn } from "@repo/ui/lib/utils"
-import { ChevronLeft, ChevronRight, Download, X } from "lucide-react"
 import { useCallback, useEffect, useState } from "react"
 import { createPortal } from "react-dom"
 import type { Message } from "@/lib/api-types"
@@ -67,7 +73,11 @@ function FileAttachment({ attachment }: { attachment: Attachment }) {
             <AttachmentProperty as="size" />
           </div>
         </div>
-        <Download className="size-4 shrink-0 text-muted-foreground transition-colors group-hover/file:text-foreground" />
+        <HugeiconsIcon
+          icon={Download01Icon}
+          className="size-4 shrink-0 text-muted-foreground transition-colors group-hover/file:text-foreground"
+          strokeWidth={2}
+        />
       </AttachmentTile>
     </a>
   )
@@ -138,7 +148,11 @@ function AttachmentLightbox({
           aria-label="Download"
           onClick={(e) => e.stopPropagation()}
         >
-          <Download className="size-5" />
+          <HugeiconsIcon
+            icon={Download01Icon}
+            className="size-5"
+            strokeWidth={2}
+          />
         </a>
         <button
           type="button"
@@ -146,7 +160,11 @@ function AttachmentLightbox({
           className="rounded-md p-2 text-white/70 transition-colors hover:bg-white/10 hover:text-white"
           aria-label="Close"
         >
-          <X className="size-5" />
+          <HugeiconsIcon
+            icon={Cancel01Icon}
+            className="size-5"
+            strokeWidth={2}
+          />
         </button>
       </div>
 
@@ -162,7 +180,11 @@ function AttachmentLightbox({
             className="absolute -left-14 z-10 rounded-full bg-black/60 p-2 text-white/70 transition-colors hover:bg-black/80 hover:text-white"
             aria-label="Previous image"
           >
-            <ChevronLeft className="size-6" />
+            <HugeiconsIcon
+              icon={ArrowLeft01Icon}
+              className="size-6"
+              strokeWidth={2}
+            />
           </button>
         )}
 
@@ -182,7 +204,11 @@ function AttachmentLightbox({
             className="absolute -right-14 z-10 rounded-full bg-black/60 p-2 text-white/70 transition-colors hover:bg-black/80 hover:text-white"
             aria-label="Next image"
           >
-            <ChevronRight className="size-6" />
+            <HugeiconsIcon
+              icon={ArrowRight01Icon}
+              className="size-6"
+              strokeWidth={2}
+            />
           </button>
         )}
       </div>

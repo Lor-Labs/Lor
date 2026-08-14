@@ -1,3 +1,5 @@
+import { Settings01Icon, UnfoldMoreIcon } from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
 import {
   DropdownMenu,
@@ -16,7 +18,7 @@ import {
   useSidebar,
 } from "@repo/ui/components/sidebar"
 import { ThemeSwitcher } from "@repo/ui/components/unlumen-ui/theme-switcher"
-import { ChevronsUpDown, LogOut, Settings } from "lucide-react"
+import { LogOut } from "lucide-react"
 import { UserAvatar } from "@/components/ui/user-avatar"
 import { useSettings } from "@/hooks/use-settings"
 
@@ -70,7 +72,11 @@ export function UserBar() {
                 {email}
               </span>
             </div>
-            <ChevronsUpDown className="ml-auto size-4 text-muted-foreground" />
+            <HugeiconsIcon
+              icon={UnfoldMoreIcon}
+              className="ml-auto size-4 text-muted-foreground"
+              strokeWidth={2}
+            />
           </DropdownMenuTrigger>
           <DropdownMenuContent
             className="w-(--anchor-width) min-w-56 rounded-lg"
@@ -106,7 +112,7 @@ export function UserBar() {
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
               <DropdownMenuItem onClick={() => openSettings("user")}>
-                <Settings />
+                <HugeiconsIcon icon={Settings01Icon} strokeWidth={2} />
                 Settings
                 <DropdownMenuShortcut>{SETTINGS_SHORTCUT}</DropdownMenuShortcut>
               </DropdownMenuItem>

@@ -1,3 +1,5 @@
+import { Copy01Icon, Delete02Icon } from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
 import {
   AlertDialog,
   AlertDialogClose,
@@ -19,7 +21,6 @@ import {
 import { anchoredToastManager } from "@repo/ui/components/toast"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useParams } from "@tanstack/react-router"
-import { Copy, Trash2 } from "lucide-react"
 import { useState } from "react"
 import { toast } from "sonner"
 import { apiClient } from "@/lib/api-client"
@@ -158,7 +159,11 @@ export function ManageInvitesDialog({
                           void handleCopy(invite.code, event.currentTarget)
                         }
                       >
-                        <Copy className="size-3.5" />
+                        <HugeiconsIcon
+                          icon={Copy01Icon}
+                          className="size-3.5"
+                          strokeWidth={2}
+                        />
                       </Button>
                       <Button
                         variant="ghost"
@@ -167,7 +172,11 @@ export function ManageInvitesDialog({
                         aria-label={`Revoke invite ${invite.code}`}
                         onClick={() => setRevokeCode(invite.code)}
                       >
-                        <Trash2 className="size-3.5" />
+                        <HugeiconsIcon
+                          icon={Delete02Icon}
+                          className="size-3.5"
+                          strokeWidth={2}
+                        />
                       </Button>
                     </div>
                   </div>

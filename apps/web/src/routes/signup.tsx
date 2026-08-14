@@ -1,3 +1,5 @@
+import { AlertCircleIcon } from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
 import { Button } from "@repo/ui/components/button"
 import {
@@ -10,6 +12,7 @@ import {
 import { Input } from "@repo/ui/components/input"
 import { InlineValidation } from "@repo/ui/components/interior/inline-validation"
 import { Label } from "@repo/ui/components/label"
+import { Spinner } from "@repo/ui/components/spinner"
 import { useMutation } from "@tanstack/react-query"
 import {
   createFileRoute,
@@ -17,7 +20,6 @@ import {
   useNavigate,
   useRouter,
 } from "@tanstack/react-router"
-import { AlertCircle, Loader2 } from "lucide-react"
 import { type FormEvent, useEffect, useState } from "react"
 import { PasswordInput } from "@/components/auth/password-input"
 import { OfflineScreen } from "@/components/offline-screen"
@@ -106,7 +108,11 @@ function SignUpPage() {
                 <div className="grid gap-6">
                   {error && (
                     <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2.5 text-sm text-destructive">
-                      <AlertCircle className="size-4 shrink-0" />
+                      <HugeiconsIcon
+                        icon={AlertCircleIcon}
+                        className="size-4 shrink-0"
+                        strokeWidth={2}
+                      />
                       <span>{error.message}</span>
                     </div>
                   )}
@@ -153,7 +159,7 @@ function SignUpPage() {
                     <Button type="submit" disabled={isPending}>
                       {isPending ? (
                         <>
-                          <Loader2 className="size-4 animate-spin" />
+                          <Spinner className="size-4" />
                           Creating account...
                         </>
                       ) : (

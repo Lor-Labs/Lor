@@ -1,6 +1,6 @@
 import { NotionLogo } from "@repo/ui/components/logos/notion"
+import { Spinner } from "@repo/ui/components/spinner"
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
-import { Loader2 } from "lucide-react"
 import { useEffect, useRef } from "react"
 import { toast } from "sonner"
 import { apiClient } from "@/lib/api-client"
@@ -78,7 +78,7 @@ function NotionCallback() {
     <div className="flex h-full flex-1 flex-col items-center justify-center gap-4">
       <NotionLogo className="size-10" />
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Loader2 className="size-4 animate-spin" />
+        <Spinner className="size-4" />
         Connecting Notion…
       </div>
     </div>

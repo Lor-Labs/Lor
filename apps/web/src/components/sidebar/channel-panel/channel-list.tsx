@@ -15,6 +15,14 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
+import {
+  ArrowDown01Icon,
+  HashtagIcon,
+  MoreHorizontalIcon,
+  PlusSignIcon,
+  VolumeHighIcon,
+} from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
 import { Button } from "@repo/ui/components/button"
 import {
@@ -31,7 +39,6 @@ import { Skeleton } from "@repo/ui/components/skeleton"
 import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
-import { ChevronDown, Hash, MoreHorizontal, Plus, Volume2 } from "lucide-react"
 import { AnimatePresence, motion } from "motion/react"
 import { useCallback, useState } from "react"
 import { useCreateChannel } from "@/components/sidebar/channel-panel/create-channel-context"
@@ -51,15 +58,21 @@ import {
 type ChannelMuteControls = ReturnType<typeof useChannelMutes>
 
 const channelIcons = {
-  text: Hash,
-  voice: Volume2,
+  text: HashtagIcon,
+  voice: VolumeHighIcon,
 } as const
 
 type ChannelData = ListChannelsResponse
 
 function ChannelIcon({ type }: { type: string }) {
-  const Icon = channelIcons[type as keyof typeof channelIcons] ?? Hash
-  return <Icon className="size-4 shrink-0 opacity-50" />
+  const icon = channelIcons[type as keyof typeof channelIcons] ?? HashtagIcon
+  return (
+    <HugeiconsIcon
+      icon={icon}
+      className="size-4 shrink-0 opacity-50"
+      strokeWidth={2}
+    />
+  )
 }
 
 function ChannelListSkeleton() {
@@ -494,7 +507,11 @@ export function ChannelList() {
           <div className="rounded-lg bg-background shadow-lg">
             {activeItem.isCategory ? (
               <div className="flex items-center gap-0.5 px-1 py-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                <ChevronDown className="size-3 shrink-0" />
+                <HugeiconsIcon
+                  icon={ArrowDown01Icon}
+                  className="size-3 shrink-0"
+                  strokeWidth={2}
+                />
                 <span className="truncate">
                   {activeItem.channel.name ?? ""}
                 </span>
@@ -575,7 +592,11 @@ function SortableCategorySection({
             animate={{ rotate: collapsed ? -90 : 0 }}
             transition={{ duration: 0.15, ease: "easeInOut" }}
           >
-            <ChevronDown className="size-3 shrink-0" />
+            <HugeiconsIcon
+              icon={ArrowDown01Icon}
+              className="size-3 shrink-0"
+              strokeWidth={2}
+            />
           </motion.div>
           <span className="truncate">{name}</span>
         </button>
@@ -589,7 +610,7 @@ function SortableCategorySection({
               aria-label="Create channel"
               className="text-muted-foreground opacity-0 transition-opacity duration-150 hover:text-foreground group-hover/category:opacity-100 focus-visible:opacity-100"
             >
-              <Plus />
+              <HugeiconsIcon icon={PlusSignIcon} strokeWidth={2} />
             </Button>
           )}
           {canManage && (
@@ -608,7 +629,7 @@ function SortableCategorySection({
                   />
                 }
               >
-                <MoreHorizontal />
+                <HugeiconsIcon icon={MoreHorizontalIcon} strokeWidth={2} />
               </DropdownMenuTrigger>
               <DropdownMenuContent side="bottom" align="start">
                 <DropdownMenuItem
@@ -768,7 +789,7 @@ function SortableChannelItem({
                 />
               }
             >
-              <MoreHorizontal />
+              <HugeiconsIcon icon={MoreHorizontalIcon} strokeWidth={2} />
             </DropdownMenuTrigger>
             <DropdownMenuContent side="bottom" align="start">
               {mute ? (

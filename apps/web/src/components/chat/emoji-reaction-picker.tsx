@@ -1,4 +1,4 @@
-import { SmilePlusIcon } from "@hugeicons/core-free-icons"
+import { PlusSignIcon, SmilePlusIcon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { Button } from "@repo/ui/components/button"
 import {
@@ -12,7 +12,6 @@ import {
   TooltipTrigger,
 } from "@repo/ui/components/tooltip"
 import EmojiPicker, { type EmojiClickData, Theme } from "emoji-picker-react"
-import { Plus } from "lucide-react"
 import { useTheme } from "next-themes"
 import { useState } from "react"
 
@@ -110,7 +109,11 @@ export function EmojiReactionPicker({
               onClick={() => setShowFullPicker(true)}
               aria-label="Open full emoji picker"
             >
-              <Plus className="size-4" />
+              <HugeiconsIcon
+                icon={PlusSignIcon}
+                className="size-4"
+                strokeWidth={2}
+              />
             </button>
           </div>
         )}

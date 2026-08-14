@@ -1,3 +1,5 @@
+import { HashtagIcon, VolumeHighIcon } from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
 import { Button } from "@repo/ui/components/button"
 import { CustomSelectItem } from "@repo/ui/components/custom-select-item"
 import {
@@ -16,9 +18,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@repo/ui/components/select"
+import { Spinner } from "@repo/ui/components/spinner"
 import { useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
-import { Hash, Loader2, Volume2 } from "lucide-react"
 import { useState } from "react"
 import { apiClient } from "@/lib/api-client"
 
@@ -26,14 +28,14 @@ const channelTypes = [
   {
     value: "text",
     label: "Text",
-    icon: Hash,
+    icon: HashtagIcon,
     description: "A text channel for general conversation and discussion",
     disabled: false,
   },
   {
     value: "voice",
     label: "Voice",
-    icon: Volume2,
+    icon: VolumeHighIcon,
     description: "Voice channels are coming soon",
     disabled: true,
   },
@@ -169,7 +171,11 @@ export function CreateChannelDialog({
                       disabled={ct.disabled}
                     >
                       <div className="flex items-center gap-2">
-                        <ct.icon className="size-4 text-muted-foreground" />
+                        <HugeiconsIcon
+                          icon={ct.icon}
+                          className="size-4 text-muted-foreground"
+                          strokeWidth={2}
+                        />
                         {ct.label}
                       </div>
                     </CustomSelectItem>
@@ -207,7 +213,7 @@ export function CreateChannelDialog({
               loading || !name.trim() || (!isCategory && !normalizedName)
             }
           >
-            {loading && <Loader2 className="mr-2 size-4 animate-spin" />}
+            {loading && <Spinner className="mr-2 size-4" />}
             {isCategory ? "Create Category" : "Create Channel"}
           </Button>
         </DialogPanel>

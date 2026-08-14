@@ -1,3 +1,15 @@
+import {
+  ArrowRight01Icon,
+  BookOpen01Icon,
+  ComputerTerminal01Icon,
+  Download01Icon,
+  LinkSquare02Icon,
+  PencilEdit02Icon,
+  Search01Icon,
+  SourceCodeIcon,
+  Wrench01Icon,
+} from "@hugeicons/core-free-icons"
+import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react"
 import { env } from "@repo/env/client"
 import {
   ChainOfThought,
@@ -8,17 +20,6 @@ import {
   ChainOfThoughtStepTitle,
   ChainOfThoughtTrigger,
 } from "@repo/ui/components/nexus-ui/chain-of-thought"
-import {
-  BookOpen,
-  ChevronRight,
-  Code,
-  Download,
-  ExternalLink,
-  PencilLine,
-  Search,
-  Terminal,
-  Wrench,
-} from "lucide-react"
 import { type ComponentType, useState } from "react"
 import { MessageMarkdown } from "@/components/chat/message-markdown"
 import type { MerlinToolCallView } from "@/lib/api-types"
@@ -36,8 +37,23 @@ import {
 // streaming (so progress shows), collapsed once settled; the root stays
 // controlled so history doesn't flash open before auto-closing.
 
-// Brand marks and lucide glyphs share one shape here.
+// Brand marks and hugeicons glyphs share one shape here.
 type TrailIcon = ComponentType<{ className?: string }>
+
+function glyph(icon: IconSvgElement): TrailIcon {
+  return (props: { className?: string }) => (
+    <HugeiconsIcon icon={icon} strokeWidth={2} {...props} />
+  )
+}
+
+const CodeGlyph = glyph(SourceCodeIcon)
+const SearchGlyph = glyph(Search01Icon)
+const DownloadGlyph = glyph(Download01Icon)
+const ReadGlyph = glyph(BookOpen01Icon)
+const TerminalGlyph = glyph(ComputerTerminal01Icon)
+const WriteGlyph = glyph(PencilEdit02Icon)
+const WrenchGlyph = glyph(Wrench01Icon)
+const ExternalLinkGlyph = glyph(LinkSquare02Icon)
 
 function toolIcon(toolName: string): TrailIcon {
   // Connector tools wear their brand mark; built-in tools get an action glyph.
@@ -45,30 +61,30 @@ function toolIcon(toolName: string): TrailIcon {
   if (connector) return connectorLogo(connector)
   switch (toolName) {
     case "investigate_code":
-      return Code
+      return CodeGlyph
     case "search_sources":
     case "search_messages":
     case "grep":
     case "find":
-      return Search
+      return SearchGlyph
     case "search_web":
     case "fetch_web":
       return GlobeMark
     case "fetch_source":
-      return Download
+      return DownloadGlyph
     case "ls":
     case "tree":
     case "read":
-      return BookOpen
+      return ReadGlyph
     case "bash":
-      return Terminal
+      return TerminalGlyph
     case "write":
     case "mkdir":
     case "move":
     case "link":
-      return PencilLine
+      return WriteGlyph
     default:
-      return Wrench
+      return WrenchGlyph
   }
 }
 
@@ -76,7 +92,7 @@ function toolIcon(toolName: string): TrailIcon {
 // generic external-link glyph.
 function itemIcon(url?: string): TrailIcon {
   const connector = connectorForUrl(url)
-  return connector ? connectorLogo(connector) : ExternalLink
+  return connector ? connectorLogo(connector) : ExternalLinkGlyph
 }
 
 // Web results carry a favicon marker — badge them Codex-style, loading the
@@ -168,8 +184,10 @@ function SubStepRow({ toolCall }: { toolCall: MerlinToolCallView }) {
         className="inline-flex cursor-pointer items-center gap-1.5 text-left text-muted-foreground text-xs hover:text-foreground"
       >
         {row}
-        <ChevronRight
+        <HugeiconsIcon
+          icon={ArrowRight01Icon}
           className={`size-3 shrink-0 transition-transform ${open ? "rotate-90" : ""}`}
+          strokeWidth={2}
         />
       </button>
       {open && (

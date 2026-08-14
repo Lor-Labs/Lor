@@ -1,3 +1,9 @@
+import {
+  AlertCircleIcon,
+  ArrowLeft01Icon,
+  MailValidation01Icon,
+} from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
 import { Button } from "@repo/ui/components/button"
 import {
@@ -9,9 +15,9 @@ import {
   CardTitle,
 } from "@repo/ui/components/card"
 import { InlineValidation } from "@repo/ui/components/interior/inline-validation"
+import { Spinner } from "@repo/ui/components/spinner"
 import { useMutation } from "@tanstack/react-query"
 import { createFileRoute, Link } from "@tanstack/react-router"
-import { AlertCircle, ArrowLeft, Loader2, MailCheck } from "lucide-react"
 import { type FormEvent, useState } from "react"
 import { AuthLayout } from "@/components/auth/auth-layout"
 import { validateEmail } from "@/lib/email-validation"
@@ -44,7 +50,11 @@ function ForgotPasswordPage() {
         <Card className="w-full border-border/50 bg-card/80 shadow-xl backdrop-blur-sm">
           <CardHeader className="flex flex-col items-center gap-4 pt-8">
             <div className="flex size-16 items-center justify-center rounded-full bg-primary/10 ring-1 ring-primary/20">
-              <MailCheck className="size-8 text-primary" />
+              <HugeiconsIcon
+                icon={MailValidation01Icon}
+                className="size-8 text-primary"
+                strokeWidth={2}
+              />
             </div>
             <div className="space-y-1 text-center">
               <h2 className="text-xl font-semibold text-foreground">
@@ -62,7 +72,11 @@ function ForgotPasswordPage() {
               to="/login"
               className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-primary"
             >
-              <ArrowLeft className="size-3.5" />
+              <HugeiconsIcon
+                icon={ArrowLeft01Icon}
+                className="size-3.5"
+                strokeWidth={2}
+              />
               Back to sign in
             </Link>
           </CardFooter>
@@ -92,7 +106,11 @@ function ForgotPasswordPage() {
           <CardContent className="flex flex-col gap-4">
             {error && (
               <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2.5 text-sm text-destructive">
-                <AlertCircle className="size-4 shrink-0" />
+                <HugeiconsIcon
+                  icon={AlertCircleIcon}
+                  className="size-4 shrink-0"
+                  strokeWidth={2}
+                />
                 <span>{error.message}</span>
               </div>
             )}
@@ -113,7 +131,7 @@ function ForgotPasswordPage() {
             <Button type="submit" className="w-full" disabled={isPending}>
               {isPending ? (
                 <>
-                  <Loader2 className="size-4 animate-spin" />
+                  <Spinner className="size-4" />
                   Sending...
                 </>
               ) : (
@@ -124,7 +142,11 @@ function ForgotPasswordPage() {
               to="/login"
               className="flex items-center justify-center gap-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-primary"
             >
-              <ArrowLeft className="size-3.5" />
+              <HugeiconsIcon
+                icon={ArrowLeft01Icon}
+                className="size-3.5"
+                strokeWidth={2}
+              />
               Back to sign in
             </Link>
           </CardFooter>

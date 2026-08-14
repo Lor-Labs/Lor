@@ -1,8 +1,9 @@
+import { Cancel01Icon, MessageMultiple01Icon } from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
 import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar"
 import { cn } from "@repo/ui/lib/utils"
 import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { timeAgo } from "@repo/utils/date"
-import { MessagesSquare, X } from "lucide-react"
 import { AnimatePresence, motion } from "motion/react"
 import type { ThreadActivity } from "@/hooks/use-thread-activity"
 import type { Message } from "@/lib/api-types"
@@ -63,7 +64,11 @@ function ThreadActivityCard({
         )}
       >
         <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
-          <MessagesSquare className="size-3.5" strokeWidth={2.25} />
+          <HugeiconsIcon
+            icon={MessageMultiple01Icon}
+            className="size-3.5"
+            strokeWidth={2.25}
+          />
         </span>
         <div className="flex shrink-0 -space-x-1.5">
           {activity.participants.slice(0, 3).map((p) => (
@@ -100,7 +105,11 @@ function ThreadActivityCard({
         onClick={() => onDismiss(activity.threadRootId)}
         className="absolute top-1/2 right-2 -translate-y-1/2 rounded p-0.5 text-muted-foreground/60 opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100"
       >
-        <X className="size-3.5" />
+        <HugeiconsIcon
+          icon={Cancel01Icon}
+          className="size-3.5"
+          strokeWidth={2}
+        />
       </button>
     </motion.div>
   )

@@ -1,3 +1,5 @@
+import { MoreHorizontalIcon } from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
 import {
   type AssignableWorkspaceRole,
@@ -36,7 +38,6 @@ import { SidebarToggleIcon } from "@repo/ui/components/unlumen-ui/sidebar-toggle
 import { useIsMobile } from "@repo/ui/hooks/use-mobile"
 import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { MoreHorizontal } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
@@ -194,7 +195,11 @@ function MemberRow({
                 />
               }
             >
-              <MoreHorizontal className="size-4" />
+              <HugeiconsIcon
+                icon={MoreHorizontalIcon}
+                className="size-4"
+                strokeWidth={2}
+              />
               <span className="sr-only">Moderate member</span>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">

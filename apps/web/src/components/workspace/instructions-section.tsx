@@ -1,4 +1,10 @@
 import {
+  ArrowDown01Icon,
+  Cancel01Icon,
+  Tick02Icon,
+} from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
+import {
   DEFAULT_THEMES,
   getFiletypeFromFileName,
   getHighlighterOptions,
@@ -9,13 +15,13 @@ import {
 import { FileDiff } from "@pierre/diffs/react"
 import { Badge } from "@repo/ui/components/badge"
 import { Button } from "@repo/ui/components/button"
+import { Spinner } from "@repo/ui/components/spinner"
 import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import Link from "@tiptap/extension-link"
 import { Markdown } from "@tiptap/markdown"
 import { EditorContent, useEditor } from "@tiptap/react"
 import StarterKit from "@tiptap/starter-kit"
-import { Check, ChevronDown, Loader2, X } from "lucide-react"
 import { useTheme } from "next-themes"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
@@ -87,7 +93,7 @@ function DiffView({ before, after }: { before: string; after: string }) {
   if (!highlighterReady) {
     return (
       <div className="flex h-16 items-center justify-center rounded-md border border-border">
-        <Loader2 className="size-4 animate-spin text-muted-foreground" />
+        <Spinner className="size-4 text-muted-foreground" />
       </div>
     )
   }
@@ -245,7 +251,7 @@ function InstructionsEditor({
             disabled={!hasChanges || overLimit || isSaving}
             onClick={() => onSave(editorValue, lastAppliedVersion.current)}
           >
-            {isSaving && <Loader2 className="size-4 animate-spin" />}
+            {isSaving && <Spinner className="size-4" />}
             Save
           </Button>
         </div>
@@ -356,7 +362,7 @@ export function InstructionsSection({
   if (isPending) {
     return (
       <div className="flex justify-center py-10">
-        <Loader2 className="size-5 animate-spin text-muted-foreground" />
+        <Spinner className="size-5 text-muted-foreground" />
       </div>
     )
   }
@@ -418,7 +424,11 @@ export function InstructionsSection({
                 disabled={reject.isPending || approve.isPending}
                 onClick={() => reject.mutate(pending.version)}
               >
-                <X className="size-4" />
+                <HugeiconsIcon
+                  icon={Cancel01Icon}
+                  className="size-4"
+                  strokeWidth={2}
+                />
                 Reject
               </Button>
               <Button
@@ -428,7 +438,11 @@ export function InstructionsSection({
                 }
                 onClick={() => approve.mutate(pending.version)}
               >
-                <Check className="size-4" />
+                <HugeiconsIcon
+                  icon={Tick02Icon}
+                  className="size-4"
+                  strokeWidth={2}
+                />
                 Approve
               </Button>
             </div>
@@ -463,11 +477,13 @@ export function InstructionsSection({
             onClick={() => setHistoryOpen((open) => !open)}
             className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
           >
-            <ChevronDown
+            <HugeiconsIcon
+              icon={ArrowDown01Icon}
               className={cn(
                 "size-3.5 transition-transform",
                 historyOpen && "rotate-180"
               )}
+              strokeWidth={2}
             />
             Version history
           </button>

@@ -1,13 +1,27 @@
-import type { AttachmentMeta } from "@repo/ui/components/nexus-ui/attachments"
 import {
-  FileArchive,
-  FileIcon,
-  FileJson,
-  FileSpreadsheet,
-  FileText,
-  type LucideIcon,
-  Presentation,
-} from "lucide-react"
+  File01Icon,
+  File02Icon,
+  FileScriptIcon,
+  FileZipIcon,
+  Presentation01Icon,
+  Xls01Icon,
+} from "@hugeicons/core-free-icons"
+import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react"
+import type { AttachmentMeta } from "@repo/ui/components/nexus-ui/attachments"
+import type { ComponentType } from "react"
+
+function glyph(icon: IconSvgElement): ComponentType<{ className?: string }> {
+  return (props: { className?: string }) => (
+    <HugeiconsIcon icon={icon} strokeWidth={2} {...props} />
+  )
+}
+
+const FileGlyph = glyph(File01Icon)
+const FileTextGlyph = glyph(File02Icon)
+const FileScriptGlyph = glyph(FileScriptIcon)
+const FileZipGlyph = glyph(FileZipIcon)
+const PresentationGlyph = glyph(Presentation01Icon)
+const SpreadsheetGlyph = glyph(Xls01Icon)
 
 // Single mapper to Nexus's AttachmentMeta, so a PDF (or any file) renders the
 // same tile in the composer and in message history. Only image/video types use
@@ -46,20 +60,24 @@ export function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-export type FileKind = { Icon: LucideIcon; tint: string; label: string }
+export type FileKind = {
+  Icon: ComponentType<{ className?: string }>
+  tint: string
+  label: string
+}
 
 type KindDef = FileKind & { contentTypes: string[]; extensions: string[] }
 
 const FILE_KINDS: KindDef[] = [
   {
-    Icon: FileText,
+    Icon: FileTextGlyph,
     tint: "bg-destructive/10 text-destructive",
     label: "PDF",
     contentTypes: ["application/pdf"],
     extensions: ["pdf"],
   },
   {
-    Icon: FileSpreadsheet,
+    Icon: SpreadsheetGlyph,
     tint: "bg-success/10 text-success",
     label: "Sheet",
     contentTypes: [
@@ -70,7 +88,7 @@ const FILE_KINDS: KindDef[] = [
     extensions: ["csv", "xls", "xlsx"],
   },
   {
-    Icon: FileText,
+    Icon: FileTextGlyph,
     tint: "bg-chart-2/10 text-chart-2",
     label: "Doc",
     contentTypes: [
@@ -80,7 +98,7 @@ const FILE_KINDS: KindDef[] = [
     extensions: ["doc", "docx"],
   },
   {
-    Icon: Presentation,
+    Icon: PresentationGlyph,
     tint: "bg-chart-4/10 text-chart-4",
     label: "Slides",
     contentTypes: [
@@ -90,21 +108,21 @@ const FILE_KINDS: KindDef[] = [
     extensions: ["ppt", "pptx"],
   },
   {
-    Icon: FileJson,
+    Icon: FileScriptGlyph,
     tint: "bg-chart-3/10 text-chart-3",
     label: "JSON",
     contentTypes: ["application/json"],
     extensions: ["json"],
   },
   {
-    Icon: FileArchive,
+    Icon: FileZipGlyph,
     tint: "bg-chart-1/10 text-chart-1",
     label: "Archive",
     contentTypes: ["application/zip", "application/x-tar"],
     extensions: ["zip", "tar", "gz"],
   },
   {
-    Icon: FileText,
+    Icon: FileTextGlyph,
     tint: "bg-muted text-muted-foreground",
     label: "Text",
     contentTypes: [
@@ -118,7 +136,7 @@ const FILE_KINDS: KindDef[] = [
 ]
 
 const FALLBACK: FileKind = {
-  Icon: FileIcon,
+  Icon: FileGlyph,
   tint: "bg-muted text-muted-foreground",
   label: "File",
 }

@@ -1,10 +1,10 @@
 import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar"
 import { ExpandingSearch } from "@repo/ui/components/interior/expanding-search"
+import { Spinner } from "@repo/ui/components/spinner"
 import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { formatTime } from "@repo/utils/date"
 import { useQuery } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
-import { Loader2 } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 import { useMessageSearchNavigation } from "@/hooks/use-message-search-navigation"
 import { apiClient } from "@/lib/api-client"
@@ -139,7 +139,7 @@ export function HeaderSearch({
         <div className="absolute top-full right-0 z-50 mt-1 max-h-72 w-80 overflow-y-auto rounded-md border border-border bg-popover shadow-lg">
           {isPending && (
             <div className="flex items-center justify-center py-6">
-              <Loader2 className="size-4 animate-spin text-muted-foreground" />
+              <Spinner className="size-4 text-muted-foreground" />
             </div>
           )}
           {data && data.data.length === 0 && (

@@ -1,4 +1,5 @@
-import { Upload } from "lucide-react"
+import { Upload01Icon } from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
 
 export function DropZoneOverlay({ isDragActive }: { isDragActive: boolean }) {
   if (!isDragActive) return null
@@ -6,7 +7,11 @@ export function DropZoneOverlay({ isDragActive }: { isDragActive: boolean }) {
   return (
     <div className="absolute inset-0 z-40 flex items-center justify-center bg-background/80 backdrop-blur-sm">
       <div className="flex flex-col items-center gap-3 rounded-xl border-2 border-dashed border-primary/50 bg-primary/5 px-16 py-12">
-        <Upload className="size-10 text-primary" />
+        <HugeiconsIcon
+          icon={Upload01Icon}
+          className="size-10 text-primary"
+          strokeWidth={2}
+        />
         <p className="text-lg font-semibold text-foreground">
           Drop files to upload
         </p>

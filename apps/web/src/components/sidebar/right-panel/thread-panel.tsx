@@ -1,3 +1,8 @@
+import {
+  Copy01Icon,
+  CornerUpRightIcon,
+  MoreHorizontalIcon,
+} from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
 import {
@@ -14,6 +19,7 @@ import {
   MessageScrollerViewport,
 } from "@repo/ui/components/message-scroller"
 import { Skeleton } from "@repo/ui/components/skeleton"
+import { Spinner } from "@repo/ui/components/spinner"
 import { anchoredToastManager } from "@repo/ui/components/toast"
 
 import {
@@ -27,7 +33,6 @@ import {
   useQueryClient,
 } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { Copy, CornerUpRight, Loader2, MoreHorizontal } from "lucide-react"
 import {
   type PointerEvent as ReactPointerEvent,
   useCallback,
@@ -616,15 +621,19 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
                 />
               }
             >
-              <MoreHorizontal className="size-4" />
+              <HugeiconsIcon
+                icon={MoreHorizontalIcon}
+                className="size-4"
+                strokeWidth={2}
+              />
             </DropdownMenuTrigger>
             <DropdownMenuContent side="bottom" align="end" className="w-60">
               <DropdownMenuItem onClick={handleViewInChannel}>
-                <CornerUpRight />
+                <HugeiconsIcon icon={CornerUpRightIcon} strokeWidth={2} />
                 Go to message
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => void handleCopyAsMarkdown()}>
-                <Copy />
+                <HugeiconsIcon icon={Copy01Icon} strokeWidth={2} />
                 {`Copy ${isTask ? "task" : "thread"} as Markdown`}
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -702,7 +711,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
                     className="flex justify-center py-3"
                   >
                     {isFetchingOlder && (
-                      <Loader2 className="size-5 animate-spin text-muted-foreground motion-reduce:animate-none" />
+                      <Spinner className="size-5 text-muted-foreground motion-reduce:animate-none" />
                     )}
                   </div>
                 </MessageScrollerItem>

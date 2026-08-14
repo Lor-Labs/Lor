@@ -1,4 +1,15 @@
 import {
+  GlobeIcon,
+  KeyboardIcon,
+  Message01Icon,
+  Notification01Icon,
+  PaintBrush01Icon,
+  Search01Icon,
+  Settings01Icon,
+  UserIcon,
+} from "@hugeicons/core-free-icons"
+import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react"
+import {
   Breadcrumb,
   BreadcrumbItem,
   BreadcrumbList,
@@ -24,17 +35,6 @@ import {
   SidebarProvider,
 } from "@repo/ui/components/sidebar"
 import { listen } from "@tauri-apps/api/event"
-import {
-  Bell,
-  Globe,
-  Keyboard,
-  type LucideIcon,
-  MessageCircle,
-  Paintbrush,
-  Search,
-  Settings,
-  User,
-} from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import { AppearanceSettings } from "@/components/settings/appearance-settings"
 import { MyAccountSettings } from "@/components/settings/my-account-settings"
@@ -45,19 +45,19 @@ import { useSettings } from "@/hooks/use-settings"
 interface SettingsNav {
   id: string
   name: string
-  icon: LucideIcon
+  icon: IconSvgElement
 }
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window
 
 const settingsNav = [
-  { id: "account", name: "My Account", icon: User },
-  { id: "appearance", name: "Appearance", icon: Paintbrush },
-  { id: "notifications", name: "Notifications", icon: Bell },
-  { id: "messages", name: "Messages & Media", icon: MessageCircle },
-  { id: "language", name: "Language & Region", icon: Globe },
-  { id: "accessibility", name: "Accessibility", icon: Keyboard },
-  { id: "advanced", name: "Advanced", icon: Settings },
+  { id: "account", name: "My Account", icon: UserIcon },
+  { id: "appearance", name: "Appearance", icon: PaintBrush01Icon },
+  { id: "notifications", name: "Notifications", icon: Notification01Icon },
+  { id: "messages", name: "Messages & Media", icon: Message01Icon },
+  { id: "language", name: "Language & Region", icon: GlobeIcon },
+  { id: "accessibility", name: "Accessibility", icon: KeyboardIcon },
+  { id: "advanced", name: "Advanced", icon: Settings01Icon },
 ] as const satisfies readonly SettingsNav[]
 
 export function SettingsDialog() {
@@ -120,7 +120,11 @@ export function SettingsDialog() {
           <Sidebar collapsible="none" className="hidden border-r md:flex">
             <SidebarHeader>
               <div className="relative">
-                <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+                <HugeiconsIcon
+                  icon={Search01Icon}
+                  className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground"
+                  strokeWidth={2}
+                />
                 <Input
                   placeholder="Search settings..."
                   value={search}
@@ -141,7 +145,7 @@ export function SettingsDialog() {
                           isActive={item.id === activeItem.id}
                           onClick={() => setTab(item.id)}
                         >
-                          <item.icon />
+                          <HugeiconsIcon icon={item.icon} strokeWidth={2} />
                           <span>{item.name}</span>
                         </SidebarMenuButton>
                       </SidebarMenuItem>

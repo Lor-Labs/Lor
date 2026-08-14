@@ -1,9 +1,10 @@
+import { Cancel01Icon } from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
 import {
   Attachment,
   AttachmentList,
 } from "@repo/ui/components/nexus-ui/attachments"
 import { cn } from "@repo/ui/lib/utils"
-import { X } from "lucide-react"
 import { useState } from "react"
 import { createPortal } from "react-dom"
 import type { PendingAttachment } from "@/hooks/use-file-upload"
@@ -108,7 +109,11 @@ export function AttachmentPreview({
               className="absolute right-4 top-4 rounded-md p-2 text-white/70 transition-colors hover:bg-white/10 hover:text-white"
               aria-label="Close"
             >
-              <X className="size-5" />
+              <HugeiconsIcon
+                icon={Cancel01Icon}
+                className="size-5"
+                strokeWidth={2}
+              />
             </button>
             <img
               src={lightboxUrl}

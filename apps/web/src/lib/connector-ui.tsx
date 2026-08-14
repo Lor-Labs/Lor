@@ -1,11 +1,10 @@
-import { Globe02Icon } from "@hugeicons/core-free-icons"
+import { GithubIcon, Globe02Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { AttioLogo } from "@repo/ui/components/logos/attio"
 import { DatadogLogo } from "@repo/ui/components/logos/datadog"
 import { LinearLogo } from "@repo/ui/components/logos/linear"
 import { NotionLogo } from "@repo/ui/components/logos/notion"
 import { cn } from "@repo/ui/lib/utils"
-import { Github } from "lucide-react"
 import type { ComponentType } from "react"
 import type { ConnectorKey } from "@/lib/api-types"
 
@@ -27,6 +26,12 @@ function AttioMark({ className }: { className?: string }) {
 
 function NotionMark({ className }: { className?: string }) {
   return <NotionLogo className={className} />
+}
+
+function GithubMark({ className }: { className?: string }) {
+  return (
+    <HugeiconsIcon icon={GithubIcon} className={className} strokeWidth={2} />
+  )
 }
 
 // Same glyph as mobile's Globe02Icon so web capabilities match across surfaces.
@@ -101,7 +106,7 @@ function attioLabel(url: URL): string {
 // profiles, and the tool trail.
 const CONNECTOR_UI: Record<ConnectorKey, ConnectorUI> = {
   github: {
-    logo: Github,
+    logo: GithubMark,
     urlHost: /(^|\.)github\.com\b/i,
     tools: ["search_github", "fetch_github"],
     linkLabel: githubLabel,

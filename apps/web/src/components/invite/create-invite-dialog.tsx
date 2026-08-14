@@ -1,3 +1,5 @@
+import { Copy01Icon, Link01Icon, Tick02Icon } from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
 import { Button } from "@repo/ui/components/button"
 import {
   Dialog,
@@ -20,7 +22,6 @@ import {
 import { anchoredToastManager } from "@repo/ui/components/toast"
 import { useMutation } from "@tanstack/react-query"
 import { useParams } from "@tanstack/react-router"
-import { Check, Copy, Link } from "lucide-react"
 import { useRef, useState } from "react"
 import { toast } from "sonner"
 import { apiClient } from "@/lib/api-client"
@@ -159,9 +160,17 @@ export function CreateInviteDialog({
                     onClick={handleCopy}
                   >
                     {copied ? (
-                      <Check className="size-4" />
+                      <HugeiconsIcon
+                        icon={Tick02Icon}
+                        className="size-4"
+                        strokeWidth={2}
+                      />
                     ) : (
-                      <Copy className="size-4" />
+                      <HugeiconsIcon
+                        icon={Copy01Icon}
+                        className="size-4"
+                        strokeWidth={2}
+                      />
                     )}
                   </Button>
                 </div>
@@ -241,7 +250,11 @@ export function CreateInviteDialog({
                 onClick={() => createMutation.mutate()}
                 disabled={createMutation.isPending}
               >
-                <Link className="mr-2 size-4" />
+                <HugeiconsIcon
+                  icon={Link01Icon}
+                  className="mr-2 size-4"
+                  strokeWidth={2}
+                />
                 {createMutation.isPending
                   ? "Generating..."
                   : "Generate Invite Link"}
