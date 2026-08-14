@@ -75,15 +75,32 @@ const NOT_CONNECTED = {
   error: "CloudWatch credentials are missing or invalid for this workspace",
 }
 
-function parseTimeRange(input: {
-  startTime?: string
-  endTime?: string
-}): { start: Date; end: Date } | { error: string } {
+// Tool results must be the { error } record shape, never a thrown rejection —
+// the tool trail and the model both consume the error text.
+function awsError(err: unknown): { error: string } {
+  const message = err instanceof Error ? err.message : String(err)
+  return { error: `CloudWatch request failed: ${message}` }
+}
+
+const HOUR_MS = 60 * 60 * 1000
+
+// Validates the raw inputs (a malformed timestamp is an { error } result, not
+// a throw); when startTime is absent it defaults to spanMs before endTime.
+function parseTimeRange(
+  input: {
+    startTime?: string
+    endTime?: string
+  },
+  spanMs: number = HOUR_MS
+): { start: Date; end: Date } | { error: string } {
   const end = input.endTime ? new Date(input.endTime) : new Date()
+  if (Number.isNaN(end.getTime())) {
+    return { error: "startTime/endTime must be ISO 8601 timestamps" }
+  }
   const start = input.startTime
     ? new Date(input.startTime)
-    : new Date(end.getTime() - 60 * 60 * 1000)
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    : new Date(end.getTime() - spanMs)
+  if (Number.isNaN(start.getTime())) {
     return { error: "startTime/endTime must be ISO 8601 timestamps" }
   }
   if (start >= end) {
@@ -106,28 +123,32 @@ export const cloudwatchTools = {
     }),
     contextSchema: cloudwatchContext,
     execute: async ({ prefix, limit }, { context }) => {
-      const clients = await clientsFor(context.externalId)
-      if (!clients) return NOT_CONNECTED
-      const response = await clients.logs.send(
-        new DescribeLogGroupsCommand({
-          logGroupNamePrefix: prefix,
-          limit: limit ?? LOG_GROUPS_DEFAULT,
-        })
-      )
-      return {
-        region: clients.region,
-        groups: (response.logGroups ?? []).flatMap((group) =>
-          group.logGroupName
-            ? [
-                {
-                  name: group.logGroupName,
-                  retentionDays: group.retentionInDays ?? null,
-                  storedBytes: group.storedBytes ?? null,
-                  url: logGroupUrl(clients.region, group.logGroupName),
-                },
-              ]
-            : []
-        ),
+      try {
+        const clients = await clientsFor(context.externalId)
+        if (!clients) return NOT_CONNECTED
+        const response = await clients.logs.send(
+          new DescribeLogGroupsCommand({
+            logGroupNamePrefix: prefix,
+            limit: limit ?? LOG_GROUPS_DEFAULT,
+          })
+        )
+        return {
+          region: clients.region,
+          groups: (response.logGroups ?? []).flatMap((group) =>
+            group.logGroupName
+              ? [
+                  {
+                    name: group.logGroupName,
+                    retentionDays: group.retentionInDays ?? null,
+                    storedBytes: group.storedBytes ?? null,
+                    url: logGroupUrl(clients.region, group.logGroupName),
+                  },
+                ]
+              : []
+          ),
+        }
+      } catch (err) {
+        return awsError(err)
       }
     },
   }),
@@ -154,66 +175,76 @@ export const cloudwatchTools = {
       { logGroups, query, startTime, endTime, limit },
       { context }
     ) => {
-      const clients = await clientsFor(context.externalId)
-      if (!clients) return NOT_CONNECTED
-      const range = parseTimeRange({ startTime, endTime })
-      if ("error" in range) return range
+      try {
+        const clients = await clientsFor(context.externalId)
+        if (!clients) return NOT_CONNECTED
+        const range = parseTimeRange({ startTime, endTime })
+        if ("error" in range) return range
 
-      const started = await clients.logs.send(
-        new StartQueryCommand({
-          logGroupNames: logGroups,
-          queryString: query,
-          startTime: Math.floor(range.start.getTime() / 1000),
-          endTime: Math.floor(range.end.getTime() / 1000),
-          limit: limit ?? QUERY_LIMIT_DEFAULT,
-        })
-      )
-      const queryId = started.queryId
-      if (!queryId) return { error: "CloudWatch did not accept the query" }
+        const started = await clients.logs.send(
+          new StartQueryCommand({
+            logGroupNames: logGroups,
+            queryString: query,
+            startTime: Math.floor(range.start.getTime() / 1000),
+            endTime: Math.floor(range.end.getTime() / 1000),
+            limit: limit ?? QUERY_LIMIT_DEFAULT,
+          })
+        )
+        const queryId = started.queryId
+        if (!queryId) return { error: "CloudWatch did not accept the query" }
 
-      const deadline = Date.now() + QUERY_DEADLINE_MS
-      let timedOut = false
-      let results = await clients.logs.send(
-        new GetQueryResultsCommand({ queryId })
-      )
-      while (
-        results.status === "Running" ||
-        results.status === "Scheduled" ||
-        results.status === "Unknown"
-      ) {
-        if (Date.now() > deadline) {
-          timedOut = true
-          // Stop the scan and fall through with whatever landed so far.
-          await clients.logs
-            .send(new StopQueryCommand({ queryId }))
-            .catch(() => {})
-          break
-        }
-        await new Promise((resolve) => setTimeout(resolve, QUERY_POLL_MS))
-        results = await clients.logs.send(
+        const deadline = Date.now() + QUERY_DEADLINE_MS
+        let timedOut = false
+        let results = await clients.logs.send(
           new GetQueryResultsCommand({ queryId })
         )
-      }
-      if (results.status === "Failed" || results.status === "Cancelled") {
-        return { error: `CloudWatch query ${results.status.toLowerCase()}` }
-      }
+        while (
+          results.status === "Running" ||
+          results.status === "Scheduled" ||
+          results.status === "Unknown"
+        ) {
+          if (Date.now() > deadline) {
+            timedOut = true
+            // Stop the scan and fall through with whatever landed so far.
+            await clients.logs
+              .send(new StopQueryCommand({ queryId }))
+              .catch(() => {})
+            break
+          }
+          await new Promise((resolve) => setTimeout(resolve, QUERY_POLL_MS))
+          results = await clients.logs.send(
+            new GetQueryResultsCommand({ queryId })
+          )
+        }
+        // Timeout is CloudWatch's own execution limit, distinct from our poll
+        // deadline above — all three end states mean the query has no results.
+        if (
+          results.status === "Failed" ||
+          results.status === "Cancelled" ||
+          results.status === "Timeout"
+        ) {
+          return { error: `CloudWatch query ${results.status.toLowerCase()}` }
+        }
 
-      const rows = (results.results ?? []).map((row) =>
-        Object.fromEntries(
-          row
-            .filter((f) => f.field && f.field !== "@ptr")
-            .map((f) => [f.field, (f.value ?? "").slice(0, MESSAGE_MAX)])
+        const rows = (results.results ?? []).map((row) =>
+          Object.fromEntries(
+            row
+              .filter((f) => f.field && f.field !== "@ptr")
+              .map((f) => [f.field, (f.value ?? "").slice(0, MESSAGE_MAX)])
+          )
         )
-      )
-      return {
-        region: clients.region,
-        status: timedOut ? "partial" : "complete",
-        ...(timedOut
-          ? { note: "Query hit the time budget — results may be partial" }
-          : {}),
-        recordsMatched: results.statistics?.recordsMatched ?? null,
-        recordsScanned: results.statistics?.recordsScanned ?? null,
-        rows,
+        return {
+          region: clients.region,
+          status: timedOut ? "partial" : "complete",
+          ...(timedOut
+            ? { note: "Query hit the time budget — results may be partial" }
+            : {}),
+          recordsMatched: results.statistics?.recordsMatched ?? null,
+          recordsScanned: results.statistics?.recordsScanned ?? null,
+          rows,
+        }
+      } catch (err) {
+        return awsError(err)
       }
     },
   }),
@@ -227,23 +258,30 @@ export const cloudwatchTools = {
     }),
     contextSchema: cloudwatchContext,
     execute: async ({ namespace, metricName }, { context }) => {
-      const clients = await clientsFor(context.externalId)
-      if (!clients) return NOT_CONNECTED
-      const response = await clients.metrics.send(
-        new ListMetricsCommand({ Namespace: namespace, MetricName: metricName })
-      )
-      return {
-        region: clients.region,
-        metrics: (response.Metrics ?? [])
-          .slice(0, METRICS_LIST_MAX)
-          .map((metric) => ({
-            namespace: metric.Namespace ?? null,
-            name: metric.MetricName ?? null,
-            dimensions: (metric.Dimensions ?? []).map((d) => ({
-              name: d.Name ?? "",
-              value: d.Value ?? "",
+      try {
+        const clients = await clientsFor(context.externalId)
+        if (!clients) return NOT_CONNECTED
+        const response = await clients.metrics.send(
+          new ListMetricsCommand({
+            Namespace: namespace,
+            MetricName: metricName,
+          })
+        )
+        return {
+          region: clients.region,
+          metrics: (response.Metrics ?? [])
+            .slice(0, METRICS_LIST_MAX)
+            .map((metric) => ({
+              namespace: metric.Namespace ?? null,
+              name: metric.MetricName ?? null,
+              dimensions: (metric.Dimensions ?? []).map((d) => ({
+                name: d.Name ?? "",
+                value: d.Value ?? "",
+              })),
             })),
-          })),
+        }
+      } catch (err) {
+        return awsError(err)
       }
     },
   }),
@@ -292,54 +330,51 @@ export const cloudwatchTools = {
       },
       { context }
     ) => {
-      const clients = await clientsFor(context.externalId)
-      if (!clients) return NOT_CONNECTED
-      const end = endTime ? new Date(endTime) : new Date()
-      const start = startTime
-        ? new Date(startTime)
-        : new Date(end.getTime() - 3 * 60 * 60 * 1000)
-      const range = parseTimeRange({
-        startTime: start.toISOString(),
-        endTime: end.toISOString(),
-      })
-      if ("error" in range) return range
+      try {
+        const clients = await clientsFor(context.externalId)
+        if (!clients) return NOT_CONNECTED
+        const range = parseTimeRange({ startTime, endTime }, 3 * HOUR_MS)
+        if ("error" in range) return range
 
-      const response = await clients.metrics.send(
-        new GetMetricDataCommand({
-          StartTime: range.start,
-          EndTime: range.end,
-          MetricDataQueries: [
-            {
-              Id: "m1",
-              MetricStat: {
-                Metric: {
-                  Namespace: namespace,
-                  MetricName: metricName,
-                  Dimensions: dimensions?.map((d) => ({
-                    Name: d.name,
-                    Value: d.value,
-                  })),
+        const response = await clients.metrics.send(
+          new GetMetricDataCommand({
+            StartTime: range.start,
+            EndTime: range.end,
+            MetricDataQueries: [
+              {
+                Id: "m1",
+                MetricStat: {
+                  Metric: {
+                    Namespace: namespace,
+                    MetricName: metricName,
+                    Dimensions: dimensions?.map((d) => ({
+                      Name: d.name,
+                      Value: d.value,
+                    })),
+                  },
+                  Period: periodSeconds ?? 300,
+                  Stat: stat ?? "Average",
                 },
-                Period: periodSeconds ?? 300,
-                Stat: stat ?? "Average",
               },
-            },
-          ],
-        })
-      )
-      const series = response.MetricDataResults?.[0]
-      const times = series?.Timestamps ?? []
-      const values = series?.Values ?? []
-      return {
-        region: clients.region,
-        metric: `${namespace} ${metricName} (${stat ?? "Average"})`,
-        datapoints: times.slice(0, DATAPOINTS_MAX).map((time, i) => ({
-          time: time.toISOString(),
-          value: values[i] ?? null,
-        })),
-        ...(series?.StatusCode === "PartialData"
-          ? { note: "AWS returned partial data for this range" }
-          : {}),
+            ],
+          })
+        )
+        const series = response.MetricDataResults?.[0]
+        const times = series?.Timestamps ?? []
+        const values = series?.Values ?? []
+        return {
+          region: clients.region,
+          metric: `${namespace} ${metricName} (${stat ?? "Average"})`,
+          datapoints: times.slice(0, DATAPOINTS_MAX).map((time, i) => ({
+            time: time.toISOString(),
+            value: values[i] ?? null,
+          })),
+          ...(series?.StatusCode === "PartialData"
+            ? { note: "AWS returned partial data for this range" }
+            : {}),
+        }
+      } catch (err) {
+        return awsError(err)
       }
     },
   }),

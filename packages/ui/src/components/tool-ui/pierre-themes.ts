@@ -1,7 +1,8 @@
 // Pierre light/dark Shiki themes, vendored with the tool-ui code block
 // (converted from the registry's .js theme modules to plain TS).
+import type { ThemeRegistration } from "shiki"
 
-export const pierreDarkTheme = {
+export const pierreDarkTheme: ThemeRegistration = {
   name: "pierre-dark",
   type: "dark",
   colors: {
@@ -1852,7 +1853,7 @@ export const pierreDarkTheme = {
   },
 }
 
-export const pierreLightTheme = {
+export const pierreLightTheme: ThemeRegistration = {
   name: "pierre-light",
   type: "light",
   colors: {

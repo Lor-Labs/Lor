@@ -1109,11 +1109,16 @@ const AWS_REGION_LABELS: Record<AwsRegion, string> = {
   "eu-west-3": "Europe (Paris) · eu-west-3",
   "eu-central-1": "Europe (Frankfurt) · eu-central-1",
   "eu-north-1": "Europe (Stockholm) · eu-north-1",
+  "eu-south-1": "Europe (Milan) · eu-south-1",
+  "ap-east-1": "Asia Pacific (Hong Kong) · ap-east-1",
   "ap-south-1": "Asia Pacific (Mumbai) · ap-south-1",
   "ap-southeast-1": "Asia Pacific (Singapore) · ap-southeast-1",
   "ap-southeast-2": "Asia Pacific (Sydney) · ap-southeast-2",
   "ap-northeast-1": "Asia Pacific (Tokyo) · ap-northeast-1",
   "ap-northeast-2": "Asia Pacific (Seoul) · ap-northeast-2",
+  "ap-northeast-3": "Asia Pacific (Osaka) · ap-northeast-3",
+  "af-south-1": "Africa (Cape Town) · af-south-1",
+  "me-south-1": "Middle East (Bahrain) · me-south-1",
   "sa-east-1": "South America (São Paulo) · sa-east-1",
 }
 const AWS_REGIONS = Object.keys(AWS_REGION_LABELS) as AwsRegion[]

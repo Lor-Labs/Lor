@@ -104,10 +104,16 @@ let highlighterPromise: Promise<Highlighter> | null = null
 
 function getHighlighter(): Promise<Highlighter> {
   if (!highlighterPromise) {
-    highlighterPromise = createHighlighter({
-      themes: [pierreDarkTheme as never, pierreLightTheme as never],
+    const created = createHighlighter({
+      themes: [pierreDarkTheme, pierreLightTheme],
       langs: [],
       engine: createJavaScriptRegexEngine(),
+    })
+    highlighterPromise = created
+    // Drop a failed creation so the next highlight can retry instead of
+    // caching the rejection forever.
+    created.catch(() => {
+      if (highlighterPromise === created) highlighterPromise = null
     })
   }
   return highlighterPromise
@@ -443,6 +449,8 @@ function CodeBlockContent({ className }: CodeBlockSectionProps) {
     highlightLines,
     resolvedTheme,
     lineCount,
+    filename,
+    language,
   } = useCodeBlock()
 
   const lineNumberWidth = `${String(lineCount).length + 0.5}ch`
@@ -450,7 +458,12 @@ function CodeBlockContent({ className }: CodeBlockSectionProps) {
     resolvedTheme === "dark" ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.05)"
 
   return (
-    <div
+    // Focusable labelled region so keyboard users can reach it and scroll
+    // long lines horizontally with the arrow keys.
+    <section
+      aria-label={filename ?? `${language} code`}
+      // biome-ignore lint/a11y/noNoninteractiveTabindex: a scrollable region must be keyboard-focusable to be scrollable without a mouse
+      tabIndex={0}
       className={cn(
         // px-4 because shiki tokens carry no layout of their own. w-max +
         // min-w-full so the pre (and any line-highlight backgrounds) spans the
@@ -501,7 +514,7 @@ function CodeBlockContent({ className }: CodeBlockSectionProps) {
           </code>
         </pre>
       )}
-    </div>
+    </section>
   )
 }
 
