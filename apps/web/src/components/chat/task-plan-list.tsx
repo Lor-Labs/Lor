@@ -236,7 +236,7 @@ export function TaskPlanProgress({
               className={cn(
                 "block h-full rounded-full transition-[width,background-color] duration-500 ease-out motion-reduce:transition-none",
                 item.status === "done" && "w-full bg-primary",
-                item.status === "active" && "w-1/3 bg-primary",
+                item.status === "active" && "w-full bg-primary/40",
                 item.status === "pending" && "w-0 bg-transparent"
               )}
             />

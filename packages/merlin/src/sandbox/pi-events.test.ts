@@ -202,6 +202,35 @@ describe("createPiEventCollector", () => {
     })
   })
 
+  it("synthesizes ids when the provider omits tool-call ids", () => {
+    const onStep = vi.fn()
+    const collector = createPiEventCollector({ onStep })
+    const end = (isError: boolean, result?: unknown) =>
+      JSON.stringify({
+        type: "tool_execution_end",
+        toolCallId: "",
+        toolName: "write",
+        isError,
+        result,
+      })
+
+    collector.consume(toolStart("write", { path: "a", content: "x\n" }, ""))
+    collector.consume(end(false))
+    collector.consume(toolStart("read", { path: "b" }, ""))
+
+    expect(onStep.mock.calls.map(([s]) => [s.toolCallId, s.status])).toEqual([
+      ["pi-1", undefined],
+      ["pi-1", "ok"],
+      ["pi-2", undefined],
+    ])
+    expect(onStep.mock.calls[1]?.[0].diff).toEqual({
+      path: "a",
+      additions: 1,
+      deletions: 0,
+      patch: "+x",
+    })
+  })
+
   it("streams assistant text snapshots, resetting per message", () => {
     const onAssistantText = vi.fn()
     const collector = createPiEventCollector({ onAssistantText })

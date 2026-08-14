@@ -13,7 +13,11 @@ import {
 import type { Task } from "@repo/db/schema"
 import { env } from "@repo/env/server"
 import type { PlacementTurn } from "@repo/merlin/placement"
-import { extractDirectMentionUserIds } from "@repo/messaging"
+import {
+  extractDirectMentionUserIds,
+  MARKDOWN_USER_MENTION_REGEX,
+  USER_MENTION_REGEX,
+} from "@repo/messaging"
 import type { RealtimeMessage } from "@repo/realtime-types"
 import { logger } from "@/lib/logger"
 import type { AccessibleChannel } from "@/services/channel-access"
@@ -97,6 +101,20 @@ export async function createMerlinPlaceholder(args: {
   return result.message
 }
 
+// The @Merlin mention is addressing, not part of the ask — drop it from the
+// stored goal so the card description and worker prompt read clean. Teammate
+// mentions stay (the card message has no mention rows, so the client drops
+// tokens it can't resolve).
+function stripMerlinMention(content: string) {
+  const replaceToken = (match: string, id: string) =>
+    id.toLowerCase() === MERLIN_USER_ID ? "" : match
+  return content
+    .replace(USER_MENTION_REGEX, replaceToken)
+    .replace(MARKDOWN_USER_MENTION_REGEX, replaceToken)
+    .replace(/[^\S\n]{2,}/g, " ")
+    .trim()
+}
+
 // A task and its card message. The card is a channel-level message that
 // acts as the thread root of all the task's runs — steering, queueing, stop,
 // and replay reuse the thread-scope machinery unchanged. Returns null on any
@@ -111,12 +129,13 @@ export async function createTaskWithCard(args: {
   title?: string | null
 }): Promise<{ card: RealtimeMessage; task: Task } | null> {
   try {
+    const goal = stripMerlinMention(args.goal)
     // Code-point slice: a UTF-16 slice can cut an emoji in half.
     const truncate = (value: string) => Array.from(value).slice(0, 80).join("")
     const title =
       truncate(args.title?.trim() ?? "") ||
       truncate(
-        args.goal
+        goal
           .replace(/<@[0-9a-fA-F-]+>/g, "")
           .replace(/\s+/g, " ")
           .trim()
@@ -124,7 +143,7 @@ export async function createTaskWithCard(args: {
       "Task"
     const { message: card } = await createMessage({
       userId: MERLIN_USER_ID,
-      payload: { channelId: args.channelId, content: args.goal },
+      payload: { channelId: args.channelId, content: goal },
       accessibleChannel: args.accessibleChannel,
       type: "task_card",
     })
@@ -136,7 +155,7 @@ export async function createTaskWithCard(args: {
         cardMessageId: card.id,
         creatorId: args.creatorId,
         title,
-        goal: args.goal,
+        goal,
       })
       .returning()
       .then((rows) => rows[0] ?? null)

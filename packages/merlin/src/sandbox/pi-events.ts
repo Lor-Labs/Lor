@@ -158,6 +158,11 @@ export function createPiEventCollector(handlers?: PiCodeHandlers) {
   // Args by Pi toolCallId, so the end event (which carries none) can rebuild
   // the label and locate the edited path.
   const startedTools = new Map<string, { toolName: string; args: unknown }>()
+  // Gateway backends can omit tool-call ids (pi-ai defaults them to "").
+  // Synthesize ids and correlate id-less end events in FIFO order — the
+  // agent loop executes a message's tool calls sequentially.
+  const syntheticIds: string[] = []
+  let syntheticSeq = 0
   let assistantStreaming = false
   let assistantText = ""
 
@@ -175,9 +180,12 @@ export function createPiEventCollector(handlers?: PiCodeHandlers) {
 
     const type = asString(event.type)
     if (type === "tool_execution_start") {
-      const toolCallId = asString(event.toolCallId)
       const toolName = asString(event.toolName) ?? "tool"
-      if (!toolCallId) return
+      let toolCallId = asString(event.toolCallId)
+      if (!toolCallId) {
+        toolCallId = `pi-${++syntheticSeq}`
+        syntheticIds.push(toolCallId)
+      }
       startedTools.set(toolCallId, { toolName, args: event.args })
       handlers?.onStep?.({
         toolCallId,
@@ -188,7 +196,7 @@ export function createPiEventCollector(handlers?: PiCodeHandlers) {
     }
 
     if (type === "tool_execution_end") {
-      const toolCallId = asString(event.toolCallId)
+      const toolCallId = asString(event.toolCallId) ?? syntheticIds.shift()
       const started = toolCallId && startedTools.get(toolCallId)
       if (!toolCallId || !started) return
       startedTools.delete(toolCallId)

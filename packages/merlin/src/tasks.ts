@@ -96,9 +96,21 @@ export const taskTools = {
     }),
     contextSchema: taskContext,
     execute: async ({ summary }, { context }) => {
+      // Completing the task settles the checklist: the model routinely forgets
+      // a final set_plan, which left cards showing a spinning step forever.
+      const current = await db
+        .select({ plan: schema.task.plan })
+        .from(schema.task)
+        .where(eq(schema.task.id, context.taskId))
+        .limit(1)
+        .then((rows) => rows[0])
+      if (!current) return { error: "task not found" }
+      const plan = current.plan.map((item) =>
+        item.status === "done" ? item : { ...item, status: "done" as const }
+      )
       const row = await updateTask(
         context.taskId,
-        { status: "completed", summary },
+        { status: "completed", summary, plan },
         context.onTaskUpdated
       )
       if (!row) return { error: "task not found" }

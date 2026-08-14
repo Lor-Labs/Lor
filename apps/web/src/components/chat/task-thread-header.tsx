@@ -116,7 +116,10 @@ export function TaskThreadHeader({
       ? detail.pendingApproval
       : null
   const outputs = artifacts ?? []
-  const doneCount = task.plan.filter((item) => item.status === "done").length
+  const doneCount =
+    task.status === "completed"
+      ? task.plan.length
+      : task.plan.filter((item) => item.status === "done").length
   const fileCount = outputs.length + sources.length
   const showPlan = task.plan.length > 0
   const showFiles = fileCount > 0
