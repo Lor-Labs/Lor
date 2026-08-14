@@ -84,18 +84,33 @@ describe("createPiEventCollector", () => {
     expect(onStep).toHaveBeenCalledTimes(3)
   })
 
-  it("presents a write as an all-added diff on the start event", () => {
+  it("presents a successful write as an all-added diff on the end event", () => {
     const onStep = vi.fn()
     const collector = createPiEventCollector({ onStep })
 
     collector.consume(
       toolStart("write", { path: "out/code.py", content: "a\nb\nc\n" })
     )
-
-    expect(onStep).toHaveBeenCalledWith({
+    expect(onStep).toHaveBeenLastCalledWith({
       toolCallId: "tc-1",
       toolName: "write",
       label: "Wrote out/code.py",
+    })
+
+    collector.consume(
+      JSON.stringify({
+        type: "tool_execution_end",
+        toolCallId: "tc-1",
+        toolName: "write",
+        isError: false,
+        result: { content: [{ type: "text", text: "Successfully wrote" }] },
+      })
+    )
+    expect(onStep).toHaveBeenLastCalledWith({
+      toolCallId: "tc-1",
+      toolName: "write",
+      label: "Wrote out/code.py",
+      status: "ok",
       diff: {
         path: "out/code.py",
         additions: 3,
@@ -105,11 +120,39 @@ describe("createPiEventCollector", () => {
     })
   })
 
+  it("never emits a diff for a failed write", () => {
+    const onStep = vi.fn()
+    const collector = createPiEventCollector({ onStep })
+
+    collector.consume(toolStart("write", { path: "out/x", content: "a\n" }))
+    collector.consume(
+      JSON.stringify({
+        type: "tool_execution_end",
+        toolCallId: "tc-1",
+        toolName: "write",
+        isError: true,
+        result: { content: [{ type: "text", text: "permission denied" }] },
+      })
+    )
+
+    for (const [step] of onStep.mock.calls) {
+      expect(step).not.toHaveProperty("diff")
+    }
+    expect(onStep).toHaveBeenLastCalledWith({
+      toolCallId: "tc-1",
+      toolName: "write",
+      label: "Wrote out/x",
+      status: "error",
+    })
+  })
+
   it("reports completion status and the computed edit diff on the end event", () => {
     const onStep = vi.fn()
     const collector = createPiEventCollector({ onStep })
+    // The added "+++counter" line is a source line starting with "++" — only
+    // the pre-hunk file headers may be excluded from the counts.
     const patch =
-      "--- a/out/code.py\n+++ b/out/code.py\n@@ -1,3 +1,2 @@\n-old\n-older\n+new\n context"
+      "--- a/out/code.py\n+++ b/out/code.py\n@@ -1,3 +1,3 @@\n-old\n-older\n+new\n+++counter\n context"
 
     collector.consume(
       toolStart("edit", {
@@ -132,7 +175,7 @@ describe("createPiEventCollector", () => {
       toolName: "edit",
       label: "Edited out/code.py",
       status: "ok",
-      diff: { path: "out/code.py", additions: 1, deletions: 2, patch },
+      diff: { path: "out/code.py", additions: 2, deletions: 2, patch },
     })
   })
 
@@ -183,9 +226,11 @@ describe("createPiEventCollector", () => {
     collector.consume(start("assistant"))
     collector.consume(delta("Final answer."))
 
+    // The empty snapshot marks the message boundary (reset signal).
     expect(onAssistantText.mock.calls.map((c) => c[0])).toEqual([
       "Looking at",
       "Looking at the code.",
+      "",
       "Final answer.",
     ])
   })

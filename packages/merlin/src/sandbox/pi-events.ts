@@ -96,8 +96,18 @@ function countPatchLines(patch: string): {
 } {
   let additions = 0
   let deletions = 0
-  for (const line of patch.split("\n")) {
-    if (line.startsWith("+++") || line.startsWith("---")) continue
+  // Only count inside @@ hunks: the ---/+++ file headers sit before the first
+  // hunk, and a prefix check alone would also swallow real changes to source
+  // lines that start with ++/--. A headerless patch has no hunk markers
+  // either — then every +/- line counts.
+  const lines = patch.split("\n")
+  let inHunk = !lines.some((line) => line.startsWith("@@"))
+  for (const line of lines) {
+    if (line.startsWith("@@")) {
+      inHunk = true
+      continue
+    }
+    if (!inHunk) continue
     if (line.startsWith("+")) additions++
     else if (line.startsWith("-")) deletions++
   }
@@ -169,12 +179,10 @@ export function createPiEventCollector(handlers?: PiCodeHandlers) {
       const toolName = asString(event.toolName) ?? "tool"
       if (!toolCallId) return
       startedTools.set(toolCallId, { toolName, args: event.args })
-      const diff = toolName === "write" ? writeDiff(event.args) : undefined
       handlers?.onStep?.({
         toolCallId,
         toolName,
         label: piToolLabel(toolName, event.args),
-        ...(diff ? { diff } : {}),
       })
       return
     }
@@ -184,10 +192,15 @@ export function createPiEventCollector(handlers?: PiCodeHandlers) {
       const started = toolCallId && startedTools.get(toolCallId)
       if (!toolCallId || !started) return
       startedTools.delete(toolCallId)
+      // Diffs only for completed changes — a failed write/edit changed nothing.
       const diff =
-        started.toolName === "edit" && event.isError !== true
-          ? editDiff(started.args, event.result)
-          : undefined
+        event.isError === true
+          ? undefined
+          : started.toolName === "edit"
+            ? editDiff(started.args, event.result)
+            : started.toolName === "write"
+              ? writeDiff(started.args)
+              : undefined
       handlers?.onStep?.({
         toolCallId,
         toolName: started.toolName,
@@ -201,7 +214,12 @@ export function createPiEventCollector(handlers?: PiCodeHandlers) {
     if (type === "message_start") {
       assistantStreaming =
         asString(asRecord(event.message)?.role) === "assistant"
-      if (assistantStreaming) assistantText = ""
+      if (assistantStreaming && assistantText) {
+        // Signal the message boundary so consumers drop the previous
+        // message's snapshot instead of throttling against its length.
+        assistantText = ""
+        handlers?.onAssistantText?.("")
+      }
       return
     }
 
