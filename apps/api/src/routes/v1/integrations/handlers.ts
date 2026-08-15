@@ -8,7 +8,7 @@ import {
 import { db } from "@repo/db"
 import {
   channel,
-  connectorNotificationRoute,
+  connectorTrigger,
   integrationConnection,
 } from "@repo/db/schema"
 import { env } from "@repo/env/server"
@@ -146,24 +146,27 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
     )
   const byProvider = new Map(connections.map((r) => [r.provider, r]))
 
-  const routes =
+  const triggers =
     connections.length > 0
       ? await db
           .select({
-            connectionId: connectorNotificationRoute.connectionId,
-            event: connectorNotificationRoute.event,
-            channelId: connectorNotificationRoute.channelId,
+            connectionId: connectorTrigger.connectionId,
+            event: connectorTrigger.event,
+            channelId: connectorTrigger.channelId,
+            post: connectorTrigger.post,
+            remember: connectorTrigger.remember,
+            rememberHint: connectorTrigger.rememberHint,
           })
-          .from(connectorNotificationRoute)
+          .from(connectorTrigger)
           .where(
             inArray(
-              connectorNotificationRoute.connectionId,
+              connectorTrigger.connectionId,
               connections.map((r) => r.id)
             )
           )
       : []
-  const routeChannel = new Map(
-    routes.map((r) => [`${r.connectionId}:${r.event}`, r.channelId])
+  const triggerByEvent = new Map(
+    triggers.map((t) => [`${t.connectionId}:${t.event}`, t])
   )
 
   if (!env.GITHUB_APP_SLUG) {
@@ -227,13 +230,19 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
         repos,
         repoCount,
         manageUrl,
-        events: CONNECTOR_EVENTS[descriptor.id].map((e) => ({
-          key: e.key,
-          label: e.label,
-          channelId: conn
-            ? (routeChannel.get(`${conn.id}:${e.key}`) ?? null)
-            : null,
-        })),
+        events: CONNECTOR_EVENTS[descriptor.id].map((e) => {
+          const trigger = conn
+            ? triggerByEvent.get(`${conn.id}:${e.key}`)
+            : undefined
+          return {
+            key: e.key,
+            label: e.label,
+            channelId: trigger?.channelId ?? null,
+            post: trigger?.post ?? true,
+            remember: trigger?.remember ?? false,
+            rememberHint: trigger?.rememberHint ?? null,
+          }
+        }),
       }
     })
   )
@@ -720,7 +729,7 @@ export const updateIntegration: AppRouteHandler<
 > = async (c) => {
   const workspace = c.var.workspace
   const { connectionId } = c.req.valid("param")
-  const { event, notifyChannelId } = c.req.valid("json")
+  const { event, channelId, post, remember, rememberHint } = c.req.valid("json")
 
   const connection = await db
     .select({
@@ -750,13 +759,13 @@ export const updateIntegration: AppRouteHandler<
     )
   }
 
-  if (notifyChannelId === null) {
+  if (channelId === null) {
     await db
-      .delete(connectorNotificationRoute)
+      .delete(connectorTrigger)
       .where(
         and(
-          eq(connectorNotificationRoute.connectionId, connection.id),
-          eq(connectorNotificationRoute.event, event)
+          eq(connectorTrigger.connectionId, connection.id),
+          eq(connectorTrigger.event, event)
         )
       )
     return c.json({ success: true as const }, HttpStatusCodes.OK)
@@ -767,7 +776,7 @@ export const updateIntegration: AppRouteHandler<
     .from(channel)
     .where(
       and(
-        eq(channel.id, notifyChannelId),
+        eq(channel.id, channelId),
         eq(channel.workspaceId, workspace.id),
         eq(channel.type, "text")
       )
@@ -782,18 +791,18 @@ export const updateIntegration: AppRouteHandler<
   }
 
   await db
-    .insert(connectorNotificationRoute)
+    .insert(connectorTrigger)
     .values({
       connectionId: connection.id,
       event,
-      channelId: notifyChannelId,
+      channelId,
+      post,
+      remember,
+      rememberHint,
     })
     .onConflictDoUpdate({
-      target: [
-        connectorNotificationRoute.connectionId,
-        connectorNotificationRoute.event,
-      ],
-      set: { channelId: notifyChannelId },
+      target: [connectorTrigger.connectionId, connectorTrigger.event],
+      set: { channelId, post, remember, rememberHint },
     })
 
   return c.json({ success: true as const }, HttpStatusCodes.OK)

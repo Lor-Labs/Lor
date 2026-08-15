@@ -23,6 +23,7 @@ import {
   AlertDialogTitle,
 } from "@repo/ui/components/alert-dialog"
 import { Button } from "@repo/ui/components/button"
+import { Checkbox } from "@repo/ui/components/checkbox"
 import {
   Collapsible,
   CollapsiblePanel,
@@ -571,29 +572,38 @@ function ConnectorsSection({ workspaceSlug }: { workspaceSlug: string }) {
     ...textChannels.map((ch) => ({ value: ch.id, label: `#${ch.name}` })),
   ]
 
-  const updateNotifyChannel = useMutation({
+  const updateTrigger = useMutation({
     mutationFn: async (input: {
       connectionId: string
       event: string
-      notifyChannelId: string | null
+      channelId: string | null
+      post: boolean
+      remember: boolean
+      rememberHint: string | null
     }) => {
       const res = await apiClient.v1.workspaces[":workspaceSlug"].integrations[
         ":connectionId"
       ].$patch({
         param: { workspaceSlug, connectionId: input.connectionId },
-        json: { event: input.event, notifyChannelId: input.notifyChannelId },
+        json: {
+          event: input.event,
+          channelId: input.channelId,
+          post: input.post,
+          remember: input.remember,
+          rememberHint: input.rememberHint,
+        },
       })
-      if (!res.ok) throw new Error("Failed to update notifications")
+      if (!res.ok) throw new Error("Failed to update event")
     },
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: ["integrations", workspaceSlug],
       })
     },
-    onError: () => toast.error("Failed to update notifications"),
+    onError: () => toast.error("Failed to update event"),
   })
-  const pendingNotify = updateNotifyChannel.isPending
-    ? updateNotifyChannel.variables
+  const pendingTrigger = updateTrigger.isPending
+    ? updateTrigger.variables
     : null
 
   if (isPending) {
@@ -645,7 +655,7 @@ function ConnectorsSection({ workspaceSlug }: { workspaceSlug: string }) {
               ...(p.accountLogin ? [p.accountLogin] : []),
               ...(activeEvents > 0
                 ? [
-                    `posting ${activeEvents} ${activeEvents === 1 ? "event" : "events"}`,
+                    `${activeEvents} ${activeEvents === 1 ? "event" : "events"} active`,
                   ]
                 : []),
             ]
@@ -791,46 +801,115 @@ function ConnectorsSection({ workspaceSlug }: { workspaceSlug: string }) {
             {isExpanded && showNotify && (
               <div className="mt-3 space-y-2 border-border/60 border-t pt-3">
                 <div className="text-xs font-medium text-muted-foreground">
-                  Post activity to channels
+                  Route events to channels
                 </div>
-                {p.events.map((ev) => (
-                  <div
-                    key={ev.key}
-                    className="flex items-center justify-between gap-3"
-                  >
-                    <span className="min-w-0 truncate text-xs text-muted-foreground/80">
-                      {ev.label}
-                    </span>
-                    <Select
-                      items={notifyChannelItems}
-                      value={ev.channelId ?? NOTIFY_OFF}
-                      disabled={
-                        pendingNotify?.connectionId === p.connectionId &&
-                        pendingNotify?.event === ev.key
-                      }
-                      onValueChange={(value) => {
-                        if (!p.connectionId) return
-                        updateNotifyChannel.mutate({
-                          connectionId: p.connectionId,
-                          event: ev.key,
-                          notifyChannelId: value === NOTIFY_OFF ? null : value,
-                        })
-                      }}
-                    >
-                      <SelectTrigger className="w-44 shrink-0" size="sm">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value={NOTIFY_OFF}>Off</SelectItem>
-                        {textChannels.map((ch) => (
-                          <SelectItem key={ch.id} value={ch.id}>
-                            #{ch.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                ))}
+                {p.events.map((ev) => {
+                  const busy =
+                    pendingTrigger?.connectionId === p.connectionId &&
+                    pendingTrigger?.event === ev.key
+                  // Each change re-sends the full trigger config so one PATCH
+                  // shape covers channel moves and effect toggles alike.
+                  const send = (
+                    patch: Partial<{
+                      channelId: string | null
+                      post: boolean
+                      remember: boolean
+                      rememberHint: string | null
+                    }>
+                  ) => {
+                    if (!p.connectionId) return
+                    updateTrigger.mutate({
+                      connectionId: p.connectionId,
+                      event: ev.key,
+                      channelId: ev.channelId,
+                      post: ev.post,
+                      remember: ev.remember,
+                      rememberHint: ev.rememberHint,
+                      ...patch,
+                    })
+                  }
+                  return (
+                    <div key={ev.key} className="space-y-1.5">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="min-w-0 truncate text-xs text-muted-foreground/80">
+                          {ev.label}
+                        </span>
+                        <Select
+                          items={notifyChannelItems}
+                          value={ev.channelId ?? NOTIFY_OFF}
+                          disabled={busy}
+                          onValueChange={(value) => {
+                            send({
+                              channelId: value === NOTIFY_OFF ? null : value,
+                            })
+                          }}
+                        >
+                          <SelectTrigger className="w-44 shrink-0" size="sm">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value={NOTIFY_OFF}>Off</SelectItem>
+                            {textChannels.map((ch) => (
+                              <SelectItem key={ch.id} value={ch.id}>
+                                #{ch.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      {ev.channelId && (
+                        <div className="flex items-center gap-4 pl-2">
+                          <div className="flex items-center gap-1.5">
+                            <Checkbox
+                              id={`${p.id}-${ev.key}-post`}
+                              checked={ev.post}
+                              disabled={busy}
+                              onCheckedChange={(checked) =>
+                                send({ post: checked === true })
+                              }
+                            />
+                            <Label
+                              htmlFor={`${p.id}-${ev.key}-post`}
+                              className="cursor-pointer text-xs font-normal text-muted-foreground/80"
+                            >
+                              Post
+                            </Label>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <Checkbox
+                              id={`${p.id}-${ev.key}-remember`}
+                              checked={ev.remember}
+                              disabled={busy}
+                              onCheckedChange={(checked) =>
+                                send({ remember: checked === true })
+                              }
+                            />
+                            <Label
+                              htmlFor={`${p.id}-${ev.key}-remember`}
+                              className="cursor-pointer text-xs font-normal text-muted-foreground/80"
+                            >
+                              Remember
+                            </Label>
+                          </div>
+                          {ev.remember && (
+                            <Input
+                              key={`${ev.key}:${ev.rememberHint ?? ""}`}
+                              defaultValue={ev.rememberHint ?? ""}
+                              placeholder="Optional hint for how to summarize"
+                              className="h-7 flex-1 text-xs"
+                              disabled={busy}
+                              onBlur={(e) => {
+                                const value = e.target.value.trim()
+                                if (value === (ev.rememberHint ?? "")) return
+                                send({ rememberHint: value || null })
+                              }}
+                            />
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             )}
 

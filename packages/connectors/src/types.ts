@@ -14,9 +14,9 @@ export type ConnectorDescriptor = {
   envKeys: readonly string[]
 }
 
-// Webhook event kinds a connector can post to a channel. Keys are stored on
-// `connector_notification_route.event` — validated against the registry, so
-// renaming a key orphans existing routes.
+// Webhook event kinds a connector can route to a channel. Keys are stored on
+// `connector_trigger.event` — validated against the registry, so renaming a
+// key orphans existing triggers.
 export type ConnectorEventKey =
   | "pr_opened"
   | "pr_merged"
