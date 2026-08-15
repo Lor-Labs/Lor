@@ -65,6 +65,7 @@ export const integrationStatusSchema = z.object({
       post: z.boolean(),
       remember: z.boolean(),
       rememberHint: z.string().nullable(),
+      actInstructions: z.string().nullable(),
     })
   ),
 })
@@ -150,6 +151,8 @@ export const updateIntegrationRequestSchema = z.object({
   remember: z.boolean().default(false),
   // Optional steering for Remember's summarize pass.
   rememberHint: z.string().trim().max(2000).nullable().default(null),
+  // The Act effect's instructions for Merlin; null = Act off.
+  actInstructions: z.string().trim().max(4000).nullable().default(null),
 })
 
 export const updateIntegrationResponseSchema = z.object({

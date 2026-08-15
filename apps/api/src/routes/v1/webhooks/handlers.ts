@@ -42,6 +42,7 @@ type WebhookRow = {
   post: boolean
   remember: boolean
   rememberHint: string | null
+  actInstructions: string | null
 }
 
 function toResponse(
@@ -66,6 +67,7 @@ function toResponse(
     post: row.post,
     remember: row.remember,
     rememberHint: row.rememberHint,
+    actInstructions: row.actInstructions,
   }
 }
 
@@ -79,6 +81,7 @@ const webhookSelection = {
   post: connectorTrigger.post,
   remember: connectorTrigger.remember,
   rememberHint: connectorTrigger.rememberHint,
+  actInstructions: connectorTrigger.actInstructions,
 }
 
 // Webhooks post into the channel feed, so only text channels host them.
@@ -299,6 +302,7 @@ export const createChannelWebhook: AppRouteHandler<
           post: result.trigger.post,
           remember: result.trigger.remember,
           rememberHint: result.trigger.rememberHint,
+          actInstructions: result.trigger.actInstructions,
         },
         c.var.user.name,
         key
@@ -313,7 +317,8 @@ export const updateChannelWebhook: AppRouteHandler<
 > = async (c) => {
   const workspace = c.var.workspace
   const { channelId, webhookId } = c.req.valid("param")
-  const { name, avatarUrl, post, remember, rememberHint } = c.req.valid("json")
+  const { name, avatarUrl, post, remember, rememberHint, actInstructions } =
+    c.req.valid("json")
 
   assertWorkspacePermission(c.var.member, workspace, { channel: ["update"] })
 
@@ -351,7 +356,8 @@ export const updateChannelWebhook: AppRouteHandler<
   if (
     post !== undefined ||
     remember !== undefined ||
-    rememberHint !== undefined
+    rememberHint !== undefined ||
+    actInstructions !== undefined
   ) {
     await db
       .update(connectorTrigger)
@@ -359,6 +365,7 @@ export const updateChannelWebhook: AppRouteHandler<
         ...(post !== undefined ? { post } : {}),
         ...(remember !== undefined ? { remember } : {}),
         ...(rememberHint !== undefined ? { rememberHint } : {}),
+        ...(actInstructions !== undefined ? { actInstructions } : {}),
       })
       .where(eq(connectorTrigger.id, existing.triggerId))
   }

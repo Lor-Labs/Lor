@@ -1,9 +1,9 @@
 # Automation Primitives — Triggers, Effects & Custom Tools
 
-> Status: **design accepted** (2026-08-14, design conversation with jacob). Phases 1–3
+> Status: **design accepted** (2026-08-14, design conversation with jacob). Phases 1–4
 > (trigger generalization + first-party conformance; Attio events + ingest; BYO
-> Webhooks incl. the `channel_webhook` fold and dialect endpoints) implemented
-> 2026-08-14. Phases 4 (Act) and 5 (custom tools) not yet started.
+> Webhooks incl. the `channel_webhook` fold and dialect endpoints; Act) implemented
+> 2026-08-14. Phase 5 (custom tools) not yet started.
 > Closes the design question in Linear **LOR-49** ("programmatic ways to index data") and
 > subsumes bring-your-own webhooks (the evolved `channel_webhook`) and "webhook-triggered
 > Merlin actions."
@@ -281,7 +281,31 @@ Ship in this order; each phase is independently useful and de-risks the next.
    `channel_webhook` migration + delivery log. No agent runs yet.
 4. **Act.** Trigger instructions → headless triggered run with the channel's toolset +
    post/create-task disposition tools + loop guards + caps. This is the tier with real
-   cost/safety stakes; it lands on proven rails.
+   cost/safety stakes; it lands on proven rails. **Shipped 2026-08-14**; as-built:
+   - Headless run modeling: `agent_run.messageId` is nullable; triggered runs carry
+     `triggerId`/`deliveryId` and use **`scopeKey = deliveryId`** — each delivery is its
+     own scope (no per-trigger serialization; `dailyRunCap` is the stampede guard,
+     enforced as a rolling 24h count at dispatch, not UI-editable yet).
+   - Dispatch: `dispatchConnectorEvent` → `startActRun` (`apps/api/src/lib/act-runs.ts`)
+     → `TRIGGERED_RUN_QUEUE`; the job carries the normalized payload (first-party event
+     content isn't stored anywhere re-readable). Processor:
+     `apps/worker/src/jobs/triggered-run.ts`, reusing `claimAgentRun` unchanged.
+   - Kill switch is process-time: the processor re-reads `enabled` + `actInstructions`
+     before claiming; clearing either cancels queued runs (settled `stopped`).
+   - Instructions enter the system prompt via `triggeredPromptSection`
+     (`packages/merlin/src/triggered.ts`) only on triggered runs; `saveContext`
+     snapshots them on the run row (the audit copy). Disposition tools:
+     `post_channel_message` (worker-side fanout, NOT `excludedFromMemory` — Merlin-
+     authored canonical content, unlike POST-effect pointers) and `create_task`
+     (card + task + first run on normal task rails, creator = Merlin).
+   - Triggered runs KEEP the write-back memory pass (jacob, revising the earlier
+     skip-it call: webhook payloads can carry durable facts) — same gate, budget
+     floors, and per-workspace lock as conversational runs.
+   - Steering/ambient drain is disabled (`drainConversation` dropped from the handle);
+     no streaming, no placeholder — the run row + step transcript are the audit trail.
+   - UI: "Act" checkbox + instructions textarea on integration events
+     (workspace settings) and channel webhooks. Empty-but-checked instructions are
+     valid ("" = Act on, use judgment); null = off.
 5. **Custom tools.** Registry + `custom_tools` capability + execution in `respond()` +
    settings UI. (Independent of 4; together they complete the "webhook says: use our API
    tool to query X and act" story.)

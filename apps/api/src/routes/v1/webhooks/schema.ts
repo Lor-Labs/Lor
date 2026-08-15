@@ -31,6 +31,7 @@ export const channelWebhookSchema = z.object({
   post: z.boolean(),
   remember: z.boolean(),
   rememberHint: z.string().nullable(),
+  actInstructions: z.string().nullable(),
 })
 
 export const listChannelWebhooksResponseSchema = z.object({
@@ -55,6 +56,8 @@ export const updateChannelWebhookRequestSchema = z
     post: z.boolean().optional(),
     remember: z.boolean().optional(),
     rememberHint: z.string().trim().max(2000).nullable().optional(),
+    // The Act effect's instructions for Merlin; null = Act off.
+    actInstructions: z.string().trim().max(4000).nullable().optional(),
   })
   .refine((v) => Object.values(v).some((value) => value !== undefined), {
     message: "Nothing to update",

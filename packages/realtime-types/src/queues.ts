@@ -28,3 +28,16 @@ export type MerlinRespondJobData = {
   // before the run table existed; new jobs always carry it.
   runId?: string
 }
+
+// Headless triggered runs (the Act effect — reference/automation-primitives.md
+// §2). The run row carries provenance (triggerId/deliveryId); the job carries
+// the normalized inbound payload since first-party event content isn't stored.
+export const TRIGGERED_RUN_QUEUE = "triggered-run"
+
+export type TriggeredRunJobData = {
+  runId: string
+  // Normalized event payload, composed at dispatch — the run's user turn.
+  payload: string
+  // Event source label (connector + event, or the webhook's name).
+  label: string
+}

@@ -22,6 +22,7 @@ import {
 import { Input } from "@repo/ui/components/input"
 import { Label } from "@repo/ui/components/label"
 import { Spinner } from "@repo/ui/components/spinner"
+import { Textarea } from "@repo/ui/components/textarea"
 import { toast } from "@repo/ui/components/toast"
 import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
@@ -218,6 +219,7 @@ export function ChannelWebhooksTab({
       post?: boolean
       remember?: boolean
       rememberHint?: string | null
+      actInstructions?: string | null
     }) => {
       const res = await apiClient.v1.workspaces[":workspaceSlug"].channels[
         ":channelId"
@@ -229,6 +231,7 @@ export function ChannelWebhooksTab({
           post: input.post,
           remember: input.remember,
           rememberHint: input.rememberHint,
+          actInstructions: input.actInstructions,
         },
       })
       if (!res.ok) throw new Error("Failed to update webhook")
@@ -506,6 +509,25 @@ export function ChannelWebhooksTab({
                               Remember for Merlin
                             </Label>
                           </div>
+                          <div className="flex items-center gap-1.5">
+                            <Checkbox
+                              id={`webhook-act-${hook.id}`}
+                              checked={hook.actInstructions !== null}
+                              disabled={updateMutation.isPending}
+                              onCheckedChange={(checked) =>
+                                updateMutation.mutate({
+                                  webhookId: hook.id,
+                                  actInstructions: checked === true ? "" : null,
+                                })
+                              }
+                            />
+                            <Label
+                              htmlFor={`webhook-act-${hook.id}`}
+                              className="cursor-pointer text-xs font-normal text-muted-foreground"
+                            >
+                              Act with Merlin
+                            </Label>
+                          </div>
                         </div>
                         {hook.remember && (
                           <Input
@@ -520,6 +542,25 @@ export function ChannelWebhooksTab({
                               updateMutation.mutate({
                                 webhookId: hook.id,
                                 rememberHint: value || null,
+                              })
+                            }}
+                          />
+                        )}
+                        {hook.actInstructions !== null && (
+                          <Textarea
+                            key={`${hook.id}:act:${hook.actInstructions}`}
+                            defaultValue={hook.actInstructions}
+                            placeholder="Instructions for Merlin when data arrives — e.g. “if this is a refund over $500, summarize it and create a task”"
+                            className="min-h-16 text-xs"
+                            rows={3}
+                            maxLength={4000}
+                            disabled={updateMutation.isPending}
+                            onBlur={(e) => {
+                              const value = e.target.value.trim()
+                              if (value === hook.actInstructions) return
+                              updateMutation.mutate({
+                                webhookId: hook.id,
+                                actInstructions: value,
                               })
                             }}
                           />

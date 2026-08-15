@@ -168,6 +168,7 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
             post: connectorTrigger.post,
             remember: connectorTrigger.remember,
             rememberHint: connectorTrigger.rememberHint,
+            actInstructions: connectorTrigger.actInstructions,
           })
           .from(connectorTrigger)
           .where(
@@ -253,6 +254,7 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
             post: trigger?.post ?? true,
             remember: trigger?.remember ?? false,
             rememberHint: trigger?.rememberHint ?? null,
+            actInstructions: trigger?.actInstructions ?? null,
           }
         }),
       }
@@ -750,7 +752,8 @@ export const updateIntegration: AppRouteHandler<
 > = async (c) => {
   const workspace = c.var.workspace
   const { connectionId } = c.req.valid("param")
-  const { event, channelId, post, remember, rememberHint } = c.req.valid("json")
+  const { event, channelId, post, remember, rememberHint, actInstructions } =
+    c.req.valid("json")
 
   const connection = await db
     .select({
@@ -820,10 +823,11 @@ export const updateIntegration: AppRouteHandler<
       post,
       remember,
       rememberHint,
+      actInstructions,
     })
     .onConflictDoUpdate({
       target: [connectorTrigger.connectionId, connectorTrigger.event],
-      set: { channelId, post, remember, rememberHint },
+      set: { channelId, post, remember, rememberHint, actInstructions },
     })
 
   return c.json({ success: true as const }, HttpStatusCodes.OK)

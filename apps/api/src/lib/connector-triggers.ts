@@ -3,6 +3,7 @@ import type { ConnectorEventKey } from "@repo/connectors"
 import { APP_USER_ID, and, db, eq, schema } from "@repo/db"
 import type { IntegrationProvider } from "@repo/db/schema"
 import { type IngestSourceInput, ingestSource } from "@repo/merlin/sources"
+import { startActRun } from "@/lib/act-runs"
 import { postBotMessage } from "@/lib/bot-messages"
 import { logger } from "@/lib/logger"
 
@@ -20,12 +21,40 @@ export type DispatchOutcome = {
   // The posted channel message id, when the POST effect ran.
   posted: string | null
   remembered: boolean
+  // The headless agent run id, when the Act effect started.
+  acted: string | null
 }
 
-// Fan one connector event out to its trigger's effects (POST, Remember; Act
-// executes in a later phase), and log the delivery. No trigger row — or a
-// disabled one — means the event is off (returns null). See
-// reference/automation-primitives.md §2.
+// The Act run's user turn: everything the event gave us, most readable first.
+// First-party content lives at the provider, so this snapshot is all the run
+// gets — include the Remember draft's full content when there is one.
+function actPayload(input: {
+  event: string
+  text: string
+  remember?: RememberDraft
+  payload?: string
+}): string {
+  const parts = [`Event: ${input.event}`, input.text]
+  const r = input.remember
+  if (r) {
+    parts.push(
+      [
+        r.title ? `Title: ${r.title}` : null,
+        r.url ? `Link: ${r.url}` : null,
+        r.author ? `Author: ${r.author}` : null,
+        r.content,
+      ]
+        .filter(Boolean)
+        .join("\n")
+    )
+  }
+  if (input.payload) parts.push(`Raw payload:\n${input.payload}`)
+  return parts.join("\n\n")
+}
+
+// Fan one connector event out to its trigger's effects (POST, Remember, Act),
+// and log the delivery. No trigger row — or a disabled one — means the event
+// is off (returns null). See reference/automation-primitives.md §2.
 export async function dispatchConnectorEvent(input: {
   provider: IntegrationProvider
   externalId: string
@@ -46,6 +75,8 @@ export async function dispatchConnectorEvent(input: {
         post: schema.connectorTrigger.post,
         remember: schema.connectorTrigger.remember,
         rememberHint: schema.connectorTrigger.rememberHint,
+        actInstructions: schema.connectorTrigger.actInstructions,
+        dailyRunCap: schema.connectorTrigger.dailyRunCap,
         enabled: schema.connectorTrigger.enabled,
       },
       connection: {
@@ -120,7 +151,8 @@ export async function dispatchConnectorEvent(input: {
     })
   }
 
-  await db
+  let acted: string | null = null
+  const delivery = await db
     .insert(schema.triggerDelivery)
     .values({
       triggerId: target.trigger.id,
@@ -130,9 +162,26 @@ export async function dispatchConnectorEvent(input: {
       posted: postedMessageId !== null,
       remembered,
     })
+    .returning({ id: schema.triggerDelivery.id })
+    .then((rows) => rows[0] ?? null)
     .catch((err) => {
       logger.warn({ err, event: input.event }, "Delivery log insert failed")
+      return null
     })
+
+  // Act: hand the payload + trigger instructions to a headless agent run.
+  // Anchored on the delivery row — no delivery log, no run.
+  if (delivery && target.trigger.actInstructions !== null) {
+    acted = await startActRun({
+      triggerId: target.trigger.id,
+      deliveryId: delivery.id,
+      dailyRunCap: target.trigger.dailyRunCap,
+      workspaceId: target.connection.workspaceId,
+      channelId: target.channel.id,
+      label: input.label,
+      payload: actPayload(input),
+    })
+  }
 
   logger.info(
     {
@@ -141,8 +190,9 @@ export async function dispatchConnectorEvent(input: {
       channelId: target.channel.id,
       posted: postedMessageId !== null,
       remembered,
+      acted,
     },
     "Dispatched connector event"
   )
-  return { posted: postedMessageId, remembered }
+  return { posted: postedMessageId, remembered, acted }
 }

@@ -12,8 +12,10 @@ import {
   uuid,
 } from "drizzle-orm/pg-core"
 import { channel } from "./channels"
+import { connectorTrigger } from "./connector-triggers"
 import type { MerlinToolCall } from "./messages"
 import { message } from "./messages"
+import { triggerDelivery } from "./trigger-deliveries"
 import { user } from "./users"
 import { workspace } from "./workspaces"
 
@@ -64,20 +66,33 @@ export const agentRun = pgTable(
       .notNull()
       .references(() => channel.id, { onDelete: "cascade" }),
     // The placeholder message the run streams into — also the client's handle
-    // for replay (clients know the message id, not the run id, on load).
-    messageId: uuid("message_id")
-      .notNull()
-      .references(() => message.id, { onDelete: "cascade" }),
+    // for replay (clients know the message id, not the run id, on load). Null
+    // for headless triggered runs (Act effect), which have no channel message
+    // unless Merlin posts one itself. See reference/automation-primitives.md §2.
+    messageId: uuid("message_id").references(() => message.id, {
+      onDelete: "cascade",
+    }),
     threadRootId: uuid("thread_root_id").references(() => message.id, {
       onDelete: "cascade",
     }),
     triggerMessageId: uuid("trigger_message_id").references(() => message.id, {
       onDelete: "set null",
     }),
-    // Conversation scope = threadRootId ?? channelId. The partial unique
-    // index below enforces one active run per scope — a mention during an
-    // active run steers or queues instead of creating a sibling.
+    // Conversation scope = threadRootId ?? channelId (headless triggered runs
+    // use their deliveryId — each delivery is its own scope). The partial
+    // unique index below enforces one active run per scope — a mention during
+    // an active run steers or queues instead of creating a sibling.
     scopeKey: uuid("scope_key").notNull(),
+
+    // Trigger provenance (Act effect): which trigger + delivery started this
+    // run. Null on conversational runs; nulled (not cascaded) on trigger
+    // deletion so the run keeps its audit value.
+    triggerId: uuid("trigger_id").references(() => connectorTrigger.id, {
+      onDelete: "set null",
+    }),
+    deliveryId: uuid("delivery_id").references(() => triggerDelivery.id, {
+      onDelete: "set null",
+    }),
 
     state: agentRunStateEnum("state").notNull().default("queued"),
     phase: agentRunPhaseEnum("phase").notNull().default("answer"),
@@ -154,6 +169,11 @@ export const agentRun = pgTable(
       .where(sql`state in ('queued', 'working', 'finalizing')`),
     index("agent_run_workspaceId_createdAt_idx").on(
       table.workspaceId,
+      table.createdAt
+    ),
+    // Daily run-cap check for Act triggers counts recent runs per trigger.
+    index("agent_run_triggerId_createdAt_idx").on(
+      table.triggerId,
       table.createdAt
     ),
   ]

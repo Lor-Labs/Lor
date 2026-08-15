@@ -67,6 +67,11 @@ import { resolveSourceCitation, searchSources, sourceTools } from "./sources"
 import { generateSmallObject } from "./structured"
 import { type RunTaskContext, taskPromptSection, taskTools } from "./tasks"
 import { guardTools } from "./tool-guard"
+import {
+  type RunTriggeredContext,
+  triggeredPromptSection,
+  triggeredTools,
+} from "./triggered"
 import type { OnUsage } from "./usage"
 import { webTools } from "./web"
 
@@ -235,6 +240,10 @@ export type RespondContext = {
   // task card): binds the task tools, task prompt rules, and workbench
   // continuity.
   task?: RunTaskContext
+  // Set on headless triggered runs (the Act effect): binds the disposition
+  // tools and injects the trigger's instructions — which appear in the
+  // system prompt only when the trigger fires.
+  triggered?: RunTriggeredContext
 }
 
 export type ToolEvent = MerlinToolCallUpdate
@@ -271,6 +280,11 @@ export {
   type RunToolResultStore,
   type SteeredMessage,
 } from "./run"
+export type {
+  RunTriggeredContext,
+  TriggeredCreateTask,
+  TriggeredPostMessage,
+} from "./triggered"
 export type { OnUsage, UsageEvent } from "./usage"
 
 export type RespondResult = {
@@ -1415,6 +1429,7 @@ export async function respond(
       : {}),
     ...(artifactsEnabled ? artifactTools : {}),
     ...(ctx.task ? taskTools : {}),
+    ...(ctx.triggered ? triggeredTools : {}),
     ...(linear && caps.includes("linear") ? linearTools : {}),
     ...(linear && caps.includes("linear_write") ? linearWriteTools : {}),
     ...(attio && caps.includes("attio") ? attioTools : {}),
@@ -1483,6 +1498,12 @@ export async function respond(
             request_approval: taskToolContext,
           }
         })()
+      : {}),
+    ...(ctx.triggered
+      ? {
+          post_channel_message: { postMessage: ctx.triggered.postMessage },
+          create_task: { createTask: ctx.triggered.createTask },
+        }
       : {}),
     ...(linear
       ? {
@@ -1556,7 +1577,7 @@ export async function respond(
         loadWorkspaceInstructions(ctx.workspaceId),
       ])
       const userMessage = await buildInitialUserMessage(context)
-      instructions = `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}${context.rosterText ? `\n\n${MENTION_GUIDANCE}` : ""}${workspaceInstructions ? `\n\n${formatInstructionsBlock(workspaceInstructions)}` : ""}${ctx.task ? `\n\n${taskPromptSection(ctx.task, artifactsEnabled)}` : ""}`
+      instructions = `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}${context.rosterText ? `\n\n${MENTION_GUIDANCE}` : ""}${workspaceInstructions ? `\n\n${formatInstructionsBlock(workspaceInstructions)}` : ""}${ctx.task ? `\n\n${taskPromptSection(ctx.task, artifactsEnabled)}` : ""}${ctx.triggered ? `\n\n${triggeredPromptSection(ctx.triggered)}` : ""}`
       messages = [userMessage]
       counters = { ...ZERO_RUN_COUNTERS }
       text = ""

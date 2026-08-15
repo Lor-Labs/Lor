@@ -24,10 +24,10 @@ export const getRunEvents: AppRouteHandler<GetRunEventsRoute> = async (c) => {
 
   // Tenant guard: the run's channel must still belong to the run's workspace
   // (fail closed on drift) before the caller's channel access is checked.
+  // Looked up BY messageId, so the param is the run's (non-null) message id.
   const run = await db
     .select({
       id: schema.agentRun.id,
-      messageId: schema.agentRun.messageId,
       channelId: schema.agentRun.channelId,
       threadRootId: schema.agentRun.threadRootId,
       scopeKey: schema.agentRun.scopeKey,
@@ -97,7 +97,7 @@ export const getRunEvents: AppRouteHandler<GetRunEventsRoute> = async (c) => {
     {
       run: {
         id: run.id,
-        messageId: run.messageId,
+        messageId,
         channelId: run.channelId,
         threadRootId: run.threadRootId,
         state: run.state,
@@ -221,7 +221,6 @@ export const stopRun: AppRouteHandler<StopRunRoute> = async (c) => {
   const run = await db
     .select({
       id: schema.agentRun.id,
-      messageId: schema.agentRun.messageId,
       channelId: schema.agentRun.channelId,
       threadRootId: schema.agentRun.threadRootId,
       workspaceId: schema.agentRun.workspaceId,
@@ -254,7 +253,8 @@ export const stopRun: AppRouteHandler<StopRunRoute> = async (c) => {
     )
   }
 
-  const outcome = await requestRunStop(run, currentUser.id)
+  // Found by messageId, so the param is this run's message id.
+  const outcome = await requestRunStop({ ...run, messageId }, currentUser.id)
   if (!outcome) {
     return c.json(
       { success: false, message: "Run already finished" },
@@ -347,7 +347,14 @@ export const steerQueuedMessage: AppRouteHandler<
     .limit(1)
     .then((rows) => rows[0])
 
-  const outcome = active ? await requestRunStop(active, currentUser.id) : null
+  // Conversational scopes always carry a placeholder message; a null here
+  // can't happen for them (headless runs live on delivery-id scopes).
+  const outcome = active?.messageId
+    ? await requestRunStop(
+        { ...active, messageId: active.messageId },
+        currentUser.id
+      )
+    : null
   if (!outcome) {
     // The run finished on its own between the read and the stop. The
     // promotion stands, so the drain answers this message next — steering
