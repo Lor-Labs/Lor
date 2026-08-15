@@ -25,6 +25,9 @@ export type ConnectorEventKey =
   | "release_published"
   | "issue_created"
   | "issue_completed"
+  | "call_recording_ready"
+  | "note_created"
+  | "list_entry_created"
 
 export type ConnectorEventDescriptor = {
   key: ConnectorEventKey

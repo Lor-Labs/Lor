@@ -64,6 +64,10 @@ export const integrationConnection = pgTable(
     appKey: text("app_key"),
     // Provider region/host qualifier (e.g. the Datadog site "datadoghq.eu").
     site: text("site"),
+    // Provider-side webhook registration (e.g. Attio): the provider's webhook
+    // id, and its signing secret encrypted at rest (AES-256-GCM).
+    webhookId: text("webhook_id"),
+    webhookSecret: text("webhook_secret"),
     status: integrationConnectionStatusEnum("status")
       .notNull()
       .default("active"),

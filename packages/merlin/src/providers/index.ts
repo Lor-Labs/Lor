@@ -26,8 +26,14 @@ export function getSourceProvider(
 
 export {
   ATTIO_REQUIRED_READ_SCOPES,
+  ATTIO_WEBHOOK_SCOPE,
+  type AttioCallRecording,
+  type AttioTranscriptSegment,
   attioRequest,
   connectAttio,
+  deleteAttioWebhook,
+  fetchAttioCallRecording,
+  formatAttioTranscript,
   getAttioAccessToken,
 } from "./attio"
 export { connectCloudwatch } from "./cloudwatch"

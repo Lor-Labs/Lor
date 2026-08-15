@@ -216,7 +216,11 @@ export const CONNECTOR_EVENTS: Record<
     { key: "issue_completed", label: "Issue completed" },
   ],
   datadog: [],
-  attio: [],
+  attio: [
+    { key: "call_recording_ready", label: "Call recording ready" },
+    { key: "note_created", label: "Note created" },
+    { key: "list_entry_created", label: "Record added to a list" },
+  ],
   notion: [],
   cloudwatch: [],
 }

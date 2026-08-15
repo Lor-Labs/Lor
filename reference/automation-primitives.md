@@ -295,33 +295,46 @@ Ship in this order; each phase is independently useful and de-risks the next.
 
 ## 10. Appendix: Attio webhooks (phase 2 specifics)
 
-Findings from Attio's live OpenAPI spec (`https://api.attio.com/openapi/api`), 2026-08:
+Verified against Attio's live OpenAPI specs (`https://api.attio.com/openapi/api`,
+`https://api.attio.com/openapi/webhooks`) and the webhooks guide
+(`docs.attio.com/rest-api/guides/webhooks`), 2026-08-14:
 
-- `POST /v2/webhooks` subscription enum includes `call-recording.created`,
-  `note.created`, `note-content.updated`, `list-entry.created|updated|deleted`,
-  `record.created|updated|merged|deleted`, `task.*`, `comment.*`,
-  `workspace-member.created`. Subscriptions accept `$and`/`$or` equals/not_equals
-  filters (e.g. pin `list-entry.updated` to one pipeline).
+- `POST /v2/webhooks` subscription enum (27 events) includes
+  `call-recording.created`, `note.created`, `note-content.updated`,
+  `list-entry.created|updated|deleted`, `record.created|updated|merged|deleted`,
+  `task.*`, `comment.*`, `workspace-member.created`. Subscriptions accept
+  `$and`/`$or` equals/not_equals filters (e.g. pin `list-entry.updated` to one
+  pipeline). There is **no** transcript-ready or `call-recording.updated` event.
+- **`call-recording.created` fires after the recording has finished and its media
+  upload is complete** (per the event reference) — NOT at recording start, as an
+  earlier draft of this doc assumed. Transcript readiness at delivery time is still
+  not guaranteed (the recording resource has `status: processing|completed` and
+  transcription can lag the upload), so the receiver fetches
+  `GET /v2/meetings/{meeting_id}/call_recordings/{call_recording_id}` immediately
+  and falls back to a short-backoff retry (BullMQ) only when `status` isn't
+  `completed` — a small retry fallback, not a long-poll pattern. That endpoint
+  returns `transcript.segments[]` (`speaker.name`, `start_time`, `end_time`); the
+  `…/transcript` endpoint our tools currently use is **deprecated** in its favor —
+  migrate `fetchTranscript` in `packages/merlin/src/attio.ts` while here.
+- **Delivery payload**: `{ webhook_id, events: [{ event_type, id: { workspace_id,
+  …type-specific ids }, actor }] }`. Exactly one event per delivery today; the spec
+  reserves batching — iterate `events`. Payloads carry **ids only** (e.g.
+  `meeting_id` + `call_recording_id`), no content — every event is fetch-on-delivery.
+- **Signature**: `Attio-Signature` header (duplicated as `X-Attio-Signature`) = hex
+  SHA256 HMAC of the raw UTF-8 request body, keyed by the webhook secret. Verify
+  with a timing-safe compare. **Dedupe**: `Idempotency-Key` header — same across
+  retries of one message (Redis claim, GitHub receiver pattern). Delivery is
+  at-least-once; 2xx acks; non-2xx retries up to 10 times with exponential backoff
+  over ~3 days, then the webhook is marked degraded.
 - **Scope:** creating webhooks requires `webhook:read-write`. Our provider currently
   rejects any `:read-write` scope (`validateAttioReadScopes`,
   `packages/merlin/src/providers/attio.ts`). Decision: relax to allow **exactly**
-  `webhook:read-write` (it grants no CRM data writes) so we can create the webhook
-  programmatically on connect.
-- **Secret:** returned once at webhook creation. Store encrypted on the connection
-  (`webhookSecret`) + the provider `webhookId` for lifecycle (delete on revoke).
-- **Transcripts are not in the payload and not ready at event time.** A recording starts
-  `status: "processing"`; there is no `call-recording.updated` event. Receiver enqueues a
-  delayed poll (BullMQ, backoff + cap) of
-  `GET /v2/meetings/{meeting_id}/call_recordings/{call_recording_id}`, which returns
-  `transcript.segments[]` (`speaker.name`, `start_time`, `end_time`). Note the endpoint
-  our tools currently use (`…/transcript`) is **deprecated** in favor of this one —
-  migrate `fetchTranscript` in `packages/merlin/src/attio.ts` while here.
-- On `completed`: **Remember** (summarize transcript → `source`, pointer = Attio
-  `web_url`, live-fetch stays possible) + optional **POST** pointer message ("Call with
-  Acme ingested — 42 min").
-- **Unverified** (spec's `webhooks` section is empty): delivery payload shape, signature
-  header name, HMAC algorithm. Check Attio's webhook docs before writing the verify
-  function.
-- Candidate v1 events: `call_recording_ready` (from `call-recording.created` + poll),
-  `note_created`, `list_entry_updated`. Keys follow the existing snake_case
-  `ConnectorEventKey` style.
+  `webhook:read-write` (it grants no CRM data writes) and create the webhook
+  programmatically at connect time. Existing connections lack the scope and must be
+  reconnected.
+- **Secret storage:** returned in the create-webhook response (also viewable in
+  Attio's developer settings). Store encrypted on the connection (`webhookSecret`)
+  + the provider `webhookId` for lifecycle (delete on disconnect/revoke).
+- Candidate v1 events: `call_recording_ready` (from `call-recording.created` +
+  completeness check), `note_created`, `list_entry_updated`. Keys follow the
+  existing snake_case `ConnectorEventKey` style.
