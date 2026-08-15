@@ -24,6 +24,11 @@ const DM_OPTIONS = [
   { value: "nothing", label: "Nothing" },
 ] as const
 
+const MERLIN_THREAD_OPTIONS = [
+  { value: "all_activity", label: "All Activity" },
+  { value: "subscribed_only", label: "Subscribed Threads Only" },
+] as const
+
 function OptionGroup<Value extends string>({
   detail,
   onChange,
@@ -101,6 +106,11 @@ export default function NotificationSettingsScreen() {
       ...(patch.dmNotifications !== undefined
         ? { dmNotifications: settings.dmNotifications }
         : {}),
+      ...(patch.merlinThreadNotifications !== undefined
+        ? {
+            merlinThreadNotifications: settings.merlinThreadNotifications,
+          }
+        : {}),
     }
     patchSettings((current) => ({ ...current, ...patch }))
     void api.v1["notification-settings"]
@@ -122,6 +132,12 @@ export default function NotificationSettingsScreen() {
             next.dmNotifications === patch.dmNotifications
           ) {
             next.dmNotifications = revert.dmNotifications
+          }
+          if (
+            revert.merlinThreadNotifications !== undefined &&
+            next.merlinThreadNotifications === patch.merlinThreadNotifications
+          ) {
+            next.merlinThreadNotifications = revert.merlinThreadNotifications
           }
           return next
         })
@@ -183,6 +199,15 @@ export default function NotificationSettingsScreen() {
               value={settings.desktopNotifications}
             />
             <OptionGroup
+              detail="Replying in a Merlin thread subscribes you automatically."
+              onChange={(merlinThreadNotifications) =>
+                update({ merlinThreadNotifications })
+              }
+              options={MERLIN_THREAD_OPTIONS}
+              title="Merlin Thread Notifications"
+              value={settings.merlinThreadNotifications}
+            />
+            <OptionGroup
               detail="Direct messages sent to you."
               onChange={(dmNotifications) => update({ dmNotifications })}
               options={DM_OPTIONS}
@@ -201,8 +226,12 @@ export default function NotificationSettingsScreen() {
 function NotificationSettingsSkeleton() {
   return (
     <View className="gap-six">
-      {[3, 2].map((rows, group) => (
-        <View className="gap-two" key={rows}>
+      {[
+        { key: "channels", rows: 3 },
+        { key: "merlin-threads", rows: 2 },
+        { key: "dms", rows: 2 },
+      ].map(({ key, rows }, group) => (
+        <View className="gap-two" key={key}>
           <Skeleton className="h-2.5 w-40 rounded-full" />
           {Array.from({ length: rows }, (_, index) => index).map((row) => (
             <Skeleton

@@ -921,6 +921,7 @@ export function createMerlinRespondProcessor(
                     image: merlinAuthor?.image ?? null,
                   },
                   attachments: [],
+                  threadRootId,
                 },
               })
               messageMentions = fanout.messageMentions

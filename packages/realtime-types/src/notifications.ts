@@ -3,6 +3,27 @@ export type NotificationConversationContext = {
   workspaceName: string | null
 }
 
+export type MerlinThreadNotificationPreference =
+  | "all_activity"
+  | "subscribed_only"
+
+export type MerlinThreadNotificationContext = {
+  threadRootId: string | null
+  isMerlinThread: boolean
+  isSubscribedToThread: boolean
+}
+
+export function shouldNotifyForMerlinThread(
+  preference: MerlinThreadNotificationPreference,
+  context: MerlinThreadNotificationContext
+): boolean {
+  return (
+    !context.isMerlinThread ||
+    preference === "all_activity" ||
+    context.isSubscribedToThread
+  )
+}
+
 export function buildNotificationConversationName(
   context: NotificationConversationContext
 ): string | null {

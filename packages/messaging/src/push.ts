@@ -5,6 +5,7 @@ import {
   buildReactionNotificationBody,
   PRESENCE_ONLINE_USERS_SET_KEY,
   type ReactionNotification,
+  shouldNotifyForMerlinThread,
   type UnreadNotification,
 } from "@repo/realtime-types"
 
@@ -127,6 +128,8 @@ export async function sendMessagePushNotifications(input: {
       desktopNotifications:
         schema.userNotificationSettings.desktopNotifications,
       dmNotifications: schema.userNotificationSettings.dmNotifications,
+      merlinThreadNotifications:
+        schema.userNotificationSettings.merlinThreadNotifications,
     })
     .from(schema.userNotificationSettings)
     .where(
@@ -170,6 +173,14 @@ export async function sendMessagePushNotifications(input: {
     const settings = settingsByUserId.get(recipient.userId)
     if (recipient.payload.workspaceId === null) {
       return (settings?.dmNotifications ?? "all_messages") !== "nothing"
+    }
+    if (
+      !shouldNotifyForMerlinThread(
+        settings?.merlinThreadNotifications ?? "all_activity",
+        recipient.payload
+      )
+    ) {
+      return false
     }
     const level = settings?.desktopNotifications ?? "all_messages"
     return (

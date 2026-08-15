@@ -1,4 +1,4 @@
-import { and, db, eq, inArray, schema } from "@repo/db"
+import { and, db, eq, inArray, MERLIN_USER_ID, or, schema } from "@repo/db"
 import type {
   MentionNotification,
   ReactionNotification,
@@ -30,6 +30,7 @@ type FanoutMessage = {
   content: string | null
   author: { name: string; image?: string | null }
   attachments: readonly unknown[]
+  threadRootId?: string | null
 }
 
 type MessageFanoutInput = {
@@ -41,6 +42,45 @@ type MessageFanoutInput = {
 type UserTargetedPayload<T> = {
   userId: string
   payload: T
+}
+
+async function resolveThreadNotificationContext(message: FanoutMessage) {
+  const threadRootId = message.threadRootId ?? null
+  if (!threadRootId) {
+    return {
+      threadRootId: null,
+      isMerlinThread: false,
+      subscribedUserIds: new Set<string>(),
+    }
+  }
+
+  const [participantRows, taskCreator] = await Promise.all([
+    db
+      .selectDistinct({ userId: schema.message.authorId })
+      .from(schema.message)
+      .where(
+        or(
+          eq(schema.message.id, threadRootId),
+          eq(schema.message.threadRootId, threadRootId)
+        )
+      ),
+    db
+      .select({ userId: schema.task.creatorId })
+      .from(schema.task)
+      .where(eq(schema.task.cardMessageId, threadRootId))
+      .limit(1)
+      .then((rows) => rows[0]?.userId ?? null),
+  ])
+  const subscribedUserIds = new Set(
+    participantRows.map((participant) => participant.userId)
+  )
+  if (taskCreator) subscribedUserIds.add(taskCreator)
+
+  return {
+    threadRootId,
+    isMerlinThread: subscribedUserIds.has(MERLIN_USER_ID),
+    subscribedUserIds,
+  }
 }
 
 type MentionInsertType =
@@ -319,6 +359,7 @@ export async function buildMessageFanout(input: MessageFanoutInput) {
   const recipientIds = [...new Set(allRecipientIds)].filter(
     (id) => id !== input.authorId
   )
+  const threadContext = await resolveThreadNotificationContext(input.message)
 
   const previewText = input.message.content
     ? await buildResolvedNotificationContentPreview(input.message.content)
@@ -336,6 +377,9 @@ export async function buildMessageFanout(input: MessageFanoutInput) {
         channelId: input.channel.id,
         workspaceId: input.channel.workspaceId,
         messageId: input.message.id,
+        threadRootId: threadContext.threadRootId,
+        isMerlinThread: threadContext.isMerlinThread,
+        isSubscribedToThread: threadContext.subscribedUserIds.has(userId),
         unreadCountDelta: 1,
         authorUserId: input.authorId,
         authorName: input.message.author.name,
@@ -473,6 +517,11 @@ export async function buildMessageFanout(input: MessageFanoutInput) {
             messageId: notification.messageId ?? input.message.id,
             channelId: notification.channelId ?? input.channel.id,
             workspaceId: notification.workspaceId ?? input.channel.workspaceId,
+            threadRootId: threadContext.threadRootId,
+            isMerlinThread: threadContext.isMerlinThread,
+            isSubscribedToThread: threadContext.subscribedUserIds.has(
+              notification.userId
+            ),
             createdAt: notification.createdAt.toISOString(),
           },
         },

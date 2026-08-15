@@ -56,6 +56,7 @@ import {
   type TaskSourceFile,
   TaskThreadHeader,
 } from "@/components/chat/task-thread-header"
+import { ThreadSubscriberStack } from "@/components/chat/thread-subscriber-stack"
 import { TypingIndicator } from "@/components/chat/typing-indicator"
 import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-header"
 import type { ThreadSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
@@ -210,6 +211,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
   const {
     messages,
     root: threadApiRoot,
+    participants,
     isLoading,
     fetchOlder,
     hasOlder,
@@ -608,34 +610,37 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
         }
         className={isTask ? "border-b-0" : undefined}
         actions={
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={
-                <button
-                  ref={actionsMenuTriggerRef}
-                  type="button"
-                  aria-label={`${isTask ? "Task" : "Thread"} actions`}
-                  className="flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground data-popup-open:bg-foreground/5 data-popup-open:text-foreground"
+          <>
+            <ThreadSubscriberStack subscribers={participants} />
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <button
+                    ref={actionsMenuTriggerRef}
+                    type="button"
+                    aria-label={`${isTask ? "Task" : "Thread"} actions`}
+                    className="flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground data-popup-open:bg-foreground/5 data-popup-open:text-foreground"
+                  />
+                }
+              >
+                <HugeiconsIcon
+                  icon={MoreHorizontalIcon}
+                  className="size-4"
+                  strokeWidth={2}
                 />
-              }
-            >
-              <HugeiconsIcon
-                icon={MoreHorizontalIcon}
-                className="size-4"
-                strokeWidth={2}
-              />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent side="bottom" align="end" className="w-60">
-              <DropdownMenuItem onClick={handleViewInChannel}>
-                <HugeiconsIcon icon={CornerUpRightIcon} strokeWidth={2} />
-                Go to message
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => void handleCopyAsMarkdown()}>
-                <HugeiconsIcon icon={Copy01Icon} strokeWidth={2} />
-                {`Copy ${isTask ? "task" : "thread"} as Markdown`}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent side="bottom" align="end" className="w-60">
+                <DropdownMenuItem onClick={handleViewInChannel}>
+                  <HugeiconsIcon icon={CornerUpRightIcon} strokeWidth={2} />
+                  Go to message
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => void handleCopyAsMarkdown()}>
+                  <HugeiconsIcon icon={Copy01Icon} strokeWidth={2} />
+                  {`Copy ${isTask ? "task" : "thread"} as Markdown`}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </>
         }
       />
 

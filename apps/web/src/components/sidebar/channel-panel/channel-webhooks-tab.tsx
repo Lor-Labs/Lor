@@ -2,13 +2,23 @@ import {
   ArrowDown01Icon,
   Clock01Icon,
   ImageAdd01Icon,
+  PlusSignIcon,
+  SquareLock02Icon,
   Tick02Icon,
   WebhookIcon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { env } from "@repo/env/client"
+import { Badge } from "@repo/ui/components/badge"
 import { Button } from "@repo/ui/components/button"
 import { Checkbox } from "@repo/ui/components/checkbox"
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@repo/ui/components/empty"
 import { Input } from "@repo/ui/components/input"
 import { Label } from "@repo/ui/components/label"
 import { Spinner } from "@repo/ui/components/spinner"
@@ -265,35 +275,97 @@ export function ChannelWebhooksTab({
 
   return (
     <div className="space-y-4">
-      <p className="text-xs text-muted-foreground">
-        Webhooks let other apps and services send data into this channel — POST
-        JSON like <code>{'{ "content": "..." }'}</code> to the webhook URL, or
-        append <code>/discord</code> or <code>/slack</code> to send those
-        payload formats unchanged. The URL is the credential, so treat it as a
-        secret.
-      </p>
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="text-sm font-medium">Incoming webhooks</div>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Let other apps and services post data into{" "}
+            {channelName ? `#${channelName}` : "this channel"}.
+          </p>
+        </div>
+        <Button
+          type="button"
+          size="sm"
+          className="shrink-0"
+          disabled={createMutation.isPending}
+          onClick={() => createMutation.mutate()}
+        >
+          {createMutation.isPending ? (
+            <Spinner className="size-3.5" />
+          ) : (
+            <HugeiconsIcon
+              icon={PlusSignIcon}
+              className="size-3.5"
+              strokeWidth={2}
+            />
+          )}
+          New Webhook
+        </Button>
+      </div>
 
-      <Button
-        type="button"
-        disabled={createMutation.isPending}
-        onClick={() => createMutation.mutate()}
-      >
-        {createMutation.isPending ? "Creating..." : "New Webhook"}
-      </Button>
+      <div className="rounded-lg border border-border bg-muted/30 p-3">
+        <div className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-2 text-xs text-muted-foreground">
+          <Badge
+            variant="outline"
+            size="sm"
+            className="justify-self-start px-1.5 font-mono font-normal"
+          >
+            POST
+          </Badge>
+          <span className="min-w-0">
+            Send JSON like{" "}
+            <code className="text-foreground">{'{ "content": "..." }'}</code> to
+            the webhook URL
+          </span>
+          <Badge
+            variant="outline"
+            size="sm"
+            className="justify-self-start px-1.5 font-mono font-normal"
+          >
+            /discord
+          </Badge>
+          <span className="min-w-0">
+            Append to the URL to send Discord webhook payloads unchanged
+          </span>
+          <Badge
+            variant="outline"
+            size="sm"
+            className="justify-self-start px-1.5 font-mono font-normal"
+          >
+            /slack
+          </Badge>
+          <span className="min-w-0">
+            Append to the URL to send Slack incoming-webhook payloads unchanged
+          </span>
+        </div>
+        <div className="mt-2.5 flex items-center gap-1.5 border-border border-t pt-2.5 text-xs text-muted-foreground">
+          <HugeiconsIcon
+            icon={SquareLock02Icon}
+            className="size-3.5 shrink-0"
+            strokeWidth={2}
+          />
+          The URL is the credential — treat it like a password.
+        </div>
+      </div>
 
       {isPending ? (
         <div className="flex justify-center py-6">
           <Spinner className="size-4 text-muted-foreground" />
         </div>
       ) : webhooks.length === 0 ? (
-        <p className="text-xs text-muted-foreground">No webhooks yet.</p>
+        <Empty className="py-8 md:py-8">
+          <EmptyHeader>
+            <EmptyMedia variant="icon" className="mb-3">
+              <HugeiconsIcon icon={WebhookIcon} strokeWidth={2} />
+            </EmptyMedia>
+            <EmptyTitle className="text-sm">No webhooks yet</EmptyTitle>
+            <EmptyDescription className="text-xs">
+              Create one to get a URL other services can post to.
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
       ) : (
         <div className="space-y-3">
-          {channelName && (
-            <div className="text-sm font-semibold">
-              Posting to #{channelName}
-            </div>
-          )}
           <ul className="space-y-2">
             {webhooks.map((hook) => {
               const isOpen = openId === hook.id

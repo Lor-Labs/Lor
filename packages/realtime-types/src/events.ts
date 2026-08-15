@@ -273,6 +273,9 @@ export type UnreadNotification = {
   channelId: string
   workspaceId: string | null
   messageId: string
+  threadRootId: string | null
+  isMerlinThread: boolean
+  isSubscribedToThread: boolean
   unreadCountDelta: number
   authorUserId: string
   authorName: string
@@ -302,6 +305,9 @@ export type MentionNotification = {
   messageId: string
   channelId: string
   workspaceId: string | null
+  threadRootId: string | null
+  isMerlinThread: boolean
+  isSubscribedToThread: boolean
   createdAt: string
 }
 
