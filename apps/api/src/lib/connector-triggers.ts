@@ -12,21 +12,37 @@ export type RememberDraft = Omit<
   "workspaceId" | "connectionId" | "provider" | "hint"
 >
 
+// Raw payloads logged on trigger_delivery are capped — Lor stores the whole
+// payload only for BYO webhooks, and only up to this.
+const DELIVERY_PAYLOAD_MAX = 64 * 1024
+
+export type DispatchOutcome = {
+  // The posted channel message id, when the POST effect ran.
+  posted: string | null
+  remembered: boolean
+}
+
 // Fan one connector event out to its trigger's effects (POST, Remember; Act
-// executes in a later phase). No trigger row — or a disabled one — means the
-// event is off. See reference/automation-primitives.md §2.
+// executes in a later phase), and log the delivery. No trigger row — or a
+// disabled one — means the event is off (returns null). See
+// reference/automation-primitives.md §2.
 export async function dispatchConnectorEvent(input: {
   provider: IntegrationProvider
   externalId: string
   event: ConnectorEventKey
   label: string
   text: string
+  // BYO webhook post identity (bucket-restricted, from the stored config).
+  avatarUrl?: string
   // Omit when the event has nothing ingestable; Remember is then a no-op.
   remember?: RememberDraft
-}): Promise<void> {
+  // Raw inbound payload for the delivery log (BYO webhooks only).
+  payload?: string
+}): Promise<DispatchOutcome | null> {
   const target = await db
     .select({
       trigger: {
+        id: schema.connectorTrigger.id,
         post: schema.connectorTrigger.post,
         remember: schema.connectorTrigger.remember,
         rememberHint: schema.connectorTrigger.rememberHint,
@@ -63,23 +79,29 @@ export async function dispatchConnectorEvent(input: {
     )
     .limit(1)
     .then((rows) => rows[0])
-  if (!target?.trigger.enabled) return
+  if (!target?.trigger.enabled) return null
 
+  let postedMessageId: string | null = null
   if (target.trigger.post) {
-    await postBotMessage({
+    const message = await postBotMessage({
       channel: target.channel,
       authorId: APP_USER_ID,
       content: input.text,
       overrideName: input.label,
+      overrideAvatarUrl: input.avatarUrl,
       // Memory rule: with Remember on, the `source` row is the canonical copy
       // and this message is just a pointer; POST-only messages stay canonical
       // chat content. See reference/automation-primitives.md §2.
       excludedFromMemory: target.trigger.remember,
     })
+    postedMessageId = message.id
   }
 
-  if (target.trigger.remember && input.remember) {
-    await ingestSource(
+  const remembered = target.trigger.remember && !!input.remember
+  if (remembered && input.remember) {
+    // Fire-and-forget: the summarize call is too slow to hold webhook acks
+    // open, and an ingest hiccup must not fail the delivery.
+    void ingestSource(
       {
         workspaceId: target.connection.workspaceId,
         connectionId: target.connection.id,
@@ -90,17 +112,37 @@ export async function dispatchConnectorEvent(input: {
       // Metered at true cost, never debited — "free ingestion" stays a pricing
       // decision whose price is visible in the ledger.
       (u) => void recordUsage(u)
-    )
+    ).catch((err) => {
+      logger.error(
+        { err, provider: input.provider, event: input.event },
+        "Connector event ingest failed"
+      )
+    })
   }
+
+  await db
+    .insert(schema.triggerDelivery)
+    .values({
+      triggerId: target.trigger.id,
+      payload: input.payload
+        ? input.payload.slice(0, DELIVERY_PAYLOAD_MAX)
+        : null,
+      posted: postedMessageId !== null,
+      remembered,
+    })
+    .catch((err) => {
+      logger.warn({ err, event: input.event }, "Delivery log insert failed")
+    })
 
   logger.info(
     {
       provider: input.provider,
       event: input.event,
       channelId: target.channel.id,
-      posted: target.trigger.post,
-      remembered: target.trigger.remember && !!input.remember,
+      posted: postedMessageId !== null,
+      remembered,
     },
     "Dispatched connector event"
   )
+  return { posted: postedMessageId, remembered }
 }

@@ -1,4 +1,8 @@
-import { GithubIcon, Globe02Icon } from "@hugeicons/core-free-icons"
+import {
+  GithubIcon,
+  Globe02Icon,
+  WebhookIcon,
+} from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { AttioLogo } from "@repo/ui/components/logos/attio"
 import { AWSCloudWatchLogo } from "@repo/ui/components/logos/aws-cloudwatch"
@@ -45,6 +49,12 @@ function CloudwatchMark({ className }: { className?: string }) {
 function GithubMark({ className }: { className?: string }) {
   return (
     <HugeiconsIcon icon={GithubIcon} className={className} strokeWidth={2} />
+  )
+}
+
+function WebhookMark({ className }: { className?: string }) {
+  return (
+    <HugeiconsIcon icon={WebhookIcon} className={className} strokeWidth={2} />
   )
 }
 
@@ -178,6 +188,14 @@ const CONNECTOR_UI: Record<ConnectorKey, ConnectorUI> = {
       "get_cloudwatch_metrics",
     ],
     linkLabel: () => "CloudWatch",
+  },
+  // BYO inbound webhooks: no host, no tools — present only so the registry
+  // stays exhaustive over the provider enum.
+  webhook: {
+    logo: WebhookMark,
+    urlHost: /$^/,
+    tools: [],
+    linkLabel: () => null,
   },
 }
 

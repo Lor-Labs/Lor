@@ -1,9 +1,9 @@
 # Automation Primitives — Triggers, Effects & Custom Tools
 
-> Status: **design accepted** (2026-08-14, design conversation with jacob). Phases 1
-> (trigger generalization + first-party conformance) and 2 (Attio events + ingest,
-> §9.1–2) implemented 2026-08-14; webhook dialect endpoints (§3) also shipped.
-> Later phases not yet started.
+> Status: **design accepted** (2026-08-14, design conversation with jacob). Phases 1–3
+> (trigger generalization + first-party conformance; Attio events + ingest; BYO
+> Webhooks incl. the `channel_webhook` fold and dialect endpoints) implemented
+> 2026-08-14. Phases 4 (Act) and 5 (custom tools) not yet started.
 > Closes the design question in Linear **LOR-49** ("programmatic ways to index data") and
 > subsumes bring-your-own webhooks (the evolved `channel_webhook`) and "webhook-triggered
 > Merlin actions."
@@ -88,9 +88,12 @@ LOR-49: index data silently, notify no one.
   layer directly would pollute it.
 - **System-of-record exception (webhooks only):** a webhook has no provider to
   live-fetch from, so the "summary + pointer, never store whole" rule
-  (`merlin-architecture.md` §2.2) breaks deliberately: store the raw payload **capped**
-  (e.g. 64KB) and point the source URL at our own copy. First-party connectors keep true
-  pointers (e.g. Attio transcripts are live-fetched).
+  (`merlin-architecture.md` §2.2) breaks deliberately: the capped raw payload (64KB)
+  is stored on the `trigger_delivery` row. First-party connectors keep true
+  pointers (e.g. Attio transcripts are live-fetched). Known gap: the webhook
+  provider's `fetchContent` returns null for now, so Merlin retrieves the summary
+  but can't yet pull the stored raw payload — wiring `fetch_source` to the delivery
+  log is a follow-up.
 - Upsert: honor a top-level `external_id` (or `id`) field in a webhook delivery for
   in-place re-ingest (the `source` unique index already supports this); otherwise each
   delivery is a new row keyed by delivery id.

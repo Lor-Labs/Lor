@@ -6,6 +6,7 @@ import { githubProvider } from "./github"
 import { linearProvider } from "./linear"
 import { notionProvider } from "./notion"
 import type { SourceProvider } from "./types"
+import { webhookProvider } from "./webhook"
 
 // Exhaustive over integrationProviderEnum — a new provider value without a
 // SourceProvider here is a compile error (was a silent Partial map before).
@@ -16,6 +17,7 @@ const providers: Record<IntegrationProvider, SourceProvider> = {
   attio: attioProvider,
   notion: notionProvider,
   cloudwatch: cloudwatchProvider,
+  webhook: webhookProvider,
 }
 
 export function getSourceProvider(

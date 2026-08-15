@@ -129,6 +129,9 @@ function connectUrlFor(
     case "api-key":
       // Keyed connectors are entered in-app, not via a redirect.
       return null
+    case "token":
+      // BYO webhooks are created from channel settings, never connected here.
+      return null
   }
 }
 

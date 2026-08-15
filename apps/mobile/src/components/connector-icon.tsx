@@ -1,5 +1,6 @@
 import GithubIcon from "@hugeicons/core-free-icons/GithubIcon"
 import Globe02Icon from "@hugeicons/core-free-icons/Globe02Icon"
+import WebhookIcon from "@hugeicons/core-free-icons/WebhookIcon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
 import {
   ATTIO_LOGO_PATHS,
@@ -15,6 +16,7 @@ export type ConnectorKey =
   | "attio"
   | "notion"
   | "cloudwatch"
+  | "webhook"
 
 const CONNECTORS: Record<
   ConnectorKey,
@@ -66,6 +68,11 @@ const CONNECTORS: Record<
       "get_cloudwatch_metrics",
     ],
   },
+  // BYO inbound webhooks: no host, no tools — keeps the record exhaustive.
+  webhook: {
+    host: /$^/,
+    tools: [],
+  },
 }
 
 const connectorKeys = Object.keys(CONNECTORS) as ConnectorKey[]
@@ -105,6 +112,9 @@ export function ConnectorIcon({
 }) {
   if (connector === null) {
     return <HugeiconsIcon color={color} icon={Globe02Icon} size={size} />
+  }
+  if (connector === "webhook") {
+    return <HugeiconsIcon color={color} icon={WebhookIcon} size={size} />
   }
   if (connector === "github") {
     return <HugeiconsIcon color={color} icon={GithubIcon} size={size} />

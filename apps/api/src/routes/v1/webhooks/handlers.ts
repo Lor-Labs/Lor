@@ -1,7 +1,13 @@
-import { randomBytes } from "node:crypto"
+import { randomBytes, randomUUID } from "node:crypto"
 import { db } from "@repo/db"
-import { channel, channelWebhook, user } from "@repo/db/schema"
+import {
+  channel,
+  connectorTrigger,
+  integrationConnection,
+  user,
+} from "@repo/db/schema"
 import { env } from "@repo/env/server"
+import { decryptSecret, encryptSecret } from "@repo/utils/crypto"
 import { and, count, eq } from "drizzle-orm"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { assertWorkspacePermission } from "@/lib/permissions"
@@ -13,6 +19,10 @@ import type {
   UpdateChannelWebhookRoute,
 } from "@/routes/v1/webhooks/routes"
 
+// A webhook = one `webhook`-provider connection row + its channel-anchored
+// trigger, created and managed together. The webhook id in the execute URL is
+// the connection's externalId. See reference/automation-primitives.md §3.
+
 const MAX_WEBHOOKS_PER_CHANNEL = 10
 
 // Avatars must come from this channel's webhook-avatar presign namespace —
@@ -20,6 +30,55 @@ const MAX_WEBHOOKS_PER_CHANNEL = 10
 function isOwnWebhookAvatarUrl(url: string, channelId: string) {
   const base = env.S3_PUBLIC_URL.replace(/\/$/, "")
   return url.startsWith(`${base}/webhook-avatars/${channelId}/`)
+}
+
+type WebhookRow = {
+  externalId: string
+  name: string | null
+  avatarUrl: string | null
+  accessToken: string | null
+  createdAt: Date
+  channelId: string
+  post: boolean
+  remember: boolean
+  rememberHint: string | null
+}
+
+function toResponse(
+  row: WebhookRow,
+  createdByName: string | null,
+  key: string
+) {
+  let token = ""
+  try {
+    token = row.accessToken ? decryptSecret(row.accessToken, key) : ""
+  } catch {
+    // Undecryptable token (rotated key): surface the row, but the URL is dead.
+  }
+  return {
+    id: row.externalId,
+    name: row.name ?? "Webhook",
+    channelId: row.channelId,
+    avatarUrl: row.avatarUrl,
+    token,
+    createdAt: row.createdAt.toISOString(),
+    createdByName,
+    post: row.post,
+    remember: row.remember,
+    rememberHint: row.rememberHint,
+  }
+}
+
+const webhookSelection = {
+  externalId: integrationConnection.externalId,
+  name: integrationConnection.accountLogin,
+  avatarUrl: integrationConnection.avatarUrl,
+  accessToken: integrationConnection.accessToken,
+  createdAt: integrationConnection.createdAt,
+  channelId: connectorTrigger.channelId,
+  post: connectorTrigger.post,
+  remember: connectorTrigger.remember,
+  rememberHint: connectorTrigger.rememberHint,
 }
 
 // Webhooks post into the channel feed, so only text channels host them.
@@ -38,25 +97,35 @@ async function findTextChannel(channelId: string, workspaceId: string) {
     .then((rows) => rows[0] ?? null)
 }
 
-const toResponse = (
-  row: {
-    id: string
-    name: string
-    channelId: string
-    avatarUrl: string | null
-    token: string
-    createdAt: Date
-  },
-  createdByName: string | null
-) => ({
-  id: row.id,
-  name: row.name,
-  channelId: row.channelId,
-  avatarUrl: row.avatarUrl,
-  token: row.token,
-  createdAt: row.createdAt.toISOString(),
-  createdByName,
-})
+// Resolve one webhook scoped to this workspace + channel, or null.
+async function findWebhook(
+  workspaceId: string,
+  channelId: string,
+  webhookId: string
+) {
+  return db
+    .select({
+      connectionId: integrationConnection.id,
+      triggerId: connectorTrigger.id,
+      createdBy: integrationConnection.createdBy,
+      ...webhookSelection,
+    })
+    .from(integrationConnection)
+    .innerJoin(
+      connectorTrigger,
+      eq(connectorTrigger.connectionId, integrationConnection.id)
+    )
+    .where(
+      and(
+        eq(integrationConnection.provider, "webhook"),
+        eq(integrationConnection.externalId, webhookId),
+        eq(integrationConnection.workspaceId, workspaceId),
+        eq(connectorTrigger.channelId, channelId)
+      )
+    )
+    .limit(1)
+    .then((rows) => rows[0] ?? null)
+}
 
 export const listChannelWebhooks: AppRouteHandler<
   ListChannelWebhooksRoute
@@ -75,15 +144,28 @@ export const listChannelWebhooks: AppRouteHandler<
     )
   }
 
+  const key = env.INTEGRATION_ENCRYPTION_KEY
+  if (!key) return c.json({ webhooks: [] }, HttpStatusCodes.OK)
+
   const rows = await db
-    .select({ webhook: channelWebhook, creatorName: user.name })
-    .from(channelWebhook)
-    .leftJoin(user, eq(channelWebhook.createdBy, user.id))
-    .where(eq(channelWebhook.channelId, channelId))
-    .orderBy(channelWebhook.createdAt)
+    .select({ ...webhookSelection, creatorName: user.name })
+    .from(integrationConnection)
+    .innerJoin(
+      connectorTrigger,
+      eq(connectorTrigger.connectionId, integrationConnection.id)
+    )
+    .leftJoin(user, eq(integrationConnection.createdBy, user.id))
+    .where(
+      and(
+        eq(integrationConnection.provider, "webhook"),
+        eq(integrationConnection.workspaceId, workspace.id),
+        eq(connectorTrigger.channelId, channelId)
+      )
+    )
+    .orderBy(integrationConnection.createdAt)
 
   return c.json(
-    { webhooks: rows.map((r) => toResponse(r.webhook, r.creatorName)) },
+    { webhooks: rows.map((row) => toResponse(row, row.creatorName, key)) },
     HttpStatusCodes.OK
   )
 }
@@ -97,12 +179,24 @@ export const createChannelWebhook: AppRouteHandler<
 
   assertWorkspacePermission(c.var.member, workspace, { channel: ["update"] })
 
+  const key = env.INTEGRATION_ENCRYPTION_KEY
+  if (!key) {
+    return c.json(
+      {
+        success: false,
+        message: "Webhooks require INTEGRATION_ENCRYPTION_KEY to be configured",
+      },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
   if (avatarUrl && !isOwnWebhookAvatarUrl(avatarUrl, channelId)) {
     return c.json(
       { success: false, message: "Avatar must be an uploaded asset" },
       HttpStatusCodes.BAD_REQUEST
     )
   }
+
+  const token = randomBytes(32).toString("base64url")
 
   // Lock the channel row so concurrent creates serialize and the cap check
   // can't be raced past.
@@ -124,26 +218,50 @@ export const createChannelWebhook: AppRouteHandler<
 
     const existing = await tx
       .select({ value: count() })
-      .from(channelWebhook)
-      .where(eq(channelWebhook.channelId, channelId))
+      .from(connectorTrigger)
+      .innerJoin(
+        integrationConnection,
+        eq(connectorTrigger.connectionId, integrationConnection.id)
+      )
+      .where(
+        and(
+          eq(connectorTrigger.channelId, channelId),
+          eq(integrationConnection.provider, "webhook")
+        )
+      )
       .then((rows) => rows[0]?.value ?? 0)
     if (existing >= MAX_WEBHOOKS_PER_CHANNEL) {
       return { status: "limit" as const }
     }
 
-    const inserted = await tx
-      .insert(channelWebhook)
+    const connection = await tx
+      .insert(integrationConnection)
       .values({
-        channelId,
         workspaceId: workspace.id,
-        name,
+        provider: "webhook",
+        externalId: randomUUID(),
+        accountLogin: name,
         avatarUrl: avatarUrl ?? null,
-        token: randomBytes(32).toString("base64url"),
+        accessToken: encryptSecret(token, key),
         createdBy: c.var.user.id,
       })
       .returning()
       .then((rows) => rows[0])
-    return { status: "created" as const, inserted }
+    if (!connection) return { status: "failed" as const }
+
+    const trigger = await tx
+      .insert(connectorTrigger)
+      .values({
+        connectionId: connection.id,
+        event: "data_received",
+        channelId,
+        post: true,
+      })
+      .returning()
+      .then((rows) => rows[0])
+    if (!trigger) return { status: "failed" as const }
+
+    return { status: "created" as const, connection, trigger }
   })
 
   if (result.status === "not_found") {
@@ -161,9 +279,7 @@ export const createChannelWebhook: AppRouteHandler<
       HttpStatusCodes.BAD_REQUEST
     )
   }
-
-  const inserted = result.inserted
-  if (!inserted) {
+  if (result.status === "failed") {
     return c.json(
       { success: false, message: "Failed to create webhook" },
       HttpStatusCodes.INTERNAL_SERVER_ERROR
@@ -171,7 +287,23 @@ export const createChannelWebhook: AppRouteHandler<
   }
 
   return c.json(
-    { webhook: toResponse(inserted, c.var.user.name) },
+    {
+      webhook: toResponse(
+        {
+          externalId: result.connection.externalId,
+          name: result.connection.accountLogin,
+          avatarUrl: result.connection.avatarUrl,
+          accessToken: result.connection.accessToken,
+          createdAt: result.connection.createdAt,
+          channelId: result.trigger.channelId,
+          post: result.trigger.post,
+          remember: result.trigger.remember,
+          rememberHint: result.trigger.rememberHint,
+        },
+        c.var.user.name,
+        key
+      ),
+    },
     HttpStatusCodes.OK
   )
 }
@@ -181,10 +313,17 @@ export const updateChannelWebhook: AppRouteHandler<
 > = async (c) => {
   const workspace = c.var.workspace
   const { channelId, webhookId } = c.req.valid("param")
-  const { name, avatarUrl } = c.req.valid("json")
+  const { name, avatarUrl, post, remember, rememberHint } = c.req.valid("json")
 
   assertWorkspacePermission(c.var.member, workspace, { channel: ["update"] })
 
+  const key = env.INTEGRATION_ENCRYPTION_KEY
+  if (!key) {
+    return c.json(
+      { success: false, message: "Webhooks are unavailable" },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
   if (avatarUrl && !isOwnWebhookAvatarUrl(avatarUrl, channelId)) {
     return c.json(
       { success: false, message: "Avatar must be an uploaded asset" },
@@ -192,29 +331,45 @@ export const updateChannelWebhook: AppRouteHandler<
     )
   }
 
-  const updated = await db
-    .update(channelWebhook)
-    .set({
-      ...(name !== undefined ? { name } : {}),
-      ...(avatarUrl !== undefined ? { avatarUrl } : {}),
-    })
-    .where(
-      and(
-        eq(channelWebhook.id, webhookId),
-        eq(channelWebhook.channelId, channelId),
-        eq(channelWebhook.workspaceId, workspace.id)
-      )
-    )
-    .returning()
-    .then((rows) => rows[0])
-
-  if (!updated) {
+  const existing = await findWebhook(workspace.id, channelId, webhookId)
+  if (!existing) {
     return c.json(
       { success: false, message: "Webhook not found" },
       HttpStatusCodes.NOT_FOUND
     )
   }
 
+  if (name !== undefined || avatarUrl !== undefined) {
+    await db
+      .update(integrationConnection)
+      .set({
+        ...(name !== undefined ? { accountLogin: name } : {}),
+        ...(avatarUrl !== undefined ? { avatarUrl } : {}),
+      })
+      .where(eq(integrationConnection.id, existing.connectionId))
+  }
+  if (
+    post !== undefined ||
+    remember !== undefined ||
+    rememberHint !== undefined
+  ) {
+    await db
+      .update(connectorTrigger)
+      .set({
+        ...(post !== undefined ? { post } : {}),
+        ...(remember !== undefined ? { remember } : {}),
+        ...(rememberHint !== undefined ? { rememberHint } : {}),
+      })
+      .where(eq(connectorTrigger.id, existing.triggerId))
+  }
+
+  const updated = await findWebhook(workspace.id, channelId, webhookId)
+  if (!updated) {
+    return c.json(
+      { success: false, message: "Webhook not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
   const creatorName = updated.createdBy
     ? await db
         .select({ name: user.name })
@@ -225,7 +380,7 @@ export const updateChannelWebhook: AppRouteHandler<
     : null
 
   return c.json(
-    { webhook: toResponse(updated, creatorName) },
+    { webhook: toResponse(updated, creatorName, key) },
     HttpStatusCodes.OK
   )
 }
@@ -238,24 +393,18 @@ export const deleteChannelWebhook: AppRouteHandler<
 
   assertWorkspacePermission(c.var.member, workspace, { channel: ["update"] })
 
-  const deleted = await db
-    .delete(channelWebhook)
-    .where(
-      and(
-        eq(channelWebhook.id, webhookId),
-        eq(channelWebhook.channelId, channelId),
-        eq(channelWebhook.workspaceId, workspace.id)
-      )
-    )
-    .returning({ id: channelWebhook.id })
-    .then((rows) => rows[0])
-
-  if (!deleted) {
+  const existing = await findWebhook(workspace.id, channelId, webhookId)
+  if (!existing) {
     return c.json(
       { success: false, message: "Webhook not found" },
       HttpStatusCodes.NOT_FOUND
     )
   }
+
+  // The trigger (and its deliveries) cascade off the connection.
+  await db
+    .delete(integrationConnection)
+    .where(eq(integrationConnection.id, existing.connectionId))
 
   return c.json({ success: true as const }, HttpStatusCodes.OK)
 }

@@ -52,7 +52,7 @@ type Connection = {
 // backoff — Attio is the retry scheduler, no queue needed), has nothing to do
 // ("skip"), or returns the dispatch to run after the ack (Remember's summarize
 // call is too slow to hold the response open for).
-type ProcessOutcome = "retry" | "skip" | (() => Promise<void>)
+type ProcessOutcome = "retry" | "skip" | (() => Promise<unknown>)
 
 function verifySignature(
   raw: string,
@@ -372,7 +372,7 @@ attioRouter.post("/integrations/attio/webhook", async (c) => {
   }
 
   // One event per delivery today; iterate defensively (batching is reserved).
-  const dispatches: Array<() => Promise<void>> = []
+  const dispatches: Array<() => Promise<unknown>> = []
   for (const event of payload.events ?? []) {
     const key =
       ATTIO_EVENT_SUBSCRIPTIONS[

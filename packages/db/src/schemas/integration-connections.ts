@@ -8,13 +8,16 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core"
+import { user } from "./users"
 import { workspace } from "./workspaces"
 
 // Track B: a workspace's link to an external account (e.g. a GitHub App
 // installation). Connectors ingest `source` rows under a connection; the
 // provider enum is shared with `source`. See reference/merlin-mvp-spec.md §6.
 
-// Add providers deliberately as connectors land.
+// Add providers deliberately as connectors land. `webhook` is the BYO inbound
+// provider: each user-created webhook is one connection row + a channel-anchored
+// trigger (reference/automation-primitives.md §3).
 export const integrationProviderEnum = pgEnum("integration_provider", [
   "github",
   "linear",
@@ -22,6 +25,7 @@ export const integrationProviderEnum = pgEnum("integration_provider", [
   "attio",
   "notion",
   "cloudwatch",
+  "webhook",
 ])
 
 export type IntegrationProvider =
@@ -68,6 +72,14 @@ export const integrationConnection = pgTable(
     // id, and its signing secret encrypted at rest (AES-256-GCM).
     webhookId: text("webhook_id"),
     webhookSecret: text("webhook_secret"),
+    // BYO webhook post identity: the message avatar (display name reuses
+    // accountLogin). Null for real providers.
+    avatarUrl: text("avatar_url"),
+    // Who created the connection — shown for BYO webhooks; null for OAuth/API
+    // connectors and after the creator leaves.
+    createdBy: uuid("created_by").references(() => user.id, {
+      onDelete: "set null",
+    }),
     status: integrationConnectionStatusEnum("status")
       .notNull()
       .default("active"),

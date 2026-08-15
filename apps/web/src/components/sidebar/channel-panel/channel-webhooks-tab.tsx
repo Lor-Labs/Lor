@@ -8,6 +8,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react"
 import { env } from "@repo/env/client"
 import { Button } from "@repo/ui/components/button"
+import { Checkbox } from "@repo/ui/components/checkbox"
 import { Input } from "@repo/ui/components/input"
 import { Label } from "@repo/ui/components/label"
 import { Spinner } from "@repo/ui/components/spinner"
@@ -204,12 +205,21 @@ export function ChannelWebhooksTab({
       webhookId: string
       name?: string
       avatarUrl?: string
+      post?: boolean
+      remember?: boolean
+      rememberHint?: string | null
     }) => {
       const res = await apiClient.v1.workspaces[":workspaceSlug"].channels[
         ":channelId"
       ].webhooks[":webhookId"].$patch({
         param: { workspaceSlug, channelId, webhookId: input.webhookId },
-        json: { name: input.name, avatarUrl: input.avatarUrl },
+        json: {
+          name: input.name,
+          avatarUrl: input.avatarUrl,
+          post: input.post,
+          remember: input.remember,
+          rememberHint: input.rememberHint,
+        },
       })
       if (!res.ok) throw new Error("Failed to update webhook")
       return res.json()
@@ -256,9 +266,11 @@ export function ChannelWebhooksTab({
   return (
     <div className="space-y-4">
       <p className="text-xs text-muted-foreground">
-        Webhooks are a simple way for other apps and services to post messages
-        into this channel — POST JSON like <code>{'{ "content": "..." }'}</code>{" "}
-        to the webhook URL. The URL is the credential, so treat it as a secret.
+        Webhooks let other apps and services send data into this channel — POST
+        JSON like <code>{'{ "content": "..." }'}</code> to the webhook URL, or
+        append <code>/discord</code> or <code>/slack</code> to send those
+        payload formats unchanged. The URL is the credential, so treat it as a
+        secret.
       </p>
 
       <Button
@@ -377,6 +389,69 @@ export function ChannelWebhooksTab({
                             }}
                           />
                         </div>
+                      </div>
+
+                      <div className="mt-4 space-y-2 border-border border-t pt-4">
+                        <div className="text-xs font-medium text-muted-foreground">
+                          When data arrives
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <div className="flex items-center gap-1.5">
+                            <Checkbox
+                              id={`webhook-post-${hook.id}`}
+                              checked={hook.post}
+                              disabled={updateMutation.isPending}
+                              onCheckedChange={(checked) =>
+                                updateMutation.mutate({
+                                  webhookId: hook.id,
+                                  post: checked === true,
+                                })
+                              }
+                            />
+                            <Label
+                              htmlFor={`webhook-post-${hook.id}`}
+                              className="cursor-pointer text-xs font-normal text-muted-foreground"
+                            >
+                              Post to channel
+                            </Label>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <Checkbox
+                              id={`webhook-remember-${hook.id}`}
+                              checked={hook.remember}
+                              disabled={updateMutation.isPending}
+                              onCheckedChange={(checked) =>
+                                updateMutation.mutate({
+                                  webhookId: hook.id,
+                                  remember: checked === true,
+                                })
+                              }
+                            />
+                            <Label
+                              htmlFor={`webhook-remember-${hook.id}`}
+                              className="cursor-pointer text-xs font-normal text-muted-foreground"
+                            >
+                              Remember for Merlin
+                            </Label>
+                          </div>
+                        </div>
+                        {hook.remember && (
+                          <Input
+                            key={`${hook.id}:${hook.rememberHint ?? ""}`}
+                            defaultValue={hook.rememberHint ?? ""}
+                            placeholder="Optional hint for how to summarize this data"
+                            className="h-8 text-xs"
+                            disabled={updateMutation.isPending}
+                            onBlur={(e) => {
+                              const value = e.target.value.trim()
+                              if (value === (hook.rememberHint ?? "")) return
+                              updateMutation.mutate({
+                                webhookId: hook.id,
+                                rememberHint: value || null,
+                              })
+                            }}
+                          />
+                        )}
                       </div>
 
                       <div className="mt-4 flex items-center gap-2 border-border border-t pt-4">

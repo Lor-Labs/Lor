@@ -285,6 +285,7 @@ const FILE_BROWSERS: Record<IntegrationProvider, ConnectorFileBrowser | null> =
     attio: null,
     notion: null,
     cloudwatch: null,
+    webhook: null,
   }
 
 export function connectorSupportsFiles(provider: IntegrationProvider): boolean {
@@ -327,6 +328,8 @@ const SEARCHERS: Record<IntegrationProvider, ConnectorSearcher | null> = {
   datadog: null,
   // Live log/metric queries, not documents — nothing to attach.
   cloudwatch: null,
+  // Inbound-only; deliveries aren't an attachable corpus.
+  webhook: null,
 }
 
 export function isSearchableConnector(provider: IntegrationProvider): boolean {

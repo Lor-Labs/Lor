@@ -40,8 +40,9 @@ export const integrationStatusSchema = z.object({
   accountLogin: z.string().nullable(),
   connectionId: z.string().nullable(),
   // Mirrors ConnectorAuthType — api-key connectors connect via an in-app form
-  // instead of a redirect, so they have no connectUrl.
-  authType: z.enum(["github-app", "oauth", "api-key"]),
+  // instead of a redirect; `token` (BYO webhooks) never appears here but keeps
+  // the enum aligned with the registry type.
+  authType: z.enum(["github-app", "oauth", "api-key", "token"]),
   // Some org-shared connectors (currently Notion) can only be managed by a
   // Lor workspace admin even though every member may use the granted tools.
   canManage: z.boolean(),
