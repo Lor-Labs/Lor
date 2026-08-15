@@ -1,8 +1,9 @@
 # Automation Primitives — Triggers, Effects & Custom Tools
 
-> Status: **design accepted** (2026-08-14, design conversation with jacob). Phase 1
-> (trigger generalization + first-party conformance, §9.1) implemented 2026-08-14;
-> later phases not yet started.
+> Status: **design accepted** (2026-08-14, design conversation with jacob). Phases 1
+> (trigger generalization + first-party conformance) and 2 (Attio events + ingest,
+> §9.1–2) implemented 2026-08-14; webhook dialect endpoints (§3) also shipped.
+> Later phases not yet started.
 > Closes the design question in Linear **LOR-49** ("programmatic ways to index data") and
 > subsumes bring-your-own webhooks (the evolved `channel_webhook`) and "webhook-triggered
 > Merlin actions."
