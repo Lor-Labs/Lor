@@ -135,6 +135,16 @@ upgrades on the same URL.
   designed for. Not listed on the connect-a-provider page.
 - Inbound endpoint keeps the current shape: `POST /v1/webhooks/:id/:token` — timing-safe
   token compare, ack fast, process async, URL treated as a secret.
+- **Dialect endpoints, never payload sniffing** (implemented on today's
+  `channel_webhook` execute route; carries into the fold): the base URL speaks Lor's
+  native shape (`{ content, username? }`, markdown); `.../discord` accepts Discord
+  execute-webhook payloads (content/embeds); `.../slack` accepts Slack
+  incoming-webhook payloads (text/blocks/attachments, mrkdwn converted). Same pattern
+  as Discord's own `/slack` compatibility route — switching providers is repointing a
+  URL. Both normalize to markdown; interactive blocks are dropped rather than
+  half-rendered; `avatar_url` is deliberately absent from the schema (zod strips
+  unknown keys — identity always comes from the webhook's stored, bucket-restricted
+  config). A richer native shape is deferred — see message UI blocks in §9.
 - `CONNECTOR_EVENTS.webhook` = one event, `data_received` — every delivery is that
   event; per-webhook configuration lives on the trigger (effects + hint + instructions).
 - **No field mapping, ever.** Arbitrary JSON in. POST stays deterministic (verbatim
@@ -275,7 +285,13 @@ Ship in this order; each phase is independently useful and de-risks the next.
    `$and`/`$or`), MCP bulk-import for custom tools, per-tool channel granularity,
    approval routing for unattended writes (jacob's ticket), multi-channel fan-out per
    event, Merlin self-configuration (reads a codebase, calls the same CRUD APIs to wire
-   tools + triggers).
+   tools + triggers), and **message UI blocks** — Lor's native rich-message shape:
+   markdown-first with typed blocks (not a Slack-style block tree; LLMs stream markdown
+   naturally), display blocks for webhook senders vs. action blocks (reserved for
+   Merlin/in-app authors) whose buttons trigger Lor primitives — send-to-Merlin, create
+   task, approve — with no sender-side callback server. Design deliberately deferred;
+   the webhook dialect endpoints were structured so the native base URL gains a field
+   additively when this lands.
 
 ## 10. Appendix: Attio webhooks (phase 2 specifics)
 
