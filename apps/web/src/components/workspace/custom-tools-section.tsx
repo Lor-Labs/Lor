@@ -85,9 +85,12 @@ type Draft = {
   argsMode: "simple" | "json"
   argRows: ArgRow[]
   argsText: string
-  // Secrets are write-only: existing ones render as removable name chips;
-  // new values ride the next save.
+  // Secrets are write-only: existing ones render as masked rows that can be
+  // deleted or given a replacement value (key rotation); new values ride the
+  // next save.
   keptSecretNames: string[]
+  // Replacement values for kept secrets, keyed by row while editing.
+  updatedSecrets: Pair[]
   newSecrets: Pair[]
 }
 
@@ -103,6 +106,7 @@ function emptyDraft(): Draft {
     argRows: [],
     argsText: "",
     keptSecretNames: [],
+    updatedSecrets: [],
     newSecrets: [],
   }
 }
@@ -173,6 +177,7 @@ function draftFromTool(tool: CustomToolRow): Draft {
     argRows: rows ?? [],
     argsText: JSON.stringify(tool.argsSchema, null, 2),
     keptSecretNames: tool.secretNames,
+    updatedSecrets: [],
     newSecrets: [],
   }
 }
@@ -817,35 +822,102 @@ function ToolEditor({
             {undefinedSecrets.length === 1 ? "its value" : "their values"} here.
           </p>
         )}
-        {draft.keptSecretNames.length > 0 && (
-          <div className="flex flex-wrap gap-1.5">
-            {draft.keptSecretNames.map((name) => (
-              <Badge
-                key={name}
-                variant="outline"
-                size="sm"
-                className="gap-1 px-1.5 font-mono font-normal"
+        {draft.keptSecretNames.map((name) => {
+          const update = draft.updatedSecrets.find((u) => u.name === name)
+          return (
+            <div key={name} className="flex items-center gap-1.5">
+              <Input
+                value={name}
+                disabled
+                className="h-8 w-44 shrink-0 font-mono text-xs"
+              />
+              {update ? (
+                <>
+                  <div className="min-w-0 flex-1">
+                    <PasswordInput
+                      // biome-ignore lint/a11y/noAutofocus: row enters edit mode on click
+                      autoFocus
+                      value={update.value}
+                      placeholder="New value — replaces the stored one on save"
+                      className="h-8 text-xs"
+                      onChange={(e) =>
+                        setDraft((d) => ({
+                          ...d,
+                          updatedSecrets: d.updatedSecrets.map((u) =>
+                            u.name === name
+                              ? { ...u, value: e.target.value }
+                              : u
+                          ),
+                        }))
+                      }
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 shrink-0 px-2 text-xs text-muted-foreground"
+                    onClick={() =>
+                      setDraft((d) => ({
+                        ...d,
+                        updatedSecrets: d.updatedSecrets.filter(
+                          (u) => u.name !== name
+                        ),
+                      }))
+                    }
+                  >
+                    Cancel
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Input
+                    value="••••••••••••••"
+                    disabled
+                    readOnly
+                    className="h-8 min-w-0 flex-1 text-xs"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 shrink-0 px-2 text-xs text-muted-foreground"
+                    onClick={() =>
+                      setDraft((d) => ({
+                        ...d,
+                        updatedSecrets: [
+                          ...d.updatedSecrets,
+                          { name, value: "" },
+                        ],
+                      }))
+                    }
+                  >
+                    Update
+                  </Button>
+                </>
+              )}
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                aria-label={`Delete secret ${name}`}
+                onClick={() =>
+                  setDraft((d) => ({
+                    ...d,
+                    keptSecretNames: d.keptSecretNames.filter(
+                      (n) => n !== name
+                    ),
+                    updatedSecrets: d.updatedSecrets.filter(
+                      (u) => u.name !== name
+                    ),
+                  }))
+                }
               >
-                {name}
-                <button
-                  type="button"
-                  aria-label={`Remove secret ${name}`}
-                  className="cursor-pointer text-muted-foreground hover:text-foreground"
-                  onClick={() =>
-                    setDraft((d) => ({
-                      ...d,
-                      keptSecretNames: d.keptSecretNames.filter(
-                        (n) => n !== name
-                      ),
-                    }))
-                  }
-                >
-                  ×
-                </button>
-              </Badge>
-            ))}
-          </div>
-        )}
+                <HugeiconsIcon icon={Delete02Icon} strokeWidth={2} />
+              </Button>
+            </div>
+          )
+        })}
         <PairRows
           pairs={draft.newSecrets}
           onChange={(newSecrets) => setDraft((d) => ({ ...d, newSecrets }))}
@@ -920,10 +992,17 @@ export function CustomToolsSection({
     mutationFn: async (tool: CustomToolRow) => {
       const payload = draftPayload(draft)
       if ("error" in payload) throw new Error(payload.error)
-      // Secrets diff: removed chips → null, new rows → values.
+      // Secrets diff: removed rows → null, replacement values (key rotation)
+      // and new rows → encrypted values. An Update row left empty is a no-op
+      // — the stored value survives.
       const secrets: Record<string, string | null> = {}
       for (const name of tool.secretNames) {
         if (!draft.keptSecretNames.includes(name)) secrets[name] = null
+      }
+      for (const update of draft.updatedSecrets) {
+        if (update.value && draft.keptSecretNames.includes(update.name)) {
+          secrets[update.name] = update.value
+        }
       }
       for (const [name, value] of Object.entries(newSecretsPayload(draft))) {
         secrets[name] = value
