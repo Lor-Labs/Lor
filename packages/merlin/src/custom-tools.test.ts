@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
+  bodyMustBeJson,
+  bodyTemplateJsonIssue,
   buildCustomToolRequest,
   CUSTOM_TOOL_NAME_REGEX,
   customToolUrlIssue,
@@ -154,6 +156,25 @@ describe("buildCustomToolRequest", () => {
         {}
       )
     ).toThrow()
+  })
+})
+
+describe("body JSON contract", () => {
+  it("requires JSON when the content type is absent or json-ish", () => {
+    expect(bodyMustBeJson({})).toBe(true)
+    expect(bodyMustBeJson({ "Content-Type": "application/json" })).toBe(true)
+    expect(
+      bodyMustBeJson({ "content-type": "application/x-www-form-urlencoded" })
+    ).toBe(false)
+    expect(bodyMustBeJson({ "Content-Type": "application/graphql" })).toBe(
+      false
+    )
+  })
+
+  it("lints templates with placeholders treated as values", () => {
+    expect(bodyTemplateJsonIssue('{"q": {{args.q}}}')).toBeNull()
+    expect(bodyTemplateJsonIssue('{"q": {{args.q}},}')).toBeTruthy()
+    expect(bodyTemplateJsonIssue("a=1&b=2")).toBeTruthy()
   })
 })
 

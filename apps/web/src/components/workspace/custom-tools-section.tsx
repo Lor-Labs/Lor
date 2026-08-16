@@ -37,7 +37,12 @@ import {
 } from "@/components/workspace/template-input"
 import { apiClient } from "@/lib/api-client"
 import { extractCurlSecrets, parseCurl } from "@/lib/parse-curl"
-import { scanTemplateRefs } from "@/lib/tool-templates"
+import {
+  formatTemplateJson,
+  scanTemplateRefs,
+  templateJsonIssue,
+  templateJsonLint,
+} from "@/lib/tool-templates"
 
 const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const
 type Method = (typeof METHODS)[number]
@@ -259,6 +264,23 @@ function draftPayload(draft: Draft):
   for (const pair of draft.headers) {
     if (pair.name.trim()) headers[pair.name.trim()] = pair.value
   }
+  // Same rule the API enforces: with a JSON (or defaulted) Content-Type, the
+  // body must parse — placeholders count as values. A non-JSON Content-Type
+  // header (form-encoded, GraphQL, XML) is the explicit opt-out.
+  const bodyTemplate = draft.bodyTemplate.trim() ? draft.bodyTemplate : null
+  if (bodyTemplate) {
+    const contentType = Object.entries(headers).find(
+      ([name]) => name.toLowerCase() === "content-type"
+    )?.[1]
+    const mustBeJson =
+      !contentType || contentType.toLowerCase().includes("json")
+    const issue = mustBeJson ? templateJsonIssue(bodyTemplate) : null
+    if (issue) {
+      return {
+        error: `The request body must be valid JSON (${issue}) — or set a non-JSON Content-Type header`,
+      }
+    }
+  }
   return {
     name: draft.name.trim(),
     description: draft.description.trim(),
@@ -266,7 +288,7 @@ function draftPayload(draft: Draft):
     method: draft.method,
     urlTemplate: draft.urlTemplate.trim(),
     headers,
-    bodyTemplate: draft.bodyTemplate.trim() ? draft.bodyTemplate : null,
+    bodyTemplate,
   }
 }
 
@@ -525,6 +547,41 @@ function BodyPreview({ template }: { template: string }) {
           // biome-ignore lint/suspicious/noArrayIndexKey: static split
           <span key={i}>{part}</span>
         )
+      )}
+    </div>
+  )
+}
+
+// Live parse status + one-click pretty-print for the raw args-schema JSON
+// editor (a plain textarea — no decorations available there).
+function JsonStatusRow({
+  value,
+  issue,
+  onFormat,
+}: {
+  value: string
+  issue: string | null
+  onFormat: (formatted: string) => void
+}) {
+  if (!value.trim()) return null
+  const formatted = issue === null ? formatTemplateJson(value) : null
+  return (
+    <div className="flex items-start justify-between gap-3 text-[11px]">
+      {issue === null ? (
+        <span className="text-success">✓ Valid JSON</span>
+      ) : (
+        <span className="min-w-0 text-warning-foreground">
+          ⚠ Doesn't parse as JSON ({issue})
+        </span>
+      )}
+      {formatted !== null && formatted !== value && (
+        <button
+          type="button"
+          className="shrink-0 cursor-pointer text-muted-foreground underline-offset-2 hover:underline"
+          onClick={() => onFormat(formatted)}
+        >
+          Format
+        </button>
       )}
     </div>
   )
@@ -802,14 +859,21 @@ function ToolEditor({
             unusedNames={unusedNames}
           />
         ) : (
-          <Textarea
-            value={draft.argsText}
-            className="min-h-24 font-mono text-xs"
-            rows={5}
-            onChange={(e) =>
-              setDraft((d) => ({ ...d, argsText: e.target.value }))
-            }
-          />
+          <>
+            <Textarea
+              value={draft.argsText}
+              className="min-h-24 font-mono text-xs"
+              rows={5}
+              onChange={(e) =>
+                setDraft((d) => ({ ...d, argsText: e.target.value }))
+              }
+            />
+            <JsonStatusRow
+              value={draft.argsText}
+              issue={templateJsonIssue(draft.argsText)}
+              onFormat={(argsText) => setDraft((d) => ({ ...d, argsText }))}
+            />
+          </>
         )}
       </div>
 
@@ -818,16 +882,36 @@ function ToolEditor({
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <Label className="text-xs">Request body — custom shape</Label>
-              <button
-                type="button"
-                className="cursor-pointer text-[11px] text-muted-foreground underline-offset-2 hover:underline"
-                onClick={() => {
-                  updateDraft((d) => ({ ...d, bodyTemplate: "" }))
-                  setShowBody(false)
-                }}
-              >
-                Use the automatic body instead
-              </button>
+              <div className="flex items-center gap-3">
+                {(() => {
+                  const formatted =
+                    templateJsonIssue(draft.bodyTemplate) === null
+                      ? formatTemplateJson(draft.bodyTemplate)
+                      : null
+                  return formatted !== null &&
+                    formatted !== draft.bodyTemplate ? (
+                    <button
+                      type="button"
+                      className="cursor-pointer text-[11px] text-muted-foreground underline-offset-2 hover:underline"
+                      onClick={() =>
+                        updateDraft((d) => ({ ...d, bodyTemplate: formatted }))
+                      }
+                    >
+                      Format
+                    </button>
+                  ) : null
+                })()}
+                <button
+                  type="button"
+                  className="cursor-pointer text-[11px] text-muted-foreground underline-offset-2 hover:underline"
+                  onClick={() => {
+                    updateDraft((d) => ({ ...d, bodyTemplate: "" }))
+                    setShowBody(false)
+                  }}
+                >
+                  Use the automatic body instead
+                </button>
+              </div>
             </div>
             <TemplateInput
               value={draft.bodyTemplate}
@@ -839,6 +923,8 @@ function ToolEditor({
               onCreatePlaceholder={handleCreatePlaceholder}
               placeholder={'{"query": {{args.query}}, "source": "lor"}'}
               multiline
+              className="min-h-24 bg-muted/30"
+              lint={templateJsonLint}
             />
             <p className="text-[11px] text-muted-foreground">
               This replaces the automatic body — write the exact JSON your API

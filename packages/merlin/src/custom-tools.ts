@@ -144,6 +144,29 @@ export function renderTemplate(
   })
 }
 
+// The declared content type decides whether a body template must be JSON:
+// absent (we default to application/json) or json-ish → the template has to
+// parse with placeholders treated as values. Only an explicit non-JSON
+// Content-Type (form-encoded OAuth endpoints, raw GraphQL, XML) opts out.
+export function bodyMustBeJson(headers: Record<string, string>): boolean {
+  const contentType = Object.entries(headers).find(
+    ([name]) => name.toLowerCase() === "content-type"
+  )?.[1]
+  return !contentType || contentType.toLowerCase().includes("json")
+}
+
+// Placeholders substitute to sentinel numbers, valid both in value position
+// and inside strings — so a template lints exactly as its final form would.
+export function bodyTemplateJsonIssue(template: string): string | null {
+  const substituted = template.replace(PLACEHOLDER_REGEX, "880880000")
+  try {
+    JSON.parse(substituted)
+    return null
+  } catch (err) {
+    return err instanceof Error ? err.message : "Invalid JSON"
+  }
+}
+
 export type CustomToolRequest = {
   url: string
   method: string

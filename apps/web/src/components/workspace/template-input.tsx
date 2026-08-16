@@ -1,4 +1,7 @@
 import { cn } from "@repo/ui/lib/utils"
+import type { Node as PMNode } from "@tiptap/pm/model"
+import { Plugin, PluginKey } from "@tiptap/pm/state"
+import { Decoration, DecorationSet } from "@tiptap/pm/view"
 import {
   type Editor,
   EditorContent,
@@ -38,6 +41,14 @@ export type PlaceholderItem = {
   kind: PlaceholderKind
   name: string
   isNew?: boolean
+}
+
+// A located issue in template-string coordinates; rendered as a squiggly
+// underline whose hover title carries the message.
+export type TemplateLintResult = {
+  message: string
+  start: number
+  end: number
 }
 
 const NAME_REGEX = /^[A-Za-z][A-Za-z0-9_]*$/
@@ -231,9 +242,9 @@ const PlaceholderSuggestionList = forwardRef<
 // Serialize the doc back to the plain template string. Marks are ignored on
 // purpose — only text and placeholder chips carry meaning. Blocks join with
 // newlines in multiline mode and concatenate otherwise.
-function docToTemplate(editor: Editor, multiline: boolean): string {
+function nodeToTemplate(doc: PMNode, multiline: boolean): string {
   const lines: string[] = []
-  editor.state.doc.forEach((block) => {
+  doc.forEach((block) => {
     let line = ""
     block.descendants((node) => {
       if (node.type.name === "templatePlaceholder") {
@@ -246,6 +257,56 @@ function docToTemplate(editor: Editor, multiline: boolean): string {
     lines.push(line)
   })
   return lines.join(multiline ? "\n" : "")
+}
+
+function docToTemplate(editor: Editor, multiline: boolean): string {
+  return nodeToTemplate(editor.state.doc, multiline)
+}
+
+// Template-string offset → ProseMirror position, walking the doc the same
+// way nodeToTemplate serializes it. `atEnd` resolves an offset inside an
+// atomic placeholder to the position AFTER it (for exclusive range ends).
+function templateOffsetToPos(
+  doc: PMNode,
+  target: number,
+  multiline: boolean,
+  atEnd: boolean
+): number {
+  let tpl = 0
+  let result: number | null = null
+  let firstBlock = true
+  doc.forEach((block, blockOffset) => {
+    if (result !== null) return
+    if (!firstBlock && multiline) {
+      // The newline between blocks is one template char.
+      if (target < tpl + 1) {
+        result = blockOffset + 1
+        return
+      }
+      tpl += 1
+    }
+    firstBlock = false
+    block.forEach((inline, inlineOffset) => {
+      if (result !== null) return
+      const base = blockOffset + 1 + inlineOffset
+      if (inline.type.name === "templatePlaceholder") {
+        const len = chipText(inline.attrs.kind, inline.attrs.name).length
+        if (target < tpl + len) {
+          result = atEnd ? base + 1 : base
+          return
+        }
+        tpl += len
+      } else if (inline.isText) {
+        const len = inline.text?.length ?? 0
+        if (target < tpl + len) {
+          result = base + (target - tpl)
+          return
+        }
+        tpl += len
+      }
+    })
+  })
+  return result ?? Math.max(doc.content.size - 1, 0)
 }
 
 const REF_SPLIT_REGEX = /(\{\{\s*(?:args|secrets)\.[A-Za-z0-9_]+\s*\}\})/g
@@ -289,6 +350,7 @@ export function TemplateInput({
   placeholder,
   multiline = false,
   className,
+  lint,
 }: {
   value: string
   onChange: (value: string) => void
@@ -299,6 +361,9 @@ export function TemplateInput({
   placeholder?: string
   multiline?: boolean
   className?: string
+  // Optional linter (e.g. placeholder-aware JSON parsing); issues render as
+  // squiggly underlines with the message on hover.
+  lint?: (value: string) => TemplateLintResult | null
 }) {
   // The suggestion config is captured at editor creation; refs keep its
   // callbacks reading current props.
@@ -306,6 +371,8 @@ export function TemplateInput({
   namesRef.current = { argNames, secretNames }
   const onCreateRef = useRef(onCreatePlaceholder)
   onCreateRef.current = onCreatePlaceholder
+  const lintRef = useRef(lint)
+  lintRef.current = lint
   const lastEmitted = useRef(value)
 
   const editor = useEditor({
@@ -320,6 +387,77 @@ export function TemplateInput({
         link: false,
       }),
       TemplatePlaceholder,
+      // Squiggly-underline lint decorations, recomputed on every doc change.
+      // The native title attribute carries the message on hover.
+      Extension.create({
+        name: "templateLintDecorations",
+        addProseMirrorPlugins() {
+          const key = new PluginKey("templateLintDecorations")
+          const build = (doc: PMNode): DecorationSet => {
+            const lintFn = lintRef.current
+            if (!lintFn) return DecorationSet.empty
+            const template = nodeToTemplate(doc, multiline)
+            const issue = template ? lintFn(template) : null
+            if (!issue) return DecorationSet.empty
+            const from = templateOffsetToPos(doc, issue.start, multiline, false)
+            let to =
+              issue.end > issue.start
+                ? templateOffsetToPos(doc, issue.end, multiline, true)
+                : from + 1
+            if (to <= from) to = Math.min(from + 1, doc.content.size)
+            return DecorationSet.create(doc, [
+              Decoration.inline(from, to, {
+                title: issue.message,
+                style:
+                  "text-decoration: underline wavy var(--warning); text-underline-offset: 3px; text-decoration-skip-ink: none;",
+              }),
+            ])
+          }
+          return [
+            new Plugin({
+              key,
+              state: {
+                init: (_config, state) => build(state.doc),
+                apply: (tr, old, _oldState, newState) =>
+                  tr.docChanged ? build(newState.doc) : old,
+              },
+              props: {
+                decorations(state) {
+                  return key.getState(state)
+                },
+              },
+            }),
+          ]
+        },
+      }),
+      // Code-editor keys for the body: Tab indents, Enter carries the current
+      // line's indentation (plus a level after an opening brace/bracket).
+      Extension.create({
+        name: "templateEditingKeys",
+        addKeyboardShortcuts() {
+          return {
+            Tab: () =>
+              multiline ? this.editor.commands.insertContent("  ") : false,
+            Enter: () => {
+              if (!multiline) return false
+              if (document.querySelector("[data-suggestion-open]")) {
+                return false
+              }
+              const { $from } = this.editor.state.selection
+              const line = $from.parent.textBetween(0, $from.parentOffset)
+              const indent =
+                (/^ */.exec(line)?.[0] ?? "") +
+                (/[{[]\s*$/.test(line) ? "  " : "")
+              if (!indent) return false
+              return this.editor
+                .chain()
+                .splitBlock()
+                .insertContent(indent)
+                .run()
+            },
+          }
+        },
+      }),
       Extension.create({
         name: "placeholderSuggestion",
         addProseMirrorPlugins() {

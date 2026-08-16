@@ -2,6 +2,8 @@ import { and, db, desc, eq, isUniqueViolation, schema } from "@repo/db"
 import type { CustomTool } from "@repo/db/schema"
 import { env } from "@repo/env/server"
 import {
+  bodyMustBeJson,
+  bodyTemplateJsonIssue,
   customToolUrlIssue,
   RESERVED_TOOL_NAMES,
 } from "@repo/merlin/custom-tools"
@@ -83,6 +85,19 @@ export const createCustomTool: AppRouteHandler<CreateCustomToolRoute> = async (
       { success: false, message: urlIssue },
       HttpStatusCodes.BAD_REQUEST
     )
+  }
+  // JSON is the contract unless a non-JSON Content-Type header says otherwise.
+  if (body.bodyTemplate && bodyMustBeJson(body.headers)) {
+    const bodyIssue = bodyTemplateJsonIssue(body.bodyTemplate)
+    if (bodyIssue) {
+      return c.json(
+        {
+          success: false,
+          message: `Body must be valid JSON (${bodyIssue}); set a non-JSON Content-Type header if your API expects another format`,
+        },
+        HttpStatusCodes.BAD_REQUEST
+      )
+    }
   }
 
   const secrets = Object.fromEntries(
@@ -168,6 +183,25 @@ export const updateCustomTool: AppRouteHandler<UpdateCustomToolRoute> = async (
       { success: false, message: "Tool not found" },
       HttpStatusCodes.NOT_FOUND
     )
+  }
+
+  // Enforce the JSON contract on the EFFECTIVE post-patch body + headers
+  // (either side may change independently).
+  const effectiveBody =
+    body.bodyTemplate !== undefined ? body.bodyTemplate : existing.bodyTemplate
+  const effectiveHeaders =
+    body.headers !== undefined ? body.headers : existing.headers
+  if (effectiveBody && bodyMustBeJson(effectiveHeaders)) {
+    const bodyIssue = bodyTemplateJsonIssue(effectiveBody)
+    if (bodyIssue) {
+      return c.json(
+        {
+          success: false,
+          message: `Body must be valid JSON (${bodyIssue}); set a non-JSON Content-Type header if your API expects another format`,
+        },
+        HttpStatusCodes.BAD_REQUEST
+      )
+    }
   }
 
   // Merge semantics: string sets (encrypted), null deletes, absent keeps.
