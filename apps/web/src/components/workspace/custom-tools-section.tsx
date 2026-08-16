@@ -983,7 +983,6 @@ function ToolEditor({
                 <>
                   <div className="min-w-0 flex-1">
                     <PasswordInput
-                      // biome-ignore lint/a11y/noAutofocus: row enters edit mode on click
                       autoFocus
                       value={update.value}
                       placeholder="New value — replaces the stored one on save"

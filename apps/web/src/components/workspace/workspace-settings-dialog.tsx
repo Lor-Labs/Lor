@@ -24,7 +24,6 @@ import {
   AlertDialogTitle,
 } from "@repo/ui/components/alert-dialog"
 import { Button } from "@repo/ui/components/button"
-import { Checkbox } from "@repo/ui/components/checkbox"
 import {
   Collapsible,
   CollapsiblePanel,
@@ -49,7 +48,6 @@ import {
   SelectValue,
 } from "@repo/ui/components/select"
 import { Spinner } from "@repo/ui/components/spinner"
-import { Textarea } from "@repo/ui/components/textarea"
 import { toast } from "@repo/ui/components/toast"
 import { CodeBlock } from "@repo/ui/components/tool-ui/code-block"
 import { cn } from "@repo/ui/lib/utils"
@@ -61,6 +59,7 @@ import { BillingSection } from "@/components/workspace/billing-section"
 import { CustomToolsSection } from "@/components/workspace/custom-tools-section"
 import { InstructionsSection } from "@/components/workspace/instructions-section"
 import { MerlinProfilesSection } from "@/components/workspace/merlin-profiles-section"
+import { TriggerEffects } from "@/components/workspace/trigger-effects"
 import { WorkspaceAvatar } from "@/components/workspace/workspace-avatar"
 import { apiClient } from "@/lib/api-client"
 import type {
@@ -869,91 +868,21 @@ function ConnectorsSection({ workspaceSlug }: { workspaceSlug: string }) {
                         </Select>
                       </div>
                       {ev.channelId && (
-                        <div className="space-y-1.5 pl-2">
-                          <div className="flex items-center gap-4">
-                            <div className="flex items-center gap-1.5">
-                              <Checkbox
-                                id={`${p.id}-${ev.key}-post`}
-                                checked={ev.post}
-                                disabled={busy}
-                                onCheckedChange={(checked) =>
-                                  send({ post: checked === true })
-                                }
-                              />
-                              <Label
-                                htmlFor={`${p.id}-${ev.key}-post`}
-                                className="cursor-pointer text-xs font-normal text-muted-foreground/80"
-                              >
-                                Post
-                              </Label>
-                            </div>
-                            <div className="flex items-center gap-1.5">
-                              <Checkbox
-                                id={`${p.id}-${ev.key}-remember`}
-                                checked={ev.remember}
-                                disabled={busy}
-                                onCheckedChange={(checked) =>
-                                  send({ remember: checked === true })
-                                }
-                              />
-                              <Label
-                                htmlFor={`${p.id}-${ev.key}-remember`}
-                                className="cursor-pointer text-xs font-normal text-muted-foreground/80"
-                              >
-                                Remember
-                              </Label>
-                            </div>
-                            <div className="flex items-center gap-1.5">
-                              <Checkbox
-                                id={`${p.id}-${ev.key}-act`}
-                                checked={ev.actInstructions !== null}
-                                disabled={busy}
-                                onCheckedChange={(checked) =>
-                                  send({
-                                    actInstructions:
-                                      checked === true ? "" : null,
-                                  })
-                                }
-                              />
-                              <Label
-                                htmlFor={`${p.id}-${ev.key}-act`}
-                                className="cursor-pointer text-xs font-normal text-muted-foreground/80"
-                              >
-                                Act
-                              </Label>
-                            </div>
-                            {ev.remember && (
-                              <Input
-                                key={`${ev.key}:${ev.rememberHint ?? ""}`}
-                                defaultValue={ev.rememberHint ?? ""}
-                                placeholder="Optional hint for how to summarize"
-                                className="h-7 flex-1 text-xs"
-                                disabled={busy}
-                                onBlur={(e) => {
-                                  const value = e.target.value.trim()
-                                  if (value === (ev.rememberHint ?? "")) return
-                                  send({ rememberHint: value || null })
-                                }}
-                              />
-                            )}
-                          </div>
-                          {ev.actInstructions !== null && (
-                            <Textarea
-                              key={`${ev.key}:act:${ev.actInstructions}`}
-                              defaultValue={ev.actInstructions}
-                              placeholder="Instructions for Merlin when this event fires"
-                              className="min-h-14 text-xs"
-                              rows={2}
-                              maxLength={4000}
-                              disabled={busy}
-                              onBlur={(e) => {
-                                const value = e.target.value.trim()
-                                if (value === ev.actInstructions) return
-                                send({ actInstructions: value })
-                              }}
-                            />
-                          )}
-                        </div>
+                        <TriggerEffects
+                          idPrefix={`${p.id}-${ev.key}`}
+                          channelLabel={
+                            textChannels.find((ch) => ch.id === ev.channelId)
+                              ?.name
+                          }
+                          disabled={busy}
+                          value={{
+                            post: ev.post,
+                            remember: ev.remember,
+                            rememberHint: ev.rememberHint,
+                            actInstructions: ev.actInstructions,
+                          }}
+                          onPatch={(patch) => send(patch)}
+                        />
                       )}
                     </div>
                   )

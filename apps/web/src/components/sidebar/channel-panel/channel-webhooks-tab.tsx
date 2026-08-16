@@ -9,9 +9,17 @@ import {
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { env } from "@repo/env/client"
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@repo/ui/components/alert-dialog"
 import { Badge } from "@repo/ui/components/badge"
 import { Button } from "@repo/ui/components/button"
-import { Checkbox } from "@repo/ui/components/checkbox"
 import {
   Empty,
   EmptyDescription,
@@ -22,11 +30,11 @@ import {
 import { Input } from "@repo/ui/components/input"
 import { Label } from "@repo/ui/components/label"
 import { Spinner } from "@repo/ui/components/spinner"
-import { Textarea } from "@repo/ui/components/textarea"
 import { toast } from "@repo/ui/components/toast"
 import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useRef, useState } from "react"
+import { TriggerEffects } from "@/components/workspace/trigger-effects"
 import { apiClient } from "@/lib/api-client"
 
 const AVATAR_MIME_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"]
@@ -179,6 +187,10 @@ export function ChannelWebhooksTab({
   const [draftName, setDraftName] = useState("")
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [avatarSavingId, setAvatarSavingId] = useState<string | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<{
+    id: string
+    name: string
+  } | null>(null)
 
   const queryKey = ["channel-webhooks", workspaceSlug, channelId]
   const { data, isPending } = useQuery({
@@ -250,7 +262,10 @@ export function ChannelWebhooksTab({
       })
       if (!res.ok) throw new Error("Failed to delete webhook")
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey }),
+    onSuccess: () => {
+      setDeleteTarget(null)
+      queryClient.invalidateQueries({ queryKey })
+    },
     onError: () => toast.error("Failed to delete webhook"),
   })
 
@@ -409,6 +424,25 @@ export function ChannelWebhooksTab({
                         </span>
                       </div>
                     </div>
+                    {!isOpen && (
+                      <div className="hidden shrink-0 items-center gap-1 sm:flex">
+                        {hook.post && (
+                          <Badge variant="outline" size="sm">
+                            Post
+                          </Badge>
+                        )}
+                        {hook.remember && (
+                          <Badge variant="outline" size="sm">
+                            Remember
+                          </Badge>
+                        )}
+                        {hook.actInstructions !== null && (
+                          <Badge variant="outline" size="sm">
+                            Act
+                          </Badge>
+                        )}
+                      </div>
+                    )}
                     <HugeiconsIcon
                       icon={ArrowDown01Icon}
                       className={cn(
@@ -470,101 +504,23 @@ export function ChannelWebhooksTab({
                         <div className="text-xs font-medium text-muted-foreground">
                           When data arrives
                         </div>
-                        <div className="flex items-center gap-4">
-                          <div className="flex items-center gap-1.5">
-                            <Checkbox
-                              id={`webhook-post-${hook.id}`}
-                              checked={hook.post}
-                              disabled={updateMutation.isPending}
-                              onCheckedChange={(checked) =>
-                                updateMutation.mutate({
-                                  webhookId: hook.id,
-                                  post: checked === true,
-                                })
-                              }
-                            />
-                            <Label
-                              htmlFor={`webhook-post-${hook.id}`}
-                              className="cursor-pointer text-xs font-normal text-muted-foreground"
-                            >
-                              Post to channel
-                            </Label>
-                          </div>
-                          <div className="flex items-center gap-1.5">
-                            <Checkbox
-                              id={`webhook-remember-${hook.id}`}
-                              checked={hook.remember}
-                              disabled={updateMutation.isPending}
-                              onCheckedChange={(checked) =>
-                                updateMutation.mutate({
-                                  webhookId: hook.id,
-                                  remember: checked === true,
-                                })
-                              }
-                            />
-                            <Label
-                              htmlFor={`webhook-remember-${hook.id}`}
-                              className="cursor-pointer text-xs font-normal text-muted-foreground"
-                            >
-                              Remember for Merlin
-                            </Label>
-                          </div>
-                          <div className="flex items-center gap-1.5">
-                            <Checkbox
-                              id={`webhook-act-${hook.id}`}
-                              checked={hook.actInstructions !== null}
-                              disabled={updateMutation.isPending}
-                              onCheckedChange={(checked) =>
-                                updateMutation.mutate({
-                                  webhookId: hook.id,
-                                  actInstructions: checked === true ? "" : null,
-                                })
-                              }
-                            />
-                            <Label
-                              htmlFor={`webhook-act-${hook.id}`}
-                              className="cursor-pointer text-xs font-normal text-muted-foreground"
-                            >
-                              Act with Merlin
-                            </Label>
-                          </div>
-                        </div>
-                        {hook.remember && (
-                          <Input
-                            key={`${hook.id}:${hook.rememberHint ?? ""}`}
-                            defaultValue={hook.rememberHint ?? ""}
-                            placeholder="Optional hint for how to summarize this data"
-                            className="h-8 text-xs"
-                            disabled={updateMutation.isPending}
-                            onBlur={(e) => {
-                              const value = e.target.value.trim()
-                              if (value === (hook.rememberHint ?? "")) return
-                              updateMutation.mutate({
-                                webhookId: hook.id,
-                                rememberHint: value || null,
-                              })
-                            }}
-                          />
-                        )}
-                        {hook.actInstructions !== null && (
-                          <Textarea
-                            key={`${hook.id}:act:${hook.actInstructions}`}
-                            defaultValue={hook.actInstructions}
-                            placeholder="Instructions for Merlin when data arrives — e.g. “if this is a refund over $500, summarize it and create a task”"
-                            className="min-h-16 text-xs"
-                            rows={3}
-                            maxLength={4000}
-                            disabled={updateMutation.isPending}
-                            onBlur={(e) => {
-                              const value = e.target.value.trim()
-                              if (value === hook.actInstructions) return
-                              updateMutation.mutate({
-                                webhookId: hook.id,
-                                actInstructions: value,
-                              })
-                            }}
-                          />
-                        )}
+                        <TriggerEffects
+                          idPrefix={`webhook-${hook.id}`}
+                          channelLabel={channelName}
+                          disabled={updateMutation.isPending}
+                          value={{
+                            post: hook.post,
+                            remember: hook.remember,
+                            rememberHint: hook.rememberHint,
+                            actInstructions: hook.actInstructions,
+                          }}
+                          onPatch={(patch) =>
+                            updateMutation.mutate({
+                              webhookId: hook.id,
+                              ...patch,
+                            })
+                          }
+                        />
                       </div>
 
                       <div className="mt-4 flex items-center gap-2 border-border border-t pt-4">
@@ -589,7 +545,9 @@ export function ChannelWebhooksTab({
                           size="sm"
                           className="text-destructive hover:text-destructive"
                           disabled={deleteMutation.isPending}
-                          onClick={() => deleteMutation.mutate(hook.id)}
+                          onClick={() =>
+                            setDeleteTarget({ id: hook.id, name: hook.name })
+                          }
                         >
                           Delete Webhook
                         </Button>
@@ -618,6 +576,39 @@ export function ChannelWebhooksTab({
           </ul>
         </div>
       )}
+
+      <AlertDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Webhook</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete{" "}
+              <span className="font-semibold">{deleteTarget?.name}</span>? Its
+              URL stops working immediately and anything still posting to it
+              will fail. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogClose render={<Button variant="outline" />}>
+              Cancel
+            </AlertDialogClose>
+            <Button
+              variant="destructive"
+              loading={deleteMutation.isPending}
+              onClick={() => {
+                if (deleteTarget) deleteMutation.mutate(deleteTarget.id)
+              }}
+            >
+              Delete Webhook
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
