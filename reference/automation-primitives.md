@@ -1,9 +1,9 @@
 # Automation Primitives — Triggers, Effects & Custom Tools
 
-> Status: **design accepted** (2026-08-14, design conversation with jacob). Phases 1–4
+> Status: **design accepted** (2026-08-14, design conversation with jacob). Phases 1–5
 > (trigger generalization + first-party conformance; Attio events + ingest; BYO
-> Webhooks incl. the `channel_webhook` fold and dialect endpoints; Act) implemented
-> 2026-08-14. Phase 5 (custom tools) not yet started.
+> Webhooks incl. the `channel_webhook` fold and dialect endpoints; Act; custom tools)
+> implemented 2026-08-14/15.
 > Closes the design question in Linear **LOR-49** ("programmatic ways to index data") and
 > subsumes bring-your-own webhooks (the evolved `channel_webhook`) and "webhook-triggered
 > Merlin actions."
@@ -159,31 +159,56 @@ upgrades on the same URL.
 
 ## 4. Custom tools
 
-A workspace registry of user-defined tools Merlin can call.
+A workspace registry of user-defined tools Merlin can call. **Shipped 2026-08-15.**
 
 **Descriptor (a row, authorable by humans in a form and by Merlin via API):**
 
-- `name`, `description` (when to use it — this is the model-facing contract)
-- `argsSchema` (JSON Schema)
-- execution: HTTP method + URL template with arg interpolation + headers; secrets
-  referenced from encrypted storage (AES-256-GCM via `@repo/utils/crypto`, same as
-  connection tokens), never inlined in the template
-- `mutates` boolean (read vs. write classification — kept for the future approvals
-  ticket even though it gates nothing today; see §6)
-- versioning + archive-not-delete (Merlin will eventually edit these rows; keep an audit
-  trail and rollback, same never-hard-delete principle as the brain)
+- `name` (snake_case, unique among active, rejected if it matches a built-in tool
+  name — and built-ins always win at bind time regardless), `description` (when to
+  use it — this is the model-facing contract)
+- `argsSchema` (JSON Schema, `type: object`)
+- execution: HTTP method + URL/header/body templates with `{{args.x}}` /
+  `{{secrets.KEY}}` placeholders; secrets AES-256-GCM encrypted (same as connection
+  tokens), write-only through the API, decrypted at call time only. Placeholder
+  encoding is context-aware: percent-encoded in URLs, JSON-encoded in bodies
+  (`"q": {{args.q}}` is correct for any value type), raw in headers. Null body
+  template on POST/PUT/PATCH sends all args as JSON. GraphQL works as a POST body
+  template — no separate shape needed.
+- `mutates` — **dropped** (see §6.5): approval gating will be permission-based
+  config shipped with the approvals design, not a mutation classification.
+- archive-not-delete, **no version history** (jacob: "just let them change the
+  tool"); archived rows free their name.
+- SSRF stance (v1): HTTPS-only, no IP literals, no localhost/.local/.internal/
+  dotless hostnames, no credentials in URLs, checked on the template at create AND
+  the interpolated URL at call time (hosts can never come from args — placeholders
+  fail hostname validation). Redirects refused; 15s timeout; 256KB response cap.
+  DNS-pinning is a hosted-hardening follow-up.
+- Implementation: `packages/db/src/schemas/custom-tools.ts`,
+  `packages/merlin/src/custom-tools.ts` (binding + execution, unit-tested),
+  CRUD at `/v1/workspaces/:slug/custom-tools`, settings UI
+  `apps/web/src/components/workspace/custom-tools-section.tsx`.
 
 **Enablement:** workspace-wide registry, per-channel grant *the same as connectors* —
-v1 adds one `merlinCapabilityEnum` value **`custom_tools`** that grants a channel the
-workspace's custom tool registry via agent profiles. Per-individual-tool granularity is a
+one `merlinCapabilityEnum` value **`custom_tools`** grants a channel the workspace's
+custom tool registry via agent profiles. Per-individual-tool granularity is a
 follow-up (profiles would need an allowlist column; the static capability enum can't
 enumerate dynamic rows).
 
-**MCP is the bulk-import path, not the primitive.** Datadog already backs its connector
-tools with a managed MCP session (`datadogMcpTools`); "point Lor at your MCP server" can
-reuse that plumbing later. Build the HTTP descriptor first — it's the one Merlin can
-author for itself by reading a codebase. An MCP server can't be conjured from a tool row;
-a tool row can be conjured from reading an OpenAPI spec.
+**cURL is the import path for single HTTP tools** (jacob — supersedes the earlier
+OpenAPI-import idea): the create form accepts a pasted curl command
+(`apps/web/src/lib/parse-curl.ts`) and prefills method/URL/headers/body; the author
+then swaps real credentials for `{{secrets.…}}` references.
+
+**Next on the horizon (agreed 2026-08-15, unbuilt):**
+
+- **MCP tool servers** — the vendor ecosystem is converging on remote MCP (Linear,
+  Notion, Sentry, Stripe, Cloudflare…). NOT a shape of `custom_tool`: an MCP server
+  serves its own live tool list/schemas, so it's a separate `tool_server` primitive
+  (URL + auth + **tool allowlist**, generalizing the `datadogMcpTools` pattern — the
+  allowlist exists so an upstream tool addition can't silently widen Merlin's
+  surface). Session per respond() call, like Datadog.
+- **Postgres / database querying** — real demand, but connector-grade treatment
+  (credentials, read-only enforcement, schema introspection), never a custom-tool row.
 
 ## 5. Guardrails on triggered runs (physics, not opinions)
 
@@ -208,11 +233,15 @@ a tool row can be conjured from reading an OpenAPI spec.
 4. **Remember lands in `source`, not the brain.** ✓
 5. **Write tools execute freely in unattended runs.** Offering a tool to the AI *is* the
    consent — if it's registered and granted to the channel, Merlin may call it without
-   supervision. The `mutates` bit is recorded but gates nothing. **Approval requests are
-   deferred** — jacob has a Linear ticket for approval routing on unattended runs; when
-   that lands, `mutates` + the existing approvals machinery (`approvals` schema,
-   `tool-guard.ts`, tasks' waiting_for_approval) are the integration points, purely
-   additive.
+   supervision. **Approval requests are deferred** — jacob has a Linear ticket for
+   approval routing on unattended runs; the existing approvals machinery (`approvals`
+   schema, `tool-guard.ts`, tasks' waiting_for_approval) is the integration point,
+   purely additive. *(Revised 2026-08-15: the earlier plan stored a `mutates` bit on
+   custom tools as the future approval hook. Dropped — jacob: the approval flow will be
+   permission-based ("is there an allowlisted person who must approve this?"), which a
+   read-vs-write classification neither predicts nor configures. Approval/approver
+   config arrives WITH the approvals design, per tool or per channel, not pre-staged as
+   a data bit.)*
 6. **Task is an escalation Merlin chooses, not a mandate.** The earlier "every act is a
    task card" stance was rejected as a hardcoded behavior; the preserved invariant is
    "every unattended run is an auditable `agent_run` row."
@@ -308,9 +337,11 @@ Ship in this order; each phase is independently useful and de-risks the next.
      valid ("" = Act on, use judgment); null = off.
 5. **Custom tools.** Registry + `custom_tools` capability + execution in `respond()` +
    settings UI. (Independent of 4; together they complete the "webhook says: use our API
-   tool to query X and act" story.)
+   tool to query X and act" story.) **Shipped 2026-08-15** — see §4 for the as-built
+   descriptor, template semantics, SSRF stance, and the cURL import.
 6. **Later:** message-triggered rules, provider-native subscription filters (Attio
-   `$and`/`$or`), MCP bulk-import for custom tools, per-tool channel granularity,
+   `$and`/`$or`), **MCP tool servers** and **Postgres querying** (next on the horizon —
+   see §4), per-tool channel granularity,
    approval routing for unattended writes (jacob's ticket), multi-channel fan-out per
    event, Merlin self-configuration (reads a codebase, calls the same CRUD APIs to wire
    tools + triggers), and **message UI blocks** — Lor's native rich-message shape:

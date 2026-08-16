@@ -10,6 +10,7 @@ import {
   Settings01Icon,
   SquareLock02Icon,
   Upload01Icon,
+  Wrench01Icon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
@@ -57,6 +58,7 @@ import { AnimatePresence, motion } from "motion/react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { BillingSection } from "@/components/workspace/billing-section"
+import { CustomToolsSection } from "@/components/workspace/custom-tools-section"
 import { InstructionsSection } from "@/components/workspace/instructions-section"
 import { MerlinProfilesSection } from "@/components/workspace/merlin-profiles-section"
 import { WorkspaceAvatar } from "@/components/workspace/workspace-avatar"
@@ -97,6 +99,7 @@ type Workspace = {
 export type SectionId =
   | "general"
   | "connectors"
+  | "custom-tools"
   | "merlin"
   | "instructions"
   | "billing"
@@ -104,6 +107,7 @@ export type SectionId =
 const SECTIONS: { id: SectionId; label: string; icon: IconSvgElement }[] = [
   { id: "general", label: "General", icon: Settings01Icon },
   { id: "connectors", label: "Connectors", icon: Plug01Icon },
+  { id: "custom-tools", label: "Custom tools", icon: Wrench01Icon },
   { id: "merlin", label: "Agent profiles", icon: Layers01Icon },
   { id: "instructions", label: "Instructions", icon: Scroll01Icon },
   { id: "billing", label: "Billing", icon: CreditCardIcon },
@@ -295,6 +299,8 @@ export function WorkspaceSettingsDialog({
                     />
                   ) : section === "connectors" ? (
                     <ConnectorsSection workspaceSlug={workspace.slug} />
+                  ) : section === "custom-tools" ? (
+                    <CustomToolsSection workspaceSlug={workspace.slug} />
                   ) : section === "instructions" ? (
                     <InstructionsSection workspaceSlug={workspace.slug} />
                   ) : section === "billing" && canManageBilling ? (

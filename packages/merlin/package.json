@@ -9,6 +9,7 @@
     "./attio": "./src/attio.ts",
     "./capabilities": "./src/capabilities.ts",
     "./connector-search": "./src/connector-search.ts",
+    "./custom-tools": "./src/custom-tools.ts",
     "./github": "./src/github.ts",
     "./placement": "./src/placement.ts",
     "./providers": "./src/providers/index.ts",

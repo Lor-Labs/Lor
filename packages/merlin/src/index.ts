@@ -37,6 +37,7 @@ import {
 } from "./citations"
 import { cloudwatchTools, resolveWorkspaceCloudwatch } from "./cloudwatch"
 import { codeTools } from "./code"
+import { CUSTOM_TOOLS_PROMPT_LINE, workspaceCustomTools } from "./custom-tools"
 import { datadogMcpTools, resolveWorkspaceDatadog } from "./datadog"
 import { embedBrainQueryWithUsage, embedSourceQuery } from "./embeddings"
 import { githubTools, resolveWorkspaceGithub } from "./github"
@@ -1414,7 +1415,7 @@ export async function respond(
   const artifactsEnabled = Boolean(
     blaxelConfigured() && ctx.channelId && caps.includes("artifacts")
   )
-  const tools = {
+  const builtinTools = {
     ...searchTools,
     ...chatTools,
     ...sourceTools,
@@ -1436,6 +1437,18 @@ export async function respond(
     ...(notion && caps.includes("notion") ? notionTools : {}),
     ...(datadogMcp ? datadogMcp.tools : {}),
     ...(cloudwatch && caps.includes("cloudwatch") ? cloudwatchTools : {}),
+  }
+  // Bound after the built-ins so a workspace row can never shadow one
+  // (collisions are skipped inside workspaceCustomTools).
+  const customTools = caps.includes("custom_tools")
+    ? await workspaceCustomTools(
+        ctx.workspaceId,
+        new Set(Object.keys(builtinTools))
+      ).catch(() => null)
+    : null
+  const tools = {
+    ...builtinTools,
+    ...(customTools ?? {}),
   }
 
   const toolsContext = {
@@ -1552,6 +1565,7 @@ export async function respond(
     attio && caps.includes("attio") ? ATTIO_PROMPT_LINE : null,
     notion && caps.includes("notion") ? NOTION_PROMPT_LINE : null,
     artifactsEnabled ? ARTIFACTS_PROMPT_LINE : null,
+    customTools ? CUSTOM_TOOLS_PROMPT_LINE : null,
   ].filter((line): line is string => line !== null)
 
   // The finally closes the Datadog MCP session after the whole tool loop, even

@@ -207,6 +207,12 @@ export const CAPABILITIES: Record<MerlinCapability, CapabilityDescriptor> = {
     description: "Create files (documents, data, code) in a sandbox workbench",
     connector: null,
   },
+  custom_tools: {
+    key: "custom_tools",
+    label: "Custom Tools",
+    description: "Call this workspace's user-defined tools",
+    connector: null,
+  },
 }
 
 // Exhaustive over integrationProviderEnum — a new provider must declare its
