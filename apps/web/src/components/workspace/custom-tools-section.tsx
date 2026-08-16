@@ -499,6 +499,37 @@ function ArgumentRows({
   )
 }
 
+// The automatic body, written in template notation — shown as the preview
+// and used as the starting point when someone customizes the shape.
+function defaultBodyTemplate(argNames: string[]): string {
+  if (argNames.length === 0) return "{}"
+  return `{${argNames.map((n) => `"${n}": {{args.${n}}}`).join(", ")}}`
+}
+
+// Muted preview with the {{args.x}} parts tinted, so the automatic body reads
+// the same way the editable template does.
+function BodyPreview({ template }: { template: string }) {
+  const parts = template.split(/(\{\{\s*args\.[A-Za-z0-9_]+\s*\}\})/g)
+  return (
+    <div className="rounded-md border border-border/60 bg-muted/30 px-2.5 py-1.5 font-mono text-xs text-muted-foreground">
+      {parts.map((part, i) =>
+        /^\{\{\s*args\./.test(part) ? (
+          <span
+            // biome-ignore lint/suspicious/noArrayIndexKey: static split
+            key={i}
+            className="font-medium text-primary/80"
+          >
+            {part}
+          </span>
+        ) : (
+          // biome-ignore lint/suspicious/noArrayIndexKey: static split
+          <span key={i}>{part}</span>
+        )
+      )}
+    </div>
+  )
+}
+
 function ToolEditor({
   draft,
   setDraft,
@@ -785,7 +816,19 @@ function ToolEditor({
       {hasBody &&
         (showBody ? (
           <div className="space-y-1.5">
-            <Label className="text-xs">Request body</Label>
+            <div className="flex items-center justify-between">
+              <Label className="text-xs">Request body — custom shape</Label>
+              <button
+                type="button"
+                className="cursor-pointer text-[11px] text-muted-foreground underline-offset-2 hover:underline"
+                onClick={() => {
+                  updateDraft((d) => ({ ...d, bodyTemplate: "" }))
+                  setShowBody(false)
+                }}
+              >
+                Use the automatic body instead
+              </button>
+            </div>
             <TemplateInput
               value={draft.bodyTemplate}
               onChange={(bodyTemplate) =>
@@ -798,19 +841,38 @@ function ToolEditor({
               multiline
             />
             <p className="text-[11px] text-muted-foreground">
-              Leave empty to send all arguments as a JSON object — that's right
-              for most APIs. Write a template only when yours expects a
-              different shape.
+              This replaces the automatic body — write the exact JSON your API
+              expects, with <code>{"{{args.…}}"}</code> where Merlin's values
+              go. Arguments not referenced here won't be sent.
             </p>
           </div>
         ) : (
-          <button
-            type="button"
-            className="cursor-pointer text-[11px] text-muted-foreground underline-offset-2 hover:underline"
-            onClick={() => setShowBody(true)}
-          >
-            Advanced: custom request body (default sends all arguments as JSON)
-          </button>
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <Label className="text-xs">Request body</Label>
+              <button
+                type="button"
+                className="cursor-pointer text-[11px] text-muted-foreground underline-offset-2 hover:underline"
+                onClick={() => {
+                  // Start from the automatic body, not a blank box —
+                  // customizing means editing the default, not authoring JSON
+                  // from scratch.
+                  updateDraft((d) => ({
+                    ...d,
+                    bodyTemplate: defaultBodyTemplate(argNames),
+                  }))
+                  setShowBody(true)
+                }}
+              >
+                My API needs a different JSON shape
+              </button>
+            </div>
+            <BodyPreview template={defaultBodyTemplate(argNames)} />
+            <p className="text-[11px] text-muted-foreground">
+              Built automatically from the arguments above — sent as the
+              request's JSON when Merlin calls the tool.
+            </p>
+          </div>
         ))}
 
       <div className="space-y-1.5">
