@@ -501,6 +501,7 @@ function ToolEditor({
   onSave,
   onCancel,
   saveLabel,
+  isNew,
 }: {
   draft: Draft
   setDraft: (update: (d: Draft) => Draft) => void
@@ -508,6 +509,9 @@ function ToolEditor({
   onSave: () => void
   onCancel: () => void
   saveLabel: string
+  // The cURL import is a bootstrap for new tools; editing works on the
+  // already-structured fields.
+  isNew?: boolean
 }) {
   const [curlText, setCurlText] = useState("")
   const [showBody, setShowBody] = useState(draft.bodyTemplate.trim() !== "")
@@ -619,27 +623,29 @@ function ToolEditor({
 
   return (
     <div className="space-y-4">
-      <div className="space-y-1.5 rounded-lg border border-border bg-muted/30 p-3">
-        <div className="text-xs font-medium text-muted-foreground">
-          Import from cURL
+      {isNew && (
+        <div className="space-y-1.5 rounded-lg border border-border bg-muted/30 p-3">
+          <div className="text-xs font-medium text-muted-foreground">
+            Import from cURL
+          </div>
+          <Textarea
+            value={curlText}
+            onChange={(e) => setCurlText(e.target.value)}
+            placeholder="Paste a curl command to prefill the method, URL, headers, and body"
+            className="min-h-14 font-mono text-xs"
+            rows={2}
+          />
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            disabled={!curlText.trim()}
+            onClick={importCurl}
+          >
+            Import
+          </Button>
         </div>
-        <Textarea
-          value={curlText}
-          onChange={(e) => setCurlText(e.target.value)}
-          placeholder="Paste a curl command to prefill the method, URL, headers, and body"
-          className="min-h-14 font-mono text-xs"
-          rows={2}
-        />
-        <Button
-          type="button"
-          variant="secondary"
-          size="sm"
-          disabled={!curlText.trim()}
-          onClick={importCurl}
-        >
-          Import
-        </Button>
-      </div>
+      )}
 
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1.5">
@@ -999,6 +1005,7 @@ export function CustomToolsSection({
             saveLabel="Create Tool"
             onSave={() => createMutation.mutate()}
             onCancel={() => setCreating(false)}
+            isNew
           />
         </div>
       )}
