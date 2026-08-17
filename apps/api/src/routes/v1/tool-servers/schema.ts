@@ -18,18 +18,41 @@ export const toolServerIdParamsSchema = toolServersWorkspaceParamsSchema.extend(
 const nameSchema = z.string().trim().min(1).max(80)
 const descriptionSchema = z.string().trim().max(500)
 
+// Secret names are identifier-shaped — they're referenced as {{secrets.NAME}}.
+const secretNameSchema = z.string().regex(/^[A-Za-z][A-Za-z0-9_]{0,63}$/)
+
+// RFC 7230 token — also excludes CR/LF so a header name can't split a request.
+const HEADER_NAME_REGEX = /^[!#$%&'*+.^_`|~A-Za-z0-9-]+$/
+// Any C0 control (except tab) or DEL in a value would corrupt the wire format.
+function hasHeaderValueControlChar(value: string): boolean {
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i)
+    if ((code < 0x20 && code !== 0x09) || code === 0x7f) return true
+  }
+  return false
+}
 const headersSchema = z
-  .record(z.string().trim().min(1).max(128), z.string().max(4096))
+  .record(
+    z
+      .string()
+      .trim()
+      .min(1)
+      .max(128)
+      .regex(HEADER_NAME_REGEX, { message: "Invalid header name" }),
+    z
+      .string()
+      .max(4096)
+      .refine((v) => !hasHeaderValueControlChar(v), {
+        message: "Header values must not contain control characters",
+      })
+  )
   .refine((v) => Object.keys(v).length <= 20, {
     message: "At most 20 headers",
   })
 
 // Secret values are write-only: accepted here, returned as names only.
 const secretsSchema = z
-  .record(
-    z.string().regex(/^[A-Za-z][A-Za-z0-9_]{0,63}$/),
-    z.string().min(1).max(4096)
-  )
+  .record(secretNameSchema, z.string().min(1).max(4096))
   .refine((v) => Object.keys(v).length <= 20, {
     message: "At most 20 secrets",
   })
@@ -78,10 +101,7 @@ export const updateToolServerRequestSchema = z
     url: z.string().trim().min(1).max(2048).optional(),
     headers: headersSchema.optional(),
     secrets: z
-      .record(
-        z.string().regex(/^[A-Za-z][A-Za-z0-9_]{0,63}$/),
-        z.string().min(1).max(4096).nullable()
-      )
+      .record(secretNameSchema, z.string().min(1).max(4096).nullable())
       .optional(),
     enabledTools: enabledToolsSchema.optional(),
   })

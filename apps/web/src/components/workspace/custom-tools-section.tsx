@@ -1299,6 +1299,10 @@ export function CustomToolsSection({
         <div className="flex justify-center py-6">
           <Spinner className="size-4 text-muted-foreground" />
         </div>
+      ) : serversQuery.isError ? (
+        <p className="py-6 text-center text-xs text-destructive-foreground">
+          Couldn't load MCP servers — refresh to try again.
+        </p>
       ) : tools.length === 0 &&
         servers.length === 0 &&
         !(creating || creatingServer) ? (

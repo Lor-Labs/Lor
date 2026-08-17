@@ -1,3 +1,5 @@
+import { lookup } from "node:dns/promises"
+import { isIP } from "node:net"
 import { createMCPClient } from "@ai-sdk/mcp"
 import { and, db, eq, inArray, schema } from "@repo/db"
 import type { ToolServer } from "@repo/db/schema"
@@ -97,6 +99,30 @@ function withCappedResults(tools: ToolSet): ToolSet {
   return wrapped
 }
 
+// Mirrors the worker's link-unfurl guard (apps/worker/src/jobs/link-unfurl-url.ts):
+// customToolUrlIssue rejects internal-looking hostnames, but a public name can
+// still resolve to a private address (split-horizon DNS / rebinding). Check
+// every resolved address right before connecting; the SDK re-resolves when it
+// dials, so this narrows — not eliminates — the TOCTOU window.
+const PRIVATE_IP_REGEX =
+  /^(127\.|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|0\.|169\.254\.|::1|fc|fd|fe80)/i
+
+async function resolvedAddressIssue(rawUrl: string): Promise<string | null> {
+  const hostname = new URL(rawUrl).hostname
+  // IP literals are already rejected by customToolUrlIssue.
+  if (isIP(hostname)) return null
+  let addresses: { address: string }[]
+  try {
+    addresses = await lookup(hostname, { all: true })
+  } catch {
+    return "Hostname did not resolve"
+  }
+  if (addresses.some(({ address }) => PRIVATE_IP_REGEX.test(address))) {
+    return "Hostname resolves to a private address"
+  }
+  return null
+}
+
 async function connectServer(input: {
   url: string
   headers: Record<string, string>
@@ -105,6 +131,8 @@ async function connectServer(input: {
   const issue = customToolUrlIssue(input.url)
   if (issue) throw new Error(issue)
   const setup = (async () => {
+    const resolvedIssue = await resolvedAddressIssue(input.url)
+    if (resolvedIssue) throw new Error(resolvedIssue)
     const client = await createMCPClient({
       transport: { type: "http", url: input.url, headers: input.headers },
     })
@@ -203,20 +231,38 @@ export async function channelToolServers(
   const servers = rows.filter((row) => row.enabledTools.length > 0)
   if (servers.length === 0) return null
 
-  const sessions = await Promise.all(
-    servers.map(async (row) => {
+  // Bound the parallel MCP handshakes — a profile granting many servers
+  // shouldn't fan out unbounded sockets per response.
+  const MAX_CONCURRENT_HANDSHAKES = 5
+  type Session = {
+    row: (typeof servers)[number]
+    client: { close: () => Promise<void> }
+    tools: ToolSet
+  }
+  const sessions: (Session | null)[] = new Array(servers.length).fill(null)
+  let nextIndex = 0
+  const worker = async () => {
+    while (nextIndex < servers.length) {
+      const i = nextIndex++
+      const row = servers[i]
+      if (!row) continue
       try {
         const headers = decryptedHeaders(row, key)
         const { client, tools } = await connectServer({ url: row.url, headers })
-        return { row, client, tools }
+        sessions[i] = { row, client, tools }
       } catch (err) {
         logger.warn(
           { err, toolServerId: row.id, name: row.name },
           "MCP tool server unavailable"
         )
-        return null
       }
-    })
+    }
+  }
+  await Promise.all(
+    Array.from(
+      { length: Math.min(MAX_CONCURRENT_HANDSHAKES, servers.length) },
+      worker
+    )
   )
 
   const tools: ToolSet = {}

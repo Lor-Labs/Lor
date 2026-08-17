@@ -31,9 +31,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useParams } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
 import { ChannelWebhooksTab } from "@/components/sidebar/channel-panel/channel-webhooks-tab"
+import { hasBlanketTools } from "@/components/workspace/merlin-profiles-section"
 import { apiClient } from "@/lib/api-client"
 import type {
   AgentProfile,
+  AgentProfilesResponse,
   AvailableCapability,
   Channel,
 } from "@/lib/api-types"
@@ -56,21 +58,15 @@ function ProfileCapabilities({
 }: {
   profile: AgentProfile
   available: AvailableCapability[]
-  tools: { id: string; name: string; description: string }[]
-  servers: {
-    id: string
-    name: string
-    description: string
-    enabledToolCount: number
-  }[]
+  tools: AgentProfilesResponse["availableCustomTools"]
+  servers: AgentProfilesResponse["availableToolServers"]
 }) {
   const granted = profile.grantsAll
     ? available
     : available.filter((c) => profile.capabilities.includes(c.key))
   // Individual grants only matter without the blanket custom_tools capability
   // (which already renders as "All workspace tools" above).
-  const blanket =
-    profile.grantsAll || profile.capabilities.includes("custom_tools")
+  const blanket = hasBlanketTools(profile)
   const grantedTools = blanket
     ? []
     : tools.filter((t) => profile.customToolIds.includes(t.id))

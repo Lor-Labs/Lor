@@ -182,6 +182,7 @@ export function discordEmbedsToMessageEmbeds(
       mapped.author ||
       (mapped.fields?.length ?? 0) > 0 ||
       mapped.image ||
+      mapped.thumbnail ||
       mapped.footer
     return hasContent ? [mapped] : []
   })
@@ -220,10 +221,14 @@ const slackBlockSchema = z.object({
 
 const slackAttachmentSchema = z.object({
   pretext: z.string().max(4096).optional(),
+  author_name: z.string().max(256).optional(),
+  author_link: lenientHttpUrlSchema,
   title: z.string().max(1024).optional(),
   title_link: lenientHttpUrlSchema,
   color: z.string().max(32).optional(),
   text: z.string().max(8000).optional(),
+  image_url: lenientHttpUrlSchema,
+  thumb_url: lenientHttpUrlSchema,
   fallback: z.string().max(8000).optional(),
   footer: z.string().max(2048).optional(),
   fields: z
@@ -294,6 +299,13 @@ function renderSlackAttachment(
 ): string {
   const parts: string[] = []
   if (attachment.pretext) parts.push(mrkdwnToMarkdown(attachment.pretext))
+  if (attachment.author_name) {
+    parts.push(
+      attachment.author_link
+        ? `[${attachment.author_name}](${attachment.author_link})`
+        : attachment.author_name
+    )
+  }
   if (attachment.title) {
     parts.push(
       `**${
@@ -313,6 +325,8 @@ function renderSlackAttachment(
       .join("\n")
     if (line) parts.push(line)
   }
+  const imageUrl = attachment.image_url ?? attachment.thumb_url
+  if (imageUrl) parts.push(`[image](${imageUrl})`)
   if (attachment.footer) parts.push(`*${attachment.footer}*`)
   if (parts.length === 0 && attachment.fallback) {
     parts.push(mrkdwnToMarkdown(attachment.fallback))
@@ -374,7 +388,19 @@ export function slackAttachmentsToMessageEmbeds(
       ...(attachment.title_link ? { url: attachment.title_link } : {}),
       ...(attachment.title ? { title: attachment.title } : {}),
       ...(description ? { description } : {}),
+      ...(attachment.author_name
+        ? {
+            author: {
+              name: attachment.author_name,
+              ...(attachment.author_link
+                ? { url: attachment.author_link }
+                : {}),
+            },
+          }
+        : {}),
       ...(fields.length > 0 ? { fields } : {}),
+      ...(attachment.image_url ? { image: attachment.image_url } : {}),
+      ...(attachment.thumb_url ? { thumbnail: attachment.thumb_url } : {}),
       ...(attachment.footer ? { footer: attachment.footer } : {}),
       ...(slackColorToHex(attachment.color)
         ? { color: slackColorToHex(attachment.color) }
@@ -383,7 +409,10 @@ export function slackAttachmentsToMessageEmbeds(
     const hasContent =
       mapped.title ||
       mapped.description ||
+      mapped.author ||
       (mapped.fields?.length ?? 0) > 0 ||
+      mapped.image ||
+      mapped.thumbnail ||
       mapped.footer
     if (hasContent) return [mapped]
     // Content-free attachment: fall back to `fallback`, Slack's own rule.

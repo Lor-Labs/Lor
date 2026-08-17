@@ -165,20 +165,41 @@ export const listAgentProfiles: AppRouteHandler<
     .where(eq(agentProfile.workspaceId, workspace.id))
     .orderBy(desc(agentProfile.isDefault), asc(agentProfile.name))
   const profileIds = profiles.map((p) => p.id)
-  const [grants, serverGrants] = await Promise.all([
-    toolGrantsByProfile(profileIds),
-    serverGrantsByProfile(profileIds),
-  ])
+  const [grants, serverGrants, connections, tools, servers] = await Promise.all(
+    [
+      toolGrantsByProfile(profileIds),
+      serverGrantsByProfile(profileIds),
+      db
+        .select({ provider: integrationConnection.provider })
+        .from(integrationConnection)
+        .where(
+          and(
+            eq(integrationConnection.workspaceId, workspace.id),
+            eq(integrationConnection.status, "active")
+          )
+        ),
+      db
+        .select({
+          id: customTool.id,
+          name: customTool.name,
+          description: customTool.description,
+        })
+        .from(customTool)
+        .where(eq(customTool.workspaceId, workspace.id))
+        .orderBy(asc(customTool.name)),
+      db
+        .select({
+          id: toolServer.id,
+          name: toolServer.name,
+          description: toolServer.description,
+          enabledTools: toolServer.enabledTools,
+        })
+        .from(toolServer)
+        .where(eq(toolServer.workspaceId, workspace.id))
+        .orderBy(asc(toolServer.name)),
+    ]
+  )
 
-  const connections = await db
-    .select({ provider: integrationConnection.provider })
-    .from(integrationConnection)
-    .where(
-      and(
-        eq(integrationConnection.workspaceId, workspace.id),
-        eq(integrationConnection.status, "active")
-      )
-    )
   const connected = new Set(connections.map((r) => r.provider))
   const caps = configuredCapabilities(availableCapabilities(connected)).map(
     (c) => ({
@@ -189,27 +210,6 @@ export const listAgentProfiles: AppRouteHandler<
       connectorLabel: c.connector ? CONNECTORS[c.connector].label : c.label,
     })
   )
-
-  const tools = await db
-    .select({
-      id: customTool.id,
-      name: customTool.name,
-      description: customTool.description,
-    })
-    .from(customTool)
-    .where(eq(customTool.workspaceId, workspace.id))
-    .orderBy(asc(customTool.name))
-
-  const servers = await db
-    .select({
-      id: toolServer.id,
-      name: toolServer.name,
-      description: toolServer.description,
-      enabledTools: toolServer.enabledTools,
-    })
-    .from(toolServer)
-    .where(eq(toolServer.workspaceId, workspace.id))
-    .orderBy(asc(toolServer.name))
 
   return c.json(
     {
@@ -236,8 +236,12 @@ export const createAgentProfile: AppRouteHandler<
 > = async (c) => {
   const workspace = c.var.workspace
   assertWorkspacePermission(c.var.member, workspace, { channel: ["update"] })
-  const { name, capabilities, customToolIds, toolServerIds } =
-    c.req.valid("json")
+  const { name, capabilities } = c.req.valid("json")
+  const body = c.req.valid("json")
+  // The join tables key on (profileId, toolId) — a duplicated id in the
+  // request would otherwise fail the whole insert transaction.
+  const customToolIds = [...new Set(body.customToolIds)]
+  const toolServerIds = [...new Set(body.toolServerIds)]
 
   const grantable = await grantableCapabilities(workspace.id)
   const unsupported = capabilities.filter((k) => !grantable.has(k))
@@ -315,8 +319,11 @@ export const updateAgentProfile: AppRouteHandler<
   const workspace = c.var.workspace
   assertWorkspacePermission(c.var.member, workspace, { channel: ["update"] })
   const { profileId } = c.req.valid("param")
-  const { name, capabilities, customToolIds, toolServerIds } =
-    c.req.valid("json")
+  const { name, capabilities } = c.req.valid("json")
+  const body = c.req.valid("json")
+  // Same dedupe as create — the join tables' composite keys reject duplicates.
+  const customToolIds = body.customToolIds && [...new Set(body.customToolIds)]
+  const toolServerIds = body.toolServerIds && [...new Set(body.toolServerIds)]
 
   if (capabilities !== undefined) {
     const grantable = await grantableCapabilities(workspace.id)

@@ -276,9 +276,24 @@ function ServerEditor({
   const invalidSecretNames = draft.newSecrets
     .map((s) => s.name.trim())
     .filter((name) => name.length > 0 && !SECRET_NAME_REGEX.test(name))
+  const trimmedNewNames = draft.newSecrets
+    .map((s) => s.name.trim())
+    .filter((name) => name.length > 0)
+  // A name used twice among new rows, or shadowing a kept stored secret,
+  // would silently overwrite a value in the save payload.
+  const duplicateSecretNames = [
+    ...new Set(
+      trimmedNewNames.filter(
+        (name, i) =>
+          trimmedNewNames.indexOf(name) !== i ||
+          draft.keptSecretNames.includes(name)
+      )
+    ),
+  ]
   const canDiscover =
     draft.url.trim().length > 0 &&
     invalidSecretNames.length === 0 &&
+    duplicateSecretNames.length === 0 &&
     !discovering &&
     !busy
   const definedSecretNames = [
@@ -307,6 +322,7 @@ function ServerEditor({
     draft.url.trim().length > 0 &&
     draft.enabled.size > 0 &&
     invalidSecretNames.length === 0 &&
+    duplicateSecretNames.length === 0 &&
     !busy
 
   return (
@@ -465,6 +481,12 @@ function ServerEditor({
             letter and use only letters, numbers, and underscores.
           </p>
         )}
+        {duplicateSecretNames.length > 0 && (
+          <p className="text-[11px] text-destructive-foreground">
+            {duplicateSecretNames.join(", ")} — duplicate secret name; each name
+            can only be defined once (stored secrets included).
+          </p>
+        )}
       </div>
 
       <div className="space-y-1.5 border-border border-t pt-3">
@@ -539,6 +561,11 @@ function ServerEditor({
       </div>
 
       <div className="flex items-center justify-end gap-2 border-border border-t pt-3">
+        {draft.enabled.size === 0 && (
+          <span className="mr-auto text-[11px] text-muted-foreground">
+            Connect and enable at least one tool to save.
+          </span>
+        )}
         <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
           Cancel
         </Button>
@@ -607,6 +634,9 @@ export function McpServersBlock({
       return res.json() as Promise<{ tools: DiscoveredTool[] }>
     },
     onSuccess: ({ tools }, serverId) => {
+      // Late-response guard: only the row (or create card) that initiated
+      // discovery may receive its result.
+      if (serverId ? editingId !== serverId : !creating) return
       setDraft((d) => ({
         ...d,
         discovered: tools,
@@ -624,6 +654,13 @@ export function McpServersBlock({
     },
     onError: (err) => toast.error(err.message),
   })
+
+  // A row switch mid-discovery must not leave the previous request's pending
+  // spinner (or a settled error) on the newly opened editor.
+  const resetDiscovery = discoverMutation.reset
+  useEffect(() => {
+    resetDiscovery()
+  }, [resetDiscovery, editingId, creating])
 
   const createMutation = useMutation({
     mutationFn: async () => {

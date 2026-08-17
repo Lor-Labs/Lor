@@ -29,6 +29,16 @@ export function EmbedCard({ embed, className }: EmbedCardProps) {
   const hasMeta = Boolean(embed.title || embed.description)
   const timestamp = embed.timestamp ? formatTimestamp(embed.timestamp) : null
   const footerParts = [embed.footer, timestamp].filter(Boolean)
+  // A webhook card may carry only a thumbnail; render it rather than an
+  // empty shell (all other embeds keep the meta-gated thumbnail behavior).
+  const thumbnailOnly =
+    !embed.image &&
+    !embed.title &&
+    !embed.description &&
+    !embed.siteName &&
+    !embed.author?.name &&
+    !(embed.fields && embed.fields.length > 0) &&
+    !embed.footer
 
   return (
     <div
@@ -129,7 +139,10 @@ export function EmbedCard({ embed, className }: EmbedCardProps) {
       )}
       {embed.thumbnail &&
         !embed.image &&
-        (embed.title || embed.description || embed.siteName) && (
+        (embed.title ||
+          embed.description ||
+          embed.siteName ||
+          thumbnailOnly) && (
           <div className="px-3 pb-3">
             <img
               src={embed.thumbnail}

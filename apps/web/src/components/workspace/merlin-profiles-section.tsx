@@ -39,7 +39,7 @@ type AvailableToolServer = AgentProfilesResponse["availableToolServers"][number]
 
 // A profile grants custom tools either via the blanket capability (all,
 // including future tools) or an explicit per-tool list.
-function hasBlanketTools(profile: {
+export function hasBlanketTools(profile: {
   grantsAll: boolean
   capabilities: MerlinCapabilityKey[]
 }): boolean {

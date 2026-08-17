@@ -9,9 +9,25 @@ import { openExternalUrl } from "@/lib/open-url"
 // Link previews and webhook cards (Discord embeds / Slack attachments).
 // Rich cards may have no url (not tappable), sender-chosen accent colors,
 // author lines, field pairs, and a footer.
+function formatTimestamp(value: string): string | null {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  })
+}
+
 export function MessageEmbed({ embed }: { embed: Message["embeds"][number] }) {
   const accent = useThemeColor("accent")
-  const footer = [embed.footer, embed.siteName].find(Boolean)
+  const timestamp = embed.timestamp ? formatTimestamp(embed.timestamp) : null
+  // All present metadata, not just the first: site attribution, the sender's
+  // footer text, then the event time.
+  const footer = [embed.siteName, embed.footer, timestamp]
+    .filter(Boolean)
+    .join(" · ")
   const body = (
     <>
       <View className="gap-one p-three">

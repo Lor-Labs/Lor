@@ -1438,193 +1438,192 @@ export async function respond(
         : null,
     ])
 
-  const artifactsEnabled = Boolean(
-    blaxelConfigured() && ctx.channelId && caps.includes("artifacts")
-  )
-  const builtinTools = {
-    ...searchTools,
-    ...chatTools,
-    ...sourceTools,
-    ...brainReadTools,
-    ...brainWriteTools,
-    ...instructionsTools,
-    ...(ctx.channelId ? messageActionTools : {}),
-    ...(env.EXA_API_KEY && caps.includes("web") ? webTools : {}),
-    ...(github && caps.includes("github") ? githubTools : {}),
-    ...(blaxelConfigured() && github && caps.includes("code_intelligence")
-      ? codeTools
-      : {}),
-    ...(artifactsEnabled ? artifactTools : {}),
-    ...(ctx.task ? taskTools : {}),
-    ...(ctx.triggered ? triggeredTools : {}),
-    ...(linear && caps.includes("linear") ? linearTools : {}),
-    ...(linear && caps.includes("linear_write") ? linearWriteTools : {}),
-    ...(attio && caps.includes("attio") ? attioTools : {}),
-    ...(notion && caps.includes("notion") ? notionTools : {}),
-    ...(datadogMcp ? datadogMcp.tools : {}),
-    ...(cloudwatch && caps.includes("cloudwatch") ? cloudwatchTools : {}),
-  }
-  // Bound after the built-ins so a workspace row can never shadow one
-  // (collisions are skipped inside workspaceCustomTools).
-  const customTools =
-    grants.customTools === "all" || grants.customTools.length > 0
-      ? await workspaceCustomTools(
-          ctx.workspaceId,
-          new Set(Object.keys(builtinTools)),
-          grants.customTools
-        ).catch(() => null)
-      : null
-  // MCP server tools bind last; anything already named wins the collision.
-  const toolServerSession = await toolServersPromise
-  const tools: typeof builtinTools & ToolSet = {
-    ...builtinTools,
-    ...(customTools ?? {}),
-  }
-  const boundServerToolNames = new Set<string>()
-  if (toolServerSession) {
-    for (const [name, tool] of Object.entries(toolServerSession.tools)) {
-      if (name in tools) {
-        logger.warn(
-          { tool: name },
-          "MCP tool skipped; name collides with an existing tool"
-        )
-        continue
-      }
-      ;(tools as ToolSet)[name] = tool
-      boundServerToolNames.add(name)
+  // The finally closes the MCP sessions (Datadog + workspace tool servers)
+  // even if tool assembly, setup, step preparation, or streaming throws.
+  try {
+    const artifactsEnabled = Boolean(
+      blaxelConfigured() && ctx.channelId && caps.includes("artifacts")
+    )
+    const builtinTools = {
+      ...searchTools,
+      ...chatTools,
+      ...sourceTools,
+      ...brainReadTools,
+      ...brainWriteTools,
+      ...instructionsTools,
+      ...(ctx.channelId ? messageActionTools : {}),
+      ...(env.EXA_API_KEY && caps.includes("web") ? webTools : {}),
+      ...(github && caps.includes("github") ? githubTools : {}),
+      ...(blaxelConfigured() && github && caps.includes("code_intelligence")
+        ? codeTools
+        : {}),
+      ...(artifactsEnabled ? artifactTools : {}),
+      ...(ctx.task ? taskTools : {}),
+      ...(ctx.triggered ? triggeredTools : {}),
+      ...(linear && caps.includes("linear") ? linearTools : {}),
+      ...(linear && caps.includes("linear_write") ? linearWriteTools : {}),
+      ...(attio && caps.includes("attio") ? attioTools : {}),
+      ...(notion && caps.includes("notion") ? notionTools : {}),
+      ...(datadogMcp ? datadogMcp.tools : {}),
+      ...(cloudwatch && caps.includes("cloudwatch") ? cloudwatchTools : {}),
     }
-  }
-  // Only servers that actually contributed a tool get advertised — a server
-  // whose every tool lost a collision would otherwise be announced as
-  // connected with nothing behind it.
-  const promptToolServers = (toolServerSession?.servers ?? []).filter((s) =>
-    s.toolNames.some((name) => boundServerToolNames.has(name))
-  )
+    // Bound after the built-ins so a workspace row can never shadow one
+    // (collisions are skipped inside workspaceCustomTools).
+    const customTools =
+      grants.customTools === "all" || grants.customTools.length > 0
+        ? await workspaceCustomTools(
+            ctx.workspaceId,
+            new Set(Object.keys(builtinTools)),
+            grants.customTools
+          ).catch(() => null)
+        : null
+    // MCP server tools bind last; anything already named wins the collision.
+    const toolServerSession = await toolServersPromise
+    const tools: typeof builtinTools & ToolSet = {
+      ...builtinTools,
+      ...(customTools ?? {}),
+    }
+    const boundServerToolNames = new Set<string>()
+    if (toolServerSession) {
+      for (const [name, tool] of Object.entries(toolServerSession.tools)) {
+        if (name in tools) {
+          logger.warn(
+            { tool: name },
+            "MCP tool skipped; name collides with an existing tool"
+          )
+          continue
+        }
+        ;(tools as ToolSet)[name] = tool
+        boundServerToolNames.add(name)
+      }
+    }
+    // Only servers that actually contributed a tool get advertised — a server
+    // whose every tool lost a collision would otherwise be announced as
+    // connected with nothing behind it.
+    const promptToolServers = (toolServerSession?.servers ?? []).filter((s) =>
+      s.toolNames.some((name) => boundServerToolNames.has(name))
+    )
 
-  const toolsContext = {
-    ...coreToolsContext(
-      ctx.workspaceId,
-      onMemoryWritten,
-      onInstructionsProposal
-    ),
-    ...(ctx.channelId
-      ? {
-          react_to_message: {
-            workspaceId: ctx.workspaceId,
-            channelId: ctx.channelId,
-            triggerMessageId: ctx.triggerMessageId,
-            onMessageReaction,
-          },
-        }
-      : {}),
-    ...(github
-      ? {
-          search_github: github,
-          fetch_github: github,
-          investigate_code: {
-            workspaceId: ctx.workspaceId,
-            installationId: github.installationId,
-            repos: github.repos,
-            onUsage,
-            onToolEvent,
-          },
-        }
-      : {}),
-    ...(artifactsEnabled && ctx.channelId
-      ? {
-          create_artifacts: {
-            workspaceId: ctx.workspaceId,
-            channelId: ctx.channelId,
-            // Task runs get workbench continuity (persistent sandbox + pi
-            // session); plain answers produce standalone artifacts ephemerally.
-            task: ctx.task ? { id: ctx.task.id } : null,
-            deadlineAt: budgets.deadlineAt,
-            onUsage,
-            onToolEvent,
-          },
-        }
-      : {}),
-    ...(ctx.task
-      ? (() => {
-          const taskToolContext = {
-            taskId: ctx.task.id,
-            workspaceId: ctx.workspaceId,
-            runId: ctx.runId ?? null,
-            onTaskUpdated,
-            onApprovalRequested: () => {
-              approvalRequested = true
+    const toolsContext = {
+      ...coreToolsContext(
+        ctx.workspaceId,
+        onMemoryWritten,
+        onInstructionsProposal
+      ),
+      ...(ctx.channelId
+        ? {
+            react_to_message: {
+              workspaceId: ctx.workspaceId,
+              channelId: ctx.channelId,
+              triggerMessageId: ctx.triggerMessageId,
+              onMessageReaction,
             },
           }
-          return {
-            set_plan: taskToolContext,
-            complete_task: taskToolContext,
-            request_approval: taskToolContext,
+        : {}),
+      ...(github
+        ? {
+            search_github: github,
+            fetch_github: github,
+            investigate_code: {
+              workspaceId: ctx.workspaceId,
+              installationId: github.installationId,
+              repos: github.repos,
+              onUsage,
+              onToolEvent,
+            },
           }
-        })()
-      : {}),
-    ...(ctx.triggered
-      ? {
-          post_channel_message: { postMessage: ctx.triggered.postMessage },
-          create_task: { createTask: ctx.triggered.createTask },
-        }
-      : {}),
-    ...(linear
-      ? {
-          search_linear: linear,
-          list_linear_issues: linear,
-          fetch_linear: linear,
-          create_linear_issue: linear,
-          comment_linear: linear,
-          update_linear_issue: linear,
-        }
-      : {}),
-    ...(attio
-      ? {
-          search_attio: attio,
-          fetch_attio_record: attio,
-          query_attio: attio,
-          fetch_attio_activity: attio,
-        }
-      : {}),
-    ...(notion
-      ? {
-          search_notion: notion,
-          fetch_notion_page: notion,
-          query_notion_data_source: notion,
-          list_notion_users: notion,
-        }
-      : {}),
-    ...(cloudwatch
-      ? {
-          list_cloudwatch_log_groups: cloudwatch,
-          search_cloudwatch_logs: cloudwatch,
-          list_cloudwatch_metrics: cloudwatch,
-          get_cloudwatch_metrics: cloudwatch,
-        }
-      : {}),
-  }
+        : {}),
+      ...(artifactsEnabled && ctx.channelId
+        ? {
+            create_artifacts: {
+              workspaceId: ctx.workspaceId,
+              channelId: ctx.channelId,
+              // Task runs get workbench continuity (persistent sandbox + pi
+              // session); plain answers produce standalone artifacts ephemerally.
+              task: ctx.task ? { id: ctx.task.id } : null,
+              deadlineAt: budgets.deadlineAt,
+              onUsage,
+              onToolEvent,
+            },
+          }
+        : {}),
+      ...(ctx.task
+        ? (() => {
+            const taskToolContext = {
+              taskId: ctx.task.id,
+              workspaceId: ctx.workspaceId,
+              runId: ctx.runId ?? null,
+              onTaskUpdated,
+              onApprovalRequested: () => {
+                approvalRequested = true
+              },
+            }
+            return {
+              set_plan: taskToolContext,
+              complete_task: taskToolContext,
+              request_approval: taskToolContext,
+            }
+          })()
+        : {}),
+      ...(ctx.triggered
+        ? {
+            post_channel_message: { postMessage: ctx.triggered.postMessage },
+            create_task: { createTask: ctx.triggered.createTask },
+          }
+        : {}),
+      ...(linear
+        ? {
+            search_linear: linear,
+            list_linear_issues: linear,
+            fetch_linear: linear,
+            create_linear_issue: linear,
+            comment_linear: linear,
+            update_linear_issue: linear,
+          }
+        : {}),
+      ...(attio
+        ? {
+            search_attio: attio,
+            fetch_attio_record: attio,
+            query_attio: attio,
+            fetch_attio_activity: attio,
+          }
+        : {}),
+      ...(notion
+        ? {
+            search_notion: notion,
+            fetch_notion_page: notion,
+            query_notion_data_source: notion,
+            list_notion_users: notion,
+          }
+        : {}),
+      ...(cloudwatch
+        ? {
+            list_cloudwatch_log_groups: cloudwatch,
+            search_cloudwatch_logs: cloudwatch,
+            list_cloudwatch_metrics: cloudwatch,
+            get_cloudwatch_metrics: cloudwatch,
+          }
+        : {}),
+    }
 
-  // Only describe the connectors actually bound for this channel.
-  const connectorPromptLines = [
-    env.EXA_API_KEY && caps.includes("web") ? WEB_PROMPT_LINE : null,
-    github && caps.includes("github") ? GITHUB_PROMPT_LINE : null,
-    linear && caps.includes("linear") ? LINEAR_PROMPT_LINE : null,
-    linear && caps.includes("linear_write") ? LINEAR_WRITE_PROMPT_LINE : null,
-    datadogMcp ? DATADOG_PROMPT_LINE : null,
-    cloudwatch && caps.includes("cloudwatch") ? CLOUDWATCH_PROMPT_LINE : null,
-    attio && caps.includes("attio") ? ATTIO_PROMPT_LINE : null,
-    notion && caps.includes("notion") ? NOTION_PROMPT_LINE : null,
-    artifactsEnabled ? ARTIFACTS_PROMPT_LINE : null,
-    customTools ? CUSTOM_TOOLS_PROMPT_LINE : null,
-    promptToolServers.length > 0
-      ? toolServersPromptLine(promptToolServers)
-      : null,
-  ].filter((line): line is string => line !== null)
+    // Only describe the connectors actually bound for this channel.
+    const connectorPromptLines = [
+      env.EXA_API_KEY && caps.includes("web") ? WEB_PROMPT_LINE : null,
+      github && caps.includes("github") ? GITHUB_PROMPT_LINE : null,
+      linear && caps.includes("linear") ? LINEAR_PROMPT_LINE : null,
+      linear && caps.includes("linear_write") ? LINEAR_WRITE_PROMPT_LINE : null,
+      datadogMcp ? DATADOG_PROMPT_LINE : null,
+      cloudwatch && caps.includes("cloudwatch") ? CLOUDWATCH_PROMPT_LINE : null,
+      attio && caps.includes("attio") ? ATTIO_PROMPT_LINE : null,
+      notion && caps.includes("notion") ? NOTION_PROMPT_LINE : null,
+      artifactsEnabled ? ARTIFACTS_PROMPT_LINE : null,
+      customTools ? CUSTOM_TOOLS_PROMPT_LINE : null,
+      promptToolServers.length > 0
+        ? toolServersPromptLine(promptToolServers)
+        : null,
+    ].filter((line): line is string => line !== null)
 
-  // The finally closes the MCP sessions (Datadog + workspace tool servers)
-  // after the whole tool loop, even if setup, step preparation, or streaming
-  // throws.
-  try {
     let messages: ModelMessage[]
     let instructions: string
     let text: string
@@ -1895,8 +1894,12 @@ export async function respond(
     return { text, messages: [...messages, ...responseMessages], stoppedFor }
   } finally {
     // Independent: one session's close must not skip the other's, nor replace
-    // the response error with a teardown rejection.
-    await Promise.allSettled([datadogMcp?.close(), toolServerSession?.close()])
+    // the response error with a teardown rejection. Closing via the promise
+    // covers throws that happen before the session was awaited.
+    await Promise.allSettled([
+      datadogMcp?.close(),
+      toolServersPromise.then((s) => s?.close()),
+    ])
   }
 }
 

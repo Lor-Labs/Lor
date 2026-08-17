@@ -14,7 +14,11 @@ import { customToolUrlIssue, renderTemplate } from "@repo/merlin/custom-tools"
 import { discoverToolServer as discoverMcp } from "@repo/merlin/tool-servers"
 import { decryptSecret, encryptSecret } from "@repo/utils/crypto"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
-import { assertWorkspacePermission } from "@/lib/permissions"
+import { logger } from "@/lib/logger"
+import {
+  assertWorkspacePermission,
+  hasWorkspacePermission,
+} from "@/lib/permissions"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
   CreateToolServerRoute,
@@ -25,14 +29,34 @@ import type {
   UpdateToolServerRoute,
 } from "@/routes/v1/tool-servers/routes"
 
+// Header values may embed literal credentials (typed directly instead of via
+// a {{secrets.*}} reference). Members without the manage permission get header
+// names with masked values; values built purely from secret references stay
+// legible (they're placeholders, not credentials).
+const SECRET_REF_REGEX = /\{\{\s*secrets\.[A-Za-z0-9_]+\s*\}\}/g
+function redactedHeaders(
+  headers: Record<string, string>
+): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(headers).map(([name, value]) => [
+      name,
+      value.replace(SECRET_REF_REGEX, "").trim() === "" ? value : "••••••",
+    ])
+  )
+}
+
 // Secret values are write-only: stored encrypted, surfaced as names only.
-function toResponse(row: ToolServer, usedByProfiles: number) {
+function toResponse(
+  row: ToolServer,
+  usedByProfiles: number,
+  revealHeaders: boolean
+) {
   return {
     id: row.id,
     name: row.name,
     description: row.description,
     url: row.url,
-    headers: row.headers,
+    headers: revealHeaders ? row.headers : redactedHeaders(row.headers),
     secretNames: Object.keys(row.secrets),
     enabledTools: row.enabledTools,
     usedByProfiles,
@@ -76,8 +100,15 @@ export const listToolServers: AppRouteHandler<ListToolServersRoute> = async (
     .where(eq(schema.toolServer.workspaceId, workspace.id))
     .orderBy(desc(schema.toolServer.createdAt))
   const counts = await grantCounts(rows.map((r) => r.id))
+  const revealHeaders = hasWorkspacePermission(c.var.member, workspace, {
+    channel: ["update"],
+  })
   return c.json(
-    { servers: rows.map((r) => toResponse(r, counts.get(r.id) ?? 0)) },
+    {
+      servers: rows.map((r) =>
+        toResponse(r, counts.get(r.id) ?? 0, revealHeaders)
+      ),
+    },
     HttpStatusCodes.OK
   )
 }
@@ -91,12 +122,11 @@ export const createToolServer: AppRouteHandler<CreateToolServerRoute> = async (
 
   const key = env.INTEGRATION_ENCRYPTION_KEY
   if (!key) {
+    logger.error(
+      "Tool servers are disabled: INTEGRATION_ENCRYPTION_KEY is not configured"
+    )
     return c.json(
-      {
-        success: false,
-        message:
-          "Tool servers require INTEGRATION_ENCRYPTION_KEY to be configured",
-      },
+      { success: false, message: "Tool servers are unavailable" },
       HttpStatusCodes.BAD_REQUEST
     )
   }
@@ -139,7 +169,7 @@ export const createToolServer: AppRouteHandler<CreateToolServerRoute> = async (
       HttpStatusCodes.CONFLICT
     )
   }
-  return c.json({ server: toResponse(row, 0) }, HttpStatusCodes.OK)
+  return c.json({ server: toResponse(row, 0, true) }, HttpStatusCodes.OK)
 }
 
 export const updateToolServer: AppRouteHandler<UpdateToolServerRoute> = async (
@@ -244,7 +274,7 @@ export const updateToolServer: AppRouteHandler<UpdateToolServerRoute> = async (
   }
   const counts = await grantCounts([row.id])
   return c.json(
-    { server: toResponse(row, counts.get(row.id) ?? 0) },
+    { server: toResponse(row, counts.get(row.id) ?? 0, true) },
     HttpStatusCodes.OK
   )
 }
@@ -290,9 +320,23 @@ export const discoverToolServer: AppRouteHandler<
       HttpStatusCodes.BAD_REQUEST
     )
   }
+  // A header template referencing an unknown secret throws — a sender error,
+  // not a server fault.
+  let headers: Record<string, string>
+  try {
+    headers = renderedHeaders(body.headers, body.secrets)
+  } catch (err) {
+    return c.json(
+      {
+        success: false,
+        message: err instanceof Error ? err.message : "Invalid header template",
+      },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
   const result = await discoverMcp({
     url: body.url,
-    headers: renderedHeaders(body.headers, body.secrets),
+    headers,
   })
   if ("error" in result) {
     return c.json(
@@ -355,14 +399,27 @@ export const rediscoverToolServer: AppRouteHandler<
       } catch {
         // An undecryptable secret renders as empty; the handshake will fail
         // with the server's own auth error, which is more actionable.
+        secrets[name] = ""
       }
     }
   }
   Object.assign(secrets, body.secrets)
 
+  let headers: Record<string, string>
+  try {
+    headers = renderedHeaders(body.headers ?? existing.headers, secrets)
+  } catch (err) {
+    return c.json(
+      {
+        success: false,
+        message: err instanceof Error ? err.message : "Invalid header template",
+      },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
   const result = await discoverMcp({
     url,
-    headers: renderedHeaders(body.headers ?? existing.headers, secrets),
+    headers,
   })
   if ("error" in result) {
     return c.json(
