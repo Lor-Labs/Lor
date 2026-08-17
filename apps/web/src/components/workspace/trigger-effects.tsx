@@ -19,6 +19,17 @@ import type { ReactNode } from "react"
 
 // Shared effect rows for trigger config (BYO webhooks + connector events).
 // One trigger can fan out to any combination of the three effects.
+
+// The handoff note from the newest Act run on this trigger — what Merlin
+// concluded last time, shown so the next run's starting point is visible.
+// Read-only: never part of a patch.
+export type TriggerLastAct = {
+  note: string | null
+  state: string
+  stopReason: string | null
+  at: string
+}
+
 export type TriggerEffectsValue = {
   post: boolean
   remember: boolean
@@ -30,9 +41,10 @@ export type TriggerEffectsValue = {
   actWindowSeconds: number
   hourlyRunCap: number
   dailyRunCap: number
+  lastAct?: TriggerLastAct | null
 }
 
-export type TriggerEffectsPatch = Partial<TriggerEffectsValue>
+export type TriggerEffectsPatch = Partial<Omit<TriggerEffectsValue, "lastAct">>
 
 const ACT_WINDOW_OPTIONS = [
   { value: 0, label: "Immediate" },
@@ -59,6 +71,50 @@ export function formatActWindowShort(seconds: number) {
   if (seconds % 3600 === 0) return `${seconds / 3600}h`
   if (seconds % 60 === 0) return `${seconds / 60}m`
   return `${seconds}s`
+}
+
+function formatRunAt(iso: string) {
+  const at = new Date(iso)
+  const time = at.toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+  })
+  if (at.toDateString() === new Date().toDateString()) return time
+  const date = at.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  })
+  return `${date}, ${time}`
+}
+
+// A run that failed or was stopped left no trustworthy handoff, so its outcome
+// is stated plainly instead of shown as an empty quote.
+function LastActNote({ lastAct }: { lastAct: TriggerLastAct }) {
+  const note = lastAct.note?.trim() || null
+  const broke = lastAct.state === "failed" || lastAct.state === "stopped"
+  let outcome = ""
+  if (broke) {
+    const reason = lastAct.stopReason ? ` (${lastAct.stopReason})` : ""
+    outcome = ` — ${lastAct.state}${reason}${note ? "" : ", no note"}`
+  } else if (!note) {
+    outcome = " — no note left"
+  }
+  return (
+    <div className="space-y-1 border-border/60 border-t pt-2.5">
+      <p className="text-[11px] text-muted-foreground">
+        Merlin's last run · {formatRunAt(lastAct.at)}
+        {outcome}
+      </p>
+      {note && (
+        <p
+          title={note}
+          className="line-clamp-4 whitespace-pre-wrap border-border border-l pl-2.5 text-muted-foreground text-xs"
+        >
+          {note}
+        </p>
+      )}
+    </div>
+  )
 }
 
 function RunCapField({
@@ -300,6 +356,7 @@ export function TriggerEffects({
                 wait for the next slot rather than being dropped.
               </p>
             </div>
+            {value.lastAct && <LastActNote lastAct={value.lastAct} />}
           </div>
         )}
       </EffectRow>

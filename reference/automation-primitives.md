@@ -315,6 +315,37 @@ refresh keeps the current selection). CRUD + discover endpoints at
   shows recent deliveries, their effects, and run outcomes (including silent no-ops).
   With queuing, the log is also the queue's only window: a delivery with no `runId` yet
   is *waiting*, not lost — which the delivery-log UI should say out loud.
+- **Continuity across runs — the handoff note (built 2026-08-17).** A trigger is a
+  long-running *concern* ("the health of #health"), not a stream of unrelated events, but
+  a triggered run used to get exactly one thing: the payload. No channel history, no idea
+  it was the 4th run today, no idea a predecessor had already filed a PR for the same root
+  cause — so it filed a second one. Worse, the prompt told the model *"your final answer
+  text is discarded"*, throwing away the one place it naturally summarizes what it just
+  concluded (and inviting it to phone in the ending).
+  Now that text **is** the state: it's stored as `agent_run.handoffNote` and the prompt
+  asks for a successor-facing note — diagnosis, what it did with checkable references,
+  what to verify next. The next run on the trigger is briefed with (`actRunBriefing`):
+  - the **last 3 runs within 24h**: outcome (`state`/`stopReason`), the note, and a
+    **mechanical side-effect list** from `agent_run_tool_result` — which is what makes a
+    run that died *after* filing a PR but *before* writing a note still legible;
+  - a **run count** for the last 24h, so it knows whether it's in a storm;
+  - **channel messages since the previous run**, excluding `APP_USER_ID` webhook
+    deliveries — i.e. what *people* said. "Already on it, don't open another PR" has to
+    outrank a predecessor's plan.
+  Framing matters as much as content: notes are presented as *predecessors' claims to
+  verify with tools*, never as facts, and the trigger's own instructions always outrank
+  them. Bounds (last 3, 24h) exist so a stale or wrong conclusion can't dominate
+  indefinitely — the note-poisoning risk is real and deliberately capped.
+  This only works because runs on a trigger are **serialized** (§5.1): a chain of notes is
+  coherent where interleaved siblings' notes would be noise. Notes are surfaced to humans
+  too, on the trigger's Act row ("Merlin's last run · 14:07 — …").
+  Deliberately **not** built (jacob, 2026-08-17): a note cannot suppress its own trigger.
+  Volume is the caps' job; suppression stays a human decision, and handing the model a
+  kill switch over its own wake-ups is a different (larger) trust conversation.
+  Known gap: `agent_run_tool_result` only records the fixed `SIDE_EFFECT_TOOLS` allowlist,
+  so **custom tools and MCP server calls don't appear** in the mechanical list — the note
+  is the only account of those. (Fixing that means classifying workspace tools by whether
+  they mutate, e.g. by HTTP method.)
 - **Cost visibility.** Remember is metered at true cost, never debited (same stance as
   GitHub ingest — pricing decision stays visible in the ledger). Act runs meter like any
   agent run.
@@ -392,7 +423,9 @@ refresh keeps the current selection). CRUD + discover endpoints at
   Hard-deleted; name unique per workspace.
 - **`agent_profile_tool_server`**: `(profileId, toolServerId)` grant rows,
   cascade on both FKs.
-- **`agent_run`** gains trigger provenance (`triggerId`, `deliveryId` — nullable).
+- **`agent_run`** gains trigger provenance (`triggerId`, `deliveryId` — nullable) and
+  `handoffNote` (a triggered run's closing note, read by the next run on the same
+  trigger — see §5).
 - **delivery log**: `trigger_delivery` (triggerId, receivedAt, payload hash/size, effect
   outcomes, runId nullable) — powers the delivery log and dedupe. Batched Act triggers
   also store `actPayload`/`actLabel` per delivery (what the later flush quotes), and many

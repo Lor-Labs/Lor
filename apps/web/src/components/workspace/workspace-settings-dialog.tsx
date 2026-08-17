@@ -898,6 +898,7 @@ function ConnectorsSection({ workspaceSlug }: { workspaceSlug: string }) {
                             actWindowSeconds: ev.actWindowSeconds,
                             hourlyRunCap: ev.hourlyRunCap,
                             dailyRunCap: ev.dailyRunCap,
+                            lastAct: ev.lastAct,
                           }}
                           onPatch={(patch) => send(patch)}
                         />

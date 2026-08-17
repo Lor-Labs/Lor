@@ -11,7 +11,11 @@ import {
 } from "@repo/db"
 import { env } from "@repo/env/server"
 import { respond, writeBack } from "@repo/merlin"
-import { flushActWindow } from "@repo/merlin/act-runs"
+import {
+  actRunBriefing,
+  flushActWindow,
+  saveHandoffNote,
+} from "@repo/merlin/act-runs"
 import {
   buildMessageFanout,
   sendInstructionsProposalPush,
@@ -433,6 +437,18 @@ export function createTriggeredRunProcessor(
         )
       }
 
+      // What earlier runs on this trigger concluded, and what people said in
+      // the channel since. Best-effort: a briefing failure must not cost the
+      // run.
+      const briefing = await actRunBriefing({
+        triggerId: run.triggerId,
+        channelId: run.channelId,
+        runId,
+      }).catch((err) => {
+        logger.warn({ err, runId }, "Act briefing failed; running without it")
+        return null
+      })
+
       const answer = await respond(
         {
           workspaceId: execution.workspaceId,
@@ -442,6 +458,7 @@ export function createTriggeredRunProcessor(
           triggered: {
             label,
             instructions: trigger.actInstructions,
+            briefing,
             postMessage: (content) =>
               postMerlinMessage({ channelId: run.channelId, content }),
             createTask: ({ title, goal }) =>
@@ -481,6 +498,9 @@ export function createTriggeredRunProcessor(
       )
 
       const stoppedByUser = answer.stoppedFor === "stopped_by_user"
+      // The closing text is this run's handoff note — persisted before anything
+      // else can fail, since the next run's briefing depends on it.
+      await saveHandoffNote(runId, answer.text)
       await runWriter.transition(stoppedByUser ? "stopped" : "complete", {
         stopReason: answer.stoppedFor ?? "completed",
       })

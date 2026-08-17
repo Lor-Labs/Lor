@@ -70,6 +70,16 @@ export const integrationStatusSchema = z.object({
       actWindowSeconds: z.number(),
       hourlyRunCap: z.number(),
       dailyRunCap: z.number(),
+      // Newest Act run on this event's trigger + the handoff note it left for
+      // the next run. Read-only; null = never run (or no trigger).
+      lastAct: z
+        .object({
+          note: z.string().nullable(),
+          state: z.string(),
+          stopReason: z.string().nullable(),
+          at: z.string(),
+        })
+        .nullable(),
     })
   ),
 })

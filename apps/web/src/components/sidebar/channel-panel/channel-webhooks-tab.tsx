@@ -533,6 +533,7 @@ export function ChannelWebhooksTab({
                             actWindowSeconds: hook.actWindowSeconds,
                             hourlyRunCap: hook.hourlyRunCap,
                             dailyRunCap: hook.dailyRunCap,
+                            lastAct: hook.lastAct,
                           }}
                           onPatch={(patch) =>
                             updateMutation.mutate({

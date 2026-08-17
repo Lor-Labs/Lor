@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID } from "node:crypto"
 import { db } from "@repo/db"
 import {
+  agentRun,
   channel,
   connectorTrigger,
   integrationConnection,
@@ -8,7 +9,7 @@ import {
 } from "@repo/db/schema"
 import { env } from "@repo/env/server"
 import { decryptSecret, encryptSecret } from "@repo/utils/crypto"
-import { and, count, eq } from "drizzle-orm"
+import { and, count, desc, eq, inArray } from "drizzle-orm"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { assertWorkspacePermission } from "@/lib/permissions"
 import type { AppRouteHandler } from "@/lib/types/app-types"
@@ -48,10 +49,46 @@ type WebhookRow = {
   dailyRunCap: number
 }
 
+type LastAct = {
+  note: string | null
+  state: string
+  stopReason: string | null
+  at: string
+}
+
+// Newest agent_run per trigger in one DISTINCT ON query — the list endpoint
+// would otherwise fan out one query per webhook.
+async function lastActByTrigger(triggerIds: string[]) {
+  const byTrigger = new Map<string, LastAct>()
+  if (triggerIds.length === 0) return byTrigger
+  const rows = await db
+    .selectDistinctOn([agentRun.triggerId], {
+      triggerId: agentRun.triggerId,
+      note: agentRun.handoffNote,
+      state: agentRun.state,
+      stopReason: agentRun.stopReason,
+      createdAt: agentRun.createdAt,
+    })
+    .from(agentRun)
+    .where(inArray(agentRun.triggerId, triggerIds))
+    .orderBy(agentRun.triggerId, desc(agentRun.createdAt))
+  for (const row of rows) {
+    if (!row.triggerId) continue
+    byTrigger.set(row.triggerId, {
+      note: row.note,
+      state: row.state,
+      stopReason: row.stopReason,
+      at: row.createdAt.toISOString(),
+    })
+  }
+  return byTrigger
+}
+
 function toResponse(
   row: WebhookRow,
   createdByName: string | null,
-  key: string
+  key: string,
+  lastAct: LastAct | null
 ) {
   let token = ""
   try {
@@ -74,6 +111,7 @@ function toResponse(
     actWindowSeconds: row.actWindowSeconds,
     hourlyRunCap: row.hourlyRunCap,
     dailyRunCap: row.dailyRunCap,
+    lastAct,
   }
 }
 
@@ -170,7 +208,11 @@ export const listChannelWebhooks: AppRouteHandler<
   }
 
   const rows = await db
-    .select({ ...webhookSelection, creatorName: user.name })
+    .select({
+      ...webhookSelection,
+      triggerId: connectorTrigger.id,
+      creatorName: user.name,
+    })
     .from(integrationConnection)
     .innerJoin(
       connectorTrigger,
@@ -186,8 +228,19 @@ export const listChannelWebhooks: AppRouteHandler<
     )
     .orderBy(integrationConnection.createdAt)
 
+  const lastActs = await lastActByTrigger(rows.map((row) => row.triggerId))
+
   return c.json(
-    { webhooks: rows.map((row) => toResponse(row, row.creatorName, key)) },
+    {
+      webhooks: rows.map((row) =>
+        toResponse(
+          row,
+          row.creatorName,
+          key,
+          lastActs.get(row.triggerId) ?? null
+        )
+      ),
+    },
     HttpStatusCodes.OK
   )
 }
@@ -327,7 +380,8 @@ export const createChannelWebhook: AppRouteHandler<
           dailyRunCap: result.trigger.dailyRunCap,
         },
         c.var.user.name,
-        key
+        key,
+        null
       ),
     },
     HttpStatusCodes.OK
@@ -426,8 +480,17 @@ export const updateChannelWebhook: AppRouteHandler<
         .then((rows) => rows[0]?.name ?? null)
     : null
 
+  const lastActs = await lastActByTrigger([updated.triggerId])
+
   return c.json(
-    { webhook: toResponse(updated, creatorName, key) },
+    {
+      webhook: toResponse(
+        updated,
+        creatorName,
+        key,
+        lastActs.get(updated.triggerId) ?? null
+      ),
+    },
     HttpStatusCodes.OK
   )
 }

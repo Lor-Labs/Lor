@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { buildActBatchPayload } from "./act-runs"
+import { buildActBatchPayload, formatActBriefing } from "./act-runs"
 
 // The batch turn is what Merlin actually reads for a coalesced burst, so the
 // framing (count, span, sample numbering) is behavior, not cosmetics.
@@ -97,5 +97,90 @@ describe("buildActBatchPayload", () => {
     })
     expect(payload.length).toBeLessThanOrEqual(48 * 1024 + 1)
     expect(payload).toContain("…")
+  })
+})
+
+// The briefing is how a run learns what its predecessors did — the framing is
+// what stops it from filing the same PR twice.
+describe("formatActBriefing", () => {
+  const at = (iso: string) => new Date(iso)
+
+  it("is empty on a trigger's first run", () => {
+    expect(
+      formatActBriefing({
+        priorRuns: [],
+        totalRuns: 0,
+        messagesSinceLastRun: [],
+      })
+    ).toBeNull()
+  })
+
+  it("carries the predecessor's note and tells the successor to verify it", () => {
+    const briefing = formatActBriefing({
+      priorRuns: [
+        {
+          createdAt: at("2026-08-17T09:07:00Z"),
+          state: "complete",
+          stopReason: "completed",
+          note: "Root cause is the pool ceiling; filed PR #4312.",
+          effects: ["post_channel_message", "investigate_code"],
+        },
+      ],
+      totalRuns: 4,
+      messagesSinceLastRun: [],
+    })
+    expect(briefing).toContain("4 in the last 24h")
+    expect(briefing).toContain("filed PR #4312")
+    expect(briefing).toContain("not verified facts")
+    // Side effects read in a stable order regardless of query order.
+    expect(briefing).toContain(
+      "side effects: investigate_code, post_channel_message"
+    )
+  })
+
+  it("still reports what a crashed run did when it left no note", () => {
+    const briefing = formatActBriefing({
+      priorRuns: [
+        {
+          createdAt: at("2026-08-17T08:41:00Z"),
+          state: "failed",
+          stopReason: "budget_wall_clock",
+          note: null,
+          effects: ["create_linear_issue"],
+        },
+      ],
+      totalRuns: 1,
+      messagesSinceLastRun: [],
+    })
+    expect(briefing).toContain("failed (budget_wall_clock)")
+    expect(briefing).toContain("side effects: create_linear_issue")
+    expect(briefing).toContain("note: (none left)")
+  })
+
+  it("gives humans in the channel the last word", () => {
+    const briefing = formatActBriefing({
+      priorRuns: [
+        {
+          createdAt: at("2026-08-17T09:07:00Z"),
+          state: "complete",
+          stopReason: "completed",
+          note: "Filed PR #4312.",
+          effects: [],
+        },
+      ],
+      totalRuns: 1,
+      messagesSinceLastRun: [
+        {
+          authorName: "jacob",
+          content: "already on it, don't open another PR",
+        },
+        { authorName: null, content: "   " },
+      ],
+    })
+    expect(briefing).toContain("Channel activity since your last run")
+    expect(briefing).toContain("jacob: already on it")
+    expect(briefing).toContain("takes precedence")
+    // Blank messages don't earn a bullet.
+    expect(briefing).not.toContain("Someone:")
   })
 })

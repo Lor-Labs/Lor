@@ -17,6 +17,17 @@ export const webhookIdParamsSchema = channelWebhookParamsSchema.extend({
     .openapi({ param: { name: "webhookId", in: "path", required: true } }),
 })
 
+// The newest Act run on this webhook's trigger, carrying the handoff note that
+// run left for the next one. null = the trigger has never run.
+export const lastActSchema = z
+  .object({
+    note: z.string().nullable(),
+    state: z.string(),
+    stopReason: z.string().nullable(),
+    at: z.string(),
+  })
+  .nullable()
+
 // Token included: the execute URL is the credential, and listing is gated on
 // channel-manage permission (Discord model). Effects: post/remember mirror the
 // webhook's trigger config (reference/automation-primitives.md §2–3).
@@ -36,6 +47,8 @@ export const channelWebhookSchema = z.object({
   actWindowSeconds: z.number(),
   hourlyRunCap: z.number(),
   dailyRunCap: z.number(),
+  // Read-only: never accepted on create/update.
+  lastAct: lastActSchema,
 })
 
 export const listChannelWebhooksResponseSchema = z.object({

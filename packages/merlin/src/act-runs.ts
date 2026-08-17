@@ -1,13 +1,16 @@
 import {
+  APP_USER_ID,
   and,
   db,
   desc,
   eq,
   gte,
+  inArray,
   isNotNull,
   isNull,
   isUniqueViolation,
   lt,
+  ne,
   or,
   schema,
   sql,
@@ -43,6 +46,17 @@ const MAX_REARM_MS = 15 * 60 * 1000
 // Act queues deliveries, it doesn't archive them: a delivery older than this
 // is history rather than an incident, and stops being batch material.
 const ACT_QUEUE_MAX_AGE_MS = 24 * 60 * 60 * 1000
+// The handoff chain a run is briefed with: recent enough to be true, short
+// enough that stale conclusions can't dominate the prompt.
+const BRIEFING_RUNS = 3
+const BRIEFING_MAX_AGE_MS = 24 * 60 * 60 * 1000
+const BRIEFING_NOTE_MAX = 1200
+// Channel activity since the last run — the "already on it, don't file another
+// PR" signal. Webhook deliveries are excluded, so this is people talking.
+const BRIEFING_MESSAGES = 10
+const BRIEFING_MESSAGE_MAX = 300
+// A run's closing note, stored for its successor.
+export const HANDOFF_NOTE_MAX = 2000
 
 export type ActLimits = { hourlyRunCap: number; dailyRunCap: number }
 
@@ -237,6 +251,182 @@ export async function overdueActWindows(
 }
 
 export type PreparedActRun = { runId: string; payload: string; label: string }
+
+export type BriefingRun = {
+  createdAt: Date
+  state: string
+  stopReason: string | null
+  note: string | null
+  // Side-effecting tools this run executed — the account that survives a run
+  // dying before it could write a note.
+  effects: string[]
+}
+
+export type BriefingMessage = { authorName: string | null; content: string }
+
+// The prompt block itself. Pure so the framing — which is what actually steers
+// a successor run — is testable without a database.
+export function formatActBriefing(input: {
+  priorRuns: BriefingRun[]
+  totalRuns: number
+  messagesSinceLastRun: BriefingMessage[]
+}): string | null {
+  const lines: string[] = []
+  if (input.priorRuns.length > 0) {
+    lines.push(
+      `## Earlier runs on this trigger (newest first; ${input.totalRuns} in the last 24h)`,
+      "These are your predecessors' own words, not verified facts. If one says it",
+      "already filed, created, or fixed something, check the current state with your",
+      "tools before doing it again.",
+      ""
+    )
+    for (const run of input.priorRuns) {
+      const outcome =
+        run.state === "complete"
+          ? "completed"
+          : `${run.state}${run.stopReason ? ` (${run.stopReason})` : ""}`
+      const effects =
+        run.effects.length > 0
+          ? ` — side effects: ${[...run.effects].sort().join(", ")}`
+          : ""
+      lines.push(`- ${run.createdAt.toISOString()} — ${outcome}${effects}`)
+      lines.push(
+        run.note?.trim()
+          ? `  note: ${clip(run.note.trim(), BRIEFING_NOTE_MAX)}`
+          : "  note: (none left)"
+      )
+    }
+  }
+  const messages = input.messagesSinceLastRun.filter(
+    (m) => m.content.trim().length > 0
+  )
+  if (messages.length > 0) {
+    lines.push(
+      "",
+      "## Channel activity since your last run",
+      "Webhook deliveries are omitted — this is what people (and your own posts) said.",
+      "A human saying it's handled takes precedence over your predecessors' plans.",
+      ""
+    )
+    for (const m of messages) {
+      lines.push(
+        `- ${m.authorName ?? "Someone"}: ${clip(m.content.trim(), BRIEFING_MESSAGE_MAX)}`
+      )
+    }
+  }
+  return lines.length > 0 ? lines.join("\n") : null
+}
+
+// The handoff chain: what previous runs on this trigger concluded and did, plus
+// what people said in the channel since. Runs on a trigger are serialized, so
+// this is a real chain rather than interleaved siblings — which is what makes
+// "a prior run already filed a PR" knowable at all.
+// See reference/automation-primitives.md §5.
+export async function actRunBriefing(input: {
+  triggerId: string
+  channelId: string
+  // The run being briefed (excluded from its own history).
+  runId: string
+}): Promise<string | null> {
+  const since = new Date(Date.now() - BRIEFING_MAX_AGE_MS)
+  const history = and(
+    eq(schema.agentRun.triggerId, input.triggerId),
+    ne(schema.agentRun.id, input.runId),
+    gte(schema.agentRun.createdAt, since)
+  )
+  const [recent, totalRuns] = await Promise.all([
+    db
+      .select({
+        id: schema.agentRun.id,
+        createdAt: schema.agentRun.createdAt,
+        state: schema.agentRun.state,
+        stopReason: schema.agentRun.stopReason,
+        note: schema.agentRun.handoffNote,
+      })
+      .from(schema.agentRun)
+      .where(history)
+      .orderBy(desc(schema.agentRun.createdAt))
+      .limit(BRIEFING_RUNS),
+    db
+      .select({ value: sql<number>`count(*)::int` })
+      .from(schema.agentRun)
+      .where(history)
+      .then((rows) => rows[0]?.value ?? 0),
+  ])
+
+  const effectsByRun = new Map<string, string[]>()
+  if (recent.length > 0) {
+    const rows = await db
+      .selectDistinct({
+        runId: schema.agentRunToolResult.runId,
+        toolName: schema.agentRunToolResult.toolName,
+      })
+      .from(schema.agentRunToolResult)
+      .where(
+        inArray(
+          schema.agentRunToolResult.runId,
+          recent.map((r) => r.id)
+        )
+      )
+    for (const row of rows) {
+      const list = effectsByRun.get(row.runId) ?? []
+      list.push(row.toolName)
+      effectsByRun.set(row.runId, list)
+    }
+  }
+
+  // People talking in the channel outranks anything a prior run assumed.
+  const lastRunAt = recent[0]?.createdAt
+  const messages = lastRunAt
+    ? await db
+        .select({
+          content: schema.message.content,
+          authorName: schema.user.name,
+        })
+        .from(schema.message)
+        .leftJoin(schema.user, eq(schema.message.authorId, schema.user.id))
+        .where(
+          and(
+            eq(schema.message.channelId, input.channelId),
+            gte(schema.message.createdAt, lastRunAt),
+            // Webhook/bot deliveries are the firehose this trigger already sees.
+            ne(schema.message.authorId, APP_USER_ID)
+          )
+        )
+        .orderBy(desc(schema.message.createdAt))
+        .limit(BRIEFING_MESSAGES)
+    : []
+
+  return formatActBriefing({
+    priorRuns: recent.map((run) => ({
+      createdAt: run.createdAt,
+      state: run.state,
+      stopReason: run.stopReason,
+      note: run.note,
+      effects: effectsByRun.get(run.id) ?? [],
+    })),
+    totalRuns,
+    // Oldest first reads as a conversation.
+    messagesSinceLastRun: messages.reverse().map((m) => ({
+      authorName: m.authorName,
+      content: m.content ?? "",
+    })),
+  })
+}
+
+// A run's closing text, kept as the brief for whatever runs next.
+export async function saveHandoffNote(
+  runId: string,
+  note: string
+): Promise<void> {
+  const trimmed = note.trim()
+  if (!trimmed) return
+  await db
+    .update(schema.agentRun)
+    .set({ handoffNote: clip(trimmed, HANDOFF_NOTE_MAX) })
+    .where(eq(schema.agentRun.id, runId))
+    .catch(() => {})
+}
 
 export type ActFlushResult =
   // The batch is ready; the caller executes this run.
