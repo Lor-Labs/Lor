@@ -245,12 +245,15 @@ function ProfileRow({
   available: AvailableCapability[]
   tools: AvailableCustomTool[]
   servers: AvailableToolServer[]
-  onSave: (
-    name: string,
-    capabilities: MerlinCapabilityKey[],
-    customToolIds: string[],
+  // One named payload rather than positional args: customToolIds and
+  // toolServerIds are both string[], and silently swapping them would grant
+  // the wrong tools.
+  onSave: (values: {
+    name: string
+    capabilities: MerlinCapabilityKey[]
+    customToolIds: string[]
     toolServerIds: string[]
-  ) => void
+  }) => void
   onDelete?: () => void
   onCancelNew?: () => void
   saving?: boolean
@@ -305,12 +308,12 @@ function ProfileRow({
     const preserved = (profile?.capabilities ?? []).filter(
       (k) => !availableKeys.has(k)
     )
-    onSave(
-      name.trim(),
-      [...new Set([...selected, ...preserved])],
-      [...selectedTools],
-      [...selectedServers]
-    )
+    onSave({
+      name: name.trim(),
+      capabilities: [...new Set([...selected, ...preserved])],
+      customToolIds: [...selectedTools],
+      toolServerIds: [...selectedServers],
+    })
     if (!isNew) setEditing(false)
   }
 
@@ -618,15 +621,7 @@ export function MerlinProfilesSection({
           tools={data.availableCustomTools}
           servers={data.availableToolServers}
           saving={save.isPending}
-          onSave={(name, capabilities, customToolIds, toolServerIds) =>
-            save.mutate({
-              id: p.id,
-              name,
-              capabilities,
-              customToolIds,
-              toolServerIds,
-            })
-          }
+          onSave={(values) => save.mutate({ id: p.id, ...values })}
           onDelete={
             p.isDefault
               ? undefined
@@ -640,9 +635,7 @@ export function MerlinProfilesSection({
           tools={data.availableCustomTools}
           servers={data.availableToolServers}
           saving={save.isPending}
-          onSave={(name, capabilities, customToolIds, toolServerIds) =>
-            save.mutate({ name, capabilities, customToolIds, toolServerIds })
-          }
+          onSave={(values) => save.mutate(values)}
           onCancelNew={() => setCreating(false)}
         />
       ) : (

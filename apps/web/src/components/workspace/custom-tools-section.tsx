@@ -54,7 +54,6 @@ import {
 } from "@/components/workspace/template-input"
 import {
   McpServersBlock,
-  type ToolServerRow,
   useToolServers,
 } from "@/components/workspace/tool-servers-section"
 import { apiClient } from "@/lib/api-client"
@@ -1216,7 +1215,7 @@ export function CustomToolsSection({
 
   const tools = (data?.tools ?? []) as CustomToolRow[]
   const serversQuery = useToolServers(workspaceSlug)
-  const servers = (serversQuery.data?.servers ?? []) as ToolServerRow[]
+  const servers = serversQuery.data?.servers ?? []
 
   return (
     <div className="space-y-4">
@@ -1296,7 +1295,7 @@ export function CustomToolsSection({
         onCloseCreate={() => setCreatingServer(false)}
       />
 
-      {isPending ? (
+      {isPending || serversQuery.isPending ? (
         <div className="flex justify-center py-6">
           <Spinner className="size-4 text-muted-foreground" />
         </div>

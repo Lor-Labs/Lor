@@ -385,8 +385,7 @@ Ship in this order; each phase is independently useful and de-risks the next.
    tool to query X and act" story.) **Shipped 2026-08-15** — see §4 for the as-built
    descriptor, template semantics, SSRF stance, and the cURL import.
 6. **Later:** message-triggered rules, provider-native subscription filters (Attio
-   `$and`/`$or`), **MCP tool servers** and **Postgres querying** (next on the horizon —
-   see §4), per-tool channel granularity,
+   `$and`/`$or`), **Postgres querying** (next on the horizon — see §4),
    approval routing for unattended writes (jacob's ticket), multi-channel fan-out per
    event, Merlin self-configuration (reads a codebase, calls the same CRUD APIs to wire
    tools + triggers), and **message UI blocks** — Lor's native rich-message shape:

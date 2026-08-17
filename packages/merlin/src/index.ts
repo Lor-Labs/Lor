@@ -1398,11 +1398,13 @@ export async function respond(
   // Collisions are filtered at merge, so this needs no takenNames up front.
   const toolServersPromise =
     grants.toolServers === "all" || grants.toolServers.length > 0
-      ? channelToolServers(
+      ? // Handled here at creation: the await is several steps away, and an
+        // unhandled rejection in between is a process-level event.
+        channelToolServers(
           ctx.workspaceId,
           grants.toolServers,
           new Set<string>()
-        )
+        ).catch(() => null)
       : Promise.resolve(null)
   const needsGithub =
     caps.includes("github") || caps.includes("code_intelligence")
@@ -1473,11 +1475,12 @@ export async function respond(
         ).catch(() => null)
       : null
   // MCP server tools bind last; anything already named wins the collision.
-  const toolServerSession = await toolServersPromise.catch(() => null)
+  const toolServerSession = await toolServersPromise
   const tools: typeof builtinTools & ToolSet = {
     ...builtinTools,
     ...(customTools ?? {}),
   }
+  const boundServerToolNames = new Set<string>()
   if (toolServerSession) {
     for (const [name, tool] of Object.entries(toolServerSession.tools)) {
       if (name in tools) {
@@ -1488,8 +1491,15 @@ export async function respond(
         continue
       }
       ;(tools as ToolSet)[name] = tool
+      boundServerToolNames.add(name)
     }
   }
+  // Only servers that actually contributed a tool get advertised — a server
+  // whose every tool lost a collision would otherwise be announced as
+  // connected with nothing behind it.
+  const promptToolServers = (toolServerSession?.servers ?? []).filter((s) =>
+    s.toolNames.some((name) => boundServerToolNames.has(name))
+  )
 
   const toolsContext = {
     ...coreToolsContext(
@@ -1606,7 +1616,9 @@ export async function respond(
     notion && caps.includes("notion") ? NOTION_PROMPT_LINE : null,
     artifactsEnabled ? ARTIFACTS_PROMPT_LINE : null,
     customTools ? CUSTOM_TOOLS_PROMPT_LINE : null,
-    toolServerSession ? toolServersPromptLine(toolServerSession.servers) : null,
+    promptToolServers.length > 0
+      ? toolServersPromptLine(promptToolServers)
+      : null,
   ].filter((line): line is string => line !== null)
 
   // The finally closes the MCP sessions (Datadog + workspace tool servers)
@@ -1882,8 +1894,9 @@ export async function respond(
 
     return { text, messages: [...messages, ...responseMessages], stoppedFor }
   } finally {
-    await datadogMcp?.close()
-    await toolServerSession?.close()
+    // Independent: one session's close must not skip the other's, nor replace
+    // the response error with a teardown rejection.
+    await Promise.allSettled([datadogMcp?.close(), toolServerSession?.close()])
   }
 }
 

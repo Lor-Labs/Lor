@@ -151,6 +151,10 @@ function cleanToolDescription(raw: string): string {
     .trim()
 }
 
+// Matches the API's secret-name rule (tool-servers schema) so a bad name is
+// caught in the form instead of coming back as a 400.
+const SECRET_NAME_REGEX = /^[A-Za-z][A-Za-z0-9_]{0,63}$/
+
 function PairRows({
   pairs,
   onChange,
@@ -269,7 +273,14 @@ function ServerEditor({
   onSave: () => void
   onCancel: () => void
 }) {
-  const canDiscover = draft.url.trim().length > 0 && !discovering && !busy
+  const invalidSecretNames = draft.newSecrets
+    .map((s) => s.name.trim())
+    .filter((name) => name.length > 0 && !SECRET_NAME_REGEX.test(name))
+  const canDiscover =
+    draft.url.trim().length > 0 &&
+    invalidSecretNames.length === 0 &&
+    !discovering &&
+    !busy
   const definedSecretNames = [
     ...draft.keptSecretNames,
     ...draft.newSecrets.map((s) => s.name.trim()).filter(Boolean),
@@ -295,6 +306,7 @@ function ServerEditor({
     draft.name.trim().length > 0 &&
     draft.url.trim().length > 0 &&
     draft.enabled.size > 0 &&
+    invalidSecretNames.length === 0 &&
     !busy
 
   return (
@@ -447,6 +459,12 @@ function ServerEditor({
           secret
           addLabel="Add secret"
         />
+        {invalidSecretNames.length > 0 && (
+          <p className="text-[11px] text-destructive-foreground">
+            {invalidSecretNames.join(", ")} — secret names must start with a
+            letter and use only letters, numbers, and underscores.
+          </p>
+        )}
       </div>
 
       <div className="space-y-1.5 border-border border-t pt-3">

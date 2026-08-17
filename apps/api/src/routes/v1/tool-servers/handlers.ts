@@ -188,16 +188,24 @@ export const updateToolServer: AppRouteHandler<UpdateToolServerRoute> = async (
   // Merge semantics: string sets (encrypted), null deletes, absent keeps.
   let secrets: Record<string, string> | undefined
   if (body.secrets !== undefined) {
-    secrets = { ...existing.secrets }
+    // Count the merged set before encrypting — a patch isn't size-capped by
+    // the schema (null deletes need to pass through), so an oversized body
+    // would otherwise buy N encryptions before the rejection.
+    const merged = new Set(Object.keys(existing.secrets))
     for (const [name, value] of Object.entries(body.secrets)) {
-      if (value === null) delete secrets[name]
-      else secrets[name] = encryptSecret(value, key)
+      if (value === null) merged.delete(name)
+      else merged.add(name)
     }
-    if (Object.keys(secrets).length > 20) {
+    if (merged.size > 20) {
       return c.json(
         { success: false, message: "At most 20 secrets" },
         HttpStatusCodes.BAD_REQUEST
       )
+    }
+    secrets = { ...existing.secrets }
+    for (const [name, value] of Object.entries(body.secrets)) {
+      if (value === null) delete secrets[name]
+      else secrets[name] = encryptSecret(value, key)
     }
   }
 
@@ -336,14 +344,18 @@ export const rediscoverToolServer: AppRouteHandler<
       HttpStatusCodes.BAD_REQUEST
     )
   }
-  // Stored secrets decrypted, unsaved plaintext ones overlaid on top.
+  // Stored secrets decrypted, unsaved plaintext ones overlaid on top. Write-
+  // only secrets must never leave for a host the workspace didn't save them
+  // against, so a url override tests with the request's own secrets only.
   const secrets: Record<string, string> = {}
-  for (const [name, ciphertext] of Object.entries(existing.secrets)) {
-    try {
-      secrets[name] = decryptSecret(ciphertext, key)
-    } catch {
-      // An undecryptable secret renders as empty; the handshake will fail
-      // with the server's own auth error, which is more actionable.
+  if (url === existing.url) {
+    for (const [name, ciphertext] of Object.entries(existing.secrets)) {
+      try {
+        secrets[name] = decryptSecret(ciphertext, key)
+      } catch {
+        // An undecryptable secret renders as empty; the handshake will fail
+        // with the server's own auth error, which is more actionable.
+      }
     }
   }
   Object.assign(secrets, body.secrets)

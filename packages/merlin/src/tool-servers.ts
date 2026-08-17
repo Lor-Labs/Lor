@@ -159,8 +159,10 @@ export async function discoverToolServer(input: {
 
 export type ToolServerSessions = {
   tools: ToolSet
-  // The servers whose tools actually bound (for the prompt line).
-  servers: { name: string; description: string }[]
+  // The servers whose tools bound here, each with the tool names it
+  // contributed — the caller filters again against built-ins/custom tools, so
+  // the prompt line can only claim servers that survived that pass.
+  servers: { name: string; description: string; toolNames: string[] }[]
   close: () => Promise<void>
 }
 
@@ -218,7 +220,11 @@ export async function channelToolServers(
   )
 
   const tools: ToolSet = {}
-  const bound: { name: string; description: string }[] = []
+  const bound: {
+    name: string
+    description: string
+    toolNames: string[]
+  }[] = []
   const clients: Array<{ close: () => Promise<void> }> = []
   for (const session of sessions) {
     if (!session) continue
@@ -243,6 +249,7 @@ export async function channelToolServers(
     bound.push({
       name: session.row.name,
       description: session.row.description,
+      toolNames: Object.keys(serverTools),
     })
     clients.push(session.client)
   }
