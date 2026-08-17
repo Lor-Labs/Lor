@@ -163,6 +163,9 @@ export type IngestSourceInput = Omit<
   "id" | "summary" | "embedding" | "status" | "createdAt" | "updatedAt"
 > & {
   content: string
+  // Optional steering for the summarize pass (a trigger's Remember hint) —
+  // e.g. "this receives call transcripts; capture attendees and decisions".
+  hint?: string | null
 }
 
 const SUMMARY_FALLBACK_MAX = 1000
@@ -185,7 +188,7 @@ async function summarize(
     const result = await generateText({
       model: merlinSmallModel,
       reasoning: "low",
-      prompt: `Summarize this ${input.provider} ${input.kind} for a team's institutional memory in 2–4 sentences: what changed or was decided, who did it, and why it matters. Be factual and specific; no preamble.\n\nTitle: ${input.title}\nAuthor: ${input.author ?? "unknown"}\n\n${input.content}`,
+      prompt: `Summarize this ${input.provider} ${input.kind} for a team's institutional memory in 2–4 sentences: what changed or was decided, who did it, and why it matters. Be factual and specific; no preamble.${input.hint ? `\nWorkspace guidance for this data: ${input.hint}` : ""}\n\nTitle: ${input.title}\nAuthor: ${input.author ?? "unknown"}\n\n${input.content}`,
       providerOptions: {
         gateway: smallGatewayOptions,
       },
@@ -221,7 +224,7 @@ export async function ingestSource(
     })
     .catch(() => null)
 
-  const { content: _content, ...columns } = input
+  const { content: _content, hint: _hint, ...columns } = input
   await db
     .insert(schema.source)
     .values({ ...columns, summary, embedding, status: "active" })

@@ -8,8 +8,8 @@ As-built reference for the durable run system, shipped 2026-08-01/02. A Merlin r
 
 One row per user-facing run — the durable spine.
 
-- Identity: `workspaceId`, `channelId`, `threadRootId` (null for channel-placed replies), `messageId` (the pending placeholder the run streams into), `triggerMessageId`.
-- Scope: `scopeKey = threadRootId ?? channelId`, with a partial unique index over active states (`queued | working | finalizing`) → **one active run per conversation scope, enforced by Postgres**. Placement-ducked answers get their own thread scope, so only genuinely in-channel answers serialize.
+- Identity: `workspaceId`, `channelId`, `threadRootId` (null for channel-placed replies), `messageId` (the pending placeholder the run streams into — **null for headless triggered runs**, the Act effect), `triggerMessageId`, and trigger provenance `triggerId`/`deliveryId` (null on conversational runs; see `automation-primitives.md` §2).
+- Scope: `scopeKey = threadRootId ?? channelId` (headless triggered runs use their `deliveryId`), with a partial unique index over active states (`queued | working | finalizing`) → **one active run per conversation scope, enforced by Postgres**. Placement-ducked answers get their own thread scope, so only genuinely in-channel answers serialize.
 - State machine: `state` (`queued | working | finalizing | complete | failed | stopped`), `phase` (`answer | writeback`), `stopReason` (completed, per-budget reasons, out_of_credits, error, stopped_by_user). Stop reason and terminal state commit in the same transaction that ends the run.
 - Ownership: `leaseOwner`, `leaseExpiresAt`, `attempt`, `maxAttempts` (2 = one recovery). Claiming and every counter/state write is a lease-guarded CAS UPDATE — retries and concurrent workers can't double-spend or double-own.
 - Counters (cumulative, never reset on retry): `steps` (doubles as the checkpoint pointer — transcript rows 1..steps are durable), `inputTokens`, `outputTokens` (incl. reasoning), `toolCalls`, `toolOutputBytes`, `creditsSpent`, `startedAt`, `deadlineAt` (absolute wall-clock ceiling so recovery can't extend it).

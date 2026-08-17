@@ -2,6 +2,7 @@ import {
   Layers01Icon,
   Settings01Icon,
   WebhookIcon,
+  Wrench01Icon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react"
 import { Button } from "@repo/ui/components/button"
@@ -49,21 +50,30 @@ const TABS: { id: Tab; label: string; icon: IconSvgElement }[] = [
 function ProfileCapabilities({
   profile,
   available,
+  tools,
 }: {
   profile: AgentProfile
   available: AvailableCapability[]
+  tools: { id: string; name: string; description: string }[]
 }) {
   const granted = profile.grantsAll
     ? available
     : available.filter((c) => profile.capabilities.includes(c.key))
+  // Individual tool grants only matter without the blanket custom_tools
+  // capability (which already renders as "All custom tools" above).
+  const blanket =
+    profile.grantsAll || profile.capabilities.includes("custom_tools")
+  const grantedTools = blanket
+    ? []
+    : tools.filter((t) => profile.customToolIds.includes(t.id))
 
   return (
     <div className="space-y-2 rounded-lg border border-border bg-muted/30 p-3">
       <div className="text-xs font-medium text-muted-foreground">
         Merlin can use
       </div>
-      {granted.length === 0 ? (
-        <p className="text-xs text-muted-foreground">No connectors.</p>
+      {granted.length === 0 && grantedTools.length === 0 ? (
+        <p className="text-xs text-muted-foreground">Chat & memory only.</p>
       ) : (
         <ul className="space-y-2">
           {granted.map((c) => {
@@ -71,7 +81,15 @@ function ProfileCapabilities({
             return (
               <li key={c.key} className="flex items-center gap-3">
                 <span className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-background">
-                  <Icon className="size-4" />
+                  {c.key === "custom_tools" ? (
+                    <HugeiconsIcon
+                      icon={Wrench01Icon}
+                      className="size-4"
+                      strokeWidth={2}
+                    />
+                  ) : (
+                    <Icon className="size-4" />
+                  )}
                 </span>
                 <span className="min-w-0">
                   <span className="block text-sm">{c.label}</span>
@@ -82,6 +100,23 @@ function ProfileCapabilities({
               </li>
             )
           })}
+          {grantedTools.map((t) => (
+            <li key={t.id} className="flex items-center gap-3">
+              <span className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-background">
+                <HugeiconsIcon
+                  icon={Wrench01Icon}
+                  className="size-4"
+                  strokeWidth={2}
+                />
+              </span>
+              <span className="min-w-0">
+                <span className="block font-mono text-sm">{t.name}</span>
+                <span className="block text-xs text-muted-foreground">
+                  {t.description}
+                </span>
+              </span>
+            </li>
+          ))}
         </ul>
       )}
     </div>
@@ -329,6 +364,7 @@ export function EditChannelDialog({
                       <ProfileCapabilities
                         profile={previewProfile}
                         available={profilesData.availableCapabilities}
+                        tools={profilesData.availableCustomTools}
                       />
                     )}
 

@@ -8,14 +8,16 @@ import {
 import { db } from "@repo/db"
 import {
   channel,
-  connectorNotificationRoute,
+  connectorTrigger,
   integrationConnection,
 } from "@repo/db/schema"
 import { env } from "@repo/env/server"
 import {
+  deleteAttioWebhook,
   connectAttio as exchangeAttioCode,
   connectLinear as exchangeLinearCode,
   connectNotion as exchangeNotionCode,
+  getAttioAccessToken,
   getInstallationOverview,
   getSourceProvider,
   connectCloudwatch as verifyCloudwatchKeys,
@@ -27,6 +29,7 @@ import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
 import { signOAuthState, verifyOAuthState } from "@/lib/oauth-state"
 import type { AppRouteHandler } from "@/lib/types/app-types"
+import { ATTIO_EVENT_SUBSCRIPTIONS } from "@/routes/v1/integrations/attio/index"
 import type {
   ConnectAttioRoute,
   ConnectCloudwatchRoute,
@@ -44,6 +47,10 @@ const linearRedirectUri = () =>
   `${env.APP_BASE_URL}/integrations/linear/callback`
 
 const attioRedirectUri = () => `${env.APP_BASE_URL}/integrations/attio/callback`
+
+// Where Attio delivers events — must be publicly reachable (tunnel in dev).
+const attioWebhookTargetUrl = () =>
+  `${env.NEXT_PUBLIC_API_URL.replace(/\/+$/, "")}/v1/integrations/attio/webhook`
 
 const notionRedirectUri = () =>
   `${env.APP_BASE_URL}/integrations/notion/callback`
@@ -67,8 +74,10 @@ function attioConnectUrl(state: string): string | null {
   if (!env.ATTIO_CLIENT_ID) return null
   // Attio OAuth scopes are configured on the app in the Developer Console,
   // not requested on this URL. It must include all eleven scopes in
-  // ATTIO_REQUIRED_READ_SCOPES (packages/merlin/src/providers/attio.ts) and no
-  // read-write scopes; connectAttio enforces that exact policy after exchange.
+  // ATTIO_REQUIRED_READ_SCOPES plus webhook:read-write (the only permitted
+  // write scope — event webhook management), and nothing else; connectAttio
+  // enforces that exact policy after exchange
+  // (packages/merlin/src/providers/attio.ts).
   const params = new URLSearchParams({
     response_type: "code",
     client_id: env.ATTIO_CLIENT_ID,
@@ -120,6 +129,9 @@ function connectUrlFor(
     case "api-key":
       // Keyed connectors are entered in-app, not via a redirect.
       return null
+    case "token":
+      // BYO webhooks are created from channel settings, never connected here.
+      return null
   }
 }
 
@@ -146,24 +158,28 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
     )
   const byProvider = new Map(connections.map((r) => [r.provider, r]))
 
-  const routes =
+  const triggers =
     connections.length > 0
       ? await db
           .select({
-            connectionId: connectorNotificationRoute.connectionId,
-            event: connectorNotificationRoute.event,
-            channelId: connectorNotificationRoute.channelId,
+            connectionId: connectorTrigger.connectionId,
+            event: connectorTrigger.event,
+            channelId: connectorTrigger.channelId,
+            post: connectorTrigger.post,
+            remember: connectorTrigger.remember,
+            rememberHint: connectorTrigger.rememberHint,
+            actInstructions: connectorTrigger.actInstructions,
           })
-          .from(connectorNotificationRoute)
+          .from(connectorTrigger)
           .where(
             inArray(
-              connectorNotificationRoute.connectionId,
+              connectorTrigger.connectionId,
               connections.map((r) => r.id)
             )
           )
       : []
-  const routeChannel = new Map(
-    routes.map((r) => [`${r.connectionId}:${r.event}`, r.channelId])
+  const triggerByEvent = new Map(
+    triggers.map((t) => [`${t.connectionId}:${t.event}`, t])
   )
 
   if (!env.GITHUB_APP_SLUG) {
@@ -227,13 +243,20 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
         repos,
         repoCount,
         manageUrl,
-        events: CONNECTOR_EVENTS[descriptor.id].map((e) => ({
-          key: e.key,
-          label: e.label,
-          channelId: conn
-            ? (routeChannel.get(`${conn.id}:${e.key}`) ?? null)
-            : null,
-        })),
+        events: CONNECTOR_EVENTS[descriptor.id].map((e) => {
+          const trigger = conn
+            ? triggerByEvent.get(`${conn.id}:${e.key}`)
+            : undefined
+          return {
+            key: e.key,
+            label: e.label,
+            channelId: trigger?.channelId ?? null,
+            post: trigger?.post ?? true,
+            remember: trigger?.remember ?? false,
+            rememberHint: trigger?.rememberHint ?? null,
+            actInstructions: trigger?.actInstructions ?? null,
+          }
+        }),
       }
     })
   )
@@ -414,6 +437,10 @@ const OAUTH_TOKEN_WIPE = {
   refreshToken: null,
   tokenExpiresAt: null,
   scope: null,
+  // A revoked row must not keep a stale webhook binding — the receiver looks
+  // connections up by webhookId.
+  webhookId: null,
+  webhookSecret: null,
 } satisfies ConnectionWrite
 
 export const connectLinear: AppRouteHandler<ConnectLinearRoute> = async (c) => {
@@ -602,19 +629,43 @@ export const connectAttio: AppRouteHandler<ConnectAttioRoute> = async (c) => {
     )
   }
 
-  const result = await exchangeAttioCode(code, attioRedirectUri()).catch(
-    () => null
-  )
+  const result = await exchangeAttioCode(code, attioRedirectUri(), {
+    targetUrl: attioWebhookTargetUrl(),
+    eventTypes: Object.keys(ATTIO_EVENT_SUBSCRIPTIONS),
+  }).catch(() => null)
   if (!result) {
     return c.json(
       {
         success: false,
         message:
-          "Couldn't connect Attio — verify the app has every required read scope and no read-write scopes",
+          "Couldn't connect Attio — verify the app has every required read scope plus webhook:read-write, and no other write scopes",
       },
       HttpStatusCodes.BAD_REQUEST
     )
   }
+
+  // A reconnect to a DIFFERENT Attio workspace revokes the old row and wipes
+  // its webhookId/token (OAUTH_TOKEN_WIPE) — capture them first so the old
+  // provider-side webhook can be deleted, like the disconnect path does.
+  const outgoing = await db
+    .select({
+      externalId: integrationConnection.externalId,
+      webhookId: integrationConnection.webhookId,
+    })
+    .from(integrationConnection)
+    .where(
+      and(
+        eq(integrationConnection.workspaceId, workspace.id),
+        eq(integrationConnection.provider, "attio"),
+        eq(integrationConnection.status, "active"),
+        ne(integrationConnection.externalId, result.externalId)
+      )
+    )
+    .limit(1)
+    .then((rows) => rows[0] ?? null)
+  const outgoingToken = outgoing?.webhookId
+    ? await getAttioAccessToken(outgoing.externalId).catch(() => null)
+    : null
 
   const ok = await replaceActiveConnection({
     workspaceId: workspace.id,
@@ -626,6 +677,8 @@ export const connectAttio: AppRouteHandler<ConnectAttioRoute> = async (c) => {
       accessToken: result.accessToken,
       tokenExpiresAt: result.tokenExpiresAt,
       scope: result.scope,
+      webhookId: result.webhookId,
+      webhookSecret: result.webhookSecret,
     },
     // Attio issues no refresh token; a reused row must not keep a stale one.
     set: {
@@ -634,6 +687,8 @@ export const connectAttio: AppRouteHandler<ConnectAttioRoute> = async (c) => {
       refreshToken: null,
       tokenExpiresAt: result.tokenExpiresAt,
       scope: result.scope,
+      webhookId: result.webhookId,
+      webhookSecret: result.webhookSecret,
     },
   })
 
@@ -644,6 +699,17 @@ export const connectAttio: AppRouteHandler<ConnectAttioRoute> = async (c) => {
         message: "This Attio workspace is connected to another workspace",
       },
       HttpStatusCodes.CONFLICT
+    )
+  }
+
+  if (outgoingToken && outgoing?.webhookId) {
+    // Best effort — a leftover webhook just degrades on Attio's side.
+    void deleteAttioWebhook(outgoingToken, outgoing.webhookId)
+  } else if (outgoing?.webhookId) {
+    // No token means no way to delete it — leave a trace of the leak.
+    logger.warn(
+      { webhookId: outgoing.webhookId, externalId: outgoing.externalId },
+      "Old Attio webhook left registered; token unavailable for cleanup"
     )
   }
 
@@ -720,7 +786,8 @@ export const updateIntegration: AppRouteHandler<
 > = async (c) => {
   const workspace = c.var.workspace
   const { connectionId } = c.req.valid("param")
-  const { event, notifyChannelId } = c.req.valid("json")
+  const { event, channelId, post, remember, rememberHint, actInstructions } =
+    c.req.valid("json")
 
   const connection = await db
     .select({
@@ -750,13 +817,13 @@ export const updateIntegration: AppRouteHandler<
     )
   }
 
-  if (notifyChannelId === null) {
+  if (channelId === null) {
     await db
-      .delete(connectorNotificationRoute)
+      .delete(connectorTrigger)
       .where(
         and(
-          eq(connectorNotificationRoute.connectionId, connection.id),
-          eq(connectorNotificationRoute.event, event)
+          eq(connectorTrigger.connectionId, connection.id),
+          eq(connectorTrigger.event, event)
         )
       )
     return c.json({ success: true as const }, HttpStatusCodes.OK)
@@ -767,7 +834,7 @@ export const updateIntegration: AppRouteHandler<
     .from(channel)
     .where(
       and(
-        eq(channel.id, notifyChannelId),
+        eq(channel.id, channelId),
         eq(channel.workspaceId, workspace.id),
         eq(channel.type, "text")
       )
@@ -782,18 +849,19 @@ export const updateIntegration: AppRouteHandler<
   }
 
   await db
-    .insert(connectorNotificationRoute)
+    .insert(connectorTrigger)
     .values({
       connectionId: connection.id,
       event,
-      channelId: notifyChannelId,
+      channelId,
+      post,
+      remember,
+      rememberHint,
+      actInstructions,
     })
     .onConflictDoUpdate({
-      target: [
-        connectorNotificationRoute.connectionId,
-        connectorNotificationRoute.event,
-      ],
-      set: { channelId: notifyChannelId },
+      target: [connectorTrigger.connectionId, connectorTrigger.event],
+      set: { channelId, post, remember, rememberHint, actInstructions },
     })
 
   return c.json({ success: true as const }, HttpStatusCodes.OK)
@@ -806,7 +874,11 @@ export const disconnectIntegration: AppRouteHandler<
   const { connectionId } = c.req.valid("param")
 
   const connection = await db
-    .select({ provider: integrationConnection.provider })
+    .select({
+      provider: integrationConnection.provider,
+      externalId: integrationConnection.externalId,
+      webhookId: integrationConnection.webhookId,
+    })
     .from(integrationConnection)
     .where(
       and(
@@ -835,6 +907,13 @@ export const disconnectIntegration: AppRouteHandler<
     )
   }
 
+  // The token is needed to clean up the provider-side webhook, and it's only
+  // readable while the connection row still exists — grab it pre-delete.
+  const attioToken =
+    connection.provider === "attio" && connection.webhookId
+      ? await getAttioAccessToken(connection.externalId).catch(() => null)
+      : null
+
   const deleted = await db
     .delete(integrationConnection)
     .where(
@@ -859,6 +938,10 @@ export const disconnectIntegration: AppRouteHandler<
 
   if (deleted.provider === "github") {
     await invalidateGithubRepoCache(deleted.externalId)
+  }
+  if (deleted.provider === "attio" && attioToken && connection.webhookId) {
+    // Best effort — a leftover webhook just degrades on Attio's side.
+    void deleteAttioWebhook(attioToken, connection.webhookId)
   }
 
   return c.json({ success: true as const }, HttpStatusCodes.OK)

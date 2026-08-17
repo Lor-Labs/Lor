@@ -31,7 +31,7 @@ export function ThreadParticipantStack({
         return {
           avatarColor: member?.avatarColor ?? participant.avatarColor ?? null,
           avatarName: member?.name ?? participant.name,
-          detail: member ? workspaceMemberDetail(member) : "Thread participant",
+          detail: member ? workspaceMemberDetail(member) : "Thread subscriber",
           id: participant.id,
           image: member?.image ?? participant.image,
           name: member
@@ -54,8 +54,8 @@ export function ThreadParticipantStack({
   return (
     <>
       <Pressable
-        accessibilityHint="Opens the full participant list"
-        accessibilityLabel={`${participants.length} thread ${participants.length === 1 ? "participant" : "participants"}, ${onlineParticipants.length} online`}
+        accessibilityHint="Opens the full subscriber list"
+        accessibilityLabel={`${participants.length} thread ${participants.length === 1 ? "subscriber" : "subscribers"}, ${onlineParticipants.length} online`}
         accessibilityRole="button"
         className="ml-auto flex-row items-center justify-end rounded-lor-sm py-one pl-two active:opacity-70"
         hitSlop={8}
@@ -93,7 +93,7 @@ export function ThreadParticipantStack({
               }
             : undefined
         }
-        title="Thread participants"
+        title="Thread subscribers"
       />
     </>
   )

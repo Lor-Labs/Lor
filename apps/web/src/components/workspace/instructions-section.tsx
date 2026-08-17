@@ -388,9 +388,9 @@ export function InstructionsSection({
   return (
     <div className="space-y-6">
       <p className="text-sm text-muted-foreground">
-        Standing instructions Merlin follows in every answer — tone, priorities,
-        team conventions. Merlin can propose changes, but they only take effect
-        after an admin approves them here.
+        Your workspace's LOR.md — standing instructions Merlin follows in every
+        answer: tone, priorities, team conventions. Merlin can propose changes,
+        but they only take effect after an admin approves them here.
       </p>
 
       {pending && (

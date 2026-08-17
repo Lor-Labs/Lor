@@ -3,6 +3,7 @@ import {
   buildReactionNotificationBody,
   type MentionNotification,
   type ReactionNotification,
+  shouldNotifyForMerlinThread,
   type UnreadNotification,
 } from "@repo/realtime-types"
 import { useQuery } from "@tanstack/react-query"
@@ -19,6 +20,7 @@ import { showNotification } from "@/lib/notification-dispatcher"
 type NotificationSettings = {
   desktopNotifications: "all_messages" | "mentions_only" | "nothing"
   dmNotifications: "all_messages" | "nothing"
+  merlinThreadNotifications: "all_activity" | "subscribed_only"
 }
 
 /**
@@ -54,6 +56,17 @@ export function useBrowserNotifications() {
       if (!(settings && mutes)) return
       if (findActiveMute(mutes, payload.channelId)) return
       if (settings.desktopNotifications === "nothing") return
+      // An explicit @-mention outrides the Merlin-thread ambience preference;
+      // only broadcast mentions stay subject to it.
+      if (
+        payload.type === "everyone_mention" &&
+        !shouldNotifyForMerlinThread(
+          settings.merlinThreadNotifications,
+          payload
+        )
+      ) {
+        return
+      }
 
       // For DM mentions, check dmNotifications setting
       if (
@@ -75,6 +88,14 @@ export function useBrowserNotifications() {
       if (isAlreadyVisible(payload.channelId)) return
       if (!(settings && mutes)) return
       if (findActiveMute(mutes, payload.channelId)) return
+      if (
+        !shouldNotifyForMerlinThread(
+          settings.merlinThreadNotifications,
+          payload
+        )
+      ) {
+        return
+      }
       const enabled =
         payload.workspaceId === null
           ? settings.dmNotifications === "all_messages"

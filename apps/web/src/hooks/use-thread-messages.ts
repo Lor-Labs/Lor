@@ -23,7 +23,13 @@ export type ThreadPage = {
   // The thread root message, returned on every page so the panel can render it
   // even when it's scrolled out of the channel feed.
   root?: Message | null
+  participants?: ThreadParticipant[]
 }
+
+export type ThreadParticipant = Pick<
+  Message["author"],
+  "id" | "name" | "displayUsername" | "image" | "avatarColor"
+>
 
 type FetchPageParams = {
   around?: string
@@ -156,6 +162,18 @@ export function useThreadMessages({
   // pages[0] is the initial (newest) page; older pages append after it.
   const root = query.data?.pages[0]?.root ?? null
 
+  const participants = useMemo(() => {
+    const byId = new Map<string, ThreadParticipant>()
+    for (const participant of query.data?.pages[0]?.participants ?? []) {
+      byId.set(participant.id, participant)
+    }
+    if (root) byId.set(root.author.id, root.author)
+    for (const message of messages) {
+      byId.set(message.author.id, message.author)
+    }
+    return [...byId.values()]
+  }, [messages, query.data, root])
+
   const fetchOlder = useCallback(() => query.fetchNextPage(), [query])
 
   const ensureMessage = useCallback(
@@ -215,6 +233,7 @@ export function useThreadMessages({
   return {
     messages,
     root,
+    participants,
     isLoading: query.isPending,
     isError: query.isError,
     error: query.error,

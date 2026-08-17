@@ -10,6 +10,7 @@ import artifactsRouter from "@/routes/v1/artifacts/index"
 import billingRouter from "@/routes/v1/billing/index"
 import channelMutesRouter from "@/routes/v1/channel-mutes/index"
 import channelsRouter from "@/routes/v1/channels/index"
+import customToolsRouter from "@/routes/v1/custom-tools/index"
 import dmsRouter from "@/routes/v1/dms/index"
 import faviconRouter from "@/routes/v1/favicon/index"
 import instructionsRouter from "@/routes/v1/instructions/index"
@@ -73,6 +74,7 @@ const routes = app
   .route("/v1", usersRouter)
   .route("/v1", integrationsRouter)
   .route("/v1", agentProfilesRouter)
+  .route("/v1", customToolsRouter)
   .route("/v1", webhooksRouter)
   .route("/v1", billingRouter)
   .route("/v1", runsRouter)

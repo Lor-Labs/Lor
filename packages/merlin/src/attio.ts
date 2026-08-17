@@ -1,7 +1,11 @@
 import { and, db, eq, schema } from "@repo/db"
 import { tool } from "ai"
 import { z } from "zod"
-import { attioRequest } from "./providers/attio"
+import {
+  attioRequest,
+  fetchAttioCallRecording,
+  formatAttioTranscript,
+} from "./providers/attio"
 
 const SEARCH_DEFAULT = 10
 const SEARCH_MAX = 25
@@ -10,7 +14,6 @@ const QUERY_MAX = 50
 const ACTIVITY_LIMIT = 20
 const TRANSCRIPT_MEETING_MAX = 5
 const TRANSCRIPT_RECORDING_MAX = 2
-const TRANSCRIPT_PAGE_MAX = 5
 const TRANSCRIPT_TEXT_MAX = 20_000
 const TRANSCRIPT_CONCURRENCY = 3
 
@@ -111,46 +114,29 @@ function queryString(values: Record<string, string | number | boolean>) {
   return params.toString()
 }
 
+// Fetch a recording's transcript via the recording GET (`transcript.segments`
+// arrives whole; the old paged `…/transcript` endpoint is deprecated).
 async function fetchTranscript(
   externalId: string,
   meetingId: string,
   recordingId: string,
   budget: { used: number }
 ): Promise<{ url: string | null; rawTranscript: string | null } | null> {
-  let cursor: string | null = null
-  let url: string | null = null
-  const pages: string[] = []
-  for (let page = 0; page < TRANSCRIPT_PAGE_MAX; page++) {
-    if (budget.used >= TRANSCRIPT_TEXT_MAX) break
-    const suffix: string = cursor ? `?${queryString({ cursor })}` : ""
-    const response: Envelope | null = await attioRequest<Envelope>(
-      externalId,
-      `/meetings/${encodeURIComponent(meetingId)}/call_recordings/${encodeURIComponent(recordingId)}/transcript${suffix}`
-    )
-    if (!response)
-      return pages.length > 0 ? { url, rawTranscript: pages.join("\n") } : null
-    const data = asRecord(response.data)
-    url ??= asString(data?.web_url)
-    const raw = asString(data?.raw_transcript)
-    if (raw && !pages.includes(raw)) {
-      const separatorLength = pages.length > 0 ? 1 : 0
-      const available = Math.max(
-        TRANSCRIPT_TEXT_MAX - budget.used - separatorLength,
-        0
-      )
-      if (available === 0) budget.used = TRANSCRIPT_TEXT_MAX
-      const clipped = raw.slice(0, available)
-      if (clipped) {
-        pages.push(clipped)
-        budget.used += clipped.length + separatorLength
-      }
-    }
-    cursor = response.pagination?.next_cursor ?? null
-    if (!cursor || budget.used >= TRANSCRIPT_TEXT_MAX) break
-  }
-  const rawTranscript = pages.join("\n")
+  if (budget.used >= TRANSCRIPT_TEXT_MAX) return null
+  const recording = await fetchAttioCallRecording(
+    externalId,
+    meetingId,
+    recordingId
+  )
+  if (!recording) return null
+  const available = Math.max(TRANSCRIPT_TEXT_MAX - budget.used, 0)
+  const rawTranscript =
+    available > 0 && recording.segments?.length
+      ? formatAttioTranscript(recording.segments, available)
+      : null
+  if (rawTranscript) budget.used += rawTranscript.length
   return {
-    url,
+    url: recording.webUrl,
     rawTranscript: rawTranscript || null,
   }
 }

@@ -83,10 +83,11 @@ export async function sweepDeadRuns(
   // One transaction per run: the failure and its placeholder settle together,
   // so a run can never go terminal while its message stays pending forever.
   // The update re-checks the dead predicate, keeping concurrent sweeps (and a
-  // claim that landed since the select) from double-failing a run.
+  // claim that landed since the select) from double-failing a run. Headless
+  // triggered runs have no placeholder message — only the run row settles.
   const dead: {
     id: string
-    messageId: string
+    messageId: string | null
     channelId: string
     threadRootId: string | null
     settled: boolean
@@ -106,6 +107,7 @@ export async function sweepDeadRuns(
           })
           .then((r) => r[0])
         if (!run) return null
+        if (!run.messageId) return { ...run, settled: false }
         const settled = await tx
           .update(schema.message)
           .set({ content: DEAD_RUN_MESSAGE, status: "failed" })
@@ -128,7 +130,7 @@ export async function sweepDeadRuns(
     if (result) dead.push(result)
   }
   for (const run of dead) {
-    if (!run.settled) continue
+    if (!run.settled || !run.messageId) continue
     const room = run.threadRootId
       ? threadRoom(run.threadRootId)
       : channelRoom(run.channelId)

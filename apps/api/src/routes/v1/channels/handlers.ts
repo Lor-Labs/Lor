@@ -625,56 +625,87 @@ export const listThreadReplies: AppRouteHandler<
   // The root is fetched as a single channel-level message (around + limit 1)
   // so the panel can show it even when it's scrolled out of the channel feed.
   const isInitialPage = !before && !after
-  const [replies, rootResult, participantRows] = await Promise.all([
-    fetchMessages({
-      channelId,
-      currentUserId: currentUser.id,
-      limit,
-      around,
-      before,
-      after,
-      threadRootId: messageId,
-    }),
-    isInitialPage
-      ? fetchMessages({
-          channelId,
-          currentUserId: currentUser.id,
-          limit: 1,
-          around: messageId,
-        })
-      : Promise.resolve(null),
-    isInitialPage
-      ? db
-          .selectDistinct({
-            id: user.id,
-            name: user.name,
-            displayUsername: user.displayUsername,
-            image: user.image,
-            avatarColor: schema.workspaceMember.avatarColor,
+  const [replies, rootResult, participantRows, taskCreatorRow] =
+    await Promise.all([
+      fetchMessages({
+        channelId,
+        currentUserId: currentUser.id,
+        limit,
+        around,
+        before,
+        after,
+        threadRootId: messageId,
+      }),
+      isInitialPage
+        ? fetchMessages({
+            channelId,
+            currentUserId: currentUser.id,
+            limit: 1,
+            around: messageId,
           })
-          .from(message)
-          .innerJoin(user, eq(message.authorId, user.id))
-          .leftJoin(
-            schema.workspaceMember,
-            and(
-              eq(schema.workspaceMember.userId, user.id),
-              eq(schema.workspaceMember.workspaceId, workspace.id)
+        : Promise.resolve(null),
+      isInitialPage
+        ? db
+            .selectDistinct({
+              id: user.id,
+              name: user.name,
+              displayUsername: user.displayUsername,
+              image: user.image,
+              avatarColor: schema.workspaceMember.avatarColor,
+            })
+            .from(message)
+            .innerJoin(user, eq(message.authorId, user.id))
+            .leftJoin(
+              schema.workspaceMember,
+              and(
+                eq(schema.workspaceMember.userId, user.id),
+                eq(schema.workspaceMember.workspaceId, workspace.id)
+              )
             )
-          )
-          .where(
-            and(
-              eq(message.channelId, channelId),
-              or(eq(message.id, messageId), eq(message.threadRootId, messageId))
+            .where(
+              and(
+                eq(message.channelId, channelId),
+                or(
+                  eq(message.id, messageId),
+                  eq(message.threadRootId, messageId)
+                )
+              )
             )
-          )
-      : Promise.resolve([]),
-  ])
+        : Promise.resolve([]),
+      isInitialPage
+        ? db
+            .select({
+              id: user.id,
+              name: user.name,
+              displayUsername: user.displayUsername,
+              image: user.image,
+              avatarColor: schema.workspaceMember.avatarColor,
+            })
+            .from(schema.task)
+            .innerJoin(user, eq(schema.task.creatorId, user.id))
+            .leftJoin(
+              schema.workspaceMember,
+              and(
+                eq(schema.workspaceMember.userId, user.id),
+                eq(schema.workspaceMember.workspaceId, workspace.id)
+              )
+            )
+            .where(eq(schema.task.cardMessageId, messageId))
+            .limit(1)
+            .then((rows) => rows[0] ?? null)
+        : Promise.resolve(null),
+    ])
+
+  const participants = new Map(
+    participantRows.map((participant) => [participant.id, participant])
+  )
+  if (taskCreatorRow) participants.set(taskCreatorRow.id, taskCreatorRow)
 
   return c.json(
     {
       ...replies,
       root: rootResult?.data[0] ?? null,
-      participants: participantRows,
+      participants: [...participants.values()],
     },
     HttpStatusCodes.OK
   )

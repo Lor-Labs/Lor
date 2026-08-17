@@ -2,7 +2,6 @@ import { and, asc, db, eq, MERLIN_USER_ID, ne, or, schema, sql } from "@repo/db"
 import {
   type AgentRunContext,
   ALL_MERLIN_CAPABILITIES,
-  type MerlinCapability,
   type MerlinToolCall,
   type MerlinToolCallUpdate,
   type Task,
@@ -27,7 +26,10 @@ import {
   pageExists,
   searchBrain,
 } from "./brain"
-import { resolveChannelCapabilities } from "./capabilities"
+import {
+  type ChannelToolGrants,
+  resolveChannelCapabilities,
+} from "./capabilities"
 import {
   classifyToken,
   extractCitationTokens,
@@ -37,6 +39,7 @@ import {
 } from "./citations"
 import { cloudwatchTools, resolveWorkspaceCloudwatch } from "./cloudwatch"
 import { codeTools } from "./code"
+import { CUSTOM_TOOLS_PROMPT_LINE, workspaceCustomTools } from "./custom-tools"
 import { datadogMcpTools, resolveWorkspaceDatadog } from "./datadog"
 import { embedBrainQueryWithUsage, embedSourceQuery } from "./embeddings"
 import { githubTools, resolveWorkspaceGithub } from "./github"
@@ -67,6 +70,11 @@ import { resolveSourceCitation, searchSources, sourceTools } from "./sources"
 import { generateSmallObject } from "./structured"
 import { type RunTaskContext, taskPromptSection, taskTools } from "./tasks"
 import { guardTools } from "./tool-guard"
+import {
+  type RunTriggeredContext,
+  triggeredPromptSection,
+  triggeredTools,
+} from "./triggered"
 import type { OnUsage } from "./usage"
 import { webTools } from "./web"
 
@@ -235,6 +243,10 @@ export type RespondContext = {
   // task card): binds the task tools, task prompt rules, and workbench
   // continuity.
   task?: RunTaskContext
+  // Set on headless triggered runs (the Act effect): binds the disposition
+  // tools and injects the trigger's instructions — which appear in the
+  // system prompt only when the trigger fires.
+  triggered?: RunTriggeredContext
 }
 
 export type ToolEvent = MerlinToolCallUpdate
@@ -271,6 +283,11 @@ export {
   type RunToolResultStore,
   type SteeredMessage,
 } from "./run"
+export type {
+  RunTriggeredContext,
+  TriggeredCreateTask,
+  TriggeredPostMessage,
+} from "./triggered"
 export type { OnUsage, UsageEvent } from "./usage"
 
 export type RespondResult = {
@@ -1360,11 +1377,15 @@ export async function respond(
   // resolveChannelCapabilities already maps truly unprovisioned channels to the
   // permissive set; an actual throw here is an unexpected failure, so fail
   // closed to core-only (no gated tools) rather than granting everything.
-  const caps = ctx.channelId
+  const grants = ctx.channelId
     ? await resolveChannelCapabilities(ctx.channelId).catch(
-        () => [] as MerlinCapability[]
+        (): ChannelToolGrants => ({ capabilities: [], customTools: [] })
       )
-    : ALL_MERLIN_CAPABILITIES
+    : {
+        capabilities: ALL_MERLIN_CAPABILITIES,
+        customTools: "all" as const,
+      }
+  const caps = grants.capabilities
   const needsGithub =
     caps.includes("github") || caps.includes("code_intelligence")
   const needsLinear = caps.includes("linear") || caps.includes("linear_write")
@@ -1400,7 +1421,7 @@ export async function respond(
   const artifactsEnabled = Boolean(
     blaxelConfigured() && ctx.channelId && caps.includes("artifacts")
   )
-  const tools = {
+  const builtinTools = {
     ...searchTools,
     ...chatTools,
     ...sourceTools,
@@ -1415,12 +1436,27 @@ export async function respond(
       : {}),
     ...(artifactsEnabled ? artifactTools : {}),
     ...(ctx.task ? taskTools : {}),
+    ...(ctx.triggered ? triggeredTools : {}),
     ...(linear && caps.includes("linear") ? linearTools : {}),
     ...(linear && caps.includes("linear_write") ? linearWriteTools : {}),
     ...(attio && caps.includes("attio") ? attioTools : {}),
     ...(notion && caps.includes("notion") ? notionTools : {}),
     ...(datadogMcp ? datadogMcp.tools : {}),
     ...(cloudwatch && caps.includes("cloudwatch") ? cloudwatchTools : {}),
+  }
+  // Bound after the built-ins so a workspace row can never shadow one
+  // (collisions are skipped inside workspaceCustomTools).
+  const customTools =
+    grants.customTools === "all" || grants.customTools.length > 0
+      ? await workspaceCustomTools(
+          ctx.workspaceId,
+          new Set(Object.keys(builtinTools)),
+          grants.customTools
+        ).catch(() => null)
+      : null
+  const tools = {
+    ...builtinTools,
+    ...(customTools ?? {}),
   }
 
   const toolsContext = {
@@ -1484,6 +1520,12 @@ export async function respond(
           }
         })()
       : {}),
+    ...(ctx.triggered
+      ? {
+          post_channel_message: { postMessage: ctx.triggered.postMessage },
+          create_task: { createTask: ctx.triggered.createTask },
+        }
+      : {}),
     ...(linear
       ? {
           search_linear: linear,
@@ -1531,6 +1573,7 @@ export async function respond(
     attio && caps.includes("attio") ? ATTIO_PROMPT_LINE : null,
     notion && caps.includes("notion") ? NOTION_PROMPT_LINE : null,
     artifactsEnabled ? ARTIFACTS_PROMPT_LINE : null,
+    customTools ? CUSTOM_TOOLS_PROMPT_LINE : null,
   ].filter((line): line is string => line !== null)
 
   // The finally closes the Datadog MCP session after the whole tool loop, even
@@ -1556,7 +1599,7 @@ export async function respond(
         loadWorkspaceInstructions(ctx.workspaceId),
       ])
       const userMessage = await buildInitialUserMessage(context)
-      instructions = `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}${context.rosterText ? `\n\n${MENTION_GUIDANCE}` : ""}${workspaceInstructions ? `\n\n${formatInstructionsBlock(workspaceInstructions)}` : ""}${ctx.task ? `\n\n${taskPromptSection(ctx.task, artifactsEnabled)}` : ""}`
+      instructions = `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}${context.rosterText ? `\n\n${MENTION_GUIDANCE}` : ""}${workspaceInstructions ? `\n\n${formatInstructionsBlock(workspaceInstructions)}` : ""}${ctx.task ? `\n\n${taskPromptSection(ctx.task, artifactsEnabled)}` : ""}${ctx.triggered ? `\n\n${triggeredPromptSection(ctx.triggered)}` : ""}`
       messages = [userMessage]
       counters = { ...ZERO_RUN_COUNTERS }
       text = ""

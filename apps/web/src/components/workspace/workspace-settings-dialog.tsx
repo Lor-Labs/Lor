@@ -10,6 +10,7 @@ import {
   Settings01Icon,
   SquareLock02Icon,
   Upload01Icon,
+  Wrench01Icon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
@@ -55,8 +56,10 @@ import { AnimatePresence, motion } from "motion/react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { BillingSection } from "@/components/workspace/billing-section"
+import { CustomToolsSection } from "@/components/workspace/custom-tools-section"
 import { InstructionsSection } from "@/components/workspace/instructions-section"
 import { MerlinProfilesSection } from "@/components/workspace/merlin-profiles-section"
+import { TriggerEffects } from "@/components/workspace/trigger-effects"
 import { WorkspaceAvatar } from "@/components/workspace/workspace-avatar"
 import { apiClient } from "@/lib/api-client"
 import type {
@@ -95,6 +98,7 @@ type Workspace = {
 export type SectionId =
   | "general"
   | "connectors"
+  | "custom-tools"
   | "merlin"
   | "instructions"
   | "billing"
@@ -102,8 +106,9 @@ export type SectionId =
 const SECTIONS: { id: SectionId; label: string; icon: IconSvgElement }[] = [
   { id: "general", label: "General", icon: Settings01Icon },
   { id: "connectors", label: "Connectors", icon: Plug01Icon },
+  { id: "custom-tools", label: "Custom tools", icon: Wrench01Icon },
   { id: "merlin", label: "Agent profiles", icon: Layers01Icon },
-  { id: "instructions", label: "Instructions", icon: Scroll01Icon },
+  { id: "instructions", label: "LOR.md", icon: Scroll01Icon },
   { id: "billing", label: "Billing", icon: CreditCardIcon },
 ]
 
@@ -293,6 +298,8 @@ export function WorkspaceSettingsDialog({
                     />
                   ) : section === "connectors" ? (
                     <ConnectorsSection workspaceSlug={workspace.slug} />
+                  ) : section === "custom-tools" ? (
+                    <CustomToolsSection workspaceSlug={workspace.slug} />
                   ) : section === "instructions" ? (
                     <InstructionsSection workspaceSlug={workspace.slug} />
                   ) : section === "billing" && canManageBilling ? (
@@ -571,29 +578,43 @@ function ConnectorsSection({ workspaceSlug }: { workspaceSlug: string }) {
     ...textChannels.map((ch) => ({ value: ch.id, label: `#${ch.name}` })),
   ]
 
-  const updateNotifyChannel = useMutation({
+  const updateTrigger = useMutation({
     mutationFn: async (input: {
       connectionId: string
       event: string
-      notifyChannelId: string | null
+      channelId: string | null
+      post: boolean
+      remember: boolean
+      rememberHint: string | null
+      actInstructions: string | null
     }) => {
       const res = await apiClient.v1.workspaces[":workspaceSlug"].integrations[
         ":connectionId"
       ].$patch({
         param: { workspaceSlug, connectionId: input.connectionId },
-        json: { event: input.event, notifyChannelId: input.notifyChannelId },
+        json: {
+          event: input.event,
+          channelId: input.channelId,
+          post: input.post,
+          remember: input.remember,
+          rememberHint: input.rememberHint,
+          actInstructions: input.actInstructions,
+        },
       })
-      if (!res.ok) throw new Error("Failed to update notifications")
+      if (!res.ok) throw new Error("Failed to update event")
     },
-    onSuccess: () => {
+    onSuccess: () =>
+      // Returned so the mutation stays pending until the refetch lands — `send`
+      // composes the full trigger config from cached row data, so editing again
+      // before the refetch would overwrite the previous change with stale
+      // sibling fields.
       queryClient.invalidateQueries({
         queryKey: ["integrations", workspaceSlug],
-      })
-    },
-    onError: () => toast.error("Failed to update notifications"),
+      }),
+    onError: () => toast.error("Failed to update event"),
   })
-  const pendingNotify = updateNotifyChannel.isPending
-    ? updateNotifyChannel.variables
+  const pendingTrigger = updateTrigger.isPending
+    ? updateTrigger.variables
     : null
 
   if (isPending) {
@@ -645,7 +666,7 @@ function ConnectorsSection({ workspaceSlug }: { workspaceSlug: string }) {
               ...(p.accountLogin ? [p.accountLogin] : []),
               ...(activeEvents > 0
                 ? [
-                    `posting ${activeEvents} ${activeEvents === 1 ? "event" : "events"}`,
+                    `${activeEvents} ${activeEvents === 1 ? "event" : "events"} active`,
                   ]
                 : []),
             ]
@@ -791,46 +812,84 @@ function ConnectorsSection({ workspaceSlug }: { workspaceSlug: string }) {
             {isExpanded && showNotify && (
               <div className="mt-3 space-y-2 border-border/60 border-t pt-3">
                 <div className="text-xs font-medium text-muted-foreground">
-                  Post activity to channels
+                  Route events to channels
                 </div>
-                {p.events.map((ev) => (
-                  <div
-                    key={ev.key}
-                    className="flex items-center justify-between gap-3"
-                  >
-                    <span className="min-w-0 truncate text-xs text-muted-foreground/80">
-                      {ev.label}
-                    </span>
-                    <Select
-                      items={notifyChannelItems}
-                      value={ev.channelId ?? NOTIFY_OFF}
-                      disabled={
-                        pendingNotify?.connectionId === p.connectionId &&
-                        pendingNotify?.event === ev.key
-                      }
-                      onValueChange={(value) => {
-                        if (!p.connectionId) return
-                        updateNotifyChannel.mutate({
-                          connectionId: p.connectionId,
-                          event: ev.key,
-                          notifyChannelId: value === NOTIFY_OFF ? null : value,
-                        })
-                      }}
-                    >
-                      <SelectTrigger className="w-44 shrink-0" size="sm">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value={NOTIFY_OFF}>Off</SelectItem>
-                        {textChannels.map((ch) => (
-                          <SelectItem key={ch.id} value={ch.id}>
-                            #{ch.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                ))}
+                {p.events.map((ev) => {
+                  const busy =
+                    pendingTrigger?.connectionId === p.connectionId &&
+                    pendingTrigger?.event === ev.key
+                  // Each change re-sends the full trigger config so one PATCH
+                  // shape covers channel moves and effect toggles alike.
+                  const send = (
+                    patch: Partial<{
+                      channelId: string | null
+                      post: boolean
+                      remember: boolean
+                      rememberHint: string | null
+                      actInstructions: string | null
+                    }>
+                  ) => {
+                    if (!p.connectionId) return
+                    updateTrigger.mutate({
+                      connectionId: p.connectionId,
+                      event: ev.key,
+                      channelId: ev.channelId,
+                      post: ev.post,
+                      remember: ev.remember,
+                      rememberHint: ev.rememberHint,
+                      actInstructions: ev.actInstructions,
+                      ...patch,
+                    })
+                  }
+                  return (
+                    <div key={ev.key} className="space-y-1.5">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="min-w-0 truncate text-xs text-muted-foreground/80">
+                          {ev.label}
+                        </span>
+                        <Select
+                          items={notifyChannelItems}
+                          value={ev.channelId ?? NOTIFY_OFF}
+                          disabled={busy}
+                          onValueChange={(value) => {
+                            send({
+                              channelId: value === NOTIFY_OFF ? null : value,
+                            })
+                          }}
+                        >
+                          <SelectTrigger className="w-44 shrink-0" size="sm">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value={NOTIFY_OFF}>Off</SelectItem>
+                            {textChannels.map((ch) => (
+                              <SelectItem key={ch.id} value={ch.id}>
+                                #{ch.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      {ev.channelId && (
+                        <TriggerEffects
+                          idPrefix={`${p.id}-${ev.key}`}
+                          channelLabel={
+                            textChannels.find((ch) => ch.id === ev.channelId)
+                              ?.name
+                          }
+                          disabled={busy}
+                          value={{
+                            post: ev.post,
+                            remember: ev.remember,
+                            rememberHint: ev.rememberHint,
+                            actInstructions: ev.actInstructions,
+                          }}
+                          onPatch={(patch) => send(patch)}
+                        />
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             )}
 

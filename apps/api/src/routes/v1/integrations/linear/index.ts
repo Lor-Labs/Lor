@@ -1,7 +1,7 @@
 import { LinearWebhookClient } from "@linear/sdk/webhooks"
 import { and, db, eq, schema } from "@repo/db"
 import { env } from "@repo/env/server"
-import { postConnectorNotification } from "@/lib/connector-notifications"
+import { dispatchConnectorEvent } from "@/lib/connector-triggers"
 import { createRouter } from "@/lib/helpers/app/create-app"
 import { logger } from "@/lib/logger"
 
@@ -24,6 +24,7 @@ type LinearEvent = {
   data?: {
     title?: string | null
     identifier?: string | null
+    description?: string | null
     state?: { type?: string | null; name?: string | null } | null
   } | null
   // Previous values of changed fields — presence of stateId means the state
@@ -31,10 +32,10 @@ type LinearEvent = {
   updatedFrom?: Record<string, unknown> | null
 }
 
-// Issue created / issue completed → notify channel (when configured on the
-// connection). Best-effort: a notification hiccup shouldn't make Linear
-// retry the delivery.
-async function notifyIssueEvent(event: LinearEvent): Promise<void> {
+// Issue created / issue completed → the trigger's configured effects (when one
+// exists on the connection). Best-effort: a dispatch hiccup shouldn't make
+// Linear retry the delivery.
+async function dispatchIssueEvent(event: LinearEvent): Promise<void> {
   if (event.type !== "Issue" || !event.organizationId || !event.data?.title) {
     return
   }
@@ -56,15 +57,28 @@ async function notifyIssueEvent(event: LinearEvent): Promise<void> {
     : event.data.title
   const link = event.url ? `[${ref}](${event.url})` : ref
   try {
-    await postConnectorNotification({
+    await dispatchConnectorEvent({
       provider: "linear",
       externalId: event.organizationId,
       event: kind,
       label: "Linear",
       text: `**Issue ${kind === "issue_created" ? "created" : "completed"}** ${link}`,
+      // Identifier (e.g. LOR-49) is the stable upsert key; without one the
+      // event has nothing addressable to remember.
+      remember: event.data.identifier
+        ? {
+            kind: "issue",
+            externalId: event.data.identifier,
+            title: event.data.title,
+            url: event.url ?? null,
+            author: null,
+            occurredAt: new Date(),
+            content: `${event.data.title}\n\n${event.data.description ?? ""}`,
+          }
+        : undefined,
     })
   } catch (err) {
-    logger.error({ err }, "Linear issue notification failed")
+    logger.error({ err }, "Linear issue event dispatch failed")
   }
 }
 
@@ -130,7 +144,7 @@ linearRouter.post("/integrations/linear/webhook", async (c) => {
     }
   }
 
-  await notifyIssueEvent(event)
+  await dispatchIssueEvent(event)
 
   return c.json({ ok: true })
 })

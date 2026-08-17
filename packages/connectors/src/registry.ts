@@ -73,6 +73,17 @@ export const CONNECTORS: Record<IntegrationProvider, ConnectorDescriptor> = {
     authType: "api-key",
     envKeys: ["INTEGRATION_ENCRYPTION_KEY"],
   },
+  // BYO inbound webhooks (reference/automation-primitives.md §3): each webhook
+  // a user creates in channel settings is one connection row under this
+  // provider + a channel-anchored trigger. Never listed on the connect page.
+  webhook: {
+    id: "webhook",
+    label: "Webhooks",
+    description: "Send data into a channel from any app or service.",
+    authType: "token",
+    envKeys: ["INTEGRATION_ENCRYPTION_KEY"],
+    internal: true,
+  },
 }
 
 // Datadog is multi-region: the API/MCP hosts derive from the site. Validated at
@@ -196,6 +207,13 @@ export const CAPABILITIES: Record<MerlinCapability, CapabilityDescriptor> = {
     description: "Create files (documents, data, code) in a sandbox workbench",
     connector: null,
   },
+  custom_tools: {
+    key: "custom_tools",
+    label: "All custom tools",
+    description:
+      "Call any of this workspace's custom tools, including ones added later",
+    connector: null,
+  },
 }
 
 // Exhaustive over integrationProviderEnum — a new provider must declare its
@@ -216,9 +234,14 @@ export const CONNECTOR_EVENTS: Record<
     { key: "issue_completed", label: "Issue completed" },
   ],
   datadog: [],
-  attio: [],
+  attio: [
+    { key: "call_recording_ready", label: "Call recording ready" },
+    { key: "note_created", label: "Note created" },
+    { key: "list_entry_created", label: "Record added to a list" },
+  ],
   notion: [],
   cloudwatch: [],
+  webhook: [{ key: "data_received", label: "Data received" }],
 }
 
 export function isConnectorEvent(
@@ -228,7 +251,11 @@ export function isConnectorEvent(
   return CONNECTOR_EVENTS[provider].some((e) => e.key === key)
 }
 
-export const CONNECTOR_LIST: ConnectorDescriptor[] = Object.values(CONNECTORS)
+// Internal connectors (webhook) are excluded: they aren't user-connectable
+// from the integrations page.
+export const CONNECTOR_LIST: ConnectorDescriptor[] = Object.values(
+  CONNECTORS
+).filter((connector) => !connector.internal)
 export const CAPABILITY_LIST: CapabilityDescriptor[] =
   Object.values(CAPABILITIES)
 

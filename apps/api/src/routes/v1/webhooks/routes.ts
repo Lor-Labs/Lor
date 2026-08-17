@@ -32,6 +32,7 @@ export const listChannelWebhooks = createRoute({
       schema: listChannelWebhooksResponseSchema,
       description: "The channel's webhooks",
     }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
     [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
     [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
     [HttpStatusCodes.NOT_FOUND]: notFoundSchema,

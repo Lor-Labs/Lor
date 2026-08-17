@@ -40,8 +40,9 @@ export const integrationStatusSchema = z.object({
   accountLogin: z.string().nullable(),
   connectionId: z.string().nullable(),
   // Mirrors ConnectorAuthType — api-key connectors connect via an in-app form
-  // instead of a redirect, so they have no connectUrl.
-  authType: z.enum(["github-app", "oauth", "api-key"]),
+  // instead of a redirect; `token` (BYO webhooks) never appears here but keeps
+  // the enum aligned with the registry type.
+  authType: z.enum(["github-app", "oauth", "api-key", "token"]),
   // Some org-shared connectors (currently Notion) can only be managed by a
   // Lor workspace admin even though every member may use the granted tools.
   canManage: z.boolean(),
@@ -54,13 +55,17 @@ export const integrationStatusSchema = z.object({
   repos: z.array(integrationRepoSchema).nullable(),
   repoCount: z.number().nullable(),
   manageUrl: z.string().nullable(),
-  // The provider's notifiable event kinds (from the connector registry), each
-  // with the channel it currently posts to; null = off.
+  // The provider's triggerable event kinds (from the connector registry), each
+  // with its trigger config; channelId null = the event is off.
   events: z.array(
     z.object({
       key: z.string(),
       label: z.string(),
       channelId: z.string().nullable(),
+      post: z.boolean(),
+      remember: z.boolean(),
+      rememberHint: z.string().nullable(),
+      actInstructions: z.string().nullable(),
     })
   ),
 })
@@ -139,8 +144,15 @@ export const connectCloudwatchResponseSchema = z.object({
 export const updateIntegrationRequestSchema = z.object({
   // One of the provider's event keys from the connector registry.
   event: z.string().min(1),
-  // Text channel this event posts into; null turns it off.
-  notifyChannelId: z.string().uuid().nullable(),
+  // The trigger's anchor channel (target/scope of every effect); null removes
+  // the trigger — the event is off.
+  channelId: z.string().uuid().nullable(),
+  post: z.boolean().default(true),
+  remember: z.boolean().default(false),
+  // Optional steering for Remember's summarize pass.
+  rememberHint: z.string().trim().max(2000).nullable().default(null),
+  // The Act effect's instructions for Merlin; null = Act off.
+  actInstructions: z.string().trim().max(4000).nullable().default(null),
 })
 
 export const updateIntegrationResponseSchema = z.object({

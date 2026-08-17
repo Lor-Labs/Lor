@@ -1,8 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { attioTools } from "./attio"
-import { attioRequest } from "./providers/attio"
+import { attioRequest, fetchAttioCallRecording } from "./providers/attio"
 
-vi.mock("./providers/attio", () => ({ attioRequest: vi.fn() }))
+vi.mock("./providers/attio", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./providers/attio")>()
+  return {
+    ...actual,
+    attioRequest: vi.fn(),
+    fetchAttioCallRecording: vi.fn(),
+  }
+})
 
 const context = {
   toolCallId: "test-call",
@@ -13,6 +20,7 @@ const context = {
 describe("Attio tools", () => {
   beforeEach(() => {
     vi.mocked(attioRequest).mockReset()
+    vi.mocked(fetchAttioCallRecording).mockReset()
   })
 
   it("treats malformed search and query data as empty results", async () => {
@@ -79,13 +87,15 @@ describe("Attio tools", () => {
             .map((call_recording_id) => ({ id: { call_recording_id } })),
         })
       }
-      if (path.includes("/transcript")) {
-        return Promise.resolve({
-          data: { raw_transcript: "x".repeat(12_000) },
-          pagination: { next_cursor: null },
-        })
-      }
       return Promise.resolve({ data: [] })
+    })
+    // Each recording formats to ~12k chars; the 20k budget admits one full
+    // transcript, one clipped one, and nothing after that.
+    vi.mocked(fetchAttioCallRecording).mockResolvedValue({
+      status: "completed",
+      webUrl: null,
+      createdAt: null,
+      segments: [{ speech: "x".repeat(12_000), speaker: "S", endTime: 60 }],
     })
 
     const result = await attioTools.fetch_attio_activity.execute?.(
@@ -106,17 +116,14 @@ describe("Attio tools", () => {
     const transcripts = (
       result as { transcripts: Array<{ rawTranscript: string | null }> }
     ).transcripts
-    const transcriptPaths = vi
-      .mocked(attioRequest)
-      .mock.calls.map((call) => call[1])
-      .filter((path) => path.includes("/transcript"))
+    const fetchedRecordingIds = vi
+      .mocked(fetchAttioCallRecording)
+      .mock.calls.map((call) => call[2])
 
     expect(
       transcripts.filter((transcript) => transcript.rawTranscript !== null)
     ).toHaveLength(2)
-    expect(transcriptPaths).toHaveLength(3)
-    expect(
-      transcriptPaths.some((path) => path.includes(recordingIds[3] ?? ""))
-    ).toBe(false)
+    expect(fetchedRecordingIds).toHaveLength(3)
+    expect(fetchedRecordingIds).not.toContain(recordingIds[3])
   })
 })

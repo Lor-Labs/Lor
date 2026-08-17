@@ -28,6 +28,8 @@ export const merlinCapabilityEnum = pgEnum("merlin_capability", [
   "web",
   // Sandbox workbench sessions that produce file deliverables (artifacts).
   "artifacts",
+  // The workspace's user-defined custom tools (custom_tool rows).
+  "custom_tools",
 ])
 
 export type MerlinCapability = (typeof merlinCapabilityEnum.enumValues)[number]

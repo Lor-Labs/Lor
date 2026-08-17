@@ -5,6 +5,7 @@ import {
   buildReactionNotificationBody,
   PRESENCE_ONLINE_USERS_SET_KEY,
   type ReactionNotification,
+  shouldNotifyForMerlinThread,
   type UnreadNotification,
 } from "@repo/realtime-types"
 
@@ -104,7 +105,10 @@ async function deliverExpoPush(messages: ExpoPushMessage[]) {
 export async function sendMessagePushNotifications(input: {
   fanout: {
     unreadNotifications: Array<{ userId: string; payload: UnreadNotification }>
-    mentionNotifications: Array<{ userId: string }>
+    mentionNotifications: Array<{
+      userId: string
+      payload: { type: "direct_mention" | "everyone_mention" }
+    }>
   }
   threadRootId?: string | null
   redis: PresenceRedisClient
@@ -127,6 +131,8 @@ export async function sendMessagePushNotifications(input: {
       desktopNotifications:
         schema.userNotificationSettings.desktopNotifications,
       dmNotifications: schema.userNotificationSettings.dmNotifications,
+      merlinThreadNotifications:
+        schema.userNotificationSettings.merlinThreadNotifications,
     })
     .from(schema.userNotificationSettings)
     .where(
@@ -138,6 +144,12 @@ export async function sendMessagePushNotifications(input: {
   const settingsByUserId = new Map(settingsRows.map((row) => [row.userId, row]))
   const mentionedUserIds = new Set(
     input.fanout.mentionNotifications.map((notification) => notification.userId)
+  )
+  // An explicit @-mention outrides the Merlin-thread ambience preference.
+  const directMentionUserIds = new Set(
+    input.fanout.mentionNotifications
+      .filter((notification) => notification.payload.type === "direct_mention")
+      .map((notification) => notification.userId)
   )
 
   // Channel mutes silence everything (mentions included); badges are driven
@@ -170,6 +182,15 @@ export async function sendMessagePushNotifications(input: {
     const settings = settingsByUserId.get(recipient.userId)
     if (recipient.payload.workspaceId === null) {
       return (settings?.dmNotifications ?? "all_messages") !== "nothing"
+    }
+    if (
+      !directMentionUserIds.has(recipient.userId) &&
+      !shouldNotifyForMerlinThread(
+        settings?.merlinThreadNotifications ?? "all_activity",
+        recipient.payload
+      )
+    ) {
+      return false
     }
     const level = settings?.desktopNotifications ?? "all_messages"
     return (

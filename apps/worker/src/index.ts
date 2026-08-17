@@ -6,6 +6,7 @@ import {
   LINK_UNFURL_QUEUE,
   MERLIN_RESPOND_QUEUE,
   type MerlinRespondJobData,
+  TRIGGERED_RUN_QUEUE,
 } from "@repo/realtime-types/queues"
 import { Emitter } from "@socket.io/redis-emitter"
 import { Queue, Worker } from "bullmq"
@@ -18,6 +19,7 @@ import {
   RUN_EVENT_PRUNE_EVERY_MS,
   sweepDeadRuns,
 } from "@/jobs/prune-run-events"
+import { createTriggeredRunProcessor } from "@/jobs/triggered-run"
 import { signalRunStop } from "@/lib/agent-run"
 import { logger } from "@/lib/logger"
 import { awaitInflightDrains } from "@/lib/run-queue"
@@ -140,6 +142,39 @@ async function bootstrap() {
     )
   })
 
+  // Headless triggered runs (the Act effect). Uses the respond queue as a
+  // producer when Merlin's disposition is create_task.
+  const triggeredRunWorker = new Worker(
+    TRIGGERED_RUN_QUEUE,
+    createTriggeredRunProcessor(
+      emitter,
+      redisEmitterClient,
+      merlinRespondQueue
+    ),
+    {
+      connection: {
+        ...redisOpts,
+        maxRetriesPerRequest: null,
+      },
+      concurrency: 5,
+    }
+  )
+
+  triggeredRunWorker.on("failed", (job, error) => {
+    logger.error({ jobId: job?.id, err: error }, "Triggered-run job failed")
+  })
+
+  triggeredRunWorker.on("error", (error) => {
+    logger.error(
+      {
+        queue: TRIGGERED_RUN_QUEUE,
+        workerId: triggeredRunWorker.id,
+        err: error,
+      },
+      "Triggered-run worker error"
+    )
+  })
+
   const maintenanceQueue = new Queue(MAINTENANCE_QUEUE, {
     connection: {
       ...redisOpts,
@@ -188,7 +223,14 @@ async function bootstrap() {
   })
 
   logger.info(
-    { queues: [LINK_UNFURL_QUEUE, MERLIN_RESPOND_QUEUE, MAINTENANCE_QUEUE] },
+    {
+      queues: [
+        LINK_UNFURL_QUEUE,
+        MERLIN_RESPOND_QUEUE,
+        TRIGGERED_RUN_QUEUE,
+        MAINTENANCE_QUEUE,
+      ],
+    },
     "Worker started"
   )
 
@@ -196,6 +238,7 @@ async function bootstrap() {
     logger.info("Shutting down...")
     await linkUnfurlWorker.close()
     await merlinRespondWorker.close()
+    await triggeredRunWorker.close()
     // The dead-run sweep also drains scopes — close it before waiting so no
     // new drain can start after the wait completes.
     await maintenanceWorker.close()

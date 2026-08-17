@@ -157,7 +157,9 @@ export async function startTaskContinuationRun(args: {
       )
       .limit(1)
       .then((rows) => rows[0] ?? null)
-    if (!active) return false
+    // Task-thread scopes always carry a placeholder message; a message-less
+    // run is a headless triggered run, which can never occupy this scope.
+    if (!active?.messageId) return false
     await db
       .insert(schema.agentRunQueue)
       .values({

@@ -18,7 +18,8 @@ export const webhookIdParamsSchema = channelWebhookParamsSchema.extend({
 })
 
 // Token included: the execute URL is the credential, and listing is gated on
-// channel-manage permission (Discord model).
+// channel-manage permission (Discord model). Effects: post/remember mirror the
+// webhook's trigger config (reference/automation-primitives.md §2–3).
 export const channelWebhookSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -27,6 +28,10 @@ export const channelWebhookSchema = z.object({
   token: z.string(),
   createdAt: z.string(),
   createdByName: z.string().nullable(),
+  post: z.boolean(),
+  remember: z.boolean(),
+  rememberHint: z.string().nullable(),
+  actInstructions: z.string().nullable(),
 })
 
 export const listChannelWebhooksResponseSchema = z.object({
@@ -48,8 +53,13 @@ export const updateChannelWebhookRequestSchema = z
   .object({
     name: z.string().trim().min(1).max(80).optional(),
     avatarUrl: z.string().url().max(2048).nullable().optional(),
+    post: z.boolean().optional(),
+    remember: z.boolean().optional(),
+    rememberHint: z.string().trim().max(2000).nullable().optional(),
+    // The Act effect's instructions for Merlin; null = Act off.
+    actInstructions: z.string().trim().max(4000).nullable().optional(),
   })
-  .refine((v) => v.name !== undefined || v.avatarUrl !== undefined, {
+  .refine((v) => Object.values(v).some((value) => value !== undefined), {
     message: "Nothing to update",
   })
 

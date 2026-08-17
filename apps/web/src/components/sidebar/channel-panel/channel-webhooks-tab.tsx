@@ -2,12 +2,31 @@ import {
   ArrowDown01Icon,
   Clock01Icon,
   ImageAdd01Icon,
+  PlusSignIcon,
+  SquareLock02Icon,
   Tick02Icon,
   WebhookIcon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { env } from "@repo/env/client"
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@repo/ui/components/alert-dialog"
+import { Badge } from "@repo/ui/components/badge"
 import { Button } from "@repo/ui/components/button"
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@repo/ui/components/empty"
 import { Input } from "@repo/ui/components/input"
 import { Label } from "@repo/ui/components/label"
 import { Spinner } from "@repo/ui/components/spinner"
@@ -15,6 +34,7 @@ import { toast } from "@repo/ui/components/toast"
 import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useRef, useState } from "react"
+import { TriggerEffects } from "@/components/workspace/trigger-effects"
 import { apiClient } from "@/lib/api-client"
 
 const AVATAR_MIME_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"]
@@ -167,6 +187,10 @@ export function ChannelWebhooksTab({
   const [draftName, setDraftName] = useState("")
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [avatarSavingId, setAvatarSavingId] = useState<string | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<{
+    id: string
+    name: string
+  } | null>(null)
 
   const queryKey = ["channel-webhooks", workspaceSlug, channelId]
   const { data, isPending } = useQuery({
@@ -204,12 +228,23 @@ export function ChannelWebhooksTab({
       webhookId: string
       name?: string
       avatarUrl?: string
+      post?: boolean
+      remember?: boolean
+      rememberHint?: string | null
+      actInstructions?: string | null
     }) => {
       const res = await apiClient.v1.workspaces[":workspaceSlug"].channels[
         ":channelId"
       ].webhooks[":webhookId"].$patch({
         param: { workspaceSlug, channelId, webhookId: input.webhookId },
-        json: { name: input.name, avatarUrl: input.avatarUrl },
+        json: {
+          name: input.name,
+          avatarUrl: input.avatarUrl,
+          post: input.post,
+          remember: input.remember,
+          rememberHint: input.rememberHint,
+          actInstructions: input.actInstructions,
+        },
       })
       if (!res.ok) throw new Error("Failed to update webhook")
       return res.json()
@@ -227,7 +262,10 @@ export function ChannelWebhooksTab({
       })
       if (!res.ok) throw new Error("Failed to delete webhook")
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey }),
+    onSuccess: () => {
+      setDeleteTarget(null)
+      queryClient.invalidateQueries({ queryKey })
+    },
     onError: () => toast.error("Failed to delete webhook"),
   })
 
@@ -255,33 +293,97 @@ export function ChannelWebhooksTab({
 
   return (
     <div className="space-y-4">
-      <p className="text-xs text-muted-foreground">
-        Webhooks are a simple way for other apps and services to post messages
-        into this channel — POST JSON like <code>{'{ "content": "..." }'}</code>{" "}
-        to the webhook URL. The URL is the credential, so treat it as a secret.
-      </p>
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="text-sm font-medium">Incoming webhooks</div>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Let other apps and services post data into{" "}
+            {channelName ? `#${channelName}` : "this channel"}.
+          </p>
+        </div>
+        <Button
+          type="button"
+          size="sm"
+          className="shrink-0"
+          disabled={createMutation.isPending}
+          onClick={() => createMutation.mutate()}
+        >
+          {createMutation.isPending ? (
+            <Spinner className="size-3.5" />
+          ) : (
+            <HugeiconsIcon
+              icon={PlusSignIcon}
+              className="size-3.5"
+              strokeWidth={2}
+            />
+          )}
+          New Webhook
+        </Button>
+      </div>
 
-      <Button
-        type="button"
-        disabled={createMutation.isPending}
-        onClick={() => createMutation.mutate()}
-      >
-        {createMutation.isPending ? "Creating..." : "New Webhook"}
-      </Button>
+      <div className="rounded-lg border border-border bg-muted/30 p-3">
+        <div className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-2 text-xs text-muted-foreground">
+          <Badge
+            variant="outline"
+            size="sm"
+            className="justify-self-start px-1.5 font-mono font-normal"
+          >
+            POST
+          </Badge>
+          <span className="min-w-0">
+            Send JSON like{" "}
+            <code className="text-foreground">{'{ "content": "..." }'}</code> to
+            the webhook URL
+          </span>
+          <Badge
+            variant="outline"
+            size="sm"
+            className="justify-self-start px-1.5 font-mono font-normal"
+          >
+            /discord
+          </Badge>
+          <span className="min-w-0">
+            Append to the URL to send Discord webhook payloads unchanged
+          </span>
+          <Badge
+            variant="outline"
+            size="sm"
+            className="justify-self-start px-1.5 font-mono font-normal"
+          >
+            /slack
+          </Badge>
+          <span className="min-w-0">
+            Append to the URL to send Slack incoming-webhook payloads unchanged
+          </span>
+        </div>
+        <div className="mt-2.5 flex items-center gap-1.5 border-border border-t pt-2.5 text-xs text-muted-foreground">
+          <HugeiconsIcon
+            icon={SquareLock02Icon}
+            className="size-3.5 shrink-0"
+            strokeWidth={2}
+          />
+          The URL is the credential — treat it like a password.
+        </div>
+      </div>
 
       {isPending ? (
         <div className="flex justify-center py-6">
           <Spinner className="size-4 text-muted-foreground" />
         </div>
       ) : webhooks.length === 0 ? (
-        <p className="text-xs text-muted-foreground">No webhooks yet.</p>
+        <Empty className="py-8 md:py-8">
+          <EmptyHeader>
+            <EmptyMedia variant="icon" className="mb-3">
+              <HugeiconsIcon icon={WebhookIcon} strokeWidth={2} />
+            </EmptyMedia>
+            <EmptyTitle className="text-sm">No webhooks yet</EmptyTitle>
+            <EmptyDescription className="text-xs">
+              Create one to get a URL other services can post to.
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
       ) : (
         <div className="space-y-3">
-          {channelName && (
-            <div className="text-sm font-semibold">
-              Posting to #{channelName}
-            </div>
-          )}
           <ul className="space-y-2">
             {webhooks.map((hook) => {
               const isOpen = openId === hook.id
@@ -322,6 +424,25 @@ export function ChannelWebhooksTab({
                         </span>
                       </div>
                     </div>
+                    {!isOpen && (
+                      <div className="hidden shrink-0 items-center gap-1 sm:flex">
+                        {hook.post && (
+                          <Badge variant="outline" size="sm">
+                            Post
+                          </Badge>
+                        )}
+                        {hook.remember && (
+                          <Badge variant="outline" size="sm">
+                            Remember
+                          </Badge>
+                        )}
+                        {hook.actInstructions !== null && (
+                          <Badge variant="outline" size="sm">
+                            Act
+                          </Badge>
+                        )}
+                      </div>
+                    )}
                     <HugeiconsIcon
                       icon={ArrowDown01Icon}
                       className={cn(
@@ -379,6 +500,29 @@ export function ChannelWebhooksTab({
                         </div>
                       </div>
 
+                      <div className="mt-4 space-y-2 border-border border-t pt-4">
+                        <div className="text-xs font-medium text-muted-foreground">
+                          When data arrives
+                        </div>
+                        <TriggerEffects
+                          idPrefix={`webhook-${hook.id}`}
+                          channelLabel={channelName}
+                          disabled={updateMutation.isPending}
+                          value={{
+                            post: hook.post,
+                            remember: hook.remember,
+                            rememberHint: hook.rememberHint,
+                            actInstructions: hook.actInstructions,
+                          }}
+                          onPatch={(patch) =>
+                            updateMutation.mutate({
+                              webhookId: hook.id,
+                              ...patch,
+                            })
+                          }
+                        />
+                      </div>
+
                       <div className="mt-4 flex items-center gap-2 border-border border-t pt-4">
                         <Button
                           type="button"
@@ -401,7 +545,9 @@ export function ChannelWebhooksTab({
                           size="sm"
                           className="text-destructive hover:text-destructive"
                           disabled={deleteMutation.isPending}
-                          onClick={() => deleteMutation.mutate(hook.id)}
+                          onClick={() =>
+                            setDeleteTarget({ id: hook.id, name: hook.name })
+                          }
                         >
                           Delete Webhook
                         </Button>
@@ -430,6 +576,39 @@ export function ChannelWebhooksTab({
           </ul>
         </div>
       )}
+
+      <AlertDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Webhook</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete{" "}
+              <span className="font-semibold">{deleteTarget?.name}</span>? Its
+              URL stops working immediately and anything still posting to it
+              will fail. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogClose render={<Button variant="outline" />}>
+              Cancel
+            </AlertDialogClose>
+            <Button
+              variant="destructive"
+              loading={deleteMutation.isPending}
+              onClick={() => {
+                if (deleteTarget) deleteMutation.mutate(deleteTarget.id)
+              }}
+            >
+              Delete Webhook
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

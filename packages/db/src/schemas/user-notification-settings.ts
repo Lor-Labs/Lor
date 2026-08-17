@@ -14,6 +14,11 @@ export const dmNotificationEnum = pgEnum("dm_notification", [
   "nothing",
 ])
 
+export const merlinThreadNotificationEnum = pgEnum(
+  "merlin_thread_notification",
+  ["all_activity", "subscribed_only"]
+)
+
 export const userNotificationSettings = pgTable("user_notification_settings", {
   id: uuid("id").defaultRandom().primaryKey(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -30,6 +35,11 @@ export const userNotificationSettings = pgTable("user_notification_settings", {
     .notNull(),
   dmNotifications: dmNotificationEnum("dm_notifications")
     .default("all_messages")
+    .notNull(),
+  merlinThreadNotifications: merlinThreadNotificationEnum(
+    "merlin_thread_notifications"
+  )
+    .default("all_activity")
     .notNull(),
 })
 
@@ -48,6 +58,7 @@ export const notificationSettingsResponseSchema =
   selectUserNotificationSettingsSchema.pick({
     desktopNotifications: true,
     dmNotifications: true,
+    merlinThreadNotifications: true,
   })
 
 export const updateNotificationSettingsSchema =
@@ -55,6 +66,7 @@ export const updateNotificationSettingsSchema =
     .pick({
       desktopNotifications: true,
       dmNotifications: true,
+      merlinThreadNotifications: true,
     })
     .partial()
 
