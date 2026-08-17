@@ -124,11 +124,17 @@ export type RealtimeAttachment = {
 
 export type RealtimeEmbed = {
   type: "link" | "image" | "video" | "rich"
-  url: string
+  url?: string
   title?: string
   description?: string
   thumbnail?: string
   siteName?: string
+  author?: { name: string; url?: string }
+  fields?: { name: string; value: string }[]
+  image?: string
+  footer?: string
+  timestamp?: string
+  color?: string
 }
 
 export type RealtimeReferencedMessage = {

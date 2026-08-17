@@ -1,7 +1,7 @@
 import { recordUsage } from "@repo/billing"
 import type { ConnectorEventKey } from "@repo/connectors"
 import { APP_USER_ID, and, db, eq, schema } from "@repo/db"
-import type { IntegrationProvider } from "@repo/db/schema"
+import type { Embed, IntegrationProvider } from "@repo/db/schema"
 import { type IngestSourceInput, ingestSource } from "@repo/merlin/sources"
 import { startActRun } from "@/lib/act-runs"
 import { postBotMessage } from "@/lib/bot-messages"
@@ -61,6 +61,8 @@ export async function dispatchConnectorEvent(input: {
   event: ConnectorEventKey
   label: string
   text: string
+  // Structured cards for the POST effect (webhook embeds/attachments).
+  embeds?: Embed[]
   // BYO webhook post identity (bucket-restricted, from the stored config).
   avatarUrl?: string
   // Omit when the event has nothing ingestable; Remember is then a no-op.
@@ -120,6 +122,7 @@ export async function dispatchConnectorEvent(input: {
         channel: target.channel,
         authorId: APP_USER_ID,
         content: input.text,
+        embeds: input.embeds,
         overrideName: input.label,
         overrideAvatarUrl: input.avatarUrl,
         // Memory rule: with Remember on, the `source` row is the canonical copy

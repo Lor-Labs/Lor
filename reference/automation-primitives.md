@@ -146,10 +146,19 @@ upgrades on the same URL.
   execute-webhook payloads (content/embeds); `.../slack` accepts Slack
   incoming-webhook payloads (text/blocks/attachments, mrkdwn converted). Same pattern
   as Discord's own `/slack` compatibility route — switching providers is repointing a
-  URL. Both normalize to markdown; interactive blocks are dropped rather than
-  half-rendered; `avatar_url` is deliberately absent from the schema (zod strips
-  unknown keys — identity always comes from the webhook's stored, bucket-restricted
-  config). A richer native shape is deferred — see message UI blocks in §9.
+  URL. **Data layer matches each vendor's spec exactly** (jacob's stance: point the URL
+  at Lor and everything works the same) — including sender-chosen **accent colors**
+  (Discord `embed.color` decimal int; Slack `attachment.color` hex or
+  `good`/`warning`/`danger`), normalized to `#rrggbb`. **Presentation is ours** (shipped
+  2026-08-17): embeds/attachments become structured `message.embeds` cards (accent
+  strip, author, markdown description, field grid, image, footer/timestamp) rather than
+  markdown blockquotes — the blockquote renderers survive as the text form Remember and
+  Act ingest. Slack *blocks* stay markdown (they're the message body, not a card);
+  interactive blocks are dropped rather than half-rendered; `avatar_url` is deliberately
+  absent from the schema (zod strips unknown keys — identity always comes from the
+  webhook's stored, bucket-restricted config). See `apps/api/src/lib/webhook-payloads.ts`
+  and `apps/web/src/components/chat/embed-card.tsx`. A richer *native* shape is still
+  deferred — see message UI blocks in §9.
 - `CONNECTOR_EVENTS.webhook` = one event, `data_received` — every delivery is that
   event; per-webhook configuration lives on the trigger (effects + hint + instructions).
 - **No field mapping, ever.** Arbitrary JSON in. POST stays deterministic (verbatim
