@@ -66,6 +66,10 @@ export const integrationStatusSchema = z.object({
       remember: z.boolean(),
       rememberHint: z.string().nullable(),
       actInstructions: z.string().nullable(),
+      // Act rate shape (reference/automation-primitives.md §5).
+      actWindowSeconds: z.number(),
+      hourlyRunCap: z.number(),
+      dailyRunCap: z.number(),
     })
   ),
 })
@@ -153,6 +157,11 @@ export const updateIntegrationRequestSchema = z.object({
   rememberHint: z.string().trim().max(2000).nullable().default(null),
   // The Act effect's instructions for Merlin; null = Act off.
   actInstructions: z.string().trim().max(4000).nullable().default(null),
+  // Act rate shape. Optional (not defaulted) so a client that doesn't know
+  // about these can't silently reset them on an unrelated toggle.
+  actWindowSeconds: z.number().int().min(0).max(3600).optional(),
+  hourlyRunCap: z.number().int().min(1).max(500).optional(),
+  dailyRunCap: z.number().int().min(1).max(2000).optional(),
 })
 
 export const updateIntegrationResponseSchema = z.object({

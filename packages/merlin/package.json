@@ -5,6 +5,7 @@
   "private": true,
   "exports": {
     ".": "./src/index.ts",
+    "./act-runs": "./src/act-runs.ts",
     "./artifacts": "./src/artifacts/service.ts",
     "./attio": "./src/attio.ts",
     "./capabilities": "./src/capabilities.ts",

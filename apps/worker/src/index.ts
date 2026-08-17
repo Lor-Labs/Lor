@@ -1,12 +1,16 @@
 import { env } from "@repo/env/server"
+import { overdueActWindows } from "@repo/merlin/act-runs"
 import { setRepoCacheStore } from "@repo/merlin/github"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
 import {
+  ACT_FLUSH_JOB,
+  type ActFlushJobData,
   AGENT_RUN_STOP_CHANNEL,
   LINK_UNFURL_QUEUE,
   MERLIN_RESPOND_QUEUE,
   type MerlinRespondJobData,
   TRIGGERED_RUN_QUEUE,
+  type TriggeredRunJobData,
 } from "@repo/realtime-types/queues"
 import { Emitter } from "@socket.io/redis-emitter"
 import { Queue, Worker } from "bullmq"
@@ -27,6 +31,10 @@ import { awaitInflightDrains } from "@/lib/run-queue"
 // Worker-internal periodic upkeep, scheduled through BullMQ (not in-process
 // timers) so replicas share one schedule and runs are visible/retryable.
 const MAINTENANCE_QUEUE = "maintenance"
+// A lost flush job is the only way queued Act deliveries can go unhandled, so
+// sweep for open-but-overdue windows and re-arm them.
+const ACT_WINDOW_SWEEP_EVERY_MS = 5 * 60 * 1000
+const ACT_WINDOW_SWEEP_GRACE_MS = 60 * 1000
 
 function parseRedisUrl(url: string) {
   const parsed = new URL(url)
@@ -143,13 +151,25 @@ async function bootstrap() {
   })
 
   // Headless triggered runs (the Act effect). Uses the respond queue as a
-  // producer when Merlin's disposition is create_task.
+  // producer when Merlin's disposition is create_task, and its own queue to
+  // re-arm a coalescing window that's waiting on an in-flight run.
+  const triggeredRunQueue = new Queue<TriggeredRunJobData | ActFlushJobData>(
+    TRIGGERED_RUN_QUEUE,
+    {
+      connection: {
+        ...redisOpts,
+        maxRetriesPerRequest: null,
+      },
+    }
+  )
+
   const triggeredRunWorker = new Worker(
     TRIGGERED_RUN_QUEUE,
     createTriggeredRunProcessor(
       emitter,
       redisEmitterClient,
-      merlinRespondQueue
+      merlinRespondQueue,
+      triggeredRunQueue
     ),
     {
       connection: {
@@ -192,6 +212,20 @@ async function bootstrap() {
       if (job.name === "prune-run-events") await pruneRunEvents()
       else if (job.name === "sweep-dead-runs")
         await sweepDeadRuns(emitter, merlinRespondQueue)
+      else if (job.name === "sweep-act-windows") {
+        const overdue = await overdueActWindows(ACT_WINDOW_SWEEP_GRACE_MS)
+        for (const window of overdue) {
+          logger.warn(
+            { triggerId: window.triggerId, openedAt: window.openedAt },
+            "Act window overdue; re-arming its flush"
+          )
+          await triggeredRunQueue.add(
+            ACT_FLUSH_JOB,
+            { triggerId: window.triggerId },
+            { attempts: 2, removeOnComplete: true }
+          )
+        }
+      }
     },
     {
       connection: {
@@ -220,6 +254,9 @@ async function bootstrap() {
   })
   await maintenanceQueue.upsertJobScheduler("sweep-dead-runs", {
     every: DEAD_RUN_SWEEP_EVERY_MS,
+  })
+  await maintenanceQueue.upsertJobScheduler("sweep-act-windows", {
+    every: ACT_WINDOW_SWEEP_EVERY_MS,
   })
 
   logger.info(

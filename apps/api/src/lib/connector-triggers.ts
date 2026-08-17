@@ -2,6 +2,7 @@ import { recordUsage } from "@repo/billing"
 import type { ConnectorEventKey } from "@repo/connectors"
 import { APP_USER_ID, and, db, eq, schema } from "@repo/db"
 import type { Embed, IntegrationProvider } from "@repo/db/schema"
+import { ACT_DELIVERY_PAYLOAD_MAX } from "@repo/merlin/act-runs"
 import { type IngestSourceInput, ingestSource } from "@repo/merlin/sources"
 import { startActRun } from "@/lib/act-runs"
 import { postBotMessage } from "@/lib/bot-messages"
@@ -78,6 +79,8 @@ export async function dispatchConnectorEvent(input: {
         remember: schema.connectorTrigger.remember,
         rememberHint: schema.connectorTrigger.rememberHint,
         actInstructions: schema.connectorTrigger.actInstructions,
+        actWindowSeconds: schema.connectorTrigger.actWindowSeconds,
+        hourlyRunCap: schema.connectorTrigger.hourlyRunCap,
         dailyRunCap: schema.connectorTrigger.dailyRunCap,
         enabled: schema.connectorTrigger.enabled,
       },
@@ -163,6 +166,11 @@ export async function dispatchConnectorEvent(input: {
   }
 
   let acted: string | null = null
+  // Act's queue lives in the delivery log: any Act-on delivery keeps a capped
+  // copy of its run payload, so a flush minutes later can rebuild the turn for
+  // whatever a burst (or an in-flight run) left waiting.
+  const actOn = target.trigger.actInstructions !== null
+  const actText = actOn ? actPayload(input) : null
   const delivery = await db
     .insert(schema.triggerDelivery)
     .values({
@@ -170,6 +178,8 @@ export async function dispatchConnectorEvent(input: {
       payload: input.payload
         ? input.payload.slice(0, DELIVERY_PAYLOAD_MAX)
         : null,
+      actPayload: actText ? actText.slice(0, ACT_DELIVERY_PAYLOAD_MAX) : null,
+      actLabel: actOn ? input.label : null,
       posted: postedMessageId !== null,
       remembered,
     })
@@ -182,16 +192,21 @@ export async function dispatchConnectorEvent(input: {
 
   // Act: hand the payload + trigger instructions to a headless agent run.
   // Anchored on the delivery row — no delivery log, no run.
-  if (delivery && target.trigger.actInstructions !== null) {
-    acted = await startActRun({
+  let actOutcome = "off"
+  if (delivery && actText !== null) {
+    const started = await startActRun({
       triggerId: target.trigger.id,
       deliveryId: delivery.id,
+      windowSeconds: target.trigger.actWindowSeconds,
+      hourlyRunCap: target.trigger.hourlyRunCap,
       dailyRunCap: target.trigger.dailyRunCap,
       workspaceId: target.connection.workspaceId,
       channelId: target.channel.id,
       label: input.label,
-      payload: actPayload(input),
+      payload: actText,
     })
+    actOutcome = started.kind === "skipped" ? started.reason : started.kind
+    if (started.kind === "started") acted = started.runId
   }
 
   logger.info(
@@ -201,6 +216,7 @@ export async function dispatchConnectorEvent(input: {
       channelId: target.channel.id,
       posted: postedMessageId !== null,
       remembered,
+      act: actOutcome,
       acted,
     },
     "Dispatched connector event"

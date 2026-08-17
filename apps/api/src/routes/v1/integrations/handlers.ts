@@ -7,6 +7,7 @@ import {
 } from "@repo/connectors"
 import { db } from "@repo/db"
 import {
+  ACT_DEFAULTS,
   channel,
   connectorTrigger,
   integrationConnection,
@@ -169,6 +170,9 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
             remember: connectorTrigger.remember,
             rememberHint: connectorTrigger.rememberHint,
             actInstructions: connectorTrigger.actInstructions,
+            actWindowSeconds: connectorTrigger.actWindowSeconds,
+            hourlyRunCap: connectorTrigger.hourlyRunCap,
+            dailyRunCap: connectorTrigger.dailyRunCap,
           })
           .from(connectorTrigger)
           .where(
@@ -255,6 +259,11 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
             remember: trigger?.remember ?? false,
             rememberHint: trigger?.rememberHint ?? null,
             actInstructions: trigger?.actInstructions ?? null,
+            // Unconfigured events show the same defaults a new trigger gets.
+            actWindowSeconds:
+              trigger?.actWindowSeconds ?? ACT_DEFAULTS.windowSeconds,
+            hourlyRunCap: trigger?.hourlyRunCap ?? ACT_DEFAULTS.hourlyRunCap,
+            dailyRunCap: trigger?.dailyRunCap ?? ACT_DEFAULTS.dailyRunCap,
           }
         }),
       }
@@ -786,8 +795,17 @@ export const updateIntegration: AppRouteHandler<
 > = async (c) => {
   const workspace = c.var.workspace
   const { connectionId } = c.req.valid("param")
-  const { event, channelId, post, remember, rememberHint, actInstructions } =
-    c.req.valid("json")
+  const {
+    event,
+    channelId,
+    post,
+    remember,
+    rememberHint,
+    actInstructions,
+    actWindowSeconds,
+    hourlyRunCap,
+    dailyRunCap,
+  } = c.req.valid("json")
 
   const connection = await db
     .select({
@@ -858,10 +876,24 @@ export const updateIntegration: AppRouteHandler<
       remember,
       rememberHint,
       actInstructions,
+      // Absent = keep the column default on create.
+      ...(actWindowSeconds !== undefined ? { actWindowSeconds } : {}),
+      ...(hourlyRunCap !== undefined ? { hourlyRunCap } : {}),
+      ...(dailyRunCap !== undefined ? { dailyRunCap } : {}),
     })
     .onConflictDoUpdate({
       target: [connectorTrigger.connectionId, connectorTrigger.event],
-      set: { channelId, post, remember, rememberHint, actInstructions },
+      set: {
+        channelId,
+        post,
+        remember,
+        rememberHint,
+        actInstructions,
+        // Absent = leave the configured limits alone.
+        ...(actWindowSeconds !== undefined ? { actWindowSeconds } : {}),
+        ...(hourlyRunCap !== undefined ? { hourlyRunCap } : {}),
+        ...(dailyRunCap !== undefined ? { dailyRunCap } : {}),
+      },
     })
 
   return c.json({ success: true as const }, HttpStatusCodes.OK)

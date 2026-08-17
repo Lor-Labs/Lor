@@ -6,6 +6,13 @@ import {
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react"
 import { Input } from "@repo/ui/components/input"
 import { Label } from "@repo/ui/components/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@repo/ui/components/select"
 import { Switch } from "@repo/ui/components/switch"
 import { Textarea } from "@repo/ui/components/textarea"
 import type { ReactNode } from "react"
@@ -18,9 +25,84 @@ export type TriggerEffectsValue = {
   rememberHint: string | null
   // null = Act off; empty string = Act on, Merlin uses judgment
   actInstructions: string | null
+  // Act rate shape: 0 = one run per delivery, otherwise deliveries inside the
+  // window coalesce into one run; caps are rolling-window run limits.
+  actWindowSeconds: number
+  hourlyRunCap: number
+  dailyRunCap: number
 }
 
 export type TriggerEffectsPatch = Partial<TriggerEffectsValue>
+
+const ACT_WINDOW_OPTIONS = [
+  { value: 0, label: "Immediate" },
+  { value: 60, label: "1 minute" },
+  { value: 300, label: "5 minutes" },
+  { value: 900, label: "15 minutes" },
+  { value: 3600, label: "1 hour" },
+]
+
+function formatWindow(seconds: number) {
+  if (seconds % 3600 === 0) {
+    const hours = seconds / 3600
+    return hours === 1 ? "1 hour" : `${hours} hours`
+  }
+  if (seconds % 60 === 0) {
+    const minutes = seconds / 60
+    return minutes === 1 ? "1 minute" : `${minutes} minutes`
+  }
+  return `${seconds} seconds`
+}
+
+// Short batch-window label for collapsed trigger summaries (e.g. "batched 5m").
+export function formatActWindowShort(seconds: number) {
+  if (seconds % 3600 === 0) return `${seconds / 3600}h`
+  if (seconds % 60 === 0) return `${seconds / 60}m`
+  return `${seconds}s`
+}
+
+function RunCapField({
+  id,
+  label,
+  value,
+  disabled,
+  onCommit,
+}: {
+  id: string
+  label: string
+  value: number
+  disabled?: boolean
+  onCommit: (next: number) => void
+}) {
+  const commit = (raw: string) => {
+    const next = Number.parseInt(raw, 10)
+    if (!Number.isInteger(next) || next < 1 || next === value) return
+    onCommit(next)
+  }
+  return (
+    <div className="space-y-1">
+      <Label htmlFor={id} className="text-xs">
+        {label}
+      </Label>
+      <Input
+        id={id}
+        key={value}
+        defaultValue={value}
+        type="number"
+        min={1}
+        className="h-8 text-xs"
+        disabled={disabled}
+        onBlur={(e) => commit(e.target.value)}
+        onKeyDown={(e) => {
+          // Escape closes the surrounding dialog without blurring — commit
+          // first so a typed cap isn't silently dropped.
+          if (e.key !== "Escape") return
+          commit(e.currentTarget.value)
+        }}
+      />
+    </div>
+  )
+}
 
 function EffectRow({
   id,
@@ -162,6 +244,62 @@ export function TriggerEffects({
             <p className="text-[11px] text-muted-foreground">
               Leave blank to let Merlin decide how to handle each payload.
             </p>
+            <div className="space-y-2 border-border/60 border-t pt-2.5">
+              <div className="space-y-1">
+                <Label htmlFor={`${idPrefix}-act-window`} className="text-xs">
+                  Batch window
+                </Label>
+                <Select
+                  items={ACT_WINDOW_OPTIONS}
+                  value={value.actWindowSeconds}
+                  disabled={disabled}
+                  onValueChange={(next) => {
+                    if (next === null || next === value.actWindowSeconds) return
+                    onPatch({ actWindowSeconds: next })
+                  }}
+                >
+                  <SelectTrigger
+                    id={`${idPrefix}-act-window`}
+                    size="sm"
+                    className="w-40 text-xs"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ACT_WINDOW_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] text-muted-foreground">
+                  {value.actWindowSeconds > 0
+                    ? `The first event wakes Merlin right away. Anything else arriving within ${formatWindow(value.actWindowSeconds)} is bundled into one follow-up instead of a run each.`
+                    : "Every delivery wakes Merlin. Deliveries that arrive while a run is going wait their turn and are handled together as soon as it finishes."}
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <RunCapField
+                  id={`${idPrefix}-act-hourly-cap`}
+                  label="Max runs per hour"
+                  value={value.hourlyRunCap}
+                  disabled={disabled}
+                  onCommit={(next) => onPatch({ hourlyRunCap: next })}
+                />
+                <RunCapField
+                  id={`${idPrefix}-act-daily-cap`}
+                  label="Max runs per day"
+                  value={value.dailyRunCap}
+                  disabled={disabled}
+                  onCommit={(next) => onPatch({ dailyRunCap: next })}
+                />
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Caps bound how often Merlin can run — deliveries beyond them
+                wait for the next slot rather than being dropped.
+              </p>
+            </div>
           </div>
         )}
       </EffectRow>

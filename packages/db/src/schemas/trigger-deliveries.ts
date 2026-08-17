@@ -1,4 +1,4 @@
-import { relations } from "drizzle-orm"
+import { relations, sql } from "drizzle-orm"
 import {
   boolean,
   index,
@@ -23,10 +23,16 @@ export const triggerDelivery = pgTable(
       .notNull()
       .references(() => connectorTrigger.id, { onDelete: "cascade" }),
     payload: text("payload"),
+    // What the Act effect would consume for this delivery, stored only when the
+    // trigger batches (actWindowSeconds > 0) because the flush runs later and
+    // has to rebuild the batch from these rows. `payload` above stays the raw
+    // inbound body; this is the normalized text + the source label.
+    actPayload: text("act_payload"),
+    actLabel: text("act_label"),
     // Which effects this delivery actually kicked off.
     posted: boolean("posted").notNull().default(false),
     remembered: boolean("remembered").notNull().default(false),
-    // The triggered agent run, once Act lands (phase 4).
+    // The triggered agent run. Many deliveries share one run when batched.
     runId: uuid("run_id"),
   },
   (table) => [
@@ -34,6 +40,11 @@ export const triggerDelivery = pgTable(
       table.triggerId,
       table.createdAt
     ),
+    // The flush's claim query: unclaimed deliveries for a trigger, newest
+    // first.
+    index("trigger_delivery_unclaimed_idx")
+      .on(table.triggerId, table.createdAt)
+      .where(sql`run_id is null`),
   ]
 )
 

@@ -34,7 +34,10 @@ import { toast } from "@repo/ui/components/toast"
 import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useRef, useState } from "react"
-import { TriggerEffects } from "@/components/workspace/trigger-effects"
+import {
+  formatActWindowShort,
+  TriggerEffects,
+} from "@/components/workspace/trigger-effects"
 import { apiClient } from "@/lib/api-client"
 
 const AVATAR_MIME_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"]
@@ -232,6 +235,9 @@ export function ChannelWebhooksTab({
       remember?: boolean
       rememberHint?: string | null
       actInstructions?: string | null
+      actWindowSeconds?: number
+      hourlyRunCap?: number
+      dailyRunCap?: number
     }) => {
       const res = await apiClient.v1.workspaces[":workspaceSlug"].channels[
         ":channelId"
@@ -244,6 +250,9 @@ export function ChannelWebhooksTab({
           remember: input.remember,
           rememberHint: input.rememberHint,
           actInstructions: input.actInstructions,
+          actWindowSeconds: input.actWindowSeconds,
+          hourlyRunCap: input.hourlyRunCap,
+          dailyRunCap: input.dailyRunCap,
         },
       })
       if (!res.ok) throw new Error("Failed to update webhook")
@@ -437,9 +446,17 @@ export function ChannelWebhooksTab({
                           </Badge>
                         )}
                         {hook.actInstructions !== null && (
-                          <Badge variant="outline" size="sm">
-                            Act
-                          </Badge>
+                          <>
+                            <Badge variant="outline" size="sm">
+                              Act
+                            </Badge>
+                            {hook.actWindowSeconds > 0 && (
+                              <span className="text-[11px] text-muted-foreground">
+                                batched{" "}
+                                {formatActWindowShort(hook.actWindowSeconds)}
+                              </span>
+                            )}
+                          </>
                         )}
                       </div>
                     )}
@@ -513,6 +530,9 @@ export function ChannelWebhooksTab({
                             remember: hook.remember,
                             rememberHint: hook.rememberHint,
                             actInstructions: hook.actInstructions,
+                            actWindowSeconds: hook.actWindowSeconds,
+                            hourlyRunCap: hook.hourlyRunCap,
+                            dailyRunCap: hook.dailyRunCap,
                           }}
                           onPatch={(patch) =>
                             updateMutation.mutate({

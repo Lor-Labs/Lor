@@ -253,11 +253,68 @@ refresh keeps the current selection). CRUD + discover endpoints at
 - **Loop guards.** Runs carry origin (`triggered_by` on `agent_run`); posts/side-effects
   of a triggered run can never re-trigger anything. Bot/webhook messages never trigger
   message rules (none exist yet — see §8).
-- **Budget caps.** Per-trigger daily run cap (default modest, e.g. 100/day) — an Act
-  trigger whose instructions say "usually do nothing" still burns a model call per
-  delivery. Per-run budgets reuse `defaultRunBudgets()`.
+- **Act rate shaping (built 2026-08-17).** The motivating case: a health monitor POSTs
+  every error serially into `#health`, a DB fault produces 500 deliveries in 20 minutes,
+  and the old single daily cap turned that into 100 agent runs followed by a blind spot
+  for the rest of the day (a fuse, not a throttle). The governing rule (jacob): **a
+  delivery is never dropped for being blocked — it queues.** Being blocked only ever
+  changes *when* and *with what company* Merlin looks, never *whether*. Three layers, in
+  `packages/merlin/src/act-runs.ts` (shared: the API arms windows on ingest, the worker
+  flushes them minutes later):
+  1. **One run per trigger at a time.** Act runs use `scopeKey = triggerId`, so the
+     existing partial unique index on active `agent_run` rows makes this a database
+     invariant rather than a check that can race. `actGuard` pre-checks it so a burst
+     doesn't spend cap slots on runs Postgres would reject anyway. A delivery that
+     arrives mid-run **queues** — even in immediate mode, where the trigger borrows the
+     batch machinery with a 30s window purely to hold the work.
+  2. **Coalescing window** (`actWindowSeconds`, default 300; `0` = one run per delivery).
+     **Leading edge, then trailing batch** — the window coalesces, it never delays: the
+     first delivery of a quiet period wins a conditional `UPDATE … WHERE
+     act_window_opened_at IS NULL` (Postgres owns the dedupe, not Redis), **runs
+     immediately**, and the window opens behind it with a delayed `act-flush` job. A lone
+     event therefore has zero added latency — the earlier design made it sit out the full
+     window, which was indefensible for a one-off "customer is a churn risk" webhook.
+     Everything arriving while that run is going joins the window, and at flush becomes
+     ONE follow-up run: all unclaimed deliveries claimed onto it
+     (`trigger_delivery.run_id`) and quoted as a single user turn — oldest 3 + newest 3,
+     with the true count and time span, framed as "N further deliveries … after an earlier
+     run already handled the first one" so Merlin checks for escalation instead of
+     repeating work. This is the layer that makes investigations *better*, not just
+     cheaper: "482 errors in 5 minutes, here's the first and the latest" beats one
+     arbitrary stack trace.
+     The window is **fixed/tumbling, not sliding** — a resetting debounce would mean a
+     continuous error stream never flushes at all, the worst failure mode during an
+     incident. Batched triggers store `trigger_delivery.act_payload`/`act_label` (the
+     flush runs later and can't be handed the payload on the job). A flush that lands
+     while a run is still going **re-arms** instead of dropping, so the batch keeps
+     growing; a window older than an hour is abandoned and logged (a wedged run must not
+     defer forever), and a window whose flush never arrived goes stale after 3× its
+     length so a new delivery can re-arm it.
+  3. **Rolling caps**: `hourlyRunCap` (default 3) and `dailyRunCap` (default 20), counted
+     over `agent_run.created_at`. Hourly exists so a burst can't eat the whole day's
+     budget; daily is the outer fuse. A cap doesn't discard the batch — `actGuard` returns
+     *when the rolling window frees a slot* (from the oldest run in it, clamped to
+     30s–15min) and the flush re-arms for then, so the queue keeps growing and fires as
+     soon as budget exists. Per-run budgets still reuse `defaultRunBudgets()` — those
+     bound each run's blast radius, whereas these bound run *count*.
+
+  The queue is "every delivery Act hasn't handled yet" (`run_id IS NULL` and an
+  `act_payload`, within 24h), deliberately **not** a slice of the window's clock — a
+  delivery that waited through several windows still lands in the next batch. 24h is the
+  stated bound: older than that is history, not an incident. Since blocked work never
+  drops, the only way queued deliveries could rot is a *lost* flush job (worker restart
+  mid-delay), so a `sweep-act-windows` maintenance job re-arms open-but-overdue windows
+  every 5 minutes.
+  All three layers are per-trigger columns on `connector_trigger`, exposed in the Act
+  effect row (`apps/web/src/components/workspace/trigger-effects.tsx`) for both BYO
+  webhooks and connector events. Sender-side grouping (Alertmanager `group_by`,
+  issue-level rather than event-level alerts) is still the right first line, and feeding
+  the Acting trigger state *transitions* rather than every event remains the recommended
+  shape.
 - **Kill switch + delivery log.** Every trigger has an enabled flag; the connection page
   shows recent deliveries, their effects, and run outcomes (including silent no-ops).
+  With queuing, the log is also the queue's only window: a delivery with no `runId` yet
+  is *waiting*, not lost — which the delivery-log UI should say out loud.
 - **Cost visibility.** Remember is metered at true cost, never debited (same stance as
   GitHub ingest — pricing decision stays visible in the ledger). Act runs meter like any
   agent run.
@@ -317,7 +374,9 @@ refresh keeps the current selection). CRUD + discover endpoints at
   - `channelId` notNull — the anchor; target/scope of all effects
   - effects: `post` boolean, `remember` boolean + `rememberHint` text,
     `actInstructions` text (null = Act off)
-  - `enabled` boolean, `dailyRunCap` int
+  - `enabled` boolean; Act rate shape: `actWindowSeconds` int + `actWindowOpenedAt`
+    timestamp (the coalescing window's open marker — Postgres owns burst dedupe),
+    `hourlyRunCap` int, `dailyRunCap` int (see §5)
   - keep one trigger per (connection, event) v1; multi-channel fan-out for the same
     event is a later relaxation.
 - `integration_connection` gains `avatarUrl` (webhook post identity; the display name
@@ -335,7 +394,9 @@ refresh keeps the current selection). CRUD + discover endpoints at
   cascade on both FKs.
 - **`agent_run`** gains trigger provenance (`triggerId`, `deliveryId` — nullable).
 - **delivery log**: `trigger_delivery` (triggerId, receivedAt, payload hash/size, effect
-  outcomes, runId nullable) — powers the delivery log and dedupe.
+  outcomes, runId nullable) — powers the delivery log and dedupe. Batched Act triggers
+  also store `actPayload`/`actLabel` per delivery (what the later flush quotes), and many
+  deliveries share one `runId` when coalesced.
 - `integration_connection` gains what Attio webhooks need: encrypted `webhookSecret` +
   provider `webhookId` (see §10).
 
