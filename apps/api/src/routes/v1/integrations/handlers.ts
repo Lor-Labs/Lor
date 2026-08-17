@@ -705,6 +705,12 @@ export const connectAttio: AppRouteHandler<ConnectAttioRoute> = async (c) => {
   if (outgoingToken && outgoing?.webhookId) {
     // Best effort — a leftover webhook just degrades on Attio's side.
     void deleteAttioWebhook(outgoingToken, outgoing.webhookId)
+  } else if (outgoing?.webhookId) {
+    // No token means no way to delete it — leave a trace of the leak.
+    logger.warn(
+      { webhookId: outgoing.webhookId, externalId: outgoing.externalId },
+      "Old Attio webhook left registered; token unavailable for cleanup"
+    )
   }
 
   return c.json(

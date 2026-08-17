@@ -27,6 +27,35 @@ describe("parseCurl", () => {
     )
   })
 
+  it("percent-encodes --data-urlencode values per curl's forms", () => {
+    const parsed = parseCurl(
+      `curl https://api.acme.com/x --data-urlencode 'q=hello world' --data-urlencode '=a&b' --data-urlencode 'plain val'`
+    )
+    expect(parsed?.body).toBe("q=hello%20world&a%26b&plain%20val")
+    expect(parsed?.method).toBe("POST")
+  })
+
+  it("skips file-backed --data-urlencode forms without eating the URL", () => {
+    const parsed = parseCurl(
+      "curl --data-urlencode @body.txt --data-urlencode name@file.txt https://api.acme.com/x"
+    )
+    expect(parsed?.url).toBe("https://api.acme.com/x")
+    expect(parsed?.body).toBeNull()
+  })
+
+  it("consumes form and upload flag values instead of treating them as the URL", () => {
+    const parsed = parseCurl(
+      "curl -F file=@photo.png -T upload.bin https://api.acme.com/x"
+    )
+    expect(parsed?.url).toBe("https://api.acme.com/x")
+    expect(parsed?.body).toBeNull()
+  })
+
+  it("encodes non-Latin1 basic auth credentials without throwing", () => {
+    const parsed = parseCurl("curl -u 'user:pässwörd❤' https://api.acme.com/x")
+    expect(parsed?.headers.Authorization).toMatch(/^Basic [A-Za-z0-9+/=]+$/)
+  })
+
   it("handles --request, --url, --json and basic auth", () => {
     const parsed = parseCurl(
       `curl --request PUT --url https://api.acme.com/y --json '{"a":1}' -u user:pass`

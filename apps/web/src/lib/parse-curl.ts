@@ -101,6 +101,20 @@ function encodeBasicAuth(creds: string): string {
   return btoa(String.fromCharCode(...new TextEncoder().encode(creds)))
 }
 
+// --data-urlencode forms (curl man page): `content`, `=content`,
+// `name=content` (encode the content part), `@file` / `name@file` (read from
+// disk — unrepresentable here, null). An `@` before any `=` marks a file form.
+function encodeDataUrlencode(value: string): string | null {
+  if (value.startsWith("=")) return encodeURIComponent(value.slice(1))
+  const eq = value.indexOf("=")
+  const at = value.indexOf("@")
+  if (at !== -1 && (eq === -1 || at < eq)) return null
+  if (eq !== -1) {
+    return `${value.slice(0, eq)}=${encodeURIComponent(value.slice(eq + 1))}`
+  }
+  return encodeURIComponent(value)
+}
+
 export function parseCurl(input: string): ParsedCurl | null {
   const tokens = tokenize(input.trim())
   if (tokens.length === 0) return null
@@ -128,13 +142,16 @@ export function parseCurl(input: string): ParsedCurl | null {
       t === "--data" ||
       t === "--data-raw" ||
       t === "--data-binary" ||
-      t === "--data-ascii" ||
-      t === "--data-urlencode"
+      t === "--data-ascii"
     ) {
       const value = tokens[++i] ?? ""
       // curl strips a leading @file marker; we can't read files — skip those.
       if (!value.startsWith("@"))
         body = body === null ? value : `${body}&${value}`
+    } else if (t === "--data-urlencode") {
+      const encoded = encodeDataUrlencode(tokens[++i] ?? "")
+      if (encoded !== null)
+        body = body === null ? encoded : `${body}&${encoded}`
     } else if (t === "--json") {
       body = tokens[++i] ?? ""
       sawJsonFlag = true
