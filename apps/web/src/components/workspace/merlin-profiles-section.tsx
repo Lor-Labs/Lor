@@ -6,6 +6,15 @@ import {
   Wrench01Icon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@repo/ui/components/alert-dialog"
 import { Badge } from "@repo/ui/components/badge"
 import { Button } from "@repo/ui/components/button"
 import { Input } from "@repo/ui/components/input"
@@ -431,6 +440,10 @@ export function MerlinProfilesSection({
 }) {
   const queryClient = useQueryClient()
   const [creating, setCreating] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<{
+    id: string
+    name: string
+  } | null>(null)
 
   const { data, isPending, isError, refetch } = useQuery({
     queryKey: ["agent-profiles", workspaceSlug],
@@ -494,6 +507,7 @@ export function MerlinProfilesSection({
     },
     onSuccess: () => {
       invalidate()
+      setDeleteTarget(null)
       toast.success("Profile deleted")
     },
     onError: () => toast.error("Failed to delete profile"),
@@ -535,7 +549,11 @@ export function MerlinProfilesSection({
           onSave={(name, capabilities, customToolIds) =>
             save.mutate({ id: p.id, name, capabilities, customToolIds })
           }
-          onDelete={p.isDefault ? undefined : () => remove.mutate(p.id)}
+          onDelete={
+            p.isDefault
+              ? undefined
+              : () => setDeleteTarget({ id: p.id, name: p.name })
+          }
         />
       ))}
       {creating ? (
@@ -558,6 +576,39 @@ export function MerlinProfilesSection({
           New profile
         </Button>
       )}
+
+      <AlertDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Profile</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete{" "}
+              <span className="font-semibold">{deleteTarget?.name}</span>?
+              Channels using it fall back to the workspace default profile. This
+              action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogClose render={<Button variant="outline" />}>
+              Cancel
+            </AlertDialogClose>
+            <Button
+              variant="destructive"
+              loading={remove.isPending}
+              onClick={() => {
+                if (deleteTarget) remove.mutate(deleteTarget.id)
+              }}
+            >
+              Delete Profile
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

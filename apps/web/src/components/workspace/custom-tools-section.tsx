@@ -1,4 +1,5 @@
 import {
+  ApiIcon,
   ArrowDown01Icon,
   Delete02Icon,
   PlusSignIcon,
@@ -1283,16 +1284,27 @@ export function CustomToolsSection({
                     setEditingId(tool.id)
                   }}
                 >
-                  <Badge
-                    variant="outline"
-                    size="sm"
-                    className="shrink-0 px-1.5 font-mono font-normal"
-                  >
-                    {tool.method}
-                  </Badge>
+                  {/* Kind marker — MCP servers and databases will share this
+                      list, each with their own glyph. */}
+                  <span className="flex size-9 shrink-0 items-center justify-center rounded-md border border-border bg-background">
+                    <HugeiconsIcon
+                      icon={ApiIcon}
+                      className="size-4.5 text-muted-foreground"
+                      strokeWidth={2}
+                    />
+                  </span>
                   <div className="min-w-0 flex-1">
-                    <div className="truncate font-mono text-sm">
-                      {tool.name}
+                    <div className="flex items-center gap-2">
+                      <span className="truncate font-mono text-sm">
+                        {tool.name}
+                      </span>
+                      <Badge
+                        variant="outline"
+                        size="sm"
+                        className="shrink-0 px-1.5 font-mono font-normal"
+                      >
+                        {tool.method}
+                      </Badge>
                     </div>
                     <div className="mt-0.5 truncate text-xs text-muted-foreground">
                       {tool.description}
