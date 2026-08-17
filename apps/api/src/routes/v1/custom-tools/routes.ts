@@ -11,11 +11,11 @@ import {
 } from "@/lib/helpers/openapi/schemas"
 import { workspaceAuthMiddleware } from "@/middleware/workspace-auth"
 import {
-  archiveCustomToolResponseSchema,
   createCustomToolRequestSchema,
   customToolIdParamsSchema,
   customToolResponseSchema,
   customToolsWorkspaceParamsSchema,
+  deleteCustomToolResponseSchema,
   listCustomToolsResponseSchema,
   updateCustomToolRequestSchema,
 } from "@/routes/v1/custom-tools/schema"
@@ -25,7 +25,7 @@ export const listCustomTools = createRoute({
   method: "get",
   summary: "List a workspace's custom tools",
   description:
-    "Returns active and archived custom tools. Secret values are never returned — names only.",
+    "Returns the workspace's custom tools. Secret values are never returned — names only.",
   tags: ["Custom Tools"],
   middleware: [workspaceAuthMiddleware] as const,
   request: { params: customToolsWorkspaceParamsSchema },
@@ -46,7 +46,7 @@ export const createCustomTool = createRoute({
   method: "post",
   summary: "Create a custom tool",
   description:
-    "Registers an HTTP tool Merlin can call in channels that grant the custom_tools capability.",
+    "Registers an HTTP tool Merlin can call in channels whose agent profile grants it (individually or via the blanket custom_tools capability).",
   tags: ["Custom Tools"],
   middleware: [workspaceAuthMiddleware] as const,
   request: {
@@ -99,19 +99,19 @@ export const updateCustomTool = createRoute({
   },
 })
 
-export const archiveCustomTool = createRoute({
+export const deleteCustomTool = createRoute({
   path: "/workspaces/{workspaceSlug}/custom-tools/{toolId}",
   method: "delete",
-  summary: "Archive a custom tool",
+  summary: "Delete a custom tool",
   description:
-    "Archive-not-delete: the row is kept, stops binding, and frees its name.",
+    "Permanently deletes the tool; profile grants cascade away and the name is freed.",
   tags: ["Custom Tools"],
   middleware: [workspaceAuthMiddleware] as const,
   request: { params: customToolIdParamsSchema },
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
-      schema: archiveCustomToolResponseSchema,
-      description: "Archived",
+      schema: deleteCustomToolResponseSchema,
+      description: "Deleted",
     }),
     [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
     [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
@@ -123,4 +123,4 @@ export const archiveCustomTool = createRoute({
 export type ListCustomToolsRoute = typeof listCustomTools
 export type CreateCustomToolRoute = typeof createCustomTool
 export type UpdateCustomToolRoute = typeof updateCustomTool
-export type ArchiveCustomToolRoute = typeof archiveCustomTool
+export type DeleteCustomToolRoute = typeof deleteCustomTool

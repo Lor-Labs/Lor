@@ -5,6 +5,15 @@ import {
   Wrench01Icon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@repo/ui/components/alert-dialog"
 import { Badge } from "@repo/ui/components/badge"
 import { Button } from "@repo/ui/components/button"
 import { Checkbox } from "@repo/ui/components/checkbox"
@@ -64,7 +73,7 @@ type CustomToolRow = {
   headers: Record<string, string>
   bodyTemplate: string | null
   secretNames: string[]
-  status: "active" | "archived"
+  usedByProfiles: number
   createdAt: string
   updatedAt: string
 }
@@ -1096,6 +1105,7 @@ export function CustomToolsSection({
   const [creating, setCreating] = useState(false)
   const [draft, setDraft] = useState<Draft>(emptyDraft())
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<CustomToolRow | null>(null)
 
   const queryKey = ["custom-tools", workspaceSlug]
   const { data, isPending } = useQuery({
@@ -1173,23 +1183,22 @@ export function CustomToolsSection({
     onError: (err) => toast.error(err.message),
   })
 
-  const archiveMutation = useMutation({
+  const deleteMutation = useMutation({
     mutationFn: async (toolId: string) => {
       const res = await apiClient.v1.workspaces[":workspaceSlug"][
         "custom-tools"
       ][":toolId"].$delete({ param: { workspaceSlug, toolId } })
-      if (!res.ok) throw new Error("Failed to archive tool")
+      if (!res.ok) throw new Error("Failed to delete tool")
     },
     onSuccess: () => {
       invalidate()
       setEditingId(null)
+      setDeleteTarget(null)
     },
-    onError: () => toast.error("Failed to archive tool"),
+    onError: () => toast.error("Failed to delete tool"),
   })
 
   const tools = (data?.tools ?? []) as CustomToolRow[]
-  const active = tools.filter((t) => t.status === "active")
-  const archived = tools.filter((t) => t.status === "archived")
 
   return (
     <div className="space-y-4">
@@ -1197,8 +1206,8 @@ export function CustomToolsSection({
         <div className="min-w-0">
           <div className="text-sm font-medium">Custom tools</div>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            HTTP tools Merlin can call. Channels opt in via the Custom Tools
-            capability on their agent profile.
+            HTTP tools Merlin can call. Grant them per channel through agent
+            profiles — all at once or tool by tool.
           </p>
         </div>
         {!creating && (
@@ -1240,7 +1249,7 @@ export function CustomToolsSection({
         <div className="flex justify-center py-6">
           <Spinner className="size-4 text-muted-foreground" />
         </div>
-      ) : active.length === 0 && !creating ? (
+      ) : tools.length === 0 && !creating ? (
         <Empty className="py-8 md:py-8">
           <EmptyHeader>
             <EmptyMedia variant="icon" className="mb-3">
@@ -1254,7 +1263,7 @@ export function CustomToolsSection({
         </Empty>
       ) : (
         <ul className="space-y-2">
-          {active.map((tool) => {
+          {tools.map((tool) => {
             const isEditing = editingId === tool.id
             return (
               <li
@@ -1313,10 +1322,10 @@ export function CustomToolsSection({
                       variant="ghost"
                       size="sm"
                       className="mt-2 text-destructive hover:text-destructive"
-                      disabled={archiveMutation.isPending}
-                      onClick={() => archiveMutation.mutate(tool.id)}
+                      disabled={deleteMutation.isPending}
+                      onClick={() => setDeleteTarget(tool)}
                     >
-                      Archive Tool
+                      Delete Tool
                     </Button>
                   </div>
                 )}
@@ -1326,24 +1335,43 @@ export function CustomToolsSection({
         </ul>
       )}
 
-      {archived.length > 0 && (
-        <div className="space-y-1.5">
-          <div className="text-xs font-medium text-muted-foreground">
-            Archived
-          </div>
-          <ul className="space-y-1">
-            {archived.map((tool) => (
-              <li
-                key={tool.id}
-                className="flex items-center gap-2 rounded-md border border-border/60 px-3 py-2 text-xs text-muted-foreground"
-              >
-                <span className="font-mono">{tool.name}</span>
-                <span className="truncate">{tool.description}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+      <AlertDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Tool</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete{" "}
+              <span className="font-mono font-semibold">
+                {deleteTarget?.name}
+              </span>
+              ?{" "}
+              {deleteTarget && deleteTarget.usedByProfiles > 0
+                ? `${deleteTarget.usedByProfiles} agent ${deleteTarget.usedByProfiles === 1 ? "profile grants" : "profiles grant"} it — Merlin loses it in those channels immediately. `
+                : "Merlin can no longer call it. "}
+              This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogClose render={<Button variant="outline" />}>
+              Cancel
+            </AlertDialogClose>
+            <Button
+              variant="destructive"
+              loading={deleteMutation.isPending}
+              onClick={() => {
+                if (deleteTarget) deleteMutation.mutate(deleteTarget.id)
+              }}
+            >
+              Delete Tool
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

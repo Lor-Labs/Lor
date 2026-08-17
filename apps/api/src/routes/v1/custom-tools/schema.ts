@@ -1,5 +1,5 @@
 import { z } from "@hono/zod-openapi"
-import { customToolMethodEnum, customToolStatusEnum } from "@repo/db/schema"
+import { customToolMethodEnum } from "@repo/db/schema"
 import { CUSTOM_TOOL_NAME_REGEX } from "@repo/merlin/custom-tools"
 
 export const customToolsWorkspaceParamsSchema = z.object({
@@ -64,7 +64,9 @@ export const customToolSchema = z.object({
   headers: z.record(z.string(), z.string()),
   bodyTemplate: z.string().nullable(),
   secretNames: z.array(z.string()),
-  status: z.enum(customToolStatusEnum.enumValues),
+  // How many agent profiles grant this tool explicitly — shown in the
+  // delete confirmation (deleting cascades those grants away).
+  usedByProfiles: z.number(),
   createdAt: z.string(),
   updatedAt: z.string(),
 })
@@ -109,6 +111,6 @@ export const updateCustomToolRequestSchema = z
     message: "Nothing to update",
   })
 
-export const archiveCustomToolResponseSchema = z.object({
+export const deleteCustomToolResponseSchema = z.object({
   success: z.literal(true),
 })

@@ -43,7 +43,7 @@ export async function allowedChannelConnectors(
   workspaceId: string,
   channelId: string
 ): Promise<ChannelConnector[]> {
-  const [capabilities, connections] = await Promise.all([
+  const [grants, connections] = await Promise.all([
     resolveChannelCapabilities(channelId),
     db
       .select({ provider: integrationConnection.provider })
@@ -57,7 +57,7 @@ export async function allowedChannelConnectors(
   ])
 
   return attachableConnectors(
-    capabilities,
+    grants.capabilities,
     new Set(connections.map((row) => row.provider))
   )
 }

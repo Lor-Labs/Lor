@@ -3,6 +3,7 @@ import {
   PencilEdit01Icon,
   PlusSignIcon,
   Tick02Icon,
+  Wrench01Icon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { Badge } from "@repo/ui/components/badge"
@@ -16,10 +17,22 @@ import { useState } from "react"
 import { apiClient } from "@/lib/api-client"
 import type {
   AgentProfile,
+  AgentProfilesResponse,
   AvailableCapability,
   MerlinCapabilityKey,
 } from "@/lib/api-types"
 import { connectorLogo } from "@/lib/connector-ui"
+
+type AvailableCustomTool = AgentProfilesResponse["availableCustomTools"][number]
+
+// A profile grants custom tools either via the blanket capability (all,
+// including future tools) or an explicit per-tool list.
+function hasBlanketTools(profile: {
+  grantsAll: boolean
+  capabilities: MerlinCapabilityKey[]
+}): boolean {
+  return profile.grantsAll || profile.capabilities.includes("custom_tools")
+}
 
 // Group capabilities by their connector, preserving first-seen order.
 function groupByConnector(caps: AvailableCapability[]) {
@@ -44,15 +57,20 @@ function groupByConnector(caps: AvailableCapability[]) {
 function GrantedChips({
   profile,
   available,
+  tools,
 }: {
   profile: AgentProfile
   available: AvailableCapability[]
+  tools: AvailableCustomTool[]
 }) {
   const granted = profile.grantsAll
     ? available
     : available.filter((c) => profile.capabilities.includes(c.key))
+  const grantedTools = hasBlanketTools(profile)
+    ? []
+    : tools.filter((t) => profile.customToolIds.includes(t.id))
 
-  if (granted.length === 0) {
+  if (granted.length === 0 && grantedTools.length === 0) {
     return (
       <span className="text-xs text-muted-foreground">Chat & memory only</span>
     )
@@ -66,12 +84,94 @@ function GrantedChips({
             key={c.key}
             className="inline-flex items-center gap-1.5 rounded-md bg-muted px-2 py-1 text-xs text-foreground"
           >
-            <Icon className="size-3.5 shrink-0" />
+            {c.key === "custom_tools" ? (
+              <HugeiconsIcon
+                icon={Wrench01Icon}
+                className="size-3.5 shrink-0"
+                strokeWidth={2}
+              />
+            ) : (
+              <Icon className="size-3.5 shrink-0" />
+            )}
             {c.label}
           </span>
         )
       })}
+      {grantedTools.map((t) => (
+        <span
+          key={t.id}
+          className="inline-flex items-center gap-1.5 rounded-md bg-muted px-2 py-1 font-mono text-xs text-foreground"
+        >
+          <HugeiconsIcon
+            icon={Wrench01Icon}
+            className="size-3.5 shrink-0"
+            strokeWidth={2}
+          />
+          {t.name}
+        </span>
+      ))}
     </div>
+  )
+}
+
+function SelectTile({
+  icon,
+  title,
+  description,
+  selected,
+  included,
+  mono,
+  onToggle,
+}: {
+  icon: React.ReactNode
+  title: string
+  description: string
+  selected: boolean
+  // Covered by the blanket grant: shown checked but not editable.
+  included?: boolean
+  mono?: boolean
+  onToggle: () => void
+}) {
+  const checked = selected || included
+  return (
+    <button
+      type="button"
+      aria-pressed={checked}
+      disabled={included}
+      onClick={onToggle}
+      className={cn(
+        "flex w-full items-center gap-3 rounded-lg border p-3 text-left transition-colors",
+        included
+          ? "border-primary/20 bg-primary/5 opacity-60"
+          : selected
+            ? "cursor-pointer border-primary/40 bg-primary/5"
+            : "cursor-pointer border-border hover:bg-accent/40"
+      )}
+    >
+      <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted">
+        {icon}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className={cn("block text-sm font-medium", mono && "font-mono")}>
+          {title}
+        </span>
+        <span className="block text-xs text-muted-foreground">
+          {description}
+        </span>
+      </span>
+      <span
+        className={cn(
+          "flex size-5 shrink-0 items-center justify-center rounded-full border transition-colors",
+          checked
+            ? "border-primary bg-primary text-primary-foreground"
+            : "border-muted-foreground/30"
+        )}
+      >
+        {checked && (
+          <HugeiconsIcon icon={Tick02Icon} className="size-3" strokeWidth={2} />
+        )}
+      </span>
+    </button>
   )
 }
 
@@ -86,45 +186,20 @@ function CapabilityTile({
 }) {
   const Icon = connectorLogo(cap.connector)
   return (
-    <button
-      type="button"
-      aria-pressed={selected}
-      onClick={onToggle}
-      className={cn(
-        "flex w-full cursor-pointer items-center gap-3 rounded-lg border p-3 text-left transition-colors",
-        selected
-          ? "border-primary/40 bg-primary/5"
-          : "border-border hover:bg-accent/40"
-      )}
-    >
-      <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted">
-        <Icon className="size-5" />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block text-sm font-medium">{cap.label}</span>
-        <span className="block text-xs text-muted-foreground">
-          {cap.description}
-        </span>
-      </span>
-      <span
-        className={cn(
-          "flex size-5 shrink-0 items-center justify-center rounded-full border transition-colors",
-          selected
-            ? "border-primary bg-primary text-primary-foreground"
-            : "border-muted-foreground/30"
-        )}
-      >
-        {selected && (
-          <HugeiconsIcon icon={Tick02Icon} className="size-3" strokeWidth={2} />
-        )}
-      </span>
-    </button>
+    <SelectTile
+      icon={<Icon className="size-5" />}
+      title={cap.label}
+      description={cap.description}
+      selected={selected}
+      onToggle={onToggle}
+    />
   )
 }
 
 function ProfileRow({
   profile,
   available,
+  tools,
   onSave,
   onDelete,
   onCancelNew,
@@ -132,7 +207,12 @@ function ProfileRow({
 }: {
   profile?: AgentProfile
   available: AvailableCapability[]
-  onSave: (name: string, capabilities: MerlinCapabilityKey[]) => void
+  tools: AvailableCustomTool[]
+  onSave: (
+    name: string,
+    capabilities: MerlinCapabilityKey[],
+    customToolIds: string[]
+  ) => void
   onDelete?: () => void
   onCancelNew?: () => void
   saving?: boolean
@@ -143,11 +223,13 @@ function ProfileRow({
     if (profile.grantsAll) return new Set(available.map((c) => c.key))
     return new Set(profile.capabilities)
   }
+  const initialTools = () => new Set(profile?.customToolIds ?? [])
 
   const [editing, setEditing] = useState(isNew)
   const [name, setName] = useState(profile?.name ?? "")
   const [selected, setSelected] =
     useState<Set<MerlinCapabilityKey>>(initialSelected)
+  const [selectedTools, setSelectedTools] = useState<Set<string>>(initialTools)
 
   const toggle = (key: MerlinCapabilityKey) => {
     setSelected((prev) => {
@@ -158,13 +240,26 @@ function ProfileRow({
     })
   }
 
+  const toggleTool = (id: string) => {
+    setSelectedTools((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
   const handleSave = () => {
     if (!name.trim()) return
     const availableKeys = new Set(available.map((c) => c.key))
     const preserved = (profile?.capabilities ?? []).filter(
       (k) => !availableKeys.has(k)
     )
-    onSave(name.trim(), [...new Set([...selected, ...preserved])])
+    onSave(
+      name.trim(),
+      [...new Set([...selected, ...preserved])],
+      [...selectedTools]
+    )
     if (!isNew) setEditing(false)
   }
 
@@ -175,6 +270,7 @@ function ProfileRow({
     }
     setName(profile?.name ?? "")
     setSelected(initialSelected())
+    setSelectedTools(initialTools())
     setEditing(false)
   }
 
@@ -186,7 +282,7 @@ function ProfileRow({
             <span className="truncate font-medium text-sm">{profile.name}</span>
             {profile.isDefault && <Badge variant="secondary">Default</Badge>}
           </div>
-          <GrantedChips profile={profile} available={available} />
+          <GrantedChips profile={profile} available={available} tools={tools} />
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <Button
@@ -220,6 +316,10 @@ function ProfileRow({
     )
   }
 
+  const generalCaps = available.filter((c) => c.key !== "custom_tools")
+  const blanketCap = available.find((c) => c.key === "custom_tools")
+  const blanketOn = selected.has("custom_tools")
+
   return (
     <div className="space-y-4 rounded-xl border border-border p-4">
       <Input
@@ -230,13 +330,13 @@ function ProfileRow({
       />
       <div className="space-y-2">
         <div className="font-medium text-muted-foreground text-xs">Tools</div>
-        {available.length === 0 ? (
+        {generalCaps.length === 0 ? (
           <p className="text-muted-foreground text-xs">
             No connectors are connected yet — connect one under Connectors to
             grant tools.
           </p>
         ) : (
-          groupByConnector(available).map((group) => {
+          groupByConnector(generalCaps).map((group) => {
             const Logo = connectorLogo(group.connector)
             return (
               <div key={group.connector ?? "web"} className="space-y-2">
@@ -257,6 +357,55 @@ function ProfileRow({
               </div>
             )
           })
+        )}
+        {blanketCap && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-1.5 text-muted-foreground">
+              <HugeiconsIcon
+                icon={Wrench01Icon}
+                className="size-3.5 shrink-0"
+                strokeWidth={2}
+              />
+              <span className="text-xs font-medium">Custom tools</span>
+            </div>
+            <SelectTile
+              icon={
+                <HugeiconsIcon
+                  icon={Wrench01Icon}
+                  className="size-5"
+                  strokeWidth={2}
+                />
+              }
+              title={blanketCap.label}
+              description={blanketCap.description}
+              selected={blanketOn}
+              onToggle={() => toggle("custom_tools")}
+            />
+            {tools.map((tool) => (
+              <SelectTile
+                key={tool.id}
+                icon={
+                  <HugeiconsIcon
+                    icon={Wrench01Icon}
+                    className="size-5"
+                    strokeWidth={2}
+                  />
+                }
+                title={tool.name}
+                mono
+                description={tool.description}
+                selected={selectedTools.has(tool.id)}
+                included={blanketOn}
+                onToggle={() => toggleTool(tool.id)}
+              />
+            ))}
+            {tools.length === 0 && (
+              <p className="text-muted-foreground text-xs">
+                No custom tools yet — create them in the Custom tools section to
+                grant them individually.
+              </p>
+            )}
+          </div>
         )}
       </div>
       <div className="flex justify-end gap-2">
@@ -304,17 +453,26 @@ export function MerlinProfilesSection({
       id?: string
       name: string
       capabilities: MerlinCapabilityKey[]
+      customToolIds: string[]
     }) => {
       const profiles =
         apiClient.v1.workspaces[":workspaceSlug"]["agent-profiles"]
       const res = input.id
         ? await profiles[":profileId"].$patch({
             param: { workspaceSlug, profileId: input.id },
-            json: { name: input.name, capabilities: input.capabilities },
+            json: {
+              name: input.name,
+              capabilities: input.capabilities,
+              customToolIds: input.customToolIds,
+            },
           })
         : await profiles.$post({
             param: { workspaceSlug },
-            json: { name: input.name, capabilities: input.capabilities },
+            json: {
+              name: input.name,
+              capabilities: input.capabilities,
+              customToolIds: input.customToolIds,
+            },
           })
       if (!res.ok) throw new Error("Failed to save profile")
       return res.json()
@@ -372,9 +530,10 @@ export function MerlinProfilesSection({
           key={p.id}
           profile={p}
           available={data.availableCapabilities}
+          tools={data.availableCustomTools}
           saving={save.isPending}
-          onSave={(name, capabilities) =>
-            save.mutate({ id: p.id, name, capabilities })
+          onSave={(name, capabilities, customToolIds) =>
+            save.mutate({ id: p.id, name, capabilities, customToolIds })
           }
           onDelete={p.isDefault ? undefined : () => remove.mutate(p.id)}
         />
@@ -382,8 +541,11 @@ export function MerlinProfilesSection({
       {creating ? (
         <ProfileRow
           available={data.availableCapabilities}
+          tools={data.availableCustomTools}
           saving={save.isPending}
-          onSave={(name, capabilities) => save.mutate({ name, capabilities })}
+          onSave={(name, capabilities, customToolIds) =>
+            save.mutate({ name, capabilities, customToolIds })
+          }
           onCancelNew={() => setCreating(false)}
         />
       ) : (

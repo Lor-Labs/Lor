@@ -1,14 +1,15 @@
-import { and, asc, db, eq, schema } from "@repo/db"
+import { and, asc, db, eq, inArray, schema } from "@repo/db"
 import type { CustomTool } from "@repo/db/schema"
 import { env } from "@repo/env/server"
 import { decryptSecret } from "@repo/utils/crypto"
 import { dynamicTool, jsonSchema, type ToolSet } from "ai"
 import { logger } from "./logger"
 
-// User-defined HTTP tools (custom_tool rows), bound when a channel grants the
-// custom_tools capability. Templates use {{args.x}} / {{secrets.KEY}}
-// placeholders; secrets are decrypted only at call time and never appear in
-// tool results. See reference/automation-primitives.md §4.
+// User-defined HTTP tools (custom_tool rows), bound per the channel profile's
+// grant: the blanket custom_tools capability (all tools) or an explicit
+// per-profile list. Templates use {{args.x}} / {{secrets.KEY}} placeholders;
+// secrets are decrypted only at call time and never appear in tool results.
+// See reference/automation-primitives.md §4.
 
 export const CUSTOM_TOOL_NAME_REGEX = /^[a-z][a-z0-9_]{2,63}$/
 
@@ -253,14 +254,17 @@ async function executeCustomTool(
   }
 }
 
-// The workspace's active custom tools as a runtime ToolSet. Built-ins always
-// win a name collision (the tool is skipped and logged) — a workspace row must
-// never shadow a first-party tool.
+// The channel's granted custom tools as a runtime ToolSet (`grant` comes from
+// resolveChannelCapabilities: "all" or an explicit tool-id list). Built-ins
+// always win a name collision (the tool is skipped and logged) — a workspace
+// row must never shadow a first-party tool.
 export async function workspaceCustomTools(
   workspaceId: string,
-  takenNames: ReadonlySet<string>
+  takenNames: ReadonlySet<string>,
+  grant: "all" | string[]
 ): Promise<ToolSet | null> {
   if (!env.INTEGRATION_ENCRYPTION_KEY) return null
+  if (grant !== "all" && grant.length === 0) return null
   const rows = await db
     .select({
       name: schema.customTool.name,
@@ -276,7 +280,7 @@ export async function workspaceCustomTools(
     .where(
       and(
         eq(schema.customTool.workspaceId, workspaceId),
-        eq(schema.customTool.status, "active")
+        grant === "all" ? undefined : inArray(schema.customTool.id, grant)
       )
     )
     .orderBy(asc(schema.customTool.name))

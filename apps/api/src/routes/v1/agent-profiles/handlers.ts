@@ -6,11 +6,13 @@ import {
 import { db } from "@repo/db"
 import {
   agentProfile,
+  agentProfileCustomTool,
+  customTool,
   integrationConnection,
   type MerlinCapability,
 } from "@repo/db/schema"
 import { env } from "@repo/env/server"
-import { and, asc, desc, eq } from "drizzle-orm"
+import { and, asc, desc, eq, inArray } from "drizzle-orm"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { assertWorkspacePermission } from "@/lib/permissions"
 import type { AppRouteHandler } from "@/lib/types/app-types"
@@ -27,6 +29,47 @@ const profileColumns = {
   isDefault: agentProfile.isDefault,
   grantsAll: agentProfile.grantsAll,
   capabilities: agentProfile.capabilities,
+}
+
+// profileId → explicitly granted tool ids (agent_profile_custom_tool rows).
+async function toolGrantsByProfile(
+  profileIds: string[]
+): Promise<Map<string, string[]>> {
+  const grants = new Map<string, string[]>()
+  if (profileIds.length === 0) return grants
+  const rows = await db
+    .select({
+      profileId: agentProfileCustomTool.profileId,
+      customToolId: agentProfileCustomTool.customToolId,
+    })
+    .from(agentProfileCustomTool)
+    .where(inArray(agentProfileCustomTool.profileId, profileIds))
+  for (const row of rows) {
+    const list = grants.get(row.profileId)
+    if (list) list.push(row.customToolId)
+    else grants.set(row.profileId, [row.customToolId])
+  }
+  return grants
+}
+
+// Grants may only reference this workspace's tools — the FK alone can't stop
+// cross-workspace ids.
+async function invalidToolIds(
+  workspaceId: string,
+  toolIds: string[]
+): Promise<string[]> {
+  if (toolIds.length === 0) return []
+  const rows = await db
+    .select({ id: customTool.id })
+    .from(customTool)
+    .where(
+      and(
+        eq(customTool.workspaceId, workspaceId),
+        inArray(customTool.id, toolIds)
+      )
+    )
+  const known = new Set(rows.map((r) => r.id))
+  return toolIds.filter((id) => !known.has(id))
 }
 
 // Make sure the workspace has its permissive default profile (grants all,
@@ -80,6 +123,7 @@ export const listAgentProfiles: AppRouteHandler<
     .from(agentProfile)
     .where(eq(agentProfile.workspaceId, workspace.id))
     .orderBy(desc(agentProfile.isDefault), asc(agentProfile.name))
+  const grants = await toolGrantsByProfile(profiles.map((p) => p.id))
 
   const connections = await db
     .select({ provider: integrationConnection.provider })
@@ -101,7 +145,27 @@ export const listAgentProfiles: AppRouteHandler<
     })
   )
 
-  return c.json({ profiles, availableCapabilities: caps }, HttpStatusCodes.OK)
+  const tools = await db
+    .select({
+      id: customTool.id,
+      name: customTool.name,
+      description: customTool.description,
+    })
+    .from(customTool)
+    .where(eq(customTool.workspaceId, workspace.id))
+    .orderBy(asc(customTool.name))
+
+  return c.json(
+    {
+      profiles: profiles.map((p) => ({
+        ...p,
+        customToolIds: grants.get(p.id) ?? [],
+      })),
+      availableCapabilities: caps,
+      availableCustomTools: tools,
+    },
+    HttpStatusCodes.OK
+  )
 }
 
 export const createAgentProfile: AppRouteHandler<
@@ -109,7 +173,7 @@ export const createAgentProfile: AppRouteHandler<
 > = async (c) => {
   const workspace = c.var.workspace
   assertWorkspacePermission(c.var.member, workspace, { channel: ["update"] })
-  const { name, capabilities } = c.req.valid("json")
+  const { name, capabilities, customToolIds } = c.req.valid("json")
 
   const grantable = await grantableCapabilities(workspace.id)
   const unsupported = capabilities.filter((k) => !grantable.has(k))
@@ -122,18 +186,37 @@ export const createAgentProfile: AppRouteHandler<
       HttpStatusCodes.BAD_REQUEST
     )
   }
+  const unknownTools = await invalidToolIds(workspace.id, customToolIds)
+  if (unknownTools.length > 0) {
+    return c.json(
+      { success: false, message: "Unknown custom tool ids" },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
 
-  const created = await db
-    .insert(agentProfile)
-    .values({
-      workspaceId: workspace.id,
-      name,
-      capabilities,
-      grantsAll: false,
-      isDefault: false,
-    })
-    .returning(profileColumns)
-    .then((r) => r[0])
+  const created = await db.transaction(async (tx) => {
+    const row = await tx
+      .insert(agentProfile)
+      .values({
+        workspaceId: workspace.id,
+        name,
+        capabilities,
+        grantsAll: false,
+        isDefault: false,
+      })
+      .returning(profileColumns)
+      .then((r) => r[0])
+    if (!row) return null
+    if (customToolIds.length > 0) {
+      await tx.insert(agentProfileCustomTool).values(
+        customToolIds.map((customToolId) => ({
+          profileId: row.id,
+          customToolId,
+        }))
+      )
+    }
+    return row
+  })
 
   if (!created) {
     return c.json(
@@ -141,7 +224,7 @@ export const createAgentProfile: AppRouteHandler<
       HttpStatusCodes.INTERNAL_SERVER_ERROR
     )
   }
-  return c.json(created, HttpStatusCodes.OK)
+  return c.json({ ...created, customToolIds }, HttpStatusCodes.OK)
 }
 
 export const updateAgentProfile: AppRouteHandler<
@@ -150,7 +233,7 @@ export const updateAgentProfile: AppRouteHandler<
   const workspace = c.var.workspace
   assertWorkspacePermission(c.var.member, workspace, { channel: ["update"] })
   const { profileId } = c.req.valid("param")
-  const { name, capabilities } = c.req.valid("json")
+  const { name, capabilities, customToolIds } = c.req.valid("json")
 
   if (capabilities !== undefined) {
     const grantable = await grantableCapabilities(workspace.id)
@@ -165,23 +248,53 @@ export const updateAgentProfile: AppRouteHandler<
       )
     }
   }
-
-  const updated = await db
-    .update(agentProfile)
-    .set({
-      ...(name !== undefined ? { name } : {}),
-      // Tuning the granted set makes it an explicit allowlist (even the default
-      // stops meaning "everything" once edited).
-      ...(capabilities !== undefined ? { capabilities, grantsAll: false } : {}),
-    })
-    .where(
-      and(
-        eq(agentProfile.id, profileId),
-        eq(agentProfile.workspaceId, workspace.id)
+  if (customToolIds !== undefined) {
+    const unknownTools = await invalidToolIds(workspace.id, customToolIds)
+    if (unknownTools.length > 0) {
+      return c.json(
+        { success: false, message: "Unknown custom tool ids" },
+        HttpStatusCodes.BAD_REQUEST
       )
-    )
-    .returning(profileColumns)
-    .then((r) => r[0])
+    }
+  }
+
+  const updated = await db.transaction(async (tx) => {
+    const row = await tx
+      .update(agentProfile)
+      .set({
+        ...(name !== undefined ? { name } : {}),
+        // Tuning the granted set makes it an explicit allowlist (even the default
+        // stops meaning "everything" once edited).
+        ...(capabilities !== undefined
+          ? { capabilities, grantsAll: false }
+          : {}),
+      })
+      .where(
+        and(
+          eq(agentProfile.id, profileId),
+          eq(agentProfile.workspaceId, workspace.id)
+        )
+      )
+      .returning(profileColumns)
+      .then((r) => r[0])
+    if (!row) return null
+    if (customToolIds !== undefined) {
+      // Replace-not-diff: grant rows carry no metadata (yet), so a wholesale
+      // rewrite is simplest and the set is small.
+      await tx
+        .delete(agentProfileCustomTool)
+        .where(eq(agentProfileCustomTool.profileId, row.id))
+      if (customToolIds.length > 0) {
+        await tx.insert(agentProfileCustomTool).values(
+          customToolIds.map((customToolId) => ({
+            profileId: row.id,
+            customToolId,
+          }))
+        )
+      }
+    }
+    return row
+  })
 
   if (!updated) {
     return c.json(
@@ -189,7 +302,9 @@ export const updateAgentProfile: AppRouteHandler<
       HttpStatusCodes.NOT_FOUND
     )
   }
-  return c.json(updated, HttpStatusCodes.OK)
+  const grants =
+    customToolIds ?? (await toolGrantsByProfile([updated.id])).get(updated.id)
+  return c.json({ ...updated, customToolIds: grants ?? [] }, HttpStatusCodes.OK)
 }
 
 export const deleteAgentProfile: AppRouteHandler<

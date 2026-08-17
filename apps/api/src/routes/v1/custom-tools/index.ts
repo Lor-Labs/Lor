@@ -9,6 +9,6 @@ const customToolsRouter = createRouter()
   .openapi(routes.listCustomTools, handlers.listCustomTools)
   .openapi(routes.createCustomTool, handlers.createCustomTool)
   .openapi(routes.updateCustomTool, handlers.updateCustomTool)
-  .openapi(routes.archiveCustomTool, handlers.archiveCustomTool)
+  .openapi(routes.deleteCustomTool, handlers.deleteCustomTool)
 
 export default customToolsRouter

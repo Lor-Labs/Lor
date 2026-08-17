@@ -1,21 +1,25 @@
-import { relations, sql } from "drizzle-orm"
+import { relations } from "drizzle-orm"
 import {
   index,
   jsonb,
   pgEnum,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core"
+import { agentProfile } from "./agent-profiles"
 import { user } from "./users"
 import { workspace } from "./workspaces"
 
 // A workspace-registered tool Merlin can call: an HTTP request template with
-// a JSON-Schema args contract. Channels opt in via the `custom_tools`
-// capability (agent profiles). Archive-not-delete: rows are edited in place
-// (no version history), archived rows keep their name free for reuse.
+// a JSON-Schema args contract. Channels get tools through agent profiles:
+// the blanket `custom_tools` capability grants all (current and future), or
+// a profile grants specific tools via agent_profile_custom_tool rows. Rows
+// are edited in place (no version history) and hard-deleted — FK cascades
+// clean up profile grants atomically.
 // See reference/automation-primitives.md §4.
 
 export const customToolMethodEnum = pgEnum("custom_tool_method", [
@@ -24,11 +28,6 @@ export const customToolMethodEnum = pgEnum("custom_tool_method", [
   "PUT",
   "PATCH",
   "DELETE",
-])
-
-export const customToolStatusEnum = pgEnum("custom_tool_status", [
-  "active",
-  "archived",
 ])
 
 export const customTool = pgTable(
@@ -67,24 +66,57 @@ export const customTool = pgTable(
     // No read/write classification here on purpose: the future approvals flow
     // is permission-based (who may approve), configured when that ships — not
     // derivable from a mutation bit (automation-primitives.md §6.5).
-    status: customToolStatusEnum("status").notNull().default("active"),
   },
   (table) => [
-    // Names stay unique among ACTIVE tools; archiving frees the name.
-    uniqueIndex("custom_tool_workspace_name_active_uidx")
-      .on(table.workspaceId, table.name)
-      .where(sql`status = 'active'`),
+    uniqueIndex("custom_tool_workspace_name_uidx").on(
+      table.workspaceId,
+      table.name
+    ),
     index("custom_tool_workspace_idx").on(table.workspaceId),
   ]
 )
 
-export const customToolRelations = relations(customTool, ({ one }) => ({
+// Per-profile custom tool grants (used when the profile lacks the blanket
+// `custom_tools` capability). A real join table — not an id array — so
+// deleting a tool cascades its grants away and "which profiles use this
+// tool?" stays an indexed query. Room for per-grant metadata later (approvals).
+export const agentProfileCustomTool = pgTable(
+  "agent_profile_custom_tool",
+  {
+    profileId: uuid("profile_id")
+      .notNull()
+      .references(() => agentProfile.id, { onDelete: "cascade" }),
+    customToolId: uuid("custom_tool_id")
+      .notNull()
+      .references(() => customTool.id, { onDelete: "cascade" }),
+  },
+  (table) => [
+    primaryKey({ columns: [table.profileId, table.customToolId] }),
+    index("agent_profile_custom_tool_tool_idx").on(table.customToolId),
+  ]
+)
+
+export const customToolRelations = relations(customTool, ({ one, many }) => ({
   workspace: one(workspace, {
     fields: [customTool.workspaceId],
     references: [workspace.id],
   }),
+  profileGrants: many(agentProfileCustomTool),
 }))
+
+export const agentProfileCustomToolRelations = relations(
+  agentProfileCustomTool,
+  ({ one }) => ({
+    profile: one(agentProfile, {
+      fields: [agentProfileCustomTool.profileId],
+      references: [agentProfile.id],
+    }),
+    customTool: one(customTool, {
+      fields: [agentProfileCustomTool.customToolId],
+      references: [customTool.id],
+    }),
+  })
+)
 
 export type CustomTool = typeof customTool.$inferSelect
 export type CustomToolMethod = (typeof customToolMethodEnum.enumValues)[number]
-export type CustomToolStatus = (typeof customToolStatusEnum.enumValues)[number]

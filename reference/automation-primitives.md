@@ -176,8 +176,10 @@ A workspace registry of user-defined tools Merlin can call. **Shipped 2026-08-15
   template — no separate shape needed.
 - `mutates` — **dropped** (see §6.5): approval gating will be permission-based
   config shipped with the approvals design, not a mutation classification.
-- archive-not-delete, **no version history** (jacob: "just let them change the
-  tool"); archived rows free their name.
+- **hard delete, no version history** (jacob: "just let them change the tool").
+  Deleting cascades per-profile grants away via FK (supersedes the earlier
+  archive-not-delete stance — the join table made real deletion safe); the
+  delete confirmation shows how many profiles grant the tool (`usedByProfiles`).
 - SSRF stance (v1): HTTPS-only, no IP literals, no localhost/.local/.internal/
   dotless hostnames, no credentials in URLs, checked on the template at create AND
   the interpolated URL at call time (hosts can never come from args — placeholders
@@ -188,11 +190,21 @@ A workspace registry of user-defined tools Merlin can call. **Shipped 2026-08-15
   CRUD at `/v1/workspaces/:slug/custom-tools`, settings UI
   `apps/web/src/components/workspace/custom-tools-section.tsx`.
 
-**Enablement:** workspace-wide registry, per-channel grant *the same as connectors* —
-one `merlinCapabilityEnum` value **`custom_tools`** grants a channel the workspace's
-custom tool registry via agent profiles. Per-individual-tool granularity is a
-follow-up (profiles would need an allowlist column; the static capability enum can't
-enumerate dynamic rows).
+**Enablement (per-tool granularity shipped 2026-08-16):** workspace-wide
+registry, granted per channel through agent profiles at two levels:
+
+- the **`custom_tools`** capability = blanket "all custom tools, including ones
+  added later" (what `grantsAll` profiles resolve to);
+- otherwise the profile's explicit grant list — **`agent_profile_custom_tool`**
+  join rows (a real join table, not an id array: tool deletion cascades grants,
+  "which profiles use this tool" is indexed, and per-grant metadata — e.g.
+  approvals — has a home later).
+
+Resolution lives in `packages/merlin/src/capabilities.ts`
+(`resolveChannelCapabilities` → `ChannelToolGrants { capabilities, customTools:
+"all" | string[] }`); binding filters by the grant in `workspaceCustomTools`.
+The profile editor shows the blanket tile plus one tile per tool (tiles render
+checked-and-dimmed while the blanket is on).
 
 **cURL is the import path for single HTTP tools** (jacob — supersedes the earlier
 OpenAPI-import idea): the create form accepts a pasted curl command
@@ -286,8 +298,10 @@ then swaps real credentials for `{{secrets.…}}` references.
   reuses `accountLogin`) — nullable provider-specific column, same precedent as the
   Datadog `site` column.
 - **`channel_webhook` is dropped** after migrating rows into connection + trigger pairs.
-- **`custom_tool`**: per §4 descriptor fields + `workspaceId`, `createdBy`, `status`
-  (active/archived), `version`.
+- **`custom_tool`**: per §4 descriptor fields + `workspaceId`, `createdBy`.
+  Hard-deleted (no status column); name unique per workspace.
+- **`agent_profile_custom_tool`**: `(profileId, customToolId)` grant rows,
+  cascade on both FKs (per §4 enablement).
 - **`agent_run`** gains trigger provenance (`triggerId`, `deliveryId` — nullable).
 - **delivery log**: `trigger_delivery` (triggerId, receivedAt, payload hash/size, effect
   outcomes, runId nullable) — powers the delivery log and dedupe.

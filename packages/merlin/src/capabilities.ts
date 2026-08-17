@@ -1,16 +1,43 @@
 import { and, db, eq, schema } from "@repo/db"
 import { ALL_MERLIN_CAPABILITIES, type MerlinCapability } from "@repo/db/schema"
 
-function profileCapabilities(profile: {
+// What a channel's profile lets Merlin use: gated capabilities plus the
+// custom-tool grant. `customTools` is "all" when the profile grants the
+// blanket `custom_tools` capability (or grantsAll); otherwise the explicit
+// per-profile grant list (agent_profile_custom_tool rows).
+export type ChannelToolGrants = {
+  capabilities: MerlinCapability[]
+  customTools: "all" | string[]
+}
+
+const PERMISSIVE_GRANTS: ChannelToolGrants = {
+  capabilities: ALL_MERLIN_CAPABILITIES,
+  customTools: "all",
+}
+
+async function profileGrants(profile: {
+  id: string
   grantsAll: boolean
   capabilities: MerlinCapability[]
-}): MerlinCapability[] {
-  return profile.grantsAll ? ALL_MERLIN_CAPABILITIES : profile.capabilities
+}): Promise<ChannelToolGrants> {
+  if (profile.grantsAll) return PERMISSIVE_GRANTS
+  if (profile.capabilities.includes("custom_tools")) {
+    return { capabilities: profile.capabilities, customTools: "all" }
+  }
+  const grants = await db
+    .select({ customToolId: schema.agentProfileCustomTool.customToolId })
+    .from(schema.agentProfileCustomTool)
+    .where(eq(schema.agentProfileCustomTool.profileId, profile.id))
+  return {
+    capabilities: profile.capabilities,
+    customTools: grants.map((g) => g.customToolId),
+  }
 }
 
 async function getProfile(id: string, workspaceId: string) {
   return db
     .select({
+      id: schema.agentProfile.id,
       grantsAll: schema.agentProfile.grantsAll,
       capabilities: schema.agentProfile.capabilities,
     })
@@ -31,7 +58,7 @@ async function getProfile(id: string, workspaceId: string) {
 // and chat search are core and never gated here.
 export async function resolveChannelCapabilities(
   channelId: string
-): Promise<MerlinCapability[]> {
+): Promise<ChannelToolGrants> {
   const ch = await db
     .select({
       agentProfileId: schema.channel.agentProfileId,
@@ -42,12 +69,12 @@ export async function resolveChannelCapabilities(
     .where(eq(schema.channel.id, channelId))
     .limit(1)
     .then((r) => r[0] ?? null)
-  if (!ch) return ALL_MERLIN_CAPABILITIES
+  if (!ch) return PERMISSIVE_GRANTS
 
   // 1. Explicit channel profile (scoped to the channel's workspace).
   if (ch.agentProfileId && ch.workspaceId) {
     const p = await getProfile(ch.agentProfileId, ch.workspaceId)
-    if (p) return profileCapabilities(p)
+    if (p) return profileGrants(p)
   }
   // 2. Parent category's profile (the "group").
   if (ch.parentId && ch.workspaceId) {
@@ -59,13 +86,14 @@ export async function resolveChannelCapabilities(
       .then((r) => r[0]?.agentProfileId ?? null)
     if (parentProfileId) {
       const p = await getProfile(parentProfileId, ch.workspaceId)
-      if (p) return profileCapabilities(p)
+      if (p) return profileGrants(p)
     }
   }
   // 3. Workspace default profile.
   if (ch.workspaceId) {
     const def = await db
       .select({
+        id: schema.agentProfile.id,
         grantsAll: schema.agentProfile.grantsAll,
         capabilities: schema.agentProfile.capabilities,
       })
@@ -78,8 +106,8 @@ export async function resolveChannelCapabilities(
       )
       .limit(1)
       .then((r) => r[0] ?? null)
-    if (def) return profileCapabilities(def)
+    if (def) return profileGrants(def)
   }
   // 4. Nothing provisioned → permissive (no behavior change).
-  return ALL_MERLIN_CAPABILITIES
+  return PERMISSIVE_GRANTS
 }

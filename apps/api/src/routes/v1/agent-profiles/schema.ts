@@ -21,13 +21,19 @@ export const agentProfileIdParamsSchema =
 
 const capabilitySchema = z.enum(merlinCapabilityEnum.enumValues)
 
-export const agentProfileSchema = selectAgentProfileSchema.pick({
-  id: true,
-  name: true,
-  isDefault: true,
-  grantsAll: true,
-  capabilities: true,
-})
+export const agentProfileSchema = selectAgentProfileSchema
+  .pick({
+    id: true,
+    name: true,
+    isDefault: true,
+    grantsAll: true,
+    capabilities: true,
+  })
+  .extend({
+    // Explicit per-profile tool grants (agent_profile_custom_tool rows).
+    // Irrelevant when grantsAll or the blanket custom_tools capability is set.
+    customToolIds: z.array(z.string()),
+  })
 
 export const capabilityDescriptorSchema = z.object({
   key: capabilitySchema,
@@ -44,21 +50,35 @@ export const listAgentProfilesResponseSchema = z.object({
   // Only the capabilities this workspace can actually grant (connected
   // connectors); the editor shows these.
   availableCapabilities: z.array(capabilityDescriptorSchema),
+  // The workspace's custom tools, selectable per profile in the editor.
+  availableCustomTools: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      description: z.string(),
+    })
+  ),
 })
 
 export const createAgentProfileRequestSchema = z.object({
   name: z.string().trim().min(1).max(60),
   capabilities: z.array(capabilitySchema).default([]),
+  customToolIds: z.array(z.string().uuid()).max(200).default([]),
 })
 
 export const updateAgentProfileRequestSchema = z
   .object({
     name: z.string().trim().min(1).max(60).optional(),
     capabilities: z.array(capabilitySchema).optional(),
+    customToolIds: z.array(z.string().uuid()).max(200).optional(),
   })
-  .refine((v) => v.name !== undefined || v.capabilities !== undefined, {
-    message: "At least one field must be provided",
-  })
+  .refine(
+    (v) =>
+      v.name !== undefined ||
+      v.capabilities !== undefined ||
+      v.customToolIds !== undefined,
+    { message: "At least one field must be provided" }
+  )
 
 export const deleteAgentProfileResponseSchema = z.object({
   success: z.literal(true),

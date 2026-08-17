@@ -2,7 +2,6 @@ import { and, asc, db, eq, MERLIN_USER_ID, ne, or, schema, sql } from "@repo/db"
 import {
   type AgentRunContext,
   ALL_MERLIN_CAPABILITIES,
-  type MerlinCapability,
   type MerlinToolCall,
   type MerlinToolCallUpdate,
   type Task,
@@ -27,7 +26,10 @@ import {
   pageExists,
   searchBrain,
 } from "./brain"
-import { resolveChannelCapabilities } from "./capabilities"
+import {
+  type ChannelToolGrants,
+  resolveChannelCapabilities,
+} from "./capabilities"
 import {
   classifyToken,
   extractCitationTokens,
@@ -1375,11 +1377,15 @@ export async function respond(
   // resolveChannelCapabilities already maps truly unprovisioned channels to the
   // permissive set; an actual throw here is an unexpected failure, so fail
   // closed to core-only (no gated tools) rather than granting everything.
-  const caps = ctx.channelId
+  const grants = ctx.channelId
     ? await resolveChannelCapabilities(ctx.channelId).catch(
-        () => [] as MerlinCapability[]
+        (): ChannelToolGrants => ({ capabilities: [], customTools: [] })
       )
-    : ALL_MERLIN_CAPABILITIES
+    : {
+        capabilities: ALL_MERLIN_CAPABILITIES,
+        customTools: "all" as const,
+      }
+  const caps = grants.capabilities
   const needsGithub =
     caps.includes("github") || caps.includes("code_intelligence")
   const needsLinear = caps.includes("linear") || caps.includes("linear_write")
@@ -1440,12 +1446,14 @@ export async function respond(
   }
   // Bound after the built-ins so a workspace row can never shadow one
   // (collisions are skipped inside workspaceCustomTools).
-  const customTools = caps.includes("custom_tools")
-    ? await workspaceCustomTools(
-        ctx.workspaceId,
-        new Set(Object.keys(builtinTools))
-      ).catch(() => null)
-    : null
+  const customTools =
+    grants.customTools === "all" || grants.customTools.length > 0
+      ? await workspaceCustomTools(
+          ctx.workspaceId,
+          new Set(Object.keys(builtinTools)),
+          grants.customTools
+        ).catch(() => null)
+      : null
   const tools = {
     ...builtinTools,
     ...(customTools ?? {}),
