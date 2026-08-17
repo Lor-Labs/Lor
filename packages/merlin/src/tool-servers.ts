@@ -104,8 +104,24 @@ function withCappedResults(tools: ToolSet): ToolSet {
 // still resolve to a private address (split-horizon DNS / rebinding). Check
 // every resolved address right before connecting; the SDK re-resolves when it
 // dials, so this narrows — not eliminates — the TOCTOU window.
+// 100.64/10 is carrier-grade NAT, which overlay networks (Tailscale) hand out.
 const PRIVATE_IP_REGEX =
-  /^(127\.|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|0\.|169\.254\.|::1|fc|fd|fe80)/i
+  /^(127\.|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|0\.|169\.254\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.|::1$|fc|fd|fe80)/i
+
+// A hostile AAAA record can hand back an IPv4-mapped address (::ffff:127.0.0.1)
+// that no IPv4 pattern would match — compare on the embedded IPv4 instead.
+function normalizeAddress(address: string): string {
+  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(address)
+  if (mapped?.[1]) return mapped[1]
+  // Hex form of the same thing (::ffff:7f00:1).
+  const hex = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i.exec(address)
+  if (hex?.[1] && hex[2]) {
+    const high = Number.parseInt(hex[1], 16)
+    const low = Number.parseInt(hex[2], 16)
+    return `${high >> 8}.${high & 0xff}.${low >> 8}.${low & 0xff}`
+  }
+  return address
+}
 
 async function resolvedAddressIssue(rawUrl: string): Promise<string | null> {
   const hostname = new URL(rawUrl).hostname
@@ -117,7 +133,11 @@ async function resolvedAddressIssue(rawUrl: string): Promise<string | null> {
   } catch {
     return "Hostname did not resolve"
   }
-  if (addresses.some(({ address }) => PRIVATE_IP_REGEX.test(address))) {
+  if (
+    addresses.some(({ address }) =>
+      PRIVATE_IP_REGEX.test(normalizeAddress(address))
+    )
+  ) {
     return "Hostname resolves to a private address"
   }
   return null

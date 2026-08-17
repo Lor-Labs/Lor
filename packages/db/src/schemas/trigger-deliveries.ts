@@ -23,10 +23,10 @@ export const triggerDelivery = pgTable(
       .notNull()
       .references(() => connectorTrigger.id, { onDelete: "cascade" }),
     payload: text("payload"),
-    // What the Act effect would consume for this delivery, stored only when the
-    // trigger batches (actWindowSeconds > 0) because the flush runs later and
-    // has to rebuild the batch from these rows. `payload` above stays the raw
-    // inbound body; this is the normalized text + the source label.
+    // What the Act effect would consume for this delivery, stored for every
+    // Act-on delivery (immediate mode included, since a run in flight makes
+    // even those queue). A later flush rebuilds the batch turn from these
+    // rows. `payload` above stays the raw inbound body.
     actPayload: text("act_payload"),
     actLabel: text("act_label"),
     // Which effects this delivery actually kicked off.

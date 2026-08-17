@@ -8,7 +8,6 @@ import {
 import { db } from "@repo/db"
 import {
   ACT_DEFAULTS,
-  agentRun,
   channel,
   connectorTrigger,
   integrationConnection,
@@ -25,9 +24,10 @@ import {
   connectCloudwatch as verifyCloudwatchKeys,
   connectDatadog as verifyDatadogKeys,
 } from "@repo/merlin/providers"
-import { and, desc, eq, inArray, ne, sql } from "drizzle-orm"
+import { and, eq, inArray, ne, sql } from "drizzle-orm"
 import { invalidateGithubRepoCache } from "@/lib/github-repo-cache"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
+import { lastActByTrigger } from "@/lib/last-act"
 import { logger } from "@/lib/logger"
 import { signOAuthState, verifyOAuthState } from "@/lib/oauth-state"
 import type { AppRouteHandler } from "@/lib/types/app-types"
@@ -188,41 +188,9 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
     triggers.map((t) => [`${t.connectionId}:${t.event}`, t])
   )
 
-  // Newest agent_run per trigger in one DISTINCT ON query — one query per
-  // event would fan out across every connector.
-  const triggerIds = triggers.map((t) => t.id)
-  const lastActRows =
-    triggerIds.length > 0
-      ? await db
-          .selectDistinctOn([agentRun.triggerId], {
-            triggerId: agentRun.triggerId,
-            note: agentRun.handoffNote,
-            state: agentRun.state,
-            stopReason: agentRun.stopReason,
-            createdAt: agentRun.createdAt,
-          })
-          .from(agentRun)
-          .where(inArray(agentRun.triggerId, triggerIds))
-          .orderBy(agentRun.triggerId, desc(agentRun.createdAt))
-      : []
-  const lastActByTrigger = new Map<
-    string,
-    {
-      note: string | null
-      state: string
-      stopReason: string | null
-      at: string
-    }
-  >()
-  for (const row of lastActRows) {
-    if (!row.triggerId) continue
-    lastActByTrigger.set(row.triggerId, {
-      note: row.note,
-      state: row.state,
-      stopReason: row.stopReason,
-      at: row.createdAt.toISOString(),
-    })
-  }
+  // Newest agent_run per trigger in one query — one per event would fan out
+  // across every connector.
+  const lastActs = await lastActByTrigger(triggers.map((t) => t.id))
 
   if (!env.GITHUB_APP_SLUG) {
     logger.warn(
@@ -302,9 +270,7 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
               trigger?.actWindowSeconds ?? ACT_DEFAULTS.windowSeconds,
             hourlyRunCap: trigger?.hourlyRunCap ?? ACT_DEFAULTS.hourlyRunCap,
             dailyRunCap: trigger?.dailyRunCap ?? ACT_DEFAULTS.dailyRunCap,
-            lastAct: trigger
-              ? (lastActByTrigger.get(trigger.id) ?? null)
-              : null,
+            lastAct: trigger ? (lastActs.get(trigger.id) ?? null) : null,
           }
         }),
       }

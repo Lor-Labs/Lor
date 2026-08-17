@@ -23,11 +23,16 @@ const secretNameSchema = z.string().regex(/^[A-Za-z][A-Za-z0-9_]{0,63}$/)
 
 // RFC 7230 token — also excludes CR/LF so a header name can't split a request.
 const HEADER_NAME_REGEX = /^[!#$%&'*+.^_`|~A-Za-z0-9-]+$/
-// Any C0 control (except tab) or DEL in a value would corrupt the wire format.
-function hasHeaderValueControlChar(value: string): boolean {
+// Any C0 control (except tab) or DEL would corrupt the wire format, and
+// anything above latin-1 can't be encoded as a header byte at all. Rendered
+// values get the same check at substitution time (renderTemplate), since
+// secrets and args aren't seen here.
+function invalidHeaderValueChar(value: string): boolean {
   for (let i = 0; i < value.length; i++) {
     const code = value.charCodeAt(i)
-    if ((code < 0x20 && code !== 0x09) || code === 0x7f) return true
+    if ((code < 0x20 && code !== 0x09) || code === 0x7f || code > 0xff) {
+      return true
+    }
   }
   return false
 }
@@ -42,8 +47,9 @@ const headersSchema = z
     z
       .string()
       .max(4096)
-      .refine((v) => !hasHeaderValueControlChar(v), {
-        message: "Header values must not contain control characters",
+      .refine((v) => !invalidHeaderValueChar(v), {
+        message:
+          "Header values must not contain control or non-latin-1 characters",
       })
   )
   .refine((v) => Object.keys(v).length <= 20, {

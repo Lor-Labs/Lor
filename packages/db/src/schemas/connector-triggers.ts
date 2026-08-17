@@ -53,6 +53,10 @@ export const connectorTrigger = pgTable(
       .notNull()
       .default(ACT_DEFAULTS.windowSeconds),
     actWindowOpenedAt: timestamp("act_window_opened_at"),
+    // When the open window's flush job is expected to run. A blocked batch
+    // pushes this forward as it re-arms, which is what lets the recovery sweep
+    // tell "the flush job was lost" from "the batch is legitimately waiting".
+    actFlushDueAt: timestamp("act_flush_due_at"),
     // Backstops for Act, counted over rolling windows. Hourly keeps a burst
     // from eating the whole day's budget; daily is the outer fuse.
     hourlyRunCap: integer("hourly_run_cap")

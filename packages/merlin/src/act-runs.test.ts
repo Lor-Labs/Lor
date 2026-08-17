@@ -134,7 +134,7 @@ describe("formatActBriefing", () => {
     expect(briefing).toContain("not verified facts")
     // Side effects read in a stable order regardless of query order.
     expect(briefing).toContain(
-      "side effects: investigate_code, post_channel_message"
+      "recorded actions: investigate_code, post_channel_message"
     )
   })
 
@@ -153,7 +153,7 @@ describe("formatActBriefing", () => {
       messagesSinceLastRun: [],
     })
     expect(briefing).toContain("failed (budget_wall_clock)")
-    expect(briefing).toContain("side effects: create_linear_issue")
+    expect(briefing).toContain("recorded actions: create_linear_issue")
     expect(briefing).toContain("note: (none left)")
   })
 

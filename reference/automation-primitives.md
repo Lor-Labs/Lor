@@ -302,9 +302,18 @@ refresh keeps the current selection). CRUD + discover endpoints at
   `act_payload`, within 24h), deliberately **not** a slice of the window's clock — a
   delivery that waited through several windows still lands in the next batch. 24h is the
   stated bound: older than that is history, not an incident. Since blocked work never
-  drops, the only way queued deliveries could rot is a *lost* flush job (worker restart
-  mid-delay), so a `sweep-act-windows` maintenance job re-arms open-but-overdue windows
-  every 5 minutes.
+  drops, the only ways queued deliveries could rot are a *lost* flush job or a run that
+  died holding its claim, so both are swept:
+  - `connector_trigger.actFlushDueAt` records when the open window's flush is expected.
+    A blocked batch pushes it forward as it re-arms, which is what lets the 5-minute
+    `sweep-act-windows` job tell "the job was lost" from "this batch is legitimately
+    waiting" — without it, a long cap block would accumulate a new flush chain every
+    sweep. The sweep *claims* what it re-arms (one UPDATE … RETURNING) so concurrent
+    workers can't double-enqueue.
+  - `sweepDeadRuns` releases an abandoned triggered run's claimed deliveries
+    (`releaseActRunDeliveries`) and re-arms the trigger. The dead run stays in
+    `agent_run`, so its recorded actions and any note are still in the successor's
+    briefing — the batch is retried *with* the knowledge that an attempt already died.
   All three layers are per-trigger columns on `connector_trigger`, exposed in the Act
   effect row (`apps/web/src/components/workspace/trigger-effects.tsx`) for both BYO
   webhooks and connector events. Sender-side grouping (Alertmanager `group_by`,
@@ -326,8 +335,10 @@ refresh keeps the current selection). CRUD + discover endpoints at
   asks for a successor-facing note — diagnosis, what it did with checkable references,
   what to verify next. The next run on the trigger is briefed with (`actRunBriefing`):
   - the **last 3 runs within 24h**: outcome (`state`/`stopReason`), the note, and a
-    **mechanical side-effect list** from `agent_run_tool_result` — which is what makes a
-    run that died *after* filing a PR but *before* writing a note still legible;
+    **mechanical action list** from `agent_run_tool_result` — which is what makes a run
+    that died *after* filing a PR but *before* writing a note still legible. It's labeled
+    "recorded actions" rather than "side effects" because that allowlist also covers
+    billed-but-read-only work like `investigate_code`;
   - a **run count** for the last 24h, so it knows whether it's in a storm;
   - **channel messages since the previous run**, excluding `APP_USER_ID` webhook
     deliveries — i.e. what *people* said. "Already on it, don't open another PR" has to
@@ -406,8 +417,9 @@ refresh keeps the current selection). CRUD + discover endpoints at
   - effects: `post` boolean, `remember` boolean + `rememberHint` text,
     `actInstructions` text (null = Act off)
   - `enabled` boolean; Act rate shape: `actWindowSeconds` int + `actWindowOpenedAt`
-    timestamp (the coalescing window's open marker — Postgres owns burst dedupe),
-    `hourlyRunCap` int, `dailyRunCap` int (see §5)
+    timestamp (the coalescing window's open marker — Postgres owns burst dedupe) +
+    `actFlushDueAt` timestamp (when its flush is expected; lets recovery tell a lost job
+    from a waiting batch), `hourlyRunCap` int, `dailyRunCap` int (see §5)
   - keep one trigger per (connection, event) v1; multi-channel fan-out for the same
     event is a later relaxation.
 - `integration_connection` gains `avatarUrl` (webhook post identity; the display name

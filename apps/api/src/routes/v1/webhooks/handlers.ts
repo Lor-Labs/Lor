@@ -1,7 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto"
 import { db } from "@repo/db"
 import {
-  agentRun,
   channel,
   connectorTrigger,
   integrationConnection,
@@ -9,8 +8,9 @@ import {
 } from "@repo/db/schema"
 import { env } from "@repo/env/server"
 import { decryptSecret, encryptSecret } from "@repo/utils/crypto"
-import { and, count, desc, eq, inArray } from "drizzle-orm"
+import { and, count, eq } from "drizzle-orm"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
+import { type LastAct, lastActByTrigger } from "@/lib/last-act"
 import { assertWorkspacePermission } from "@/lib/permissions"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
@@ -47,41 +47,6 @@ type WebhookRow = {
   actWindowSeconds: number
   hourlyRunCap: number
   dailyRunCap: number
-}
-
-type LastAct = {
-  note: string | null
-  state: string
-  stopReason: string | null
-  at: string
-}
-
-// Newest agent_run per trigger in one DISTINCT ON query — the list endpoint
-// would otherwise fan out one query per webhook.
-async function lastActByTrigger(triggerIds: string[]) {
-  const byTrigger = new Map<string, LastAct>()
-  if (triggerIds.length === 0) return byTrigger
-  const rows = await db
-    .selectDistinctOn([agentRun.triggerId], {
-      triggerId: agentRun.triggerId,
-      note: agentRun.handoffNote,
-      state: agentRun.state,
-      stopReason: agentRun.stopReason,
-      createdAt: agentRun.createdAt,
-    })
-    .from(agentRun)
-    .where(inArray(agentRun.triggerId, triggerIds))
-    .orderBy(agentRun.triggerId, desc(agentRun.createdAt))
-  for (const row of rows) {
-    if (!row.triggerId) continue
-    byTrigger.set(row.triggerId, {
-      note: row.note,
-      state: row.state,
-      stopReason: row.stopReason,
-      at: row.createdAt.toISOString(),
-    })
-  }
-  return byTrigger
 }
 
 function toResponse(

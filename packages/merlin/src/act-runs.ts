@@ -161,9 +161,13 @@ export async function openActWindow(
     Date.now() -
       (windowSeconds * 1000 * STALE_WINDOW_FACTOR + STALE_WINDOW_SLACK_MS)
   )
+  const now = new Date()
   return await db
     .update(schema.connectorTrigger)
-    .set({ actWindowOpenedAt: new Date() })
+    .set({
+      actWindowOpenedAt: now,
+      actFlushDueAt: new Date(now.getTime() + windowSeconds * 1000),
+    })
     .where(
       and(
         eq(schema.connectorTrigger.id, triggerId),
@@ -177,10 +181,27 @@ export async function openActWindow(
     .then((rows) => rows[0]?.openedAt ?? null)
 }
 
-async function closeActWindow(triggerId: string): Promise<void> {
+// A blocked batch pushes its next check forward. Recording it is what lets the
+// recovery sweep distinguish "the flush job was lost" from "this batch is
+// legitimately waiting on a run or a cap" — without it, the sweep piles up a
+// new flush chain every few minutes against a long cap block.
+async function setActFlushDue(
+  triggerId: string,
+  delayMs: number
+): Promise<void> {
   await db
     .update(schema.connectorTrigger)
-    .set({ actWindowOpenedAt: null })
+    .set({ actFlushDueAt: new Date(Date.now() + delayMs) })
+    .where(eq(schema.connectorTrigger.id, triggerId))
+    .catch(() => {})
+}
+
+// Exported for the enqueue-failure path: a window with no flush job behind it
+// must not stay open, or the next delivery can't re-arm it.
+export async function closeActWindow(triggerId: string): Promise<void> {
+  await db
+    .update(schema.connectorTrigger)
+    .set({ actWindowOpenedAt: null, actFlushDueAt: null })
     .where(eq(schema.connectorTrigger.id, triggerId))
     .catch(() => {})
 }
@@ -229,25 +250,43 @@ export function buildActBatchPayload(input: {
 // Windows whose flush job never arrived (worker restart mid-delay, Redis
 // hiccup). Nothing is dropped for being blocked, so the only way queued
 // deliveries can rot is a missing flush — this finds them.
-export async function overdueActWindows(
+// Windows whose flush job never arrived (worker restart mid-delay, Redis
+// hiccup). Nothing is dropped for being blocked, so the only way queued
+// deliveries can rot is a missing flush. Claims what it returns — pushing the
+// due time forward — so concurrent sweeps (or a slow re-armed job) can't stack
+// duplicate flush chains on the same trigger.
+export async function claimOverdueActWindows(
   graceMs: number
-): Promise<{ triggerId: string; openedAt: Date }[]> {
+): Promise<string[]> {
+  const cutoff = new Date(Date.now() - graceMs)
   const rows = await db
-    .select({
-      triggerId: schema.connectorTrigger.id,
-      openedAt: schema.connectorTrigger.actWindowOpenedAt,
-      windowSeconds: schema.connectorTrigger.actWindowSeconds,
-    })
-    .from(schema.connectorTrigger)
-    .where(isNotNull(schema.connectorTrigger.actWindowOpenedAt))
-  const now = Date.now()
-  return rows.flatMap((row) =>
-    row.openedAt &&
-    now - row.openedAt.getTime() >
-      Math.max(row.windowSeconds, MAX_REARM_MS / 1000) * 1000 + graceMs
-      ? [{ triggerId: row.triggerId, openedAt: row.openedAt }]
-      : []
-  )
+    .update(schema.connectorTrigger)
+    .set({ actFlushDueAt: new Date(Date.now() + graceMs) })
+    .where(
+      and(
+        isNotNull(schema.connectorTrigger.actWindowOpenedAt),
+        or(
+          // Windows opened before this column existed.
+          isNull(schema.connectorTrigger.actFlushDueAt),
+          lt(schema.connectorTrigger.actFlushDueAt, cutoff)
+        )
+      )
+    )
+    .returning({ triggerId: schema.connectorTrigger.id })
+  return rows.map((row) => row.triggerId)
+}
+
+// A triggered run that died without finishing leaves its deliveries claimed —
+// i.e. silently dropped. Hand them back to the queue so the next flush covers
+// them; the dead run stays in agent_run, so its side effects (and any note) are
+// still in the successor's briefing.
+export async function releaseActRunDeliveries(runId: string): Promise<number> {
+  const released = await db
+    .update(schema.triggerDelivery)
+    .set({ runId: null })
+    .where(eq(schema.triggerDelivery.runId, runId))
+    .returning({ id: schema.triggerDelivery.id })
+  return released.length
 }
 
 export type PreparedActRun = { runId: string; payload: string; label: string }
@@ -287,7 +326,11 @@ export function formatActBriefing(input: {
           : `${run.state}${run.stopReason ? ` (${run.stopReason})` : ""}`
       const effects =
         run.effects.length > 0
-          ? ` — side effects: ${[...run.effects].sort().join(", ")}`
+          ? // "recorded actions" rather than "side effects": the underlying
+            // allowlist also covers billed-but-read-only work like
+            // investigate_code, and claiming those mutated something would
+            // mislead the successor.
+            ` — recorded actions: ${[...run.effects].sort().join(", ")}`
           : ""
       lines.push(`- ${run.createdAt.toISOString()} — ${outcome}${effects}`)
       lines.push(
@@ -522,16 +565,16 @@ export async function flushActWindow(
   // Blocked, never dropped: keep the window open (deliveries keep
   // accumulating) and look again when the blocker should have cleared.
   if (guard.verdict === "in_flight") {
-    return {
-      kind: "retry",
-      delayMs: clampRearm(trigger.windowSeconds * 1000),
-    }
+    const delayMs = clampRearm(trigger.windowSeconds * 1000)
+    await setActFlushDue(triggerId, delayMs)
+    return { kind: "retry", delayMs }
   }
   if (guard.verdict !== "ok") {
     logger.info(
       { triggerId, verdict: guard.verdict, pending },
       "Act batch waiting on a cap"
     )
+    await setActFlushDue(triggerId, guard.retryAfterMs)
     return { kind: "retry", delayMs: guard.retryAfterMs }
   }
 
@@ -541,7 +584,9 @@ export async function flushActWindow(
     channelId: trigger.channelId,
   })
   if (run === "in_flight") {
-    return { kind: "retry", delayMs: clampRearm(trigger.windowSeconds * 1000) }
+    const delayMs = clampRearm(trigger.windowSeconds * 1000)
+    await setActFlushDue(triggerId, delayMs)
+    return { kind: "retry", delayMs }
   }
   if (!run) {
     await closeActWindow(triggerId)

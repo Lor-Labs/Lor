@@ -1,6 +1,11 @@
 import { db, eq, schema } from "@repo/db"
 import { env } from "@repo/env/server"
-import { actGuard, createActRun, openActWindow } from "@repo/merlin/act-runs"
+import {
+  actGuard,
+  closeActWindow,
+  createActRun,
+  openActWindow,
+} from "@repo/merlin/act-runs"
 import {
   ACT_FLUSH_JOB,
   ACT_RUN_JOB,
@@ -129,18 +134,26 @@ async function armActFlush(
 ): Promise<boolean> {
   const openedAt = await openActWindow(triggerId, staleAfterSeconds)
   if (!openedAt) return false
-  await getTriggeredRunQueue().add(
-    ACT_FLUSH_JOB,
-    { triggerId },
-    {
-      delay: delaySeconds * 1000,
-      attempts: 2,
-      backoff: { type: "fixed", delay: 5000 },
-      // Removed promptly: the open-window row is the dedupe, and a lingering
-      // completed job would only confuse the queue's counts.
-      removeOnComplete: true,
-    }
-  )
+  try {
+    await getTriggeredRunQueue().add(
+      ACT_FLUSH_JOB,
+      { triggerId },
+      {
+        delay: delaySeconds * 1000,
+        attempts: 2,
+        backoff: { type: "fixed", delay: 5000 },
+        // Removed promptly: the open-window row is the dedupe, and a lingering
+        // completed job would only confuse the queue's counts.
+        removeOnComplete: true,
+      }
+    )
+  } catch (err) {
+    // An open window with no flush job behind it blocks re-arming until the
+    // recovery sweep notices; release it so the next delivery can arm again.
+    await closeActWindow(triggerId)
+    logger.error({ err, triggerId }, "Act flush enqueue failed")
+    throw err
+  }
   return true
 }
 
@@ -175,7 +188,14 @@ async function runActNow(input: {
     .update(schema.triggerDelivery)
     .set({ runId: run.id })
     .where(eq(schema.triggerDelivery.id, input.deliveryId))
-    .catch(() => {})
+    .catch((err) => {
+      // The run still executes; the delivery just isn't linked to it, so a
+      // later flush may re-batch it.
+      logger.warn(
+        { err, runId: run.id, deliveryId: input.deliveryId },
+        "Act delivery link failed"
+      )
+    })
 
   try {
     await getTriggeredRunQueue().add(

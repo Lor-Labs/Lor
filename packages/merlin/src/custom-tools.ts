@@ -123,6 +123,22 @@ function stringifyArg(value: unknown): string {
 // (so `"q": {{args.q}}` is correct for strings/numbers/objects alike), header
 // values go in raw. Unknown references throw — a typo'd template should fail
 // loudly, not silently send an empty field.
+// Substituted header values reach fetch as raw bytes: a CR/LF (or any control
+// char) would split the request, and anything above latin-1 can't be encoded
+// at all. Templates are validated at save time, but the *values* here can come
+// from secrets or model-supplied args, so the choke point has to be here.
+function assertHeaderSafe(value: string, key: string): string {
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i)
+    if ((code < 0x20 && code !== 0x09) || code === 0x7f || code > 0xff) {
+      throw new Error(
+        `Value for ${key} can't be used in a header (invalid character)`
+      )
+    }
+  }
+  return value
+}
+
 export function renderTemplate(
   template: string,
   context: "url" | "header" | "body",
@@ -141,7 +157,7 @@ export function renderTemplate(
     }
     if (context === "body") return JSON.stringify(value)
     if (context === "url") return encodeURIComponent(stringifyArg(value))
-    return stringifyArg(value)
+    return assertHeaderSafe(stringifyArg(value), `${kind}.${key}`)
   })
 }
 

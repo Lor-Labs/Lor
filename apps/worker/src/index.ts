@@ -1,5 +1,5 @@
 import { env } from "@repo/env/server"
-import { overdueActWindows } from "@repo/merlin/act-runs"
+import { claimOverdueActWindows } from "@repo/merlin/act-runs"
 import { setRepoCacheStore } from "@repo/merlin/github"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
 import {
@@ -211,17 +211,15 @@ async function bootstrap() {
     async (job) => {
       if (job.name === "prune-run-events") await pruneRunEvents()
       else if (job.name === "sweep-dead-runs")
-        await sweepDeadRuns(emitter, merlinRespondQueue)
+        await sweepDeadRuns(emitter, merlinRespondQueue, triggeredRunQueue)
       else if (job.name === "sweep-act-windows") {
-        const overdue = await overdueActWindows(ACT_WINDOW_SWEEP_GRACE_MS)
-        for (const window of overdue) {
-          logger.warn(
-            { triggerId: window.triggerId, openedAt: window.openedAt },
-            "Act window overdue; re-arming its flush"
-          )
+        // Claimed, so a slow re-armed flush can't be double-enqueued.
+        const overdue = await claimOverdueActWindows(ACT_WINDOW_SWEEP_GRACE_MS)
+        for (const triggerId of overdue) {
+          logger.warn({ triggerId }, "Act flush overdue; re-arming")
           await triggeredRunQueue.add(
             ACT_FLUSH_JOB,
-            { triggerId: window.triggerId },
+            { triggerId },
             { attempts: 2, removeOnComplete: true }
           )
         }
@@ -283,6 +281,7 @@ async function bootstrap() {
     // in flight before closing the queue they enqueue follow-up runs on.
     await awaitInflightDrains()
     await merlinRespondQueue.close()
+    await triggeredRunQueue.close()
     await maintenanceQueue.close()
     await stopSubscriber.quit()
     await redisEmitterClient.quit()

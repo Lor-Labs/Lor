@@ -9,8 +9,14 @@ import {
   or,
   schema,
 } from "@repo/db"
+import { openActWindow, releaseActRunDeliveries } from "@repo/merlin/act-runs"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
-import type { MerlinRespondJobData } from "@repo/realtime-types/queues"
+import {
+  ACT_FLUSH_JOB,
+  type ActFlushJobData,
+  type MerlinRespondJobData,
+  type TriggeredRunJobData,
+} from "@repo/realtime-types/queues"
 import { channelRoom, threadRoom } from "@repo/realtime-types/rooms"
 import type { Emitter } from "@socket.io/redis-emitter"
 import type { Queue } from "bullmq"
@@ -57,7 +63,9 @@ export async function pruneRunEvents(): Promise<void> {
 // its stuck pending placeholder.
 export async function sweepDeadRuns(
   emitter: Emitter<ServerToClientEvents>,
-  respondQueue: Queue<MerlinRespondJobData>
+  respondQueue: Queue<MerlinRespondJobData>,
+  // Triggered runs hand their claimed deliveries back through this queue.
+  triggeredQueue: Queue<TriggeredRunJobData | ActFlushJobData>
 ): Promise<void> {
   const deadPredicate = () =>
     or(
@@ -90,6 +98,7 @@ export async function sweepDeadRuns(
     messageId: string | null
     channelId: string
     threadRootId: string | null
+    triggerId: string | null
     settled: boolean
   }[] = []
   for (const candidate of candidates) {
@@ -104,6 +113,7 @@ export async function sweepDeadRuns(
             messageId: schema.agentRun.messageId,
             channelId: schema.agentRun.channelId,
             threadRootId: schema.agentRun.threadRootId,
+            triggerId: schema.agentRun.triggerId,
           })
           .then((r) => r[0])
         if (!run) return null
@@ -150,6 +160,34 @@ export async function sweepDeadRuns(
     await drainScopeQueue({ runId: run.id, emitter, respondQueue }).catch(
       (err) => logger.error({ err, runId: run.id }, "Scope queue drain failed")
     )
+  }
+  // Same rule for Act: the deliveries this run claimed were never handled, and
+  // a delivery is never dropped for a failure that wasn't its fault. Release
+  // them and re-arm the trigger so the next flush covers them.
+  for (const run of dead) {
+    if (!run.triggerId) continue
+    const triggerId = run.triggerId
+    await releaseActRunDeliveries(run.id)
+      .then(async (released) => {
+        if (released === 0) return
+        logger.warn(
+          { runId: run.id, triggerId, released },
+          "Requeued deliveries from an abandoned Act run"
+        )
+        const openedAt = await openActWindow(triggerId, 0)
+        if (!openedAt) return
+        await triggeredQueue.add(
+          ACT_FLUSH_JOB,
+          { triggerId },
+          { attempts: 2, removeOnComplete: true }
+        )
+      })
+      .catch((err) =>
+        logger.error(
+          { err, runId: run.id, triggerId },
+          "Act delivery requeue failed"
+        )
+      )
   }
   if (dead.length > 0) {
     logger.warn(

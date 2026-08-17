@@ -117,22 +117,31 @@ function LastActNote({ lastAct }: { lastAct: TriggerLastAct }) {
   )
 }
 
+// Ceilings mirror the API's own validation (hourly 500 / daily 2000) so a typed
+// value can't come back as an opaque 400.
+const HOURLY_CAP_MAX = 500
+const DAILY_CAP_MAX = 2000
+
 function RunCapField({
   id,
   label,
   value,
+  max,
   disabled,
   onCommit,
 }: {
   id: string
   label: string
   value: number
+  max: number
   disabled?: boolean
   onCommit: (next: number) => void
 }) {
   const commit = (raw: string) => {
-    const next = Number.parseInt(raw, 10)
-    if (!Number.isInteger(next) || next < 1 || next === value) return
+    const parsed = Number.parseInt(raw, 10)
+    if (!Number.isInteger(parsed)) return
+    const next = Math.min(Math.max(parsed, 1), max)
+    if (next === value) return
     onCommit(next)
   }
   return (
@@ -146,6 +155,7 @@ function RunCapField({
         defaultValue={value}
         type="number"
         min={1}
+        max={max}
         className="h-8 text-xs"
         disabled={disabled}
         onBlur={(e) => commit(e.target.value)}
@@ -340,6 +350,7 @@ export function TriggerEffects({
                   id={`${idPrefix}-act-hourly-cap`}
                   label="Max runs per hour"
                   value={value.hourlyRunCap}
+                  max={HOURLY_CAP_MAX}
                   disabled={disabled}
                   onCommit={(next) => onPatch({ hourlyRunCap: next })}
                 />
@@ -347,6 +358,7 @@ export function TriggerEffects({
                   id={`${idPrefix}-act-daily-cap`}
                   label="Max runs per day"
                   value={value.dailyRunCap}
+                  max={DAILY_CAP_MAX}
                   disabled={disabled}
                   onCommit={(next) => onPatch({ dailyRunCap: next })}
                 />

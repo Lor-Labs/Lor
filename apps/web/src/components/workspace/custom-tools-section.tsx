@@ -1295,14 +1295,17 @@ export function CustomToolsSection({
         onCloseCreate={() => setCreatingServer(false)}
       />
 
+      {serversQuery.isError && (
+        <p className="text-xs text-destructive-foreground">
+          Couldn't load MCP servers — refresh to try again. API tools below are
+          unaffected.
+        </p>
+      )}
+
       {isPending || serversQuery.isPending ? (
         <div className="flex justify-center py-6">
           <Spinner className="size-4 text-muted-foreground" />
         </div>
-      ) : serversQuery.isError ? (
-        <p className="py-6 text-center text-xs text-destructive-foreground">
-          Couldn't load MCP servers — refresh to try again.
-        </p>
       ) : tools.length === 0 &&
         servers.length === 0 &&
         !(creating || creatingServer) ? (
