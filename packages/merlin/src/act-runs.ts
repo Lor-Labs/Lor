@@ -472,8 +472,10 @@ export async function saveHandoffNote(
 }
 
 export type ActFlushResult =
-  // The batch is ready; the caller executes this run.
-  | { kind: "ready"; run: PreparedActRun }
+  // The batch is ready; the caller executes this run. `rearmDelayMs` is set
+  // when deliveries landed after the batch was claimed — they need their own
+  // flush, since closing the window is what lets a new one arm.
+  | { kind: "ready"; run: PreparedActRun; rearmDelayMs?: number }
   // A run is still going: re-arm the flush, keep the window open, let the
   // batch keep growing.
   | { kind: "retry"; delayMs: number }
@@ -658,12 +660,33 @@ export async function flushActWindow(
     newestFirst[0]?.actLabel ?? oldest.at(-1)?.actLabel ?? "Automation"
 
   await closeActWindow(triggerId)
+  // A delivery that arrived between the claim and the close saw an open window,
+  // so it never armed a flush of its own — and it isn't in this batch either.
+  // Re-arm for it rather than leaving it stranded until the next delivery.
+  const stragglers = await db
+    .select({ value: sql<number>`count(*)::int` })
+    .from(schema.triggerDelivery)
+    .where(unclaimed)
+    .then((rows) => rows[0]?.value ?? 0)
+    .catch(() => 0)
+  let rearmDelayMs: number | undefined
+  if (stragglers > 0) {
+    const reopened = await openActWindow(triggerId, trigger.windowSeconds)
+    if (reopened) {
+      rearmDelayMs = clampRearm(trigger.windowSeconds * 1000)
+      logger.info(
+        { triggerId, stragglers },
+        "Act deliveries arrived mid-flush; re-armed"
+      )
+    }
+  }
   logger.info(
     { triggerId, runId: run.id, deliveries: count },
     "Act batch flushed"
   )
   return {
     kind: "ready",
+    rearmDelayMs,
     run: {
       runId: run.id,
       payload: buildActBatchPayload({

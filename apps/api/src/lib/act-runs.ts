@@ -184,18 +184,28 @@ async function runActNow(input: {
   }
   if (!run) return { kind: "skipped", reason: "run_insert_failed" }
 
-  await db
+  // Claiming the delivery is what stops a later flush from re-batching it, so
+  // an unclaimed delivery must not also get a run now — drop this attempt and
+  // let the batch path handle it exactly once.
+  const claimed = await db
     .update(schema.triggerDelivery)
     .set({ runId: run.id })
     .where(eq(schema.triggerDelivery.id, input.deliveryId))
+    .returning({ id: schema.triggerDelivery.id })
     .catch((err) => {
-      // The run still executes; the delivery just isn't linked to it, so a
-      // later flush may re-batch it.
       logger.warn(
         { err, runId: run.id, deliveryId: input.deliveryId },
         "Act delivery link failed"
       )
+      return []
     })
+  if (claimed.length === 0) {
+    await db
+      .delete(schema.agentRun)
+      .where(eq(schema.agentRun.id, run.id))
+      .catch(() => {})
+    return { kind: "skipped", reason: "delivery_link_failed", blocked: true }
+  }
 
   try {
     await getTriggeredRunQueue().add(

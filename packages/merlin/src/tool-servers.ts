@@ -105,8 +105,9 @@ function withCappedResults(tools: ToolSet): ToolSet {
 // every resolved address right before connecting; the SDK re-resolves when it
 // dials, so this narrows — not eliminates — the TOCTOU window.
 // 100.64/10 is carrier-grade NAT, which overlay networks (Tailscale) hand out.
+// fe80::/10 spans fe80–febf, so the whole fe[89ab] nibble range is link-local.
 const PRIVATE_IP_REGEX =
-  /^(127\.|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|0\.|169\.254\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.|::1$|fc|fd|fe80)/i
+  /^(127\.|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|0\.|169\.254\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.|::1$|fc|fd|fe[89ab])/i
 
 // A hostile AAAA record can hand back an IPv4-mapped address (::ffff:127.0.0.1)
 // that no IPv4 pattern would match — compare on the embedded IPv4 instead.
@@ -150,24 +151,35 @@ async function connectServer(input: {
   // Re-checked at connect time so a tampered row can't reach internal hosts.
   const issue = customToolUrlIssue(input.url)
   if (issue) throw new Error(issue)
+  // The session is closed by whichever path loses: a tools() failure, or the
+  // timeout below. Captured as soon as it exists, because a tools() call that
+  // never settles would otherwise leak the connection — the `setup` promise it
+  // hangs on never resolves, so no .then() cleanup can fire. Held in an object
+  // so the catch below isn't narrowed to the initial null.
+  const opened: { session: { close: () => Promise<void> } | null } = {
+    session: null,
+  }
+  let abandoned = false
   const setup = (async () => {
     const resolvedIssue = await resolvedAddressIssue(input.url)
     if (resolvedIssue) throw new Error(resolvedIssue)
     const client = await createMCPClient({
       transport: { type: "http", url: input.url, headers: input.headers },
     })
+    opened.session = client
     try {
       return { client, tools: await client.tools() }
     } catch (err) {
-      await client.close().catch(() => {})
+      if (!abandoned) await client.close().catch(() => {})
       throw err
     }
   })()
   try {
     return await withTimeout(setup, SETUP_TIMEOUT_MS)
   } catch (err) {
-    // The SDK has no abort hook; on timeout, close the session whenever the
-    // still-running handshake eventually lands.
+    abandoned = true
+    // Whatever exists now, plus anything that lands after we gave up.
+    opened.session?.close().catch(() => {})
     setup.then(
       ({ client }) => client.close().catch(() => {}),
       () => {}

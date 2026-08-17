@@ -327,6 +327,24 @@ export function createTriggeredRunProcessor(
         logger.info({ triggerId, reason: flushed.reason }, "Act flush skipped")
         return
       }
+      // Deliveries that landed while this batch was being claimed get their own
+      // flush — enqueued before the run executes so it can't be lost with it.
+      if (flushed.rearmDelayMs !== undefined) {
+        await triggeredQueue
+          .add(
+            ACT_FLUSH_JOB,
+            { triggerId },
+            {
+              delay: flushed.rearmDelayMs,
+              attempts: 2,
+              backoff: { type: "fixed", delay: 5000 },
+              removeOnComplete: true,
+            }
+          )
+          .catch((err) =>
+            logger.error({ err, triggerId }, "Act straggler re-arm failed")
+          )
+      }
       ;({ runId, payload, label } = flushed.run)
     } else {
       ;({ runId, payload, label } = job.data as TriggeredRunJobData)
