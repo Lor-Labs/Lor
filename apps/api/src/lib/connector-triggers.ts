@@ -114,18 +114,26 @@ export async function dispatchConnectorEvent(input: {
 
   let postedMessageId: string | null = null
   if (target.trigger.post) {
-    const message = await postBotMessage({
-      channel: target.channel,
-      authorId: APP_USER_ID,
-      content: input.text,
-      overrideName: input.label,
-      overrideAvatarUrl: input.avatarUrl,
-      // Memory rule: with Remember on, the `source` row is the canonical copy
-      // and this message is just a pointer; POST-only messages stay canonical
-      // chat content. See reference/automation-primitives.md §2.
-      excludedFromMemory: target.trigger.remember,
-    })
-    postedMessageId = message.id
+    // A POST failure must not take Remember, the delivery log, or Act with it.
+    try {
+      const message = await postBotMessage({
+        channel: target.channel,
+        authorId: APP_USER_ID,
+        content: input.text,
+        overrideName: input.label,
+        overrideAvatarUrl: input.avatarUrl,
+        // Memory rule: with Remember on, the `source` row is the canonical copy
+        // and this message is just a pointer; POST-only messages stay canonical
+        // chat content. See reference/automation-primitives.md §2.
+        excludedFromMemory: target.trigger.remember,
+      })
+      postedMessageId = message.id
+    } catch (err) {
+      logger.error(
+        { err, provider: input.provider, event: input.event },
+        "Connector event post failed"
+      )
+    }
   }
 
   const remembered = target.trigger.remember && !!input.remember

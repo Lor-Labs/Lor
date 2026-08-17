@@ -384,8 +384,9 @@ Verified against Attio's live OpenAPI specs (`https://api.attio.com/openapi/api`
   not guaranteed (the recording resource has `status: processing|completed` and
   transcription can lag the upload), so the receiver fetches
   `GET /v2/meetings/{meeting_id}/call_recordings/{call_recording_id}` immediately
-  and falls back to a short-backoff retry (BullMQ) only when `status` isn't
-  `completed` — a small retry fallback, not a long-poll pattern. That endpoint
+  and, when `status` isn't `completed`, answers the delivery with **HTTP 503** so
+  Attio redelivers on its own backoff — a small retry fallback, not a long-poll
+  pattern. That endpoint
   returns `transcript.segments[]` (`speaker.name`, `start_time`, `end_time`); the
   `…/transcript` endpoint our tools currently use is **deprecated** in its favor —
   migrate `fetchTranscript` in `packages/merlin/src/attio.ts` while here.
@@ -409,5 +410,5 @@ Verified against Attio's live OpenAPI specs (`https://api.attio.com/openapi/api`
   Attio's developer settings). Store encrypted on the connection (`webhookSecret`)
   + the provider `webhookId` for lifecycle (delete on disconnect/revoke).
 - Candidate v1 events: `call_recording_ready` (from `call-recording.created` +
-  completeness check), `note_created`, `list_entry_updated`. Keys follow the
+  completeness check), `note_created`, `list_entry_created`. Keys follow the
   existing snake_case `ConnectorEventKey` style.

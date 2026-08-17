@@ -395,12 +395,17 @@ attioRouter.post("/integrations/attio/webhook", async (c) => {
     }
   }
 
-  // Ack, then dispatch (Remember's summarize call is too slow to hold the
-  // response open). A failure releases the claim so a redelivery can recover.
-  void Promise.all(dispatches.map((run) => run())).catch(async (err) => {
+  // Dispatch, then ack. The slow part (Remember's summarize) is already
+  // fire-and-forget inside dispatchConnectorEvent, so awaiting here is cheap —
+  // and a failure can release the claim and 503 so Attio actually redelivers
+  // (a detached failure after a 200 ack was silently lost).
+  try {
+    await Promise.all(dispatches.map((run) => run()))
+  } catch (err) {
     logger.error({ err }, "Attio webhook dispatch failed")
     await releaseClaim()
-  })
+    return c.json({ ok: false, retry: true }, 503)
+  }
 
   return c.json({ ok: true })
 })

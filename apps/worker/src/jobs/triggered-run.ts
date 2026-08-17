@@ -368,6 +368,7 @@ export function createTriggeredRunProcessor(
             workspaceId: execution.workspaceId,
             reason: "out_of_credits",
           })
+        await runWriter.close()
         return
       }
 

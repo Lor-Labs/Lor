@@ -603,11 +603,14 @@ function ConnectorsSection({ workspaceSlug }: { workspaceSlug: string }) {
       })
       if (!res.ok) throw new Error("Failed to update event")
     },
-    onSuccess: () => {
+    onSuccess: () =>
+      // Returned so the mutation stays pending until the refetch lands — `send`
+      // composes the full trigger config from cached row data, so editing again
+      // before the refetch would overwrite the previous change with stale
+      // sibling fields.
       queryClient.invalidateQueries({
         queryKey: ["integrations", workspaceSlug],
-      })
-    },
+      }),
     onError: () => toast.error("Failed to update event"),
   })
   const pendingTrigger = updateTrigger.isPending

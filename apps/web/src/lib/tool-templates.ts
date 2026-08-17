@@ -27,6 +27,24 @@ export function scanTemplateRefs(templates: (string | null)[]): TemplateRefs {
 // ({"q": 880880000}) and inside strings ("https://880880000/x") alike.
 const SENTINEL_BASE = 880880000
 
+// A sentinel that also appears literally in the template would corrupt the
+// reverse substitution (Format rewriting a user's own digits into a
+// placeholder) — shift the base until every needed sentinel is absent.
+function chooseSentinelBase(template: string, count: number): number {
+  let base = SENTINEL_BASE
+  for (;;) {
+    let clash = false
+    for (let i = 0; i < count; i++) {
+      if (template.includes(String(base + i))) {
+        clash = true
+        break
+      }
+    }
+    if (!clash) return base
+    base += Math.max(count, 1)
+  }
+}
+
 type SubstitutionRun = {
   subStart: number
   subLen: number
@@ -38,12 +56,16 @@ type SubstitutionRun = {
 function substituteWithMap(template: string): {
   text: string
   runs: SubstitutionRun[]
+  sentinels: string[]
 } {
+  const matches = [...template.matchAll(REF_REGEX)]
+  const base = chooseSentinelBase(template, matches.length)
   const runs: SubstitutionRun[] = []
+  const sentinels: string[] = []
   let sub = ""
   let last = 0
   let i = 0
-  for (const match of template.matchAll(REF_REGEX)) {
+  for (const match of matches) {
     const idx = match.index
     if (idx > last) {
       runs.push({
@@ -55,7 +77,8 @@ function substituteWithMap(template: string): {
       })
       sub += template.slice(last, idx)
     }
-    const sentinel = String(SENTINEL_BASE + i++)
+    const sentinel = String(base + i++)
+    sentinels.push(sentinel)
     runs.push({
       subStart: sub.length,
       subLen: sentinel.length,
@@ -76,19 +99,21 @@ function substituteWithMap(template: string): {
     })
     sub += template.slice(last)
   }
-  return { text: sub, runs }
+  return { text: sub, runs, sentinels }
 }
 
 function substitutePlaceholders(template: string): {
   text: string
   placeholders: string[]
+  sentinels: string[]
 } {
-  const { text, runs } = substituteWithMap(template)
+  const { text, runs, sentinels } = substituteWithMap(template)
   return {
     text,
     placeholders: runs
       .filter((r) => r.placeholder)
       .map((r) => template.slice(r.tplStart, r.tplStart + r.tplLen)),
+    sentinels,
   }
 }
 
@@ -161,11 +186,12 @@ export function templateJsonLint(template: string): TemplateLint | null {
 // Pretty-print the template's JSON while preserving placeholders verbatim.
 // Null when it doesn't parse (nothing sane to format).
 export function formatTemplateJson(template: string): string | null {
-  const { text, placeholders } = substitutePlaceholders(template)
+  const { text, placeholders, sentinels } = substitutePlaceholders(template)
   try {
     let out = JSON.stringify(JSON.parse(text), null, 2)
     placeholders.forEach((placeholder, i) => {
-      out = out.replaceAll(String(SENTINEL_BASE + i), placeholder)
+      const sentinel = sentinels[i]
+      if (sentinel) out = out.replaceAll(sentinel, placeholder)
     })
     return out
   } catch {

@@ -220,6 +220,28 @@ function decryptSecrets(
   return out
 }
 
+// Read at most `maxChars` from the body, then cancel — response.text() would
+// buffer an arbitrarily large (or endless) body in memory first.
+async function readBodyCapped(
+  response: Response,
+  maxChars: number
+): Promise<string> {
+  if (!response.body) return ""
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let text = ""
+  try {
+    while (text.length < maxChars) {
+      const { done, value } = await reader.read()
+      if (done) break
+      text += decoder.decode(value, { stream: true })
+    }
+  } finally {
+    reader.cancel().catch(() => {})
+  }
+  return text.slice(0, maxChars)
+}
+
 async function executeCustomTool(
   row: CustomToolRow & Pick<CustomTool, "secrets">,
   input: unknown
@@ -240,7 +262,7 @@ async function executeCustomTool(
       redirect: "error",
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     })
-    const text = (await response.text()).slice(0, RESPONSE_MAX_CHARS)
+    const text = await readBodyCapped(response, RESPONSE_MAX_CHARS)
     let body: unknown = text
     try {
       body = JSON.parse(text)

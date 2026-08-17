@@ -100,19 +100,39 @@ export async function startActRun(input: {
       .where(eq(schema.triggerDelivery.id, input.deliveryId))
       .catch(() => {})
 
-    await getTriggeredRunQueue().add(
-      "act",
-      {
-        runId: run.id,
-        payload: input.payload.slice(0, ACT_PAYLOAD_MAX),
-        label: input.label,
-      },
-      {
-        attempts: 2,
-        backoff: { type: "fixed", delay: 5000 },
-        jobId: run.id,
-      }
-    )
+    try {
+      await getTriggeredRunQueue().add(
+        "act",
+        {
+          runId: run.id,
+          payload: input.payload.slice(0, ACT_PAYLOAD_MAX),
+          label: input.label,
+        },
+        {
+          attempts: 2,
+          backoff: { type: "fixed", delay: 5000 },
+          jobId: run.id,
+        }
+      )
+    } catch (err) {
+      // No job means the run can never execute — remove it so it doesn't
+      // linger pending or count against the trigger's daily cap (mirrors
+      // task-runs' enqueue-failure cleanup).
+      logger.error(
+        { err, runId: run.id, triggerId: input.triggerId },
+        "Act run enqueue failed"
+      )
+      await db
+        .update(schema.triggerDelivery)
+        .set({ runId: null })
+        .where(eq(schema.triggerDelivery.id, input.deliveryId))
+        .catch(() => {})
+      await db
+        .delete(schema.agentRun)
+        .where(eq(schema.agentRun.id, run.id))
+        .catch(() => {})
+      return null
+    }
     return run.id
   } catch (err) {
     logger.error(

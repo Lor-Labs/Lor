@@ -1177,8 +1177,10 @@ export function CustomToolsSection({
       }
       return res.json()
     },
-    onSuccess: () => {
-      invalidate()
+    onSuccess: async () => {
+      // Refetch before closing so an immediate re-open builds its draft from
+      // the persisted row (secretNames especially), not the stale cache.
+      await invalidate()
       setEditingId(null)
     },
     onError: (err) => toast.error(err.message),

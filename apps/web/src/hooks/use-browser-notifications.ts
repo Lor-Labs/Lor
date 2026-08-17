@@ -56,7 +56,10 @@ export function useBrowserNotifications() {
       if (!(settings && mutes)) return
       if (findActiveMute(mutes, payload.channelId)) return
       if (settings.desktopNotifications === "nothing") return
+      // An explicit @-mention outrides the Merlin-thread ambience preference;
+      // only broadcast mentions stay subject to it.
       if (
+        payload.type === "everyone_mention" &&
         !shouldNotifyForMerlinThread(
           settings.merlinThreadNotifications,
           payload

@@ -173,6 +173,19 @@ webhooksRouter.post(
   "/webhooks/:webhookId/:token",
   executeRateLimit,
   async (c) => {
+    // Credentials first: unauthenticated senders get no body parsing and no
+    // dialect hints.
+    const resolved = await resolveWebhook(
+      c.req.param("webhookId") ?? "",
+      c.req.param("token") ?? ""
+    )
+    if (!resolved.ok) {
+      return c.json(
+        { success: false, message: resolved.message },
+        resolved.status
+      )
+    }
+
     const read = await readExecuteBody(c)
     if (!read.ok) return c.json({ success: false }, read.status)
     const parsed = executeWebhookBodySchema.safeParse(read.body)
@@ -186,17 +199,6 @@ webhooksRouter.post(
             : "Invalid body: expected { content }",
         },
         400
-      )
-    }
-
-    const resolved = await resolveWebhook(
-      c.req.param("webhookId") ?? "",
-      c.req.param("token") ?? ""
-    )
-    if (!resolved.ok) {
-      return c.json(
-        { success: false, message: resolved.message },
-        resolved.status
       )
     }
 
@@ -229,16 +231,6 @@ webhooksRouter.post(
   "/webhooks/:webhookId/:token/discord",
   executeRateLimit,
   async (c) => {
-    const read = await readExecuteBody(c)
-    if (!read.ok) return c.json({ success: false }, read.status)
-    const parsed = discordWebhookBodySchema.safeParse(read.body)
-    if (!parsed.success) {
-      return c.json(
-        { success: false, message: "Invalid body: expected content or embeds" },
-        400
-      )
-    }
-
     const resolved = await resolveWebhook(
       c.req.param("webhookId") ?? "",
       c.req.param("token") ?? ""
@@ -247,6 +239,16 @@ webhooksRouter.post(
       return c.json(
         { success: false, message: resolved.message },
         resolved.status
+      )
+    }
+
+    const read = await readExecuteBody(c)
+    if (!read.ok) return c.json({ success: false }, read.status)
+    const parsed = discordWebhookBodySchema.safeParse(read.body)
+    if (!parsed.success) {
+      return c.json(
+        { success: false, message: "Invalid body: expected content or embeds" },
+        400
       )
     }
 
@@ -285,19 +287,19 @@ webhooksRouter.post(
   "/webhooks/:webhookId/:token/slack",
   executeRateLimit,
   async (c) => {
-    const read = await readExecuteBody(c)
-    if (!read.ok) return c.text("invalid_payload", read.status)
-    const parsed = slackWebhookBodySchema.safeParse(read.body)
-    if (!parsed.success) {
-      return c.text("invalid_payload", 400)
-    }
-
     const resolved = await resolveWebhook(
       c.req.param("webhookId") ?? "",
       c.req.param("token") ?? ""
     )
     if (!resolved.ok) {
       return c.text("no_service", resolved.status)
+    }
+
+    const read = await readExecuteBody(c)
+    if (!read.ok) return c.text("invalid_payload", read.status)
+    const parsed = slackWebhookBodySchema.safeParse(read.body)
+    if (!parsed.success) {
+      return c.text("invalid_payload", 400)
     }
 
     const content = renderSlackWebhookBody(parsed.data)

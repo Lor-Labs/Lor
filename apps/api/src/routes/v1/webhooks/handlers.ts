@@ -148,7 +148,17 @@ export const listChannelWebhooks: AppRouteHandler<
   }
 
   const key = env.INTEGRATION_ENCRYPTION_KEY
-  if (!key) return c.json({ webhooks: [] }, HttpStatusCodes.OK)
+  if (!key) {
+    // Same misconfiguration surface as create/update — an empty list would
+    // just look like "no webhooks".
+    return c.json(
+      {
+        success: false,
+        message: "Webhooks require INTEGRATION_ENCRYPTION_KEY to be configured",
+      },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
 
   const rows = await db
     .select({ ...webhookSelection, creatorName: user.name })
@@ -344,31 +354,34 @@ export const updateChannelWebhook: AppRouteHandler<
     )
   }
 
-  if (name !== undefined || avatarUrl !== undefined) {
-    await db
-      .update(integrationConnection)
-      .set({
-        ...(name !== undefined ? { accountLogin: name } : {}),
-        ...(avatarUrl !== undefined ? { avatarUrl } : {}),
-      })
-      .where(eq(integrationConnection.id, existing.connectionId))
-  }
-  if (
-    post !== undefined ||
-    remember !== undefined ||
-    rememberHint !== undefined ||
-    actInstructions !== undefined
-  ) {
-    await db
-      .update(connectorTrigger)
-      .set({
-        ...(post !== undefined ? { post } : {}),
-        ...(remember !== undefined ? { remember } : {}),
-        ...(rememberHint !== undefined ? { rememberHint } : {}),
-        ...(actInstructions !== undefined ? { actInstructions } : {}),
-      })
-      .where(eq(connectorTrigger.id, existing.triggerId))
-  }
+  // One transaction so a patch touching both rows can't half-apply.
+  await db.transaction(async (tx) => {
+    if (name !== undefined || avatarUrl !== undefined) {
+      await tx
+        .update(integrationConnection)
+        .set({
+          ...(name !== undefined ? { accountLogin: name } : {}),
+          ...(avatarUrl !== undefined ? { avatarUrl } : {}),
+        })
+        .where(eq(integrationConnection.id, existing.connectionId))
+    }
+    if (
+      post !== undefined ||
+      remember !== undefined ||
+      rememberHint !== undefined ||
+      actInstructions !== undefined
+    ) {
+      await tx
+        .update(connectorTrigger)
+        .set({
+          ...(post !== undefined ? { post } : {}),
+          ...(remember !== undefined ? { remember } : {}),
+          ...(rememberHint !== undefined ? { rememberHint } : {}),
+          ...(actInstructions !== undefined ? { actInstructions } : {}),
+        })
+        .where(eq(connectorTrigger.id, existing.triggerId))
+    }
+  })
 
   const updated = await findWebhook(workspace.id, channelId, webhookId)
   if (!updated) {

@@ -105,7 +105,10 @@ async function deliverExpoPush(messages: ExpoPushMessage[]) {
 export async function sendMessagePushNotifications(input: {
   fanout: {
     unreadNotifications: Array<{ userId: string; payload: UnreadNotification }>
-    mentionNotifications: Array<{ userId: string }>
+    mentionNotifications: Array<{
+      userId: string
+      payload: { type: "direct_mention" | "everyone_mention" }
+    }>
   }
   threadRootId?: string | null
   redis: PresenceRedisClient
@@ -142,6 +145,12 @@ export async function sendMessagePushNotifications(input: {
   const mentionedUserIds = new Set(
     input.fanout.mentionNotifications.map((notification) => notification.userId)
   )
+  // An explicit @-mention outrides the Merlin-thread ambience preference.
+  const directMentionUserIds = new Set(
+    input.fanout.mentionNotifications
+      .filter((notification) => notification.payload.type === "direct_mention")
+      .map((notification) => notification.userId)
+  )
 
   // Channel mutes silence everything (mentions included); badges are driven
   // by the socket events, which mutes never touch.
@@ -175,6 +184,7 @@ export async function sendMessagePushNotifications(input: {
       return (settings?.dmNotifications ?? "all_messages") !== "nothing"
     }
     if (
+      !directMentionUserIds.has(recipient.userId) &&
       !shouldNotifyForMerlinThread(
         settings?.merlinThreadNotifications ?? "all_activity",
         recipient.payload

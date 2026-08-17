@@ -27,19 +27,42 @@ function blockquote(text: string): string {
     .join("\n")
 }
 
+// Sender URLs land in markdown links — require http(s) so a payload can't
+// smuggle javascript:/data: schemes into rendered messages.
+const HTTP_URL_MAX = 2048
+function isHttpUrl(value: string): boolean {
+  if (value.length > HTTP_URL_MAX) return false
+  try {
+    const url = new URL(value)
+    return url.protocol === "https:" || url.protocol === "http:"
+  } catch {
+    return false
+  }
+}
+const httpUrlSchema = z
+  .string()
+  .max(HTTP_URL_MAX)
+  .refine(isHttpUrl, { message: "Must be an http(s) URL" })
+// The Slack dialect is lenient by contract — a bad URL drops the link rather
+// than failing the delivery.
+const lenientHttpUrlSchema = z
+  .string()
+  .optional()
+  .transform((value) => (value && isHttpUrl(value) ? value : undefined))
+
 // --- Discord dialect ---------------------------------------------------------
 
 const discordEmbedSchema = z.object({
   title: z.string().max(256).optional(),
   description: z.string().max(4096).optional(),
-  url: z.string().url().optional(),
+  url: httpUrlSchema.optional(),
   timestamp: z.string().max(64).optional(),
   author: z
-    .object({ name: z.string().max(256), url: z.string().url().optional() })
+    .object({ name: z.string().max(256), url: httpUrlSchema.optional() })
     .optional(),
   footer: z.object({ text: z.string().max(2048) }).optional(),
-  image: z.object({ url: z.string().url() }).optional(),
-  thumbnail: z.object({ url: z.string().url() }).optional(),
+  image: z.object({ url: httpUrlSchema }).optional(),
+  thumbnail: z.object({ url: httpUrlSchema }).optional(),
   fields: z
     .array(z.object({ name: z.string().max(256), value: z.string().max(1024) }))
     .max(25)
@@ -125,13 +148,13 @@ const slackBlockSchema = z.object({
   fields: z.array(slackTextSchema).max(10).optional(),
   elements: z.array(z.unknown()).optional(),
   alt_text: z.string().optional(),
-  image_url: z.string().optional(),
+  image_url: lenientHttpUrlSchema,
 })
 
 const slackAttachmentSchema = z.object({
   pretext: z.string().max(4096).optional(),
   title: z.string().max(1024).optional(),
-  title_link: z.string().optional(),
+  title_link: lenientHttpUrlSchema,
   text: z.string().max(8000).optional(),
   fallback: z.string().max(8000).optional(),
   footer: z.string().max(2048).optional(),

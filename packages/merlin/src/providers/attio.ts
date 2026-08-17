@@ -222,17 +222,29 @@ export async function connectAttio(
       if (!registered) return null
     }
 
-    return {
-      externalId: identity.workspace_id,
-      accountLabel: identity.workspace_name ?? identity.workspace_slug ?? null,
-      accessToken: encryptSecret(tokenData.access_token, encryptionKey()),
-      tokenExpiresAt:
-        typeof identity.exp === "number" ? new Date(identity.exp * 1000) : null,
-      scope: identity.scope ?? "",
-      webhookId: registered?.webhookId ?? null,
-      webhookSecret: registered
-        ? encryptSecret(registered.secret, encryptionKey())
-        : null,
+    try {
+      return {
+        externalId: identity.workspace_id,
+        accountLabel:
+          identity.workspace_name ?? identity.workspace_slug ?? null,
+        accessToken: encryptSecret(tokenData.access_token, encryptionKey()),
+        tokenExpiresAt:
+          typeof identity.exp === "number"
+            ? new Date(identity.exp * 1000)
+            : null,
+        scope: identity.scope ?? "",
+        webhookId: registered?.webhookId ?? null,
+        webhookSecret: registered
+          ? encryptSecret(registered.secret, encryptionKey())
+          : null,
+      }
+    } catch (err) {
+      // Encryption failed after the webhook was registered — remove it so the
+      // aborted connect doesn't leave a live webhook POSTing at us.
+      if (registered) {
+        await deleteAttioWebhook(tokenData.access_token, registered.webhookId)
+      }
+      throw err
     }
   } catch (err) {
     logger.error({ err }, "Attio connection failed")

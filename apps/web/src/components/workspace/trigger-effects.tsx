@@ -115,6 +115,14 @@ export function TriggerEffects({
               if (next === (value.rememberHint ?? "")) return
               onPatch({ rememberHint: next || null })
             }}
+            onKeyDown={(e) => {
+              // Escape closes the surrounding dialog without blurring — commit
+              // first so typed text isn't silently dropped.
+              if (e.key !== "Escape") return
+              const next = e.currentTarget.value.trim()
+              if (next === (value.rememberHint ?? "")) return
+              onPatch({ rememberHint: next || null })
+            }}
           />
         )}
       </EffectRow>
@@ -141,6 +149,12 @@ export function TriggerEffects({
               disabled={disabled}
               onBlur={(e) => {
                 const next = e.target.value.trim()
+                if (next === value.actInstructions) return
+                onPatch({ actInstructions: next })
+              }}
+              onKeyDown={(e) => {
+                if (e.key !== "Escape") return
+                const next = e.currentTarget.value.trim()
                 if (next === value.actInstructions) return
                 onPatch({ actInstructions: next })
               }}

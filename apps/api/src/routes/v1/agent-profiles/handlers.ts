@@ -262,6 +262,9 @@ export const updateAgentProfile: AppRouteHandler<
     const row = await tx
       .update(agentProfile)
       .set({
+        // Always-set so a customToolIds-only patch isn't an empty `.set({})`
+        // (drizzle throws) — and grant changes are profile updates anyway.
+        updatedAt: new Date(),
         ...(name !== undefined ? { name } : {}),
         // Tuning the granted set makes it an explicit allowlist (even the default
         // stops meaning "everything" once edited).

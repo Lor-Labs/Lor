@@ -68,7 +68,8 @@ function tokenize(input: string): string[] {
 }
 
 const METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE"])
-// Flags that take a value we deliberately ignore.
+// Flags that take a value we deliberately ignore (their value must still be
+// consumed so it can't be mistaken for the URL).
 const IGNORED_WITH_VALUE = new Set([
   "-o",
   "--output",
@@ -86,7 +87,19 @@ const IGNORED_WITH_VALUE = new Set([
   "--cookie-jar",
   "--cacert",
   "--capath",
+  // Multipart/file uploads have no template representation — drop the value.
+  "-F",
+  "--form",
+  "--form-string",
+  "-T",
+  "--upload-file",
 ])
+
+// curl base64-encodes the raw credential bytes; btoa alone throws on
+// non-Latin1 input, so go through UTF-8 bytes.
+function encodeBasicAuth(creds: string): string {
+  return btoa(String.fromCharCode(...new TextEncoder().encode(creds)))
+}
 
 export function parseCurl(input: string): ParsedCurl | null {
   const tokens = tokenize(input.trim())
@@ -115,7 +128,8 @@ export function parseCurl(input: string): ParsedCurl | null {
       t === "--data" ||
       t === "--data-raw" ||
       t === "--data-binary" ||
-      t === "--data-ascii"
+      t === "--data-ascii" ||
+      t === "--data-urlencode"
     ) {
       const value = tokens[++i] ?? ""
       // curl strips a leading @file marker; we can't read files — skip those.
@@ -126,7 +140,7 @@ export function parseCurl(input: string): ParsedCurl | null {
       sawJsonFlag = true
     } else if (t === "-u" || t === "--user") {
       const creds = tokens[++i] ?? ""
-      headers.Authorization = `Basic ${btoa(creds)}`
+      headers.Authorization = `Basic ${encodeBasicAuth(creds)}`
     } else if (t === "--url") {
       url = tokens[++i] ?? null
     } else if (IGNORED_WITH_VALUE.has(t)) {

@@ -644,6 +644,29 @@ export const connectAttio: AppRouteHandler<ConnectAttioRoute> = async (c) => {
     )
   }
 
+  // A reconnect to a DIFFERENT Attio workspace revokes the old row and wipes
+  // its webhookId/token (OAUTH_TOKEN_WIPE) — capture them first so the old
+  // provider-side webhook can be deleted, like the disconnect path does.
+  const outgoing = await db
+    .select({
+      externalId: integrationConnection.externalId,
+      webhookId: integrationConnection.webhookId,
+    })
+    .from(integrationConnection)
+    .where(
+      and(
+        eq(integrationConnection.workspaceId, workspace.id),
+        eq(integrationConnection.provider, "attio"),
+        eq(integrationConnection.status, "active"),
+        ne(integrationConnection.externalId, result.externalId)
+      )
+    )
+    .limit(1)
+    .then((rows) => rows[0] ?? null)
+  const outgoingToken = outgoing?.webhookId
+    ? await getAttioAccessToken(outgoing.externalId).catch(() => null)
+    : null
+
   const ok = await replaceActiveConnection({
     workspaceId: workspace.id,
     provider: "attio",
@@ -677,6 +700,11 @@ export const connectAttio: AppRouteHandler<ConnectAttioRoute> = async (c) => {
       },
       HttpStatusCodes.CONFLICT
     )
+  }
+
+  if (outgoingToken && outgoing?.webhookId) {
+    // Best effort — a leftover webhook just degrades on Attio's side.
+    void deleteAttioWebhook(outgoingToken, outgoing.webhookId)
   }
 
   return c.json(
