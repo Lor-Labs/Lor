@@ -13,7 +13,8 @@
     "./github": "./src/github.ts",
     "./placement": "./src/placement.ts",
     "./providers": "./src/providers/index.ts",
-    "./sources": "./src/sources.ts"
+    "./sources": "./src/sources.ts",
+    "./tool-servers": "./src/tool-servers.ts"
   },
   "scripts": {
     "check-types": "tsc --noEmit",

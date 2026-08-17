@@ -3,7 +3,8 @@
 > Status: **design accepted** (2026-08-14, design conversation with jacob). Phases 1–5
 > (trigger generalization + first-party conformance; Attio events + ingest; BYO
 > Webhooks incl. the `channel_webhook` fold and dialect endpoints; Act; custom tools)
-> implemented 2026-08-14/15.
+> implemented 2026-08-14/15. Per-tool profile grants + **MCP tool servers**
+> implemented 2026-08-16.
 > Closes the design question in Linear **LOR-49** ("programmatic ways to index data") and
 > subsumes bring-your-own webhooks (the evolved `channel_webhook`) and "webhook-triggered
 > Merlin actions."
@@ -213,14 +214,30 @@ then swaps real credentials for `{{secrets.…}}` references.
 
 **Next on the horizon (agreed 2026-08-15, unbuilt):**
 
-- **MCP tool servers** — the vendor ecosystem is converging on remote MCP (Linear,
-  Notion, Sentry, Stripe, Cloudflare…). NOT a shape of `custom_tool`: an MCP server
-  serves its own live tool list/schemas, so it's a separate `tool_server` primitive
-  (URL + auth + **tool allowlist**, generalizing the `datadogMcpTools` pattern — the
-  allowlist exists so an upstream tool addition can't silently widen Merlin's
-  surface). Session per respond() call, like Datadog.
 - **Postgres / database querying** — real demand, but connector-grade treatment
   (credentials, read-only enforcement, schema introspection), never a custom-tool row.
+
+**MCP tool servers (shipped 2026-08-16):** the vendor ecosystem converged on
+remote MCP (Linear, Notion, Sentry, Stripe, Cloudflare…). NOT a shape of
+`custom_tool`: an MCP server serves its own live tool list/schemas, so it's a
+separate **`tool_server`** primitive — URL (Streamable HTTP, same SSRF stance
+as custom tools, checked at create AND connect) + static auth headers with
+`{{secrets.KEY}}` references + **`enabledTools` allowlist** (generalizing the
+`datadogMcpTools` pattern; exists so an upstream tool addition can't silently
+widen Merlin's surface — new tools stay off until enabled). Sessions per
+respond() call like Datadog: granted servers handshake in parallel under one
+8s cap, unreachable servers drop out, tool results cap at 256KB, sessions
+close in respond()'s finally. Collisions skip-and-log (built-ins → custom
+tools → servers in name order). Grants ride the same two-level model as
+custom tools: the blanket `custom_tools` capability (relabeled "All workspace
+tools") covers both kinds; otherwise per-profile `agent_profile_tool_server`
+join rows. Auth v1 is static headers only — **OAuth-flow MCP (dynamic client
+registration) is deferred**. UI: the settings section is now "Tools" with a
+kind picker (API Tool / MCP Server); the MCP form's "Connect & discover" step
+lists the server's tools for allowlisting (all pre-checked on first connect;
+refresh keeps the current selection). CRUD + discover endpoints at
+`/v1/workspaces/:slug/tool-servers` (`packages/merlin/src/tool-servers.ts`,
+`apps/web/src/components/workspace/tool-servers-section.tsx`).
 
 ## 5. Guardrails on triggered runs (physics, not opinions)
 
@@ -302,6 +319,11 @@ then swaps real credentials for `{{secrets.…}}` references.
   Hard-deleted (no status column); name unique per workspace.
 - **`agent_profile_custom_tool`**: `(profileId, customToolId)` grant rows,
   cascade on both FKs (per §4 enablement).
+- **`tool_server`**: name, url, headers (secret-referencing templates), secrets
+  (encrypted), `enabledTools text[]` allowlist + `workspaceId`, `createdBy`.
+  Hard-deleted; name unique per workspace.
+- **`agent_profile_tool_server`**: `(profileId, toolServerId)` grant rows,
+  cascade on both FKs.
 - **`agent_run`** gains trigger provenance (`triggerId`, `deliveryId` — nullable).
 - **delivery log**: `trigger_delivery` (triggerId, receivedAt, payload hash/size, effect
   outcomes, runId nullable) — powers the delivery log and dedupe.

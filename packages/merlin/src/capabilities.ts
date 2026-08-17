@@ -2,17 +2,19 @@ import { and, db, eq, schema } from "@repo/db"
 import { ALL_MERLIN_CAPABILITIES, type MerlinCapability } from "@repo/db/schema"
 
 // What a channel's profile lets Merlin use: gated capabilities plus the
-// custom-tool grant. `customTools` is "all" when the profile grants the
-// blanket `custom_tools` capability (or grantsAll); otherwise the explicit
-// per-profile grant list (agent_profile_custom_tool rows).
+// workspace-tool grants. `customTools`/`toolServers` are "all" when the
+// profile grants the blanket `custom_tools` capability (or grantsAll);
+// otherwise the explicit per-profile grant lists (join-table rows).
 export type ChannelToolGrants = {
   capabilities: MerlinCapability[]
   customTools: "all" | string[]
+  toolServers: "all" | string[]
 }
 
 const PERMISSIVE_GRANTS: ChannelToolGrants = {
   capabilities: ALL_MERLIN_CAPABILITIES,
   customTools: "all",
+  toolServers: "all",
 }
 
 async function profileGrants(profile: {
@@ -22,15 +24,26 @@ async function profileGrants(profile: {
 }): Promise<ChannelToolGrants> {
   if (profile.grantsAll) return PERMISSIVE_GRANTS
   if (profile.capabilities.includes("custom_tools")) {
-    return { capabilities: profile.capabilities, customTools: "all" }
+    return {
+      capabilities: profile.capabilities,
+      customTools: "all",
+      toolServers: "all",
+    }
   }
-  const grants = await db
-    .select({ customToolId: schema.agentProfileCustomTool.customToolId })
-    .from(schema.agentProfileCustomTool)
-    .where(eq(schema.agentProfileCustomTool.profileId, profile.id))
+  const [toolGrants, serverGrants] = await Promise.all([
+    db
+      .select({ customToolId: schema.agentProfileCustomTool.customToolId })
+      .from(schema.agentProfileCustomTool)
+      .where(eq(schema.agentProfileCustomTool.profileId, profile.id)),
+    db
+      .select({ toolServerId: schema.agentProfileToolServer.toolServerId })
+      .from(schema.agentProfileToolServer)
+      .where(eq(schema.agentProfileToolServer.profileId, profile.id)),
+  ])
   return {
     capabilities: profile.capabilities,
-    customTools: grants.map((g) => g.customToolId),
+    customTools: toolGrants.map((g) => g.customToolId),
+    toolServers: serverGrants.map((g) => g.toolServerId),
   }
 }
 

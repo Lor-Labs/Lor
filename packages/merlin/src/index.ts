@@ -14,6 +14,7 @@ import {
   type ModelMessage,
   pruneMessages,
   streamText,
+  type ToolSet,
   tool,
 } from "ai"
 import { z } from "zod"
@@ -70,6 +71,7 @@ import { resolveSourceCitation, searchSources, sourceTools } from "./sources"
 import { generateSmallObject } from "./structured"
 import { type RunTaskContext, taskPromptSection, taskTools } from "./tasks"
 import { guardTools } from "./tool-guard"
+import { channelToolServers, toolServersPromptLine } from "./tool-servers"
 import {
   type RunTriggeredContext,
   triggeredPromptSection,
@@ -1379,13 +1381,29 @@ export async function respond(
   // closed to core-only (no gated tools) rather than granting everything.
   const grants = ctx.channelId
     ? await resolveChannelCapabilities(ctx.channelId).catch(
-        (): ChannelToolGrants => ({ capabilities: [], customTools: [] })
+        (): ChannelToolGrants => ({
+          capabilities: [],
+          customTools: [],
+          toolServers: [],
+        })
       )
     : {
         capabilities: ALL_MERLIN_CAPABILITIES,
         customTools: "all" as const,
+        toolServers: "all" as const,
       }
   const caps = grants.capabilities
+  // MCP handshakes are the slow part of startup; kick them off now (time-
+  // bounded inside channelToolServers) and merge after the built-ins exist.
+  // Collisions are filtered at merge, so this needs no takenNames up front.
+  const toolServersPromise =
+    grants.toolServers === "all" || grants.toolServers.length > 0
+      ? channelToolServers(
+          ctx.workspaceId,
+          grants.toolServers,
+          new Set<string>()
+        )
+      : Promise.resolve(null)
   const needsGithub =
     caps.includes("github") || caps.includes("code_intelligence")
   const needsLinear = caps.includes("linear") || caps.includes("linear_write")
@@ -1454,9 +1472,23 @@ export async function respond(
           grants.customTools
         ).catch(() => null)
       : null
-  const tools = {
+  // MCP server tools bind last; anything already named wins the collision.
+  const toolServerSession = await toolServersPromise.catch(() => null)
+  const tools: typeof builtinTools & ToolSet = {
     ...builtinTools,
     ...(customTools ?? {}),
+  }
+  if (toolServerSession) {
+    for (const [name, tool] of Object.entries(toolServerSession.tools)) {
+      if (name in tools) {
+        logger.warn(
+          { tool: name },
+          "MCP tool skipped; name collides with an existing tool"
+        )
+        continue
+      }
+      ;(tools as ToolSet)[name] = tool
+    }
   }
 
   const toolsContext = {
@@ -1574,10 +1606,12 @@ export async function respond(
     notion && caps.includes("notion") ? NOTION_PROMPT_LINE : null,
     artifactsEnabled ? ARTIFACTS_PROMPT_LINE : null,
     customTools ? CUSTOM_TOOLS_PROMPT_LINE : null,
+    toolServerSession ? toolServersPromptLine(toolServerSession.servers) : null,
   ].filter((line): line is string => line !== null)
 
-  // The finally closes the Datadog MCP session after the whole tool loop, even
-  // if setup, step preparation, or streaming throws.
+  // The finally closes the MCP sessions (Datadog + workspace tool servers)
+  // after the whole tool loop, even if setup, step preparation, or streaming
+  // throws.
   try {
     let messages: ModelMessage[]
     let instructions: string
@@ -1849,6 +1883,7 @@ export async function respond(
     return { text, messages: [...messages, ...responseMessages], stoppedFor }
   } finally {
     await datadogMcp?.close()
+    await toolServerSession?.close()
   }
 }
 

@@ -30,9 +30,10 @@ export const agentProfileSchema = selectAgentProfileSchema
     capabilities: true,
   })
   .extend({
-    // Explicit per-profile tool grants (agent_profile_custom_tool rows).
-    // Irrelevant when grantsAll or the blanket custom_tools capability is set.
+    // Explicit per-profile grants (join-table rows). Irrelevant when
+    // grantsAll or the blanket custom_tools capability is set.
     customToolIds: z.array(z.string()),
+    toolServerIds: z.array(z.string()),
   })
 
 export const capabilityDescriptorSchema = z.object({
@@ -58,12 +59,22 @@ export const listAgentProfilesResponseSchema = z.object({
       description: z.string(),
     })
   ),
+  // The workspace's MCP tool servers, selectable per profile in the editor.
+  availableToolServers: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      description: z.string(),
+      enabledToolCount: z.number(),
+    })
+  ),
 })
 
 export const createAgentProfileRequestSchema = z.object({
   name: z.string().trim().min(1).max(60),
   capabilities: z.array(capabilitySchema).default([]),
   customToolIds: z.array(z.string().uuid()).max(200).default([]),
+  toolServerIds: z.array(z.string().uuid()).max(200).default([]),
 })
 
 export const updateAgentProfileRequestSchema = z
@@ -71,12 +82,14 @@ export const updateAgentProfileRequestSchema = z
     name: z.string().trim().min(1).max(60).optional(),
     capabilities: z.array(capabilitySchema).optional(),
     customToolIds: z.array(z.string().uuid()).max(200).optional(),
+    toolServerIds: z.array(z.string().uuid()).max(200).optional(),
   })
   .refine(
     (v) =>
       v.name !== undefined ||
       v.capabilities !== undefined ||
-      v.customToolIds !== undefined,
+      v.customToolIds !== undefined ||
+      v.toolServerIds !== undefined,
     { message: "At least one field must be provided" }
   )
 

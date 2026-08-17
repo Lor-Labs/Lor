@@ -106,7 +106,7 @@ export type SectionId =
 const SECTIONS: { id: SectionId; label: string; icon: IconSvgElement }[] = [
   { id: "general", label: "General", icon: Settings01Icon },
   { id: "connectors", label: "Connectors", icon: Plug01Icon },
-  { id: "custom-tools", label: "Custom tools", icon: Wrench01Icon },
+  { id: "custom-tools", label: "Tools", icon: Wrench01Icon },
   { id: "merlin", label: "Agent profiles", icon: Layers01Icon },
   { id: "instructions", label: "LOR.md", icon: Scroll01Icon },
   { id: "billing", label: "Billing", icon: CreditCardIcon },

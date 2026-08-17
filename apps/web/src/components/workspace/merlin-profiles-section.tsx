@@ -1,4 +1,6 @@
 import {
+  ApiIcon,
+  CloudServerIcon,
   Delete02Icon,
   PencilEdit01Icon,
   PlusSignIcon,
@@ -33,6 +35,7 @@ import type {
 import { connectorLogo } from "@/lib/connector-ui"
 
 type AvailableCustomTool = AgentProfilesResponse["availableCustomTools"][number]
+type AvailableToolServer = AgentProfilesResponse["availableToolServers"][number]
 
 // A profile grants custom tools either via the blanket capability (all,
 // including future tools) or an explicit per-tool list.
@@ -67,19 +70,29 @@ function GrantedChips({
   profile,
   available,
   tools,
+  servers,
 }: {
   profile: AgentProfile
   available: AvailableCapability[]
   tools: AvailableCustomTool[]
+  servers: AvailableToolServer[]
 }) {
   const granted = profile.grantsAll
     ? available
     : available.filter((c) => profile.capabilities.includes(c.key))
-  const grantedTools = hasBlanketTools(profile)
+  const blanket = hasBlanketTools(profile)
+  const grantedTools = blanket
     ? []
     : tools.filter((t) => profile.customToolIds.includes(t.id))
+  const grantedServers = blanket
+    ? []
+    : servers.filter((s) => profile.toolServerIds.includes(s.id))
 
-  if (granted.length === 0 && grantedTools.length === 0) {
+  if (
+    granted.length === 0 &&
+    grantedTools.length === 0 &&
+    grantedServers.length === 0
+  ) {
     return (
       <span className="text-xs text-muted-foreground">Chat & memory only</span>
     )
@@ -112,11 +125,24 @@ function GrantedChips({
           className="inline-flex items-center gap-1.5 rounded-md bg-muted px-2 py-1 font-mono text-xs text-foreground"
         >
           <HugeiconsIcon
-            icon={Wrench01Icon}
+            icon={ApiIcon}
             className="size-3.5 shrink-0"
             strokeWidth={2}
           />
           {t.name}
+        </span>
+      ))}
+      {grantedServers.map((s) => (
+        <span
+          key={s.id}
+          className="inline-flex items-center gap-1.5 rounded-md bg-muted px-2 py-1 text-xs text-foreground"
+        >
+          <HugeiconsIcon
+            icon={CloudServerIcon}
+            className="size-3.5 shrink-0"
+            strokeWidth={2}
+          />
+          {s.name}
         </span>
       ))}
     </div>
@@ -209,6 +235,7 @@ function ProfileRow({
   profile,
   available,
   tools,
+  servers,
   onSave,
   onDelete,
   onCancelNew,
@@ -217,10 +244,12 @@ function ProfileRow({
   profile?: AgentProfile
   available: AvailableCapability[]
   tools: AvailableCustomTool[]
+  servers: AvailableToolServer[]
   onSave: (
     name: string,
     capabilities: MerlinCapabilityKey[],
-    customToolIds: string[]
+    customToolIds: string[],
+    toolServerIds: string[]
   ) => void
   onDelete?: () => void
   onCancelNew?: () => void
@@ -233,12 +262,15 @@ function ProfileRow({
     return new Set(profile.capabilities)
   }
   const initialTools = () => new Set(profile?.customToolIds ?? [])
+  const initialServers = () => new Set(profile?.toolServerIds ?? [])
 
   const [editing, setEditing] = useState(isNew)
   const [name, setName] = useState(profile?.name ?? "")
   const [selected, setSelected] =
     useState<Set<MerlinCapabilityKey>>(initialSelected)
   const [selectedTools, setSelectedTools] = useState<Set<string>>(initialTools)
+  const [selectedServers, setSelectedServers] =
+    useState<Set<string>>(initialServers)
 
   const toggle = (key: MerlinCapabilityKey) => {
     setSelected((prev) => {
@@ -258,6 +290,15 @@ function ProfileRow({
     })
   }
 
+  const toggleServer = (id: string) => {
+    setSelectedServers((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
   const handleSave = () => {
     if (!name.trim()) return
     const availableKeys = new Set(available.map((c) => c.key))
@@ -267,7 +308,8 @@ function ProfileRow({
     onSave(
       name.trim(),
       [...new Set([...selected, ...preserved])],
-      [...selectedTools]
+      [...selectedTools],
+      [...selectedServers]
     )
     if (!isNew) setEditing(false)
   }
@@ -280,6 +322,7 @@ function ProfileRow({
     setName(profile?.name ?? "")
     setSelected(initialSelected())
     setSelectedTools(initialTools())
+    setSelectedServers(initialServers())
     setEditing(false)
   }
 
@@ -291,7 +334,12 @@ function ProfileRow({
             <span className="truncate font-medium text-sm">{profile.name}</span>
             {profile.isDefault && <Badge variant="secondary">Default</Badge>}
           </div>
-          <GrantedChips profile={profile} available={available} tools={tools} />
+          <GrantedChips
+            profile={profile}
+            available={available}
+            tools={tools}
+            servers={servers}
+          />
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <Button
@@ -375,7 +423,7 @@ function ProfileRow({
                 className="size-3.5 shrink-0"
                 strokeWidth={2}
               />
-              <span className="text-xs font-medium">Custom tools</span>
+              <span className="text-xs font-medium">Workspace tools</span>
             </div>
             <SelectTile
               icon={
@@ -395,7 +443,7 @@ function ProfileRow({
                 key={tool.id}
                 icon={
                   <HugeiconsIcon
-                    icon={Wrench01Icon}
+                    icon={ApiIcon}
                     className="size-5"
                     strokeWidth={2}
                   />
@@ -408,10 +456,30 @@ function ProfileRow({
                 onToggle={() => toggleTool(tool.id)}
               />
             ))}
-            {tools.length === 0 && (
+            {servers.map((server) => (
+              <SelectTile
+                key={server.id}
+                icon={
+                  <HugeiconsIcon
+                    icon={CloudServerIcon}
+                    className="size-5"
+                    strokeWidth={2}
+                  />
+                }
+                title={server.name}
+                description={
+                  server.description ||
+                  `MCP server · ${server.enabledToolCount} ${server.enabledToolCount === 1 ? "tool" : "tools"} enabled`
+                }
+                selected={selectedServers.has(server.id)}
+                included={blanketOn}
+                onToggle={() => toggleServer(server.id)}
+              />
+            ))}
+            {tools.length === 0 && servers.length === 0 && (
               <p className="text-muted-foreground text-xs">
-                No custom tools yet — create them in the Custom tools section to
-                grant them individually.
+                No workspace tools yet — create API tools or connect MCP servers
+                in the Tools section to grant them individually.
               </p>
             )}
           </div>
@@ -467,6 +535,7 @@ export function MerlinProfilesSection({
       name: string
       capabilities: MerlinCapabilityKey[]
       customToolIds: string[]
+      toolServerIds: string[]
     }) => {
       const profiles =
         apiClient.v1.workspaces[":workspaceSlug"]["agent-profiles"]
@@ -477,6 +546,7 @@ export function MerlinProfilesSection({
               name: input.name,
               capabilities: input.capabilities,
               customToolIds: input.customToolIds,
+              toolServerIds: input.toolServerIds,
             },
           })
         : await profiles.$post({
@@ -485,6 +555,7 @@ export function MerlinProfilesSection({
               name: input.name,
               capabilities: input.capabilities,
               customToolIds: input.customToolIds,
+              toolServerIds: input.toolServerIds,
             },
           })
       if (!res.ok) throw new Error("Failed to save profile")
@@ -545,9 +616,16 @@ export function MerlinProfilesSection({
           profile={p}
           available={data.availableCapabilities}
           tools={data.availableCustomTools}
+          servers={data.availableToolServers}
           saving={save.isPending}
-          onSave={(name, capabilities, customToolIds) =>
-            save.mutate({ id: p.id, name, capabilities, customToolIds })
+          onSave={(name, capabilities, customToolIds, toolServerIds) =>
+            save.mutate({
+              id: p.id,
+              name,
+              capabilities,
+              customToolIds,
+              toolServerIds,
+            })
           }
           onDelete={
             p.isDefault
@@ -560,9 +638,10 @@ export function MerlinProfilesSection({
         <ProfileRow
           available={data.availableCapabilities}
           tools={data.availableCustomTools}
+          servers={data.availableToolServers}
           saving={save.isPending}
-          onSave={(name, capabilities, customToolIds) =>
-            save.mutate({ name, capabilities, customToolIds })
+          onSave={(name, capabilities, customToolIds, toolServerIds) =>
+            save.mutate({ name, capabilities, customToolIds, toolServerIds })
           }
           onCancelNew={() => setCreating(false)}
         />
