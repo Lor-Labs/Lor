@@ -151,39 +151,48 @@ async function connectServer(input: {
   // Re-checked at connect time so a tampered row can't reach internal hosts.
   const issue = customToolUrlIssue(input.url)
   if (issue) throw new Error(issue)
-  // The session is closed by whichever path loses: a tools() failure, or the
-  // timeout below. Captured as soon as it exists, because a tools() call that
-  // never settles would otherwise leak the connection — the `setup` promise it
-  // hangs on never resolves, so no .then() cleanup can fire. Held in an object
-  // so the catch below isn't narrowed to the initial null.
-  const opened: { session: { close: () => Promise<void> } | null } = {
-    session: null,
+  // One memoized close for every losing path: a tools() failure, the timeout,
+  // or a client that only finishes connecting after we gave up. The session is
+  // captured as soon as it exists because a tools() call that never settles
+  // leaves `setup` pending forever — no .then() cleanup could ever fire.
+  const state: {
+    session: { close: () => Promise<void> } | null
+    closed: boolean
+    abandoned: boolean
+  } = { session: null, closed: false, abandoned: false }
+  const closeOnce = () => {
+    if (state.closed || !state.session) return
+    state.closed = true
+    void state.session.close().catch(() => {})
   }
-  let abandoned = false
   const setup = (async () => {
     const resolvedIssue = await resolvedAddressIssue(input.url)
     if (resolvedIssue) throw new Error(resolvedIssue)
     const client = await createMCPClient({
       transport: { type: "http", url: input.url, headers: input.headers },
     })
-    opened.session = client
+    state.session = client
+    // Connected after the caller gave up: close now rather than waiting on a
+    // tools() call whose result nobody wants (and which may never settle).
+    if (state.abandoned) {
+      closeOnce()
+      throw new Error("Handshake abandoned")
+    }
     try {
       return { client, tools: await client.tools() }
     } catch (err) {
-      if (!abandoned) await client.close().catch(() => {})
+      closeOnce()
       throw err
     }
   })()
   try {
     return await withTimeout(setup, SETUP_TIMEOUT_MS)
   } catch (err) {
-    abandoned = true
-    // Whatever exists now, plus anything that lands after we gave up.
-    opened.session?.close().catch(() => {})
-    setup.then(
-      ({ client }) => client.close().catch(() => {}),
-      () => {}
-    )
+    state.abandoned = true
+    // Whatever exists now, plus whatever lands later — resolved OR rejected,
+    // since a late rejection also leaves a live session behind.
+    closeOnce()
+    setup.then(closeOnce, closeOnce)
     throw err
   }
 }

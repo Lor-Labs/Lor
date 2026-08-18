@@ -1,4 +1,4 @@
-import { db, eq, schema } from "@repo/db"
+import { and, db, eq, isNull, schema } from "@repo/db"
 import { env } from "@repo/env/server"
 import {
   actGuard,
@@ -186,11 +186,17 @@ async function runActNow(input: {
 
   // Claiming the delivery is what stops a later flush from re-batching it, so
   // an unclaimed delivery must not also get a run now — drop this attempt and
-  // let the batch path handle it exactly once.
+  // let the batch path handle it exactly once. The runId guard makes this a
+  // compare-and-set: if a flush claimed it first, that run owns it.
   const claimed = await db
     .update(schema.triggerDelivery)
     .set({ runId: run.id })
-    .where(eq(schema.triggerDelivery.id, input.deliveryId))
+    .where(
+      and(
+        eq(schema.triggerDelivery.id, input.deliveryId),
+        isNull(schema.triggerDelivery.runId)
+      )
+    )
     .returning({ id: schema.triggerDelivery.id })
     .catch((err) => {
       logger.warn(
