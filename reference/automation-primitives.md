@@ -3,7 +3,8 @@
 > Status: **design accepted** (2026-08-14, design conversation with jacob). Phases 1–5
 > (trigger generalization + first-party conformance; Attio events + ingest; BYO
 > Webhooks incl. the `channel_webhook` fold and dialect endpoints; Act; custom tools)
-> implemented 2026-08-14/15.
+> implemented 2026-08-14/15. Per-tool profile grants + **MCP tool servers**
+> implemented 2026-08-16.
 > Closes the design question in Linear **LOR-49** ("programmatic ways to index data") and
 > subsumes bring-your-own webhooks (the evolved `channel_webhook`) and "webhook-triggered
 > Merlin actions."
@@ -145,10 +146,19 @@ upgrades on the same URL.
   execute-webhook payloads (content/embeds); `.../slack` accepts Slack
   incoming-webhook payloads (text/blocks/attachments, mrkdwn converted). Same pattern
   as Discord's own `/slack` compatibility route — switching providers is repointing a
-  URL. Both normalize to markdown; interactive blocks are dropped rather than
-  half-rendered; `avatar_url` is deliberately absent from the schema (zod strips
-  unknown keys — identity always comes from the webhook's stored, bucket-restricted
-  config). A richer native shape is deferred — see message UI blocks in §9.
+  URL. **Data layer matches each vendor's spec exactly** (jacob's stance: point the URL
+  at Lor and everything works the same) — including sender-chosen **accent colors**
+  (Discord `embed.color` decimal int; Slack `attachment.color` hex or
+  `good`/`warning`/`danger`), normalized to `#rrggbb`. **Presentation is ours** (shipped
+  2026-08-17): embeds/attachments become structured `message.embeds` cards (accent
+  strip, author, markdown description, field grid, image, footer/timestamp) rather than
+  markdown blockquotes — the blockquote renderers survive as the text form Remember and
+  Act ingest. Slack *blocks* stay markdown (they're the message body, not a card);
+  interactive blocks are dropped rather than half-rendered; `avatar_url` is deliberately
+  absent from the schema (zod strips unknown keys — identity always comes from the
+  webhook's stored, bucket-restricted config). See `apps/api/src/lib/webhook-payloads.ts`
+  and `apps/web/src/components/chat/embed-card.tsx`. A richer *native* shape is still
+  deferred — see message UI blocks in §9.
 - `CONNECTOR_EVENTS.webhook` = one event, `data_received` — every delivery is that
   event; per-webhook configuration lives on the trigger (effects + hint + instructions).
 - **No field mapping, ever.** Arbitrary JSON in. POST stays deterministic (verbatim
@@ -213,25 +223,140 @@ then swaps real credentials for `{{secrets.…}}` references.
 
 **Next on the horizon (agreed 2026-08-15, unbuilt):**
 
-- **MCP tool servers** — the vendor ecosystem is converging on remote MCP (Linear,
-  Notion, Sentry, Stripe, Cloudflare…). NOT a shape of `custom_tool`: an MCP server
-  serves its own live tool list/schemas, so it's a separate `tool_server` primitive
-  (URL + auth + **tool allowlist**, generalizing the `datadogMcpTools` pattern — the
-  allowlist exists so an upstream tool addition can't silently widen Merlin's
-  surface). Session per respond() call, like Datadog.
 - **Postgres / database querying** — real demand, but connector-grade treatment
   (credentials, read-only enforcement, schema introspection), never a custom-tool row.
+
+**MCP tool servers (shipped 2026-08-16):** the vendor ecosystem converged on
+remote MCP (Linear, Notion, Sentry, Stripe, Cloudflare…). NOT a shape of
+`custom_tool`: an MCP server serves its own live tool list/schemas, so it's a
+separate **`tool_server`** primitive — URL (Streamable HTTP, same SSRF stance
+as custom tools, checked at create AND connect) + static auth headers with
+`{{secrets.KEY}}` references + **`enabledTools` allowlist** (generalizing the
+`datadogMcpTools` pattern; exists so an upstream tool addition can't silently
+widen Merlin's surface — new tools stay off until enabled). Sessions per
+respond() call like Datadog: granted servers handshake in parallel under one
+8s cap, unreachable servers drop out, tool results cap at 256KB, sessions
+close in respond()'s finally. Collisions skip-and-log (built-ins → custom
+tools → servers in name order). Grants ride the same two-level model as
+custom tools: the blanket `custom_tools` capability (relabeled "All workspace
+tools") covers both kinds; otherwise per-profile `agent_profile_tool_server`
+join rows. Auth v1 is static headers only — **OAuth-flow MCP (dynamic client
+registration) is deferred**. UI: the settings section is now "Tools" with a
+kind picker (API Tool / MCP Server); the MCP form's "Connect & discover" step
+lists the server's tools for allowlisting (all pre-checked on first connect;
+refresh keeps the current selection). CRUD + discover endpoints at
+`/v1/workspaces/:slug/tool-servers` (`packages/merlin/src/tool-servers.ts`,
+`apps/web/src/components/workspace/tool-servers-section.tsx`).
 
 ## 5. Guardrails on triggered runs (physics, not opinions)
 
 - **Loop guards.** Runs carry origin (`triggered_by` on `agent_run`); posts/side-effects
   of a triggered run can never re-trigger anything. Bot/webhook messages never trigger
   message rules (none exist yet — see §8).
-- **Budget caps.** Per-trigger daily run cap (default modest, e.g. 100/day) — an Act
-  trigger whose instructions say "usually do nothing" still burns a model call per
-  delivery. Per-run budgets reuse `defaultRunBudgets()`.
+- **Act rate shaping (built 2026-08-17).** The motivating case: a health monitor POSTs
+  every error serially into `#health`, a DB fault produces 500 deliveries in 20 minutes,
+  and the old single daily cap turned that into 100 agent runs followed by a blind spot
+  for the rest of the day (a fuse, not a throttle). The governing rule (jacob): **a
+  delivery is never dropped for being blocked — it queues.** Being blocked only ever
+  changes *when* and *with what company* Merlin looks, never *whether*. Three layers, in
+  `packages/merlin/src/act-runs.ts` (shared: the API arms windows on ingest, the worker
+  flushes them minutes later):
+  1. **One run per trigger at a time.** Act runs use `scopeKey = triggerId`, so the
+     existing partial unique index on active `agent_run` rows makes this a database
+     invariant rather than a check that can race. `actGuard` pre-checks it so a burst
+     doesn't spend cap slots on runs Postgres would reject anyway. A delivery that
+     arrives mid-run **queues** — even in immediate mode, where the trigger borrows the
+     batch machinery with a 30s window purely to hold the work.
+  2. **Coalescing window** (`actWindowSeconds`, default 300; `0` = one run per delivery).
+     **Leading edge, then trailing batch** — the window coalesces, it never delays: the
+     first delivery of a quiet period wins a conditional `UPDATE … WHERE
+     act_window_opened_at IS NULL` (Postgres owns the dedupe, not Redis), **runs
+     immediately**, and the window opens behind it with a delayed `act-flush` job. A lone
+     event therefore has zero added latency — the earlier design made it sit out the full
+     window, which was indefensible for a one-off "customer is a churn risk" webhook.
+     Everything arriving while that run is going joins the window, and at flush becomes
+     ONE follow-up run: all unclaimed deliveries claimed onto it
+     (`trigger_delivery.run_id`) and quoted as a single user turn — oldest 3 + newest 3,
+     with the true count and time span, framed as "N further deliveries … after an earlier
+     run already handled the first one" so Merlin checks for escalation instead of
+     repeating work. This is the layer that makes investigations *better*, not just
+     cheaper: "482 errors in 5 minutes, here's the first and the latest" beats one
+     arbitrary stack trace.
+     The window is **fixed/tumbling, not sliding** — a resetting debounce would mean a
+     continuous error stream never flushes at all, the worst failure mode during an
+     incident. Batched triggers store `trigger_delivery.act_payload`/`act_label` (the
+     flush runs later and can't be handed the payload on the job). A flush that lands
+     while a run is still going **re-arms** instead of dropping, so the batch keeps
+     growing; a window older than an hour is abandoned and logged (a wedged run must not
+     defer forever), and a window whose flush never arrived goes stale after 3× its
+     length so a new delivery can re-arm it.
+  3. **Rolling caps**: `hourlyRunCap` (default 3) and `dailyRunCap` (default 20), counted
+     over `agent_run.created_at`. Hourly exists so a burst can't eat the whole day's
+     budget; daily is the outer fuse. A cap doesn't discard the batch — `actGuard` returns
+     *when the rolling window frees a slot* (from the oldest run in it, clamped to
+     30s–15min) and the flush re-arms for then, so the queue keeps growing and fires as
+     soon as budget exists. Per-run budgets still reuse `defaultRunBudgets()` — those
+     bound each run's blast radius, whereas these bound run *count*.
+
+  The queue is "every delivery Act hasn't handled yet" (`run_id IS NULL` and an
+  `act_payload`, within 24h), deliberately **not** a slice of the window's clock — a
+  delivery that waited through several windows still lands in the next batch. 24h is the
+  stated bound: older than that is history, not an incident. Since blocked work never
+  drops, the only ways queued deliveries could rot are a *lost* flush job or a run that
+  died holding its claim, so both are swept:
+  - `connector_trigger.actFlushDueAt` records when the open window's flush is expected.
+    A blocked batch pushes it forward as it re-arms, which is what lets the 5-minute
+    `sweep-act-windows` job tell "the job was lost" from "this batch is legitimately
+    waiting" — without it, a long cap block would accumulate a new flush chain every
+    sweep. The sweep *claims* what it re-arms (one UPDATE … RETURNING) so concurrent
+    workers can't double-enqueue.
+  - `sweepDeadRuns` releases an abandoned triggered run's claimed deliveries
+    (`releaseActRunDeliveries`) and re-arms the trigger. The dead run stays in
+    `agent_run`, so its recorded actions and any note are still in the successor's
+    briefing — the batch is retried *with* the knowledge that an attempt already died.
+  All three layers are per-trigger columns on `connector_trigger`, exposed in the Act
+  effect row (`apps/web/src/components/workspace/trigger-effects.tsx`) for both BYO
+  webhooks and connector events. Sender-side grouping (Alertmanager `group_by`,
+  issue-level rather than event-level alerts) is still the right first line, and feeding
+  the Acting trigger state *transitions* rather than every event remains the recommended
+  shape.
 - **Kill switch + delivery log.** Every trigger has an enabled flag; the connection page
   shows recent deliveries, their effects, and run outcomes (including silent no-ops).
+  With queuing, the log is also the queue's only window: a delivery with no `runId` yet
+  is *waiting*, not lost — which the delivery-log UI should say out loud.
+- **Continuity across runs — the handoff note (built 2026-08-17).** A trigger is a
+  long-running *concern* ("the health of #health"), not a stream of unrelated events, but
+  a triggered run used to get exactly one thing: the payload. No channel history, no idea
+  it was the 4th run today, no idea a predecessor had already filed a PR for the same root
+  cause — so it filed a second one. Worse, the prompt told the model *"your final answer
+  text is discarded"*, throwing away the one place it naturally summarizes what it just
+  concluded (and inviting it to phone in the ending).
+  Now that text **is** the state: it's stored as `agent_run.handoffNote` and the prompt
+  asks for a successor-facing note — diagnosis, what it did with checkable references,
+  what to verify next. The next run on the trigger is briefed with (`actRunBriefing`):
+  - the **last 3 runs within 24h**: outcome (`state`/`stopReason`), the note, and a
+    **mechanical action list** from `agent_run_tool_result` — which is what makes a run
+    that died *after* filing a PR but *before* writing a note still legible. It's labeled
+    "recorded actions" rather than "side effects" because that allowlist also covers
+    billed-but-read-only work like `investigate_code`;
+  - a **run count** for the last 24h, so it knows whether it's in a storm;
+  - **channel messages since the previous run**, excluding `APP_USER_ID` webhook
+    deliveries — i.e. what *people* said. "Already on it, don't open another PR" has to
+    outrank a predecessor's plan.
+  Framing matters as much as content: notes are presented as *predecessors' claims to
+  verify with tools*, never as facts, and the trigger's own instructions always outrank
+  them. Bounds (last 3, 24h) exist so a stale or wrong conclusion can't dominate
+  indefinitely — the note-poisoning risk is real and deliberately capped.
+  This only works because runs on a trigger are **serialized** (§5.1): a chain of notes is
+  coherent where interleaved siblings' notes would be noise. Notes are surfaced to humans
+  too, on the trigger's Act row ("Merlin's last run · 14:07 — …").
+  Deliberately **not** built (jacob, 2026-08-17): a note cannot suppress its own trigger.
+  Volume is the caps' job; suppression stays a human decision, and handing the model a
+  kill switch over its own wake-ups is a different (larger) trust conversation.
+  Known gap: `agent_run_tool_result` only records the fixed `SIDE_EFFECT_TOOLS` allowlist,
+  so **custom tools and MCP server calls don't appear** in the mechanical list — the note
+  is the only account of those. (Fixing that means classifying workspace tools by whether
+  they mutate, e.g. by HTTP method.)
 - **Cost visibility.** Remember is metered at true cost, never debited (same stance as
   GitHub ingest — pricing decision stays visible in the ledger). Act runs meter like any
   agent run.
@@ -291,7 +416,10 @@ then swaps real credentials for `{{secrets.…}}` references.
   - `channelId` notNull — the anchor; target/scope of all effects
   - effects: `post` boolean, `remember` boolean + `rememberHint` text,
     `actInstructions` text (null = Act off)
-  - `enabled` boolean, `dailyRunCap` int
+  - `enabled` boolean; Act rate shape: `actWindowSeconds` int + `actWindowOpenedAt`
+    timestamp (the coalescing window's open marker — Postgres owns burst dedupe) +
+    `actFlushDueAt` timestamp (when its flush is expected; lets recovery tell a lost job
+    from a waiting batch), `hourlyRunCap` int, `dailyRunCap` int (see §5)
   - keep one trigger per (connection, event) v1; multi-channel fan-out for the same
     event is a later relaxation.
 - `integration_connection` gains `avatarUrl` (webhook post identity; the display name
@@ -302,9 +430,18 @@ then swaps real credentials for `{{secrets.…}}` references.
   Hard-deleted (no status column); name unique per workspace.
 - **`agent_profile_custom_tool`**: `(profileId, customToolId)` grant rows,
   cascade on both FKs (per §4 enablement).
-- **`agent_run`** gains trigger provenance (`triggerId`, `deliveryId` — nullable).
+- **`tool_server`**: name, url, headers (secret-referencing templates), secrets
+  (encrypted), `enabledTools text[]` allowlist + `workspaceId`, `createdBy`.
+  Hard-deleted; name unique per workspace.
+- **`agent_profile_tool_server`**: `(profileId, toolServerId)` grant rows,
+  cascade on both FKs.
+- **`agent_run`** gains trigger provenance (`triggerId`, `deliveryId` — nullable) and
+  `handoffNote` (a triggered run's closing note, read by the next run on the same
+  trigger — see §5).
 - **delivery log**: `trigger_delivery` (triggerId, receivedAt, payload hash/size, effect
-  outcomes, runId nullable) — powers the delivery log and dedupe.
+  outcomes, runId nullable) — powers the delivery log and dedupe. Batched Act triggers
+  also store `actPayload`/`actLabel` per delivery (what the later flush quotes), and many
+  deliveries share one `runId` when coalesced.
 - `integration_connection` gains what Attio webhooks need: encrypted `webhookSecret` +
   provider `webhookId` (see §10).
 
@@ -354,8 +491,7 @@ Ship in this order; each phase is independently useful and de-risks the next.
    tool to query X and act" story.) **Shipped 2026-08-15** — see §4 for the as-built
    descriptor, template semantics, SSRF stance, and the cURL import.
 6. **Later:** message-triggered rules, provider-native subscription filters (Attio
-   `$and`/`$or`), **MCP tool servers** and **Postgres querying** (next on the horizon —
-   see §4), per-tool channel granularity,
+   `$and`/`$or`), **Postgres querying** (next on the horizon — see §4),
    approval routing for unattended writes (jacob's ticket), multi-channel fan-out per
    event, Merlin self-configuration (reads a codebase, calls the same CRUD APIs to wire
    tools + triggers), and **message UI blocks** — Lor's native rich-message shape:

@@ -183,13 +183,28 @@ export type Attachment = {
   height?: number
 }
 
+export type EmbedField = {
+  name: string
+  value: string
+}
+
 export type Embed = {
   type: "link" | "image" | "video" | "rich"
-  url: string
+  // Optional for "rich" (webhook cards can be link-less); always set for
+  // link/media unfurls.
+  url?: string
   title?: string
   description?: string
   thumbnail?: string
   siteName?: string
+  // Rich (webhook-card) extras — Discord embeds / Slack attachments map here.
+  author?: { name: string; url?: string }
+  fields?: EmbedField[]
+  image?: string
+  footer?: string
+  timestamp?: string
+  // Normalized #rrggbb accent (Discord int / Slack hex-or-alias, sender-chosen).
+  color?: string
 }
 
 export type MerlinToolCall = {

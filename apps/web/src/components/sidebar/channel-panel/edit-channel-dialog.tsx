@@ -1,4 +1,5 @@
 import {
+  CloudServerIcon,
   Layers01Icon,
   Settings01Icon,
   WebhookIcon,
@@ -30,9 +31,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useParams } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
 import { ChannelWebhooksTab } from "@/components/sidebar/channel-panel/channel-webhooks-tab"
+import { hasBlanketTools } from "@/components/workspace/merlin-profiles-section"
 import { apiClient } from "@/lib/api-client"
 import type {
   AgentProfile,
+  AgentProfilesResponse,
   AvailableCapability,
   Channel,
 } from "@/lib/api-types"
@@ -51,28 +54,34 @@ function ProfileCapabilities({
   profile,
   available,
   tools,
+  servers,
 }: {
   profile: AgentProfile
   available: AvailableCapability[]
-  tools: { id: string; name: string; description: string }[]
+  tools: AgentProfilesResponse["availableCustomTools"]
+  servers: AgentProfilesResponse["availableToolServers"]
 }) {
   const granted = profile.grantsAll
     ? available
     : available.filter((c) => profile.capabilities.includes(c.key))
-  // Individual tool grants only matter without the blanket custom_tools
-  // capability (which already renders as "All custom tools" above).
-  const blanket =
-    profile.grantsAll || profile.capabilities.includes("custom_tools")
+  // Individual grants only matter without the blanket custom_tools capability
+  // (which already renders as "All workspace tools" above).
+  const blanket = hasBlanketTools(profile)
   const grantedTools = blanket
     ? []
     : tools.filter((t) => profile.customToolIds.includes(t.id))
+  const grantedServers = blanket
+    ? []
+    : servers.filter((s) => profile.toolServerIds.includes(s.id))
 
   return (
     <div className="space-y-2 rounded-lg border border-border bg-muted/30 p-3">
       <div className="text-xs font-medium text-muted-foreground">
         Merlin can use
       </div>
-      {granted.length === 0 && grantedTools.length === 0 ? (
+      {granted.length === 0 &&
+      grantedTools.length === 0 &&
+      grantedServers.length === 0 ? (
         <p className="text-xs text-muted-foreground">Chat & memory only.</p>
       ) : (
         <ul className="space-y-2">
@@ -113,6 +122,24 @@ function ProfileCapabilities({
                 <span className="block font-mono text-sm">{t.name}</span>
                 <span className="block text-xs text-muted-foreground">
                   {t.description}
+                </span>
+              </span>
+            </li>
+          ))}
+          {grantedServers.map((s) => (
+            <li key={s.id} className="flex items-center gap-3">
+              <span className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-background">
+                <HugeiconsIcon
+                  icon={CloudServerIcon}
+                  className="size-4"
+                  strokeWidth={2}
+                />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-sm">{s.name}</span>
+                <span className="block text-xs text-muted-foreground">
+                  {s.description ||
+                    `MCP server · ${s.enabledToolCount} ${s.enabledToolCount === 1 ? "tool" : "tools"} enabled`}
                 </span>
               </span>
             </li>
@@ -365,6 +392,7 @@ export function EditChannelDialog({
                         profile={previewProfile}
                         available={profilesData.availableCapabilities}
                         tools={profilesData.availableCustomTools}
+                        servers={profilesData.availableToolServers}
                       />
                     )}
 

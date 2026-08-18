@@ -334,6 +334,11 @@
   @apply mt-4 mb-1.5;
 }
 
+/* Prose gives hr ~3em each side — far too airy for chat density. */
+.message-markdown hr {
+  @apply my-2.5;
+}
+
 .message-markdown h1 {
   @apply text-[1.0625rem];
 }

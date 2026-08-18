@@ -1,4 +1,5 @@
 import { z } from "@hono/zod-openapi"
+import type { Embed } from "@repo/db/schema"
 
 // Inbound webhook payload dialects. The base execute URL speaks Lor's native
 // shape ({ content, username? }, markdown); `.../discord` speaks Discord's
@@ -50,6 +51,33 @@ const lenientHttpUrlSchema = z
   .optional()
   .transform((value) => (value && isHttpUrl(value) ? value : undefined))
 
+// --- Embed colors --------------------------------------------------------
+
+// Discord: decimal RGB int. Slack: "#rrggbb" or the good/warning/danger
+// aliases (classic attachment palette). Both normalize to #rrggbb so the
+// clients' accent strip can respect the sender's choice.
+const SLACK_COLOR_ALIASES: Record<string, string> = {
+  good: "#2eb886",
+  warning: "#daa038",
+  danger: "#a30200",
+}
+
+function discordColorToHex(
+  color: number | null | undefined
+): string | undefined {
+  if (typeof color !== "number" || !Number.isInteger(color)) return undefined
+  if (color < 0 || color > 0xffffff) return undefined
+  return `#${color.toString(16).padStart(6, "0")}`
+}
+
+function slackColorToHex(color: string | undefined): string | undefined {
+  if (!color) return undefined
+  const alias = SLACK_COLOR_ALIASES[color.toLowerCase()]
+  if (alias) return alias
+  const match = /^#?([0-9a-f]{6})$/i.exec(color.trim())
+  return match?.[1] ? `#${match[1].toLowerCase()}` : undefined
+}
+
 // --- Discord dialect ---------------------------------------------------------
 
 const discordEmbedSchema = z.object({
@@ -57,6 +85,7 @@ const discordEmbedSchema = z.object({
   description: z.string().max(4096).optional(),
   url: httpUrlSchema.optional(),
   timestamp: z.string().max(64).optional(),
+  color: z.number().int().min(0).max(0xffffff).nullish(),
   author: z
     .object({ name: z.string().max(256), url: httpUrlSchema.optional() })
     .optional(),
@@ -120,6 +149,45 @@ export function renderDiscordWebhookBody(body: DiscordWebhookBody): string {
   return clip(sections.join("\n\n"))
 }
 
+// Chat presentation: embeds become structured cards on the message (the
+// markdown renderers above survive for Remember/Act, where Merlin needs a
+// text form of the whole payload).
+export function discordEmbedsToMessageEmbeds(
+  body: DiscordWebhookBody
+): Embed[] {
+  return (body.embeds ?? []).flatMap((embed) => {
+    const fields = (embed.fields ?? []).map((f) => ({
+      name: f.name,
+      value: f.value,
+    }))
+    const mapped: Embed = {
+      type: "rich",
+      ...(embed.url ? { url: embed.url } : {}),
+      ...(embed.title ? { title: embed.title } : {}),
+      ...(embed.description ? { description: embed.description } : {}),
+      ...(embed.author ? { author: embed.author } : {}),
+      ...(fields.length > 0 ? { fields } : {}),
+      ...(embed.image?.url ? { image: embed.image.url } : {}),
+      ...(embed.thumbnail?.url ? { thumbnail: embed.thumbnail.url } : {}),
+      ...(embed.footer?.text ? { footer: embed.footer.text } : {}),
+      ...(embed.timestamp ? { timestamp: embed.timestamp } : {}),
+      ...(discordColorToHex(embed.color)
+        ? { color: discordColorToHex(embed.color) }
+        : {}),
+    }
+    // An embed with nothing renderable would be an empty card.
+    const hasContent =
+      mapped.title ||
+      mapped.description ||
+      mapped.author ||
+      (mapped.fields?.length ?? 0) > 0 ||
+      mapped.image ||
+      mapped.thumbnail ||
+      mapped.footer
+    return hasContent ? [mapped] : []
+  })
+}
+
 // --- Slack dialect -----------------------------------------------------------
 
 // Slack mrkdwn → markdown: <url|label> links, *bold*, ~strike~. Italic (_),
@@ -153,9 +221,14 @@ const slackBlockSchema = z.object({
 
 const slackAttachmentSchema = z.object({
   pretext: z.string().max(4096).optional(),
+  author_name: z.string().max(256).optional(),
+  author_link: lenientHttpUrlSchema,
   title: z.string().max(1024).optional(),
   title_link: lenientHttpUrlSchema,
+  color: z.string().max(32).optional(),
   text: z.string().max(8000).optional(),
+  image_url: lenientHttpUrlSchema,
+  thumb_url: lenientHttpUrlSchema,
   fallback: z.string().max(8000).optional(),
   footer: z.string().max(2048).optional(),
   fields: z
@@ -226,6 +299,13 @@ function renderSlackAttachment(
 ): string {
   const parts: string[] = []
   if (attachment.pretext) parts.push(mrkdwnToMarkdown(attachment.pretext))
+  if (attachment.author_name) {
+    parts.push(
+      attachment.author_link
+        ? `[${attachment.author_name}](${attachment.author_link})`
+        : attachment.author_name
+    )
+  }
   if (attachment.title) {
     parts.push(
       `**${
@@ -245,6 +325,8 @@ function renderSlackAttachment(
       .join("\n")
     if (line) parts.push(line)
   }
+  const imageUrl = attachment.image_url ?? attachment.thumb_url
+  if (imageUrl) parts.push(`[image](${imageUrl})`)
   if (attachment.footer) parts.push(`*${attachment.footer}*`)
   if (parts.length === 0 && attachment.fallback) {
     parts.push(mrkdwnToMarkdown(attachment.fallback))
@@ -268,6 +350,79 @@ export function renderSlackWebhookBody(body: SlackWebhookBody): string {
     if (rendered) sections.push(blockquote(rendered))
   }
   return clip(sections.filter(Boolean).join("\n\n"))
+}
+
+// The message body only (text/blocks) — attachments become structured cards.
+export function renderSlackContent(body: SlackWebhookBody): string {
+  if (body.blocks?.length) {
+    return clip(body.blocks.map(renderSlackBlock).filter(Boolean).join("\n\n"))
+  }
+  if (body.text?.trim()) return clip(mrkdwnToMarkdown(body.text.trim()))
+  return ""
+}
+
+export function slackAttachmentsToMessageEmbeds(
+  body: SlackWebhookBody
+): Embed[] {
+  return (body.attachments ?? []).flatMap((attachment) => {
+    const fields = (attachment.fields ?? []).flatMap((f) =>
+      f.title || f.value
+        ? [
+            {
+              name: f.title ?? "",
+              value: f.value ? mrkdwnToMarkdown(f.value) : "",
+            },
+          ]
+        : []
+    )
+    // Slack renders pretext above the bar; folding it into the card keeps a
+    // multi-attachment message unambiguous (UI spin, not a data deviation).
+    const description = [
+      attachment.pretext ? mrkdwnToMarkdown(attachment.pretext) : null,
+      attachment.text ? mrkdwnToMarkdown(attachment.text) : null,
+    ]
+      .filter(Boolean)
+      .join("\n\n")
+    const mapped: Embed = {
+      type: "rich",
+      ...(attachment.title_link ? { url: attachment.title_link } : {}),
+      ...(attachment.title ? { title: attachment.title } : {}),
+      ...(description ? { description } : {}),
+      ...(attachment.author_name
+        ? {
+            author: {
+              name: attachment.author_name,
+              ...(attachment.author_link
+                ? { url: attachment.author_link }
+                : {}),
+            },
+          }
+        : {}),
+      ...(fields.length > 0 ? { fields } : {}),
+      ...(attachment.image_url ? { image: attachment.image_url } : {}),
+      ...(attachment.thumb_url ? { thumbnail: attachment.thumb_url } : {}),
+      ...(attachment.footer ? { footer: attachment.footer } : {}),
+      ...(slackColorToHex(attachment.color)
+        ? { color: slackColorToHex(attachment.color) }
+        : {}),
+    }
+    const hasContent =
+      mapped.title ||
+      mapped.description ||
+      mapped.author ||
+      (mapped.fields?.length ?? 0) > 0 ||
+      mapped.image ||
+      mapped.thumbnail ||
+      mapped.footer
+    if (hasContent) return [mapped]
+    // Content-free attachment: fall back to `fallback`, Slack's own rule.
+    if (attachment.fallback) {
+      return [
+        { type: "rich", description: mrkdwnToMarkdown(attachment.fallback) },
+      ]
+    }
+    return []
+  })
 }
 
 // A base-URL delivery that failed native validation but looks like a foreign

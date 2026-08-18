@@ -1,4 +1,5 @@
 import { db, schema } from "@repo/db"
+import type { Embed } from "@repo/db/schema"
 import {
   buildMessageFanout,
   sendMessagePushNotifications,
@@ -33,6 +34,8 @@ type PostBotMessageInput = {
   }
   authorId: string
   content: string
+  // Structured cards (webhook embeds/attachments); rendered by the clients.
+  embeds?: Embed[]
   overrideName?: string
   overrideAvatarUrl?: string
   excludedFromMemory?: boolean
@@ -50,6 +53,7 @@ export async function postBotMessage(
       channelId: input.channel.id,
       authorId: input.authorId,
       content: input.content,
+      embeds: input.embeds ?? [],
       overrideName: input.overrideName ?? null,
       overrideAvatarUrl: input.overrideAvatarUrl ?? null,
       excludedFromMemory: input.excludedFromMemory ?? false,
@@ -133,7 +137,7 @@ export async function postBotMessage(
     mentions,
     reactions: [],
     attachments: [],
-    embeds: [],
+    embeds: input.embeds ?? [],
     referencedMessage: null,
     threadRootId: null,
   }

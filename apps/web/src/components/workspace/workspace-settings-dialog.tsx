@@ -106,7 +106,7 @@ export type SectionId =
 const SECTIONS: { id: SectionId; label: string; icon: IconSvgElement }[] = [
   { id: "general", label: "General", icon: Settings01Icon },
   { id: "connectors", label: "Connectors", icon: Plug01Icon },
-  { id: "custom-tools", label: "Custom tools", icon: Wrench01Icon },
+  { id: "custom-tools", label: "Tools", icon: Wrench01Icon },
   { id: "merlin", label: "Agent profiles", icon: Layers01Icon },
   { id: "instructions", label: "LOR.md", icon: Scroll01Icon },
   { id: "billing", label: "Billing", icon: CreditCardIcon },
@@ -587,6 +587,9 @@ function ConnectorsSection({ workspaceSlug }: { workspaceSlug: string }) {
       remember: boolean
       rememberHint: string | null
       actInstructions: string | null
+      actWindowSeconds: number
+      hourlyRunCap: number
+      dailyRunCap: number
     }) => {
       const res = await apiClient.v1.workspaces[":workspaceSlug"].integrations[
         ":connectionId"
@@ -599,6 +602,9 @@ function ConnectorsSection({ workspaceSlug }: { workspaceSlug: string }) {
           remember: input.remember,
           rememberHint: input.rememberHint,
           actInstructions: input.actInstructions,
+          actWindowSeconds: input.actWindowSeconds,
+          hourlyRunCap: input.hourlyRunCap,
+          dailyRunCap: input.dailyRunCap,
         },
       })
       if (!res.ok) throw new Error("Failed to update event")
@@ -827,6 +833,9 @@ function ConnectorsSection({ workspaceSlug }: { workspaceSlug: string }) {
                       remember: boolean
                       rememberHint: string | null
                       actInstructions: string | null
+                      actWindowSeconds: number
+                      hourlyRunCap: number
+                      dailyRunCap: number
                     }>
                   ) => {
                     if (!p.connectionId) return
@@ -838,6 +847,9 @@ function ConnectorsSection({ workspaceSlug }: { workspaceSlug: string }) {
                       remember: ev.remember,
                       rememberHint: ev.rememberHint,
                       actInstructions: ev.actInstructions,
+                      actWindowSeconds: ev.actWindowSeconds,
+                      hourlyRunCap: ev.hourlyRunCap,
+                      dailyRunCap: ev.dailyRunCap,
                       ...patch,
                     })
                   }
@@ -883,6 +895,10 @@ function ConnectorsSection({ workspaceSlug }: { workspaceSlug: string }) {
                             remember: ev.remember,
                             rememberHint: ev.rememberHint,
                             actInstructions: ev.actInstructions,
+                            actWindowSeconds: ev.actWindowSeconds,
+                            hourlyRunCap: ev.hourlyRunCap,
+                            dailyRunCap: ev.dailyRunCap,
+                            lastAct: ev.lastAct,
                           }}
                           onPatch={(patch) => send(patch)}
                         />

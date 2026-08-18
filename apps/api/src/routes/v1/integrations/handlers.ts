@@ -7,6 +7,7 @@ import {
 } from "@repo/connectors"
 import { db } from "@repo/db"
 import {
+  ACT_DEFAULTS,
   channel,
   connectorTrigger,
   integrationConnection,
@@ -26,6 +27,7 @@ import {
 import { and, eq, inArray, ne, sql } from "drizzle-orm"
 import { invalidateGithubRepoCache } from "@/lib/github-repo-cache"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
+import { lastActByTrigger } from "@/lib/last-act"
 import { logger } from "@/lib/logger"
 import { signOAuthState, verifyOAuthState } from "@/lib/oauth-state"
 import type { AppRouteHandler } from "@/lib/types/app-types"
@@ -162,6 +164,7 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
     connections.length > 0
       ? await db
           .select({
+            id: connectorTrigger.id,
             connectionId: connectorTrigger.connectionId,
             event: connectorTrigger.event,
             channelId: connectorTrigger.channelId,
@@ -169,6 +172,9 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
             remember: connectorTrigger.remember,
             rememberHint: connectorTrigger.rememberHint,
             actInstructions: connectorTrigger.actInstructions,
+            actWindowSeconds: connectorTrigger.actWindowSeconds,
+            hourlyRunCap: connectorTrigger.hourlyRunCap,
+            dailyRunCap: connectorTrigger.dailyRunCap,
           })
           .from(connectorTrigger)
           .where(
@@ -181,6 +187,10 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
   const triggerByEvent = new Map(
     triggers.map((t) => [`${t.connectionId}:${t.event}`, t])
   )
+
+  // Newest agent_run per trigger in one query — one per event would fan out
+  // across every connector.
+  const lastActs = await lastActByTrigger(triggers.map((t) => t.id))
 
   if (!env.GITHUB_APP_SLUG) {
     logger.warn(
@@ -255,6 +265,12 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
             remember: trigger?.remember ?? false,
             rememberHint: trigger?.rememberHint ?? null,
             actInstructions: trigger?.actInstructions ?? null,
+            // Unconfigured events show the same defaults a new trigger gets.
+            actWindowSeconds:
+              trigger?.actWindowSeconds ?? ACT_DEFAULTS.windowSeconds,
+            hourlyRunCap: trigger?.hourlyRunCap ?? ACT_DEFAULTS.hourlyRunCap,
+            dailyRunCap: trigger?.dailyRunCap ?? ACT_DEFAULTS.dailyRunCap,
+            lastAct: trigger ? (lastActs.get(trigger.id) ?? null) : null,
           }
         }),
       }
@@ -786,8 +802,17 @@ export const updateIntegration: AppRouteHandler<
 > = async (c) => {
   const workspace = c.var.workspace
   const { connectionId } = c.req.valid("param")
-  const { event, channelId, post, remember, rememberHint, actInstructions } =
-    c.req.valid("json")
+  const {
+    event,
+    channelId,
+    post,
+    remember,
+    rememberHint,
+    actInstructions,
+    actWindowSeconds,
+    hourlyRunCap,
+    dailyRunCap,
+  } = c.req.valid("json")
 
   const connection = await db
     .select({
@@ -858,10 +883,24 @@ export const updateIntegration: AppRouteHandler<
       remember,
       rememberHint,
       actInstructions,
+      // Absent = keep the column default on create.
+      ...(actWindowSeconds !== undefined ? { actWindowSeconds } : {}),
+      ...(hourlyRunCap !== undefined ? { hourlyRunCap } : {}),
+      ...(dailyRunCap !== undefined ? { dailyRunCap } : {}),
     })
     .onConflictDoUpdate({
       target: [connectorTrigger.connectionId, connectorTrigger.event],
-      set: { channelId, post, remember, rememberHint, actInstructions },
+      set: {
+        channelId,
+        post,
+        remember,
+        rememberHint,
+        actInstructions,
+        // Absent = leave the configured limits alone.
+        ...(actWindowSeconds !== undefined ? { actWindowSeconds } : {}),
+        ...(hourlyRunCap !== undefined ? { hourlyRunCap } : {}),
+        ...(dailyRunCap !== undefined ? { dailyRunCap } : {}),
+      },
     })
 
   return c.json({ success: true as const }, HttpStatusCodes.OK)

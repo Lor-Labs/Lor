@@ -7,9 +7,11 @@ import { db } from "@repo/db"
 import {
   agentProfile,
   agentProfileCustomTool,
+  agentProfileToolServer,
   customTool,
   integrationConnection,
   type MerlinCapability,
+  toolServer,
 } from "@repo/db/schema"
 import { env } from "@repo/env/server"
 import { and, asc, desc, eq, inArray } from "drizzle-orm"
@@ -52,6 +54,27 @@ async function toolGrantsByProfile(
   return grants
 }
 
+// profileId → explicitly granted tool server ids.
+async function serverGrantsByProfile(
+  profileIds: string[]
+): Promise<Map<string, string[]>> {
+  const grants = new Map<string, string[]>()
+  if (profileIds.length === 0) return grants
+  const rows = await db
+    .select({
+      profileId: agentProfileToolServer.profileId,
+      toolServerId: agentProfileToolServer.toolServerId,
+    })
+    .from(agentProfileToolServer)
+    .where(inArray(agentProfileToolServer.profileId, profileIds))
+  for (const row of rows) {
+    const list = grants.get(row.profileId)
+    if (list) list.push(row.toolServerId)
+    else grants.set(row.profileId, [row.toolServerId])
+  }
+  return grants
+}
+
 // Grants may only reference this workspace's tools — the FK alone can't stop
 // cross-workspace ids.
 async function invalidToolIds(
@@ -70,6 +93,24 @@ async function invalidToolIds(
     )
   const known = new Set(rows.map((r) => r.id))
   return toolIds.filter((id) => !known.has(id))
+}
+
+async function invalidServerIds(
+  workspaceId: string,
+  serverIds: string[]
+): Promise<string[]> {
+  if (serverIds.length === 0) return []
+  const rows = await db
+    .select({ id: toolServer.id })
+    .from(toolServer)
+    .where(
+      and(
+        eq(toolServer.workspaceId, workspaceId),
+        inArray(toolServer.id, serverIds)
+      )
+    )
+  const known = new Set(rows.map((r) => r.id))
+  return serverIds.filter((id) => !known.has(id))
 }
 
 // Make sure the workspace has its permissive default profile (grants all,
@@ -123,17 +164,42 @@ export const listAgentProfiles: AppRouteHandler<
     .from(agentProfile)
     .where(eq(agentProfile.workspaceId, workspace.id))
     .orderBy(desc(agentProfile.isDefault), asc(agentProfile.name))
-  const grants = await toolGrantsByProfile(profiles.map((p) => p.id))
+  const profileIds = profiles.map((p) => p.id)
+  const [grants, serverGrants, connections, tools, servers] = await Promise.all(
+    [
+      toolGrantsByProfile(profileIds),
+      serverGrantsByProfile(profileIds),
+      db
+        .select({ provider: integrationConnection.provider })
+        .from(integrationConnection)
+        .where(
+          and(
+            eq(integrationConnection.workspaceId, workspace.id),
+            eq(integrationConnection.status, "active")
+          )
+        ),
+      db
+        .select({
+          id: customTool.id,
+          name: customTool.name,
+          description: customTool.description,
+        })
+        .from(customTool)
+        .where(eq(customTool.workspaceId, workspace.id))
+        .orderBy(asc(customTool.name)),
+      db
+        .select({
+          id: toolServer.id,
+          name: toolServer.name,
+          description: toolServer.description,
+          enabledTools: toolServer.enabledTools,
+        })
+        .from(toolServer)
+        .where(eq(toolServer.workspaceId, workspace.id))
+        .orderBy(asc(toolServer.name)),
+    ]
+  )
 
-  const connections = await db
-    .select({ provider: integrationConnection.provider })
-    .from(integrationConnection)
-    .where(
-      and(
-        eq(integrationConnection.workspaceId, workspace.id),
-        eq(integrationConnection.status, "active")
-      )
-    )
   const connected = new Set(connections.map((r) => r.provider))
   const caps = configuredCapabilities(availableCapabilities(connected)).map(
     (c) => ({
@@ -145,24 +211,21 @@ export const listAgentProfiles: AppRouteHandler<
     })
   )
 
-  const tools = await db
-    .select({
-      id: customTool.id,
-      name: customTool.name,
-      description: customTool.description,
-    })
-    .from(customTool)
-    .where(eq(customTool.workspaceId, workspace.id))
-    .orderBy(asc(customTool.name))
-
   return c.json(
     {
       profiles: profiles.map((p) => ({
         ...p,
         customToolIds: grants.get(p.id) ?? [],
+        toolServerIds: serverGrants.get(p.id) ?? [],
       })),
       availableCapabilities: caps,
       availableCustomTools: tools,
+      availableToolServers: servers.map((s) => ({
+        id: s.id,
+        name: s.name,
+        description: s.description,
+        enabledToolCount: s.enabledTools.length,
+      })),
     },
     HttpStatusCodes.OK
   )
@@ -173,7 +236,12 @@ export const createAgentProfile: AppRouteHandler<
 > = async (c) => {
   const workspace = c.var.workspace
   assertWorkspacePermission(c.var.member, workspace, { channel: ["update"] })
-  const { name, capabilities, customToolIds } = c.req.valid("json")
+  const { name, capabilities } = c.req.valid("json")
+  const body = c.req.valid("json")
+  // The join tables key on (profileId, toolId) — a duplicated id in the
+  // request would otherwise fail the whole insert transaction.
+  const customToolIds = [...new Set(body.customToolIds)]
+  const toolServerIds = [...new Set(body.toolServerIds)]
 
   const grantable = await grantableCapabilities(workspace.id)
   const unsupported = capabilities.filter((k) => !grantable.has(k))
@@ -190,6 +258,13 @@ export const createAgentProfile: AppRouteHandler<
   if (unknownTools.length > 0) {
     return c.json(
       { success: false, message: "Unknown custom tool ids" },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+  const unknownServers = await invalidServerIds(workspace.id, toolServerIds)
+  if (unknownServers.length > 0) {
+    return c.json(
+      { success: false, message: "Unknown tool server ids" },
       HttpStatusCodes.BAD_REQUEST
     )
   }
@@ -215,6 +290,14 @@ export const createAgentProfile: AppRouteHandler<
         }))
       )
     }
+    if (toolServerIds.length > 0) {
+      await tx.insert(agentProfileToolServer).values(
+        toolServerIds.map((toolServerId) => ({
+          profileId: row.id,
+          toolServerId,
+        }))
+      )
+    }
     return row
   })
 
@@ -224,7 +307,10 @@ export const createAgentProfile: AppRouteHandler<
       HttpStatusCodes.INTERNAL_SERVER_ERROR
     )
   }
-  return c.json({ ...created, customToolIds }, HttpStatusCodes.OK)
+  return c.json(
+    { ...created, customToolIds, toolServerIds },
+    HttpStatusCodes.OK
+  )
 }
 
 export const updateAgentProfile: AppRouteHandler<
@@ -233,7 +319,11 @@ export const updateAgentProfile: AppRouteHandler<
   const workspace = c.var.workspace
   assertWorkspacePermission(c.var.member, workspace, { channel: ["update"] })
   const { profileId } = c.req.valid("param")
-  const { name, capabilities, customToolIds } = c.req.valid("json")
+  const { name, capabilities } = c.req.valid("json")
+  const body = c.req.valid("json")
+  // Same dedupe as create — the join tables' composite keys reject duplicates.
+  const customToolIds = body.customToolIds && [...new Set(body.customToolIds)]
+  const toolServerIds = body.toolServerIds && [...new Set(body.toolServerIds)]
 
   if (capabilities !== undefined) {
     const grantable = await grantableCapabilities(workspace.id)
@@ -253,6 +343,15 @@ export const updateAgentProfile: AppRouteHandler<
     if (unknownTools.length > 0) {
       return c.json(
         { success: false, message: "Unknown custom tool ids" },
+        HttpStatusCodes.BAD_REQUEST
+      )
+    }
+  }
+  if (toolServerIds !== undefined) {
+    const unknownServers = await invalidServerIds(workspace.id, toolServerIds)
+    if (unknownServers.length > 0) {
+      return c.json(
+        { success: false, message: "Unknown tool server ids" },
         HttpStatusCodes.BAD_REQUEST
       )
     }
@@ -296,6 +395,19 @@ export const updateAgentProfile: AppRouteHandler<
         )
       }
     }
+    if (toolServerIds !== undefined) {
+      await tx
+        .delete(agentProfileToolServer)
+        .where(eq(agentProfileToolServer.profileId, row.id))
+      if (toolServerIds.length > 0) {
+        await tx.insert(agentProfileToolServer).values(
+          toolServerIds.map((toolServerId) => ({
+            profileId: row.id,
+            toolServerId,
+          }))
+        )
+      }
+    }
     return row
   })
 
@@ -307,7 +419,16 @@ export const updateAgentProfile: AppRouteHandler<
   }
   const grants =
     customToolIds ?? (await toolGrantsByProfile([updated.id])).get(updated.id)
-  return c.json({ ...updated, customToolIds: grants ?? [] }, HttpStatusCodes.OK)
+  const servers =
+    toolServerIds ?? (await serverGrantsByProfile([updated.id])).get(updated.id)
+  return c.json(
+    {
+      ...updated,
+      customToolIds: grants ?? [],
+      toolServerIds: servers ?? [],
+    },
+    HttpStatusCodes.OK
+  )
 }
 
 export const deleteAgentProfile: AppRouteHandler<

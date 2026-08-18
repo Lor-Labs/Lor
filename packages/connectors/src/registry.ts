@@ -209,9 +209,9 @@ export const CAPABILITIES: Record<MerlinCapability, CapabilityDescriptor> = {
   },
   custom_tools: {
     key: "custom_tools",
-    label: "All custom tools",
+    label: "All workspace tools",
     description:
-      "Call any of this workspace's custom tools, including ones added later",
+      "Call any of this workspace's tools — API tools and MCP servers, including ones added later",
     connector: null,
   },
 }

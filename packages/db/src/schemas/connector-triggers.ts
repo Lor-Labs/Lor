@@ -13,6 +13,14 @@ import {
 import { channel } from "./channels"
 import { integrationConnection } from "./integration-connections"
 
+// Act rate-shape defaults. Exported so the API's "not configured yet" event
+// rows and the settings UI show the same numbers a new trigger would get.
+export const ACT_DEFAULTS = {
+  windowSeconds: 300,
+  hourlyRunCap: 3,
+  dailyRunCap: 20,
+} as const
+
 // A trigger: one connector event kind (e.g. GitHub "pr_merged") anchored to a
 // channel, fanning out to effects — POST (message into the channel), Remember
 // (summarize + embed into `source`), Act (unattended agent run; column
@@ -37,8 +45,26 @@ export const connectorTrigger = pgTable(
     // Act instructions — null = Act off.
     actInstructions: text("act_instructions"),
     enabled: boolean("enabled").notNull().default(true),
-    // Backstop for Act: max triggered runs per day.
-    dailyRunCap: integer("daily_run_cap").notNull().default(100),
+    // Act rate shape. The window coalesces a burst into ONE run: the first
+    // delivery opens it (actWindowOpenedAt), everything arriving before it
+    // closes joins the same batch. 0 = no batching, one run per delivery.
+    // See reference/automation-primitives.md §5.
+    actWindowSeconds: integer("act_window_seconds")
+      .notNull()
+      .default(ACT_DEFAULTS.windowSeconds),
+    actWindowOpenedAt: timestamp("act_window_opened_at"),
+    // When the open window's flush job is expected to run. A blocked batch
+    // pushes this forward as it re-arms, which is what lets the recovery sweep
+    // tell "the flush job was lost" from "the batch is legitimately waiting".
+    actFlushDueAt: timestamp("act_flush_due_at"),
+    // Backstops for Act, counted over rolling windows. Hourly keeps a burst
+    // from eating the whole day's budget; daily is the outer fuse.
+    hourlyRunCap: integer("hourly_run_cap")
+      .notNull()
+      .default(ACT_DEFAULTS.hourlyRunCap),
+    dailyRunCap: integer("daily_run_cap")
+      .notNull()
+      .default(ACT_DEFAULTS.dailyRunCap),
   },
   (table) => [
     // Explicit name: the auto-generated one exceeds Postgres's 63-byte limit.

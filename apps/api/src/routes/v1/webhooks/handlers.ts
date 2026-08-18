@@ -10,6 +10,7 @@ import { env } from "@repo/env/server"
 import { decryptSecret, encryptSecret } from "@repo/utils/crypto"
 import { and, count, eq } from "drizzle-orm"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
+import { type LastAct, lastActByTrigger } from "@/lib/last-act"
 import { assertWorkspacePermission } from "@/lib/permissions"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
@@ -43,12 +44,16 @@ type WebhookRow = {
   remember: boolean
   rememberHint: string | null
   actInstructions: string | null
+  actWindowSeconds: number
+  hourlyRunCap: number
+  dailyRunCap: number
 }
 
 function toResponse(
   row: WebhookRow,
   createdByName: string | null,
-  key: string
+  key: string,
+  lastAct: LastAct | null
 ) {
   let token = ""
   try {
@@ -68,6 +73,10 @@ function toResponse(
     remember: row.remember,
     rememberHint: row.rememberHint,
     actInstructions: row.actInstructions,
+    actWindowSeconds: row.actWindowSeconds,
+    hourlyRunCap: row.hourlyRunCap,
+    dailyRunCap: row.dailyRunCap,
+    lastAct,
   }
 }
 
@@ -82,6 +91,9 @@ const webhookSelection = {
   remember: connectorTrigger.remember,
   rememberHint: connectorTrigger.rememberHint,
   actInstructions: connectorTrigger.actInstructions,
+  actWindowSeconds: connectorTrigger.actWindowSeconds,
+  hourlyRunCap: connectorTrigger.hourlyRunCap,
+  dailyRunCap: connectorTrigger.dailyRunCap,
 }
 
 // Webhooks post into the channel feed, so only text channels host them.
@@ -161,7 +173,11 @@ export const listChannelWebhooks: AppRouteHandler<
   }
 
   const rows = await db
-    .select({ ...webhookSelection, creatorName: user.name })
+    .select({
+      ...webhookSelection,
+      triggerId: connectorTrigger.id,
+      creatorName: user.name,
+    })
     .from(integrationConnection)
     .innerJoin(
       connectorTrigger,
@@ -177,8 +193,19 @@ export const listChannelWebhooks: AppRouteHandler<
     )
     .orderBy(integrationConnection.createdAt)
 
+  const lastActs = await lastActByTrigger(rows.map((row) => row.triggerId))
+
   return c.json(
-    { webhooks: rows.map((row) => toResponse(row, row.creatorName, key)) },
+    {
+      webhooks: rows.map((row) =>
+        toResponse(
+          row,
+          row.creatorName,
+          key,
+          lastActs.get(row.triggerId) ?? null
+        )
+      ),
+    },
     HttpStatusCodes.OK
   )
 }
@@ -313,9 +340,13 @@ export const createChannelWebhook: AppRouteHandler<
           remember: result.trigger.remember,
           rememberHint: result.trigger.rememberHint,
           actInstructions: result.trigger.actInstructions,
+          actWindowSeconds: result.trigger.actWindowSeconds,
+          hourlyRunCap: result.trigger.hourlyRunCap,
+          dailyRunCap: result.trigger.dailyRunCap,
         },
         c.var.user.name,
-        key
+        key,
+        null
       ),
     },
     HttpStatusCodes.OK
@@ -327,8 +358,17 @@ export const updateChannelWebhook: AppRouteHandler<
 > = async (c) => {
   const workspace = c.var.workspace
   const { channelId, webhookId } = c.req.valid("param")
-  const { name, avatarUrl, post, remember, rememberHint, actInstructions } =
-    c.req.valid("json")
+  const {
+    name,
+    avatarUrl,
+    post,
+    remember,
+    rememberHint,
+    actInstructions,
+    actWindowSeconds,
+    hourlyRunCap,
+    dailyRunCap,
+  } = c.req.valid("json")
 
   assertWorkspacePermission(c.var.member, workspace, { channel: ["update"] })
 
@@ -369,7 +409,10 @@ export const updateChannelWebhook: AppRouteHandler<
       post !== undefined ||
       remember !== undefined ||
       rememberHint !== undefined ||
-      actInstructions !== undefined
+      actInstructions !== undefined ||
+      actWindowSeconds !== undefined ||
+      hourlyRunCap !== undefined ||
+      dailyRunCap !== undefined
     ) {
       await tx
         .update(connectorTrigger)
@@ -378,6 +421,9 @@ export const updateChannelWebhook: AppRouteHandler<
           ...(remember !== undefined ? { remember } : {}),
           ...(rememberHint !== undefined ? { rememberHint } : {}),
           ...(actInstructions !== undefined ? { actInstructions } : {}),
+          ...(actWindowSeconds !== undefined ? { actWindowSeconds } : {}),
+          ...(hourlyRunCap !== undefined ? { hourlyRunCap } : {}),
+          ...(dailyRunCap !== undefined ? { dailyRunCap } : {}),
         })
         .where(eq(connectorTrigger.id, existing.triggerId))
     }
@@ -399,8 +445,17 @@ export const updateChannelWebhook: AppRouteHandler<
         .then((rows) => rows[0]?.name ?? null)
     : null
 
+  const lastActs = await lastActByTrigger([updated.triggerId])
+
   return c.json(
-    { webhook: toResponse(updated, creatorName, key) },
+    {
+      webhook: toResponse(
+        updated,
+        creatorName,
+        key,
+        lastActs.get(updated.triggerId) ?? null
+      ),
+    },
     HttpStatusCodes.OK
   )
 }

@@ -12,6 +12,11 @@ import {
 import { env } from "@repo/env/server"
 import { respond, writeBack } from "@repo/merlin"
 import {
+  actRunBriefing,
+  flushActWindow,
+  saveHandoffNote,
+} from "@repo/merlin/act-runs"
+import {
   buildMessageFanout,
   sendInstructionsProposalPush,
   sendMessagePushNotifications,
@@ -19,9 +24,11 @@ import {
 import type { RealtimeMessage } from "@repo/realtime-types"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
 import type {
+  ActFlushJobData,
   MerlinRespondJobData,
   TriggeredRunJobData,
 } from "@repo/realtime-types/queues"
+import { ACT_FLUSH_JOB } from "@repo/realtime-types/queues"
 import {
   channelRoom,
   threadRoom,
@@ -82,7 +89,9 @@ async function loadChannel(channelId: string) {
 export function createTriggeredRunProcessor(
   emitter: Emitter<ServerToClientEvents>,
   redis: RedisClient,
-  respondQueue: Queue<MerlinRespondJobData>
+  respondQueue: Queue<MerlinRespondJobData>,
+  // Own queue: a batch waiting on an in-flight run re-arms its flush.
+  triggeredQueue: Queue<TriggeredRunJobData | ActFlushJobData>
 ) {
   // Post a channel message as Merlin, with normal unread/mention/push fanout —
   // the worker-side counterpart of the API's postBotMessage.
@@ -292,8 +301,54 @@ export function createTriggeredRunProcessor(
     return { taskId: task.id }
   }
 
-  return async (job: Job<TriggeredRunJobData>) => {
-    const { runId, payload, label } = job.data
+  return async (job: Job<TriggeredRunJobData | ActFlushJobData>) => {
+    // Two shapes on one queue: a prepared run, or a window flush that turns
+    // everything a burst delivered into a single run.
+    let runId: string
+    let payload: string
+    let label: string
+    if (job.name === ACT_FLUSH_JOB) {
+      const { triggerId } = job.data as ActFlushJobData
+      const flushed = await flushActWindow(triggerId)
+      if (flushed.kind === "retry") {
+        await triggeredQueue.add(
+          ACT_FLUSH_JOB,
+          { triggerId },
+          {
+            delay: flushed.delayMs,
+            attempts: 2,
+            backoff: { type: "fixed", delay: 5000 },
+            removeOnComplete: true,
+          }
+        )
+        return
+      }
+      if (flushed.kind === "skip") {
+        logger.info({ triggerId, reason: flushed.reason }, "Act flush skipped")
+        return
+      }
+      // Deliveries that landed while this batch was being claimed get their own
+      // flush — enqueued before the run executes so it can't be lost with it.
+      if (flushed.rearmDelayMs !== undefined) {
+        await triggeredQueue
+          .add(
+            ACT_FLUSH_JOB,
+            { triggerId },
+            {
+              delay: flushed.rearmDelayMs,
+              attempts: 2,
+              backoff: { type: "fixed", delay: 5000 },
+              removeOnComplete: true,
+            }
+          )
+          .catch((err) =>
+            logger.error({ err, triggerId }, "Act straggler re-arm failed")
+          )
+      }
+      ;({ runId, payload, label } = flushed.run)
+    } else {
+      ;({ runId, payload, label } = job.data as TriggeredRunJobData)
+    }
 
     const run = await db
       .select({
@@ -400,6 +455,18 @@ export function createTriggeredRunProcessor(
         )
       }
 
+      // What earlier runs on this trigger concluded, and what people said in
+      // the channel since. Best-effort: a briefing failure must not cost the
+      // run.
+      const briefing = await actRunBriefing({
+        triggerId: run.triggerId,
+        channelId: run.channelId,
+        runId,
+      }).catch((err) => {
+        logger.warn({ err, runId }, "Act briefing failed; running without it")
+        return null
+      })
+
       const answer = await respond(
         {
           workspaceId: execution.workspaceId,
@@ -409,6 +476,7 @@ export function createTriggeredRunProcessor(
           triggered: {
             label,
             instructions: trigger.actInstructions,
+            briefing,
             postMessage: (content) =>
               postMerlinMessage({ channelId: run.channelId, content }),
             createTask: ({ title, goal }) =>
@@ -448,6 +516,9 @@ export function createTriggeredRunProcessor(
       )
 
       const stoppedByUser = answer.stoppedFor === "stopped_by_user"
+      // The closing text is this run's handoff note — persisted before anything
+      // else can fail, since the next run's briefing depends on it.
+      await saveHandoffNote(runId, answer.text)
       await runWriter.transition(stoppedByUser ? "stopped" : "complete", {
         stopReason: answer.stoppedFor ?? "completed",
       })

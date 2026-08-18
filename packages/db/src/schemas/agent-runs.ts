@@ -157,6 +157,13 @@ export const agentRun = pgTable(
 
     startedAt: timestamp("started_at"),
     finishedAt: timestamp("finished_at"),
+
+    // Triggered (Act) runs only: the run's own closing note, written for the
+    // NEXT run on the same trigger — what it concluded, what it did, what to
+    // watch for. Runs on a trigger are serialized (one active per scopeKey),
+    // so these form a coherent chain rather than interleaved chatter.
+    // See reference/automation-primitives.md §5.
+    handoffNote: text("handoff_note"),
   },
   (table) => [
     uniqueIndex("agent_run_messageId_uidx").on(table.messageId),

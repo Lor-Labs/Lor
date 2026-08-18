@@ -1,6 +1,7 @@
 import {
   ApiIcon,
   ArrowDown01Icon,
+  CloudServerIcon,
   Delete02Icon,
   PlusSignIcon,
   Wrench01Icon,
@@ -28,6 +29,12 @@ import {
 import { Input } from "@repo/ui/components/input"
 import { Label } from "@repo/ui/components/label"
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@repo/ui/components/menu"
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -45,6 +52,10 @@ import {
   type PlaceholderItem,
   TemplateInput,
 } from "@/components/workspace/template-input"
+import {
+  McpServersBlock,
+  useToolServers,
+} from "@/components/workspace/tool-servers-section"
 import { apiClient } from "@/lib/api-client"
 import { extractCurlSecrets, parseCurl } from "@/lib/parse-curl"
 import {
@@ -1104,6 +1115,7 @@ export function CustomToolsSection({
 }) {
   const queryClient = useQueryClient()
   const [creating, setCreating] = useState(false)
+  const [creatingServer, setCreatingServer] = useState(false)
   const [draft, setDraft] = useState<Draft>(emptyDraft())
   const [editingId, setEditingId] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<CustomToolRow | null>(null)
@@ -1202,35 +1214,63 @@ export function CustomToolsSection({
   })
 
   const tools = (data?.tools ?? []) as CustomToolRow[]
+  const serversQuery = useToolServers(workspaceSlug)
+  const servers = serversQuery.data?.servers ?? []
 
   return (
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <div className="text-sm font-medium">Custom tools</div>
+          <div className="text-sm font-medium">Tools</div>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            HTTP tools Merlin can call. Grant them per channel through agent
-            profiles — all at once or tool by tool.
+            API tools and MCP servers Merlin can call. Grant them per channel
+            through agent profiles — all at once or one by one.
           </p>
         </div>
-        {!creating && (
-          <Button
-            type="button"
-            size="sm"
-            className="shrink-0"
-            onClick={() => {
-              setDraft(emptyDraft())
-              setEditingId(null)
-              setCreating(true)
-            }}
-          >
-            <HugeiconsIcon
-              icon={PlusSignIcon}
-              className="size-3.5"
-              strokeWidth={2}
-            />
-            New Tool
-          </Button>
+        {!(creating || creatingServer) && (
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={<Button type="button" size="sm" className="shrink-0" />}
+            >
+              <HugeiconsIcon
+                icon={PlusSignIcon}
+                className="size-3.5"
+                strokeWidth={2}
+              />
+              New Tool
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                onClick={() => {
+                  setDraft(emptyDraft())
+                  setEditingId(null)
+                  setCreatingServer(false)
+                  setCreating(true)
+                }}
+              >
+                <HugeiconsIcon
+                  icon={ApiIcon}
+                  className="size-4"
+                  strokeWidth={2}
+                />
+                API Tool
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => {
+                  setCreating(false)
+                  setEditingId(null)
+                  setCreatingServer(true)
+                }}
+              >
+                <HugeiconsIcon
+                  icon={CloudServerIcon}
+                  className="size-4"
+                  strokeWidth={2}
+                />
+                MCP Server
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         )}
       </div>
 
@@ -1248,19 +1288,36 @@ export function CustomToolsSection({
         </div>
       )}
 
-      {isPending ? (
+      <McpServersBlock
+        workspaceSlug={workspaceSlug}
+        servers={servers}
+        creating={creatingServer}
+        onCloseCreate={() => setCreatingServer(false)}
+      />
+
+      {serversQuery.isError && (
+        <p className="text-xs text-destructive-foreground">
+          Couldn't load MCP servers — refresh to try again. API tools below are
+          unaffected.
+        </p>
+      )}
+
+      {isPending || serversQuery.isPending ? (
         <div className="flex justify-center py-6">
           <Spinner className="size-4 text-muted-foreground" />
         </div>
-      ) : tools.length === 0 && !creating ? (
+      ) : tools.length === 0 &&
+        servers.length === 0 &&
+        !(creating || creatingServer) ? (
         <Empty className="py-8 md:py-8">
           <EmptyHeader>
             <EmptyMedia variant="icon" className="mb-3">
               <HugeiconsIcon icon={Wrench01Icon} strokeWidth={2} />
             </EmptyMedia>
-            <EmptyTitle className="text-sm">No custom tools yet</EmptyTitle>
+            <EmptyTitle className="text-sm">No tools yet</EmptyTitle>
             <EmptyDescription className="text-xs">
-              Give Merlin your internal APIs — paste a cURL command to start.
+              Give Merlin your internal APIs — paste a cURL command — or connect
+              an MCP server.
             </EmptyDescription>
           </EmptyHeader>
         </Empty>

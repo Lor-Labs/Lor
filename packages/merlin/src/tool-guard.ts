@@ -6,7 +6,9 @@ import type { RunToolResultStore } from "./run"
 // Tools whose effects land outside the run (memory writes, Linear mutations,
 // billed sandbox investigations). Their executions are recorded per run and
 // replayed from the store on a retried step, so a recovery never repeats a
-// completed action or re-bills an investigation.
+// completed action or re-bills an investigation. Doubles as the durable
+// account of "what did that run actually do" for the Act handoff briefing
+// (reference/automation-primitives.md §5).
 const SIDE_EFFECT_TOOLS = new Set([
   "write",
   "mkdir",
@@ -19,6 +21,10 @@ const SIDE_EFFECT_TOOLS = new Set([
   "propose_instructions",
   "create_artifacts",
   "react_to_message",
+  // Triggered dispositions: without these a retried step posts the same
+  // message (or opens the same task) twice.
+  "post_channel_message",
+  "create_task",
 ])
 
 // Canonical JSON (sorted object keys) so the same logical input always hashes

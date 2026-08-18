@@ -5,6 +5,7 @@
   "private": true,
   "exports": {
     ".": "./src/index.ts",
+    "./act-runs": "./src/act-runs.ts",
     "./artifacts": "./src/artifacts/service.ts",
     "./attio": "./src/attio.ts",
     "./capabilities": "./src/capabilities.ts",
@@ -13,7 +14,8 @@
     "./github": "./src/github.ts",
     "./placement": "./src/placement.ts",
     "./providers": "./src/providers/index.ts",
-    "./sources": "./src/sources.ts"
+    "./sources": "./src/sources.ts",
+    "./tool-servers": "./src/tool-servers.ts"
   },
   "scripts": {
     "check-types": "tsc --noEmit",

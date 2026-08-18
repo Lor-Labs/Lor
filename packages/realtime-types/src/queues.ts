@@ -34,6 +34,11 @@ export type MerlinRespondJobData = {
 // the normalized inbound payload since first-party event content isn't stored.
 export const TRIGGERED_RUN_QUEUE = "triggered-run"
 
+// Job names on that queue: one prepared run, or a window flush that builds the
+// run from the deliveries it collected (reference/automation-primitives.md §5).
+export const ACT_RUN_JOB = "act"
+export const ACT_FLUSH_JOB = "act-flush"
+
 export type TriggeredRunJobData = {
   runId: string
   // Normalized event payload, composed at dispatch — the run's user turn.
@@ -41,3 +46,8 @@ export type TriggeredRunJobData = {
   // Event source label (connector + event, or the webhook's name).
   label: string
 }
+
+// The delayed flush: the trigger owns the open window, so the job needs
+// nothing else. Deliberately has no jobId — `connector_trigger`.
+// `act_window_opened_at` is the dedupe, not Redis.
+export type ActFlushJobData = { triggerId: string }

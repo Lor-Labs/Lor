@@ -10,9 +10,12 @@ import { createRouter } from "@/lib/helpers/app/create-app"
 import { logger } from "@/lib/logger"
 import {
   dialectHint,
+  discordEmbedsToMessageEmbeds,
   discordWebhookBodySchema,
   renderDiscordWebhookBody,
+  renderSlackContent,
   renderSlackWebhookBody,
+  slackAttachmentsToMessageEmbeds,
   slackWebhookBodySchema,
 } from "@/lib/webhook-payloads"
 import { rateLimiter } from "@/middleware/rate-limit"
@@ -252,22 +255,28 @@ webhooksRouter.post(
       )
     }
 
-    const content = renderDiscordWebhookBody(parsed.data)
-    if (!content) {
+    // Chat: content stays markdown, embeds become structured cards. Remember
+    // still gets the full markdown render (Merlin needs a text form).
+    const body = parsed.data
+    const content = body.content?.trim() ?? ""
+    const embeds = discordEmbedsToMessageEmbeds(body)
+    if (!content && embeds.length === 0) {
       return c.json({ success: false, message: "Nothing to post" }, 400)
     }
+    const rememberText = renderDiscordWebhookBody(body)
 
     try {
       await dispatchConnectorEvent({
         provider: "webhook",
         externalId: resolved.value.externalId,
         event: "data_received",
-        label: parsed.data.username ?? resolved.value.name,
+        label: body.username ?? resolved.value.name,
         avatarUrl: resolved.value.avatarUrl,
         text: content,
+        embeds,
         remember: deliveryRememberDraft(
           read.body,
-          content,
+          rememberText,
           resolved.value.name
         ),
         payload: read.raw,
@@ -302,10 +311,13 @@ webhooksRouter.post(
       return c.text("invalid_payload", 400)
     }
 
-    const content = renderSlackWebhookBody(parsed.data)
-    if (!content) {
+    const body = parsed.data
+    const content = renderSlackContent(body)
+    const embeds = slackAttachmentsToMessageEmbeds(body)
+    if (!content && embeds.length === 0) {
       return c.text("invalid_payload", 400)
     }
+    const rememberText = renderSlackWebhookBody(body)
 
     try {
       await dispatchConnectorEvent({
@@ -315,9 +327,10 @@ webhooksRouter.post(
         label: resolved.value.name,
         avatarUrl: resolved.value.avatarUrl,
         text: content,
+        embeds,
         remember: deliveryRememberDraft(
           read.body,
-          content,
+          rememberText,
           resolved.value.name
         ),
         payload: read.raw,

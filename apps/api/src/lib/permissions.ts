@@ -86,6 +86,20 @@ export function assertWorkspacePermission(
   return authority
 }
 
+// Non-throwing variant for handlers that shape (rather than gate) a response
+// by permission.
+export function hasWorkspacePermission(
+  member: Pick<WorkspaceMember, "role" | "userId">,
+  workspace: Pick<Workspace, "ownerId">,
+  requestedPermissions: PermissionRequest
+): boolean {
+  if (!isWorkspaceRole(member.role)) return false
+  return workspaceAuthorityHasPermissions(
+    { role: member.role, isOwner: workspace.ownerId === member.userId },
+    requestedPermissions
+  )
+}
+
 export function assertCanManageWorkspaceMember(
   actor: Pick<WorkspaceMember, "role" | "userId">,
   target: Pick<WorkspaceMember, "role" | "userId"> & { isBot: boolean },
