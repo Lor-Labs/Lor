@@ -69,6 +69,7 @@ export type InstallationTokenScope = {
     contents?: "read" | "write"
     pull_requests?: "read" | "write"
   }
+  request?: { signal: AbortSignal }
 }
 
 export async function getInstallationToken(
@@ -92,6 +93,7 @@ export async function getInstallationToken(
       installation_id: id,
       ...(scope?.repositories ? { repositories: scope.repositories } : {}),
       ...(scope?.permissions ? { permissions: scope.permissions } : {}),
+      ...(scope?.request ? { request: scope.request } : {}),
     })
     return data.token
   } catch (err) {
@@ -425,6 +427,7 @@ export async function openPullRequest(
     const token = await getInstallationToken(installationId, {
       repositories: [repo],
       permissions: { pull_requests: "write" },
+      request: { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) },
     })
     if (!token) {
       return {
