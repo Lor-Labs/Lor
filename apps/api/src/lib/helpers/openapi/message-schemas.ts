@@ -30,11 +30,26 @@ export const messageEmbedSchema = z.object({
   url: httpsUrlSchema.optional(),
   title: z.string().optional(),
   description: z.string().optional(),
+  eventLabel: z.string().optional(),
   thumbnail: httpsUrlSchema.optional(),
   siteName: z.string().optional(),
   // Rich (webhook-card) extras — Discord embeds / Slack attachments.
-  author: z.object({ name: z.string(), url: z.string().optional() }).optional(),
-  fields: z.array(z.object({ name: z.string(), value: z.string() })).optional(),
+  author: z
+    .object({
+      name: z.string(),
+      url: httpsUrlSchema.optional(),
+      iconUrl: httpsUrlSchema.optional(),
+    })
+    .optional(),
+  fields: z
+    .array(
+      z.object({
+        name: z.string(),
+        value: z.string(),
+        inline: z.boolean().optional(),
+      })
+    )
+    .optional(),
   image: z.string().optional(),
   footer: z.string().optional(),
   timestamp: z.string().optional(),

@@ -1224,7 +1224,7 @@ export function CustomToolsSection({
           <div className="text-sm font-medium">Tools</div>
           <p className="mt-0.5 text-xs text-muted-foreground">
             API tools and MCP servers Merlin can call. Grant them per channel
-            through agent profiles — all at once or one by one.
+            through agent profiles.
           </p>
         </div>
         {!(creating || creatingServer) && (

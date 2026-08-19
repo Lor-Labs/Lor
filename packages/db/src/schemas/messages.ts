@@ -186,6 +186,7 @@ export type Attachment = {
 export type EmbedField = {
   name: string
   value: string
+  inline?: boolean
 }
 
 export type Embed = {
@@ -195,10 +196,12 @@ export type Embed = {
   url?: string
   title?: string
   description?: string
+  // First-party connector activity label, e.g. "Pull request opened".
+  eventLabel?: string
   thumbnail?: string
   siteName?: string
   // Rich (webhook-card) extras — Discord embeds / Slack attachments map here.
-  author?: { name: string; url?: string }
+  author?: { name: string; url?: string; iconUrl?: string }
   fields?: EmbedField[]
   image?: string
   footer?: string

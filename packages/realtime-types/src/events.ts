@@ -127,10 +127,11 @@ export type RealtimeEmbed = {
   url?: string
   title?: string
   description?: string
+  eventLabel?: string
   thumbnail?: string
   siteName?: string
-  author?: { name: string; url?: string }
-  fields?: { name: string; value: string }[]
+  author?: { name: string; url?: string; iconUrl?: string }
+  fields?: { name: string; value: string; inline?: boolean }[]
   image?: string
   footer?: string
   timestamp?: string

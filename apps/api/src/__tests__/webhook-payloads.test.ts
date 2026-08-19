@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest"
 import {
   dialectHint,
+  discordEmbedsToMessageEmbeds,
   discordWebhookBodySchema,
   mrkdwnToMarkdown,
   renderDiscordWebhookBody,
   renderSlackWebhookBody,
+  slackAttachmentsToMessageEmbeds,
   slackWebhookBodySchema,
 } from "@/lib/webhook-payloads"
 
@@ -94,6 +96,26 @@ describe("discord dialect", () => {
     expect(rendered).toContain("> **Status**\n> green")
   })
 
+  it("preserves field inline layout intent", () => {
+    const body = discordWebhookBodySchema.parse({
+      embeds: [
+        {
+          fields: [
+            { name: "Service", value: "api", inline: true },
+            { name: "Stack Trace", value: "```trace```", inline: false },
+            { name: "Details", value: "full width by default" },
+          ],
+        },
+      ],
+    })
+
+    expect(discordEmbedsToMessageEmbeds(body)[0]?.fields).toEqual([
+      { name: "Service", value: "api", inline: true },
+      { name: "Stack Trace", value: "```trace```", inline: false },
+      { name: "Details", value: "full width by default", inline: false },
+    ])
+  })
+
   it("clips oversized payloads", () => {
     const rendered = renderDiscordWebhookBody(
       discordWebhookBodySchema.parse({
@@ -176,6 +198,24 @@ describe("slack dialect", () => {
     expect(rendered).toContain("> **[Build failed](https://ci.example.com/1)**")
     expect(rendered).toContain("> step: **test**")
     expect(rendered).toContain("> *CI*")
+  })
+
+  it("maps Slack attachment short fields to inline fields", () => {
+    const body = slackWebhookBodySchema.parse({
+      attachments: [
+        {
+          fields: [
+            { title: "Service", value: "api", short: true },
+            { title: "Stack Trace", value: "trace", short: false },
+          ],
+        },
+      ],
+    })
+
+    expect(slackAttachmentsToMessageEmbeds(body)[0]?.fields).toEqual([
+      { name: "Service", value: "api", inline: true },
+      { name: "Stack Trace", value: "trace", inline: false },
+    ])
   })
 
   it("falls back to attachment fallback text when nothing else renders", () => {

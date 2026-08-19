@@ -1,12 +1,9 @@
-import {
-  GithubIcon,
-  Globe02Icon,
-  WebhookIcon,
-} from "@hugeicons/core-free-icons"
+import { Globe02Icon, WebhookIcon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { AttioLogo } from "@repo/ui/components/logos/attio"
 import { AWSCloudWatchLogo } from "@repo/ui/components/logos/aws-cloudwatch"
 import { DatadogLogo } from "@repo/ui/components/logos/datadog"
+import { GitHubLogo } from "@repo/ui/components/logos/github"
 import { LinearLogo } from "@repo/ui/components/logos/linear"
 import { NotionLogo } from "@repo/ui/components/logos/notion"
 import { cn } from "@repo/ui/lib/utils"
@@ -47,9 +44,7 @@ function CloudwatchMark({ className }: { className?: string }) {
 }
 
 function GithubMark({ className }: { className?: string }) {
-  return (
-    <HugeiconsIcon icon={GithubIcon} className={className} strokeWidth={2} />
-  )
+  return <GitHubLogo className={className} />
 }
 
 function WebhookMark({ className }: { className?: string }) {
@@ -201,11 +196,36 @@ const CONNECTOR_UI: Record<ConnectorKey, ConnectorUI> = {
 
 const CONNECTOR_KEYS = Object.keys(CONNECTOR_UI) as ConnectorKey[]
 
+const CONNECTOR_BRANDS: Partial<
+  Record<ConnectorKey, { accent: string; avatarClassName: string }>
+> = {
+  github: {
+    accent: "#24292f",
+    avatarClassName:
+      "bg-[#24292f]! text-white! dark:bg-[#f0f6fc]! dark:text-[#24292f]!",
+  },
+  linear: {
+    accent: "#5e6ad2",
+    avatarClassName:
+      "bg-[#5e6ad2]! text-white! shadow-[inset_0_0_0_1px_rgba(255,255,255,0.14)]",
+  },
+}
+
 // Null = a built-in capability with no connector (web) — wears the globe, which
 // is also the fallback for a key outside the registry (pasted HTML can carry an
 // arbitrary data-connector into a composer chip).
 export function connectorLogo(key: ConnectorKey | null): Logo {
   return (key ? CONNECTOR_UI[key]?.logo : null) ?? GlobeMark
+}
+
+export function connectorAccentColor(key: ConnectorKey): string | undefined {
+  return CONNECTOR_BRANDS[key]?.accent
+}
+
+export function connectorAvatarClassName(
+  key: ConnectorKey
+): string | undefined {
+  return CONNECTOR_BRANDS[key]?.avatarClassName
 }
 
 // hasOwn, not `in` — otherwise "toString" and friends read as connectors.

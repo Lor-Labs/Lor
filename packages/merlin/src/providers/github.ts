@@ -1,5 +1,5 @@
 import { env } from "@repo/env/server"
-import { App } from "octokit"
+import { App, Octokit } from "octokit"
 import { logger } from "../logger"
 import type { SourceProvider } from "./types"
 
@@ -59,9 +59,25 @@ function getApp(): App | null {
 
 const MAX_CONTENT = 8000
 const MAX_COMMENTS = 10
+// Bound each GitHub request so a hung connection can't stall the caller (Octokit
+// has no default request timeout).
+const REQUEST_TIMEOUT_MS = 10_000
+
+// Narrow a minted installation token below the App's full grant. `repositories`
+// takes bare repo names (not owner/repo); a token can only ever be a subset of
+// what the App itself was granted.
+export type InstallationTokenScope = {
+  repositories?: string[]
+  permissions?: {
+    contents?: "read" | "write"
+    pull_requests?: "read" | "write"
+  }
+  request?: { signal: AbortSignal }
+}
 
 export async function getInstallationToken(
-  installationId: string
+  installationId: string,
+  scope?: InstallationTokenScope
 ): Promise<string | null> {
   const app = getApp()
   if (!app) {
@@ -78,6 +94,11 @@ export async function getInstallationToken(
   try {
     const { data } = await app.octokit.rest.apps.createInstallationAccessToken({
       installation_id: id,
+      ...(scope?.repositories ? { repositories: scope.repositories } : {}),
+      ...(scope?.permissions ? { permissions: scope.permissions } : {}),
+      request: scope?.request ?? {
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      },
     })
     return data.token
   } catch (err) {
@@ -98,9 +119,6 @@ export type InstallationRepo = {
 
 const REPO_PAGE_SIZE = 100
 const MAX_REPO_PAGES = 5
-// Bound each GitHub request so a hung connection can't stall the caller (Octokit
-// has no default request timeout).
-const REQUEST_TIMEOUT_MS = 10_000
 
 export async function listInstallationRepos(
   installationId: string
@@ -368,6 +386,152 @@ function parseRef(externalId: string, sep: "#" | "@") {
   const id = Number(tail)
   if (!owner || !repo || !Number.isFinite(id)) return null
   return { owner, repo, id }
+}
+
+export type OpenedPullRequest = {
+  number: number
+  url: string
+  draft: boolean
+  // False when an open PR for this head branch already existed and was reused
+  // (pushing the branch updated it).
+  created: boolean
+}
+
+// Writes need a discriminated result — the tool must distinguish "the App
+// lacks write permission" from "branch already has a PR" to say something
+// actionable, where reads can just degrade to null.
+export type OpenPullRequestResult =
+  | { ok: true; pr: OpenedPullRequest }
+  | { ok: false; reason: string }
+
+export async function openPullRequest(
+  installationId: string,
+  opts: {
+    repoFullName: string
+    head: string // branch name, same owner
+    base: string
+    title: string
+    body: string
+  }
+): Promise<OpenPullRequestResult> {
+  const app = getApp()
+  if (!app) return { ok: false, reason: "GitHub App not configured" }
+  const id = Number(installationId)
+  if (!Number.isFinite(id)) {
+    return { ok: false, reason: "invalid installation id" }
+  }
+  const [owner, repo] = opts.repoFullName.split("/")
+  if (!(owner && repo)) {
+    return { ok: false, reason: `not a valid owner/repo: ${opts.repoFullName}` }
+  }
+
+  try {
+    const token = await getInstallationToken(installationId, {
+      repositories: [repo],
+      permissions: { pull_requests: "write" },
+      request: { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) },
+    })
+    if (!token) {
+      return {
+        ok: false,
+        reason: "couldn't obtain a repository-scoped GitHub installation token",
+      }
+    }
+    const octokit = new Octokit({ auth: token })
+    try {
+      const { data } = await octokit.rest.pulls.create({
+        owner,
+        repo,
+        head: opts.head,
+        base: opts.base,
+        title: opts.title,
+        body: opts.body,
+        draft: true,
+        request: { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) },
+      })
+      return {
+        ok: true,
+        pr: {
+          number: data.number,
+          url: data.html_url,
+          draft: Boolean(data.draft),
+          created: true,
+        },
+      }
+    } catch (err) {
+      const status = (err as { status?: number }).status
+      const message = err instanceof Error ? err.message : String(err)
+      const errors = (err as { response?: { data?: { errors?: unknown } } })
+        .response?.data?.errors
+      const isDuplicate = Array.isArray(errors)
+        ? errors.some((entry) => {
+            if (!(entry && typeof entry === "object")) return false
+            const { code, message: errorMessage } = entry as {
+              code?: unknown
+              message?: unknown
+            }
+            return (
+              code === "custom" &&
+              typeof errorMessage === "string" &&
+              /already exists/i.test(errorMessage)
+            )
+          })
+        : /already exists/i.test(message)
+      // 422 "A pull request already exists": the push updated the open PR —
+      // reuse it instead of failing the whole proposal.
+      if (status === 422 && isDuplicate) {
+        const existing = await octokit.rest.pulls
+          .list({
+            owner,
+            repo,
+            head: `${owner}:${opts.head}`,
+            base: opts.base,
+            state: "open",
+            per_page: 1,
+            request: { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) },
+          })
+          .then((r) => r.data[0] ?? null)
+          .catch(() => null)
+        if (existing) {
+          return {
+            ok: true,
+            pr: {
+              number: existing.number,
+              url: existing.html_url,
+              draft: Boolean(existing.draft),
+              created: false,
+            },
+          }
+        }
+      }
+      throw err
+    }
+  } catch (err) {
+    const status = (err as { status?: number }).status
+    const message = err instanceof Error ? err.message : String(err)
+    logger.error(
+      { err, repoFullName: opts.repoFullName, head: opts.head },
+      "GitHub draft PR creation failed"
+    )
+    if (status === 403) {
+      return {
+        ok: false,
+        reason:
+          "the GitHub App lacks pull-request write access (the installation may need to approve updated permissions)",
+      }
+    }
+    if (
+      status === 422 &&
+      /draft pull requests are not supported/i.test(message)
+    ) {
+      return {
+        ok: false,
+        reason:
+          "this repository's plan doesn't support draft pull requests (the branch was pushed; a PR can be opened manually)",
+      }
+    }
+    return { ok: false, reason: `couldn't open the pull request: ${message}` }
+  }
 }
 
 export const githubProvider: SourceProvider = {

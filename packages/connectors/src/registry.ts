@@ -13,7 +13,7 @@ export const CONNECTORS: Record<IntegrationProvider, ConnectorDescriptor> = {
     id: "github",
     label: "GitHub",
     description:
-      "Search pull requests and issues, and analyze connected repositories.",
+      "Search pull requests and issues, analyze connected repositories, and propose changes as draft pull requests.",
     authType: "github-app",
     envKeys: [
       "GITHUB_APP_ID",
@@ -159,6 +159,13 @@ export const CAPABILITIES: Record<MerlinCapability, CapabilityDescriptor> = {
       "Analyze and answer questions about your connected repositories",
     connector: "github",
   },
+  code_actions: {
+    key: "code_actions",
+    label: "Code Actions",
+    description:
+      "Make code changes and open pull requests for the team to review",
+    connector: "github",
+  },
   linear: {
     key: "linear",
     label: "Linear",
@@ -211,7 +218,7 @@ export const CAPABILITIES: Record<MerlinCapability, CapabilityDescriptor> = {
     key: "custom_tools",
     label: "All workspace tools",
     description:
-      "Call any of this workspace's tools — API tools and MCP servers, including ones added later",
+      "Call any of this workspace's tools: API tools and MCP servers",
     connector: null,
   },
 }

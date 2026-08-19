@@ -26,6 +26,7 @@ import { openExternalUrl } from "@/lib/open-url"
 function builtinToolIcon(toolName: string): IconSvgElement {
   switch (toolName) {
     case "investigate_code":
+    case "propose_code_change":
       return CodeIcon
     case "search_sources":
     case "search_messages":

@@ -18,6 +18,9 @@ const SIDE_EFFECT_TOOLS = new Set([
   "update_linear_issue",
   "comment_linear",
   "investigate_code",
+  // Pushes a branch and opens/updates a draft PR — replay must never re-push
+  // or file a duplicate.
+  "propose_code_change",
   "propose_instructions",
   "create_artifacts",
   "react_to_message",

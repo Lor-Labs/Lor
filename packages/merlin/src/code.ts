@@ -11,7 +11,8 @@ import type { OnUsage } from "./usage"
 const MAX_LISTED = 30
 
 // Validate Merlin's repo guess against connected repos before cloning.
-function resolveRepo(
+// Shared with propose_code_change (code-actions.ts).
+export function resolveRepo(
   requested: string,
   accessible: InstallationRepo[]
 ): { repo: string } | { error: string } {
@@ -77,9 +78,17 @@ export const codeTools = {
         question,
       })
 
-      const token = await getInstallationToken(context.installationId).catch(
-        () => null
-      )
+      // Narrowed mint: the App now carries write permissions, and this token
+      // enters the sandbox env — a read-only investigation must never hold
+      // more than contents:read on the one repo it's cloning.
+      const [owner, repoName] = resolved.repo.split("/")
+      if (!(owner && repoName)) {
+        return { error: `not a valid owner/repo: ${resolved.repo}` }
+      }
+      const token = await getInstallationToken(context.installationId, {
+        repositories: [repoName],
+        permissions: { contents: "read" },
+      }).catch(() => null)
       if (!token) return { error: "couldn't authenticate with GitHub" }
 
       const result = await investigateCode({

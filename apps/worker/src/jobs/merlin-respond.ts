@@ -595,6 +595,7 @@ export function createMerlinRespondProcessor(
                 workspaceId,
                 conversation,
                 channelId,
+                ...(threadRootId ? { threadRootId } : {}),
                 triggerMessageId,
                 ...(job.data.runId ? { runId: job.data.runId } : {}),
                 ...(task
@@ -719,6 +720,7 @@ export function createMerlinRespondProcessor(
                   logger.info({ ...u }, "Merlin usage")
                   if (
                     u.tool === "investigate_code" ||
+                    u.tool === "propose_code_change" ||
                     u.tool === "create_artifacts"
                   )
                     execution?.noteNestedUsage(u)
