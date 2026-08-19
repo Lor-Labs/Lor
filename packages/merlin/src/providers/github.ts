@@ -1,5 +1,5 @@
 import { env } from "@repo/env/server"
-import { App } from "octokit"
+import { App, Octokit } from "octokit"
 import { logger } from "../logger"
 import type { SourceProvider } from "./types"
 
@@ -422,7 +422,17 @@ export async function openPullRequest(
   }
 
   try {
-    const octokit = await app.getInstallationOctokit(id)
+    const token = await getInstallationToken(installationId, {
+      repositories: [repo],
+      permissions: { pull_requests: "write" },
+    })
+    if (!token) {
+      return {
+        ok: false,
+        reason: "couldn't obtain a repository-scoped GitHub installation token",
+      }
+    }
+    const octokit = new Octokit({ auth: token })
     try {
       const { data } = await octokit.rest.pulls.create({
         owner,
