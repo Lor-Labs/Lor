@@ -169,7 +169,7 @@ export function discordEmbedsToMessageEmbeds(
     const fields = (embed.fields ?? []).map((f) => ({
       name: f.name,
       value: f.value,
-      ...(f.inline !== undefined ? { inline: f.inline } : {}),
+      inline: f.inline ?? false,
     }))
     const mapped: Embed = {
       type: "rich",
@@ -394,7 +394,7 @@ export function slackAttachmentsToMessageEmbeds(
             {
               name: f.title ?? "",
               value: f.value ? mrkdwnToMarkdown(f.value) : "",
-              ...(f.short !== undefined ? { inline: f.short } : {}),
+              inline: f.short ?? false,
             },
           ]
         : []

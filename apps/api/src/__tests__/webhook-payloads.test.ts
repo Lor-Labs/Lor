@@ -112,7 +112,7 @@ describe("discord dialect", () => {
     expect(discordEmbedsToMessageEmbeds(body)[0]?.fields).toEqual([
       { name: "Service", value: "api", inline: true },
       { name: "Stack Trace", value: "```trace```", inline: false },
-      { name: "Details", value: "full width by default" },
+      { name: "Details", value: "full width by default", inline: false },
     ])
   })
 

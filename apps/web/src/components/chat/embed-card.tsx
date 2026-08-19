@@ -4,6 +4,7 @@ import { cn } from "@repo/ui/lib/utils"
 import { MessageMarkdown } from "@/components/chat/message-markdown"
 import type { Message } from "@/lib/api-types"
 import { connectorForName, connectorLogo } from "@/lib/connector-ui"
+import { groupEmbedFields } from "@/lib/embed-field-layout"
 
 type Embed = Message["embeds"][number]
 
@@ -34,6 +35,7 @@ export function EmbedCard({ embed, className }: EmbedCardProps) {
   const SiteMark = siteConnector ? connectorLogo(siteConnector) : null
   const showFooter =
     footerParts.length > 0 || Boolean(embed.siteName && !siteConnector)
+  const fieldRows = groupEmbedFields(embed.fields ?? [])
 
   return (
     <div
@@ -140,25 +142,33 @@ export function EmbedCard({ embed, className }: EmbedCardProps) {
             )}
           />
         )}
-        {embed.fields && embed.fields.length > 0 && (
-          <div className="grid grid-cols-1 gap-x-4 gap-y-2 sm:grid-cols-3">
-            {embed.fields.map((field, index) => (
+        {fieldRows.length > 0 && (
+          <div className="flex flex-col gap-2">
+            {fieldRows.map((row, rowIndex) => (
               <div
-                key={`${field.name}-${index}`}
-                className={cn("min-w-0", !field.inline && "col-span-full")}
+                key={`${row[0]?.value}-${rowIndex}`}
+                className={cn(
+                  "grid grid-cols-1 gap-x-4 gap-y-2",
+                  row.length === 2 && "sm:grid-cols-2",
+                  row.length === 3 && "sm:grid-cols-3"
+                )}
               >
-                {field.name && (
-                  <div className="text-xs font-semibold text-foreground/90">
-                    {field.name}
+                {row.map((field, fieldIndex) => (
+                  <div key={`${field.name}-${fieldIndex}`} className="min-w-0">
+                    {field.name && (
+                      <div className="text-xs font-semibold text-foreground/90">
+                        {field.name}
+                      </div>
+                    )}
+                    {field.value && (
+                      <MessageMarkdown
+                        content={field.value}
+                        mentions={[]}
+                        className="text-[13px] text-muted-foreground"
+                      />
+                    )}
                   </div>
-                )}
-                {field.value && (
-                  <MessageMarkdown
-                    content={field.value}
-                    mentions={[]}
-                    className="text-[13px] text-muted-foreground"
-                  />
-                )}
+                ))}
               </div>
             ))}
           </div>
