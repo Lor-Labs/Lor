@@ -11,7 +11,8 @@ import type { OnUsage } from "./usage"
 const MAX_LISTED = 30
 
 // Validate Merlin's repo guess against connected repos before cloning.
-function resolveRepo(
+// Shared with propose_code_change (code-actions.ts).
+export function resolveRepo(
   requested: string,
   accessible: InstallationRepo[]
 ): { repo: string } | { error: string } {

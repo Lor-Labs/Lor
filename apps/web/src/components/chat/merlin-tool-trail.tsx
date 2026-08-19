@@ -62,6 +62,7 @@ function toolIcon(toolName: string): TrailIcon {
   if (connector) return connectorLogo(connector)
   switch (toolName) {
     case "investigate_code":
+    case "propose_code_change":
       return CodeGlyph
     case "search_sources":
     case "search_messages":

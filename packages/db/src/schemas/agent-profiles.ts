@@ -19,6 +19,9 @@ import { workspace } from "./workspaces"
 export const merlinCapabilityEnum = pgEnum("merlin_capability", [
   "github",
   "code_intelligence",
+  // Write side of code intelligence: propose changes as draft pull requests
+  // (and, later, run/test code). Draft-only — Merlin never merges.
+  "code_actions",
   "linear",
   "linear_write",
   "datadog",

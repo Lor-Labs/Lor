@@ -40,6 +40,7 @@ import {
 } from "./citations"
 import { cloudwatchTools, resolveWorkspaceCloudwatch } from "./cloudwatch"
 import { codeTools } from "./code"
+import { codeActionTools } from "./code-actions"
 import { CUSTOM_TOOLS_PROMPT_LINE, workspaceCustomTools } from "./custom-tools"
 import { datadogMcpTools, resolveWorkspaceDatadog } from "./datadog"
 import { embedBrainQueryWithUsage, embedSourceQuery } from "./embeddings"
@@ -121,6 +122,8 @@ const WEB_PROMPT_LINE = `- The public web: search_web searches the web for curre
 const NOTION_PROMPT_LINE = `- The team's selected Notion content (read-only): search_notion searches page and data-source titles (not page-body text); fetch_notion_page reads a known page as Markdown with properties and comments; query_notion_data_source retrieves a database schema and structured rows; list_notion_users resolves workspace people without email addresses. Meetings are ordinary selected pages or rows—do not attempt user-specific meeting search. Reference Notion pages with normal Markdown links to their url (live results, not [[src:]] citations).`
 
 const ARTIFACTS_PROMPT_LINE = `- File deliverables: create_artifacts runs a coding agent in a clean sandbox (Python with pandas, matplotlib, openpyxl) that produces real files — reports, cleaned or analyzed data, generated documents or code. Every file it delivers is stored and returned with a link; share those links in your answer. Use it when someone asks for a file, document, or dataset — never for ordinary answers (it's slow). Non-image files people share appear in the conversation as [file: name — type, size — url] lines; pass those URLs as inputFileUrls when the work needs them. Write complete, self-contained instructions including desired filenames and formats — the agent can't ask follow-ups.`
+
+const CODE_ACTIONS_PROMPT_LINE = `- Code changes: propose_code_change runs a coding agent on a connected repository, pushes the result to a lor/* branch, and opens a DRAFT pull request — it never merges anything. Use it only when someone clearly asks for a code change (fix, implement, adjust); questions about code go to investigate_code instead. Always share the returned pull request link in your answer. To iterate on an open proposal (review feedback, follow-up fixes), pass its branch back to update the same pull request. Keep proposals small and focused; split unrelated changes into separate proposals.`
 
 const SYSTEM_PROMPT_TAIL = `You can also see images people share in the channel — they're included inline in the conversation below.
 
@@ -239,6 +242,10 @@ export type RespondContext = {
   workspaceId: string
   conversation: ConversationTurn[]
   channelId?: string
+  // The thread this run answers in (null/absent for channel scope). With
+  // channelId it forms the conversation scope key — code-action sandboxes
+  // persist per scope so follow-ups resume a warm checkout.
+  threadRootId?: string
   triggerMessageId?: string
   runId?: string
   // Set when this run belongs to a task (the scope's thread root is a
@@ -589,6 +596,8 @@ function toolLabel(toolName: string, input: unknown): string {
       return emoji ? `Reacting ${emoji}` : "Reacting to a message"
     case "investigate_code":
       return repo ? `Investigating ${repo}` : "Investigating the codebase"
+    case "propose_code_change":
+      return repo ? `Proposing a change to ${repo}` : "Proposing a code change"
     case "create_artifacts":
       return "Working on files"
     case "set_plan":
@@ -1407,7 +1416,9 @@ export async function respond(
         ).catch(() => null)
       : Promise.resolve(null)
   const needsGithub =
-    caps.includes("github") || caps.includes("code_intelligence")
+    caps.includes("github") ||
+    caps.includes("code_intelligence") ||
+    caps.includes("code_actions")
   const needsLinear = caps.includes("linear") || caps.includes("linear_write")
   const needsAttio = caps.includes("attio")
   const needsNotion = caps.includes("notion")
@@ -1444,6 +1455,12 @@ export async function respond(
     const artifactsEnabled = Boolean(
       blaxelConfigured() && ctx.channelId && caps.includes("artifacts")
     )
+    const codeActionsEnabled = Boolean(
+      blaxelConfigured() &&
+        github &&
+        ctx.channelId &&
+        caps.includes("code_actions")
+    )
     const builtinTools = {
       ...searchTools,
       ...chatTools,
@@ -1457,6 +1474,7 @@ export async function respond(
       ...(blaxelConfigured() && github && caps.includes("code_intelligence")
         ? codeTools
         : {}),
+      ...(codeActionsEnabled ? codeActionTools : {}),
       ...(artifactsEnabled ? artifactTools : {}),
       ...(ctx.task ? taskTools : {}),
       ...(ctx.triggered ? triggeredTools : {}),
@@ -1528,6 +1546,21 @@ export async function respond(
               workspaceId: ctx.workspaceId,
               installationId: github.installationId,
               repos: github.repos,
+              onUsage,
+              onToolEvent,
+            },
+          }
+        : {}),
+      ...(codeActionsEnabled && github && ctx.channelId
+        ? {
+            propose_code_change: {
+              workspaceId: ctx.workspaceId,
+              installationId: github.installationId,
+              repos: github.repos,
+              // Thread scope when there is one; channel scope otherwise —
+              // matches the run scope, so follow-ups land in the same sandbox.
+              sandboxKey: ctx.threadRootId ?? ctx.channelId,
+              deadlineAt: budgets.deadlineAt,
               onUsage,
               onToolEvent,
             },
@@ -1618,6 +1651,7 @@ export async function respond(
       attio && caps.includes("attio") ? ATTIO_PROMPT_LINE : null,
       notion && caps.includes("notion") ? NOTION_PROMPT_LINE : null,
       artifactsEnabled ? ARTIFACTS_PROMPT_LINE : null,
+      codeActionsEnabled ? CODE_ACTIONS_PROMPT_LINE : null,
       customTools ? CUSTOM_TOOLS_PROMPT_LINE : null,
       promptToolServers.length > 0
         ? toolServersPromptLine(promptToolServers)

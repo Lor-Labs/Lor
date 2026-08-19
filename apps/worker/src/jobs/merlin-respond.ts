@@ -595,6 +595,7 @@ export function createMerlinRespondProcessor(
                 workspaceId,
                 conversation,
                 channelId,
+                ...(threadRootId ? { threadRootId } : {}),
                 triggerMessageId,
                 ...(job.data.runId ? { runId: job.data.runId } : {}),
                 ...(task

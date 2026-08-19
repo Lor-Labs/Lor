@@ -64,15 +64,15 @@ export async function withEphemeralSandbox<T>(
   }
 }
 
-// A task's sandbox persists across runs: it drops to standby (free) between
-// sessions and resumes with its filesystem — Pi session, scripts, scratch —
-// intact. If the idle TTL deleted it, createIfNotExists rebuilds it cold and
-// the artifact reseed restores the deliverables: deletion only costs warmth.
-export async function withTaskSandbox<T>(
-  taskId: string,
+// A named sandbox persists across sessions: it drops to standby (free)
+// between them and resumes with its filesystem intact. If the idle TTL
+// deleted it, createIfNotExists rebuilds it cold and the caller restores
+// state (tasks reseed artifacts; code sessions re-clone): deletion only
+// costs warmth.
+export async function withPersistentSandbox<T>(
+  name: string,
   fn: (sandbox: SandboxInstance) => Promise<T>
 ): Promise<T> {
-  const name = `task-${taskId}`
   const sandbox = await SandboxInstance.createIfNotExists({
     ...baseConfig(name),
     lifecycle: {
@@ -85,12 +85,20 @@ export async function withTaskSandbox<T>(
       ],
     },
   })
-  logger.info({ sandbox: name }, "Sandbox: task sandbox ready")
+  logger.info({ sandbox: name }, "Sandbox: persistent sandbox ready")
   try {
     return await fn(sandbox)
   } finally {
     closeConnection(sandbox)
   }
+}
+
+// A task's sandbox: Pi session, scripts, and scratch survive between runs.
+export async function withTaskSandbox<T>(
+  taskId: string,
+  fn: (sandbox: SandboxInstance) => Promise<T>
+): Promise<T> {
+  return withPersistentSandbox(`task-${taskId}`, fn)
 }
 
 // writeBinary interprets a string argument as a LOCAL file path to read —
