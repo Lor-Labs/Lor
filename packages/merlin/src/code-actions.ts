@@ -155,6 +155,7 @@ export const codeActionTools = {
       const cloneToken = await getInstallationToken(context.installationId, {
         repositories: [repoName],
         permissions: { contents: "read" },
+        ...(abortSignal ? { request: { signal: abortSignal } } : {}),
       }).catch(() => null)
       if (!cloneToken) return { error: "couldn't authenticate with GitHub" }
 
@@ -212,6 +213,7 @@ export const codeActionTools = {
       const pushToken = await getInstallationToken(context.installationId, {
         repositories: [repoName],
         permissions: { contents: "write" },
+        ...(abortSignal ? { request: { signal: abortSignal } } : {}),
       }).catch(() => null)
       if (!pushToken) {
         return {

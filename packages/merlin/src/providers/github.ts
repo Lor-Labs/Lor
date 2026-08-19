@@ -59,6 +59,9 @@ function getApp(): App | null {
 
 const MAX_CONTENT = 8000
 const MAX_COMMENTS = 10
+// Bound each GitHub request so a hung connection can't stall the caller (Octokit
+// has no default request timeout).
+const REQUEST_TIMEOUT_MS = 10_000
 
 // Narrow a minted installation token below the App's full grant. `repositories`
 // takes bare repo names (not owner/repo); a token can only ever be a subset of
@@ -93,7 +96,9 @@ export async function getInstallationToken(
       installation_id: id,
       ...(scope?.repositories ? { repositories: scope.repositories } : {}),
       ...(scope?.permissions ? { permissions: scope.permissions } : {}),
-      ...(scope?.request ? { request: scope.request } : {}),
+      request: scope?.request ?? {
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      },
     })
     return data.token
   } catch (err) {
@@ -114,9 +119,6 @@ export type InstallationRepo = {
 
 const REPO_PAGE_SIZE = 100
 const MAX_REPO_PAGES = 5
-// Bound each GitHub request so a hung connection can't stall the caller (Octokit
-// has no default request timeout).
-const REQUEST_TIMEOUT_MS = 10_000
 
 export async function listInstallationRepos(
   installationId: string
@@ -459,14 +461,31 @@ export async function openPullRequest(
     } catch (err) {
       const status = (err as { status?: number }).status
       const message = err instanceof Error ? err.message : String(err)
+      const errors = (err as { response?: { data?: { errors?: unknown } } })
+        .response?.data?.errors
+      const isDuplicate = Array.isArray(errors)
+        ? errors.some((entry) => {
+            if (!(entry && typeof entry === "object")) return false
+            const { code, message: errorMessage } = entry as {
+              code?: unknown
+              message?: unknown
+            }
+            return (
+              code === "custom" &&
+              typeof errorMessage === "string" &&
+              /already exists/i.test(errorMessage)
+            )
+          })
+        : /already exists/i.test(message)
       // 422 "A pull request already exists": the push updated the open PR —
       // reuse it instead of failing the whole proposal.
-      if (status === 422 && /already exists/i.test(message)) {
+      if (status === 422 && isDuplicate) {
         const existing = await octokit.rest.pulls
           .list({
             owner,
             repo,
             head: `${owner}:${opts.head}`,
+            base: opts.base,
             state: "open",
             per_page: 1,
             request: { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) },
