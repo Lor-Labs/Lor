@@ -38,7 +38,12 @@ import { ThinkingIndicator } from "@/components/chat/thinking-indicator"
 import { UserProfilePopover } from "@/components/ui/user-profile-card"
 import { useStopMerlinRun } from "@/hooks/use-stop-merlin-run"
 import type { Message } from "@/lib/api-types"
-import { connectorForName, connectorLogo } from "@/lib/connector-ui"
+import { connectorMessageEmbed } from "@/lib/connector-message-embed"
+import {
+  connectorAvatarClassName,
+  connectorForName,
+  connectorLogo,
+} from "@/lib/connector-ui"
 import { toSearchPreviewText } from "@/lib/search-preview"
 
 interface MessageItemProps {
@@ -108,6 +113,12 @@ function ReplyPreview({
   const referencedName =
     referencedMessage.overrideName ?? author.displayUsername ?? author.name
   const referencedAvatar = referencedMessage.overrideAvatarUrl ?? author.image
+  const referencedConnector = referencedMessage.overrideAvatarUrl
+    ? null
+    : connectorForName(referencedMessage.overrideName)
+  const ReferencedConnectorMark = referencedConnector
+    ? connectorLogo(referencedConnector)
+    : null
   const truncatedContent = replyPreviewText(
     referencedMessage,
     mentionCandidates
@@ -126,10 +137,17 @@ function ReplyPreview({
         )}
         <AvatarFallback
           avatarColor={author.avatarColor}
-          className="text-[8px] font-semibold"
+          className={cn(
+            "text-[8px] font-semibold",
+            referencedConnector && connectorAvatarClassName(referencedConnector)
+          )}
           fallbackSeed={referencedName}
         >
-          {getAvatarInitials(referencedName)}
+          {ReferencedConnectorMark ? (
+            <ReferencedConnectorMark className="size-2.5" />
+          ) : (
+            getAvatarInitials(referencedName)
+          )}
         </AvatarFallback>
       </Avatar>
       <span className="shrink-0 font-semibold text-foreground/80">
@@ -361,7 +379,7 @@ export function MessageItem({
         {avatarUrl && <AvatarImage src={avatarUrl} alt={displayName} />}
         <AvatarFallback
           avatarColor={author.avatarColor}
-          className="text-xs font-semibold"
+          className="text-base font-semibold"
           fallbackSeed={author.name}
         >
           {getAvatarInitials(author.name)}
@@ -483,11 +501,14 @@ export function MessageItem({
                 {avatarUrl && <AvatarImage src={avatarUrl} alt={displayName} />}
                 <AvatarFallback
                   avatarColor={author.avatarColor}
-                  className="text-xs font-semibold"
+                  className={cn(
+                    "text-base font-semibold",
+                    connectorKey && connectorAvatarClassName(connectorKey)
+                  )}
                   fallbackSeed={displayName}
                 >
                   {ConnectorMark ? (
-                    <ConnectorMark className="size-5" />
+                    <ConnectorMark className="size-6" />
                   ) : (
                     getAvatarInitials(displayName)
                   )}
@@ -514,7 +535,7 @@ export function MessageItem({
                   )}
                   <AvatarFallback
                     avatarColor={author.avatarColor}
-                    className="text-xs font-semibold"
+                    className="text-base font-semibold"
                     fallbackSeed={author.name}
                   >
                     {getAvatarInitials(author.name)}
@@ -601,6 +622,15 @@ export function MessageItem({
               streaming={message.streaming}
               mentions={message.mentions}
               onCitationJump={onJumpToMessage}
+            />
+          ) : connectorKey && message.embeds.length > 0 ? null : connectorKey &&
+            message.content ? (
+            <EmbedCard
+              embed={connectorMessageEmbed(
+                connectorKey,
+                message.content,
+                displayName
+              )}
             />
           ) : (
             <MessageMarkdown

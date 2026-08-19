@@ -1,6 +1,7 @@
 import type { Webhooks } from "@octokit/webhooks"
 import type { ConnectorEventKey } from "@repo/connectors"
 import { and, db, eq, schema } from "@repo/db"
+import { githubNotificationEmbed } from "@/lib/connector-notification-embeds"
 import {
   dispatchConnectorEvent,
   type RememberDraft,
@@ -16,6 +17,7 @@ async function dispatchForInstallation(
   installationId: number | undefined,
   event: ConnectorEventKey,
   text: string,
+  embed: ReturnType<typeof githubNotificationEmbed>,
   remember?: RememberDraft
 ): Promise<void> {
   if (installationId === undefined) return
@@ -25,6 +27,7 @@ async function dispatchForInstallation(
     event,
     label: "GitHub",
     text,
+    embeds: [embed],
     remember,
   })
 }
@@ -38,6 +41,21 @@ export function registerGithubHandlers(webhooks: Webhooks): void {
       payload.installation?.id,
       "pr_opened",
       `**${pr.draft ? "Draft PR" : "PR"} opened** [${repo}#${pr.number}](${pr.html_url}) ${pr.title}${pr.user ? ` — by ${pr.user.login}` : ""}`,
+      githubNotificationEmbed({
+        event: `${pr.draft ? "Draft pull request" : "Pull request"} opened`,
+        title: pr.title,
+        url: pr.html_url,
+        repository: repo,
+        reference: String(pr.number),
+        body: pr.body,
+        actor: pr.user
+          ? {
+              name: pr.user.login,
+              url: pr.user.html_url,
+              avatarUrl: pr.user.avatar_url,
+            }
+          : null,
+      }),
       {
         kind: "pull_request",
         externalId: `${repo}#${pr.number}`,
@@ -60,6 +78,21 @@ export function registerGithubHandlers(webhooks: Webhooks): void {
       payload.installation?.id,
       "pr_merged",
       `**PR merged** [${repo}#${pr.number}](${pr.html_url}) ${pr.title}${pr.user ? ` — by ${pr.user.login}` : ""}`,
+      githubNotificationEmbed({
+        event: "Pull request merged",
+        title: pr.title,
+        url: pr.html_url,
+        repository: repo,
+        reference: String(pr.number),
+        body: pr.body,
+        actor: pr.user
+          ? {
+              name: pr.user.login,
+              url: pr.user.html_url,
+              avatarUrl: pr.user.avatar_url,
+            }
+          : null,
+      }),
       {
         kind: "pull_request",
         externalId: `${repo}#${pr.number}`,
@@ -79,6 +112,21 @@ export function registerGithubHandlers(webhooks: Webhooks): void {
       payload.installation?.id,
       payload.action === "opened" ? "issue_opened" : "issue_closed",
       `**Issue ${payload.action}** [${repo}#${issue.number}](${issue.html_url}) ${issue.title}${issue.user ? ` — by ${issue.user.login}` : ""}`,
+      githubNotificationEmbed({
+        event: `Issue ${payload.action}`,
+        title: issue.title,
+        url: issue.html_url,
+        repository: repo,
+        reference: String(issue.number),
+        body: issue.body,
+        actor: issue.user
+          ? {
+              name: issue.user.login,
+              url: issue.user.html_url,
+              avatarUrl: issue.user.avatar_url,
+            }
+          : null,
+      }),
       {
         kind: "issue",
         externalId: `${repo}#${issue.number}`,
@@ -101,6 +149,20 @@ export function registerGithubHandlers(webhooks: Webhooks): void {
       payload.installation?.id,
       "release_published",
       `**Release published** [${title}](${release.html_url}) — ${repo}`,
+      githubNotificationEmbed({
+        event: "Release published",
+        title,
+        url: release.html_url,
+        repository: repo,
+        body: release.body,
+        actor: release.author
+          ? {
+              name: release.author.login,
+              url: release.author.html_url,
+              avatarUrl: release.author.avatar_url,
+            }
+          : null,
+      }),
       {
         kind: "release",
         externalId: `${repo}@${release.id}`,

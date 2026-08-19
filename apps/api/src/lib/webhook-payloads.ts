@@ -87,7 +87,11 @@ const discordEmbedSchema = z.object({
   timestamp: z.string().max(64).optional(),
   color: z.number().int().min(0).max(0xffffff).nullish(),
   author: z
-    .object({ name: z.string().max(256), url: httpUrlSchema.optional() })
+    .object({
+      name: z.string().max(256),
+      url: httpUrlSchema.optional(),
+      icon_url: httpUrlSchema.optional(),
+    })
     .optional(),
   footer: z.object({ text: z.string().max(2048) }).optional(),
   image: z.object({ url: httpUrlSchema }).optional(),
@@ -165,7 +169,17 @@ export function discordEmbedsToMessageEmbeds(
       ...(embed.url ? { url: embed.url } : {}),
       ...(embed.title ? { title: embed.title } : {}),
       ...(embed.description ? { description: embed.description } : {}),
-      ...(embed.author ? { author: embed.author } : {}),
+      ...(embed.author
+        ? {
+            author: {
+              name: embed.author.name,
+              ...(embed.author.url ? { url: embed.author.url } : {}),
+              ...(embed.author.icon_url
+                ? { iconUrl: embed.author.icon_url }
+                : {}),
+            },
+          }
+        : {}),
       ...(fields.length > 0 ? { fields } : {}),
       ...(embed.image?.url ? { image: embed.image.url } : {}),
       ...(embed.thumbnail?.url ? { thumbnail: embed.thumbnail.url } : {}),
@@ -223,6 +237,7 @@ const slackAttachmentSchema = z.object({
   pretext: z.string().max(4096).optional(),
   author_name: z.string().max(256).optional(),
   author_link: lenientHttpUrlSchema,
+  author_icon: lenientHttpUrlSchema,
   title: z.string().max(1024).optional(),
   title_link: lenientHttpUrlSchema,
   color: z.string().max(32).optional(),
@@ -394,6 +409,9 @@ export function slackAttachmentsToMessageEmbeds(
               name: attachment.author_name,
               ...(attachment.author_link
                 ? { url: attachment.author_link }
+                : {}),
+              ...(attachment.author_icon
+                ? { iconUrl: attachment.author_icon }
                 : {}),
             },
           }

@@ -1,6 +1,7 @@
 import { LinearWebhookClient } from "@linear/sdk/webhooks"
 import { and, db, eq, schema } from "@repo/db"
 import { env } from "@repo/env/server"
+import { linearNotificationEmbed } from "@/lib/connector-notification-embeds"
 import { dispatchConnectorEvent } from "@/lib/connector-triggers"
 import { createRouter } from "@/lib/helpers/app/create-app"
 import { logger } from "@/lib/logger"
@@ -21,11 +22,21 @@ type LinearEvent = {
   organizationId?: string
   // Issue URL for Issue events.
   url?: string | null
+  actor?: {
+    name?: string | null
+    url?: string | null
+    avatarUrl?: string | null
+  } | null
   data?: {
     title?: string | null
     identifier?: string | null
     description?: string | null
     state?: { type?: string | null; name?: string | null } | null
+    creator?: {
+      name?: string | null
+      url?: string | null
+      avatarUrl?: string | null
+    } | null
   } | null
   // Previous values of changed fields — presence of stateId means the state
   // transitioned in this event.
@@ -56,13 +67,32 @@ async function dispatchIssueEvent(event: LinearEvent): Promise<void> {
     ? `${event.data.identifier} ${event.data.title}`
     : event.data.title
   const link = event.url ? `[${ref}](${event.url})` : ref
+  const eventLabel = `Issue ${kind === "issue_created" ? "created" : "completed"}`
+  const rawActor = event.actor?.name ? event.actor : event.data.creator
+  const actor = rawActor?.name
+    ? {
+        name: rawActor.name,
+        url: rawActor.url,
+        avatarUrl: rawActor.avatarUrl,
+      }
+    : null
   try {
     await dispatchConnectorEvent({
       provider: "linear",
       externalId: event.organizationId,
       event: kind,
       label: "Linear",
-      text: `**Issue ${kind === "issue_created" ? "created" : "completed"}** ${link}`,
+      text: `**${eventLabel}** ${link}`,
+      embeds: [
+        linearNotificationEmbed({
+          event: eventLabel,
+          title: event.data.title,
+          url: event.url,
+          identifier: event.data.identifier,
+          body: event.data.description,
+          actor,
+        }),
+      ],
       // Identifier (e.g. LOR-49) is the stable upsert key; without one the
       // event has nothing addressable to remember.
       remember: event.data.identifier
