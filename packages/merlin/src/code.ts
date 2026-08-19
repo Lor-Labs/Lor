@@ -81,9 +81,12 @@ export const codeTools = {
       // Narrowed mint: the App now carries write permissions, and this token
       // enters the sandbox env — a read-only investigation must never hold
       // more than contents:read on the one repo it's cloning.
-      const repoName = resolved.repo.split("/")[1]
+      const [owner, repoName] = resolved.repo.split("/")
+      if (!(owner && repoName)) {
+        return { error: `not a valid owner/repo: ${resolved.repo}` }
+      }
       const token = await getInstallationToken(context.installationId, {
-        ...(repoName ? { repositories: [repoName] } : {}),
+        repositories: [repoName],
         permissions: { contents: "read" },
       }).catch(() => null)
       if (!token) return { error: "couldn't authenticate with GitHub" }

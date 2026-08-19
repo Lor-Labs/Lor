@@ -504,7 +504,11 @@ export function createTriggeredRunProcessor(
           },
           onUsage: (u) => {
             logger.info({ ...u }, "Triggered run usage")
-            if (u.tool === "investigate_code" || u.tool === "create_artifacts")
+            if (
+              u.tool === "investigate_code" ||
+              u.tool === "propose_code_change" ||
+              u.tool === "create_artifacts"
+            )
               execution.noteNestedUsage(u)
             void recordUsage(u, usageRefs)
           },

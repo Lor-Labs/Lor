@@ -421,56 +421,62 @@ export async function openPullRequest(
     return { ok: false, reason: `not a valid owner/repo: ${opts.repoFullName}` }
   }
 
-  const octokit = await app.getInstallationOctokit(id)
   try {
-    const { data } = await octokit.rest.pulls.create({
-      owner,
-      repo,
-      head: opts.head,
-      base: opts.base,
-      title: opts.title,
-      body: opts.body,
-      draft: true,
-      request: { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) },
-    })
-    return {
-      ok: true,
-      pr: {
-        number: data.number,
-        url: data.html_url,
-        draft: Boolean(data.draft),
-        created: true,
-      },
+    const octokit = await app.getInstallationOctokit(id)
+    try {
+      const { data } = await octokit.rest.pulls.create({
+        owner,
+        repo,
+        head: opts.head,
+        base: opts.base,
+        title: opts.title,
+        body: opts.body,
+        draft: true,
+        request: { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) },
+      })
+      return {
+        ok: true,
+        pr: {
+          number: data.number,
+          url: data.html_url,
+          draft: Boolean(data.draft),
+          created: true,
+        },
+      }
+    } catch (err) {
+      const status = (err as { status?: number }).status
+      const message = err instanceof Error ? err.message : String(err)
+      // 422 "A pull request already exists": the push updated the open PR —
+      // reuse it instead of failing the whole proposal.
+      if (status === 422 && /already exists/i.test(message)) {
+        const existing = await octokit.rest.pulls
+          .list({
+            owner,
+            repo,
+            head: `${owner}:${opts.head}`,
+            state: "open",
+            per_page: 1,
+            request: { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) },
+          })
+          .then((r) => r.data[0] ?? null)
+          .catch(() => null)
+        if (existing) {
+          return {
+            ok: true,
+            pr: {
+              number: existing.number,
+              url: existing.html_url,
+              draft: Boolean(existing.draft),
+              created: false,
+            },
+          }
+        }
+      }
+      throw err
     }
   } catch (err) {
     const status = (err as { status?: number }).status
     const message = err instanceof Error ? err.message : String(err)
-    // 422 "A pull request already exists": the push updated the open PR —
-    // reuse it instead of failing the whole proposal.
-    if (status === 422 && /already exists/i.test(message)) {
-      const existing = await octokit.rest.pulls
-        .list({
-          owner,
-          repo,
-          head: `${owner}:${opts.head}`,
-          state: "open",
-          per_page: 1,
-          request: { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) },
-        })
-        .then((r) => r.data[0] ?? null)
-        .catch(() => null)
-      if (existing) {
-        return {
-          ok: true,
-          pr: {
-            number: existing.number,
-            url: existing.html_url,
-            draft: Boolean(existing.draft),
-            created: false,
-          },
-        }
-      }
-    }
     logger.error(
       { err, repoFullName: opts.repoFullName, head: opts.head },
       "GitHub draft PR creation failed"

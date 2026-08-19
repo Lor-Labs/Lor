@@ -207,6 +207,7 @@ export const codeActionTools = {
         // park the run here.
         return { error: "this change requires approval before publishing" }
       }
+      if (abortSignal?.aborted) return { error: "cancelled" }
 
       const pushToken = await getInstallationToken(context.installationId, {
         repositories: [repoName],

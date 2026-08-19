@@ -202,12 +202,12 @@ const CONNECTOR_BRANDS: Partial<
   github: {
     accent: "#24292f",
     avatarClassName:
-      "!bg-[#24292f] !text-white dark:!bg-[#f0f6fc] dark:!text-[#24292f]",
+      "bg-[#24292f]! text-white! dark:bg-[#f0f6fc]! dark:text-[#24292f]!",
   },
   linear: {
     accent: "#5e6ad2",
     avatarClassName:
-      "!bg-[#5e6ad2] !text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.14)]",
+      "bg-[#5e6ad2]! text-white! shadow-[inset_0_0_0_1px_rgba(255,255,255,0.14)]",
   },
 }
 

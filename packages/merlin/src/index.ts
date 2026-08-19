@@ -822,6 +822,32 @@ function toolDetail(
         },
       }
     }
+    case "propose_code_change": {
+      const pullRequest = asRecord(rec?.pullRequest)
+      const number =
+        typeof pullRequest?.number === "number" ? pullRequest.number : null
+      const updated = pullRequest?.updatedExisting === true
+      const heading = `${updated ? "Updated" : "Created"} draft pull request${number === null ? "" : ` #${number}`}`
+      const summary = asString(rec?.summary)?.slice(0, 16000)
+      const url = asString(pullRequest?.url)
+      return {
+        status: "ok",
+        detail: {
+          summary: summary ? `${heading}\n\n${summary}` : heading,
+          items: url
+            ? [
+                {
+                  title:
+                    number === null
+                      ? "View draft pull request"
+                      : `Draft pull request #${number}`,
+                  url,
+                },
+              ]
+            : undefined,
+        },
+      }
+    }
     case "create_artifacts": {
       const files = Array.isArray(rec?.files) ? rec.files : []
       const summary = asString(rec?.summary)?.slice(0, 16000)

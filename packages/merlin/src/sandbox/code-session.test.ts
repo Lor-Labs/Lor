@@ -1,12 +1,29 @@
-import { describe, expect, it } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
+import { withPersistentSandbox } from "./blaxel"
 import {
   codeSandboxName,
   codeSessionId,
   isSafeRef,
   LOR_BRANCH,
   lorBranchFor,
+  publishCodeChange,
   repoWorkdir,
 } from "./code-session"
+
+vi.mock("./blaxel", () => ({
+  execToCompletion: vi.fn(),
+  runPi: vi.fn(),
+  withPersistentSandbox: vi.fn(),
+  writeText: vi.fn(),
+}))
+
+const validPublish = {
+  sandboxKey: "scope-1",
+  repoFullName: "acme/api",
+  branch: "lor/fix-thing-a1b2c3d4",
+  commitSha: "a".repeat(40),
+  pushToken: "token",
+}
 
 describe("lorBranchFor", () => {
   it("slugs the title into the lor/* namespace with a unique suffix", () => {
@@ -63,5 +80,38 @@ describe("workdir + sandbox naming", () => {
   it("derives shell-safe deterministic paths", () => {
     expect(repoWorkdir("acme/my-repo.js")).toBe("/repos/acme__my-repo.js")
     expect(codeSandboxName("abc-123")).toBe("code-abc-123")
+  })
+})
+
+describe("publishCodeChange guards", () => {
+  beforeEach(() => {
+    vi.mocked(withPersistentSandbox).mockClear()
+  })
+
+  it("rejects the main branch before opening a sandbox", async () => {
+    await expect(
+      publishCodeChange({ ...validPublish, branch: "main" })
+    ).resolves.toEqual({
+      ok: false,
+      reason: "refusing to push non-lor branch main",
+    })
+    expect(withPersistentSandbox).not.toHaveBeenCalled()
+  })
+
+  it("rejects an unsafe repository name before opening a sandbox", async () => {
+    await expect(
+      publishCodeChange({ ...validPublish, repoFullName: "../evil" })
+    ).resolves.toEqual({
+      ok: false,
+      reason: "not a valid owner/repo name: ../evil",
+    })
+    expect(withPersistentSandbox).not.toHaveBeenCalled()
+  })
+
+  it("rejects a short commit SHA before opening a sandbox", async () => {
+    await expect(
+      publishCodeChange({ ...validPublish, commitSha: "abc123" })
+    ).resolves.toEqual({ ok: false, reason: "invalid commit sha" })
+    expect(withPersistentSandbox).not.toHaveBeenCalled()
   })
 })

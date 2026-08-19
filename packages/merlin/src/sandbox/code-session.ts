@@ -51,7 +51,8 @@ const COMMIT_MSG_FILE = "/commit-msg.txt"
 
 // Everything interpolated into a shell command is validated first; tokens
 // only ever travel as per-command process env (like the investigate clone).
-const REPO_FULL_NAME = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/
+const REPO_FULL_NAME =
+  /^(?!\.{1,2}\/)(?![A-Za-z0-9._-]+\/\.{1,2}$)[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/
 const COMMIT_SHA = /^[a-f0-9]{40}$/
 // The only refs Merlin may create or update — the push refspec is validated
 // against this server-side, never model-controlled beyond the slug. "lor" is
@@ -142,9 +143,8 @@ async function git(
 }
 
 // Bring the checkout to a clean HEAD on `branch`: fresh shallow clone when the
-// workdir doesn't exist yet, otherwise repair + fetch + hard reset (freshness
-// comes from the fetch — the persistent sandbox is a warm cache, never a
-// source of truth).
+// workdir doesn't exist yet, otherwise repair + fetch + hard reset. Published
+// branches prefer the remote ref; unpublished retries can use their local ref.
 async function ensureCheckout(
   sandbox: BlaxelSandbox,
   opts: {
@@ -186,48 +186,52 @@ async function ensureCheckout(
     if (!repair.ok) {
       return { error: "couldn't reset the existing checkout" }
     }
-    const refspecs = [
-      `+refs/heads/${defaultBranch}:refs/remotes/origin/${defaultBranch}`,
-      ...(continueBranch
-        ? [`+refs/heads/${branch}:refs/remotes/origin/${branch}`]
-        : []),
-    ]
     const fetch = await git(
       sandbox,
-      `git -C "${workdir}" fetch --depth 1 "${tokenUrl}" ${refspecs.map((r) => `"${r}"`).join(" ")}`,
+      `git -C "${workdir}" fetch --depth 1 "${tokenUrl}" "+refs/heads/${defaultBranch}:refs/remotes/origin/${defaultBranch}"`,
       { timeoutSec: FETCH_TIMEOUT_SEC, env: tokenEnv }
     )
     if (!fetch.ok) {
       const stderr = scrub(fetch.stderr.slice(0, 300))
       logger.warn({ repoFullName, stderr }, "Code session: fetch failed")
-      return {
-        error: continueBranch
-          ? `couldn't fetch the branch (it may have been merged or deleted — retry without a branch to start fresh): ${stderr}`
-          : `fetch failed: ${stderr}`,
-      }
+      return { error: `fetch failed: ${stderr}` }
     }
   }
 
+  let start = `refs/remotes/origin/${defaultBranch}`
   if (continueBranch) {
-    // The clone-fresh path hasn't fetched the branch yet.
-    if (!existing.ok) {
-      const fetch = await git(
+    const fetch = await git(
+      sandbox,
+      `git -C "${workdir}" fetch --depth 1 "${tokenUrl}" "+refs/heads/${branch}:refs/remotes/origin/${branch}"`,
+      { timeoutSec: FETCH_TIMEOUT_SEC, env: tokenEnv }
+    )
+    const remoteRef = `refs/remotes/origin/${branch}`
+    const remote = await git(
+      sandbox,
+      `git -C "${workdir}" show-ref --verify --quiet "${remoteRef}"`
+    )
+    if (remote.ok) {
+      start = remoteRef
+    } else {
+      const localRef = `refs/heads/${branch}`
+      const local = await git(
         sandbox,
-        `git -C "${workdir}" fetch --depth 1 "${tokenUrl}" "+refs/heads/${branch}:refs/remotes/origin/${branch}"`,
-        { timeoutSec: FETCH_TIMEOUT_SEC, env: tokenEnv }
+        `git -C "${workdir}" show-ref --verify --quiet "${localRef}"`
       )
-      if (!fetch.ok) {
+      if (!local.ok) {
+        const stderr = scrub(fetch.stderr.slice(0, 300))
+        logger.warn(
+          { repoFullName, branch, stderr },
+          "Code session: continuation branch unavailable"
+        )
         return {
           error:
-            "couldn't fetch the branch to continue (it may have been merged or deleted — retry without a branch to start fresh)",
+            "couldn't find the branch to continue (it may have been merged, deleted, or lost with the sandbox — retry without a branch to start fresh)",
         }
       }
+      start = localRef
     }
   }
-
-  const start = continueBranch
-    ? `refs/remotes/origin/${branch}`
-    : `refs/remotes/origin/${defaultBranch}`
   const checkout = await git(
     sandbox,
     `git -C "${workdir}" checkout -B "${branch}" "${start}"`
@@ -341,8 +345,8 @@ export async function prepareCodeChange(
         )
         if (abortSignal?.aborted) return { error: "cancelled" }
 
-        // A half-finished session must not become a half-finished PR. The
-        // edits stay in the persistent sandbox; a re-call continues from them.
+        // A half-finished session must not become a half-finished PR. The next
+        // call starts from the branch's last commit, not uncommitted edits.
         if (run.result.status !== "completed" || run.result.exitCode !== 0) {
           const timedOut =
             run.result.status === "killed" || run.result.status === "lost"
@@ -350,7 +354,7 @@ export async function prepareCodeChange(
             (run.result.stderr || run.result.stdout).slice(0, 300)
           )
           return {
-            error: `the coding agent ${timedOut ? "timed out" : `failed: ${detail || "unknown error"}`}. Its work-in-progress is preserved — call propose_code_change again with instructions for what remains${continueBranch ? "" : ` and branch "${branch}"`} to continue.`,
+            error: `the coding agent ${timedOut ? "timed out" : `failed: ${detail || "unknown error"}`}. Retry propose_code_change with the complete instructions${continueBranch ? "" : ` and branch "${branch}"`} to continue from the last committed branch state.`,
           }
         }
         if (run.error && !run.findings) {
@@ -445,6 +449,18 @@ export async function publishCodeChange(opts: {
     return await withPersistentSandbox(
       codeSandboxName(opts.sandboxKey),
       async (sandbox) => {
+        const checkout = await git(
+          sandbox,
+          `git -C "${workdir}" rev-parse --is-inside-work-tree`
+        )
+        if (!checkout.ok) {
+          return {
+            ok: false,
+            reason:
+              "the prepared change is unavailable; re-prepare it before publishing",
+          }
+        }
+
         // Never force-push, never push to origin (the agent may have
         // re-pointed it): explicit URL, explicit sha:ref refspec.
         const push = await git(
