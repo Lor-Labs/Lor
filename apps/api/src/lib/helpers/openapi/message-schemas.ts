@@ -41,7 +41,15 @@ export const messageEmbedSchema = z.object({
       iconUrl: httpsUrlSchema.optional(),
     })
     .optional(),
-  fields: z.array(z.object({ name: z.string(), value: z.string() })).optional(),
+  fields: z
+    .array(
+      z.object({
+        name: z.string(),
+        value: z.string(),
+        inline: z.boolean().optional(),
+      })
+    )
+    .optional(),
   image: z.string().optional(),
   footer: z.string().optional(),
   timestamp: z.string().optional(),

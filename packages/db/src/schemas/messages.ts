@@ -186,6 +186,7 @@ export type Attachment = {
 export type EmbedField = {
   name: string
   value: string
+  inline?: boolean
 }
 
 export type Embed = {

@@ -97,7 +97,13 @@ const discordEmbedSchema = z.object({
   image: z.object({ url: httpUrlSchema }).optional(),
   thumbnail: z.object({ url: httpUrlSchema }).optional(),
   fields: z
-    .array(z.object({ name: z.string().max(256), value: z.string().max(1024) }))
+    .array(
+      z.object({
+        name: z.string().max(256),
+        value: z.string().max(1024),
+        inline: z.boolean().optional(),
+      })
+    )
     .max(25)
     .optional(),
 })
@@ -163,6 +169,7 @@ export function discordEmbedsToMessageEmbeds(
     const fields = (embed.fields ?? []).map((f) => ({
       name: f.name,
       value: f.value,
+      ...(f.inline !== undefined ? { inline: f.inline } : {}),
     }))
     const mapped: Embed = {
       type: "rich",
@@ -251,6 +258,7 @@ const slackAttachmentSchema = z.object({
       z.object({
         title: z.string().max(256).optional(),
         value: z.string().max(2048).optional(),
+        short: z.boolean().optional(),
       })
     )
     .max(25)
@@ -386,6 +394,7 @@ export function slackAttachmentsToMessageEmbeds(
             {
               name: f.title ?? "",
               value: f.value ? mrkdwnToMarkdown(f.value) : "",
+              ...(f.short !== undefined ? { inline: f.short } : {}),
             },
           ]
         : []

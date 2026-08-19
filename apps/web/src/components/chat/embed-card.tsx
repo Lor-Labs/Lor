@@ -141,9 +141,12 @@ export function EmbedCard({ embed, className }: EmbedCardProps) {
           />
         )}
         {embed.fields && embed.fields.length > 0 && (
-          <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-x-4 gap-y-2 sm:grid-cols-3">
             {embed.fields.map((field, index) => (
-              <div key={`${field.name}-${index}`} className="min-w-0">
+              <div
+                key={`${field.name}-${index}`}
+                className={cn("min-w-0", !field.inline && "col-span-full")}
+              >
                 {field.name && (
                   <div className="text-xs font-semibold text-foreground/90">
                     {field.name}
