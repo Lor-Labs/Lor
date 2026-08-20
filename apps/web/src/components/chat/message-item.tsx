@@ -24,7 +24,7 @@ import {
 import { cn } from "@repo/ui/lib/utils"
 import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { formatTime, timeAgo } from "@repo/utils/date"
-import { useCallback, useEffect, useState } from "react"
+import { memo, useCallback, useEffect, useState } from "react"
 import type { MentionCandidate } from "@/components/chat/composer/mention-types"
 import { EmbedCard } from "@/components/chat/embed-card"
 import { MerlinMessageBody } from "@/components/chat/merlin-message-body"
@@ -249,7 +249,7 @@ function ThreadFooter({
   )
 }
 
-export function MessageItem({
+export const MessageItem = memo(function MessageItem({
   message,
   showHeader,
   wrapContentAroundAvatar = false,
@@ -760,4 +760,4 @@ export function MessageItem({
       </AlertDialog>
     </div>
   )
-}
+})

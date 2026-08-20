@@ -108,10 +108,9 @@ function RightPanelDock() {
       // mousemove persists the unchanged width, not a stale earlier value.
       widthRef.current = startWidth
 
-      // Watch the center (chat) width so a wide right panel can borrow the
-      // left sidebar's space. The left sidebar animates its collapse/expand
-      // on its own (shadcn gap transition); the leftWidth hysteresis below
-      // keeps the mid-animation measurements from flickering the decision.
+      // Cache the drag-start geometry so mousemove never has to force layout
+      // after writing the panel width. A wider right panel shrinks the center
+      // by the same amount until the left sidebar is collapsed.
       const centerEl = document.querySelector<HTMLElement>(
         "[data-slot='sidebar-inset']"
       )
@@ -144,16 +143,13 @@ function RightPanelDock() {
         widthRef.current = newWidth
 
         if (!canManageLeft) return
-        const centerWidth =
-          centerEl?.getBoundingClientRect().width ?? Number.POSITIVE_INFINITY
+        const projectedCenterWidth = startCenter - (newWidth - startWidth)
         if (!collapsedByThisDrag) {
-          if (centerWidth < CENTER_MIN_WIDTH) {
+          if (projectedCenterWidth < CENTER_MIN_WIDTH) {
             collapsedByThisDrag = true
             setLeftOpen(false)
           }
-          // Reopening consumes leftWidth, so require that much headroom —
-          // the gap between the two thresholds prevents flicker.
-        } else if (centerWidth - leftWidth >= CENTER_MIN_WIDTH) {
+        } else if (projectedCenterWidth >= CENTER_MIN_WIDTH) {
           collapsedByThisDrag = false
           setLeftOpen(true)
         }
