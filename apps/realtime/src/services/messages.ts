@@ -278,6 +278,10 @@ export async function createMessage(input: CreateMessageInput) {
   if (input.accessibleChannel.id !== input.payload.channelId) {
     throw new Error("Channel mismatch")
   }
+  // Archived channels (e.g. an archived project's) are read-only.
+  if (!input.accessibleChannel.canWrite) {
+    throw new Error("This channel is archived")
+  }
 
   const channelRecord = input.accessibleChannel
   const authorAvatarColor = await workspaceAvatarColor(
@@ -672,6 +676,9 @@ export async function editMessage(
     input.userId,
     input.payload.channelId
   )
+  if (!channelRecord.canWrite) {
+    throw new Error("This channel is archived")
+  }
 
   const messageRecord = await db
     .select({
@@ -725,6 +732,9 @@ export async function toggleMessageReaction(input: ToggleMessageReactionInput) {
     input.userId,
     input.payload.channelId
   )
+  if (!channelRecord.canWrite) {
+    throw new Error("This channel is archived")
+  }
 
   const messageRecord = await db
     .select({

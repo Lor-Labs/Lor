@@ -4,6 +4,7 @@ import {
 } from "@repo/auth/permissions"
 import { syncSeats } from "@repo/billing"
 import { and, count, db, desc, eq, ilike, inArray, schema } from "@repo/db"
+import { listAccessibleChannelIds } from "@repo/db/queries/channel-access"
 import { env } from "@repo/env/server"
 import { PRESENCE_ONLINE_USERS_SET_KEY } from "@repo/realtime-types"
 import { asc } from "drizzle-orm"
@@ -330,21 +331,30 @@ export const searchMessages: AppRouteHandler<SearchMessagesRoute> = async (
   c
 ) => {
   const workspace = c.var.workspace
+  const currentUser = c.var.user
   const { query, channelId, page, perPage } = c.req.valid("query")
   const offset = (page - 1) * perPage
 
-  const workspaceChannels = await db
-    .select({
-      id: schema.channel.id,
-      name: schema.channel.name,
-    })
-    .from(schema.channel)
-    .where(
-      and(
-        eq(schema.channel.workspaceId, workspace.id),
-        eq(schema.channel.type, "text")
-      )
-    )
+  const [allWorkspaceChannels, accessibleIds] = await Promise.all([
+    db
+      .select({
+        id: schema.channel.id,
+        name: schema.channel.name,
+      })
+      .from(schema.channel)
+      .where(
+        and(
+          eq(schema.channel.workspaceId, workspace.id),
+          eq(schema.channel.type, "text")
+        )
+      ),
+    listAccessibleChannelIds(currentUser.id, workspace.id),
+  ])
+  // Search never crosses the audience boundary — restricted channels the
+  // caller isn't in are excluded before any content is matched.
+  const workspaceChannels = allWorkspaceChannels.filter((ch) =>
+    accessibleIds.has(ch.id)
+  )
 
   const emptyResult = {
     itemsTotal: 0,

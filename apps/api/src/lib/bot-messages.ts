@@ -47,6 +47,17 @@ type PostBotMessageInput = {
 export async function postBotMessage(
   input: PostBotMessageInput
 ): Promise<{ id: string }> {
+  // Archived channels (e.g. an archived project's) are read-only for bots
+  // and webhooks too, not just users.
+  const target = await db
+    .select({ archivedAt: schema.channel.archivedAt })
+    .from(schema.channel)
+    .where(eq(schema.channel.id, input.channel.id))
+    .limit(1)
+    .then((rows) => rows[0])
+  if (!target) throw new Error("Channel not found")
+  if (target.archivedAt) throw new Error("This channel is archived")
+
   const inserted = await db
     .insert(schema.message)
     .values({

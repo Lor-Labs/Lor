@@ -184,6 +184,44 @@ async function resolveAccessContainer(row: {
   return parent ?? { id: row.id, audience: row.audience }
 }
 
+/**
+ * Ids of every workspace channel the user can access — the bulk companion to
+ * resolveChannelAccess for list/search/unread paths, so they filter with two
+ * queries instead of N resolver calls. Assumes the caller already verified
+ * workspace membership (all existing callers run behind that middleware).
+ */
+export async function listAccessibleChannelIds(
+  userId: string,
+  workspaceId: string
+): Promise<Set<string>> {
+  const [channels, memberships] = await Promise.all([
+    db
+      .select({
+        id: channel.id,
+        parentId: channel.parentId,
+        audience: channel.audience,
+      })
+      .from(channel)
+      .where(eq(channel.workspaceId, workspaceId)),
+    db
+      .select({ channelId: channelMember.channelId })
+      .from(channelMember)
+      .where(eq(channelMember.userId, userId))
+      .then((rows) => new Set(rows.map((row) => row.channelId))),
+  ])
+
+  const audienceById = new Map(channels.map((ch) => [ch.id, ch.audience]))
+  const accessible = new Set<string>()
+  for (const ch of channels) {
+    const containerId = ch.parentId ?? ch.id
+    const containerAudience = audienceById.get(containerId) ?? ch.audience
+    if (containerAudience === "workspace" || memberships.has(containerId)) {
+      accessible.add(ch.id)
+    }
+  }
+  return accessible
+}
+
 function toChannelShape(row: {
   id: string
   name: string | null

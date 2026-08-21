@@ -10,6 +10,7 @@ import {
   schema,
   sql,
 } from "@repo/db"
+import { listAccessibleChannelIds } from "@repo/db/queries/channel-access"
 import type {
   ChannelReadState,
   NotificationBootstrap,
@@ -162,7 +163,9 @@ export async function getUnreadStatesForUser(
     .from(schema.channelMember)
     .where(eq(schema.channelMember.userId, userId))
 
-  // Get workspace channel IDs via workspace_member -> channels
+  // Get workspace channel IDs via workspace_member -> channels, filtered to
+  // what the user can actually access — a restricted channel must not leak
+  // unread/mention counts (or its existence) to non-members.
   const workspaceMemberships = await db
     .select({ workspaceId: schema.workspaceMember.workspaceId })
     .from(schema.workspaceMember)
@@ -170,12 +173,12 @@ export async function getUnreadStatesForUser(
 
   let workspaceChannelIds: string[] = []
   if (workspaceMemberships.length > 0) {
-    const workspaceIds = workspaceMemberships.map((m) => m.workspaceId)
-    const workspaceChannels = await db
-      .select({ id: schema.channel.id })
-      .from(schema.channel)
-      .where(inArray(schema.channel.workspaceId, workspaceIds))
-    workspaceChannelIds = workspaceChannels.map((c) => c.id)
+    const accessibleSets = await Promise.all(
+      workspaceMemberships.map((m) =>
+        listAccessibleChannelIds(userId, m.workspaceId)
+      )
+    )
+    workspaceChannelIds = accessibleSets.flatMap((set) => [...set])
   }
 
   const channelIds = [

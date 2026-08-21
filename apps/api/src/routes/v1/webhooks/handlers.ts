@@ -12,6 +12,7 @@ import { and, count, eq } from "drizzle-orm"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { type LastAct, lastActByTrigger } from "@/lib/last-act"
 import { assertWorkspacePermission } from "@/lib/permissions"
+import { userCanAccessChannel } from "@/lib/queries/channel-access"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
   CreateChannelWebhookRoute,
@@ -151,6 +152,13 @@ export const listChannelWebhooks: AppRouteHandler<
   // Listing exposes tokens, so it's gated like management.
   assertWorkspacePermission(c.var.member, workspace, { channel: ["update"] })
 
+  if (!(await userCanAccessChannel(channelId, c.var.user.id))) {
+    return c.json(
+      { success: false, message: "Channel not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+
   const target = await findTextChannel(channelId, workspace.id)
   if (!target) {
     return c.json(
@@ -218,6 +226,13 @@ export const createChannelWebhook: AppRouteHandler<
   const { name, avatarUrl } = c.req.valid("json")
 
   assertWorkspacePermission(c.var.member, workspace, { channel: ["update"] })
+
+  if (!(await userCanAccessChannel(channelId, c.var.user.id))) {
+    return c.json(
+      { success: false, message: "Channel not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
 
   const key = env.INTEGRATION_ENCRYPTION_KEY
   if (!key) {
@@ -372,6 +387,13 @@ export const updateChannelWebhook: AppRouteHandler<
 
   assertWorkspacePermission(c.var.member, workspace, { channel: ["update"] })
 
+  if (!(await userCanAccessChannel(channelId, c.var.user.id))) {
+    return c.json(
+      { success: false, message: "Channel not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+
   const key = env.INTEGRATION_ENCRYPTION_KEY
   if (!key) {
     return c.json(
@@ -467,6 +489,13 @@ export const deleteChannelWebhook: AppRouteHandler<
   const { channelId, webhookId } = c.req.valid("param")
 
   assertWorkspacePermission(c.var.member, workspace, { channel: ["update"] })
+
+  if (!(await userCanAccessChannel(channelId, c.var.user.id))) {
+    return c.json(
+      { success: false, message: "Channel not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
 
   const existing = await findWebhook(workspace.id, channelId, webhookId)
   if (!existing) {

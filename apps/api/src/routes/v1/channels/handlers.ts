@@ -1,4 +1,5 @@
 import { db, schema } from "@repo/db"
+import { listAccessibleChannelIds } from "@repo/db/queries/channel-access"
 import type { IntegrationProvider } from "@repo/db/schema"
 import {
   agentProfile,
@@ -17,6 +18,7 @@ import { and, asc, desc, eq, inArray, or } from "drizzle-orm"
 import { allowedChannelConnectors } from "@/lib/channel-connectors"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { assertWorkspacePermission } from "@/lib/permissions"
+import { userCanAccessChannel } from "@/lib/queries/channel-access"
 import {
   fetchMessages,
   getAvatarColorsByUserId,
@@ -49,12 +51,19 @@ const DEFAULT_CONNECTOR_SEARCH_LIMIT = 8
 
 export const listChannels: AppRouteHandler<ListChannelsRoute> = async (c) => {
   const workspace = c.var.workspace
+  const currentUser = c.var.user
 
-  const channels = await db
-    .select()
-    .from(channel)
-    .where(eq(channel.workspaceId, workspace.id))
-    .orderBy(asc(channel.position))
+  const [allChannels, accessibleIds] = await Promise.all([
+    db
+      .select()
+      .from(channel)
+      .where(eq(channel.workspaceId, workspace.id))
+      .orderBy(asc(channel.position)),
+    listAccessibleChannelIds(currentUser.id, workspace.id),
+  ])
+  // Restricted channels the user isn't a member of are invisible — they
+  // don't render locked, they simply don't exist in the response.
+  const channels = allChannels.filter((ch) => accessibleIds.has(ch.id))
 
   const categoryMap = new Map<string, typeof channels>()
   const categories: typeof channels = []
@@ -133,7 +142,7 @@ export const reorderChannels: AppRouteHandler<ReorderChannelsRoute> = async (
 
   // Verify all channels belong to this workspace
   const existing = await db
-    .select({ id: channel.id })
+    .select({ id: channel.id, audience: channel.audience })
     .from(channel)
     .where(
       and(
@@ -152,6 +161,66 @@ export const reorderChannels: AppRouteHandler<ReorderChannelsRoute> = async (
     )
   }
 
+  // Audience lives on the container: dragging a channel into or out of a
+  // members-audience category would silently change who can read it. Reject
+  // any reorder that changes a channel's container when either side is
+  // private — moving a project's channels is project management, not a drag.
+  const currentRows = await db
+    .select({
+      id: channel.id,
+      parentId: channel.parentId,
+      audience: channel.audience,
+    })
+    .from(channel)
+    .where(inArray(channel.id, uniqueChannelIds))
+  const currentById = new Map(currentRows.map((ch) => [ch.id, ch]))
+
+  const referencedParentIds = [
+    ...new Set(
+      [
+        ...updates.map((u) => u.parentId),
+        ...currentRows.map((ch) => ch.parentId),
+      ].filter((id): id is string => id !== null)
+    ),
+  ]
+  const parentRows = referencedParentIds.length
+    ? await db
+        .select({ id: channel.id, audience: channel.audience })
+        .from(channel)
+        .where(
+          and(
+            eq(channel.workspaceId, workspace.id),
+            inArray(channel.id, referencedParentIds)
+          )
+        )
+    : []
+  const parentAudienceById = new Map(
+    parentRows.map((ch) => [ch.id, ch.audience])
+  )
+
+  for (const update of updates) {
+    const current = currentById.get(update.id)
+    if (!current) continue
+    const fromContainer = current.parentId ?? current.id
+    const toContainer = update.parentId ?? update.id
+    if (fromContainer === toContainer) continue
+    const fromAudience = current.parentId
+      ? (parentAudienceById.get(current.parentId) ?? "workspace")
+      : current.audience
+    const toAudience = update.parentId
+      ? (parentAudienceById.get(update.parentId) ?? "workspace")
+      : current.audience
+    if (fromAudience === "members" || toAudience === "members") {
+      return c.json(
+        {
+          success: false,
+          message: "Channels cannot be moved into or out of a private group",
+        },
+        HttpStatusCodes.FORBIDDEN
+      )
+    }
+  }
+
   await db.transaction(async (tx) => {
     for (const update of updates) {
       await tx
@@ -168,7 +237,15 @@ export const reorderChannels: AppRouteHandler<ReorderChannelsRoute> = async (
 
 export const getChannel: AppRouteHandler<GetChannelRoute> = async (c) => {
   const workspace = c.var.workspace
+  const currentUser = c.var.user
   const { channelId } = c.req.valid("param")
+
+  if (!(await userCanAccessChannel(channelId, currentUser.id))) {
+    return c.json(
+      { success: false, message: "Channel not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
 
   const ch = await db
     .select()
@@ -192,12 +269,22 @@ export const getChannel: AppRouteHandler<GetChannelRoute> = async (c) => {
 export const updateChannel: AppRouteHandler<UpdateChannelRoute> = async (c) => {
   const workspace = c.var.workspace
   const member = c.var.member
+  const currentUser = c.var.user
   const { channelId } = c.req.valid("param")
   const body = c.req.valid("json")
 
   assertWorkspacePermission(member, workspace, {
     channel: ["update"],
   })
+
+  // Channel-manage permission is workspace-wide, but a private channel is
+  // invisible to non-members — including admins. No implicit admin access.
+  if (!(await userCanAccessChannel(channelId, currentUser.id))) {
+    return c.json(
+      { success: false, message: "Channel not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
 
   // Assigning a Merlin profile: it must belong to this workspace (the FK alone
   // doesn't scope it). null clears the assignment (inherit category/default).
@@ -243,11 +330,19 @@ export const updateChannel: AppRouteHandler<UpdateChannelRoute> = async (c) => {
 export const deleteChannel: AppRouteHandler<DeleteChannelRoute> = async (c) => {
   const workspace = c.var.workspace
   const member = c.var.member
+  const currentUser = c.var.user
   const { channelId } = c.req.valid("param")
 
   assertWorkspacePermission(member, workspace, {
     channel: ["delete"],
   })
+
+  if (!(await userCanAccessChannel(channelId, currentUser.id))) {
+    return c.json(
+      { success: false, message: "Channel not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
 
   const deleted = await db
     .delete(channel)
@@ -285,7 +380,7 @@ export const listChannelMessages: AppRouteHandler<
     .limit(1)
     .then((rows) => rows[0])
 
-  if (!ch) {
+  if (!ch || !(await userCanAccessChannel(channelId, currentUser.id))) {
     return c.json(
       { success: false, message: "Channel not found" },
       HttpStatusCodes.NOT_FOUND
@@ -321,7 +416,7 @@ export const listThreadActivity: AppRouteHandler<
     .limit(1)
     .then((rows) => rows[0])
 
-  if (!ch) {
+  if (!ch || !(await userCanAccessChannel(channelId, currentUser.id))) {
     return c.json(
       { success: false, message: "Channel not found" },
       HttpStatusCodes.NOT_FOUND
@@ -341,6 +436,7 @@ export const toggleMessagePin: AppRouteHandler<ToggleMessagePinRoute> = async (
 ) => {
   const workspace = c.var.workspace
   const member = c.var.member
+  const currentUser = c.var.user
   const { channelId, messageId } = c.req.valid("param")
 
   assertWorkspacePermission(member, workspace, {
@@ -366,7 +462,7 @@ export const toggleMessagePin: AppRouteHandler<ToggleMessagePinRoute> = async (
     .limit(1)
     .then((rows) => rows[0])
 
-  if (!msg) {
+  if (!msg || !(await userCanAccessChannel(channelId, currentUser.id))) {
     return c.json(
       { success: false, message: "Message not found" },
       HttpStatusCodes.NOT_FOUND
@@ -403,7 +499,7 @@ export const listPinnedMessages: AppRouteHandler<
     .limit(1)
     .then((rows) => rows[0])
 
-  if (!ch) {
+  if (!ch || !(await userCanAccessChannel(channelId, currentUser.id))) {
     return c.json(
       { success: false, message: "Channel not found" },
       HttpStatusCodes.NOT_FOUND
@@ -597,7 +693,7 @@ export const listThreadReplies: AppRouteHandler<
     .limit(1)
     .then((rows) => rows[0])
 
-  if (!ch) {
+  if (!ch || !(await userCanAccessChannel(channelId, currentUser.id))) {
     return c.json(
       { success: false, message: "Channel not found" },
       HttpStatusCodes.NOT_FOUND
@@ -715,10 +811,9 @@ export const getMessageLocation: AppRouteHandler<
   GetMessageLocationRoute
 > = async (c) => {
   const workspace = c.var.workspace
+  const currentUser = c.var.user
   const { messageId } = c.req.valid("param")
 
-  // All channels are public to the workspace, so workspace membership (enforced
-  // by the middleware) is sufficient access; just confirm the message is here.
   const row = await db
     .select({
       messageId: message.id,
@@ -733,7 +828,9 @@ export const getMessageLocation: AppRouteHandler<
     .limit(1)
     .then((rows) => rows[0])
 
-  if (!row) {
+  // Same 404 for "doesn't exist" and "not allowed" — message ids must not
+  // probe private channels.
+  if (!row || !(await userCanAccessChannel(row.channelId, currentUser.id))) {
     return c.json(
       { success: false, message: "Message not found" },
       HttpStatusCodes.NOT_FOUND
@@ -752,14 +849,19 @@ async function channelInWorkspace(channelId: string, workspaceId: string) {
     .then((rows) => rows[0] ?? null)
 }
 
-// The channel must exist in this workspace and actually grant the connector.
+// The channel must exist in this workspace, be visible to the caller, and
+// actually grant the connector.
 // Returns the failure to send, or null when the caller may proceed.
 async function assertConnectorAllowed(
   workspaceId: string,
   channelId: string,
-  provider: IntegrationProvider
+  provider: IntegrationProvider,
+  userId: string
 ) {
-  if (!(await channelInWorkspace(channelId, workspaceId))) {
+  if (
+    !(await channelInWorkspace(channelId, workspaceId)) ||
+    !(await userCanAccessChannel(channelId, userId))
+  ) {
     return {
       body: { success: false as const, message: "Channel not found" },
       status: HttpStatusCodes.NOT_FOUND,
@@ -784,9 +886,13 @@ export const listChannelConnectors: AppRouteHandler<
   ListChannelConnectorsRoute
 > = async (c) => {
   const workspace = c.var.workspace
+  const currentUser = c.var.user
   const { channelId } = c.req.valid("param")
 
-  if (!(await channelInWorkspace(channelId, workspace.id))) {
+  if (
+    !(await channelInWorkspace(channelId, workspace.id)) ||
+    !(await userCanAccessChannel(channelId, currentUser.id))
+  ) {
     return c.json(
       { success: false, message: "Channel not found" },
       HttpStatusCodes.NOT_FOUND
@@ -801,10 +907,16 @@ export const searchChannelConnector: AppRouteHandler<
   SearchChannelConnectorRoute
 > = async (c) => {
   const workspace = c.var.workspace
+  const currentUser = c.var.user
   const { channelId, provider } = c.req.valid("param")
   const { q, limit } = c.req.valid("query")
 
-  const denied = await assertConnectorAllowed(workspace.id, channelId, provider)
+  const denied = await assertConnectorAllowed(
+    workspace.id,
+    channelId,
+    provider,
+    currentUser.id
+  )
   if (denied) return c.json(denied.body, denied.status)
 
   const results = await searchConnector(
@@ -820,9 +932,15 @@ export const listConnectorScopes: AppRouteHandler<
   ListConnectorScopesRoute
 > = async (c) => {
   const workspace = c.var.workspace
+  const currentUser = c.var.user
   const { channelId, provider } = c.req.valid("param")
 
-  const denied = await assertConnectorAllowed(workspace.id, channelId, provider)
+  const denied = await assertConnectorAllowed(
+    workspace.id,
+    channelId,
+    provider,
+    currentUser.id
+  )
   if (denied) return c.json(denied.body, denied.status)
 
   const scopes = await listScopes(provider, workspace.id)
@@ -833,10 +951,16 @@ export const searchConnectorFiles: AppRouteHandler<
   SearchConnectorFilesRoute
 > = async (c) => {
   const workspace = c.var.workspace
+  const currentUser = c.var.user
   const { channelId, provider } = c.req.valid("param")
   const { scope, q, limit } = c.req.valid("query")
 
-  const denied = await assertConnectorAllowed(workspace.id, channelId, provider)
+  const denied = await assertConnectorAllowed(
+    workspace.id,
+    channelId,
+    provider,
+    currentUser.id
+  )
   if (denied) return c.json(denied.body, denied.status)
 
   const results = await searchFiles(

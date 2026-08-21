@@ -1,4 +1,5 @@
 import { and, db, eq, inArray, MERLIN_USER_ID, or, schema } from "@repo/db"
+import { listChannelAudienceUserIds } from "@repo/db/queries/channel-access"
 import type {
   MentionNotification,
   ReactionNotification,
@@ -94,23 +95,11 @@ const EVERYONE_MENTION_REGEX = /(^|\s)@everyone\b/i
 const mentionNotificationTypes = ["direct_mention", "everyone_mention"] as const
 
 async function listRecipientUserIds(channel: FanoutChannel) {
-  if (channel.workspaceId) {
-    return db
-      .select({
-        userId: schema.workspaceMember.userId,
-      })
-      .from(schema.workspaceMember)
-      .where(eq(schema.workspaceMember.workspaceId, channel.workspaceId))
-      .then((rows) => rows.map((row) => row.userId))
-  }
-
-  return db
-    .select({
-      userId: schema.channelMember.userId,
-    })
-    .from(schema.channelMember)
-    .where(eq(schema.channelMember.channelId, channel.id))
-    .then((rows) => rows.map((row) => row.userId))
+  // Shared audience resolver: workspace channels fan out to the workspace
+  // unless the channel's container is members-audience (private channel /
+  // project folder), DMs to their channel members. Never widen this — a
+  // restricted channel's messages must not reach non-members' unreads/push.
+  return listChannelAudienceUserIds(channel.id)
 }
 
 function buildMentionTargets(args: {
