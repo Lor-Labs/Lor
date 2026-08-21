@@ -227,6 +227,14 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
 
   const rootMessage = channelCacheRoot ?? threadApiRoot
 
+  // MessageItem is memoized — keep the root message prop referentially
+  // stable. A fresh `{ ...rootMessage, threadSummary: null }` spread on every
+  // render would defeat the memo and re-render the row on any panel render.
+  const rootMessageForRender = useMemo(
+    () => (rootMessage ? { ...rootMessage, threadSummary: null } : null),
+    [rootMessage]
+  )
+
   // Task threads get their own panel identity: header says Task + live
   // status, and the docked strip below carries plan/files/approval.
   const isTask = rootMessage?.type === "task_card"
@@ -671,20 +679,20 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
               aria-busy={Boolean(pendingMerlinMessage)}
               className="justify-end"
             >
-              {rootMessage && (
+              {rootMessageForRender && (
                 <MessageScrollerItem
-                  messageId={rootMessage.id}
+                  messageId={rootMessageForRender.id}
                   scrollAnchor={openingMerlinTriggerMessageIds.has(
-                    rootMessage.id
+                    rootMessageForRender.id
                   )}
                   className="pt-2"
                 >
                   <MessageItem
-                    message={{ ...rootMessage, threadSummary: null }}
+                    message={rootMessageForRender}
                     showHeader={true}
                     wrapContentAroundAvatar
                     currentUserId={currentUserId}
-                    isReplyTarget={replyingTo?.id === rootMessage.id}
+                    isReplyTarget={replyingTo?.id === rootMessageForRender.id}
                     onReact={handleReact}
                     onReply={setReplyingTo}
                     onDelete={handleDelete}
