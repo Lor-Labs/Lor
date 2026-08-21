@@ -32,7 +32,7 @@ const REPO_FULL_NAME = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/
 function brief(question: string): string {
   return [
     "You are investigating a codebase to answer a specific question. The repo is",
-    "checked out at /repo (a shallow clone — git history is limited). Explore it",
+    "checked out at /workspace/repo (a shallow clone — git history is limited). Explore it",
     "(read files, grep) and produce a concise, accurate answer.",
     "",
     "When you reference code, cite exact locations as `path#Lstart-Lend` so they",
@@ -61,7 +61,7 @@ export async function investigateCode(
     return await withEphemeralSandbox("inv", async (sandbox) => {
       logger.info({ repoFullName }, "Sandbox: cloning repo for investigation")
       const clone = await execToCompletion(sandbox, {
-        command: `git clone --depth 1 --single-branch "https://x-access-token:$CLONE_TOKEN@github.com/${repoFullName}.git" /repo && git -C /repo remote set-url origin https://github.com/${repoFullName}.git`,
+        command: `git clone --depth 1 --single-branch "https://x-access-token:$CLONE_TOKEN@github.com/${repoFullName}.git" /workspace/repo && git -C /workspace/repo remote set-url origin https://github.com/${repoFullName}.git`,
         env: { CLONE_TOKEN: cloneToken },
         timeoutSec: CLONE_TIMEOUT_SEC,
       })
@@ -76,7 +76,8 @@ export async function investigateCode(
       logger.info({ repoFullName }, "Sandbox: clone ok; running code agent")
 
       await sandbox.process.exec({
-        command: "mkdir -p /root/.pi/agent",
+        command:
+          "mkdir -p /workspace/tmp /workspace/.cache /workspace/.local /root/.pi/agent",
         waitForCompletion: true,
         timeout: 30,
       })
@@ -95,7 +96,7 @@ export async function investigateCode(
       const run = await runPi(sandbox, {
         command: buildPiCommand(env.MERLIN_MODEL, { print: true }),
         timeoutSec: AGENT_TIMEOUT_SEC,
-        workingDir: "/repo",
+        workingDir: "/workspace/repo",
         ...(onStep ? { onStep } : {}),
         ...(onAssistantText ? { onAssistantText } : {}),
         logLabel: "Sandbox",

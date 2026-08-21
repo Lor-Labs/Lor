@@ -185,6 +185,7 @@ export function MessageList({
   const olderSentinelRef = useRef<HTMLDivElement>(null)
   const newerSentinelRef = useRef<HTMLDivElement>(null)
   const stickyDateRef = useRef<HTMLDivElement>(null)
+  const scrollFrameRef = useRef<number | null>(null)
   const {
     commandRef: messageScrollCommandRef,
     register: registerScrollCommand,
@@ -246,28 +247,42 @@ export function MessageList({
   )
 
   const handleScroll = useCallback(() => {
-    const el = scrollRef.current
-    if (!el) return
+    if (scrollFrameRef.current !== null) return
 
-    // Determine which date divider has scrolled past the top
-    const containerTop = el.getBoundingClientRect().top
-    const dividers = el.querySelectorAll("[data-date-divider]")
-    let topDate: string | null = null
+    scrollFrameRef.current = window.requestAnimationFrame(() => {
+      scrollFrameRef.current = null
+      const el = scrollRef.current
+      if (!el) return
 
-    for (const divider of dividers) {
-      const rect = divider.getBoundingClientRect()
-      if (rect.top <= containerTop + 8) {
-        topDate = (divider as HTMLElement).dataset.dateDivider ?? null
-      } else {
-        break
+      // Determine which date divider has scrolled past the top
+      const containerTop = el.getBoundingClientRect().top
+      const dividers = el.querySelectorAll("[data-date-divider]")
+      let topDate: string | null = null
+
+      for (const divider of dividers) {
+        const rect = divider.getBoundingClientRect()
+        if (rect.top <= containerTop + 8) {
+          topDate = (divider as HTMLElement).dataset.dateDivider ?? null
+        } else {
+          break
+        }
       }
-    }
 
-    const stickyDate = stickyDateRef.current
-    if (!stickyDate) return
-    stickyDate.textContent = topDate ?? ""
-    stickyDate.dataset.visible = topDate ? "true" : "false"
+      const stickyDate = stickyDateRef.current
+      if (!stickyDate) return
+      stickyDate.textContent = topDate ?? ""
+      stickyDate.dataset.visible = topDate ? "true" : "false"
+    })
   }, [])
+
+  useEffect(
+    () => () => {
+      if (scrollFrameRef.current !== null) {
+        window.cancelAnimationFrame(scrollFrameRef.current)
+      }
+    },
+    []
+  )
 
   // IntersectionObserver for fetching older (top of viewport)
   useEffect(() => {

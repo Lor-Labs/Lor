@@ -1,9 +1,11 @@
 import { createHash, randomUUID } from "node:crypto"
+import { dirname } from "node:path"
 import { env } from "@repo/env/server"
 import { logger } from "../logger"
 import {
   type BlaxelSandbox,
   execToCompletion,
+  invalidatePersistentSandbox,
   runPi,
   withPersistentSandbox,
   writeText,
@@ -93,7 +95,7 @@ export function codeSandboxName(sandboxKey: string): string {
 
 // One checkout per repo inside the conversation's sandbox.
 export function repoWorkdir(repoFullName: string): string {
-  return `/repos/${repoFullName.replace("/", "__")}`
+  return `/workspace/repos/${repoFullName.replace("/", "__")}`
 }
 
 function gitIdentity(): { name: string; email: string } {
@@ -114,8 +116,10 @@ function brief(workdir: string, instructions: string): string {
     '  possible; don\'t refactor or "improve" unrelated code.',
     "- Never run git commands (commit, branch, push) and never touch .git —",
     "  version control happens outside this session.",
-    "- Keep scratch work outside the repository (use /tmp); every modified file",
+    "- Keep scratch work outside the repository (use /workspace/tmp); every modified file",
     "  in the checkout becomes part of the proposed change.",
+    "- Install dependencies when needed to validate the change, but don't modify",
+    "  lockfiles or manifests unless the requested change requires it.",
     "- When you finish, reply with a clear summary of what you changed and why —",
     "  it becomes the pull request description the team reviews.",
     "",
@@ -123,7 +127,13 @@ function brief(workdir: string, instructions: string): string {
   ].join("\n")
 }
 
-type GitResult = { ok: boolean; stdout: string; stderr: string }
+type GitResult = {
+  ok: boolean
+  status: string
+  exitCode: number
+  stdout: string
+  stderr: string
+}
 
 async function git(
   sandbox: BlaxelSandbox,
@@ -137,15 +147,27 @@ async function git(
   })
   return {
     ok: result.status === "completed" && result.exitCode === 0,
+    status: result.status,
+    exitCode: result.exitCode,
     stdout: result.stdout,
     stderr: result.stderr,
   }
 }
 
+function gitFailureDetail(result: GitResult): string {
+  return (
+    result.stderr.trim() || `${result.status}, exit code ${result.exitCode}`
+  )
+}
+
+function isDiskFull(detail: string): boolean {
+  return /ENOSPC|no space left on device/i.test(detail)
+}
+
 // Bring the checkout to a clean HEAD on `branch`: fresh shallow clone when the
 // workdir doesn't exist yet, otherwise repair + fetch + hard reset. Published
 // branches prefer the remote ref; unpublished retries can use their local ref.
-async function ensureCheckout(
+export async function ensureCheckout(
   sandbox: BlaxelSandbox,
   opts: {
     repoFullName: string
@@ -166,15 +188,48 @@ async function ensureCheckout(
     `git -C "${workdir}" rev-parse --is-inside-work-tree`
   )
   if (!existing.ok) {
+    // A missing checkout emits a Git error. Empty stderr is how a wedged Blaxel
+    // process runtime presents; don't misreport that as a clone failure.
+    if (!existing.stderr.trim()) {
+      const health = await git(sandbox, "true")
+      if (!health.ok) {
+        logger.warn(
+          {
+            repoFullName,
+            status: health.status,
+            exitCode: health.exitCode,
+          },
+          "Code session: sandbox process execution unavailable"
+        )
+        return {
+          error:
+            "sandbox process execution is unavailable; retry the code session so it can be recreated",
+        }
+      }
+    }
+
+    const parent = await git(sandbox, `mkdir -p "${dirname(workdir)}"`)
+    if (!parent.ok) {
+      return { error: "couldn't prepare the repository workspace" }
+    }
+
     const clone = await git(
       sandbox,
       `git clone --depth 1 --single-branch --branch "${defaultBranch}" "${tokenUrl}" "${workdir}" && git -C "${workdir}" remote set-url origin https://github.com/${repoFullName}.git`,
       { timeoutSec: CLONE_TIMEOUT_SEC, env: tokenEnv }
     )
     if (!clone.ok) {
-      const stderr = scrub(clone.stderr.slice(0, 300))
-      logger.warn({ repoFullName, stderr }, "Code session: clone failed")
-      return { error: `clone failed: ${stderr}` }
+      const detail = scrub(gitFailureDetail(clone).slice(0, 300))
+      logger.warn(
+        {
+          repoFullName,
+          status: clone.status,
+          exitCode: clone.exitCode,
+          detail,
+        },
+        "Code session: clone failed"
+      )
+      return { error: `clone failed: ${detail}` }
     }
   } else {
     // The agent had write access to the tree last session — repair the remote
@@ -192,9 +247,17 @@ async function ensureCheckout(
       { timeoutSec: FETCH_TIMEOUT_SEC, env: tokenEnv }
     )
     if (!fetch.ok) {
-      const stderr = scrub(fetch.stderr.slice(0, 300))
-      logger.warn({ repoFullName, stderr }, "Code session: fetch failed")
-      return { error: `fetch failed: ${stderr}` }
+      const detail = scrub(gitFailureDetail(fetch).slice(0, 300))
+      logger.warn(
+        {
+          repoFullName,
+          status: fetch.status,
+          exitCode: fetch.exitCode,
+          detail,
+        },
+        "Code session: fetch failed"
+      )
+      return { error: `fetch failed: ${detail}` }
     }
   }
 
@@ -287,6 +350,7 @@ export async function prepareCodeChange(
   try {
     return await withPersistentSandbox(
       codeSandboxName(opts.sandboxKey),
+      env.MERLIN_CODE_SANDBOX_TTL,
       async (sandbox) => {
         const checkout = await ensureCheckout(sandbox, {
           repoFullName,
@@ -301,7 +365,7 @@ export async function prepareCodeChange(
 
         const setup = await git(
           sandbox,
-          `mkdir -p ${SESSION_DIR} /root/.pi/agent`
+          `mkdir -p ${SESSION_DIR} /workspace/repos /workspace/tmp /workspace/.cache /workspace/.local /root/.pi/agent`
         )
         if (!setup.ok) return { error: "code session setup failed" }
         await writeText(
@@ -353,6 +417,16 @@ export async function prepareCodeChange(
           const detail = scrub(
             (run.result.stderr || run.result.stdout).slice(0, 300)
           )
+          if (isDiskFull(detail)) {
+            await invalidatePersistentSandbox(
+              codeSandboxName(opts.sandboxKey),
+              sandbox
+            )
+            return {
+              error:
+                "the coding sandbox ran out of disk space and will be recreated on retry. Retry propose_code_change with the complete instructions.",
+            }
+          }
           return {
             error: `the coding agent ${timedOut ? "timed out" : `failed: ${detail || "unknown error"}`}. Retry propose_code_change with the complete instructions${continueBranch ? "" : ` and branch "${branch}"`} to continue from the last committed branch state.`,
           }
@@ -448,6 +522,7 @@ export async function publishCodeChange(opts: {
   try {
     return await withPersistentSandbox(
       codeSandboxName(opts.sandboxKey),
+      env.MERLIN_CODE_SANDBOX_TTL,
       async (sandbox) => {
         const checkout = await git(
           sandbox,
