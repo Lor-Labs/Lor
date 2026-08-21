@@ -47,6 +47,7 @@ import { useCallback, useMemo, useState } from "react"
 import { useCreateChannel } from "@/components/sidebar/channel-panel/create-channel-context"
 import { DeleteChannelDialog } from "@/components/sidebar/channel-panel/delete-channel-dialog"
 import { EditChannelDialog } from "@/components/sidebar/channel-panel/edit-channel-dialog"
+import { PrivateHashIcon } from "@/components/ui/private-hash-icon"
 import { useMobileSidebar } from "@/context/mobile-sidebar-context"
 import { useUnread } from "@/context/unread-context"
 import { MUTE_DURATIONS, useChannelMutes } from "@/hooks/use-channel-mutes"
@@ -74,12 +75,22 @@ function ChannelIcon({
   type: string
   isPrivate?: boolean
 }) {
-  // A standalone private channel wears a lock instead of its type glyph
-  // (Slack convention). Project channels don't — the project boundary
-  // already communicates the audience.
-  const icon = isPrivate
-    ? SquareLock02Icon
-    : (channelIcons[type as keyof typeof channelIcons] ?? HashtagIcon)
+  // A standalone private channel wears the Slack-style hash+lock glyph
+  // (voice falls back to a plain lock). Project channels don't — the project
+  // boundary already communicates the audience.
+  if (isPrivate) {
+    if (type === "text") {
+      return <PrivateHashIcon className="size-4 shrink-0 opacity-50" />
+    }
+    return (
+      <HugeiconsIcon
+        icon={SquareLock02Icon}
+        className="size-4 shrink-0 opacity-50"
+        strokeWidth={2}
+      />
+    )
+  }
+  const icon = channelIcons[type as keyof typeof channelIcons] ?? HashtagIcon
   return (
     <HugeiconsIcon
       icon={icon}

@@ -12,9 +12,10 @@ import { ChannelMuteMenu } from "@/components/chat/channel-mute-menu"
 import { HeaderSearch } from "@/components/chat/header-search"
 import { HeaderNavControls } from "@/components/desktop-titlebar"
 import { RightPanelToggle } from "@/components/sidebar/sidebar-toggle"
+import { PrivateHashIcon } from "@/components/ui/private-hash-icon"
 
 export type ChatContext =
-  | { type: "channel"; name: string; topic?: string }
+  | { type: "channel"; name: string; topic?: string; isPrivate?: boolean }
   | { type: "dm"; name: string; avatarUrl?: string }
   | { type: "group_dm"; name: string; memberCount: number }
 
@@ -32,13 +33,16 @@ export function ChatHeader({
   return (
     <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-4">
       <HeaderNavControls className="-ml-2" withDivider />
-      {context.type === "channel" && (
-        <HugeiconsIcon
-          icon={HashtagIcon}
-          className="size-5 shrink-0 text-muted-foreground"
-          strokeWidth={2}
-        />
-      )}
+      {context.type === "channel" &&
+        (context.isPrivate ? (
+          <PrivateHashIcon className="size-5 shrink-0 text-muted-foreground" />
+        ) : (
+          <HugeiconsIcon
+            icon={HashtagIcon}
+            className="size-5 shrink-0 text-muted-foreground"
+            strokeWidth={2}
+          />
+        ))}
       {context.type === "dm" && (
         <Avatar size="sm">
           {context.avatarUrl && (

@@ -498,6 +498,9 @@ function ChannelView() {
     type: "channel" as const,
     name: data.name ?? channelId,
     topic: data.topic ?? undefined,
+    // Standalone private channels wear the hash+lock glyph in the header;
+    // project channels don't (the project boundary communicates the audience).
+    isPrivate: data.audience === "members" && data.parentId === null,
   }
 
   return (

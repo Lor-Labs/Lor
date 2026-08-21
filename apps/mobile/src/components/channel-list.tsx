@@ -9,6 +9,7 @@ import * as Haptics from "expo-haptics"
 import { useThemeColor } from "heroui-native/hooks"
 import { type ReactNode, useState } from "react"
 import { Pressable, Text, View } from "react-native"
+import { PrivateHashIcon } from "@/components/ui/private-hash-icon"
 import { SectionLabel } from "@/components/ui/section-label"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useUnread } from "@/context/unread-context"
@@ -88,18 +89,26 @@ export function ChannelRow({
         </View>
       ) : null}
       <View className="size-7 items-center justify-center">
-        <HugeiconsIcon
-          color={emphasized ? foreground : muted}
-          icon={
-            isPrivate
-              ? SquareLock02Icon
-              : isVoice
-                ? VolumeHighIcon
-                : HashtagIcon
-          }
-          size={19}
-          strokeWidth={emphasized ? 2 : 1.8}
-        />
+        {isPrivate && !isVoice ? (
+          <PrivateHashIcon
+            color={emphasized ? foreground : muted}
+            size={19}
+            strokeWidth={emphasized ? 2 : 1.8}
+          />
+        ) : (
+          <HugeiconsIcon
+            color={emphasized ? foreground : muted}
+            icon={
+              isPrivate
+                ? SquareLock02Icon
+                : isVoice
+                  ? VolumeHighIcon
+                  : HashtagIcon
+            }
+            size={19}
+            strokeWidth={emphasized ? 2 : 1.8}
+          />
+        )}
       </View>
       <Text
         className={`min-w-0 flex-1 text-[15px] leading-5 ${
