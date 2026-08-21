@@ -117,14 +117,20 @@ const serverSchema = z.object({
   BL_WORKSPACE: z.string().min(1).optional(),
   // Custom sandbox image (pushed via `bl push` from packages/merlin/sandbox-image).
   MERLIN_WORKBENCH_IMAGE: defaultedString("sandbox/workbench:latest"),
-  // Idle lifetime of a task's Blaxel sandbox before auto-delete. Deletion only
-  // costs warmth: the next run recreates it and reseeds from artifact truth.
+  // Idle lifetimes for persistent Blaxel sandboxes. Task contents are durable
+  // in R2, while code sandboxes retain unpublished diffs awaiting approval.
   // Blaxel expiration policies accept hours, days, or weeks only.
   MERLIN_WORKBENCH_SANDBOX_TTL: z
     .string()
-    .regex(/^\d+[hdw]$/, "must be a duration like 24h, 14d, or 2w")
-    .default("14d"),
+    .regex(/^\d+[hdw]$/, "must be a duration like 24h, 7d, or 2w")
+    .default("24h"),
+  MERLIN_CODE_SANDBOX_TTL: z
+    .string()
+    .regex(/^\d+[hdw]$/, "must be a duration like 24h, 7d, or 2w")
+    .default("7d"),
   MERLIN_WORKBENCH_MEMORY_MB: z.coerce.number().int().positive().default(4096),
+  // Disk-backed /workspace volume for clones, dependencies, caches, and outputs.
+  MERLIN_WORKBENCH_DISK_MB: z.coerce.number().int().positive().default(8192),
   MERLIN_EMBED_MODEL: defaultedString("alibaba/qwen3-embedding-4b"),
   MERLIN_EMBED_DIMENSIONS: z.coerce.number().int().positive().default(2560),
   // Exa, backing Merlin's search_web/fetch_web tools. Optional: the tools are

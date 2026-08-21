@@ -1,3 +1,4 @@
+import { env } from "@repo/env/server"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { withPersistentSandbox } from "./blaxel"
 import {
@@ -78,7 +79,9 @@ describe("isSafeRef", () => {
 
 describe("workdir + sandbox naming", () => {
   it("derives shell-safe deterministic paths", () => {
-    expect(repoWorkdir("acme/my-repo.js")).toBe("/repos/acme__my-repo.js")
+    expect(repoWorkdir("acme/my-repo.js")).toBe(
+      "/workspace/repos/acme__my-repo.js"
+    )
     expect(codeSandboxName("abc-123")).toBe("code-abc-123")
   })
 })
@@ -86,6 +89,18 @@ describe("workdir + sandbox naming", () => {
 describe("publishCodeChange guards", () => {
   beforeEach(() => {
     vi.mocked(withPersistentSandbox).mockClear()
+  })
+
+  it("uses the code sandbox TTL for a valid publish", async () => {
+    vi.mocked(withPersistentSandbox).mockResolvedValue({ ok: true })
+
+    await publishCodeChange(validPublish)
+
+    expect(withPersistentSandbox).toHaveBeenCalledWith(
+      "code-scope-1",
+      env.MERLIN_CODE_SANDBOX_TTL,
+      expect.any(Function)
+    )
   })
 
   it("rejects the main branch before opening a sandbox", async () => {

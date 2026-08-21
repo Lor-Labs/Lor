@@ -15,6 +15,7 @@ async function imageProbe(): Promise<void> {
     const checks = [
       "pi --version",
       "git --version",
+      "df -h /workspace",
       "node --version",
       "python3 -c 'import pandas, matplotlib, openpyxl, pdfplumber; print(pandas.__version__)'",
     ]

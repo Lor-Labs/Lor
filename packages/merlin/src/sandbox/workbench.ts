@@ -192,7 +192,7 @@ export async function runWorkbenchSession(
       if (parent) seedDirs.add(`${OUT_DIR}/${parent}`)
     }
     const mkdir = await sandbox.process.exec({
-      command: `mkdir -p ${IN_DIR} ${OUT_DIR} ${SESSION_DIR} /root/.pi/agent ${[...seedDirs].map((d) => `'${d}'`).join(" ")}`,
+      command: `mkdir -p ${IN_DIR} ${OUT_DIR} ${SESSION_DIR} /workspace/tmp /workspace/.cache /workspace/.local /root/.pi/agent ${[...seedDirs].map((d) => `'${d}'`).join(" ")}`,
       waitForCompletion: true,
       timeout: 30,
     })

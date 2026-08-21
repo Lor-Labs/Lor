@@ -17,12 +17,174 @@ export function blaxelConfigured(): boolean {
 
 export type BlaxelSandbox = SandboxInstance
 
+const WORKSPACE_MOUNT = "/workspace"
+const SANDBOX_PROCESS_ENV = {
+  BUN_INSTALL_CACHE_DIR: `${WORKSPACE_MOUNT}/.cache/bun`,
+  COREPACK_HOME: `${WORKSPACE_MOUNT}/.cache/corepack`,
+  npm_config_cache: `${WORKSPACE_MOUNT}/.cache/npm`,
+  npm_config_prefix: `${WORKSPACE_MOUNT}/.local`,
+  npm_config_store_dir: `${WORKSPACE_MOUNT}/.cache/pnpm`,
+  PIP_CACHE_DIR: `${WORKSPACE_MOUNT}/.cache/pip`,
+  PYTHONUSERBASE: `${WORKSPACE_MOUNT}/.local`,
+  TMPDIR: `${WORKSPACE_MOUNT}/tmp`,
+  XDG_CACHE_HOME: `${WORKSPACE_MOUNT}/.cache`,
+  XDG_DATA_HOME: `${WORKSPACE_MOUNT}/.local/share`,
+  YARN_CACHE_FOLDER: `${WORKSPACE_MOUNT}/.cache/yarn`,
+}
+
 function baseConfig(name: string) {
   return {
     name,
     image: env.MERLIN_WORKBENCH_IMAGE,
     memory: env.MERLIN_WORKBENCH_MEMORY_MB,
+    volumes: [
+      {
+        name: "workspace",
+        mountPath: WORKSPACE_MOUNT,
+        type: "ephemeral" as const,
+        sizeMb: env.MERLIN_WORKBENCH_DISK_MB,
+      },
+    ],
   }
+}
+
+function persistentLifecycle(idleTtl: string) {
+  return {
+    expirationPolicies: [
+      {
+        action: "delete" as const,
+        type: "ttl-idle" as const,
+        value: idleTtl,
+      },
+    ],
+  }
+}
+
+function persistentConfig(name: string, idleTtl: string) {
+  return {
+    ...baseConfig(name),
+    lifecycle: persistentLifecycle(idleTtl),
+  }
+}
+
+function hasWorkspaceDisk(sandbox: SandboxInstance): boolean {
+  return Boolean(
+    sandbox.spec.volumes?.some(
+      (volume) =>
+        volume.mountPath === WORKSPACE_MOUNT &&
+        volume.type === "ephemeral" &&
+        (volume.sizeMb ?? 0) >= env.MERLIN_WORKBENCH_DISK_MB
+    )
+  )
+}
+
+function hasIdleTtl(sandbox: SandboxInstance, idleTtl: string): boolean {
+  const policies = sandbox.spec.lifecycle?.expirationPolicies
+  return Boolean(
+    policies?.length === 1 &&
+      policies[0]?.action === "delete" &&
+      policies[0].type === "ttl-idle" &&
+      policies[0].value === idleTtl
+  )
+}
+
+const SANDBOX_HEALTH_TIMEOUT_SEC = 10
+
+type SandboxHealth = {
+  healthy: boolean
+  status: string
+  exitCode: number
+}
+
+async function probeSandbox(sandbox: SandboxInstance): Promise<SandboxHealth> {
+  const result = await sandbox.process.exec({
+    name: `health-${randomUUID().slice(0, 8)}`,
+    command: "true",
+    waitForCompletion: true,
+    timeout: SANDBOX_HEALTH_TIMEOUT_SEC,
+  })
+  return {
+    healthy: result.status === "completed" && result.exitCode === 0,
+    status: result.status ?? "unknown",
+    exitCode: result.exitCode ?? -1,
+  }
+}
+
+async function healthyPersistentSandbox(
+  name: string,
+  idleTtl: string
+): Promise<SandboxInstance> {
+  let sandbox = await SandboxInstance.createIfNotExists(
+    persistentConfig(name, idleTtl)
+  )
+
+  let replacementReason = "missing or undersized workspace volume"
+  let health: SandboxHealth | null = null
+  if (hasWorkspaceDisk(sandbox)) {
+    try {
+      health = await probeSandbox(sandbox)
+    } catch (err) {
+      closeConnection(sandbox)
+      logger.error({ err, sandbox: name }, "Sandbox: health probe failed")
+      throw err
+    }
+    if (health.healthy) {
+      if (hasIdleTtl(sandbox, idleTtl)) return sandbox
+
+      const original = sandbox
+      try {
+        sandbox = await SandboxInstance.updateLifecycle(
+          name,
+          persistentLifecycle(idleTtl)
+        )
+      } catch (err) {
+        closeConnection(original)
+        logger.error({ err, sandbox: name }, "Sandbox: lifecycle update failed")
+        throw err
+      }
+      closeConnection(original)
+      logger.info(
+        { sandbox: name, idleTtl },
+        "Sandbox: persistent lifecycle updated"
+      )
+      return sandbox
+    }
+    replacementReason = `health probe ${health.status}, exit ${health.exitCode}`
+  }
+
+  logger.warn(
+    { sandbox: name, reason: replacementReason },
+    "Sandbox: persistent sandbox needs replacement"
+  )
+  closeConnection(sandbox)
+  await SandboxInstance.delete(name)
+
+  sandbox = await SandboxInstance.createIfNotExists(
+    persistentConfig(name, idleTtl)
+  )
+  if (!hasWorkspaceDisk(sandbox)) {
+    closeConnection(sandbox)
+    throw new Error(`replacement sandbox ${name} has no workspace volume`)
+  }
+
+  try {
+    health = await probeSandbox(sandbox)
+  } catch (err) {
+    closeConnection(sandbox)
+    logger.error(
+      { err, sandbox: name },
+      "Sandbox: replacement health probe failed"
+    )
+    throw err
+  }
+  if (!health.healthy) {
+    closeConnection(sandbox)
+    throw new Error(
+      `replacement sandbox ${name} is unhealthy (${health.status}, exit ${health.exitCode})`
+    )
+  }
+  logger.info({ sandbox: name }, "Sandbox: persistent sandbox replaced")
+  return sandbox
 }
 
 // Close our HTTP/2 session so the sandbox's "active connection" ends now —
@@ -66,25 +228,14 @@ export async function withEphemeralSandbox<T>(
 
 // A named sandbox persists across sessions: it drops to standby (free)
 // between them and resumes with its filesystem intact. If the idle TTL
-// deleted it, createIfNotExists rebuilds it cold and the caller restores
-// state (tasks reseed artifacts; code sessions re-clone): deletion only
-// costs warmth.
+// deletes it, tasks reseed durable artifacts and code sessions re-clone;
+// unpublished code changes exist only until the code sandbox TTL expires.
 export async function withPersistentSandbox<T>(
   name: string,
+  idleTtl: string,
   fn: (sandbox: SandboxInstance) => Promise<T>
 ): Promise<T> {
-  const sandbox = await SandboxInstance.createIfNotExists({
-    ...baseConfig(name),
-    lifecycle: {
-      expirationPolicies: [
-        {
-          action: "delete" as const,
-          type: "ttl-idle" as const,
-          value: env.MERLIN_WORKBENCH_SANDBOX_TTL,
-        },
-      ],
-    },
-  })
+  const sandbox = await healthyPersistentSandbox(name, idleTtl)
   logger.info({ sandbox: name }, "Sandbox: persistent sandbox ready")
   try {
     return await fn(sandbox)
@@ -98,7 +249,11 @@ export async function withTaskSandbox<T>(
   taskId: string,
   fn: (sandbox: SandboxInstance) => Promise<T>
 ): Promise<T> {
-  return withPersistentSandbox(`task-${taskId}`, fn)
+  return withPersistentSandbox(
+    `task-${taskId}`,
+    env.MERLIN_WORKBENCH_SANDBOX_TTL,
+    fn
+  )
 }
 
 // writeBinary interprets a string argument as a LOCAL file path to read —
@@ -254,7 +409,11 @@ export async function runPi(
     command: opts.command,
     timeoutSec: opts.timeoutSec,
     workingDir: opts.workingDir,
-    env: { AI_GATEWAY_API_KEY: env.AI_GATEWAY_API_KEY, IS_SANDBOX: "1" },
+    env: {
+      ...SANDBOX_PROCESS_ENV,
+      AI_GATEWAY_API_KEY: env.AI_GATEWAY_API_KEY,
+      IS_SANDBOX: "1",
+    },
     abortSignal: opts.abortSignal,
     // Polled delivery: each chunk is one or more complete NDJSON lines.
     onStdout: (output) => live.consumeOutput(output),
