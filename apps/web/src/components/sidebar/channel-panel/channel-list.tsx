@@ -17,9 +17,12 @@ import {
 import { CSS } from "@dnd-kit/utilities"
 import {
   ArrowDown01Icon,
+  Folder01Icon,
+  FolderOpenIcon,
   HashtagIcon,
   MoreHorizontalIcon,
   PlusSignIcon,
+  SquareLock02Icon,
   VolumeHighIcon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
@@ -40,7 +43,7 @@ import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import { AnimatePresence, motion } from "motion/react"
-import { useCallback, useState } from "react"
+import { useCallback, useMemo, useState } from "react"
 import { useCreateChannel } from "@/components/sidebar/channel-panel/create-channel-context"
 import { DeleteChannelDialog } from "@/components/sidebar/channel-panel/delete-channel-dialog"
 import { EditChannelDialog } from "@/components/sidebar/channel-panel/edit-channel-dialog"
@@ -211,6 +214,25 @@ export function ChannelList() {
   const { openCreateChannel } = useCreateChannel()
   // One query + socket listener for the whole list; rows get the controls via props.
   const muteControls = useChannelMutes()
+
+  // Projects render distinctly (folder disclosure + dashed boundary) — match
+  // category ids against the project list rather than guessing from audience,
+  // so public projects get the treatment too.
+  const { data: projectsData } = useQuery({
+    queryKey: ["projects", workspaceSlug],
+    queryFn: async () => {
+      const res = await apiClient.v1.workspaces[":workspaceSlug"].projects.$get(
+        { param: { workspaceSlug: workspaceSlug as string } }
+      )
+      if (!res.ok) throw new Error("Failed to fetch projects")
+      return res.json()
+    },
+    enabled: !!workspaceSlug,
+  })
+  const projectCategoryIds = useMemo(
+    () => new Set(projectsData?.projects.map((p) => p.categoryChannelId) ?? []),
+    [projectsData]
+  )
 
   const [activeItem, setActiveItem] = useState<{
     channel: Channel
@@ -479,6 +501,8 @@ export function ChannelList() {
               key={cat.id}
               id={cat.id}
               name={cat.name ?? ""}
+              isPrivate={cat.audience === "members"}
+              isProject={projectCategoryIds.has(cat.id)}
               channels={cat.channels}
               draggingCategory={activeItem?.isCategory ?? false}
               activeChannelId={activeChannelId}
@@ -532,6 +556,8 @@ export function ChannelList() {
 function SortableCategorySection({
   id,
   name,
+  isPrivate = false,
+  isProject = false,
   channels,
   draggingCategory,
   activeChannelId,
@@ -544,6 +570,8 @@ function SortableCategorySection({
 }: {
   id: string
   name: string
+  isPrivate?: boolean
+  isProject?: boolean
   channels: Channel[]
   draggingCategory: boolean
   activeChannelId?: string
@@ -558,6 +586,7 @@ function SortableCategorySection({
   const [menuOpen, setMenuOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const { openProjectMembers } = useCreateChannel()
   const {
     attributes,
     listeners,
@@ -580,7 +609,16 @@ function SortableCategorySection({
   } as Channel
 
   return (
-    <div ref={setNodeRef} style={style}>
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={cn(
+        // Projects read as a bounded container: dashed border around the
+        // whole group, folder disclosure instead of a chevron.
+        isProject &&
+          "rounded-lg border border-dashed border-sidebar-border px-1 pt-1 pb-0.5"
+      )}
+    >
       <div className="group/category flex w-full items-center gap-0.5 px-1 pb-1">
         <button
           type="button"
@@ -588,17 +626,33 @@ function SortableCategorySection({
           {...(canManage ? { ...attributes, ...listeners } : {})}
           className="flex flex-1 items-center gap-0.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground cursor-pointer"
         >
-          <motion.div
-            animate={{ rotate: collapsed ? -90 : 0 }}
-            transition={{ duration: 0.15, ease: "easeInOut" }}
-          >
+          {isProject ? (
             <HugeiconsIcon
-              icon={ArrowDown01Icon}
-              className="size-3 shrink-0"
+              icon={collapsed ? Folder01Icon : FolderOpenIcon}
+              className="mr-1 size-3.5 shrink-0"
               strokeWidth={2}
             />
-          </motion.div>
+          ) : (
+            <motion.div
+              animate={{ rotate: collapsed ? -90 : 0 }}
+              transition={{ duration: 0.15, ease: "easeInOut" }}
+            >
+              <HugeiconsIcon
+                icon={ArrowDown01Icon}
+                className="size-3 shrink-0"
+                strokeWidth={2}
+              />
+            </motion.div>
+          )}
           <span className="truncate">{name}</span>
+          {isPrivate && (
+            <HugeiconsIcon
+              icon={SquareLock02Icon}
+              className="ml-1 size-3 shrink-0"
+              strokeWidth={2}
+              aria-label="Private"
+            />
+          )}
         </button>
         <div className="flex items-center gap-0.5">
           {canCreate && (
@@ -632,6 +686,19 @@ function SortableCategorySection({
                 <HugeiconsIcon icon={MoreHorizontalIcon} strokeWidth={2} />
               </DropdownMenuTrigger>
               <DropdownMenuContent side="bottom" align="start">
+                {isProject && (
+                  <>
+                    <DropdownMenuItem
+                      onClick={() => {
+                        setMenuOpen(false)
+                        openProjectMembers(id)
+                      }}
+                    >
+                      Members
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                  </>
+                )}
                 <DropdownMenuItem
                   onClick={() => {
                     setMenuOpen(false)

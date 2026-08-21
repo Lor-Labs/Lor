@@ -48,8 +48,12 @@ export const listChannelsResponseSchema = z.object({
 
 // Narrow the create endpoint to workspace-creatable types only.
 // DMs / group DMs are created via the /dms route, not generic create-channel.
+// `audience`/`memberIds` create a standalone private channel (same membership
+// mechanics as a project, minus the lifecycle row).
 export const createChannelRequestSchema = insertChannelSchema.extend({
   type: z.enum(["text", "voice", "category"]).default("text"),
+  audience: z.enum(["workspace", "members"]).default("workspace"),
+  memberIds: z.array(z.string().uuid()).max(200).optional(),
 })
 
 export const createChannelResponseSchema = selectChannelSchema

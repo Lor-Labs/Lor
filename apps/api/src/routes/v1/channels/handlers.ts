@@ -101,20 +101,72 @@ export const listChannels: AppRouteHandler<ListChannelsRoute> = async (c) => {
 export const createChannel: AppRouteHandler<CreateChannelRoute> = async (c) => {
   const workspace = c.var.workspace
   const member = c.var.member
-  const body = c.req.valid("json")
+  const currentUser = c.var.user
+  const { audience, memberIds, ...body } = c.req.valid("json")
 
   assertWorkspacePermission(member, workspace, {
     channel: ["create"],
   })
 
-  const newChannel = await db
-    .insert(channel)
-    .values({
-      ...body,
-      workspaceId: workspace.id,
-    })
-    .returning()
-    .then((rows) => rows[0])
+  // Creating inside a category requires access to it — otherwise a member
+  // could plant a channel inside a private project they can't see.
+  if (
+    body.parentId &&
+    !(await userCanAccessChannel(body.parentId, currentUser.id))
+  ) {
+    return c.json(
+      { success: false, message: "Category not found" },
+      HttpStatusCodes.FORBIDDEN
+    )
+  }
+
+  // Membership on the channel itself only matters for standalone private
+  // channels — a channel inside a category inherits the container's audience.
+  const isStandalonePrivate = audience === "members" && !body.parentId
+  const resolvedMemberIds = isStandalonePrivate
+    ? [...new Set([currentUser.id, ...(memberIds ?? [])])]
+    : []
+  if (isStandalonePrivate && resolvedMemberIds.length > 0) {
+    const workspaceMemberRows = await db
+      .select({ userId: schema.workspaceMember.userId })
+      .from(schema.workspaceMember)
+      .where(
+        and(
+          eq(schema.workspaceMember.workspaceId, workspace.id),
+          inArray(schema.workspaceMember.userId, resolvedMemberIds)
+        )
+      )
+    if (workspaceMemberRows.length !== resolvedMemberIds.length) {
+      return c.json(
+        {
+          success: false,
+          message: "All channel members must belong to this workspace",
+        },
+        HttpStatusCodes.FORBIDDEN
+      )
+    }
+  }
+
+  const newChannel = await db.transaction(async (tx) => {
+    const inserted = await tx
+      .insert(channel)
+      .values({
+        ...body,
+        audience: isStandalonePrivate ? "members" : "workspace",
+        workspaceId: workspace.id,
+      })
+      .returning()
+      .then((rows) => rows[0])
+    if (inserted && isStandalonePrivate) {
+      await tx.insert(schema.channelMember).values(
+        resolvedMemberIds.map((userId) => ({
+          channelId: inserted.id,
+          userId,
+        }))
+      )
+    }
+    return inserted
+  })
 
   if (!newChannel) {
     return c.json(

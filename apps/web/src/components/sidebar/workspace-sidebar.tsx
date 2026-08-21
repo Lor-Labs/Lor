@@ -1,5 +1,6 @@
 import {
   FolderAddIcon,
+  FolderOpenIcon,
   HashtagIcon,
   Message01Icon,
   PlusSignCircleIcon,
@@ -92,7 +93,8 @@ export function WorkspaceSidebarContent() {
 function WorkspaceSidebarInner() {
   const { workspaceSlug } = useParams({ strict: false })
   const navigate = useNavigate()
-  const { openCreateChannel, openCreateCategory } = useCreateChannel()
+  const { openCreateChannel, openCreateCategory, openCreateProject } =
+    useCreateChannel()
   const { target, tab, open: openSettings, close, setTab } = useSettings()
   const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false)
   const [inviteOpen, setInviteOpen] = useState(false)
@@ -348,6 +350,14 @@ function WorkspaceSidebarInner() {
                     strokeWidth={2}
                   />
                   New channel
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={openCreateProject}>
+                  <HugeiconsIcon
+                    icon={FolderOpenIcon}
+                    className="size-4 mr-2"
+                    strokeWidth={2}
+                  />
+                  New project
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={openCreateCategory}>
                   <HugeiconsIcon icon={FolderAddIcon} className="size-4 mr-2" />
