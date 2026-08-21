@@ -1,6 +1,13 @@
-import { HashtagIcon, VolumeHighIcon } from "@hugeicons/core-free-icons"
+import {
+  HashtagIcon,
+  Search01Icon,
+  SquareLock02Icon,
+  VolumeHighIcon,
+} from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
+import { authClient } from "@repo/auth/client"
 import { Button } from "@repo/ui/components/button"
+import { Checkbox } from "@repo/ui/components/checkbox"
 import { CustomSelectItem } from "@repo/ui/components/custom-select-item"
 import {
   Dialog,
@@ -19,9 +26,12 @@ import {
   SelectValue,
 } from "@repo/ui/components/select"
 import { Spinner } from "@repo/ui/components/spinner"
-import { useQueryClient } from "@tanstack/react-query"
+import { Switch } from "@repo/ui/components/switch"
+import { cn } from "@repo/ui/lib/utils"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
-import { useState } from "react"
+import { useMemo, useState } from "react"
+import { UserAvatar } from "@/components/ui/user-avatar"
 import { apiClient } from "@/lib/api-client"
 
 const channelTypes = [
@@ -55,10 +65,51 @@ export function CreateChannelDialog({
   const { workspaceSlug } = useParams({ strict: false })
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const { data: session } = authClient.useSession()
+  const currentUserId = session?.user.id
   const [name, setName] = useState("")
   const [type, setType] = useState<"text" | "voice">("text")
+  const [isPrivate, setIsPrivate] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [memberQuery, setMemberQuery] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+
+  const isCategory = forceType === "category"
+  // Channels inside a category inherit its audience — the private toggle
+  // only applies to standalone channels.
+  const canBePrivate = !isCategory && !parentId
+
+  const { data: membersData } = useQuery({
+    queryKey: ["workspace-members", workspaceSlug],
+    queryFn: async () => {
+      const res = await apiClient.v1.workspaces[":workspaceSlug"].members.$get({
+        param: { workspaceSlug: workspaceSlug as string },
+      })
+      if (!res.ok) throw new Error("Failed to fetch workspace members")
+      return res.json()
+    },
+    enabled: !!workspaceSlug && open && canBePrivate,
+  })
+
+  const selectableMembers = useMemo(() => {
+    const normalized = memberQuery.trim().toLowerCase()
+    return (membersData?.members ?? [])
+      .filter((m) => !m.isBot && m.userId !== currentUserId)
+      .filter((m) => !normalized || m.name.toLowerCase().includes(normalized))
+  }, [membersData, currentUserId, memberQuery])
+
+  const toggleMember = (userId: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(userId)) {
+        next.delete(userId)
+      } else {
+        next.add(userId)
+      }
+      return next
+    })
+  }
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -67,8 +118,6 @@ export function CreateChannelDialog({
     if (forceType !== "category" && !normalizedName) return
     setError(null)
     setLoading(true)
-
-    const isCategory = forceType === "category"
 
     try {
       const res = await apiClient.v1.workspaces[
@@ -79,6 +128,9 @@ export function CreateChannelDialog({
           name: isCategory ? trimmed : normalizedName,
           type: isCategory ? "category" : type,
           ...(parentId && !isCategory ? { parentId } : {}),
+          ...(canBePrivate && isPrivate
+            ? { audience: "members" as const, memberIds: [...selectedIds] }
+            : {}),
         },
       })
 
@@ -95,10 +147,7 @@ export function CreateChannelDialog({
       await queryClient.invalidateQueries({
         queryKey: ["channels", workspaceSlug],
       })
-      onOpenChange(false)
-      setName("")
-      setType("text")
-      setError(null)
+      handleOpenChange(false)
 
       if (!isCategory) {
         navigate({
@@ -117,12 +166,13 @@ export function CreateChannelDialog({
     if (!open) {
       setName("")
       setType("text")
+      setIsPrivate(false)
+      setSelectedIds(new Set())
+      setMemberQuery("")
       setError(null)
     }
     onOpenChange(open)
   }
-
-  const isCategory = forceType === "category"
 
   const normalizedName = name
     .trim()
@@ -204,6 +254,81 @@ export function CreateChannelDialog({
                 </p>
               )}
           </div>
+          {canBePrivate && (
+            <div className="flex items-center justify-between rounded-lg border border-border px-3 py-2.5">
+              <div className="flex items-center gap-2.5">
+                <HugeiconsIcon
+                  icon={SquareLock02Icon}
+                  className="size-4 text-muted-foreground"
+                  strokeWidth={2}
+                />
+                <div>
+                  <p className="text-sm font-medium">Private</p>
+                  <p className="text-xs text-muted-foreground">
+                    Only selected members can see this channel
+                  </p>
+                </div>
+              </div>
+              <Switch checked={isPrivate} onCheckedChange={setIsPrivate} />
+            </div>
+          )}
+          {canBePrivate && isPrivate && (
+            <div className="space-y-1.5">
+              <Label>
+                Members
+                <span className="ml-1 text-xs font-normal text-muted-foreground">
+                  you're always included
+                </span>
+              </Label>
+              <div className="rounded-lg border border-border">
+                <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+                  <HugeiconsIcon
+                    icon={Search01Icon}
+                    className="size-3.5 shrink-0 text-muted-foreground"
+                    strokeWidth={2}
+                  />
+                  <input
+                    value={memberQuery}
+                    onChange={(e) => setMemberQuery(e.target.value)}
+                    placeholder="Search members"
+                    className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                  />
+                </div>
+                <div className="max-h-36 overflow-y-auto p-1">
+                  {selectableMembers.length === 0 ? (
+                    <p className="px-2 py-3 text-center text-xs text-muted-foreground">
+                      No members found
+                    </p>
+                  ) : (
+                    selectableMembers.map((m) => (
+                      <button
+                        key={m.userId}
+                        type="button"
+                        onClick={() => toggleMember(m.userId)}
+                        className={cn(
+                          "flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left",
+                          "hover:bg-accent"
+                        )}
+                      >
+                        <Checkbox
+                          checked={selectedIds.has(m.userId)}
+                          tabIndex={-1}
+                          className="pointer-events-none"
+                        />
+                        <UserAvatar
+                          name={m.name}
+                          src={m.image}
+                          avatarColor={m.avatarColor}
+                          size="sm"
+                        />
+                        <span className="truncate text-sm">{m.name}</span>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
           {error && <p className="text-sm text-destructive">{error}</p>}
           <Button
             type="submit"
