@@ -19,7 +19,7 @@ import {
   UnfoldMoreIcon,
   VolumeHighIcon,
 } from "@hugeicons/core-free-icons"
-import { HugeiconsIcon } from "@hugeicons/react"
+import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react"
 import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar"
 import { Button } from "@repo/ui/components/button"
 import {
@@ -46,15 +46,15 @@ import {
 import { WorkspaceAvatar } from "@/components/workspace/workspace-avatar"
 import type { MerlinToolCallView, Message } from "@/lib/api-types"
 
-const LAST_SCENE = 5
+export const LAST_SCENE = 5
 const MERLIN_ID = "00000000-0000-4000-8000-000000000001"
 
 const sceneMeta = [
-  { id: 1, label: "Project folder" },
-  { id: 2, label: "Mention Merlin" },
-  { id: 3, label: "Cowork" },
-  { id: 4, label: "Loop" },
-  { id: 5, label: "Archive" },
+  { id: 1, label: "Project folder", panelTitle: "Mobile launch" },
+  { id: 2, label: "Mention Merlin", panelTitle: "Project members" },
+  { id: 3, label: "Cowork", panelTitle: "Launch room" },
+  { id: 4, label: "Loop", panelTitle: "Morning launch check" },
+  { id: 5, label: "Archive", panelTitle: "Project memory" },
 ] as const
 
 const people = {
@@ -160,6 +160,8 @@ export function ProductVisionDemo({
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey) return
+
       if (event.key === "ArrowLeft") {
         event.preventDefault()
         goToScene(scene - 1)
@@ -426,7 +428,7 @@ function ChannelRow({
   muted = false,
   onClick,
 }: {
-  icon: typeof HashtagIcon
+  icon: IconSvgElement
   label: string
   active?: boolean
   unread?: boolean
@@ -899,22 +901,14 @@ function DemoRightPanel({
   onApprove: () => void
   loopCreated: boolean
 }) {
-  const title =
-    scene === 1
-      ? "Mobile launch"
-      : scene === 2
-        ? "Project members"
-        : scene === 3
-          ? "Launch room"
-          : scene === 4
-            ? "Morning launch check"
-            : "Project memory"
+  const currentScene = sceneMeta.find((item) => item.id === scene)
+  if (!currentScene) return null
 
   return (
     <aside className="hidden h-full w-[300px] shrink-0 overflow-hidden bg-sidebar text-sidebar-foreground md:mb-2 md:mr-2 md:flex md:flex-col md:rounded-b-xl">
       <div className="flex h-16 shrink-0 items-center gap-3 border-b border-border/70 px-4">
         <div className="min-w-0 truncate text-base font-semibold tracking-tight">
-          {title}
+          {currentScene.panelTitle}
         </div>
         <button
           type="button"
@@ -1115,7 +1109,7 @@ function PanelRow({
   label,
   value,
 }: {
-  icon: typeof HashtagIcon
+  icon: IconSvgElement
   label: string
   value: string
 }) {
@@ -1246,7 +1240,7 @@ const PersonAvatar = memo(function PersonAvatar({
         <AvatarImage
           src={person.image}
           alt={person.name}
-          className={cn(person.name === "Merlin" && "object-contain p-1.5")}
+          className={cn(person === people.merlin && "object-contain p-1.5")}
         />
         <AvatarFallback
           fallbackSeed={person.name}

@@ -1,9 +1,14 @@
 import { env } from "@repo/env/server"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { withPersistentSandbox } from "./blaxel"
+import {
+  type BlaxelSandbox,
+  execToCompletion,
+  withPersistentSandbox,
+} from "./blaxel"
 import {
   codeSandboxName,
   codeSessionId,
+  ensureCheckout,
   isSafeRef,
   LOR_BRANCH,
   lorBranchFor,
@@ -13,6 +18,7 @@ import {
 
 vi.mock("./blaxel", () => ({
   execToCompletion: vi.fn(),
+  invalidatePersistentSandbox: vi.fn(),
   runPi: vi.fn(),
   withPersistentSandbox: vi.fn(),
   writeText: vi.fn(),
@@ -83,6 +89,52 @@ describe("workdir + sandbox naming", () => {
       "/workspace/repos/acme__my-repo.js"
     )
     expect(codeSandboxName("abc-123")).toBe("code-abc-123")
+  })
+})
+
+describe("ensureCheckout", () => {
+  it("creates the repository parent before cloning in a fresh sandbox", async () => {
+    const sandbox = {} as BlaxelSandbox
+    const exec = vi.mocked(execToCompletion)
+    const completed = {
+      status: "completed" as const,
+      exitCode: 0,
+      stdout: "",
+      stderr: "",
+    }
+    exec
+      .mockResolvedValueOnce({
+        ...completed,
+        status: "failed",
+        exitCode: 128,
+        stderr: "fatal: cannot change to repository directory",
+      })
+      .mockResolvedValueOnce(completed)
+      .mockResolvedValueOnce(completed)
+      .mockResolvedValueOnce(completed)
+      .mockResolvedValueOnce({ ...completed, stdout: `${"a".repeat(40)}\n` })
+
+    await expect(
+      ensureCheckout(sandbox, {
+        repoFullName: "acme/api",
+        workdir: repoWorkdir("acme/api"),
+        defaultBranch: "main",
+        branch: "lor/fix-thing-a1b2c3d4",
+        continueBranch: false,
+        cloneToken: "token",
+      })
+    ).resolves.toEqual({ baseSha: "a".repeat(40) })
+
+    expect(exec).toHaveBeenNthCalledWith(
+      2,
+      sandbox,
+      expect.objectContaining({ command: 'mkdir -p "/workspace/repos"' })
+    )
+    expect(exec).toHaveBeenNthCalledWith(
+      3,
+      sandbox,
+      expect.objectContaining({ command: expect.stringContaining("git clone") })
+    )
   })
 })
 

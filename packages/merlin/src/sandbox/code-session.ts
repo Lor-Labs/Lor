@@ -1,9 +1,11 @@
 import { createHash, randomUUID } from "node:crypto"
+import { dirname } from "node:path"
 import { env } from "@repo/env/server"
 import { logger } from "../logger"
 import {
   type BlaxelSandbox,
   execToCompletion,
+  invalidatePersistentSandbox,
   runPi,
   withPersistentSandbox,
   writeText,
@@ -165,7 +167,7 @@ function isDiskFull(detail: string): boolean {
 // Bring the checkout to a clean HEAD on `branch`: fresh shallow clone when the
 // workdir doesn't exist yet, otherwise repair + fetch + hard reset. Published
 // branches prefer the remote ref; unpublished retries can use their local ref.
-async function ensureCheckout(
+export async function ensureCheckout(
   sandbox: BlaxelSandbox,
   opts: {
     repoFullName: string
@@ -204,6 +206,11 @@ async function ensureCheckout(
             "sandbox process execution is unavailable; retry the code session so it can be recreated",
         }
       }
+    }
+
+    const parent = await git(sandbox, `mkdir -p "${dirname(workdir)}"`)
+    if (!parent.ok) {
+      return { error: "couldn't prepare the repository workspace" }
     }
 
     const clone = await git(
@@ -411,6 +418,10 @@ export async function prepareCodeChange(
             (run.result.stderr || run.result.stdout).slice(0, 300)
           )
           if (isDiskFull(detail)) {
+            await invalidatePersistentSandbox(
+              codeSandboxName(opts.sandboxKey),
+              sandbox
+            )
             return {
               error:
                 "the coding sandbox ran out of disk space and will be recreated on retry. Retry propose_code_change with the complete instructions.",

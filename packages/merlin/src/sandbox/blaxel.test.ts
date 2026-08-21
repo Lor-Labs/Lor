@@ -19,7 +19,12 @@ vi.mock("../logger", () => ({
   },
 }))
 
-import { withPersistentSandbox, withTaskSandbox } from "./blaxel"
+import {
+  type BlaxelSandbox,
+  invalidatePersistentSandbox,
+  withPersistentSandbox,
+  withTaskSandbox,
+} from "./blaxel"
 
 const healthyProcess = {
   status: "completed",
@@ -67,6 +72,21 @@ function fakeSandbox({
     h2Session: { close: vi.fn() },
   }
 }
+
+describe("invalidatePersistentSandbox", () => {
+  it("closes and deletes the exhausted sandbox", async () => {
+    const sandbox = fakeSandbox()
+    sdk.delete.mockResolvedValue({})
+
+    await invalidatePersistentSandbox(
+      "code-1",
+      sandbox as unknown as BlaxelSandbox
+    )
+
+    expect(sandbox.h2Session.close).toHaveBeenCalledOnce()
+    expect(sdk.delete).toHaveBeenCalledWith("code-1")
+  })
+})
 
 describe("withPersistentSandbox", () => {
   beforeEach(() => {

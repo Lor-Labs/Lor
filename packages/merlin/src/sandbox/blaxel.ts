@@ -226,6 +226,15 @@ export async function withEphemeralSandbox<T>(
   }
 }
 
+export async function invalidatePersistentSandbox(
+  name: string,
+  sandbox: SandboxInstance
+): Promise<void> {
+  closeConnection(sandbox)
+  await SandboxInstance.delete(name)
+  logger.warn({ sandbox: name }, "Sandbox: persistent sandbox invalidated")
+}
+
 // A named sandbox persists across sessions: it drops to standby (free)
 // between them and resumes with its filesystem intact. If the idle TTL
 // deletes it, tasks reseed durable artifacts and code sessions re-clone;

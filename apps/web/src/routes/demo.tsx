@@ -1,5 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router"
-import { ProductVisionDemo } from "@/components/demo/product-vision-demo"
+import {
+  LAST_SCENE,
+  ProductVisionDemo,
+} from "@/components/demo/product-vision-demo"
 
 type DemoSearch = {
   scene: number
@@ -13,7 +16,7 @@ export const Route = createFileRoute("/demo")({
     const scene =
       Number.isInteger(requestedScene) &&
       requestedScene >= 1 &&
-      requestedScene <= 5
+      requestedScene <= LAST_SCENE
         ? requestedScene
         : 1
 
