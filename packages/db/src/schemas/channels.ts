@@ -28,6 +28,17 @@ export const channelTypeEnum = pgEnum("channel_type", [
   "category",
 ])
 
+// Who can see/read/write a workspace channel. "workspace" = every workspace
+// member (implicit, today's behavior). "members" = only users with a
+// channel_member row on the channel's access container (the parent category
+// for channels inside one, else the channel itself). Audience is resolved on
+// the CONTAINER: children inherit their category's audience, which is how a
+// project folder restricts all of its channels with one member list.
+export const channelAudienceEnum = pgEnum("channel_audience", [
+  "workspace",
+  "members",
+])
+
 export const channel = pgTable(
   "channel",
   {
@@ -40,6 +51,12 @@ export const channel = pgTable(
     name: text("name"),
     topic: text("topic"),
     type: channelTypeEnum("type").notNull().default("text"),
+    audience: channelAudienceEnum("audience").notNull().default("workspace"),
+
+    // Archived channels are read-only: sends/edits/reactions are rejected and
+    // the channel leaves the active sidebar. Set on all of a project's
+    // channels when the project archives.
+    archivedAt: timestamp("archived_at"),
 
     // null for DMs/group DMs
     workspaceId: uuid("workspace_id").references(() => workspace.id, {
@@ -149,6 +166,10 @@ export const insertChannelSchema = createInsertSchema(channel, {
   ownerId: true,
   position: true,
   rateLimitPerUser: true,
+  // Audience/archival are set through the project + private-channel routes
+  // (with membership handling), never raw channel create/update.
+  audience: true,
+  archivedAt: true,
 })
 
 export const updateChannelSchema = createUpdateSchema(channel, {
@@ -160,4 +181,6 @@ export const updateChannelSchema = createUpdateSchema(channel, {
   updatedAt: true,
   workspaceId: true,
   ownerId: true,
+  audience: true,
+  archivedAt: true,
 })

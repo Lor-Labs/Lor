@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./constants": "./src/constants.ts",
-    "./schema": "./src/schemas/index.ts"
+    "./schema": "./src/schemas/index.ts",
+    "./queries/channel-access": "./src/queries/channel-access.ts"
   },
   "scripts": {
     "check-types": "tsc --noEmit",
