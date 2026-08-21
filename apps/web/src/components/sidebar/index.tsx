@@ -96,6 +96,12 @@ function RightPanelDock() {
   const panelRef = useRef<HTMLDivElement>(null)
   const widthRef = useRef(panelWidth)
 
+  // Drag-resize performance: reading getBoundingClientRect() after a style
+  // write on every mousemove forces synchronous layout each frame (expensive
+  // with a long message list in the center panel). So drag-start geometry is
+  // cached once here, the width is applied via direct DOM style mutation
+  // during the drag, and the React state commit is deferred to mouseup to
+  // avoid mid-drag re-renders.
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault()
