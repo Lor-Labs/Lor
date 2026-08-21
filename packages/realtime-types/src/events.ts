@@ -28,7 +28,7 @@ export const attachmentPayloadSchema = z.object({
 export const sendMessagePayloadSchema = z
   .object({
     channelId: z.string().uuid(),
-    content: z.string().trim().max(2000).optional(),
+    content: z.string().trim().optional(),
     nonce: z.string().max(100).optional(),
     referencedMessageId: z.string().uuid().optional(),
     threadRootId: z.string().uuid().optional(),
@@ -58,7 +58,7 @@ export const deleteMessagePayloadSchema = z.object({
 export const editMessagePayloadSchema = z.object({
   channelId: z.string().uuid(),
   messageId: z.string().uuid(),
-  content: z.string().trim().min(1).max(2000),
+  content: z.string().trim().min(1),
 })
 
 export const markChannelReadPayloadSchema = z.object({

@@ -54,7 +54,6 @@ import {
 
 const composerLayoutTransition = LinearTransition.duration(100)
 const attachmentPanelGap = 8
-const MAX_MESSAGE_LENGTH = 2000
 
 export type MessageComposerMentionHandle = {
   insertMention: (mention: { id: string; label: string }) => void
@@ -154,13 +153,11 @@ export function MessageComposer({
     isEditing &&
     Boolean(onEdit) &&
     hasMessage &&
-    pendingStoredContent.length <= MAX_MESSAGE_LENGTH &&
     pendingStoredContent !== editingMessage?.content?.trim()
   const canSend =
     (isEditing
       ? canSaveEdit
       : (hasMessage || hasUploadedAttachments) &&
-        pendingStoredContent.length <= MAX_MESSAGE_LENGTH &&
         !attachmentUpload.hasError &&
         !attachmentUpload.isUploading) &&
     !isSending &&
@@ -395,11 +392,7 @@ export function MessageComposer({
     const nextPlainText = plainText
     const storedContent = toStoredMessageMarkdown(next).trim()
     if (isEditing && editingMessage && onEdit) {
-      if (
-        !storedContent ||
-        storedContent.length > MAX_MESSAGE_LENGTH ||
-        storedContent === editingMessage.content?.trim()
-      ) {
+      if (!storedContent || storedContent === editingMessage.content?.trim()) {
         return
       }
 
@@ -418,7 +411,6 @@ export function MessageComposer({
     }
 
     if (!storedContent && !hasUploadedAttachments) return
-    if (storedContent.length > MAX_MESSAGE_LENGTH) return
 
     setContent("")
     setPlainText("")
@@ -467,17 +459,14 @@ export function MessageComposer({
           </Alert.Content>
         </Alert>
       ) : null}
-      {submitError || pendingStoredContent.length > MAX_MESSAGE_LENGTH ? (
+      {submitError ? (
         <Alert
           className="mb-two rounded-lor-sm bg-danger-soft p-two shadow-none"
           status="danger"
         >
           <Alert.Indicator className="pt-px" iconProps={{ size: 16 }} />
           <Alert.Content>
-            <Alert.Title className="text-sm">
-              {submitError ??
-                `Messages can be up to ${MAX_MESSAGE_LENGTH.toLocaleString()} characters.`}
-            </Alert.Title>
+            <Alert.Title className="text-sm">{submitError}</Alert.Title>
           </Alert.Content>
         </Alert>
       ) : null}

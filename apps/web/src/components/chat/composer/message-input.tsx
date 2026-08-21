@@ -80,7 +80,6 @@ import {
 const MAX_MENTION_RESULTS = 8
 const MAX_SLASH_RESULTS = 8
 const CONNECTORS_STALE_MS = 5 * 60 * 1000
-const MAX_MESSAGE_LENGTH = 2000
 const POPUP_HORIZONTAL_PADDING = 8
 const POPUP_VERTICAL_PADDING = 8
 const POPUP_GAP = 6
@@ -610,7 +609,6 @@ export function MessageInput({
     const hasContent = trimmed.length > 0
 
     if ((!hasContent && !hasAttachments) || isSending) return
-    if (hasContent && trimmed.length > MAX_MESSAGE_LENGTH) return
 
     const mentionCandidatesById = new Map(
       normalizedMentionCandidates.map((candidate) => [candidate.id, candidate])
@@ -714,7 +712,6 @@ export function MessageInput({
   const trimmedValue = plainText.trim()
   const canSend =
     (trimmedValue.length > 0 || pendingAttachments.length > 0) &&
-    trimmedValue.length <= MAX_MESSAGE_LENGTH &&
     !isSending &&
     !isUploading
   const isEmpty = trimmedValue.length === 0
