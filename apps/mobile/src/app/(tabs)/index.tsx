@@ -92,6 +92,29 @@ export default function WorkspaceScreen() {
   const isLoadingChannels = Boolean(workspaceSlug) && channelsQuery.isPending
   const channelError = channelsQuery.error?.message ?? null
 
+  // Which categories are projects — drives the folder/dashed-border sidebar
+  // treatment in ChannelList.
+  const projectsQuery = useQuery({
+    queryKey: ["projects", workspaceSlug],
+    enabled: Boolean(workspaceSlug),
+    queryFn: async () => {
+      const response = await api.v1.workspaces[":workspaceSlug"].projects.$get({
+        param: { workspaceSlug },
+      })
+      if (!response.ok) throw new Error("Could not load projects")
+      return response.json()
+    },
+  })
+  const projectCategoryIds = useMemo(
+    () =>
+      new Set(
+        projectsQuery.data?.projects.map(
+          (project) => project.categoryChannelId
+        ) ?? []
+      ),
+    [projectsQuery.data]
+  )
+
   const pullToRefresh = async () => {
     setIsPullRefreshing(true)
     try {
@@ -356,6 +379,7 @@ export default function WorkspaceScreen() {
             isLoading={isLoadingChannels}
             onLongPress={setActionChannel}
             onPress={openChannel}
+            projectCategoryIds={projectCategoryIds}
           />
         )}
       </ScrollView>

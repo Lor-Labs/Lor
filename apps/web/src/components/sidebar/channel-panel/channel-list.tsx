@@ -18,7 +18,7 @@ import { CSS } from "@dnd-kit/utilities"
 import {
   ArrowDown01Icon,
   Folder01Icon,
-  FolderOpenIcon,
+  Folder02Icon,
   HashtagIcon,
   MoreHorizontalIcon,
   PlusSignIcon,
@@ -67,8 +67,19 @@ const channelIcons = {
 
 type ChannelData = ListChannelsResponse
 
-function ChannelIcon({ type }: { type: string }) {
-  const icon = channelIcons[type as keyof typeof channelIcons] ?? HashtagIcon
+function ChannelIcon({
+  type,
+  isPrivate = false,
+}: {
+  type: string
+  isPrivate?: boolean
+}) {
+  // A standalone private channel wears a lock instead of its type glyph
+  // (Slack convention). Project channels don't — the project boundary
+  // already communicates the audience.
+  const icon = isPrivate
+    ? SquareLock02Icon
+    : (channelIcons[type as keyof typeof channelIcons] ?? HashtagIcon)
   return (
     <HugeiconsIcon
       icon={icon}
@@ -304,12 +315,23 @@ export function ChannelList() {
       // Don't allow dragging categories onto channels
       if (activeItem.isCategory) return
 
-      // Find which container the active item is in
+      // Project channels stay inside their project: block any cross-container
+      // drag where either side is a project (the server enforces the same for
+      // private containers; this also covers public projects and gives
+      // immediate feedback instead of a failed mutation).
       const activeContainer = activeItem.channel.parentId
       // Determine the target container
       const overContainer = overItem.isCategory
         ? (over.id as string)
         : overItem.channel.parentId
+
+      if (
+        activeContainer !== overContainer &&
+        ((activeContainer && projectCategoryIds.has(activeContainer)) ||
+          (overContainer && projectCategoryIds.has(overContainer)))
+      ) {
+        return
+      }
 
       // If moving between containers, update optimistically
       if (activeContainer !== overContainer) {
@@ -370,7 +392,7 @@ export function ChannelList() {
         )
       }
     },
-    [data, findChannel, workspaceSlug, queryClient]
+    [data, findChannel, workspaceSlug, queryClient, projectCategoryIds]
   )
 
   const handleDragEnd = useCallback(
@@ -501,7 +523,6 @@ export function ChannelList() {
               key={cat.id}
               id={cat.id}
               name={cat.name ?? ""}
-              isPrivate={cat.audience === "members"}
               isProject={projectCategoryIds.has(cat.id)}
               channels={cat.channels}
               draggingCategory={activeItem?.isCategory ?? false}
@@ -556,7 +577,6 @@ export function ChannelList() {
 function SortableCategorySection({
   id,
   name,
-  isPrivate = false,
   isProject = false,
   channels,
   draggingCategory,
@@ -570,7 +590,6 @@ function SortableCategorySection({
 }: {
   id: string
   name: string
-  isPrivate?: boolean
   isProject?: boolean
   channels: Channel[]
   draggingCategory: boolean
@@ -628,7 +647,7 @@ function SortableCategorySection({
         >
           {isProject ? (
             <HugeiconsIcon
-              icon={collapsed ? Folder01Icon : FolderOpenIcon}
+              icon={collapsed ? Folder01Icon : Folder02Icon}
               className="mr-1 size-3.5 shrink-0"
               strokeWidth={2}
             />
@@ -645,14 +664,6 @@ function SortableCategorySection({
             </motion.div>
           )}
           <span className="truncate">{name}</span>
-          {isPrivate && (
-            <HugeiconsIcon
-              icon={SquareLock02Icon}
-              className="ml-1 size-3 shrink-0"
-              strokeWidth={2}
-              aria-label="Private"
-            />
-          )}
         </button>
         <div className="flex items-center gap-0.5">
           {canCreate && (
@@ -832,7 +843,10 @@ function SortableChannelItem({
         {!active && hasUnread && (
           <div className="absolute left-0 top-1/2 h-2 w-[3px] -translate-y-1/2 rounded-r-full bg-foreground" />
         )}
-        <ChannelIcon type={ch.type} />
+        <ChannelIcon
+          type={ch.type}
+          isPrivate={ch.audience === "members" && ch.parentId === null}
+        />
         <span className="truncate">{ch.name}</span>
         <div className="ml-auto flex items-center gap-1">
           {mentionCount > 0 && (

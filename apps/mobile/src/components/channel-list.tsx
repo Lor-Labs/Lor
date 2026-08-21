@@ -1,5 +1,8 @@
 import ChevronDownIcon from "@hugeicons/core-free-icons/ArrowDown01Icon"
+import Folder01Icon from "@hugeicons/core-free-icons/Folder01Icon"
+import Folder02Icon from "@hugeicons/core-free-icons/Folder02Icon"
 import HashtagIcon from "@hugeicons/core-free-icons/HashtagIcon"
+import SquareLock02Icon from "@hugeicons/core-free-icons/SquareLock02Icon"
 import VolumeHighIcon from "@hugeicons/core-free-icons/VolumeHighIcon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
 import * as Haptics from "expo-haptics"
@@ -36,6 +39,9 @@ export function ChannelRow({
 }) {
   const [foreground, muted] = useThemeColor(["foreground", "muted"])
   const isVoice = channel.type === "voice"
+  // Standalone private channels wear a lock instead of their type glyph;
+  // project channels don't — the project boundary communicates the audience.
+  const isPrivate = channel.audience === "members" && channel.parentId === null
   const emphasized = unread || mentionCount > 0
 
   return (
@@ -84,7 +90,13 @@ export function ChannelRow({
       <View className="size-7 items-center justify-center">
         <HugeiconsIcon
           color={emphasized ? foreground : muted}
-          icon={isVoice ? VolumeHighIcon : HashtagIcon}
+          icon={
+            isPrivate
+              ? SquareLock02Icon
+              : isVoice
+                ? VolumeHighIcon
+                : HashtagIcon
+          }
           size={19}
           strokeWidth={emphasized ? 2 : 1.8}
         />
@@ -109,6 +121,7 @@ function ChannelSection({
   collapsed,
   hasActivity,
   id,
+  isProject = false,
   onToggle,
   renderRow,
   title,
@@ -117,6 +130,7 @@ function ChannelSection({
   collapsed: boolean
   hasActivity: (channelId: string) => boolean
   id: string
+  isProject?: boolean
   onToggle: (id: string) => void
   renderRow: (channel: Channel) => ReactNode
   title: string
@@ -131,7 +145,15 @@ function ChannelSection({
     : channels.filter((channel) => hasActivity(channel.id))
 
   return (
-    <View>
+    <View
+      className={
+        // Projects read as a bounded container — dashed border, folder
+        // disclosure — matching the web sidebar treatment.
+        isProject
+          ? "rounded-lor-md border border-dashed border-separator px-one pb-one pt-one"
+          : undefined
+      }
+    >
       <Pressable
         accessibilityLabel={`${title}, ${channels.length} ${channels.length === 1 ? "channel" : "channels"}`}
         accessibilityRole="button"
@@ -142,14 +164,23 @@ function ChannelSection({
           onToggle(id)
         }}
       >
-        <View className={expanded ? "rotate-0" : "-rotate-90"}>
+        {isProject ? (
           <HugeiconsIcon
             color={muted}
-            icon={ChevronDownIcon}
-            size={12}
-            strokeWidth={2.2}
+            icon={expanded ? Folder02Icon : Folder01Icon}
+            size={14}
+            strokeWidth={2}
           />
-        </View>
+        ) : (
+          <View className={expanded ? "rotate-0" : "-rotate-90"}>
+            <HugeiconsIcon
+              color={muted}
+              icon={ChevronDownIcon}
+              size={12}
+              strokeWidth={2.2}
+            />
+          </View>
+        )}
         <SectionLabel>{title}</SectionLabel>
       </Pressable>
 
@@ -163,11 +194,13 @@ export function ChannelList({
   isLoading,
   onLongPress,
   onPress,
+  projectCategoryIds,
 }: {
   data?: { uncategorized: Channel[]; categories: ChannelCategory[] }
   isLoading: boolean
   onLongPress?: (channel: Channel) => void
   onPress: (channel: Channel) => void
+  projectCategoryIds?: Set<string>
 }) {
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(
     () => new Set()
@@ -222,6 +255,7 @@ export function ChannelList({
           collapsed={collapsedSections.has(category.id)}
           hasActivity={hasActivity}
           id={category.id}
+          isProject={projectCategoryIds?.has(category.id) ?? false}
           key={category.id}
           onToggle={toggleSection}
           renderRow={renderRow}

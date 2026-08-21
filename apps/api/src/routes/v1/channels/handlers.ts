@@ -214,9 +214,11 @@ export const reorderChannels: AppRouteHandler<ReorderChannelsRoute> = async (
   }
 
   // Audience lives on the container: dragging a channel into or out of a
-  // members-audience category would silently change who can read it. Reject
-  // any reorder that changes a channel's container when either side is
-  // private — moving a project's channels is project management, not a drag.
+  // members-audience category would silently change who can read it. Project
+  // channels additionally stay inside their project regardless of audience —
+  // the group is a lifecycle boundary, not a visual grouping. Reject any
+  // reorder that changes a channel's container when either side is private
+  // or a project.
   const currentRows = await db
     .select({
       id: channel.id,
@@ -235,19 +237,30 @@ export const reorderChannels: AppRouteHandler<ReorderChannelsRoute> = async (
       ].filter((id): id is string => id !== null)
     ),
   ]
-  const parentRows = referencedParentIds.length
-    ? await db
-        .select({ id: channel.id, audience: channel.audience })
-        .from(channel)
-        .where(
-          and(
-            eq(channel.workspaceId, workspace.id),
-            inArray(channel.id, referencedParentIds)
+  const [parentRows, projectRows] = await Promise.all([
+    referencedParentIds.length
+      ? db
+          .select({ id: channel.id, audience: channel.audience })
+          .from(channel)
+          .where(
+            and(
+              eq(channel.workspaceId, workspace.id),
+              inArray(channel.id, referencedParentIds)
+            )
           )
-        )
-    : []
+      : Promise.resolve([]),
+    referencedParentIds.length
+      ? db
+          .select({ categoryChannelId: schema.project.categoryChannelId })
+          .from(schema.project)
+          .where(inArray(schema.project.categoryChannelId, referencedParentIds))
+      : Promise.resolve([]),
+  ])
   const parentAudienceById = new Map(
     parentRows.map((ch) => [ch.id, ch.audience])
+  )
+  const projectCategoryIds = new Set(
+    projectRows.map((row) => row.categoryChannelId)
   )
 
   for (const update of updates) {
@@ -262,11 +275,16 @@ export const reorderChannels: AppRouteHandler<ReorderChannelsRoute> = async (
     const toAudience = update.parentId
       ? (parentAudienceById.get(update.parentId) ?? "workspace")
       : current.audience
-    if (fromAudience === "members" || toAudience === "members") {
+    if (
+      fromAudience === "members" ||
+      toAudience === "members" ||
+      projectCategoryIds.has(fromContainer) ||
+      projectCategoryIds.has(toContainer)
+    ) {
       return c.json(
         {
           success: false,
-          message: "Channels cannot be moved into or out of a private group",
+          message: "Channels cannot be moved into or out of a project",
         },
         HttpStatusCodes.FORBIDDEN
       )
