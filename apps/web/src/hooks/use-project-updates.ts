@@ -15,6 +15,10 @@ export function useProjectUpdates(workspaceSlug: string | undefined) {
       void queryClient.invalidateQueries({
         queryKey: ["projects", workspaceSlug],
       })
+      // Overview pages ("project" detail) and the sidebar tree.
+      void queryClient.invalidateQueries({
+        queryKey: ["project", workspaceSlug],
+      })
       void queryClient.invalidateQueries({
         queryKey: ["channels", workspaceSlug],
       })

@@ -109,6 +109,8 @@ export const merlinReasoningSegmentSchema = z.object({
 export const merlinMemorySchema = z.object({
   path: z.string(),
   action: z.enum(["created", "updated"]),
+  // Durable brain-node reference; rows persisted before it existed omit it.
+  nodeId: z.string().uuid().optional(),
 })
 
 export const referencedMessageSchema = z

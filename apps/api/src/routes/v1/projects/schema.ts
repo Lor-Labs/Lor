@@ -86,7 +86,18 @@ export const projectChannelSchema = z.object({
   archivedAt: z.string().nullable(),
 })
 
+// A brain page saved by archive synthesis — the overview's "saved to
+// memory" glance. nodeId references the brain node durably (paths can go
+// stale); optional for rows written before it existed.
+export const projectMemorySchema = z.object({
+  path: z.string(),
+  action: z.enum(["created", "updated"]),
+  nodeId: z.string().uuid().optional(),
+})
+
 export const projectDetailSchema = projectSchema.extend({
+  summary: z.string().nullable(),
+  memories: z.array(projectMemorySchema),
   members: z.array(projectMemberSchema),
   channels: z.array(projectChannelSchema),
 })

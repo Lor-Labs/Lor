@@ -337,7 +337,8 @@ export async function writePage(
   body: string,
   scope: BrainWriteScope | null = null
 ): Promise<
-  { error: string } | { path: string; action: "created" | "updated" }
+  | { error: string }
+  | { path: string; action: "created" | "updated"; nodeId: string }
 > {
   // Scoped writes are confined under the scope's folder — updating a
   // workspace-visible page from a private channel would leak at retrieval.
@@ -372,20 +373,25 @@ export async function writePage(
       .set({ body, embedding, version: sql`${schema.brainNode.version} + 1` })
       .where(eq(schema.brainNode.id, existing.id))
     await recordProjectBrainFolder(workspaceId, scope)
-    return { path: cpath, action: "updated" as const }
+    return { path: cpath, action: "updated" as const, nodeId: existing.id }
   }
 
-  await db.insert(schema.brainNode).values({
-    workspaceId,
-    kind: "page",
-    parentId,
-    name: leaf,
-    body,
-    embedding,
-    scopeChannelId,
-  })
+  const inserted = await db
+    .insert(schema.brainNode)
+    .values({
+      workspaceId,
+      kind: "page",
+      parentId,
+      name: leaf,
+      body,
+      embedding,
+      scopeChannelId,
+    })
+    .returning({ id: schema.brainNode.id })
+    .then((rows) => rows[0])
+  if (!inserted) return { error: "write failed" }
   await recordProjectBrainFolder(workspaceId, scope)
-  return { path: cpath, action: "created" as const }
+  return { path: cpath, action: "created" as const, nodeId: inserted.id }
 }
 
 // First scoped write pins project.brainFolderId for archive synthesis. Scope
@@ -504,7 +510,14 @@ function wrap<T>(fn: () => Promise<T>) {
   }))
 }
 
-export type BrainWriteEvent = { path: string; action: "created" | "updated" }
+// nodeId travels with every write event so consumers (memory chips, the
+// archived-project overview) can reference the page durably — paths go stale
+// when pages are moved or renamed.
+export type BrainWriteEvent = {
+  nodeId: string
+  path: string
+  action: "created" | "updated"
+}
 
 const workspaceContext = z.object({
   workspaceId: z.string(),
@@ -592,7 +605,11 @@ export const brainWriteTools = {
       // Listener failures should not make a committed write look failed.
       if (context.onWrite && "action" in result) {
         try {
-          await context.onWrite({ path: result.path, action: result.action })
+          await context.onWrite({
+            nodeId: result.nodeId,
+            path: result.path,
+            action: result.action,
+          })
         } catch (err) {
           logger.error(
             { err, path: result.path },
@@ -600,8 +617,11 @@ export const brainWriteTools = {
           )
         }
       }
-      // Echo the body so the tool-trail card can show what was saved.
-      return "action" in result ? { ...result, body } : result
+      // Echo the body so the tool-trail card can show what was saved. The
+      // node id stays out of the model-facing result — it cites paths.
+      return "action" in result
+        ? { path: result.path, action: result.action, body }
+        : result
     },
     strict: true,
   }),

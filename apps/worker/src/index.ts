@@ -200,7 +200,7 @@ async function bootstrap() {
 
   const projectArchiveWorker = new Worker<ProjectArchiveJobData>(
     PROJECT_ARCHIVE_QUEUE,
-    createProjectArchiveProcessor(emitter, redisEmitterClient),
+    createProjectArchiveProcessor(emitter),
     {
       connection: {
         ...redisOpts,

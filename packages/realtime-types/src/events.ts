@@ -326,6 +326,36 @@ export type ChannelMuteUpdated = {
   muted: boolean
 }
 
+// Wire shape of a Merlin tool-trail entry — mirrors MerlinToolCall in
+// @repo/db/schema. Shared by merlin:tool and project:archive:progress.
+export type RealtimeMerlinToolCall = {
+  toolCallId: string
+  toolName: string
+  label: string
+  at?: number
+  order?: number
+  parentToolCallId?: string
+  detail?: {
+    summary?: string
+    items?: { title: string; url?: string }[]
+  }
+  diff?: {
+    path: string
+    additions: number
+    deletions: number
+    patch?: string
+    truncated?: boolean
+  }
+  files?: {
+    artifactId: string
+    path: string
+    contentType: string
+    size: number
+    url: string
+  }[]
+  status?: "ok" | "error"
+}
+
 // Project lifecycle change (archive start/finish). Emitted to the audience's
 // user rooms — never the workspace room — so a private project's existence
 // doesn't leak to non-members. Clients refetch projects/channels on receipt.
@@ -334,6 +364,17 @@ export type ProjectUpdatedEvent = {
   categoryChannelId: string
   status: "active" | "archiving" | "archived"
   archivedAt: string | null
+}
+
+// Live archive-synthesis progress (tool call or memory write), emitted to the
+// project's CATEGORY channel room — the archived-project overview joins it
+// via the normal channel:join access check. Ephemeral: the durable record
+// lands on the project row when the run finishes.
+export type ProjectArchiveProgressEvent = {
+  projectId: string
+  categoryChannelId: string
+  toolCall?: RealtimeMerlinToolCall
+  memory?: { nodeId?: string; path: string; action: "created" | "updated" }
 }
 
 export type NotificationBootstrap = {
@@ -475,6 +516,7 @@ export interface ServerToClientEvents {
     messageId: string
     path: string
     action: "created" | "updated"
+    nodeId?: string
     runId?: string
     seq?: number
   }) => void
@@ -486,33 +528,7 @@ export interface ServerToClientEvents {
     channelId: string
     threadRootId: string | null
     messageId: string
-    toolCall: {
-      toolCallId: string
-      toolName: string
-      label: string
-      at?: number
-      order?: number
-      parentToolCallId?: string
-      detail?: {
-        summary?: string
-        items?: { title: string; url?: string }[]
-      }
-      diff?: {
-        path: string
-        additions: number
-        deletions: number
-        patch?: string
-        truncated?: boolean
-      }
-      files?: {
-        artifactId: string
-        path: string
-        contentType: string
-        size: number
-        url: string
-      }[]
-      status?: "ok" | "error"
-    }
+    toolCall: RealtimeMerlinToolCall
     runId?: string
     seq?: number
   }) => void
@@ -539,6 +555,7 @@ export interface ServerToClientEvents {
   "channel:read-state": (payload: ChannelReadState) => void
   "channel-mute:updated": (payload: ChannelMuteUpdated) => void
   "project:updated": (payload: ProjectUpdatedEvent) => void
+  "project:archive:progress": (payload: ProjectArchiveProgressEvent) => void
   "workspace:member:joined": (payload: WorkspaceMemberJoinedEvent) => void
   "typing:update": (payload: TypingIndicatorEvent) => void
   "billing:updated": (payload: BillingUpdatedEvent) => void

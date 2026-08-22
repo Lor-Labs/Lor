@@ -555,14 +555,23 @@ function ChannelView() {
         steeringMessageId={queuedMessageSteering.steeringMessageId}
       />
       {data.archivedAt ? (
-        <div className="px-4 pb-4">
-          <div className="flex items-center justify-center gap-2 rounded-lg border border-dashed border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
-            <HugeiconsIcon
-              icon={Archive02Icon}
-              className="size-4 shrink-0"
-              strokeWidth={2}
-            />
-            This project is archived — the channel is read-only.
+        // Archived: no composer — a terminal divider marks when it closed.
+        <div className="px-4 pt-1 pb-5">
+          <div className="relative flex items-center">
+            <div className="h-px w-full bg-border/70" />
+            <span className="absolute left-1/2 flex -translate-x-1/2 items-center gap-1.5 whitespace-nowrap rounded-full border border-border/70 bg-background px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
+              <HugeiconsIcon
+                icon={Archive02Icon}
+                className="size-3.5 shrink-0"
+                strokeWidth={2}
+              />
+              Archived{" "}
+              {new Date(data.archivedAt).toLocaleDateString(undefined, {
+                month: "short",
+                day: "numeric",
+                year: "numeric",
+              })}
+            </span>
           </div>
         </div>
       ) : (

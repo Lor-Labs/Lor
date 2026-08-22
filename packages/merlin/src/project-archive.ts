@@ -126,8 +126,8 @@ export async function synthesizeProjectArchive(
   args: {
     workspaceId: string
     projectId: string
-    // The project channel the closing message posts into — the capabilities
-    // anchor, exactly as if this were a run in that channel.
+    // Capabilities anchor — a project channel; synthesis binds the connector
+    // tools a run in that channel would get. Null = core tools only.
     channelId: string | null
   },
   { onToolEvent, onMemoryWritten, onUsage }: ArchiveSynthesisCallbacks = {}

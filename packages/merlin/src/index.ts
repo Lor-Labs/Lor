@@ -269,7 +269,7 @@ export type RespondCallbacks = {
   onDelta: (delta: string) => void | Promise<void>
   // Summarized extended-thinking deltas, with their current answer-text offset.
   onReasoning?: (delta: string, at: number) => void | Promise<void>
-  onMemoryWritten?: (e: { path: string; action: "created" | "updated" }) => void
+  onMemoryWritten?: (e: BrainWriteEvent) => void
   onToolEvent?: (e: ToolEvent) => void
   onUsage?: OnUsage
   onInstructionsProposal?: (
@@ -322,7 +322,7 @@ export type WriteBackContext = {
 }
 
 export type WriteBackCallbacks = {
-  onMemoryWritten?: (e: { path: string; action: "created" | "updated" }) => void
+  onMemoryWritten?: (e: BrainWriteEvent) => void
   onUsage?: OnUsage
   onInstructionsProposal?: (
     e: InstructionsProposalEvent

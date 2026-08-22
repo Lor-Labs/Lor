@@ -92,6 +92,8 @@ async function loadProjectDetail(projectId: string) {
       name: row.categoryName,
       audience: row.categoryAudience,
     }),
+    summary: row.project.summary,
+    memories: row.project.archiveMemories ?? [],
     members,
     channels: channels.flatMap((ch) =>
       ch.type === "text" || ch.type === "voice"

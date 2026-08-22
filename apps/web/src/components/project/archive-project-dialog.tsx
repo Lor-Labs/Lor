@@ -9,7 +9,7 @@ import {
 } from "@repo/ui/components/alert-dialog"
 import { Button } from "@repo/ui/components/button"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { useParams } from "@tanstack/react-router"
+import { useNavigate, useParams } from "@tanstack/react-router"
 import { apiClient } from "@/lib/api-client"
 
 export function ArchiveProjectDialog({
@@ -25,6 +25,7 @@ export function ArchiveProjectDialog({
 }) {
   const { workspaceSlug } = useParams({ strict: false })
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
 
   const archiveMutation = useMutation({
     mutationFn: async () => {
@@ -45,6 +46,11 @@ export function ArchiveProjectDialog({
       queryClient.invalidateQueries({ queryKey: ["projects", workspaceSlug] })
       queryClient.invalidateQueries({ queryKey: ["channels", workspaceSlug] })
       onOpenChange(false)
+      // Land on the overview — the live surface for the archivist's progress.
+      navigate({
+        to: "/$workspaceSlug/project/$projectId",
+        params: { workspaceSlug: workspaceSlug as string, projectId },
+      })
     },
   })
 
@@ -56,8 +62,8 @@ export function ArchiveProjectDialog({
           <AlertDialogDescription>
             Are you sure you want to archive{" "}
             <span className="font-semibold">{projectName}</span>? Its channels
-            become read-only and Merlin will post a closing summary of what was
-            decided and shipped. This cannot be undone.
+            become read-only and Merlin will distill the project into workspace
+            memory with a closing summary. This cannot be undone.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

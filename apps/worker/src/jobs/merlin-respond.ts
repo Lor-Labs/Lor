@@ -447,6 +447,7 @@ export function createMerlinRespondProcessor(
               kind: "memory",
               path: memory.path,
               action: memory.action,
+              ...(memory.nodeId ? { nodeId: memory.nodeId } : {}),
             })
             emitter.to(room).emit("merlin:memory", {
               channelId,
@@ -454,6 +455,7 @@ export function createMerlinRespondProcessor(
               messageId: merlinMessageId,
               path: memory.path,
               action: memory.action,
+              ...(memory.nodeId ? { nodeId: memory.nodeId } : {}),
               ...runRef(seq),
             })
           }

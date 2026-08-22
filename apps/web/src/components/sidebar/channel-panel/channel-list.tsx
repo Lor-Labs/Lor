@@ -559,6 +559,18 @@ export function ChannelList() {
               isProject={projectCategoryIds.has(cat.id)}
               projectId={projectByCategoryId.get(cat.id)?.id ?? null}
               projectStatus={projectByCategoryId.get(cat.id)?.status ?? null}
+              onOpenOverview={() => {
+                const project = projectByCategoryId.get(cat.id)
+                if (!project) return
+                navigate({
+                  to: "/$workspaceSlug/project/$projectId",
+                  params: {
+                    workspaceSlug: workspaceSlug as string,
+                    projectId: project.id,
+                  },
+                })
+                closeMobileSidebar(false)
+              }}
               channels={cat.channels}
               draggingCategory={activeItem?.isCategory ?? false}
               activeChannelId={activeChannelId}
@@ -585,6 +597,18 @@ export function ChannelList() {
           <ArchivedProjectsSection
             categories={archivedCategories}
             activeChannelId={activeChannelId}
+            onProjectClick={(categoryId) => {
+              const project = projectByCategoryId.get(categoryId)
+              if (!project) return
+              navigate({
+                to: "/$workspaceSlug/project/$projectId",
+                params: {
+                  workspaceSlug: workspaceSlug as string,
+                  projectId: project.id,
+                },
+              })
+              closeMobileSidebar(false)
+            }}
             onChannelClick={(channelId) => {
               navigate({
                 to: "/$workspaceSlug/$channelId",
@@ -632,6 +656,7 @@ function SortableCategorySection({
   isProject = false,
   projectId = null,
   projectStatus = null,
+  onOpenOverview,
   channels,
   draggingCategory,
   activeChannelId,
@@ -647,6 +672,7 @@ function SortableCategorySection({
   isProject?: boolean
   projectId?: string | null
   projectStatus?: "active" | "archiving" | "archived" | null
+  onOpenOverview?: () => void
   channels: Channel[]
   draggingCategory: boolean
   activeChannelId?: string
@@ -698,7 +724,15 @@ function SortableCategorySection({
       <div className="group/category flex w-full items-center gap-0.5 px-1 pb-1">
         <button
           type="button"
-          onClick={() => setCollapsed(!collapsed)}
+          onClick={() => {
+            // An archiving project's header opens the live overview — the
+            // synthesis progress lives there, not in a collapsed tree.
+            if (projectStatus === "archiving" && onOpenOverview) {
+              onOpenOverview()
+              return
+            }
+            setCollapsed(!collapsed)
+          }}
           {...(canManage ? { ...attributes, ...listeners } : {})}
           className="flex flex-1 items-center gap-0.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground cursor-pointer"
         >
@@ -864,14 +898,17 @@ function SortableCategorySection({
 }
 
 // Archived projects: collapsed by default, muted, read-only — no dnd, no
-// management menus. Channels stay navigable (history is preserved).
+// management menus. The project row opens the archived overview; channels
+// stay navigable (history is preserved).
 function ArchivedProjectsSection({
   categories,
   activeChannelId,
+  onProjectClick,
   onChannelClick,
 }: {
   categories: ChannelData["categories"]
   activeChannelId?: string
+  onProjectClick: (categoryId: string) => void
   onChannelClick: (channelId: string) => void
 }) {
   const [collapsed, setCollapsed] = useState(true)
@@ -906,14 +943,18 @@ function ArchivedProjectsSection({
           >
             {categories.map((cat) => (
               <div key={cat.id} className="opacity-70">
-                <div className="flex items-center gap-0.5 px-1 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                <button
+                  type="button"
+                  onClick={() => onProjectClick(cat.id)}
+                  className="flex w-full items-center gap-0.5 px-1 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground cursor-pointer"
+                >
                   <HugeiconsIcon
                     icon={Archive02Icon}
                     className="mr-1 size-3.5 shrink-0"
                     strokeWidth={2}
                   />
                   <span className="truncate">{cat.name}</span>
-                </div>
+                </button>
                 {cat.channels.map((ch) => (
                   <button
                     key={ch.id}

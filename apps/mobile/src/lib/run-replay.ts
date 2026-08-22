@@ -97,7 +97,11 @@ export function applyMerlinFrame(
         ...(message.remembered ?? []).filter(
           (memory) => memory.path !== frame.payload.path
         ),
-        { path: frame.payload.path, action: frame.payload.action },
+        {
+          path: frame.payload.path,
+          action: frame.payload.action,
+          ...(frame.payload.nodeId ? { nodeId: frame.payload.nodeId } : {}),
+        },
       ],
     }
   }
@@ -133,7 +137,11 @@ function foldRunEvents(events: RunEvents): Partial<Message> {
     } else if (p.kind === "memory") {
       remembered = [
         ...remembered.filter((memory) => memory.path !== p.path),
-        { path: p.path, action: p.action },
+        {
+          path: p.path,
+          action: p.action,
+          ...(p.nodeId ? { nodeId: p.nodeId } : {}),
+        },
       ]
     } else if (p.kind === "steer") {
       steeringBy = p.authorName
