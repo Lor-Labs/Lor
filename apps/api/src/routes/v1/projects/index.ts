@@ -7,6 +7,7 @@ const projectsRouter = createRouter()
   .openapi(routes.createProject, handlers.createProject)
   .openapi(routes.getProject, handlers.getProject)
   .openapi(routes.updateProject, handlers.updateProject)
+  .openapi(routes.archiveProject, handlers.archiveProject)
   .openapi(routes.addProjectMember, handlers.addProjectMember)
   .openapi(routes.removeProjectMember, handlers.removeProjectMember)
 

@@ -51,3 +51,11 @@ export type TriggeredRunJobData = {
 // nothing else. Deliberately has no jobId — `connector_trigger`.
 // `act_window_opened_at` is the dedupe, not Redis.
 export type ActFlushJobData = { triggerId: string }
+
+// Project archive synthesis: the API flips the project to `archiving` (write
+// locks engage immediately), then this job distills the project into
+// workspace-scoped brain pages, posts a closing summary, and marks it
+// `archived`.
+export const PROJECT_ARCHIVE_QUEUE = "project-archive"
+
+export type ProjectArchiveJobData = { projectId: string }

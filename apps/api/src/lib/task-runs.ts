@@ -84,6 +84,18 @@ async function loadAuthor(userId: string) {
     .then((rows) => rows[0] ?? null)
 }
 
+// Archived channels (archived projects) are write-locked everywhere; task
+// rails insert directly, so they check here rather than via a route guard.
+async function channelIsArchived(channelId: string): Promise<boolean> {
+  const row = await db
+    .select({ archivedAt: schema.channel.archivedAt })
+    .from(schema.channel)
+    .where(eq(schema.channel.id, channelId))
+    .limit(1)
+    .then((rows) => rows[0])
+  return Boolean(row?.archivedAt)
+}
+
 // Post a message into the task thread (e.g. an approval resolution, authored
 // by the resolver) and broadcast it. Returns the message id.
 export async function postTaskThreadMessage(args: {
@@ -91,6 +103,13 @@ export async function postTaskThreadMessage(args: {
   authorId: string
   content: string
 }): Promise<string | null> {
+  if (await channelIsArchived(args.task.channelId)) {
+    logger.warn(
+      { taskId: args.task.id },
+      "Task thread post rejected: channel archived"
+    )
+    return null
+  }
   const inserted = await db
     .insert(schema.message)
     .values({
@@ -144,6 +163,14 @@ export async function startTaskContinuationRun(args: {
 }): Promise<void> {
   const { task, triggerMessageId, senderId } = args
   const scopeKey = task.cardMessageId
+
+  if (await channelIsArchived(task.channelId)) {
+    logger.warn(
+      { taskId: task.id },
+      "Task continuation rejected: channel archived"
+    )
+    return
+  }
 
   const queueBehindActiveRun = async (): Promise<boolean> => {
     const active = await db

@@ -116,6 +116,28 @@ export const updateProject = createRoute({
   },
 })
 
+export const archiveProject = createRoute({
+  path: "/workspaces/{workspaceSlug}/projects/{projectId}/archive",
+  method: "post",
+  summary: "Archive a project",
+  description:
+    "Locks all project channels read-only and starts archive synthesis: Merlin distills the project into workspace memory and posts a closing summary. Irreversible in v1.",
+  tags: ["Projects"],
+  middleware: [workspaceAuthMiddleware] as const,
+  request: {
+    params: projectParamsSchema,
+  },
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: projectDetailSchema,
+      description: "Project now archiving",
+    }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    ...commonErrors,
+  },
+})
+
 export const addProjectMember = createRoute({
   path: "/workspaces/{workspaceSlug}/projects/{projectId}/members",
   method: "post",
@@ -168,5 +190,6 @@ export type ListProjectsRoute = typeof listProjects
 export type CreateProjectRoute = typeof createProject
 export type GetProjectRoute = typeof getProject
 export type UpdateProjectRoute = typeof updateProject
+export type ArchiveProjectRoute = typeof archiveProject
 export type AddProjectMemberRoute = typeof addProjectMember
 export type RemoveProjectMemberRoute = typeof removeProjectMember

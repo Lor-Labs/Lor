@@ -16,6 +16,7 @@ import {
 } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
 import {
+  Archive02Icon,
   ArrowDown01Icon,
   Folder01Icon,
   Folder02Icon,
@@ -44,6 +45,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import { AnimatePresence, motion } from "motion/react"
 import { useCallback, useMemo, useState } from "react"
+import { ArchiveProjectDialog } from "@/components/project/archive-project-dialog"
 import { useCreateChannel } from "@/components/sidebar/channel-panel/create-channel-context"
 import { DeleteChannelDialog } from "@/components/sidebar/channel-panel/delete-channel-dialog"
 import { EditChannelDialog } from "@/components/sidebar/channel-panel/edit-channel-dialog"
@@ -249,9 +251,16 @@ export function ChannelList() {
     },
     enabled: !!workspaceSlug,
   })
-  const projectCategoryIds = useMemo(
-    () => new Set(projectsData?.projects.map((p) => p.categoryChannelId) ?? []),
+  const projectByCategoryId = useMemo(
+    () =>
+      new Map(
+        (projectsData?.projects ?? []).map((p) => [p.categoryChannelId, p])
+      ),
     [projectsData]
+  )
+  const projectCategoryIds = useMemo(
+    () => new Set(projectByCategoryId.keys()),
+    [projectByCategoryId]
   )
 
   const [activeItem, setActiveItem] = useState<{
@@ -470,6 +479,19 @@ export function ChannelList() {
   const isEmpty =
     data.uncategorized.length === 0 && data.categories.length === 0
 
+  // Archived projects drop out of the live tree into a muted, collapsed
+  // section — still readable, no longer in the way.
+  const isArchivedProject = (categoryId: string) => {
+    const project = projectByCategoryId.get(categoryId)
+    return Boolean(project && project.status !== "active")
+  }
+  const activeCategories = data.categories.filter(
+    (cat) => !isArchivedProject(cat.id)
+  )
+  const archivedCategories = data.categories.filter((cat) =>
+    isArchivedProject(cat.id)
+  )
+
   if (isEmpty) {
     return (
       <div className="px-2 py-4 text-center text-sm text-muted-foreground">
@@ -522,16 +544,17 @@ export function ChannelList() {
 
         {/* Categories with children */}
         <SortableContext
-          items={data.categories.map((cat) => cat.id)}
+          items={activeCategories.map((cat) => cat.id)}
           strategy={verticalListSortingStrategy}
           disabled={!canManage}
         >
-          {data.categories.map((cat) => (
+          {activeCategories.map((cat) => (
             <SortableCategorySection
               key={cat.id}
               id={cat.id}
               name={cat.name ?? ""}
               isProject={projectCategoryIds.has(cat.id)}
+              projectId={projectByCategoryId.get(cat.id)?.id ?? null}
               channels={cat.channels}
               draggingCategory={activeItem?.isCategory ?? false}
               activeChannelId={activeChannelId}
@@ -553,6 +576,23 @@ export function ChannelList() {
             />
           ))}
         </SortableContext>
+
+        {archivedCategories.length > 0 && (
+          <ArchivedProjectsSection
+            categories={archivedCategories}
+            activeChannelId={activeChannelId}
+            onChannelClick={(channelId) => {
+              navigate({
+                to: "/$workspaceSlug/$channelId",
+                params: {
+                  workspaceSlug: workspaceSlug as string,
+                  channelId,
+                },
+              })
+              closeMobileSidebar(false)
+            }}
+          />
+        )}
       </nav>
 
       <DragOverlay>
@@ -586,6 +626,7 @@ function SortableCategorySection({
   id,
   name,
   isProject = false,
+  projectId = null,
   channels,
   draggingCategory,
   activeChannelId,
@@ -599,6 +640,7 @@ function SortableCategorySection({
   id: string
   name: string
   isProject?: boolean
+  projectId?: string | null
   channels: Channel[]
   draggingCategory: boolean
   activeChannelId?: string
@@ -613,6 +655,7 @@ function SortableCategorySection({
   const [menuOpen, setMenuOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const [archiveOpen, setArchiveOpen] = useState(false)
   const { openProjectMembers } = useCreateChannel()
   const {
     attributes,
@@ -715,6 +758,16 @@ function SortableCategorySection({
                     >
                       Members
                     </DropdownMenuItem>
+                    {projectId && (
+                      <DropdownMenuItem
+                        onClick={() => {
+                          setMenuOpen(false)
+                          setArchiveOpen(true)
+                        }}
+                      >
+                        Archive Project
+                      </DropdownMenuItem>
+                    )}
                     <DropdownMenuSeparator />
                   </>
                 )}
@@ -755,6 +808,14 @@ function SortableCategorySection({
         open={deleteOpen}
         onOpenChange={setDeleteOpen}
       />
+      {projectId && (
+        <ArchiveProjectDialog
+          projectId={projectId}
+          projectName={name}
+          open={archiveOpen}
+          onOpenChange={setArchiveOpen}
+        />
+      )}
       <AnimatePresence initial={false}>
         {!collapsed && (
           <motion.div
@@ -781,6 +842,80 @@ function SortableCategorySection({
                 />
               ))}
             </SortableContext>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
+// Archived projects: collapsed by default, muted, read-only — no dnd, no
+// management menus. Channels stay navigable (history is preserved).
+function ArchivedProjectsSection({
+  categories,
+  activeChannelId,
+  onChannelClick,
+}: {
+  categories: ChannelData["categories"]
+  activeChannelId?: string
+  onChannelClick: (channelId: string) => void
+}) {
+  const [collapsed, setCollapsed] = useState(true)
+
+  return (
+    <div className="border-t border-sidebar-border pt-2">
+      <button
+        type="button"
+        onClick={() => setCollapsed(!collapsed)}
+        className="flex w-full items-center gap-0.5 px-1 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70 hover:text-foreground cursor-pointer"
+      >
+        <motion.div
+          animate={{ rotate: collapsed ? -90 : 0 }}
+          transition={{ duration: 0.15, ease: "easeInOut" }}
+        >
+          <HugeiconsIcon
+            icon={ArrowDown01Icon}
+            className="size-3 shrink-0"
+            strokeWidth={2}
+          />
+        </motion.div>
+        <span className="truncate">Archived</span>
+      </button>
+      <AnimatePresence initial={false}>
+        {!collapsed && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.15, ease: "easeInOut" }}
+            className="space-y-2 overflow-hidden"
+          >
+            {categories.map((cat) => (
+              <div key={cat.id} className="opacity-70">
+                <div className="flex items-center gap-0.5 px-1 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  <HugeiconsIcon
+                    icon={Archive02Icon}
+                    className="mr-1 size-3.5 shrink-0"
+                    strokeWidth={2}
+                  />
+                  <span className="truncate">{cat.name}</span>
+                </div>
+                {cat.channels.map((ch) => (
+                  <button
+                    key={ch.id}
+                    type="button"
+                    onClick={() => onChannelClick(ch.id)}
+                    className="w-full text-left cursor-pointer"
+                  >
+                    <ChannelItem
+                      name={ch.name ?? ""}
+                      type={ch.type}
+                      active={activeChannelId === ch.id}
+                    />
+                  </button>
+                ))}
+              </div>
+            ))}
           </motion.div>
         )}
       </AnimatePresence>

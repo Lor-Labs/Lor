@@ -16,12 +16,7 @@ import {
   flushActWindow,
   saveHandoffNote,
 } from "@repo/merlin/act-runs"
-import {
-  buildMessageFanout,
-  sendInstructionsProposalPush,
-  sendMessagePushNotifications,
-} from "@repo/messaging"
-import type { RealtimeMessage } from "@repo/realtime-types"
+import { sendInstructionsProposalPush } from "@repo/messaging"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
 import type {
   ActFlushJobData,
@@ -29,17 +24,16 @@ import type {
   TriggeredRunJobData,
 } from "@repo/realtime-types/queues"
 import { ACT_FLUSH_JOB } from "@repo/realtime-types/queues"
-import {
-  channelRoom,
-  threadRoom,
-  userRoom,
-  workspaceRoom,
-} from "@repo/realtime-types/rooms"
+import { threadRoom, workspaceRoom } from "@repo/realtime-types/rooms"
 import type { Emitter } from "@socket.io/redis-emitter"
 import type { Job, Queue } from "bullmq"
 import type { createClient } from "redis"
 import { claimAgentRun, LeaseLostError } from "@/lib/agent-run"
 import { logger } from "@/lib/logger"
+import {
+  loadMerlinAuthor,
+  postMerlinMessage as postMerlinChannelMessage,
+} from "@/lib/merlin-messages"
 
 type RedisClient = ReturnType<typeof createClient>
 
@@ -48,38 +42,6 @@ type RedisClient = ReturnType<typeof createClient>
 const WRITEBACK_LOCK_TTL = 120
 const WRITEBACK_MIN_BUDGET_FRACTION = 0.15
 const WRITEBACK_MIN_CREDITS = 50
-
-async function loadMerlinAuthor() {
-  return db
-    .select({
-      id: schema.user.id,
-      name: schema.user.name,
-      username: schema.user.username,
-      displayUsername: schema.user.displayUsername,
-      image: schema.user.image,
-    })
-    .from(schema.user)
-    .where(eq(schema.user.id, MERLIN_USER_ID))
-    .limit(1)
-    .then((rows) => rows[0] ?? null)
-}
-
-async function loadChannel(channelId: string) {
-  return db
-    .select({
-      id: schema.channel.id,
-      workspaceId: schema.channel.workspaceId,
-      name: schema.channel.name,
-      workspaceName: schema.workspace.name,
-    })
-    .from(schema.channel)
-    .leftJoin(
-      schema.workspace,
-      eq(schema.workspace.id, schema.channel.workspaceId)
-    )
-    .where(eq(schema.channel.id, channelId))
-    .then((rows) => rows[0] ?? null)
-}
 
 // Headless triggered runs — the Act effect. No placeholder message, no
 // streaming: Merlin gets the trigger's instructions + the event payload and
@@ -93,81 +55,11 @@ export function createTriggeredRunProcessor(
   // Own queue: a batch waiting on an in-flight run re-arms its flush.
   triggeredQueue: Queue<TriggeredRunJobData | ActFlushJobData>
 ) {
-  // Post a channel message as Merlin, with normal unread/mention/push fanout —
-  // the worker-side counterpart of the API's postBotMessage.
-  const postMerlinMessage = async (input: {
+  const postMerlinMessage = (input: {
     channelId: string
     content: string
     type?: "default" | "task_card"
-  }): Promise<{ messageId: string }> => {
-    const [channel, author] = await Promise.all([
-      loadChannel(input.channelId),
-      loadMerlinAuthor(),
-    ])
-    if (!channel || !author) throw new Error("Channel or Merlin user missing")
-
-    const inserted = await db
-      .insert(schema.message)
-      .values({
-        channelId: input.channelId,
-        authorId: MERLIN_USER_ID,
-        content: input.content,
-        type: input.type ?? "default",
-      })
-      .returning({ id: schema.message.id, createdAt: schema.message.createdAt })
-      .then((rows) => rows[0])
-    if (!inserted) throw new Error("Message insert returned no row")
-
-    let mentions: RealtimeMessage["mentions"] = []
-    try {
-      const fanout = await buildMessageFanout({
-        authorId: MERLIN_USER_ID,
-        channel,
-        message: {
-          id: inserted.id,
-          content: input.content,
-          author: { name: author.name, image: author.image },
-          attachments: [],
-        },
-      })
-      mentions = fanout.messageMentions
-      for (const n of fanout.unreadNotifications) {
-        emitter.to(userRoom(n.userId)).emit("notification:unread", n.payload)
-      }
-      for (const n of fanout.mentionNotifications) {
-        emitter.to(userRoom(n.userId)).emit("notification:mention", n.payload)
-      }
-      void sendMessagePushNotifications({ fanout, redis }).catch((err) => {
-        logger.error(
-          { err, messageId: inserted.id },
-          "Triggered post push failed"
-        )
-      })
-    } catch (err) {
-      logger.error(
-        { err, messageId: inserted.id },
-        "Triggered post fanout failed"
-      )
-    }
-
-    const message: RealtimeMessage = {
-      id: inserted.id,
-      channelId: input.channelId,
-      content: input.content,
-      type: input.type ?? "default",
-      pinned: false,
-      createdAt: inserted.createdAt.toISOString(),
-      author: { ...author, avatarColor: null },
-      mentions,
-      reactions: [],
-      attachments: [],
-      embeds: [],
-      referencedMessage: null,
-      threadRootId: null,
-    }
-    emitter.to(channelRoom(input.channelId)).emit("message:created", message)
-    return { messageId: inserted.id }
-  }
+  }) => postMerlinChannelMessage({ emitter, redis }, input)
 
   // Card + task row + the task's first run — the same card-is-thread-root
   // shape as createTaskWithCard + the follow-up-run pattern in run-queue.ts,

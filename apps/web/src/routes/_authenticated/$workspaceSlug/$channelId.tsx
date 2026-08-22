@@ -1,3 +1,5 @@
+import { Archive02Icon } from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
 import { useIsMobile } from "@repo/ui/hooks/use-mobile"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
@@ -552,25 +554,38 @@ function ChannelView() {
         onSteer={queuedMessageSteering.steerMessage}
         steeringMessageId={queuedMessageSteering.steeringMessageId}
       />
-      <MessageInput
-        context={context}
-        channelId={channelId}
-        onSend={handleSend}
-        currentUserId={currentUserId}
-        mentionCandidates={mentionCandidates}
-        replyingTo={replyingTo}
-        onCancelReply={clearReply}
-        pendingAttachments={fileUpload.attachments}
-        addFiles={fileUpload.addFiles}
-        removeAttachment={fileUpload.removeAttachment}
-        clearAttachments={fileUpload.clearAttachments}
-        getUploadedAttachments={fileUpload.getUploadedAttachments}
-        isUploading={fileUpload.isUploading}
-        onTyping={emitTyping}
-        canSteerQueued={queuedMessageSteering.canSteerLatestOwnMessage}
-        onSteerQueued={queuedMessageSteering.steerLatestOwnMessage}
-        isSteeringQueued={queuedMessageSteering.isSteering}
-      />
+      {data.archivedAt ? (
+        <div className="px-4 pb-4">
+          <div className="flex items-center justify-center gap-2 rounded-lg border border-dashed border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+            <HugeiconsIcon
+              icon={Archive02Icon}
+              className="size-4 shrink-0"
+              strokeWidth={2}
+            />
+            This project is archived — the channel is read-only.
+          </div>
+        </div>
+      ) : (
+        <MessageInput
+          context={context}
+          channelId={channelId}
+          onSend={handleSend}
+          currentUserId={currentUserId}
+          mentionCandidates={mentionCandidates}
+          replyingTo={replyingTo}
+          onCancelReply={clearReply}
+          pendingAttachments={fileUpload.attachments}
+          addFiles={fileUpload.addFiles}
+          removeAttachment={fileUpload.removeAttachment}
+          clearAttachments={fileUpload.clearAttachments}
+          getUploadedAttachments={fileUpload.getUploadedAttachments}
+          isUploading={fileUpload.isUploading}
+          onTyping={emitTyping}
+          canSteerQueued={queuedMessageSteering.canSteerLatestOwnMessage}
+          onSteerQueued={queuedMessageSteering.steerLatestOwnMessage}
+          isSteeringQueued={queuedMessageSteering.isSteering}
+        />
+      )}
       <AnimatePresence>
         {artifactId && (
           <ArtifactOverlay

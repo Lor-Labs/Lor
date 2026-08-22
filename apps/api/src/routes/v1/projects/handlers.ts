@@ -1,10 +1,13 @@
-import { and, asc, db, eq, inArray, max, schema } from "@repo/db"
+import { and, asc, db, eq, inArray, isNull, max, or, schema } from "@repo/db"
 import { resolveChannelAccess } from "@repo/db/queries/channel-access"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
+import { logger } from "@/lib/logger"
 import { hasWorkspacePermission } from "@/lib/permissions"
+import { enqueueProjectArchive } from "@/lib/project-archive-queue"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
   AddProjectMemberRoute,
+  ArchiveProjectRoute,
   CreateProjectRoute,
   GetProjectRoute,
   ListProjectsRoute,
@@ -366,6 +369,101 @@ export const updateProject: AppRouteHandler<UpdateProjectRoute> = async (c) => {
         .where(eq(schema.project.id, project.id))
     }
   })
+
+  const detail = await loadProjectDetail(project.id)
+  if (!detail) {
+    return c.json(
+      { success: false, message: "Project not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  return c.json(detail, HttpStatusCodes.OK)
+}
+
+export const archiveProject: AppRouteHandler<ArchiveProjectRoute> = async (
+  c
+) => {
+  const workspace = c.var.workspace
+  const member = c.var.member
+  const currentUser = c.var.user
+  const { projectId } = c.req.valid("param")
+
+  const project = await loadAccessibleProject(
+    projectId,
+    workspace.id,
+    currentUser.id
+  )
+  if (!project) {
+    return c.json(
+      { success: false, message: "Project not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  if (!canManageProject(project, member, workspace)) {
+    return c.json(
+      { success: false, message: "Forbidden" },
+      HttpStatusCodes.FORBIDDEN
+    )
+  }
+  if (project.status !== "active") {
+    return c.json(
+      { success: false, message: "Project is already archived" },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+
+  // Locks first, synthesis after: archivedAt on the category + children makes
+  // every write path reject immediately, so the worker summarizes a frozen
+  // transcript.
+  const archivedAt = new Date()
+  await db.transaction(async (tx) => {
+    await tx
+      .update(schema.project)
+      .set({ status: "archiving", archivedAt })
+      .where(eq(schema.project.id, project.id))
+    await tx
+      .update(schema.channel)
+      .set({ archivedAt })
+      .where(
+        and(
+          or(
+            eq(schema.channel.id, project.categoryChannelId),
+            eq(schema.channel.parentId, project.categoryChannelId)
+          ),
+          isNull(schema.channel.archivedAt)
+        )
+      )
+  })
+
+  try {
+    await enqueueProjectArchive(project.id)
+  } catch (err) {
+    // No job means no synthesis and no completion — unwind the lock rather
+    // than strand the project in "archiving".
+    logger.error({ err, projectId: project.id }, "Archive enqueue failed")
+    await db.transaction(async (tx) => {
+      await tx
+        .update(schema.project)
+        .set({ status: "active", archivedAt: null })
+        .where(eq(schema.project.id, project.id))
+      await tx
+        .update(schema.channel)
+        .set({ archivedAt: null })
+        .where(
+          and(
+            or(
+              eq(schema.channel.id, project.categoryChannelId),
+              eq(schema.channel.parentId, project.categoryChannelId)
+            ),
+            eq(schema.channel.archivedAt, archivedAt)
+          )
+        )
+    })
+    return c.json(
+      { success: false, message: "Internal server error" },
+      HttpStatusCodes.INTERNAL_SERVER_ERROR
+    )
+  }
 
   const detail = await loadProjectDetail(project.id)
   if (!detail) {
