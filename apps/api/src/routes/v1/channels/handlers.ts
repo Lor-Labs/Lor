@@ -61,8 +61,7 @@ export const listChannels: AppRouteHandler<ListChannelsRoute> = async (c) => {
       .orderBy(asc(channel.position)),
     listAccessibleChannelIds(currentUser.id, workspace.id),
   ])
-  // Restricted channels the user isn't a member of are invisible — they
-  // don't render locked, they simply don't exist in the response.
+  // Restricted channels the user isn't a member of are invisible, not locked.
   const channels = allChannels.filter((ch) => accessibleIds.has(ch.id))
 
   const categoryMap = new Map<string, typeof channels>()
@@ -108,8 +107,8 @@ export const createChannel: AppRouteHandler<CreateChannelRoute> = async (c) => {
     channel: ["create"],
   })
 
-  // Creating inside a category requires access to it — otherwise a member
-  // could plant a channel inside a private project they can't see.
+  // Creating inside a category requires access to it — no planting channels
+  // inside a private project.
   if (
     body.parentId &&
     !(await userCanAccessChannel(body.parentId, currentUser.id))
@@ -120,8 +119,8 @@ export const createChannel: AppRouteHandler<CreateChannelRoute> = async (c) => {
     )
   }
 
-  // Membership on the channel itself only matters for standalone private
-  // channels — a channel inside a category inherits the container's audience.
+  // Membership only matters for standalone private channels — a channel
+  // inside a category inherits the container's audience.
   const isStandalonePrivate = audience === "members" && !body.parentId
   const resolvedMemberIds = isStandalonePrivate
     ? [...new Set([currentUser.id, ...(memberIds ?? [])])]
@@ -213,12 +212,9 @@ export const reorderChannels: AppRouteHandler<ReorderChannelsRoute> = async (
     )
   }
 
-  // Audience lives on the container: dragging a channel into or out of a
-  // members-audience category would silently change who can read it. Project
-  // channels additionally stay inside their project regardless of audience —
-  // the group is a lifecycle boundary, not a visual grouping. Reject any
-  // reorder that changes a channel's container when either side is private
-  // or a project.
+  // Audience lives on the container: reject reorders that change a channel's
+  // container when either side is private or a project — moving a project's
+  // channels is project management, not a drag.
   const currentRows = await db
     .select({
       id: channel.id,

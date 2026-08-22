@@ -13,9 +13,8 @@ export type AccessibleChannel = {
   canWrite: boolean
 }
 
-// Thin wrapper over the shared audience resolver (@repo/db/queries) — this
-// file used to carry its own copy of the access rules, which had drifted from
-// the API's. Keep the throw-based contract the socket handlers expect.
+// Thin wrapper over the shared audience resolver (@repo/db/queries) — keeps
+// the throw-based contract the socket handlers expect.
 export async function assertUserCanAccessChannel(
   userId: string,
   channelId: string
@@ -23,8 +22,7 @@ export async function assertUserCanAccessChannel(
   const result = await resolveChannelAccess(userId, channelId)
 
   if (!result.ok) {
-    // One error for missing and forbidden alike — a private channel's
-    // existence must not be probeable through socket acks.
+    // One error for missing and forbidden alike — not probeable via acks.
     throw new Error("Channel not found")
   }
 

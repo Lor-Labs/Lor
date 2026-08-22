@@ -28,12 +28,9 @@ export const channelTypeEnum = pgEnum("channel_type", [
   "category",
 ])
 
-// Who can see/read/write a workspace channel. "workspace" = every workspace
-// member (implicit, today's behavior). "members" = only users with a
-// channel_member row on the channel's access container (the parent category
-// for channels inside one, else the channel itself). Audience is resolved on
-// the CONTAINER: children inherit their category's audience, which is how a
-// project folder restricts all of its channels with one member list.
+// Channel audience: "workspace" = every workspace member (default);
+// "members" = requires a channel_member row on the access container (the
+// parent category, else the channel itself) — one member list per project.
 export const channelAudienceEnum = pgEnum("channel_audience", [
   "workspace",
   "members",
@@ -53,9 +50,8 @@ export const channel = pgTable(
     type: channelTypeEnum("type").notNull().default("text"),
     audience: channelAudienceEnum("audience").notNull().default("workspace"),
 
-    // Archived channels are read-only: sends/edits/reactions are rejected and
-    // the channel leaves the active sidebar. Set on all of a project's
-    // channels when the project archives.
+    // Archived channels are read-only and leave the active sidebar; set on
+    // all of a project's channels when it archives.
     archivedAt: timestamp("archived_at"),
 
     // null for DMs/group DMs

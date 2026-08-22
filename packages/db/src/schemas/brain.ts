@@ -33,14 +33,11 @@ export const brainNode = pgTable(
     workspaceId: uuid("workspace_id")
       .notNull()
       .references(() => workspace.id, { onDelete: "cascade" }),
-    // Retrieval scope. Null = workspace-wide (searchable from any channel).
-    // Set = only retrievable by runs inside that project's channels. Scope is
-    // decided by WHERE the memory was written (project channel → project
-    // scope); archive synthesis deliberately writes workspace-scoped pages to
-    // promote durable conclusions out of the project boundary. FK lives in
-    // relations only (projects.ts) to avoid a schema import cycle; the
-    // application maintains integrity and rows are cleaned by scope filters.
-    projectId: uuid("project_id"),
+    // Memory scope: null = workspace-wide; else the access container channel
+    // (project category or private channel) whose runs may retrieve this node.
+    // Archive synthesis writes workspace-scoped pages to promote durable
+    // conclusions out of the boundary. FK omitted (schema import cycle).
+    scopeChannelId: uuid("scope_channel_id"),
     kind: brainNodeKindEnum("kind").notNull(),
     // null parent = top-level node
     parentId: uuid("parent_id").references((): AnyPgColumn => brainNode.id, {
@@ -75,9 +72,9 @@ export const brainNode = pgTable(
       "hnsw",
       table.embedding.op("halfvec_cosine_ops")
     ),
-    index("brain_node_workspace_project_idx").on(
+    index("brain_node_workspace_scope_idx").on(
       table.workspaceId,
-      table.projectId
+      table.scopeChannelId
     ),
   ]
 )

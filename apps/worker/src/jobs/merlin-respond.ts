@@ -1025,7 +1025,12 @@ export function createMerlinRespondProcessor(
           }
           try {
             await writeBack(
-              { workspaceId, priorMessages: answer.messages, gateText },
+              {
+                workspaceId,
+                channelId,
+                priorMessages: answer.messages,
+                gateText,
+              },
               {
                 onMemoryWritten: remember,
                 // Autonomous — not attributed to the triggering user. Also

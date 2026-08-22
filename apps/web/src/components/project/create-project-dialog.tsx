@@ -27,9 +27,8 @@ import { useMemo, useState } from "react"
 import { UserAvatar } from "@/components/ui/user-avatar"
 import { apiClient } from "@/lib/api-client"
 
-// A project is a lifecycle-scoped channel group. Private (default) restricts
-// every channel in it to the selected members — the sidebar decluttering
-// promise: projects you're not in simply don't exist for you.
+// A project is a lifecycle-scoped channel group; private (default) restricts
+// every channel in it to the selected members.
 export function CreateProjectDialog({
   open,
   onOpenChange,

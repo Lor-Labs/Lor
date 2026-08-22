@@ -163,9 +163,8 @@ export async function getUnreadStatesForUser(
     .from(schema.channelMember)
     .where(eq(schema.channelMember.userId, userId))
 
-  // Get workspace channel IDs via workspace_member -> channels, filtered to
-  // what the user can actually access — a restricted channel must not leak
-  // unread/mention counts (or its existence) to non-members.
+  // Filtered to accessible channels — restricted channels must not leak
+  // unread/mention counts to non-members.
   const workspaceMemberships = await db
     .select({ workspaceId: schema.workspaceMember.workspaceId })
     .from(schema.workspaceMember)

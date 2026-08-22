@@ -95,10 +95,8 @@ const EVERYONE_MENTION_REGEX = /(^|\s)@everyone\b/i
 const mentionNotificationTypes = ["direct_mention", "everyone_mention"] as const
 
 async function listRecipientUserIds(channel: FanoutChannel) {
-  // Shared audience resolver: workspace channels fan out to the workspace
-  // unless the channel's container is members-audience (private channel /
-  // project folder), DMs to their channel members. Never widen this — a
-  // restricted channel's messages must not reach non-members' unreads/push.
+  // Shared audience resolver — restricted-channel messages must not reach
+  // non-members' unreads/push.
   return listChannelAudienceUserIds(channel.id)
 }
 

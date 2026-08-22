@@ -211,7 +211,7 @@ export function CreateChannelDialog({
                 <SelectTrigger size="lg">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent align="end" alignItemWithTrigger={false}>
                   {channelTypes.map((ct) => (
                     <CustomSelectItem
                       key={ct.value}

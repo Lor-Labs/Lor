@@ -1,20 +1,15 @@
 import { and, eq } from "drizzle-orm"
 import { db } from "../index"
 import { channel, channelMember } from "../schemas/channels"
+import { project } from "../schemas/projects"
 import { workspaceMember } from "../schemas/workspace-members"
 import { workspace } from "../schemas/workspaces"
 
-// THE channel-audience resolver. Every surface that asks "who can see this
-// channel / who receives its fanout" must go through here — API handlers,
-// realtime room joins, messaging fanout, worker retrieval scoping. Two
-// hand-rolled copies of this check drifted before (api/lib/queries vs
-// realtime/services); do not add a third.
-//
-// Model: audience lives on the channel's ACCESS CONTAINER — the parent
-// category when the channel is inside one, else the channel itself. A
-// "members" container requires a channel_member row on the container, which
-// is how a project folder restricts all its channels with one member list.
-// DMs/group DMs keep their existing channel_member semantics.
+// THE channel-audience resolver — every surface that asks "who can see this
+// channel / who receives its fanout" goes through here (API, realtime,
+// messaging fanout, worker retrieval scoping). Audience lives on the access
+// CONTAINER: the parent category when the channel is inside one, else the
+// channel itself. DMs/group DMs keep their channel_member semantics.
 
 const DM_CHANNEL_TYPES = ["dm", "group_dm"] as const
 
@@ -44,9 +39,8 @@ export type ResolvedChannelAccess = {
 
 export type ChannelAccessResult =
   | { ok: true; access: ResolvedChannelAccess }
-  // "not_found" covers both missing channels and channels the user must not
-  // discover — a denied caller can never distinguish the two, so a private
-  // channel's existence and name never leak through errors.
+  // "not_found" covers missing AND forbidden — a private channel's existence
+  // and name never leak through errors.
   | { ok: false; reason: "not_found" }
 
 export async function resolveChannelAccess(
@@ -276,4 +270,81 @@ function listWorkspaceMemberUserIds(workspaceId: string) {
     .from(workspaceMember)
     .where(eq(workspaceMember.workspaceId, workspaceId))
     .then((rows) => rows.map((row) => row.userId))
+}
+
+// ── Merlin run scope ────────────────────────────────────────────────
+
+export type MerlinRunScope = {
+  /** Access container whose scoped brain nodes join retrieval and receive writes. */
+  memoryScopeChannelId: string | null
+  /** Brain folder scoped memory writes are confined under. */
+  memoryFolderPath: string | null
+  /** Private container whose messages the run may search (null = public only). */
+  privateContainerChannelId: string | null
+}
+
+export const EMPTY_MERLIN_RUN_SCOPE: MerlinRunScope = {
+  memoryScopeChannelId: null,
+  memoryFolderPath: null,
+  privateContainerChannelId: null,
+}
+
+/**
+ * A Merlin run's retrieval/write boundary, from the channel it lives in.
+ * Channel-scoped on purpose: everyone who can see the channel sees the
+ * answer. Projects AND standalone private channels get memory scope — an
+ * #admins conversation must never write memory public runs can retrieve.
+ */
+export async function resolveMerlinRunScope(
+  channelId: string
+): Promise<MerlinRunScope> {
+  const row = await db
+    .select({
+      id: channel.id,
+      parentId: channel.parentId,
+      audience: channel.audience,
+      workspaceId: channel.workspaceId,
+      name: channel.name,
+    })
+    .from(channel)
+    .where(eq(channel.id, channelId))
+    .limit(1)
+    .then((rows) => rows[0])
+  if (!row?.workspaceId) return EMPTY_MERLIN_RUN_SCOPE
+
+  let container = { id: row.id, audience: row.audience, name: row.name }
+  if (row.parentId) {
+    const parent = await db
+      .select({
+        id: channel.id,
+        audience: channel.audience,
+        name: channel.name,
+      })
+      .from(channel)
+      .where(eq(channel.id, row.parentId))
+      .limit(1)
+      .then((rows) => rows[0])
+    if (parent) container = parent
+  }
+
+  const projectRow = await db
+    .select({ id: project.id })
+    .from(project)
+    .where(eq(project.categoryChannelId, container.id))
+    .limit(1)
+    .then((rows) => rows[0])
+
+  const isPrivate = container.audience === "members"
+  const hasMemoryScope = Boolean(projectRow) || isPrivate
+
+  // Folder segments can't contain the path separator.
+  const folderName = (container.name ?? "untitled").replaceAll("/", "-").trim()
+
+  return {
+    memoryScopeChannelId: hasMemoryScope ? container.id : null,
+    memoryFolderPath: hasMemoryScope
+      ? `/${projectRow ? "projects" : "channels"}/${folderName}`
+      : null,
+    privateContainerChannelId: isPrivate ? container.id : null,
+  }
 }

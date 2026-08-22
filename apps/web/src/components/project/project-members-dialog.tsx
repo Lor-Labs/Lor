@@ -22,8 +22,8 @@ import { useMemo, useState } from "react"
 import { UserAvatar } from "@/components/ui/user-avatar"
 import { apiClient } from "@/lib/api-client"
 
-// Manage the member list of the project owning `categoryChannelId`. One
-// member list per project — every channel inside shares it.
+// Manage the member list of the project owning `categoryChannelId` — one
+// member list per project, shared by every channel inside.
 export function ProjectMembersDialog({
   categoryChannelId,
   open,

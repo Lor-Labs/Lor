@@ -12,9 +12,8 @@ import type {
   UpdateProjectRoute,
 } from "@/routes/v1/projects/routes"
 
-// Membership lives on the project's category channel (the access container) —
-// the same channel_member rows the shared resolver checks. Project rows carry
-// lifecycle only.
+// Project membership lives on the category channel (the access container) —
+// the same channel_member rows the shared resolver checks.
 
 type ProjectRow = typeof schema.project.$inferSelect
 
@@ -100,9 +99,8 @@ async function loadProjectDetail(projectId: string) {
   }
 }
 
-// Project management (members, settings): the creator, plus workspace
-// admins/owner — but for private projects only when they're also members
-// (no invisible admin access; a non-member admin can't even see it).
+// Project management: the creator, plus workspace admins/owner — who, for
+// private projects, must also be members (no invisible admin access).
 function canManageProject(
   project: Pick<ProjectRow, "creatorId">,
   actor: { userId: string; role: string },
@@ -232,16 +230,15 @@ export const createProject: AppRouteHandler<CreateProjectRoute> = async (c) => {
         parentId: category.id,
         type: ch.type,
         name: ch.name,
-        // Children inherit the container's audience at resolution time; the
-        // column mirrors it for consistency in raw queries.
+        // Mirrors the container's audience for consistency in raw queries;
+        // resolution inherits from the container regardless.
         audience: body.audience,
         position: index,
       }))
     )
 
-    // Membership rows live on the category for both audiences — for public
-    // projects they're the roster (who's working on this), for private ones
-    // they're also the access list.
+    // Membership rows live on the category for both audiences — the roster
+    // for public projects, also the access list for private ones.
     await tx.insert(schema.channelMember).values(
       memberIds.map((userId) => ({
         channelId: category.id,
@@ -274,8 +271,8 @@ export const createProject: AppRouteHandler<CreateProjectRoute> = async (c) => {
   return c.json(detail, HttpStatusCodes.CREATED)
 }
 
-// Loads the project and verifies the caller can see it (resolver on the
-// category). Returns null when missing OR hidden — indistinguishable.
+// Loads the project and verifies the caller can see it. Null when missing OR
+// hidden — indistinguishable.
 async function loadAccessibleProject(
   projectId: string,
   workspaceId: string,

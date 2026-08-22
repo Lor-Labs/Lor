@@ -75,9 +75,8 @@ function ChannelIcon({
   type: string
   isPrivate?: boolean
 }) {
-  // A standalone private channel wears the Slack-style hash+lock glyph
-  // (voice falls back to a plain lock). Project channels don't — the project
-  // boundary already communicates the audience.
+  // Standalone private channels wear the hash+lock glyph (voice: plain lock);
+  // project channels don't — the project boundary communicates the audience.
   if (isPrivate) {
     if (type === "text") {
       return <PrivateHashIcon className="size-4 shrink-0 opacity-50" />
@@ -237,9 +236,8 @@ export function ChannelList() {
   // One query + socket listener for the whole list; rows get the controls via props.
   const muteControls = useChannelMutes()
 
-  // Projects render distinctly (folder disclosure + dashed boundary) — match
-  // category ids against the project list rather than guessing from audience,
-  // so public projects get the treatment too.
+  // Projects render distinctly (folder disclosure + dashed boundary); match
+  // category ids against the project list so public projects get it too.
   const { data: projectsData } = useQuery({
     queryKey: ["projects", workspaceSlug],
     queryFn: async () => {
@@ -326,9 +324,8 @@ export function ChannelList() {
       // Don't allow dragging categories onto channels
       if (activeItem.isCategory) return
 
-      // Project channels stay inside their project: block any cross-container
-      // drag where either side is a project (the server enforces the same for
-      // private containers; this also covers public projects and gives
+      // Project channels stay inside their project: block cross-container
+      // drags touching a project (server enforces the same; this gives
       // immediate feedback instead of a failed mutation).
       const activeContainer = activeItem.channel.parentId
       // Determine the target container

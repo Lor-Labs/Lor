@@ -579,6 +579,7 @@ export function createTriggeredRunProcessor(
         await writeBack(
           {
             workspaceId: execution.workspaceId,
+            channelId: run.channelId,
             priorMessages: answer.messages,
             gateText: `${label}: ${conversation
               .map((t) => t.content)

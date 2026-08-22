@@ -13,11 +13,9 @@ import { channel } from "./channels"
 import { user } from "./users"
 import { workspace } from "./workspaces"
 
-// A project is LIFECYCLE over a category channel — never access. Access
-// (who can see the project's channels) lives on the category via
-// channel.audience + channel_member; a private admin channel uses the same
-// mechanism with no project row. Keeping the concerns separate means
-// authorization code never asks "is this a project?".
+// A project is LIFECYCLE over a category channel — never access. Access lives
+// on the category via channel.audience + channel_member, so authorization
+// code never asks "is this a project?".
 export const projectStatusEnum = pgEnum("project_status", [
   "active",
   // Archive requested: channels are locked while synthesis runs.
@@ -46,11 +44,9 @@ export const project = pgTable(
     creatorId: uuid("creator_id")
       .notNull()
       .references(() => user.id, { onDelete: "restrict" }),
-    // What the project is trying to achieve — shown in the project header,
-    // fed to Merlin runs in project channels, and anchoring archive synthesis.
-    // Matches Linear's project description: linking a Linear project later
-    // autofills this. Optional — Merlin infers from channel content if unset.
-    // (Project NAME lives on the category channel; one source for the sidebar.)
+    // Linear-aligned project description; feeds Merlin runs and archive
+    // synthesis. Optional — Merlin infers from channel content if unset.
+    // (Project NAME lives on the category channel.)
     description: text("description"),
     targetDate: timestamp("target_date"),
     status: projectStatusEnum("status").notNull().default("active"),
