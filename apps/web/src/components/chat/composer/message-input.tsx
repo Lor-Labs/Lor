@@ -272,9 +272,9 @@ export function createMentionSuggestion(
       >({
         rendererComponent: MentionSuggestionList,
         popupClassName:
-          "fixed z-50 w-60 overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-md",
+          "fixed z-50 w-72 overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-md",
         popupDataAttribute: "mentionSuggestionOpen",
-        popupFallbackWidth: 240,
+        popupFallbackWidth: 288,
         popupFallbackHeight: 240,
       })
     },

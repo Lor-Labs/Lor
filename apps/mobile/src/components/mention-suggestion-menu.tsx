@@ -54,10 +54,10 @@ export function MentionSuggestionMenu({
             const isBroadcast = BROADCAST_MENTION_IDS.has(candidate.id)
             const secondary = isBroadcast
               ? candidate.id === "everyone"
-                ? "Notify everyone in this workspace"
+                ? "Notify everyone in the workspace"
                 : candidate.id === "channel"
-                  ? "Notify everyone in this channel"
-                  : "Notify channel members who are online"
+                  ? "Notify everyone who can see this channel"
+                  : "Notify channel members who are online right now"
               : candidate.name !== candidate.label
                 ? candidate.name
                 : candidate.isBot
