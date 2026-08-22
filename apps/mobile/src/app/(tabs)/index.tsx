@@ -30,6 +30,7 @@ import { useActiveMember } from "@/hooks/use-active-member"
 import { useAuthorProfileSheet } from "@/hooks/use-author-profile-sheet"
 import { useChannelPermissions } from "@/hooks/use-channel-permissions"
 import { useMessageSearch } from "@/hooks/use-message-search"
+import { useProjectUpdates } from "@/hooks/use-project-updates"
 import { useTheme } from "@/hooks/use-theme"
 import { api } from "@/lib/api"
 import type {
@@ -114,6 +115,26 @@ export default function WorkspaceScreen() {
       ),
     [projectsQuery.data]
   )
+  const archivingCategoryIds = useMemo(
+    () =>
+      new Set(
+        projectsQuery.data?.projects
+          .filter((project) => project.status === "archiving")
+          .map((project) => project.categoryChannelId) ?? []
+      ),
+    [projectsQuery.data]
+  )
+  const archivedCategoryIds = useMemo(
+    () =>
+      new Set(
+        projectsQuery.data?.projects
+          .filter((project) => project.status === "archived")
+          .map((project) => project.categoryChannelId) ?? []
+      ),
+    [projectsQuery.data]
+  )
+  // Live refetch on project archive start/finish (spinner → Archived section).
+  useProjectUpdates(workspaceSlug)
 
   const pullToRefresh = async () => {
     setIsPullRefreshing(true)
@@ -375,6 +396,8 @@ export default function WorkspaceScreen() {
           />
         ) : (
           <ChannelList
+            archivedCategoryIds={archivedCategoryIds}
+            archivingCategoryIds={archivingCategoryIds}
             data={channels ?? undefined}
             isLoading={isLoadingChannels}
             onLongPress={setActionChannel}
