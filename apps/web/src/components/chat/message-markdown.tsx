@@ -18,6 +18,9 @@ const USER_MENTION_TOKEN_REGEX =
 const TIPTAP_MENTION_REGEX =
   /\[@[^\]]*?\bid="([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})"[^\]]*]/gi
 const EVERYONE_MENTION_REGEX = /(^|\s)@everyone\b/gi
+const CHANNEL_MENTION_REGEX = /(^|\s)@channel\b/gi
+const HERE_MENTION_REGEX = /(^|\s)@here\b/gi
+const BROADCAST_MENTION_IDS = new Set(["everyone", "channel", "here"])
 // Merlin cites grounded sources, all verified server-side: [[/path]] (brain
 // page), [[msg:<id>]] (message), or [[src:<id>|<title>|<url>]] (connected-tool
 // source, enriched with its verified title + url at grounding time).
@@ -104,6 +107,16 @@ function toRenderableMarkdown(
       EVERYONE_MENTION_REGEX,
       (_match, prefix: string) =>
         `${prefix}<mention data-id="everyone">@everyone</mention>`
+    )
+    .replace(
+      CHANNEL_MENTION_REGEX,
+      (_match, prefix: string) =>
+        `${prefix}<mention data-id="channel">@channel</mention>`
+    )
+    .replace(
+      HERE_MENTION_REGEX,
+      (_match, prefix: string) =>
+        `${prefix}<mention data-id="here">@here</mention>`
     )
     .replace(USER_MENTION_TOKEN_REGEX, (_match, userId: string) => {
       const mention = mentionById.get(userId)
@@ -241,7 +254,7 @@ export function MessageMarkdown({
       mention: (props: MentionProps) => {
         const id = mentionId(props)
         const children = props.children
-        if (id === "everyone") {
+        if (id && BROADCAST_MENTION_IDS.has(id)) {
           return (
             <span className="inline-flex cursor-default rounded bg-primary/15 px-1 py-0.5 font-medium text-primary">
               {children}

@@ -29,6 +29,46 @@ export const everyoneMentionCandidate: MentionCandidate = {
   search: "everyone all members workspace",
 }
 
+export const channelMentionCandidate: MentionCandidate = {
+  id: "channel",
+  userId: "channel",
+  name: "Channel",
+  username: "channel",
+  displayUsername: "channel",
+  image: null,
+  isBot: false,
+  status: "online",
+  label: "channel",
+  search: "channel all members notify",
+}
+
+export const hereMentionCandidate: MentionCandidate = {
+  id: "here",
+  userId: "here",
+  name: "Here",
+  username: "here",
+  displayUsername: "here",
+  image: null,
+  isBot: false,
+  status: "online",
+  label: "here",
+  search: "here online active now",
+}
+
+export const BROADCAST_MENTION_IDS = new Set(["everyone", "channel", "here"])
+
+// @everyone is only offered in workspace-audience channels — the server
+// rejects it in members-only channels, so the composer doesn't tempt it.
+export function broadcastMentionCandidates(
+  audience: "workspace" | "members" | undefined
+): MentionCandidate[] {
+  return [
+    channelMentionCandidate,
+    hereMentionCandidate,
+    ...(audience === "members" ? [] : [everyoneMentionCandidate]),
+  ]
+}
+
 export function workspaceMemberToMentionCandidate(
   member: WorkspaceMember
 ): MentionCandidate {

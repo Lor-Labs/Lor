@@ -9,7 +9,11 @@ import {
   max,
   schema,
 } from "@repo/db"
-import { buildReactionNotification, syncMessageMentions } from "@repo/messaging"
+import {
+  buildReactionNotification,
+  type PresenceRedisClient,
+  syncMessageMentions,
+} from "@repo/messaging"
 import type {
   DeleteMessagePayload,
   EditMessagePayload,
@@ -45,6 +49,9 @@ type DeleteMessageInput = {
 type EditMessageInput = {
   userId: string
   payload: EditMessagePayload
+  // Presence lookup so an edit that adds/keeps @here recomputes its mention
+  // rows against who is online (edits never re-notify either way).
+  redis?: PresenceRedisClient
 }
 
 type ToggleMessageReactionInput = {
@@ -715,6 +722,7 @@ export async function editMessage(
     channel: channelRecord,
     messageId: input.payload.messageId,
     content: input.payload.content,
+    redis: input.redis,
   })
 
   return {

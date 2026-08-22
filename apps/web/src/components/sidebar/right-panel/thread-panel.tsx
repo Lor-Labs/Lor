@@ -77,6 +77,7 @@ import { useThreadMessages } from "@/hooks/use-thread-messages"
 import { useTypingIndicator } from "@/hooks/use-typing-indicator"
 import { apiClient } from "@/lib/api-client"
 import type { Message } from "@/lib/api-types"
+import { broadcastMentionCandidates } from "@/lib/broadcast-mentions"
 import { TASK_STATUS_META } from "@/lib/task-ui"
 
 const MESSAGE_GROUP_WINDOW_MINUTES = 5
@@ -439,14 +440,27 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
     },
   })
 
+  // Same key as the channel route — usually a cache hit; the audience gates
+  // which broadcast mentions the composer offers.
+  const { data: channelData } = useQuery({
+    queryKey: ["channel", view.workspaceSlug, view.channelId],
+    queryFn: async () => {
+      const res = await apiClient.v1.workspaces[":workspaceSlug"].channels[
+        ":channelId"
+      ].$get({
+        param: {
+          workspaceSlug: view.workspaceSlug,
+          channelId: view.channelId,
+        },
+      })
+      if (!res.ok) throw new Error("Failed to fetch channel")
+      return res.json()
+    },
+  })
+
   const mentionCandidates = useMemo(
     () => [
-      {
-        id: "everyone",
-        label: "everyone",
-        name: "everyone",
-        search: "everyone all members",
-      },
+      ...broadcastMentionCandidates(channelData?.audience),
       ...(workspaceMembersData?.members.map((member) => ({
         id: member.userId,
         label: member.displayUsername ?? member.username ?? member.name,
@@ -456,7 +470,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
         image: member.image,
       })) ?? []),
     ],
-    [workspaceMembersData?.members]
+    [workspaceMembersData?.members, channelData?.audience]
   )
 
   // Threads render top-down (oldest → newest). The API + cache hold

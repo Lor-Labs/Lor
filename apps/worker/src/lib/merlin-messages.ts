@@ -71,6 +71,7 @@ export async function fanoutMerlinMessage(
         author: { name: author.name, image: author.image },
         attachments: [],
       },
+      redis: deps.redis,
     })
     for (const n of fanout.unreadNotifications) {
       deps.emitter.to(userRoom(n.userId)).emit("notification:unread", n.payload)

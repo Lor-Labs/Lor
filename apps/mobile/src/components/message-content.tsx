@@ -7,6 +7,7 @@ import {
 import { StreamdownText } from "react-native-streamdown"
 import { Fonts } from "@/constants/theme"
 import type { Message } from "@/lib/api-types"
+import { BROADCAST_MENTION_IDS } from "@/lib/mentions"
 import {
   MENTION_SCHEME,
   MSG_SCHEME,
@@ -142,7 +143,7 @@ export function MessageContent({
     ({ url }: { url: string }) => {
       if (url.startsWith(MENTION_SCHEME)) {
         const id = url.slice(MENTION_SCHEME.length)
-        if (id && id !== "everyone") onMentionPress?.(id)
+        if (id && !BROADCAST_MENTION_IDS.has(id)) onMentionPress?.(id)
         return
       }
       if (url.startsWith(MSG_SCHEME)) {

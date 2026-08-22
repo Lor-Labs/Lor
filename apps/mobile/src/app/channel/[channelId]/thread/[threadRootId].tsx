@@ -104,6 +104,7 @@ export default function ThreadScreen() {
   const mentions = useWorkspaceMentionCandidates({
     workspaceSlug: workspace?.slug ?? "",
     currentUserId: session?.user.id,
+    channelAudience: channelState.channel?.audience,
   })
   const avatarColorByUserId = useMemo(
     () =>

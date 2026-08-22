@@ -123,12 +123,20 @@ export async function resolveChannelAccess(
 }
 
 /**
- * Everyone who can see the channel — the fanout/recipient set and the meaning
- * of a future `@channel`. Includes the author; callers drop them.
+ * Everyone who can see the channel plus the effective audience kind — the
+ * fanout/recipient set and what broadcast mentions mean here: @channel/@here
+ * ping this set; @everyone is only honored when the audience is the whole
+ * workspace (it's rejected in members-only channels and DMs — there is no
+ * "all-company channel" concept to widen to).
  */
-export async function listChannelAudienceUserIds(
+export type ChannelAudienceInfo = {
+  audience: "workspace" | "members" | "dm" | null
+  userIds: string[]
+}
+
+export async function resolveChannelAudienceInfo(
   channelId: string
-): Promise<string[]> {
+): Promise<ChannelAudienceInfo> {
   const row = await db
     .select({
       id: channel.id,
@@ -140,10 +148,12 @@ export async function listChannelAudienceUserIds(
     .where(eq(channel.id, channelId))
     .limit(1)
     .then((rows) => rows[0])
-  if (!row) return []
+  if (!row) return { audience: null, userIds: [] }
 
   // DMs / group DMs: the channel's member rows.
-  if (!row.workspaceId) return listChannelMemberUserIds(row.id)
+  if (!row.workspaceId) {
+    return { audience: "dm", userIds: await listChannelMemberUserIds(row.id) }
+  }
 
   const container = await resolveAccessContainer(row)
   if (container.audience === "members") {
@@ -154,10 +164,26 @@ export async function listChannelAudienceUserIds(
       listWorkspaceMemberUserIds(row.workspaceId),
     ])
     const workspaceSet = new Set(workspaceMembers)
-    return containerMembers.filter((id) => workspaceSet.has(id))
+    return {
+      audience: "members",
+      userIds: containerMembers.filter((id) => workspaceSet.has(id)),
+    }
   }
 
-  return listWorkspaceMemberUserIds(row.workspaceId)
+  return {
+    audience: "workspace",
+    userIds: await listWorkspaceMemberUserIds(row.workspaceId),
+  }
+}
+
+/**
+ * Everyone who can see the channel — the fanout/recipient set and the meaning
+ * of `@channel`. Includes the author; callers drop them.
+ */
+export async function listChannelAudienceUserIds(
+  channelId: string
+): Promise<string[]> {
+  return (await resolveChannelAudienceInfo(channelId)).userIds
 }
 
 // Container inheritance: a channel inside a category takes the category's

@@ -104,6 +104,7 @@ export async function postBotMessage(
             .limit(1)
             .then((rows) => rows[0]?.name ?? null)
         : null)
+    const redis = await getRedisClient()
     const fanout = await buildMessageFanout({
       authorId: input.authorId,
       channel: { ...input.channel, workspaceName },
@@ -116,6 +117,7 @@ export async function postBotMessage(
         },
         attachments: [],
       },
+      redis,
     })
     mentions = fanout.messageMentions
     for (const n of fanout.unreadNotifications) {
@@ -124,7 +126,6 @@ export async function postBotMessage(
     for (const n of fanout.mentionNotifications) {
       io.to(userRoom(n.userId)).emit("notification:mention", n.payload)
     }
-    const redis = await getRedisClient()
     void sendMessagePushNotifications({ fanout, redis }).catch((err) => {
       logger.error(
         { err, messageId: inserted.id },

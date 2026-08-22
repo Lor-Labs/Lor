@@ -33,6 +33,7 @@ import { useThreadActivity } from "@/hooks/use-thread-activity"
 import { useTypingIndicator } from "@/hooks/use-typing-indicator"
 import { apiClient } from "@/lib/api-client"
 import type { Message } from "@/lib/api-types"
+import { broadcastMentionCandidates } from "@/lib/broadcast-mentions"
 import { writeLastChannelId } from "@/lib/last-location"
 import { canPinMessages } from "@/lib/permissions"
 
@@ -456,12 +457,7 @@ function ChannelView() {
 
   const mentionCandidates = useMemo(
     () => [
-      {
-        id: "everyone",
-        label: "everyone",
-        name: "everyone",
-        search: "everyone all members",
-      },
+      ...broadcastMentionCandidates(data?.audience),
       ...(workspaceMembersData?.members.map((member) => ({
         id: member.userId,
         label: member.displayUsername ?? member.username ?? member.name,
@@ -471,7 +467,7 @@ function ChannelView() {
         image: member.image,
       })) ?? []),
     ],
-    [workspaceMembersData?.members]
+    [workspaceMembersData?.members, data?.audience]
   )
 
   if (isPending) {

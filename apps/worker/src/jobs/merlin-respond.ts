@@ -927,6 +927,7 @@ export function createMerlinRespondProcessor(
                   attachments: [],
                   threadRootId,
                 },
+                redis,
               })
               messageMentions = fanout.messageMentions
               for (const n of fanout.unreadNotifications) {
