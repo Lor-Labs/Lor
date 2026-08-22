@@ -21,6 +21,7 @@ import {
   Folder01Icon,
   Folder02Icon,
   HashtagIcon,
+  Loading03Icon,
   MoreHorizontalIcon,
   PlusSignIcon,
   SquareLock02Icon,
@@ -53,6 +54,7 @@ import { PrivateHashIcon } from "@/components/ui/private-hash-icon"
 import { useMobileSidebar } from "@/context/mobile-sidebar-context"
 import { useUnread } from "@/context/unread-context"
 import { MUTE_DURATIONS, useChannelMutes } from "@/hooks/use-channel-mutes"
+import { useProjectUpdates } from "@/hooks/use-project-updates"
 import { apiClient } from "@/lib/api-client"
 import type { Channel, ListChannelsResponse } from "@/lib/api-types"
 import {
@@ -237,6 +239,8 @@ export function ChannelList() {
   const { openCreateChannel } = useCreateChannel()
   // One query + socket listener for the whole list; rows get the controls via props.
   const muteControls = useChannelMutes()
+  // Live refetch on project archive start/finish (spinner → Archived section).
+  useProjectUpdates(workspaceSlug)
 
   // Projects render distinctly (folder disclosure + dashed boundary); match
   // category ids against the project list so public projects get it too.
@@ -480,11 +484,10 @@ export function ChannelList() {
     data.uncategorized.length === 0 && data.categories.length === 0
 
   // Archived projects drop out of the live tree into a muted, collapsed
-  // section — still readable, no longer in the way.
-  const isArchivedProject = (categoryId: string) => {
-    const project = projectByCategoryId.get(categoryId)
-    return Boolean(project && project.status !== "active")
-  }
+  // section — still readable, no longer in the way. Projects still archiving
+  // stay in place with a spinner until the worker finishes.
+  const isArchivedProject = (categoryId: string) =>
+    projectByCategoryId.get(categoryId)?.status === "archived"
   const activeCategories = data.categories.filter(
     (cat) => !isArchivedProject(cat.id)
   )
@@ -555,6 +558,7 @@ export function ChannelList() {
               name={cat.name ?? ""}
               isProject={projectCategoryIds.has(cat.id)}
               projectId={projectByCategoryId.get(cat.id)?.id ?? null}
+              projectStatus={projectByCategoryId.get(cat.id)?.status ?? null}
               channels={cat.channels}
               draggingCategory={activeItem?.isCategory ?? false}
               activeChannelId={activeChannelId}
@@ -627,6 +631,7 @@ function SortableCategorySection({
   name,
   isProject = false,
   projectId = null,
+  projectStatus = null,
   channels,
   draggingCategory,
   activeChannelId,
@@ -641,6 +646,7 @@ function SortableCategorySection({
   name: string
   isProject?: boolean
   projectId?: string | null
+  projectStatus?: "active" | "archiving" | "archived" | null
   channels: Channel[]
   draggingCategory: boolean
   activeChannelId?: string
@@ -697,11 +703,19 @@ function SortableCategorySection({
           className="flex flex-1 items-center gap-0.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground cursor-pointer"
         >
           {isProject ? (
-            <HugeiconsIcon
-              icon={collapsed ? Folder01Icon : Folder02Icon}
-              className="mr-1 size-3.5 shrink-0"
-              strokeWidth={2}
-            />
+            projectStatus === "archiving" ? (
+              <HugeiconsIcon
+                icon={Loading03Icon}
+                className="mr-1 size-3.5 shrink-0 animate-spin"
+                strokeWidth={2}
+              />
+            ) : (
+              <HugeiconsIcon
+                icon={collapsed ? Folder01Icon : Folder02Icon}
+                className="mr-1 size-3.5 shrink-0"
+                strokeWidth={2}
+              />
+            )
           ) : (
             <motion.div
               animate={{ rotate: collapsed ? -90 : 0 }}
@@ -758,7 +772,7 @@ function SortableCategorySection({
                     >
                       Members
                     </DropdownMenuItem>
-                    {projectId && (
+                    {projectId && projectStatus === "active" && (
                       <DropdownMenuItem
                         onClick={() => {
                           setMenuOpen(false)

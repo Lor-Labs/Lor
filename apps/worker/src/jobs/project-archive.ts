@@ -1,8 +1,10 @@
 import { recordUsage } from "@repo/billing"
 import { and, asc, db, eq, schema } from "@repo/db"
+import { listChannelAudienceUserIds } from "@repo/db/queries/channel-access"
 import { synthesizeProjectArchive } from "@repo/merlin/project-archive"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
 import type { ProjectArchiveJobData } from "@repo/realtime-types/queues"
+import { userRoom } from "@repo/realtime-types/rooms"
 import type { Emitter } from "@socket.io/redis-emitter"
 import type { Job } from "bullmq"
 import type { createClient } from "redis"
@@ -94,6 +96,23 @@ export function createProjectArchiveProcessor(
           eq(schema.project.status, "archiving")
         )
       )
+
+    // Flip members' sidebars (archiving spinner → Archived section) live.
+    try {
+      const userIds = await listChannelAudienceUserIds(
+        project.categoryChannelId
+      )
+      for (const userId of userIds) {
+        emitter.to(userRoom(userId)).emit("project:updated", {
+          projectId,
+          categoryChannelId: project.categoryChannelId,
+          status: "archived",
+          archivedAt: project.archivedAt?.toISOString() ?? null,
+        })
+      }
+    } catch (err) {
+      logger.error({ err, projectId }, "project:updated emit failed")
+    }
     logger.info({ projectId }, "Project archived")
   }
 }

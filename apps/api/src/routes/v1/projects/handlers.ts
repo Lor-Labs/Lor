@@ -1,5 +1,11 @@
 import { and, asc, db, eq, inArray, isNull, max, or, schema } from "@repo/db"
-import { resolveChannelAccess } from "@repo/db/queries/channel-access"
+import {
+  listChannelAudienceUserIds,
+  resolveChannelAccess,
+} from "@repo/db/queries/channel-access"
+import type { ProjectUpdatedEvent } from "@repo/realtime-types/events"
+import { userRoom } from "@repo/realtime-types/rooms"
+import { getEmitter } from "@/lib/bot-messages"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
 import { hasWorkspacePermission } from "@/lib/permissions"
@@ -380,6 +386,25 @@ export const updateProject: AppRouteHandler<UpdateProjectRoute> = async (c) => {
   return c.json(detail, HttpStatusCodes.OK)
 }
 
+// Best effort: tell every member's open clients the project changed so
+// sidebars/composers react without a refetch cycle.
+async function emitProjectUpdated(event: ProjectUpdatedEvent) {
+  try {
+    const [io, userIds] = await Promise.all([
+      getEmitter(),
+      listChannelAudienceUserIds(event.categoryChannelId),
+    ])
+    for (const userId of userIds) {
+      io.to(userRoom(userId)).emit("project:updated", event)
+    }
+  } catch (err) {
+    logger.error(
+      { err, projectId: event.projectId },
+      "project:updated emit failed"
+    )
+  }
+}
+
 export const archiveProject: AppRouteHandler<ArchiveProjectRoute> = async (
   c
 ) => {
@@ -472,6 +497,12 @@ export const archiveProject: AppRouteHandler<ArchiveProjectRoute> = async (
       HttpStatusCodes.NOT_FOUND
     )
   }
+  await emitProjectUpdated({
+    projectId: project.id,
+    categoryChannelId: project.categoryChannelId,
+    status: "archiving",
+    archivedAt: archivedAt.toISOString(),
+  })
   return c.json(detail, HttpStatusCodes.OK)
 }
 

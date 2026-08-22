@@ -326,6 +326,16 @@ export type ChannelMuteUpdated = {
   muted: boolean
 }
 
+// Project lifecycle change (archive start/finish). Emitted to the audience's
+// user rooms — never the workspace room — so a private project's existence
+// doesn't leak to non-members. Clients refetch projects/channels on receipt.
+export type ProjectUpdatedEvent = {
+  projectId: string
+  categoryChannelId: string
+  status: "active" | "archiving" | "archived"
+  archivedAt: string | null
+}
+
 export type NotificationBootstrap = {
   readStates: Array<{
     channelId: string
@@ -528,6 +538,7 @@ export interface ServerToClientEvents {
   "notification:reaction": (payload: ReactionNotification) => void
   "channel:read-state": (payload: ChannelReadState) => void
   "channel-mute:updated": (payload: ChannelMuteUpdated) => void
+  "project:updated": (payload: ProjectUpdatedEvent) => void
   "workspace:member:joined": (payload: WorkspaceMemberJoinedEvent) => void
   "typing:update": (payload: TypingIndicatorEvent) => void
   "billing:updated": (payload: BillingUpdatedEvent) => void
