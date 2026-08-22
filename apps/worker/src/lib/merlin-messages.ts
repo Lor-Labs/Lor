@@ -12,6 +12,11 @@ import { logger } from "@/lib/logger"
 
 type RedisClient = ReturnType<typeof createClient>
 
+type MerlinMessageDeps = {
+  emitter: Emitter<ServerToClientEvents>
+  redis: RedisClient
+}
+
 export async function loadMerlinAuthor() {
   return db
     .select({
@@ -44,21 +49,67 @@ async function loadChannel(channelId: string) {
     .then((rows) => rows[0] ?? null)
 }
 
+// Unread/mention/push fanout for an already-persisted Merlin message — used
+// standalone when a placeholder gets its final content (archive synthesis).
+// Best effort: returns resolved mentions, or [] when fanout failed.
+export async function fanoutMerlinMessage(
+  deps: MerlinMessageDeps,
+  input: { channelId: string; messageId: string; content: string }
+): Promise<RealtimeMessage["mentions"]> {
+  try {
+    const [channel, author] = await Promise.all([
+      loadChannel(input.channelId),
+      loadMerlinAuthor(),
+    ])
+    if (!channel || !author) throw new Error("Channel or Merlin user missing")
+    const fanout = await buildMessageFanout({
+      authorId: MERLIN_USER_ID,
+      channel,
+      message: {
+        id: input.messageId,
+        content: input.content,
+        author: { name: author.name, image: author.image },
+        attachments: [],
+      },
+    })
+    for (const n of fanout.unreadNotifications) {
+      deps.emitter.to(userRoom(n.userId)).emit("notification:unread", n.payload)
+    }
+    for (const n of fanout.mentionNotifications) {
+      deps.emitter
+        .to(userRoom(n.userId))
+        .emit("notification:mention", n.payload)
+    }
+    void sendMessagePushNotifications({ fanout, redis: deps.redis }).catch(
+      (err) => {
+        logger.error(
+          { err, messageId: input.messageId },
+          "Merlin post push failed"
+        )
+      }
+    )
+    return fanout.messageMentions
+  } catch (err) {
+    logger.error(
+      { err, messageId: input.messageId },
+      "Merlin post fanout failed"
+    )
+    return []
+  }
+}
+
 // Post a channel message as Merlin, with normal unread/mention/push fanout —
 // the worker-side counterpart of the API's postBotMessage.
 export async function postMerlinMessage(
-  deps: { emitter: Emitter<ServerToClientEvents>; redis: RedisClient },
+  deps: MerlinMessageDeps,
   input: {
     channelId: string
     content: string
     type?: "default" | "task_card"
   }
 ): Promise<{ messageId: string }> {
-  const [channel, author] = await Promise.all([
-    loadChannel(input.channelId),
-    loadMerlinAuthor(),
-  ])
-  if (!channel || !author) throw new Error("Channel or Merlin user missing")
+  const author = await loadMerlinAuthor()
+  if (!author) throw new Error("Merlin user missing")
 
   const inserted = await db
     .insert(schema.message)
@@ -72,35 +123,11 @@ export async function postMerlinMessage(
     .then((rows) => rows[0])
   if (!inserted) throw new Error("Message insert returned no row")
 
-  let mentions: RealtimeMessage["mentions"] = []
-  try {
-    const fanout = await buildMessageFanout({
-      authorId: MERLIN_USER_ID,
-      channel,
-      message: {
-        id: inserted.id,
-        content: input.content,
-        author: { name: author.name, image: author.image },
-        attachments: [],
-      },
-    })
-    mentions = fanout.messageMentions
-    for (const n of fanout.unreadNotifications) {
-      deps.emitter.to(userRoom(n.userId)).emit("notification:unread", n.payload)
-    }
-    for (const n of fanout.mentionNotifications) {
-      deps.emitter
-        .to(userRoom(n.userId))
-        .emit("notification:mention", n.payload)
-    }
-    void sendMessagePushNotifications({ fanout, redis: deps.redis }).catch(
-      (err) => {
-        logger.error({ err, messageId: inserted.id }, "Merlin post push failed")
-      }
-    )
-  } catch (err) {
-    logger.error({ err, messageId: inserted.id }, "Merlin post fanout failed")
-  }
+  const mentions = await fanoutMerlinMessage(deps, {
+    channelId: input.channelId,
+    messageId: inserted.id,
+    content: input.content,
+  })
 
   const message: RealtimeMessage = {
     id: inserted.id,

@@ -10,6 +10,7 @@ import {
 import { createInsertSchema, createSelectSchema } from "drizzle-zod"
 import { brainNode } from "./brain"
 import { channel } from "./channels"
+import { message } from "./messages"
 import { user } from "./users"
 import { workspace } from "./workspaces"
 
@@ -51,6 +52,13 @@ export const project = pgTable(
     targetDate: timestamp("target_date"),
     status: projectStatusEnum("status").notNull().default("active"),
     archivedAt: timestamp("archived_at"),
+    // Archive synthesis outputs, set when the worker finishes: the closing
+    // summary text and the Merlin message that carries it (whose
+    // merlinMemories/merlinToolCalls feed the archived-project overview).
+    summary: text("summary"),
+    closingMessageId: uuid("closing_message_id").references(() => message.id, {
+      onDelete: "set null",
+    }),
     // Brain folder all project-scoped memory (write-backs + the archive
     // synthesis) lives under. Created lazily on first memory write.
     brainFolderId: uuid("brain_folder_id").references(() => brainNode.id, {
@@ -91,5 +99,7 @@ export const insertProjectSchema = createInsertSchema(project, {
   updatedAt: true,
   status: true,
   archivedAt: true,
+  summary: true,
+  closingMessageId: true,
   brainFolderId: true,
 })

@@ -520,7 +520,9 @@ async function searchSourceSummaries(
   return searchSources(workspaceId, await embedSourceQuery(query), limit)
 }
 
-const searchTools = {
+// Shared with the archive-synthesis path (project-archive.ts), which builds
+// its own bounded toolset instead of going through respond().
+export const searchTools = {
   search: tool({
     description:
       "Search the team's knowledge in one place: its chat message history (exact/keyword match) and the summarized activity of connected integrations like GitHub and Linear (semantic match). Pass a short natural-language query or phrase. Results are tagged with `type`: a `message` comes back with its full text — cite it as [[msg:<id>]]; a `source` comes back as a summary with `hasMore: true` — call fetch_source with its id for the full body, and cite it as [[src:<id>]] (don't paste its url). Pass `types` to search only one kind. Call repeatedly with different queries to investigate.",
@@ -574,7 +576,7 @@ const searchTools = {
   }),
 }
 
-const chatTools = {
+export const chatTools = {
   read_thread: tool({
     description:
       "Read the full thread (root message + all replies) a message belongs to. Use after search_messages to get full context around a hit.",
@@ -632,7 +634,7 @@ function coreToolsContext(
   }
 }
 
-function toolLabel(toolName: string, input: unknown): string {
+export function toolLabel(toolName: string, input: unknown): string {
   const field = (k: string): string | undefined => {
     if (input && typeof input === "object" && k in input) {
       const v = (input as Record<string, unknown>)[k]
@@ -763,7 +765,7 @@ function asString(v: unknown): string | undefined {
   return typeof v === "string" && v.trim() ? v.trim() : undefined
 }
 
-function toolDetail(
+export function toolDetail(
   toolName: string,
   output: unknown
 ): Pick<MerlinToolCall, "detail" | "status" | "files"> {
