@@ -80,6 +80,11 @@ import {
 const MAX_MENTION_RESULTS = 8
 const MAX_SLASH_RESULTS = 8
 const CONNECTORS_STALE_MS = 5 * 60 * 1000
+// Pastes longer than this become a .txt attachment instead of inline text,
+// matching ChatGPT/Claude/Discord. Keeps the editor responsive and stays well
+// under MESSAGE_CONTENT_MAX_LENGTH.
+const LARGE_PASTE_CHAR_THRESHOLD = 4000
+const LARGE_PASTE_FILENAME = "pasted-text.txt"
 const POPUP_HORIZONTAL_PADDING = 8
 const POPUP_VERTICAL_PADDING = 8
 const POPUP_GAP = 6
@@ -466,6 +471,8 @@ export function MessageInput({
   const mentionCandidatesRef = useRef<MentionCandidate[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
   const handleSubmitRef = useRef<() => void>(() => undefined)
+  const addFilesRef = useRef(addFiles)
+  addFilesRef.current = addFiles
   const onTypingRef = useRef(onTyping)
   onTypingRef.current = onTyping
 
@@ -592,6 +599,19 @@ export function MessageInput({
           event.preventDefault()
           event.stopPropagation()
           handleSubmitRef.current()
+          return true
+        },
+        handlePaste: (_view, event) => {
+          // File pastes are handled by the wrapper's onPaste via addFiles.
+          if (event.clipboardData?.files.length) return false
+
+          const text = event.clipboardData?.getData("text/plain")
+          if (!text || text.length <= LARGE_PASTE_CHAR_THRESHOLD) return false
+
+          event.preventDefault()
+          void addFilesRef.current([
+            new File([text], LARGE_PASTE_FILENAME, { type: "text/plain" }),
+          ])
           return true
         },
       },
