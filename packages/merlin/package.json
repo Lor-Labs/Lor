@@ -13,6 +13,7 @@
     "./custom-tools": "./src/custom-tools.ts",
     "./github": "./src/github.ts",
     "./placement": "./src/placement.ts",
+    "./project-archive": "./src/project-archive.ts",
     "./providers": "./src/providers/index.ts",
     "./sources": "./src/sources.ts",
     "./tool-servers": "./src/tool-servers.ts"

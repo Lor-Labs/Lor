@@ -9,6 +9,8 @@ import {
   LINK_UNFURL_QUEUE,
   MERLIN_RESPOND_QUEUE,
   type MerlinRespondJobData,
+  PROJECT_ARCHIVE_QUEUE,
+  type ProjectArchiveJobData,
   TRIGGERED_RUN_QUEUE,
   type TriggeredRunJobData,
 } from "@repo/realtime-types/queues"
@@ -17,6 +19,7 @@ import { Queue, Worker } from "bullmq"
 import { createClient } from "redis"
 import { createLinkUnfurlProcessor } from "@/jobs/link-unfurl"
 import { createMerlinRespondProcessor } from "@/jobs/merlin-respond"
+import { createProjectArchiveProcessor } from "@/jobs/project-archive"
 import {
   DEAD_RUN_SWEEP_EVERY_MS,
   pruneRunEvents,
@@ -195,6 +198,33 @@ async function bootstrap() {
     )
   })
 
+  const projectArchiveWorker = new Worker<ProjectArchiveJobData>(
+    PROJECT_ARCHIVE_QUEUE,
+    createProjectArchiveProcessor(emitter),
+    {
+      connection: {
+        ...redisOpts,
+        maxRetriesPerRequest: null,
+      },
+      concurrency: 2,
+    }
+  )
+
+  projectArchiveWorker.on("failed", (job, error) => {
+    logger.error({ jobId: job?.id, err: error }, "Project-archive job failed")
+  })
+
+  projectArchiveWorker.on("error", (error) => {
+    logger.error(
+      {
+        queue: PROJECT_ARCHIVE_QUEUE,
+        workerId: projectArchiveWorker.id,
+        err: error,
+      },
+      "Project-archive worker error"
+    )
+  })
+
   const maintenanceQueue = new Queue(MAINTENANCE_QUEUE, {
     connection: {
       ...redisOpts,
@@ -263,6 +293,7 @@ async function bootstrap() {
         LINK_UNFURL_QUEUE,
         MERLIN_RESPOND_QUEUE,
         TRIGGERED_RUN_QUEUE,
+        PROJECT_ARCHIVE_QUEUE,
         MAINTENANCE_QUEUE,
       ],
     },
@@ -274,6 +305,7 @@ async function bootstrap() {
     await linkUnfurlWorker.close()
     await merlinRespondWorker.close()
     await triggeredRunWorker.close()
+    await projectArchiveWorker.close()
     // The dead-run sweep also drains scopes — close it before waiting so no
     // new drain can start after the wait completes.
     await maintenanceWorker.close()

@@ -30,6 +30,7 @@ import { useActiveMember } from "@/hooks/use-active-member"
 import { useAuthorProfileSheet } from "@/hooks/use-author-profile-sheet"
 import { useChannelPermissions } from "@/hooks/use-channel-permissions"
 import { useMessageSearch } from "@/hooks/use-message-search"
+import { useProjectUpdates } from "@/hooks/use-project-updates"
 import { useTheme } from "@/hooks/use-theme"
 import { api } from "@/lib/api"
 import type {
@@ -92,10 +93,54 @@ export default function WorkspaceScreen() {
   const isLoadingChannels = Boolean(workspaceSlug) && channelsQuery.isPending
   const channelError = channelsQuery.error?.message ?? null
 
+  // Which categories are projects — drives the folder/dashed-border sidebar
+  // treatment in ChannelList.
+  const projectsQuery = useQuery({
+    queryKey: ["projects", workspaceSlug],
+    enabled: Boolean(workspaceSlug),
+    queryFn: async () => {
+      const response = await api.v1.workspaces[":workspaceSlug"].projects.$get({
+        param: { workspaceSlug },
+      })
+      if (!response.ok) throw new Error("Could not load projects")
+      return response.json()
+    },
+  })
+  const projectCategoryIds = useMemo(
+    () =>
+      new Set(
+        projectsQuery.data?.projects.map(
+          (project) => project.categoryChannelId
+        ) ?? []
+      ),
+    [projectsQuery.data]
+  )
+  const archivingCategoryIds = useMemo(
+    () =>
+      new Set(
+        projectsQuery.data?.projects
+          .filter((project) => project.status === "archiving")
+          .map((project) => project.categoryChannelId) ?? []
+      ),
+    [projectsQuery.data]
+  )
+  const archivedCategoryIds = useMemo(
+    () =>
+      new Set(
+        projectsQuery.data?.projects
+          .filter((project) => project.status === "archived")
+          .map((project) => project.categoryChannelId) ?? []
+      ),
+    [projectsQuery.data]
+  )
+  const { refetch: refetchProjects } = projectsQuery
+  // Live refetch on project archive start/finish (spinner → Archived section).
+  useProjectUpdates(workspaceSlug)
+
   const pullToRefresh = async () => {
     setIsPullRefreshing(true)
     try {
-      await refetchChannels()
+      await Promise.all([refetchChannels(), refetchProjects()])
     } finally {
       setIsPullRefreshing(false)
     }
@@ -352,10 +397,13 @@ export default function WorkspaceScreen() {
           />
         ) : (
           <ChannelList
+            archivedCategoryIds={archivedCategoryIds}
+            archivingCategoryIds={archivingCategoryIds}
             data={channels ?? undefined}
             isLoading={isLoadingChannels}
             onLongPress={setActionChannel}
             onPress={openChannel}
+            projectCategoryIds={projectCategoryIds}
           />
         )}
       </ScrollView>

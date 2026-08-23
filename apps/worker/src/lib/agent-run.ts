@@ -220,7 +220,11 @@ async function loadTrailSeed(runId: string): Promise<RunTrailSeed> {
     } else if (payload.kind === "memory") {
       seed.remembered = [
         ...seed.remembered.filter((r) => r.path !== payload.path),
-        { path: payload.path, action: payload.action },
+        {
+          path: payload.path,
+          action: payload.action,
+          ...(payload.nodeId ? { nodeId: payload.nodeId } : {}),
+        },
       ]
     }
   }

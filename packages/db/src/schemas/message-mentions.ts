@@ -13,7 +13,15 @@ import { user } from "./users"
 
 // Per-message targeting facts: who this message mentioned.
 // This is immutable/event-like data used to compute mention badges and unread mention counts.
-export const mentionTypeEnum = pgEnum("mention_type", ["direct", "everyone"])
+// Broadcast kinds: "everyone" = whole workspace (workspace-audience channels
+// only), "channel" = everyone who can see the channel, "here" = channel
+// audience ∩ online at send time. Only "direct" drives mention badges.
+export const mentionTypeEnum = pgEnum("mention_type", [
+  "direct",
+  "everyone",
+  "channel",
+  "here",
+])
 
 export const messageMention = pgTable(
   "message_mention",

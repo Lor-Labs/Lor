@@ -47,6 +47,17 @@ type PostBotMessageInput = {
 export async function postBotMessage(
   input: PostBotMessageInput
 ): Promise<{ id: string }> {
+  // Archived channels (e.g. an archived project's) are read-only for bots
+  // and webhooks too, not just users.
+  const target = await db
+    .select({ archivedAt: schema.channel.archivedAt })
+    .from(schema.channel)
+    .where(eq(schema.channel.id, input.channel.id))
+    .limit(1)
+    .then((rows) => rows[0])
+  if (!target) throw new Error("Channel not found")
+  if (target.archivedAt) throw new Error("This channel is archived")
+
   const inserted = await db
     .insert(schema.message)
     .values({
@@ -93,6 +104,7 @@ export async function postBotMessage(
             .limit(1)
             .then((rows) => rows[0]?.name ?? null)
         : null)
+    const redis = await getRedisClient()
     const fanout = await buildMessageFanout({
       authorId: input.authorId,
       channel: { ...input.channel, workspaceName },
@@ -105,6 +117,7 @@ export async function postBotMessage(
         },
         attachments: [],
       },
+      redis,
     })
     mentions = fanout.messageMentions
     for (const n of fanout.unreadNotifications) {
@@ -113,7 +126,6 @@ export async function postBotMessage(
     for (const n of fanout.mentionNotifications) {
       io.to(userRoom(n.userId)).emit("notification:mention", n.payload)
     }
-    const redis = await getRedisClient()
     void sendMessagePushNotifications({ fanout, redis }).catch((err) => {
       logger.error(
         { err, messageId: inserted.id },

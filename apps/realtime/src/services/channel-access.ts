@@ -1,4 +1,5 @@
-import { and, db, eq, schema } from "@repo/db"
+import type { schema } from "@repo/db"
+import { resolveChannelAccess } from "@repo/db/queries/channel-access"
 
 export type AccessibleChannel = {
   id: string
@@ -8,87 +9,35 @@ export type AccessibleChannel = {
   workspaceName: string | null
   memberRole: string | null
   memberIsOwner: boolean
+  /** False when the channel is archived — sends/edits/reactions must be rejected. */
+  canWrite: boolean
 }
 
+// Thin wrapper over the shared audience resolver (@repo/db/queries) — keeps
+// the throw-based contract the socket handlers expect.
 export async function assertUserCanAccessChannel(
   userId: string,
   channelId: string
 ): Promise<AccessibleChannel> {
-  const channelRecord = await db
-    .select({
-      id: schema.channel.id,
-      name: schema.channel.name,
-      type: schema.channel.type,
-      workspaceId: schema.channel.workspaceId,
-      workspaceName: schema.workspace.name,
-    })
-    .from(schema.channel)
-    .leftJoin(
-      schema.workspace,
-      eq(schema.workspace.id, schema.channel.workspaceId)
-    )
-    .where(eq(schema.channel.id, channelId))
-    .limit(1)
-    .then((rows) => rows[0])
+  const result = await resolveChannelAccess(userId, channelId)
 
-  if (!channelRecord) {
+  if (!result.ok) {
+    // One error for missing and forbidden alike — not probeable via acks.
     throw new Error("Channel not found")
   }
 
-  if (channelRecord.type === "category") {
+  if (result.access.channel.type === "category") {
     throw new Error("Cannot join a category channel")
   }
 
-  if (channelRecord.workspaceId) {
-    const memberRecord = await db
-      .select({
-        role: schema.workspaceMember.role,
-        ownerId: schema.workspace.ownerId,
-      })
-      .from(schema.workspaceMember)
-      .innerJoin(
-        schema.workspace,
-        eq(schema.workspace.id, schema.workspaceMember.workspaceId)
-      )
-      .where(
-        and(
-          eq(schema.workspaceMember.workspaceId, channelRecord.workspaceId),
-          eq(schema.workspaceMember.userId, userId)
-        )
-      )
-      .limit(1)
-      .then((rows) => rows[0])
-
-    if (!memberRecord) {
-      throw new Error("Forbidden")
-    }
-
-    return {
-      ...channelRecord,
-      memberRole: memberRecord.role,
-      memberIsOwner: memberRecord.ownerId === userId,
-    }
-  }
-
-  const dmMemberRecord = await db
-    .select({ id: schema.channelMember.id })
-    .from(schema.channelMember)
-    .where(
-      and(
-        eq(schema.channelMember.channelId, channelId),
-        eq(schema.channelMember.userId, userId)
-      )
-    )
-    .limit(1)
-    .then((rows) => rows[0])
-
-  if (!dmMemberRecord) {
-    throw new Error("Forbidden")
-  }
-
   return {
-    ...channelRecord,
-    memberRole: null,
-    memberIsOwner: false,
+    id: result.access.channel.id,
+    name: result.access.channel.name,
+    type: result.access.channel.type,
+    workspaceId: result.access.channel.workspaceId,
+    workspaceName: result.access.channel.workspaceName,
+    memberRole: result.access.memberRole,
+    memberIsOwner: result.access.memberIsOwner,
+    canWrite: result.access.canWrite,
   }
 }

@@ -17,6 +17,7 @@ import instructionsRouter from "@/routes/v1/instructions/index"
 import integrationsRouter from "@/routes/v1/integrations/index"
 import invitesRouter from "@/routes/v1/invites/index"
 import notificationSettingsRouter from "@/routes/v1/notification-settings/index"
+import projectsRouter from "@/routes/v1/projects/index"
 import pushTokensRouter from "@/routes/v1/push-tokens/index"
 import runsRouter from "@/routes/v1/runs/index"
 import tasksRouter from "@/routes/v1/tasks/index"
@@ -65,6 +66,7 @@ app.route("/", index)
 const routes = app
   .route("/", waitlistRouter)
   .route("/v1", channelsRouter)
+  .route("/v1", projectsRouter)
   .route("/v1", workspacesRouter)
   .route("/v1", invitesRouter)
   .route("/v1", notificationSettingsRouter)

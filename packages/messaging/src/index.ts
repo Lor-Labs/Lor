@@ -1,10 +1,15 @@
 import { and, db, eq, inArray, MERLIN_USER_ID, or, schema } from "@repo/db"
+import {
+  type ChannelAudienceInfo,
+  resolveChannelAudienceInfo,
+} from "@repo/db/queries/channel-access"
 import type {
   MentionNotification,
   ReactionNotification,
   RealtimeMessageMention,
   UnreadNotification,
 } from "@repo/realtime-types"
+import { PRESENCE_ONLINE_USERS_SET_KEY } from "@repo/realtime-types"
 import {
   extractDirectMentionUserIds,
   MARKDOWN_USER_MENTION_REGEX,
@@ -37,6 +42,9 @@ type MessageFanoutInput = {
   authorId: string
   channel: FanoutChannel
   message: FanoutMessage
+  // Presence lookup for @here (audience ∩ online). Absent or failing ⇒ @here
+  // pings nobody — fail closed, never "everyone by accident".
+  redis?: PresenceRedisClient
 }
 
 type UserTargetedPayload<T> = {
@@ -91,39 +99,67 @@ type NotificationInsertType = Extract<
 >
 
 const EVERYONE_MENTION_REGEX = /(^|\s)@everyone\b/i
+const CHANNEL_MENTION_REGEX = /(^|\s)@channel\b/i
+const HERE_MENTION_REGEX = /(^|\s)@here\b/i
 const mentionNotificationTypes = ["direct_mention", "everyone_mention"] as const
 
-async function listRecipientUserIds(channel: FanoutChannel) {
-  if (channel.workspaceId) {
-    return db
-      .select({
-        userId: schema.workspaceMember.userId,
-      })
-      .from(schema.workspaceMember)
-      .where(eq(schema.workspaceMember.workspaceId, channel.workspaceId))
-      .then((rows) => rows.map((row) => row.userId))
-  }
+// Structural subset of the node-redis client (same shape push.ts uses) so
+// realtime, worker, and api can all pass their own instance.
+export type PresenceRedisClient = {
+  smIsMember(key: string, members: string[]): Promise<Array<boolean | number>>
+}
 
-  return db
-    .select({
-      userId: schema.channelMember.userId,
-    })
-    .from(schema.channelMember)
-    .where(eq(schema.channelMember.channelId, channel.id))
-    .then((rows) => rows.map((row) => row.userId))
+// @here targets: audience ∩ online. Fail closed — a presence outage means
+// nobody gets pinged, never everybody.
+async function listOnlineRecipientIds(
+  redis: PresenceRedisClient | undefined,
+  recipients: string[]
+): Promise<Set<string>> {
+  if (!redis || recipients.length === 0) return new Set()
+  try {
+    const membership = await redis.smIsMember(
+      PRESENCE_ONLINE_USERS_SET_KEY,
+      recipients
+    )
+    return new Set(
+      recipients.filter((_, index) => {
+        const value = membership[index]
+        return value === true || value === 1
+      })
+    )
+  } catch {
+    return new Set()
+  }
+}
+
+async function listRecipientAudience(channel: FanoutChannel) {
+  // Shared audience resolver — restricted-channel messages must not reach
+  // non-members' unreads/push.
+  return resolveChannelAudienceInfo(channel.id)
 }
 
 function buildMentionTargets(args: {
-  channel: FanoutChannel
+  audience: ChannelAudienceInfo["audience"]
   recipients: string[]
   messageContent: string
+  onlineRecipientIds: Set<string>
 }) {
   const directMentionedUserIds = extractDirectMentionUserIds(
     args.messageContent
   )
-  const includeEveryoneMention =
-    Boolean(args.channel.workspaceId) &&
+
+  // Broadcast mentions live in workspace channels only (never DMs).
+  // @everyone additionally requires the audience to BE the workspace — in a
+  // members-only channel it is rejected (no fanout), not narrowed.
+  const isWorkspaceChannel =
+    args.audience === "workspace" || args.audience === "members"
+  const includeEveryone =
+    args.audience === "workspace" &&
     EVERYONE_MENTION_REGEX.test(args.messageContent)
+  const includeChannel =
+    isWorkspaceChannel && CHANNEL_MENTION_REGEX.test(args.messageContent)
+  const includeHere =
+    isWorkspaceChannel && HERE_MENTION_REGEX.test(args.messageContent)
 
   const mentionTypeByUserId = new Map<string, MentionInsertType>()
   const recipientSet = new Set(args.recipients)
@@ -134,15 +170,41 @@ function buildMentionTargets(args: {
     }
   }
 
-  if (includeEveryoneMention) {
+  // Broadest first: @everyone/@channel cover the whole audience, @here only
+  // whoever is online right now. Direct mentions always win.
+  if (includeEveryone || includeChannel) {
+    const type: MentionInsertType = includeEveryone ? "everyone" : "channel"
     for (const userId of args.recipients) {
       if (!mentionTypeByUserId.has(userId)) {
-        mentionTypeByUserId.set(userId, "everyone")
+        mentionTypeByUserId.set(userId, type)
+      }
+    }
+  } else if (includeHere) {
+    for (const userId of args.recipients) {
+      if (
+        args.onlineRecipientIds.has(userId) &&
+        !mentionTypeByUserId.has(userId)
+      ) {
+        mentionTypeByUserId.set(userId, "here")
       }
     }
   }
 
   return mentionTypeByUserId
+}
+
+// Whether the content can produce an @here target at all — gates the
+// presence round-trip.
+function needsPresenceLookup(
+  audience: ChannelAudienceInfo["audience"],
+  content: string
+) {
+  return (
+    (audience === "workspace" || audience === "members") &&
+    HERE_MENTION_REGEX.test(content) &&
+    !EVERYONE_MENTION_REGEX.test(content) &&
+    !CHANNEL_MENTION_REGEX.test(content)
+  )
 }
 
 function toNotificationType(
@@ -187,15 +249,22 @@ export async function syncMessageMentions(input: {
   channel: FanoutChannel
   messageId: string
   content: string
+  redis?: PresenceRedisClient
 }): Promise<RealtimeMessageMention[]> {
-  const allRecipientIds = await listRecipientUserIds(input.channel)
+  const { audience, userIds: allRecipientIds } = await listRecipientAudience(
+    input.channel
+  )
   const recipientIds = [...new Set(allRecipientIds)].filter(
     (id) => id !== input.authorId
   )
+  const onlineRecipientIds = needsPresenceLookup(audience, input.content)
+    ? await listOnlineRecipientIds(input.redis, recipientIds)
+    : new Set<string>()
   const mentionTypeByUserId = buildMentionTargets({
-    channel: input.channel,
+    audience,
     recipients: recipientIds,
     messageContent: input.content,
+    onlineRecipientIds,
   })
 
   const existingRows = await db
@@ -355,7 +424,9 @@ export function buildReactionNotification(input: {
 }
 
 export async function buildMessageFanout(input: MessageFanoutInput) {
-  const allRecipientIds = await listRecipientUserIds(input.channel)
+  const { audience, userIds: allRecipientIds } = await listRecipientAudience(
+    input.channel
+  )
   const recipientIds = [...new Set(allRecipientIds)].filter(
     (id) => id !== input.authorId
   )
@@ -390,10 +461,17 @@ export async function buildMessageFanout(input: MessageFanoutInput) {
       },
     }))
 
+  const onlineRecipientIds = needsPresenceLookup(
+    audience,
+    input.message.content ?? ""
+  )
+    ? await listOnlineRecipientIds(input.redis, recipientIds)
+    : new Set<string>()
   const mentionTypeByUserId = buildMentionTargets({
-    channel: input.channel,
+    audience,
     recipients: recipientIds,
     messageContent: input.message.content ?? "",
+    onlineRecipientIds,
   })
 
   const messageMentions = await listMentionUsers(mentionTypeByUserId)

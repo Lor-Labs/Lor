@@ -117,7 +117,7 @@ export const webhookAvatarPresign: AppRouteHandler<
     .where(and(eq(channel.id, channelId), eq(channel.type, "text")))
     .limit(1)
     .then((rows) => rows[0])
-  if (!ch?.workspaceId) {
+  if (!ch?.workspaceId || !(await userCanAccessChannel(channelId, user.id))) {
     return c.json(
       { success: false, message: "Forbidden" },
       HttpStatusCodes.FORBIDDEN

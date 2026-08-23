@@ -30,6 +30,7 @@ import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { lastActByTrigger } from "@/lib/last-act"
 import { logger } from "@/lib/logger"
 import { signOAuthState, verifyOAuthState } from "@/lib/oauth-state"
+import { userCanAccessChannel } from "@/lib/queries/channel-access"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import { ATTIO_EVENT_SUBSCRIPTIONS } from "@/routes/v1/integrations/attio/index"
 import type {
@@ -866,7 +867,9 @@ export const updateIntegration: AppRouteHandler<
     )
     .limit(1)
     .then((rows) => rows[0])
-  if (!target) {
+  // A trigger must not be pointed at a channel the configuring user can't
+  // see — that would let an admin exfiltrate a private channel's replies.
+  if (!target || !(await userCanAccessChannel(channelId, c.var.user.id))) {
     return c.json(
       { success: false, message: "Channel not found in this workspace" },
       HttpStatusCodes.BAD_REQUEST

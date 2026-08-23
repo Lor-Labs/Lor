@@ -14,8 +14,6 @@ import {
 } from "@/components/chat/composer/message-input"
 import { toStoredMarkdown, whenEditorMounted } from "@/lib/editor-utils"
 
-const MAX_MESSAGE_LENGTH = 2000
-
 interface MessageEditInputProps {
   initialContent: string
   onSave: (content: string) => void
@@ -98,7 +96,7 @@ export function MessageEditInput({
     const markdown = toStoredMarkdown(rawMarkdown)
     const trimmed = markdown.trim()
 
-    if (trimmed.length === 0 || trimmed.length > MAX_MESSAGE_LENGTH) return
+    if (trimmed.length === 0) return
 
     // Don't save if content hasn't changed
     if (trimmed === initialContent) {

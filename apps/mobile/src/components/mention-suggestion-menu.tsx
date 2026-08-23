@@ -5,6 +5,7 @@ import { Spinner } from "heroui-native/spinner"
 import { Pressable, ScrollView, Text, View } from "react-native"
 import { Avatar } from "@/components/ui/avatar"
 import type { MentionCandidate } from "@/lib/mentions"
+import { BROADCAST_MENTION_IDS } from "@/lib/mentions"
 
 export function MentionSuggestionMenu({
   candidates,
@@ -50,9 +51,13 @@ export function MentionSuggestionMenu({
           showsVerticalScrollIndicator={false}
         >
           {candidates.map((candidate) => {
-            const isEveryone = candidate.id === "everyone"
-            const secondary = isEveryone
-              ? "Notify everyone in this workspace"
+            const isBroadcast = BROADCAST_MENTION_IDS.has(candidate.id)
+            const secondary = isBroadcast
+              ? candidate.id === "everyone"
+                ? "Notify everyone in the workspace"
+                : candidate.id === "channel"
+                  ? "Notify everyone who can see this channel"
+                  : "Notify channel members who are online right now"
               : candidate.name !== candidate.label
                 ? candidate.name
                 : candidate.isBot
@@ -69,7 +74,7 @@ export function MentionSuggestionMenu({
                 key={candidate.id}
                 onPress={() => onSelect(candidate)}
               >
-                {isEveryone ? (
+                {isBroadcast ? (
                   <View className="size-8 items-center justify-center rounded-lor-sm bg-default">
                     <HugeiconsIcon color={accent} icon={AtSignIcon} size={17} />
                   </View>
@@ -92,7 +97,7 @@ export function MentionSuggestionMenu({
                     {secondary}
                   </Text>
                 </View>
-                {candidate.status === "online" && !isEveryone ? (
+                {candidate.status === "online" && !isBroadcast ? (
                   <View
                     accessibilityLabel="Online"
                     className="size-[7px] rounded-full bg-success"

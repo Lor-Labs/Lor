@@ -505,6 +505,8 @@ io.on("connection", (socket) => {
         authorId: socket.data.user.id,
         channel: createdMessage.channel,
         message: createdMessage.message,
+        // @here resolves against live presence; fanout fails closed without it.
+        redis: redisPresenceClient,
       })
 
       const messageWithMentions = {
@@ -871,6 +873,7 @@ io.on("connection", (socket) => {
       const result = await editMessage({
         userId: socket.data.user.id,
         payload: parsed,
+        redis: redisPresenceClient,
       })
 
       socket.to(channelRoom(parsed.channelId)).emit("message:updated", {

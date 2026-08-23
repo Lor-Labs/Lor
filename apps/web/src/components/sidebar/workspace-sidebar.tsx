@@ -1,4 +1,5 @@
 import {
+  Folder02Icon,
   FolderAddIcon,
   HashtagIcon,
   Message01Icon,
@@ -92,7 +93,8 @@ export function WorkspaceSidebarContent() {
 function WorkspaceSidebarInner() {
   const { workspaceSlug } = useParams({ strict: false })
   const navigate = useNavigate()
-  const { openCreateChannel, openCreateCategory } = useCreateChannel()
+  const { openCreateChannel, openCreateCategory, openCreateProject } =
+    useCreateChannel()
   const { target, tab, open: openSettings, close, setTab } = useSettings()
   const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false)
   const [inviteOpen, setInviteOpen] = useState(false)
@@ -340,7 +342,7 @@ function WorkspaceSidebarInner() {
                 </TooltipTrigger>
                 <TooltipContent>Create</TooltipContent>
               </Tooltip>
-              <DropdownMenuContent align="end" sideOffset={6}>
+              <DropdownMenuContent align="end" sideOffset={6} className="w-64">
                 <DropdownMenuItem onClick={() => openCreateChannel()}>
                   <HugeiconsIcon
                     icon={HashtagIcon}
@@ -352,6 +354,20 @@ function WorkspaceSidebarInner() {
                 <DropdownMenuItem onClick={openCreateCategory}>
                   <HugeiconsIcon icon={FolderAddIcon} className="size-4 mr-2" />
                   New category
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={openCreateProject}>
+                  <HugeiconsIcon
+                    icon={Folder02Icon}
+                    className="size-4 mr-2 self-start mt-0.5"
+                    strokeWidth={2}
+                  />
+                  <div className="flex min-w-0 flex-col">
+                    <span>New project</span>
+                    <span className="whitespace-nowrap text-xs text-muted-foreground">
+                      Channels scoped to one unit of work
+                    </span>
+                  </div>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

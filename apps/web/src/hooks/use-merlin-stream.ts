@@ -74,6 +74,7 @@ type MemoryPayload = {
   messageId: string
   path: string
   action: "created" | "updated"
+  nodeId?: string
   runId?: string
   seq?: number
 }
@@ -221,7 +222,11 @@ function applyMemoryFrame(queryClient: QueryClient, payload: MemoryPayload) {
       ...m,
       remembered: [
         ...(m.remembered ?? []).filter((r) => r.path !== payload.path),
-        { path: payload.path, action: payload.action },
+        {
+          path: payload.path,
+          action: payload.action,
+          ...(payload.nodeId ? { nodeId: payload.nodeId } : {}),
+        },
       ],
     })
   )
@@ -267,7 +272,12 @@ type RunEvent = {
     | { kind: "text"; delta: string; replace?: boolean }
     | { kind: "reasoning"; delta: string; at: number; order: number }
     | { kind: "tool"; toolCall: ToolCall }
-    | { kind: "memory"; path: string; action: "created" | "updated" }
+    | {
+        kind: "memory"
+        path: string
+        action: "created" | "updated"
+        nodeId?: string
+      }
     | { kind: "state"; state: string }
     | { kind: "steer"; messageId: string; authorName: string }
     | { kind: "queued"; messageId: string }
@@ -290,7 +300,11 @@ function applyReplayEvents(
   let reasoning: string | undefined
   let segments: MerlinReasoningSegment[] | undefined
   let toolCalls: ToolCall[] | undefined
-  let remembered: { path: string; action: "created" | "updated" }[] = []
+  let remembered: {
+    path: string
+    action: "created" | "updated"
+    nodeId?: string
+  }[] = []
   let steeringBy: string | undefined
   for (const e of events) {
     const p = e.payload
@@ -304,7 +318,11 @@ function applyReplayEvents(
     } else if (p.kind === "memory") {
       remembered = [
         ...remembered.filter((r) => r.path !== p.path),
-        { path: p.path, action: p.action },
+        {
+          path: p.path,
+          action: p.action,
+          ...(p.nodeId ? { nodeId: p.nodeId } : {}),
+        },
       ]
     } else if (p.kind === "steer") {
       steeringBy = p.authorName

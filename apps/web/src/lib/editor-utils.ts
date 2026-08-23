@@ -1,6 +1,6 @@
 import type { Editor } from "@tiptap/react"
 
-const EVERYONE_MENTION_ID = "everyone"
+const BROADCAST_MENTION_IDS = new Set(["everyone", "channel", "here"])
 
 // Tiptap v3's editor.view is a truthy Proxy that THROWS on property access
 // until EditorContent mounts the real view — `editor.view.dom` in a mount
@@ -38,8 +38,8 @@ export function toStoredMarkdown(markdown: string) {
       // Strip bare markdown links where text matches href (autolinked URLs without ++ wrappers)
       .replace(/\[([^\]]+)\]\(\1\)/g, "$1")
       .replace(TIPTAP_MARKDOWN_MENTION_REGEX, (_match, mentionId: string) => {
-        if (mentionId.toLowerCase() === EVERYONE_MENTION_ID) {
-          return "@everyone"
+        if (BROADCAST_MENTION_IDS.has(mentionId.toLowerCase())) {
+          return `@${mentionId.toLowerCase()}`
         }
 
         return `<@${mentionId}>`

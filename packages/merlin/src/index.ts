@@ -1,5 +1,10 @@
 import { and, asc, db, eq, MERLIN_USER_ID, ne, or, schema, sql } from "@repo/db"
 import {
+  EMPTY_MERLIN_RUN_SCOPE,
+  type MerlinRunScope,
+  resolveMerlinRunScope,
+} from "@repo/db/queries/channel-access"
+import {
   type AgentRunContext,
   ALL_MERLIN_CAPABILITIES,
   type MerlinToolCall,
@@ -264,7 +269,7 @@ export type RespondCallbacks = {
   onDelta: (delta: string) => void | Promise<void>
   // Summarized extended-thinking deltas, with their current answer-text offset.
   onReasoning?: (delta: string, at: number) => void | Promise<void>
-  onMemoryWritten?: (e: { path: string; action: "created" | "updated" }) => void
+  onMemoryWritten?: (e: BrainWriteEvent) => void
   onToolEvent?: (e: ToolEvent) => void
   onUsage?: OnUsage
   onInstructionsProposal?: (
@@ -309,12 +314,15 @@ export type RespondResult = {
 
 export type WriteBackContext = {
   workspaceId: string
+  // Write-back memory inherits the channel's scope (project/private memory
+  // stays scoped). Absent = workspace scope.
+  channelId?: string
   priorMessages: ModelMessage[]
   gateText: string
 }
 
 export type WriteBackCallbacks = {
-  onMemoryWritten?: (e: { path: string; action: "created" | "updated" }) => void
+  onMemoryWritten?: (e: BrainWriteEvent) => void
   onUsage?: OnUsage
   onInstructionsProposal?: (
     e: InstructionsProposalEvent
@@ -346,7 +354,8 @@ function sanitizeRosterLabel(label: string): string {
 async function searchMessages(
   workspaceId: string,
   query: string,
-  limit: number
+  limit: number,
+  privateContainerChannelId: string | null = null
 ) {
   const tsv = sql`to_tsvector('english', coalesce(${schema.message.content}, ''))`
   // websearch_to_tsquery ANDs its terms, so a natural-language query returns
@@ -376,6 +385,9 @@ async function searchMessages(
         // Connector notifications are pointers — their canonical content lives
         // in `source`; surfacing them here would duplicate source results.
         eq(schema.message.excludedFromMemory, false),
+        // Audience boundary: workspace-audience containers plus the run's
+        // own private container.
+        privateAudienceFilter(privateContainerChannelId),
         sql`${tsv} @@ ${tsq}`
       )
     )
@@ -395,8 +407,23 @@ async function searchMessages(
   }))
 }
 
-async function readThread(workspaceId: string, messageId: string) {
-  // Tenant guard for user-visible message ids.
+// Effective audience lives on the access container (parent category or the
+// channel itself); mirror of the shared resolver's rule, in SQL. A scalar
+// subquery keeps drizzle happy where a self-alias join breaks its typing.
+function privateAudienceFilter(privateContainerChannelId: string | null) {
+  const effectiveAudience = sql`coalesce((select p."audience" from "channel" p where p."id" = ${schema.channel.parentId}), ${schema.channel.audience})`
+  const containerId = sql`coalesce(${schema.channel.parentId}, ${schema.channel.id})`
+  return privateContainerChannelId
+    ? sql`(${effectiveAudience} = 'workspace' or ${containerId} = ${privateContainerChannelId}::uuid)`
+    : sql`${effectiveAudience} = 'workspace'`
+}
+
+async function readThread(
+  workspaceId: string,
+  messageId: string,
+  privateContainerChannelId: string | null = null
+) {
+  // Tenant + audience guard — a run can't read a private thread by guessed id.
   const msg = await db
     .select({
       id: schema.message.id,
@@ -407,7 +434,8 @@ async function readThread(workspaceId: string, messageId: string) {
     .where(
       and(
         eq(schema.message.id, messageId),
-        eq(schema.channel.workspaceId, workspaceId)
+        eq(schema.channel.workspaceId, workspaceId),
+        privateAudienceFilter(privateContainerChannelId)
       )
     )
     .limit(1)
@@ -474,7 +502,12 @@ async function messageExists(
   return !!row
 }
 
-const workspaceContext = z.object({ workspaceId: z.string() })
+const workspaceContext = z.object({
+  workspaceId: z.string(),
+  // The run's private container (project/private channel) whose messages may
+  // be retrieved. Absent/null = public content only.
+  privateContainerChannelId: z.string().nullable().optional(),
+})
 
 // Both backends rank independently and each is capped, so a bag of keywords
 // can't flood one side and a phrase degrades gracefully on the other — the
@@ -487,7 +520,9 @@ async function searchSourceSummaries(
   return searchSources(workspaceId, await embedSourceQuery(query), limit)
 }
 
-const searchTools = {
+// Shared with the archive-synthesis path (project-archive.ts), which builds
+// its own bounded toolset instead of going through respond().
+export const searchTools = {
   search: tool({
     description:
       "Search the team's knowledge in one place: its chat message history (exact/keyword match) and the summarized activity of connected integrations like GitHub and Linear (semantic match). Pass a short natural-language query or phrase. Results are tagged with `type`: a `message` comes back with its full text — cite it as [[msg:<id>]]; a `source` comes back as a summary with `hasMore: true` — call fetch_source with its id for the full body, and cite it as [[src:<id>]] (don't paste its url). Pass `types` to search only one kind. Call repeatedly with different queries to investigate.",
@@ -517,7 +552,12 @@ const searchTools = {
       // returns the other half rather than failing the whole search.
       const [messages, sources] = await Promise.all([
         want("messages")
-          ? searchMessages(context.workspaceId, query, n).catch(() => [])
+          ? searchMessages(
+              context.workspaceId,
+              query,
+              n,
+              context.privateContainerChannelId ?? null
+            ).catch(() => [])
           : [],
         want("sources")
           ? searchSourceSummaries(context.workspaceId, query, n).catch(() => [])
@@ -536,7 +576,7 @@ const searchTools = {
   }),
 }
 
-const chatTools = {
+export const chatTools = {
   read_thread: tool({
     description:
       "Read the full thread (root message + all replies) a message belongs to. Use after search_messages to get full context around a hit.",
@@ -546,7 +586,11 @@ const chatTools = {
     contextSchema: workspaceContext,
     execute: async ({ messageId }, { context }) => {
       try {
-        return await readThread(context.workspaceId, messageId)
+        return await readThread(
+          context.workspaceId,
+          messageId,
+          context.privateContainerChannelId ?? null
+        )
       } catch {
         return { error: "read failed" }
       }
@@ -559,18 +603,30 @@ const chatTools = {
 // call in respond() based on what the channel has bound.
 function coreToolsContext(
   workspaceId: string,
+  scope: MerlinRunScope,
   onWrite?: (e: BrainWriteEvent) => void,
   onProposal?: (e: InstructionsProposalEvent) => void | Promise<void>
 ) {
-  const workspace = { workspaceId }
+  // Brain reads/search admit the run's scoped nodes; message retrieval may
+  // reach the run's own private container. See resolveMerlinRunScope.
+  const workspace = { workspaceId, scopeChannelId: scope.memoryScopeChannelId }
+  const retrieval = {
+    workspaceId,
+    privateContainerChannelId: scope.privateContainerChannelId,
+  }
   return {
-    search: workspace,
-    read_thread: workspace,
-    fetch_source: workspace,
+    search: retrieval,
+    read_thread: retrieval,
+    fetch_source: { workspaceId },
     ls: workspace,
     read: workspace,
     tree: workspace,
-    write: { workspaceId, onWrite },
+    write: {
+      workspaceId,
+      scopeChannelId: scope.memoryScopeChannelId,
+      scopeFolderPath: scope.memoryFolderPath,
+      onWrite,
+    },
     mkdir: workspace,
     move: workspace,
     link: workspace,
@@ -578,7 +634,7 @@ function coreToolsContext(
   }
 }
 
-function toolLabel(toolName: string, input: unknown): string {
+export function toolLabel(toolName: string, input: unknown): string {
   const field = (k: string): string | undefined => {
     if (input && typeof input === "object" && k in input) {
       const v = (input as Record<string, unknown>)[k]
@@ -709,7 +765,7 @@ function asString(v: unknown): string | undefined {
   return typeof v === "string" && v.trim() ? v.trim() : undefined
 }
 
-function toolDetail(
+export function toolDetail(
   toolName: string,
   output: unknown
 ): Pick<MerlinToolCall, "detail" | "status" | "files"> {
@@ -1232,6 +1288,7 @@ function toolDetail(
 // initial request — no re-query drift, no double embed billing.
 async function buildRunContext(
   ctx: RespondContext,
+  runScope: MerlinRunScope,
   onUsage?: OnUsage
 ): Promise<AgentRunContext> {
   const question = ctx.conversation[ctx.conversation.length - 1]?.content ?? ""
@@ -1249,7 +1306,8 @@ async function buildRunContext(
       const hits = await searchBrain(
         ctx.workspaceId,
         embedded.embedding,
-        PREFETCH_LIMIT
+        PREFETCH_LIMIT,
+        runScope.memoryScopeChannelId
       )
       if (hits.length > 0) {
         brainContext = `\n\nRelevant notes from your brain:\n\n${hits
@@ -1411,6 +1469,13 @@ export async function respond(
   // run ends cleanly while the task parks in waiting_for_approval.
   let approvalRequested = false
 
+  // The run's retrieval/write boundary — fails closed to workspace-public.
+  const runScope = ctx.channelId
+    ? await resolveMerlinRunScope(ctx.channelId).catch(
+        () => EMPTY_MERLIN_RUN_SCOPE
+      )
+    : EMPTY_MERLIN_RUN_SCOPE
+
   // resolveChannelCapabilities already maps truly unprovisioned channels to the
   // permissive set; an actual throw here is an unexpected failure, so fail
   // closed to core-only (no gated tools) rather than granting everything.
@@ -1551,6 +1616,7 @@ export async function respond(
     const toolsContext = {
       ...coreToolsContext(
         ctx.workspaceId,
+        runScope,
         onMemoryWritten,
         onInstructionsProposal
       ),
@@ -1700,7 +1766,7 @@ export async function respond(
       resumeLastInputTokens = run.resume.lastInputTokens
     } else {
       const [context, workspaceInstructions] = await Promise.all([
-        buildRunContext(ctx, onUsage),
+        buildRunContext(ctx, runScope, onUsage),
         loadWorkspaceInstructions(ctx.workspaceId),
       ])
       const userMessage = await buildInitialUserMessage(context)
@@ -1979,6 +2045,12 @@ export async function writeBack(
   )
   if (!gate.object.worthSaving) return
 
+  const writeBackScope = ctx.channelId
+    ? await resolveMerlinRunScope(ctx.channelId).catch(
+        () => EMPTY_MERLIN_RUN_SCOPE
+      )
+    : EMPTY_MERLIN_RUN_SCOPE
+
   const workspaceInstructions = await loadWorkspaceInstructions(ctx.workspaceId)
   const body = await generateText({
     model: merlinModel,
@@ -1998,6 +2070,7 @@ export async function writeBack(
     },
     toolsContext: coreToolsContext(
       ctx.workspaceId,
+      writeBackScope,
       onMemoryWritten,
       onInstructionsProposal
     ),

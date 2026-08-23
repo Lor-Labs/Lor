@@ -10,6 +10,7 @@ import {
   schema,
   sql,
 } from "@repo/db"
+import { listAccessibleChannelIds } from "@repo/db/queries/channel-access"
 import type {
   ChannelReadState,
   NotificationBootstrap,
@@ -134,6 +135,8 @@ export async function markChannelRead(
         and(
           eq(schema.messageMention.channelId, input.channelId),
           eq(schema.messageMention.mentionedUserId, input.userId),
+          // Only direct mentions drive badge counts; channel/here rows are notification-only
+          eq(schema.messageMention.mentionType, "direct"),
           gt(schema.messageMention.createdAt, persistedState.lastReadAt)
         )
       )
@@ -156,13 +159,25 @@ export async function markChannelRead(
 export async function getUnreadStatesForUser(
   userId: string
 ): Promise<NotificationBootstrap> {
-  // Get DM/group DM channel IDs via channel_member
+  // Get DM/group DM channel IDs via channel_member. Restrict to DM types so
+  // stale channel_member rows on workspace channels can't bypass the
+  // listAccessibleChannelIds gate below.
   const dmMemberships = await db
     .select({ channelId: schema.channelMember.channelId })
     .from(schema.channelMember)
-    .where(eq(schema.channelMember.userId, userId))
+    .innerJoin(
+      schema.channel,
+      eq(schema.channelMember.channelId, schema.channel.id)
+    )
+    .where(
+      and(
+        eq(schema.channelMember.userId, userId),
+        inArray(schema.channel.type, ["dm", "group_dm"])
+      )
+    )
 
-  // Get workspace channel IDs via workspace_member -> channels
+  // Filtered to accessible channels — restricted channels must not leak
+  // unread/mention counts to non-members.
   const workspaceMemberships = await db
     .select({ workspaceId: schema.workspaceMember.workspaceId })
     .from(schema.workspaceMember)
@@ -170,12 +185,12 @@ export async function getUnreadStatesForUser(
 
   let workspaceChannelIds: string[] = []
   if (workspaceMemberships.length > 0) {
-    const workspaceIds = workspaceMemberships.map((m) => m.workspaceId)
-    const workspaceChannels = await db
-      .select({ id: schema.channel.id })
-      .from(schema.channel)
-      .where(inArray(schema.channel.workspaceId, workspaceIds))
-    workspaceChannelIds = workspaceChannels.map((c) => c.id)
+    const accessibleSets = await Promise.all(
+      workspaceMemberships.map((m) =>
+        listAccessibleChannelIds(userId, m.workspaceId)
+      )
+    )
+    workspaceChannelIds = accessibleSets.flatMap((set) => [...set])
   }
 
   const channelIds = [
@@ -231,6 +246,7 @@ export async function getUnreadStatesForUser(
             and(
               eq(schema.messageMention.channelId, channelId),
               eq(schema.messageMention.mentionedUserId, userId),
+              eq(schema.messageMention.mentionType, "direct"),
               gt(schema.messageMention.createdAt, lastReadAt)
             )
           )

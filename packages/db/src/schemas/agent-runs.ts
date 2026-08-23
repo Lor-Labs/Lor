@@ -370,7 +370,12 @@ export type AgentRunEventPayload =
   | { kind: "text"; delta: string; replace?: boolean }
   | { kind: "reasoning"; delta: string; at: number; order: number }
   | { kind: "tool"; toolCall: MerlinToolCall }
-  | { kind: "memory"; path: string; action: "created" | "updated" }
+  | {
+      kind: "memory"
+      path: string
+      action: "created" | "updated"
+      nodeId?: string
+    }
   | {
       kind: "state"
       state: AgentRunState

@@ -447,6 +447,7 @@ export function createMerlinRespondProcessor(
               kind: "memory",
               path: memory.path,
               action: memory.action,
+              ...(memory.nodeId ? { nodeId: memory.nodeId } : {}),
             })
             emitter.to(room).emit("merlin:memory", {
               channelId,
@@ -454,6 +455,7 @@ export function createMerlinRespondProcessor(
               messageId: merlinMessageId,
               path: memory.path,
               action: memory.action,
+              ...(memory.nodeId ? { nodeId: memory.nodeId } : {}),
               ...runRef(seq),
             })
           }
@@ -925,6 +927,7 @@ export function createMerlinRespondProcessor(
                   attachments: [],
                   threadRootId,
                 },
+                redis,
               })
               messageMentions = fanout.messageMentions
               for (const n of fanout.unreadNotifications) {
@@ -1025,7 +1028,12 @@ export function createMerlinRespondProcessor(
           }
           try {
             await writeBack(
-              { workspaceId, priorMessages: answer.messages, gateText },
+              {
+                workspaceId,
+                channelId,
+                priorMessages: answer.messages,
+                gateText,
+              },
               {
                 onMemoryWritten: remember,
                 // Autonomous — not attributed to the triggering user. Also

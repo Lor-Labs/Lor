@@ -1,3 +1,4 @@
+import Archive02Icon from "@hugeicons/core-free-icons/Archive02Icon"
 import Search01Icon from "@hugeicons/core-free-icons/Search01Icon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router"
@@ -36,6 +37,7 @@ import { useChannelPermissions } from "@/hooks/use-channel-permissions"
 import { useMemberModeration } from "@/hooks/use-member-moderation"
 import { useOpenDM } from "@/hooks/use-open-dm"
 import { useProfileSheet } from "@/hooks/use-profile-sheet"
+import { useProjectUpdates } from "@/hooks/use-project-updates"
 import { useRunQueue } from "@/hooks/use-run-queue"
 import { useTypingIndicator } from "@/hooks/use-typing-indicator"
 import { useWorkspaceMentionCandidates } from "@/hooks/use-workspace-mention-candidates"
@@ -69,6 +71,9 @@ export default function ChannelScreen() {
     workspaceSlug: workspace?.slug ?? "",
     channelId: channelId ?? "",
   })
+  // Live archive lock: project:updated invalidates the channel detail, so an
+  // open composer flips to the archived notice without a reload.
+  useProjectUpdates(workspace?.slug)
 
   const chat = useChannelMessages({
     source: {
@@ -113,6 +118,7 @@ export default function ChannelScreen() {
   const mentions = useWorkspaceMentionCandidates({
     workspaceSlug: workspace?.slug ?? "",
     currentUserId: session?.user.id,
+    channelAudience: channelState.channel?.audience,
   })
   const avatarColorByUserId = useMemo(
     () =>
@@ -398,49 +404,53 @@ export default function ChannelScreen() {
             inputNativeID,
             onCustomInputViewChange,
             onInputLayout,
-          }) => (
-            <MessageComposer
-              channelId={channelId}
-              channelName={channelName}
-              editingMessage={editingMessage}
-              inputNativeID={inputNativeID}
-              onInputLayout={onInputLayout}
-              isConnected={isSocketConnected}
-              isMentionCandidatesLoading={mentions.isLoading}
-              isSending={chat.isSending || isSavingEdit}
-              mentionCandidates={mentions.candidates}
-              mentionCandidatesError={mentions.error}
-              mentionRef={composerMentionRef}
-              onCancelEdit={() => setEditingMessage(null)}
-              onCancelReply={() => setReplyingTo(null)}
-              onCustomInputViewChange={onCustomInputViewChange}
-              onTyping={emitTyping}
-              onEdit={async (messageId, content) => {
-                setIsSavingEdit(true)
-                try {
-                  await chat.editMessage(messageId, content)
-                  setEditingMessage(null)
-                } finally {
-                  setIsSavingEdit(false)
+          }) =>
+            channel.archivedAt ? (
+              <ArchivedChannelNotice archivedAt={channel.archivedAt} />
+            ) : (
+              <MessageComposer
+                channelId={channelId}
+                channelName={channelName}
+                editingMessage={editingMessage}
+                inputNativeID={inputNativeID}
+                onInputLayout={onInputLayout}
+                isConnected={isSocketConnected}
+                isMentionCandidatesLoading={mentions.isLoading}
+                isSending={chat.isSending || isSavingEdit}
+                mentionCandidates={mentions.candidates}
+                mentionCandidatesError={mentions.error}
+                mentionRef={composerMentionRef}
+                onCancelEdit={() => setEditingMessage(null)}
+                onCancelReply={() => setReplyingTo(null)}
+                onCustomInputViewChange={onCustomInputViewChange}
+                onTyping={emitTyping}
+                onEdit={async (messageId, content) => {
+                  setIsSavingEdit(true)
+                  try {
+                    await chat.editMessage(messageId, content)
+                    setEditingMessage(null)
+                  } finally {
+                    setIsSavingEdit(false)
+                  }
+                }}
+                onSend={async (content, attachments) => {
+                  await chat.sendMessage(
+                    content,
+                    replyingTo ?? undefined,
+                    attachments
+                  )
+                  setReplyingTo(null)
+                }}
+                replyingTo={replyingTo}
+                topAccessory={
+                  <RunQueuePill
+                    currentUserId={session?.user.id}
+                    messages={queuedMessages}
+                  />
                 }
-              }}
-              onSend={async (content, attachments) => {
-                await chat.sendMessage(
-                  content,
-                  replyingTo ?? undefined,
-                  attachments
-                )
-                setReplyingTo(null)
-              }}
-              replyingTo={replyingTo}
-              topAccessory={
-                <RunQueuePill
-                  currentUserId={session?.user.id}
-                  messages={queuedMessages}
-                />
-              }
-            />
-          )}
+              />
+            )
+          }
           renderMessageList={(keyboardProps) => (
             <MessageList
               avatarColorByUserId={avatarColorByUserId}
@@ -543,5 +553,35 @@ export default function ChannelScreen() {
         user={profileUser}
       />
     </Screen>
+  )
+}
+
+// Archived channels are read-only: the composer is replaced by a terminal
+// divider marking when the project closed \xe2\x80\x94 mirrors the web treatment.
+function ArchivedChannelNotice({ archivedAt }: { archivedAt: string }) {
+  const muted = useThemeColor("muted")
+  const formatted = new Date(archivedAt).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  })
+  return (
+    <View className="px-four pb-four pt-two">
+      <View className="flex-row items-center">
+        <View className="h-px flex-1 bg-separator" />
+        <View className="mx-two flex-row items-center gap-one rounded-full border border-separator px-two py-1">
+          <HugeiconsIcon
+            color={muted}
+            icon={Archive02Icon}
+            size={14}
+            strokeWidth={2}
+          />
+          <Text className="text-xs font-medium text-muted">
+            Archived {formatted}
+          </Text>
+        </View>
+        <View className="h-px flex-1 bg-separator" />
+      </View>
+    </View>
   )
 }

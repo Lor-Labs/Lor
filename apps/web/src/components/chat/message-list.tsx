@@ -33,6 +33,7 @@ import {
   useRegisteredMessageScroller,
 } from "@/components/chat/message-scroller-controls"
 import { ThreadActivityStack } from "@/components/chat/thread-activity"
+import { PrivateHashIcon } from "@/components/ui/private-hash-icon"
 import type { ThreadActivity } from "@/hooks/use-thread-activity"
 import type { Message } from "@/lib/api-types"
 
@@ -88,11 +89,15 @@ function EmptyState({ context }: { context: ChatContext }) {
       <div className="flex flex-col items-start gap-3">
         {context.type === "channel" ? (
           <div className="flex size-14 items-center justify-center rounded-full bg-accent text-foreground">
-            <HugeiconsIcon
-              icon={HashtagIcon}
-              className="size-7"
-              strokeWidth={2.25}
-            />
+            {context.isPrivate ? (
+              <PrivateHashIcon className="size-7" strokeWidth={2.25} />
+            ) : (
+              <HugeiconsIcon
+                icon={HashtagIcon}
+                className="size-7"
+                strokeWidth={2.25}
+              />
+            )}
           </div>
         ) : (
           <Avatar className="size-14">

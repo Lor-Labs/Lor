@@ -79,6 +79,7 @@ export const runEventPayloadSchema = z.discriminatedUnion("kind", [
     kind: z.literal("memory"),
     path: z.string(),
     action: z.enum(["created", "updated"]),
+    nodeId: z.string().uuid().optional(),
   }),
   z.object({
     kind: z.literal("state"),

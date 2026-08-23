@@ -16,10 +16,15 @@ import {
 } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
 import {
+  Archive02Icon,
   ArrowDown01Icon,
+  Folder01Icon,
+  Folder02Icon,
   HashtagIcon,
+  Loading03Icon,
   MoreHorizontalIcon,
   PlusSignIcon,
+  SquareLock02Icon,
   VolumeHighIcon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
@@ -40,13 +45,16 @@ import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import { AnimatePresence, motion } from "motion/react"
-import { useCallback, useState } from "react"
+import { useCallback, useMemo, useState } from "react"
+import { ArchiveProjectDialog } from "@/components/project/archive-project-dialog"
 import { useCreateChannel } from "@/components/sidebar/channel-panel/create-channel-context"
 import { DeleteChannelDialog } from "@/components/sidebar/channel-panel/delete-channel-dialog"
 import { EditChannelDialog } from "@/components/sidebar/channel-panel/edit-channel-dialog"
+import { PrivateHashIcon } from "@/components/ui/private-hash-icon"
 import { useMobileSidebar } from "@/context/mobile-sidebar-context"
 import { useUnread } from "@/context/unread-context"
 import { MUTE_DURATIONS, useChannelMutes } from "@/hooks/use-channel-mutes"
+import { useProjectUpdates } from "@/hooks/use-project-updates"
 import { apiClient } from "@/lib/api-client"
 import type { Channel, ListChannelsResponse } from "@/lib/api-types"
 import {
@@ -64,7 +72,27 @@ const channelIcons = {
 
 type ChannelData = ListChannelsResponse
 
-function ChannelIcon({ type }: { type: string }) {
+function ChannelIcon({
+  type,
+  isPrivate = false,
+}: {
+  type: string
+  isPrivate?: boolean
+}) {
+  // Standalone private channels wear the hash+lock glyph (voice: plain lock);
+  // project channels don't — the project boundary communicates the audience.
+  if (isPrivate) {
+    if (type === "text") {
+      return <PrivateHashIcon className="size-4 shrink-0 opacity-50" />
+    }
+    return (
+      <HugeiconsIcon
+        icon={SquareLock02Icon}
+        className="size-4 shrink-0 opacity-50"
+        strokeWidth={2}
+      />
+    )
+  }
   const icon = channelIcons[type as keyof typeof channelIcons] ?? HashtagIcon
   return (
     <HugeiconsIcon
@@ -211,6 +239,33 @@ export function ChannelList() {
   const { openCreateChannel } = useCreateChannel()
   // One query + socket listener for the whole list; rows get the controls via props.
   const muteControls = useChannelMutes()
+  // Live refetch on project archive start/finish (spinner → Archived section).
+  useProjectUpdates(workspaceSlug)
+
+  // Projects render distinctly (folder disclosure + dashed boundary); match
+  // category ids against the project list so public projects get it too.
+  const { data: projectsData } = useQuery({
+    queryKey: ["projects", workspaceSlug],
+    queryFn: async () => {
+      const res = await apiClient.v1.workspaces[":workspaceSlug"].projects.$get(
+        { param: { workspaceSlug: workspaceSlug as string } }
+      )
+      if (!res.ok) throw new Error("Failed to fetch projects")
+      return res.json()
+    },
+    enabled: !!workspaceSlug,
+  })
+  const projectByCategoryId = useMemo(
+    () =>
+      new Map(
+        (projectsData?.projects ?? []).map((p) => [p.categoryChannelId, p])
+      ),
+    [projectsData]
+  )
+  const projectCategoryIds = useMemo(
+    () => new Set(projectByCategoryId.keys()),
+    [projectByCategoryId]
+  )
 
   const [activeItem, setActiveItem] = useState<{
     channel: Channel
@@ -282,12 +337,22 @@ export function ChannelList() {
       // Don't allow dragging categories onto channels
       if (activeItem.isCategory) return
 
-      // Find which container the active item is in
+      // Project channels stay inside their project: block cross-container
+      // drags touching a project (server enforces the same; this gives
+      // immediate feedback instead of a failed mutation).
       const activeContainer = activeItem.channel.parentId
       // Determine the target container
       const overContainer = overItem.isCategory
         ? (over.id as string)
         : overItem.channel.parentId
+
+      if (
+        activeContainer !== overContainer &&
+        ((activeContainer && projectCategoryIds.has(activeContainer)) ||
+          (overContainer && projectCategoryIds.has(overContainer)))
+      ) {
+        return
+      }
 
       // If moving between containers, update optimistically
       if (activeContainer !== overContainer) {
@@ -348,7 +413,7 @@ export function ChannelList() {
         )
       }
     },
-    [data, findChannel, workspaceSlug, queryClient]
+    [data, findChannel, workspaceSlug, queryClient, projectCategoryIds]
   )
 
   const handleDragEnd = useCallback(
@@ -418,6 +483,18 @@ export function ChannelList() {
   const isEmpty =
     data.uncategorized.length === 0 && data.categories.length === 0
 
+  // Archived projects drop out of the live tree into a muted, collapsed
+  // section — still readable, no longer in the way. Projects still archiving
+  // stay in place with a spinner until the worker finishes.
+  const isArchivedProject = (categoryId: string) =>
+    projectByCategoryId.get(categoryId)?.status === "archived"
+  const activeCategories = data.categories.filter(
+    (cat) => !isArchivedProject(cat.id)
+  )
+  const archivedCategories = data.categories.filter((cat) =>
+    isArchivedProject(cat.id)
+  )
+
   if (isEmpty) {
     return (
       <div className="px-2 py-4 text-center text-sm text-muted-foreground">
@@ -470,15 +547,30 @@ export function ChannelList() {
 
         {/* Categories with children */}
         <SortableContext
-          items={data.categories.map((cat) => cat.id)}
+          items={activeCategories.map((cat) => cat.id)}
           strategy={verticalListSortingStrategy}
           disabled={!canManage}
         >
-          {data.categories.map((cat) => (
+          {activeCategories.map((cat) => (
             <SortableCategorySection
               key={cat.id}
               id={cat.id}
               name={cat.name ?? ""}
+              isProject={projectCategoryIds.has(cat.id)}
+              projectId={projectByCategoryId.get(cat.id)?.id ?? null}
+              projectStatus={projectByCategoryId.get(cat.id)?.status ?? null}
+              onOpenOverview={() => {
+                const project = projectByCategoryId.get(cat.id)
+                if (!project) return
+                navigate({
+                  to: "/$workspaceSlug/project/$projectId",
+                  params: {
+                    workspaceSlug: workspaceSlug as string,
+                    projectId: project.id,
+                  },
+                })
+                closeMobileSidebar(false)
+              }}
               channels={cat.channels}
               draggingCategory={activeItem?.isCategory ?? false}
               activeChannelId={activeChannelId}
@@ -500,6 +592,35 @@ export function ChannelList() {
             />
           ))}
         </SortableContext>
+
+        {archivedCategories.length > 0 && (
+          <ArchivedProjectsSection
+            categories={archivedCategories}
+            activeChannelId={activeChannelId}
+            onProjectClick={(categoryId) => {
+              const project = projectByCategoryId.get(categoryId)
+              if (!project) return
+              navigate({
+                to: "/$workspaceSlug/project/$projectId",
+                params: {
+                  workspaceSlug: workspaceSlug as string,
+                  projectId: project.id,
+                },
+              })
+              closeMobileSidebar(false)
+            }}
+            onChannelClick={(channelId) => {
+              navigate({
+                to: "/$workspaceSlug/$channelId",
+                params: {
+                  workspaceSlug: workspaceSlug as string,
+                  channelId,
+                },
+              })
+              closeMobileSidebar(false)
+            }}
+          />
+        )}
       </nav>
 
       <DragOverlay>
@@ -532,6 +653,10 @@ export function ChannelList() {
 function SortableCategorySection({
   id,
   name,
+  isProject = false,
+  projectId = null,
+  projectStatus = null,
+  onOpenOverview,
   channels,
   draggingCategory,
   activeChannelId,
@@ -544,6 +669,10 @@ function SortableCategorySection({
 }: {
   id: string
   name: string
+  isProject?: boolean
+  projectId?: string | null
+  projectStatus?: "active" | "archiving" | "archived" | null
+  onOpenOverview?: () => void
   channels: Channel[]
   draggingCategory: boolean
   activeChannelId?: string
@@ -558,6 +687,8 @@ function SortableCategorySection({
   const [menuOpen, setMenuOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const [archiveOpen, setArchiveOpen] = useState(false)
+  const { openProjectMembers } = useCreateChannel()
   const {
     attributes,
     listeners,
@@ -580,24 +711,79 @@ function SortableCategorySection({
   } as Channel
 
   return (
-    <div ref={setNodeRef} style={style}>
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={cn(
+        // Projects read as a bounded container: dashed border around the
+        // whole group, folder disclosure instead of a chevron.
+        isProject &&
+          "rounded-lg border border-dashed border-sidebar-border px-1 pt-1 pb-0.5"
+      )}
+    >
       <div className="group/category flex w-full items-center gap-0.5 px-1 pb-1">
+        {isProject && projectStatus === "archiving" && (
+          // The header routes to the overview while archiving, so collapse
+          // needs its own affordance.
+          <button
+            type="button"
+            onClick={() => setCollapsed(!collapsed)}
+            aria-expanded={!collapsed}
+            aria-label={collapsed ? "Expand project" : "Collapse project"}
+            className="cursor-pointer text-muted-foreground hover:text-foreground"
+          >
+            <motion.div
+              animate={{ rotate: collapsed ? -90 : 0 }}
+              transition={{ duration: 0.15, ease: "easeInOut" }}
+            >
+              <HugeiconsIcon
+                icon={ArrowDown01Icon}
+                className="size-3 shrink-0"
+                strokeWidth={2}
+              />
+            </motion.div>
+          </button>
+        )}
         <button
           type="button"
-          onClick={() => setCollapsed(!collapsed)}
+          onClick={() => {
+            // An archiving project's header opens the live overview — the
+            // synthesis progress lives there, not in a collapsed tree.
+            if (projectStatus === "archiving" && onOpenOverview) {
+              onOpenOverview()
+              return
+            }
+            setCollapsed(!collapsed)
+          }}
           {...(canManage ? { ...attributes, ...listeners } : {})}
           className="flex flex-1 items-center gap-0.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground cursor-pointer"
         >
-          <motion.div
-            animate={{ rotate: collapsed ? -90 : 0 }}
-            transition={{ duration: 0.15, ease: "easeInOut" }}
-          >
-            <HugeiconsIcon
-              icon={ArrowDown01Icon}
-              className="size-3 shrink-0"
-              strokeWidth={2}
-            />
-          </motion.div>
+          {isProject ? (
+            projectStatus === "archiving" ? (
+              <HugeiconsIcon
+                icon={Loading03Icon}
+                className="mr-1 size-3.5 shrink-0 animate-spin"
+                strokeWidth={2}
+              />
+            ) : (
+              <HugeiconsIcon
+                icon={collapsed ? Folder01Icon : Folder02Icon}
+                className="mr-1 size-3.5 shrink-0"
+                strokeWidth={2}
+              />
+            )
+          ) : (
+            <motion.div
+              animate={{ rotate: collapsed ? -90 : 0 }}
+              transition={{ duration: 0.15, ease: "easeInOut" }}
+            >
+              <HugeiconsIcon
+                icon={ArrowDown01Icon}
+                className="size-3 shrink-0"
+                strokeWidth={2}
+              />
+            </motion.div>
+          )}
           <span className="truncate">{name}</span>
         </button>
         <div className="flex items-center gap-0.5">
@@ -632,6 +818,29 @@ function SortableCategorySection({
                 <HugeiconsIcon icon={MoreHorizontalIcon} strokeWidth={2} />
               </DropdownMenuTrigger>
               <DropdownMenuContent side="bottom" align="start">
+                {isProject && (
+                  <>
+                    <DropdownMenuItem
+                      onClick={() => {
+                        setMenuOpen(false)
+                        openProjectMembers(id)
+                      }}
+                    >
+                      Members
+                    </DropdownMenuItem>
+                    {projectId && projectStatus === "active" && (
+                      <DropdownMenuItem
+                        onClick={() => {
+                          setMenuOpen(false)
+                          setArchiveOpen(true)
+                        }}
+                      >
+                        Archive Project
+                      </DropdownMenuItem>
+                    )}
+                    <DropdownMenuSeparator />
+                  </>
+                )}
                 <DropdownMenuItem
                   onClick={() => {
                     setMenuOpen(false)
@@ -669,6 +878,14 @@ function SortableCategorySection({
         open={deleteOpen}
         onOpenChange={setDeleteOpen}
       />
+      {projectId && (
+        <ArchiveProjectDialog
+          projectId={projectId}
+          projectName={name}
+          open={archiveOpen}
+          onOpenChange={setArchiveOpen}
+        />
+      )}
       <AnimatePresence initial={false}>
         {!collapsed && (
           <motion.div
@@ -695,6 +912,87 @@ function SortableCategorySection({
                 />
               ))}
             </SortableContext>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
+// Archived projects: collapsed by default, muted, read-only — no dnd, no
+// management menus. The project row opens the archived overview; channels
+// stay navigable (history is preserved).
+function ArchivedProjectsSection({
+  categories,
+  activeChannelId,
+  onProjectClick,
+  onChannelClick,
+}: {
+  categories: ChannelData["categories"]
+  activeChannelId?: string
+  onProjectClick: (categoryId: string) => void
+  onChannelClick: (channelId: string) => void
+}) {
+  const [collapsed, setCollapsed] = useState(true)
+
+  return (
+    <div className="border-t border-sidebar-border pt-2">
+      <button
+        type="button"
+        onClick={() => setCollapsed(!collapsed)}
+        className="flex w-full items-center gap-0.5 px-1 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70 hover:text-foreground cursor-pointer"
+      >
+        <motion.div
+          animate={{ rotate: collapsed ? -90 : 0 }}
+          transition={{ duration: 0.15, ease: "easeInOut" }}
+        >
+          <HugeiconsIcon
+            icon={ArrowDown01Icon}
+            className="size-3 shrink-0"
+            strokeWidth={2}
+          />
+        </motion.div>
+        <span className="truncate">Archived</span>
+      </button>
+      <AnimatePresence initial={false}>
+        {!collapsed && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.15, ease: "easeInOut" }}
+            className="space-y-2 overflow-hidden"
+          >
+            {categories.map((cat) => (
+              <div key={cat.id} className="opacity-70">
+                <button
+                  type="button"
+                  onClick={() => onProjectClick(cat.id)}
+                  className="flex w-full items-center gap-0.5 px-1 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground cursor-pointer"
+                >
+                  <HugeiconsIcon
+                    icon={Archive02Icon}
+                    className="mr-1 size-3.5 shrink-0"
+                    strokeWidth={2}
+                  />
+                  <span className="truncate">{cat.name}</span>
+                </button>
+                {cat.channels.map((ch) => (
+                  <button
+                    key={ch.id}
+                    type="button"
+                    onClick={() => onChannelClick(ch.id)}
+                    className="w-full text-left cursor-pointer"
+                  >
+                    <ChannelItem
+                      name={ch.name ?? ""}
+                      type={ch.type}
+                      active={activeChannelId === ch.id}
+                    />
+                  </button>
+                ))}
+              </div>
+            ))}
           </motion.div>
         )}
       </AnimatePresence>
@@ -765,7 +1063,10 @@ function SortableChannelItem({
         {!active && hasUnread && (
           <div className="absolute left-0 top-1/2 h-2 w-[3px] -translate-y-1/2 rounded-r-full bg-foreground" />
         )}
-        <ChannelIcon type={ch.type} />
+        <ChannelIcon
+          type={ch.type}
+          isPrivate={ch.audience === "members" && ch.parentId === null}
+        />
         <span className="truncate">{ch.name}</span>
         <div className="ml-auto flex items-center gap-1">
           {mentionCount > 0 && (

@@ -267,8 +267,11 @@ export type MerlinReasoningSegment = {
   order: number
 }
 
-// A brain page Merlin wrote during an answer.
+// A brain page Merlin wrote during an answer. nodeId references the brain
+// node durably (paths go stale on move/rename); optional — rows written
+// before it existed carry only the path.
 export type MerlinMemory = {
   path: string
   action: "created" | "updated"
+  nodeId?: string
 }

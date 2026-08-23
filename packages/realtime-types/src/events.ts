@@ -16,6 +16,10 @@ export const threadRoomPayloadSchema = z.object({
   threadRootId: z.string().uuid(),
 })
 
+// No pre-existing user-message length limit in the repo (webhooks use 2000,
+// Merlin posts 8000); 20000 is a generous cap to bound realtime payloads.
+export const MESSAGE_CONTENT_MAX_LENGTH = 20000
+
 export const attachmentPayloadSchema = z.object({
   url: z.string().url(),
   filename: z.string().min(1).max(256),
@@ -28,7 +32,7 @@ export const attachmentPayloadSchema = z.object({
 export const sendMessagePayloadSchema = z
   .object({
     channelId: z.string().uuid(),
-    content: z.string().trim().max(2000).optional(),
+    content: z.string().trim().max(MESSAGE_CONTENT_MAX_LENGTH).optional(),
     nonce: z.string().max(100).optional(),
     referencedMessageId: z.string().uuid().optional(),
     threadRootId: z.string().uuid().optional(),
@@ -58,7 +62,7 @@ export const deleteMessagePayloadSchema = z.object({
 export const editMessagePayloadSchema = z.object({
   channelId: z.string().uuid(),
   messageId: z.string().uuid(),
-  content: z.string().trim().min(1).max(2000),
+  content: z.string().trim().min(1).max(MESSAGE_CONTENT_MAX_LENGTH),
 })
 
 export const markChannelReadPayloadSchema = z.object({
@@ -326,6 +330,57 @@ export type ChannelMuteUpdated = {
   muted: boolean
 }
 
+// Wire shape of a Merlin tool-trail entry — mirrors MerlinToolCall in
+// @repo/db/schema. Shared by merlin:tool and project:archive:progress.
+export type RealtimeMerlinToolCall = {
+  toolCallId: string
+  toolName: string
+  label: string
+  at?: number
+  order?: number
+  parentToolCallId?: string
+  detail?: {
+    summary?: string
+    items?: { title: string; url?: string }[]
+  }
+  diff?: {
+    path: string
+    additions: number
+    deletions: number
+    patch?: string
+    truncated?: boolean
+  }
+  files?: {
+    artifactId: string
+    path: string
+    contentType: string
+    size: number
+    url: string
+  }[]
+  status?: "ok" | "error"
+}
+
+// Project lifecycle change (archive start/finish). Emitted to the audience's
+// user rooms — never the workspace room — so a private project's existence
+// doesn't leak to non-members. Clients refetch projects/channels on receipt.
+export type ProjectUpdatedEvent = {
+  projectId: string
+  categoryChannelId: string
+  status: "active" | "archiving" | "archived"
+  archivedAt: string | null
+}
+
+// Live archive-synthesis progress (tool call or memory write), emitted to the
+// project's CATEGORY channel room — the archived-project overview joins it
+// via the normal channel:join access check. Ephemeral: the durable record
+// lands on the project row when the run finishes.
+export type ProjectArchiveProgressEvent = {
+  projectId: string
+  categoryChannelId: string
+  toolCall?: RealtimeMerlinToolCall
+  memory?: { nodeId?: string; path: string; action: "created" | "updated" }
+}
+
 export type NotificationBootstrap = {
   readStates: Array<{
     channelId: string
@@ -465,6 +520,7 @@ export interface ServerToClientEvents {
     messageId: string
     path: string
     action: "created" | "updated"
+    nodeId?: string
     runId?: string
     seq?: number
   }) => void
@@ -476,33 +532,7 @@ export interface ServerToClientEvents {
     channelId: string
     threadRootId: string | null
     messageId: string
-    toolCall: {
-      toolCallId: string
-      toolName: string
-      label: string
-      at?: number
-      order?: number
-      parentToolCallId?: string
-      detail?: {
-        summary?: string
-        items?: { title: string; url?: string }[]
-      }
-      diff?: {
-        path: string
-        additions: number
-        deletions: number
-        patch?: string
-        truncated?: boolean
-      }
-      files?: {
-        artifactId: string
-        path: string
-        contentType: string
-        size: number
-        url: string
-      }[]
-      status?: "ok" | "error"
-    }
+    toolCall: RealtimeMerlinToolCall
     runId?: string
     seq?: number
   }) => void
@@ -528,6 +558,8 @@ export interface ServerToClientEvents {
   "notification:reaction": (payload: ReactionNotification) => void
   "channel:read-state": (payload: ChannelReadState) => void
   "channel-mute:updated": (payload: ChannelMuteUpdated) => void
+  "project:updated": (payload: ProjectUpdatedEvent) => void
+  "project:archive:progress": (payload: ProjectArchiveProgressEvent) => void
   "workspace:member:joined": (payload: WorkspaceMemberJoinedEvent) => void
   "typing:update": (payload: TypingIndicatorEvent) => void
   "billing:updated": (payload: BillingUpdatedEvent) => void

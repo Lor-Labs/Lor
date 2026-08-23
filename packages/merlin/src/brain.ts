@@ -21,6 +21,19 @@ const TREE_MAX_DEPTH = 4
 type NodeKind = "folder" | "page"
 type Resolved = { id: string; kind: NodeKind; name: string }
 
+// Memory scope: null = workspace-wide nodes only; an access container channel
+// id also admits that container's nodes.
+type MemoryScope = string | null
+
+// Reads admit workspace-wide nodes alongside the scope's own; writes must be
+// scope-strict so a scoped write never resolves (and mutates or pins) a
+// workspace-wide node — a name collision creates/uses the scoped sibling.
+function scopeFilter(scopeChannelId: MemoryScope, strict = false) {
+  if (!scopeChannelId) return isNull(schema.brainNode.scopeChannelId)
+  const scoped = eq(schema.brainNode.scopeChannelId, scopeChannelId)
+  return strict ? scoped : or(isNull(schema.brainNode.scopeChannelId), scoped)
+}
+
 function segmentsOf(path: string): string[] {
   return path
     .split("/")
@@ -35,7 +48,9 @@ function isPrefix(a: string[], b: string[]): boolean {
 async function findChild(
   workspaceId: string,
   parentId: string | null,
-  name: string
+  name: string,
+  scopeChannelId: MemoryScope = null,
+  strict = false
 ): Promise<Resolved | null> {
   const row = await db
     .select({ id: schema.brainNode.id, kind: schema.brainNode.kind })
@@ -47,7 +62,8 @@ async function findChild(
           ? isNull(schema.brainNode.parentId)
           : eq(schema.brainNode.parentId, parentId),
         eq(schema.brainNode.name, name),
-        eq(schema.brainNode.status, "active")
+        eq(schema.brainNode.status, "active"),
+        scopeFilter(scopeChannelId, strict)
       )
     )
     .limit(1)
@@ -55,7 +71,11 @@ async function findChild(
   return row ? { id: row.id, kind: row.kind, name } : null
 }
 
-async function childrenOf(workspaceId: string, parentId: string | null) {
+async function childrenOf(
+  workspaceId: string,
+  parentId: string | null,
+  scopeChannelId: MemoryScope = null
+) {
   return db
     .select({
       id: schema.brainNode.id,
@@ -69,7 +89,8 @@ async function childrenOf(workspaceId: string, parentId: string | null) {
         parentId === null
           ? isNull(schema.brainNode.parentId)
           : eq(schema.brainNode.parentId, parentId),
-        eq(schema.brainNode.status, "active")
+        eq(schema.brainNode.status, "active"),
+        scopeFilter(scopeChannelId)
       )
     )
     .orderBy(asc(schema.brainNode.kind), asc(schema.brainNode.name))
@@ -77,14 +98,22 @@ async function childrenOf(workspaceId: string, parentId: string | null) {
 
 async function resolvePath(
   workspaceId: string,
-  path: string
+  path: string,
+  scopeChannelId: MemoryScope = null,
+  strict = false
 ): Promise<Resolved | "root" | null> {
   const segments = segmentsOf(path)
   if (segments.length === 0) return "root"
   let parentId: string | null = null
   let node: Resolved | null = null
   for (const name of segments) {
-    const child = await findChild(workspaceId, parentId, name)
+    const child = await findChild(
+      workspaceId,
+      parentId,
+      name,
+      scopeChannelId,
+      strict
+    )
     if (!child) return null
     node = child
     parentId = child.id
@@ -92,17 +121,25 @@ async function resolvePath(
   return node
 }
 
+// Write path only — scope-strict so scoped folders never alias workspace ones.
 async function ensureFolderPath(
   workspaceId: string,
-  segments: string[]
+  segments: string[],
+  scopeChannelId: MemoryScope = null
 ): Promise<string | null> {
   let parentId: string | null = null
   for (const name of segments) {
-    let child: Resolved | null = await findChild(workspaceId, parentId, name)
+    let child: Resolved | null = await findChild(
+      workspaceId,
+      parentId,
+      name,
+      scopeChannelId,
+      true
+    )
     if (!child) {
       const created: { id: string } | undefined = await db
         .insert(schema.brainNode)
-        .values({ workspaceId, kind: "folder", parentId, name })
+        .values({ workspaceId, kind: "folder", parentId, name, scopeChannelId })
         .returning({ id: schema.brainNode.id })
         .then((rows) => rows[0])
       if (!created) throw new Error(`failed to create folder "${name}"`)
@@ -115,14 +152,18 @@ async function ensureFolderPath(
   return parentId
 }
 
-export async function ls(workspaceId: string, path: string) {
-  const resolved = await resolvePath(workspaceId, path)
+export async function ls(
+  workspaceId: string,
+  path: string,
+  scopeChannelId: MemoryScope = null
+) {
+  const resolved = await resolvePath(workspaceId, path, scopeChannelId)
   if (resolved === null) return { error: `no such path: ${path}` }
   if (resolved !== "root" && resolved.kind === "page") {
     return { error: `${path} is a page — use read` }
   }
   const parentId = resolved === "root" ? null : resolved.id
-  const entries = await childrenOf(workspaceId, parentId)
+  const entries = await childrenOf(workspaceId, parentId, scopeChannelId)
   return { path, entries: entries.map((e) => ({ name: e.name, kind: e.kind })) }
 }
 
@@ -134,8 +175,12 @@ export async function pageExists(
   return node !== null && node !== "root" && node.kind === "page"
 }
 
-export async function readPage(workspaceId: string, path: string) {
-  const resolved = await resolvePath(workspaceId, path)
+export async function readPage(
+  workspaceId: string,
+  path: string,
+  scopeChannelId: MemoryScope = null
+) {
+  const resolved = await resolvePath(workspaceId, path, scopeChannelId)
   if (resolved === null) return { error: `no such path: ${path}` }
   if (resolved === "root" || resolved.kind === "folder") {
     return { error: `${path} is a folder — use ls` }
@@ -162,29 +207,43 @@ type TreeEntry = { name: string; kind: NodeKind; children?: TreeEntry[] }
 async function buildTree(
   workspaceId: string,
   parentId: string | null,
-  depth: number
+  depth: number,
+  scopeChannelId: MemoryScope = null
 ): Promise<TreeEntry[]> {
-  const kids = await childrenOf(workspaceId, parentId)
+  const kids = await childrenOf(workspaceId, parentId, scopeChannelId)
   const out: TreeEntry[] = []
   for (const k of kids) {
     const entry: TreeEntry = { name: k.name, kind: k.kind }
     if (k.kind === "folder" && depth > 1) {
-      entry.children = await buildTree(workspaceId, k.id, depth - 1)
+      entry.children = await buildTree(
+        workspaceId,
+        k.id,
+        depth - 1,
+        scopeChannelId
+      )
     }
     out.push(entry)
   }
   return out
 }
 
-export async function tree(workspaceId: string, path: string, depth: number) {
-  const resolved = await resolvePath(workspaceId, path)
+export async function tree(
+  workspaceId: string,
+  path: string,
+  depth: number,
+  scopeChannelId: MemoryScope = null
+) {
+  const resolved = await resolvePath(workspaceId, path, scopeChannelId)
   if (resolved === null) return { error: `no such path: ${path}` }
   if (resolved !== "root" && resolved.kind === "page") {
     return { error: `${path} is a page — use read` }
   }
   const parentId = resolved === "root" ? null : resolved.id
   const clamped = Math.max(1, Math.min(depth, TREE_MAX_DEPTH))
-  return { path, tree: await buildTree(workspaceId, parentId, clamped) }
+  return {
+    path,
+    tree: await buildTree(workspaceId, parentId, clamped, scopeChannelId),
+  }
 }
 
 async function pagePath(nodeId: string): Promise<string> {
@@ -245,7 +304,8 @@ async function pageLinks(
 export async function searchBrain(
   workspaceId: string,
   queryEmbedding: number[],
-  limit: number
+  limit: number,
+  scopeChannelId: MemoryScope = null
 ): Promise<{ path: string; body: string; links: BrainLink[] }[]> {
   const distance = cosineDistance(schema.brainNode.embedding, queryEmbedding)
   const rows = await db
@@ -256,7 +316,8 @@ export async function searchBrain(
         eq(schema.brainNode.workspaceId, workspaceId),
         eq(schema.brainNode.kind, "page"),
         eq(schema.brainNode.status, "active"),
-        isNotNull(schema.brainNode.embedding)
+        isNotNull(schema.brainNode.embedding),
+        scopeFilter(scopeChannelId)
       )
     )
     .orderBy(distance)
@@ -273,20 +334,51 @@ export async function searchBrain(
   return results
 }
 
+export type BrainWriteScope = {
+  /** Access container channel (project category or private channel). */
+  scopeChannelId: string
+  /** The scope's folder, e.g. "/projects/mobile-launch" or "/channels/admins" — all scoped writes land under it. */
+  rootPath: string
+}
+
 export async function writePage(
   workspaceId: string,
   path: string,
-  body: string
+  body: string,
+  scope: BrainWriteScope | null = null
 ): Promise<
-  { error: string } | { path: string; action: "created" | "updated" }
+  | { error: string }
+  | { path: string; action: "created" | "updated"; nodeId: string }
 > {
-  const segments = segmentsOf(path)
+  // Scoped writes are confined under the scope's folder — updating a
+  // workspace-visible page from a private channel would leak at retrieval.
+  let effectivePath = path
+  if (scope) {
+    const rootSegments = segmentsOf(scope.rootPath)
+    const pathSegments = segmentsOf(path)
+    if (!isPrefix(rootSegments, pathSegments)) {
+      effectivePath = `${scope.rootPath}/${pathSegments.join("/")}`
+    }
+  }
+  const scopeChannelId = scope?.scopeChannelId ?? null
+
+  const segments = segmentsOf(effectivePath)
   if (segments.length === 0) return { error: "cannot write to the root" }
   const leaf = segments[segments.length - 1] as string
   const cpath = `/${segments.join("/")}`
-  const parentId = await ensureFolderPath(workspaceId, segments.slice(0, -1))
+  const parentId = await ensureFolderPath(
+    workspaceId,
+    segments.slice(0, -1),
+    scopeChannelId
+  )
 
-  const existing = await findChild(workspaceId, parentId, leaf)
+  const existing = await findChild(
+    workspaceId,
+    parentId,
+    leaf,
+    scopeChannelId,
+    true
+  )
   if (existing?.kind === "folder") return { error: `${cpath} is a folder` }
 
   const embedding = await embedDocument(`${cpath}\n\n${body}`).catch(() => null)
@@ -296,29 +388,73 @@ export async function writePage(
       .update(schema.brainNode)
       .set({ body, embedding, version: sql`${schema.brainNode.version} + 1` })
       .where(eq(schema.brainNode.id, existing.id))
-    return { path: cpath, action: "updated" as const }
+    await recordProjectBrainFolder(workspaceId, scope)
+    return { path: cpath, action: "updated" as const, nodeId: existing.id }
   }
 
-  await db.insert(schema.brainNode).values({
-    workspaceId,
-    kind: "page",
-    parentId,
-    name: leaf,
-    body,
-    embedding,
-  })
-  return { path: cpath, action: "created" as const }
+  const inserted = await db
+    .insert(schema.brainNode)
+    .values({
+      workspaceId,
+      kind: "page",
+      parentId,
+      name: leaf,
+      body,
+      embedding,
+      scopeChannelId,
+    })
+    .returning({ id: schema.brainNode.id })
+    .then((rows) => rows[0])
+  if (!inserted) return { error: "write failed" }
+  await recordProjectBrainFolder(workspaceId, scope)
+  return { path: cpath, action: "created" as const, nodeId: inserted.id }
 }
 
-export async function mkdir(workspaceId: string, path: string) {
+// First scoped write pins project.brainFolderId for archive synthesis. Scope
+// key is the container channel (a project's category); standalone private
+// channels have no project row — no-op.
+async function recordProjectBrainFolder(
+  workspaceId: string,
+  scope: BrainWriteScope | null
+) {
+  if (!scope) return
+  const root = await resolvePath(
+    workspaceId,
+    scope.rootPath,
+    scope.scopeChannelId,
+    true
+  )
+  if (!root || root === "root") return
+  await db
+    .update(schema.project)
+    .set({ brainFolderId: root.id })
+    .where(
+      and(
+        eq(schema.project.categoryChannelId, scope.scopeChannelId),
+        isNull(schema.project.brainFolderId)
+      )
+    )
+    .catch(() => {})
+}
+
+export async function mkdir(
+  workspaceId: string,
+  path: string,
+  scopeChannelId: MemoryScope = null
+) {
   const segments = segmentsOf(path)
   if (segments.length === 0) return { error: "the root already exists" }
-  await ensureFolderPath(workspaceId, segments)
+  await ensureFolderPath(workspaceId, segments, scopeChannelId)
   return { path, ok: true }
 }
 
-export async function move(workspaceId: string, src: string, dst: string) {
-  const node = await resolvePath(workspaceId, src)
+export async function move(
+  workspaceId: string,
+  src: string,
+  dst: string,
+  scopeChannelId: MemoryScope = null
+) {
+  const node = await resolvePath(workspaceId, src, scopeChannelId)
   if (node === null || node === "root") return { error: `no such path: ${src}` }
 
   const dstSegments = segmentsOf(dst)
@@ -330,9 +466,10 @@ export async function move(workspaceId: string, src: string, dst: string) {
   const dstLeaf = dstSegments[dstSegments.length - 1] as string
   const dstParentId = await ensureFolderPath(
     workspaceId,
-    dstSegments.slice(0, -1)
+    dstSegments.slice(0, -1),
+    scopeChannelId
   )
-  if (await findChild(workspaceId, dstParentId, dstLeaf)) {
+  if (await findChild(workspaceId, dstParentId, dstLeaf, scopeChannelId)) {
     return { error: `${dst} already exists` }
   }
 
@@ -366,10 +503,11 @@ export async function link(
   workspaceId: string,
   from: string,
   to: string,
-  type: (typeof schema.BRAIN_EDGE_TYPES)[number]
+  type: (typeof schema.BRAIN_EDGE_TYPES)[number],
+  scopeChannelId: MemoryScope = null
 ) {
-  const fromNode = await resolvePath(workspaceId, from)
-  const toNode = await resolvePath(workspaceId, to)
+  const fromNode = await resolvePath(workspaceId, from, scopeChannelId)
+  const toNode = await resolvePath(workspaceId, to, scopeChannelId)
   if (fromNode === null || fromNode === "root" || fromNode.kind !== "page") {
     return { error: `${from} is not a page` }
   }
@@ -389,13 +527,39 @@ function wrap<T>(fn: () => Promise<T>) {
   }))
 }
 
-export type BrainWriteEvent = { path: string; action: "created" | "updated" }
+// nodeId travels with every write event so consumers (memory chips, the
+// archived-project overview) can reference the page durably — paths go stale
+// when pages are moved or renamed.
+export type BrainWriteEvent = {
+  nodeId: string
+  path: string
+  action: "created" | "updated"
+}
 
-const workspaceContext = z.object({ workspaceId: z.string() })
+const workspaceContext = z.object({
+  workspaceId: z.string(),
+  // Memory scope (access container channel) — absent/null = workspace only.
+  scopeChannelId: z.string().nullable().optional(),
+})
 const writeContext = z.object({
   workspaceId: z.string(),
+  scopeChannelId: z.string().nullable().optional(),
+  // Scoped writes are confined under this folder.
+  scopeFolderPath: z.string().nullable().optional(),
   onWrite: z.custom<(e: BrainWriteEvent) => void | Promise<void>>().optional(),
 })
+
+function writeScopeOf(context: {
+  scopeChannelId?: string | null
+  scopeFolderPath?: string | null
+}): BrainWriteScope | null {
+  return context.scopeChannelId && context.scopeFolderPath
+    ? {
+        scopeChannelId: context.scopeChannelId,
+        rootPath: context.scopeFolderPath,
+      }
+    : null
+}
 
 export const brainReadTools = {
   ls: tool({
@@ -406,7 +570,7 @@ export const brainReadTools = {
     }),
     contextSchema: workspaceContext,
     execute: ({ path }, { context }) =>
-      wrap(() => ls(context.workspaceId, path)),
+      wrap(() => ls(context.workspaceId, path, context.scopeChannelId ?? null)),
     strict: true,
   }),
   read: tool({
@@ -416,7 +580,9 @@ export const brainReadTools = {
     }),
     contextSchema: workspaceContext,
     execute: ({ path }, { context }) =>
-      wrap(() => readPage(context.workspaceId, path)),
+      wrap(() =>
+        readPage(context.workspaceId, path, context.scopeChannelId ?? null)
+      ),
     strict: true,
   }),
   tree: tool({
@@ -428,7 +594,14 @@ export const brainReadTools = {
     }),
     contextSchema: workspaceContext,
     execute: ({ path, depth }, { context }) =>
-      wrap(() => tree(context.workspaceId, path, depth ?? TREE_DEFAULT_DEPTH)),
+      wrap(() =>
+        tree(
+          context.workspaceId,
+          path,
+          depth ?? TREE_DEFAULT_DEPTH,
+          context.scopeChannelId ?? null
+        )
+      ),
     strict: true,
   }),
 }
@@ -444,12 +617,16 @@ export const brainWriteTools = {
     contextSchema: writeContext,
     execute: async ({ path, body }, { context }) => {
       const result = await wrap(() =>
-        writePage(context.workspaceId, path, body)
+        writePage(context.workspaceId, path, body, writeScopeOf(context))
       )
       // Listener failures should not make a committed write look failed.
       if (context.onWrite && "action" in result) {
         try {
-          await context.onWrite({ path: result.path, action: result.action })
+          await context.onWrite({
+            nodeId: result.nodeId,
+            path: result.path,
+            action: result.action,
+          })
         } catch (err) {
           logger.error(
             { err, path: result.path },
@@ -457,8 +634,11 @@ export const brainWriteTools = {
           )
         }
       }
-      // Echo the body so the tool-trail card can show what was saved.
-      return "action" in result ? { ...result, body } : result
+      // Echo the body so the tool-trail card can show what was saved. The
+      // node id stays out of the model-facing result — it cites paths.
+      return "action" in result
+        ? { path: result.path, action: result.action, body }
+        : result
     },
     strict: true,
   }),
@@ -469,7 +649,9 @@ export const brainWriteTools = {
     }),
     contextSchema: workspaceContext,
     execute: ({ path }, { context }) =>
-      wrap(() => mkdir(context.workspaceId, path)),
+      wrap(() =>
+        mkdir(context.workspaceId, path, context.scopeChannelId ?? null)
+      ),
     strict: true,
   }),
   move: tool({
@@ -480,7 +662,9 @@ export const brainWriteTools = {
     }),
     contextSchema: workspaceContext,
     execute: ({ from, to }, { context }) =>
-      wrap(() => move(context.workspaceId, from, to)),
+      wrap(() =>
+        move(context.workspaceId, from, to, context.scopeChannelId ?? null)
+      ),
     strict: true,
   }),
   link: tool({
@@ -493,7 +677,15 @@ export const brainWriteTools = {
     }),
     contextSchema: workspaceContext,
     execute: ({ from, to, type }, { context }) =>
-      wrap(() => link(context.workspaceId, from, to, type)),
+      wrap(() =>
+        link(
+          context.workspaceId,
+          from,
+          to,
+          type,
+          context.scopeChannelId ?? null
+        )
+      ),
     strict: true,
   }),
 }

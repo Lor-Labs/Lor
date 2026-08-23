@@ -1,9 +1,20 @@
-import { createContext, type ReactNode, useContext, useState } from "react"
+import {
+  createContext,
+  type ReactNode,
+  useCallback,
+  useContext,
+  useMemo,
+  useState,
+} from "react"
+import { CreateProjectDialog } from "@/components/project/create-project-dialog"
+import { ProjectMembersDialog } from "@/components/project/project-members-dialog"
 import { CreateChannelDialog } from "@/components/sidebar/channel-panel/create-channel-dialog"
 
 type CreateChannelContextValue = {
   openCreateChannel: (parentId?: string | null) => void
   openCreateCategory: () => void
+  openCreateProject: () => void
+  openProjectMembers: (categoryChannelId: string) => void
 }
 
 const CreateChannelContext = createContext<CreateChannelContextValue | null>(
@@ -21,27 +32,55 @@ export function useCreateChannel() {
 }
 
 /**
- * Hosts the shared create-channel / create-category dialog so multiple
- * surfaces in the workspace sidebar (top-level action row, per-category
- * "+ here" buttons inside ChannelList) can trigger the same flow.
+ * Hosts the shared create-channel / create-category / create-project dialogs
+ * so multiple surfaces in the workspace sidebar (top-level action row,
+ * per-category "+ here" buttons inside ChannelList) can trigger the same flow.
  */
 export function CreateChannelProvider({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false)
   const [parentId, setParentId] = useState<string | null>(null)
   const [forceType, setForceType] = useState<"category" | undefined>(undefined)
+  const [projectOpen, setProjectOpen] = useState(false)
+  const [membersCategoryId, setMembersCategoryId] = useState<string | null>(
+    null
+  )
+  const [membersOpen, setMembersOpen] = useState(false)
 
-  const value: CreateChannelContextValue = {
-    openCreateChannel: (nextParentId = null) => {
+  const openCreateChannel = useCallback(
+    (nextParentId: string | null = null) => {
       setParentId(nextParentId)
       setForceType(undefined)
       setOpen(true)
     },
-    openCreateCategory: () => {
-      setParentId(null)
-      setForceType("category")
-      setOpen(true)
-    },
-  }
+    []
+  )
+  const openCreateCategory = useCallback(() => {
+    setParentId(null)
+    setForceType("category")
+    setOpen(true)
+  }, [])
+  const openCreateProject = useCallback(() => {
+    setProjectOpen(true)
+  }, [])
+  const openProjectMembers = useCallback((categoryChannelId: string) => {
+    setMembersCategoryId(categoryChannelId)
+    setMembersOpen(true)
+  }, [])
+
+  const value = useMemo<CreateChannelContextValue>(
+    () => ({
+      openCreateChannel,
+      openCreateCategory,
+      openCreateProject,
+      openProjectMembers,
+    }),
+    [
+      openCreateChannel,
+      openCreateCategory,
+      openCreateProject,
+      openProjectMembers,
+    ]
+  )
 
   return (
     <CreateChannelContext.Provider value={value}>
@@ -55,6 +94,20 @@ export function CreateChannelProvider({ children }: { children: ReactNode }) {
         parentId={parentId}
         forceType={forceType}
       />
+      <CreateProjectDialog open={projectOpen} onOpenChange={setProjectOpen} />
+      {membersCategoryId && (
+        <ProjectMembersDialog
+          categoryChannelId={membersCategoryId}
+          open={membersOpen}
+          onOpenChange={(next) => {
+            setMembersOpen(next)
+            if (!next) {
+              // Stay mounted through the close animation before unmounting.
+              setTimeout(() => setMembersCategoryId(null), 200)
+            }
+          }}
+        />
+      )}
     </CreateChannelContext.Provider>
   )
 }

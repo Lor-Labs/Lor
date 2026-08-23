@@ -1,3 +1,5 @@
+import { Archive02Icon } from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
 import { useIsMobile } from "@repo/ui/hooks/use-mobile"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
@@ -31,6 +33,7 @@ import { useThreadActivity } from "@/hooks/use-thread-activity"
 import { useTypingIndicator } from "@/hooks/use-typing-indicator"
 import { apiClient } from "@/lib/api-client"
 import type { Message } from "@/lib/api-types"
+import { broadcastMentionCandidates } from "@/lib/broadcast-mentions"
 import { writeLastChannelId } from "@/lib/last-location"
 import { canPinMessages } from "@/lib/permissions"
 
@@ -461,12 +464,7 @@ function ChannelView() {
 
   const mentionCandidates = useMemo(
     () => [
-      {
-        id: "everyone",
-        label: "everyone",
-        name: "everyone",
-        search: "everyone all members",
-      },
+      ...broadcastMentionCandidates(data?.audience),
       ...(workspaceMembersData?.members.map((member) => ({
         id: member.userId,
         label: member.displayUsername ?? member.username ?? member.name,
@@ -476,7 +474,7 @@ function ChannelView() {
         image: member.image,
       })) ?? []),
     ],
-    [workspaceMembersData?.members]
+    [workspaceMembersData?.members, data?.audience]
   )
 
   if (isPending) {
@@ -505,6 +503,9 @@ function ChannelView() {
     type: "channel" as const,
     name: data.name ?? channelId,
     topic: data.topic ?? undefined,
+    // Standalone private channels wear the hash+lock glyph in the header;
+    // project channels don't (the project boundary communicates the audience).
+    isPrivate: data.audience === "members" && data.parentId === null,
   }
 
   return (
@@ -556,25 +557,47 @@ function ChannelView() {
         onSteer={queuedMessageSteering.steerMessage}
         steeringMessageId={queuedMessageSteering.steeringMessageId}
       />
-      <MessageInput
-        context={context}
-        channelId={channelId}
-        onSend={handleSend}
-        currentUserId={currentUserId}
-        mentionCandidates={mentionCandidates}
-        replyingTo={replyingTo}
-        onCancelReply={clearReply}
-        pendingAttachments={fileUpload.attachments}
-        addFiles={fileUpload.addFiles}
-        removeAttachment={fileUpload.removeAttachment}
-        clearAttachments={fileUpload.clearAttachments}
-        getUploadedAttachments={fileUpload.getUploadedAttachments}
-        isUploading={fileUpload.isUploading}
-        onTyping={emitTyping}
-        canSteerQueued={queuedMessageSteering.canSteerLatestOwnMessage}
-        onSteerQueued={queuedMessageSteering.steerLatestOwnMessage}
-        isSteeringQueued={queuedMessageSteering.isSteering}
-      />
+      {data.archivedAt ? (
+        // Archived: no composer — a terminal divider marks when it closed.
+        <div className="px-4 pt-1 pb-5">
+          <div className="relative flex items-center">
+            <div className="h-px w-full bg-border/70" />
+            <span className="absolute left-1/2 flex -translate-x-1/2 items-center gap-1.5 whitespace-nowrap rounded-full border border-border/70 bg-background px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
+              <HugeiconsIcon
+                icon={Archive02Icon}
+                className="size-3.5 shrink-0"
+                strokeWidth={2}
+              />
+              Archived{" "}
+              {new Date(data.archivedAt).toLocaleDateString(undefined, {
+                month: "short",
+                day: "numeric",
+                year: "numeric",
+              })}
+            </span>
+          </div>
+        </div>
+      ) : (
+        <MessageInput
+          context={context}
+          channelId={channelId}
+          onSend={handleSend}
+          currentUserId={currentUserId}
+          mentionCandidates={mentionCandidates}
+          replyingTo={replyingTo}
+          onCancelReply={clearReply}
+          pendingAttachments={fileUpload.attachments}
+          addFiles={fileUpload.addFiles}
+          removeAttachment={fileUpload.removeAttachment}
+          clearAttachments={fileUpload.clearAttachments}
+          getUploadedAttachments={fileUpload.getUploadedAttachments}
+          isUploading={fileUpload.isUploading}
+          onTyping={emitTyping}
+          canSteerQueued={queuedMessageSteering.canSteerLatestOwnMessage}
+          onSteerQueued={queuedMessageSteering.steerLatestOwnMessage}
+          isSteeringQueued={queuedMessageSteering.isSteering}
+        />
+      )}
       <AnimatePresence>
         {artifactId && (
           <ArtifactOverlay

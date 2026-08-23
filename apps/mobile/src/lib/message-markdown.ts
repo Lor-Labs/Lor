@@ -13,8 +13,11 @@ const USER_MENTION_TOKEN_REGEX =
 const TIPTAP_MENTION_REGEX =
   /\[@[^\]]*?\bid="([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})"[^\]]*]/gi
 const ENRICHED_MENTION_REGEX =
-  /\[@(?:\\.|[^\]])*]\(lor:\/\/mention\/(everyone|[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\)/gi
+  /\[@(?:\\.|[^\]])*]\(lor:\/\/mention\/(everyone|channel|here|[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\)/gi
 const EVERYONE_MENTION_REGEX = /(^|\s)@everyone\b/gi
+const CHANNEL_MENTION_REGEX = /(^|\s)@channel\b/gi
+const HERE_MENTION_REGEX = /(^|\s)@here\b/gi
+const BROADCAST_MENTION_TOKENS = new Set(["everyone", "channel", "here"])
 const CITATION_REGEX = /\[\[([^\]]+)\]\]/g
 
 function getMentionLabel(mention: Message["mentions"][number]) {
@@ -42,7 +45,9 @@ function mentionLink(label: string, id: string) {
 
 export function toStoredMessageMarkdown(markdown: string) {
   return markdown.replace(ENRICHED_MENTION_REGEX, (_match, id: string) =>
-    id.toLowerCase() === "everyone" ? "@everyone" : `<@${id}>`
+    BROADCAST_MENTION_TOKENS.has(id.toLowerCase())
+      ? `@${id.toLowerCase()}`
+      : `<@${id}>`
   )
 }
 
@@ -91,6 +96,15 @@ export function toDisplayMarkdown(
       EVERYONE_MENTION_REGEX,
       (_match, prefix: string) =>
         `${prefix}[@everyone](${MENTION_SCHEME}everyone)`
+    )
+    .replace(
+      CHANNEL_MENTION_REGEX,
+      (_match, prefix: string) =>
+        `${prefix}[@channel](${MENTION_SCHEME}channel)`
+    )
+    .replace(
+      HERE_MENTION_REGEX,
+      (_match, prefix: string) => `${prefix}[@here](${MENTION_SCHEME}here)`
     )
     .replace(USER_MENTION_TOKEN_REGEX, (_match, id: string) => {
       const mention = mentionById.get(id)

@@ -9,7 +9,11 @@ import {
   max,
   schema,
 } from "@repo/db"
-import { buildReactionNotification, syncMessageMentions } from "@repo/messaging"
+import {
+  buildReactionNotification,
+  type PresenceRedisClient,
+  syncMessageMentions,
+} from "@repo/messaging"
 import type {
   DeleteMessagePayload,
   EditMessagePayload,
@@ -45,6 +49,9 @@ type DeleteMessageInput = {
 type EditMessageInput = {
   userId: string
   payload: EditMessagePayload
+  // Presence lookup so an edit that adds/keeps @here recomputes its mention
+  // rows against who is online (edits never re-notify either way).
+  redis?: PresenceRedisClient
 }
 
 type ToggleMessageReactionInput = {
@@ -277,6 +284,27 @@ async function workspaceAvatarColor(
 export async function createMessage(input: CreateMessageInput) {
   if (input.accessibleChannel.id !== input.payload.channelId) {
     throw new Error("Channel mismatch")
+  }
+  // Archived channels (e.g. an archived project's) are read-only.
+  if (!input.accessibleChannel.canWrite) {
+    // A retry (same nonce) of a send persisted before the channel was
+    // archived must still ack as deduplicated, not error.
+    if (input.payload.nonce) {
+      const existing = await loadMessageByClientKey({
+        authorId: input.userId,
+        channelId: input.payload.channelId,
+        clientKey: input.payload.nonce,
+        workspaceId: input.accessibleChannel.workspaceId,
+      })
+      if (existing) {
+        return {
+          message: existing,
+          channel: input.accessibleChannel,
+          deduplicated: true,
+        } satisfies CreateMessageResult
+      }
+    }
+    throw new Error("This channel is archived")
   }
 
   const channelRecord = input.accessibleChannel
@@ -672,6 +700,9 @@ export async function editMessage(
     input.userId,
     input.payload.channelId
   )
+  if (!channelRecord.canWrite) {
+    throw new Error("This channel is archived")
+  }
 
   const messageRecord = await db
     .select({
@@ -708,6 +739,7 @@ export async function editMessage(
     channel: channelRecord,
     messageId: input.payload.messageId,
     content: input.payload.content,
+    redis: input.redis,
   })
 
   return {
@@ -725,6 +757,9 @@ export async function toggleMessageReaction(input: ToggleMessageReactionInput) {
     input.userId,
     input.payload.channelId
   )
+  if (!channelRecord.canWrite) {
+    throw new Error("This channel is archived")
+  }
 
   const messageRecord = await db
     .select({

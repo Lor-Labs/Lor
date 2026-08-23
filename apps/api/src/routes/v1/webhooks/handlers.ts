@@ -1,5 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto"
 import { db } from "@repo/db"
+import { resolveChannelAccess } from "@repo/db/queries/channel-access"
 import {
   channel,
   connectorTrigger,
@@ -12,6 +13,7 @@ import { and, count, eq } from "drizzle-orm"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { type LastAct, lastActByTrigger } from "@/lib/last-act"
 import { assertWorkspacePermission } from "@/lib/permissions"
+import { userCanAccessChannel } from "@/lib/queries/channel-access"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
   CreateChannelWebhookRoute,
@@ -151,6 +153,13 @@ export const listChannelWebhooks: AppRouteHandler<
   // Listing exposes tokens, so it's gated like management.
   assertWorkspacePermission(c.var.member, workspace, { channel: ["update"] })
 
+  if (!(await userCanAccessChannel(channelId, c.var.user.id))) {
+    return c.json(
+      { success: false, message: "Channel not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+
   const target = await findTextChannel(channelId, workspace.id)
   if (!target) {
     return c.json(
@@ -210,6 +219,18 @@ export const listChannelWebhooks: AppRouteHandler<
   )
 }
 
+// Archived channels are read-only: listing stays available, mutations reject.
+// Denied access reads as not_found (fail closed, no leak).
+async function checkChannelWriteAccess(
+  userId: string,
+  channelId: string
+): Promise<"ok" | "not_found" | "archived"> {
+  const access = await resolveChannelAccess(userId, channelId)
+  if (!access.ok) return "not_found"
+  if (!access.access.canWrite) return "archived"
+  return "ok"
+}
+
 export const createChannelWebhook: AppRouteHandler<
   CreateChannelWebhookRoute
 > = async (c) => {
@@ -218,6 +239,20 @@ export const createChannelWebhook: AppRouteHandler<
   const { name, avatarUrl } = c.req.valid("json")
 
   assertWorkspacePermission(c.var.member, workspace, { channel: ["update"] })
+
+  const writeAccess = await checkChannelWriteAccess(c.var.user.id, channelId)
+  if (writeAccess === "not_found") {
+    return c.json(
+      { success: false, message: "Channel not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  if (writeAccess === "archived") {
+    return c.json(
+      { success: false, message: "Channel is archived" },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
 
   const key = env.INTEGRATION_ENCRYPTION_KEY
   if (!key) {
@@ -372,6 +407,20 @@ export const updateChannelWebhook: AppRouteHandler<
 
   assertWorkspacePermission(c.var.member, workspace, { channel: ["update"] })
 
+  const writeAccess = await checkChannelWriteAccess(c.var.user.id, channelId)
+  if (writeAccess === "not_found") {
+    return c.json(
+      { success: false, message: "Channel not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  if (writeAccess === "archived") {
+    return c.json(
+      { success: false, message: "Channel is archived" },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+
   const key = env.INTEGRATION_ENCRYPTION_KEY
   if (!key) {
     return c.json(
@@ -467,6 +516,20 @@ export const deleteChannelWebhook: AppRouteHandler<
   const { channelId, webhookId } = c.req.valid("param")
 
   assertWorkspacePermission(c.var.member, workspace, { channel: ["update"] })
+
+  const writeAccess = await checkChannelWriteAccess(c.var.user.id, channelId)
+  if (writeAccess === "not_found") {
+    return c.json(
+      { success: false, message: "Channel not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  if (writeAccess === "archived") {
+    return c.json(
+      { success: false, message: "Channel is archived" },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
 
   const existing = await findWebhook(workspace.id, channelId, webhookId)
   if (!existing) {

@@ -1,11 +1,16 @@
+import Archive02Icon from "@hugeicons/core-free-icons/Archive02Icon"
 import ChevronDownIcon from "@hugeicons/core-free-icons/ArrowDown01Icon"
+import Folder01Icon from "@hugeicons/core-free-icons/Folder01Icon"
+import Folder02Icon from "@hugeicons/core-free-icons/Folder02Icon"
 import HashtagIcon from "@hugeicons/core-free-icons/HashtagIcon"
+import SquareLock02Icon from "@hugeicons/core-free-icons/SquareLock02Icon"
 import VolumeHighIcon from "@hugeicons/core-free-icons/VolumeHighIcon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
 import * as Haptics from "expo-haptics"
 import { useThemeColor } from "heroui-native/hooks"
 import { type ReactNode, useState } from "react"
-import { Pressable, Text, View } from "react-native"
+import { ActivityIndicator, Pressable, Text, View } from "react-native"
+import { PrivateHashIcon } from "@/components/ui/private-hash-icon"
 import { SectionLabel } from "@/components/ui/section-label"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useUnread } from "@/context/unread-context"
@@ -36,6 +41,9 @@ export function ChannelRow({
 }) {
   const [foreground, muted] = useThemeColor(["foreground", "muted"])
   const isVoice = channel.type === "voice"
+  // Standalone private channels wear a lock instead of their type glyph;
+  // project channels don't — the project boundary communicates the audience.
+  const isPrivate = channel.audience === "members" && channel.parentId === null
   const emphasized = unread || mentionCount > 0
 
   return (
@@ -82,12 +90,26 @@ export function ChannelRow({
         </View>
       ) : null}
       <View className="size-7 items-center justify-center">
-        <HugeiconsIcon
-          color={emphasized ? foreground : muted}
-          icon={isVoice ? VolumeHighIcon : HashtagIcon}
-          size={19}
-          strokeWidth={emphasized ? 2 : 1.8}
-        />
+        {isPrivate && !isVoice ? (
+          <PrivateHashIcon
+            color={emphasized ? foreground : muted}
+            size={19}
+            strokeWidth={emphasized ? 2 : 1.8}
+          />
+        ) : (
+          <HugeiconsIcon
+            color={emphasized ? foreground : muted}
+            icon={
+              isPrivate
+                ? SquareLock02Icon
+                : isVoice
+                  ? VolumeHighIcon
+                  : HashtagIcon
+            }
+            size={19}
+            strokeWidth={emphasized ? 2 : 1.8}
+          />
+        )}
       </View>
       <Text
         className={`min-w-0 flex-1 text-[15px] leading-5 ${
@@ -109,6 +131,8 @@ function ChannelSection({
   collapsed,
   hasActivity,
   id,
+  isArchiving = false,
+  isProject = false,
   onToggle,
   renderRow,
   title,
@@ -117,12 +141,16 @@ function ChannelSection({
   collapsed: boolean
   hasActivity: (channelId: string) => boolean
   id: string
+  isArchiving?: boolean
+  isProject?: boolean
   onToggle: (id: string) => void
   renderRow: (channel: Channel) => ReactNode
   title: string
 }) {
   const muted = useThemeColor("muted")
-  if (channels.length === 0) return null
+  // Empty projects still show their header (a just-created project has no
+  // channels yet); empty non-project categories stay hidden.
+  if (channels.length === 0 && !isProject) return null
 
   const expanded = !collapsed
   // Collapsing a category keeps its unread channels visible (Discord behavior)
@@ -131,7 +159,15 @@ function ChannelSection({
     : channels.filter((channel) => hasActivity(channel.id))
 
   return (
-    <View>
+    <View
+      className={
+        // Projects read as a bounded container — dashed border, folder
+        // disclosure — matching the web sidebar treatment.
+        isProject
+          ? "rounded-lor-md border border-dashed border-separator px-one pb-one pt-one"
+          : undefined
+      }
+    >
       <Pressable
         accessibilityLabel={`${title}, ${channels.length} ${channels.length === 1 ? "channel" : "channels"}`}
         accessibilityRole="button"
@@ -142,14 +178,27 @@ function ChannelSection({
           onToggle(id)
         }}
       >
-        <View className={expanded ? "rotate-0" : "-rotate-90"}>
-          <HugeiconsIcon
-            color={muted}
-            icon={ChevronDownIcon}
-            size={12}
-            strokeWidth={2.2}
-          />
-        </View>
+        {isProject ? (
+          isArchiving ? (
+            <ActivityIndicator color={muted} size="small" />
+          ) : (
+            <HugeiconsIcon
+              color={muted}
+              icon={expanded ? Folder02Icon : Folder01Icon}
+              size={14}
+              strokeWidth={2}
+            />
+          )
+        ) : (
+          <View className={expanded ? "rotate-0" : "-rotate-90"}>
+            <HugeiconsIcon
+              color={muted}
+              icon={ChevronDownIcon}
+              size={12}
+              strokeWidth={2.2}
+            />
+          </View>
+        )}
         <SectionLabel>{title}</SectionLabel>
       </Pressable>
 
@@ -158,16 +207,77 @@ function ChannelSection({
   )
 }
 
+// Archived projects: collapsed by default, muted, read-only — channels stay
+// navigable (history is preserved). Mirrors the web sidebar's Archived
+// section.
+function ArchivedProjectsSection({
+  categories,
+  renderRow,
+}: {
+  categories: ChannelCategory[]
+  renderRow: (channel: Channel) => ReactNode
+}) {
+  const muted = useThemeColor("muted")
+  const [expanded, setExpanded] = useState(false)
+
+  return (
+    <View className="border-t border-separator pt-three">
+      <Pressable
+        accessibilityLabel={`Archived projects, ${categories.length} ${categories.length === 1 ? "project" : "projects"}`}
+        accessibilityRole="button"
+        accessibilityState={{ expanded }}
+        className="min-h-8 flex-row items-center gap-one px-two active:opacity-60"
+        onPress={() => {
+          void Haptics.selectionAsync()
+          setExpanded((current) => !current)
+        }}
+      >
+        <View className={expanded ? "rotate-0" : "-rotate-90"}>
+          <HugeiconsIcon
+            color={muted}
+            icon={ChevronDownIcon}
+            size={12}
+            strokeWidth={2.2}
+          />
+        </View>
+        <SectionLabel>Archived</SectionLabel>
+      </Pressable>
+      {expanded
+        ? categories.map((category) => (
+            <View className="opacity-70" key={category.id}>
+              <View className="min-h-8 flex-row items-center gap-one px-two">
+                <HugeiconsIcon
+                  color={muted}
+                  icon={Archive02Icon}
+                  size={14}
+                  strokeWidth={2}
+                />
+                <SectionLabel>{category.name ?? "Project"}</SectionLabel>
+              </View>
+              {category.channels.map(renderRow)}
+            </View>
+          ))
+        : null}
+    </View>
+  )
+}
+
 export function ChannelList({
+  archivedCategoryIds,
+  archivingCategoryIds,
   data,
   isLoading,
   onLongPress,
   onPress,
+  projectCategoryIds,
 }: {
+  archivedCategoryIds?: Set<string>
+  archivingCategoryIds?: Set<string>
   data?: { uncategorized: Channel[]; categories: ChannelCategory[] }
   isLoading: boolean
   onLongPress?: (channel: Channel) => void
   onPress: (channel: Channel) => void
+  projectCategoryIds?: Set<string>
 }) {
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(
     () => new Set()
@@ -200,6 +310,16 @@ export function ChannelList({
   const hasActivity = (channelId: string) =>
     getUnreadCount(channelId) > 0 || getMentionCount(channelId) > 0
 
+  // Archived projects drop out of the live tree into a muted, collapsed
+  // section; archiving projects stay in place with a spinner until the
+  // worker finishes.
+  const activeCategories = data.categories.filter(
+    (category) => !archivedCategoryIds?.has(category.id)
+  )
+  const archivedCategories = data.categories.filter((category) =>
+    archivedCategoryIds?.has(category.id)
+  )
+
   const renderRow = (channel: Channel) => (
     <ChannelRow
       channel={channel}
@@ -216,18 +336,26 @@ export function ChannelList({
       {data.uncategorized.length > 0 ? (
         <View>{data.uncategorized.map(renderRow)}</View>
       ) : null}
-      {data.categories.map((category) => (
+      {activeCategories.map((category) => (
         <ChannelSection
           channels={category.channels}
           collapsed={collapsedSections.has(category.id)}
           hasActivity={hasActivity}
           id={category.id}
+          isArchiving={archivingCategoryIds?.has(category.id) ?? false}
+          isProject={projectCategoryIds?.has(category.id) ?? false}
           key={category.id}
           onToggle={toggleSection}
           renderRow={renderRow}
           title={category.name ?? "Channels"}
         />
       ))}
+      {archivedCategories.length > 0 ? (
+        <ArchivedProjectsSection
+          categories={archivedCategories}
+          renderRow={renderRow}
+        />
+      ) : null}
     </View>
   )
 }
