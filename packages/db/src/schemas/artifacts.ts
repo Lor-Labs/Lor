@@ -9,6 +9,7 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core"
+import { agentRun } from "./agent-runs"
 import { channel } from "./channels"
 import { task } from "./tasks"
 import { user } from "./users"
@@ -44,6 +45,12 @@ export const artifact = pgTable(
     taskId: uuid("task_id").references(() => task.id, {
       onDelete: "set null",
     }),
+    // Provenance: the agent run that produced this artifact directly (loop
+    // and Act runs can create artifacts without a task). Null for artifacts
+    // predating the column.
+    originRunId: uuid("origin_run_id").references(() => agentRun.id, {
+      onDelete: "set null",
+    }),
     // Logical filename within the task workspace, e.g. "report.md".
     path: text("path").notNull(),
     mime: text("mime").notNull(),
@@ -62,6 +69,7 @@ export const artifact = pgTable(
       .on(table.taskId, table.path)
       .where(sql`task_id is not null`),
     index("artifact_channelId_idx").on(table.channelId),
+    index("artifact_originRunId_idx").on(table.originRunId),
     index("artifact_workspaceId_createdAt_idx").on(
       table.workspaceId,
       table.createdAt

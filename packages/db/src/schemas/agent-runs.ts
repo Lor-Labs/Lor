@@ -13,6 +13,7 @@ import {
 } from "drizzle-orm/pg-core"
 import { channel } from "./channels"
 import { connectorTrigger } from "./connector-triggers"
+import { loop } from "./loops"
 import type { MerlinToolCall } from "./messages"
 import { message } from "./messages"
 import { triggerDelivery } from "./trigger-deliveries"
@@ -93,6 +94,17 @@ export const agentRun = pgTable(
     deliveryId: uuid("delivery_id").references(() => triggerDelivery.id, {
       onDelete: "set null",
     }),
+
+    // Loop provenance: which loop's schedule fired this run. Null on every
+    // other run kind; nulled (not cascaded) on loop deletion so the run
+    // keeps its audit value. Loop runs use scopeKey = loop.id.
+    loopId: uuid("loop_id").references(() => loop.id, {
+      onDelete: "set null",
+    }),
+    // Loop runs: when the schedule meant this run to fire — createdAt is
+    // when the sweep claimed it (late when the worker was down; catch-up
+    // fires once). Loop history sorts by this.
+    scheduledFor: timestamp("scheduled_for"),
 
     state: agentRunStateEnum("state").notNull().default("queued"),
     phase: agentRunPhaseEnum("phase").notNull().default("answer"),
@@ -183,6 +195,8 @@ export const agentRun = pgTable(
       table.triggerId,
       table.createdAt
     ),
+    // Loop history + daily run-cap queries.
+    index("agent_run_loopId_createdAt_idx").on(table.loopId, table.createdAt),
   ]
 )
 

@@ -26,6 +26,9 @@ export const messageTypeEnum = pgEnum("message_type", [
   // thread root of the task's conversation. The task row (see tasks.ts) is
   // looked up by cardMessageId.
   "task_card",
+  // A loop's card — the scheduled-run automation's live status card. The
+  // loop row (see loops.ts) is looked up by cardMessageId.
+  "loop_card",
 ])
 
 // Lifecycle of a message row. Everything is "complete" except a Merlin

@@ -60,7 +60,7 @@ Each phase is independently executable and leaves the tree green
 
 ---
 
-### [ ] L1.1 — Schema (packages/db, packages/realtime-types)
+### [x] L1.1 — Schema (packages/db, packages/realtime-types)
 
 New file `packages/db/src/schemas/loops.ts` (relative imports only — this
 package is uncompiled):
