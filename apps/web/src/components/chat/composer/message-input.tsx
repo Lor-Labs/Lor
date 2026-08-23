@@ -168,6 +168,10 @@ function createSuggestionPopupManager<
   let popup: HTMLDivElement | null = null
   let currentProps: SuggestionProps<TItem, TItem> | null = null
   let reactRenderer: ReactRenderer<TListRef, TListProps> | null = null
+  // Reposition when the rendered list changes height — onUpdate fires before
+  // React commits, so measuring there sees the previous list's height and
+  // strands a shrunken popup floating above the caret.
+  let resizeObserver: ResizeObserver | null = null
 
   const positionPopup = () => {
     const clientRect = currentProps?.clientRect?.()
@@ -195,6 +199,8 @@ function createSuggestionPopupManager<
   const cleanup = () => {
     window.removeEventListener("resize", positionPopup)
     window.removeEventListener("scroll", positionPopup, true)
+    resizeObserver?.disconnect()
+    resizeObserver = null
     reactRenderer?.destroy()
     reactRenderer = null
     popup?.remove()
@@ -224,6 +230,8 @@ function createSuggestionPopupManager<
       popup.append(reactRenderer.element)
       window.addEventListener("resize", positionPopup)
       window.addEventListener("scroll", positionPopup, true)
+      resizeObserver = new ResizeObserver(() => positionPopup())
+      resizeObserver.observe(popup)
       positionPopup()
     },
     onUpdate: (props: SuggestionProps<TItem, TItem>) => {
