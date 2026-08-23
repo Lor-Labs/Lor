@@ -287,6 +287,23 @@ export async function createMessage(input: CreateMessageInput) {
   }
   // Archived channels (e.g. an archived project's) are read-only.
   if (!input.accessibleChannel.canWrite) {
+    // A retry (same nonce) of a send persisted before the channel was
+    // archived must still ack as deduplicated, not error.
+    if (input.payload.nonce) {
+      const existing = await loadMessageByClientKey({
+        authorId: input.userId,
+        channelId: input.payload.channelId,
+        clientKey: input.payload.nonce,
+        workspaceId: input.accessibleChannel.workspaceId,
+      })
+      if (existing) {
+        return {
+          message: existing,
+          channel: input.accessibleChannel,
+          deduplicated: true,
+        } satisfies CreateMessageResult
+      }
+    }
     throw new Error("This channel is archived")
   }
 

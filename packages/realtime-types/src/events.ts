@@ -16,6 +16,10 @@ export const threadRoomPayloadSchema = z.object({
   threadRootId: z.string().uuid(),
 })
 
+// No pre-existing user-message length limit in the repo (webhooks use 2000,
+// Merlin posts 8000); 20000 is a generous cap to bound realtime payloads.
+export const MESSAGE_CONTENT_MAX_LENGTH = 20000
+
 export const attachmentPayloadSchema = z.object({
   url: z.string().url(),
   filename: z.string().min(1).max(256),
@@ -28,7 +32,7 @@ export const attachmentPayloadSchema = z.object({
 export const sendMessagePayloadSchema = z
   .object({
     channelId: z.string().uuid(),
-    content: z.string().trim().optional(),
+    content: z.string().trim().max(MESSAGE_CONTENT_MAX_LENGTH).optional(),
     nonce: z.string().max(100).optional(),
     referencedMessageId: z.string().uuid().optional(),
     threadRootId: z.string().uuid().optional(),
@@ -58,7 +62,7 @@ export const deleteMessagePayloadSchema = z.object({
 export const editMessagePayloadSchema = z.object({
   channelId: z.string().uuid(),
   messageId: z.string().uuid(),
-  content: z.string().trim().min(1),
+  content: z.string().trim().min(1).max(MESSAGE_CONTENT_MAX_LENGTH),
 })
 
 export const markChannelReadPayloadSchema = z.object({

@@ -8,6 +8,7 @@ import {
   AlertDialogTitle,
 } from "@repo/ui/components/alert-dialog"
 import { Button } from "@repo/ui/components/button"
+import { toast } from "@repo/ui/components/toast"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import { apiClient } from "@/lib/api-client"
@@ -52,6 +53,7 @@ export function ArchiveProjectDialog({
         params: { workspaceSlug: workspaceSlug as string, projectId },
       })
     },
+    onError: (err) => toast.error(err.message),
   })
 
   return (

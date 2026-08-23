@@ -133,13 +133,14 @@ export default function WorkspaceScreen() {
       ),
     [projectsQuery.data]
   )
+  const { refetch: refetchProjects } = projectsQuery
   // Live refetch on project archive start/finish (spinner → Archived section).
   useProjectUpdates(workspaceSlug)
 
   const pullToRefresh = async () => {
     setIsPullRefreshing(true)
     try {
-      await refetchChannels()
+      await Promise.all([refetchChannels(), refetchProjects()])
     } finally {
       setIsPullRefreshing(false)
     }

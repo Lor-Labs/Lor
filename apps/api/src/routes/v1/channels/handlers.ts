@@ -107,16 +107,31 @@ export const createChannel: AppRouteHandler<CreateChannelRoute> = async (c) => {
     channel: ["create"],
   })
 
-  // Creating inside a category requires access to it — no planting channels
-  // inside a private project.
-  if (
-    body.parentId &&
-    !(await userCanAccessChannel(body.parentId, currentUser.id))
-  ) {
-    return c.json(
-      { success: false, message: "Category not found" },
-      HttpStatusCodes.FORBIDDEN
-    )
+  // Creating inside a category requires a real category in this workspace the
+  // caller can access — no planting channels inside a private project or
+  // another workspace. One response for missing/foreign/wrong-type: no leak.
+  if (body.parentId) {
+    const parent = await db
+      .select({ id: channel.id })
+      .from(channel)
+      .where(
+        and(
+          eq(channel.id, body.parentId),
+          eq(channel.workspaceId, workspace.id),
+          eq(channel.type, "category")
+        )
+      )
+      .limit(1)
+      .then((rows) => rows[0])
+    if (
+      !parent ||
+      !(await userCanAccessChannel(body.parentId, currentUser.id))
+    ) {
+      return c.json(
+        { success: false, message: "Category not found" },
+        HttpStatusCodes.FORBIDDEN
+      )
+    }
   }
 
   // Membership only matters for standalone private channels — a channel
@@ -252,6 +267,17 @@ export const reorderChannels: AppRouteHandler<ReorderChannelsRoute> = async (
           .where(inArray(schema.project.categoryChannelId, referencedParentIds))
       : Promise.resolve([]),
   ])
+  // Fail closed: an unresolved parent (missing, or another workspace's
+  // channel) must reject the reorder, never default to "workspace" audience.
+  if (parentRows.length !== referencedParentIds.length) {
+    return c.json(
+      {
+        success: false,
+        message: "One or more parent channels not found in workspace",
+      },
+      HttpStatusCodes.FORBIDDEN
+    )
+  }
   const parentAudienceById = new Map(
     parentRows.map((ch) => [ch.id, ch.audience])
   )

@@ -82,6 +82,13 @@ function ProjectOverview() {
   const archiving = data?.status === "archiving"
   const categoryChannelId = data?.categoryChannelId
 
+  // The route component persists across param changes — progress from a
+  // previously viewed project must not bleed into this one.
+  useEffect(() => {
+    setLiveTools([])
+    setLiveMemories([])
+  }, [projectId])
+
   useEffect(() => {
     if (!socket || !archiving || !categoryChannelId) return
     socket.emit("channel:join", { channelId: categoryChannelId })

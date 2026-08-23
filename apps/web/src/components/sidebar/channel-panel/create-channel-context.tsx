@@ -1,4 +1,11 @@
-import { createContext, type ReactNode, useContext, useState } from "react"
+import {
+  createContext,
+  type ReactNode,
+  useCallback,
+  useContext,
+  useMemo,
+  useState,
+} from "react"
 import { CreateProjectDialog } from "@/components/project/create-project-dialog"
 import { ProjectMembersDialog } from "@/components/project/project-members-dialog"
 import { CreateChannelDialog } from "@/components/sidebar/channel-panel/create-channel-dialog"
@@ -37,25 +44,43 @@ export function CreateChannelProvider({ children }: { children: ReactNode }) {
   const [membersCategoryId, setMembersCategoryId] = useState<string | null>(
     null
   )
+  const [membersOpen, setMembersOpen] = useState(false)
 
-  const value: CreateChannelContextValue = {
-    openCreateChannel: (nextParentId = null) => {
+  const openCreateChannel = useCallback(
+    (nextParentId: string | null = null) => {
       setParentId(nextParentId)
       setForceType(undefined)
       setOpen(true)
     },
-    openCreateCategory: () => {
-      setParentId(null)
-      setForceType("category")
-      setOpen(true)
-    },
-    openCreateProject: () => {
-      setProjectOpen(true)
-    },
-    openProjectMembers: (categoryChannelId) => {
-      setMembersCategoryId(categoryChannelId)
-    },
-  }
+    []
+  )
+  const openCreateCategory = useCallback(() => {
+    setParentId(null)
+    setForceType("category")
+    setOpen(true)
+  }, [])
+  const openCreateProject = useCallback(() => {
+    setProjectOpen(true)
+  }, [])
+  const openProjectMembers = useCallback((categoryChannelId: string) => {
+    setMembersCategoryId(categoryChannelId)
+    setMembersOpen(true)
+  }, [])
+
+  const value = useMemo<CreateChannelContextValue>(
+    () => ({
+      openCreateChannel,
+      openCreateCategory,
+      openCreateProject,
+      openProjectMembers,
+    }),
+    [
+      openCreateChannel,
+      openCreateCategory,
+      openCreateProject,
+      openProjectMembers,
+    ]
+  )
 
   return (
     <CreateChannelContext.Provider value={value}>
@@ -73,9 +98,13 @@ export function CreateChannelProvider({ children }: { children: ReactNode }) {
       {membersCategoryId && (
         <ProjectMembersDialog
           categoryChannelId={membersCategoryId}
-          open={!!membersCategoryId}
+          open={membersOpen}
           onOpenChange={(next) => {
-            if (!next) setMembersCategoryId(null)
+            setMembersOpen(next)
+            if (!next) {
+              // Stay mounted through the close animation before unmounting.
+              setTimeout(() => setMembersCategoryId(null), 200)
+            }
           }}
         />
       )}

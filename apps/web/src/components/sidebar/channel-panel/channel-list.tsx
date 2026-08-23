@@ -722,6 +722,28 @@ function SortableCategorySection({
       )}
     >
       <div className="group/category flex w-full items-center gap-0.5 px-1 pb-1">
+        {isProject && projectStatus === "archiving" && (
+          // The header routes to the overview while archiving, so collapse
+          // needs its own affordance.
+          <button
+            type="button"
+            onClick={() => setCollapsed(!collapsed)}
+            aria-expanded={!collapsed}
+            aria-label={collapsed ? "Expand project" : "Collapse project"}
+            className="cursor-pointer text-muted-foreground hover:text-foreground"
+          >
+            <motion.div
+              animate={{ rotate: collapsed ? -90 : 0 }}
+              transition={{ duration: 0.15, ease: "easeInOut" }}
+            >
+              <HugeiconsIcon
+                icon={ArrowDown01Icon}
+                className="size-3 shrink-0"
+                strokeWidth={2}
+              />
+            </motion.div>
+          </button>
+        )}
         <button
           type="button"
           onClick={() => {

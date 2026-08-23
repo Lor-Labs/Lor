@@ -110,8 +110,9 @@ async function loadProjectDetail(projectId: string) {
   }
 }
 
-// Project management: the creator, plus workspace admins/owner — who, for
-// private projects, must also be members (no invisible admin access).
+// Project management: the creator, plus workspace admins/owner. Membership on
+// private projects is NOT checked here — callers gate visibility first via
+// loadAccessibleProject (resolveChannelAccess), which blocks invisible admins.
 function canManageProject(
   project: Pick<ProjectRow, "creatorId">,
   actor: { userId: string; role: string },
@@ -390,13 +391,16 @@ export const updateProject: AppRouteHandler<UpdateProjectRoute> = async (c) => {
 
 // Best effort: tell every member's open clients the project changed so
 // sidebars/composers react without a refetch cycle.
-async function emitProjectUpdated(event: ProjectUpdatedEvent) {
+async function emitProjectUpdated(
+  event: ProjectUpdatedEvent,
+  extraUserIds: string[] = []
+) {
   try {
     const [io, userIds] = await Promise.all([
       getEmitter(),
       listChannelAudienceUserIds(event.categoryChannelId),
     ])
-    for (const userId of userIds) {
+    for (const userId of new Set([...userIds, ...extraUserIds])) {
       io.to(userRoom(userId)).emit("project:updated", event)
     }
   } catch (err) {
@@ -443,11 +447,20 @@ export const archiveProject: AppRouteHandler<ArchiveProjectRoute> = async (
   // every write path reject immediately, so the worker summarizes a frozen
   // transcript.
   const archivedAt = new Date()
-  await db.transaction(async (tx) => {
-    await tx
+  // CAS on status: two concurrent archive requests can't both lock the
+  // channels and enqueue — the loser bails below.
+  const transitioned = await db.transaction(async (tx) => {
+    const updated = await tx
       .update(schema.project)
       .set({ status: "archiving", archivedAt })
-      .where(eq(schema.project.id, project.id))
+      .where(
+        and(
+          eq(schema.project.id, project.id),
+          eq(schema.project.status, "active")
+        )
+      )
+      .returning({ id: schema.project.id })
+    if (updated.length === 0) return false
     await tx
       .update(schema.channel)
       .set({ archivedAt })
@@ -460,7 +473,14 @@ export const archiveProject: AppRouteHandler<ArchiveProjectRoute> = async (
           isNull(schema.channel.archivedAt)
         )
       )
+    return true
   })
+  if (!transitioned) {
+    return c.json(
+      { success: false, message: "Project is already archived" },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
 
   try {
     await enqueueProjectArchive(project.id)
@@ -564,6 +584,13 @@ export const addProjectMember: AppRouteHandler<AddProjectMemberRoute> = async (
     .values({ channelId: project.categoryChannelId, userId })
     .onConflictDoNothing()
 
+  await emitProjectUpdated({
+    projectId: project.id,
+    categoryChannelId: project.categoryChannelId,
+    status: project.status,
+    archivedAt: project.archivedAt?.toISOString() ?? null,
+  })
+
   return c.json({ success: true as const }, HttpStatusCodes.OK)
 }
 
@@ -594,6 +621,12 @@ export const removeProjectMember: AppRouteHandler<
     return c.json(
       { success: false, message: "Forbidden" },
       HttpStatusCodes.FORBIDDEN
+    )
+  }
+  if (project.status !== "active") {
+    return c.json(
+      { success: false, message: "Archived projects cannot be modified" },
+      HttpStatusCodes.BAD_REQUEST
     )
   }
 
@@ -627,6 +660,17 @@ export const removeProjectMember: AppRouteHandler<
       HttpStatusCodes.BAD_REQUEST
     )
   }
+
+  // The removed user left the audience, so notify them explicitly too.
+  await emitProjectUpdated(
+    {
+      projectId: project.id,
+      categoryChannelId: project.categoryChannelId,
+      status: project.status,
+      archivedAt: project.archivedAt?.toISOString() ?? null,
+    },
+    [userId]
+  )
 
   return c.json({ success: true as const }, HttpStatusCodes.OK)
 }

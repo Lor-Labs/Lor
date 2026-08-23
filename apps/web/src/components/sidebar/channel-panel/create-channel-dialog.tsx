@@ -30,7 +30,7 @@ import { Switch } from "@repo/ui/components/switch"
 import { cn } from "@repo/ui/lib/utils"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { UserAvatar } from "@/components/ui/user-avatar"
 import { apiClient } from "@/lib/api-client"
 
@@ -79,6 +79,12 @@ export function CreateChannelDialog({
   // Channels inside a category inherit its audience — the private toggle
   // only applies to standalone channels.
   const canBePrivate = !isCategory && !parentId
+
+  // Props can switch the dialog to a mode where the toggle isn't rendered;
+  // a stale isPrivate must not linger.
+  useEffect(() => {
+    if (!canBePrivate) setIsPrivate(false)
+  }, [canBePrivate])
 
   const { data: membersData } = useQuery({
     queryKey: ["workspace-members", workspaceSlug],
@@ -301,9 +307,12 @@ export function CreateChannelDialog({
                     </p>
                   ) : (
                     selectableMembers.map((m) => (
+                      // biome-ignore lint/a11y/useSemanticElements: row is a composite button; the nested Checkbox is decorative, so selection state is exposed here
                       <button
                         key={m.userId}
                         type="button"
+                        role="checkbox"
+                        aria-checked={selectedIds.has(m.userId)}
                         onClick={() => toggleMember(m.userId)}
                         className={cn(
                           "flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left",

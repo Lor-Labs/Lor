@@ -148,7 +148,9 @@ function ChannelSection({
   title: string
 }) {
   const muted = useThemeColor("muted")
-  if (channels.length === 0) return null
+  // Empty projects still show their header (a just-created project has no
+  // channels yet); empty non-project categories stay hidden.
+  if (channels.length === 0 && !isProject) return null
 
   const expanded = !collapsed
   // Collapsing a category keeps its unread channels visible (Discord behavior)

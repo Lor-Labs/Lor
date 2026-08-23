@@ -5,6 +5,15 @@ import {
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@repo/ui/components/alert-dialog"
 import { Button } from "@repo/ui/components/button"
 import {
   Dialog,
@@ -38,6 +47,10 @@ export function ProjectMembersDialog({
   const { data: session } = authClient.useSession()
   const currentUserId = session?.user.id
   const [memberQuery, setMemberQuery] = useState("")
+  const [pendingRemoval, setPendingRemoval] = useState<{
+    id: string
+    name: string
+  } | null>(null)
 
   const { data: projectsData } = useQuery({
     queryKey: ["projects", workspaceSlug],
@@ -106,12 +119,15 @@ export function ProjectMembersDialog({
 
   const addMember = useMutation({
     mutationFn: async (userId: string) => {
+      if (!workspaceSlug || !project?.id) {
+        throw new Error("Project not loaded yet")
+      }
       const res = await apiClient.v1.workspaces[":workspaceSlug"].projects[
         ":projectId"
       ].members.$post({
         param: {
-          workspaceSlug: workspaceSlug as string,
-          projectId: project?.id as string,
+          workspaceSlug,
+          projectId: project.id,
         },
         json: { userId },
       })
@@ -128,12 +144,15 @@ export function ProjectMembersDialog({
 
   const removeMember = useMutation({
     mutationFn: async (userId: string) => {
+      if (!workspaceSlug || !project?.id) {
+        throw new Error("Project not loaded yet")
+      }
       const res = await apiClient.v1.workspaces[":workspaceSlug"].projects[
         ":projectId"
       ].members[":userId"].$delete({
         param: {
-          workspaceSlug: workspaceSlug as string,
-          projectId: project?.id as string,
+          workspaceSlug,
+          projectId: project.id,
           userId,
         },
       })
@@ -144,110 +163,161 @@ export function ProjectMembersDialog({
         )
       }
     },
-    onSuccess: invalidate,
+    onSuccess: () => {
+      invalidate()
+      setPendingRemoval(null)
+    },
     onError: (err) => toast.error(err.message),
   })
 
   const busy = addMember.isPending || removeMember.isPending
+  const pendingIsSelf = pendingRemoval?.id === currentUserId
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Project members</DialogTitle>
-          <DialogDescription>
-            {detail?.audience === "members"
-              ? "Members can see every channel in this project. Everyone else can't see it at all."
-              : "The roster for this project. Its channels are visible to the whole workspace."}
-          </DialogDescription>
-        </DialogHeader>
-        <DialogPanel>
-          {!detail ? (
-            <div className="flex justify-center py-6">
-              <Spinner className="size-5" />
-            </div>
-          ) : (
-            <div className="space-y-4">
-              <div className="space-y-0.5">
-                {detail.members.map((m) => (
-                  <div
-                    key={m.id}
-                    className="flex items-center gap-2.5 rounded-md px-1.5 py-1.5 hover:bg-foreground/[0.04]"
-                  >
-                    <UserAvatar name={m.name} src={m.image} size="sm" />
-                    <span className="min-w-0 flex-1 truncate text-sm">
-                      {m.name}
-                      {m.id === currentUserId && (
-                        <span className="ml-1.5 text-xs text-muted-foreground">
-                          you
-                        </span>
-                      )}
-                    </span>
-                    <Button
-                      variant="ghost"
-                      size="icon-xs"
-                      aria-label={`Remove ${m.name}`}
-                      disabled={busy}
-                      onClick={() => removeMember.mutate(m.id)}
-                      className="text-muted-foreground hover:text-destructive"
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Project members</DialogTitle>
+            <DialogDescription>
+              {detail?.audience === "members"
+                ? "Members can see every channel in this project. Everyone else can't see it at all."
+                : "The roster for this project. Its channels are visible to the whole workspace."}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogPanel>
+            {!detail ? (
+              <div className="flex justify-center py-6">
+                <Spinner className="size-5" />
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="space-y-0.5">
+                  {detail.members.map((m) => (
+                    <div
+                      key={m.id}
+                      className="flex items-center gap-2.5 rounded-md px-1.5 py-1.5 hover:bg-foreground/[0.04]"
                     >
-                      <HugeiconsIcon icon={Delete02Icon} strokeWidth={2} />
-                    </Button>
-                  </div>
-                ))}
-              </div>
-
-              <div className="rounded-lg border border-border">
-                <div className="flex items-center gap-2 border-b border-border px-3 py-2">
-                  <HugeiconsIcon
-                    icon={Search01Icon}
-                    className="size-3.5 shrink-0 text-muted-foreground"
-                    strokeWidth={2}
-                  />
-                  <input
-                    value={memberQuery}
-                    onChange={(e) => setMemberQuery(e.target.value)}
-                    placeholder="Add members"
-                    className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-                  />
-                </div>
-                <div className="max-h-40 overflow-y-auto p-1">
-                  {addableMembers.length === 0 ? (
-                    <p className="px-2 py-3 text-center text-xs text-muted-foreground">
-                      Everyone's already here
-                    </p>
-                  ) : (
-                    addableMembers.map((m) => (
-                      <button
-                        key={m.userId}
-                        type="button"
+                      <UserAvatar name={m.name} src={m.image} size="sm" />
+                      <span className="min-w-0 flex-1 truncate text-sm">
+                        {m.name}
+                        {m.id === currentUserId && (
+                          <span className="ml-1.5 text-xs text-muted-foreground">
+                            you
+                          </span>
+                        )}
+                      </span>
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        aria-label={
+                          m.id === currentUserId
+                            ? "Leave project"
+                            : `Remove ${m.name}`
+                        }
                         disabled={busy}
-                        onClick={() => addMember.mutate(m.userId)}
-                        className="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left hover:bg-accent"
+                        onClick={() =>
+                          setPendingRemoval({ id: m.id, name: m.name })
+                        }
+                        className="text-muted-foreground hover:text-destructive"
                       >
-                        <UserAvatar
-                          name={m.name}
-                          src={m.image}
-                          avatarColor={m.avatarColor}
-                          size="sm"
-                        />
-                        <span className="min-w-0 flex-1 truncate text-sm">
-                          {m.name}
-                        </span>
-                        <HugeiconsIcon
-                          icon={UserAdd01Icon}
-                          className="size-4 shrink-0 text-muted-foreground"
-                          strokeWidth={2}
-                        />
-                      </button>
-                    ))
-                  )}
+                        <HugeiconsIcon icon={Delete02Icon} strokeWidth={2} />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="rounded-lg border border-border">
+                  <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+                    <HugeiconsIcon
+                      icon={Search01Icon}
+                      className="size-3.5 shrink-0 text-muted-foreground"
+                      strokeWidth={2}
+                    />
+                    <input
+                      value={memberQuery}
+                      onChange={(e) => setMemberQuery(e.target.value)}
+                      placeholder="Add members"
+                      className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                    />
+                  </div>
+                  <div className="max-h-40 overflow-y-auto p-1">
+                    {addableMembers.length === 0 ? (
+                      <p className="px-2 py-3 text-center text-xs text-muted-foreground">
+                        Everyone's already here
+                      </p>
+                    ) : (
+                      addableMembers.map((m) => (
+                        <button
+                          key={m.userId}
+                          type="button"
+                          disabled={busy}
+                          onClick={() => addMember.mutate(m.userId)}
+                          className="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left hover:bg-accent"
+                        >
+                          <UserAvatar
+                            name={m.name}
+                            src={m.image}
+                            avatarColor={m.avatarColor}
+                            size="sm"
+                          />
+                          <span className="min-w-0 flex-1 truncate text-sm">
+                            {m.name}
+                          </span>
+                          <HugeiconsIcon
+                            icon={UserAdd01Icon}
+                            className="size-4 shrink-0 text-muted-foreground"
+                            strokeWidth={2}
+                          />
+                        </button>
+                      ))
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
-        </DialogPanel>
-      </DialogContent>
-    </Dialog>
+            )}
+          </DialogPanel>
+        </DialogContent>
+      </Dialog>
+      <AlertDialog
+        open={!!pendingRemoval}
+        onOpenChange={(next) => {
+          if (!next && removeMember.isPending) return
+          if (!next) setPendingRemoval(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {pendingIsSelf ? "Leave project" : "Remove member"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingIsSelf
+                ? "Are you sure you want to leave this project?"
+                : `Are you sure you want to remove ${pendingRemoval?.name} from this project?`}
+              {detail?.audience === "members" &&
+                " Its channels will no longer be visible."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogClose
+              render={<Button variant="outline" />}
+              disabled={removeMember.isPending}
+            >
+              Cancel
+            </AlertDialogClose>
+            <Button
+              variant="destructive"
+              loading={removeMember.isPending}
+              onClick={() => {
+                if (pendingRemoval) removeMember.mutate(pendingRemoval.id)
+              }}
+            >
+              {pendingIsSelf ? "Leave Project" : "Remove"}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   )
 }

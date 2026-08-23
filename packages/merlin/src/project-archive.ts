@@ -1,6 +1,7 @@
 import { and, asc, db, desc, eq, schema } from "@repo/db"
 import {
   EMPTY_MERLIN_RUN_SCOPE,
+  memoryFolderSegment,
   resolveMerlinRunScope,
 } from "@repo/db/queries/channel-access"
 import type { MerlinToolCallUpdate } from "@repo/db/schema"
@@ -49,10 +50,9 @@ export type ArchiveSynthesisCallbacks = {
   onUsage?: OnUsage
 }
 
-// Folder segments can't contain the path separator (same rule as
-// resolveMerlinRunScope).
+// Same folder naming rule as resolveMerlinRunScope.
 function archiveFolderPath(projectName: string | null): string {
-  return `/projects/${(projectName ?? "untitled").replaceAll("/", "-").trim()}`
+  return `/projects/${memoryFolderSegment(projectName)}`
 }
 
 async function loadTranscript(categoryChannelId: string): Promise<string> {
@@ -69,6 +69,8 @@ async function loadTranscript(categoryChannelId: string): Promise<string> {
 
   const sections: string[] = []
   let budget = TRANSCRIPT_CHAR_MAX
+  // One query per channel: the per-channel message LIMIT would need a
+  // window function to batch, and a project's channel count is small.
   for (const ch of channels) {
     if (budget <= 0) break
     const rows = await db
@@ -106,8 +108,9 @@ async function loadTranscript(categoryChannelId: string): Promise<string> {
       .join("\n")
     if (!lines) continue
     const section = `## #${ch.name ?? "channel"}\n${lines}`
-    sections.push(section.slice(0, Math.max(budget, 0)))
-    budget -= section.length
+    const pushed = section.slice(0, Math.max(budget, 0))
+    sections.push(pushed)
+    budget -= pushed.length
   }
   return sections.join("\n\n")
 }

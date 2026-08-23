@@ -1,5 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto"
 import { db } from "@repo/db"
+import { resolveChannelAccess } from "@repo/db/queries/channel-access"
 import {
   channel,
   connectorTrigger,
@@ -218,6 +219,18 @@ export const listChannelWebhooks: AppRouteHandler<
   )
 }
 
+// Archived channels are read-only: listing stays available, mutations reject.
+// Denied access reads as not_found (fail closed, no leak).
+async function checkChannelWriteAccess(
+  userId: string,
+  channelId: string
+): Promise<"ok" | "not_found" | "archived"> {
+  const access = await resolveChannelAccess(userId, channelId)
+  if (!access.ok) return "not_found"
+  if (!access.access.canWrite) return "archived"
+  return "ok"
+}
+
 export const createChannelWebhook: AppRouteHandler<
   CreateChannelWebhookRoute
 > = async (c) => {
@@ -227,10 +240,17 @@ export const createChannelWebhook: AppRouteHandler<
 
   assertWorkspacePermission(c.var.member, workspace, { channel: ["update"] })
 
-  if (!(await userCanAccessChannel(channelId, c.var.user.id))) {
+  const writeAccess = await checkChannelWriteAccess(c.var.user.id, channelId)
+  if (writeAccess === "not_found") {
     return c.json(
       { success: false, message: "Channel not found" },
       HttpStatusCodes.NOT_FOUND
+    )
+  }
+  if (writeAccess === "archived") {
+    return c.json(
+      { success: false, message: "Channel is archived" },
+      HttpStatusCodes.BAD_REQUEST
     )
   }
 
@@ -387,10 +407,17 @@ export const updateChannelWebhook: AppRouteHandler<
 
   assertWorkspacePermission(c.var.member, workspace, { channel: ["update"] })
 
-  if (!(await userCanAccessChannel(channelId, c.var.user.id))) {
+  const writeAccess = await checkChannelWriteAccess(c.var.user.id, channelId)
+  if (writeAccess === "not_found") {
     return c.json(
       { success: false, message: "Channel not found" },
       HttpStatusCodes.NOT_FOUND
+    )
+  }
+  if (writeAccess === "archived") {
+    return c.json(
+      { success: false, message: "Channel is archived" },
+      HttpStatusCodes.BAD_REQUEST
     )
   }
 
@@ -490,10 +517,17 @@ export const deleteChannelWebhook: AppRouteHandler<
 
   assertWorkspacePermission(c.var.member, workspace, { channel: ["update"] })
 
-  if (!(await userCanAccessChannel(channelId, c.var.user.id))) {
+  const writeAccess = await checkChannelWriteAccess(c.var.user.id, channelId)
+  if (writeAccess === "not_found") {
     return c.json(
       { success: false, message: "Channel not found" },
       HttpStatusCodes.NOT_FOUND
+    )
+  }
+  if (writeAccess === "archived") {
+    return c.json(
+      { success: false, message: "Channel is archived" },
+      HttpStatusCodes.BAD_REQUEST
     )
   }
 

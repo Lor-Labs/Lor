@@ -25,13 +25,13 @@ type Resolved = { id: string; kind: NodeKind; name: string }
 // id also admits that container's nodes.
 type MemoryScope = string | null
 
-function scopeFilter(scopeChannelId: MemoryScope) {
-  return scopeChannelId
-    ? or(
-        isNull(schema.brainNode.scopeChannelId),
-        eq(schema.brainNode.scopeChannelId, scopeChannelId)
-      )
-    : isNull(schema.brainNode.scopeChannelId)
+// Reads admit workspace-wide nodes alongside the scope's own; writes must be
+// scope-strict so a scoped write never resolves (and mutates or pins) a
+// workspace-wide node — a name collision creates/uses the scoped sibling.
+function scopeFilter(scopeChannelId: MemoryScope, strict = false) {
+  if (!scopeChannelId) return isNull(schema.brainNode.scopeChannelId)
+  const scoped = eq(schema.brainNode.scopeChannelId, scopeChannelId)
+  return strict ? scoped : or(isNull(schema.brainNode.scopeChannelId), scoped)
 }
 
 function segmentsOf(path: string): string[] {
@@ -49,7 +49,8 @@ async function findChild(
   workspaceId: string,
   parentId: string | null,
   name: string,
-  scopeChannelId: MemoryScope = null
+  scopeChannelId: MemoryScope = null,
+  strict = false
 ): Promise<Resolved | null> {
   const row = await db
     .select({ id: schema.brainNode.id, kind: schema.brainNode.kind })
@@ -62,7 +63,7 @@ async function findChild(
           : eq(schema.brainNode.parentId, parentId),
         eq(schema.brainNode.name, name),
         eq(schema.brainNode.status, "active"),
-        scopeFilter(scopeChannelId)
+        scopeFilter(scopeChannelId, strict)
       )
     )
     .limit(1)
@@ -98,14 +99,21 @@ async function childrenOf(
 async function resolvePath(
   workspaceId: string,
   path: string,
-  scopeChannelId: MemoryScope = null
+  scopeChannelId: MemoryScope = null,
+  strict = false
 ): Promise<Resolved | "root" | null> {
   const segments = segmentsOf(path)
   if (segments.length === 0) return "root"
   let parentId: string | null = null
   let node: Resolved | null = null
   for (const name of segments) {
-    const child = await findChild(workspaceId, parentId, name, scopeChannelId)
+    const child = await findChild(
+      workspaceId,
+      parentId,
+      name,
+      scopeChannelId,
+      strict
+    )
     if (!child) return null
     node = child
     parentId = child.id
@@ -113,6 +121,7 @@ async function resolvePath(
   return node
 }
 
+// Write path only — scope-strict so scoped folders never alias workspace ones.
 async function ensureFolderPath(
   workspaceId: string,
   segments: string[],
@@ -124,7 +133,8 @@ async function ensureFolderPath(
       workspaceId,
       parentId,
       name,
-      scopeChannelId
+      scopeChannelId,
+      true
     )
     if (!child) {
       const created: { id: string } | undefined = await db
@@ -362,7 +372,13 @@ export async function writePage(
     scopeChannelId
   )
 
-  const existing = await findChild(workspaceId, parentId, leaf, scopeChannelId)
+  const existing = await findChild(
+    workspaceId,
+    parentId,
+    leaf,
+    scopeChannelId,
+    true
+  )
   if (existing?.kind === "folder") return { error: `${cpath} is a folder` }
 
   const embedding = await embedDocument(`${cpath}\n\n${body}`).catch(() => null)
@@ -405,7 +421,8 @@ async function recordProjectBrainFolder(
   const root = await resolvePath(
     workspaceId,
     scope.rootPath,
-    scope.scopeChannelId
+    scope.scopeChannelId,
+    true
   )
   if (!root || root === "root") return
   await db

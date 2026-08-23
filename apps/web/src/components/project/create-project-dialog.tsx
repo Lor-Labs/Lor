@@ -210,14 +210,24 @@ export function CreateProjectDialog({
                   </p>
                 </div>
               </div>
-              <Switch checked={isPrivate} onCheckedChange={setIsPrivate} />
+              <Switch
+                checked={isPrivate}
+                onCheckedChange={(next) => {
+                  setIsPrivate(next)
+                  // Selection means access (private) vs. roster (workspace) —
+                  // don't carry picks across modes.
+                  setSelectedIds(new Set())
+                }}
+              />
             </div>
 
             <div className="space-y-2">
               <Label>
                 Members
                 <span className="ml-1 text-xs font-normal text-muted-foreground">
-                  you're always included
+                  {isPrivate
+                    ? "who can access — you're always included"
+                    : "the project roster — you're always included"}
                 </span>
               </Label>
               <div className="rounded-lg border border-border">
@@ -241,9 +251,12 @@ export function CreateProjectDialog({
                     </p>
                   ) : (
                     selectableMembers.map((m) => (
+                      // biome-ignore lint/a11y/useSemanticElements: row is a composite button; the nested Checkbox is decorative, so selection state is exposed here
                       <button
                         key={m.userId}
                         type="button"
+                        role="checkbox"
+                        aria-checked={selectedIds.has(m.userId)}
                         onClick={() => toggleMember(m.userId)}
                         className={cn(
                           "flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left",

@@ -19,15 +19,17 @@ export function broadcastMentionCandidates(
       name: "here",
       search: "here online active now",
     },
-    ...(audience === "members"
-      ? []
-      : [
+    // Only when the audience is known to be workspace-wide — an undefined
+    // audience must not offer it.
+    ...(audience === "workspace"
+      ? [
           {
             id: "everyone",
             label: "everyone",
             name: "everyone",
             search: "everyone all members workspace",
           },
-        ]),
+        ]
+      : []),
   ]
 }

@@ -65,7 +65,7 @@ export function broadcastMentionCandidates(
   return [
     channelMentionCandidate,
     hereMentionCandidate,
-    ...(audience === "members" ? [] : [everyoneMentionCandidate]),
+    ...(audience === "workspace" ? [everyoneMentionCandidate] : []),
   ]
 }
 

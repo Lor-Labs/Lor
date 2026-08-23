@@ -107,6 +107,7 @@ export const deleteChannelWebhook = createRoute({
       schema: deleteChannelWebhookResponseSchema,
       description: "Deleted",
     }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
     [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
     [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
     [HttpStatusCodes.NOT_FOUND]: notFoundSchema,

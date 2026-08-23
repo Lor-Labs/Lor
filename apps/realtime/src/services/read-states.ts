@@ -135,6 +135,8 @@ export async function markChannelRead(
         and(
           eq(schema.messageMention.channelId, input.channelId),
           eq(schema.messageMention.mentionedUserId, input.userId),
+          // Only direct mentions drive badge counts; channel/here rows are notification-only
+          eq(schema.messageMention.mentionType, "direct"),
           gt(schema.messageMention.createdAt, persistedState.lastReadAt)
         )
       )
@@ -157,11 +159,22 @@ export async function markChannelRead(
 export async function getUnreadStatesForUser(
   userId: string
 ): Promise<NotificationBootstrap> {
-  // Get DM/group DM channel IDs via channel_member
+  // Get DM/group DM channel IDs via channel_member. Restrict to DM types so
+  // stale channel_member rows on workspace channels can't bypass the
+  // listAccessibleChannelIds gate below.
   const dmMemberships = await db
     .select({ channelId: schema.channelMember.channelId })
     .from(schema.channelMember)
-    .where(eq(schema.channelMember.userId, userId))
+    .innerJoin(
+      schema.channel,
+      eq(schema.channelMember.channelId, schema.channel.id)
+    )
+    .where(
+      and(
+        eq(schema.channelMember.userId, userId),
+        inArray(schema.channel.type, ["dm", "group_dm"])
+      )
+    )
 
   // Filtered to accessible channels — restricted channels must not leak
   // unread/mention counts to non-members.
@@ -233,6 +246,7 @@ export async function getUnreadStatesForUser(
             and(
               eq(schema.messageMention.channelId, channelId),
               eq(schema.messageMention.mentionedUserId, userId),
+              eq(schema.messageMention.mentionType, "direct"),
               gt(schema.messageMention.createdAt, lastReadAt)
             )
           )

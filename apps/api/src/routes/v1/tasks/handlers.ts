@@ -1,4 +1,5 @@
 import { and, db, desc, eq, inArray, schema } from "@repo/db"
+import { resolveChannelAccess } from "@repo/db/queries/channel-access"
 import type { Approval } from "@repo/db/schema"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
@@ -124,7 +125,9 @@ export const getTask: AppRouteHandler<GetTaskRoute> = async (c) => {
 type ResolveOutcome =
   | { kind: "not_found" }
   | { kind: "forbidden" }
+  | { kind: "archived" }
   | { kind: "conflict" }
+  | { kind: "post_failed" }
   | { kind: "resolved"; approval: Approval }
 
 async function resolveApproval(
@@ -148,9 +151,14 @@ async function resolveApproval(
   if (!row || row.channelWorkspaceId !== row.approval.workspaceId) {
     return { kind: "not_found" }
   }
-  const canAccess = await userCanAccessChannel(row.task.channelId, userId)
-  if (!canAccess) {
+  const access = await resolveChannelAccess(userId, row.task.channelId)
+  if (!access.ok) {
     return { kind: "forbidden" }
+  }
+  // Archived channel: the resolution message and continuation run can never
+  // land, so refuse before the CAS instead of resolving into a stranded task.
+  if (!access.access.canWrite) {
+    return { kind: "archived" }
   }
 
   // CAS: only one resolver wins; a second click reads as already resolved.
@@ -173,47 +181,61 @@ async function resolveApproval(
     return { kind: "conflict" }
   }
 
-  // Everything past the CAS is a side effect of an already-committed
-  // resolution — a failure here is logged, never surfaced as a 500.
-  try {
-    // The resolution message is the continuation trigger: it lands in the
-    // task thread as the resolver, and the next run answers it.
-    const content =
-      resolution === "approved"
-        ? `✅ Approved — go ahead: ${resolved.description}`
-        : `❌ Rejected — do not proceed: ${resolved.description}`
-    const messageId = await postTaskThreadMessage({
-      task: row.task,
-      authorId: userId,
-      content,
-    })
-
-    if (messageId) {
-      // Only a parked task moves back to running, and only when the trigger
-      // message exists — never resurrect a terminal task (the continuation
-      // run re-claims status itself if it does start).
-      const updatedTask = await db
-        .update(schema.task)
-        .set({ status: "running" })
-        .where(
-          and(
-            eq(schema.task.id, row.task.id),
-            inArray(schema.task.status, [
-              "waiting_for_approval",
-              "waiting_for_input",
-            ])
-          )
+  // The resolution message is the continuation trigger: it lands in the task
+  // thread as the resolver, and the next run answers it. If it can't be
+  // created, un-resolve the CAS so the caller can retry — a success response
+  // without the thread message would strand the task.
+  const content =
+    resolution === "approved"
+      ? `✅ Approved — go ahead: ${resolved.description}`
+      : `❌ Rejected — do not proceed: ${resolved.description}`
+  const messageId = await postTaskThreadMessage({
+    task: row.task,
+    authorId: userId,
+    content,
+  }).catch(() => null)
+  if (!messageId) {
+    await db
+      .update(schema.approval)
+      .set({ status: "pending", resolvedBy: null, resolvedAt: null })
+      .where(
+        and(
+          eq(schema.approval.id, approvalId),
+          eq(schema.approval.status, resolution),
+          eq(schema.approval.resolvedBy, userId)
         )
-        .returning()
-        .then((rows) => rows[0] ?? null)
-      if (updatedTask) await emitTaskUpdated(updatedTask)
+      )
+      .catch(() => {})
+    return { kind: "post_failed" }
+  }
 
-      await startTaskContinuationRun({
-        task: updatedTask ?? row.task,
-        triggerMessageId: messageId,
-        senderId: userId,
-      })
-    }
+  // Remaining side effects are best-effort: the continuation path self-heals
+  // (an enqueue failure parks the task back in waiting_for_input).
+  try {
+    // Only a parked task moves back to running, and only when the trigger
+    // message exists — never resurrect a terminal task (the continuation
+    // run re-claims status itself if it does start).
+    const updatedTask = await db
+      .update(schema.task)
+      .set({ status: "running" })
+      .where(
+        and(
+          eq(schema.task.id, row.task.id),
+          inArray(schema.task.status, [
+            "waiting_for_approval",
+            "waiting_for_input",
+          ])
+        )
+      )
+      .returning()
+      .then((rows) => rows[0] ?? null)
+    if (updatedTask) await emitTaskUpdated(updatedTask)
+
+    await startTaskContinuationRun({
+      task: updatedTask ?? row.task,
+      triggerMessageId: messageId,
+      senderId: userId,
+    })
   } catch (err) {
     logger.error(
       { err, approvalId, taskId: row.task.id },
@@ -243,10 +265,23 @@ export const approveApproval: AppRouteHandler<ApproveApprovalRoute> = async (
         { success: false as const, message: "Forbidden" },
         HttpStatusCodes.FORBIDDEN
       )
+    case "archived":
+      return c.json(
+        { success: false as const, message: "Channel is archived" },
+        HttpStatusCodes.BAD_REQUEST
+      )
     case "conflict":
       return c.json(
         { success: false as const, message: "Already resolved" },
         HttpStatusCodes.CONFLICT
+      )
+    case "post_failed":
+      return c.json(
+        {
+          success: false as const,
+          message: "Failed to post approval resolution",
+        },
+        HttpStatusCodes.INTERNAL_SERVER_ERROR
       )
     case "resolved":
       return c.json(
@@ -275,10 +310,23 @@ export const rejectApproval: AppRouteHandler<RejectApprovalRoute> = async (
         { success: false as const, message: "Forbidden" },
         HttpStatusCodes.FORBIDDEN
       )
+    case "archived":
+      return c.json(
+        { success: false as const, message: "Channel is archived" },
+        HttpStatusCodes.BAD_REQUEST
+      )
     case "conflict":
       return c.json(
         { success: false as const, message: "Already resolved" },
         HttpStatusCodes.CONFLICT
+      )
+    case "post_failed":
+      return c.json(
+        {
+          success: false as const,
+          message: "Failed to post approval resolution",
+        },
+        HttpStatusCodes.INTERNAL_SERVER_ERROR
       )
     case "resolved":
       return c.json(

@@ -315,6 +315,12 @@ export const EMPTY_MERLIN_RUN_SCOPE: MerlinRunScope = {
   privateContainerChannelId: null,
 }
 
+// Folder segments can't contain the path separator. Shared with archive
+// synthesis (archiveFolderPath) so the naming rule can't drift.
+export function memoryFolderSegment(name: string | null): string {
+  return (name ?? "untitled").replaceAll("/", "-").trim()
+}
+
 /**
  * A Merlin run's retrieval/write boundary, from the channel it lives in.
  * Channel-scoped on purpose: everyone who can see the channel sees the
@@ -363,8 +369,7 @@ export async function resolveMerlinRunScope(
   const isPrivate = container.audience === "members"
   const hasMemoryScope = Boolean(projectRow) || isPrivate
 
-  // Folder segments can't contain the path separator.
-  const folderName = (container.name ?? "untitled").replaceAll("/", "-").trim()
+  const folderName = memoryFolderSegment(container.name)
 
   return {
     memoryScopeChannelId: hasMemoryScope ? container.id : null,
