@@ -80,39 +80,94 @@ export function useActivateLoop(loop: ChannelLoop | null, timezone: string) {
   }
 }
 
-// Draft-only schedule edit from the panel's structured rows. Optimistic:
-// the Selects reflect the change immediately; a rejected edit refetches the
-// channel's loops so the row snaps back to the truth.
-export function useUpdateLoopSchedule(loop: ChannelLoop | null) {
-  const queryClient = useQueryClient()
+// Loop edits (schedule/instructions/name) from the panel. Optimistic — the
+// controls reflect the change immediately; a rejected edit refetches so they
+// snap back. A 422 on schedule edits (tightened sub-hourly cadence) parks
+// the input in confirm state so the caller shows <LoopFrequencyDialog/> and
+// resends with confirm.
+export type UpdateLoopInput = {
+  schedule?: string
+  instructions?: string
+  name?: string
+  confirm?: boolean
+}
 
-  return useMutation({
-    mutationFn: async (schedule: string) => {
+export function useUpdateLoop(loop: ChannelLoop | null) {
+  const queryClient = useQueryClient()
+  const [confirmState, setConfirmState] = useState<{
+    input: UpdateLoopInput
+    firesPerDay: number
+  } | null>(null)
+
+  const mutation = useMutation({
+    mutationFn: async (input: UpdateLoopInput) => {
       if (!loop) throw new Error("Loop not loaded yet")
       const res = await apiClient.v1.loops[":loopId"].$patch({
         param: { loopId: loop.id },
-        json: { schedule },
+        json: {
+          ...(input.schedule !== undefined ? { schedule: input.schedule } : {}),
+          ...(input.instructions !== undefined
+            ? { instructions: input.instructions }
+            : {}),
+          ...(input.name !== undefined ? { name: input.name } : {}),
+          ...(input.confirm ? { confirmHighFrequency: true } : {}),
+        },
       })
+      if (res.status === 422) {
+        const body = await res.json()
+        return {
+          kind: "needs_confirmation" as const,
+          input,
+          firesPerDay: body.firesPerDay,
+        }
+      }
       if (!res.ok) {
         const body = await res.json().catch(() => null)
-        throw new Error(body?.message ?? "Failed to update the schedule")
+        throw new Error(body?.message ?? "Failed to update the loop")
       }
       const body = await res.json()
-      return body.loop
+      return { kind: "updated" as const, loop: body.loop }
     },
-    onMutate: (schedule) => {
+    onMutate: (input) => {
       if (!loop) return
       queryClient.setQueryData(
         ["channel-loops", loop.channelId],
         (existing: ChannelLoop[] | undefined) =>
-          existing?.map((l) => (l.id === loop.id ? { ...l, schedule } : l))
+          existing?.map((l) =>
+            l.id === loop.id
+              ? {
+                  ...l,
+                  ...(input.schedule !== undefined
+                    ? { schedule: input.schedule }
+                    : {}),
+                  ...(input.instructions !== undefined
+                    ? { instructions: input.instructions }
+                    : {}),
+                  ...(input.name !== undefined ? { name: input.name } : {}),
+                }
+              : l
+          )
       )
     },
-    onSuccess: (updated) => {
+    onSuccess: (result) => {
+      if (result.kind === "needs_confirmation") {
+        // The optimistic write showed a change the server didn't take — roll
+        // back to the truth while the confirm dialog is up.
+        if (loop) {
+          void queryClient.invalidateQueries({
+            queryKey: ["channel-loops", loop.channelId],
+          })
+        }
+        setConfirmState({
+          input: result.input,
+          firesPerDay: result.firesPerDay,
+        })
+        return
+      }
       queryClient.setQueryData(
-        ["channel-loops", updated.channelId],
+        ["channel-loops", result.loop.channelId],
         (existing: ChannelLoop[] | undefined) =>
-          existing?.map((l) => (l.id === updated.id ? updated : l))
+          existing?.map((l) => (l.id === result.loop.id ? result.loop : l))
       )
     },
     onError: (err) => {
@@ -122,10 +177,20 @@ export function useUpdateLoopSchedule(loop: ChannelLoop | null) {
         })
       }
       toast.error(
-        err instanceof Error ? err.message : "Failed to update the schedule"
+        err instanceof Error ? err.message : "Failed to update the loop"
       )
     },
   })
+
+  return {
+    update: (input: UpdateLoopInput) => {
+      setConfirmState(null)
+      mutation.mutate(input)
+    },
+    isPending: mutation.isPending,
+    confirmState,
+    dismissConfirm: () => setConfirmState(null),
+  }
 }
 
 // Pause / resume / mark-completed from the loop panel. All three return the

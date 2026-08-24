@@ -86,16 +86,16 @@ export type ActivateLoopRoute = typeof activateLoop
 export const updateLoop = createRoute({
   path: "/loops/{loopId}",
   method: "patch",
-  summary: "Edit a draft loop's schedule",
+  summary: "Edit a loop",
   description:
-    "Replaces the draft's cron schedule after validating it. Editing active loops is not supported yet — pause-edit-resume lands with the management UI.",
+    "Updates the schedule, instructions, or name. Schedule edits re-validate; on active loops the next run is recomputed, and a sub-hourly cadence that got tighter needs confirmHighFrequency again. Completed loops are immutable.",
   tags: ["Loops"],
   middleware: [sessionAuthMiddleware] as const,
   request: {
     params: loopParamsSchema,
     body: jsonContent({
       schema: updateLoopBodySchema,
-      description: "The new cron schedule",
+      description: "Fields to update",
     }),
   },
   hidden: true,
@@ -108,6 +108,10 @@ export const updateLoop = createRoute({
     [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
     [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
     [HttpStatusCodes.CONFLICT]: conflictSchema,
+    [HttpStatusCodes.UNPROCESSABLE_ENTITY]: jsonContent({
+      schema: requiresConfirmationResponseSchema,
+      description: "Tightened sub-hourly schedule needs explicit confirmation",
+    }),
     [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
   },
 })

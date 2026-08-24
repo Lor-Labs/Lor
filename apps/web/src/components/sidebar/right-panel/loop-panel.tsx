@@ -4,6 +4,7 @@ import {
   CheckmarkCircle02Icon,
   Clock01Icon,
   Loading03Icon,
+  MoreHorizontalIcon,
   PauseIcon,
   PlayIcon,
 } from "@hugeicons/core-free-icons"
@@ -27,19 +28,26 @@ import {
 import { Badge } from "@repo/ui/components/badge"
 import { Button } from "@repo/ui/components/button"
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@repo/ui/components/menu"
+import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@repo/ui/components/select"
-import { useMemo, useState } from "react"
+import { cn } from "@repo/ui/lib/utils"
+import { useMemo, useRef, useState } from "react"
 import { ArtifactFileCard } from "@/components/chat/artifact-file-card"
 import {
   LoopFrequencyDialog,
   useActivateLoop,
   useLoopLifecycle,
-  useUpdateLoopSchedule,
+  useUpdateLoop,
 } from "@/components/loops/loop-actions"
 import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-header"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
@@ -54,10 +62,11 @@ import { LOOP_PAUSED_REASON_LABEL, LOOP_STATUS_META } from "@/lib/loop-ui"
 import { TASK_STATUS_META } from "@/lib/task-ui"
 
 // Loop detail panel (ChatGPT-scheduled-tasks inspired): the card in chat is
-// a compact pill; everything else lives here — the full prompt, a structured
-// schedule editor on drafts (Repeat / day / time Selects that round-trip the
-// cron via parseLoopSchedule), the timezone (pinned at activation), and
-// next/last run. Editing name/instructions and active-loop schedules is L3.
+// a compact pill; everything else lives here — the editable prompt, a
+// structured schedule editor (Repeat / day / time Selects that round-trip
+// the cron via parseLoopSchedule; live loops re-confirm tightened sub-hourly
+// cadences), the timezone (pinned at activation), next/last run, and the
+// run history. Completed loops are read-only.
 
 function formatRunTime(iso: string): string {
   return new Date(iso).toLocaleString(undefined, {
@@ -114,6 +123,84 @@ function SectionLabel({ children }: { children: string }) {
     <p className="px-1 font-medium text-muted-foreground text-xs uppercase tracking-wide">
       {children}
     </p>
+  )
+}
+
+// The standing brief, editable in place on non-completed loops — click the
+// card to edit, blur saves (Escape cancels). Every run reads it fresh, so a
+// save takes effect from the next fire.
+function PromptSection({
+  loop,
+  onSave,
+  saving,
+}: {
+  loop: ChannelLoop
+  onSave: (instructions: string) => void
+  saving: boolean
+}) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState("")
+  const cancelled = useRef(false)
+  const editable = loop.status !== "completed" && !saving
+
+  const commit = () => {
+    setEditing(false)
+    if (cancelled.current) {
+      cancelled.current = false
+      return
+    }
+    const trimmed = draft.trim()
+    if (trimmed && trimmed !== loop.instructions) onSave(trimmed)
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <SectionLabel>Prompt</SectionLabel>
+        {saving && (
+          <span className="px-1 text-muted-foreground/70 text-xs">Saving…</span>
+        )}
+      </div>
+      {editing ? (
+        // Raw textarea styled byte-identical to the view card (same padding,
+        // radius, type scale) so entering/leaving edit never shifts layout;
+        // field-sizing-content auto-grows it with the text.
+        <textarea
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              cancelled.current = true
+              e.currentTarget.blur()
+            }
+          }}
+          maxLength={4000}
+          // biome-ignore lint/a11y/noAutofocus: edit mode is entered by an explicit click; focus must follow for blur-to-save to work
+          autoFocus
+          className="field-sizing-content w-full resize-none rounded-xl border border-ring bg-card px-4 py-3.5 text-sm leading-6 outline-none ring-[3px] ring-ring/24"
+        />
+      ) : (
+        <button
+          type="button"
+          disabled={!editable}
+          aria-label="Edit prompt"
+          onClick={() => {
+            setDraft(loop.instructions)
+            setEditing(true)
+          }}
+          className={cn(
+            "w-full rounded-xl border bg-card px-4 py-3.5 text-left transition-[opacity,border-color]",
+            editable && "cursor-text hover:border-foreground/25",
+            saving && "opacity-60"
+          )}
+        >
+          <p className="whitespace-pre-wrap break-words text-sm leading-6">
+            {loop.instructions}
+          </p>
+        </button>
+      )}
+    </div>
   )
 }
 
@@ -322,11 +409,17 @@ function DetailRow({
   )
 }
 
-// The draft schedule editor rows. Every change formats a fresh cron and
-// PATCHes it (optimistic — see useUpdateLoopSchedule). Kind switches carry
+// The schedule editor rows (drafts + live loops; completed is read-only).
+// Every change formats a fresh cron and hands it to the parent, which owns
+// the PATCH (and the tightened-cadence confirm dialog). Kind switches carry
 // the current time over and default the new fields.
-function ScheduleEditor({ loop }: { loop: ChannelLoop }) {
-  const update = useUpdateLoopSchedule(loop)
+function ScheduleEditor({
+  loop,
+  onApply,
+}: {
+  loop: ChannelLoop
+  onApply: (schedule: string) => void
+}) {
   const shape = parseLoopSchedule(loop.schedule)
 
   if (shape.kind === "custom") {
@@ -339,8 +432,7 @@ function ScheduleEditor({ loop }: { loop: ChannelLoop }) {
     )
   }
 
-  const apply = (next: LoopScheduleShape) =>
-    update.mutate(formatLoopSchedule(next))
+  const apply = (next: LoopScheduleShape) => onApply(formatLoopSchedule(next))
 
   const hour = "hour" in shape ? shape.hour : 9
   const minute = shape.minute
@@ -503,6 +595,7 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
     timezone
   )
   const lifecycle = useLoopLifecycle(loop)
+  const updateLoop = useUpdateLoop(loop)
   const [confirmComplete, setConfirmComplete] = useState(false)
 
   const meta = loop ? LOOP_STATUS_META[loop.status] : null
@@ -515,6 +608,7 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
         title={loop?.name ?? "Loop"}
         workspaceSlug={view.workspaceSlug}
         channelId={view.channelId}
+        hideCollapse
         titleAdornment={
           meta ? (
             <Badge variant={meta.badgeVariant} size="sm" className="shrink-0">
@@ -540,12 +634,26 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
                   onClick={() => lifecycle.mutate("resume")}
                 />
               )}
-              <HeaderActionButton
-                label="Mark completed"
-                icon={CheckmarkCircle02Icon}
-                disabled={lifecycle.isPending}
-                onClick={() => setConfirmComplete(true)}
-              />
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={
+                    <button
+                      type="button"
+                      aria-label="Loop options"
+                      disabled={lifecycle.isPending}
+                      className="flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+                    />
+                  }
+                >
+                  <HugeiconsIcon icon={MoreHorizontalIcon} size={16} />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => setConfirmComplete(true)}>
+                    <HugeiconsIcon icon={CheckmarkCircle02Icon} size={14} />
+                    Mark completed
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </>
           ) : undefined
         }
@@ -558,22 +666,22 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
         </div>
       ) : (
         <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-4 py-5">
-          <div className="space-y-2">
-            <SectionLabel>Prompt</SectionLabel>
-            <div className="rounded-xl border bg-card px-4 py-3.5">
-              <p className="whitespace-pre-wrap break-words text-sm leading-6">
-                {loop.instructions}
-              </p>
-            </div>
-          </div>
+          <PromptSection
+            loop={loop}
+            saving={updateLoop.isPending}
+            onSave={(instructions) => updateLoop.update({ instructions })}
+          />
 
           <div className="space-y-2">
             <SectionLabel>Schedule</SectionLabel>
             <div className="divide-y divide-border/70 rounded-xl border bg-card">
-              {isDraft ? (
-                <ScheduleEditor loop={loop} />
-              ) : (
+              {loop.status === "completed" ? (
                 <DetailRow label="Repeat">{scheduleText}</DetailRow>
+              ) : (
+                <ScheduleEditor
+                  loop={loop}
+                  onApply={(schedule) => updateLoop.update({ schedule })}
+                />
               )}
               <DetailRow label="Timezone">
                 {isDraft ? (
@@ -673,6 +781,25 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
         firesPerDay={confirmFires}
         onConfirm={() => activate({ confirm: true })}
         onDismiss={dismissConfirm}
+      />
+
+      {/* Schedule-edit confirm: the new cadence, not the loop's current one. */}
+      <LoopFrequencyDialog
+        scheduleText={
+          updateLoop.confirmState?.input.schedule
+            ? describeLoopSchedule(updateLoop.confirmState.input.schedule, null)
+            : scheduleText
+        }
+        firesPerDay={updateLoop.confirmState?.firesPerDay ?? null}
+        onConfirm={() => {
+          if (updateLoop.confirmState) {
+            updateLoop.update({
+              ...updateLoop.confirmState.input,
+              confirm: true,
+            })
+          }
+        }}
+        onDismiss={updateLoop.dismissConfirm}
       />
 
       <AlertDialog open={confirmComplete} onOpenChange={setConfirmComplete}>

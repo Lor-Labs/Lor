@@ -159,13 +159,16 @@ export const activateLoop: AppRouteHandler<ActivateLoopRoute> = async (c) => {
   return c.json({ loop: toRealtimeLoop(activated) }, HttpStatusCodes.OK)
 }
 
-// Draft-only schedule edit from the panel's structured editor. Editing an
-// active loop needs pause/recompute/re-confirm semantics — that's L3; the
-// 409 here keeps the invariant "active schedules only change via resume".
+// Edit schedule/instructions/name. Completed loops are immutable. Schedule
+// edits re-validate with the pinned tz (UTC for unpinned drafts); on active
+// loops the next fire is recomputed; a sub-hourly cadence needs a fresh
+// confirmHighFrequency when it's new or got TIGHTER — loosening within an
+// already-confirmed sub-hourly band rides the existing consent.
 export const updateLoop: AppRouteHandler<UpdateLoopRoute> = async (c) => {
   const currentUser = c.var.user
   const { loopId } = c.req.valid("param")
-  const { schedule } = c.req.valid("json")
+  const { schedule, instructions, name, confirmHighFrequency } =
+    c.req.valid("json")
 
   const found = await loadAccessibleLoop(loopId, currentUser.id)
   if (!found) {
@@ -175,32 +178,81 @@ export const updateLoop: AppRouteHandler<UpdateLoopRoute> = async (c) => {
     )
   }
   const { loop } = found
-  if (loop.status !== "draft") {
+  if (loop.status === "completed") {
     return c.json(
-      { success: false as const, message: "Only draft loops can be edited" },
+      { success: false as const, message: "Completed loops can't be edited" },
       HttpStatusCodes.CONFLICT
     )
   }
 
-  // Drafts may not have a tz pinned yet; the gap thresholds are
-  // tz-insensitive, and activation re-validates with the pinned tz.
-  const validation = validateLoopSchedule(schedule, loop.timezone ?? "UTC")
-  if (!validation.ok) {
-    return c.json(
-      { success: false as const, message: validation.reason },
-      HttpStatusCodes.BAD_REQUEST
-    )
+  const values: Partial<typeof schema.loop.$inferInsert> = {
+    ...(instructions !== undefined ? { instructions } : {}),
+    ...(name !== undefined ? { name } : {}),
   }
 
+  if (schedule !== undefined) {
+    const timezone = loop.timezone ?? "UTC"
+    const validation = validateLoopSchedule(schedule, timezone)
+    if (!validation.ok) {
+      return c.json(
+        { success: false as const, message: validation.reason },
+        HttpStatusCodes.BAD_REQUEST
+      )
+    }
+
+    // Drafts skip consent here — activation asks. Live loops re-ask when the
+    // cadence is newly sub-hourly or tighter than what was consented to.
+    if (loop.status !== "draft" && validation.requiresConfirmation) {
+      const previous = validateLoopSchedule(loop.schedule, timezone)
+      const tightened = previous.ok
+        ? validation.minGapMs < previous.minGapMs
+        : true
+      const needsConsent = tightened || !loop.highFrequencyConfirmedAt
+      if (needsConsent && !confirmHighFrequency) {
+        const firesPerDay = Math.max(
+          1,
+          Math.round(DAY_MS / validation.minGapMs)
+        )
+        return c.json(
+          {
+            success: false as const,
+            code: "requires_confirmation" as const,
+            message: `This loop would run up to ${firesPerDay} times a day`,
+            firesPerDay,
+          },
+          HttpStatusCodes.UNPROCESSABLE_ENTITY
+        )
+      }
+      if (needsConsent) {
+        values.highFrequencyConfirmedAt = new Date()
+        values.highFrequencyConfirmedBy = currentUser.id
+      }
+    }
+
+    values.schedule = schedule
+    if (loop.status === "active") {
+      const next = nextLoopRunAt(schedule, timezone)
+      if (!next) {
+        return c.json(
+          { success: false as const, message: "Schedule has no future fires" },
+          HttpStatusCodes.BAD_REQUEST
+        )
+      }
+      values.nextRunAt = next
+    }
+  }
+
+  // CAS on the status this edit was computed against — a concurrent
+  // pause/activate changes the recompute rules, so the loser retries.
   const updated = await db
     .update(schema.loop)
-    .set({ schedule })
-    .where(and(eq(schema.loop.id, loopId), eq(schema.loop.status, "draft")))
+    .set(values)
+    .where(and(eq(schema.loop.id, loopId), eq(schema.loop.status, loop.status)))
     .returning()
     .then((rows) => rows[0] ?? null)
   if (!updated) {
     return c.json(
-      { success: false as const, message: "Only draft loops can be edited" },
+      { success: false as const, message: "Loop changed — try again" },
       HttpStatusCodes.CONFLICT
     )
   }

@@ -444,9 +444,21 @@ apps/realtime `services/merlin.ts`, card rendering in web
   DELIBERATELY PUNTED from L3.3: per-run tool-trail replay (the run-event
   machinery exists but notes + recorded actions cover the need; revisit on
   demand).
-- [ ] L3.4 Edit schedule/instructions on non-drafts (revalidate + recompute
-  + re-confirm high frequency when cadence tightened; drafts already
-  editable via PATCH since the L2.3 follow-up).
+- [x] L3.4 Edit schedule/instructions on non-drafts (2026-08-24):
+  `PATCH /v1/loops/{loopId}` now takes `{ schedule?, instructions?, name?,
+  confirmHighFrequency? }` (≥1 field) and works on draft|active|paused —
+  completed is immutable (409). Schedule edits re-validate with the pinned
+  tz; ACTIVE loops get `nextRunAt` recomputed; a sub-hourly cadence needs a
+  fresh `confirmHighFrequency` (422 `requires_confirmation`) when it's
+  newly sub-hourly or TIGHTER than the consented gap — loosening within an
+  already-confirmed band rides the existing consent
+  (`highFrequencyConfirmedAt/By` refreshed on new consent). CAS on the
+  status the edit was computed against (racing pause/activate → 409 retry).
+  Web: `useUpdateLoop` (replaces useUpdateLoopSchedule — optimistic, 422
+  rolls back + opens the confirm dialog showing the NEW cadence), schedule
+  editor enabled for active/paused, Prompt section editable in place
+  (pencil → textarea → Save; takes effect from the next fire). Name edit is
+  API-ready, no web UI yet (punch list).
 - [ ] Punch list: delete, mobile management, editor-sheet-before-activate.
 
 ## Decisions & deviations log

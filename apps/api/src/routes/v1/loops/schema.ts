@@ -36,11 +36,24 @@ export const activateLoopBodySchema = z.object({
   confirmHighFrequency: z.boolean().optional(),
 })
 
-export const updateLoopBodySchema = z.object({
-  // Cron expression from the panel's structured editor. Draft-only for now;
-  // editing active loops (with high-frequency re-confirm) is L3.
-  schedule: z.string().min(1).max(120),
-})
+export const updateLoopBodySchema = z
+  .object({
+    // Cron expression from the panel's structured editor. Draft edits apply
+    // directly; active/paused edits re-validate with the pinned tz, recompute
+    // nextRunAt (active), and re-confirm high frequency when tightened.
+    schedule: z.string().min(1).max(120).optional(),
+    // The standing brief injected into every run.
+    instructions: z.string().min(1).max(4000).optional(),
+    name: z.string().min(1).max(80).optional(),
+    confirmHighFrequency: z.boolean().optional(),
+  })
+  .refine(
+    (body) =>
+      body.schedule !== undefined ||
+      body.instructions !== undefined ||
+      body.name !== undefined,
+    { message: "Nothing to update" }
+  )
 
 // Mirrors RealtimeLoop (packages/realtime-types) — the same snapshot the
 // loop:updated event carries, so the card renders identically from either.
