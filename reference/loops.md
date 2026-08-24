@@ -331,7 +331,7 @@ verify connector tools bind.
 
 ---
 
-### [ ] L2 — Conversational creation (propose_loop → card → activate)
+### [x] L2 — Conversational creation (propose_loop → card → activate)
 
 Mirror the `task_card` pattern end to end (`createTaskWithCard` in
 apps/realtime `services/merlin.ts`, card rendering in web
@@ -391,9 +391,16 @@ apps/realtime `services/merlin.ts`, card rendering in web
   dependency-free `@repo/realtime-types/loops` (re-exported from
   `@repo/merlin/loop-schedule` so server call sites are unchanged) — web
   imports realtime-types but must not import the server-side merlin pkg.
-- [ ] L2.4 Mobile: render `loop_card` as a readable card (status + name +
+- [x] L2.4 Mobile: render `loop_card` as a readable card (status + name +
   schedule); activation can be web-only for v0 — note it in
   `reference/mobile-parity-todo.md`.
+  Shipped: `hooks/use-loops.ts` (mirrors use-tasks: channel query +
+  `loop:updated` merge; `useActivateLoop` — device-tz activation, 422
+  high-frequency confirm as a native Alert), `components/loop-card.tsx`
+  (pill: infinity icon, name, plain-english schedule; drafts get a Create
+  Loop button, other statuses a chip), `message-row.tsx` branch. Parity
+  note updated (detail view/editor + L3 management web-only; mobile always
+  pins the device tz).
 
 ### [ ] L3 — Management & run history UI
 

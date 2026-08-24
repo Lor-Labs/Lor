@@ -28,6 +28,13 @@ Core task surfaces shipped 2026-08-10 (`use-tasks.ts`, `task-ui.tsx`, `task-card
 - Known gap: `task:updated` arrives via the channel room; a deep-linked thread (push tap) without the channel screen mounted misses live task flips until refetch-on-mount/focus. Fine for v1.
 - Active-tasks indicator in the channel header — dropped; web removed its own header chip in the 2026-08-09 design round.
 
+## Post-launch — Loops
+
+`loop_card` rendering + draft activation shipped 2026-08-24 (`use-loops.ts`, `loop-card.tsx`; mirrors web's compact pill — infinity icon, name, plain-english schedule via `@repo/realtime-types/loops`, status chip, kept live by `loop:updated`; drafts show a Create Loop button that activates in the device timezone, with the high-frequency 422 confirm as a native Alert). Still web-only:
+
+- [ ] Loop detail view (web: right-panel `loop-panel.tsx` — full prompt, structured schedule editor `PATCH /v1/loops/:id`, timezone picker; mobile activation always pins the device tz).
+- [ ] Pause/resume/complete once those routes land (L3, web-first).
+
 ## Post-launch — DM follow-ups
 
 - [ ] Group-DM member list sheet (group DMs can't be created from either client yet).

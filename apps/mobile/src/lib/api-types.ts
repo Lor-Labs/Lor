@@ -80,3 +80,9 @@ export type TaskArtifact = InferResponseType<
   Client["v1"]["tasks"][":taskId"]["artifacts"]["$get"],
   200
 >["artifacts"][number]
+
+export type ChannelLoopList = InferResponseType<
+  Client["v1"]["channels"][":channelId"]["loops"]["$get"],
+  200
+>
+export type ChannelLoop = ChannelLoopList["loops"][number]
