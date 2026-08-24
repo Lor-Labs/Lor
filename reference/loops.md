@@ -117,7 +117,7 @@ Validation: `pnpm run validate`.
 
 ---
 
-### [ ] L1.2 — Queue types + schedule helpers
+### [x] L1.2 — Queue types + schedule helpers
 
 `packages/realtime-types/src/queues.ts`:
 ```ts
@@ -132,9 +132,8 @@ export type LoopRunJobData = {
 row fresh for kill-switch + prompt inputs anyway.)
 
 `packages/realtime-types/src/events.ts`: add `loop:updated` server→client
-event, payload `{ loopId, channelId, status, nextRunAt: string | null,
-lastRunAt: string | null, name }` (thin — clients refetch details; mirror how
-`task:updated` / `project:updated` payloads are shaped).
+event carrying a full `RealtimeLoop` snapshot (mirrors `task:updated` /
+`RealtimeTask` — the card renders from the event, no refetch).
 
 New `packages/merlin/src/loop-schedule.ts`, exported as
 `@repo/merlin/loop-schedule` (add to merlin package.json exports; api +

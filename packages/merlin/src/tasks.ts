@@ -1,8 +1,42 @@
 import { db, eq, schema } from "@repo/db"
 import type { Task, TaskPlanItem } from "@repo/db/schema"
+import type { RealtimeTask } from "@repo/realtime-types/events"
 import { tool } from "ai"
 import { z } from "zod"
 import { logger } from "./logger"
+import type { Exact, SerializedDates } from "./wire-guard"
+
+// The single task-row → wire-type mapping (used by every task:updated emit
+// across api/worker/realtime — previously three drifting copies).
+// Drift guard (see wire-guard.ts): RealtimeTask must stay the exact
+// date-serialized mirror of the task row, minus deliberate omissions.
+type OffWireTaskColumns =
+  // Spawn provenance (Act/loop runs) — server-side lineage, no card renders
+  // it; the loop run UI queries it, never receives it over the socket.
+  "originRunId"
+const _realtimeTaskMirrorsDbRow: Exact<
+  Omit<SerializedDates<Task>, OffWireTaskColumns>,
+  RealtimeTask
+> = true
+void _realtimeTaskMirrorsDbRow
+
+export function toRealtimeTask(row: Task): RealtimeTask {
+  return {
+    id: row.id,
+    workspaceId: row.workspaceId,
+    channelId: row.channelId,
+    cardMessageId: row.cardMessageId,
+    creatorId: row.creatorId,
+    title: row.title,
+    goal: row.goal,
+    status: row.status,
+    plan: row.plan,
+    summary: row.summary,
+    activeRunId: row.activeRunId,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  }
+}
 
 const MAX_PLAN_ITEMS = 30
 const MAX_ITEM_CHARS = 200

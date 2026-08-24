@@ -26,6 +26,7 @@ import {
   userDisplayName,
   writeBack,
 } from "@repo/merlin"
+import { toRealtimeTask } from "@repo/merlin/tasks"
 import {
   buildMessageFanout,
   sendInstructionsProposalPush,
@@ -36,10 +37,7 @@ import type {
   MerlinRespondJobData,
   RealtimeMessageMention,
 } from "@repo/realtime-types"
-import type {
-  RealtimeTask,
-  ServerToClientEvents,
-} from "@repo/realtime-types/events"
+import type { ServerToClientEvents } from "@repo/realtime-types/events"
 import {
   channelRoom,
   threadRoom,
@@ -154,24 +152,6 @@ async function loadConversation(args: {
   })
 }
 
-function serializeTask(row: typeof schema.task.$inferSelect): RealtimeTask {
-  return {
-    id: row.id,
-    workspaceId: row.workspaceId,
-    channelId: row.channelId,
-    cardMessageId: row.cardMessageId,
-    creatorId: row.creatorId,
-    title: row.title,
-    goal: row.goal,
-    status: row.status,
-    plan: row.plan,
-    summary: row.summary,
-    activeRunId: row.activeRunId,
-    createdAt: row.createdAt.toISOString(),
-    updatedAt: row.updatedAt.toISOString(),
-  }
-}
-
 export function createMerlinRespondProcessor(
   emitter: Emitter<ServerToClientEvents>,
   redis: RedisClient,
@@ -220,7 +200,7 @@ export function createMerlinRespondProcessor(
         const emitTaskUpdated = (row: typeof schema.task.$inferSelect) => {
           emitter
             .to(channelRoom(channelId))
-            .emit("task:updated", { task: serializeTask(row) })
+            .emit("task:updated", { task: toRealtimeTask(row) })
         }
         // Park the task when its run ends. `waiting_for_input` only from
         // `running` — completed/waiting_for_approval set by tools stand.

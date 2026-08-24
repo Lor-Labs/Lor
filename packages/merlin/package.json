@@ -12,10 +12,13 @@
     "./connector-search": "./src/connector-search.ts",
     "./custom-tools": "./src/custom-tools.ts",
     "./github": "./src/github.ts",
+    "./loop-schedule": "./src/loop-schedule.ts",
+    "./loops": "./src/loops.ts",
     "./placement": "./src/placement.ts",
     "./project-archive": "./src/project-archive.ts",
     "./providers": "./src/providers/index.ts",
     "./sources": "./src/sources.ts",
+    "./tasks": "./src/tasks.ts",
     "./tool-servers": "./src/tool-servers.ts"
   },
   "scripts": {

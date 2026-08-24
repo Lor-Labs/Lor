@@ -4,6 +4,7 @@ import { and, db, eq, schema } from "@repo/db"
 import { env } from "@repo/env/server"
 import { enterContext } from "@repo/logger"
 import { decideReplyPlacement } from "@repo/merlin/placement"
+import { toRealtimeTask } from "@repo/merlin/tasks"
 import {
   buildMessageFanout,
   sendMessagePushNotifications,
@@ -706,11 +707,7 @@ io.on("connection", (socket) => {
                   created.card
                 )
                 io.to(channelRoom(parsed.channelId)).emit("task:updated", {
-                  task: {
-                    ...created.task,
-                    createdAt: created.task.createdAt.toISOString(),
-                    updatedAt: created.task.updatedAt.toISOString(),
-                  },
+                  task: toRealtimeTask(created.task),
                 })
               } else {
                 // Card/task insert failed — degrade to a plain threaded answer.
