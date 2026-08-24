@@ -3,6 +3,7 @@ import { HugeiconsIcon } from "@hugeicons/react"
 import { AnimatePresence, motion } from "motion/react"
 import type { ReactNode } from "react"
 import { LoopPanel } from "@/components/sidebar/right-panel/loop-panel"
+import { LoopsListPanel } from "@/components/sidebar/right-panel/loops-list-panel"
 import { PinnedMessagesPanel } from "@/components/sidebar/right-panel/pinned-messages-panel"
 import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-header"
 import type { RightSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
@@ -86,6 +87,7 @@ export function RightSidebarPanel({ view }: { view: RightSidebarView }) {
           )}
           {view.type === "thread" && <ThreadPanel view={view} />}
           {view.type === "loop" && <LoopPanel view={view} />}
+          {view.type === "loops" && <LoopsListPanel view={view} />}
           {view.type === "attachments" && (
             <PlaceholderSidebar
               title="Attachments"

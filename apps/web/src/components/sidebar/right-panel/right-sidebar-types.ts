@@ -32,9 +32,16 @@ export type LoopSidebarView = {
   loopId: string
 }
 
+export type LoopsListSidebarView = {
+  type: "loops"
+  workspaceSlug: string
+  channelId: string
+}
+
 export type RightSidebarView =
   | WorkspaceMembersSidebarView
   | ThreadSidebarView
   | AttachmentsSidebarView
   | PinnedMessagesSidebarView
   | LoopSidebarView
+  | LoopsListSidebarView

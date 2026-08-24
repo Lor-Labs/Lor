@@ -416,9 +416,19 @@ apps/realtime `services/merlin.ts`, card rendering in web
   are-you-sure dialog (completing is permanent); `useLoopLifecycle` in
   `loop-actions.tsx`. Mobile: chip flips live via loop:updated; actions
   noted web-only in the parity todo.
-- [ ] L3.2 Channel loops panel (header affordance like tasks): list loops
-  with status pills (ChatGPT-style "Paused · Name"), next/last run, open
-  detail panel per loop.
+- [x] L3.2 Channel loops surfacing (2026-08-24, revised per user feedback):
+  Discord-style "Loops — N" section at the top of the channel overview
+  (members) panel (`loops-overview-section.tsx` inside
+  `workspace-members-panel.tsx`) — first 3 loops (sorted active → paused →
+  draft → completed, newest first within groups; hidden when the channel
+  has none), "Show N more…" opens the full list panel
+  (`loops-list-panel.tsx`, compact view `{ type: "loops" }`). Rows
+  (`components/loops/loop-row.tsx`, shared) show icon, name, schedule +
+  next/last run subtitle, status chip, and open the loop detail panel;
+  the detail panel's X/back returns to the overview (default header
+  behavior — the list panel is reached only via Show more). The earlier
+  chat-header ∞ toggle was removed — discovery lives in the overview
+  panel.
 - [ ] L3.3 Loop detail: run history from `agent_run WHERE loop_id ORDER BY
   scheduled_for DESC` — per run: closing note, stop reason, usage counters,
   spawned tasks (`task.originRunId`), direct artifacts
