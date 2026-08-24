@@ -19,6 +19,37 @@ export async function emitLoopUpdated(row: Loop): Promise<void> {
     .emit("loop:updated", { loop: toRealtimeLoop(row) })
 }
 
+// A run already inside respond() needs the durable stop flag + the fast-path
+// publish, same as a user stop — shared by pause and manual complete.
+async function stopInFlightRuns(
+  loopId: string,
+  requestedBy?: string
+): Promise<void> {
+  const inFlight = await db
+    .update(schema.agentRun)
+    .set({
+      stopRequestedAt: sql`coalesce(${schema.agentRun.stopRequestedAt}, now())`,
+      stopRequestedBy: requestedBy ?? null,
+    })
+    .where(
+      and(
+        eq(schema.agentRun.scopeKey, loopId),
+        inArray(schema.agentRun.state, ["queued", "working", "finalizing"])
+      )
+    )
+    .returning({ id: schema.agentRun.id })
+    .catch((err) => {
+      logger.error({ err, loopId }, "Loop stop: in-flight stop flag failed")
+      return [] as { id: string }[]
+    })
+  for (const run of inFlight) {
+    // Fast path: best-effort — the flag above is the durable fallback.
+    await getRedisClient()
+      .then((redis) => redis.publish(AGENT_RUN_STOP_CHANNEL, run.id))
+      .catch(() => {})
+  }
+}
+
 // Pause = kill switch + in-flight stop. The CAS cancels future ticks and the
 // processor's re-read cancels queued runs; a run already inside respond()
 // needs the durable stop flag + the fast-path publish, same as a user stop.
@@ -36,32 +67,7 @@ export async function pauseLoop(input: {
     .then((rows) => rows[0] ?? null)
   if (!paused) return null
 
-  const inFlight = await db
-    .update(schema.agentRun)
-    .set({
-      stopRequestedAt: sql`coalesce(${schema.agentRun.stopRequestedAt}, now())`,
-      stopRequestedBy: input.requestedBy ?? null,
-    })
-    .where(
-      and(
-        eq(schema.agentRun.scopeKey, input.loopId),
-        inArray(schema.agentRun.state, ["queued", "working", "finalizing"])
-      )
-    )
-    .returning({ id: schema.agentRun.id })
-    .catch((err) => {
-      logger.error(
-        { err, loopId: input.loopId },
-        "Loop pause: in-flight stop flag failed"
-      )
-      return [] as { id: string }[]
-    })
-  for (const run of inFlight) {
-    // Fast path: best-effort — the flag above is the durable fallback.
-    await getRedisClient()
-      .then((redis) => redis.publish(AGENT_RUN_STOP_CHANNEL, run.id))
-      .catch(() => {})
-  }
+  await stopInFlightRuns(input.loopId, input.requestedBy)
 
   await emitLoopUpdated(paused)
   return paused
@@ -113,4 +119,35 @@ export async function resumeLoop(input: {
 
   await emitLoopUpdated(resumed)
   return { ok: true, loop: resumed }
+}
+
+// Manual completion (the human calling it done, vs the model's complete_loop
+// tool). Terminal: clears scheduling and stops anything in flight. CAS over
+// active|paused so a racing tool-completion or double click reads as a no-op.
+export async function completeLoopManually(input: {
+  loopId: string
+  requestedBy?: string
+}): Promise<Loop | null> {
+  const completed = await db
+    .update(schema.loop)
+    .set({
+      status: "completed",
+      pausedReason: null,
+      nextRunAt: null,
+      completedNote: "Marked completed by the team",
+    })
+    .where(
+      and(
+        eq(schema.loop.id, input.loopId),
+        inArray(schema.loop.status, ["active", "paused"])
+      )
+    )
+    .returning()
+    .then((rows) => rows[0] ?? null)
+  if (!completed) return null
+
+  await stopInFlightRuns(input.loopId, input.requestedBy)
+
+  await emitLoopUpdated(completed)
+  return completed
 }

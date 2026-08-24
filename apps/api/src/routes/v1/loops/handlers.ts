@@ -1,18 +1,45 @@
 import { and, db, desc, eq, schema } from "@repo/db"
 import { resolveChannelAccess } from "@repo/db/queries/channel-access"
+import type { Loop } from "@repo/db/schema"
 import { nextLoopRunAt, validateLoopSchedule } from "@repo/merlin/loop-schedule"
 import { toRealtimeLoop } from "@repo/merlin/loops"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
-import { emitLoopUpdated } from "@/lib/loops"
+import {
+  completeLoopManually,
+  emitLoopUpdated,
+  pauseLoop as pauseLoopAction,
+  resumeLoop as resumeLoopAction,
+} from "@/lib/loops"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
   ActivateLoopRoute,
+  CompleteLoopRoute,
   ListChannelLoopsRoute,
+  PauseLoopRoute,
+  ResumeLoopRoute,
   UpdateLoopRoute,
 } from "@/routes/v1/loops/routes"
 
 const DAY_MS = 86_400_000
+
+// Loop + the caller's channel access, denials collapsed to null (= 404,
+// fail closed — a loop's existence reveals channel activity).
+async function loadAccessibleLoop(
+  loopId: string,
+  userId: string
+): Promise<{ loop: Loop; canWrite: boolean } | null> {
+  const loop = await db
+    .select()
+    .from(schema.loop)
+    .where(eq(schema.loop.id, loopId))
+    .limit(1)
+    .then((rows) => rows[0])
+  if (!loop) return null
+  const access = await resolveChannelAccess(userId, loop.channelId)
+  if (!access.ok) return null
+  return { loop, canWrite: access.access.canWrite }
+}
 
 export const listChannelLoops: AppRouteHandler<ListChannelLoopsRoute> = async (
   c
@@ -43,28 +70,17 @@ export const activateLoop: AppRouteHandler<ActivateLoopRoute> = async (c) => {
   const { loopId } = c.req.valid("param")
   const { timezone, confirmHighFrequency } = c.req.valid("json")
 
-  const loop = await db
-    .select()
-    .from(schema.loop)
-    .where(eq(schema.loop.id, loopId))
-    .limit(1)
-    .then((rows) => rows[0])
-  if (!loop) {
+  const found = await loadAccessibleLoop(loopId, currentUser.id)
+  if (!found) {
     return c.json(
       { success: false as const, message: "Loop not found" },
       HttpStatusCodes.NOT_FOUND
     )
   }
-  const access = await resolveChannelAccess(currentUser.id, loop.channelId)
-  if (!access.ok) {
-    return c.json(
-      { success: false as const, message: "Loop not found" },
-      HttpStatusCodes.NOT_FOUND
-    )
-  }
+  const { loop, canWrite } = found
   // An active loop posts into the channel; archived channels can't take
   // writes, so refuse rather than activating into a dead end.
-  if (!access.access.canWrite) {
+  if (!canWrite) {
     return c.json(
       { success: false as const, message: "Channel is archived" },
       HttpStatusCodes.BAD_REQUEST
@@ -149,25 +165,14 @@ export const updateLoop: AppRouteHandler<UpdateLoopRoute> = async (c) => {
   const { loopId } = c.req.valid("param")
   const { schedule } = c.req.valid("json")
 
-  const loop = await db
-    .select()
-    .from(schema.loop)
-    .where(eq(schema.loop.id, loopId))
-    .limit(1)
-    .then((rows) => rows[0])
-  if (!loop) {
+  const found = await loadAccessibleLoop(loopId, currentUser.id)
+  if (!found) {
     return c.json(
       { success: false as const, message: "Loop not found" },
       HttpStatusCodes.NOT_FOUND
     )
   }
-  const access = await resolveChannelAccess(currentUser.id, loop.channelId)
-  if (!access.ok) {
-    return c.json(
-      { success: false as const, message: "Loop not found" },
-      HttpStatusCodes.NOT_FOUND
-    )
-  }
+  const { loop } = found
   if (loop.status !== "draft") {
     return c.json(
       { success: false as const, message: "Only draft loops can be edited" },
@@ -203,4 +208,84 @@ export const updateLoop: AppRouteHandler<UpdateLoopRoute> = async (c) => {
   )
 
   return c.json({ loop: toRealtimeLoop(updated) }, HttpStatusCodes.OK)
+}
+
+export const pauseLoop: AppRouteHandler<PauseLoopRoute> = async (c) => {
+  const currentUser = c.var.user
+  const { loopId } = c.req.valid("param")
+
+  const found = await loadAccessibleLoop(loopId, currentUser.id)
+  if (!found) {
+    return c.json(
+      { success: false as const, message: "Loop not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  const paused = await pauseLoopAction({ loopId, requestedBy: currentUser.id })
+  if (!paused) {
+    return c.json(
+      { success: false as const, message: "Loop is not active" },
+      HttpStatusCodes.CONFLICT
+    )
+  }
+  return c.json({ loop: toRealtimeLoop(paused) }, HttpStatusCodes.OK)
+}
+
+export const resumeLoop: AppRouteHandler<ResumeLoopRoute> = async (c) => {
+  const currentUser = c.var.user
+  const { loopId } = c.req.valid("param")
+
+  const found = await loadAccessibleLoop(loopId, currentUser.id)
+  if (!found) {
+    return c.json(
+      { success: false as const, message: "Loop not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  // Resuming restarts posting into the channel — refuse on archived, same
+  // as activation.
+  if (!found.canWrite) {
+    return c.json(
+      { success: false as const, message: "Channel is archived" },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+  const result = await resumeLoopAction({ loopId })
+  if (!result) {
+    return c.json(
+      { success: false as const, message: "Loop is not paused" },
+      HttpStatusCodes.CONFLICT
+    )
+  }
+  if (!result.ok) {
+    return c.json(
+      { success: false as const, message: result.reason },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+  return c.json({ loop: toRealtimeLoop(result.loop) }, HttpStatusCodes.OK)
+}
+
+export const completeLoop: AppRouteHandler<CompleteLoopRoute> = async (c) => {
+  const currentUser = c.var.user
+  const { loopId } = c.req.valid("param")
+
+  const found = await loadAccessibleLoop(loopId, currentUser.id)
+  if (!found) {
+    return c.json(
+      { success: false as const, message: "Loop not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  const completed = await completeLoopManually({
+    loopId,
+    requestedBy: currentUser.id,
+  })
+  if (!completed) {
+    return c.json(
+      { success: false as const, message: "Loop is not active or paused" },
+      HttpStatusCodes.CONFLICT
+    )
+  }
+  return c.json({ loop: toRealtimeLoop(completed) }, HttpStatusCodes.OK)
 }

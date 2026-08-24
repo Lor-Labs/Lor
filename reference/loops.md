@@ -404,18 +404,30 @@ apps/realtime `services/merlin.ts`, card rendering in web
 
 ### [ ] L3 — Management & run history UI
 
-- Channel loops panel (header affordance like tasks): list loops with
-  status pills (ChatGPT-style "Paused · Name"), next/last run, pause /
-  resume / complete actions (API: pause uses the L1.4 helper incl. in-flight
-  stop; resume recomputes nextRunAt; complete sets completedNote).
-- Loop detail: run history from `agent_run WHERE loop_id ORDER BY
+- [x] L3.1 Pause / resume / complete (2026-08-24): `POST
+  /v1/loops/{loopId}/pause|resume|complete`. Pause/complete use the L1.4
+  lib helpers incl. the in-flight run stop (extracted `stopInFlightRuns`;
+  new `completeLoopManually` — CAS over active|paused, sets
+  `completedNote: "Marked completed by the team"`); resume re-validates +
+  recomputes nextRunAt + resets failures, refused on archived channels
+  (400) like activation. Wrong-state calls → 409. Handlers share
+  `loadAccessibleLoop` (denials → 404 fail closed). Web: header actions in
+  `loop-panel.tsx` — Pause/Play icon button + Mark-completed with an
+  are-you-sure dialog (completing is permanent); `useLoopLifecycle` in
+  `loop-actions.tsx`. Mobile: chip flips live via loop:updated; actions
+  noted web-only in the parity todo.
+- [ ] L3.2 Channel loops panel (header affordance like tasks): list loops
+  with status pills (ChatGPT-style "Paused · Name"), next/last run, open
+  detail panel per loop.
+- [ ] L3.3 Loop detail: run history from `agent_run WHERE loop_id ORDER BY
   scheduled_for DESC` — per run: closing note, stop reason, usage counters,
   spawned tasks (`task.originRunId`), direct artifacts
   (`artifact.originRunId`), tool trail replay within the 7-day event window
   (reuse the run-event replay machinery web already has for archives).
-- Edit schedule/instructions (revalidate + recompute + re-confirm high
-  frequency when cadence tightened).
-- Punch list: delete, mobile management, editor-sheet-before-activate.
+- [ ] L3.4 Edit schedule/instructions on non-drafts (revalidate + recompute
+  + re-confirm high frequency when cadence tightened; drafts already
+  editable via PATCH since the L2.3 follow-up).
+- [ ] Punch list: delete, mobile management, editor-sheet-before-activate.
 
 ## Decisions & deviations log
 

@@ -128,6 +128,49 @@ export function useUpdateLoopSchedule(loop: ChannelLoop | null) {
   })
 }
 
+// Pause / resume / mark-completed from the loop panel. All three return the
+// updated snapshot; wrong-state races land as 409s and just toast.
+export type LoopLifecycleAction = "pause" | "resume" | "complete"
+
+export function useLoopLifecycle(loop: ChannelLoop | null) {
+  const queryClient = useQueryClient()
+
+  const mutation = useMutation({
+    mutationFn: async (action: LoopLifecycleAction) => {
+      if (!loop) throw new Error("Loop not loaded yet")
+      const client = apiClient.v1.loops[":loopId"]
+      const param = { loopId: loop.id }
+      const res =
+        action === "pause"
+          ? await client.pause.$post({ param })
+          : action === "resume"
+            ? await client.resume.$post({ param })
+            : await client.complete.$post({ param })
+      if (!res.ok) {
+        const body = await res.json().catch(() => null)
+        throw new Error(body?.message ?? `Failed to ${action} the loop`)
+      }
+      const body = await res.json()
+      return body.loop
+    },
+    onSuccess: (updated) => {
+      queryClient.setQueryData(
+        ["channel-loops", updated.channelId],
+        (existing: ChannelLoop[] | undefined) => {
+          if (!existing) return existing
+          const rest = existing.filter((l) => l.id !== updated.id)
+          return [updated, ...rest]
+        }
+      )
+    },
+    onError: (err) => {
+      toast.error(err instanceof Error ? err.message : "Loop action failed")
+    },
+  })
+
+  return mutation
+}
+
 export function LoopFrequencyDialog({
   scheduleText,
   firesPerDay,

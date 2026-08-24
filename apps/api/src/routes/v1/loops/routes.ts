@@ -112,3 +112,85 @@ export const updateLoop = createRoute({
 })
 
 export type UpdateLoopRoute = typeof updateLoop
+
+// Lifecycle actions. Wrong-state calls (pause a draft, resume an active
+// loop, double clicks) all read as 409 — the CAS in the lib helpers decides.
+
+export const pauseLoop = createRoute({
+  path: "/loops/{loopId}/pause",
+  method: "post",
+  summary: "Pause an active loop",
+  description:
+    "Stops future runs and flags any in-flight run to stop — same mechanics as a user stop.",
+  tags: ["Loops"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: {
+    params: loopParamsSchema,
+  },
+  hidden: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: activateLoopResponseSchema,
+      description: "The paused loop",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.CONFLICT]: conflictSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type PauseLoopRoute = typeof pauseLoop
+
+export const resumeLoop = createRoute({
+  path: "/loops/{loopId}/resume",
+  method: "post",
+  summary: "Resume a paused loop",
+  description:
+    "Re-validates the schedule, recomputes the next run time, and resets the failure counter.",
+  tags: ["Loops"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: {
+    params: loopParamsSchema,
+  },
+  hidden: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: activateLoopResponseSchema,
+      description: "The resumed loop",
+    }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.CONFLICT]: conflictSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type ResumeLoopRoute = typeof resumeLoop
+
+export const completeLoop = createRoute({
+  path: "/loops/{loopId}/complete",
+  method: "post",
+  summary: "Mark a loop completed",
+  description:
+    "Permanently completes an active or paused loop — it never runs again. In-flight runs are flagged to stop.",
+  tags: ["Loops"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: {
+    params: loopParamsSchema,
+  },
+  hidden: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: activateLoopResponseSchema,
+      description: "The completed loop",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.CONFLICT]: conflictSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type CompleteLoopRoute = typeof completeLoop

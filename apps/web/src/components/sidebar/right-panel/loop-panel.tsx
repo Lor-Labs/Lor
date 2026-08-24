@@ -1,10 +1,25 @@
 import {
+  CheckmarkCircle02Icon,
+  PauseIcon,
+  PlayIcon,
+} from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
+import {
   describeLoopSchedule,
   formatLoopSchedule,
   formatScheduleTime,
   type LoopScheduleShape,
   parseLoopSchedule,
 } from "@repo/realtime-types/loops"
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@repo/ui/components/alert-dialog"
 import { Badge } from "@repo/ui/components/badge"
 import { Button } from "@repo/ui/components/button"
 import {
@@ -18,6 +33,7 @@ import { useMemo, useState } from "react"
 import {
   LoopFrequencyDialog,
   useActivateLoop,
+  useLoopLifecycle,
   useUpdateLoopSchedule,
 } from "@/components/loops/loop-actions"
 import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-header"
@@ -86,6 +102,32 @@ function SectionLabel({ children }: { children: string }) {
     <p className="px-1 font-medium text-muted-foreground text-xs uppercase tracking-wide">
       {children}
     </p>
+  )
+}
+
+// Matches the header's built-in collapse button styling.
+function HeaderActionButton({
+  label,
+  icon,
+  disabled,
+  onClick,
+}: {
+  label: string
+  icon: typeof PauseIcon
+  disabled?: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      disabled={disabled}
+      onClick={onClick}
+      className="flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+    >
+      <HugeiconsIcon icon={icon} size={16} />
+    </button>
   )
 }
 
@@ -283,6 +325,8 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
     loop,
     timezone
   )
+  const lifecycle = useLoopLifecycle(loop)
+  const [confirmComplete, setConfirmComplete] = useState(false)
 
   const meta = loop ? LOOP_STATUS_META[loop.status] : null
   const scheduleText = loop ? describeLoopSchedule(loop.schedule, null) : ""
@@ -299,6 +343,33 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
             <Badge variant={meta.badgeVariant} size="sm" className="shrink-0">
               {meta.label}
             </Badge>
+          ) : undefined
+        }
+        actions={
+          loop && (loop.status === "active" || loop.status === "paused") ? (
+            <>
+              {loop.status === "active" ? (
+                <HeaderActionButton
+                  label="Pause loop"
+                  icon={PauseIcon}
+                  disabled={lifecycle.isPending}
+                  onClick={() => lifecycle.mutate("pause")}
+                />
+              ) : (
+                <HeaderActionButton
+                  label="Resume loop"
+                  icon={PlayIcon}
+                  disabled={lifecycle.isPending}
+                  onClick={() => lifecycle.mutate("resume")}
+                />
+              )}
+              <HeaderActionButton
+                label="Mark completed"
+                icon={CheckmarkCircle02Icon}
+                disabled={lifecycle.isPending}
+                onClick={() => setConfirmComplete(true)}
+              />
+            </>
           ) : undefined
         }
       />
@@ -405,6 +476,31 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
         onConfirm={() => activate({ confirm: true })}
         onDismiss={dismissConfirm}
       />
+
+      <AlertDialog open={confirmComplete} onOpenChange={setConfirmComplete}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Mark this loop completed?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Completing is permanent — the loop never runs again. Pause it
+              instead if you might want it back later.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogClose render={<Button variant="outline" />}>
+              Cancel
+            </AlertDialogClose>
+            <Button
+              onClick={() => {
+                setConfirmComplete(false)
+                lifecycle.mutate("complete")
+              }}
+            >
+              Mark completed
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
