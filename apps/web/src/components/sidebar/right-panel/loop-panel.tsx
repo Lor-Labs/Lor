@@ -3,9 +3,11 @@ import {
   Cancel01Icon,
   CheckmarkCircle02Icon,
   Clock01Icon,
+  Delete02Icon,
   Loading03Icon,
   MoreHorizontalIcon,
   PauseIcon,
+  PencilEdit01Icon,
   PlayIcon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
@@ -28,6 +30,15 @@ import {
 import { Badge } from "@repo/ui/components/badge"
 import { Button } from "@repo/ui/components/button"
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@repo/ui/components/dialog"
+import { Input } from "@repo/ui/components/input"
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -46,6 +57,7 @@ import { ArtifactFileCard } from "@/components/chat/artifact-file-card"
 import {
   LoopFrequencyDialog,
   useActivateLoop,
+  useDeleteLoop,
   useLoopLifecycle,
   useUpdateLoop,
 } from "@/components/loops/loop-actions"
@@ -568,6 +580,7 @@ function ScheduleEditor({
 }
 
 export function LoopPanel({ view }: { view: LoopSidebarView }) {
+  const { setView } = useRightSidebar()
   const { data } = useChannelLoops(view.channelId)
   const loop = data?.find((l) => l.id === view.loopId) ?? null
   const { data: runs, isPending: runsPending } = useLoopRuns(
@@ -596,11 +609,19 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
   )
   const lifecycle = useLoopLifecycle(loop)
   const updateLoop = useUpdateLoop(loop)
+  const deleteLoop = useDeleteLoop(loop)
   const [confirmComplete, setConfirmComplete] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  // Null = rename dialog closed; a string is the draft being edited.
+  const [nameDraft, setNameDraft] = useState<string | null>(null)
 
   const meta = loop ? LOOP_STATUS_META[loop.status] : null
   const scheduleText = loop ? describeLoopSchedule(loop.schedule, null) : ""
   const isDraft = loop?.status === "draft"
+  // Hourly cadence reads the same in every timezone — the row is just noise.
+  const isHourly = loop
+    ? parseLoopSchedule(loop.schedule).kind === "hourly"
+    : false
 
   return (
     <div className="flex h-full w-full flex-col">
@@ -617,16 +638,17 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
           ) : undefined
         }
         actions={
-          loop && (loop.status === "active" || loop.status === "paused") ? (
+          loop ? (
             <>
-              {loop.status === "active" ? (
+              {loop.status === "active" && (
                 <HeaderActionButton
                   label="Pause loop"
                   icon={PauseIcon}
                   disabled={lifecycle.isPending}
                   onClick={() => lifecycle.mutate("pause")}
                 />
-              ) : (
+              )}
+              {loop.status === "paused" && (
                 <HeaderActionButton
                   label="Resume loop"
                   icon={PlayIcon}
@@ -640,7 +662,7 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
                     <button
                       type="button"
                       aria-label="Loop options"
-                      disabled={lifecycle.isPending}
+                      disabled={lifecycle.isPending || deleteLoop.isPending}
                       className="flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
                     />
                   }
@@ -648,9 +670,24 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
                   <HugeiconsIcon icon={MoreHorizontalIcon} size={16} />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={() => setConfirmComplete(true)}>
-                    <HugeiconsIcon icon={CheckmarkCircle02Icon} size={14} />
-                    Mark completed
+                  {loop.status !== "completed" && (
+                    <DropdownMenuItem onClick={() => setNameDraft(loop.name)}>
+                      <HugeiconsIcon icon={PencilEdit01Icon} size={14} />
+                      Rename
+                    </DropdownMenuItem>
+                  )}
+                  {(loop.status === "active" || loop.status === "paused") && (
+                    <DropdownMenuItem onClick={() => setConfirmComplete(true)}>
+                      <HugeiconsIcon icon={CheckmarkCircle02Icon} size={14} />
+                      Mark completed
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuItem
+                    className="text-destructive"
+                    onClick={() => setConfirmDelete(true)}
+                  >
+                    <HugeiconsIcon icon={Delete02Icon} size={14} />
+                    Delete loop
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -683,32 +720,34 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
                   onApply={(schedule) => updateLoop.update({ schedule })}
                 />
               )}
-              <DetailRow label="Timezone">
-                {isDraft ? (
-                  <Select
-                    items={timezoneItems}
-                    value={timezone}
-                    onValueChange={(v) => v && setSelectedTimezone(v)}
-                  >
-                    <SelectTrigger
-                      aria-label="Timezone"
-                      disabled={isPending}
-                      className="h-8 max-w-56"
+              {!isHourly && (
+                <DetailRow label="Timezone">
+                  {isDraft ? (
+                    <Select
+                      items={timezoneItems}
+                      value={timezone}
+                      onValueChange={(v) => v && setSelectedTimezone(v)}
                     >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {timezoneItems.map((tz) => (
-                        <SelectItem key={tz.value} value={tz.value}>
-                          {tz.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  (loop.timezone ?? "—")
-                )}
-              </DetailRow>
+                      <SelectTrigger
+                        aria-label="Timezone"
+                        disabled={isPending}
+                        className="h-8 max-w-56"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {timezoneItems.map((tz) => (
+                          <SelectItem key={tz.value} value={tz.value}>
+                            {tz.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    (loop.timezone ?? "—")
+                  )}
+                </DetailRow>
+              )}
               <DetailRow label="End repeat">
                 {loop.endCondition ?? "Never"}
               </DetailRow>
@@ -826,6 +865,84 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this loop?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes the loop and its card from the channel permanently.
+              Past run activity stays in the channel history.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogClose render={<Button variant="outline" />}>
+              Cancel
+            </AlertDialogClose>
+            <Button
+              variant="destructive"
+              loading={deleteLoop.isPending}
+              onClick={() =>
+                deleteLoop.mutate(undefined, {
+                  onSuccess: () => {
+                    setConfirmDelete(false)
+                    // The loop is gone — land back on the channel overview.
+                    setView({
+                      type: "workspace-members",
+                      workspaceSlug: view.workspaceSlug,
+                      channelId: view.channelId,
+                    })
+                  },
+                })
+              }
+            >
+              Delete loop
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Dialog
+        open={nameDraft !== null}
+        onOpenChange={(open) => {
+          if (!open) setNameDraft(null)
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Rename loop</DialogTitle>
+            <DialogDescription className="sr-only">
+              Change this loop's name.
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            value={nameDraft ?? ""}
+            onChange={(e) => setNameDraft(e.target.value)}
+            maxLength={80}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && nameDraft?.trim()) {
+                updateLoop.update({ name: nameDraft.trim() })
+                setNameDraft(null)
+              }
+            }}
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setNameDraft(null)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={!nameDraft?.trim() || updateLoop.isPending}
+              onClick={() => {
+                if (!nameDraft?.trim()) return
+                updateLoop.update({ name: nameDraft.trim() })
+                setNameDraft(null)
+              }}
+            >
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

@@ -13,6 +13,7 @@ import {
   activateLoopBodySchema,
   activateLoopResponseSchema,
   channelLoopsParamsSchema,
+  deleteLoopResponseSchema,
   listChannelLoopsResponseSchema,
   listLoopRunsResponseSchema,
   loopParamsSchema,
@@ -224,3 +225,28 @@ export const listLoopRuns = createRoute({
 })
 
 export type ListLoopRunsRoute = typeof listLoopRuns
+
+export const deleteLoop = createRoute({
+  path: "/loops/{loopId}",
+  method: "delete",
+  summary: "Delete a loop",
+  description:
+    "Hard-deletes the loop and its card message; in-flight runs are flagged to stop. Run history rows survive for audit.",
+  tags: ["Loops"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: {
+    params: loopParamsSchema,
+  },
+  hidden: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: deleteLoopResponseSchema,
+      description: "Loop deleted",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type DeleteLoopRoute = typeof deleteLoop

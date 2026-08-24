@@ -459,7 +459,19 @@ apps/realtime `services/merlin.ts`, card rendering in web
   editor enabled for active/paused, Prompt section editable in place
   (pencil → textarea → Save; takes effect from the next fire). Name edit is
   API-ready, no web UI yet (punch list).
-- [ ] Punch list: delete, mobile management, editor-sheet-before-activate.
+- [x] Punch list, web (2026-08-24): DELETE `/v1/loops/{loopId}` (hard-deletes
+  the row AND its card message — an orphan card would render stale forever;
+  in-flight runs get the pause-style stop; run rows survive via set-null
+  FK; new `loop:deleted` channel-room event, handled by web + mobile
+  caches). Panel … menu now on every status: Rename (non-completed →
+  dialog, PATCH `name`), Mark completed (active/paused), Delete (always,
+  destructive + confirm; closes the panel to the overview). Timezone row
+  hidden for hourly schedules (reads the same in every tz). Loop-view
+  header drops the collapse toggle (`hideCollapse`); prompt is
+  click-to-edit with blur-save. Editor-sheet-before-activate DROPPED as
+  obsolete — the detail panel already edits drafts in place.
+  Still open: mobile management (detail view/editor/lifecycle — see
+  mobile-parity-todo), per-run tool-trail replay (punted).
 
 ## Decisions & deviations log
 

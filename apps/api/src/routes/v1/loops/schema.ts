@@ -124,3 +124,7 @@ export const loopRunSchema = z.object({
 export const listLoopRunsResponseSchema = z.object({
   runs: z.array(loopRunSchema),
 })
+
+export const deleteLoopResponseSchema = z.object({
+  success: z.literal(true),
+})

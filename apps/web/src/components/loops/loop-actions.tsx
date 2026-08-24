@@ -236,6 +236,40 @@ export function useLoopLifecycle(loop: ChannelLoop | null) {
   return mutation
 }
 
+// Hard delete from the … menu — the server removes the card message too and
+// broadcasts loop:deleted; the local cache removal here just beats the socket.
+export function useDeleteLoop(loop: ChannelLoop | null) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async () => {
+      if (!loop) throw new Error("Loop not loaded yet")
+      const res = await apiClient.v1.loops[":loopId"].$delete({
+        param: { loopId: loop.id },
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => null)
+        throw new Error(body?.message ?? "Failed to delete the loop")
+      }
+      return res.json()
+    },
+    onSuccess: () => {
+      if (!loop) return
+      queryClient.setQueryData(
+        ["channel-loops", loop.channelId],
+        (existing: ChannelLoop[] | undefined) =>
+          existing?.filter((l) => l.id !== loop.id)
+      )
+      queryClient.removeQueries({ queryKey: ["loop-runs", loop.id] })
+    },
+    onError: (err) => {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to delete the loop"
+      )
+    },
+  })
+}
+
 export function LoopFrequencyDialog({
   scheduleText,
   firesPerDay,

@@ -553,6 +553,8 @@ export interface ServerToClientEvents {
   "task:updated": (payload: TaskUpdatedEvent) => void
   // Loop snapshot changed (status, schedule, run bookkeeping). Channel room.
   "loop:updated": (payload: LoopUpdatedEvent) => void
+  // Loop hard-deleted (its card message goes separately via message:deleted).
+  "loop:deleted": (payload: { loopId: string; channelId: string }) => void
   "message:pin:toggled": (payload: RealtimeMessagePinToggled) => void
   "message:thread:updated": (payload: RealtimeMessageThreadUpdated) => void
   "notification:bootstrap": (payload: NotificationBootstrap) => void

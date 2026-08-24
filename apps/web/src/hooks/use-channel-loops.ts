@@ -53,9 +53,22 @@ export function useChannelLoops(channelId: string) {
         queryKey: ["loop-runs", payload.loop.id],
       })
     }
+    const handleLoopDeleted: ServerToClientEvents["loop:deleted"] = (
+      payload
+    ) => {
+      if (payload.channelId !== channelId) return
+      queryClient.setQueryData(
+        ["channel-loops", channelId],
+        (existing: ChannelLoop[] | undefined) =>
+          existing?.filter((l) => l.id !== payload.loopId)
+      )
+      queryClient.removeQueries({ queryKey: ["loop-runs", payload.loopId] })
+    }
     socket.on("loop:updated", handleLoopUpdated)
+    socket.on("loop:deleted", handleLoopDeleted)
     return () => {
       socket.off("loop:updated", handleLoopUpdated)
+      socket.off("loop:deleted", handleLoopDeleted)
     }
   }, [socket, queryClient, channelId])
 

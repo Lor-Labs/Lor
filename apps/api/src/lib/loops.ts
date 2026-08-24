@@ -151,3 +151,36 @@ export async function completeLoopManually(input: {
   await emitLoopUpdated(completed)
   return completed
 }
+
+// Hard delete: the loop row AND its card message — the card is the loop's
+// representation, an orphan would render a stale fallback forever. Run rows
+// survive (agent_run.loopId nulls via FK) for audit. In-flight runs get the
+// same stop treatment as pause.
+export async function deleteLoop(input: {
+  loop: Loop
+  requestedBy?: string
+}): Promise<void> {
+  await stopInFlightRuns(input.loop.id, input.requestedBy)
+  await db.delete(schema.loop).where(eq(schema.loop.id, input.loop.id))
+
+  const emitter = await getEmitter().catch(() => null)
+  if (input.loop.cardMessageId) {
+    await db
+      .delete(schema.message)
+      .where(eq(schema.message.id, input.loop.cardMessageId))
+      .catch((err) => {
+        logger.error(
+          { err, loopId: input.loop.id },
+          "Loop delete: card message delete failed"
+        )
+      })
+    emitter?.to(channelRoom(input.loop.channelId)).emit("message:deleted", {
+      channelId: input.loop.channelId,
+      messageId: input.loop.cardMessageId,
+    })
+  }
+  emitter?.to(channelRoom(input.loop.channelId)).emit("loop:deleted", {
+    loopId: input.loop.id,
+    channelId: input.loop.channelId,
+  })
+}

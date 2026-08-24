@@ -7,6 +7,7 @@ import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
 import {
   completeLoopManually,
+  deleteLoop as deleteLoopAction,
   emitLoopUpdated,
   pauseLoop as pauseLoopAction,
   resumeLoop as resumeLoopAction,
@@ -16,6 +17,7 @@ import { serializeArtifact } from "@/routes/v1/artifacts/handlers"
 import type {
   ActivateLoopRoute,
   CompleteLoopRoute,
+  DeleteLoopRoute,
   ListChannelLoopsRoute,
   ListLoopRunsRoute,
   PauseLoopRoute,
@@ -342,6 +344,21 @@ export const completeLoop: AppRouteHandler<CompleteLoopRoute> = async (c) => {
     )
   }
   return c.json({ loop: toRealtimeLoop(completed) }, HttpStatusCodes.OK)
+}
+
+export const deleteLoop: AppRouteHandler<DeleteLoopRoute> = async (c) => {
+  const currentUser = c.var.user
+  const { loopId } = c.req.valid("param")
+
+  const found = await loadAccessibleLoop(loopId, currentUser.id)
+  if (!found) {
+    return c.json(
+      { success: false as const, message: "Loop not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  await deleteLoopAction({ loop: found.loop, requestedBy: currentUser.id })
+  return c.json({ success: true as const }, HttpStatusCodes.OK)
 }
 
 const RUN_HISTORY_LIMIT = 20
