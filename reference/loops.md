@@ -165,7 +165,7 @@ Validation: `pnpm run validate` (runs merlin tests).
 
 ---
 
-### [ ] L1.3 — Merlin: complete_loop, loop prompt, sandboxKey
+### [x] L1.3 — Merlin: complete_loop, loop prompt, sandboxKey
 
 `packages/merlin/src/triggered.ts`:
 - `export type TriggeredCompleteLoop = (input: { closingNote: string }) =>

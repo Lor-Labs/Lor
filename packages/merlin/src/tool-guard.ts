@@ -28,6 +28,8 @@ const SIDE_EFFECT_TOOLS = new Set([
   // message (or opens the same task) twice.
   "post_channel_message",
   "create_task",
+  // Loop runs: a retried step must not double-complete the loop.
+  "complete_loop",
 ])
 
 // Canonical JSON (sorted object keys) so the same logical input always hashes

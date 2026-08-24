@@ -12,6 +12,7 @@
     "./connector-search": "./src/connector-search.ts",
     "./custom-tools": "./src/custom-tools.ts",
     "./github": "./src/github.ts",
+    "./loop-runs": "./src/loop-runs.ts",
     "./loop-schedule": "./src/loop-schedule.ts",
     "./loops": "./src/loops.ts",
     "./placement": "./src/placement.ts",

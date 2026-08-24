@@ -12,6 +12,7 @@ import {
   lt,
   ne,
   or,
+  type SQL,
   schema,
   sql,
 } from "@repo/db"
@@ -304,16 +305,19 @@ export type BriefingRun = {
 export type BriefingMessage = { authorName: string | null; content: string }
 
 // The prompt block itself. Pure so the framing — which is what actually steers
-// a successor run — is testable without a database.
+// a successor run — is testable without a database. `header` lets the loop
+// chain rewrite the title line; the body framing is shared.
 export function formatActBriefing(input: {
   priorRuns: BriefingRun[]
   totalRuns: number
   messagesSinceLastRun: BriefingMessage[]
+  header?: string
 }): string | null {
   const lines: string[] = []
   if (input.priorRuns.length > 0) {
     lines.push(
-      `## Earlier runs on this trigger (newest first; ${input.totalRuns} in the last 24h)`,
+      input.header ??
+        `## Earlier runs on this trigger (newest first; ${input.totalRuns} in the last 24h)`,
       "These are your predecessors' own words, not verified facts. If one says it",
       "already filed, created, or fixed something, check the current state with your",
       "tools before doing it again.",
@@ -371,12 +375,26 @@ export async function actRunBriefing(input: {
   // The run being briefed (excluded from its own history).
   runId: string
 }): Promise<string | null> {
+  // Triggers fire often; only the last day of chain history is relevant.
   const since = new Date(Date.now() - BRIEFING_MAX_AGE_MS)
-  const history = and(
-    eq(schema.agentRun.triggerId, input.triggerId),
-    ne(schema.agentRun.id, input.runId),
-    gte(schema.agentRun.createdAt, since)
-  )
+  return composeRunChainBriefing({
+    history: and(
+      eq(schema.agentRun.triggerId, input.triggerId),
+      ne(schema.agentRun.id, input.runId),
+      gte(schema.agentRun.createdAt, since)
+    ),
+    channelId: input.channelId,
+  })
+}
+
+// Shared chain-briefing composer: prior runs matching `history` (their
+// handoff notes + recorded actions) and channel activity since the newest
+// one. Act and loop chains differ only in the history filter and header.
+export async function composeRunChainBriefing(input: {
+  history: SQL<unknown> | undefined
+  channelId: string
+  headerFor?: (totalRuns: number) => string
+}): Promise<string | null> {
   const [recent, totalRuns] = await Promise.all([
     db
       .select({
@@ -387,13 +405,13 @@ export async function actRunBriefing(input: {
         note: schema.agentRun.handoffNote,
       })
       .from(schema.agentRun)
-      .where(history)
+      .where(input.history)
       .orderBy(desc(schema.agentRun.createdAt))
       .limit(BRIEFING_RUNS),
     db
       .select({ value: sql<number>`count(*)::int` })
       .from(schema.agentRun)
-      .where(history)
+      .where(input.history)
       .then((rows) => rows[0]?.value ?? 0),
   ])
 
@@ -454,6 +472,7 @@ export async function actRunBriefing(input: {
       authorName: m.authorName,
       content: m.content ?? "",
     })),
+    header: input.headerFor?.(totalRuns),
   })
 }
 

@@ -79,6 +79,8 @@ import { type RunTaskContext, taskPromptSection, taskTools } from "./tasks"
 import { guardTools } from "./tool-guard"
 import { channelToolServers, toolServersPromptLine } from "./tool-servers"
 import {
+  completeLoopTool,
+  loopPromptSection,
   type RunTriggeredContext,
   triggeredPromptSection,
   triggeredTools,
@@ -261,6 +263,10 @@ export type RespondContext = {
   // tools and injects the trigger's instructions — which appear in the
   // system prompt only when the trigger fires.
   triggered?: RunTriggeredContext
+  // Overrides the persistent-sandbox scope (default threadRootId ??
+  // channelId). Loop runs pass loop.id so co-channel loops/triggers never
+  // share a warm checkout — keeps "sandbox key = run scope" true for them.
+  sandboxKey?: string
 }
 
 export type ToolEvent = MerlinToolCallUpdate
@@ -299,6 +305,7 @@ export {
 } from "./run"
 export type {
   RunTriggeredContext,
+  TriggeredCompleteLoop,
   TriggeredCreateTask,
   TriggeredPostMessage,
 } from "./triggered"
@@ -1569,6 +1576,7 @@ export async function respond(
       ...(artifactsEnabled ? artifactTools : {}),
       ...(ctx.task ? taskTools : {}),
       ...(ctx.triggered ? triggeredTools : {}),
+      ...(ctx.triggered?.completeLoop ? completeLoopTool : {}),
       ...(linear && caps.includes("linear") ? linearTools : {}),
       ...(linear && caps.includes("linear_write") ? linearWriteTools : {}),
       ...(attio && caps.includes("attio") ? attioTools : {}),
@@ -1651,7 +1659,8 @@ export async function respond(
               repos: github.repos,
               // Thread scope when there is one; channel scope otherwise —
               // matches the run scope, so follow-ups land in the same sandbox.
-              sandboxKey: ctx.threadRootId ?? ctx.channelId,
+              // Loop runs override with loop.id (their run scope).
+              sandboxKey: ctx.sandboxKey ?? ctx.threadRootId ?? ctx.channelId,
               deadlineAt: budgets.deadlineAt,
               onUsage,
               onToolEvent,
@@ -1694,6 +1703,11 @@ export async function respond(
         ? {
             post_channel_message: { postMessage: ctx.triggered.postMessage },
             create_task: { createTask: ctx.triggered.createTask },
+            ...(ctx.triggered.completeLoop
+              ? {
+                  complete_loop: { completeLoop: ctx.triggered.completeLoop },
+                }
+              : {}),
           }
         : {}),
       ...(linear
@@ -1770,7 +1784,7 @@ export async function respond(
         loadWorkspaceInstructions(ctx.workspaceId),
       ])
       const userMessage = await buildInitialUserMessage(context)
-      instructions = `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}${context.rosterText ? `\n\n${MENTION_GUIDANCE}` : ""}${workspaceInstructions ? `\n\n${formatInstructionsBlock(workspaceInstructions)}` : ""}${ctx.task ? `\n\n${taskPromptSection(ctx.task, artifactsEnabled)}` : ""}${ctx.triggered ? `\n\n${triggeredPromptSection(ctx.triggered)}` : ""}`
+      instructions = `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}${context.rosterText ? `\n\n${MENTION_GUIDANCE}` : ""}${workspaceInstructions ? `\n\n${formatInstructionsBlock(workspaceInstructions)}` : ""}${ctx.task ? `\n\n${taskPromptSection(ctx.task, artifactsEnabled)}` : ""}${ctx.triggered ? `\n\n${ctx.triggered.loop ? loopPromptSection({ ...ctx.triggered, loop: ctx.triggered.loop }) : triggeredPromptSection(ctx.triggered)}` : ""}`
       messages = [userMessage]
       counters = { ...ZERO_RUN_COUNTERS }
       text = ""
