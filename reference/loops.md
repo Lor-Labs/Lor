@@ -217,7 +217,7 @@ Validation: `pnpm run validate`.
 
 ---
 
-### [ ] L1.4 — Worker: shared executor, loop processor, sweep, settlement
+### [x] L1.4 — Worker: shared executor, loop processor, sweep, settlement
 
 The heart. Read `apps/worker/src/jobs/triggered-run.ts` fully first
 (~522 lines) plus `apps/worker/src/index.ts` bootstrap and
@@ -382,3 +382,21 @@ apps/realtime `services/merlin.ts`, card rendering in web
 - 2026-08-23 — Runbook created. Architecture locked per the table above
   (dedicated queue over shared; settlement-based failure counting; direct
   artifacts confirmed possible — artifacts are not task-gated).
+- 2026-08-23 — L1.2: `loop:updated` carries a full `RealtimeLoop` snapshot
+  (mirrors `task:updated`; the card renders from the event, no refetch).
+  Wire types are drift-guarded against the DB rows at compile time in
+  `@repo/merlin` (`wire-guard.ts`; `toRealtimeLoop` in `loops.ts`,
+  `toRealtimeTask` in `tasks.ts` — the latter also deduped three
+  `serializeTask` copies across api/worker/realtime).
+- 2026-08-23 — L1.3: loop briefings have NO 24h age cutoff (a weekly loop's
+  predecessor is 7 days old and is exactly what the successor needs);
+  trigger briefings keep theirs. Shared composer:
+  `composeRunChainBriefing` in act-runs.ts.
+- 2026-08-23 — L1.4 additions beyond the plan: (1) `sweepDeadRuns` gained a
+  `redis` param and a loop-settlement pass — a force-failed dead loop run
+  reaches its terminal transition in the sweep, so the failure counter /
+  auto-pause runs there too, or dead runs would never count. (2) Act
+  triggered runs now also record `task.originRunId` when their disposition
+  spawns a task (free once the column existed). (3) In the shared executor,
+  `onSettled` fires after the terminal transition but BEFORE write-back —
+  a write-back failure must not distort failure accounting.
