@@ -9,5 +9,6 @@ const loopsRouter = createRouter()
   .openapi(routes.pauseLoop, handlers.pauseLoop)
   .openapi(routes.resumeLoop, handlers.resumeLoop)
   .openapi(routes.completeLoop, handlers.completeLoop)
+  .openapi(routes.listLoopRuns, handlers.listLoopRuns)
 
 export default loopsRouter

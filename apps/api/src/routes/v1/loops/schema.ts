@@ -1,5 +1,12 @@
 import { z } from "@hono/zod-openapi"
-import { loopPausedReasonEnum, loopStatusEnum } from "@repo/db/schema"
+import {
+  agentRunStateEnum,
+  agentRunStopReasonEnum,
+  loopPausedReasonEnum,
+  loopStatusEnum,
+  taskStatusEnum,
+} from "@repo/db/schema"
+import { artifactSchema } from "@/routes/v1/artifacts/schema"
 
 export const channelLoopsParamsSchema = z.object({
   channelId: z
@@ -74,4 +81,33 @@ export const requiresConfirmationResponseSchema = z.object({
   message: z.string(),
   // Approximate fires per day at the schedule's tightest gap, for the dialog.
   firesPerDay: z.number(),
+})
+
+// One scheduled run in the loop's history: outcome, the closing note the run
+// left for its successor, and what it spawned (tasks/artifacts by originRunId).
+export const loopRunSchema = z.object({
+  id: z.string().uuid(),
+  state: z.enum(agentRunStateEnum.enumValues),
+  stopReason: z.enum(agentRunStopReasonEnum.enumValues).nullable(),
+  scheduledFor: z.string().nullable(),
+  createdAt: z.string(),
+  finishedAt: z.string().nullable(),
+  note: z.string().nullable(),
+  creditsSpent: z.number().int(),
+  // Distinct side-effecting tools the run executed — the mechanical account
+  // that survives a run dying before it wrote a note.
+  effects: z.array(z.string()),
+  tasks: z.array(
+    z.object({
+      id: z.string().uuid(),
+      title: z.string(),
+      status: z.enum(taskStatusEnum.enumValues),
+      cardMessageId: z.string().uuid().nullable(),
+    })
+  ),
+  artifacts: z.array(artifactSchema),
+})
+
+export const listLoopRunsResponseSchema = z.object({
+  runs: z.array(loopRunSchema),
 })

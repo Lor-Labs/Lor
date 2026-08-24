@@ -1,3 +1,4 @@
+import type { InferResponseType } from "@repo/api-client"
 import type { RealtimeLoop, ServerToClientEvents } from "@repo/realtime-types"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect } from "react"
@@ -5,6 +6,11 @@ import { useSocket } from "@/context/socket-context"
 import { apiClient } from "@/lib/api-client"
 
 export type ChannelLoop = RealtimeLoop
+
+export type LoopRun = InferResponseType<
+  (typeof apiClient.v1.loops)[":loopId"]["runs"]["$get"],
+  200
+>["runs"][number]
 
 export function channelLoopsQueryOptions(channelId: string) {
   return {
@@ -41,6 +47,11 @@ export function useChannelLoops(channelId: string) {
           return [payload.loop, ...rest]
         }
       )
+      // A status/lastRun flip usually means a run started or settled —
+      // refresh the history lazily (only refetches while the panel shows it).
+      queryClient.invalidateQueries({
+        queryKey: ["loop-runs", payload.loop.id],
+      })
     }
     socket.on("loop:updated", handleLoopUpdated)
     return () => {
@@ -57,4 +68,20 @@ export function useLoopForCard(
 ): ChannelLoop | null {
   const { data } = useChannelLoops(channelId)
   return data?.find((l) => l.cardMessageId === cardMessageId) ?? null
+}
+
+// Run history for the loop detail panel, newest scheduled fire first.
+export function useLoopRuns(loopId: string | null) {
+  return useQuery({
+    queryKey: ["loop-runs", loopId ?? ""],
+    enabled: loopId !== null,
+    queryFn: async (): Promise<LoopRun[]> => {
+      const res = await apiClient.v1.loops[":loopId"].runs.$get({
+        param: { loopId: loopId ?? "" },
+      })
+      if (!res.ok) throw new Error("Failed to fetch loop runs")
+      const payload = await res.json()
+      return payload.runs
+    },
+  })
 }

@@ -1,5 +1,9 @@
 import {
+  AlertCircleIcon,
+  Cancel01Icon,
   CheckmarkCircle02Icon,
+  Clock01Icon,
+  Loading03Icon,
   PauseIcon,
   PlayIcon,
 } from "@hugeicons/core-free-icons"
@@ -30,6 +34,7 @@ import {
   SelectValue,
 } from "@repo/ui/components/select"
 import { useMemo, useState } from "react"
+import { ArtifactFileCard } from "@/components/chat/artifact-file-card"
 import {
   LoopFrequencyDialog,
   useActivateLoop,
@@ -37,9 +42,16 @@ import {
   useUpdateLoopSchedule,
 } from "@/components/loops/loop-actions"
 import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-header"
+import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import type { LoopSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
-import { type ChannelLoop, useChannelLoops } from "@/hooks/use-channel-loops"
+import {
+  type ChannelLoop,
+  type LoopRun,
+  useChannelLoops,
+  useLoopRuns,
+} from "@/hooks/use-channel-loops"
 import { LOOP_PAUSED_REASON_LABEL, LOOP_STATUS_META } from "@/lib/loop-ui"
+import { TASK_STATUS_META } from "@/lib/task-ui"
 
 // Loop detail panel (ChatGPT-scheduled-tasks inspired): the card in chat is
 // a compact pill; everything else lives here — the full prompt, a structured
@@ -103,6 +115,168 @@ function SectionLabel({ children }: { children: string }) {
       {children}
     </p>
   )
+}
+
+const RUN_STATE_META: Record<
+  LoopRun["state"],
+  {
+    label: string
+    badgeVariant: "info" | "success" | "error" | "secondary"
+    icon: typeof Clock01Icon
+    spin?: boolean
+  }
+> = {
+  queued: { label: "Queued", badgeVariant: "secondary", icon: Clock01Icon },
+  working: {
+    label: "Running",
+    badgeVariant: "info",
+    icon: Loading03Icon,
+    spin: true,
+  },
+  finalizing: {
+    label: "Running",
+    badgeVariant: "info",
+    icon: Loading03Icon,
+    spin: true,
+  },
+  complete: {
+    label: "Completed",
+    badgeVariant: "success",
+    icon: CheckmarkCircle02Icon,
+  },
+  failed: { label: "Failed", badgeVariant: "error", icon: AlertCircleIcon },
+  stopped: { label: "Stopped", badgeVariant: "secondary", icon: Cancel01Icon },
+}
+
+// One run in the history: collapsed = time + outcome (+ one-line note
+// preview); expanded = the full closing note, recorded actions, stop reason,
+// and whatever the run spawned (task rows open their thread; artifact chips).
+function LoopRunRow({ run, view }: { run: LoopRun; view: LoopSidebarView }) {
+  const { setView, isCollapsed, toggleCollapsed } = useRightSidebar()
+  const [expanded, setExpanded] = useState(false)
+  const meta = RUN_STATE_META[run.state]
+  const hasDetail =
+    Boolean(run.note) ||
+    run.effects.length > 0 ||
+    run.tasks.length > 0 ||
+    run.artifacts.length > 0 ||
+    Boolean(run.stopReason && run.stopReason !== "completed")
+
+  const openTaskThread = (cardMessageId: string) => {
+    setView({
+      type: "thread",
+      workspaceSlug: view.workspaceSlug,
+      channelId: view.channelId,
+      threadRootId: cardMessageId,
+    })
+    if (isCollapsed) toggleCollapsed()
+  }
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => hasDetail && setExpanded((v) => !v)}
+        className={cnRunRow(hasDetail)}
+      >
+        <div className="min-w-0 flex-1">
+          <p className="truncate font-medium text-sm leading-5">
+            {formatRunTime(run.scheduledFor ?? run.createdAt)}
+          </p>
+          {!expanded && run.note && (
+            <p className="truncate text-muted-foreground text-xs leading-4">
+              {run.note}
+            </p>
+          )}
+        </div>
+        <Badge variant={meta.badgeVariant} size="sm" className="shrink-0">
+          <HugeiconsIcon
+            icon={meta.icon}
+            size={12}
+            className={meta.spin ? "animate-spin" : undefined}
+          />
+          {meta.label}
+        </Badge>
+      </button>
+
+      {expanded && (
+        <div className="space-y-3 px-4 pb-3.5">
+          {run.stopReason && run.stopReason !== "completed" && (
+            <p className="text-muted-foreground text-xs">
+              Stopped: {run.stopReason.replace(/_/g, " ")}
+            </p>
+          )}
+          {run.note && (
+            <p className="whitespace-pre-wrap break-words text-muted-foreground text-sm leading-6">
+              {run.note}
+            </p>
+          )}
+          {run.effects.length > 0 && (
+            <p className="text-muted-foreground text-xs">
+              Actions: {run.effects.join(", ")}
+            </p>
+          )}
+          {run.tasks.length > 0 && (
+            <div className="space-y-1">
+              {run.tasks.map((task) => {
+                const taskMeta = TASK_STATUS_META[task.status]
+                return (
+                  <button
+                    key={task.id}
+                    type="button"
+                    disabled={!task.cardMessageId}
+                    onClick={() => {
+                      if (task.cardMessageId) openTaskThread(task.cardMessageId)
+                    }}
+                    className="flex w-full cursor-pointer items-center justify-between gap-3 rounded-lg bg-secondary/60 px-3 py-2 text-left ring-1 ring-border/40 ring-inset transition-colors hover:bg-secondary disabled:cursor-default"
+                  >
+                    <span className="min-w-0 truncate text-sm">
+                      {task.title}
+                    </span>
+                    <Badge
+                      variant={taskMeta.badgeVariant}
+                      size="sm"
+                      className="shrink-0"
+                    >
+                      <HugeiconsIcon
+                        icon={taskMeta.icon}
+                        size={12}
+                        className={taskMeta.spin ? "animate-spin" : undefined}
+                      />
+                      {taskMeta.label}
+                    </Badge>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+          {run.artifacts.length > 0 && (
+            <div className="grid grid-cols-1 gap-2">
+              {run.artifacts.map((artifact) => (
+                <ArtifactFileCard
+                  key={artifact.id}
+                  artifactId={artifact.id}
+                  name={artifact.path}
+                  contentType={artifact.mime}
+                  size={artifact.size}
+                  variant="chip"
+                  className="w-full max-w-none"
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function cnRunRow(clickable: boolean) {
+  return `flex w-full items-center justify-between gap-3 px-4 py-3 text-left ${
+    clickable
+      ? "cursor-pointer transition-colors hover:bg-foreground/[0.03]"
+      : "cursor-default"
+  }`
 }
 
 // Matches the header's built-in collapse button styling.
@@ -304,6 +478,9 @@ function ScheduleEditor({ loop }: { loop: ChannelLoop }) {
 export function LoopPanel({ view }: { view: LoopSidebarView }) {
   const { data } = useChannelLoops(view.channelId)
   const loop = data?.find((l) => l.id === view.loopId) ?? null
+  const { data: runs, isPending: runsPending } = useLoopRuns(
+    loop && loop.status !== "draft" ? loop.id : null
+  )
 
   const deviceTimezone = useMemo(
     () => Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -454,6 +631,27 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
                 <p className="whitespace-pre-wrap break-words text-muted-foreground text-sm leading-6">
                   {loop.completedNote}
                 </p>
+              </div>
+            </div>
+          )}
+
+          {loop.status !== "draft" && (
+            <div className="space-y-2">
+              <SectionLabel>Recent runs</SectionLabel>
+              <div className="divide-y divide-border/70 rounded-xl border bg-card">
+                {runsPending && (
+                  <p className="px-4 py-3.5 text-muted-foreground text-sm">
+                    Loading…
+                  </p>
+                )}
+                {runs && runs.length === 0 && (
+                  <p className="px-4 py-3.5 text-muted-foreground text-sm">
+                    No runs yet.
+                  </p>
+                )}
+                {runs?.map((run) => (
+                  <LoopRunRow key={run.id} run={run} view={view} />
+                ))}
               </div>
             </div>
           )}

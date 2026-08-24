@@ -429,11 +429,21 @@ apps/realtime `services/merlin.ts`, card rendering in web
   behavior — the list panel is reached only via Show more). The earlier
   chat-header ∞ toggle was removed — discovery lives in the overview
   panel.
-- [ ] L3.3 Loop detail: run history from `agent_run WHERE loop_id ORDER BY
-  scheduled_for DESC` — per run: closing note, stop reason, usage counters,
-  spawned tasks (`task.originRunId`), direct artifacts
-  (`artifact.originRunId`), tool trail replay within the 7-day event window
-  (reuse the run-event replay machinery web already has for archives).
+- [x] L3.3 Loop detail run history (2026-08-24): `GET /v1/loops/{loopId}/runs`
+  — newest scheduled fire first (`coalesce(scheduled_for, created_at)`,
+  limit 20), per run: state, stop reason, closing note (`handoffNote`),
+  credits spent, recorded actions (distinct `agent_run_tool_result` tool
+  names), spawned tasks (`task.originRunId`) and direct artifacts
+  (`artifact.originRunId`, serialized via the artifacts module's exported
+  `serializeArtifact`). Web: "Recent runs" section in `loop-panel.tsx`
+  (non-drafts) — collapsed rows show fire time + outcome chip + one-line
+  note preview; expanding reveals the full note, stop reason, actions,
+  task rows (click opens the task thread) and artifact chips
+  (`ArtifactFileCard`). `useLoopRuns` in `use-channel-loops.ts`;
+  `loop:updated` invalidates the history so settlements refresh it live.
+  DELIBERATELY PUNTED from L3.3: per-run tool-trail replay (the run-event
+  machinery exists but notes + recorded actions cover the need; revisit on
+  demand).
 - [ ] L3.4 Edit schedule/instructions on non-drafts (revalidate + recompute
   + re-confirm high frequency when cadence tightened; drafts already
   editable via PATCH since the L2.3 follow-up).

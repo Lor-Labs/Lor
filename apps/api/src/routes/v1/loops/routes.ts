@@ -14,6 +14,7 @@ import {
   activateLoopResponseSchema,
   channelLoopsParamsSchema,
   listChannelLoopsResponseSchema,
+  listLoopRunsResponseSchema,
   loopParamsSchema,
   requiresConfirmationResponseSchema,
   updateLoopBodySchema,
@@ -194,3 +195,28 @@ export const completeLoop = createRoute({
 })
 
 export type CompleteLoopRoute = typeof completeLoop
+
+export const listLoopRuns = createRoute({
+  path: "/loops/{loopId}/runs",
+  method: "get",
+  summary: "List a loop's run history",
+  description:
+    "Returns the loop's scheduled runs (newest first): outcome, closing note, recorded actions, and spawned tasks/artifacts.",
+  tags: ["Loops"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: {
+    params: loopParamsSchema,
+  },
+  hidden: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: listLoopRunsResponseSchema,
+      description: "Loop run history",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type ListLoopRunsRoute = typeof listLoopRuns
