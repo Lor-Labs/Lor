@@ -1,12 +1,12 @@
 import {
   CheckmarkCircle02Icon,
+  Infinity01Icon,
   PauseIcon,
   PencilEdit01Icon,
-  RepeatIcon,
 } from "@hugeicons/core-free-icons"
 import type { RealtimeLoopStatus } from "@repo/realtime-types"
 
-type IconSvgObject = typeof RepeatIcon
+type IconSvgObject = typeof Infinity01Icon
 
 export type LoopStatusMeta = {
   label: string
@@ -23,7 +23,7 @@ export const LOOP_STATUS_META: Record<RealtimeLoopStatus, LoopStatusMeta> = {
   active: {
     label: "Active",
     badgeVariant: "info",
-    icon: RepeatIcon,
+    icon: Infinity01Icon,
   },
   paused: {
     label: "Paused",

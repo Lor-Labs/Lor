@@ -454,3 +454,30 @@ apps/realtime `services/merlin.ts`, card rendering in web
   resolved per channel. Denials 404 (not 403 like tasks) per the loops
   fail-closed rule. `requires_confirmation` uses 422 with
   `{ code, firesPerDay }`; 409 is reserved for "not a draft" races.
+- 2026-08-24 — L2.3 card redesign (user feedback on the first cut): the
+  chat card is now a compact pill (icon + name + plain-english schedule +
+  status chip / Create Loop) — no timezone, no instructions preview.
+  Clicking it opens a NEW right-sidebar view `{ type: "loop" }`
+  (`loop-panel.tsx`, wide size class like threads) with the full prompt,
+  schedule rows (Repeat / Timezone / End repeat / Next run / Last run),
+  and draft activation; the timezone select lives only there — the card's
+  quick Create Loop activates in the viewer's device tz. Activation
+  mutation + high-frequency dialog shared via
+  `components/loops/activate-loop.tsx`. `describeLoopSchedule` gained
+  hourly shapes ("0 * * * *" → "Every hour", "15 */6 * * *" → "Every 6
+  hours at :15", dow qualifiers) and the fallback is now labeled
+  (`Custom schedule "…"`) — raw cron never renders bare. propose_loop's
+  endCondition description now forbids "until manually stopped" as an end
+  condition (null is the right encoding; the first live test tripped it).
+  Panel editing (name/instructions/schedule) remains L3.
+- 2026-08-24 — L2.3 follow-up: the panel gained a structured schedule
+  EDITOR for drafts (ChatGPT-style rows: Repeat hourly/daily/weekly/monthly,
+  Day of the week incl. weekday/weekend presets, Day of the month, Time /
+  At-minute). Round-trips cron via `parseLoopSchedule`/`formatLoopSchedule`
+  (`@repo/realtime-types/loops`, tested); shapes it can't round-trip render
+  read-only as custom. Persisted via new `PATCH /v1/loops/{loopId}`
+  (draft-only — 409 otherwise; editing ACTIVE loops still L3 with
+  pause/recompute/re-confirm semantics), optimistic cache write in
+  `useUpdateLoopSchedule` (`components/loops/loop-actions.tsx`, renamed
+  from activate-loop.tsx). Loop icon is now `Infinity01Icon` (card pill +
+  active status chip) — more distinct than the repeat arrows.

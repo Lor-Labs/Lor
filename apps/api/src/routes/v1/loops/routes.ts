@@ -16,6 +16,7 @@ import {
   listChannelLoopsResponseSchema,
   loopParamsSchema,
   requiresConfirmationResponseSchema,
+  updateLoopBodySchema,
 } from "@/routes/v1/loops/schema"
 
 // Access denials read as not_found (fail closed): a loop's existence reveals
@@ -80,3 +81,34 @@ export const activateLoop = createRoute({
 })
 
 export type ActivateLoopRoute = typeof activateLoop
+
+export const updateLoop = createRoute({
+  path: "/loops/{loopId}",
+  method: "patch",
+  summary: "Edit a draft loop's schedule",
+  description:
+    "Replaces the draft's cron schedule after validating it. Editing active loops is not supported yet — pause-edit-resume lands with the management UI.",
+  tags: ["Loops"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: {
+    params: loopParamsSchema,
+    body: jsonContent({
+      schema: updateLoopBodySchema,
+      description: "The new cron schedule",
+    }),
+  },
+  hidden: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: activateLoopResponseSchema,
+      description: "The updated loop",
+    }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.CONFLICT]: conflictSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type UpdateLoopRoute = typeof updateLoop

@@ -90,7 +90,14 @@ export const proposeLoopTool = {
         .describe(
           "IANA timezone, only when the conversation establishes one; null = the activating teammate's local timezone"
         ),
-      endCondition: z.string().min(1).max(MAX_END_CONDITION_CHARS).nullable(),
+      endCondition: z
+        .string()
+        .min(1)
+        .max(MAX_END_CONDITION_CHARS)
+        .nullable()
+        .describe(
+          'a real finish-line condition, e.g. "the mobile app has shipped". Pass null for a loop that just runs until someone stops it — NEVER write "until manually stopped" or similar as an end condition'
+        ),
     }),
     contextSchema: proposeLoopContext,
     execute: async (

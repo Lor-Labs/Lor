@@ -1,3 +1,7 @@
+import {
+  formatLoopSchedule,
+  parseLoopSchedule,
+} from "@repo/realtime-types/loops"
 import { describe, expect, it } from "vitest"
 import {
   describeLoopSchedule,
@@ -98,9 +102,25 @@ describe("describeLoopSchedule", () => {
     )
   })
 
-  it("falls back to the raw cron for exotic shapes", () => {
+  it("describes hourly shapes in plain english", () => {
+    expect(describeLoopSchedule("0 * * * *", TZ)).toBe(`Every hour (${TZ})`)
+    expect(describeLoopSchedule("30 * * * *", TZ)).toBe(
+      `Every hour at :30 (${TZ})`
+    )
+    expect(describeLoopSchedule("0 */2 * * *", TZ)).toBe(
+      `Every 2 hours (${TZ})`
+    )
+    expect(describeLoopSchedule("15 */6 * * *", TZ)).toBe(
+      `Every 6 hours at :15 (${TZ})`
+    )
+    expect(describeLoopSchedule("0 * * * 1-5", TZ)).toBe(
+      `Every hour on weekdays (${TZ})`
+    )
+  })
+
+  it("falls back to a labeled cron for exotic shapes", () => {
     expect(describeLoopSchedule("5 4 */2 1 0", TZ)).toBe(
-      `Cron "5 4 */2 1 0" (${TZ})`
+      `Custom schedule "5 4 */2 1 0" (${TZ})`
     )
   })
 
@@ -108,5 +128,42 @@ describe("describeLoopSchedule", () => {
     expect(describeLoopSchedule("0 9 * * 1-5", null)).toBe(
       "Every weekday at 9:00 AM"
     )
+  })
+})
+
+describe("parseLoopSchedule / formatLoopSchedule", () => {
+  it("round-trips the editable shapes", () => {
+    const shapes = [
+      "30 * * * *",
+      "0 9 * * *",
+      "0 12 * * 1",
+      "30 17 * * 1-5",
+      "0 10 * * 0,6",
+      "15 8 1 * *",
+    ]
+    for (const schedule of shapes) {
+      const shape = parseLoopSchedule(schedule)
+      expect(shape.kind).not.toBe("custom")
+      expect(formatLoopSchedule(shape)).toBe(schedule)
+    }
+  })
+
+  it("parses fields into the structured shape", () => {
+    expect(parseLoopSchedule("30 17 * * 1-5")).toEqual({
+      kind: "weekly",
+      dow: "1-5",
+      hour: 17,
+      minute: 30,
+    })
+    expect(parseLoopSchedule("0 * * * *")).toEqual({
+      kind: "hourly",
+      minute: 0,
+    })
+  })
+
+  it("treats anything it can't round-trip as custom", () => {
+    for (const schedule of ["*/5 * * * *", "0 9 * 2 *", "0 9 2 * 1"]) {
+      expect(parseLoopSchedule(schedule)).toEqual({ kind: "custom", schedule })
+    }
   })
 })

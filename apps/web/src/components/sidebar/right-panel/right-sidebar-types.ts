@@ -25,8 +25,16 @@ export type PinnedMessagesSidebarView = {
   channelId: string
 }
 
+export type LoopSidebarView = {
+  type: "loop"
+  workspaceSlug: string
+  channelId: string
+  loopId: string
+}
+
 export type RightSidebarView =
   | WorkspaceMembersSidebarView
   | ThreadSidebarView
   | AttachmentsSidebarView
   | PinnedMessagesSidebarView
+  | LoopSidebarView

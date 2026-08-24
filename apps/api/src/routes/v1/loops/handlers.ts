@@ -9,6 +9,7 @@ import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
   ActivateLoopRoute,
   ListChannelLoopsRoute,
+  UpdateLoopRoute,
 } from "@/routes/v1/loops/routes"
 
 const DAY_MS = 86_400_000
@@ -138,4 +139,68 @@ export const activateLoop: AppRouteHandler<ActivateLoopRoute> = async (c) => {
   )
 
   return c.json({ loop: toRealtimeLoop(activated) }, HttpStatusCodes.OK)
+}
+
+// Draft-only schedule edit from the panel's structured editor. Editing an
+// active loop needs pause/recompute/re-confirm semantics — that's L3; the
+// 409 here keeps the invariant "active schedules only change via resume".
+export const updateLoop: AppRouteHandler<UpdateLoopRoute> = async (c) => {
+  const currentUser = c.var.user
+  const { loopId } = c.req.valid("param")
+  const { schedule } = c.req.valid("json")
+
+  const loop = await db
+    .select()
+    .from(schema.loop)
+    .where(eq(schema.loop.id, loopId))
+    .limit(1)
+    .then((rows) => rows[0])
+  if (!loop) {
+    return c.json(
+      { success: false as const, message: "Loop not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  const access = await resolveChannelAccess(currentUser.id, loop.channelId)
+  if (!access.ok) {
+    return c.json(
+      { success: false as const, message: "Loop not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  if (loop.status !== "draft") {
+    return c.json(
+      { success: false as const, message: "Only draft loops can be edited" },
+      HttpStatusCodes.CONFLICT
+    )
+  }
+
+  // Drafts may not have a tz pinned yet; the gap thresholds are
+  // tz-insensitive, and activation re-validates with the pinned tz.
+  const validation = validateLoopSchedule(schedule, loop.timezone ?? "UTC")
+  if (!validation.ok) {
+    return c.json(
+      { success: false as const, message: validation.reason },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+
+  const updated = await db
+    .update(schema.loop)
+    .set({ schedule })
+    .where(and(eq(schema.loop.id, loopId), eq(schema.loop.status, "draft")))
+    .returning()
+    .then((rows) => rows[0] ?? null)
+  if (!updated) {
+    return c.json(
+      { success: false as const, message: "Only draft loops can be edited" },
+      HttpStatusCodes.CONFLICT
+    )
+  }
+
+  await emitLoopUpdated(updated).catch((err) =>
+    logger.error({ err, loopId }, "Loop update emit failed")
+  )
+
+  return c.json({ loop: toRealtimeLoop(updated) }, HttpStatusCodes.OK)
 }
