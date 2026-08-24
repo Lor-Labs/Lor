@@ -370,7 +370,7 @@ apps/realtime `services/merlin.ts`, card rendering in web
   409; invalid schedule/tz → 400; unconfirmed sub-hourly → 422
   `{ code: "requires_confirmation", firesPerDay }`; CAS on draft status;
   best-effort `loop:updated` emit).
-- [ ] L2.3 Web card (`chat/loop-card.tsx`): name, human schedule
+- [x] L2.3 Web card (`chat/loop-card.tsx`): name, human schedule
   (`describeLoopSchedule`), end condition line ("until the mobile app
   ships"), status chip (Draft/Active/Paused/Completed + next/last run
   time), **Create Loop** button on drafts (confirmation dialog when the
@@ -381,6 +381,16 @@ apps/realtime `services/merlin.ts`, card rendering in web
   (channel room — client already joins it). ChatGPT-style editor sheet
   (edit name/instructions/schedule before activating) is L3-optional; v0
   activates as proposed.
+  Shipped: `use-channel-loops.ts` hook (mirrors `use-channel-tasks`:
+  one query per channel + `loop:updated` cache merge; `useLoopForCard`
+  by cardMessageId), `lib/loop-ui.ts` status meta, `loop-card.tsx`
+  (drafts get an IANA timezone Select defaulting to device tz + Create
+  Loop; 422 opens the fires-per-day AlertDialog and resends with
+  `confirmHighFrequency`), `message-item.tsx` renders `loop_card` in the
+  same avatar/header row as task cards. `describeLoopSchedule` MOVED to
+  dependency-free `@repo/realtime-types/loops` (re-exported from
+  `@repo/merlin/loop-schedule` so server call sites are unchanged) — web
+  imports realtime-types but must not import the server-side merlin pkg.
 - [ ] L2.4 Mobile: render `loop_card` as a readable card (status + name +
   schedule); activation can be web-only for v0 — note it in
   `reference/mobile-parity-todo.md`.
