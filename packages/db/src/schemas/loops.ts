@@ -65,7 +65,11 @@ export const loop = pgTable(
     // Cron expression + IANA timezone. Next fires are computed with croner
     // (@repo/merlin/loop-schedule) only at activate/edit/resume/claim.
     schedule: text("schedule").notNull(),
-    timezone: text("timezone").notNull(),
+    // Null on drafts = "not pinned yet": Merlin only sets it when the
+    // conversation establishes one; otherwise the activating user's device
+    // timezone is the default at activation (editable there). Activation
+    // always persists a concrete tz — active/paused loops never have null.
+    timezone: text("timezone"),
     // Free text; injected into the prompt. The model calls complete_loop when
     // it judges this met. Null = runs until paused/completed manually.
     endCondition: text("end_condition"),

@@ -106,7 +106,7 @@ export async function postMerlinMessage(
   input: {
     channelId: string
     content: string
-    type?: "default" | "task_card"
+    type?: "default" | "task_card" | "loop_card"
   }
 ): Promise<{ messageId: string }> {
   const author = await loadMerlinAuthor()

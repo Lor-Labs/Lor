@@ -103,4 +103,10 @@ describe("describeLoopSchedule", () => {
       `Cron "5 4 */2 1 0" (${TZ})`
     )
   })
+
+  it("omits the timezone suffix for unpinned drafts", () => {
+    expect(describeLoopSchedule("0 9 * * 1-5", null)).toBe(
+      "Every weekday at 9:00 AM"
+    )
+  })
 })

@@ -49,6 +49,7 @@ import type { Job, Queue } from "bullmq"
 import type { createClient } from "redis"
 import { claimAgentRun, LeaseLostError } from "@/lib/agent-run"
 import { logger } from "@/lib/logger"
+import { createLoopCard } from "@/lib/merlin-loop"
 import { noopRunEventWriter } from "@/lib/run-events"
 import { drainScopeQueue } from "@/lib/run-queue"
 import { updateStreamMentionState } from "@/lib/stream-mentions"
@@ -572,6 +573,24 @@ export function createMerlinRespondProcessor(
               emit(pending, false)
               pending = ""
             }
+            // Loop creator = whoever addressed Merlin; null keeps the loop
+            // valid when attribution failed (legacy jobs, deleted trigger).
+            const proposeLoop = (loopInput: {
+              name: string
+              instructions: string
+              schedule: string
+              timezone: string | null
+              endCondition: string | null
+            }) =>
+              createLoopCard(
+                { emitter, redis },
+                {
+                  workspaceId,
+                  channelId,
+                  creatorId: triggerUserId,
+                  ...loopInput,
+                }
+              )
             answer = await respond(
               {
                 workspaceId,
@@ -580,6 +599,7 @@ export function createMerlinRespondProcessor(
                 ...(threadRootId ? { threadRootId } : {}),
                 triggerMessageId,
                 ...(job.data.runId ? { runId: job.data.runId } : {}),
+                proposeLoop,
                 ...(task
                   ? {
                       task: {

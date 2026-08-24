@@ -75,7 +75,9 @@ package is uncompiled):
   - `cardMessageId` — set-null FK to message, UNIQUE index (mirrors
     `task.cardMessageId` lookup pattern; nullable: L2 sets it)
   - `name` text notNull, `instructions` text notNull
-  - `schedule` text notNull (cron expr), `timezone` text notNull (IANA)
+  - `schedule` text notNull (cron expr), `timezone` text NULLABLE (IANA;
+    null on drafts = "not pinned yet", activation pins it — see the
+    2026-08-23 L2.1 revision in the deviations log)
   - `endCondition` text nullable
   - `status` default `draft`
   - `pausedReason` nullable
@@ -335,31 +337,45 @@ Mirror the `task_card` pattern end to end (`createTaskWithCard` in
 apps/realtime `services/merlin.ts`, card rendering in web
 `chat/task-card.tsx` + `message-item.tsx`, row lookup by cardMessageId).
 
-- `propose_loop` Merlin tool (conversational runs, NOT triggered runs):
-  Merlin translates natural language → `{ name, instructions, schedule
-  (cron), timezone (workspace/user tz — check what tz context respond()
-  has), endCondition? }`. Validates via `validateLoopSchedule` at proposal
-  time so the card never carries an invalid cron. Executor creates the
-  `loop` row (`status='draft'`) + posts a `loop_card` message +
-  sets `cardMessageId`.
-- API `POST /workspaces/:slug/loops/:id/activate` — guards: channel access
-  via `resolveChannelAccess` (deny = `not_found`, fail closed), status
-  must be `draft` (or `paused` for resume — separate endpoint in L3),
-  re-validate schedule; `requiresConfirmation` and no
+- [x] L2.1 `propose_loop` Merlin tool (conversational runs, NOT triggered
+  runs): Merlin translates natural language → `{ name, instructions,
+  schedule (cron), timezone, endCondition? }`. Validates via
+  `validateLoopSchedule` at proposal time so the card never carries an
+  invalid cron. Executor creates the `loop` row (`status='draft'`) + posts
+  a `loop_card` message + sets `cardMessageId`.
+  Shipped: tool + `ProposeLoopExecutor` in `@repo/merlin` `loops.ts`
+  (executor-callback pattern like the triggered disposition tools; in
+  `SIDE_EFFECT_TOOLS`); bound in respond() via new
+  `RespondContext.proposeLoop` (never set on triggered/loop runs) with
+  `LOOPS_PROMPT_LINE`; worker executor `createLoopCard` in
+  `apps/worker/src/lib/merlin-loop.ts` (card content = plain-text
+  `name — describeLoopSchedule(...)` fallback; compensation-deletes the
+  card if the row insert fails; emits `loop:updated`), threaded from
+  `merlin-respond.ts` with `creatorId = trigger message author`.
+- [ ] L2.2 API `POST /workspaces/:slug/loops/:id/activate` — guards: channel
+  access via `resolveChannelAccess` (deny = `not_found`, fail closed),
+  status must be `draft` (or `paused` for resume — separate endpoint in
+  L3), body carries `timezone` (required IANA — clients default it to the
+  device tz, editable before accept; server validates and PINS it on the
+  row), re-validate schedule with that tz; `requiresConfirmation` and no
   `confirmHighFrequency: true` in body → 409/422 `requires_confirmation`
   with fires-per-day info; on confirm persist `highFrequencyConfirmedAt/By`.
-  Compute first `nextRunAt`, flip active, emit `loop:updated`.
+  Compute first `nextRunAt`, flip active, emit `loop:updated`. Plus a
+  channel loops read (row lookup by cardMessageId) for the web card.
   Route additions → run `pnpm run validate` (route-tree/generated checks).
-- Web card (`chat/loop-card.tsx`): name, human schedule
+- [ ] L2.3 Web card (`chat/loop-card.tsx`): name, human schedule
   (`describeLoopSchedule`), end condition line ("until the mobile app
   ships"), status chip (Draft/Active/Paused/Completed + next/last run
   time), **Create Loop** button on drafts (confirmation dialog when the
-  activate call returns `requires_confirmation`). Live flip via
-  `loop:updated` (channel room — client already joins it). ChatGPT-style
-  editor sheet (edit name/instructions/schedule before activating) is
-  L3-optional; v0 activates as proposed.
-- Mobile: render `loop_card` as a readable card (status + name + schedule);
-  activation can be web-only for v0 — note it in
+  activate call returns `requires_confirmation`). Drafts with null tz
+  render the schedule in the viewer's device timezone
+  (`Intl.DateTimeFormat().resolvedOptions().timeZone`) and the activate
+  call sends it (editable before accepting). Live flip via `loop:updated`
+  (channel room — client already joins it). ChatGPT-style editor sheet
+  (edit name/instructions/schedule before activating) is L3-optional; v0
+  activates as proposed.
+- [ ] L2.4 Mobile: render `loop_card` as a readable card (status + name +
+  schedule); activation can be web-only for v0 — note it in
   `reference/mobile-parity-todo.md`.
 
 ### [ ] L3 — Management & run history UI
@@ -400,3 +416,17 @@ apps/realtime `services/merlin.ts`, card rendering in web
   spawns a task (free once the column existed). (3) In the shared executor,
   `onSettled` fires after the terminal transition but BEFORE write-back —
   a write-back failure must not distort failure accounting.
+- 2026-08-23 — L2.1 timezone (REVISED): `loop.timezone` is now NULLABLE.
+  Merlin passes a tz on propose_loop only when the conversation explicitly
+  establishes one; null = "not pinned yet" — clients render the draft's
+  schedule in the viewer's device timezone, and ACTIVATION pins the
+  concrete tz (activate body requires it; defaults client-side to device
+  tz, editable before accepting). Invariant: active/paused loops always
+  have a tz — `nextLoopRunAt`/`validateLoopSchedule` still require a
+  string, so the compiler forces every runtime path to prove it (sweep
+  pauses an active loop with null tz; resume rejects it).
+  `describeLoopSchedule` accepts null (omits the suffix). Draft validation
+  runs in UTC — the 5min/1h gap thresholds are tz-insensitive, and
+  activation re-validates with the pinned tz. Also: propose_loop stays
+  bound on task-thread runs (they're conversational; only the unattended
+  processors never pass the executor).

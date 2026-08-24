@@ -54,12 +54,14 @@ export async function sweepDueLoops(
     .limit(SWEEP_BATCH)
 
   for (const loop of due) {
-    // A schedule that can't produce a next fire (invalid after an edit, or a
-    // cron with no future occurrences) pauses the loop instead of wedging the
-    // sweep on it every tick.
+    // A schedule that can't produce a next fire (invalid after an edit, a
+    // cron with no future occurrences, or a null timezone — an invariant
+    // violation: activation always pins one) pauses the loop instead of
+    // wedging the sweep on it every tick.
     let next: Date | null = null
     try {
-      next = nextLoopRunAt(loop.schedule, loop.timezone)
+      if (loop.timezone) next = nextLoopRunAt(loop.schedule, loop.timezone)
+      else logger.error({ loopId: loop.id }, "Active loop has no timezone")
     } catch (err) {
       logger.error({ err, loopId: loop.id }, "Loop schedule unparsable")
     }

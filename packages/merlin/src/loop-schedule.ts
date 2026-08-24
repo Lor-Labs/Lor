@@ -130,11 +130,13 @@ function describeDayField(dow: string): string | null {
 
 // Human-readable schedule for cards and channel notes: covers the common
 // shapes Merlin proposes, falls back to the raw cron for everything else.
+// Null timezone (unpinned draft) omits the suffix — clients render those in
+// the viewer's device timezone.
 export function describeLoopSchedule(
   schedule: string,
-  timezone: string
+  timezone: string | null
 ): string {
-  const suffix = ` (${timezone})`
+  const suffix = timezone ? ` (${timezone})` : ""
   const fields = schedule.trim().split(/\s+/)
   if (fields.length === 5) {
     const [min = "", hour = "", dom = "", month = "", dow = ""] = fields

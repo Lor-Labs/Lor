@@ -645,7 +645,9 @@ export type RealtimeLoop = {
   name: string
   instructions: string
   schedule: string
-  timezone: string
+  // Null on drafts: schedule renders in the viewer's device timezone until
+  // activation pins one.
+  timezone: string | null
   endCondition: string | null
   status: RealtimeLoopStatus
   pausedReason: "manual" | "failures" | "out_of_credits" | null

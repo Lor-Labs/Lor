@@ -87,6 +87,9 @@ export async function resumeLoop(input: {
     .where(eq(schema.loop.id, input.loopId))
     .then((rows) => rows[0])
   if (!loop || loop.status !== "paused") return null
+  // Paused loops were active once, so a tz was pinned at activation; a null
+  // here is a broken row, not a resumable loop.
+  if (!loop.timezone) return { ok: false, reason: "Loop has no timezone" }
 
   const validation = validateLoopSchedule(loop.schedule, loop.timezone)
   if (!validation.ok) return { ok: false, reason: validation.reason }
