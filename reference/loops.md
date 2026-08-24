@@ -352,7 +352,7 @@ apps/realtime `services/merlin.ts`, card rendering in web
   `name — describeLoopSchedule(...)` fallback; compensation-deletes the
   card if the row insert fails; emits `loop:updated`), threaded from
   `merlin-respond.ts` with `creatorId = trigger message author`.
-- [ ] L2.2 API `POST /workspaces/:slug/loops/:id/activate` — guards: channel
+- [x] L2.2 API `POST /workspaces/:slug/loops/:id/activate` — guards: channel
   access via `resolveChannelAccess` (deny = `not_found`, fail closed),
   status must be `draft` (or `paused` for resume — separate endpoint in
   L3), body carries `timezone` (required IANA — clients default it to the
@@ -363,6 +363,13 @@ apps/realtime `services/merlin.ts`, card rendering in web
   Compute first `nextRunAt`, flip active, emit `loop:updated`. Plus a
   channel loops read (row lookup by cardMessageId) for the web card.
   Route additions → run `pnpm run validate` (route-tree/generated checks).
+  Shipped as `apps/api/src/routes/v1/loops/` (schema/routes/handlers/index,
+  mounted in app.ts): `GET /v1/channels/{channelId}/loops` (newest first,
+  limit 50, serialized via drift-guarded `toRealtimeLoop`) and
+  `POST /v1/loops/{loopId}/activate` (archived channel → 400; non-draft →
+  409; invalid schedule/tz → 400; unconfirmed sub-hourly → 422
+  `{ code: "requires_confirmation", firesPerDay }`; CAS on draft status;
+  best-effort `loop:updated` emit).
 - [ ] L2.3 Web card (`chat/loop-card.tsx`): name, human schedule
   (`describeLoopSchedule`), end condition line ("until the mobile app
   ships"), status chip (Draft/Active/Paused/Completed + next/last run
@@ -430,3 +437,10 @@ apps/realtime `services/merlin.ts`, card rendering in web
   activation re-validates with the pinned tz. Also: propose_loop stays
   bound on task-thread runs (they're conversational; only the unattended
   processors never pass the executor).
+- 2026-08-23 — L2.2 paths: mounted as `/v1/channels/{channelId}/loops` +
+  `/v1/loops/{loopId}/activate` (the runbook draft said
+  `/workspaces/:slug/loops/:id/activate`) — mirrors the tasks/approvals
+  convention; the workspace is implied by the loop row and access is
+  resolved per channel. Denials 404 (not 403 like tasks) per the loops
+  fail-closed rule. `requires_confirmation` uses 422 with
+  `{ code, firesPerDay }`; 409 is reserved for "not a draft" races.

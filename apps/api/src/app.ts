@@ -16,6 +16,7 @@ import faviconRouter from "@/routes/v1/favicon/index"
 import instructionsRouter from "@/routes/v1/instructions/index"
 import integrationsRouter from "@/routes/v1/integrations/index"
 import invitesRouter from "@/routes/v1/invites/index"
+import loopsRouter from "@/routes/v1/loops/index"
 import notificationSettingsRouter from "@/routes/v1/notification-settings/index"
 import projectsRouter from "@/routes/v1/projects/index"
 import pushTokensRouter from "@/routes/v1/push-tokens/index"
@@ -84,6 +85,7 @@ const routes = app
   .route("/v1", runsRouter)
   .route("/v1", artifactsRouter)
   .route("/v1", tasksRouter)
+  .route("/v1", loopsRouter)
   .route("/v1", instructionsRouter)
   .route("/v1", faviconRouter)
 
