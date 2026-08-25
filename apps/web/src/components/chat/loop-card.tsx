@@ -21,9 +21,17 @@ import { toSearchPreviewText } from "@/lib/search-preview"
 // Name", dimmed "Completed · Name"); every detail lives one click away in
 // the panel. Drafts get a Create Loop button beside the chip (activates in
 // the viewer's device timezone).
+//
+// Fire markers (type "loop_fire", posted each time the loop runs) render the
+// same chip — they resolve the loop through referencedMessageId, which
+// points at the loop's card message.
 
 export function LoopCard({ message }: { message: Message }) {
-  const loop = useLoopForCard(message.channelId, message.id)
+  const cardMessageId =
+    message.type === "loop_fire"
+      ? (message.referencedMessageId ?? "")
+      : message.id
+  const loop = useLoopForCard(message.channelId, cardMessageId)
 
   if (!loop) {
     return (

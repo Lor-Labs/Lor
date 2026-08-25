@@ -41,7 +41,13 @@ const STATUS_META: Record<
 
 export function LoopCard({ message }: { message: Message }) {
   const muted = useThemeColor("muted")
-  const loop = useLoopForCard(message.channelId, message.id)
+  // Fire markers (type "loop_fire") resolve the loop through the card
+  // message they reference; the card itself resolves by its own id.
+  const cardMessageId =
+    message.type === "loop_fire"
+      ? (message.referencedMessageId ?? "")
+      : message.id
+  const loop = useLoopForCard(message.channelId, cardMessageId)
   const activate = useActivateLoop(loop)
 
   if (!loop) {

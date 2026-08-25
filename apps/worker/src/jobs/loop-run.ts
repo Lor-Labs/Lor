@@ -158,6 +158,24 @@ export function createLoopRunProcessor(
     const label = `Loop · ${loop.name}`
     const firedAt = run.scheduledFor ?? new Date()
 
+    // Every fire drops the loop chip inline in the channel (LOR-64) — the
+    // run's own messages follow it. Silent: markers must not bump unreads
+    // every fire. Best effort; a marker failure never blocks the run.
+    if (loop.cardMessageId) {
+      await postMerlinMessage(
+        { emitter, redis },
+        {
+          channelId: run.channelId,
+          content: `${loop.name} — scheduled run`,
+          type: "loop_fire",
+          referencedMessageId: loop.cardMessageId,
+          silent: true,
+        }
+      ).catch((err) =>
+        logger.error({ err, loopId, runId }, "Loop fire marker failed")
+      )
+    }
+
     await runUnattended(
       { emitter, redis },
       {

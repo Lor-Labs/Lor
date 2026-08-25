@@ -371,10 +371,14 @@ export const MessageItem = memo(function MessageItem({
     )
   }
 
-  // Task and loop cards render as their own surface, but inside the normal
-  // message row — so they keep Merlin's avatar, name and timestamp, and line
-  // up with every other message in the channel.
-  if (message.type === "task_card" || message.type === "loop_card") {
+  // Task and loop cards (and per-fire loop chips) render as their own
+  // surface, but inside the normal message row — so they keep Merlin's
+  // avatar, name and timestamp, and line up with every other message.
+  if (
+    message.type === "task_card" ||
+    message.type === "loop_card" ||
+    message.type === "loop_fire"
+  ) {
     const taskAvatar = (
       <Avatar size="lg">
         {avatarUrl && <AvatarImage src={avatarUrl} alt={displayName} />}

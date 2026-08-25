@@ -607,3 +607,15 @@ apps/realtime `services/merlin.ts`, card rendering in web
   `updateAsync` on `useUpdateLoop` (a 422 sub-hourly re-consent aborts the
   activate; the confirm dialog takes over). Rename dialog still saves
   itself; lifecycle actions stay immediate.
+- 2026-08-25 — LOR-64 per-fire inline chip: every loop fire now drops a
+  `loop_fire` message into the channel (worker `loop-run.ts`, posted right
+  after the kill-switch check; best effort — marker failure never blocks
+  the run). NEEDS db:push (new `message_type` enum value). The marker's
+  `referencedMessageId` points at the loop's card message, so clients
+  resolve the loop row via the existing cardMessageId lookup — no new
+  column; loop deletion nulls the reference and the marker falls back to
+  its plain content ("<name> — scheduled run"). Markers post `silent`
+  (new flag on `postMerlinMessage` skips unread/mention/push fanout) so
+  hourly loops don't bump unreads with decoration on top of the run's real
+  messages. Web + mobile render fire markers with the same LoopCard chip
+  (web opens the loop panel on click).

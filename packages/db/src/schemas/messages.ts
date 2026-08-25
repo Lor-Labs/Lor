@@ -29,6 +29,11 @@ export const messageTypeEnum = pgEnum("message_type", [
   // A loop's card — the scheduled-run automation's live status card. The
   // loop row (see loops.ts) is looked up by cardMessageId.
   "loop_card",
+  // Posted each time a loop fires — renders as the compact loop chip inline
+  // in the feed, marking the run. referencedMessageId points at the loop's
+  // card message so clients resolve the loop row through cardMessageId
+  // (falls back to plain content once the loop/card is gone).
+  "loop_fire",
 ])
 
 // Lifecycle of a message row. Everything is "complete" except a Merlin

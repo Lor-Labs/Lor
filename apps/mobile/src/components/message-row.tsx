@@ -184,7 +184,7 @@ function MessageRowBody({
       ) : null}
       {message.type === "task_card" ? (
         <TaskCard message={message} onOpenThread={onOpenThread} />
-      ) : message.type === "loop_card" ? (
+      ) : message.type === "loop_card" || message.type === "loop_fire" ? (
         <LoopCard message={message} />
       ) : (
         <>
