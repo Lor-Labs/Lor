@@ -64,6 +64,12 @@ export const task = pgTable(
     activeRunId: uuid("active_run_id").references(() => agentRun.id, {
       onDelete: "set null",
     }),
+    // Provenance: the agent run whose create_task spawned this task (Act
+    // trigger or loop runs). Null for human/conversational creation. Loop
+    // → spawned tasks resolves through agent_run.loopId + this.
+    originRunId: uuid("origin_run_id").references(() => agentRun.id, {
+      onDelete: "set null",
+    }),
   },
   (table) => [
     uniqueIndex("task_cardMessageId_uidx").on(table.cardMessageId),
@@ -72,6 +78,7 @@ export const task = pgTable(
       table.workspaceId,
       table.createdAt
     ),
+    index("task_originRunId_idx").on(table.originRunId),
   ]
 )
 

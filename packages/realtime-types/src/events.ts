@@ -98,6 +98,8 @@ export type RealtimeMessageType =
   | "system_pin"
   | "channel_name_change"
   | "task_card"
+  | "loop_card"
+  | "loop_fire"
 
 export type RealtimeAuthor = {
   id: string
@@ -550,6 +552,10 @@ export interface ServerToClientEvents {
 
   // Task snapshot changed (status, plan, summary). Channel room.
   "task:updated": (payload: TaskUpdatedEvent) => void
+  // Loop snapshot changed (status, schedule, run bookkeeping). Channel room.
+  "loop:updated": (payload: LoopUpdatedEvent) => void
+  // Loop hard-deleted (its card message goes separately via message:deleted).
+  "loop:deleted": (payload: { loopId: string; channelId: string }) => void
   "message:pin:toggled": (payload: RealtimeMessagePinToggled) => void
   "message:thread:updated": (payload: RealtimeMessageThreadUpdated) => void
   "notification:bootstrap": (payload: NotificationBootstrap) => void
@@ -626,6 +632,40 @@ export type RealtimeTask = {
 
 export type TaskUpdatedEvent = {
   task: RealtimeTask
+}
+
+export type RealtimeLoopStatus = "draft" | "active" | "paused" | "completed"
+
+// Snapshot of a loop, emitted to the channel room on every lifecycle change
+// (activate, pause, resume, complete, run settled) — the loop card and the
+// loops panel render from it. See reference/loops.md.
+export type RealtimeLoop = {
+  id: string
+  workspaceId: string
+  channelId: string
+  cardMessageId: string | null
+  creatorId: string | null
+  name: string
+  instructions: string
+  schedule: string
+  // Null on drafts: schedule renders in the viewer's device timezone until
+  // activation pins one.
+  timezone: string | null
+  endCondition: string | null
+  // Hard end date (sweep-enforced); null = no date end.
+  endAt: string | null
+  status: RealtimeLoopStatus
+  pausedReason: "manual" | "failures" | "out_of_credits" | null
+  nextRunAt: string | null
+  lastRunAt: string | null
+  consecutiveFailures: number
+  completedNote: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export type LoopUpdatedEvent = {
+  loop: RealtimeLoop
 }
 
 export type MerlinSteerEvent = {

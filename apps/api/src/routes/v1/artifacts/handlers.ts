@@ -148,7 +148,8 @@ export const listTaskArtifacts: AppRouteHandler<
   )
 }
 
-function serializeArtifact(
+// Shared with the loops run-history endpoint (same artifact wire shape).
+export function serializeArtifact(
   artifact: typeof schema.artifact.$inferSelect,
   current: typeof schema.artifactVersion.$inferSelect | null
 ) {

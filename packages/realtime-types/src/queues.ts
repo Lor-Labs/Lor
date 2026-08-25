@@ -52,6 +52,18 @@ export type TriggeredRunJobData = {
 // `act_window_opened_at` is the dedupe, not Redis.
 export type ActFlushJobData = { triggerId: string }
 
+// Scheduled loop runs (reference/loops.md). Dedicated queue — fairness
+// isolation from Act webhook bursts, independent scaling later. The job is
+// deliberately thin: the processor re-reads the loop row for the kill switch
+// and prompt inputs, and the run row carries provenance (loopId/scheduledFor).
+export const LOOP_RUN_QUEUE = "loop-run"
+export const LOOP_RUN_JOB = "loop"
+
+export type LoopRunJobData = {
+  runId: string
+  loopId: string
+}
+
 // Project archive synthesis: the API flips the project to `archiving` (write
 // locks engage immediately), then this job distills the project into
 // workspace-scoped brain pages, posts a closing summary, and marks it

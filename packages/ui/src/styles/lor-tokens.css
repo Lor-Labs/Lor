@@ -71,7 +71,9 @@
   --merlin-foreground: oklch(0.99 0.004 296);
   --gold: oklch(0.7 0.13 75);
   --success: var(--color-lor-success);
-  --success-foreground: var(--color-lor-success-fg);
+  /* Tinted-badge text like info/warning-foreground — NOT the lor-success-fg
+     token, which is for text on solid green fills (mobile buttons). */
+  --success-foreground: oklch(0.5 0.13 150);
   --destructive: oklch(0.55 0.2 25);
   --destructive-foreground: oklch(0.48 0.19 25);
   --info: oklch(0.62 0.16 250);
@@ -115,7 +117,7 @@
   --merlin-foreground: oklch(0.17 0.02 296);
   --gold: oklch(0.78 0.12 78);
   --success: var(--color-lor-success-dark);
-  --success-foreground: var(--color-lor-success-fg-dark);
+  --success-foreground: oklch(0.75 0.13 150);
   --destructive: oklch(0.62 0.19 25);
   --destructive-foreground: oklch(0.72 0.16 25);
   --info: oklch(0.62 0.16 250);

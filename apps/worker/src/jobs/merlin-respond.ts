@@ -26,6 +26,8 @@ import {
   userDisplayName,
   writeBack,
 } from "@repo/merlin"
+import type { ProposeLoopExecutor } from "@repo/merlin/loops"
+import { toRealtimeTask } from "@repo/merlin/tasks"
 import {
   buildMessageFanout,
   sendInstructionsProposalPush,
@@ -36,10 +38,7 @@ import type {
   MerlinRespondJobData,
   RealtimeMessageMention,
 } from "@repo/realtime-types"
-import type {
-  RealtimeTask,
-  ServerToClientEvents,
-} from "@repo/realtime-types/events"
+import type { ServerToClientEvents } from "@repo/realtime-types/events"
 import {
   channelRoom,
   threadRoom,
@@ -51,6 +50,7 @@ import type { Job, Queue } from "bullmq"
 import type { createClient } from "redis"
 import { claimAgentRun, LeaseLostError } from "@/lib/agent-run"
 import { logger } from "@/lib/logger"
+import { createLoopCard } from "@/lib/merlin-loop"
 import { noopRunEventWriter } from "@/lib/run-events"
 import { drainScopeQueue } from "@/lib/run-queue"
 import { updateStreamMentionState } from "@/lib/stream-mentions"
@@ -154,24 +154,6 @@ async function loadConversation(args: {
   })
 }
 
-function serializeTask(row: typeof schema.task.$inferSelect): RealtimeTask {
-  return {
-    id: row.id,
-    workspaceId: row.workspaceId,
-    channelId: row.channelId,
-    cardMessageId: row.cardMessageId,
-    creatorId: row.creatorId,
-    title: row.title,
-    goal: row.goal,
-    status: row.status,
-    plan: row.plan,
-    summary: row.summary,
-    activeRunId: row.activeRunId,
-    createdAt: row.createdAt.toISOString(),
-    updatedAt: row.updatedAt.toISOString(),
-  }
-}
-
 export function createMerlinRespondProcessor(
   emitter: Emitter<ServerToClientEvents>,
   redis: RedisClient,
@@ -220,7 +202,7 @@ export function createMerlinRespondProcessor(
         const emitTaskUpdated = (row: typeof schema.task.$inferSelect) => {
           emitter
             .to(channelRoom(channelId))
-            .emit("task:updated", { task: serializeTask(row) })
+            .emit("task:updated", { task: toRealtimeTask(row) })
         }
         // Park the task when its run ends. `waiting_for_input` only from
         // `running` — completed/waiting_for_approval set by tools stand.
@@ -592,6 +574,18 @@ export function createMerlinRespondProcessor(
               emit(pending, false)
               pending = ""
             }
+            // Loop creator = whoever addressed Merlin; null keeps the loop
+            // valid when attribution failed (legacy jobs, deleted trigger).
+            const proposeLoop: ProposeLoopExecutor = (loopInput) =>
+              createLoopCard(
+                { emitter, redis },
+                {
+                  workspaceId,
+                  channelId,
+                  creatorId: triggerUserId,
+                  ...loopInput,
+                }
+              )
             answer = await respond(
               {
                 workspaceId,
@@ -600,6 +594,7 @@ export function createMerlinRespondProcessor(
                 ...(threadRootId ? { threadRootId } : {}),
                 triggerMessageId,
                 ...(job.data.runId ? { runId: job.data.runId } : {}),
+                proposeLoop,
                 ...(task
                   ? {
                       task: {

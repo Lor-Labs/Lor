@@ -40,6 +40,7 @@ import { useIsMobile } from "@repo/ui/hooks/use-mobile"
 import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect, useMemo, useState } from "react"
+import { LoopsOverviewSection } from "@/components/sidebar/right-panel/loops-overview-section"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import type { WorkspaceMembersSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
 import { UserAvatar } from "@/components/ui/user-avatar"
@@ -493,15 +494,14 @@ export function WorkspaceMembersPanel({
   return (
     <>
       <div className="flex h-full w-full flex-col">
-        <div className="flex h-12 shrink-0 items-center justify-between px-4">
-          <span className="text-[13px] font-semibold tracking-tight text-foreground">
-            Members
-          </span>
+        {/* No title — the section labels (Loops / Online / Offline) say it;
+            the bar just carries the collapse control. */}
+        <div className="flex h-12 shrink-0 items-center justify-end px-4">
           <button
             type="button"
             onClick={isMobile ? clearView : toggleCollapsed}
             aria-label={
-              isMobile ? "Close members panel" : "Collapse members panel"
+              isMobile ? "Close overview panel" : "Collapse overview panel"
             }
             className="-mr-1.5 flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
           >
@@ -520,20 +520,26 @@ export function WorkspaceMembersPanel({
           </div>
         )}
 
-        {isPending ? (
-          <MembersSkeleton />
-        ) : isError ? (
-          <div className="px-4 py-3 text-sm text-muted-foreground">
-            Failed to load members.
-          </div>
-        ) : (
-          <ScrollArea className="min-w-0 flex-1 overflow-x-hidden px-2 py-2">
-            {members.length === 0 ? (
-              <div className="px-2 py-4 text-sm text-muted-foreground">
+        {/* Loops render regardless of the members query — a members
+            fetch hiccup must not hide the channel's automations. */}
+        <ScrollArea className="min-w-0 flex-1 overflow-x-hidden px-2 py-2">
+          <div className="min-w-0 space-y-4 px-1 pb-3">
+            <LoopsOverviewSection
+              workspaceSlug={view.workspaceSlug}
+              channelId={view.channelId}
+            />
+            {isPending ? (
+              <MembersSkeleton />
+            ) : isError ? (
+              <div className="px-1 py-3 text-sm text-muted-foreground">
+                Failed to load members.
+              </div>
+            ) : members.length === 0 ? (
+              <div className="px-1 py-4 text-sm text-muted-foreground">
                 No members found for this workspace.
               </div>
             ) : (
-              <div className="min-w-0 space-y-4 px-1 pb-3">
+              <>
                 {onlineMembers.length > 0 && (
                   <section>
                     <div className="px-1 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -577,10 +583,10 @@ export function WorkspaceMembersPanel({
                     </div>
                   </section>
                 )}
-              </div>
+              </>
             )}
-          </ScrollArea>
-        )}
+          </div>
+        </ScrollArea>
       </div>
       <AlertDialog
         open={isModerationDialogOpen}

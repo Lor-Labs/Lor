@@ -1,4 +1,5 @@
 export * from "./events"
+export * from "./loops"
 export * from "./notifications"
 export * from "./queues"
 export * from "./rooms"

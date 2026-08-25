@@ -29,7 +29,8 @@ const PANEL_WIDTH_KEYS = {
 /**
  * Threads and tasks are reading/working surfaces, so they open roughly half
  * the viewport. Members / pinned / attachments are lists — they get a narrow
- * fixed width. Each class remembers its own user-dragged width.
+ * fixed width. Each class remembers its own user-dragged width. Loop detail
+ * is a reading surface too (full prompt text), so it rides the wide class.
  */
 type PanelSizeClass = keyof typeof PANEL_WIDTH_KEYS
 
@@ -53,7 +54,7 @@ export function clampPanelWidth(width: number, viewportWidth: number): number {
 }
 
 function sizeClassForView(view: RightSidebarView | null): PanelSizeClass {
-  return view?.type === "thread" ? "wide" : "compact"
+  return view?.type === "thread" || view?.type === "loop" ? "wide" : "compact"
 }
 
 function defaultWidth(

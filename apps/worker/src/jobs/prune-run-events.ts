@@ -20,6 +20,8 @@ import {
 import { channelRoom, threadRoom } from "@repo/realtime-types/rooms"
 import type { Emitter } from "@socket.io/redis-emitter"
 import type { Queue } from "bullmq"
+import type { createClient } from "redis"
+import { settleLoopRun } from "@/jobs/loop-run"
 import { logger } from "@/lib/logger"
 import { drainScopeQueue } from "@/lib/run-queue"
 
@@ -63,6 +65,8 @@ export async function pruneRunEvents(): Promise<void> {
 // its stuck pending placeholder.
 export async function sweepDeadRuns(
   emitter: Emitter<ServerToClientEvents>,
+  // For the loop-settlement channel note (auto-pause posts as Merlin).
+  redis: ReturnType<typeof createClient>,
   respondQueue: Queue<MerlinRespondJobData>,
   // Triggered runs hand their claimed deliveries back through this queue.
   triggeredQueue: Queue<TriggeredRunJobData | ActFlushJobData>
@@ -99,6 +103,7 @@ export async function sweepDeadRuns(
     channelId: string
     threadRootId: string | null
     triggerId: string | null
+    loopId: string | null
     settled: boolean
   }[] = []
   for (const candidate of candidates) {
@@ -114,6 +119,7 @@ export async function sweepDeadRuns(
             channelId: schema.agentRun.channelId,
             threadRootId: schema.agentRun.threadRootId,
             triggerId: schema.agentRun.triggerId,
+            loopId: schema.agentRun.loopId,
           })
           .then((r) => r[0])
         if (!run) return null
@@ -188,6 +194,21 @@ export async function sweepDeadRuns(
           "Act delivery requeue failed"
         )
       )
+  }
+  // Loop runs settle their failure accounting at the run's terminal
+  // transition — a force-failed dead run reached it here, not in the
+  // processor, so the counter/auto-pause pass runs here too.
+  for (const run of dead) {
+    if (!run.loopId) continue
+    await settleLoopRun({ emitter, redis }, run.loopId, {
+      outcome: "failed",
+      stopReason: "error",
+    }).catch((err) =>
+      logger.error(
+        { err, runId: run.id, loopId: run.loopId },
+        "Dead loop-run settlement failed"
+      )
+    )
   }
   if (dead.length > 0) {
     logger.warn(

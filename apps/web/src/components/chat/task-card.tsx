@@ -111,21 +111,25 @@ export function TaskCard({
         )}
       </div>
 
-      <div className="px-4 py-4">
-        <div className="min-w-0 rounded-lg bg-secondary/60 px-4 py-3.5 ring-1 ring-border/40 ring-inset">
-          {task.plan.length > 1 && <TaskPlanProgress items={task.plan} />}
-          {task.plan.length > 0 && (
-            <TaskPlanList
-              items={task.plan}
-              className={task.plan.length > 1 ? "mt-4" : undefined}
-            />
-          )}
-          {task.status === "running" && task.plan.length === 0 && (
-            <p className="shimmer text-muted-foreground text-sm">
-              Merlin is working…
-            </p>
-          )}
-        </div>
+      <div className="px-4 pb-4">
+        {/* The recessed plan well only exists when there's something to show —
+            a plan-less parked task otherwise renders an empty gray bar. */}
+        {(task.plan.length > 0 || task.status === "running") && (
+          <div className="mt-4 min-w-0 rounded-lg bg-secondary/60 px-4 py-3.5 ring-1 ring-border/40 ring-inset">
+            {task.plan.length > 1 && <TaskPlanProgress items={task.plan} />}
+            {task.plan.length > 0 && (
+              <TaskPlanList
+                items={task.plan}
+                className={task.plan.length > 1 ? "mt-4" : undefined}
+              />
+            )}
+            {task.status === "running" && task.plan.length === 0 && (
+              <p className="shimmer text-muted-foreground text-sm">
+                Merlin is working…
+              </p>
+            )}
+          </div>
+        )}
 
         {artifacts && artifacts.length > 0 && (
           <div className="relative z-20 mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">

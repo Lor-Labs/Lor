@@ -100,13 +100,19 @@ export async function fanoutMerlinMessage(
 }
 
 // Post a channel message as Merlin, with normal unread/mention/push fanout —
-// the worker-side counterpart of the API's postBotMessage.
+// the worker-side counterpart of the API's postBotMessage. `silent` skips the
+// fanout entirely (loop fire markers are decoration — they must not bump
+// unread counts every fire on top of the run's real messages).
 export async function postMerlinMessage(
   deps: MerlinMessageDeps,
   input: {
     channelId: string
     content: string
-    type?: "default" | "task_card"
+    type?: "default" | "task_card" | "loop_card" | "loop_fire"
+    // Loop fire markers point at the loop's card message so clients resolve
+    // the loop row (cardMessageId) for rich chip rendering.
+    referencedMessageId?: string
+    silent?: boolean
   }
 ): Promise<{ messageId: string }> {
   const author = await loadMerlinAuthor()
@@ -119,16 +125,19 @@ export async function postMerlinMessage(
       authorId: MERLIN_USER_ID,
       content: input.content,
       type: input.type ?? "default",
+      referencedMessageId: input.referencedMessageId ?? null,
     })
     .returning({ id: schema.message.id, createdAt: schema.message.createdAt })
     .then((rows) => rows[0])
   if (!inserted) throw new Error("Message insert returned no row")
 
-  const mentions = await fanoutMerlinMessage(deps, {
-    channelId: input.channelId,
-    messageId: inserted.id,
-    content: input.content,
-  })
+  const mentions = input.silent
+    ? []
+    : await fanoutMerlinMessage(deps, {
+        channelId: input.channelId,
+        messageId: inserted.id,
+        content: input.content,
+      })
 
   const message: RealtimeMessage = {
     id: inserted.id,
@@ -142,7 +151,17 @@ export async function postMerlinMessage(
     reactions: [],
     attachments: [],
     embeds: [],
-    referencedMessage: null,
+    referencedMessage: input.referencedMessageId
+      ? {
+          // Minimal stub — clients only need the id to resolve the loop; the
+          // chip renderer never shows a reply preview for fire markers.
+          id: input.referencedMessageId,
+          content: null,
+          author: { ...author, avatarColor: null },
+          overrideName: null,
+          overrideAvatarUrl: null,
+        }
+      : null,
     threadRootId: null,
   }
   deps.emitter.to(channelRoom(input.channelId)).emit("message:created", message)

@@ -2,6 +2,8 @@ import { Image01Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { AnimatePresence, motion } from "motion/react"
 import type { ReactNode } from "react"
+import { LoopPanel } from "@/components/sidebar/right-panel/loop-panel"
+import { LoopsListPanel } from "@/components/sidebar/right-panel/loops-list-panel"
 import { PinnedMessagesPanel } from "@/components/sidebar/right-panel/pinned-messages-panel"
 import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-header"
 import type { RightSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
@@ -53,8 +55,13 @@ export function RightSidebarPanel({ view }: { view: RightSidebarView }) {
   // Use view.type as the key for AnimatePresence — switching between views
   // unmounts the old and mounts the new with the slide/fade transition.
   // For thread we also key on threadRootId so jumping between threads
-  // re-runs the entry animation.
-  const key = view.type === "thread" ? `thread:${view.threadRootId}` : view.type
+  // re-runs the entry animation (same for loops).
+  const key =
+    view.type === "thread"
+      ? `thread:${view.threadRootId}`
+      : view.type === "loop"
+        ? `loop:${view.loopId}`
+        : view.type
 
   return (
     <div className="relative h-full w-full overflow-hidden">
@@ -79,6 +86,8 @@ export function RightSidebarPanel({ view }: { view: RightSidebarView }) {
             <PinnedMessagesPanel view={view} />
           )}
           {view.type === "thread" && <ThreadPanel view={view} />}
+          {view.type === "loop" && <LoopPanel view={view} />}
+          {view.type === "loops" && <LoopsListPanel view={view} />}
           {view.type === "attachments" && (
             <PlaceholderSidebar
               title="Attachments"

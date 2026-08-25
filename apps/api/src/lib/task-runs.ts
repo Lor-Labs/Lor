@@ -9,7 +9,8 @@ import {
 } from "@repo/db"
 import type { Task } from "@repo/db/schema"
 import { env } from "@repo/env/server"
-import type { RealtimeMessage, RealtimeTask } from "@repo/realtime-types"
+import { toRealtimeTask } from "@repo/merlin/tasks"
+import type { RealtimeMessage } from "@repo/realtime-types"
 import {
   MERLIN_RESPOND_QUEUE,
   type MerlinRespondJobData,
@@ -44,28 +45,14 @@ function getRespondQueue(): Queue<MerlinRespondJobData> {
   return respondQueue
 }
 
-export function serializeTask(row: Task): RealtimeTask {
-  return {
-    id: row.id,
-    workspaceId: row.workspaceId,
-    channelId: row.channelId,
-    cardMessageId: row.cardMessageId,
-    creatorId: row.creatorId,
-    title: row.title,
-    goal: row.goal,
-    status: row.status,
-    plan: row.plan,
-    summary: row.summary,
-    activeRunId: row.activeRunId,
-    createdAt: row.createdAt.toISOString(),
-    updatedAt: row.updatedAt.toISOString(),
-  }
-}
+// Shared row→wire serializer (drift-guarded in @repo/merlin/tasks);
+// re-exported under the name this app's handlers already import.
+export { toRealtimeTask as serializeTask }
 
 export async function emitTaskUpdated(task: Task): Promise<void> {
   const io = await getEmitter()
   io.to(channelRoom(task.channelId)).emit("task:updated", {
-    task: serializeTask(task),
+    task: toRealtimeTask(task),
   })
 }
 

@@ -27,6 +27,7 @@ import { formatTime, timeAgo } from "@repo/utils/date"
 import { memo, useCallback, useEffect, useState } from "react"
 import type { MentionCandidate } from "@/components/chat/composer/mention-types"
 import { EmbedCard } from "@/components/chat/embed-card"
+import { LoopCard } from "@/components/chat/loop-card"
 import { MerlinMessageBody } from "@/components/chat/merlin-message-body"
 import { MerlinReasoning } from "@/components/chat/merlin-reasoning"
 import { MessageActionBar } from "@/components/chat/message-action-bar"
@@ -370,10 +371,14 @@ export const MessageItem = memo(function MessageItem({
     )
   }
 
-  // A task card renders as its own surface, but inside the normal message row —
-  // so it keeps Merlin's avatar, name and timestamp, and lines up with every
-  // other message in the channel. The thread behind it is the task's workspace.
-  if (message.type === "task_card") {
+  // Task and loop cards (and per-fire loop chips) render as their own
+  // surface, but inside the normal message row — so they keep Merlin's
+  // avatar, name and timestamp, and line up with every other message.
+  if (
+    message.type === "task_card" ||
+    message.type === "loop_card" ||
+    message.type === "loop_fire"
+  ) {
     const taskAvatar = (
       <Avatar size="lg">
         {avatarUrl && <AvatarImage src={avatarUrl} alt={displayName} />}
@@ -437,7 +442,11 @@ export const MessageItem = memo(function MessageItem({
                 </span>
               </div>
             )}
-            <TaskCard message={message} onOpenThread={onOpenThread} />
+            {message.type === "task_card" ? (
+              <TaskCard message={message} onOpenThread={onOpenThread} />
+            ) : (
+              <LoopCard message={message} />
+            )}
           </div>
         </div>
       </div>

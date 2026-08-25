@@ -12,10 +12,14 @@
     "./connector-search": "./src/connector-search.ts",
     "./custom-tools": "./src/custom-tools.ts",
     "./github": "./src/github.ts",
+    "./loop-runs": "./src/loop-runs.ts",
+    "./loop-schedule": "./src/loop-schedule.ts",
+    "./loops": "./src/loops.ts",
     "./placement": "./src/placement.ts",
     "./project-archive": "./src/project-archive.ts",
     "./providers": "./src/providers/index.ts",
     "./sources": "./src/sources.ts",
+    "./tasks": "./src/tasks.ts",
     "./tool-servers": "./src/tool-servers.ts"
   },
   "scripts": {
@@ -43,6 +47,7 @@
     "@repo/realtime-types": "workspace:^",
     "@repo/utils": "workspace:^",
     "ai": "^7.0.11",
+    "croner": "^10.0.1",
     "exa-js": "^2.16.3",
     "octokit": "^5.0.5",
     "zod": "^4.3.6"

@@ -8,6 +8,7 @@ import { userRoom } from "@repo/realtime-types/rooms"
 import { getEmitter } from "@/lib/bot-messages"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
+import { completeLoopsForChannels } from "@/lib/loops"
 import { hasWorkspacePermission } from "@/lib/permissions"
 import { enqueueProjectArchive } from "@/lib/project-archive-queue"
 import type { AppRouteHandler } from "@/lib/types/app-types"
@@ -519,6 +520,17 @@ export const archiveProject: AppRouteHandler<ArchiveProjectRoute> = async (
       HttpStatusCodes.NOT_FOUND
     )
   }
+
+  // Loops can't outlive their project — archived channels refuse writes, so
+  // leaving them active would just fail runs into auto-pause. Best effort:
+  // the archive itself is already locked in.
+  await completeLoopsForChannels(
+    detail.channels.map((ch) => ch.id).concat(project.categoryChannelId),
+    "Project archived"
+  ).catch((err) => {
+    logger.error({ err, projectId: project.id }, "Project loop sweep failed")
+  })
+
   await emitProjectUpdated({
     projectId: project.id,
     categoryChannelId: project.categoryChannelId,

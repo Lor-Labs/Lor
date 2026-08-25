@@ -7,6 +7,8 @@ import {
   type ActFlushJobData,
   AGENT_RUN_STOP_CHANNEL,
   LINK_UNFURL_QUEUE,
+  LOOP_RUN_QUEUE,
+  type LoopRunJobData,
   MERLIN_RESPOND_QUEUE,
   type MerlinRespondJobData,
   PROJECT_ARCHIVE_QUEUE,
@@ -18,6 +20,7 @@ import { Emitter } from "@socket.io/redis-emitter"
 import { Queue, Worker } from "bullmq"
 import { createClient } from "redis"
 import { createLinkUnfurlProcessor } from "@/jobs/link-unfurl"
+import { createLoopRunProcessor } from "@/jobs/loop-run"
 import { createMerlinRespondProcessor } from "@/jobs/merlin-respond"
 import { createProjectArchiveProcessor } from "@/jobs/project-archive"
 import {
@@ -26,6 +29,7 @@ import {
   RUN_EVENT_PRUNE_EVERY_MS,
   sweepDeadRuns,
 } from "@/jobs/prune-run-events"
+import { LOOP_SWEEP_EVERY_MS, sweepDueLoops } from "@/jobs/sweep-due-loops"
 import { createTriggeredRunProcessor } from "@/jobs/triggered-run"
 import { signalRunStop } from "@/lib/agent-run"
 import { logger } from "@/lib/logger"
@@ -198,6 +202,39 @@ async function bootstrap() {
     )
   })
 
+  // Scheduled loop runs (reference/loops.md). Own queue — fairness isolation
+  // from Act webhook bursts, independent scaling later. The maintenance
+  // sweep is the producer.
+  const loopRunQueue = new Queue<LoopRunJobData>(LOOP_RUN_QUEUE, {
+    connection: {
+      ...redisOpts,
+      maxRetriesPerRequest: null,
+    },
+  })
+
+  const loopRunWorker = new Worker(
+    LOOP_RUN_QUEUE,
+    createLoopRunProcessor(emitter, redisEmitterClient, merlinRespondQueue),
+    {
+      connection: {
+        ...redisOpts,
+        maxRetriesPerRequest: null,
+      },
+      concurrency: 3,
+    }
+  )
+
+  loopRunWorker.on("failed", (job, error) => {
+    logger.error({ jobId: job?.id, err: error }, "Loop-run job failed")
+  })
+
+  loopRunWorker.on("error", (error) => {
+    logger.error(
+      { queue: LOOP_RUN_QUEUE, workerId: loopRunWorker.id, err: error },
+      "Loop-run worker error"
+    )
+  })
+
   const projectArchiveWorker = new Worker<ProjectArchiveJobData>(
     PROJECT_ARCHIVE_QUEUE,
     createProjectArchiveProcessor(emitter),
@@ -241,7 +278,14 @@ async function bootstrap() {
     async (job) => {
       if (job.name === "prune-run-events") await pruneRunEvents()
       else if (job.name === "sweep-dead-runs")
-        await sweepDeadRuns(emitter, merlinRespondQueue, triggeredRunQueue)
+        await sweepDeadRuns(
+          emitter,
+          redisEmitterClient,
+          merlinRespondQueue,
+          triggeredRunQueue
+        )
+      else if (job.name === "sweep-due-loops")
+        await sweepDueLoops(emitter, loopRunQueue)
       else if (job.name === "sweep-act-windows") {
         // Claimed, so a slow re-armed flush can't be double-enqueued.
         const overdue = await claimOverdueActWindows(ACT_WINDOW_SWEEP_GRACE_MS)
@@ -286,6 +330,9 @@ async function bootstrap() {
   await maintenanceQueue.upsertJobScheduler("sweep-act-windows", {
     every: ACT_WINDOW_SWEEP_EVERY_MS,
   })
+  await maintenanceQueue.upsertJobScheduler("sweep-due-loops", {
+    every: LOOP_SWEEP_EVERY_MS,
+  })
 
   logger.info(
     {
@@ -293,6 +340,7 @@ async function bootstrap() {
         LINK_UNFURL_QUEUE,
         MERLIN_RESPOND_QUEUE,
         TRIGGERED_RUN_QUEUE,
+        LOOP_RUN_QUEUE,
         PROJECT_ARCHIVE_QUEUE,
         MAINTENANCE_QUEUE,
       ],
@@ -305,6 +353,7 @@ async function bootstrap() {
     await linkUnfurlWorker.close()
     await merlinRespondWorker.close()
     await triggeredRunWorker.close()
+    await loopRunWorker.close()
     await projectArchiveWorker.close()
     // The dead-run sweep also drains scopes — close it before waiting so no
     // new drain can start after the wait completes.
@@ -314,6 +363,7 @@ async function bootstrap() {
     await awaitInflightDrains()
     await merlinRespondQueue.close()
     await triggeredRunQueue.close()
+    await loopRunQueue.close()
     await maintenanceQueue.close()
     await stopSubscriber.quit()
     await redisEmitterClient.quit()

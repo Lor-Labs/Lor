@@ -10,6 +10,7 @@ import { useThemeColor } from "heroui-native/hooks"
 import { Pressable, Text, View } from "react-native"
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated"
 import { ConnectorIcon, connectorForName } from "@/components/connector-icon"
+import { LoopCard } from "@/components/loop-card"
 import { MerlinMessageBody } from "@/components/merlin-message-body"
 import { MerlinReasoning } from "@/components/merlin-reasoning"
 import { MessageAttachments } from "@/components/message-attachments"
@@ -183,6 +184,8 @@ function MessageRowBody({
       ) : null}
       {message.type === "task_card" ? (
         <TaskCard message={message} onOpenThread={onOpenThread} />
+      ) : message.type === "loop_card" || message.type === "loop_fire" ? (
+        <LoopCard message={message} />
       ) : (
         <>
           {message.type === "reply" ? (

@@ -13,6 +13,7 @@ export function RightPanelHeader({
   titleAdornment,
   actions,
   className,
+  hideCollapse = false,
 }: {
   title: ReactNode
   workspaceSlug: string
@@ -20,6 +21,9 @@ export function RightPanelHeader({
   titleAdornment?: ReactNode
   actions?: ReactNode
   className?: string
+  // Detail views whose X already exits (loop panel) drop the collapse
+  // toggle — closing the whole panel happens from the overview.
+  hideCollapse?: boolean
 }) {
   const { setView, toggleCollapsed, clearView } = useRightSidebar()
   const isMobile = useIsMobile()
@@ -51,18 +55,20 @@ export function RightPanelHeader({
       </div>
       <div className="ml-auto flex shrink-0 items-center gap-1">
         {actions}
-        <button
-          type="button"
-          onClick={isMobile ? clearView : toggleCollapsed}
-          aria-label={isMobile ? "Close side panel" : "Collapse side panel"}
-          className="-mr-1.5 flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
-        >
-          <SidebarToggleIcon
-            isOpen={true}
-            className="size-4 -scale-x-100"
-            strokeWidth={1.5}
-          />
-        </button>
+        {!hideCollapse && (
+          <button
+            type="button"
+            onClick={isMobile ? clearView : toggleCollapsed}
+            aria-label={isMobile ? "Close side panel" : "Collapse side panel"}
+            className="-mr-1.5 flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+          >
+            <SidebarToggleIcon
+              isOpen={true}
+              className="size-4 -scale-x-100"
+              strokeWidth={1.5}
+            />
+          </button>
+        )}
       </div>
     </div>
   )
