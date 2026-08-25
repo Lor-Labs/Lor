@@ -99,7 +99,7 @@ export const updateLoop = createRoute({
       description: "Fields to update",
     }),
   },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: activateLoopResponseSchema,
@@ -133,7 +133,7 @@ export const pauseLoop = createRoute({
   request: {
     params: loopParamsSchema,
   },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: activateLoopResponseSchema,
@@ -159,7 +159,7 @@ export const resumeLoop = createRoute({
   request: {
     params: loopParamsSchema,
   },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: activateLoopResponseSchema,
@@ -186,7 +186,7 @@ export const completeLoop = createRoute({
   request: {
     params: loopParamsSchema,
   },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: activateLoopResponseSchema,
@@ -212,7 +212,7 @@ export const runLoopNow = createRoute({
   request: {
     params: loopParamsSchema,
   },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: activateLoopResponseSchema,
@@ -239,7 +239,7 @@ export const listLoopRuns = createRoute({
   request: {
     params: loopParamsSchema,
   },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: listLoopRunsResponseSchema,
@@ -264,7 +264,7 @@ export const deleteLoop = createRoute({
   request: {
     params: loopParamsSchema,
   },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: deleteLoopResponseSchema,

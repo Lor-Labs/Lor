@@ -179,11 +179,25 @@ export async function sweepDueLoops(
       )
     } catch (err) {
       // A run row with no job behind it would sit until the dead-run sweep
-      // force-fails it — unwind instead, the next tick recreates it.
+      // force-fails it — unwind instead. Restoring the claimed due time (CAS
+      // on the value this claim wrote, so a concurrent schedule edit wins)
+      // lets the next tick re-claim this fire rather than losing it until
+      // the following scheduled one.
       logger.error({ err, loopId: loop.id }, "Loop run enqueue failed")
       await db
         .delete(schema.agentRun)
         .where(eq(schema.agentRun.id, run.id))
+        .catch(() => {})
+      await db
+        .update(schema.loop)
+        .set({ nextRunAt: loop.nextRunAt })
+        .where(
+          and(
+            eq(schema.loop.id, loop.id),
+            eq(schema.loop.status, "active"),
+            eq(schema.loop.nextRunAt, next)
+          )
+        )
         .catch(() => {})
     }
   }

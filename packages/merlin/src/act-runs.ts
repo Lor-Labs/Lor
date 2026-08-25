@@ -378,11 +378,14 @@ export async function actRunBriefing(input: {
   // Triggers fire often; only the last day of chain history is relevant.
   const since = new Date(Date.now() - BRIEFING_MAX_AGE_MS)
   return composeRunChainBriefing({
-    history: and(
-      eq(schema.agentRun.triggerId, input.triggerId),
-      ne(schema.agentRun.id, input.runId),
-      gte(schema.agentRun.createdAt, since)
-    ),
+    // and() with defined args never returns undefined — fail closed anyway
+    // rather than letting an empty filter scan every tenant's runs.
+    history:
+      and(
+        eq(schema.agentRun.triggerId, input.triggerId),
+        ne(schema.agentRun.id, input.runId),
+        gte(schema.agentRun.createdAt, since)
+      ) ?? sql`false`,
     channelId: input.channelId,
   })
 }
@@ -391,7 +394,7 @@ export async function actRunBriefing(input: {
 // handoff notes + recorded actions) and channel activity since the newest
 // one. Act and loop chains differ only in the history filter and header.
 export async function composeRunChainBriefing(input: {
-  history: SQL<unknown> | undefined
+  history: SQL<unknown>
   channelId: string
   headerFor?: (totalRuns: number) => string
 }): Promise<string | null> {

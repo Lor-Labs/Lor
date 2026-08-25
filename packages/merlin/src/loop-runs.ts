@@ -1,4 +1,4 @@
-import { and, eq, ne, schema } from "@repo/db"
+import { and, eq, ne, schema, sql } from "@repo/db"
 import { composeRunChainBriefing } from "./act-runs"
 
 // What earlier runs of this loop concluded/did (their handoff notes +
@@ -13,10 +13,12 @@ export async function loopRunBriefing(input: {
   runId: string
 }): Promise<string | null> {
   return composeRunChainBriefing({
-    history: and(
-      eq(schema.agentRun.loopId, input.loopId),
-      ne(schema.agentRun.id, input.runId)
-    ),
+    // and() with defined args never returns undefined — fail closed anyway.
+    history:
+      and(
+        eq(schema.agentRun.loopId, input.loopId),
+        ne(schema.agentRun.id, input.runId)
+      ) ?? sql`false`,
     channelId: input.channelId,
     headerFor: (totalRuns) =>
       `## Earlier runs of this loop (newest first; ${totalRuns} total)`,

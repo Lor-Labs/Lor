@@ -402,7 +402,7 @@ apps/realtime `services/merlin.ts`, card rendering in web
   note updated (detail view/editor + L3 management web-only; mobile always
   pins the device tz).
 
-### [ ] L3 — Management & run history UI
+### [x] L3 — Management & run history UI
 
 - [x] L3.1 Pause / resume / complete (2026-08-24): `POST
   /v1/loops/{loopId}/pause|resume|complete`. Pause/complete use the L1.4

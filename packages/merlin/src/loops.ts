@@ -68,8 +68,10 @@ const proposeLoopContext = z.object({
 // Models keep encoding "no end condition" as prose ("runs until the team\nmanually stops it") despite the schema saying null. That text then reads as
 // a MET-able condition to the run-time model — one live loop got wrongly
 // completed over it — so coerce the common phrasings back to null here.
+// "manual(ly)" only counts next to stop/end/pause semantics — a bare \bmanual\b
+// nulled legit conditions like "the manual data migration is complete".
 const MANUAL_STOP_PHRASING =
-  /\bmanual(ly)?\b|\bindefinitely\b|\bno end\b|\bstops? (it|the loop|this loop)\b/i
+  /\bmanual(ly)?\s+(stop|end|paus)\w*\b|\b(stop|end|paus)\w*\s+manually\b|\bindefinitely\b|\bno end\b|\bstops? (it|the loop|this loop)\b/i
 
 export function normalizeEndCondition(
   endCondition: string | null
@@ -91,7 +93,17 @@ export function endAfterToDate(
 ): Date {
   const date = new Date(from)
   if (endAfter.unit === "months") {
+    // Clamp to the target month's last day — raw setMonth overflows
+    // (Jan 31 + 1 month → Mar 3).
+    const day = date.getDate()
+    date.setDate(1)
     date.setMonth(date.getMonth() + endAfter.amount)
+    const lastDay = new Date(
+      date.getFullYear(),
+      date.getMonth() + 1,
+      0
+    ).getDate()
+    date.setDate(Math.min(day, lastDay))
   } else {
     date.setDate(
       date.getDate() + endAfter.amount * (endAfter.unit === "weeks" ? 7 : 1)

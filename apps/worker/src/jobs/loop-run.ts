@@ -129,6 +129,7 @@ export function createLoopRunProcessor(
         channelId: schema.agentRun.channelId,
         loopId: schema.agentRun.loopId,
         scheduledFor: schema.agentRun.scheduledFor,
+        state: schema.agentRun.state,
       })
       .from(schema.agentRun)
       .where(eq(schema.agentRun.id, runId))
@@ -160,8 +161,10 @@ export function createLoopRunProcessor(
 
     // Every fire drops the loop chip inline in the channel (LOR-64) — the
     // run's own messages follow it. Silent: markers must not bump unreads
-    // every fire. Best effort; a marker failure never blocks the run.
-    if (loop.cardMessageId) {
+    // every fire. Best effort; a marker failure never blocks the run. Only
+    // for still-queued runs — a job retry after the run started would
+    // otherwise post a duplicate chip.
+    if (loop.cardMessageId && run.state === "queued") {
       await postMerlinMessage(
         { emitter, redis },
         {

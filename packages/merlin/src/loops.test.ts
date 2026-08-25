@@ -10,6 +10,7 @@ describe("normalizeEndCondition", () => {
       "A team member manually stops the loop — it should run indefinitely until then.",
       "Runs until manually stopped",
       "until someone stops it",
+      "Manual stop only",
       "No end condition",
       "Runs indefinitely",
     ]) {
@@ -23,6 +24,9 @@ describe("normalizeEndCondition", () => {
       "until the team hires a designer",
       "GitHub closes incident #1234",
       "the migration backlog reaches zero",
+      // "manual" outside stop/end/pause semantics is a real condition, not
+      // no-end prose.
+      "the manual data migration is complete",
     ]) {
       expect(normalizeEndCondition(text)).toBe(text)
     }
@@ -49,5 +53,14 @@ describe("endAfterToDate", () => {
     expect(
       endAfterToDate({ amount: 1, unit: "months" }, from).toISOString()
     ).toBe("2026-09-24T12:00:00.000Z")
+  })
+
+  it("clamps month arithmetic to the target month's last day", () => {
+    expect(
+      endAfterToDate(
+        { amount: 1, unit: "months" },
+        new Date("2027-01-31T12:00:00Z")
+      ).toISOString()
+    ).toBe("2027-02-28T12:00:00.000Z")
   })
 })

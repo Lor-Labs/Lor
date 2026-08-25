@@ -100,7 +100,10 @@ export async function runUnattended(
     return
   }
   if (claim.kind === "exhausted") {
+    // claimAgentRun already forced the row terminal (failed/error) — settle
+    // so the caller's failure accounting (loop auto-pause) still sees it.
     logger.warn({ runId }, `${kind} run out of recovery attempts`)
+    await settle({ outcome: "failed", stopReason: "error" })
     return
   }
   const execution = claim.execution
@@ -205,9 +208,14 @@ export async function runUnattended(
     )
 
     const stoppedByUser = answer.stoppedFor === "stopped_by_user"
-    // The closing text is this run's handoff note — persisted before anything
-    // else can fail, since the next run's briefing depends on it.
-    await saveHandoffNote(runId, answer.text)
+    // The closing text is this run's handoff note — persisted before the
+    // terminal transition so a crash in between can't lose it. Best effort
+    // beyond that: the note only improves the next run's briefing, so a
+    // failed save must not flip an otherwise-successful run (side effects
+    // already landed) to failed via the outer catch.
+    await saveHandoffNote(runId, answer.text).catch((err) =>
+      logger.error({ err, runId }, `${kind} handoff note save failed`)
+    )
     await runWriter.transition(stoppedByUser ? "stopped" : "complete", {
       stopReason: answer.stoppedFor ?? "completed",
     })

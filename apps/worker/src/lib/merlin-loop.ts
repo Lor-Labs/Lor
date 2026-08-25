@@ -42,6 +42,8 @@ export async function createLoopCard(
       type: "loop_card",
     }
   )
+  // Compensation: an orphan loop_card renders a benign fallback, but don't
+  // leave one around when we know the insert failed (thrown or no row).
   const loop = await db
     .insert(schema.loop)
     .values({
@@ -59,9 +61,14 @@ export async function createLoopCard(
     })
     .returning()
     .then((rows) => rows[0] ?? null)
+    .catch(async (err) => {
+      await db
+        .delete(schema.message)
+        .where(eq(schema.message.id, cardId))
+        .catch(() => {})
+      throw err
+    })
   if (!loop) {
-    // Compensation: an orphan loop_card renders a benign fallback, but don't
-    // leave one around when we know the insert failed.
     await db
       .delete(schema.message)
       .where(eq(schema.message.id, cardId))

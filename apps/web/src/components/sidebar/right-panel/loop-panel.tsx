@@ -540,7 +540,14 @@ function EndRepeatRows({
     if (next === "date") {
       const date = new Date()
       date.setDate(date.getDate() + DEFAULT_END_DAYS)
-      onUpdate({ endAt: endOfDayIso(toDateInputValue(date.toISOString())) })
+      // endCondition cleared explicitly: end modes are mutually exclusive,
+      // and with staged (unsaved) edits there's no server-side
+      // set-one-clears-the-other to fall back on — a lingering condition
+      // would keep the mode reading as "condition".
+      onUpdate({
+        endAt: endOfDayIso(toDateInputValue(date.toISOString())),
+        endCondition: null,
+      })
     }
   }
 

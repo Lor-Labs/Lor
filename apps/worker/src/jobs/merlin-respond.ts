@@ -26,6 +26,7 @@ import {
   userDisplayName,
   writeBack,
 } from "@repo/merlin"
+import type { ProposeLoopExecutor } from "@repo/merlin/loops"
 import { toRealtimeTask } from "@repo/merlin/tasks"
 import {
   buildMessageFanout,
@@ -575,14 +576,7 @@ export function createMerlinRespondProcessor(
             }
             // Loop creator = whoever addressed Merlin; null keeps the loop
             // valid when attribution failed (legacy jobs, deleted trigger).
-            const proposeLoop = (loopInput: {
-              name: string
-              instructions: string
-              schedule: string
-              timezone: string | null
-              endCondition: string | null
-              endAt: Date | null
-            }) =>
+            const proposeLoop: ProposeLoopExecutor = (loopInput) =>
               createLoopCard(
                 { emitter, redis },
                 {
