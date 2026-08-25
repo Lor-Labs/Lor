@@ -404,6 +404,11 @@ export type OpenPullRequestResult =
   | { ok: true; pr: OpenedPullRequest }
   | { ok: false; reason: string }
 
+const OPEN_PULL_REQUEST_PERMISSIONS = {
+  contents: "read",
+  pull_requests: "write",
+} as const
+
 export async function openPullRequest(
   installationId: string,
   opts: {
@@ -428,7 +433,9 @@ export async function openPullRequest(
   try {
     const token = await getInstallationToken(installationId, {
       repositories: [repo],
-      permissions: { pull_requests: "write" },
+      // GitHub returns `422: not all refs are readable` for private repos
+      // unless the PR token can read the head and base refs.
+      permissions: OPEN_PULL_REQUEST_PERMISSIONS,
       request: { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) },
     })
     if (!token) {
