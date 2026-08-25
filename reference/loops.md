@@ -436,8 +436,13 @@ apps/realtime `services/merlin.ts`, card rendering in web
   names), spawned tasks (`task.originRunId`) and direct artifacts
   (`artifact.originRunId`, serialized via the artifacts module's exported
   `serializeArtifact`). Web: "Recent runs" section in `loop-panel.tsx`
-  (non-drafts) — collapsed rows show fire time + outcome chip + one-line
-  note preview; expanding reveals the full note, stop reason, actions,
+  (non-drafts) — collapsed rows show fire time + one-line note preview;
+  completed runs wear NO status chip (success is the default outcome), only
+  exceptional states (Running/Failed/Stopped/Queued) get a quiet colored
+  word. A chevron signals expandability; expansion animates via the
+  grid-rows 0fr→1fr trick (preview folds away as the detail unfolds).
+  Expanded: closing note rendered as markdown via the chat `MessageMarkdown`
+  (citations included), actions as mono chips, stop reason,
   task rows (click opens the task thread) and artifact chips
   (`ArtifactFileCard`). `useLoopRuns` in `use-channel-loops.ts`;
   `loop:updated` invalidates the history so settlements refresh it live.

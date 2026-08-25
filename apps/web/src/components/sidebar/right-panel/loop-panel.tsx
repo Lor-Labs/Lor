@@ -1,5 +1,6 @@
 import {
   AlertCircleIcon,
+  ArrowDown01Icon,
   Cancel01Icon,
   CheckmarkCircle02Icon,
   Clock01Icon,
@@ -55,6 +56,7 @@ import {
 import { cn } from "@repo/ui/lib/utils"
 import { useMemo, useRef, useState } from "react"
 import { ArtifactFileCard } from "@/components/chat/artifact-file-card"
+import { MessageMarkdown } from "@/components/chat/message-markdown"
 import {
   LoopFrequencyDialog,
   useActivateLoop,
@@ -217,40 +219,49 @@ function PromptSection({
   )
 }
 
+// Completed is the expected outcome, so it wears no indicator at all — only
+// exceptional states (running, failed, stopped, queued) get a quiet word.
 const RUN_STATE_META: Record<
   LoopRun["state"],
   {
     label: string
-    badgeVariant: "info" | "success" | "error" | "secondary"
+    tone: string
     icon: typeof Clock01Icon
     spin?: boolean
-  }
+  } | null
 > = {
-  queued: { label: "Queued", badgeVariant: "secondary", icon: Clock01Icon },
+  queued: { label: "Queued", tone: "text-muted-foreground", icon: Clock01Icon },
   working: {
     label: "Running",
-    badgeVariant: "info",
+    tone: "text-info-foreground",
     icon: Loading03Icon,
     spin: true,
   },
   finalizing: {
     label: "Running",
-    badgeVariant: "info",
+    tone: "text-info-foreground",
     icon: Loading03Icon,
     spin: true,
   },
-  complete: {
-    label: "Completed",
-    badgeVariant: "success",
-    icon: CheckmarkCircle02Icon,
+  complete: null,
+  failed: {
+    label: "Failed",
+    tone: "text-destructive-foreground",
+    icon: AlertCircleIcon,
   },
-  failed: { label: "Failed", badgeVariant: "error", icon: AlertCircleIcon },
-  stopped: { label: "Stopped", badgeVariant: "secondary", icon: Cancel01Icon },
+  stopped: {
+    label: "Stopped",
+    tone: "text-muted-foreground",
+    icon: Cancel01Icon,
+  },
 }
 
-// One run in the history: collapsed = time + outcome (+ one-line note
-// preview); expanded = the full closing note, recorded actions, stop reason,
-// and whatever the run spawned (task rows open their thread; artifact chips).
+// One run in the history: collapsed = time + a one-line note preview;
+// expanded = the full closing note (rendered as markdown), recorded actions,
+// stop reason, and whatever the run spawned (task rows open their thread;
+// artifact chips). Expansion animates via the grid-rows 0fr→1fr trick — the
+// preview folds away as the detail unfolds, so the note reads as growing
+// in place.
 function LoopRunRow({ run, view }: { run: LoopRun; view: LoopSidebarView }) {
   const { setView, isCollapsed, toggleCollapsed } = useRightSidebar()
   const [expanded, setExpanded] = useState(false)
@@ -276,99 +287,164 @@ function LoopRunRow({ run, view }: { run: LoopRun; view: LoopSidebarView }) {
     <div>
       <button
         type="button"
+        aria-expanded={expanded}
         onClick={() => hasDetail && setExpanded((v) => !v)}
         className={cnRunRow(hasDetail)}
       >
         <div className="min-w-0 flex-1">
-          <p className="truncate font-medium text-sm leading-5">
-            {formatRunTime(run.scheduledFor ?? run.createdAt)}
-          </p>
-          {!expanded && run.note && (
-            <p className="truncate text-muted-foreground text-xs leading-4">
-              {run.note}
+          <div className="flex items-center gap-2">
+            <p className="truncate font-medium text-sm leading-5">
+              {formatRunTime(run.scheduledFor ?? run.createdAt)}
             </p>
+            {meta && (
+              <span
+                className={cn(
+                  "inline-flex shrink-0 items-center gap-1 font-medium text-xs",
+                  meta.tone
+                )}
+              >
+                <HugeiconsIcon
+                  icon={meta.icon}
+                  size={12}
+                  className={meta.spin ? "animate-spin" : undefined}
+                />
+                {meta.label}
+              </span>
+            )}
+          </div>
+          {run.note && (
+            <div
+              className={cn(
+                "grid transition-[grid-template-rows,opacity] duration-300 ease-out",
+                expanded
+                  ? "grid-rows-[0fr] opacity-0"
+                  : "grid-rows-[1fr] opacity-100"
+              )}
+            >
+              <p className="min-h-0 truncate text-muted-foreground text-xs leading-4">
+                {stripMarkdownInline(run.note)}
+              </p>
+            </div>
           )}
         </div>
-        <Badge variant={meta.badgeVariant} size="sm" className="shrink-0">
+        {hasDetail && (
           <HugeiconsIcon
-            icon={meta.icon}
-            size={12}
-            className={meta.spin ? "animate-spin" : undefined}
+            icon={ArrowDown01Icon}
+            size={16}
+            className={cn(
+              "shrink-0 text-muted-foreground/50 transition-transform duration-300 ease-out",
+              expanded && "rotate-180"
+            )}
           />
-          {meta.label}
-        </Badge>
+        )}
       </button>
 
-      {expanded && (
-        <div className="space-y-3 px-4 pb-3.5">
-          {run.stopReason && run.stopReason !== "completed" && (
-            <p className="text-muted-foreground text-xs">
-              Stopped: {run.stopReason.replace(/_/g, " ")}
-            </p>
-          )}
-          {run.note && (
-            <p className="whitespace-pre-wrap break-words text-muted-foreground text-sm leading-6">
-              {run.note}
-            </p>
-          )}
-          {run.effects.length > 0 && (
-            <p className="text-muted-foreground text-xs">
-              Actions: {run.effects.join(", ")}
-            </p>
-          )}
-          {run.tasks.length > 0 && (
-            <div className="space-y-1">
-              {run.tasks.map((task) => {
-                const taskMeta = TASK_STATUS_META[task.status]
-                return (
-                  <button
-                    key={task.id}
-                    type="button"
-                    disabled={!task.cardMessageId}
-                    onClick={() => {
-                      if (task.cardMessageId) openTaskThread(task.cardMessageId)
-                    }}
-                    className="flex w-full cursor-pointer items-center justify-between gap-3 rounded-lg bg-secondary/60 px-3 py-2 text-left ring-1 ring-border/40 ring-inset transition-colors hover:bg-secondary disabled:cursor-default"
+      <div
+        className={cn(
+          "grid transition-[grid-template-rows] duration-300 ease-out",
+          expanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+        )}
+      >
+        <div className="min-h-0 overflow-hidden">
+          <div
+            className={cn(
+              "space-y-3 px-4 pb-4 transition-opacity duration-200 ease-out",
+              expanded ? "opacity-100 delay-75" : "opacity-0"
+            )}
+          >
+            {run.stopReason && run.stopReason !== "completed" && (
+              <p className="text-muted-foreground text-xs">
+                Stopped: {run.stopReason.replace(/_/g, " ")}
+              </p>
+            )}
+            {run.note && (
+              <MessageMarkdown
+                content={run.note}
+                mentions={[]}
+                className="text-muted-foreground text-sm leading-6"
+              />
+            )}
+            {run.effects.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5">
+                {run.effects.map((effect) => (
+                  <span
+                    key={effect}
+                    className="rounded-md bg-secondary/60 px-2 py-0.5 font-mono text-[11px] text-muted-foreground ring-1 ring-border/40 ring-inset"
                   >
-                    <span className="min-w-0 truncate text-sm">
-                      {task.title}
-                    </span>
-                    <Badge
-                      variant={taskMeta.badgeVariant}
-                      size="sm"
-                      className="shrink-0"
+                    {effect.replace(/_/g, " ")}
+                  </span>
+                ))}
+              </div>
+            )}
+            {run.tasks.length > 0 && (
+              <div className="space-y-1">
+                {run.tasks.map((task) => {
+                  const taskMeta = TASK_STATUS_META[task.status]
+                  return (
+                    <button
+                      key={task.id}
+                      type="button"
+                      disabled={!task.cardMessageId}
+                      onClick={() => {
+                        if (task.cardMessageId)
+                          openTaskThread(task.cardMessageId)
+                      }}
+                      className="flex w-full cursor-pointer items-center justify-between gap-3 rounded-lg bg-secondary/60 px-3 py-2 text-left ring-1 ring-border/40 ring-inset transition-colors hover:bg-secondary disabled:cursor-default"
                     >
-                      <HugeiconsIcon
-                        icon={taskMeta.icon}
-                        size={12}
-                        className={taskMeta.spin ? "animate-spin" : undefined}
-                      />
-                      {taskMeta.label}
-                    </Badge>
-                  </button>
-                )
-              })}
-            </div>
-          )}
-          {run.artifacts.length > 0 && (
-            <div className="grid grid-cols-1 gap-2">
-              {run.artifacts.map((artifact) => (
-                <ArtifactFileCard
-                  key={artifact.id}
-                  artifactId={artifact.id}
-                  name={artifact.path}
-                  contentType={artifact.mime}
-                  size={artifact.size}
-                  variant="chip"
-                  className="w-full max-w-none"
-                />
-              ))}
-            </div>
-          )}
+                      <span className="min-w-0 truncate text-sm">
+                        {task.title}
+                      </span>
+                      <Badge
+                        variant={taskMeta.badgeVariant}
+                        size="sm"
+                        className="shrink-0"
+                      >
+                        <HugeiconsIcon
+                          icon={taskMeta.icon}
+                          size={12}
+                          className={taskMeta.spin ? "animate-spin" : undefined}
+                        />
+                        {taskMeta.label}
+                      </Badge>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+            {run.artifacts.length > 0 && (
+              <div className="grid grid-cols-1 gap-2">
+                {run.artifacts.map((artifact) => (
+                  <ArtifactFileCard
+                    key={artifact.id}
+                    artifactId={artifact.id}
+                    name={artifact.path}
+                    contentType={artifact.mime}
+                    size={artifact.size}
+                    variant="chip"
+                    className="w-full max-w-none"
+                  />
+                ))}
+              </div>
+            )}
+          </div>
         </div>
-      )}
+      </div>
     </div>
   )
+}
+
+// Flattens markdown to plain text for the one-line collapsed preview.
+function stripMarkdownInline(value: string): string {
+  return value
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/`([^`]*)`/g, "$1")
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/[*_~]{1,3}([^*_~]+)[*_~]{1,3}/g, "$1")
+    .replace(/^\s*[-*+]\s+/gm, "")
+    .replace(/^\s*>\s?/gm, "")
+    .replace(/\s+/g, " ")
+    .trim()
 }
 
 function cnRunRow(clickable: boolean) {
@@ -898,9 +974,11 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
             <div className="space-y-2">
               <SectionLabel>Closing note</SectionLabel>
               <div className="rounded-xl border bg-card px-4 py-3.5">
-                <p className="whitespace-pre-wrap break-words text-muted-foreground text-sm leading-6">
-                  {loop.completedNote}
-                </p>
+                <MessageMarkdown
+                  content={loop.completedNote}
+                  mentions={[]}
+                  className="text-muted-foreground text-sm leading-6"
+                />
               </div>
             </div>
           )}

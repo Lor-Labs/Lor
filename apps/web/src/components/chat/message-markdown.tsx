@@ -85,7 +85,10 @@ function LinkIcon({ href }: { href?: string }) {
         src={`${env.NEXT_PUBLIC_API_URL}/v1/favicon/${encodeURIComponent(host)}`}
         alt=""
         loading="lazy"
-        className="size-3 rounded-[2px] object-contain"
+        className={cn(
+          "size-3 rounded-[2px] object-contain",
+          /(^|\.)githubstatus\.com$/i.test(host) && "dark:invert"
+        )}
         onError={() => setFailed(true)}
       />
     </IconPlate>
