@@ -63,4 +63,15 @@ describe("endAfterToDate", () => {
       ).toISOString()
     ).toBe("2027-02-28T12:00:00.000Z")
   })
+
+  it("is DST-independent: exact UTC arithmetic regardless of server tz", () => {
+    // Crosses the US spring-forward (2026-03-08). Local-calendar math in a
+    // DST-observing server tz would land an hour off (11:00Z).
+    expect(
+      endAfterToDate(
+        { amount: 2, unit: "weeks" },
+        new Date("2026-03-01T12:00:00Z")
+      ).toISOString()
+    ).toBe("2026-03-15T12:00:00.000Z")
+  })
 })

@@ -87,6 +87,9 @@ export type LoopEndAfter = {
   unit: "days" | "weeks" | "months"
 }
 
+// Arithmetic is done in UTC: the loop's timezone isn't pinned yet at
+// proposal time, and local-calendar math would make the absolute endAt
+// depend on the server's tz (±1h across a DST boundary).
 export function endAfterToDate(
   endAfter: LoopEndAfter,
   from: Date = new Date()
@@ -95,18 +98,16 @@ export function endAfterToDate(
   if (endAfter.unit === "months") {
     // Clamp to the target month's last day — raw setMonth overflows
     // (Jan 31 + 1 month → Mar 3).
-    const day = date.getDate()
-    date.setDate(1)
-    date.setMonth(date.getMonth() + endAfter.amount)
+    const day = date.getUTCDate()
+    date.setUTCDate(1)
+    date.setUTCMonth(date.getUTCMonth() + endAfter.amount)
     const lastDay = new Date(
-      date.getFullYear(),
-      date.getMonth() + 1,
-      0
-    ).getDate()
-    date.setDate(Math.min(day, lastDay))
+      Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0)
+    ).getUTCDate()
+    date.setUTCDate(Math.min(day, lastDay))
   } else {
-    date.setDate(
-      date.getDate() + endAfter.amount * (endAfter.unit === "weeks" ? 7 : 1)
+    date.setUTCDate(
+      date.getUTCDate() + endAfter.amount * (endAfter.unit === "weeks" ? 7 : 1)
     )
   }
   return date
