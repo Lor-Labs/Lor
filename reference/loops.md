@@ -472,6 +472,18 @@ apps/realtime `services/merlin.ts`, card rendering in web
   obsolete — the detail panel already edits drafts in place.
   Still open: mobile management (detail view/editor/lifecycle — see
   mobile-parity-todo), per-run tool-trail replay (punted).
+- 2026-08-24 — Design simplification round (user feedback vs ChatGPT):
+  the chat card is now a text-only PILL — "Every hour · Name" with the
+  schedule tinted (text-primary); state reads from the leading word
+  ("Paused · Name", dimmed "Completed · Name") — no badges, no icon tile;
+  drafts keep a Create Loop button beside the pill. Overview-section rows
+  lost their badges/icons too (name + schedule, quiet status word on the
+  right) and COMPLETED LOOPS ARE HIDDEN there — the arrow button beside
+  the LOOPS title opens the full list panel (which shows everything,
+  completed sorted last). Also: placement prompt gained a loops carve-out
+  (recurring/scheduled asks are never a "task" — a live misroute created a
+  plan-less task shell around a propose_loop call), and web's task card no
+  longer renders the empty plan well on plan-less tasks.
 
 ## Decisions & deviations log
 

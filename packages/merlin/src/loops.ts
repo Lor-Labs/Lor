@@ -63,6 +63,19 @@ const proposeLoopContext = z.object({
   createLoopCard: z.custom<ProposeLoopExecutor>(),
 })
 
+// Models keep encoding "no end condition" as prose ("runs until the team\nmanually stops it") despite the schema saying null. That text then reads as
+// a MET-able condition to the run-time model — one live loop got wrongly
+// completed over it — so coerce the common phrasings back to null here.
+const MANUAL_STOP_PHRASING =
+  /\bmanual(ly)?\b|\bindefinitely\b|\bno end\b|\bstops? (it|the loop|this loop)\b/i
+
+export function normalizeEndCondition(
+  endCondition: string | null
+): string | null {
+  if (!endCondition) return null
+  return MANUAL_STOP_PHRASING.test(endCondition) ? null : endCondition
+}
+
 // Bound only on conversational runs (respond() spreads it in when the
 // executor is present); triggered/loop runs never see it — a loop must not
 // schedule more loops.
@@ -96,7 +109,7 @@ export const proposeLoopTool = {
         .max(MAX_END_CONDITION_CHARS)
         .nullable()
         .describe(
-          'a real finish-line condition, e.g. "the mobile app has shipped". Pass null for a loop that just runs until someone stops it — NEVER write "until manually stopped" or similar as an end condition'
+          'a real finish-line condition, e.g. "the mobile app has shipped". Pass null for a loop that just runs until someone stops it — never restate that as text ("until manually stopped", "runs indefinitely", …); those are treated as null'
         ),
     }),
     contextSchema: proposeLoopContext,
@@ -118,7 +131,7 @@ export const proposeLoopTool = {
           instructions,
           schedule,
           timezone,
-          endCondition,
+          endCondition: normalizeEndCondition(endCondition),
         })
         return {
           ok: true as const,

@@ -1,7 +1,6 @@
 import { Infinity01Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { describeLoopSchedule } from "@repo/realtime-types/loops"
-import { Badge } from "@repo/ui/components/badge"
 import { Button } from "@repo/ui/components/button"
 import { cn } from "@repo/ui/lib/utils"
 import { useParams } from "@tanstack/react-router"
@@ -13,24 +12,23 @@ import {
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import { type ChannelLoop, useLoopForCard } from "@/hooks/use-channel-loops"
 import type { Message } from "@/lib/api-types"
-import { LOOP_STATUS_META } from "@/lib/loop-ui"
 import { toSearchPreviewText } from "@/lib/search-preview"
 
-// Compact loop pill (ChatGPT-scheduled-tasks inspired): icon, name, and the
-// plain-english schedule — nothing else. Clicking opens the loop detail
-// panel where the full prompt, timezone, and next-run info live. Drafts get
-// a quick Create Loop button that activates in the viewer's device timezone;
-// picking a different one happens in the panel.
-const SURFACE_CLASS =
-  "relative mt-1.5 w-full max-w-xl overflow-hidden rounded-xl border bg-card transition-colors"
+// The loop's chat presence, OpenAI-soft but Lor-signed: a borderless filled
+// chip (the fill, not a stroke, is what reads "light"), our rounded-xl card
+// radius instead of their full pill, and the purple ∞ + schedule leading —
+// "∞ Every hour · Name". State reads from the leading segment ("Paused ·
+// Name", dimmed "Completed · Name"); every detail lives one click away in
+// the panel. Drafts get a Create Loop button beside the chip (activates in
+// the viewer's device timezone).
 
 export function LoopCard({ message }: { message: Message }) {
   const loop = useLoopForCard(message.channelId, message.id)
 
   if (!loop) {
     return (
-      <div className={SURFACE_CLASS}>
-        <p className="line-clamp-2 px-4 py-3.5 text-muted-foreground text-sm leading-5">
+      <div className="mt-1.5 w-fit max-w-xl rounded-xl bg-secondary/60 px-4 py-2.5">
+        <p className="truncate text-muted-foreground text-sm leading-5">
           {toSearchPreviewText(message.content, message.mentions ?? [], {
             dropUnresolvedMentions: true,
           })}
@@ -56,10 +54,17 @@ function LoopCardBody({ loop }: { loop: ChannelLoop }) {
     timezone
   )
 
-  const meta = LOOP_STATUS_META[loop.status]
   const isDraft = loop.status === "draft"
-  // Timezone stays out of the card — the panel owns it.
   const scheduleText = describeLoopSchedule(loop.schedule, null)
+  // The leading segment carries state: the schedule while it runs,
+  // "Paused"/"Completed" words otherwise.
+  const lead =
+    loop.status === "paused"
+      ? "Paused"
+      : loop.status === "completed"
+        ? "Completed"
+        : scheduleText
+  const isLive = loop.status === "active" || isDraft
 
   const openPanel = () => {
     if (!workspaceSlug) return
@@ -73,45 +78,46 @@ function LoopCardBody({ loop }: { loop: ChannelLoop }) {
   }
 
   return (
-    <div
-      className={cn(
-        "group/loop",
-        SURFACE_CLASS,
-        isOpenPanel ? "border-foreground/25" : "hover:bg-muted/30"
-      )}
-    >
+    <div className="mt-1.5 flex max-w-xl items-center gap-2">
       <button
         type="button"
-        aria-label="Open loop details"
         onClick={openPanel}
-        className="absolute inset-0 z-10 cursor-pointer rounded-xl"
-      />
-      <div className="flex items-center gap-3 px-4 py-3">
-        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-secondary text-muted-foreground ring-1 ring-border/40 ring-inset">
-          <HugeiconsIcon icon={Infinity01Icon} size={16} />
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="truncate font-medium text-sm leading-5">{loop.name}</p>
-          <p className="truncate text-muted-foreground text-sm leading-5">
-            {scheduleText}
-          </p>
-        </div>
-        {isDraft ? (
-          <Button
-            size="sm"
-            className="relative z-20 shrink-0"
-            loading={isPending}
-            onClick={() => activate()}
-          >
-            Create Loop
-          </Button>
-        ) : (
-          <Badge variant={meta.badgeVariant} size="sm" className="shrink-0">
-            <HugeiconsIcon icon={meta.icon} size={12} />
-            {meta.label}
-          </Badge>
+        className={cn(
+          "flex min-w-0 cursor-pointer items-center gap-2 rounded-xl bg-secondary/60 px-4 py-2.5 text-sm leading-5 transition-colors hover:bg-secondary",
+          isOpenPanel && "bg-secondary",
+          loop.status === "completed" && "opacity-70"
         )}
-      </div>
+      >
+        <HugeiconsIcon
+          icon={Infinity01Icon}
+          size={15}
+          className={cn(
+            "shrink-0",
+            isLive ? "text-primary" : "text-muted-foreground"
+          )}
+        />
+        <span
+          className={cn(
+            "shrink-0 font-medium",
+            isLive ? "text-primary" : "text-muted-foreground"
+          )}
+        >
+          {lead}
+        </span>
+        <span className="shrink-0 text-muted-foreground/60">·</span>
+        <span className="min-w-0 truncate font-medium">{loop.name}</span>
+      </button>
+
+      {isDraft && (
+        <Button
+          size="sm"
+          className="shrink-0"
+          loading={isPending}
+          onClick={() => activate()}
+        >
+          Create Loop
+        </Button>
+      )}
 
       <LoopFrequencyDialog
         scheduleText={scheduleText}

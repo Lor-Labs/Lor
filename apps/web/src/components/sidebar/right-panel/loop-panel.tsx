@@ -749,7 +749,13 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
                 </DetailRow>
               )}
               <DetailRow label="End repeat">
-                {loop.endCondition ?? "Never"}
+                {loop.endCondition ? (
+                  <span className="truncate" title={loop.endCondition}>
+                    {loop.endCondition}
+                  </span>
+                ) : (
+                  "Never"
+                )}
               </DetailRow>
               {loop.status === "active" && loop.nextRunAt && (
                 <DetailRow label="Next run">
