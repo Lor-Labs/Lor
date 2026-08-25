@@ -12,6 +12,7 @@ const DAY_NAMES = [
   "Friday",
   "Saturday",
 ]
+const DAY_ABBREV = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 
 function formatTime(hour: number, minute: number): string {
   const h12 = hour % 12 === 0 ? 12 : hour % 12
@@ -32,7 +33,13 @@ function describeDayField(dow: string): string | null {
   if (single) return single
   const list = dow.split(",")
   if (list.every((d) => /^[0-6]$/.test(d))) {
-    return list.map((d) => DAY_NAMES[Number(d)]).join(", ")
+    // Multi-day lists use short names — full names eat the whole chip when
+    // 4-5 days are selected.
+    const names = [...new Set(list.map(Number))]
+      .sort((a, b) => a - b)
+      .map((d) => DAY_ABBREV[d])
+    if (names.length === 1) return DAY_NAMES[Number(list[0])] ?? null
+    return `${names.slice(0, -1).join(", ")} & ${names[names.length - 1]}`
   }
   return null
 }
@@ -64,8 +71,8 @@ export function describeLoopSchedule(
     ) {
       const n = hour === "*" ? 1 : Number(hour.slice(2))
       const days = dow === "*" ? "" : describeDayField(dow)
-      // Comma lists ("Monday, Friday") don't pluralize cleanly — fall through.
-      if (days !== null && !days.includes(",")) {
+      // Day lists ("Mon & Fri") don't pluralize cleanly — fall through.
+      if (days !== null && !days.includes(",") && !days.includes("&")) {
         const base = n === 1 ? "Every hour" : `Every ${n} hours`
         const at = Number(min) === 0 ? "" : ` at :${min.padStart(2, "0")}`
         const on = days ? ` on ${days}s` : ""
@@ -90,7 +97,8 @@ export function describeLoopSchedule(
 
 // Structured view of the cron shapes the schedule editor can round-trip:
 // everything else is "custom" and renders read-only. `dow` keeps the raw
-// cron day field ("1", "1-5", "0,6") so presets like weekdays survive.
+// cron day field ("1", "1-5", "0,6", "1,4,6") so presets and multi-day
+// selections survive.
 export type LoopScheduleShape =
   | { kind: "hourly"; minute: number }
   | { kind: "daily"; hour: number; minute: number }
@@ -98,7 +106,9 @@ export type LoopScheduleShape =
   | { kind: "monthly"; dom: number; hour: number; minute: number }
   | { kind: "custom"; schedule: string }
 
-const EDITABLE_DOW = /^([0-6]|1-5|0,6|6,0)$/
+// Weekday range preset, or any comma list of days (single day included) —
+// the editor's multi-day picker emits sorted lists like "1,4,6".
+const EDITABLE_DOW = /^(1-5|[0-6](,[0-6])*)$/
 
 export function parseLoopSchedule(schedule: string): LoopScheduleShape {
   const fields = schedule.trim().split(/\s+/)
@@ -139,4 +149,21 @@ export function formatLoopSchedule(shape: LoopScheduleShape): string {
     case "custom":
       return shape.schedule
   }
+}
+
+// Editable dow field ↔ sorted day numbers, for the multi-day picker.
+export function dowToDays(dow: string): number[] {
+  if (dow === "1-5") return [1, 2, 3, 4, 5]
+  const days = dow
+    .split(",")
+    .map(Number)
+    .filter((d) => Number.isInteger(d) && d >= 0 && d <= 6)
+  return [...new Set(days)].sort((a, b) => a - b)
+}
+
+// Collapses back to the presets so "Mon–Fri checked" round-trips as "1-5".
+export function daysToDow(days: number[]): string {
+  const sorted = [...new Set(days)].sort((a, b) => a - b)
+  if (sorted.join(",") === "1,2,3,4,5") return "1-5"
+  return sorted.join(",")
 }

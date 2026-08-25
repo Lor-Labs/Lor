@@ -585,3 +585,13 @@ apps/realtime `services/merlin.ts`, card rendering in web
   `useUpdateLoopSchedule` (`components/loops/loop-actions.tsx`, renamed
   from activate-loop.tsx). Loop icon is now `Infinity01Icon` (card pill +
   active status chip) — more distinct than the repeat arrows.
+- 2026-08-25 — Multi-day weekly schedules: the weekly "Days" row is now a
+  checkbox multi-select (menu dressed as a Select trigger; presets collapse
+  in the summary — "Weekdays", "Weekends", "Every day", else "Mon, Thu &
+  Sat"; last checked day can't be unchecked). No separate "Custom" repeat
+  mode — any comma list of days is just an editable weekly shape now:
+  `EDITABLE_DOW` accepts `1-5` or any `[0-6]` comma list, new
+  `dowToDays`/`daysToDow` helpers (weekday set collapses back to `1-5`) in
+  `@repo/realtime-types/loops`, `describeDayField` joins lists with "and"
+  ("Every Monday, Thursday and Saturday at 9:00 AM"). Tested in
+  `loop-schedule.test.ts`.

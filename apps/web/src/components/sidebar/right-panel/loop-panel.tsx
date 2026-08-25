@@ -13,7 +13,9 @@ import {
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
+  daysToDow,
   describeLoopSchedule,
+  dowToDays,
   formatLoopSchedule,
   formatScheduleTime,
   type LoopScheduleShape,
@@ -42,6 +44,7 @@ import {
 import { Input } from "@repo/ui/components/input"
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
@@ -52,8 +55,11 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  selectTriggerIconClassName,
+  selectTriggerVariants,
 } from "@repo/ui/components/select"
 import { cn } from "@repo/ui/lib/utils"
+import { ChevronsUpDownIcon } from "lucide-react"
 import { useMemo, useRef, useState } from "react"
 import { ArtifactFileCard } from "@/components/chat/artifact-file-card"
 import { MessageMarkdown } from "@/components/chat/message-markdown"
@@ -100,17 +106,28 @@ const REPEAT_OPTIONS = [
   { label: "Monthly", value: "monthly" },
 ] as const
 
-const DOW_OPTIONS = [
-  { label: "Weekdays", value: "1-5" },
-  { label: "Weekends", value: "0,6" },
-  { label: "Sunday", value: "0" },
-  { label: "Monday", value: "1" },
-  { label: "Tuesday", value: "2" },
-  { label: "Wednesday", value: "3" },
-  { label: "Thursday", value: "4" },
-  { label: "Friday", value: "5" },
-  { label: "Saturday", value: "6" },
+const DOW_LABELS = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
 ]
+const DOW_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+
+// Trigger summary for the multi-day picker: presets collapse to a word,
+// otherwise short names ("Mon, Thu & Sat").
+function dowSummary(dow: string): string {
+  const days = dowToDays(dow)
+  if (days.length === 7) return "Every day"
+  if (daysToDow(days) === "1-5") return "Weekdays"
+  if (days.join(",") === "0,6") return "Weekends"
+  if (days.length === 1) return DOW_LABELS[days[0] ?? 0] ?? ""
+  const short = days.map((d) => DOW_SHORT[d])
+  return `${short.slice(0, -1).join(", ")} & ${short[short.length - 1]}`
+}
 
 const MINUTE_OPTIONS = [0, 15, 30, 45]
 
@@ -540,7 +557,7 @@ function EndRepeatRows({
           value={mode}
           onValueChange={(v) => v && changeMode(v)}
         >
-          <SelectTrigger aria-label="End repeat" className="h-8 w-32">
+          <SelectTrigger aria-label="End repeat" className="h-8 w-40">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -698,7 +715,7 @@ function ScheduleEditor({
           value={shape.kind}
           onValueChange={(v) => v && changeKind(v)}
         >
-          <SelectTrigger aria-label="Repeat" className="h-8 w-32">
+          <SelectTrigger aria-label="Repeat" className="h-8 w-40">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -712,23 +729,40 @@ function ScheduleEditor({
       </DetailRow>
 
       {shape.kind === "weekly" && (
-        <DetailRow label="Day of the week">
-          <Select
-            items={DOW_OPTIONS}
-            value={shape.dow}
-            onValueChange={(v) => v && apply({ ...shape, dow: v })}
-          >
-            <SelectTrigger aria-label="Day of the week" className="h-8 w-36">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {DOW_OPTIONS.map((opt) => (
-                <SelectItem key={opt.value} value={opt.value}>
-                  {opt.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+        <DetailRow label="Days">
+          {/* Multi-day picker — checkbox menu dressed as a Select so the row
+              matches its neighbors. At least one day stays checked. */}
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              aria-label="Days of the week"
+              className={cn(selectTriggerVariants(), "h-8 w-40 min-w-0")}
+            >
+              <span className="flex-1 truncate">{dowSummary(shape.dow)}</span>
+              <ChevronsUpDownIcon className={selectTriggerIconClassName} />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {DOW_LABELS.map((label, day) => {
+                const days = dowToDays(shape.dow)
+                const checked = days.includes(day)
+                return (
+                  <DropdownMenuCheckboxItem
+                    key={label}
+                    checked={checked}
+                    closeOnClick={false}
+                    disabled={checked && days.length === 1}
+                    onCheckedChange={(next) => {
+                      const nextDays = next
+                        ? [...days, day]
+                        : days.filter((d) => d !== day)
+                      apply({ ...shape, dow: daysToDow(nextDays) })
+                    }}
+                  >
+                    {label}
+                  </DropdownMenuCheckboxItem>
+                )
+              })}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </DetailRow>
       )}
 
@@ -739,7 +773,7 @@ function ScheduleEditor({
             value={String(shape.dom)}
             onValueChange={(v) => v && apply({ ...shape, dom: Number(v) })}
           >
-            <SelectTrigger aria-label="Day of the month" className="h-8 w-24">
+            <SelectTrigger aria-label="Day of the month" className="h-8 w-40">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -760,7 +794,7 @@ function ScheduleEditor({
             value={String(minute)}
             onValueChange={(v) => v && apply({ ...shape, minute: Number(v) })}
           >
-            <SelectTrigger aria-label="At minute" className="h-8 w-24">
+            <SelectTrigger aria-label="At minute" className="h-8 w-40">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -789,7 +823,7 @@ function ScheduleEditor({
             <SelectTrigger
               aria-label="Time"
               title={`${formatScheduleTime(hour, minute)} ${timezoneAbbreviation(timezone)} (${timezone.replace(/_/g, " ")})`}
-              className="h-8 w-32"
+              className="h-8 w-40"
             >
               <SelectValue />
             </SelectTrigger>

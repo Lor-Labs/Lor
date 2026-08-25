@@ -1,4 +1,6 @@
 import {
+  daysToDow,
+  dowToDays,
   formatLoopSchedule,
   parseLoopSchedule,
 } from "@repo/realtime-types/loops"
@@ -102,6 +104,15 @@ describe("describeLoopSchedule", () => {
     )
   })
 
+  it("describes multi-day weekly lists with short names", () => {
+    expect(describeLoopSchedule("0 9 * * 1,4,6", TZ)).toBe(
+      `Every Mon, Thu & Sat at 9:00 AM (${TZ})`
+    )
+    expect(describeLoopSchedule("30 17 * * 2,5", TZ)).toBe(
+      `Every Tue & Fri at 5:30 PM (${TZ})`
+    )
+  })
+
   it("describes hourly shapes in plain english", () => {
     expect(describeLoopSchedule("0 * * * *", TZ)).toBe(`Every hour (${TZ})`)
     expect(describeLoopSchedule("30 * * * *", TZ)).toBe(
@@ -139,6 +150,7 @@ describe("parseLoopSchedule / formatLoopSchedule", () => {
       "0 12 * * 1",
       "30 17 * * 1-5",
       "0 10 * * 0,6",
+      "0 9 * * 1,4,6",
       "15 8 1 * *",
     ]
     for (const schedule of shapes) {
@@ -165,5 +177,19 @@ describe("parseLoopSchedule / formatLoopSchedule", () => {
     for (const schedule of ["*/5 * * * *", "0 9 * 2 *", "0 9 2 * 1"]) {
       expect(parseLoopSchedule(schedule)).toEqual({ kind: "custom", schedule })
     }
+  })
+})
+
+describe("dowToDays / daysToDow", () => {
+  it("expands presets and lists to sorted day numbers", () => {
+    expect(dowToDays("1-5")).toEqual([1, 2, 3, 4, 5])
+    expect(dowToDays("6,0")).toEqual([0, 6])
+    expect(dowToDays("4,1,4")).toEqual([1, 4])
+  })
+
+  it("collapses the weekday set back to the 1-5 preset", () => {
+    expect(daysToDow([5, 1, 2, 4, 3])).toBe("1-5")
+    expect(daysToDow([6, 1, 4])).toBe("1,4,6")
+    expect(daysToDow([0, 6])).toBe("0,6")
   })
 })
