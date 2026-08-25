@@ -1102,30 +1102,34 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
         </div>
       )}
 
-      {/* Persistent footer: Save stays disabled until something is staged.
-          Drafts pair it with Create Loop (which saves staged edits first). */}
-      {loop && loop.status !== "completed" && (
-        <div className="flex justify-end gap-2 px-4 pb-4">
-          <Button
-            size="sm"
-            variant={isDraft ? "outline" : "default"}
-            disabled={!dirtyInput}
-            loading={updateLoop.isPending}
-            onClick={() => dirtyInput && updateLoop.update(dirtyInput)}
-          >
-            Save changes
-          </Button>
-          {isDraft && (
-            <Button
-              size="sm"
-              loading={isPending}
-              onClick={() => void createLoop()}
-            >
-              Create Loop
-            </Button>
-          )}
-        </div>
-      )}
+      {/* Footer appears only when there's something to save (kept while the
+          save is in flight); drafts always show Create Loop beside it. */}
+      {loop &&
+        loop.status !== "completed" &&
+        (isDraft || dirtyInput || updateLoop.isPending) && (
+          <div className="flex justify-end gap-2 px-4 pb-4">
+            {(dirtyInput || updateLoop.isPending) && (
+              <Button
+                size="sm"
+                variant={isDraft ? "outline" : "default"}
+                loading={updateLoop.isPending}
+                onClick={() => dirtyInput && updateLoop.update(dirtyInput)}
+                className="fade-in slide-in-from-bottom-1 animate-in duration-200"
+              >
+                Save changes
+              </Button>
+            )}
+            {isDraft && (
+              <Button
+                size="sm"
+                loading={isPending}
+                onClick={() => void createLoop()}
+              >
+                Create Loop
+              </Button>
+            )}
+          </div>
+        )}
 
       <LoopFrequencyDialog
         scheduleText={scheduleText}
