@@ -11,6 +11,7 @@ import {
   emitLoopUpdated,
   pauseLoop as pauseLoopAction,
   resumeLoop as resumeLoopAction,
+  runLoopNow as runLoopNowAction,
 } from "@/lib/loops"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import { serializeArtifact } from "@/routes/v1/artifacts/handlers"
@@ -22,6 +23,7 @@ import type {
   ListLoopRunsRoute,
   PauseLoopRoute,
   ResumeLoopRoute,
+  RunLoopNowRoute,
   UpdateLoopRoute,
 } from "@/routes/v1/loops/routes"
 
@@ -368,6 +370,46 @@ export const resumeLoop: AppRouteHandler<ResumeLoopRoute> = async (c) => {
     return c.json(
       { success: false as const, message: result.reason },
       HttpStatusCodes.BAD_REQUEST
+    )
+  }
+  return c.json({ loop: toRealtimeLoop(result.loop) }, HttpStatusCodes.OK)
+}
+
+export const runLoopNow: AppRouteHandler<RunLoopNowRoute> = async (c) => {
+  const currentUser = c.var.user
+  const { loopId } = c.req.valid("param")
+
+  const found = await loadAccessibleLoop(loopId, currentUser.id)
+  if (!found) {
+    return c.json(
+      { success: false as const, message: "Loop not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  // The run posts into the channel — refuse on archived, same as resume.
+  if (!found.canWrite) {
+    return c.json(
+      { success: false as const, message: "Channel is archived" },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+  const result = await runLoopNowAction({ loopId })
+  if (!result.ok) {
+    if (result.reason === "enqueue_failed") {
+      return c.json(
+        { success: false as const, message: "Failed to start the run" },
+        HttpStatusCodes.INTERNAL_SERVER_ERROR
+      )
+    }
+    return c.json(
+      {
+        success: false as const,
+        message:
+          result.reason === "already_running"
+            ? "A run is already in progress"
+            : "Loop is not active",
+      },
+      HttpStatusCodes.CONFLICT
     )
   }
   return c.json({ loop: toRealtimeLoop(result.loop) }, HttpStatusCodes.OK)

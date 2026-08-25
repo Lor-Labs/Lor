@@ -619,3 +619,12 @@ apps/realtime `services/merlin.ts`, card rendering in web
   hourly loops don't bump unreads with decoration on top of the run's real
   messages. Web + mobile render fire markers with the same LoopCard chip
   (web opens the loop panel on click).
+- 2026-08-25 — Run now: `POST /v1/loops/{loopId}/run-now` fires an active
+  loop immediately on the normal rails (`runLoopNow` in api lib/loops.ts:
+  run row with scopeKey = loop.id + loop-run job via a new API-side
+  loop-run Queue singleton). The schedule is untouched — nextRunAt stays
+  put; lastRunAt updates and loop:updated nudges the run history. One run
+  at a time still holds (mid-run → 409 "already in progress"); archived
+  channel → 400; non-active → 409. Web: "Run now" item (Refresh01Icon) at
+  the top of the panel's … menu, active loops only (`useRunLoopNow` in
+  loop-actions.tsx, success toast).

@@ -10,6 +10,7 @@ import {
   PauseIcon,
   PencilEdit01Icon,
   PlayIcon,
+  Refresh01Icon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
@@ -69,6 +70,7 @@ import {
   useActivateLoop,
   useDeleteLoop,
   useLoopLifecycle,
+  useRunLoopNow,
   useUpdateLoop,
 } from "@/components/loops/loop-actions"
 import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-header"
@@ -912,6 +914,7 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
   const lifecycle = useLoopLifecycle(loop)
   const updateLoop = useUpdateLoop(loop)
   const deleteLoop = useDeleteLoop(loop)
+  const runNow = useRunLoopNow(loop)
   const [confirmComplete, setConfirmComplete] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   // Null = rename dialog closed; a string is the draft being edited.
@@ -1005,6 +1008,15 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
                   <HugeiconsIcon icon={MoreHorizontalIcon} size={16} />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
+                  {loop.status === "active" && (
+                    <DropdownMenuItem
+                      disabled={runNow.isPending}
+                      onClick={() => runNow.mutate()}
+                    >
+                      <HugeiconsIcon icon={Refresh01Icon} size={14} />
+                      Run now
+                    </DropdownMenuItem>
+                  )}
                   {loop.status !== "completed" && (
                     <DropdownMenuItem onClick={() => setNameDraft(loop.name)}>
                       <HugeiconsIcon icon={PencilEdit01Icon} size={14} />

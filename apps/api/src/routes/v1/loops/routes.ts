@@ -201,6 +201,33 @@ export const completeLoop = createRoute({
 
 export type CompleteLoopRoute = typeof completeLoop
 
+export const runLoopNow = createRoute({
+  path: "/loops/{loopId}/run-now",
+  method: "post",
+  summary: "Fire a loop immediately",
+  description:
+    "Starts a run right now on the loop's normal rails, without touching the schedule — the next scheduled fire stays where it was. One run at a time still holds; a loop mid-run reads as 409.",
+  tags: ["Loops"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: {
+    params: loopParamsSchema,
+  },
+  hidden: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: activateLoopResponseSchema,
+      description: "The loop; the run is queued",
+    }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.CONFLICT]: conflictSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type RunLoopNowRoute = typeof runLoopNow
+
 export const listLoopRuns = createRoute({
   path: "/loops/{loopId}/runs",
   method: "get",

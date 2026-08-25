@@ -1,9 +1,16 @@
-import { and, db, eq, inArray, schema, sql } from "@repo/db"
+import { and, db, eq, inArray, isUniqueViolation, schema, sql } from "@repo/db"
 import type { Loop } from "@repo/db/schema"
+import { env } from "@repo/env/server"
 import { nextLoopRunAt, validateLoopSchedule } from "@repo/merlin/loop-schedule"
 import { toRealtimeLoop } from "@repo/merlin/loops"
-import { AGENT_RUN_STOP_CHANNEL } from "@repo/realtime-types/queues"
+import {
+  AGENT_RUN_STOP_CHANNEL,
+  LOOP_RUN_JOB,
+  LOOP_RUN_QUEUE,
+  type LoopRunJobData,
+} from "@repo/realtime-types/queues"
 import { channelRoom } from "@repo/realtime-types/rooms"
+import { Queue } from "bullmq"
 import { getEmitter } from "@/lib/bot-messages"
 import { logger } from "@/lib/logger"
 import { getRedisClient } from "@/lib/redis"
@@ -17,6 +24,107 @@ export async function emitLoopUpdated(row: Loop): Promise<void> {
   emitter
     .to(channelRoom(row.channelId))
     .emit("loop:updated", { loop: toRealtimeLoop(row) })
+}
+
+function parseRedisUrl(url: string) {
+  const parsed = new URL(url)
+  const dbIndex = Number.parseInt(parsed.pathname.slice(1), 10)
+  return {
+    host: parsed.hostname,
+    port: Number(parsed.port) || 6379,
+    password: parsed.password || undefined,
+    username: parsed.username || undefined,
+    tls: parsed.protocol === "rediss:" ? {} : undefined,
+    db: Number.isFinite(dbIndex) ? dbIndex : 0,
+  }
+}
+
+let loopRunQueue: Queue<LoopRunJobData> | null = null
+function getLoopRunQueue(): Queue<LoopRunJobData> {
+  loopRunQueue ??= new Queue<LoopRunJobData>(LOOP_RUN_QUEUE, {
+    connection: { ...parseRedisUrl(env.REDIS_URL), maxRetriesPerRequest: null },
+    defaultJobOptions: {
+      removeOnComplete: { age: 3600, count: 1000 },
+      removeOnFail: { age: 86400, count: 5000 },
+    },
+  })
+  return loopRunQueue
+}
+
+// Manual "Run now" from the loop panel: same rails as a sweep-claimed fire
+// (run row with scopeKey = loop.id, then the loop-run job), but the cadence
+// is untouched — nextRunAt stays where the schedule put it. The active-scope
+// unique index still enforces one run at a time.
+export async function runLoopNow(input: {
+  loopId: string
+}): Promise<
+  | { ok: true; loop: Loop }
+  | { ok: false; reason: "not_active" | "already_running" | "enqueue_failed" }
+> {
+  const loop = await db
+    .select()
+    .from(schema.loop)
+    .where(eq(schema.loop.id, input.loopId))
+    .then((rows) => rows[0] ?? null)
+  if (!loop || loop.status !== "active")
+    return { ok: false, reason: "not_active" }
+
+  const run = await db
+    .insert(schema.agentRun)
+    .values({
+      workspaceId: loop.workspaceId,
+      channelId: loop.channelId,
+      scopeKey: loop.id,
+      loopId: loop.id,
+      scheduledFor: new Date(),
+      budgetSteps: env.AGENT_RUN_MAX_STEPS,
+      budgetInputTokens: env.AGENT_RUN_MAX_INPUT_TOKENS,
+      budgetOutputTokens: env.AGENT_RUN_MAX_OUTPUT_TOKENS,
+      budgetToolCalls: env.AGENT_RUN_MAX_TOOL_CALLS,
+      budgetToolOutputBytes: env.AGENT_RUN_MAX_TOOL_OUTPUT_BYTES,
+      budgetWallMs: env.AGENT_RUN_MAX_WALL_MS,
+      budgetCredits: env.AGENT_RUN_MAX_CREDITS,
+    })
+    .returning({ id: schema.agentRun.id })
+    .then((rows) => rows[0] ?? null)
+    .catch((err) => {
+      if (isUniqueViolation(err)) return null
+      throw err
+    })
+  if (!run) return { ok: false, reason: "already_running" }
+
+  try {
+    await getLoopRunQueue().add(
+      LOOP_RUN_JOB,
+      { runId: run.id, loopId: loop.id },
+      {
+        jobId: run.id,
+        attempts: 2,
+        backoff: { type: "fixed", delay: 5000 },
+        removeOnComplete: true,
+      }
+    )
+  } catch (err) {
+    // Same unwind as the sweep: a run row with no job would sit until the
+    // dead-run sweep force-fails it.
+    logger.error({ err, loopId: loop.id }, "Run-now enqueue failed")
+    await db
+      .delete(schema.agentRun)
+      .where(eq(schema.agentRun.id, run.id))
+      .catch(() => {})
+    return { ok: false, reason: "enqueue_failed" }
+  }
+
+  // lastRunAt means "last fired" — manual fires count. The emit also nudges
+  // clients to refresh the run history.
+  const updated = await db
+    .update(schema.loop)
+    .set({ lastRunAt: new Date() })
+    .where(eq(schema.loop.id, loop.id))
+    .returning()
+    .then((rows) => rows[0] ?? loop)
+  await emitLoopUpdated(updated)
+  return { ok: true, loop: updated }
 }
 
 // A run already inside respond() needs the durable stop flag + the fast-path

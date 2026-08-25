@@ -254,6 +254,42 @@ export function useLoopLifecycle(loop: ChannelLoop | null) {
   return mutation
 }
 
+// Manual fire from the panel's … menu. The server enforces one-run-at-a-time
+// (mid-run reads as 409) and leaves the schedule untouched; loop:updated +
+// the run-history invalidation make the new run appear in Recent runs.
+export function useRunLoopNow(loop: ChannelLoop | null) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async () => {
+      if (!loop) throw new Error("Loop not loaded yet")
+      const res = await apiClient.v1.loops[":loopId"]["run-now"].$post({
+        param: { loopId: loop.id },
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => null)
+        throw new Error(body?.message ?? "Failed to start the run")
+      }
+      const body = await res.json()
+      return body.loop
+    },
+    onSuccess: (updated) => {
+      queryClient.setQueryData(
+        ["channel-loops", updated.channelId],
+        (existing: ChannelLoop[] | undefined) =>
+          existing?.map((l) => (l.id === updated.id ? updated : l))
+      )
+      queryClient.invalidateQueries({ queryKey: ["loop-runs", updated.id] })
+      toast.success("Run started")
+    },
+    onError: (err) => {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to start the run"
+      )
+    },
+  })
+}
+
 // Hard delete from the … menu — the server removes the card message too and
 // broadcasts loop:deleted; the local cache removal here just beats the socket.
 export function useDeleteLoop(loop: ChannelLoop | null) {
