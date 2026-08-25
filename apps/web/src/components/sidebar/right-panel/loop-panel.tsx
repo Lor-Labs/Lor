@@ -60,11 +60,12 @@ import {
 } from "@repo/ui/components/select"
 import { cn } from "@repo/ui/lib/utils"
 import { ChevronsUpDownIcon } from "lucide-react"
-import { useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { ArtifactFileCard } from "@/components/chat/artifact-file-card"
 import { MessageMarkdown } from "@/components/chat/message-markdown"
 import {
   LoopFrequencyDialog,
+  type UpdateLoopInput,
   useActivateLoop,
   useDeleteLoop,
   useLoopLifecycle,
@@ -159,21 +160,19 @@ function SectionLabel({ children }: { children: string }) {
 }
 
 // The standing brief, editable in place on non-completed loops — click the
-// card to edit, blur saves (Escape cancels). Every run reads it fresh, so a
-// save takes effect from the next fire.
+// card to edit, blur stages the change (Escape cancels); the footer Save
+// button persists it.
 function PromptSection({
   loop,
-  onSave,
-  saving,
+  onStage,
 }: {
   loop: ChannelLoop
-  onSave: (instructions: string) => void
-  saving: boolean
+  onStage: (instructions: string) => void
 }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState("")
   const cancelled = useRef(false)
-  const editable = loop.status !== "completed" && !saving
+  const editable = loop.status !== "completed"
 
   const commit = () => {
     setEditing(false)
@@ -182,17 +181,12 @@ function PromptSection({
       return
     }
     const trimmed = draft.trim()
-    if (trimmed && trimmed !== loop.instructions) onSave(trimmed)
+    if (trimmed && trimmed !== loop.instructions) onStage(trimmed)
   }
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <SectionLabel>Prompt</SectionLabel>
-        {saving && (
-          <span className="px-1 text-muted-foreground/70 text-xs">Saving…</span>
-        )}
-      </div>
+      <SectionLabel>Prompt</SectionLabel>
       {editing ? (
         // Raw textarea styled byte-identical to the view card (same padding,
         // radius, type scale) so entering/leaving edit never shifts layout;
@@ -223,8 +217,7 @@ function PromptSection({
           }}
           className={cn(
             "w-full rounded-xl border bg-card px-4 py-3.5 text-left transition-[opacity,border-color]",
-            editable && "cursor-text hover:border-foreground/25",
-            saving && "opacity-60"
+            editable && "cursor-text hover:border-foreground/25"
           )}
         >
           <p className="whitespace-pre-wrap break-words text-sm leading-6">
@@ -849,6 +842,62 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
     loop && loop.status !== "draft" ? loop.id : null
   )
 
+  // Edits are STAGED locally and persisted by the footer Save button — the
+  // autosave-on-change model made it unclear anything was saved at all.
+  type StagedEdits = Pick<
+    UpdateLoopInput,
+    "instructions" | "schedule" | "endAt" | "endCondition"
+  >
+  const [staged, setStaged] = useState<StagedEdits>({})
+  const stage = (input: StagedEdits) =>
+    setStaged((prev) => ({ ...prev, ...input }))
+  const loopId = loop?.id
+  // Staged edits are per-loop — drop them when the panel shows a different one.
+  useEffect(() => setStaged({}), [loopId])
+
+  // What the editor sections render: the loop with staged edits layered on.
+  const effective = useMemo(() => {
+    if (!loop) return null
+    return {
+      ...loop,
+      ...(staged.instructions !== undefined
+        ? { instructions: staged.instructions }
+        : {}),
+      ...(staged.schedule !== undefined ? { schedule: staged.schedule } : {}),
+      ...(staged.endAt !== undefined ? { endAt: staged.endAt } : {}),
+      ...(staged.endCondition !== undefined
+        ? { endCondition: staged.endCondition }
+        : {}),
+    }
+  }, [loop, staged])
+
+  // Only the keys that actually differ from the server snapshot; null = clean.
+  // After a save lands the cache matches the staged values, so this empties
+  // (and the button disables) without any explicit reset.
+  const dirtyInput = useMemo((): UpdateLoopInput | null => {
+    if (!loop) return null
+    const diff: UpdateLoopInput = {}
+    if (
+      staged.instructions !== undefined &&
+      staged.instructions !== loop.instructions
+    ) {
+      diff.instructions = staged.instructions
+    }
+    if (staged.schedule !== undefined && staged.schedule !== loop.schedule) {
+      diff.schedule = staged.schedule
+    }
+    if (staged.endAt !== undefined && staged.endAt !== loop.endAt) {
+      diff.endAt = staged.endAt
+    }
+    if (
+      staged.endCondition !== undefined &&
+      staged.endCondition !== loop.endCondition
+    ) {
+      diff.endCondition = staged.endCondition
+    }
+    return Object.keys(diff).length > 0 ? diff : null
+  }, [loop, staged])
+
   const deviceTimezone = useMemo(
     () => Intl.DateTimeFormat().resolvedOptions().timeZone,
     []
@@ -869,8 +918,25 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
   const [nameDraft, setNameDraft] = useState<string | null>(null)
 
   const meta = loop ? LOOP_STATUS_META[loop.status] : null
-  const scheduleText = loop ? describeLoopSchedule(loop.schedule, null) : ""
+  const scheduleText = effective
+    ? describeLoopSchedule(effective.schedule, null)
+    : ""
   const isDraft = loop?.status === "draft"
+
+  // Create Loop persists staged edits first — activation reads the server
+  // snapshot, so anything unsaved would silently vanish.
+  const createLoop = async () => {
+    if (dirtyInput) {
+      try {
+        const result = await updateLoop.updateAsync(dirtyInput)
+        // Sub-hourly re-consent — the confirm dialog is up; activate after.
+        if (result.kind === "needs_confirmation") return
+      } catch {
+        return // toasted by the hook; staged edits stay dirty for retry
+      }
+    }
+    activate()
+  }
 
   return (
     <div className="flex h-full w-full flex-col">
@@ -964,7 +1030,7 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
           ) : undefined
         }
       />
-      {!loop ? (
+      {!loop || !effective ? (
         <div className="flex min-h-0 flex-1 items-center justify-center px-6 text-center">
           <p className="text-muted-foreground text-sm">
             This loop is no longer available.
@@ -973,9 +1039,8 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
       ) : (
         <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-4 py-5">
           <PromptSection
-            loop={loop}
-            saving={updateLoop.isPending}
-            onSave={(instructions) => updateLoop.update({ instructions })}
+            loop={effective}
+            onStage={(instructions) => stage({ instructions })}
           />
 
           <div className="space-y-2">
@@ -985,15 +1050,12 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
                 <DetailRow label="Repeat">{scheduleText}</DetailRow>
               ) : (
                 <ScheduleEditor
-                  loop={loop}
+                  loop={effective}
                   timezone={timezone}
-                  onApply={(schedule) => updateLoop.update({ schedule })}
+                  onApply={(schedule) => stage({ schedule })}
                 />
               )}
-              <EndRepeatRows
-                loop={loop}
-                onUpdate={(input) => updateLoop.update(input)}
-              />
+              <EndRepeatRows loop={effective} onUpdate={stage} />
               {loop.status === "paused" && (
                 <DetailRow label="Paused">
                   {(loop.pausedReason &&
@@ -1037,12 +1099,27 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
               </div>
             </div>
           )}
+        </div>
+      )}
 
+      {/* Persistent footer: Save stays disabled until something is staged.
+          Drafts pair it with Create Loop (which saves staged edits first). */}
+      {loop && loop.status !== "completed" && (
+        <div className="flex justify-end gap-2 px-4 pb-4">
+          <Button
+            size="sm"
+            variant={isDraft ? "outline" : "default"}
+            disabled={!dirtyInput}
+            loading={updateLoop.isPending}
+            onClick={() => dirtyInput && updateLoop.update(dirtyInput)}
+          >
+            Save changes
+          </Button>
           {isDraft && (
             <Button
-              className="w-full"
+              size="sm"
               loading={isPending}
-              onClick={() => activate()}
+              onClick={() => void createLoop()}
             >
               Create Loop
             </Button>

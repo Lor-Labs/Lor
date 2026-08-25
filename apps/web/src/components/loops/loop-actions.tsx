@@ -198,6 +198,13 @@ export function useUpdateLoop(loop: ChannelLoop | null) {
       setConfirmState(null)
       mutation.mutate(input)
     },
+    // Awaitable variant for the panel's explicit Save button — callers need
+    // the outcome to clear their staged edits only on a real save (a 422
+    // needs_confirmation is not one).
+    updateAsync: (input: UpdateLoopInput) => {
+      setConfirmState(null)
+      return mutation.mutateAsync(input)
+    },
     isPending: mutation.isPending,
     confirmState,
     dismissConfirm: () => setConfirmState(null),

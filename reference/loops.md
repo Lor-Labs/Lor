@@ -595,3 +595,15 @@ apps/realtime `services/merlin.ts`, card rendering in web
   `@repo/realtime-types/loops`, `describeDayField` joins lists with "and"
   ("Every Monday, Thursday and Saturday at 9:00 AM"). Tested in
   `loop-schedule.test.ts`.
+- 2026-08-25 — Panel edits moved from autosave to an explicit footer Save:
+  prompt/schedule/end-repeat changes are now STAGED locally in `LoopPanel`
+  (sections render a merged `effective` loop, so the header subtitle
+  previews the staged schedule) and persisted by a persistent footer button
+  that's disabled until something differs from the server snapshot
+  (autosave felt jank — no clear saved/unsaved signal). Dirty state derives
+  from comparing staged keys against the cache, so it clears itself when a
+  save (or the socket echo) lands. Drafts get Save (outline) + Create Loop
+  side by side; Create Loop persists staged edits first via new
+  `updateAsync` on `useUpdateLoop` (a 422 sub-hourly re-consent aborts the
+  activate; the confirm dialog takes over). Rename dialog still saves
+  itself; lifecycle actions stay immediate.
