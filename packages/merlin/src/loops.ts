@@ -32,6 +32,7 @@ export function toRealtimeLoop(row: LoopRow): RealtimeLoop {
     schedule: row.schedule,
     timezone: row.timezone,
     endCondition: row.endCondition,
+    endAt: row.endAt ? row.endAt.toISOString() : null,
     status: row.status,
     pausedReason: row.pausedReason,
     nextRunAt: row.nextRunAt ? row.nextRunAt.toISOString() : null,
@@ -57,6 +58,7 @@ export type ProposeLoopExecutor = (input: {
   schedule: string
   timezone: string | null
   endCondition: string | null
+  endAt: Date | null
 }) => Promise<{ loopId: string }>
 
 const proposeLoopContext = z.object({
@@ -76,13 +78,35 @@ export function normalizeEndCondition(
   return MANUAL_STOP_PHRASING.test(endCondition) ? null : endCondition
 }
 
+// Fixed-lifespan ends arrive as relative durations — the model has no clock,
+// so it can't produce a correct absolute date; the server anchors it to now.
+export type LoopEndAfter = {
+  amount: number
+  unit: "days" | "weeks" | "months"
+}
+
+export function endAfterToDate(
+  endAfter: LoopEndAfter,
+  from: Date = new Date()
+): Date {
+  const date = new Date(from)
+  if (endAfter.unit === "months") {
+    date.setMonth(date.getMonth() + endAfter.amount)
+  } else {
+    date.setDate(
+      date.getDate() + endAfter.amount * (endAfter.unit === "weeks" ? 7 : 1)
+    )
+  }
+  return date
+}
+
 // Bound only on conversational runs (respond() spreads it in when the
 // executor is present); triggered/loop runs never see it — a loop must not
 // schedule more loops.
 export const proposeLoopTool = {
   propose_loop: tool({
     description:
-      'Set up a scheduled loop in this channel: a recurring, unattended run of yourself that follows standing instructions on a cron schedule until an end condition is met or the team stops it. Use ONLY when someone asks for genuinely recurring work ("check the support queue every morning", "post a Friday digest") — never for one-off work you can just do now. This creates a DRAFT card in the channel; nothing runs until a teammate presses Create Loop on it, so end your answer by pointing them at the card. `instructions` are the complete standing brief for every run — each run sees them and nothing else from this conversation, so include every detail it needs. `schedule` is a standard 5-field cron. `timezone`: pass an IANA timezone (e.g. America/New_York) ONLY when the conversation explicitly establishes one; otherwise pass null — the card shows the schedule in each viewer\'s local timezone and the activating teammate pins one. `endCondition` is plain language for when the loop should permanently stop (pass null for a loop that runs until manually stopped).',
+      'Set up a scheduled loop in this channel: a recurring, unattended run of yourself that follows standing instructions on a cron schedule. Use ONLY when someone asks for genuinely recurring work ("check the support queue every morning", "post a Friday digest") — never for one-off work you can just do now. This creates a DRAFT card in the channel; nothing runs until a teammate presses Create Loop on it, so end your answer by pointing them at the card. `instructions` are the complete standing brief for every run — each run sees them and nothing else from this conversation, so include every detail it needs. `schedule` is a standard 5-field cron. `timezone`: pass an IANA timezone (e.g. America/New_York) ONLY when the conversation explicitly establishes one; otherwise pass null — the card shows the schedule in each viewer\'s local timezone and the activating teammate pins one. A loop can end one of three ways: when the ask names an outcome ("until the app ships"), put that finish line in `endCondition` and a future run will judge when it\'s met; when the ask names a duration ("for the next two weeks"), use `endAfter`; otherwise leave both null and the loop simply runs until the team stops it — don\'t describe that in words. Set at most one of the two.',
     inputSchema: z.object({
       name: z
         .string()
@@ -111,10 +135,19 @@ export const proposeLoopTool = {
         .describe(
           'a real finish-line condition, e.g. "the mobile app has shipped". Pass null for a loop that just runs until someone stops it — never restate that as text ("until manually stopped", "runs indefinitely", …); those are treated as null'
         ),
+      endAfter: z
+        .object({
+          amount: z.number().int().min(1).max(365),
+          unit: z.enum(["days", "weeks", "months"]),
+        })
+        .nullable()
+        .describe(
+          'fixed lifespan from now, e.g. {"amount": 2, "unit": "weeks"} for "run this for two weeks". Null unless the ask names a duration'
+        ),
     }),
     contextSchema: proposeLoopContext,
     execute: async (
-      { name, instructions, schedule, timezone, endCondition },
+      { name, instructions, schedule, timezone, endCondition, endAfter },
       { context }
     ) => {
       // Validated at proposal so the card never carries an invalid cron;
@@ -125,13 +158,24 @@ export const proposeLoopTool = {
       if (!validation.ok) {
         return { ok: false as const, error: validation.reason }
       }
+      const condition = normalizeEndCondition(endCondition)
+      // One end mode per loop — a condition AND a date muddies both the
+      // prompt and the sweep's mechanical end.
+      if (condition && endAfter) {
+        return {
+          ok: false as const,
+          error:
+            "pass endCondition OR endAfter, not both — pick the one the ask implies",
+        }
+      }
       try {
         const { loopId } = await context.createLoopCard({
           name,
           instructions,
           schedule,
           timezone,
-          endCondition: normalizeEndCondition(endCondition),
+          endCondition: condition,
+          endAt: endAfter ? endAfterToDate(endAfter) : null,
         })
         return {
           ok: true as const,

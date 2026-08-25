@@ -191,29 +191,37 @@ export function createLoopRunProcessor(
                 originRunId: runId,
               }
             ),
-          completeLoop: async ({ closingNote }) => {
-            const completed = await db
-              .update(schema.loop)
-              .set({
-                status: "completed",
-                completedNote: closingNote,
-                pausedReason: null,
-                nextRunAt: null,
-              })
-              .where(
-                and(
-                  eq(schema.loop.id, loopId),
-                  eq(schema.loop.status, "active")
+          completeLoop: loop.endCondition
+            ? async ({ closingNote }) => {
+                const completed = await db
+                  .update(schema.loop)
+                  .set({
+                    status: "completed",
+                    completedNote: closingNote,
+                    pausedReason: null,
+                    nextRunAt: null,
+                  })
+                  .where(
+                    and(
+                      eq(schema.loop.id, loopId),
+                      eq(schema.loop.status, "active")
+                    )
+                  )
+                  .returning()
+                  .then((rows) => rows[0] ?? null)
+                // Paused/completed since this run started — the tool must not
+                // report success for a transition that didn't happen.
+                if (!completed) throw new Error("Loop is no longer active")
+                logger.info(
+                  { loopId, runId },
+                  "Loop completed by complete_loop"
                 )
-              )
-              .returning()
-              .then((rows) => rows[0] ?? null)
-            // Paused/completed since this run started — the tool must not
-            // report success for a transition that didn't happen.
-            if (!completed) throw new Error("Loop is no longer active")
-            logger.info({ loopId, runId }, "Loop completed by complete_loop")
-            emitLoopUpdated(emitter, completed)
-          },
+                emitLoopUpdated(emitter, completed)
+              }
+            : // No end condition = nothing for the model to judge — don't hand
+              // it a stop-everything button (one live loop got wrongly
+              // completed that way). Date/manual ends are mechanical.
+              undefined,
         },
         composeBriefing: () =>
           loopRunBriefing({ loopId, channelId: run.channelId, runId }),

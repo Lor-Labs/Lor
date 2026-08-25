@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { normalizeEndCondition } from "./loops"
+import { endAfterToDate, normalizeEndCondition } from "./loops"
 
 // The regex guards against models encoding "no end condition" as prose —
 // which the run-time model then treats as a met-able condition (a live loop
@@ -30,5 +30,24 @@ describe("normalizeEndCondition", () => {
 
   it("passes null through", () => {
     expect(normalizeEndCondition(null)).toBeNull()
+  })
+})
+
+describe("endAfterToDate", () => {
+  const from = new Date("2026-08-24T12:00:00Z")
+
+  it("adds days and weeks", () => {
+    expect(
+      endAfterToDate({ amount: 3, unit: "days" }, from).toISOString()
+    ).toBe("2026-08-27T12:00:00.000Z")
+    expect(
+      endAfterToDate({ amount: 2, unit: "weeks" }, from).toISOString()
+    ).toBe("2026-09-07T12:00:00.000Z")
+  })
+
+  it("adds calendar months", () => {
+    expect(
+      endAfterToDate({ amount: 1, unit: "months" }, from).toISOString()
+    ).toBe("2026-09-24T12:00:00.000Z")
   })
 })

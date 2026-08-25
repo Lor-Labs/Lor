@@ -545,6 +545,30 @@ apps/realtime `services/merlin.ts`, card rendering in web
   endCondition description now forbids "until manually stopped" as an end
   condition (null is the right encoding; the first live test tripped it).
   Panel editing (name/instructions/schedule) remains L3.
+- 2026-08-25 — Structured loop END MODES (user decision; supersedes
+  "endCondition text is the only end"). One mode per loop, mutually
+  exclusive, both-null = runs forever ("Never"):
+  (1) MODEL-JUDGED — `endCondition` text, as before, but `complete_loop`
+  now binds ONLY when a condition is set (no condition = no stop button;
+  a live loop had been wrongly completed over a prose "manual stop"
+  pseudo-condition).
+  (2) DATE — new `loop.endAt` timestamp (⚠ needs db:push), enforced
+  MECHANICALLY by the sweep: a due fire scheduled past endAt completes the
+  loop (`completedNote: "Reached its end date"`) instead of running — so
+  completion lands at the first tick past the end, no model involved.
+  Merlin proposes it as a RELATIVE `endAfter {amount, unit: days|weeks|
+  months}` (respond() has no clock; the tool anchors it to now —
+  `endAfterToDate`, tested). Activation/resume refuse a passed end date.
+  (3) PROJECT-TIED — an INVARIANT, not a stored mode: archiving a project
+  completes every active/paused loop in its channels
+  (`completeLoopsForChannels` in api lib/loops.ts, called from the archive
+  handler; drafts stay — inert, activation refuses archived channels).
+  This also fixed a latent bug: the sweep would have kept firing loops
+  into archived channels forever.
+  Web: End repeat row is now a Select (Never / On a date / Condition — the
+  last only offered while a Merlin-authored condition exists; switching
+  away clears it) + native date-input row (end-of-day local semantics);
+  PATCH accepts `endAt`/`endCondition` with set-one-clears-the-other.
 - 2026-08-24 — L2.3 follow-up: the panel gained a structured schedule
   EDITOR for drafts (ChatGPT-style rows: Repeat hourly/daily/weekly/monthly,
   Day of the week incl. weekday/weekend presets, Day of the month, Time /

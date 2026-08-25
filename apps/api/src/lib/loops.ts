@@ -88,6 +88,7 @@ export async function resumeLoop(input: {
       schedule: schema.loop.schedule,
       timezone: schema.loop.timezone,
       status: schema.loop.status,
+      endAt: schema.loop.endAt,
     })
     .from(schema.loop)
     .where(eq(schema.loop.id, input.loopId))
@@ -96,6 +97,9 @@ export async function resumeLoop(input: {
   // Paused loops were active once, so a tz was pinned at activation; a null
   // here is a broken row, not a resumable loop.
   if (!loop.timezone) return { ok: false, reason: "Loop has no timezone" }
+  if (loop.endAt && loop.endAt.getTime() <= Date.now()) {
+    return { ok: false, reason: "This loop's end date has passed" }
+  }
 
   const validation = validateLoopSchedule(loop.schedule, loop.timezone)
   if (!validation.ok) return { ok: false, reason: validation.reason }
@@ -183,4 +187,38 @@ export async function deleteLoop(input: {
     loopId: input.loop.id,
     channelId: input.loop.channelId,
   })
+}
+
+// Project-archive invariant: a loop can't outlive its project — archived
+// channels refuse writes, so the runs would just fail into auto-pause.
+// Completes every live loop in the given channels (drafts stay: they're
+// inert, and activation refuses archived channels anyway).
+export async function completeLoopsForChannels(
+  channelIds: string[],
+  note: string
+): Promise<void> {
+  if (channelIds.length === 0) return
+  const completed = await db
+    .update(schema.loop)
+    .set({
+      status: "completed",
+      completedNote: note,
+      pausedReason: null,
+      nextRunAt: null,
+    })
+    .where(
+      and(
+        inArray(schema.loop.channelId, channelIds),
+        inArray(schema.loop.status, ["active", "paused"])
+      )
+    )
+    .returning()
+    .catch((err) => {
+      logger.error({ err, channelIds }, "Project loop completion failed")
+      return [] as Loop[]
+    })
+  for (const loop of completed) {
+    await stopInFlightRuns(loop.id)
+    await emitLoopUpdated(loop).catch(() => {})
+  }
 }

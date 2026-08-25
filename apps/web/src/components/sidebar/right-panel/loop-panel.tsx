@@ -35,6 +35,7 @@ import {
   DialogDescription,
   DialogFooter,
   DialogHeader,
+  DialogPanel,
   DialogTitle,
 } from "@repo/ui/components/dialog"
 import { Input } from "@repo/ui/components/input"
@@ -378,6 +379,130 @@ function cnRunRow(clickable: boolean) {
   }`
 }
 
+const END_MODE_OPTIONS = [
+  { label: "Never", value: "never" },
+  { label: "On a date", value: "date" },
+]
+const END_CONDITION_OPTION = { label: "Condition", value: "condition" }
+// Default when switching to a date end without picking one yet.
+const DEFAULT_END_DAYS = 7
+
+function formatEndDate(iso: string): string {
+  return new Date(iso).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  })
+}
+
+// Local YYYY-MM-DD for the native date input.
+function toDateInputValue(iso: string): string {
+  const d = new Date(iso)
+  const mm = String(d.getMonth() + 1).padStart(2, "0")
+  const dd = String(d.getDate()).padStart(2, "0")
+  return `${d.getFullYear()}-${mm}-${dd}`
+}
+
+// A picked calendar day ends the loop at that day's local END: "ends Sep 1"
+// should include Sep 1's fires.
+function endOfDayIso(dateValue: string): string {
+  return new Date(`${dateValue}T23:59:59`).toISOString()
+}
+
+// End repeat control: Never / On a date (native date input row) / Condition
+// (Merlin-authored text, shown read-only — switching away clears it, and it
+// can only come back via a new proposal). Modes are mutually exclusive;
+// completed loops render static text.
+function EndRepeatRows({
+  loop,
+  onUpdate,
+}: {
+  loop: ChannelLoop
+  onUpdate: (input: {
+    endAt?: string | null
+    endCondition?: string | null
+  }) => void
+}) {
+  const mode = loop.endCondition ? "condition" : loop.endAt ? "date" : "never"
+
+  if (loop.status === "completed") {
+    return (
+      <DetailRow label="End repeat">
+        {mode === "condition" ? (
+          <span className="truncate" title={loop.endCondition ?? ""}>
+            {loop.endCondition}
+          </span>
+        ) : mode === "date" && loop.endAt ? (
+          formatEndDate(loop.endAt)
+        ) : (
+          "Never"
+        )}
+      </DetailRow>
+    )
+  }
+
+  const options =
+    mode === "condition"
+      ? [END_CONDITION_OPTION, ...END_MODE_OPTIONS]
+      : END_MODE_OPTIONS
+
+  const changeMode = (next: string) => {
+    if (next === mode) return
+    if (next === "never") onUpdate({ endAt: null, endCondition: null })
+    if (next === "date") {
+      const date = new Date()
+      date.setDate(date.getDate() + DEFAULT_END_DAYS)
+      onUpdate({ endAt: endOfDayIso(toDateInputValue(date.toISOString())) })
+    }
+  }
+
+  return (
+    <>
+      <DetailRow label="End repeat">
+        <Select
+          items={options}
+          value={mode}
+          onValueChange={(v) => v && changeMode(v)}
+        >
+          <SelectTrigger aria-label="End repeat" className="h-8 w-32">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {options.map((opt) => (
+              <SelectItem key={opt.value} value={opt.value}>
+                {opt.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </DetailRow>
+      {mode === "date" && loop.endAt && (
+        <DetailRow label="End date">
+          <input
+            type="date"
+            aria-label="End date"
+            value={toDateInputValue(loop.endAt)}
+            min={toDateInputValue(new Date().toISOString())}
+            onChange={(e) => {
+              if (e.target.value) {
+                onUpdate({ endAt: endOfDayIso(e.target.value) })
+              }
+            }}
+            className="h-8 cursor-pointer rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:border-ring"
+          />
+        </DetailRow>
+      )}
+      {mode === "condition" && (
+        <DetailRow label="Until">
+          <span className="truncate" title={loop.endCondition ?? ""}>
+            {loop.endCondition}
+          </span>
+        </DetailRow>
+      )}
+    </>
+  )
+}
+
 // Matches the header's built-in collapse button styling.
 function HeaderActionButton({
   label,
@@ -414,11 +539,27 @@ function DetailRow({
   return (
     <div className="flex min-h-12 items-center justify-between gap-4 px-4 py-2">
       <span className="shrink-0 text-sm">{label}</span>
-      <span className="flex min-w-0 items-center justify-end text-right text-muted-foreground text-sm">
+      <span className="flex min-w-0 items-center justify-end gap-2 text-right text-muted-foreground text-sm">
         {children}
       </span>
     </div>
   )
+}
+
+// Compact timezone label for the Time row: "PST"/"PDT" where the zone
+// abbreviates cleanly, otherwise the city name ("Kolkata") — Intl only
+// offers "GMT+5:30" for those, which reads worse than the place.
+function timezoneAbbreviation(timezone: string): string {
+  try {
+    const name = new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
+      timeZoneName: "short",
+    })
+      .formatToParts(new Date())
+      .find((part) => part.type === "timeZoneName")?.value
+    if (name && !name.startsWith("GMT")) return name
+  } catch {}
+  return timezone.split("/").pop()?.replace(/_/g, " ") ?? timezone
 }
 
 // The schedule editor rows (drafts + live loops; completed is read-only).
@@ -427,9 +568,13 @@ function DetailRow({
 // the current time over and default the new fields.
 function ScheduleEditor({
   loop,
+  timezone,
   onApply,
 }: {
   loop: ChannelLoop
+  // Effective tz (pinned, or the viewer's device tz on unpinned drafts) —
+  // display only: it's inferred silently from whoever activates the loop.
+  timezone: string
   onApply: (schedule: string) => void
 }) {
   const shape = parseLoopSchedule(loop.schedule)
@@ -562,7 +707,14 @@ function ScheduleEditor({
               apply({ ...shape, hour: Number(h), minute: Number(m) })
             }}
           >
-            <SelectTrigger aria-label="Time" className="h-8 w-32">
+            {/* No tz in the UI — people read "9:00 AM" as their own time,
+                which is exactly what the silent device-tz pinning delivers.
+                The hover answers the rare "whose 9 AM?" question. */}
+            <SelectTrigger
+              aria-label="Time"
+              title={`${formatScheduleTime(hour, minute)} ${timezoneAbbreviation(timezone)} (${timezone.replace(/_/g, " ")})`}
+              className="h-8 w-32"
+            >
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -591,18 +743,9 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
     () => Intl.DateTimeFormat().resolvedOptions().timeZone,
     []
   )
-  const [selectedTimezone, setSelectedTimezone] = useState<string | null>(null)
-  const timezone = selectedTimezone ?? loop?.timezone ?? deviceTimezone
-  const timezoneItems = useMemo(() => {
-    const supported =
-      typeof Intl.supportedValuesOf === "function"
-        ? Intl.supportedValuesOf("timeZone")
-        : [deviceTimezone]
-    const all = supported.includes(timezone)
-      ? supported
-      : [timezone, ...supported]
-    return all.map((tz) => ({ label: tz.replace(/_/g, " "), value: tz }))
-  }, [deviceTimezone, timezone])
+  // Effective tz: pinned wins; unpinned drafts read in the viewer's zone
+  // (activation pins it silently). Never user-configurable.
+  const timezone = loop?.timezone ?? deviceTimezone
   const { activate, isPending, confirmFires, dismissConfirm } = useActivateLoop(
     loop,
     timezone
@@ -618,25 +761,41 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
   const meta = loop ? LOOP_STATUS_META[loop.status] : null
   const scheduleText = loop ? describeLoopSchedule(loop.schedule, null) : ""
   const isDraft = loop?.status === "draft"
-  // Hourly cadence reads the same in every timezone — the row is just noise.
-  const isHourly = loop
-    ? parseLoopSchedule(loop.schedule).kind === "hourly"
-    : false
 
   return (
     <div className="flex h-full w-full flex-col">
       <RightPanelHeader
-        title={loop?.name ?? "Loop"}
+        title={
+          loop ? (
+            <div className="min-w-0">
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="min-w-0 truncate">{loop.name}</span>
+                {meta && (
+                  <Badge
+                    variant={meta.badgeVariant}
+                    size="sm"
+                    className="shrink-0"
+                  >
+                    {meta.label}
+                  </Badge>
+                )}
+              </div>
+              {/* ChatGPT-style header subtitle carries the run cadence — the
+                  config rows stay pure configuration. */}
+              <div className="truncate font-normal text-muted-foreground text-xs">
+                {scheduleText}
+                {loop.status === "active" && loop.nextRunAt
+                  ? ` · Next run ${formatRunTime(loop.nextRunAt)}`
+                  : ""}
+              </div>
+            </div>
+          ) : (
+            "Loop"
+          )
+        }
         workspaceSlug={view.workspaceSlug}
         channelId={view.channelId}
         hideCollapse
-        titleAdornment={
-          meta ? (
-            <Badge variant={meta.badgeVariant} size="sm" className="shrink-0">
-              {meta.label}
-            </Badge>
-          ) : undefined
-        }
         actions={
           loop ? (
             <>
@@ -683,7 +842,7 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
                     </DropdownMenuItem>
                   )}
                   <DropdownMenuItem
-                    className="text-destructive"
+                    variant="destructive"
                     onClick={() => setConfirmDelete(true)}
                   >
                     <HugeiconsIcon icon={Delete02Icon} size={14} />
@@ -717,56 +876,14 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
               ) : (
                 <ScheduleEditor
                   loop={loop}
+                  timezone={timezone}
                   onApply={(schedule) => updateLoop.update({ schedule })}
                 />
               )}
-              {!isHourly && (
-                <DetailRow label="Timezone">
-                  {isDraft ? (
-                    <Select
-                      items={timezoneItems}
-                      value={timezone}
-                      onValueChange={(v) => v && setSelectedTimezone(v)}
-                    >
-                      <SelectTrigger
-                        aria-label="Timezone"
-                        disabled={isPending}
-                        className="h-8 max-w-56"
-                      >
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {timezoneItems.map((tz) => (
-                          <SelectItem key={tz.value} value={tz.value}>
-                            {tz.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  ) : (
-                    (loop.timezone ?? "—")
-                  )}
-                </DetailRow>
-              )}
-              <DetailRow label="End repeat">
-                {loop.endCondition ? (
-                  <span className="truncate" title={loop.endCondition}>
-                    {loop.endCondition}
-                  </span>
-                ) : (
-                  "Never"
-                )}
-              </DetailRow>
-              {loop.status === "active" && loop.nextRunAt && (
-                <DetailRow label="Next run">
-                  {formatRunTime(loop.nextRunAt)}
-                </DetailRow>
-              )}
-              {loop.lastRunAt && (
-                <DetailRow label="Last run">
-                  {formatRunTime(loop.lastRunAt)}
-                </DetailRow>
-              )}
+              <EndRepeatRows
+                loop={loop}
+                onUpdate={(input) => updateLoop.update(input)}
+              />
               {loop.status === "paused" && (
                 <DetailRow label="Paused">
                   {(loop.pausedReason &&
@@ -921,18 +1038,20 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
               Change this loop's name.
             </DialogDescription>
           </DialogHeader>
-          <Input
-            value={nameDraft ?? ""}
-            onChange={(e) => setNameDraft(e.target.value)}
-            maxLength={80}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && nameDraft?.trim()) {
-                updateLoop.update({ name: nameDraft.trim() })
-                setNameDraft(null)
-              }
-            }}
-          />
-          <DialogFooter>
+          <DialogPanel>
+            <Input
+              value={nameDraft ?? ""}
+              onChange={(e) => setNameDraft(e.target.value)}
+              maxLength={80}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && nameDraft?.trim()) {
+                  updateLoop.update({ name: nameDraft.trim() })
+                  setNameDraft(null)
+                }
+              }}
+            />
+          </DialogPanel>
+          <DialogFooter variant="bare">
             <Button variant="outline" onClick={() => setNameDraft(null)}>
               Cancel
             </Button>

@@ -651,6 +651,8 @@ export type RealtimeLoop = {
   // activation pins one.
   timezone: string | null
   endCondition: string | null
+  // Hard end date (sweep-enforced); null = no date end.
+  endAt: string | null
   status: RealtimeLoopStatus
   pausedReason: "manual" | "failures" | "out_of_credits" | null
   nextRunAt: string | null

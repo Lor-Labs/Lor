@@ -89,6 +89,9 @@ export type UpdateLoopInput = {
   schedule?: string
   instructions?: string
   name?: string
+  // End modes, mutually exclusive; explicit null clears (both null = never).
+  endAt?: string | null
+  endCondition?: string | null
   confirm?: boolean
 }
 
@@ -110,6 +113,10 @@ export function useUpdateLoop(loop: ChannelLoop | null) {
             ? { instructions: input.instructions }
             : {}),
           ...(input.name !== undefined ? { name: input.name } : {}),
+          ...(input.endAt !== undefined ? { endAt: input.endAt } : {}),
+          ...(input.endCondition !== undefined
+            ? { endCondition: input.endCondition }
+            : {}),
           ...(input.confirm ? { confirmHighFrequency: true } : {}),
         },
       })
@@ -144,6 +151,10 @@ export function useUpdateLoop(loop: ChannelLoop | null) {
                     ? { instructions: input.instructions }
                     : {}),
                   ...(input.name !== undefined ? { name: input.name } : {}),
+                  ...(input.endAt !== undefined ? { endAt: input.endAt } : {}),
+                  ...(input.endCondition !== undefined
+                    ? { endCondition: input.endCondition }
+                    : {}),
                 }
               : l
           )

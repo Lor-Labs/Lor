@@ -97,6 +97,14 @@ export const activateLoop: AppRouteHandler<ActivateLoopRoute> = async (c) => {
     )
   }
 
+  // A loop whose end date already passed can never legitimately fire.
+  if (loop.endAt && loop.endAt.getTime() <= Date.now()) {
+    return c.json(
+      { success: false as const, message: "This loop's end date has passed" },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+
   // Re-validate with the tz being pinned — the draft was gap-checked in UTC.
   const validation = validateLoopSchedule(loop.schedule, timezone)
   if (!validation.ok) {
@@ -169,8 +177,15 @@ export const activateLoop: AppRouteHandler<ActivateLoopRoute> = async (c) => {
 export const updateLoop: AppRouteHandler<UpdateLoopRoute> = async (c) => {
   const currentUser = c.var.user
   const { loopId } = c.req.valid("param")
-  const { schedule, instructions, name, confirmHighFrequency } =
-    c.req.valid("json")
+  const {
+    schedule,
+    timezone,
+    instructions,
+    name,
+    endAt,
+    endCondition,
+    confirmHighFrequency,
+  } = c.req.valid("json")
 
   const found = await loadAccessibleLoop(loopId, currentUser.id)
   if (!found) {
@@ -192,9 +207,39 @@ export const updateLoop: AppRouteHandler<UpdateLoopRoute> = async (c) => {
     ...(name !== undefined ? { name } : {}),
   }
 
-  if (schedule !== undefined) {
-    const timezone = loop.timezone ?? "UTC"
-    const validation = validateLoopSchedule(schedule, timezone)
+  // End modes are one-per-loop: setting either clears the other (the zod
+  // refine already rejects setting both non-null in one call).
+  if (endAt !== undefined) {
+    if (endAt !== null) {
+      const date = new Date(endAt)
+      if (date.getTime() <= Date.now()) {
+        return c.json(
+          {
+            success: false as const,
+            message: "End date must be in the future",
+          },
+          HttpStatusCodes.BAD_REQUEST
+        )
+      }
+      values.endAt = date
+      values.endCondition = null
+    } else {
+      values.endAt = null
+    }
+  }
+  if (endCondition !== undefined) {
+    values.endCondition = endCondition
+    if (endCondition !== null) values.endAt = null
+  }
+
+  if (schedule !== undefined || timezone !== undefined) {
+    const effectiveSchedule = schedule ?? loop.schedule
+    const effectiveTimezone = timezone ?? loop.timezone ?? "UTC"
+    // Validates the tz too (unknown zones come back as a reason string).
+    const validation = validateLoopSchedule(
+      effectiveSchedule,
+      effectiveTimezone
+    )
     if (!validation.ok) {
       return c.json(
         { success: false as const, message: validation.reason },
@@ -204,8 +249,13 @@ export const updateLoop: AppRouteHandler<UpdateLoopRoute> = async (c) => {
 
     // Drafts skip consent here — activation asks. Live loops re-ask when the
     // cadence is newly sub-hourly or tighter than what was consented to.
-    if (loop.status !== "draft" && validation.requiresConfirmation) {
-      const previous = validateLoopSchedule(loop.schedule, timezone)
+    // Keyed on schedule changes only: a tz change never tightens the gap.
+    if (
+      schedule !== undefined &&
+      loop.status !== "draft" &&
+      validation.requiresConfirmation
+    ) {
+      const previous = validateLoopSchedule(loop.schedule, effectiveTimezone)
       const tightened = previous.ok
         ? validation.minGapMs < previous.minGapMs
         : true
@@ -231,9 +281,10 @@ export const updateLoop: AppRouteHandler<UpdateLoopRoute> = async (c) => {
       }
     }
 
-    values.schedule = schedule
+    if (schedule !== undefined) values.schedule = schedule
+    if (timezone !== undefined) values.timezone = timezone
     if (loop.status === "active") {
-      const next = nextLoopRunAt(schedule, timezone)
+      const next = nextLoopRunAt(effectiveSchedule, effectiveTimezone)
       if (!next) {
         return c.json(
           { success: false as const, message: "Schedule has no future fires" },

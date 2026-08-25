@@ -42,6 +42,7 @@ export async function sweepDueLoops(
       schedule: schema.loop.schedule,
       timezone: schema.loop.timezone,
       nextRunAt: schema.loop.nextRunAt,
+      endAt: schema.loop.endAt,
     })
     .from(schema.loop)
     .where(
@@ -54,6 +55,32 @@ export async function sweepDueLoops(
     .limit(SWEEP_BATCH)
 
   for (const loop of due) {
+    // Date end (endAt) is enforced mechanically here: a due fire scheduled
+    // past the end date completes the loop instead of running — no model
+    // judgment involved. Fires scheduled before the end still run.
+    if (loop.endAt && loop.nextRunAt && loop.nextRunAt > loop.endAt) {
+      const ended = await db
+        .update(schema.loop)
+        .set({
+          status: "completed",
+          completedNote: "Reached its end date",
+          pausedReason: null,
+          nextRunAt: null,
+        })
+        .where(
+          and(eq(schema.loop.id, loop.id), eq(schema.loop.status, "active"))
+        )
+        .returning()
+        .then((rows) => rows[0] ?? null)
+      if (ended) {
+        logger.info({ loopId: loop.id }, "Loop completed; end date reached")
+        emitter
+          .to(channelRoom(ended.channelId))
+          .emit("loop:updated", { loop: toRealtimeLoop(ended) })
+      }
+      continue
+    }
+
     // A schedule that can't produce a next fire (invalid after an edit, a
     // cron with no future occurrences, or a null timezone — an invariant
     // violation: activation always pins one) pauses the loop instead of

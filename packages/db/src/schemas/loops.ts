@@ -70,9 +70,14 @@ export const loop = pgTable(
     // timezone is the default at activation (editable there). Activation
     // always persists a concrete tz — active/paused loops never have null.
     timezone: text("timezone"),
-    // Free text; injected into the prompt. The model calls complete_loop when
-    // it judges this met. Null = runs until paused/completed manually.
+    // End modes, one per loop (both null = runs forever; project channels
+    // additionally auto-complete when the project archives):
+    // - endCondition: free text; injected into the prompt; the model calls
+    //   complete_loop when it judges this met (bound only when set).
+    // - endAt: hard end date, enforced mechanically by the sweep — a due
+    //   fire past it completes the loop instead of running.
     endCondition: text("end_condition"),
+    endAt: timestamp("end_at"),
     status: loopStatusEnum("status").notNull().default("draft"),
     pausedReason: loopPausedReasonEnum("paused_reason"),
     // Null unless active. Catch-up policy: a missed schedule fires once and

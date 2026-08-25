@@ -42,17 +42,34 @@ export const updateLoopBodySchema = z
     // directly; active/paused edits re-validate with the pinned tz, recompute
     // nextRunAt (active), and re-confirm high frequency when tightened.
     schedule: z.string().min(1).max(120).optional(),
+    // IANA tz; on active loops the next fire is recomputed in the new zone.
+    timezone: z.string().min(1).max(64).optional(),
     // The standing brief injected into every run.
     instructions: z.string().min(1).max(4000).optional(),
     name: z.string().min(1).max(80).optional(),
+    // End modes, mutually exclusive (setting one clears the other):
+    // endAt = hard end date (sweep-enforced), endCondition = model-judged
+    // finish line, both explicitly null = runs forever.
+    endAt: z.string().datetime().nullable().optional(),
+    endCondition: z.string().min(1).max(500).nullable().optional(),
     confirmHighFrequency: z.boolean().optional(),
   })
   .refine(
     (body) =>
       body.schedule !== undefined ||
+      body.timezone !== undefined ||
       body.instructions !== undefined ||
-      body.name !== undefined,
+      body.name !== undefined ||
+      body.endAt !== undefined ||
+      body.endCondition !== undefined,
     { message: "Nothing to update" }
+  )
+  .refine(
+    (body) =>
+      !(
+        typeof body.endAt === "string" && typeof body.endCondition === "string"
+      ),
+    { message: "Pass endAt or endCondition, not both" }
   )
 
 // Mirrors RealtimeLoop (packages/realtime-types) — the same snapshot the
@@ -68,6 +85,7 @@ export const loopSchema = z.object({
   schedule: z.string(),
   timezone: z.string().nullable(),
   endCondition: z.string().nullable(),
+  endAt: z.string().nullable(),
   status: z.enum(loopStatusEnum.enumValues),
   pausedReason: z.enum(loopPausedReasonEnum.enumValues).nullable(),
   nextRunAt: z.string().nullable(),

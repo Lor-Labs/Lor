@@ -581,6 +581,7 @@ export function createMerlinRespondProcessor(
               schedule: string
               timezone: string | null
               endCondition: string | null
+              endAt: Date | null
             }) =>
               createLoopCard(
                 { emitter, redis },

@@ -31,6 +31,7 @@ export async function createLoopCard(
     schedule: string
     timezone: string | null
     endCondition: string | null
+    endAt: Date | null
   }
 ): Promise<{ loopId: string }> {
   const { messageId: cardId } = await postMerlinMessage(
@@ -53,6 +54,7 @@ export async function createLoopCard(
       schedule: input.schedule,
       timezone: input.timezone,
       endCondition: input.endCondition,
+      endAt: input.endAt,
       status: "draft",
     })
     .returning()
