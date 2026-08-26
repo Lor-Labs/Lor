@@ -246,6 +246,10 @@ the manual commit.
 - Backfill/default all existing servers to `authMode=static`.
 - Extend API schemas/responses and add state-transition helpers.
 - Unit-test encryption envelopes, attempt expiry/replay, and allowed transitions.
+- Before deploying the renamed schema to an existing environment, run
+  `packages/db/scripts/migrate-mcp-server-names.sql` once, then run
+  `pnpm db:push`. The script performs guarded transactional renames and reports
+  before/after server and profile-grant row counts for verification.
 
 ### Phase 2 — OAuth and guarded networking
 
