@@ -1,4 +1,8 @@
 import { z } from "@hono/zod-openapi"
+import {
+  toolServerAuthModeEnum,
+  toolServerOAuthStatusEnum,
+} from "@repo/db/schema"
 
 export const toolServersWorkspaceParamsSchema = z.object({
   workspaceSlug: z.string().openapi({
@@ -65,11 +69,22 @@ const secretsSchema = z
 
 const enabledToolsSchema = z.array(z.string().trim().min(1).max(128)).max(200)
 
+export const toolServerAuthModeSchema = z.enum(
+  toolServerAuthModeEnum.enumValues
+)
+export const toolServerOAuthStatusSchema = z.enum(
+  toolServerOAuthStatusEnum.enumValues
+)
+
 export const toolServerSchema = z.object({
   id: z.string(),
   name: z.string(),
   description: z.string(),
   url: z.string(),
+  authMode: toolServerAuthModeSchema,
+  oauthStatus: toolServerOAuthStatusSchema.nullable(),
+  oauthAuthorizedBy: z.object({ id: z.string(), name: z.string() }).nullable(),
+  oauthAuthorizedAt: z.string().nullable(),
   headers: z.record(z.string(), z.string()),
   secretNames: z.array(z.string()),
   enabledTools: z.array(z.string()),
@@ -88,16 +103,39 @@ export const toolServerResponseSchema = z.object({
   server: toolServerSchema,
 })
 
-export const createToolServerRequestSchema = z.object({
-  name: nameSchema,
-  // Workspace context for Merlin ("our production Postgres — use for
-  // signup/usage questions"); optional but recommended.
-  description: descriptionSchema.default(""),
-  url: z.string().trim().min(1).max(2048),
-  headers: headersSchema.default({}),
-  secrets: secretsSchema.default({}),
-  enabledTools: enabledToolsSchema.default([]),
-})
+export const createToolServerRequestSchema = z
+  .object({
+    name: nameSchema,
+    // Workspace context for Merlin ("our production Postgres — use for
+    // signup/usage questions"); optional but recommended.
+    description: descriptionSchema.default(""),
+    url: z.string().trim().min(1).max(2048),
+    authMode: toolServerAuthModeSchema.default("static"),
+    headers: headersSchema.default({}),
+    secrets: secretsSchema.default({}),
+    enabledTools: enabledToolsSchema.default([]),
+  })
+  .superRefine((value, ctx) => {
+    if (value.authMode !== "oauth") return
+    if (
+      Object.keys(value.headers).some(
+        (header) => header.toLowerCase() === "authorization"
+      )
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["headers"],
+        message: "OAuth servers cannot define an Authorization header",
+      })
+    }
+    if (value.enabledTools.length > 0) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["enabledTools"],
+        message: "OAuth tools can only be enabled after authorization",
+      })
+    }
+  })
 
 // Secrets patch merges: string sets/replaces a value, null deletes it.
 export const updateToolServerRequestSchema = z

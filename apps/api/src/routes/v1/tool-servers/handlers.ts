@@ -11,6 +11,7 @@ import {
 import type { ToolServer } from "@repo/db/schema"
 import { env } from "@repo/env/server"
 import { customToolUrlIssue, renderTemplate } from "@repo/merlin/custom-tools"
+import { initialToolServerOAuthStatus } from "@repo/merlin/tool-server-oauth"
 import { discoverToolServer as discoverMcp } from "@repo/merlin/tool-servers"
 import { decryptSecret, encryptSecret } from "@repo/utils/crypto"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
@@ -49,13 +50,18 @@ function redactedHeaders(
 function toResponse(
   row: ToolServer,
   usedByProfiles: number,
-  revealHeaders: boolean
+  revealHeaders: boolean,
+  oauthAuthorizer: { id: string; name: string } | null
 ) {
   return {
     id: row.id,
     name: row.name,
     description: row.description,
     url: row.url,
+    authMode: row.authMode,
+    oauthStatus: row.oauthStatus,
+    oauthAuthorizedBy: oauthAuthorizer,
+    oauthAuthorizedAt: row.oauthAuthorizedAt?.toISOString() ?? null,
     headers: revealHeaders ? row.headers : redactedHeaders(row.headers),
     secretNames: Object.keys(row.secrets),
     enabledTools: row.enabledTools,
@@ -63,6 +69,18 @@ function toResponse(
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   }
+}
+
+async function oauthAuthorizers(
+  userIds: (string | null)[]
+): Promise<Map<string, { id: string; name: string }>> {
+  const ids = [...new Set(userIds.filter((id): id is string => id !== null))]
+  if (ids.length === 0) return new Map()
+  const rows = await db
+    .select({ id: schema.user.id, name: schema.user.name })
+    .from(schema.user)
+    .where(inArray(schema.user.id, ids))
+  return new Map(rows.map((row) => [row.id, row]))
 }
 
 async function grantCounts(serverIds: string[]): Promise<Map<string, number>> {
@@ -99,14 +117,24 @@ export const listToolServers: AppRouteHandler<ListToolServersRoute> = async (
     .from(schema.toolServer)
     .where(eq(schema.toolServer.workspaceId, workspace.id))
     .orderBy(desc(schema.toolServer.createdAt))
-  const counts = await grantCounts(rows.map((r) => r.id))
+  const [counts, authorizers] = await Promise.all([
+    grantCounts(rows.map((r) => r.id)),
+    oauthAuthorizers(rows.map((r) => r.oauthAuthorizedBy)),
+  ])
   const revealHeaders = hasWorkspacePermission(c.var.member, workspace, {
     channel: ["update"],
   })
   return c.json(
     {
       servers: rows.map((r) =>
-        toResponse(r, counts.get(r.id) ?? 0, revealHeaders)
+        toResponse(
+          r,
+          counts.get(r.id) ?? 0,
+          revealHeaders,
+          r.oauthAuthorizedBy
+            ? (authorizers.get(r.oauthAuthorizedBy) ?? null)
+            : null
+        )
       ),
     },
     HttpStatusCodes.OK
@@ -153,6 +181,8 @@ export const createToolServer: AppRouteHandler<CreateToolServerRoute> = async (
       name: body.name,
       description: body.description,
       url: body.url,
+      authMode: body.authMode,
+      oauthStatus: initialToolServerOAuthStatus(body.authMode),
       headers: body.headers,
       secrets,
       enabledTools: body.enabledTools,
@@ -169,7 +199,7 @@ export const createToolServer: AppRouteHandler<CreateToolServerRoute> = async (
       HttpStatusCodes.CONFLICT
     )
   }
-  return c.json({ server: toResponse(row, 0, true) }, HttpStatusCodes.OK)
+  return c.json({ server: toResponse(row, 0, true, null) }, HttpStatusCodes.OK)
 }
 
 export const updateToolServer: AppRouteHandler<UpdateToolServerRoute> = async (
@@ -212,6 +242,30 @@ export const updateToolServer: AppRouteHandler<UpdateToolServerRoute> = async (
     return c.json(
       { success: false, message: "Server not found" },
       HttpStatusCodes.NOT_FOUND
+    )
+  }
+  if (existing.authMode === "oauth" && body.enabledTools !== undefined) {
+    return c.json(
+      {
+        success: false,
+        message: "OAuth tools can only be enabled after authorization",
+      },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+  if (
+    existing.authMode === "oauth" &&
+    body.headers &&
+    Object.keys(body.headers).some(
+      (header) => header.toLowerCase() === "authorization"
+    )
+  ) {
+    return c.json(
+      {
+        success: false,
+        message: "OAuth servers cannot define an Authorization header",
+      },
+      HttpStatusCodes.BAD_REQUEST
     )
   }
 
@@ -272,9 +326,21 @@ export const updateToolServer: AppRouteHandler<UpdateToolServerRoute> = async (
       HttpStatusCodes.NOT_FOUND
     )
   }
-  const counts = await grantCounts([row.id])
+  const [counts, authorizers] = await Promise.all([
+    grantCounts([row.id]),
+    oauthAuthorizers([row.oauthAuthorizedBy]),
+  ])
   return c.json(
-    { server: toResponse(row, counts.get(row.id) ?? 0, true) },
+    {
+      server: toResponse(
+        row,
+        counts.get(row.id) ?? 0,
+        true,
+        row.oauthAuthorizedBy
+          ? (authorizers.get(row.oauthAuthorizedBy) ?? null)
+          : null
+      ),
+    },
     HttpStatusCodes.OK
   )
 }

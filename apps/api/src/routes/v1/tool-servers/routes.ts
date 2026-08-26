@@ -28,7 +28,7 @@ export const listToolServers = createRoute({
   method: "get",
   summary: "List a workspace's MCP tool servers",
   description:
-    "Returns the workspace's connected tool servers. Secret values are never returned — names only.",
+    "Returns the workspace's configured tool servers, including inactive OAuth states. Secret and OAuth credential values are never returned.",
   tags: ["Tool Servers"],
   middleware: [workspaceAuthMiddleware] as const,
   request: { params: toolServersWorkspaceParamsSchema },
@@ -49,7 +49,7 @@ export const createToolServer = createRoute({
   method: "post",
   summary: "Connect an MCP tool server",
   description:
-    "Registers a remote MCP server (Streamable HTTP + header auth). `enabledTools` is the allowlist of server tools Merlin may bind.",
+    "Registers a remote Streamable HTTP MCP server with shared OAuth or header/API-key authentication. `enabledTools` is the allowlist of server tools Merlin may bind.",
   tags: ["Tool Servers"],
   middleware: [workspaceAuthMiddleware] as const,
   request: {
