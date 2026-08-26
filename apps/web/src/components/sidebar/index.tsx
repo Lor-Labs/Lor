@@ -97,6 +97,12 @@ function RightPanelDock() {
   const widthRef = useRef(panelWidth)
   const rafRef = useRef<number | null>(null)
   const pendingXRef = useRef<number | null>(null)
+  // End-of-drag rAF (deferred isResizing reset) — tracked so a fast re-grab
+  // can cancel it before it fires mid-drag.
+  const endRafRef = useRef<number | null>(null)
+  // Removes the document mousemove/mouseup listeners of an in-progress drag;
+  // invoked from the unmount cleanup so a mid-drag unmount can't leak them.
+  const dragCleanupRef = useRef<(() => void) | null>(null)
 
   // Cancel any pending rAF-throttled drag write on unmount (the drag class is
   // removed on mouseup; clear it here too in case the component unmounts
@@ -104,6 +110,8 @@ function RightPanelDock() {
   useEffect(() => {
     return () => {
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current)
+      if (endRafRef.current !== null) cancelAnimationFrame(endRafRef.current)
+      dragCleanupRef.current?.()
       document.documentElement.classList.remove("lor-resizing")
     }
   }, [])
@@ -118,6 +126,12 @@ function RightPanelDock() {
     (e: React.MouseEvent) => {
       e.preventDefault()
       setIsResizing(true)
+      // A drag starting before the previous drag's deferred reset fires must
+      // cancel it, or it would flip isResizing off mid-drag.
+      if (endRafRef.current !== null) {
+        cancelAnimationFrame(endRafRef.current)
+        endRafRef.current = null
+      }
 
       const startX = e.clientX
       const startWidth = panelWidth
@@ -197,16 +211,23 @@ function RightPanelDock() {
           pendingXRef.current = null
         }
         setPanelWidth(widthRef.current)
-        requestAnimationFrame(() => setIsResizing(false))
+        endRafRef.current = requestAnimationFrame(() => {
+          endRafRef.current = null
+          setIsResizing(false)
+        })
         document.documentElement.classList.remove("lor-resizing")
-        document.removeEventListener("mousemove", handleMouseMove)
-        document.removeEventListener("mouseup", handleMouseUp)
+        dragCleanupRef.current?.()
       }
 
       document.documentElement.classList.add("lor-resizing")
 
       document.addEventListener("mousemove", handleMouseMove)
       document.addEventListener("mouseup", handleMouseUp)
+      dragCleanupRef.current = () => {
+        dragCleanupRef.current = null
+        document.removeEventListener("mousemove", handleMouseMove)
+        document.removeEventListener("mouseup", handleMouseUp)
+      }
     },
     [panelWidth, setPanelWidth, leftOpen, setLeftOpen]
   )
@@ -340,6 +361,13 @@ function LeftSidebarResizeHandle({
   const widthRef = useRef(width)
   const rafRef = useRef<number | null>(null)
   const pendingXRef = useRef<number | null>(null)
+  // End-of-drag rAF (deferred style restore + isResizing reset) — tracked so
+  // a fast re-grab can cancel it before it wipes the new drag's inline widths.
+  const endRafRef = useRef<number | null>(null)
+  // Removes the drag's document listeners and restores the inline style
+  // overrides; invoked from the unmount cleanup so a mid-drag unmount can't
+  // leak listeners or leave the gap/container pinned with transitions off.
+  const dragCleanupRef = useRef<(() => void) | null>(null)
 
   // Cancel any pending rAF-throttled drag write on unmount (the drag class is
   // removed on mouseup; clear it here too in case the component unmounts
@@ -347,6 +375,8 @@ function LeftSidebarResizeHandle({
   useEffect(() => {
     return () => {
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current)
+      if (endRafRef.current !== null) cancelAnimationFrame(endRafRef.current)
+      dragCleanupRef.current?.()
       document.documentElement.classList.remove("lor-resizing")
     }
   }, [])
@@ -355,6 +385,12 @@ function LeftSidebarResizeHandle({
     (e: React.MouseEvent) => {
       e.preventDefault()
       setIsResizing(true)
+      // A drag starting before the previous drag's deferred cleanup fires
+      // must cancel it, or it would clear this drag's inline styles mid-drag.
+      if (endRafRef.current !== null) {
+        cancelAnimationFrame(endRafRef.current)
+        endRafRef.current = null
+      }
 
       const startX = e.clientX
       const startWidth = width
@@ -414,26 +450,33 @@ function LeftSidebarResizeHandle({
           pendingXRef.current = null
         }
         onWidthChange(widthRef.current)
+        document.removeEventListener("mousemove", handleMouseMove)
+        document.removeEventListener("mouseup", handleMouseUp)
+        document.documentElement.classList.remove("lor-resizing")
         // React flushes the width commit (setting --sidebar-width on the
         // wrapper) before this rAF fires, so clearing the inline overrides
         // here hands control back to the var with no visual jump and no
         // re-triggered width transition.
-        requestAnimationFrame(() => {
-          for (const el of resizeTargets) {
-            el.style.transition = ""
-            el.style.width = ""
-          }
-          handleEl.style.left = "var(--sidebar-width)"
+        endRafRef.current = requestAnimationFrame(() => {
+          endRafRef.current = null
+          dragCleanupRef.current?.()
           setIsResizing(false)
         })
-        document.documentElement.classList.remove("lor-resizing")
-        document.removeEventListener("mousemove", handleMouseMove)
-        document.removeEventListener("mouseup", handleMouseUp)
       }
 
       document.documentElement.classList.add("lor-resizing")
       document.addEventListener("mousemove", handleMouseMove)
       document.addEventListener("mouseup", handleMouseUp)
+      dragCleanupRef.current = () => {
+        dragCleanupRef.current = null
+        document.removeEventListener("mousemove", handleMouseMove)
+        document.removeEventListener("mouseup", handleMouseUp)
+        for (const el of resizeTargets) {
+          el.style.transition = ""
+          el.style.width = ""
+        }
+        handleEl.style.left = "var(--sidebar-width)"
+      }
     },
     [width, onWidthChange]
   )
