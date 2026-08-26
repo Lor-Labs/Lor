@@ -97,11 +97,9 @@ function RightPanelDock() {
   const widthRef = useRef(panelWidth)
   const rafRef = useRef<number | null>(null)
   const pendingXRef = useRef<number | null>(null)
-  // End-of-drag rAF (deferred isResizing reset) — tracked so a fast re-grab
-  // can cancel it before it fires mid-drag.
+  // End-of-drag rAF — cancelled if a new drag starts before it fires.
   const endRafRef = useRef<number | null>(null)
-  // Removes the document mousemove/mouseup listeners of an in-progress drag;
-  // invoked from the unmount cleanup so a mid-drag unmount can't leak them.
+  // Drag cleanup (document listeners); also run on unmount.
   const dragCleanupRef = useRef<(() => void) | null>(null)
 
   // Cancel any pending rAF-throttled drag write on unmount (the drag class is
@@ -126,8 +124,7 @@ function RightPanelDock() {
     (e: React.MouseEvent) => {
       e.preventDefault()
       setIsResizing(true)
-      // A drag starting before the previous drag's deferred reset fires must
-      // cancel it, or it would flip isResizing off mid-drag.
+      // Don't let the previous drag's deferred reset flip isResizing mid-drag.
       if (endRafRef.current !== null) {
         cancelAnimationFrame(endRafRef.current)
         endRafRef.current = null
@@ -361,12 +358,9 @@ function LeftSidebarResizeHandle({
   const widthRef = useRef(width)
   const rafRef = useRef<number | null>(null)
   const pendingXRef = useRef<number | null>(null)
-  // End-of-drag rAF (deferred style restore + isResizing reset) — tracked so
-  // a fast re-grab can cancel it before it wipes the new drag's inline widths.
+  // End-of-drag rAF — cancelled if a new drag starts before it fires.
   const endRafRef = useRef<number | null>(null)
-  // Removes the drag's document listeners and restores the inline style
-  // overrides; invoked from the unmount cleanup so a mid-drag unmount can't
-  // leak listeners or leave the gap/container pinned with transitions off.
+  // Drag cleanup (listeners + inline style overrides); also run on unmount.
   const dragCleanupRef = useRef<(() => void) | null>(null)
 
   // Cancel any pending rAF-throttled drag write on unmount (the drag class is
@@ -385,8 +379,7 @@ function LeftSidebarResizeHandle({
     (e: React.MouseEvent) => {
       e.preventDefault()
       setIsResizing(true)
-      // A drag starting before the previous drag's deferred cleanup fires
-      // must cancel it, or it would clear this drag's inline styles mid-drag.
+      // Don't let the previous drag's deferred cleanup clear this drag's styles.
       if (endRafRef.current !== null) {
         cancelAnimationFrame(endRafRef.current)
         endRafRef.current = null
@@ -397,13 +390,11 @@ function LeftSidebarResizeHandle({
       widthRef.current = startWidth
       const handleEl = e.currentTarget as HTMLElement
 
-      // While expanded on desktop, only the gap + fixed container consume
-      // --sidebar-width for layout. Mutating the var on the provider wrapper
-      // would invalidate the inherited custom property for the whole app
-      // subtree — a full-document style recalc per frame — so instead write
-      // inline widths on just these two elements during the drag and commit
-      // the var once on mouseup. They also animate `width` over 200ms, so
-      // disable that transition or the panel lags behind the cursor.
+      // Scoped width writes: only the gap + fixed container consume
+      // --sidebar-width while expanded. Writing inline widths on them (instead
+      // of mutating the var on the provider wrapper) avoids a full-document
+      // custom-property style recalc per frame. Their 200ms width transition
+      // is suppressed during the drag or the panel lags behind the cursor.
       const resizeTargets = document.querySelectorAll<HTMLElement>(
         "[data-slot='sidebar-gap'], [data-slot='sidebar-container']"
       )
@@ -424,8 +415,7 @@ function LeftSidebarResizeHandle({
         for (const el of resizeTargets) {
           el.style.width = `${next}px`
         }
-        // Keep the fixed-position handle tracking the edge without touching
-        // the var it normally follows.
+        // Fixed-position handle tracks the edge without touching the var.
         handleEl.style.left = `${next}px`
       }
 
@@ -453,10 +443,8 @@ function LeftSidebarResizeHandle({
         document.removeEventListener("mousemove", handleMouseMove)
         document.removeEventListener("mouseup", handleMouseUp)
         document.documentElement.classList.remove("lor-resizing")
-        // React flushes the width commit (setting --sidebar-width on the
-        // wrapper) before this rAF fires, so clearing the inline overrides
-        // here hands control back to the var with no visual jump and no
-        // re-triggered width transition.
+        // Restore the inline overrides one frame later, after React commits
+        // --sidebar-width, so the var takes over with no jump or transition.
         endRafRef.current = requestAnimationFrame(() => {
           endRafRef.current = null
           dragCleanupRef.current?.()
