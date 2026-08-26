@@ -20,8 +20,8 @@
     "./providers": "./src/providers/index.ts",
     "./sources": "./src/sources.ts",
     "./tasks": "./src/tasks.ts",
-    "./tool-server-oauth": "./src/tool-server-oauth.ts",
-    "./tool-servers": "./src/tool-servers.ts"
+    "./mcp-server-oauth": "./src/mcp-server-oauth.ts",
+    "./mcp-servers": "./src/mcp-servers.ts"
   },
   "scripts": {
     "check-types": "tsc --noEmit",

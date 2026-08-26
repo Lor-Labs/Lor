@@ -59,6 +59,7 @@ import {
 import { linearTools, linearWriteTools, resolveWorkspaceLinear } from "./linear"
 import { logger } from "./logger"
 import { type ProposeLoopExecutor, proposeLoopTool } from "./loops"
+import { channelMcpServers, mcpServersPromptLine } from "./mcp-servers"
 import { messageActionTools, type OnMessageReaction } from "./message-actions"
 import { MERLIN_MODEL, mainGatewayOptions, merlinModel } from "./models"
 import { notionTools, resolveWorkspaceNotion } from "./notion"
@@ -78,7 +79,6 @@ import { resolveSourceCitation, searchSources, sourceTools } from "./sources"
 import { generateSmallObject } from "./structured"
 import { type RunTaskContext, taskPromptSection, taskTools } from "./tasks"
 import { guardTools } from "./tool-guard"
-import { channelToolServers, toolServersPromptLine } from "./tool-servers"
 import {
   completeLoopTool,
   loopPromptSection,
@@ -1511,25 +1511,25 @@ export async function respond(
         (): ChannelToolGrants => ({
           capabilities: [],
           customTools: [],
-          toolServers: [],
+          mcpServers: [],
         })
       )
     : {
         capabilities: ALL_MERLIN_CAPABILITIES,
         customTools: "all" as const,
-        toolServers: "all" as const,
+        mcpServers: "all" as const,
       }
   const caps = grants.capabilities
   // MCP handshakes are the slow part of startup; kick them off now (time-
-  // bounded inside channelToolServers) and merge after the built-ins exist.
+  // bounded inside channelMcpServers) and merge after the built-ins exist.
   // Collisions are filtered at merge, so this needs no takenNames up front.
-  const toolServersPromise =
-    grants.toolServers === "all" || grants.toolServers.length > 0
+  const mcpServersPromise =
+    grants.mcpServers === "all" || grants.mcpServers.length > 0
       ? // Handled here at creation: the await is several steps away, and an
         // unhandled rejection in between is a process-level event.
-        channelToolServers(
+        channelMcpServers(
           ctx.workspaceId,
-          grants.toolServers,
+          grants.mcpServers,
           new Set<string>()
         ).catch(() => null)
       : Promise.resolve(null)
@@ -1567,7 +1567,7 @@ export async function respond(
         : null,
     ])
 
-  // The finally closes the MCP sessions (Datadog + workspace tool servers)
+  // The finally closes the MCP sessions (Datadog + workspace MCP servers)
   // even if tool assembly, setup, step preparation, or streaming throws.
   try {
     const artifactsEnabled = Boolean(
@@ -1616,14 +1616,14 @@ export async function respond(
           ).catch(() => null)
         : null
     // MCP server tools bind last; anything already named wins the collision.
-    const toolServerSession = await toolServersPromise
+    const mcpServerSession = await mcpServersPromise
     const tools: typeof builtinTools & ToolSet = {
       ...builtinTools,
       ...(customTools ?? {}),
     }
     const boundServerToolNames = new Set<string>()
-    if (toolServerSession) {
-      for (const [name, tool] of Object.entries(toolServerSession.tools)) {
+    if (mcpServerSession) {
+      for (const [name, tool] of Object.entries(mcpServerSession.tools)) {
         if (name in tools) {
           logger.warn(
             { tool: name },
@@ -1638,7 +1638,7 @@ export async function respond(
     // Only servers that actually contributed a tool get advertised — a server
     // whose every tool lost a collision would otherwise be announced as
     // connected with nothing behind it.
-    const promptToolServers = (toolServerSession?.servers ?? []).filter((s) =>
+    const promptMcpServers = (mcpServerSession?.servers ?? []).filter((s) =>
       s.toolNames.some((name) => boundServerToolNames.has(name))
     )
 
@@ -1784,8 +1784,8 @@ export async function respond(
       codeActionsEnabled ? CODE_ACTIONS_PROMPT_LINE : null,
       ctx.proposeLoop && ctx.channelId ? LOOPS_PROMPT_LINE : null,
       customTools ? CUSTOM_TOOLS_PROMPT_LINE : null,
-      promptToolServers.length > 0
-        ? toolServersPromptLine(promptToolServers)
+      promptMcpServers.length > 0
+        ? mcpServersPromptLine(promptMcpServers)
         : null,
     ].filter((line): line is string => line !== null)
 
@@ -2063,7 +2063,7 @@ export async function respond(
     // covers throws that happen before the session was awaited.
     await Promise.allSettled([
       datadogMcp?.close(),
-      toolServersPromise.then((s) => s?.close()),
+      mcpServersPromise.then((s) => s?.close()),
     ])
   }
 }

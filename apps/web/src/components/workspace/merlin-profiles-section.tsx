@@ -35,7 +35,7 @@ import type {
 import { connectorLogo } from "@/lib/connector-ui"
 
 type AvailableCustomTool = AgentProfilesResponse["availableCustomTools"][number]
-type AvailableToolServer = AgentProfilesResponse["availableToolServers"][number]
+type AvailableMcpServer = AgentProfilesResponse["availableMcpServers"][number]
 
 // A profile grants custom tools either via the blanket capability (all,
 // including future tools) or an explicit per-tool list.
@@ -75,7 +75,7 @@ function GrantedChips({
   profile: AgentProfile
   available: AvailableCapability[]
   tools: AvailableCustomTool[]
-  servers: AvailableToolServer[]
+  servers: AvailableMcpServer[]
 }) {
   const granted = profile.grantsAll
     ? available
@@ -86,7 +86,7 @@ function GrantedChips({
     : tools.filter((t) => profile.customToolIds.includes(t.id))
   const grantedServers = blanket
     ? []
-    : servers.filter((s) => profile.toolServerIds.includes(s.id))
+    : servers.filter((s) => profile.mcpServerIds.includes(s.id))
 
   if (
     granted.length === 0 &&
@@ -244,15 +244,15 @@ function ProfileRow({
   profile?: AgentProfile
   available: AvailableCapability[]
   tools: AvailableCustomTool[]
-  servers: AvailableToolServer[]
+  servers: AvailableMcpServer[]
   // One named payload rather than positional args: customToolIds and
-  // toolServerIds are both string[], and silently swapping them would grant
+  // mcpServerIds are both string[], and silently swapping them would grant
   // the wrong tools.
   onSave: (values: {
     name: string
     capabilities: MerlinCapabilityKey[]
     customToolIds: string[]
-    toolServerIds: string[]
+    mcpServerIds: string[]
   }) => void
   onDelete?: () => void
   onCancelNew?: () => void
@@ -265,7 +265,7 @@ function ProfileRow({
     return new Set(profile.capabilities)
   }
   const initialTools = () => new Set(profile?.customToolIds ?? [])
-  const initialServers = () => new Set(profile?.toolServerIds ?? [])
+  const initialServers = () => new Set(profile?.mcpServerIds ?? [])
 
   const [editing, setEditing] = useState(isNew)
   const [name, setName] = useState(profile?.name ?? "")
@@ -312,7 +312,7 @@ function ProfileRow({
       name: name.trim(),
       capabilities: [...new Set([...selected, ...preserved])],
       customToolIds: [...selectedTools],
-      toolServerIds: [...selectedServers],
+      mcpServerIds: [...selectedServers],
     })
     if (!isNew) setEditing(false)
   }
@@ -538,7 +538,7 @@ export function MerlinProfilesSection({
       name: string
       capabilities: MerlinCapabilityKey[]
       customToolIds: string[]
-      toolServerIds: string[]
+      mcpServerIds: string[]
     }) => {
       const profiles =
         apiClient.v1.workspaces[":workspaceSlug"]["agent-profiles"]
@@ -549,7 +549,7 @@ export function MerlinProfilesSection({
               name: input.name,
               capabilities: input.capabilities,
               customToolIds: input.customToolIds,
-              toolServerIds: input.toolServerIds,
+              mcpServerIds: input.mcpServerIds,
             },
           })
         : await profiles.$post({
@@ -558,7 +558,7 @@ export function MerlinProfilesSection({
               name: input.name,
               capabilities: input.capabilities,
               customToolIds: input.customToolIds,
-              toolServerIds: input.toolServerIds,
+              mcpServerIds: input.mcpServerIds,
             },
           })
       if (!res.ok) throw new Error("Failed to save profile")
@@ -619,7 +619,7 @@ export function MerlinProfilesSection({
           profile={p}
           available={data.availableCapabilities}
           tools={data.availableCustomTools}
-          servers={data.availableToolServers}
+          servers={data.availableMcpServers}
           saving={save.isPending}
           onSave={(values) => save.mutate({ id: p.id, ...values })}
           onDelete={
@@ -633,7 +633,7 @@ export function MerlinProfilesSection({
         <ProfileRow
           available={data.availableCapabilities}
           tools={data.availableCustomTools}
-          servers={data.availableToolServers}
+          servers={data.availableMcpServers}
           saving={save.isPending}
           onSave={(values) => save.mutate(values)}
           onCancelNew={() => setCreating(false)}

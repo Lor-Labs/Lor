@@ -1,14 +1,29 @@
-import { toolServer, toolServerOAuthAttempt } from "@repo/db/schema"
+import {
+  agentProfileMcpServer,
+  mcpServer,
+  mcpServerOAuthAttempt,
+} from "@repo/db/schema"
 import { getTableConfig } from "drizzle-orm/pg-core"
 import { describe, expect, it } from "vitest"
 import {
-  createToolServerRequestSchema,
-  toolServerSchema,
-} from "@/routes/v1/tool-servers/schema"
+  listMcpServers,
+  rediscoverMcpServer,
+} from "@/routes/v1/mcp-servers/routes"
+import {
+  createMcpServerRequestSchema,
+  mcpServerSchema,
+} from "@/routes/v1/mcp-servers/schema"
 
-describe("tool server OAuth API contract", () => {
+describe("MCP server OAuth API contract", () => {
+  it("uses the explicit MCP server resource path", () => {
+    expect(listMcpServers.path).toBe("/workspaces/{workspaceSlug}/mcp-servers")
+    expect(rediscoverMcpServer.path).toBe(
+      "/workspaces/{workspaceSlug}/mcp-servers/{mcpServerId}/discover"
+    )
+  })
+
   it("keeps existing creates on static authentication by default", () => {
-    const result = createToolServerRequestSchema.parse({
+    const result = createMcpServerRequestSchema.parse({
       name: "Operations",
       url: "https://mcp.example.com/api",
       headers: { Authorization: "Bearer {{secrets.API_KEY}}" },
@@ -22,7 +37,7 @@ describe("tool server OAuth API contract", () => {
 
   it("accepts OAuth creates before tools are selected", () => {
     expect(
-      createToolServerRequestSchema.safeParse({
+      createMcpServerRequestSchema.safeParse({
         name: "Operations",
         url: "https://mcp.example.com/api",
         authMode: "oauth",
@@ -31,13 +46,13 @@ describe("tool server OAuth API contract", () => {
   })
 
   it("rejects manual authorization headers and enabled tools in OAuth mode", () => {
-    const authorizationHeader = createToolServerRequestSchema.safeParse({
+    const authorizationHeader = createMcpServerRequestSchema.safeParse({
       name: "Operations",
       url: "https://mcp.example.com/api",
       authMode: "oauth",
       headers: { aUtHoRiZaTiOn: "Bearer value" },
     })
-    const enabledTools = createToolServerRequestSchema.safeParse({
+    const enabledTools = createMcpServerRequestSchema.safeParse({
       name: "Operations",
       url: "https://mcp.example.com/api",
       authMode: "oauth",
@@ -49,7 +64,7 @@ describe("tool server OAuth API contract", () => {
   })
 
   it("exposes status and audit provenance without credential material", () => {
-    const result = toolServerSchema.parse({
+    const result = mcpServerSchema.parse({
       id: "server-id",
       name: "Operations",
       description: "Shared operational data",
@@ -72,9 +87,25 @@ describe("tool server OAuth API contract", () => {
   })
 })
 
-describe("tool server OAuth database constraints", () => {
+describe("MCP server OAuth database constraints", () => {
+  it("uses explicit MCP server table and foreign-key names", () => {
+    const serverConfig = getTableConfig(mcpServer)
+    const attemptConfig = getTableConfig(mcpServerOAuthAttempt)
+    const grantConfig = getTableConfig(agentProfileMcpServer)
+
+    expect(serverConfig.name).toBe("mcp_server")
+    expect(attemptConfig.name).toBe("mcp_server_oauth_attempt")
+    expect(grantConfig.name).toBe("agent_profile_mcp_server")
+    expect(attemptConfig.columns.map((column) => column.name)).toContain(
+      "mcp_server_id"
+    )
+    expect(grantConfig.columns.map((column) => column.name)).toContain(
+      "mcp_server_id"
+    )
+  })
+
   it("defaults existing server rows to static mode and ties auth state together", () => {
-    const config = getTableConfig(toolServer)
+    const config = getTableConfig(mcpServer)
     const authMode = config.columns.find(
       (column) => column.name === "auth_mode"
     )
@@ -83,14 +114,14 @@ describe("tool server OAuth database constraints", () => {
     expect(authMode?.default).toBe("static")
     expect(config.checks.map((check) => check.name)).toEqual(
       expect.arrayContaining([
-        "tool_server_auth_status_check",
-        "tool_server_oauth_connected_credentials_check",
+        "mcp_server_auth_status_check",
+        "mcp_server_oauth_connected_credentials_check",
       ])
     )
   })
 
   it("requires bounded, single-use attempt state with one live attempt per server", () => {
-    const config = getTableConfig(toolServerOAuthAttempt)
+    const config = getTableConfig(mcpServerOAuthAttempt)
     const columns = new Map(
       config.columns.map((column) => [column.name, column.notNull])
     )
@@ -105,18 +136,18 @@ describe("tool server OAuth database constraints", () => {
     expect(columns.get("consumed_at")).toBe(false)
     expect(config.checks.map((check) => check.name)).toEqual(
       expect.arrayContaining([
-        "tool_server_oauth_attempt_expiry_check",
-        "tool_server_oauth_attempt_consumed_check",
+        "mcp_server_oauth_attempt_expiry_check",
+        "mcp_server_oauth_attempt_consumed_check",
       ])
     )
     expect(
-      indexes.get("tool_server_oauth_attempt_state_hash_uidx")?.unique
+      indexes.get("mcp_server_oauth_attempt_state_hash_uidx")?.unique
     ).toBe(true)
     expect(
-      indexes.get("tool_server_oauth_attempt_live_server_uidx")?.unique
+      indexes.get("mcp_server_oauth_attempt_live_server_uidx")?.unique
     ).toBe(true)
     expect(
-      indexes.get("tool_server_oauth_attempt_live_server_uidx")?.where
+      indexes.get("mcp_server_oauth_attempt_live_server_uidx")?.where
     ).toBeDefined()
   })
 })

@@ -8,11 +8,11 @@ import {
   isUniqueViolation,
   schema,
 } from "@repo/db"
-import type { ToolServer } from "@repo/db/schema"
+import type { McpServer } from "@repo/db/schema"
 import { env } from "@repo/env/server"
 import { customToolUrlIssue, renderTemplate } from "@repo/merlin/custom-tools"
-import { initialToolServerOAuthStatus } from "@repo/merlin/tool-server-oauth"
-import { discoverToolServer as discoverMcp } from "@repo/merlin/tool-servers"
+import { initialMcpServerOAuthStatus } from "@repo/merlin/mcp-server-oauth"
+import { discoverMcpServer as discoverMcp } from "@repo/merlin/mcp-servers"
 import { decryptSecret, encryptSecret } from "@repo/utils/crypto"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
@@ -22,13 +22,13 @@ import {
 } from "@/lib/permissions"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
-  CreateToolServerRoute,
-  DeleteToolServerRoute,
-  DiscoverToolServerRoute,
-  ListToolServersRoute,
-  RediscoverToolServerRoute,
-  UpdateToolServerRoute,
-} from "@/routes/v1/tool-servers/routes"
+  CreateMcpServerRoute,
+  DeleteMcpServerRoute,
+  DiscoverMcpServerRoute,
+  ListMcpServersRoute,
+  RediscoverMcpServerRoute,
+  UpdateMcpServerRoute,
+} from "@/routes/v1/mcp-servers/routes"
 
 // Header values may embed literal credentials (typed directly instead of via
 // a {{secrets.*}} reference). Members without the manage permission get header
@@ -48,7 +48,7 @@ function redactedHeaders(
 
 // Secret values are write-only: stored encrypted, surfaced as names only.
 function toResponse(
-  row: ToolServer,
+  row: McpServer,
   usedByProfiles: number,
   revealHeaders: boolean,
   oauthAuthorizer: { id: string; name: string } | null
@@ -83,17 +83,19 @@ async function oauthAuthorizers(
   return new Map(rows.map((row) => [row.id, row]))
 }
 
-async function grantCounts(serverIds: string[]): Promise<Map<string, number>> {
-  if (serverIds.length === 0) return new Map()
+async function grantCounts(
+  mcpServerIds: string[]
+): Promise<Map<string, number>> {
+  if (mcpServerIds.length === 0) return new Map()
   const rows = await db
     .select({
-      toolServerId: schema.agentProfileToolServer.toolServerId,
+      mcpServerId: schema.agentProfileMcpServer.mcpServerId,
       profiles: count(),
     })
-    .from(schema.agentProfileToolServer)
-    .where(inArray(schema.agentProfileToolServer.toolServerId, serverIds))
-    .groupBy(schema.agentProfileToolServer.toolServerId)
-  return new Map(rows.map((r) => [r.toolServerId, r.profiles]))
+    .from(schema.agentProfileMcpServer)
+    .where(inArray(schema.agentProfileMcpServer.mcpServerId, mcpServerIds))
+    .groupBy(schema.agentProfileMcpServer.mcpServerId)
+  return new Map(rows.map((r) => [r.mcpServerId, r.profiles]))
 }
 
 // Final request headers for a handshake: secret placeholders substituted.
@@ -108,15 +110,15 @@ function renderedHeaders(
   return out
 }
 
-export const listToolServers: AppRouteHandler<ListToolServersRoute> = async (
+export const listMcpServers: AppRouteHandler<ListMcpServersRoute> = async (
   c
 ) => {
   const workspace = c.var.workspace
   const rows = await db
     .select()
-    .from(schema.toolServer)
-    .where(eq(schema.toolServer.workspaceId, workspace.id))
-    .orderBy(desc(schema.toolServer.createdAt))
+    .from(schema.mcpServer)
+    .where(eq(schema.mcpServer.workspaceId, workspace.id))
+    .orderBy(desc(schema.mcpServer.createdAt))
   const [counts, authorizers] = await Promise.all([
     grantCounts(rows.map((r) => r.id)),
     oauthAuthorizers(rows.map((r) => r.oauthAuthorizedBy)),
@@ -141,7 +143,7 @@ export const listToolServers: AppRouteHandler<ListToolServersRoute> = async (
   )
 }
 
-export const createToolServer: AppRouteHandler<CreateToolServerRoute> = async (
+export const createMcpServer: AppRouteHandler<CreateMcpServerRoute> = async (
   c
 ) => {
   const workspace = c.var.workspace
@@ -151,10 +153,10 @@ export const createToolServer: AppRouteHandler<CreateToolServerRoute> = async (
   const key = env.INTEGRATION_ENCRYPTION_KEY
   if (!key) {
     logger.error(
-      "Tool servers are disabled: INTEGRATION_ENCRYPTION_KEY is not configured"
+      "MCP servers are disabled: INTEGRATION_ENCRYPTION_KEY is not configured"
     )
     return c.json(
-      { success: false, message: "Tool servers are unavailable" },
+      { success: false, message: "MCP servers are unavailable" },
       HttpStatusCodes.BAD_REQUEST
     )
   }
@@ -174,7 +176,7 @@ export const createToolServer: AppRouteHandler<CreateToolServerRoute> = async (
   )
 
   const row = await db
-    .insert(schema.toolServer)
+    .insert(schema.mcpServer)
     .values({
       workspaceId: workspace.id,
       createdBy: c.var.user.id,
@@ -182,7 +184,7 @@ export const createToolServer: AppRouteHandler<CreateToolServerRoute> = async (
       description: body.description,
       url: body.url,
       authMode: body.authMode,
-      oauthStatus: initialToolServerOAuthStatus(body.authMode),
+      oauthStatus: initialMcpServerOAuthStatus(body.authMode),
       headers: body.headers,
       secrets,
       enabledTools: body.enabledTools,
@@ -202,18 +204,18 @@ export const createToolServer: AppRouteHandler<CreateToolServerRoute> = async (
   return c.json({ server: toResponse(row, 0, true, null) }, HttpStatusCodes.OK)
 }
 
-export const updateToolServer: AppRouteHandler<UpdateToolServerRoute> = async (
+export const updateMcpServer: AppRouteHandler<UpdateMcpServerRoute> = async (
   c
 ) => {
   const workspace = c.var.workspace
   assertWorkspacePermission(c.var.member, workspace, { channel: ["update"] })
-  const { serverId } = c.req.valid("param")
+  const { mcpServerId } = c.req.valid("param")
   const body = c.req.valid("json")
 
   const key = env.INTEGRATION_ENCRYPTION_KEY
   if (!key) {
     return c.json(
-      { success: false, message: "Tool servers are unavailable" },
+      { success: false, message: "MCP servers are unavailable" },
       HttpStatusCodes.BAD_REQUEST
     )
   }
@@ -229,11 +231,11 @@ export const updateToolServer: AppRouteHandler<UpdateToolServerRoute> = async (
 
   const existing = await db
     .select()
-    .from(schema.toolServer)
+    .from(schema.mcpServer)
     .where(
       and(
-        eq(schema.toolServer.id, serverId),
-        eq(schema.toolServer.workspaceId, workspace.id)
+        eq(schema.mcpServer.id, mcpServerId),
+        eq(schema.mcpServer.workspaceId, workspace.id)
       )
     )
     .limit(1)
@@ -294,7 +296,7 @@ export const updateToolServer: AppRouteHandler<UpdateToolServerRoute> = async (
   }
 
   const row = await db
-    .update(schema.toolServer)
+    .update(schema.mcpServer)
     .set({
       ...(body.name !== undefined ? { name: body.name } : {}),
       ...(body.description !== undefined
@@ -307,7 +309,7 @@ export const updateToolServer: AppRouteHandler<UpdateToolServerRoute> = async (
         : {}),
       ...(secrets !== undefined ? { secrets } : {}),
     })
-    .where(eq(schema.toolServer.id, existing.id))
+    .where(eq(schema.mcpServer.id, existing.id))
     .returning()
     .then((rows) => rows[0] ?? null)
     .catch((err) => {
@@ -345,23 +347,23 @@ export const updateToolServer: AppRouteHandler<UpdateToolServerRoute> = async (
   )
 }
 
-export const deleteToolServer: AppRouteHandler<DeleteToolServerRoute> = async (
+export const deleteMcpServer: AppRouteHandler<DeleteMcpServerRoute> = async (
   c
 ) => {
   const workspace = c.var.workspace
   assertWorkspacePermission(c.var.member, workspace, { channel: ["update"] })
-  const { serverId } = c.req.valid("param")
+  const { mcpServerId } = c.req.valid("param")
 
-  // Profile grants cascade away (agent_profile_tool_server FK).
+  // Profile grants cascade away (agent_profile_mcp_server FK).
   const row = await db
-    .delete(schema.toolServer)
+    .delete(schema.mcpServer)
     .where(
       and(
-        eq(schema.toolServer.id, serverId),
-        eq(schema.toolServer.workspaceId, workspace.id)
+        eq(schema.mcpServer.id, mcpServerId),
+        eq(schema.mcpServer.workspaceId, workspace.id)
       )
     )
-    .returning({ id: schema.toolServer.id })
+    .returning({ id: schema.mcpServer.id })
     .then((rows) => rows[0])
   if (!row) {
     return c.json(
@@ -372,8 +374,8 @@ export const deleteToolServer: AppRouteHandler<DeleteToolServerRoute> = async (
   return c.json({ success: true as const }, HttpStatusCodes.OK)
 }
 
-export const discoverToolServer: AppRouteHandler<
-  DiscoverToolServerRoute
+export const discoverMcpServer: AppRouteHandler<
+  DiscoverMcpServerRoute
 > = async (c) => {
   const workspace = c.var.workspace
   assertWorkspacePermission(c.var.member, workspace, { channel: ["update"] })
@@ -413,28 +415,28 @@ export const discoverToolServer: AppRouteHandler<
   return c.json({ tools: result.tools }, HttpStatusCodes.OK)
 }
 
-export const rediscoverToolServer: AppRouteHandler<
-  RediscoverToolServerRoute
+export const rediscoverMcpServer: AppRouteHandler<
+  RediscoverMcpServerRoute
 > = async (c) => {
   const workspace = c.var.workspace
   assertWorkspacePermission(c.var.member, workspace, { channel: ["update"] })
-  const { serverId } = c.req.valid("param")
+  const { mcpServerId } = c.req.valid("param")
   const body = c.req.valid("json")
 
   const key = env.INTEGRATION_ENCRYPTION_KEY
   if (!key) {
     return c.json(
-      { success: false, message: "Tool servers are unavailable" },
+      { success: false, message: "MCP servers are unavailable" },
       HttpStatusCodes.BAD_REQUEST
     )
   }
   const existing = await db
     .select()
-    .from(schema.toolServer)
+    .from(schema.mcpServer)
     .where(
       and(
-        eq(schema.toolServer.id, serverId),
-        eq(schema.toolServer.workspaceId, workspace.id)
+        eq(schema.mcpServer.id, mcpServerId),
+        eq(schema.mcpServer.workspaceId, workspace.id)
       )
     )
     .limit(1)

@@ -1,4 +1,4 @@
-# Workspace-Scoped OAuth for MCP Tool Servers
+# Workspace-Scoped OAuth for MCP Servers
 
 > Status: **implementation plan** (2026-08-26, product direction confirmed with
 > jacob). OAuth credentials belong to the workspace connection, never to an
@@ -71,7 +71,7 @@ review again. Deleting the server keeps the existing hard-delete behavior.
 
 ## 3. Data model
 
-Extend `tool_server` rather than creating an `integration_connection`: generic MCP
+Extend `mcp_server` rather than creating an `integration_connection`: generic MCP
 servers already have the correct workspace scope, profile grants, live tool discovery,
 and allowlist semantics.
 
@@ -88,9 +88,9 @@ Add:
 - `oauthAuthorizedBy`: nullable user FK with `onDelete: set null`, for audit only.
 - `oauthAuthorizedAt`: nullable timestamp.
 
-Add a short-lived `tool_server_oauth_attempt` table:
+Add a short-lived `mcp_server_oauth_attempt` table:
 
-- `id`, `toolServerId`, `workspaceId`, `initiatedBy`
+- `id`, `mcpServerId`, `workspaceId`, `initiatedBy`
 - encrypted PKCE verifier and OAuth state, plus an indexed hash of state for
   callback lookup without storing a queryable plaintext bearer value
 - `createdAt`, `expiresAt`, and `consumedAt`
@@ -104,12 +104,12 @@ secret, verifier, authorization code, or raw state is ever returned by a read AP
 
 ## 4. API contract
 
-Extend existing tool-server CRUD/discovery schemas with `authMode`, `oauthStatus`,
+Extend existing MCP server CRUD/discovery schemas with `authMode`, `oauthStatus`,
 `oauthAuthorizedBy`, and `oauthAuthorizedAt`. Never serialize `oauthCredentials`.
 
-Add these endpoints under `/v1/workspaces/:workspaceSlug/tool-servers`:
+Add these endpoints under `/v1/workspaces/:workspaceSlug/mcp-servers`:
 
-- `POST /:serverId/oauth/start`
+- `POST /:mcpServerId/oauth/start`
   - Requires the same permission used to manage workspace tools.
   - Requires the disclosure confirmation in the request.
   - Revalidates the server URL and creates/replaces the short-lived attempt.
@@ -124,12 +124,12 @@ Add these endpoints under `/v1/workspaces/:workspaceSlug/tool-servers`:
     single-use attempt and PKCE bind the callback to its authenticated initiator; the
     handler reloads that member's current permission from the database. This keeps the
     desktop system-browser flow working even when its cookie jar differs from the app.
-- `POST /:serverId/oauth/complete`
+- `POST /:mcpServerId/oauth/complete`
   - Accepts the reviewed `enabledTools` allowlist and transitions
     `needs_tool_review -> connected`.
   - Re-discovers tools and verifies the submitted allowlist is a subset of the
     server's current tool list before activation.
-- `POST /:serverId/oauth/disconnect`
+- `POST /:mcpServerId/oauth/disconnect`
   - Clears credentials/attempts and makes the server inactive.
 
 The callback should be hosted on the public API origin. Add a dedicated configured

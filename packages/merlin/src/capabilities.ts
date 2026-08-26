@@ -2,19 +2,19 @@ import { and, db, eq, schema } from "@repo/db"
 import { ALL_MERLIN_CAPABILITIES, type MerlinCapability } from "@repo/db/schema"
 
 // What a channel's profile lets Merlin use: gated capabilities plus the
-// workspace-tool grants. `customTools`/`toolServers` are "all" when the
+// workspace-tool grants. `customTools`/`mcpServers` are "all" when the
 // profile grants the blanket `custom_tools` capability (or grantsAll);
 // otherwise the explicit per-profile grant lists (join-table rows).
 export type ChannelToolGrants = {
   capabilities: MerlinCapability[]
   customTools: "all" | string[]
-  toolServers: "all" | string[]
+  mcpServers: "all" | string[]
 }
 
 const PERMISSIVE_GRANTS: ChannelToolGrants = {
   capabilities: ALL_MERLIN_CAPABILITIES,
   customTools: "all",
-  toolServers: "all",
+  mcpServers: "all",
 }
 
 async function profileGrants(profile: {
@@ -27,23 +27,23 @@ async function profileGrants(profile: {
     return {
       capabilities: profile.capabilities,
       customTools: "all",
-      toolServers: "all",
+      mcpServers: "all",
     }
   }
-  const [toolGrants, serverGrants] = await Promise.all([
+  const [toolGrants, mcpServerGrants] = await Promise.all([
     db
       .select({ customToolId: schema.agentProfileCustomTool.customToolId })
       .from(schema.agentProfileCustomTool)
       .where(eq(schema.agentProfileCustomTool.profileId, profile.id)),
     db
-      .select({ toolServerId: schema.agentProfileToolServer.toolServerId })
-      .from(schema.agentProfileToolServer)
-      .where(eq(schema.agentProfileToolServer.profileId, profile.id)),
+      .select({ mcpServerId: schema.agentProfileMcpServer.mcpServerId })
+      .from(schema.agentProfileMcpServer)
+      .where(eq(schema.agentProfileMcpServer.profileId, profile.id)),
   ])
   return {
     capabilities: profile.capabilities,
     customTools: toolGrants.map((g) => g.customToolId),
-    toolServers: serverGrants.map((g) => g.toolServerId),
+    mcpServers: mcpServerGrants.map((g) => g.mcpServerId),
   }
 }
 

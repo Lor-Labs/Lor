@@ -11,31 +11,31 @@ import {
 } from "@/lib/helpers/openapi/schemas"
 import { workspaceAuthMiddleware } from "@/middleware/workspace-auth"
 import {
-  createToolServerRequestSchema,
-  deleteToolServerResponseSchema,
-  discoverToolServerRequestSchema,
-  discoverToolServerResponseSchema,
-  listToolServersResponseSchema,
-  rediscoverToolServerRequestSchema,
-  toolServerIdParamsSchema,
-  toolServerResponseSchema,
-  toolServersWorkspaceParamsSchema,
-  updateToolServerRequestSchema,
-} from "@/routes/v1/tool-servers/schema"
+  createMcpServerRequestSchema,
+  deleteMcpServerResponseSchema,
+  discoverMcpServerRequestSchema,
+  discoverMcpServerResponseSchema,
+  listMcpServersResponseSchema,
+  mcpServerIdParamsSchema,
+  mcpServerResponseSchema,
+  mcpServersWorkspaceParamsSchema,
+  rediscoverMcpServerRequestSchema,
+  updateMcpServerRequestSchema,
+} from "@/routes/v1/mcp-servers/schema"
 
-export const listToolServers = createRoute({
-  path: "/workspaces/{workspaceSlug}/tool-servers",
+export const listMcpServers = createRoute({
+  path: "/workspaces/{workspaceSlug}/mcp-servers",
   method: "get",
-  summary: "List a workspace's MCP tool servers",
+  summary: "List a workspace's MCP servers",
   description:
-    "Returns the workspace's configured tool servers, including inactive OAuth states. Secret and OAuth credential values are never returned.",
-  tags: ["Tool Servers"],
+    "Returns the workspace's configured MCP servers, including inactive OAuth states. Secret and OAuth credential values are never returned.",
+  tags: ["MCP Servers"],
   middleware: [workspaceAuthMiddleware] as const,
-  request: { params: toolServersWorkspaceParamsSchema },
+  request: { params: mcpServersWorkspaceParamsSchema },
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
-      schema: listToolServersResponseSchema,
-      description: "Tool servers",
+      schema: listMcpServersResponseSchema,
+      description: "MCP servers",
     }),
     [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
     [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
@@ -44,24 +44,24 @@ export const listToolServers = createRoute({
   },
 })
 
-export const createToolServer = createRoute({
-  path: "/workspaces/{workspaceSlug}/tool-servers",
+export const createMcpServer = createRoute({
+  path: "/workspaces/{workspaceSlug}/mcp-servers",
   method: "post",
-  summary: "Connect an MCP tool server",
+  summary: "Connect an MCP server",
   description:
     "Registers a remote Streamable HTTP MCP server with shared OAuth or header/API-key authentication. `enabledTools` is the allowlist of server tools Merlin may bind.",
-  tags: ["Tool Servers"],
+  tags: ["MCP Servers"],
   middleware: [workspaceAuthMiddleware] as const,
   request: {
-    params: toolServersWorkspaceParamsSchema,
+    params: mcpServersWorkspaceParamsSchema,
     body: jsonContent({
-      schema: createToolServerRequestSchema,
+      schema: createMcpServerRequestSchema,
       description: "The server descriptor",
     }),
   },
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
-      schema: toolServerResponseSchema,
+      schema: mcpServerResponseSchema,
       description: "Created",
     }),
     [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
@@ -73,24 +73,24 @@ export const createToolServer = createRoute({
   },
 })
 
-export const updateToolServer = createRoute({
-  path: "/workspaces/{workspaceSlug}/tool-servers/{serverId}",
+export const updateMcpServer = createRoute({
+  path: "/workspaces/{workspaceSlug}/mcp-servers/{mcpServerId}",
   method: "patch",
-  summary: "Update an MCP tool server",
+  summary: "Update an MCP server",
   description:
     "Edits the descriptor in place. Secrets merge: a string sets a value, null deletes it.",
-  tags: ["Tool Servers"],
+  tags: ["MCP Servers"],
   middleware: [workspaceAuthMiddleware] as const,
   request: {
-    params: toolServerIdParamsSchema,
+    params: mcpServerIdParamsSchema,
     body: jsonContent({
-      schema: updateToolServerRequestSchema,
+      schema: updateMcpServerRequestSchema,
       description: "Fields to update",
     }),
   },
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
-      schema: toolServerResponseSchema,
+      schema: mcpServerResponseSchema,
       description: "Updated",
     }),
     [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
@@ -102,17 +102,17 @@ export const updateToolServer = createRoute({
   },
 })
 
-export const deleteToolServer = createRoute({
-  path: "/workspaces/{workspaceSlug}/tool-servers/{serverId}",
+export const deleteMcpServer = createRoute({
+  path: "/workspaces/{workspaceSlug}/mcp-servers/{mcpServerId}",
   method: "delete",
-  summary: "Delete an MCP tool server",
+  summary: "Delete an MCP server",
   description: "Permanently deletes the server; profile grants cascade away.",
-  tags: ["Tool Servers"],
+  tags: ["MCP Servers"],
   middleware: [workspaceAuthMiddleware] as const,
-  request: { params: toolServerIdParamsSchema },
+  request: { params: mcpServerIdParamsSchema },
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
-      schema: deleteToolServerResponseSchema,
+      schema: deleteMcpServerResponseSchema,
       description: "Deleted",
     }),
     [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
@@ -122,24 +122,24 @@ export const deleteToolServer = createRoute({
   },
 })
 
-export const discoverToolServer = createRoute({
-  path: "/workspaces/{workspaceSlug}/tool-servers/discover",
+export const discoverMcpServer = createRoute({
+  path: "/workspaces/{workspaceSlug}/mcp-servers/discover",
   method: "post",
   summary: "Discover an MCP server's tools (pre-save)",
   description:
     "Connects with the given url/headers/secrets and returns the server's tool list. Nothing is persisted.",
-  tags: ["Tool Servers"],
+  tags: ["MCP Servers"],
   middleware: [workspaceAuthMiddleware] as const,
   request: {
-    params: toolServersWorkspaceParamsSchema,
+    params: mcpServersWorkspaceParamsSchema,
     body: jsonContent({
-      schema: discoverToolServerRequestSchema,
+      schema: discoverMcpServerRequestSchema,
       description: "Connection settings to test",
     }),
   },
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
-      schema: discoverToolServerResponseSchema,
+      schema: discoverMcpServerResponseSchema,
       description: "The server's tools",
     }),
     [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
@@ -150,24 +150,24 @@ export const discoverToolServer = createRoute({
   },
 })
 
-export const rediscoverToolServer = createRoute({
-  path: "/workspaces/{workspaceSlug}/tool-servers/{serverId}/discover",
+export const rediscoverMcpServer = createRoute({
+  path: "/workspaces/{workspaceSlug}/mcp-servers/{mcpServerId}/discover",
   method: "post",
   summary: "Re-discover a saved MCP server's tools",
   description:
     "Connects using the stored config (optionally overlaid with unsaved edits) and returns the current tool list.",
-  tags: ["Tool Servers"],
+  tags: ["MCP Servers"],
   middleware: [workspaceAuthMiddleware] as const,
   request: {
-    params: toolServerIdParamsSchema,
+    params: mcpServerIdParamsSchema,
     body: jsonContent({
-      schema: rediscoverToolServerRequestSchema,
+      schema: rediscoverMcpServerRequestSchema,
       description: "Optional unsaved overrides",
     }),
   },
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
-      schema: discoverToolServerResponseSchema,
+      schema: discoverMcpServerResponseSchema,
       description: "The server's tools",
     }),
     [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
@@ -178,9 +178,9 @@ export const rediscoverToolServer = createRoute({
   },
 })
 
-export type ListToolServersRoute = typeof listToolServers
-export type CreateToolServerRoute = typeof createToolServer
-export type UpdateToolServerRoute = typeof updateToolServer
-export type DeleteToolServerRoute = typeof deleteToolServer
-export type DiscoverToolServerRoute = typeof discoverToolServer
-export type RediscoverToolServerRoute = typeof rediscoverToolServer
+export type ListMcpServersRoute = typeof listMcpServers
+export type CreateMcpServerRoute = typeof createMcpServer
+export type UpdateMcpServerRoute = typeof updateMcpServer
+export type DeleteMcpServerRoute = typeof deleteMcpServer
+export type DiscoverMcpServerRoute = typeof discoverMcpServer
+export type RediscoverMcpServerRoute = typeof rediscoverMcpServer

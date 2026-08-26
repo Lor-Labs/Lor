@@ -15,32 +15,32 @@ import { agentProfile } from "./agent-profiles"
 import { user } from "./users"
 import { workspace } from "./workspaces"
 
-// A remote MCP tool server the workspace connected over Streamable HTTP.
+// A remote MCP server the workspace connected over Streamable HTTP.
 // Unlike custom_tool rows, the server owns its live tool list
 // and schemas; `enabledTools` is the workspace's allowlist over it so an
 // upstream tool addition can't silently widen Merlin's surface. Sessions are
 // created per respond() call (the datadogMcpTools pattern, generalized).
 // See reference/automation-primitives.md §4.
-export const toolServerAuthModeEnum = pgEnum("tool_server_auth_mode", [
+export const mcpServerAuthModeEnum = pgEnum("mcp_server_auth_mode", [
   "static",
   "oauth",
 ])
 
-export type ToolServerAuthMode =
-  (typeof toolServerAuthModeEnum.enumValues)[number]
+export type McpServerAuthMode =
+  (typeof mcpServerAuthModeEnum.enumValues)[number]
 
-export const toolServerOAuthStatusEnum = pgEnum("tool_server_oauth_status", [
+export const mcpServerOAuthStatusEnum = pgEnum("mcp_server_oauth_status", [
   "pending",
   "needs_tool_review",
   "connected",
   "reauthorization_required",
 ])
 
-export type ToolServerOAuthStatus =
-  (typeof toolServerOAuthStatusEnum.enumValues)[number]
+export type McpServerOAuthStatus =
+  (typeof mcpServerOAuthStatusEnum.enumValues)[number]
 
-export const toolServer = pgTable(
-  "tool_server",
+export const mcpServer = pgTable(
+  "mcp_server",
   {
     id: uuid("id").defaultRandom().primaryKey(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -66,8 +66,8 @@ export const toolServer = pgTable(
     url: text("url").notNull(),
     // `static` covers no-auth and user-supplied header/API-key auth. OAuth is
     // workspace-scoped: the authorizing member is audit provenance only.
-    authMode: toolServerAuthModeEnum("auth_mode").notNull().default("static"),
-    oauthStatus: toolServerOAuthStatusEnum("oauth_status"),
+    authMode: mcpServerAuthModeEnum("auth_mode").notNull().default("static"),
+    oauthStatus: mcpServerOAuthStatusEnum("oauth_status"),
     // One AES-256-GCM ciphertext containing the versioned OAuth token/client/
     // authorization-server envelope. Never serialized through the API.
     oauthCredentials: text("oauth_credentials"),
@@ -83,17 +83,17 @@ export const toolServer = pgTable(
     enabledTools: text("enabled_tools").array().notNull().default([]),
   },
   (table) => [
-    uniqueIndex("tool_server_workspace_name_uidx").on(
+    uniqueIndex("mcp_server_workspace_name_uidx").on(
       table.workspaceId,
       table.name
     ),
-    index("tool_server_oauth_authorized_by_idx").on(table.oauthAuthorizedBy),
+    index("mcp_server_oauth_authorized_by_idx").on(table.oauthAuthorizedBy),
     check(
-      "tool_server_auth_status_check",
+      "mcp_server_auth_status_check",
       sql`(${table.authMode} = 'static' AND ${table.oauthStatus} IS NULL AND ${table.oauthCredentials} IS NULL AND ${table.oauthAuthorizedBy} IS NULL AND ${table.oauthAuthorizedAt} IS NULL) OR (${table.authMode} = 'oauth' AND ${table.oauthStatus} IS NOT NULL)`
     ),
     check(
-      "tool_server_oauth_connected_credentials_check",
+      "mcp_server_oauth_connected_credentials_check",
       sql`${table.oauthStatus} NOT IN ('needs_tool_review', 'connected') OR (${table.oauthCredentials} IS NOT NULL AND ${table.oauthAuthorizedAt} IS NOT NULL)`
     ),
   ]
@@ -102,16 +102,16 @@ export const toolServer = pgTable(
 // Short-lived, single-use state for an interactive OAuth attempt. State and
 // PKCE verifier are encrypted; stateHash is the only callback lookup key.
 // At most one unconsumed attempt may exist for a server.
-export const toolServerOAuthAttempt = pgTable(
-  "tool_server_oauth_attempt",
+export const mcpServerOAuthAttempt = pgTable(
+  "mcp_server_oauth_attempt",
   {
     id: uuid("id").defaultRandom().primaryKey(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     expiresAt: timestamp("expires_at").notNull(),
     consumedAt: timestamp("consumed_at"),
-    toolServerId: uuid("tool_server_id")
+    mcpServerId: uuid("mcp_server_id")
       .notNull()
-      .references(() => toolServer.id, { onDelete: "cascade" }),
+      .references(() => mcpServer.id, { onDelete: "cascade" }),
     workspaceId: uuid("workspace_id")
       .notNull()
       .references(() => workspace.id, { onDelete: "cascade" }),
@@ -123,20 +123,18 @@ export const toolServerOAuthAttempt = pgTable(
     encryptedCodeVerifier: text("encrypted_code_verifier").notNull(),
   },
   (table) => [
-    uniqueIndex("tool_server_oauth_attempt_state_hash_uidx").on(
-      table.stateHash
-    ),
-    uniqueIndex("tool_server_oauth_attempt_live_server_uidx")
-      .on(table.toolServerId)
+    uniqueIndex("mcp_server_oauth_attempt_state_hash_uidx").on(table.stateHash),
+    uniqueIndex("mcp_server_oauth_attempt_live_server_uidx")
+      .on(table.mcpServerId)
       .where(sql`${table.consumedAt} IS NULL`),
-    index("tool_server_oauth_attempt_workspace_idx").on(table.workspaceId),
-    index("tool_server_oauth_attempt_expires_idx").on(table.expiresAt),
+    index("mcp_server_oauth_attempt_workspace_idx").on(table.workspaceId),
+    index("mcp_server_oauth_attempt_expires_idx").on(table.expiresAt),
     check(
-      "tool_server_oauth_attempt_expiry_check",
+      "mcp_server_oauth_attempt_expiry_check",
       sql`${table.expiresAt} > ${table.createdAt}`
     ),
     check(
-      "tool_server_oauth_attempt_consumed_check",
+      "mcp_server_oauth_attempt_consumed_check",
       sql`${table.consumedAt} IS NULL OR ${table.consumedAt} >= ${table.createdAt}`
     ),
   ]
@@ -145,69 +143,68 @@ export const toolServerOAuthAttempt = pgTable(
 // Per-profile server grants (used when the profile lacks the blanket
 // `custom_tools` capability) — same shape and rationale as
 // agent_profile_custom_tool: cascade cleanup, indexed reverse lookup.
-export const agentProfileToolServer = pgTable(
-  "agent_profile_tool_server",
+export const agentProfileMcpServer = pgTable(
+  "agent_profile_mcp_server",
   {
     profileId: uuid("profile_id")
       .notNull()
       .references(() => agentProfile.id, { onDelete: "cascade" }),
-    toolServerId: uuid("tool_server_id")
+    mcpServerId: uuid("mcp_server_id")
       .notNull()
-      .references(() => toolServer.id, { onDelete: "cascade" }),
+      .references(() => mcpServer.id, { onDelete: "cascade" }),
   },
   (table) => [
-    primaryKey({ columns: [table.profileId, table.toolServerId] }),
-    index("agent_profile_tool_server_server_idx").on(table.toolServerId),
+    primaryKey({ columns: [table.profileId, table.mcpServerId] }),
+    index("agent_profile_mcp_server_lookup_idx").on(table.mcpServerId),
   ]
 )
 
-export const toolServerRelations = relations(toolServer, ({ one, many }) => ({
+export const mcpServerRelations = relations(mcpServer, ({ one, many }) => ({
   workspace: one(workspace, {
-    fields: [toolServer.workspaceId],
+    fields: [mcpServer.workspaceId],
     references: [workspace.id],
   }),
   oauthAuthorizer: one(user, {
-    fields: [toolServer.oauthAuthorizedBy],
+    fields: [mcpServer.oauthAuthorizedBy],
     references: [user.id],
   }),
-  oauthAttempts: many(toolServerOAuthAttempt),
-  profileGrants: many(agentProfileToolServer),
+  oauthAttempts: many(mcpServerOAuthAttempt),
+  profileGrants: many(agentProfileMcpServer),
 }))
 
-export const toolServerOAuthAttemptRelations = relations(
-  toolServerOAuthAttempt,
+export const mcpServerOAuthAttemptRelations = relations(
+  mcpServerOAuthAttempt,
   ({ one }) => ({
-    toolServer: one(toolServer, {
-      fields: [toolServerOAuthAttempt.toolServerId],
-      references: [toolServer.id],
+    mcpServer: one(mcpServer, {
+      fields: [mcpServerOAuthAttempt.mcpServerId],
+      references: [mcpServer.id],
     }),
     workspace: one(workspace, {
-      fields: [toolServerOAuthAttempt.workspaceId],
+      fields: [mcpServerOAuthAttempt.workspaceId],
       references: [workspace.id],
     }),
     initiator: one(user, {
-      fields: [toolServerOAuthAttempt.initiatedBy],
+      fields: [mcpServerOAuthAttempt.initiatedBy],
       references: [user.id],
     }),
   })
 )
 
-export const agentProfileToolServerRelations = relations(
-  agentProfileToolServer,
+export const agentProfileMcpServerRelations = relations(
+  agentProfileMcpServer,
   ({ one }) => ({
     profile: one(agentProfile, {
-      fields: [agentProfileToolServer.profileId],
+      fields: [agentProfileMcpServer.profileId],
       references: [agentProfile.id],
     }),
-    toolServer: one(toolServer, {
-      fields: [agentProfileToolServer.toolServerId],
-      references: [toolServer.id],
+    mcpServer: one(mcpServer, {
+      fields: [agentProfileMcpServer.mcpServerId],
+      references: [mcpServer.id],
     }),
   })
 )
 
-export type ToolServer = typeof toolServer.$inferSelect
-export type NewToolServer = typeof toolServer.$inferInsert
-export type ToolServerOAuthAttempt = typeof toolServerOAuthAttempt.$inferSelect
-export type NewToolServerOAuthAttempt =
-  typeof toolServerOAuthAttempt.$inferInsert
+export type McpServer = typeof mcpServer.$inferSelect
+export type NewMcpServer = typeof mcpServer.$inferInsert
+export type McpServerOAuthAttempt = typeof mcpServerOAuthAttempt.$inferSelect
+export type NewMcpServerOAuthAttempt = typeof mcpServerOAuthAttempt.$inferInsert

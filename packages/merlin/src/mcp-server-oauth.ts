@@ -1,8 +1,8 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto"
 import type {
-  ToolServerAuthMode,
-  ToolServerOAuthAttempt,
-  ToolServerOAuthStatus,
+  McpServerAuthMode,
+  McpServerOAuthAttempt,
+  McpServerOAuthStatus,
 } from "@repo/db/schema"
 import { decryptSecret, encryptSecret } from "@repo/utils/crypto"
 import { z } from "zod"
@@ -91,7 +91,7 @@ export function mcpOAuthAttemptExpiresAt(now = new Date()): Date {
 }
 
 type OAuthAttemptSnapshot = Pick<
-  ToolServerOAuthAttempt,
+  McpServerOAuthAttempt,
   "stateHash" | "expiresAt" | "consumedAt"
 >
 
@@ -121,8 +121,8 @@ export function validateMcpOAuthAttempt(
 }
 
 const OAUTH_STATUS_TRANSITIONS: Record<
-  ToolServerOAuthStatus,
-  readonly ToolServerOAuthStatus[]
+  McpServerOAuthStatus,
+  readonly McpServerOAuthStatus[]
 > = {
   pending: ["pending", "needs_tool_review"],
   needs_tool_review: [
@@ -135,25 +135,25 @@ const OAUTH_STATUS_TRANSITIONS: Record<
   reauthorization_required: ["reauthorization_required", "pending"],
 }
 
-export function initialToolServerOAuthStatus(
-  authMode: ToolServerAuthMode
-): ToolServerOAuthStatus | null {
+export function initialMcpServerOAuthStatus(
+  authMode: McpServerAuthMode
+): McpServerOAuthStatus | null {
   return authMode === "oauth" ? "pending" : null
 }
 
-export function canTransitionToolServerOAuthStatus(
-  from: ToolServerOAuthStatus | null,
-  to: ToolServerOAuthStatus
+export function canTransitionMcpServerOAuthStatus(
+  from: McpServerOAuthStatus | null,
+  to: McpServerOAuthStatus
 ): boolean {
   if (from === null) return to === "pending"
   return OAUTH_STATUS_TRANSITIONS[from].includes(to)
 }
 
-export function assertToolServerOAuthStatusTransition(
-  from: ToolServerOAuthStatus | null,
-  to: ToolServerOAuthStatus
+export function assertMcpServerOAuthStatusTransition(
+  from: McpServerOAuthStatus | null,
+  to: McpServerOAuthStatus
 ): void {
-  if (!canTransitionToolServerOAuthStatus(from, to)) {
+  if (!canTransitionMcpServerOAuthStatus(from, to)) {
     throw new Error(`Invalid MCP OAuth status transition: ${from} -> ${to}`)
   }
 }

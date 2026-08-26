@@ -1,16 +1,16 @@
 import { encryptSecret } from "@repo/utils/crypto"
 import { describe, expect, it } from "vitest"
 import {
-  canTransitionToolServerOAuthStatus,
+  canTransitionMcpServerOAuthStatus,
   createMcpOAuthState,
   decryptMcpOAuthCredentials,
   encryptMcpOAuthCredentials,
   hashMcpOAuthState,
-  initialToolServerOAuthStatus,
+  initialMcpServerOAuthStatus,
   MCP_OAUTH_ATTEMPT_TTL_MS,
   mcpOAuthAttemptExpiresAt,
   validateMcpOAuthAttempt,
-} from "./tool-server-oauth"
+} from "./mcp-server-oauth"
 
 const KEY = "11".repeat(32)
 
@@ -128,35 +128,29 @@ describe("MCP OAuth attempts", () => {
 
 describe("MCP OAuth lifecycle", () => {
   it("sets an initial status only for OAuth servers", () => {
-    expect(initialToolServerOAuthStatus("static")).toBeNull()
-    expect(initialToolServerOAuthStatus("oauth")).toBe("pending")
+    expect(initialMcpServerOAuthStatus("static")).toBeNull()
+    expect(initialMcpServerOAuthStatus("oauth")).toBe("pending")
   })
 
   it("allows only explicit lifecycle transitions", () => {
-    expect(canTransitionToolServerOAuthStatus(null, "pending")).toBe(true)
+    expect(canTransitionMcpServerOAuthStatus(null, "pending")).toBe(true)
     expect(
-      canTransitionToolServerOAuthStatus("pending", "needs_tool_review")
+      canTransitionMcpServerOAuthStatus("pending", "needs_tool_review")
     ).toBe(true)
-    expect(canTransitionToolServerOAuthStatus("pending", "connected")).toBe(
+    expect(canTransitionMcpServerOAuthStatus("pending", "connected")).toBe(
       false
     )
     expect(
-      canTransitionToolServerOAuthStatus("needs_tool_review", "connected")
+      canTransitionMcpServerOAuthStatus("needs_tool_review", "connected")
     ).toBe(true)
     expect(
-      canTransitionToolServerOAuthStatus(
-        "connected",
-        "reauthorization_required"
-      )
+      canTransitionMcpServerOAuthStatus("connected", "reauthorization_required")
     ).toBe(true)
     expect(
-      canTransitionToolServerOAuthStatus(
-        "reauthorization_required",
-        "connected"
-      )
+      canTransitionMcpServerOAuthStatus("reauthorization_required", "connected")
     ).toBe(false)
     expect(
-      canTransitionToolServerOAuthStatus("reauthorization_required", "pending")
+      canTransitionMcpServerOAuthStatus("reauthorization_required", "pending")
     ).toBe(true)
   })
 })

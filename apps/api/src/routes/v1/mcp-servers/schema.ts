@@ -1,23 +1,21 @@
 import { z } from "@hono/zod-openapi"
 import {
-  toolServerAuthModeEnum,
-  toolServerOAuthStatusEnum,
+  mcpServerAuthModeEnum,
+  mcpServerOAuthStatusEnum,
 } from "@repo/db/schema"
 
-export const toolServersWorkspaceParamsSchema = z.object({
+export const mcpServersWorkspaceParamsSchema = z.object({
   workspaceSlug: z.string().openapi({
     param: { name: "workspaceSlug", in: "path", required: true },
   }),
 })
 
-export const toolServerIdParamsSchema = toolServersWorkspaceParamsSchema.extend(
-  {
-    serverId: z
-      .string()
-      .uuid()
-      .openapi({ param: { name: "serverId", in: "path", required: true } }),
-  }
-)
+export const mcpServerIdParamsSchema = mcpServersWorkspaceParamsSchema.extend({
+  mcpServerId: z
+    .string()
+    .uuid()
+    .openapi({ param: { name: "mcpServerId", in: "path", required: true } }),
+})
 
 const nameSchema = z.string().trim().min(1).max(80)
 const descriptionSchema = z.string().trim().max(500)
@@ -69,20 +67,18 @@ const secretsSchema = z
 
 const enabledToolsSchema = z.array(z.string().trim().min(1).max(128)).max(200)
 
-export const toolServerAuthModeSchema = z.enum(
-  toolServerAuthModeEnum.enumValues
-)
-export const toolServerOAuthStatusSchema = z.enum(
-  toolServerOAuthStatusEnum.enumValues
+export const mcpServerAuthModeSchema = z.enum(mcpServerAuthModeEnum.enumValues)
+export const mcpServerOAuthStatusSchema = z.enum(
+  mcpServerOAuthStatusEnum.enumValues
 )
 
-export const toolServerSchema = z.object({
+export const mcpServerSchema = z.object({
   id: z.string(),
   name: z.string(),
   description: z.string(),
   url: z.string(),
-  authMode: toolServerAuthModeSchema,
-  oauthStatus: toolServerOAuthStatusSchema.nullable(),
+  authMode: mcpServerAuthModeSchema,
+  oauthStatus: mcpServerOAuthStatusSchema.nullable(),
   oauthAuthorizedBy: z.object({ id: z.string(), name: z.string() }).nullable(),
   oauthAuthorizedAt: z.string().nullable(),
   headers: z.record(z.string(), z.string()),
@@ -95,22 +91,22 @@ export const toolServerSchema = z.object({
   updatedAt: z.string(),
 })
 
-export const listToolServersResponseSchema = z.object({
-  servers: z.array(toolServerSchema),
+export const listMcpServersResponseSchema = z.object({
+  servers: z.array(mcpServerSchema),
 })
 
-export const toolServerResponseSchema = z.object({
-  server: toolServerSchema,
+export const mcpServerResponseSchema = z.object({
+  server: mcpServerSchema,
 })
 
-export const createToolServerRequestSchema = z
+export const createMcpServerRequestSchema = z
   .object({
     name: nameSchema,
     // Workspace context for Merlin ("our production Postgres — use for
     // signup/usage questions"); optional but recommended.
     description: descriptionSchema.default(""),
     url: z.string().trim().min(1).max(2048),
-    authMode: toolServerAuthModeSchema.default("static"),
+    authMode: mcpServerAuthModeSchema.default("static"),
     headers: headersSchema.default({}),
     secrets: secretsSchema.default({}),
     enabledTools: enabledToolsSchema.default([]),
@@ -138,7 +134,7 @@ export const createToolServerRequestSchema = z
   })
 
 // Secrets patch merges: string sets/replaces a value, null deletes it.
-export const updateToolServerRequestSchema = z
+export const updateMcpServerRequestSchema = z
   .object({
     name: nameSchema.optional(),
     description: descriptionSchema.optional(),
@@ -153,27 +149,27 @@ export const updateToolServerRequestSchema = z
     message: "Nothing to update",
   })
 
-export const deleteToolServerResponseSchema = z.object({
+export const deleteMcpServerResponseSchema = z.object({
   success: z.literal(true),
 })
 
 // Pre-save discovery: the form's current url/headers/secrets, nothing
 // persisted. Secret values arrive plaintext and are used for this one
 // handshake only.
-export const discoverToolServerRequestSchema = z.object({
+export const discoverMcpServerRequestSchema = z.object({
   url: z.string().trim().min(1).max(2048),
   headers: headersSchema.default({}),
   secrets: secretsSchema.default({}),
 })
 
-export const discoverToolServerResponseSchema = z.object({
+export const discoverMcpServerResponseSchema = z.object({
   tools: z.array(z.object({ name: z.string(), description: z.string() })),
 })
 
 // Saved-server discovery: stored url/headers/secrets, optionally overlaid
 // with unsaved edits (new plaintext secrets included) so a change can be
 // tested before saving.
-export const rediscoverToolServerRequestSchema = z.object({
+export const rediscoverMcpServerRequestSchema = z.object({
   url: z.string().trim().min(1).max(2048).optional(),
   headers: headersSchema.optional(),
   secrets: secretsSchema.default({}),

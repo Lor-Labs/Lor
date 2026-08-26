@@ -2,31 +2,31 @@ import { lookup } from "node:dns/promises"
 import { isIP } from "node:net"
 import { createMCPClient } from "@ai-sdk/mcp"
 import { and, db, eq, inArray, schema } from "@repo/db"
-import type { ToolServer } from "@repo/db/schema"
+import type { McpServer } from "@repo/db/schema"
 import { env } from "@repo/env/server"
 import { decryptSecret } from "@repo/utils/crypto"
 import type { ToolSet } from "ai"
 import { customToolUrlIssue, renderTemplate } from "./custom-tools"
 import { logger } from "./logger"
 
-// Remote MCP tool servers (tool_server rows), generalizing the Datadog MCP
+// Remote MCP servers (mcp_server rows), generalizing the Datadog MCP
 // pattern: one session per respond() call, closed when the stream finishes.
 // The server owns its tool list/schemas; the row's `enabledTools` allowlist
 // bounds what binds, and the channel profile's grant picks which servers.
 // See reference/automation-primitives.md §4.
 
-export const TOOL_SERVERS_PROMPT_LINE =
-  "- Tool servers: this workspace connected external tool servers; their tools appear alongside your built-in ones — each tool's description says what it does."
+export const MCP_SERVERS_PROMPT_LINE =
+  "- MCP servers: this workspace connected external MCP servers; their tools appear alongside your built-in ones — each tool's description says what it does."
 
 // The prompt line for the servers actually bound this response — the
 // workspace's own "when to use this" note rides next to each server name.
-export function toolServersPromptLine(
+export function mcpServersPromptLine(
   servers: { name: string; description: string }[]
 ): string {
   const listed = servers
     .map((s) => (s.description ? `${s.name} (${s.description})` : s.name))
     .join("; ")
-  return `${TOOL_SERVERS_PROMPT_LINE} Connected: ${listed}.`
+  return `${MCP_SERVERS_PROMPT_LINE} Connected: ${listed}.`
 }
 
 // Bound on handshake + tools/list; the MCP SDK's own request timeout is 60s,
@@ -57,7 +57,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 }
 
 type ServerRow = Pick<
-  ToolServer,
+  McpServer,
   "id" | "name" | "description" | "url" | "headers" | "secrets" | "enabledTools"
 >
 
@@ -201,7 +201,7 @@ export type DiscoveredTool = { name: string; description: string }
 
 // Handshake + tools/list without persisting anything — the settings UI's
 // "Connect & discover" step (both pre-save and refresh use this).
-export async function discoverToolServer(input: {
+export async function discoverMcpServer(input: {
   url: string
   headers: Record<string, string>
 }): Promise<{ tools: DiscoveredTool[] } | { error: string }> {
@@ -226,7 +226,7 @@ export async function discoverToolServer(input: {
   }
 }
 
-export type ToolServerSessions = {
+export type McpServerSessions = {
   tools: ToolSet
   // The servers whose tools bound here, each with the tool names it
   // contributed — the caller filters again against built-ins/custom tools, so
@@ -240,35 +240,35 @@ export type ToolServerSessions = {
 // aggregate their allowlisted tools. Collisions resolve first-wins in
 // (built-ins + custom tools) → server-name order; the loser is skipped and
 // logged, never rebound.
-export async function channelToolServers(
+export async function channelMcpServers(
   workspaceId: string,
   grant: "all" | string[],
   takenNames: ReadonlySet<string>
-): Promise<ToolServerSessions | null> {
+): Promise<McpServerSessions | null> {
   const key = env.INTEGRATION_ENCRYPTION_KEY
   if (!key) return null
   if (grant !== "all" && grant.length === 0) return null
 
   const rows = await db
     .select({
-      id: schema.toolServer.id,
-      name: schema.toolServer.name,
-      description: schema.toolServer.description,
-      url: schema.toolServer.url,
-      headers: schema.toolServer.headers,
-      secrets: schema.toolServer.secrets,
-      enabledTools: schema.toolServer.enabledTools,
+      id: schema.mcpServer.id,
+      name: schema.mcpServer.name,
+      description: schema.mcpServer.description,
+      url: schema.mcpServer.url,
+      headers: schema.mcpServer.headers,
+      secrets: schema.mcpServer.secrets,
+      enabledTools: schema.mcpServer.enabledTools,
     })
-    .from(schema.toolServer)
+    .from(schema.mcpServer)
     .where(
       and(
         // Tenant belt: grant lists are workspace-validated at write time, but
         // never bind across workspaces regardless.
-        eq(schema.toolServer.workspaceId, workspaceId),
-        grant === "all" ? undefined : inArray(schema.toolServer.id, grant)
+        eq(schema.mcpServer.workspaceId, workspaceId),
+        grant === "all" ? undefined : inArray(schema.mcpServer.id, grant)
       )
     )
-    .orderBy(schema.toolServer.name)
+    .orderBy(schema.mcpServer.name)
   const servers = rows.filter((row) => row.enabledTools.length > 0)
   if (servers.length === 0) return null
 
@@ -293,8 +293,8 @@ export async function channelToolServers(
         sessions[i] = { row, client, tools }
       } catch (err) {
         logger.warn(
-          { err, toolServerId: row.id, name: row.name },
-          "MCP tool server unavailable"
+          { err, mcpServerId: row.id, name: row.name },
+          "MCP server unavailable"
         )
       }
     }
@@ -321,7 +321,7 @@ export async function channelToolServers(
       if (!allowed.has(name)) continue
       if (takenNames.has(name) || name in tools) {
         logger.warn(
-          { toolServerId: session.row.id, tool: name },
+          { mcpServerId: session.row.id, tool: name },
           "MCP tool skipped; name collides with an existing tool"
         )
         continue
