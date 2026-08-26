@@ -241,8 +241,9 @@ tools → servers in name order). Grants ride the same two-level model as
 custom tools: the blanket `custom_tools` capability (relabeled "All workspace
 tools") covers both kinds; otherwise per-profile `agent_profile_tool_server`
 join rows. Auth v1 is static headers only — **OAuth-flow MCP (dynamic client
-registration) is deferred**. UI: the settings section is now "Tools" with a
-kind picker (API Tool / MCP Server); the MCP form's "Connect & discover" step
+registration) is planned in `reference/mcp-oauth.md`**. UI: the settings section
+is now "Tools" with a kind picker (API Tool / MCP Server); the MCP form's
+"Connect & discover" step
 lists the server's tools for allowlisting (all pre-checked on first connect;
 refresh keeps the current selection). CRUD + discover endpoints at
 `/v1/workspaces/:slug/tool-servers` (`packages/merlin/src/tool-servers.ts`,
