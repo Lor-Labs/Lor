@@ -95,6 +95,24 @@ function RightPanelDock() {
   const [isResizing, setIsResizing] = useState(false)
   const panelRef = useRef<HTMLDivElement>(null)
   const widthRef = useRef(panelWidth)
+  const rafRef = useRef<number | null>(null)
+  const pendingXRef = useRef<number | null>(null)
+  // End-of-drag rAF — cancelled if a new drag starts before it fires.
+  const endRafRef = useRef<number | null>(null)
+  // Drag cleanup (document listeners); also run on unmount.
+  const dragCleanupRef = useRef<(() => void) | null>(null)
+
+  // Cancel any pending rAF-throttled drag write on unmount (the drag class is
+  // removed on mouseup; clear it here too in case the component unmounts
+  // mid-drag).
+  useEffect(() => {
+    return () => {
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current)
+      if (endRafRef.current !== null) cancelAnimationFrame(endRafRef.current)
+      dragCleanupRef.current?.()
+      document.documentElement.classList.remove("lor-resizing")
+    }
+  }, [])
 
   // Drag-resize performance: reading getBoundingClientRect() after a style
   // write on every mousemove forces synchronous layout each frame (expensive
@@ -106,6 +124,11 @@ function RightPanelDock() {
     (e: React.MouseEvent) => {
       e.preventDefault()
       setIsResizing(true)
+      // Don't let the previous drag's deferred reset flip isResizing mid-drag.
+      if (endRafRef.current !== null) {
+        cancelAnimationFrame(endRafRef.current)
+        endRafRef.current = null
+      }
 
       const startX = e.clientX
       const startWidth = panelWidth
@@ -140,8 +163,11 @@ function RightPanelDock() {
         leftOpen && leftWidth > 0 && startCenter >= CENTER_MIN_WIDTH
       let collapsedByThisDrag = false
 
-      const handleMouseMove = (moveEvent: MouseEvent) => {
-        const delta = startX - moveEvent.clientX
+      // Mousemove fires faster than the frame rate; each width write forces
+      // the center panel's message rows to re-wrap and re-lay out, so the
+      // write is rAF-throttled to at most once per frame.
+      const applyWidth = (clientX: number) => {
+        const delta = startX - clientX
         const newWidth = clampPanelWidth(startWidth + delta, viewportWidth)
         if (panelRef.current) {
           panelRef.current.style.width = `${newWidth}px`
@@ -161,15 +187,44 @@ function RightPanelDock() {
         }
       }
 
-      const handleMouseUp = () => {
-        setPanelWidth(widthRef.current)
-        requestAnimationFrame(() => setIsResizing(false))
-        document.removeEventListener("mousemove", handleMouseMove)
-        document.removeEventListener("mouseup", handleMouseUp)
+      const handleMouseMove = (moveEvent: MouseEvent) => {
+        pendingXRef.current = moveEvent.clientX
+        if (rafRef.current !== null) return
+        rafRef.current = requestAnimationFrame(() => {
+          rafRef.current = null
+          if (pendingXRef.current !== null) applyWidth(pendingXRef.current)
+        })
       }
+
+      const handleMouseUp = () => {
+        // Flush the final position synchronously before committing state so
+        // the persisted width matches where the cursor was released.
+        if (rafRef.current !== null) {
+          cancelAnimationFrame(rafRef.current)
+          rafRef.current = null
+        }
+        if (pendingXRef.current !== null) {
+          applyWidth(pendingXRef.current)
+          pendingXRef.current = null
+        }
+        setPanelWidth(widthRef.current)
+        endRafRef.current = requestAnimationFrame(() => {
+          endRafRef.current = null
+          setIsResizing(false)
+        })
+        document.documentElement.classList.remove("lor-resizing")
+        dragCleanupRef.current?.()
+      }
+
+      document.documentElement.classList.add("lor-resizing")
 
       document.addEventListener("mousemove", handleMouseMove)
       document.addEventListener("mouseup", handleMouseUp)
+      dragCleanupRef.current = () => {
+        dragCleanupRef.current = null
+        document.removeEventListener("mousemove", handleMouseMove)
+        document.removeEventListener("mouseup", handleMouseUp)
+      }
     },
     [panelWidth, setPanelWidth, leftOpen, setLeftOpen]
   )
@@ -301,53 +356,115 @@ function LeftSidebarResizeHandle({
   const { state, isMobile } = useSidebar()
   const [isResizing, setIsResizing] = useState(false)
   const widthRef = useRef(width)
+  const rafRef = useRef<number | null>(null)
+  const pendingXRef = useRef<number | null>(null)
+  // End-of-drag rAF — cancelled if a new drag starts before it fires.
+  const endRafRef = useRef<number | null>(null)
+  // Drag cleanup (listeners + inline style overrides); also run on unmount.
+  const dragCleanupRef = useRef<(() => void) | null>(null)
+
+  // Cancel any pending rAF-throttled drag write on unmount (the drag class is
+  // removed on mouseup; clear it here too in case the component unmounts
+  // mid-drag).
+  useEffect(() => {
+    return () => {
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current)
+      if (endRafRef.current !== null) cancelAnimationFrame(endRafRef.current)
+      dragCleanupRef.current?.()
+      document.documentElement.classList.remove("lor-resizing")
+    }
+  }, [])
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault()
       setIsResizing(true)
+      // Don't let the previous drag's deferred cleanup clear this drag's styles.
+      if (endRafRef.current !== null) {
+        cancelAnimationFrame(endRafRef.current)
+        endRafRef.current = null
+      }
 
       const startX = e.clientX
       const startWidth = width
       widthRef.current = startWidth
+      const handleEl = e.currentTarget as HTMLElement
 
-      const wrapper = document.querySelector<HTMLElement>(
-        "[data-slot='sidebar-wrapper']"
-      )
-      // Sidebar gap + container animate `width` over 200ms — without disabling
-      // those transitions, the panel lags behind the cursor during drag.
-      const transitionTargets = document.querySelectorAll<HTMLElement>(
+      // Scoped width writes: only the gap + fixed container consume
+      // --sidebar-width while expanded. Writing inline widths on them (instead
+      // of mutating the var on the provider wrapper) avoids a full-document
+      // custom-property style recalc per frame. Their 200ms width transition
+      // is suppressed during the drag or the panel lags behind the cursor.
+      const resizeTargets = document.querySelectorAll<HTMLElement>(
         "[data-slot='sidebar-gap'], [data-slot='sidebar-container']"
       )
-      for (const el of transitionTargets) {
+      for (const el of resizeTargets) {
         el.style.transition = "none"
       }
 
-      const handleMouseMove = (moveEvent: MouseEvent) => {
-        const delta = moveEvent.clientX - startX
+      // Mousemove fires faster than the frame rate, and each width change
+      // forces every rendered message row in the center panel to re-wrap and
+      // re-lay out. Throttle the DOM write to at most once per frame.
+      const applyWidth = (clientX: number) => {
+        const delta = clientX - startX
         const next = Math.min(
           Math.max(startWidth + delta, LEFT_SIDEBAR_MIN),
           LEFT_SIDEBAR_MAX
         )
         widthRef.current = next
-        // SidebarProvider sets --sidebar-width inline on its wrapper, which
-        // wins over any value set on documentElement. Mutate the wrapper
-        // directly so the drag is visible immediately.
-        wrapper?.style.setProperty("--sidebar-width", `${next}px`)
+        for (const el of resizeTargets) {
+          el.style.width = `${next}px`
+        }
+        // Fixed-position handle tracks the edge without touching the var.
+        handleEl.style.left = `${next}px`
+      }
+
+      const handleMouseMove = (moveEvent: MouseEvent) => {
+        pendingXRef.current = moveEvent.clientX
+        if (rafRef.current !== null) return
+        rafRef.current = requestAnimationFrame(() => {
+          rafRef.current = null
+          if (pendingXRef.current !== null) applyWidth(pendingXRef.current)
+        })
       }
 
       const handleMouseUp = () => {
-        onWidthChange(widthRef.current)
-        for (const el of transitionTargets) {
-          el.style.transition = ""
+        // Flush the final position synchronously before committing state so
+        // the persisted width matches where the cursor was released.
+        if (rafRef.current !== null) {
+          cancelAnimationFrame(rafRef.current)
+          rafRef.current = null
         }
-        requestAnimationFrame(() => setIsResizing(false))
+        if (pendingXRef.current !== null) {
+          applyWidth(pendingXRef.current)
+          pendingXRef.current = null
+        }
+        onWidthChange(widthRef.current)
         document.removeEventListener("mousemove", handleMouseMove)
         document.removeEventListener("mouseup", handleMouseUp)
+        document.documentElement.classList.remove("lor-resizing")
+        // Restore the inline overrides one frame later, after React commits
+        // --sidebar-width, so the var takes over with no jump or transition.
+        endRafRef.current = requestAnimationFrame(() => {
+          endRafRef.current = null
+          dragCleanupRef.current?.()
+          setIsResizing(false)
+        })
       }
 
+      document.documentElement.classList.add("lor-resizing")
       document.addEventListener("mousemove", handleMouseMove)
       document.addEventListener("mouseup", handleMouseUp)
+      dragCleanupRef.current = () => {
+        dragCleanupRef.current = null
+        document.removeEventListener("mousemove", handleMouseMove)
+        document.removeEventListener("mouseup", handleMouseUp)
+        for (const el of resizeTargets) {
+          el.style.transition = ""
+          el.style.width = ""
+        }
+        handleEl.style.left = "var(--sidebar-width)"
+      }
     },
     [width, onWidthChange]
   )
