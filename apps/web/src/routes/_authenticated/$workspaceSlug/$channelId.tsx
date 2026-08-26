@@ -250,6 +250,13 @@ function ChannelView() {
     [setView, workspaceSlug, channelId, isCollapsed, toggleCollapsed]
   )
 
+  // MessageItem is memoized — forward a stable callback identity so route
+  // re-renders don't re-render every message row.
+  const handleReplyInThread = useCallback(
+    (msg: Message) => handleOpenThread(msg.id),
+    [handleOpenThread]
+  )
+
   const { data: workspaceMembersData } = useQuery({
     queryKey: ["workspace-members", workspaceSlug],
     queryFn: async () => {
@@ -526,7 +533,7 @@ function ChannelView() {
         onJumpToPresent={isAtPresent ? undefined : handleJumpToPresent}
         scrollTargetId={msgId}
         onJumpToMessage={handleJumpToMessage}
-        onReplyInThread={(msg) => handleOpenThread(msg.id)}
+        onReplyInThread={handleReplyInThread}
         onOpenThread={handleOpenThread}
         threadActivities={isAtPresent ? threadActivities : []}
         onOpenThreadActivity={handleOpenThreadActivity}

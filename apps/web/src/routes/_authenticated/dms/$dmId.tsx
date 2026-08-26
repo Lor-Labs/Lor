@@ -1,7 +1,7 @@
 import { authClient } from "@repo/auth/client"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
-import { useCallback, useEffect } from "react"
+import { useCallback, useEffect, useMemo } from "react"
 import { useDropzone } from "react-dropzone"
 import { ChatSkeleton } from "@/components/chat/chat-skeleton"
 import { MessageInput } from "@/components/chat/composer/message-input"
@@ -173,6 +173,24 @@ function DMConversation() {
     noKeyboard: true,
   })
 
+  // MessageItem is memoized — keep this array referentially stable so route
+  // re-renders (typing indicators, new messages) don't re-render every row.
+  const mentionCandidates = useMemo(
+    () =>
+      (dm?.members ?? []).map((member) => ({
+        id: member.id,
+        label: member.displayUsername ?? member.username ?? member.name,
+        name: member.name,
+        username: member.username,
+        displayUsername: member.displayUsername,
+        image: member.image,
+        search: [member.name, member.username, member.displayUsername]
+          .filter((value): value is string => Boolean(value))
+          .join(" "),
+      })),
+    [dm?.members]
+  )
+
   if (isPending) {
     return <ChatSkeleton />
   }
@@ -205,18 +223,6 @@ function DMConversation() {
           name: dm.members[0]?.name ?? "Unknown",
           avatarUrl: dm.members[0]?.image ?? undefined,
         }
-
-  const mentionCandidates = dm.members.map((member) => ({
-    id: member.id,
-    label: member.displayUsername ?? member.username ?? member.name,
-    name: member.name,
-    username: member.username,
-    displayUsername: member.displayUsername,
-    image: member.image,
-    search: [member.name, member.username, member.displayUsername]
-      .filter((value): value is string => Boolean(value))
-      .join(" "),
-  }))
 
   return (
     <div

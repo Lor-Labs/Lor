@@ -95,7 +95,25 @@ function RightPanelDock() {
   const [isResizing, setIsResizing] = useState(false)
   const panelRef = useRef<HTMLDivElement>(null)
   const widthRef = useRef(panelWidth)
+  const rafRef = useRef<number | null>(null)
+  const pendingXRef = useRef<number | null>(null)
 
+  // Cancel any pending rAF-throttled drag write on unmount (the drag class is
+  // removed on mouseup; clear it here too in case the component unmounts
+  // mid-drag).
+  useEffect(() => {
+    return () => {
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current)
+      document.documentElement.classList.remove("lor-resizing")
+    }
+  }, [])
+
+  // Drag-resize performance: reading getBoundingClientRect() after a style
+  // write on every mousemove forces synchronous layout each frame (expensive
+  // with a long message list in the center panel). So drag-start geometry is
+  // cached once here, the width is applied via direct DOM style mutation
+  // during the drag, and the React state commit is deferred to mouseup to
+  // avoid mid-drag re-renders.
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault()
@@ -134,8 +152,11 @@ function RightPanelDock() {
         leftOpen && leftWidth > 0 && startCenter >= CENTER_MIN_WIDTH
       let collapsedByThisDrag = false
 
-      const handleMouseMove = (moveEvent: MouseEvent) => {
-        const delta = startX - moveEvent.clientX
+      // Mousemove fires faster than the frame rate; each width write forces
+      // the center panel's message rows to re-wrap and re-lay out, so the
+      // write is rAF-throttled to at most once per frame.
+      const applyWidth = (clientX: number) => {
+        const delta = startX - clientX
         const newWidth = clampPanelWidth(startWidth + delta, viewportWidth)
         if (panelRef.current) {
           panelRef.current.style.width = `${newWidth}px`
@@ -155,12 +176,34 @@ function RightPanelDock() {
         }
       }
 
+      const handleMouseMove = (moveEvent: MouseEvent) => {
+        pendingXRef.current = moveEvent.clientX
+        if (rafRef.current !== null) return
+        rafRef.current = requestAnimationFrame(() => {
+          rafRef.current = null
+          if (pendingXRef.current !== null) applyWidth(pendingXRef.current)
+        })
+      }
+
       const handleMouseUp = () => {
+        // Flush the final position synchronously before committing state so
+        // the persisted width matches where the cursor was released.
+        if (rafRef.current !== null) {
+          cancelAnimationFrame(rafRef.current)
+          rafRef.current = null
+        }
+        if (pendingXRef.current !== null) {
+          applyWidth(pendingXRef.current)
+          pendingXRef.current = null
+        }
         setPanelWidth(widthRef.current)
         requestAnimationFrame(() => setIsResizing(false))
+        document.documentElement.classList.remove("lor-resizing")
         document.removeEventListener("mousemove", handleMouseMove)
         document.removeEventListener("mouseup", handleMouseUp)
       }
+
+      document.documentElement.classList.add("lor-resizing")
 
       document.addEventListener("mousemove", handleMouseMove)
       document.addEventListener("mouseup", handleMouseUp)
@@ -295,6 +338,18 @@ function LeftSidebarResizeHandle({
   const { state, isMobile } = useSidebar()
   const [isResizing, setIsResizing] = useState(false)
   const widthRef = useRef(width)
+  const rafRef = useRef<number | null>(null)
+  const pendingXRef = useRef<number | null>(null)
+
+  // Cancel any pending rAF-throttled drag write on unmount (the drag class is
+  // removed on mouseup; clear it here too in case the component unmounts
+  // mid-drag).
+  useEffect(() => {
+    return () => {
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current)
+      document.documentElement.classList.remove("lor-resizing")
+    }
+  }, [])
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
@@ -317,8 +372,11 @@ function LeftSidebarResizeHandle({
         el.style.transition = "none"
       }
 
-      const handleMouseMove = (moveEvent: MouseEvent) => {
-        const delta = moveEvent.clientX - startX
+      // Mousemove fires faster than the frame rate, and each width change
+      // forces every rendered message row in the center panel to re-wrap and
+      // re-lay out. Throttle the DOM write to at most once per frame.
+      const applyWidth = (clientX: number) => {
+        const delta = clientX - startX
         const next = Math.min(
           Math.max(startWidth + delta, LEFT_SIDEBAR_MIN),
           LEFT_SIDEBAR_MAX
@@ -330,16 +388,37 @@ function LeftSidebarResizeHandle({
         wrapper?.style.setProperty("--sidebar-width", `${next}px`)
       }
 
+      const handleMouseMove = (moveEvent: MouseEvent) => {
+        pendingXRef.current = moveEvent.clientX
+        if (rafRef.current !== null) return
+        rafRef.current = requestAnimationFrame(() => {
+          rafRef.current = null
+          if (pendingXRef.current !== null) applyWidth(pendingXRef.current)
+        })
+      }
+
       const handleMouseUp = () => {
+        // Flush the final position synchronously before committing state so
+        // the persisted width matches where the cursor was released.
+        if (rafRef.current !== null) {
+          cancelAnimationFrame(rafRef.current)
+          rafRef.current = null
+        }
+        if (pendingXRef.current !== null) {
+          applyWidth(pendingXRef.current)
+          pendingXRef.current = null
+        }
         onWidthChange(widthRef.current)
         for (const el of transitionTargets) {
           el.style.transition = ""
         }
         requestAnimationFrame(() => setIsResizing(false))
+        document.documentElement.classList.remove("lor-resizing")
         document.removeEventListener("mousemove", handleMouseMove)
         document.removeEventListener("mouseup", handleMouseUp)
       }
 
+      document.documentElement.classList.add("lor-resizing")
       document.addEventListener("mousemove", handleMouseMove)
       document.addEventListener("mouseup", handleMouseUp)
     },

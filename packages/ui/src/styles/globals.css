@@ -540,3 +540,16 @@
     animation: none;
   }
 }
+
+/* While a sidebar/panel drag-resize is active, the center panel's message
+   rows re-lay out on every width change. Pointer-events are disabled over the
+   transcript so the browser skips hover style recalculations during the drag,
+   and the resize cursor is kept consistent as the pointer crosses the panel. */
+.lor-resizing [data-slot="sidebar-inset"] {
+  pointer-events: none;
+}
+
+.lor-resizing,
+.lor-resizing * {
+  cursor: ew-resize !important;
+}
