@@ -359,16 +359,19 @@ function LeftSidebarResizeHandle({
       const startX = e.clientX
       const startWidth = width
       widthRef.current = startWidth
+      const handleEl = e.currentTarget as HTMLElement
 
-      const wrapper = document.querySelector<HTMLElement>(
-        "[data-slot='sidebar-wrapper']"
-      )
-      // Sidebar gap + container animate `width` over 200ms — without disabling
-      // those transitions, the panel lags behind the cursor during drag.
-      const transitionTargets = document.querySelectorAll<HTMLElement>(
+      // While expanded on desktop, only the gap + fixed container consume
+      // --sidebar-width for layout. Mutating the var on the provider wrapper
+      // would invalidate the inherited custom property for the whole app
+      // subtree — a full-document style recalc per frame — so instead write
+      // inline widths on just these two elements during the drag and commit
+      // the var once on mouseup. They also animate `width` over 200ms, so
+      // disable that transition or the panel lags behind the cursor.
+      const resizeTargets = document.querySelectorAll<HTMLElement>(
         "[data-slot='sidebar-gap'], [data-slot='sidebar-container']"
       )
-      for (const el of transitionTargets) {
+      for (const el of resizeTargets) {
         el.style.transition = "none"
       }
 
@@ -382,10 +385,12 @@ function LeftSidebarResizeHandle({
           LEFT_SIDEBAR_MAX
         )
         widthRef.current = next
-        // SidebarProvider sets --sidebar-width inline on its wrapper, which
-        // wins over any value set on documentElement. Mutate the wrapper
-        // directly so the drag is visible immediately.
-        wrapper?.style.setProperty("--sidebar-width", `${next}px`)
+        for (const el of resizeTargets) {
+          el.style.width = `${next}px`
+        }
+        // Keep the fixed-position handle tracking the edge without touching
+        // the var it normally follows.
+        handleEl.style.left = `${next}px`
       }
 
       const handleMouseMove = (moveEvent: MouseEvent) => {
@@ -409,10 +414,18 @@ function LeftSidebarResizeHandle({
           pendingXRef.current = null
         }
         onWidthChange(widthRef.current)
-        for (const el of transitionTargets) {
-          el.style.transition = ""
-        }
-        requestAnimationFrame(() => setIsResizing(false))
+        // React flushes the width commit (setting --sidebar-width on the
+        // wrapper) before this rAF fires, so clearing the inline overrides
+        // here hands control back to the var with no visual jump and no
+        // re-triggered width transition.
+        requestAnimationFrame(() => {
+          for (const el of resizeTargets) {
+            el.style.transition = ""
+            el.style.width = ""
+          }
+          handleEl.style.left = "var(--sidebar-width)"
+          setIsResizing(false)
+        })
         document.documentElement.classList.remove("lor-resizing")
         document.removeEventListener("mousemove", handleMouseMove)
         document.removeEventListener("mouseup", handleMouseUp)

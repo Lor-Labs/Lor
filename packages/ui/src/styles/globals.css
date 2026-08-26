@@ -545,7 +545,8 @@
    rows re-lay out on every width change. Pointer-events are disabled over the
    transcript so the browser skips hover style recalculations during the drag,
    and the resize cursor is kept consistent as the pointer crosses the panel. */
-.lor-resizing [data-slot="sidebar-inset"] {
+.lor-resizing [data-slot="sidebar-inset"],
+.lor-resizing [data-slot="sidebar-container"] {
   pointer-events: none;
 }
 
