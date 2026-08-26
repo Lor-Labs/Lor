@@ -35,8 +35,8 @@ card, alongside who authorized it and when.
 
 - No per-user tokens, identity selection, or execution as the message author.
 - No private MCP servers that only the authorizing user can call.
-- No provider-specific Ergo connector or hardcoded Ergo OAuth implementation. Ergo
-  is the first interoperability target for the generic MCP OAuth flow.
+- No provider-specific connector or hardcoded vendor OAuth implementation. The feature
+  remains a generic, standards-based MCP OAuth flow.
 - No arbitrary manually configured OAuth client credentials in v1. The first release
   targets MCP OAuth discovery + Dynamic Client Registration (DCR). Add fixed client
   registration later only if a high-value server cannot support DCR.
@@ -48,14 +48,14 @@ card, alongside who authorized it and when.
    Streamable HTTP URL, and authentication type **OAuth**. Non-authorization headers
    remain available for vendor-specific routing headers.
 2. The form shows the shared-channel disclosure and requires its confirmation.
-3. **Authorize account** saves the inactive draft and starts OAuth. Townhall performs
+3. **Authorize account** saves the inactive draft and starts OAuth. Lor performs
    MCP protected-resource and authorization-server discovery, dynamically registers
    its OAuth client, creates PKCE/state, and returns the provider authorization URL.
 4. Web and desktop open the provider URL externally. The callback is handled by the
-   Townhall API and returns the user to the server editor.
+   Lor API and returns the user to the server editor.
 5. A successful callback stores the workspace credential but does **not** make tools
    callable. The server enters `needs_tool_review`.
-6. Townhall discovers the server's tools. The manager reviews the list, chooses the
+6. Lor discovers the server's tools. The manager reviews the list, chooses the
    allowlist, and confirms **Enable for assigned channels**.
 7. Only then does the server enter `connected`; existing agent-profile grants begin
    exposing its allowlisted tools in their assigned channels.
@@ -120,7 +120,7 @@ Add these endpoints under `/v1/workspaces/:workspaceSlug/tool-servers`:
     the authorizer, and redirects to the server editor.
   - Rechecks that the initiating member still has permission before accepting the
     credential.
-  - Does not trust or require an active Townhall browser session. The unguessable,
+  - Does not trust or require an active Lor browser session. The unguessable,
     single-use attempt and PKCE bind the callback to its authenticated initiator; the
     handler reloads that member's current permission from the database. This keeps the
     desktop system-browser flow working even when its cookie jar differs from the app.
@@ -210,19 +210,35 @@ to a normal authenticated web route that can deep-link/reopen the server editor;
 should also poll/refetch status so completing OAuth in another browser tab is sufficient.
 
 Do not claim a provider account email/name unless the MCP/OAuth server supplies one in
-a reliable, standardized response. `Authorized by` identifies the Townhall member who
+a reliable, standardized response. `Authorized by` identifies the Lor member who
 performed setup, not the external account owner.
 
 ## 8. Implementation sequence
 
-### Phase 0 — Ergo interoperability spike
+### Mandatory phase gate
 
-- Exercise Ergo's MCP endpoint against a local development harness.
+Implement exactly one phase at a time. At the end of every phase:
+
+1. Stop before beginning any work from the next phase.
+2. Present the completed changes, verification results, and any unresolved concerns for
+   review.
+3. Do not stage or commit changes. Jacob reviews and commits the phase manually.
+4. Begin the next phase only after Jacob explicitly approves it.
+
+Before presenting a phase for review, remove every temporary vendor-specific identifier
+from code, comments, documentation, fixtures, test names, snapshots, and other committed
+artifacts. Compatibility tests must use generic names and data. Run a case-insensitive
+repository search as a final check; temporary interoperability references must not reach
+the manual commit.
+
+### Phase 0 — Protocol interoperability spike
+
+- Exercise the initial OAuth MCP endpoint against a local development harness.
 - Record its protected-resource metadata, authorization-server metadata, DCR behavior,
   scopes, token refresh behavior, and callback requirements without committing secrets.
 - Confirm the installed `@ai-sdk/mcp` version completes the flow. Upgrade or isolate a
-  minimal compatibility shim before changing product schemas if Ergo requires behavior
-  the SDK does not support.
+  minimal compatibility shim before changing product schemas if the endpoint requires
+  behavior the SDK does not support.
 
 ### Phase 1 — Persistence and contracts
 
@@ -255,7 +271,7 @@ performed setup, not the external account owner.
 ### Phase 5 — Tests and controlled rollout
 
 - Ship behind a server-side feature flag for workspace MCP OAuth.
-- Enable for an internal workspace, then one Ergo test workspace.
+- Enable for an internal workspace, then one designated OAuth MCP test connection.
 - Observe auth success, refresh, reconnect, and MCP setup failures before general
   availability.
 - Keep static/header MCP servers on their existing path throughout rollout.
@@ -290,9 +306,10 @@ Required coverage:
 
 ## 10. Acceptance criteria
 
-The first release is complete when an authorized workspace member can connect Ergo from
-the MCP server editor, see and affirm the shared-channel warning, complete OAuth, review
-and enable tools, and successfully use an allowed Ergo tool from every granted channel;
-the same tool is unavailable in ungranted channels. Tokens refresh without user action,
-revocation produces an actionable reauthorization state, and no OAuth material appears
-in API responses or logs. Existing API-key MCP connections continue to work unchanged.
+The first release is complete when an authorized workspace member can connect an OAuth
+MCP server from the MCP server editor, see and affirm the shared-channel warning,
+complete OAuth, review and enable tools, and successfully use an allowed remote tool
+from every granted channel; the same tool is unavailable in ungranted channels. Tokens
+refresh without user action, revocation produces an actionable reauthorization state,
+and no OAuth material appears in API responses or logs. Existing API-key MCP connections
+continue to work unchanged.
