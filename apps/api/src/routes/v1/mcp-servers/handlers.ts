@@ -21,14 +21,40 @@ import {
   hasWorkspacePermission,
 } from "@/lib/permissions"
 import type { AppRouteHandler } from "@/lib/types/app-types"
+import {
+  beginMcpOAuth,
+  completeMcpOAuth,
+  consumeMcpOAuthAttempt,
+  disconnectMcpOAuth,
+  findMcpOAuthCallbackContext,
+  finishMcpOAuthCallback,
+  McpOAuthServiceError,
+  mcpOAuthSettingsUrl,
+} from "@/routes/v1/mcp-servers/oauth-service"
 import type {
+  CompleteMcpServerOAuthRoute,
   CreateMcpServerRoute,
   DeleteMcpServerRoute,
+  DisconnectMcpServerOAuthRoute,
   DiscoverMcpServerRoute,
   ListMcpServersRoute,
+  McpServerOAuthCallbackRoute,
   RediscoverMcpServerRoute,
+  StartMcpServerOAuthRoute,
   UpdateMcpServerRoute,
 } from "@/routes/v1/mcp-servers/routes"
+
+function oauthErrorClass(error: unknown): string {
+  return error instanceof Error ? error.name : "UnknownError"
+}
+
+function endpointHost(url: string): string {
+  try {
+    return new URL(url).hostname
+  } catch {
+    return "invalid"
+  }
+}
 
 // Header values may embed literal credentials (typed directly instead of via
 // a {{secrets.*}} reference). Members without the manage permission get header
@@ -295,23 +321,44 @@ export const updateMcpServer: AppRouteHandler<UpdateMcpServerRoute> = async (
     }
   }
 
+  const oauthResourceChanged =
+    existing.authMode === "oauth" &&
+    body.url !== undefined &&
+    body.url !== existing.url
   const row = await db
-    .update(schema.mcpServer)
-    .set({
-      ...(body.name !== undefined ? { name: body.name } : {}),
-      ...(body.description !== undefined
-        ? { description: body.description }
-        : {}),
-      ...(body.url !== undefined ? { url: body.url } : {}),
-      ...(body.headers !== undefined ? { headers: body.headers } : {}),
-      ...(body.enabledTools !== undefined
-        ? { enabledTools: body.enabledTools }
-        : {}),
-      ...(secrets !== undefined ? { secrets } : {}),
+    .transaction(async (tx) => {
+      if (oauthResourceChanged) {
+        await tx
+          .delete(schema.mcpServerOAuthAttempt)
+          .where(eq(schema.mcpServerOAuthAttempt.mcpServerId, existing.id))
+      }
+      return await tx
+        .update(schema.mcpServer)
+        .set({
+          ...(body.name !== undefined ? { name: body.name } : {}),
+          ...(body.description !== undefined
+            ? { description: body.description }
+            : {}),
+          ...(body.url !== undefined ? { url: body.url } : {}),
+          ...(body.headers !== undefined ? { headers: body.headers } : {}),
+          ...(body.enabledTools !== undefined
+            ? { enabledTools: body.enabledTools }
+            : {}),
+          ...(secrets !== undefined ? { secrets } : {}),
+          ...(oauthResourceChanged
+            ? {
+                oauthStatus: "pending" as const,
+                oauthCredentials: null,
+                oauthAuthorizedBy: null,
+                oauthAuthorizedAt: null,
+                enabledTools: [],
+              }
+            : {}),
+        })
+        .where(eq(schema.mcpServer.id, existing.id))
+        .returning()
+        .then((rows) => rows[0] ?? null)
     })
-    .where(eq(schema.mcpServer.id, existing.id))
-    .returning()
-    .then((rows) => rows[0] ?? null)
     .catch((err) => {
       if (isUniqueViolation(err)) return "conflict" as const
       throw err
@@ -345,6 +392,263 @@ export const updateMcpServer: AppRouteHandler<UpdateMcpServerRoute> = async (
     },
     HttpStatusCodes.OK
   )
+}
+
+export const startMcpServerOAuth: AppRouteHandler<
+  StartMcpServerOAuthRoute
+> = async (c) => {
+  const workspace = c.var.workspace
+  assertWorkspacePermission(c.var.member, workspace, { channel: ["update"] })
+  const { mcpServerId } = c.req.valid("param")
+
+  try {
+    const result = await beginMcpOAuth({
+      mcpServerId,
+      workspaceId: workspace.id,
+      workspaceSlug: workspace.slug,
+      initiatedBy: c.var.user.id,
+    })
+    logger.info(
+      {
+        mcpServerId,
+        workspaceId: workspace.id,
+        oauthPhase: "start",
+      },
+      "MCP OAuth authorization started"
+    )
+    return c.json(result, HttpStatusCodes.OK)
+  } catch (error) {
+    logger.warn(
+      {
+        mcpServerId,
+        workspaceId: workspace.id,
+        oauthPhase: "start",
+        errorClass: oauthErrorClass(error),
+      },
+      "MCP OAuth authorization start failed"
+    )
+    const status =
+      error instanceof McpOAuthServiceError && error.code === "not_found"
+        ? HttpStatusCodes.NOT_FOUND
+        : HttpStatusCodes.BAD_REQUEST
+    return c.json(
+      {
+        success: false as const,
+        message:
+          error instanceof McpOAuthServiceError
+            ? error.message
+            : "OAuth authorization could not be started",
+      },
+      status
+    )
+  }
+}
+
+export const mcpServerOAuthCallback: AppRouteHandler<
+  McpServerOAuthCallbackRoute
+> = async (c) => {
+  const { workspaceSlug } = c.req.valid("param")
+  const { code, state, error: providerError } = c.req.valid("query")
+  const returnUrl = mcpOAuthSettingsUrl(workspaceSlug)
+  const context = await findMcpOAuthCallbackContext(workspaceSlug, state)
+  if (!context) {
+    logger.warn(
+      { oauthPhase: "callback", errorClass: "InvalidState" },
+      "MCP OAuth callback rejected"
+    )
+    return c.redirect(returnUrl, HttpStatusCodes.MOVED_TEMPORARILY)
+  }
+
+  const member = await db
+    .select()
+    .from(schema.workspaceMember)
+    .where(
+      and(
+        eq(schema.workspaceMember.workspaceId, context.workspace.id),
+        eq(schema.workspaceMember.userId, context.attempt.initiatedBy)
+      )
+    )
+    .limit(1)
+    .then((rows) => rows[0] ?? null)
+  const logContext = {
+    mcpServerId: context.server.id,
+    workspaceId: context.workspace.id,
+    endpointHost: endpointHost(context.server.url),
+    oauthPhase: "callback",
+  }
+  if (
+    !member ||
+    !hasWorkspacePermission(member, context.workspace, {
+      channel: ["update"],
+    })
+  ) {
+    await consumeMcpOAuthAttempt(context, state).catch(() => {})
+    logger.warn(
+      { ...logContext, errorClass: "PermissionDenied" },
+      "MCP OAuth callback rejected"
+    )
+    return c.redirect(returnUrl, HttpStatusCodes.MOVED_TEMPORARILY)
+  }
+
+  try {
+    await consumeMcpOAuthAttempt(context, state)
+    if (providerError || !code) {
+      throw new McpOAuthServiceError(
+        "upstream",
+        "OAuth provider did not return an authorization code"
+      )
+    }
+    await finishMcpOAuthCallback({
+      context,
+      workspaceSlug,
+      code,
+      state,
+    })
+    logger.info(logContext, "MCP OAuth callback completed")
+  } catch (error) {
+    logger.warn(
+      { ...logContext, errorClass: oauthErrorClass(error) },
+      "MCP OAuth callback failed"
+    )
+  }
+  return c.redirect(returnUrl, HttpStatusCodes.MOVED_TEMPORARILY)
+}
+
+export const completeMcpServerOAuth: AppRouteHandler<
+  CompleteMcpServerOAuthRoute
+> = async (c) => {
+  const workspace = c.var.workspace
+  assertWorkspacePermission(c.var.member, workspace, { channel: ["update"] })
+  const { mcpServerId } = c.req.valid("param")
+  const { enabledTools } = c.req.valid("json")
+  const server = await db
+    .select()
+    .from(schema.mcpServer)
+    .where(
+      and(
+        eq(schema.mcpServer.id, mcpServerId),
+        eq(schema.mcpServer.workspaceId, workspace.id)
+      )
+    )
+    .limit(1)
+    .then((rows) => rows[0] ?? null)
+  if (!server) {
+    return c.json(
+      { success: false, message: "Server not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+
+  try {
+    const row = await completeMcpOAuth({
+      server,
+      workspaceSlug: workspace.slug,
+      enabledTools,
+    })
+    const [counts, authorizers] = await Promise.all([
+      grantCounts([row.id]),
+      oauthAuthorizers([row.oauthAuthorizedBy]),
+    ])
+    logger.info(
+      {
+        mcpServerId: row.id,
+        workspaceId: workspace.id,
+        endpointHost: endpointHost(row.url),
+        oauthPhase: "tool_review",
+      },
+      "MCP OAuth tools enabled"
+    )
+    return c.json(
+      {
+        server: toResponse(
+          row,
+          counts.get(row.id) ?? 0,
+          true,
+          row.oauthAuthorizedBy
+            ? (authorizers.get(row.oauthAuthorizedBy) ?? null)
+            : null
+        ),
+      },
+      HttpStatusCodes.OK
+    )
+  } catch (error) {
+    logger.warn(
+      {
+        mcpServerId,
+        workspaceId: workspace.id,
+        endpointHost: endpointHost(server.url),
+        oauthPhase: "tool_review",
+        errorClass: oauthErrorClass(error),
+      },
+      "MCP OAuth tool review failed"
+    )
+    return c.json(
+      {
+        success: false as const,
+        message:
+          error instanceof McpOAuthServiceError
+            ? error.message
+            : "OAuth tools could not be enabled",
+      },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+}
+
+export const disconnectMcpServerOAuth: AppRouteHandler<
+  DisconnectMcpServerOAuthRoute
+> = async (c) => {
+  const workspace = c.var.workspace
+  assertWorkspacePermission(c.var.member, workspace, { channel: ["update"] })
+  const { mcpServerId } = c.req.valid("param")
+  try {
+    const row = await disconnectMcpOAuth({
+      mcpServerId,
+      workspaceId: workspace.id,
+    })
+    if (!row) {
+      return c.json(
+        { success: false, message: "Server not found" },
+        HttpStatusCodes.NOT_FOUND
+      )
+    }
+    const counts = await grantCounts([row.id])
+    logger.info(
+      {
+        mcpServerId: row.id,
+        workspaceId: workspace.id,
+        endpointHost: endpointHost(row.url),
+        oauthPhase: "disconnect",
+      },
+      "MCP OAuth disconnected"
+    )
+    return c.json(
+      {
+        server: toResponse(row, counts.get(row.id) ?? 0, true, null),
+      },
+      HttpStatusCodes.OK
+    )
+  } catch (error) {
+    logger.warn(
+      {
+        mcpServerId,
+        workspaceId: workspace.id,
+        oauthPhase: "disconnect",
+        errorClass: oauthErrorClass(error),
+      },
+      "MCP OAuth disconnect failed"
+    )
+    return c.json(
+      {
+        success: false as const,
+        message:
+          error instanceof McpOAuthServiceError
+            ? error.message
+            : "OAuth connection could not be disconnected",
+      },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
 }
 
 export const deleteMcpServer: AppRouteHandler<DeleteMcpServerRoute> = async (

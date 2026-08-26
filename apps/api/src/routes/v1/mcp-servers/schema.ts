@@ -174,3 +174,21 @@ export const rediscoverMcpServerRequestSchema = z.object({
   headers: headersSchema.optional(),
   secrets: secretsSchema.default({}),
 })
+
+export const startMcpServerOAuthRequestSchema = z.object({
+  disclosureConfirmed: z.literal(true),
+})
+
+export const startMcpServerOAuthResponseSchema = z.object({
+  authorizationUrl: z.string().url(),
+})
+
+export const mcpServerOAuthCallbackQuerySchema = z.object({
+  code: z.string().min(1).optional(),
+  state: z.string().min(1).max(1024),
+  error: z.string().max(256).optional(),
+})
+
+export const completeMcpServerOAuthRequestSchema = z.object({
+  enabledTools: enabledToolsSchema,
+})

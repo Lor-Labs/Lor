@@ -6,12 +6,18 @@ import {
 import { getTableConfig } from "drizzle-orm/pg-core"
 import { describe, expect, it } from "vitest"
 import {
+  completeMcpServerOAuth,
+  disconnectMcpServerOAuth,
   listMcpServers,
+  mcpServerOAuthCallback,
   rediscoverMcpServer,
+  startMcpServerOAuth,
 } from "@/routes/v1/mcp-servers/routes"
 import {
+  completeMcpServerOAuthRequestSchema,
   createMcpServerRequestSchema,
   mcpServerSchema,
+  startMcpServerOAuthRequestSchema,
 } from "@/routes/v1/mcp-servers/schema"
 
 describe("MCP server OAuth API contract", () => {
@@ -20,6 +26,47 @@ describe("MCP server OAuth API contract", () => {
     expect(rediscoverMcpServer.path).toBe(
       "/workspaces/{workspaceSlug}/mcp-servers/{mcpServerId}/discover"
     )
+    expect(startMcpServerOAuth.path).toBe(
+      "/workspaces/{workspaceSlug}/mcp-servers/{mcpServerId}/oauth/start"
+    )
+    expect(mcpServerOAuthCallback.path).toBe(
+      "/workspaces/{workspaceSlug}/mcp-servers/oauth/callback"
+    )
+    expect(completeMcpServerOAuth.path).toBe(
+      "/workspaces/{workspaceSlug}/mcp-servers/{mcpServerId}/oauth/complete"
+    )
+    expect(disconnectMcpServerOAuth.path).toBe(
+      "/workspaces/{workspaceSlug}/mcp-servers/{mcpServerId}/oauth/disconnect"
+    )
+  })
+
+  it("requires explicit shared-channel confirmation before OAuth starts", () => {
+    expect(
+      startMcpServerOAuthRequestSchema.safeParse({
+        disclosureConfirmed: false,
+      }).success
+    ).toBe(false)
+    expect(
+      startMcpServerOAuthRequestSchema.safeParse({
+        disclosureConfirmed: true,
+      }).success
+    ).toBe(true)
+  })
+
+  it("bounds the reviewed OAuth tool allowlist", () => {
+    expect(
+      completeMcpServerOAuthRequestSchema.parse({
+        enabledTools: ["find_record"],
+      }).enabledTools
+    ).toEqual(["find_record"])
+    expect(
+      completeMcpServerOAuthRequestSchema.safeParse({
+        enabledTools: Array.from(
+          { length: 201 },
+          (_, index) => `tool_${index}`
+        ),
+      }).success
+    ).toBe(false)
   })
 
   it("keeps existing creates on static authentication by default", () => {

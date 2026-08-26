@@ -11,15 +11,19 @@ import {
 } from "@/lib/helpers/openapi/schemas"
 import { workspaceAuthMiddleware } from "@/middleware/workspace-auth"
 import {
+  completeMcpServerOAuthRequestSchema,
   createMcpServerRequestSchema,
   deleteMcpServerResponseSchema,
   discoverMcpServerRequestSchema,
   discoverMcpServerResponseSchema,
   listMcpServersResponseSchema,
   mcpServerIdParamsSchema,
+  mcpServerOAuthCallbackQuerySchema,
   mcpServerResponseSchema,
   mcpServersWorkspaceParamsSchema,
   rediscoverMcpServerRequestSchema,
+  startMcpServerOAuthRequestSchema,
+  startMcpServerOAuthResponseSchema,
   updateMcpServerRequestSchema,
 } from "@/routes/v1/mcp-servers/schema"
 
@@ -37,6 +41,102 @@ export const listMcpServers = createRoute({
       schema: listMcpServersResponseSchema,
       description: "MCP servers",
     }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export const startMcpServerOAuth = createRoute({
+  path: "/workspaces/{workspaceSlug}/mcp-servers/{mcpServerId}/oauth/start",
+  method: "post",
+  summary: "Start shared MCP OAuth authorization",
+  description:
+    "Requires explicit confirmation that the resulting account connection is shared through every assigned channel.",
+  tags: ["MCP Servers"],
+  middleware: [workspaceAuthMiddleware] as const,
+  request: {
+    params: mcpServerIdParamsSchema,
+    body: jsonContent({
+      schema: startMcpServerOAuthRequestSchema,
+      description: "Shared-channel disclosure confirmation",
+    }),
+  },
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: startMcpServerOAuthResponseSchema,
+      description: "Authorization URL",
+    }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export const mcpServerOAuthCallback = createRoute({
+  path: "/workspaces/{workspaceSlug}/mcp-servers/oauth/callback",
+  method: "get",
+  summary: "Complete shared MCP OAuth authorization",
+  description:
+    "Public system-browser callback bound to a short-lived, single-use OAuth attempt.",
+  tags: ["MCP Servers"],
+  request: {
+    params: mcpServersWorkspaceParamsSchema,
+    query: mcpServerOAuthCallbackQuerySchema,
+  },
+  responses: {
+    [HttpStatusCodes.MOVED_TEMPORARILY]: {
+      description: "Returns to workspace tool settings",
+    },
+  },
+})
+
+export const completeMcpServerOAuth = createRoute({
+  path: "/workspaces/{workspaceSlug}/mcp-servers/{mcpServerId}/oauth/complete",
+  method: "post",
+  summary: "Enable reviewed OAuth MCP tools",
+  description:
+    "Re-discovers tools and enables only the submitted allowlist after successful OAuth.",
+  tags: ["MCP Servers"],
+  middleware: [workspaceAuthMiddleware] as const,
+  request: {
+    params: mcpServerIdParamsSchema,
+    body: jsonContent({
+      schema: completeMcpServerOAuthRequestSchema,
+      description: "Reviewed tool allowlist",
+    }),
+  },
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: mcpServerResponseSchema,
+      description: "Connected server",
+    }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export const disconnectMcpServerOAuth = createRoute({
+  path: "/workspaces/{workspaceSlug}/mcp-servers/{mcpServerId}/oauth/disconnect",
+  method: "post",
+  summary: "Disconnect shared MCP OAuth",
+  description:
+    "Clears credentials, attempts, authorization audit fields, and the active tool allowlist.",
+  tags: ["MCP Servers"],
+  middleware: [workspaceAuthMiddleware] as const,
+  request: { params: mcpServerIdParamsSchema },
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: mcpServerResponseSchema,
+      description: "Disconnected server",
+    }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
     [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
     [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
     [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
@@ -184,3 +284,7 @@ export type UpdateMcpServerRoute = typeof updateMcpServer
 export type DeleteMcpServerRoute = typeof deleteMcpServer
 export type DiscoverMcpServerRoute = typeof discoverMcpServer
 export type RediscoverMcpServerRoute = typeof rediscoverMcpServer
+export type StartMcpServerOAuthRoute = typeof startMcpServerOAuth
+export type McpServerOAuthCallbackRoute = typeof mcpServerOAuthCallback
+export type CompleteMcpServerOAuthRoute = typeof completeMcpServerOAuth
+export type DisconnectMcpServerOAuthRoute = typeof disconnectMcpServerOAuth
