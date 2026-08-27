@@ -49,13 +49,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 import { PasswordInput } from "@/components/auth/password-input"
 import {
+  McpServersBlock,
+  useMcpServers,
+} from "@/components/workspace/mcp-servers-section"
+import {
   type PlaceholderItem,
   TemplateInput,
 } from "@/components/workspace/template-input"
-import {
-  McpServersBlock,
-  useToolServers,
-} from "@/components/workspace/tool-servers-section"
 import { apiClient } from "@/lib/api-client"
 import { extractCurlSecrets, parseCurl } from "@/lib/parse-curl"
 import {
@@ -1214,7 +1214,7 @@ export function CustomToolsSection({
   })
 
   const tools = (data?.tools ?? []) as CustomToolRow[]
-  const serversQuery = useToolServers(workspaceSlug)
+  const serversQuery = useMcpServers(workspaceSlug)
   const servers = serversQuery.data?.servers ?? []
 
   return (

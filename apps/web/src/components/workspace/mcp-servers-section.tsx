@@ -32,11 +32,11 @@ import {
 } from "@/components/workspace/template-input"
 import { apiClient } from "@/lib/api-client"
 
-// MCP tool servers: the second kind of workspace tool (next to API tools).
+// MCP servers: the second kind of workspace tool (next to API tools).
 // The server owns its tool list — the form's job is connection settings plus
 // the enabledTools allowlist, populated by "Connect & discover".
 
-export type ToolServerRow = {
+export type McpServerRow = {
   id: string
   name: string
   description: string
@@ -49,18 +49,18 @@ export type ToolServerRow = {
   updatedAt: string
 }
 
-export function toolServersQueryKey(workspaceSlug: string) {
-  return ["tool-servers", workspaceSlug]
+export function mcpServersQueryKey(workspaceSlug: string) {
+  return ["mcp-servers", workspaceSlug]
 }
 
-export function useToolServers(workspaceSlug: string) {
+export function useMcpServers(workspaceSlug: string) {
   return useQuery({
-    queryKey: toolServersQueryKey(workspaceSlug),
+    queryKey: mcpServersQueryKey(workspaceSlug),
     queryFn: async () => {
       const res = await apiClient.v1.workspaces[":workspaceSlug"][
-        "tool-servers"
+        "mcp-servers"
       ].$get({ param: { workspaceSlug } })
-      if (!res.ok) throw new Error("Failed to load tool servers")
+      if (!res.ok) throw new Error("Failed to load MCP servers")
       return res.json()
     },
   })
@@ -98,7 +98,7 @@ function emptyDraft(): ServerDraft {
   }
 }
 
-function draftFromServer(server: ToolServerRow): ServerDraft {
+function draftFromServer(server: McpServerRow): ServerDraft {
   return {
     name: server.name,
     description: server.description,
@@ -151,7 +151,7 @@ function cleanToolDescription(raw: string): string {
     .trim()
 }
 
-// Matches the API's secret-name rule (tool-servers schema) so a bad name is
+// Matches the API's secret-name rule (mcp-servers schema) so a bad name is
 // caught in the form instead of coming back as a 400.
 const SECRET_NAME_REGEX = /^[A-Za-z][A-Za-z0-9_]{0,63}$/
 
@@ -584,14 +584,14 @@ export function McpServersBlock({
   onCloseCreate,
 }: {
   workspaceSlug: string
-  servers: ToolServerRow[]
+  servers: McpServerRow[]
   creating: boolean
   onCloseCreate: () => void
 }) {
   const queryClient = useQueryClient()
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draft, setDraft] = useState<ServerDraft>(emptyDraft())
-  const [deleteTarget, setDeleteTarget] = useState<ToolServerRow | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<McpServerRow | null>(null)
 
   // Opening the create card always starts from a blank draft (the draft is
   // shared with row editing).
@@ -604,15 +604,15 @@ export function McpServersBlock({
 
   const invalidate = () =>
     queryClient.invalidateQueries({
-      queryKey: toolServersQueryKey(workspaceSlug),
+      queryKey: mcpServersQueryKey(workspaceSlug),
     })
 
   const discoverMutation = useMutation({
-    mutationFn: async (serverId: string | null) => {
-      const base = apiClient.v1.workspaces[":workspaceSlug"]["tool-servers"]
-      const res = serverId
-        ? await base[":serverId"].discover.$post({
-            param: { workspaceSlug, serverId },
+    mutationFn: async (mcpServerId: string | null) => {
+      const base = apiClient.v1.workspaces[":workspaceSlug"]["mcp-servers"]
+      const res = mcpServerId
+        ? await base[":mcpServerId"].discover.$post({
+            param: { workspaceSlug, mcpServerId },
             json: {
               url: draft.url.trim(),
               headers: draftHeaders(draft),
@@ -633,16 +633,16 @@ export function McpServersBlock({
       }
       return res.json() as Promise<{ tools: DiscoveredTool[] }>
     },
-    onSuccess: ({ tools }, serverId) => {
+    onSuccess: ({ tools }, mcpServerId) => {
       // Late-response guard: only the row (or create card) that initiated
       // discovery may receive its result.
-      if (serverId ? editingId !== serverId : !creating) return
+      if (mcpServerId ? editingId !== mcpServerId : !creating) return
       setDraft((d) => ({
         ...d,
         discovered: tools,
         // Fresh connections opt everything in (saving is the explicit
         // allowlist act); refreshes keep the current selection.
-        enabled: serverId
+        enabled: mcpServerId
           ? new Set(
               [...d.enabled].filter((name) =>
                 tools.some((t) => t.name === name)
@@ -665,7 +665,7 @@ export function McpServersBlock({
   const createMutation = useMutation({
     mutationFn: async () => {
       const res = await apiClient.v1.workspaces[":workspaceSlug"][
-        "tool-servers"
+        "mcp-servers"
       ].$post({
         param: { workspaceSlug },
         json: {
@@ -691,7 +691,7 @@ export function McpServersBlock({
   })
 
   const updateMutation = useMutation({
-    mutationFn: async (server: ToolServerRow) => {
+    mutationFn: async (server: McpServerRow) => {
       // Secrets diff: removed rows → null, replacement + new rows → values.
       const secrets: Record<string, string | null> = {}
       for (const name of server.secretNames) {
@@ -706,9 +706,9 @@ export function McpServersBlock({
         secrets[name] = value
       }
       const res = await apiClient.v1.workspaces[":workspaceSlug"][
-        "tool-servers"
-      ][":serverId"].$patch({
-        param: { workspaceSlug, serverId: server.id },
+        "mcp-servers"
+      ][":mcpServerId"].$patch({
+        param: { workspaceSlug, mcpServerId: server.id },
         json: {
           name: draft.name.trim(),
           description: draft.description.trim(),
@@ -732,10 +732,10 @@ export function McpServersBlock({
   })
 
   const deleteMutation = useMutation({
-    mutationFn: async (serverId: string) => {
+    mutationFn: async (mcpServerId: string) => {
       const res = await apiClient.v1.workspaces[":workspaceSlug"][
-        "tool-servers"
-      ][":serverId"].$delete({ param: { workspaceSlug, serverId } })
+        "mcp-servers"
+      ][":mcpServerId"].$delete({ param: { workspaceSlug, mcpServerId } })
       if (!res.ok) throw new Error("Failed to delete server")
     },
     onSuccess: () => {

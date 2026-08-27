@@ -36,9 +36,11 @@ function ForgotPasswordPage() {
     error,
   } = useMutation({
     mutationFn: async () => {
+      // Must be absolute: a relative redirectTo resolves against the API
+      // origin (api.lor.chat) after better-auth's token redirect, 404ing.
       const { error } = await authClient.requestPasswordReset({
         email,
-        redirectTo: "/reset-password",
+        redirectTo: `${window.location.origin}/reset-password`,
       })
       if (error) throw new Error(error.message ?? "Failed to send reset email")
     },

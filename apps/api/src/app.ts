@@ -17,12 +17,12 @@ import instructionsRouter from "@/routes/v1/instructions/index"
 import integrationsRouter from "@/routes/v1/integrations/index"
 import invitesRouter from "@/routes/v1/invites/index"
 import loopsRouter from "@/routes/v1/loops/index"
+import mcpServersRouter from "@/routes/v1/mcp-servers/index"
 import notificationSettingsRouter from "@/routes/v1/notification-settings/index"
 import projectsRouter from "@/routes/v1/projects/index"
 import pushTokensRouter from "@/routes/v1/push-tokens/index"
 import runsRouter from "@/routes/v1/runs/index"
 import tasksRouter from "@/routes/v1/tasks/index"
-import toolServersRouter from "@/routes/v1/tool-servers/index"
 import uploadsRouter from "@/routes/v1/uploads/index"
 import usersRouter from "@/routes/v1/users/index"
 import webhooksRouter from "@/routes/v1/webhooks/index"
@@ -79,7 +79,7 @@ const routes = app
   .route("/v1", integrationsRouter)
   .route("/v1", agentProfilesRouter)
   .route("/v1", customToolsRouter)
-  .route("/v1", toolServersRouter)
+  .route("/v1", mcpServersRouter)
   .route("/v1", webhooksRouter)
   .route("/v1", billingRouter)
   .route("/v1", runsRouter)

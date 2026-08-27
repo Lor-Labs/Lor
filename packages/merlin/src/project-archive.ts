@@ -164,13 +164,13 @@ export async function synthesizeProjectArchive(
           (): ChannelToolGrants => ({
             capabilities: [],
             customTools: [],
-            toolServers: [],
+            mcpServers: [],
           })
         )
       : Promise.resolve<ChannelToolGrants>({
           capabilities: [],
           customTools: [],
-          toolServers: [],
+          mcpServers: [],
         }),
   ])
   const caps = grants.capabilities

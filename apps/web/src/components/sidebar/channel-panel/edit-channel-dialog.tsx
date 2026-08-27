@@ -59,7 +59,7 @@ function ProfileCapabilities({
   profile: AgentProfile
   available: AvailableCapability[]
   tools: AgentProfilesResponse["availableCustomTools"]
-  servers: AgentProfilesResponse["availableToolServers"]
+  servers: AgentProfilesResponse["availableMcpServers"]
 }) {
   const granted = profile.grantsAll
     ? available
@@ -72,7 +72,7 @@ function ProfileCapabilities({
     : tools.filter((t) => profile.customToolIds.includes(t.id))
   const grantedServers = blanket
     ? []
-    : servers.filter((s) => profile.toolServerIds.includes(s.id))
+    : servers.filter((s) => profile.mcpServerIds.includes(s.id))
 
   return (
     <div className="space-y-2 rounded-lg border border-border bg-muted/30 p-3">
@@ -392,7 +392,7 @@ export function EditChannelDialog({
                         profile={previewProfile}
                         available={profilesData.availableCapabilities}
                         tools={profilesData.availableCustomTools}
-                        servers={profilesData.availableToolServers}
+                        servers={profilesData.availableMcpServers}
                       />
                     )}
 

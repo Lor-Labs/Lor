@@ -15,12 +15,16 @@
     "./loop-runs": "./src/loop-runs.ts",
     "./loop-schedule": "./src/loop-schedule.ts",
     "./loops": "./src/loops.ts",
+    "./mcp-guarded-fetch": "./src/mcp-guarded-fetch.ts",
+    "./mcp-oauth-provider": "./src/mcp-oauth-provider.ts",
+    "./mcp-runtime-oauth": "./src/mcp-runtime-oauth.ts",
     "./placement": "./src/placement.ts",
     "./project-archive": "./src/project-archive.ts",
     "./providers": "./src/providers/index.ts",
     "./sources": "./src/sources.ts",
     "./tasks": "./src/tasks.ts",
-    "./tool-servers": "./src/tool-servers.ts"
+    "./mcp-server-oauth": "./src/mcp-server-oauth.ts",
+    "./mcp-servers": "./src/mcp-servers.ts"
   },
   "scripts": {
     "check-types": "tsc --noEmit",
