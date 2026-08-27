@@ -88,7 +88,7 @@ Stateless per invocation; the only persistent state is the brain in Postgres.
 
 ## 4. The harness (`packages/merlin`)
 
-An open-weight tool-use loop (Vercel **AI SDK v7**, `streamText` for the streamed answer and `generateText` for write-back and small-model tasks). Kimi K3 handles the main agent and durable write-back; Inkling handles the gate, reply placement, and source summaries. Small structured decisions use forced, schema-validated tool calls instead of provider-specific JSON response formats.
+An open-weight tool-use loop (Vercel **AI SDK v7**, `streamText` for the streamed answer and `generateText` for write-back and small-model tasks). Kimi K3 handles the main agent and durable write-back; the small model (GLM 5.3 Flash) handles the gate, reply placement, and source summaries. Small structured decisions use forced, schema-validated tool calls instead of provider-specific JSON response formats.
 
 **Answer tools (read-only):**
 - `search_messages(query, limit?)` — workspace-wide FTS (`to_tsvector` + `ts_rank`).
@@ -97,7 +97,7 @@ An open-weight tool-use loop (Vercel **AI SDK v7**, `streamText` for the streame
 
 **Write-back tools (answer tools + writes):** adds `write(path, body)` (mkdir-p; embeds on write), `mkdir(path)`, `move(from, to)`, `link(from, to, type)` where `type ∈ brain_edge_type`.
 
-**Models:** Kimi K3 (`moonshotai/kimi-k3`) for answers and write-back; Inkling (`thinkingmachines/inkling`) for small/background tasks. Each tier falls back to the other through AI Gateway so normal inference stays on open-weight models.
+**Models:** Kimi K3 (`moonshotai/kimi-k3`) for answers and write-back; GLM 5.3 Flash (`zai/glm-5.3-flash`) for small/background tasks (was Inkling until 2026-08-27). The small tier falls back to the main model, the main tier to Inkling, through AI Gateway so normal inference stays on open-weight models.
 
 **Grounding:** whether an answer requires citations is prompt-conditional (above). **Citation verification is built:** when Merlin emits citations, `groundCitations(workspaceId, text)` resolves brain pages (`pageExists`), messages (`messageExists`), and sources (`resolveSourceCitation`) before persistence. It keeps valid markers, unwraps unresolved page labels to plain text, and removes unresolved message/source markers so hallucinated citations cannot pose as sources. The worker runs verification before persist/fanout and logs stripped citations. Message citations are clickable; brain-page citations render as pills but remain non-clickable until the brain browser exists.
 
@@ -155,10 +155,10 @@ Socket events (in `@repo/realtime-types`): `message:stream { channelId, messageI
 - **Embeddings:** Qwen3 Embedding 4B (`alibaba/qwen3-embedding-4b`), stored as `halfvec(2560)`. Query embeddings receive task-specific retrieval instructions; page/source document embeddings do not.
 - **Embedding migration:** `pnpm db:reembed` idempotently converts legacy columns, embeds every missing brain page and source summary, and restores both HNSW indexes. Tune bounded parallelism with `MERLIN_REEMBED_CONCURRENCY` (default 4).
 - **Answer + write-back:** Kimi K3 (`moonshotai/kimi-k3`).
-- **Salience gate, reply placement, source summaries:** Inkling (`thinkingmachines/inkling`).
+- **Salience gate, reply placement, source summaries:** GLM 5.3 Flash (`zai/glm-5.3-flash`).
 - **Code investigation:** Pi (from our Blaxel sandbox image, exact-pinned) runs the configured main model (Kimi K3 by default). It has only read-only repository tools and ignores repo-provided extensions, skills, prompts, and context files.
 - **Code-investigation billing:** every successful Pi invocation records its token usage and debits customer credits at the centrally configured served-model rate; stable per-response invocation keys prevent duplicate retry charges while allowing multiple investigations in one answer.
-- **Ingestion is never metered** (product principle); write-back cost is bounded by the Inkling gate.
+- **Ingestion is never metered** (product principle); write-back cost is bounded by the small-model gate.
 - Gateway prompt caching is requested for the main tier with `caching: "auto"`.
 
 > Env note: `AI_GATEWAY_API_KEY` is the canonical inference credential for both Merlin and Pi code investigations. `AI_GATEWAY_BASE_URL` remains an optional transport override.

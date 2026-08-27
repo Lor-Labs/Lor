@@ -55,7 +55,7 @@ const serverSchema = z.object({
   ),
   MERLIN_MODEL: defaultedString("moonshotai/kimi-k3"),
   MERLIN_MODEL_FALLBACKS: defaultedString("thinkingmachines/inkling"),
-  MERLIN_SMALL_MODEL: defaultedString("thinkingmachines/inkling"),
+  MERLIN_SMALL_MODEL: defaultedString("zai/glm-5.3-flash"),
   MERLIN_SMALL_MODEL_FALLBACKS: defaultedString("moonshotai/kimi-k3"),
   MERLIN_COMPACT_INPUT_TOKENS: z.coerce
     .number()
