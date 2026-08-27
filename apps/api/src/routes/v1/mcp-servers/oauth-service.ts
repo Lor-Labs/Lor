@@ -59,8 +59,17 @@ export function mcpOAuthCallbackUrl(workspaceSlug: string): string {
   return callbackUrl
 }
 
-export function mcpOAuthSettingsUrl(workspaceSlug: string): string {
-  return `${env.APP_BASE_URL}/${encodeURIComponent(workspaceSlug)}?settings=workspace&tab=custom-tools`
+export function mcpOAuthSettingsUrl(
+  workspaceSlug: string,
+  mcpServerId?: string
+): string {
+  const url = new URL(
+    `${env.APP_BASE_URL.replace(/\/+$/, "")}/${encodeURIComponent(workspaceSlug)}`
+  )
+  url.searchParams.set("settings", "workspace")
+  url.searchParams.set("tab", "custom-tools")
+  if (mcpServerId) url.searchParams.set("mcpServerId", mcpServerId)
+  return url.href
 }
 
 function credentialsWithoutTokens(
@@ -393,7 +402,8 @@ export async function completeMcpOAuth(input: {
 }): Promise<McpServer> {
   if (
     input.server.authMode !== "oauth" ||
-    input.server.oauthStatus !== "needs_tool_review" ||
+    (input.server.oauthStatus !== "needs_tool_review" &&
+      input.server.oauthStatus !== "connected") ||
     !input.server.oauthCredentials
   ) {
     throw new McpOAuthServiceError(
@@ -401,6 +411,7 @@ export async function completeMcpOAuth(input: {
       "Server is not ready for tool review"
     )
   }
+  const expectedStatus = input.server.oauthStatus
   const key = encryptionKey()
   const { provider, guardedFetch, credentialsSnapshot } =
     createRuntimeMcpOAuthProvider({
@@ -438,7 +449,7 @@ export async function completeMcpOAuth(input: {
       and(
         eq(schema.mcpServer.id, input.server.id),
         eq(schema.mcpServer.workspaceId, input.server.workspaceId),
-        eq(schema.mcpServer.oauthStatus, "needs_tool_review"),
+        eq(schema.mcpServer.oauthStatus, expectedStatus),
         verifiedCredentials
           ? eq(schema.mcpServer.oauthCredentials, verifiedCredentials)
           : isNull(schema.mcpServer.oauthCredentials)

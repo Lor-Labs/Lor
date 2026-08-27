@@ -97,9 +97,9 @@ export const mcpServerOAuthCallback = createRoute({
 export const completeMcpServerOAuth = createRoute({
   path: "/workspaces/{workspaceSlug}/mcp-servers/{mcpServerId}/oauth/complete",
   method: "post",
-  summary: "Enable reviewed OAuth MCP tools",
+  summary: "Save reviewed OAuth MCP tools",
   description:
-    "Re-discovers tools and enables only the submitted allowlist after successful OAuth.",
+    "Re-discovers tools and saves only the submitted allowlist after successful OAuth or for an existing connection.",
   tags: ["MCP Servers"],
   middleware: [workspaceAuthMiddleware] as const,
   request: {

@@ -23,7 +23,12 @@ export function useSettings() {
     () =>
       void navigate({
         to: ".",
-        search: (prev) => ({ ...prev, settings: undefined, tab: undefined }),
+        search: (prev) => ({
+          ...prev,
+          settings: undefined,
+          tab: undefined,
+          mcpServerId: undefined,
+        }),
       }),
     [navigate]
   )

@@ -6,6 +6,12 @@ import {
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
+  Alert,
+  AlertAction,
+  AlertDescription,
+  AlertTitle,
+} from "@repo/ui/components/alert"
+import {
   AlertDialog,
   AlertDialogClose,
   AlertDialogContent,
@@ -24,13 +30,15 @@ import { Textarea } from "@repo/ui/components/textarea"
 import { toast } from "@repo/ui/components/toast"
 import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useEffect, useState } from "react"
+import { useNavigate, useSearch } from "@tanstack/react-router"
+import { useEffect, useRef, useState } from "react"
 import { PasswordInput } from "@/components/auth/password-input"
 import {
   type PlaceholderItem,
   TemplateInput,
 } from "@/components/workspace/template-input"
 import { apiClient } from "@/lib/api-client"
+import { openExternal } from "@/lib/open-external"
 
 // MCP servers: the second kind of workspace tool (next to API tools).
 // The server owns its tool list — the form's job is connection settings plus
@@ -41,6 +49,15 @@ export type McpServerRow = {
   name: string
   description: string
   url: string
+  authMode: "static" | "oauth"
+  oauthStatus:
+    | "pending"
+    | "needs_tool_review"
+    | "connected"
+    | "reauthorization_required"
+    | null
+  oauthAuthorizedBy: { id: string; name: string } | null
+  oauthAuthorizedAt: string | null
   headers: Record<string, string>
   secretNames: string[]
   enabledTools: string[]
@@ -68,11 +85,15 @@ export function useMcpServers(workspaceSlug: string) {
 
 type Pair = { name: string; value: string }
 type DiscoveredTool = { name: string; description: string }
+const noop = () => undefined
+const AUTHORIZATION_POLL_INTERVAL_MS = 2000
+const AUTHORIZATION_POLL_MAX_ATTEMPTS = 300
 
 type ServerDraft = {
   name: string
   description: string
   url: string
+  authMode: "static" | "oauth"
   headers: Pair[]
   // Edit only: saved secrets kept (unchecked = delete on save) and optional
   // replacement values. New secrets are plaintext until save.
@@ -89,6 +110,7 @@ function emptyDraft(): ServerDraft {
     name: "",
     description: "",
     url: "",
+    authMode: "static",
     headers: [],
     keptSecretNames: [],
     updatedSecrets: [],
@@ -103,6 +125,7 @@ function draftFromServer(server: McpServerRow): ServerDraft {
     name: server.name,
     description: server.description,
     url: server.url,
+    authMode: server.authMode,
     headers: Object.entries(server.headers).map(([name, value]) => ({
       name,
       value,
@@ -110,9 +133,49 @@ function draftFromServer(server: McpServerRow): ServerDraft {
     keptSecretNames: [...server.secretNames],
     updatedSecrets: [],
     newSecrets: [],
-    enabled: new Set(server.enabledTools),
+    // A newly authorized (or reauthorized) account must receive a fresh,
+    // explicit tool review. Previously enabled names remain stored while the
+    // server is inactive, but must not appear preselected for a new account.
+    enabled: new Set(
+      server.authMode === "oauth" && server.oauthStatus !== "connected"
+        ? []
+        : server.enabledTools
+    ),
     discovered: null,
   }
+}
+
+function oauthStatusLabel(status: McpServerRow["oauthStatus"]): string {
+  switch (status) {
+    case "connected":
+      return "Connected"
+    case "needs_tool_review":
+      return "Review tools"
+    case "reauthorization_required":
+      return "Authorization required"
+    default:
+      return "Not active"
+  }
+}
+
+function oauthStatusVariant(
+  status: McpServerRow["oauthStatus"]
+): "success" | "warning" | "outline" {
+  if (status === "connected") return "success"
+  if (status === "needs_tool_review" || status === "reauthorization_required") {
+    return "warning"
+  }
+  return "outline"
+}
+
+function authorizedSummary(server: McpServerRow): string | null {
+  if (!(server.oauthAuthorizedBy && server.oauthAuthorizedAt)) return null
+  const date = new Date(server.oauthAuthorizedAt)
+  if (Number.isNaN(date.getTime())) return null
+  return `Authorized by ${server.oauthAuthorizedBy.name} on ${date.toLocaleDateString(
+    undefined,
+    { year: "numeric", month: "short", day: "numeric" }
+  )}`
 }
 
 function draftHeaders(draft: ServerDraft): Record<string, string> {
@@ -252,24 +315,164 @@ function PairRows({
   )
 }
 
+function OAuthConnectionPanel({
+  server,
+  authorizationOpened,
+  busy,
+  onAuthorize,
+  onFinishAuthorization,
+  onDisconnect,
+}: {
+  server: McpServerRow | null
+  authorizationOpened: boolean
+  busy: boolean
+  onAuthorize: () => void
+  onFinishAuthorization: () => void
+  onDisconnect: () => void
+}) {
+  if (!server) {
+    return (
+      <Alert variant="info">
+        <AlertTitle>Save before signing in</AlertTitle>
+        <AlertDescription className="text-xs">
+          Lor stores the server address first, then opens OAuth in your browser.
+          Tools stay inactive until authorization and tool review are complete.
+        </AlertDescription>
+      </Alert>
+    )
+  }
+
+  if (server.oauthStatus === "connected") {
+    return (
+      <Alert variant="success">
+        <AlertTitle>OAuth · Shared through assigned channels</AlertTitle>
+        <AlertDescription className="text-xs">
+          <span>
+            Everyone in an assigned channel can use the enabled tools through
+            this shared account.
+          </span>
+          {authorizedSummary(server) ? (
+            <span>{authorizedSummary(server)}</span>
+          ) : null}
+        </AlertDescription>
+        <AlertAction>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={busy}
+            onClick={onAuthorize}
+          >
+            Reauthorize
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={busy}
+            onClick={onDisconnect}
+          >
+            Disconnect
+          </Button>
+        </AlertAction>
+      </Alert>
+    )
+  }
+
+  if (server.oauthStatus === "needs_tool_review") {
+    return (
+      <Alert variant="warning">
+        <AlertTitle>Authorization complete · Tools inactive</AlertTitle>
+        <AlertDescription className="text-xs">
+          <span>
+            Review the current tool list below and choose what assigned channels
+            may use.
+          </span>
+          <span>
+            Permissions selected during OAuth control what those tools can
+            access; they are not separate MCP tools.
+          </span>
+        </AlertDescription>
+      </Alert>
+    )
+  }
+
+  if (authorizationOpened && server.oauthStatus === "pending") {
+    return (
+      <Alert variant="info">
+        <AlertTitle>Finish authorization in your browser</AlertTitle>
+        <AlertDescription className="text-xs">
+          Return here after signing in. The connection remains inactive until
+          Lor confirms the callback and you review its tools.
+        </AlertDescription>
+        <AlertAction>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={busy}
+            onClick={onFinishAuthorization}
+          >
+            Finish authorization
+          </Button>
+        </AlertAction>
+      </Alert>
+    )
+  }
+
+  const reauthorization = server.oauthStatus === "reauthorization_required"
+  return (
+    <Alert variant={reauthorization ? "warning" : "default"}>
+      <AlertTitle>
+        {reauthorization
+          ? "Authorization expired · Tools inactive"
+          : "OAuth not connected · Tools inactive"}
+      </AlertTitle>
+      <AlertDescription className="text-xs">
+        Sign in with an account that is appropriate to share through every
+        channel assigned this MCP server.
+      </AlertDescription>
+      <AlertAction>
+        <Button type="button" size="sm" disabled={busy} onClick={onAuthorize}>
+          {reauthorization ? "Reauthorize" : "Authorize account"}
+        </Button>
+      </AlertAction>
+    </Alert>
+  )
+}
+
 function ServerEditor({
   draft,
   setDraft,
+  server,
   savedSecretNames,
   busy,
   discovering,
+  oauthBusy,
+  authorizationOpened,
   saveLabel,
   onDiscover,
+  onAuthorize,
+  onFinishAuthorization,
+  onCompleteOAuth,
+  onDisconnectOAuth,
   onSave,
   onCancel,
 }: {
   draft: ServerDraft
   setDraft: (update: (d: ServerDraft) => ServerDraft) => void
+  server: McpServerRow | null
   savedSecretNames: string[]
   busy: boolean
   discovering: boolean
+  oauthBusy: boolean
+  authorizationOpened: boolean
   saveLabel: string
   onDiscover: () => void
+  onAuthorize: () => void
+  onFinishAuthorization: () => void
+  onCompleteOAuth: () => void
+  onDisconnectOAuth: () => void
   onSave: () => void
   onCancel: () => void
 }) {
@@ -290,12 +493,19 @@ function ServerEditor({
       )
     ),
   ]
+  const isOAuth = draft.authMode === "oauth"
+  const oauthCanReview =
+    server?.authMode === "oauth" &&
+    (server.oauthStatus === "needs_tool_review" ||
+      server.oauthStatus === "connected")
   const canDiscover =
     draft.url.trim().length > 0 &&
+    (!isOAuth || oauthCanReview) &&
     invalidSecretNames.length === 0 &&
     duplicateSecretNames.length === 0 &&
     !discovering &&
-    !busy
+    !busy &&
+    !oauthBusy
   const definedSecretNames = [
     ...draft.keptSecretNames,
     ...draft.newSecrets.map((s) => s.name.trim()).filter(Boolean),
@@ -320,10 +530,17 @@ function ServerEditor({
   const canSave =
     draft.name.trim().length > 0 &&
     draft.url.trim().length > 0 &&
-    draft.enabled.size > 0 &&
+    (isOAuth || draft.enabled.size > 0) &&
     invalidSecretNames.length === 0 &&
     duplicateSecretNames.length === 0 &&
-    !busy
+    !busy &&
+    !oauthBusy
+  const canCompleteOAuth =
+    oauthCanReview &&
+    draft.enabled.size > 0 &&
+    !busy &&
+    !discovering &&
+    !oauthBusy
 
   return (
     <div className="space-y-4">
@@ -364,18 +581,118 @@ function ServerEditor({
         />
       </div>
 
+      <div className="space-y-2">
+        <Label className="text-xs">Authentication</Label>
+        {server ? (
+          <div className="flex items-center justify-between rounded-lg border border-border bg-background px-3 py-2.5">
+            <div>
+              <div className="text-xs font-medium">
+                {isOAuth ? "OAuth" : "Headers / API key"}
+              </div>
+              <div className="mt-0.5 text-[11px] text-muted-foreground">
+                Authentication type is fixed after the server is created.
+              </div>
+            </div>
+            {isOAuth && (
+              <Badge variant={oauthStatusVariant(server.oauthStatus)} size="sm">
+                {oauthStatusLabel(server.oauthStatus)}
+              </Badge>
+            )}
+          </div>
+        ) : (
+          <div
+            role="radiogroup"
+            aria-label="Authentication method"
+            className="grid grid-cols-1 gap-2 sm:grid-cols-2"
+          >
+            {(
+              [
+                {
+                  value: "static" as const,
+                  title: "Headers / API key",
+                  description: "No sign-in, or credentials sent as headers.",
+                },
+                {
+                  value: "oauth" as const,
+                  title: "OAuth",
+                  description: "One shared account for assigned channels.",
+                },
+              ] as const
+            ).map((option) => {
+              const selected = draft.authMode === option.value
+              return (
+                <label
+                  key={option.value}
+                  className={cn(
+                    "cursor-pointer rounded-lg border px-3 py-2.5 text-left transition-colors active:scale-[0.99] has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring",
+                    selected
+                      ? "border-primary bg-primary/5"
+                      : "border-border bg-background hover:border-foreground/20"
+                  )}
+                >
+                  <input
+                    type="radio"
+                    name="mcp-auth-mode"
+                    value={option.value}
+                    checked={selected}
+                    className="sr-only"
+                    onChange={() =>
+                      setDraft((d) => ({
+                        ...d,
+                        authMode: option.value,
+                        discovered: null,
+                        enabled: new Set(),
+                        headers:
+                          option.value === "oauth"
+                            ? d.headers.filter(
+                                (header) =>
+                                  header.name.trim().toLowerCase() !==
+                                  "authorization"
+                              )
+                            : d.headers,
+                      }))
+                    }
+                  />
+                  <span className="block text-xs font-medium">
+                    {option.title}
+                  </span>
+                  <span className="mt-0.5 block text-[11px] leading-snug text-muted-foreground">
+                    {option.description}
+                  </span>
+                </label>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      {isOAuth && (
+        <OAuthConnectionPanel
+          server={server}
+          authorizationOpened={authorizationOpened}
+          busy={busy || oauthBusy}
+          onAuthorize={onAuthorize}
+          onFinishAuthorization={onFinishAuthorization}
+          onDisconnect={onDisconnectOAuth}
+        />
+      )}
+
       <div className="space-y-1.5">
         <Label className="text-xs">Headers</Label>
         <p className="text-[11px] text-muted-foreground">
-          Sent on every request — reference secrets as{" "}
+          {isOAuth
+            ? "Optional request headers. Lor adds OAuth authorization automatically — reference other secrets as "
+            : "Sent on every request — reference secrets as "}
           <code className="text-foreground">{"{{secrets.NAME}}"}</code> instead
           of pasting values.
         </p>
         <PairRows
           pairs={draft.headers}
           onChange={(headers) => setDraft((d) => ({ ...d, headers }))}
-          namePlaceholder="Authorization"
-          valuePlaceholder="Bearer {{secrets.API_KEY}}"
+          namePlaceholder={isOAuth ? "X-Workspace" : "Authorization"}
+          valuePlaceholder={
+            isOAuth ? "{{secrets.WORKSPACE_ID}}" : "Bearer {{secrets.API_KEY}}"
+          }
           addLabel="Add header"
           template={{
             secretNames: definedSecretNames,
@@ -489,81 +806,122 @@ function ServerEditor({
         )}
       </div>
 
-      <div className="space-y-1.5 border-border border-t pt-3">
-        <div className="flex items-center justify-between gap-2">
-          <Label className="text-xs">Tools Merlin may use</Label>
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            disabled={!canDiscover}
-            onClick={onDiscover}
-          >
-            {discovering ? (
-              <Spinner className="size-3.5" />
-            ) : (
-              <HugeiconsIcon
-                icon={RotateClockwiseIcon}
-                className="size-3.5"
-                strokeWidth={2}
-              />
-            )}
-            {draft.discovered ? "Refresh tools" : "Connect & discover"}
-          </Button>
-        </div>
-        {toolList.length === 0 ? (
-          <p className="text-xs text-muted-foreground">
-            Connect to list the server's tools, then pick which ones Merlin may
-            call. New tools the server adds later stay off until enabled here.
-          </p>
-        ) : (
-          <ul className="space-y-1">
-            {toolList.map((tool) => {
-              const description = cleanToolDescription(tool.description)
-              return (
-                <li
-                  key={tool.name}
-                  className="flex items-start gap-2.5 rounded-md border border-border/60 bg-muted/20 px-2.5 py-2"
-                >
-                  <Checkbox
-                    id={`mcp-tool-${tool.name}`}
-                    className="mt-0.5"
-                    checked={draft.enabled.has(tool.name)}
-                    disabled={busy}
-                    onCheckedChange={(checked) =>
-                      setDraft((d) => {
-                        const enabled = new Set(d.enabled)
-                        if (checked === true) enabled.add(tool.name)
-                        else enabled.delete(tool.name)
-                        return { ...d, enabled }
-                      })
-                    }
-                  />
-                  <label
-                    htmlFor={`mcp-tool-${tool.name}`}
-                    className="min-w-0 flex-1 cursor-pointer"
+      {(!isOAuth || oauthCanReview) && (
+        <div className="space-y-1.5 border-border border-t pt-3">
+          <div className="flex items-center justify-between gap-2">
+            <Label className="text-xs">Tools Merlin may use</Label>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={!canDiscover}
+              onClick={onDiscover}
+            >
+              {discovering ? (
+                <Spinner className="size-3.5" />
+              ) : (
+                <HugeiconsIcon
+                  icon={RotateClockwiseIcon}
+                  className="size-3.5"
+                  strokeWidth={2}
+                />
+              )}
+              {draft.discovered
+                ? "Refresh tools"
+                : isOAuth
+                  ? "Review tools"
+                  : "Connect & discover"}
+            </Button>
+          </div>
+          {toolList.length === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              {isOAuth
+                ? "Review the authorized server's tools, then choose which ones assigned channels may call."
+                : "Connect to list the server's tools, then pick which ones Merlin may call. New tools the server adds later stay off until enabled here."}
+            </p>
+          ) : (
+            <ul className="space-y-1">
+              {toolList.map((tool) => {
+                const description = cleanToolDescription(tool.description)
+                return (
+                  <li
+                    key={tool.name}
+                    className="flex items-start gap-2.5 rounded-md border border-border/60 bg-muted/20 px-2.5 py-2"
                   >
-                    <span className="block font-mono text-xs">{tool.name}</span>
-                    {description && (
-                      <span
-                        className="mt-0.5 line-clamp-2 block text-[11px] leading-snug text-muted-foreground"
-                        title={description}
-                      >
-                        {description}
+                    <Checkbox
+                      id={`mcp-tool-${tool.name}`}
+                      className="mt-0.5"
+                      checked={draft.enabled.has(tool.name)}
+                      disabled={busy || oauthBusy}
+                      onCheckedChange={(checked) =>
+                        setDraft((d) => {
+                          const enabled = new Set(d.enabled)
+                          if (checked === true) enabled.add(tool.name)
+                          else enabled.delete(tool.name)
+                          return { ...d, enabled }
+                        })
+                      }
+                    />
+                    <label
+                      htmlFor={`mcp-tool-${tool.name}`}
+                      className="min-w-0 flex-1 cursor-pointer"
+                    >
+                      <span className="block font-mono text-xs">
+                        {tool.name}
                       </span>
-                    )}
-                  </label>
-                </li>
-              )
-            })}
-          </ul>
-        )}
-      </div>
+                      {description && (
+                        <span
+                          className="mt-0.5 line-clamp-2 block text-[11px] leading-snug text-muted-foreground"
+                          title={description}
+                        >
+                          {description}
+                        </span>
+                      )}
+                    </label>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+          {isOAuth && (
+            <div className="flex items-center justify-between gap-3 pt-2">
+              <div className="space-y-1 text-[11px] text-muted-foreground">
+                <p>
+                  This list comes directly from the MCP server. OAuth
+                  permissions may unlock products or operations inside a general
+                  tool instead of adding one tool per product.
+                </p>
+                <p>
+                  Tool changes apply to every channel whose profile grants this
+                  server.
+                </p>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                disabled={!canCompleteOAuth}
+                onClick={onCompleteOAuth}
+              >
+                {oauthBusy
+                  ? "Saving…"
+                  : server?.oauthStatus === "connected"
+                    ? "Save tool access"
+                    : "Enable selected tools"}
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="flex items-center justify-end gap-2 border-border border-t pt-3">
-        {draft.enabled.size === 0 && (
+        {!isOAuth && draft.enabled.size === 0 && (
           <span className="mr-auto text-[11px] text-muted-foreground">
             Connect and enable at least one tool to save.
+          </span>
+        )}
+        {isOAuth && !server && (
+          <span className="mr-auto text-[11px] text-muted-foreground">
+            Saving continues to the shared-account confirmation.
           </span>
         )}
         <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
@@ -589,9 +947,23 @@ export function McpServersBlock({
   onCloseCreate: () => void
 }) {
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
+  const search = useSearch({ strict: false })
+  const requestedServerId =
+    typeof search.mcpServerId === "string" ? search.mcpServerId : null
+  const handledRequestedServerId = useRef<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draft, setDraft] = useState<ServerDraft>(emptyDraft())
   const [deleteTarget, setDeleteTarget] = useState<McpServerRow | null>(null)
+  const [disconnectTarget, setDisconnectTarget] = useState<McpServerRow | null>(
+    null
+  )
+  const [oauthDisclosureTarget, setOauthDisclosureTarget] =
+    useState<McpServerRow | null>(null)
+  const [disclosureConfirmed, setDisclosureConfirmed] = useState(false)
+  const [authorizationOpenedId, setAuthorizationOpenedId] = useState<
+    string | null
+  >(null)
 
   // Opening the create card always starts from a blank draft (the draft is
   // shared with row editing).
@@ -602,10 +974,71 @@ export function McpServersBlock({
     }
   }, [creating])
 
+  // OAuth returns to the Tools settings URL with the relevant server id. Open
+  // that editor once the list query arrives, then remove the one-shot target
+  // so later refetches cannot overwrite in-progress edits.
+  useEffect(() => {
+    if (!requestedServerId) {
+      handledRequestedServerId.current = null
+      return
+    }
+    if (handledRequestedServerId.current === requestedServerId) return
+    const requestedServer = servers.find(
+      (server) => server.id === requestedServerId
+    )
+    if (!requestedServer) return
+    handledRequestedServerId.current = requestedServerId
+    onCloseCreate()
+    setDraft(draftFromServer(requestedServer))
+    setEditingId(requestedServer.id)
+    void navigate({
+      to: ".",
+      replace: true,
+      search: (previous) => ({ ...previous, mcpServerId: undefined }),
+    })
+  }, [navigate, onCloseCreate, requestedServerId, servers])
+
   const invalidate = () =>
     queryClient.invalidateQueries({
       queryKey: mcpServersQueryKey(workspaceSlug),
     })
+
+  // Refresh the editor only when it still shows the server whose authorization
+  // completed. The user may have opened another server while OAuth was pending.
+  useEffect(() => {
+    if (!authorizationOpenedId) return
+    const current = servers.find(
+      (server) => server.id === authorizationOpenedId
+    )
+    if (current && current.oauthStatus !== "pending") {
+      setAuthorizationOpenedId(null)
+      if (editingId === current.id) {
+        setDraft(draftFromServer(current))
+        setEditingId(current.id)
+      }
+    }
+  }, [authorizationOpenedId, editingId, servers])
+
+  // The desktop app opens OAuth in the system browser, so this settings view
+  // stays mounted. Poll only for the attempt started from this editor and stop
+  // after the server-side attempt expires.
+  useEffect(() => {
+    if (!authorizationOpenedId) return
+    let attempts = 0
+    const timer = window.setInterval(() => {
+      attempts += 1
+      void queryClient.invalidateQueries({
+        queryKey: mcpServersQueryKey(workspaceSlug),
+      })
+      if (attempts >= AUTHORIZATION_POLL_MAX_ATTEMPTS) {
+        window.clearInterval(timer)
+        setAuthorizationOpenedId((current) =>
+          current === authorizationOpenedId ? null : current
+        )
+      }
+    }, AUTHORIZATION_POLL_INTERVAL_MS)
+    return () => window.clearInterval(timer)
+  }, [authorizationOpenedId, queryClient, workspaceSlug])
 
   const discoverMutation = useMutation({
     mutationFn: async (mcpServerId: string | null) => {
@@ -672,20 +1105,28 @@ export function McpServersBlock({
           name: draft.name.trim(),
           description: draft.description.trim(),
           url: draft.url.trim(),
+          authMode: draft.authMode,
           headers: draftHeaders(draft),
           secrets: newSecretsPayload(draft),
-          enabledTools: [...draft.enabled],
+          enabledTools: draft.authMode === "oauth" ? [] : [...draft.enabled],
         },
       })
       if (!res.ok) {
         const body = (await res.json()) as { message?: string }
         throw new Error(body.message ?? "Failed to connect server")
       }
-      return res.json()
+      const body = await res.json()
+      return body.server as McpServerRow
     },
-    onSuccess: async () => {
+    onSuccess: async (server) => {
       await invalidate()
       onCloseCreate()
+      if (server.authMode === "oauth") {
+        setDraft(draftFromServer(server))
+        setEditingId(server.id)
+        setDisclosureConfirmed(false)
+        setOauthDisclosureTarget(server)
+      }
     },
     onError: (err) => toast.error(err.message),
   })
@@ -715,7 +1156,9 @@ export function McpServersBlock({
           url: draft.url.trim(),
           headers: draftHeaders(draft),
           secrets,
-          enabledTools: [...draft.enabled],
+          ...(server.authMode === "static"
+            ? { enabledTools: [...draft.enabled] }
+            : {}),
         },
       })
       if (!res.ok) {
@@ -746,7 +1189,81 @@ export function McpServersBlock({
     onError: () => toast.error("Failed to delete server"),
   })
 
+  const startOAuthMutation = useMutation({
+    mutationFn: async (server: McpServerRow) => {
+      const res = await apiClient.v1.workspaces[":workspaceSlug"][
+        "mcp-servers"
+      ][":mcpServerId"].oauth.start.$post({
+        param: { workspaceSlug, mcpServerId: server.id },
+        json: { disclosureConfirmed: true },
+      })
+      if (!res.ok) {
+        const body = (await res.json()) as { message?: string }
+        throw new Error(body.message ?? "OAuth authorization could not start")
+      }
+      const body = await res.json()
+      return { server, authorizationUrl: body.authorizationUrl }
+    },
+    onSuccess: async ({ server, authorizationUrl }) => {
+      setOauthDisclosureTarget(null)
+      setDisclosureConfirmed(false)
+      setAuthorizationOpenedId(server.id)
+      await invalidate()
+      openExternal(authorizationUrl)
+    },
+    onError: (error) => toast.error(error.message),
+  })
+
+  const completeOAuthMutation = useMutation({
+    mutationFn: async (server: McpServerRow) => {
+      const res = await apiClient.v1.workspaces[":workspaceSlug"][
+        "mcp-servers"
+      ][":mcpServerId"].oauth.complete.$post({
+        param: { workspaceSlug, mcpServerId: server.id },
+        json: { enabledTools: [...draft.enabled] },
+      })
+      if (!res.ok) {
+        const body = (await res.json()) as { message?: string }
+        throw new Error(body.message ?? "Tool access could not be saved")
+      }
+      return (await res.json()).server as McpServerRow
+    },
+    onSuccess: async (server) => {
+      setDraft(draftFromServer(server))
+      await invalidate()
+      toast.success("MCP tool access updated")
+    },
+    onError: (error) => toast.error(error.message),
+  })
+
+  const disconnectOAuthMutation = useMutation({
+    mutationFn: async (server: McpServerRow) => {
+      const res = await apiClient.v1.workspaces[":workspaceSlug"][
+        "mcp-servers"
+      ][":mcpServerId"].oauth.disconnect.$post({
+        param: { workspaceSlug, mcpServerId: server.id },
+      })
+      if (!res.ok) {
+        const body = (await res.json()) as { message?: string }
+        throw new Error(body.message ?? "OAuth connection could not be removed")
+      }
+      return (await res.json()).server as McpServerRow
+    },
+    onSuccess: async (server) => {
+      setDisconnectTarget(null)
+      setAuthorizationOpenedId(null)
+      setDraft(draftFromServer(server))
+      await invalidate()
+      toast.success("OAuth account disconnected")
+    },
+    onError: (error) => toast.error(error.message),
+  })
+
   const busy = createMutation.isPending || updateMutation.isPending
+  const oauthBusy =
+    startOAuthMutation.isPending ||
+    completeOAuthMutation.isPending ||
+    disconnectOAuthMutation.isPending
 
   return (
     <>
@@ -763,11 +1280,20 @@ export function McpServersBlock({
           <ServerEditor
             draft={draft}
             setDraft={(update) => setDraft(update)}
+            server={null}
             savedSecretNames={[]}
             busy={busy}
             discovering={discoverMutation.isPending}
-            saveLabel="Connect Server"
+            oauthBusy={oauthBusy}
+            authorizationOpened={false}
+            saveLabel={
+              draft.authMode === "oauth" ? "Save & Authorize" : "Connect Server"
+            }
             onDiscover={() => discoverMutation.mutate(null)}
+            onAuthorize={noop}
+            onFinishAuthorization={noop}
+            onCompleteOAuth={noop}
+            onDisconnectOAuth={noop}
             onSave={() => createMutation.mutate()}
             onCancel={onCloseCreate}
           />
@@ -815,11 +1341,23 @@ export function McpServersBlock({
                       >
                         MCP
                       </Badge>
+                      {server.authMode === "oauth" && (
+                        <Badge
+                          variant={oauthStatusVariant(server.oauthStatus)}
+                          size="sm"
+                          className="shrink-0"
+                        >
+                          {oauthStatusLabel(server.oauthStatus)}
+                        </Badge>
+                      )}
                     </div>
                     <div className="mt-0.5 truncate text-xs text-muted-foreground">
                       {hostOf(server.url)} · {server.enabledTools.length}{" "}
                       {server.enabledTools.length === 1 ? "tool" : "tools"}{" "}
-                      enabled
+                      {server.authMode === "oauth" &&
+                      server.oauthStatus !== "connected"
+                        ? "configured · inactive"
+                        : "enabled"}
                     </div>
                   </div>
                   <HugeiconsIcon
@@ -836,11 +1374,29 @@ export function McpServersBlock({
                     <ServerEditor
                       draft={draft}
                       setDraft={(update) => setDraft(update)}
+                      server={server}
                       savedSecretNames={server.secretNames}
                       busy={busy}
                       discovering={discoverMutation.isPending}
+                      oauthBusy={oauthBusy}
+                      authorizationOpened={authorizationOpenedId === server.id}
                       saveLabel="Save Changes"
                       onDiscover={() => discoverMutation.mutate(server.id)}
+                      onAuthorize={() => {
+                        setDisclosureConfirmed(false)
+                        setOauthDisclosureTarget(server)
+                      }}
+                      onFinishAuthorization={() => {
+                        void invalidate().then(() =>
+                          toast.info(
+                            "If sign-in is complete, tool review will appear here shortly"
+                          )
+                        )
+                      }}
+                      onCompleteOAuth={() =>
+                        completeOAuthMutation.mutate(server)
+                      }
+                      onDisconnectOAuth={() => setDisconnectTarget(server)}
                       onSave={() => updateMutation.mutate(server)}
                       onCancel={() => setEditingId(null)}
                     />
@@ -861,6 +1417,102 @@ export function McpServersBlock({
           })}
         </ul>
       )}
+
+      <AlertDialog
+        open={oauthDisclosureTarget !== null}
+        onOpenChange={(open) => {
+          if (open || startOAuthMutation.isPending) return
+          setOauthDisclosureTarget(null)
+          setDisclosureConfirmed(false)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Share this OAuth account?</AlertDialogTitle>
+            <AlertDialogDescription className="leading-relaxed">
+              Every user in a channel whose agent profile grants{" "}
+              <span className="font-medium text-foreground">
+                {oauthDisclosureTarget?.name}
+              </span>{" "}
+              can call its enabled MCP tools through the account you sign into.
+              Use a team account or another account that is appropriate to share
+              with all of those channels.
+            </AlertDialogDescription>
+            <label
+              htmlFor="mcp-oauth-shared-account-confirmation"
+              className="mt-2 flex cursor-pointer items-start gap-2.5 rounded-lg border border-border bg-muted/30 p-3 text-left"
+            >
+              <Checkbox
+                id="mcp-oauth-shared-account-confirmation"
+                className="mt-0.5"
+                checked={disclosureConfirmed}
+                disabled={startOAuthMutation.isPending}
+                onCheckedChange={(checked) =>
+                  setDisclosureConfirmed(checked === true)
+                }
+              />
+              <span className="text-xs leading-relaxed">
+                I understand this is one shared workspace connection, not my
+                personal identity, and everyone in assigned channels can use its
+                enabled tools.
+              </span>
+            </label>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogClose render={<Button variant="outline" />}>
+              Cancel
+            </AlertDialogClose>
+            <Button
+              disabled={!disclosureConfirmed}
+              loading={startOAuthMutation.isPending}
+              onClick={() => {
+                if (oauthDisclosureTarget && disclosureConfirmed) {
+                  startOAuthMutation.mutate(oauthDisclosureTarget)
+                }
+              }}
+            >
+              Continue to sign in
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={disconnectTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && !disconnectOAuthMutation.isPending) {
+            setDisconnectTarget(null)
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Disconnect shared account?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Lor will remove the OAuth credentials and disable every MCP tool
+              from {disconnectTarget?.name}. Existing profile assignments stay
+              in place, but no channel can use this server until it is
+              authorized and reviewed again.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogClose render={<Button variant="outline" />}>
+              Cancel
+            </AlertDialogClose>
+            <Button
+              variant="destructive"
+              loading={disconnectOAuthMutation.isPending}
+              onClick={() => {
+                if (disconnectTarget) {
+                  disconnectOAuthMutation.mutate(disconnectTarget)
+                }
+              }}
+            >
+              Disconnect
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog
         open={deleteTarget !== null}
