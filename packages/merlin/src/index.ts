@@ -49,7 +49,11 @@ import { codeActionTools } from "./code-actions"
 import { CUSTOM_TOOLS_PROMPT_LINE, workspaceCustomTools } from "./custom-tools"
 import { datadogMcpTools, resolveWorkspaceDatadog } from "./datadog"
 import { embedBrainQueryWithUsage, embedSourceQuery } from "./embeddings"
-import { githubTools, resolveWorkspaceGithub } from "./github"
+import {
+  githubBaseBranchOverrides,
+  githubTools,
+  resolveWorkspaceGithub,
+} from "./github"
 import {
   formatInstructionsBlock,
   type InstructionsProposalEvent,
@@ -131,7 +135,7 @@ const NOTION_PROMPT_LINE = `- The team's selected Notion content (read-only): se
 
 const ARTIFACTS_PROMPT_LINE = `- File deliverables: create_artifacts runs a coding agent in a clean sandbox (Python with pandas, matplotlib, openpyxl) that produces real files — reports, cleaned or analyzed data, generated documents or code. Every file it delivers is stored and returned with a link; share those links in your answer. Use it when someone asks for a file, document, or dataset — never for ordinary answers (it's slow). Non-image files people share appear in the conversation as [file: name — type, size — url] lines; pass those URLs as inputFileUrls when the work needs them. Write complete, self-contained instructions including desired filenames and formats — the agent can't ask follow-ups.`
 
-const CODE_ACTIONS_PROMPT_LINE = `- Code changes: propose_code_change runs a coding agent on a connected repository, pushes the result to a lor/* branch, and opens a DRAFT pull request — it never merges anything. Use it only when someone clearly asks for a code change (fix, implement, adjust); questions about code go to investigate_code instead. Always share the returned pull request link in your answer. To iterate on an open proposal (review feedback, follow-up fixes), pass its branch back to update the same pull request. Keep proposals small and focused; split unrelated changes into separate proposals.`
+const CODE_ACTIONS_PROMPT_LINE = `- Code changes: propose_code_change runs a coding agent on a connected repository, pushes the result to a lor/* branch, and opens a DRAFT pull request — it never merges anything. Use it only when someone clearly asks for a code change (fix, implement, adjust); questions about code go to investigate_code instead. Pull requests target each repository's configured base branch (its default branch unless the workspace overrides it); when someone asks to target a different existing branch, pass it as base. Always share the returned pull request link in your answer. To iterate on an open proposal (review feedback, follow-up fixes), pass its branch back to update the same pull request. Keep proposals small and focused; split unrelated changes into separate proposals.`
 
 const LOOPS_PROMPT_LINE = `- Scheduled loops: propose_loop turns a recurring ask ("check X every morning", "post a Friday digest") into a loop — an unattended run of you in this channel on a cron schedule, with standing instructions and an optional plain-language end condition. It creates a draft card; a teammate activates it from the card, so tell them to press Create Loop there. Only for genuinely recurring work — never for one-off requests you can handle now.`
 
@@ -1543,7 +1547,7 @@ export async function respond(
   const needsCloudwatch = caps.includes("cloudwatch")
   // Independent lookups run concurrently; the Datadog MCP handshake is the
   // slow one and is itself time-bounded inside datadogMcpTools.
-  const [github, linear, attio, notion, datadogMcp, cloudwatch] =
+  const [github, linear, attio, notion, datadogMcp, cloudwatch, baseBranches] =
     await Promise.all([
       needsGithub
         ? resolveWorkspaceGithub(ctx.workspaceId).catch(() => null)
@@ -1565,6 +1569,11 @@ export async function respond(
       needsCloudwatch
         ? resolveWorkspaceCloudwatch(ctx.workspaceId).catch(() => null)
         : null,
+      caps.includes("code_actions")
+        ? githubBaseBranchOverrides(ctx.workspaceId).catch(
+            () => ({}) as Record<string, string>
+          )
+        : ({} as Record<string, string>),
     ])
 
   // The finally closes the MCP sessions (Datadog + workspace MCP servers)
@@ -1678,6 +1687,7 @@ export async function respond(
               workspaceId: ctx.workspaceId,
               installationId: github.installationId,
               repos: github.repos,
+              baseBranches,
               // Thread scope when there is one; channel scope otherwise —
               // matches the run scope, so follow-ups land in the same sandbox.
               // Loop runs override with loop.id (their run scope).

@@ -178,6 +178,38 @@ export async function getInstallationOverview(
   return { repos, manageUrl }
 }
 
+// Tri-state so callers can tell "branch doesn't exist" (false) from "couldn't
+// verify" (null — App unconfigured or GitHub unreachable).
+export async function branchExists(
+  installationId: string,
+  repoFullName: string,
+  branch: string
+): Promise<boolean | null> {
+  const app = getApp()
+  if (!app) return null
+  const id = Number(installationId)
+  if (!Number.isFinite(id)) return null
+  const [owner, repo] = repoFullName.split("/")
+  if (!(owner && repo)) return null
+  try {
+    const octokit = await app.getInstallationOctokit(id)
+    await octokit.rest.repos.getBranch({
+      owner,
+      repo,
+      branch,
+      request: { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) },
+    })
+    return true
+  } catch (err) {
+    if ((err as { status?: number }).status === 404) return false
+    logger.error(
+      { err, installationId: id, repoFullName, branch },
+      "Failed to check branch existence"
+    )
+    return null
+  }
+}
+
 function clip(s: string): string {
   return s.length > MAX_CONTENT ? `${s.slice(0, MAX_CONTENT)}\n…(truncated)` : s
 }

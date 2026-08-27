@@ -10,6 +10,7 @@ import {
   openPullRequest,
 } from "./providers/github"
 import {
+  isSafeRef,
   LOR_BRANCH,
   type ProposedChange,
   prepareCodeChange,
@@ -29,6 +30,9 @@ const codeActionsContext = z.object({
   workspaceId: z.string(),
   installationId: z.string(),
   repos: z.custom<InstallationRepo[]>(),
+  // Per-repo PR base branch overrides (workspace settings); repos without an
+  // entry use their GitHub default branch.
+  baseBranches: z.custom<Record<string, string>>().optional(),
   // The conversation scope (thread root or channel) — keys the persistent
   // sandbox so follow-ups resume a warm checkout and Pi session.
   sandboxKey: z.string(),
@@ -79,7 +83,7 @@ function repoHint(repos: InstallationRepo[]): string {
 export const codeActionTools = {
   propose_code_change: tool({
     description: ({ context }) =>
-      `Make a code change in one of the team's connected GitHub repositories and open a DRAFT pull request for the team to review — it is never merged automatically. Runs a coding agent in a sandbox on a fresh checkout; slow and consequential, so use it only on a clear request to change code (fix, implement, adjust), never for questions about code (use investigate_code). Pass complete, self-contained instructions — the agent can't ask follow-ups — and keep each proposal small and focused; split unrelated changes into separate calls. To iterate on a proposal from earlier in this conversation (review feedback, follow-up fixes), pass its branch to update the same pull request.${repoHint(context.repos)}`,
+      `Make a code change in one of the team's connected GitHub repositories and open a DRAFT pull request for the team to review — it is never merged automatically. Runs a coding agent in a sandbox on a fresh checkout; slow and consequential, so use it only on a clear request to change code (fix, implement, adjust), never for questions about code (use investigate_code). Pass complete, self-contained instructions — the agent can't ask follow-ups — and keep each proposal small and focused; split unrelated changes into separate calls. To iterate on a proposal from earlier in this conversation (review feedback, follow-up fixes), pass its branch to update the same pull request. Pull requests target the repository's configured base branch; pass base only when the requester explicitly asks to target a different branch.${repoHint(context.repos)}`,
     inputSchema: z.object({
       repo: z.string().describe("the repository as owner/repo"),
       title: z
@@ -101,10 +105,16 @@ export const codeActionTools = {
         .describe(
           "a lor/* branch returned by a previous propose_code_change in this conversation, to continue that proposal; null for a new change"
         ),
+      base: z
+        .string()
+        .nullable()
+        .describe(
+          'the existing branch the pull request should target (and branch off from), e.g. "dev" — pass it ONLY when the requester explicitly asks for a different target branch; null uses the repository\'s configured base branch'
+        ),
     }),
     contextSchema: codeActionsContext,
     execute: async (
-      { repo, title, instructions, branch },
+      { repo, title, instructions, branch, base },
       { toolCallId, context, abortSignal }
     ) => {
       const resolved = resolveRepo(repo, context.repos)
@@ -114,6 +124,16 @@ export const codeActionTools = {
       if (!defaultBranch) {
         return { error: "couldn't determine the repository's default branch" }
       }
+      if (base && (!isSafeRef(base) || LOR_BRANCH.test(base))) {
+        return {
+          error: LOR_BRANCH.test(base ?? "")
+            ? "base must be a real target branch, not a lor/* proposal branch — to continue a proposal, pass it as branch instead"
+            : `not a valid base branch name: ${base}`,
+        }
+      }
+      // Explicit ask > workspace per-repo setting > the repo's default branch.
+      const baseBranch =
+        base ?? context.baseBranches?.[resolved.repo] ?? defaultBranch
       if (branch && !LOR_BRANCH.test(branch)) {
         return {
           error:
@@ -144,6 +164,7 @@ export const codeActionTools = {
         title,
         instructions,
         branch,
+        base,
       })
 
       const [owner, repoName] = resolved.repo.split("/")
@@ -163,7 +184,7 @@ export const codeActionTools = {
         prepareCodeChange({
           sandboxKey: context.sandboxKey,
           repoFullName: resolved.repo,
-          defaultBranch,
+          baseBranch,
           cloneToken,
           instructions,
           title,

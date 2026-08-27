@@ -118,7 +118,7 @@ describe("ensureCheckout", () => {
       ensureCheckout(sandbox, {
         repoFullName: "acme/api",
         workdir: repoWorkdir("acme/api"),
-        defaultBranch: "main",
+        baseBranch: "main",
         branch: "lor/fix-thing-a1b2c3d4",
         continueBranch: false,
         cloneToken: "token",

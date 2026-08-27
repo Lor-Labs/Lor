@@ -57,6 +57,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { BillingSection } from "@/components/workspace/billing-section"
 import { CustomToolsSection } from "@/components/workspace/custom-tools-section"
+import { GithubBaseBranchSettings } from "@/components/workspace/github-base-branch-settings"
 import { InstructionsSection } from "@/components/workspace/instructions-section"
 import { MerlinProfilesSection } from "@/components/workspace/merlin-profiles-section"
 import { TriggerEffects } from "@/components/workspace/trigger-effects"
@@ -956,6 +957,13 @@ function ConnectorsSection({ workspaceSlug }: { workspaceSlug: string }) {
                       </span>
                     )}
                   </div>
+                )}
+                {p.id === "github" && p.connectionId && repos.length > 0 && (
+                  <GithubBaseBranchSettings
+                    workspaceSlug={workspaceSlug}
+                    connectionId={p.connectionId}
+                    repos={repos}
+                  />
                 )}
               </div>
             )}

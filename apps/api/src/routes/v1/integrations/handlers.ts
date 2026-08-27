@@ -10,10 +10,12 @@ import {
   ACT_DEFAULTS,
   channel,
   connectorTrigger,
+  githubRepoConfig,
   integrationConnection,
 } from "@repo/db/schema"
 import { env } from "@repo/env/server"
 import {
+  branchExists,
   deleteAttioWebhook,
   connectAttio as exchangeAttioCode,
   connectLinear as exchangeLinearCode,
@@ -21,6 +23,7 @@ import {
   getAttioAccessToken,
   getInstallationOverview,
   getSourceProvider,
+  listInstallationRepos,
   connectCloudwatch as verifyCloudwatchKeys,
   connectDatadog as verifyDatadogKeys,
 } from "@repo/merlin/providers"
@@ -42,6 +45,7 @@ import type {
   ConnectNotionRoute,
   DisconnectIntegrationRoute,
   ListIntegrationsRoute,
+  UpdateGithubRepoConfigRoute,
   UpdateIntegrationRoute,
 } from "@/routes/v1/integrations/routes"
 
@@ -207,18 +211,39 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
   const providers = await Promise.all(
     CONNECTOR_LIST.map(async (descriptor) => {
       const conn = byProvider.get(descriptor.id) ?? null
-      let repos: { fullName: string; private: boolean }[] | null = null
+      let repos:
+        | {
+            fullName: string
+            private: boolean
+            defaultBranch: string
+            baseBranch: string | null
+          }[]
+        | null = null
       let repoCount: number | null = null
       let manageUrl: string | null = null
       if (descriptor.id === "github" && conn) {
-        const overview = await getInstallationOverview(conn.externalId).catch(
-          () => null
-        )
+        const [overview, configRows] = await Promise.all([
+          getInstallationOverview(conn.externalId).catch(() => null),
+          db
+            .select({
+              repoFullName: githubRepoConfig.repoFullName,
+              baseBranch: githubRepoConfig.baseBranch,
+            })
+            .from(githubRepoConfig)
+            .where(eq(githubRepoConfig.connectionId, conn.id))
+            .catch(() => []),
+        ])
         if (overview) {
+          const baseByRepo = new Map(
+            configRows.map((r) => [r.repoFullName, r.baseBranch])
+          )
           repoCount = overview.repos.length
-          repos = overview.repos
-            .slice(0, MAX_REPOS)
-            .map((r) => ({ fullName: r.fullName, private: r.private }))
+          repos = overview.repos.slice(0, MAX_REPOS).map((r) => ({
+            fullName: r.fullName,
+            private: r.private,
+            defaultBranch: r.defaultBranch,
+            baseBranch: baseByRepo.get(r.fullName) ?? null,
+          }))
           manageUrl = overview.manageUrl
         }
       }
@@ -904,6 +929,97 @@ export const updateIntegration: AppRouteHandler<
         ...(hourlyRunCap !== undefined ? { hourlyRunCap } : {}),
         ...(dailyRunCap !== undefined ? { dailyRunCap } : {}),
       },
+    })
+
+  return c.json({ success: true as const }, HttpStatusCodes.OK)
+}
+
+export const updateGithubRepoConfig: AppRouteHandler<
+  UpdateGithubRepoConfigRoute
+> = async (c) => {
+  const workspace = c.var.workspace
+  const { connectionId } = c.req.valid("param")
+  const { repoFullName, baseBranch } = c.req.valid("json")
+
+  const connection = await db
+    .select({
+      id: integrationConnection.id,
+      externalId: integrationConnection.externalId,
+    })
+    .from(integrationConnection)
+    .where(
+      and(
+        eq(integrationConnection.id, connectionId),
+        eq(integrationConnection.workspaceId, workspace.id),
+        eq(integrationConnection.provider, "github"),
+        eq(integrationConnection.status, "active")
+      )
+    )
+    .limit(1)
+    .then((rows) => rows[0])
+  if (!connection) {
+    return c.json(
+      { success: false, message: "Connection not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+
+  const repos = await listInstallationRepos(connection.externalId)
+  const repo = repos.find(
+    (r) => r.fullName.toLowerCase() === repoFullName.toLowerCase()
+  )
+  if (!repo) {
+    return c.json(
+      { success: false, message: "Repository not found in this installation" },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+
+  // Explicitly choosing the default branch = no override; keep the table to
+  // real deviations so a repo default-branch rename isn't silently pinned.
+  if (baseBranch === null || baseBranch === repo.defaultBranch) {
+    await db
+      .delete(githubRepoConfig)
+      .where(
+        and(
+          eq(githubRepoConfig.connectionId, connection.id),
+          eq(githubRepoConfig.repoFullName, repo.fullName)
+        )
+      )
+    return c.json({ success: true as const }, HttpStatusCodes.OK)
+  }
+
+  const exists = await branchExists(
+    connection.externalId,
+    repo.fullName,
+    baseBranch
+  )
+  if (exists === false) {
+    return c.json(
+      {
+        success: false,
+        message: `Branch "${baseBranch}" doesn't exist in ${repo.fullName}`,
+      },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+  if (exists === null) {
+    return c.json(
+      { success: false, message: "Couldn't verify the branch with GitHub" },
+      HttpStatusCodes.INTERNAL_SERVER_ERROR
+    )
+  }
+
+  await db
+    .insert(githubRepoConfig)
+    .values({
+      connectionId: connection.id,
+      repoFullName: repo.fullName,
+      baseBranch,
+    })
+    .onConflictDoUpdate({
+      target: [githubRepoConfig.connectionId, githubRepoConfig.repoFullName],
+      set: { baseBranch },
     })
 
   return c.json({ success: true as const }, HttpStatusCodes.OK)
