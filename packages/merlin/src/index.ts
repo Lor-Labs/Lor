@@ -469,6 +469,7 @@ async function readThread(
       authorName: schema.user.name,
       authorUsername: schema.user.username,
       authorDisplayUsername: schema.user.displayUsername,
+      attachments: schema.message.attachments,
     })
     .from(schema.message)
     .innerJoin(schema.channel, eq(schema.message.channelId, schema.channel.id))
@@ -494,6 +495,16 @@ async function readThread(
     }),
     when: r.createdAt.toISOString(),
     text: r.content ?? "",
+    ...(r.attachments?.length
+      ? {
+          attachments: r.attachments.map((a) => ({
+            filename: a.filename,
+            contentType: a.contentType,
+            size: a.size,
+            url: a.url,
+          })),
+        }
+      : {}),
   }))
 }
 
