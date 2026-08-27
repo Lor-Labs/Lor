@@ -30,7 +30,8 @@ import { Textarea } from "@repo/ui/components/textarea"
 import { toast } from "@repo/ui/components/toast"
 import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useEffect, useState } from "react"
+import { useNavigate, useSearch } from "@tanstack/react-router"
+import { useEffect, useRef, useState } from "react"
 import { PasswordInput } from "@/components/auth/password-input"
 import {
   type PlaceholderItem,
@@ -130,7 +131,14 @@ function draftFromServer(server: McpServerRow): ServerDraft {
     keptSecretNames: [...server.secretNames],
     updatedSecrets: [],
     newSecrets: [],
-    enabled: new Set(server.enabledTools),
+    // A newly authorized (or reauthorized) account must receive a fresh,
+    // explicit tool review. Previously enabled names remain stored while the
+    // server is inactive, but must not appear preselected for a new account.
+    enabled: new Set(
+      server.authMode === "oauth" && server.oauthStatus !== "connected"
+        ? []
+        : server.enabledTools
+    ),
     discovered: null,
   }
 }
@@ -374,8 +382,14 @@ function OAuthConnectionPanel({
       <Alert variant="warning">
         <AlertTitle>Authorization complete · Tools inactive</AlertTitle>
         <AlertDescription className="text-xs">
-          Review the current tool list below and choose what assigned channels
-          may use.
+          <span>
+            Review the current tool list below and choose what assigned channels
+            may use.
+          </span>
+          <span>
+            Permissions selected during OAuth control what those tools can
+            access; they are not separate MCP tools.
+          </span>
         </AlertDescription>
       </Alert>
     )
@@ -869,10 +883,17 @@ function ServerEditor({
           )}
           {isOAuth && (
             <div className="flex items-center justify-between gap-3 pt-2">
-              <p className="text-[11px] text-muted-foreground">
-                Tool changes apply to every channel whose profile grants this
-                server.
-              </p>
+              <div className="space-y-1 text-[11px] text-muted-foreground">
+                <p>
+                  This list comes directly from the MCP server. OAuth
+                  permissions may unlock products or operations inside a general
+                  tool instead of adding one tool per product.
+                </p>
+                <p>
+                  Tool changes apply to every channel whose profile grants this
+                  server.
+                </p>
+              </div>
               <Button
                 type="button"
                 size="sm"
@@ -924,6 +945,11 @@ export function McpServersBlock({
   onCloseCreate: () => void
 }) {
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
+  const search = useSearch({ strict: false })
+  const requestedServerId =
+    typeof search.mcpServerId === "string" ? search.mcpServerId : null
+  const handledRequestedServerId = useRef<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draft, setDraft] = useState<ServerDraft>(emptyDraft())
   const [deleteTarget, setDeleteTarget] = useState<McpServerRow | null>(null)
@@ -945,6 +971,30 @@ export function McpServersBlock({
       setEditingId(null)
     }
   }, [creating])
+
+  // OAuth returns to the Tools settings URL with the relevant server id. Open
+  // that editor once the list query arrives, then remove the one-shot target
+  // so later refetches cannot overwrite in-progress edits.
+  useEffect(() => {
+    if (!requestedServerId) {
+      handledRequestedServerId.current = null
+      return
+    }
+    if (handledRequestedServerId.current === requestedServerId) return
+    const requestedServer = servers.find(
+      (server) => server.id === requestedServerId
+    )
+    if (!requestedServer) return
+    handledRequestedServerId.current = requestedServerId
+    onCloseCreate()
+    setDraft(draftFromServer(requestedServer))
+    setEditingId(requestedServer.id)
+    void navigate({
+      to: ".",
+      replace: true,
+      search: (previous) => ({ ...previous, mcpServerId: undefined }),
+    })
+  }, [navigate, onCloseCreate, requestedServerId, servers])
 
   const invalidate = () =>
     queryClient.invalidateQueries({

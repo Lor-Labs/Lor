@@ -59,6 +59,7 @@ const LAST_PATH_KEY = "lor:last-path"
 type SettingsSearch = {
   settings?: "user" | "workspace"
   tab?: string
+  mcpServerId?: string
 }
 
 export const Route = createFileRoute("/_authenticated")({
@@ -69,6 +70,8 @@ export const Route = createFileRoute("/_authenticated")({
         ? search.settings
         : undefined,
     tab: typeof search.tab === "string" ? search.tab : undefined,
+    mcpServerId:
+      typeof search.mcpServerId === "string" ? search.mcpServerId : undefined,
   }),
 })
 

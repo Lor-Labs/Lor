@@ -9,6 +9,7 @@ export const Route = createFileRoute("/_authenticated/$workspaceSlug/")({
 
 function WorkspaceHome() {
   const { workspaceSlug } = Route.useParams()
+  const { settings, tab, mcpServerId } = Route.useSearch()
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -17,10 +18,11 @@ function WorkspaceHome() {
       void navigate({
         to: "/$workspaceSlug/$channelId",
         params: { workspaceSlug, channelId: lastChannelId },
+        search: { settings, tab, mcpServerId },
         replace: true,
       })
     }
-  }, [workspaceSlug, navigate])
+  }, [workspaceSlug, settings, tab, mcpServerId, navigate])
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col">

@@ -5,6 +5,7 @@ import {
 } from "@repo/db/schema"
 import { getTableConfig } from "drizzle-orm/pg-core"
 import { describe, expect, it } from "vitest"
+import { mcpOAuthSettingsUrl } from "@/routes/v1/mcp-servers/oauth-service"
 import {
   completeMcpServerOAuth,
   disconnectMcpServerOAuth,
@@ -51,6 +52,17 @@ describe("MCP server OAuth API contract", () => {
         disclosureConfirmed: true,
       }).success
     ).toBe(true)
+  })
+
+  it("returns OAuth callbacks to the relevant server editor", () => {
+    const returnUrl = new URL(
+      mcpOAuthSettingsUrl("workspace-slug", "server-id")
+    )
+
+    expect(returnUrl.pathname).toBe("/workspace-slug")
+    expect(returnUrl.searchParams.get("settings")).toBe("workspace")
+    expect(returnUrl.searchParams.get("tab")).toBe("custom-tools")
+    expect(returnUrl.searchParams.get("mcpServerId")).toBe("server-id")
   })
 
   it("bounds the reviewed OAuth tool allowlist", () => {

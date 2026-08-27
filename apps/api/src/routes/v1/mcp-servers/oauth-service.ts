@@ -59,8 +59,17 @@ export function mcpOAuthCallbackUrl(workspaceSlug: string): string {
   return callbackUrl
 }
 
-export function mcpOAuthSettingsUrl(workspaceSlug: string): string {
-  return `${env.APP_BASE_URL}/${encodeURIComponent(workspaceSlug)}?settings=workspace&tab=custom-tools`
+export function mcpOAuthSettingsUrl(
+  workspaceSlug: string,
+  mcpServerId?: string
+): string {
+  const url = new URL(
+    `${env.APP_BASE_URL.replace(/\/+$/, "")}/${encodeURIComponent(workspaceSlug)}`
+  )
+  url.searchParams.set("settings", "workspace")
+  url.searchParams.set("tab", "custom-tools")
+  if (mcpServerId) url.searchParams.set("mcpServerId", mcpServerId)
+  return url.href
 }
 
 function credentialsWithoutTokens(

@@ -452,15 +452,18 @@ export const mcpServerOAuthCallback: AppRouteHandler<
 > = async (c) => {
   const { workspaceSlug } = c.req.valid("param")
   const { code, state, error: providerError } = c.req.valid("query")
-  const returnUrl = mcpOAuthSettingsUrl(workspaceSlug)
   const context = await findMcpOAuthCallbackContext(workspaceSlug, state)
   if (!context) {
     logger.warn(
       { oauthPhase: "callback", errorClass: "InvalidState" },
       "MCP OAuth callback rejected"
     )
-    return c.redirect(returnUrl, HttpStatusCodes.MOVED_TEMPORARILY)
+    return c.redirect(
+      mcpOAuthSettingsUrl(workspaceSlug),
+      HttpStatusCodes.MOVED_TEMPORARILY
+    )
   }
+  const returnUrl = mcpOAuthSettingsUrl(workspaceSlug, context.server.id)
 
   const member = await db
     .select()
