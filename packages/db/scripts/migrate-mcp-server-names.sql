@@ -88,45 +88,43 @@ ALTER TABLE public.mcp_server
   RENAME CONSTRAINT tool_server_created_by_user_id_fk
   TO mcp_server_created_by_user_id_fk;
 
-ALTER TABLE public.mcp_server
-  RENAME CONSTRAINT tool_server_id_not_null
-  TO mcp_server_id_not_null;
-
-ALTER TABLE public.mcp_server
-  RENAME CONSTRAINT tool_server_created_at_not_null
-  TO mcp_server_created_at_not_null;
-
-ALTER TABLE public.mcp_server
-  RENAME CONSTRAINT tool_server_updated_at_not_null
-  TO mcp_server_updated_at_not_null;
-
-ALTER TABLE public.mcp_server
-  RENAME CONSTRAINT tool_server_workspace_id_not_null
-  TO mcp_server_workspace_id_not_null;
-
-ALTER TABLE public.mcp_server
-  RENAME CONSTRAINT tool_server_name_not_null
-  TO mcp_server_name_not_null;
-
-ALTER TABLE public.mcp_server
-  RENAME CONSTRAINT tool_server_url_not_null
-  TO mcp_server_url_not_null;
-
-ALTER TABLE public.mcp_server
-  RENAME CONSTRAINT tool_server_headers_not_null
-  TO mcp_server_headers_not_null;
-
-ALTER TABLE public.mcp_server
-  RENAME CONSTRAINT tool_server_secrets_not_null
-  TO mcp_server_secrets_not_null;
-
-ALTER TABLE public.mcp_server
-  RENAME CONSTRAINT tool_server_enabled_tools_not_null
-  TO mcp_server_enabled_tools_not_null;
-
-ALTER TABLE public.mcp_server
-  RENAME CONSTRAINT tool_server_description_not_null
-  TO mcp_server_description_not_null;
+-- PostgreSQL versions differ in whether NOT NULL constraints have entries in
+-- pg_constraint that can be renamed. Their enforcement survives the table
+-- rename either way, so rename the cosmetic constraint names only when present.
+DO $$
+DECLARE
+  constraint_names record;
+BEGIN
+  FOR constraint_names IN
+    SELECT *
+    FROM (VALUES
+      ('tool_server_id_not_null', 'mcp_server_id_not_null'),
+      ('tool_server_created_at_not_null', 'mcp_server_created_at_not_null'),
+      ('tool_server_updated_at_not_null', 'mcp_server_updated_at_not_null'),
+      ('tool_server_workspace_id_not_null', 'mcp_server_workspace_id_not_null'),
+      ('tool_server_name_not_null', 'mcp_server_name_not_null'),
+      ('tool_server_url_not_null', 'mcp_server_url_not_null'),
+      ('tool_server_headers_not_null', 'mcp_server_headers_not_null'),
+      ('tool_server_secrets_not_null', 'mcp_server_secrets_not_null'),
+      ('tool_server_enabled_tools_not_null', 'mcp_server_enabled_tools_not_null'),
+      ('tool_server_description_not_null', 'mcp_server_description_not_null')
+    ) AS names(source_name, target_name)
+  LOOP
+    IF EXISTS (
+      SELECT 1
+      FROM pg_constraint
+      WHERE conrelid = 'public.mcp_server'::regclass
+        AND conname = constraint_names.source_name
+    ) THEN
+      EXECUTE format(
+        'ALTER TABLE public.mcp_server RENAME CONSTRAINT %I TO %I',
+        constraint_names.source_name,
+        constraint_names.target_name
+      );
+    END IF;
+  END LOOP;
+END
+$$;
 
 ALTER TABLE public.agent_profile_mcp_server
   RENAME CONSTRAINT agent_profile_tool_server_profile_id_tool_server_id_pk
@@ -140,13 +138,38 @@ ALTER TABLE public.agent_profile_mcp_server
   RENAME CONSTRAINT agent_profile_tool_server_tool_server_id_tool_server_id_fk
   TO agent_profile_mcp_server_mcp_server_id_mcp_server_id_fk;
 
-ALTER TABLE public.agent_profile_mcp_server
-  RENAME CONSTRAINT agent_profile_tool_server_profile_id_not_null
-  TO agent_profile_mcp_server_profile_id_not_null;
-
-ALTER TABLE public.agent_profile_mcp_server
-  RENAME CONSTRAINT agent_profile_tool_server_tool_server_id_not_null
-  TO agent_profile_mcp_server_mcp_server_id_not_null;
+DO $$
+DECLARE
+  constraint_names record;
+BEGIN
+  FOR constraint_names IN
+    SELECT *
+    FROM (VALUES
+      (
+        'agent_profile_tool_server_profile_id_not_null',
+        'agent_profile_mcp_server_profile_id_not_null'
+      ),
+      (
+        'agent_profile_tool_server_tool_server_id_not_null',
+        'agent_profile_mcp_server_mcp_server_id_not_null'
+      )
+    ) AS names(source_name, target_name)
+  LOOP
+    IF EXISTS (
+      SELECT 1
+      FROM pg_constraint
+      WHERE conrelid = 'public.agent_profile_mcp_server'::regclass
+        AND conname = constraint_names.source_name
+    ) THEN
+      EXECUTE format(
+        'ALTER TABLE public.agent_profile_mcp_server RENAME CONSTRAINT %I TO %I',
+        constraint_names.source_name,
+        constraint_names.target_name
+      );
+    END IF;
+  END LOOP;
+END
+$$;
 
 ALTER INDEX public.tool_server_workspace_name_uidx
   RENAME TO mcp_server_workspace_name_uidx;
