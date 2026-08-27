@@ -30,11 +30,21 @@ type FanoutChannel = {
   workspaceName?: string | null
 }
 
+type FanoutEmbed = {
+  title?: string | null
+  description?: string | null
+  fields?: readonly {
+    name: string
+    value: string
+  }[]
+}
+
 type FanoutMessage = {
   id: string
   content: string | null
   author: { name: string; image?: string | null }
   attachments: readonly unknown[]
+  embeds?: readonly FanoutEmbed[]
   threadRootId?: string | null
 }
 
@@ -384,6 +394,21 @@ async function buildResolvedNotificationContentPreview(content: string) {
   return buildNotificationContentPreview({ content, mentions })
 }
 
+function buildNotificationEmbedPreview(
+  embeds: readonly FanoutEmbed[] | undefined
+) {
+  const content = (embeds ?? [])
+    .flatMap((embed) => [
+      embed.title,
+      embed.description,
+      ...(embed.fields ?? []).flatMap((field) => [field.name, field.value]),
+    ])
+    .filter((text): text is string => Boolean(text?.trim()))
+    .join("\n")
+
+  return content ? buildNotificationContentPreview({ content }) : ""
+}
+
 export function buildReactionNotification(input: {
   channel: {
     id: string
@@ -432,14 +457,14 @@ export async function buildMessageFanout(input: MessageFanoutInput) {
   )
   const threadContext = await resolveThreadNotificationContext(input.message)
 
-  const previewText = input.message.content
-    ? await buildResolvedNotificationContentPreview(input.message.content)
-    : ""
-  const contentPreview = previewText
-    ? previewText
-    : input.message.attachments.length > 0
+  const contentPreview =
+    (input.message.content
+      ? await buildResolvedNotificationContentPreview(input.message.content)
+      : "") ||
+    buildNotificationEmbedPreview(input.message.embeds) ||
+    (input.message.attachments.length > 0
       ? `sent ${input.message.attachments.length} attachment${input.message.attachments.length > 1 ? "s" : ""}`
-      : null
+      : null)
 
   const unreadNotifications: Array<UserTargetedPayload<UnreadNotification>> =
     recipientIds.map((userId) => ({

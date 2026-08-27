@@ -116,6 +116,7 @@ export async function postBotMessage(
           image: input.overrideAvatarUrl ?? author.image,
         },
         attachments: [],
+        embeds: input.embeds,
       },
       redis,
     })
