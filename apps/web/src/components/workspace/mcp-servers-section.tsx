@@ -86,6 +86,8 @@ export function useMcpServers(workspaceSlug: string) {
 type Pair = { name: string; value: string }
 type DiscoveredTool = { name: string; description: string }
 const noop = () => undefined
+const AUTHORIZATION_POLL_INTERVAL_MS = 2000
+const AUTHORIZATION_POLL_MAX_ATTEMPTS = 300
 
 type ServerDraft = {
   name: string
@@ -1001,9 +1003,8 @@ export function McpServersBlock({
       queryKey: mcpServersQueryKey(workspaceSlug),
     })
 
-  // The desktop app opens OAuth in the system browser, so this settings view
-  // stays mounted. Poll only for the attempt started from this editor and stop
-  // as soon as the callback advances its status.
+  // Refresh the editor only when it still shows the server whose authorization
+  // completed. The user may have opened another server while OAuth was pending.
   useEffect(() => {
     if (!authorizationOpenedId) return
     const current = servers.find(
@@ -1011,17 +1012,33 @@ export function McpServersBlock({
     )
     if (current && current.oauthStatus !== "pending") {
       setAuthorizationOpenedId(null)
-      setDraft(draftFromServer(current))
-      setEditingId(current.id)
-      return
+      if (editingId === current.id) {
+        setDraft(draftFromServer(current))
+        setEditingId(current.id)
+      }
     }
+  }, [authorizationOpenedId, editingId, servers])
+
+  // The desktop app opens OAuth in the system browser, so this settings view
+  // stays mounted. Poll only for the attempt started from this editor and stop
+  // after the server-side attempt expires.
+  useEffect(() => {
+    if (!authorizationOpenedId) return
+    let attempts = 0
     const timer = window.setInterval(() => {
+      attempts += 1
       void queryClient.invalidateQueries({
         queryKey: mcpServersQueryKey(workspaceSlug),
       })
-    }, 2000)
+      if (attempts >= AUTHORIZATION_POLL_MAX_ATTEMPTS) {
+        window.clearInterval(timer)
+        setAuthorizationOpenedId((current) =>
+          current === authorizationOpenedId ? null : current
+        )
+      }
+    }, AUTHORIZATION_POLL_INTERVAL_MS)
     return () => window.clearInterval(timer)
-  }, [authorizationOpenedId, queryClient, servers, workspaceSlug])
+  }, [authorizationOpenedId, queryClient, workspaceSlug])
 
   const discoverMutation = useMutation({
     mutationFn: async (mcpServerId: string | null) => {
