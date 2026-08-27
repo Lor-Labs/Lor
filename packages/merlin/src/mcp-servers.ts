@@ -1,6 +1,4 @@
-import { lookup } from "node:dns/promises"
-import { isIP } from "node:net"
-import { createMCPClient } from "@ai-sdk/mcp"
+import { createMCPClient, type OAuthClientProvider } from "@ai-sdk/mcp"
 import { and, db, eq, inArray, schema } from "@repo/db"
 import type { McpServer } from "@repo/db/schema"
 import { env } from "@repo/env/server"
@@ -8,6 +6,12 @@ import { decryptSecret } from "@repo/utils/crypto"
 import type { ToolSet } from "ai"
 import { customToolUrlIssue, renderTemplate } from "./custom-tools"
 import { logger } from "./logger"
+import {
+  createGuardedMcpFetch,
+  type GuardedMcpFetch,
+  McpNetworkPolicyError,
+} from "./mcp-guarded-fetch"
+import { createRuntimeMcpOAuthProvider } from "./mcp-runtime-oauth"
 
 // Remote MCP servers (mcp_server rows), generalizing the Datadog MCP
 // pattern: one session per respond() call, closed when the stream finishes.
@@ -58,8 +62,18 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 
 type ServerRow = Pick<
   McpServer,
-  "id" | "name" | "description" | "url" | "headers" | "secrets" | "enabledTools"
->
+  | "id"
+  | "workspaceId"
+  | "name"
+  | "description"
+  | "url"
+  | "headers"
+  | "secrets"
+  | "enabledTools"
+  | "authMode"
+  | "oauthStatus"
+  | "oauthCredentials"
+> & { workspaceSlug: string }
 
 function decryptedHeaders(
   row: Pick<ServerRow, "name" | "headers" | "secrets">,
@@ -99,54 +113,11 @@ function withCappedResults(tools: ToolSet): ToolSet {
   return wrapped
 }
 
-// Mirrors the worker's link-unfurl guard (apps/worker/src/jobs/link-unfurl-url.ts):
-// customToolUrlIssue rejects internal-looking hostnames, but a public name can
-// still resolve to a private address (split-horizon DNS / rebinding). Check
-// every resolved address right before connecting; the SDK re-resolves when it
-// dials, so this narrows — not eliminates — the TOCTOU window.
-// 100.64/10 is carrier-grade NAT, which overlay networks (Tailscale) hand out.
-// fe80::/10 spans fe80–febf, so the whole fe[89ab] nibble range is link-local.
-const PRIVATE_IP_REGEX =
-  /^(127\.|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|0\.|169\.254\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.|::1$|fc|fd|fe[89ab])/i
-
-// A hostile AAAA record can hand back an IPv4-mapped address (::ffff:127.0.0.1)
-// that no IPv4 pattern would match — compare on the embedded IPv4 instead.
-function normalizeAddress(address: string): string {
-  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(address)
-  if (mapped?.[1]) return mapped[1]
-  // Hex form of the same thing (::ffff:7f00:1).
-  const hex = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i.exec(address)
-  if (hex?.[1] && hex[2]) {
-    const high = Number.parseInt(hex[1], 16)
-    const low = Number.parseInt(hex[2], 16)
-    return `${high >> 8}.${high & 0xff}.${low >> 8}.${low & 0xff}`
-  }
-  return address
-}
-
-async function resolvedAddressIssue(rawUrl: string): Promise<string | null> {
-  const hostname = new URL(rawUrl).hostname
-  // IP literals are already rejected by customToolUrlIssue.
-  if (isIP(hostname)) return null
-  let addresses: { address: string }[]
-  try {
-    addresses = await lookup(hostname, { all: true })
-  } catch {
-    return "Hostname did not resolve"
-  }
-  if (
-    addresses.some(({ address }) =>
-      PRIVATE_IP_REGEX.test(normalizeAddress(address))
-    )
-  ) {
-    return "Hostname resolves to a private address"
-  }
-  return null
-}
-
 async function connectServer(input: {
   url: string
   headers: Record<string, string>
+  authProvider?: OAuthClientProvider
+  guardedFetch?: GuardedMcpFetch
 }): Promise<{ client: { close: () => Promise<void> }; tools: ToolSet }> {
   // Re-checked at connect time so a tampered row can't reach internal hosts.
   const issue = customToolUrlIssue(input.url)
@@ -166,10 +137,22 @@ async function connectServer(input: {
     void state.session.close().catch(() => {})
   }
   const setup = (async () => {
-    const resolvedIssue = await resolvedAddressIssue(input.url)
-    if (resolvedIssue) throw new Error(resolvedIssue)
+    const guardedFetch =
+      input.guardedFetch ??
+      createGuardedMcpFetch({
+        resourceUrl: input.url,
+        sensitiveHeaderNames: Object.keys(input.headers),
+        timeoutMs: 60_000,
+      })
     const client = await createMCPClient({
-      transport: { type: "http", url: input.url, headers: input.headers },
+      transport: {
+        type: "http",
+        url: input.url,
+        headers: input.headers,
+        authProvider: input.authProvider,
+        fetch: guardedFetch,
+        redirect: "error",
+      },
     })
     state.session = client
     // Connected after the caller gave up: close now rather than waiting on a
@@ -199,30 +182,117 @@ async function connectServer(input: {
 
 export type DiscoveredTool = { name: string; description: string }
 
-// Handshake + tools/list without persisting anything — the settings UI's
-// "Connect & discover" step (both pre-save and refresh use this).
+function discoveredTools(tools: ToolSet): DiscoveredTool[] {
+  return Object.entries(tools)
+    .map(([name, tool]) => ({
+      name,
+      description:
+        typeof tool.description === "string"
+          ? tool.description.slice(0, 1000)
+          : "",
+    }))
+    .sort((left, right) => left.name.localeCompare(right.name))
+}
+
+function errorClass(error: unknown): string {
+  return error instanceof Error ? error.name : "UnknownError"
+}
+
+function endpointHost(url: string): string {
+  try {
+    return new URL(url).hostname
+  } catch {
+    return "invalid"
+  }
+}
+
+function discoveryError(error: unknown): string {
+  return error instanceof McpNetworkPolicyError
+    ? error.message
+    : "Couldn't reach the server"
+}
+
+// Static/header handshake + tools/list without persisting anything — the
+// settings UI uses this before save and when refreshing a saved static server.
 export async function discoverMcpServer(input: {
   url: string
   headers: Record<string, string>
 }): Promise<{ tools: DiscoveredTool[] } | { error: string }> {
   try {
     const { client, tools } = await connectServer(input)
-    const discovered = Object.entries(tools)
-      .map(([name, tool]) => ({
-        name,
-        description:
-          typeof tool.description === "string"
-            ? tool.description.slice(0, 1000)
-            : "",
-      }))
-      .sort((a, b) => a.name.localeCompare(b.name))
+    const discovered = discoveredTools(tools)
     await client.close().catch(() => {})
     return { tools: discovered }
   } catch (err) {
-    logger.warn({ err, url: input.url }, "MCP discovery failed")
-    return {
-      error: err instanceof Error ? err.message : "Couldn't reach the server",
-    }
+    logger.warn(
+      {
+        endpointHost: endpointHost(input.url),
+        errorClass: errorClass(err),
+      },
+      "MCP discovery failed"
+    )
+    return { error: discoveryError(err) }
+  }
+}
+
+export function mcpServerRuntimeEligible(
+  server: Pick<
+    McpServer,
+    "authMode" | "oauthStatus" | "oauthCredentials" | "enabledTools"
+  >
+): boolean {
+  if (server.enabledTools.length === 0) return false
+  if (server.authMode === "static") return true
+  return server.oauthStatus === "connected" && Boolean(server.oauthCredentials)
+}
+
+export function mcpServerGranted(
+  mcpServerId: string,
+  grant: "all" | readonly string[]
+): boolean {
+  return grant === "all" || grant.includes(mcpServerId)
+}
+
+export async function discoverSavedOAuthMcpServer(input: {
+  server: McpServer
+  workspaceSlug: string
+  headers: Record<string, string>
+  encryptionKey: string
+}): Promise<{ tools: DiscoveredTool[] } | { error: string }> {
+  if (
+    input.server.authMode !== "oauth" ||
+    !input.server.oauthCredentials ||
+    !["needs_tool_review", "connected"].includes(input.server.oauthStatus ?? "")
+  ) {
+    return { error: "OAuth authorization is required" }
+  }
+  const { provider, guardedFetch } = createRuntimeMcpOAuthProvider({
+    server: input.server,
+    workspaceSlug: input.workspaceSlug,
+    encryptionKey: input.encryptionKey,
+  })
+  try {
+    const { client, tools } = await connectServer({
+      url: input.server.url,
+      headers: input.headers,
+      authProvider: provider,
+      guardedFetch,
+    })
+    const discovered = discoveredTools(tools)
+    await client.close().catch(() => {})
+    return { tools: discovered }
+  } catch (error) {
+    logger.warn(
+      {
+        mcpServerId: input.server.id,
+        workspaceId: input.server.workspaceId,
+        endpointHost: endpointHost(input.server.url),
+        oauthPhase: "discovery",
+        errorClass: errorClass(error),
+      },
+      "OAuth MCP discovery failed"
+    )
+    return { error: discoveryError(error) }
   }
 }
 
@@ -252,14 +322,23 @@ export async function channelMcpServers(
   const rows = await db
     .select({
       id: schema.mcpServer.id,
+      workspaceId: schema.mcpServer.workspaceId,
+      workspaceSlug: schema.workspace.slug,
       name: schema.mcpServer.name,
       description: schema.mcpServer.description,
       url: schema.mcpServer.url,
       headers: schema.mcpServer.headers,
       secrets: schema.mcpServer.secrets,
       enabledTools: schema.mcpServer.enabledTools,
+      authMode: schema.mcpServer.authMode,
+      oauthStatus: schema.mcpServer.oauthStatus,
+      oauthCredentials: schema.mcpServer.oauthCredentials,
     })
     .from(schema.mcpServer)
+    .innerJoin(
+      schema.workspace,
+      eq(schema.workspace.id, schema.mcpServer.workspaceId)
+    )
     .where(
       and(
         // Tenant belt: grant lists are workspace-validated at write time, but
@@ -269,7 +348,9 @@ export async function channelMcpServers(
       )
     )
     .orderBy(schema.mcpServer.name)
-  const servers = rows.filter((row) => row.enabledTools.length > 0)
+  const servers = rows.filter(
+    (row) => mcpServerGranted(row.id, grant) && mcpServerRuntimeEligible(row)
+  )
   if (servers.length === 0) return null
 
   // Bound the parallel MCP handshakes — a profile granting many servers
@@ -289,11 +370,30 @@ export async function channelMcpServers(
       if (!row) continue
       try {
         const headers = decryptedHeaders(row, key)
-        const { client, tools } = await connectServer({ url: row.url, headers })
+        const connection =
+          row.authMode === "oauth"
+            ? createRuntimeMcpOAuthProvider({
+                server: row,
+                workspaceSlug: row.workspaceSlug,
+                encryptionKey: key,
+              })
+            : null
+        const { client, tools } = await connectServer({
+          url: row.url,
+          headers,
+          authProvider: connection?.provider,
+          guardedFetch: connection?.guardedFetch,
+        })
         sessions[i] = { row, client, tools }
       } catch (err) {
         logger.warn(
-          { err, mcpServerId: row.id, name: row.name },
+          {
+            mcpServerId: row.id,
+            workspaceId: row.workspaceId,
+            endpointHost: endpointHost(row.url),
+            authMode: row.authMode,
+            errorClass: errorClass(err),
+          },
           "MCP server unavailable"
         )
       }

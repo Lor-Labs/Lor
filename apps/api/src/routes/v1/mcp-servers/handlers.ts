@@ -12,7 +12,10 @@ import type { McpServer } from "@repo/db/schema"
 import { env } from "@repo/env/server"
 import { customToolUrlIssue, renderTemplate } from "@repo/merlin/custom-tools"
 import { initialMcpServerOAuthStatus } from "@repo/merlin/mcp-server-oauth"
-import { discoverMcpServer as discoverMcp } from "@repo/merlin/mcp-servers"
+import {
+  discoverMcpServer as discoverMcp,
+  discoverSavedOAuthMcpServer,
+} from "@repo/merlin/mcp-servers"
 import { decryptSecret, encryptSecret } from "@repo/utils/crypto"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
@@ -760,6 +763,15 @@ export const rediscoverMcpServer: AppRouteHandler<
       HttpStatusCodes.BAD_REQUEST
     )
   }
+  if (existing.authMode === "oauth" && url !== existing.url) {
+    return c.json(
+      {
+        success: false,
+        message: "Save the new MCP URL before starting OAuth again",
+      },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
   // Stored secrets decrypted, unsaved plaintext ones overlaid on top. Write-
   // only secrets must never leave for a host the workspace didn't save them
   // against, so a url override tests with the request's own secrets only.
@@ -789,10 +801,18 @@ export const rediscoverMcpServer: AppRouteHandler<
       HttpStatusCodes.BAD_REQUEST
     )
   }
-  const result = await discoverMcp({
-    url,
-    headers,
-  })
+  const result =
+    existing.authMode === "oauth"
+      ? await discoverSavedOAuthMcpServer({
+          server: {
+            ...existing,
+            headers: body.headers ?? existing.headers,
+          },
+          workspaceSlug: workspace.slug,
+          headers,
+          encryptionKey: key,
+        })
+      : await discoverMcp({ url, headers })
   if ("error" in result) {
     return c.json(
       { success: false, message: result.error },

@@ -1,4 +1,4 @@
-import { and, db, eq, exists, isNull, ne, schema, sql } from "@repo/db"
+import { and, db, eq, exists, isNull, schema, sql } from "@repo/db"
 import type { McpServer, McpServerOAuthAttempt } from "@repo/db/schema"
 import { env } from "@repo/env/server"
 import { renderTemplate } from "@repo/merlin/custom-tools"
@@ -9,6 +9,7 @@ import {
   exchangeMcpOAuthAuthorization,
   startMcpOAuthAuthorization,
 } from "@repo/merlin/mcp-oauth-provider"
+import { createRuntimeMcpOAuthProvider } from "@repo/merlin/mcp-runtime-oauth"
 import {
   createMcpOAuthState,
   decryptMcpOAuthCredentials,
@@ -97,7 +98,7 @@ function renderedServerHeaders(
 }
 
 function providerFor(input: {
-  mode: "start" | "callback" | "noninteractive"
+  mode: "start" | "callback"
   server: McpServer
   attempt?: McpServerOAuthAttempt
   workspaceSlug: string
@@ -118,12 +119,7 @@ function providerFor(input: {
     saveCredentials: async (oauthCredentials) => {
       const row = await db
         .update(schema.mcpServer)
-        .set({
-          oauthCredentials,
-          ...(input.mode === "noninteractive" && oauthCredentials === null
-            ? { oauthStatus: "reauthorization_required" as const }
-            : {}),
-        })
+        .set({ oauthCredentials })
         .where(
           and(
             eq(schema.mcpServer.id, input.server.id),
@@ -163,18 +159,6 @@ function providerFor(input: {
             .where(eq(schema.mcpServerOAuthAttempt.id, attemptId))
         }
       : undefined,
-    onInteractionRequired: async () => {
-      await db
-        .update(schema.mcpServer)
-        .set({ oauthStatus: "reauthorization_required" })
-        .where(
-          and(
-            eq(schema.mcpServer.id, input.server.id),
-            eq(schema.mcpServer.workspaceId, input.server.workspaceId),
-            ne(schema.mcpServer.oauthStatus, "pending")
-          )
-        )
-    },
   })
   return { provider, guardedFetch, key }
 }
@@ -417,11 +401,13 @@ export async function completeMcpOAuth(input: {
       "Server is not ready for tool review"
     )
   }
-  const { provider, guardedFetch, key } = providerFor({
-    mode: "noninteractive",
-    server: input.server,
-    workspaceSlug: input.workspaceSlug,
-  })
+  const key = encryptionKey()
+  const { provider, guardedFetch, credentialsSnapshot } =
+    createRuntimeMcpOAuthProvider({
+      server: input.server,
+      workspaceSlug: input.workspaceSlug,
+      encryptionKey: key,
+    })
   let tools: { name: string }[]
   try {
     tools = await discoverAuthorizedMcpTools({
@@ -444,6 +430,7 @@ export async function completeMcpOAuth(input: {
       "Enabled tools must be selected from the current server tool list"
     )
   }
+  const verifiedCredentials = credentialsSnapshot()
   const row = await db
     .update(schema.mcpServer)
     .set({ oauthStatus: "connected", enabledTools: input.enabledTools })
@@ -451,7 +438,10 @@ export async function completeMcpOAuth(input: {
       and(
         eq(schema.mcpServer.id, input.server.id),
         eq(schema.mcpServer.workspaceId, input.server.workspaceId),
-        eq(schema.mcpServer.oauthStatus, "needs_tool_review")
+        eq(schema.mcpServer.oauthStatus, "needs_tool_review"),
+        verifiedCredentials
+          ? eq(schema.mcpServer.oauthCredentials, verifiedCredentials)
+          : isNull(schema.mcpServer.oauthCredentials)
       )
     )
     .returning()
