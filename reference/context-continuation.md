@@ -172,13 +172,52 @@ Replaces the current blunt prune (`pruneMessages` with
 - `reference/agent-harness.md`: as-built update — two regimes, predecessor
   rules, `agent_run_step` permanence note.
 - Guard note in `prune-run-events.ts` / schema comment: steps are never pruned.
-- Stretch: vision parts for delta images; `CONTINUATION_MAX_AGE` to env.
+- Stretch: vision parts for delta images.
+
+## Track D — remaining silent-truncation fixes
+
+Found while applying the no-silent-truncation rule to the rest of the context
+path. Neither blocks B or C.
+
+### D1 — read_thread window + honest placeholders (~300 LOC) — [ ]
+
+- `packages/merlin/src/index.ts` `readThread` (~L490): today it is
+  `orderBy(asc).limit(THREAD_MAX=100)` — the **oldest** 100. A 340-message
+  thread silently drops the 240 most recent, the same defect fixed in B1's
+  delta. And "oldest N" is the wrong window regardless: the tool takes a
+  message id, so the model wants context *around that message*.
+  - Always include the thread root (the subject; what a person sees pinned).
+  - Window centred on the requested message, not from the beginning.
+  - Return `omittedBefore` / `omittedAfter` counts explicitly.
+  - Add `before`/`after` cursors so the model can page. Needed because
+    read_thread output rides the 256KB per-call tool cap: a huge thread
+    currently trips the generic "output too large, narrow the request" error
+    that the model cannot act on, since the tool has no narrowing parameter.
+- `buildInitialUserMessage` (~L1477): `[attachment: name]` is emitted for three
+  different reasons (over `MAX_IMAGES`, unsupported type, failed fetch) and the
+  model cannot tell which, so it cannot respond usefully. Say which, e.g.
+  `[image: chart.png — not shown, only the 8 most recent images are included]`
+  vs `[image: photo.heic — this format can't be viewed]`. Text only, no token
+  cost.
+
+### D2 — image access (~350 LOC) — [ ]
+
+- **HEIC/HEIF are missing from `VISION_MEDIA_TYPES`** (jpeg/png/gif/webp only)
+  — the default iPhone photo format, so a phone photo is silently unviewable.
+  Transcode with `sharp` at fetch time in `fetchImageBytes`.
+- **Do not simply raise `MAX_IMAGES = 8`**: images run ~1–1.5k tokens each and
+  cache poorly, so a bigger cap is a permanent per-run bill. Instead add a
+  `view_image(url)` tool — same philosophy as `export_tool_result`: every image
+  in the thread stays reachable, but only the ones actually needed are paid for.
+  ⚠️ Verify AI SDK v7 supports image parts in tool results before committing to
+  this design; fall back to a modest cap raise if not.
 
 ## Step order
 
-A1 → A2 → B0 → B1 → B2 → B3 → C1. Each step: review → Jacob commits → next.
-C1 (summarizing compaction) is independent of Track B and can move earlier;
-it is the fix for mid-run forgetting, as B is for cross-run forgetting.
+A1 → A2 → B0 → B1 → B2 → B3 → C1 → D1 → D2. Each step: review → Jacob commits
+→ next. C1 (summarizing compaction) is independent of Track B and can move
+earlier; it is the fix for mid-run forgetting, as B is for cross-run
+forgetting. Track D is independent of both.
 
 ## Deviations log
 
@@ -189,9 +228,9 @@ it is the fix for mid-run forgetting, as B is for cross-run forgetting.
 - **B1:** dropped the 30-message delta window (and the fresh path's 30-message
   cap for thread scope) after Jacob's "everything they see, the model gets"
   call. Both are now 1000-row runaway guards that announce themselves if hit.
-  Still open elsewhere: `read_thread`'s `THREAD_MAX = 100` truncates silently;
-  `MAX_IMAGES = 8` drops older images but does render `[attachment: name]`, so
-  the model at least knows one existed.
+  Two more instances found and deferred to Track D: `read_thread`'s
+  `THREAD_MAX = 100` (silent, and takes the oldest 100), and the ambiguous
+  `[attachment: name]` placeholder covering three unrelated causes.
 - **B1:** added the chain walk. Found while reviewing: a step row stores only
   its own run's messages, so the original one-hop design would have lost run 1's
   work as soon as run 3 continued run 2 — precisely the retry-after-retry case
