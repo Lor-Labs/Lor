@@ -170,10 +170,12 @@ async function loadDelta(args: {
         sql`not exists (select 1 from ${schema.agentRunQueue} q where q.message_id = ${schema.message.id} and q.state = 'queued')`
       )
     )
-    .orderBy(asc(schema.message.createdAt))
+    // Newest-first so an overflowing delta drops the OLDEST messages; the
+    // triggering message is the most recent one and must never be cut.
+    .orderBy(desc(schema.message.createdAt))
     .limit(MAX_DELTA_MESSAGES)
     .then((rows) =>
-      rows.map((r) => ({
+      rows.reverse().map((r) => ({
         authorName: userDisplayName(r),
         content: r.content ?? "",
         images: (r.attachments ?? [])

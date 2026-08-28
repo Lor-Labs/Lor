@@ -136,6 +136,28 @@ Ship first: independent of Track B, immediate win for export-style tasks.
 - Live tests owed: budget-trip → "continue" picks up mid-work; steer-then-
   continue does not duplicate messages; week-old thread falls back to fresh.
 
+### C1 — summarizing compaction (~400 LOC) — [ ]
+
+Replaces the current blunt prune (`pruneMessages` with
+`toolCalls: "before-last-4-messages"` at `MERLIN_COMPACT_INPUT_TOKENS`, default
+60k) — the mechanism behind "Merlin forgot what it just did" mid-run.
+
+- **Summarize, don't delete.** Before dropping old tool calls, have the small
+  model write a dense working-state note (IDs, confirmed schema/facts, exact
+  queries run, files produced, what remains) and keep it in context in their
+  place. Preserve verbatim: anything that looks like an identifier, URL, or
+  file path — those are what re-derivation wastes steps on.
+- **Raise the trigger far above 60k.** ⚠️ Must be derived from the configured
+  model's real context window, NOT a guessed constant: setting it above the
+  window converts a graceful compaction into a hard context-length failure.
+  Verify `MERLIN_MODEL`'s window on the AI Gateway first, then set the trigger
+  to ~70–80% of it. Env-configurable, since the model is.
+- Cost note: GLM 5.3 Flash is $0.15/Mtok input, $0.03 cached — a large window
+  is affordable here in a way it would not have been on Kimi K3 ($3/$0.3).
+- Once this lands, `MAX_CHAIN_HOPS` / `MAX_INHERITED_STEPS` in
+  `run-continuation.ts` stop being functional limits and are pure loop guards.
+  Consider replacing the per-hop chain walk with one recursive CTE.
+
 ### B3 — docs + hardening (~150 LOC) — [ ]
 
 - `reference/agent-harness.md`: as-built update — two regimes, predecessor
@@ -145,7 +167,9 @@ Ship first: independent of Track B, immediate win for export-style tasks.
 
 ## Step order
 
-A1 → A2 → B0 → B1 → B2 → B3. Each step: review → Jacob commits → next.
+A1 → A2 → B0 → B1 → B2 → B3 → C1. Each step: review → Jacob commits → next.
+C1 (summarizing compaction) is independent of Track B and can move earlier;
+it is the fix for mid-run forgetting, as B is for cross-run forgetting.
 
 ## Deviations log
 
