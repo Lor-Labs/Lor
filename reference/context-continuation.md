@@ -10,6 +10,15 @@ checkboxes and deviations log as steps land.
 
 ## Locked decisions
 
+- **No silent truncation of what people can see.** A thread is a bounded unit
+  someone is looking at in full, so the model gets all of it — both in the
+  fresh path (`THREAD_CONTEXT_LIMIT`) and in a continuation delta
+  (`MAX_DELTA_MESSAGES`). Those constants are runaway guards, not windows, and
+  if one ever trips the prompt says what was left out and how to fetch it.
+  Channels stay windowed (unbounded firehose, nobody reads one "in full").
+  Where content genuinely cannot be included (unsupported image type, oversize
+  file), render a visible placeholder — never drop it.
+
 - **Two context regimes, never mixed.** Fresh regime: a scope's first run (or
   fallback) builds a snapshot via `loadConversation` rules (30 channel msgs /
   thread + 10 pre-root). Continuation regime: follow-up runs in the same scope
@@ -177,6 +186,12 @@ it is the fix for mid-run forgetting, as B is for cross-run forgetting.
   correctness one — and compaction already bounds an inherited transcript's
   size on the first step. A thread reply should carry the thread's working
   state however long the gap; elapsed time is surfaced to the model instead.
+- **B1:** dropped the 30-message delta window (and the fresh path's 30-message
+  cap for thread scope) after Jacob's "everything they see, the model gets"
+  call. Both are now 1000-row runaway guards that announce themselves if hit.
+  Still open elsewhere: `read_thread`'s `THREAD_MAX = 100` truncates silently;
+  `MAX_IMAGES = 8` drops older images but does render `[attachment: name]`, so
+  the model at least knows one existed.
 - **B1:** added the chain walk. Found while reviewing: a step row stores only
   its own run's messages, so the original one-hop design would have lost run 1's
   work as soon as run 3 continued run 2 — precisely the retry-after-retry case

@@ -110,6 +110,14 @@ describe("formatDelta", () => {
     expect(formatDelta(turns, 2 * 60 * 60 * 1000)).toMatch(/about 2 hours/)
   })
 
+  it("says so out loud when messages had to be left out", () => {
+    const turns = [{ authorName: "Jacob", content: "go ahead" }]
+    expect(formatDelta(turns, 0, 0)).not.toMatch(/not shown/)
+    const text = formatDelta(turns, 0, 12)
+    expect(text).toContain("12 earlier messages in this thread are not shown")
+    expect(text).toContain("read_thread")
+  })
+
   it("renders attachments as [file: …] lines the file tools can consume", () => {
     const text = formatDelta([
       {

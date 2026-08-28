@@ -33,7 +33,10 @@ import { logger } from "@/lib/logger"
 // old tool calls beyond this anyway.
 const MAX_CHAIN_HOPS = 20
 const MAX_INHERITED_STEPS = 400
-const MAX_DELTA_MESSAGES = 30
+// Not a window: a thread is what the person is looking at, so every message in
+// it since the last run goes in. This is a runaway guard only, and if it ever
+// trips the delta says so out loud rather than quietly dropping messages.
+const MAX_DELTA_MESSAGES = 1000
 // Below this the gap is conversational, not a resumption worth flagging.
 const ELAPSED_NOTE_MIN_MS = 30 * 60 * 1000
 
@@ -171,31 +174,36 @@ async function loadDelta(args: {
       )
     )
     // Newest-first so an overflowing delta drops the OLDEST messages; the
-    // triggering message is the most recent one and must never be cut.
+    // triggering message is the most recent one and must never be cut. One
+    // extra row is fetched purely to detect that overflow.
     .orderBy(desc(schema.message.createdAt))
-    .limit(MAX_DELTA_MESSAGES)
-    .then((rows) =>
-      rows.reverse().map((r) => ({
-        authorName: userDisplayName(r),
-        content: r.content ?? "",
-        images: (r.attachments ?? [])
-          .filter((a) => a.contentType.startsWith("image/"))
-          .map((a) => ({
-            url: a.url,
-            filename: a.filename,
-            mediaType: a.contentType,
-            size: a.size,
-          })),
-        files: (r.attachments ?? [])
-          .filter((a) => !a.contentType.startsWith("image/"))
-          .map((a) => ({
-            url: a.url,
-            filename: a.filename,
-            mediaType: a.contentType,
-            size: a.size,
-          })),
-      }))
-    )
+    .limit(MAX_DELTA_MESSAGES + 1)
+    .then((rows) => ({
+      omitted: Math.max(0, rows.length - MAX_DELTA_MESSAGES),
+      turns: rows
+        .slice(0, MAX_DELTA_MESSAGES)
+        .reverse()
+        .map((r) => ({
+          authorName: userDisplayName(r),
+          content: r.content ?? "",
+          images: (r.attachments ?? [])
+            .filter((a) => a.contentType.startsWith("image/"))
+            .map((a) => ({
+              url: a.url,
+              filename: a.filename,
+              mediaType: a.contentType,
+              size: a.size,
+            })),
+          files: (r.attachments ?? [])
+            .filter((a) => !a.contentType.startsWith("image/"))
+            .map((a) => ({
+              url: a.url,
+              filename: a.filename,
+              mediaType: a.contentType,
+              size: a.size,
+            })),
+        })),
+    }))
 }
 
 function humanizeGap(ms: number): string {
@@ -213,7 +221,8 @@ function humanizeGap(ms: number): string {
 // (matching the mid-run steer injection format).
 export function formatDelta(
   turns: AgentRunContext["conversation"],
-  elapsedMs?: number
+  elapsedMs?: number,
+  omittedCount = 0
 ): string | null {
   if (turns.length === 0) return null
   const lines = turns.map((t) => {
@@ -229,7 +238,13 @@ export function formatDelta(
     elapsedMs && elapsedMs >= ELAPSED_NOTE_MIN_MS
       ? ` It has been ${humanizeGap(elapsedMs)} since then, so re-check anything that may have changed rather than assuming earlier results still hold.`
       : ""
-  return `The conversation continued since you last worked. Pick up where you left off — everything above is still your context.${gap}\n\n${lines.join("\n")}`
+  // Never drop messages silently: the people in the thread can see them, so
+  // say what is missing and how to get it.
+  const omitted =
+    omittedCount > 0
+      ? `\n\n(${omittedCount} earlier message${omittedCount === 1 ? "" : "s"} in this thread are not shown here — use read_thread if you need them.)`
+      : ""
+  return `The conversation continued since you last worked. Pick up where you left off — everything above is still your context.${gap}${omitted}\n\n${lines.join("\n")}`
 }
 
 // Assemble a continued context: the full chain of prior runs in this scope
@@ -252,7 +267,7 @@ export async function buildContinuation(args: {
     if (!predecessor?.context) return null
 
     const since = predecessor.startedAt ?? predecessor.createdAt
-    const turns = await loadDelta({
+    const { turns, omitted } = await loadDelta({
       predecessorRunId: predecessor.id,
       predecessorStartedAt: since,
       scopeKey: args.scopeKey,
@@ -260,7 +275,11 @@ export async function buildContinuation(args: {
       merlinMessageId: args.merlinMessageId,
     })
     const finishedAt = predecessor.finishedAt ?? since
-    const deltaText = formatDelta(turns, Date.now() - finishedAt.getTime())
+    const deltaText = formatDelta(
+      turns,
+      Date.now() - finishedAt.getTime(),
+      omitted
+    )
     // Nothing new since the predecessor: this run was triggered by something
     // the transcript already covers, so continuing would just re-ask the same
     // question. Let the fresh path build a normal snapshot.

@@ -62,6 +62,9 @@ type RedisClient = ReturnType<typeof createClient>
 // Batch streamed tokens so we publish ~every 24 chars, not per chunk.
 const FLUSH_THRESHOLD = 24
 const CONTEXT_LIMIT = 30
+// Threads are given whole (see loadConversation); this is a runaway guard, not
+// a window.
+const THREAD_CONTEXT_LIMIT = 1000
 // Channel messages posted at/before a thread's root, pulled into thread-scoped
 // runs. Placement-routed threads root at the mention itself, so a file
 // uploaded as its own message just before lives at channel level — invisible
@@ -135,7 +138,12 @@ async function loadConversation(args: {
         isNull(schema.message.threadRootId)
       )
 
-  const rows = await selectTurns(scope).limit(CONTEXT_LIMIT)
+  // A thread is a bounded unit someone is looking at in full, so all of it
+  // goes in — windowing it would silently hide messages they can see. A
+  // channel is an unbounded firehose, so it stays windowed.
+  const rows = await selectTurns(scope).limit(
+    args.threadRootId ? THREAD_CONTEXT_LIMIT : CONTEXT_LIMIT
+  )
 
   // Thread runs also get the channel messages that led up to the root —
   // attachments and asks posted right before the thread opened live there.
