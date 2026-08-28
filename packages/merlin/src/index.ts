@@ -290,6 +290,20 @@ export type RespondContext = {
   // posting + draft loop row insert). Never set on triggered/loop runs — a
   // loop must not schedule more loops.
   proposeLoop?: ProposeLoopExecutor
+  // Set when this run continues an earlier run in the same scope instead of
+  // building a fresh conversation snapshot: the assembled transcript (prior
+  // runs' work + what has been said since) that replaces the initial user
+  // message. Instructions are still built fresh — the model's rules should
+  // reflect the current world even though its history does not.
+  // See reference/context-continuation.md.
+  continuation?: RunContinuation
+}
+
+export type RunContinuation = {
+  messages: ModelMessage[]
+  // The delta message, persisted so a recovered attempt replays it verbatim.
+  deltaText: string
+  lastInputTokens: number
 }
 
 export type ToolEvent = MerlinToolCallUpdate
@@ -1862,13 +1876,24 @@ export async function respond(
         buildRunContext(ctx, runScope, onUsage),
         loadWorkspaceInstructions(ctx.workspaceId),
       ])
-      const userMessage = await buildInitialUserMessage(context)
       instructions = `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}${context.rosterText ? `\n\n${MENTION_GUIDANCE}` : ""}${workspaceInstructions ? `\n\n${formatInstructionsBlock(workspaceInstructions)}` : ""}${ctx.task ? `\n\n${taskRulesSection(artifactsEnabled)}` : ""}${ctx.triggered ? `\n\n${ctx.triggered.loop ? loopPromptSection({ ...ctx.triggered, loop: ctx.triggered.loop }) : triggeredPromptSection(ctx.triggered)}` : ""}`
-      messages = [userMessage]
+      // A continued run inherits its predecessors' transcript in place of a
+      // fresh initial message; the snapshot records the delta it was started
+      // with so a crashed attempt replays the identical request.
+      const continuation = ctx.continuation
+      messages = continuation
+        ? continuation.messages
+        : [await buildInitialUserMessage(context)]
+      resumeLastInputTokens = continuation?.lastInputTokens ?? 0
       counters = { ...ZERO_RUN_COUNTERS }
       text = ""
       // Durable before the first model call — recovery depends on it.
-      await run?.saveContext({ context, instructions })
+      await run?.saveContext({
+        context: continuation
+          ? { ...context, continuationDelta: continuation.deltaText }
+          : context,
+        instructions,
+      })
     }
 
     const guarded = guardTools(tools, {

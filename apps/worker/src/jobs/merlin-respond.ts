@@ -52,6 +52,7 @@ import type { createClient } from "redis"
 import { claimAgentRun, LeaseLostError } from "@/lib/agent-run"
 import { logger } from "@/lib/logger"
 import { createLoopCard } from "@/lib/merlin-loop"
+import { buildContinuation } from "@/lib/run-continuation"
 import { noopRunEventWriter } from "@/lib/run-events"
 import { drainScopeQueue } from "@/lib/run-queue"
 import { updateStreamMentionState } from "@/lib/stream-mentions"
@@ -503,15 +504,34 @@ export function createMerlinRespondProcessor(
             )
           }
           try {
+            // Continuation: a follow-up run in a thread/task scope inherits the
+            // previous run's transcript (its tool results and reasoning) rather
+            // than rebuilding context from chat text alone, so it resumes the
+            // work instead of rediscovering it. Channel scope always builds
+            // fresh, and a recovered attempt already has its own transcript.
+            const continuation =
+              contextThreadRootId && !execution?.resume
+                ? await buildContinuation({
+                    scopeKey: contextThreadRootId,
+                    channelId,
+                    merlinMessageId,
+                    runId: job.data.runId,
+                  })
+                : null
+            if (continuation && execution) {
+              await execution.markContinuedFrom(continuation.predecessorRunId)
+            }
             // On recovery the persisted step-0 snapshot is the conversation —
-            // reloading would drift (new messages may have landed since).
+            // reloading would drift (new messages may have landed since). A
+            // continued run's snapshot is the delta it was started with.
             const conversation = execution?.resume
               ? execution.resume.conversation
-              : await loadConversation({
+              : (continuation?.conversation ??
+                (await loadConversation({
                   channelId,
                   threadRootId: contextThreadRootId,
                   merlinMessageId,
-                })
+                })))
             // The snapshot covers every steer row that predates it — consume
             // them so the first boundary doesn't inject duplicates.
             if (execution && !execution.resume) {
@@ -634,6 +654,15 @@ export function createMerlinRespondProcessor(
                 ...(threadRootId ? { threadRootId } : {}),
                 triggerMessageId,
                 ...(job.data.runId ? { runId: job.data.runId } : {}),
+                ...(continuation
+                  ? {
+                      continuation: {
+                        messages: continuation.messages,
+                        deltaText: continuation.deltaText,
+                        lastInputTokens: continuation.lastInputTokens,
+                      },
+                    }
+                  : {}),
                 proposeLoop,
                 ...(task
                   ? {

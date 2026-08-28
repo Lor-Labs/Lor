@@ -395,6 +395,11 @@ export type AgentRunContext = {
   // keep parsing.
   channelName?: string
   task?: AgentRunContextTask
+  // Continued runs only (agentRun.continuedFromRunId set): the exact rendered
+  // delta message appended after the inherited transcript. Stored rather than
+  // re-rendered because it embeds elapsed time ("about 3 hours since then"),
+  // which would drift on recovery and break the byte-stable replay.
+  continuationDelta?: string
 }
 
 export type AgentRun = typeof agentRun.$inferSelect

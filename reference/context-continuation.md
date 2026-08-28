@@ -129,7 +129,7 @@ Ship first: independent of Track B, immediate win for export-style tasks.
 - Unit tests: delta dedupe against steered rows, age cutoff, empty-steps
   fallback, transcript ordering.
 
-### B2 — processor integration (~300 LOC) — [ ]
+### B2 — processor integration (~300 LOC) — [x] built 2026-08-28, awaiting review/commit. Live tests still owed
 
 - `apps/worker/src/jobs/merlin-respond.ts`: for thread-scoped runs
   (`contextThreadRootId` set) with no crash-resume state, attempt continuation
@@ -225,6 +225,19 @@ forgetting. Track D is independent of both.
   correctness one — and compaction already bounds an inherited transcript's
   size on the first step. A thread reply should carry the thread's working
   state however long the gap; elapsed time is surfaced to the model instead.
+- **B2:** the steer-row exclusion had to be narrowed to
+  `consumedAtStep IS NOT NULL`. `drainScopeQueue` marks the *winning* queued row
+  `consumed` (leaving `consumedAtStep` null) against the **predecessor's** run id
+  before enqueuing the follow-up, so excluding all consumed rows dropped the very
+  message that triggered the continued run — the delta came back empty and
+  continuation would have silently never fired for queued follow-ups, the most
+  common path. Only rows with `consumedAtStep` set were actually injected into
+  the predecessor's transcript.
+- **B2:** `AgentRunContext.continuationDelta` stores the rendered delta verbatim.
+  It embeds elapsed time ("about 3 hours since then"), so re-rendering it during
+  crash recovery would produce a different string and break byte-stable replay.
+  `replayChain` / `replayContinuedPrefix` are shared by the build path and
+  recovery for the same reason.
 - **B1:** dropped the 30-message delta window (and the fresh path's 30-message
   cap for thread scope) after Jacob's "everything they see, the model gets"
   call. Both are now 1000-row runaway guards that announce themselves if hit.

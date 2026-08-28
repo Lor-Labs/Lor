@@ -36,6 +36,7 @@ import {
   userDisplayName,
 } from "@repo/merlin"
 import { logger } from "@/lib/logger"
+import { replayContinuedPrefix } from "@/lib/run-continuation"
 import { createRunEventWriter, type RunEventWriter } from "@/lib/run-events"
 
 const LEASE_TTL_MS = 60_000
@@ -106,6 +107,9 @@ export type RunExecution = {
   noteNestedUsage: (u: UsageEvent) => void
   // Post-answer usage (write-back) folds straight into the counters.
   addUsage: (u: UsageEvent) => void
+  // Records that this run inherited a predecessor's transcript, so a recovered
+  // attempt replays the same chain instead of rebuilding a fresh snapshot.
+  markContinuedFrom: (predecessorRunId: string) => Promise<void>
   setPhase: (phase: "answer" | "writeback") => Promise<void>
   // Fresh runs call this right after loading the conversation snapshot: steer
   // rows that predate the snapshot are already in it, so they're consumed
@@ -490,9 +494,21 @@ export async function claimAgentRun(
       .where(eq(schema.agentRunStep.runId, runId))
       .orderBy(asc(schema.agentRunStep.step))
     const stepMessages = stepRows.flatMap((r) => r.messages as ModelMessage[])
-    const userMessage = await buildInitialUserMessage(claimed.context)
+    // A continued run's prefix is the chain it inherited plus the delta it was
+    // started with — rebuilding it as a fresh initial message would silently
+    // drop every prior run's work. Falls back to the fresh shape if the chain
+    // can't be replayed.
+    const prefix = claimed.continuedFromRunId
+      ? await replayContinuedPrefix({
+          continuedFromRunId: claimed.continuedFromRunId,
+          context: claimed.context,
+        })
+      : null
     resume = {
-      messages: [userMessage, ...stepMessages],
+      messages: [
+        ...(prefix ?? [await buildInitialUserMessage(claimed.context)]),
+        ...stepMessages,
+      ],
       instructions: claimed.instructions,
       counters,
       answerTextSoFar: assistantText(stepMessages),
@@ -705,6 +721,15 @@ export async function claimAgentRun(
         })().catch((err) =>
           logger.warn({ err, runId }, "Agent run usage fold failed")
         )
+      },
+      markContinuedFrom: async (predecessorRunId) => {
+        await db
+          .update(schema.agentRun)
+          .set({ continuedFromRunId: predecessorRunId })
+          .where(eq(schema.agentRun.id, runId))
+          .catch((err) =>
+            logger.warn({ err, runId }, "Continuation marker write failed")
+          )
       },
       setPhase: async (phase) => {
         await db

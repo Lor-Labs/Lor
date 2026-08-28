@@ -167,8 +167,8 @@ describe("buildContinuation", () => {
   })
 
   it("returns null when the chain checkpointed no steps", async () => {
-    // predecessor → consumed → delta → (chain walk: none) → steps(none)
-    queue([predecessor], [], [deltaRow], [])
+    // predecessor → consumed → delta → chain head → steps(none)
+    queue([predecessor], [], [deltaRow], [predecessor], [])
     expect(await buildContinuation(args)).toBeNull()
   })
 
@@ -177,6 +177,7 @@ describe("buildContinuation", () => {
       [predecessor],
       [],
       [deltaRow],
+      [predecessor],
       [step2("found 2553 rows", "run-1"), step2("ok", "run-1")]
     )
     const result = await buildContinuation(args)
@@ -208,6 +209,9 @@ describe("buildContinuation", () => {
         conversation: [{ authorName: "Jacob", content: "go ahead" }],
         brainContext: "brain",
         rosterText: "",
+        // Replayed verbatim rather than re-rendered, so elapsed-time wording
+        // can't drift between the original run and a replay.
+        continuationDelta: "STORED DELTA from run-2",
       },
     }
     const run1 = { ...predecessor, id: "run-1", continuedFromRunId: null }
@@ -215,17 +219,33 @@ describe("buildContinuation", () => {
       [run2], // findPredecessor
       [], // consumed
       [deltaRow], // delta
+      [run2], // replayChain head
       [run1], // chain walk: run-2 → run-1
       [step2("run1 work", "run-1"), step2("run2 work", "run-2")]
     )
     const result = await buildContinuation({ ...args, runId: "run-3" })
     const texts = result?.messages.map((m) => JSON.stringify(m.content))
-    // Original snapshot, run-1's work, run-2's own delta, run-2's work, new delta.
+    // Original snapshot, run-1's work, run-2's stored delta, run-2's work, new delta.
     expect(texts?.[0]).toContain("initial:brain")
     expect(texts?.[1]).toContain("run1 work")
-    expect(texts?.[2]).toContain("Jacob: go ahead")
+    expect(texts?.[2]).toContain("STORED DELTA from run-2")
     expect(texts?.[3]).toContain("run2 work")
     expect(texts?.at(-1)).toContain("Jacob: go ahead")
+  })
+
+  it("carries the delta text so a recovered attempt can replay it verbatim", async () => {
+    queue(
+      [predecessor],
+      [],
+      [deltaRow],
+      [predecessor],
+      [step2("work", "run-1")]
+    )
+    const result = await buildContinuation(args)
+    // The rendered text and the final message must be the same string: the
+    // snapshot is what a crashed attempt replays.
+    expect(result?.deltaText).toBe(String(result?.messages.at(-1)?.content))
+    expect(result?.deltaText).toContain("Jacob: go ahead")
   })
 
   it("falls back to the fresh path instead of throwing when a query fails", async () => {

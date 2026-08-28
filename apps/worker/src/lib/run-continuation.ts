@@ -46,6 +46,9 @@ export type Continuation = {
   // Turns the delta rendered, stored as the new run's context.conversation so
   // this run's own successor can replay them (and a crash can rebuild).
   conversation: AgentRunContext["conversation"]
+  // The rendered delta, persisted verbatim so a recovered attempt replays the
+  // identical message (it embeds elapsed time, which would otherwise drift).
+  deltaText: string
   // Predecessor's last step input size, so the first prepareStep can compact
   // an already-heavy inherited transcript before growing it further.
   lastInputTokens: number
@@ -129,13 +132,18 @@ async function loadDelta(args: {
   channelId: string
   merlinMessageId: string
 }) {
+  // Only rows the predecessor actually injected mid-run are already in its
+  // transcript, and those are exactly the ones with consumedAtStep set. A row
+  // that merely drained into this run keeps consumedAtStep null — it is this
+  // run's trigger and must stay in the delta.
   const consumed = await db
     .select({ messageId: schema.agentRunQueue.messageId })
     .from(schema.agentRunQueue)
     .where(
       and(
         eq(schema.agentRunQueue.runId, args.predecessorRunId),
-        eq(schema.agentRunQueue.state, "consumed")
+        eq(schema.agentRunQueue.state, "consumed"),
+        isNotNull(schema.agentRunQueue.consumedAtStep)
       )
     )
   const consumedIds = consumed.map((c) => c.messageId)
@@ -247,6 +255,94 @@ export function formatDelta(
   return `The conversation continued since you last worked. Pick up where you left off — everything above is still your context.${gap}${omitted}\n\n${lines.join("\n")}`
 }
 
+// Replay a finished run and everything it continued from: the chain head's
+// original snapshot, then each later hop's delta and steps. Deterministic —
+// every run involved is terminal, so its steps and stored delta never change.
+// Shared by the build path and by crash recovery of a continued run.
+export async function replayChain(headRunId: string): Promise<{
+  messages: ModelMessage[]
+  lastInputTokens: number
+} | null> {
+  const head = await db
+    .select({
+      id: schema.agentRun.id,
+      context: schema.agentRun.context,
+      continuedFromRunId: schema.agentRun.continuedFromRunId,
+    })
+    .from(schema.agentRun)
+    .where(eq(schema.agentRun.id, headRunId))
+    .limit(1)
+    .then((rows) => rows[0])
+  if (!head?.context) return null
+
+  const chain = await loadChain(head)
+  const stepRows = await db
+    .select({
+      runId: schema.agentRunStep.runId,
+      step: schema.agentRunStep.step,
+      messages: schema.agentRunStep.messages,
+      inputTokens: schema.agentRunStep.inputTokens,
+    })
+    .from(schema.agentRunStep)
+    .where(
+      inArray(
+        schema.agentRunStep.runId,
+        chain.map((c) => c.id)
+      )
+    )
+    .orderBy(asc(schema.agentRunStep.step))
+  if (stepRows.length === 0) return null
+
+  const stepsByRun = new Map<string, typeof stepRows>()
+  for (const row of stepRows) {
+    const list = stepsByRun.get(row.runId) ?? []
+    list.push(row)
+    stepsByRun.set(row.runId, list)
+  }
+
+  // Oldest first: the chain head carries the original snapshot; every later
+  // hop replays the stored delta that started it, so no history is skipped.
+  const messages: ModelMessage[] = []
+  for (const [index, run] of chain.entries()) {
+    if (!run.context) continue
+    if (index === 0) {
+      messages.push(await buildInitialUserMessage(run.context))
+    } else if (run.context.continuationDelta) {
+      messages.push({ role: "user", content: run.context.continuationDelta })
+    }
+    for (const row of stepsByRun.get(run.id) ?? []) {
+      messages.push(...(row.messages as ModelMessage[]))
+    }
+  }
+  // Keep the head (the original ask) and the most recent history when a chain
+  // runs long; the compactor thins what remains.
+  const trimmed =
+    messages.length > MAX_INHERITED_STEPS
+      ? [
+          ...messages.slice(0, 1),
+          ...messages.slice(messages.length - MAX_INHERITED_STEPS + 1),
+        ]
+      : messages
+  return {
+    messages: trimmed,
+    lastInputTokens: stepRows.at(-1)?.inputTokens ?? 0,
+  }
+}
+
+// Rebuild a continued run's exact prefix after a crash: the chain it inherited
+// plus the delta it was started with, replayed verbatim from its snapshot.
+export async function replayContinuedPrefix(args: {
+  continuedFromRunId: string
+  context: AgentRunContext
+}): Promise<ModelMessage[] | null> {
+  const replayed = await replayChain(args.continuedFromRunId).catch(() => null)
+  if (!replayed) return null
+  const delta = args.context.continuationDelta
+  return delta
+    ? [...replayed.messages, { role: "user", content: delta }]
+    : replayed.messages
+}
+
 // Assemble a continued context: the full chain of prior runs in this scope
 // (the original snapshot, then each hop's delta and steps) plus one user
 // message carrying what has been said since. Returns null whenever the
@@ -285,64 +381,18 @@ export async function buildContinuation(args: {
     // question. Let the fresh path build a normal snapshot.
     if (!deltaText) return null
 
-    const chain = await loadChain(predecessor)
-    const stepRows = await db
-      .select({
-        runId: schema.agentRunStep.runId,
-        step: schema.agentRunStep.step,
-        messages: schema.agentRunStep.messages,
-        inputTokens: schema.agentRunStep.inputTokens,
-      })
-      .from(schema.agentRunStep)
-      .where(
-        inArray(
-          schema.agentRunStep.runId,
-          chain.map((c) => c.id)
-        )
-      )
-      .orderBy(asc(schema.agentRunStep.step))
-    if (stepRows.length === 0) return null
-
-    const stepsByRun = new Map<string, typeof stepRows>()
-    for (const row of stepRows) {
-      const list = stepsByRun.get(row.runId) ?? []
-      list.push(row)
-      stepsByRun.set(row.runId, list)
-    }
-
-    // Oldest first: the chain head carries the original snapshot; every later
-    // hop re-renders the delta that started it, so no history is skipped.
-    const messages: ModelMessage[] = []
-    for (const [index, run] of chain.entries()) {
-      if (!run.context) continue
-      if (index === 0) {
-        messages.push(await buildInitialUserMessage(run.context))
-      } else {
-        const hopDelta = formatDelta(run.context.conversation)
-        if (hopDelta) messages.push({ role: "user", content: hopDelta })
-      }
-      for (const row of stepsByRun.get(run.id) ?? []) {
-        messages.push(...(row.messages as ModelMessage[]))
-      }
-    }
-    // Keep the head (the original ask) and the most recent history when a
-    // chain runs long; the compactor thins what remains.
-    const trimmed =
-      messages.length > MAX_INHERITED_STEPS
-        ? [
-            ...messages.slice(0, 1),
-            ...messages.slice(messages.length - MAX_INHERITED_STEPS + 1),
-          ]
-        : messages
+    const replayed = await replayChain(predecessor.id)
+    if (!replayed) return null
 
     return {
       predecessorRunId: predecessor.id,
       messages: [
-        ...trimmed,
+        ...replayed.messages,
         { role: "user", content: deltaText } satisfies ModelMessage,
       ],
       conversation: turns,
-      lastInputTokens: stepRows.at(-1)?.inputTokens ?? 0,
+      deltaText,
+      lastInputTokens: replayed.lastInputTokens,
     }
   } catch (err) {
     // Continuation is an optimization; any failure falls back to a fresh run.
