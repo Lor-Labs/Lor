@@ -151,6 +151,9 @@ export const agentRun = pgTable(
     // checkpoint pointer: transcript rows 1..steps are durable.
     steps: integer("steps").notNull().default(0),
     inputTokens: integer("input_tokens").notNull().default(0),
+    // Cache-read portion of inputTokens; the input budget weights these at
+    // 1/10 so cheap cached re-sends don't exhaust the rail (LOR-66 follow-up).
+    cachedInputTokens: integer("cached_input_tokens").notNull().default(0),
     outputTokens: integer("output_tokens").notNull().default(0),
     toolCalls: integer("tool_calls").notNull().default(0),
     toolOutputBytes: integer("tool_output_bytes").notNull().default(0),

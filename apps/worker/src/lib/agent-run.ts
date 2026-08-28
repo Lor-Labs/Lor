@@ -134,6 +134,7 @@ export type ClaimOutcome =
 function countersOf(row: {
   steps: number
   inputTokens: number
+  cachedInputTokens: number
   outputTokens: number
   toolCalls: number
   toolOutputBytes: number
@@ -142,6 +143,7 @@ function countersOf(row: {
   return {
     steps: row.steps,
     inputTokens: row.inputTokens,
+    cachedInputTokens: row.cachedInputTokens,
     outputTokens: row.outputTokens,
     toolCalls: row.toolCalls,
     toolOutputBytes: row.toolOutputBytes,
@@ -152,6 +154,7 @@ function countersOf(row: {
 const COUNTER_SELECTION = {
   steps: schema.agentRun.steps,
   inputTokens: schema.agentRun.inputTokens,
+  cachedInputTokens: schema.agentRun.cachedInputTokens,
   outputTokens: schema.agentRun.outputTokens,
   toolCalls: schema.agentRun.toolCalls,
   toolOutputBytes: schema.agentRun.toolOutputBytes,
@@ -415,6 +418,7 @@ export async function claimAgentRun(
         .set({
           steps: record.step,
           inputTokens: sql`${schema.agentRun.inputTokens} + ${record.inputTokens ?? 0}`,
+          cachedInputTokens: sql`${schema.agentRun.cachedInputTokens} + ${record.cachedInputTokens ?? 0}`,
           outputTokens: sql`${schema.agentRun.outputTokens} + ${record.outputTokens ?? 0}`,
           toolCalls: sql`${schema.agentRun.toolCalls} + ${record.toolCalls}`,
           toolOutputBytes: sql`${schema.agentRun.toolOutputBytes} + ${record.toolOutputBytes}`,
@@ -687,6 +691,7 @@ export async function claimAgentRun(
             .update(schema.agentRun)
             .set({
               inputTokens: sql`${schema.agentRun.inputTokens} + ${u.inputTokens ?? 0}`,
+              cachedInputTokens: sql`${schema.agentRun.cachedInputTokens} + ${u.cachedInputTokens ?? 0}`,
               outputTokens: sql`${schema.agentRun.outputTokens} + ${u.outputTokens ?? 0}`,
               creditsSpent: sql`${schema.agentRun.creditsSpent} + ${credits}`,
             })
