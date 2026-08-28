@@ -9,7 +9,7 @@ import type { RunToolResultStore } from "./run"
 // completed action or re-bills an investigation. Doubles as the durable
 // account of "what did that run actually do" for the Act handoff briefing
 // (reference/automation-primitives.md §5).
-const SIDE_EFFECT_TOOLS = new Set([
+export const SIDE_EFFECT_TOOLS = new Set([
   "write",
   "mkdir",
   "move",
