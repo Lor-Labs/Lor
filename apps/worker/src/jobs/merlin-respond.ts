@@ -1,12 +1,13 @@
 import { randomUUID } from "node:crypto"
 import { checkCredits, recordUsage } from "@repo/billing"
+import type { SQL } from "@repo/db"
 import {
   and,
   db,
   desc,
   eq,
-  isNotNull,
   isNull,
+  lte,
   MERLIN_USER_ID,
   ne,
   notExists,
@@ -61,6 +62,11 @@ type RedisClient = ReturnType<typeof createClient>
 // Batch streamed tokens so we publish ~every 24 chars, not per chunk.
 const FLUSH_THRESHOLD = 24
 const CONTEXT_LIMIT = 30
+// Channel messages posted at/before a thread's root, pulled into thread-scoped
+// runs. Placement-routed threads root at the mention itself, so a file
+// uploaded as its own message just before lives at channel level — invisible
+// to pure thread scope (LOR-66).
+const PRE_THREAD_CONTEXT_LIMIT = 10
 // Write-back lock TTL (s); auto-releases if the worker crashes.
 const WRITEBACK_LOCK_TTL = 120
 // Floor of remaining budget below which the optional write-back is skipped.
@@ -79,6 +85,46 @@ async function loadConversation(args: {
   threadRootId: string | null
   merlinMessageId: string
 }) {
+  const selectTurns = (scope: SQL | undefined) =>
+    db
+      .select({
+        content: schema.message.content,
+        authorName: schema.user.name,
+        authorUsername: schema.user.username,
+        authorDisplayUsername: schema.user.displayUsername,
+        attachments: schema.message.attachments,
+      })
+      .from(schema.message)
+      .innerJoin(schema.user, eq(schema.message.authorId, schema.user.id))
+      .where(
+        and(
+          scope,
+          ne(schema.message.id, args.merlinMessageId),
+          // Attachment-only messages have null/blank content but are real
+          // turns — dropping them made Merlin blind to uploaded files. Blank
+          // messages with nothing attached stay out (empty turns, placeholders).
+          or(
+            sql`btrim(coalesce(${schema.message.content}, '')) <> ''`,
+            sql`jsonb_array_length(coalesce(${schema.message.attachments}, '[]'::jsonb)) > 0`
+          ),
+          // Still-queued messages haven't been "sent" yet — each gets its own
+          // follow-up run, so they stay out of earlier runs' context (mirrors
+          // the clients hiding them from the transcript).
+          notExists(
+            db
+              .select({ id: schema.agentRunQueue.id })
+              .from(schema.agentRunQueue)
+              .where(
+                and(
+                  eq(schema.agentRunQueue.messageId, schema.message.id),
+                  eq(schema.agentRunQueue.state, "queued")
+                )
+              )
+          )
+        )
+      )
+      .orderBy(desc(schema.message.createdAt))
+
   const scope = args.threadRootId
     ? or(
         eq(schema.message.id, args.threadRootId),
@@ -89,44 +135,30 @@ async function loadConversation(args: {
         isNull(schema.message.threadRootId)
       )
 
-  const rows = await db
-    .select({
-      content: schema.message.content,
-      authorName: schema.user.name,
-      authorUsername: schema.user.username,
-      authorDisplayUsername: schema.user.displayUsername,
-      attachments: schema.message.attachments,
-    })
-    .from(schema.message)
-    .innerJoin(schema.user, eq(schema.message.authorId, schema.user.id))
-    .where(
-      and(
-        scope,
-        ne(schema.message.id, args.merlinMessageId),
-        // Attachment-only messages have null content but are real turns —
-        // dropping them made Merlin blind to uploaded files.
-        or(
-          isNotNull(schema.message.content),
-          sql`jsonb_array_length(coalesce(${schema.message.attachments}, '[]'::jsonb)) > 0`
-        ),
-        // Still-queued messages haven't been "sent" yet — each gets its own
-        // follow-up run, so they stay out of earlier runs' context (mirrors
-        // the clients hiding them from the transcript).
-        notExists(
-          db
-            .select({ id: schema.agentRunQueue.id })
-            .from(schema.agentRunQueue)
-            .where(
-              and(
-                eq(schema.agentRunQueue.messageId, schema.message.id),
-                eq(schema.agentRunQueue.state, "queued")
-              )
-            )
+  const rows = await selectTurns(scope).limit(CONTEXT_LIMIT)
+
+  // Thread runs also get the channel messages that led up to the root —
+  // attachments and asks posted right before the thread opened live there.
+  if (args.threadRootId) {
+    const root = await db
+      .select({ createdAt: schema.message.createdAt })
+      .from(schema.message)
+      .where(eq(schema.message.id, args.threadRootId))
+      .limit(1)
+      .then((r) => r[0])
+    if (root) {
+      const pre = await selectTurns(
+        and(
+          eq(schema.message.channelId, args.channelId),
+          isNull(schema.message.threadRootId),
+          ne(schema.message.id, args.threadRootId),
+          lte(schema.message.createdAt, root.createdAt)
         )
-      )
-    )
-    .orderBy(desc(schema.message.createdAt))
-    .limit(CONTEXT_LIMIT)
+      ).limit(PRE_THREAD_CONTEXT_LIMIT)
+      // rows is newest→oldest; pre-thread rows are older than every thread row.
+      rows.push(...pre)
+    }
+  }
 
   return rows.reverse().map((r) => {
     const toRef = (a: NonNullable<typeof r.attachments>[number]) => ({

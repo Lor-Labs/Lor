@@ -51,6 +51,8 @@ export type RunBudgets = {
 export type RunCounters = {
   steps: number
   inputTokens: number
+  // Cache-read portion of inputTokens (subset, not additional).
+  cachedInputTokens: number
   outputTokens: number
   toolCalls: number
   toolOutputBytes: number
@@ -112,6 +114,7 @@ export type RunHandle = {
 export const ZERO_RUN_COUNTERS: RunCounters = {
   steps: 0,
   inputTokens: 0,
+  cachedInputTokens: 0,
   outputTokens: 0,
   toolCalls: 0,
   toolOutputBytes: 0,
@@ -139,7 +142,12 @@ export function budgetViolation(
   budgets: RunBudgets
 ): BudgetStopReason | null {
   if (counters.steps >= budgets.steps) return "budget_steps"
-  if (counters.inputTokens >= budgets.inputTokens) return "budget_input_tokens"
+  // Cache reads bill at a fraction of fresh input and re-send the same bytes
+  // every step, so they count at 1/10 — otherwise long tool loops exhaust the
+  // rail on cheap cached re-sends while credits sit far below their ceiling.
+  const weightedInputTokens =
+    counters.inputTokens - Math.floor(counters.cachedInputTokens * 0.9)
+  if (weightedInputTokens >= budgets.inputTokens) return "budget_input_tokens"
   if (counters.outputTokens >= budgets.outputTokens) {
     return "budget_output_tokens"
   }
@@ -168,6 +176,8 @@ export function addStepToCounters(
   return {
     steps: counters.steps + 1,
     inputTokens: counters.inputTokens + (record.inputTokens ?? 0),
+    cachedInputTokens:
+      counters.cachedInputTokens + (record.cachedInputTokens ?? 0),
     outputTokens: counters.outputTokens + (record.outputTokens ?? 0),
     toolCalls: counters.toolCalls + record.toolCalls,
     toolOutputBytes: counters.toolOutputBytes + record.toolOutputBytes,

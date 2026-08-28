@@ -18,6 +18,15 @@ const RATES = [
     cached: 0.2,
     output: 4.05,
   },
+  // GLM 5.3 Flash (small-model default): priced at the standard Gateway route
+  // ($0.15/$0.50, cache read $0.03). The Modal route lists higher
+  // ($0.45/$1.50/$0.09) — accepted under-billing risk if failover lands there.
+  {
+    model: "zai/glm-5.3-flash",
+    input: 0.15,
+    cached: 0.03,
+    output: 0.5,
+  },
   {
     model: "alibaba/qwen3-embedding-4b",
     input: 0.02,

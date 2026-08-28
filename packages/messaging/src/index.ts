@@ -3,6 +3,7 @@ import {
   type ChannelAudienceInfo,
   resolveChannelAudienceInfo,
 } from "@repo/db/queries/channel-access"
+import type { Embed } from "@repo/db/schema"
 import type {
   MentionNotification,
   ReactionNotification,
@@ -35,6 +36,7 @@ type FanoutMessage = {
   content: string | null
   author: { name: string; image?: string | null }
   attachments: readonly unknown[]
+  embeds?: readonly Embed[]
   threadRootId?: string | null
 }
 
@@ -322,6 +324,8 @@ export type NotificationPreviewMention = {
   displayUsername?: string | null
 }
 
+const NOTIFICATION_PREVIEW_MAX_LENGTH = 100
+
 // Plain-text preview for notification surfaces (desktop notifications, push).
 // Mention/citation/markdown handling mirrors apps/web/src/lib/search-preview.ts.
 export function buildNotificationContentPreview(input: {
@@ -362,7 +366,7 @@ export function buildNotificationContentPreview(input: {
     .replace(/`([^`\n]+)`/g, "$1")
     .trim()
 
-  const maxLength = input.maxLength ?? 100
+  const maxLength = input.maxLength ?? NOTIFICATION_PREVIEW_MAX_LENGTH
   if (normalized.length <= maxLength) return normalized
   return `${normalized.slice(0, maxLength)}…`
 }
@@ -382,6 +386,36 @@ async function buildResolvedNotificationContentPreview(content: string) {
           .where(inArray(schema.user.id, mentionIds))
       : []
   return buildNotificationContentPreview({ content, mentions })
+}
+
+// Embed titles/descriptions/fields are connector-supplied and unbounded, so
+// stop reading once there is enough raw text to fill the preview instead of
+// flattening and markdown-normalizing a whole payload for 100 characters.
+// Markdown stripping only shrinks text, so a few budgets' worth always suffices.
+const EMBED_PREVIEW_SCAN_BUDGET = NOTIFICATION_PREVIEW_MAX_LENGTH * 4
+
+function buildNotificationEmbedPreview(embeds: readonly Embed[] | undefined) {
+  const parts: string[] = []
+  let remaining = EMBED_PREVIEW_SCAN_BUDGET
+  for (const embed of embeds ?? []) {
+    const texts = [
+      embed.title,
+      embed.description,
+      ...(embed.fields ?? []).flatMap((field) => [field.name, field.value]),
+    ]
+    for (const text of texts) {
+      if (remaining <= 0) break
+      if (!text?.trim()) continue
+      const slice = text.slice(0, remaining)
+      parts.push(slice)
+      remaining -= slice.length
+    }
+    if (remaining <= 0) break
+  }
+
+  return parts.length > 0
+    ? buildNotificationContentPreview({ content: parts.join("\n") })
+    : ""
 }
 
 export function buildReactionNotification(input: {
@@ -432,14 +466,14 @@ export async function buildMessageFanout(input: MessageFanoutInput) {
   )
   const threadContext = await resolveThreadNotificationContext(input.message)
 
-  const previewText = input.message.content
-    ? await buildResolvedNotificationContentPreview(input.message.content)
-    : ""
-  const contentPreview = previewText
-    ? previewText
-    : input.message.attachments.length > 0
+  const contentPreview =
+    (input.message.content
+      ? await buildResolvedNotificationContentPreview(input.message.content)
+      : "") ||
+    buildNotificationEmbedPreview(input.message.embeds) ||
+    (input.message.attachments.length > 0
       ? `sent ${input.message.attachments.length} attachment${input.message.attachments.length > 1 ? "s" : ""}`
-      : null
+      : null)
 
   const unreadNotifications: Array<UserTargetedPayload<UnreadNotification>> =
     recipientIds.map((userId) => ({

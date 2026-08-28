@@ -134,6 +134,7 @@ export type ClaimOutcome =
 function countersOf(row: {
   steps: number
   inputTokens: number
+  cachedInputTokens: number
   outputTokens: number
   toolCalls: number
   toolOutputBytes: number
@@ -142,6 +143,7 @@ function countersOf(row: {
   return {
     steps: row.steps,
     inputTokens: row.inputTokens,
+    cachedInputTokens: row.cachedInputTokens,
     outputTokens: row.outputTokens,
     toolCalls: row.toolCalls,
     toolOutputBytes: row.toolOutputBytes,
@@ -152,6 +154,7 @@ function countersOf(row: {
 const COUNTER_SELECTION = {
   steps: schema.agentRun.steps,
   inputTokens: schema.agentRun.inputTokens,
+  cachedInputTokens: schema.agentRun.cachedInputTokens,
   outputTokens: schema.agentRun.outputTokens,
   toolCalls: schema.agentRun.toolCalls,
   toolOutputBytes: schema.agentRun.toolOutputBytes,
@@ -410,15 +413,37 @@ export async function claimAgentRun(
       credits += await creditsFor(nested)
     }
     const updated = await db.transaction(async (tx) => {
+      // Insert first: a replayed step (same run + step number) must not
+      // re-add its tokens/credits to the run counters, so the increments
+      // below only run when this step row is genuinely new.
+      const insertedStep = await tx
+        .insert(schema.agentRunStep)
+        .values({
+          runId,
+          step: record.step,
+          messages: record.messages as unknown[],
+          model: record.model ?? null,
+          inputTokens: record.inputTokens ?? null,
+          cachedInputTokens: record.cachedInputTokens ?? null,
+          outputTokens: record.outputTokens ?? null,
+          reasoningTokens: record.reasoningTokens ?? null,
+          toolCalls: record.toolCalls,
+          toolOutputBytes: record.toolOutputBytes,
+        })
+        .onConflictDoNothing()
+        .returning({ step: schema.agentRunStep.step })
+        .then((r) => r[0])
+      const isNew = Boolean(insertedStep)
       const row = await tx
         .update(schema.agentRun)
         .set({
           steps: record.step,
-          inputTokens: sql`${schema.agentRun.inputTokens} + ${record.inputTokens ?? 0}`,
-          outputTokens: sql`${schema.agentRun.outputTokens} + ${record.outputTokens ?? 0}`,
-          toolCalls: sql`${schema.agentRun.toolCalls} + ${record.toolCalls}`,
-          toolOutputBytes: sql`${schema.agentRun.toolOutputBytes} + ${record.toolOutputBytes}`,
-          creditsSpent: sql`${schema.agentRun.creditsSpent} + ${credits}`,
+          inputTokens: sql`${schema.agentRun.inputTokens} + ${isNew ? (record.inputTokens ?? 0) : 0}`,
+          cachedInputTokens: sql`${schema.agentRun.cachedInputTokens} + ${isNew ? (record.cachedInputTokens ?? 0) : 0}`,
+          outputTokens: sql`${schema.agentRun.outputTokens} + ${isNew ? (record.outputTokens ?? 0) : 0}`,
+          toolCalls: sql`${schema.agentRun.toolCalls} + ${isNew ? record.toolCalls : 0}`,
+          toolOutputBytes: sql`${schema.agentRun.toolOutputBytes} + ${isNew ? record.toolOutputBytes : 0}`,
+          creditsSpent: sql`${schema.agentRun.creditsSpent} + ${isNew ? credits : 0}`,
         })
         .where(
           and(
@@ -434,21 +459,6 @@ export async function claimAgentRun(
         .then((r) => r[0])
       if (!row) throw new LeaseLostError()
       if (row.stopRequestedAt) requestStop()
-      await tx
-        .insert(schema.agentRunStep)
-        .values({
-          runId,
-          step: record.step,
-          messages: record.messages as unknown[],
-          model: record.model ?? null,
-          inputTokens: record.inputTokens ?? null,
-          cachedInputTokens: record.cachedInputTokens ?? null,
-          outputTokens: record.outputTokens ?? null,
-          reasoningTokens: record.reasoningTokens ?? null,
-          toolCalls: record.toolCalls,
-          toolOutputBytes: record.toolOutputBytes,
-        })
-        .onConflictDoNothing()
       return row
     })
     counters = countersOf(updated)
@@ -687,6 +697,7 @@ export async function claimAgentRun(
             .update(schema.agentRun)
             .set({
               inputTokens: sql`${schema.agentRun.inputTokens} + ${u.inputTokens ?? 0}`,
+              cachedInputTokens: sql`${schema.agentRun.cachedInputTokens} + ${u.cachedInputTokens ?? 0}`,
               outputTokens: sql`${schema.agentRun.outputTokens} + ${u.outputTokens ?? 0}`,
               creditsSpent: sql`${schema.agentRun.creditsSpent} + ${credits}`,
             })

@@ -25,7 +25,8 @@ export type CodeSessionUsage = PiInvestigationUsage
 // (authorizePublish in code-actions.ts is the seam).
 export type ProposedChange = {
   repoFullName: string
-  // PR base (the repo's default branch) and the commit the session started from.
+  // PR base (the repo's default branch unless overridden in settings or by an
+  // explicit request) and the commit the session started from.
   baseBranch: string
   baseSha: string
   branch: string
@@ -172,13 +173,13 @@ export async function ensureCheckout(
   opts: {
     repoFullName: string
     workdir: string
-    defaultBranch: string
+    baseBranch: string
     branch: string
     continueBranch: boolean
     cloneToken: string
   }
 ): Promise<{ baseSha: string } | { error: string }> {
-  const { repoFullName, workdir, defaultBranch, branch, continueBranch } = opts
+  const { repoFullName, workdir, baseBranch, branch, continueBranch } = opts
   const tokenEnv = { GIT_TOKEN: opts.cloneToken }
   const tokenUrl = `https://x-access-token:$GIT_TOKEN@github.com/${repoFullName}.git`
   const scrub = (s: string) => s.split(opts.cloneToken).join("***")
@@ -215,7 +216,7 @@ export async function ensureCheckout(
 
     const clone = await git(
       sandbox,
-      `git clone --depth 1 --single-branch --branch "${defaultBranch}" "${tokenUrl}" "${workdir}" && git -C "${workdir}" remote set-url origin https://github.com/${repoFullName}.git`,
+      `git clone --depth 1 --single-branch --branch "${baseBranch}" "${tokenUrl}" "${workdir}" && git -C "${workdir}" remote set-url origin https://github.com/${repoFullName}.git`,
       { timeoutSec: CLONE_TIMEOUT_SEC, env: tokenEnv }
     )
     if (!clone.ok) {
@@ -243,7 +244,7 @@ export async function ensureCheckout(
     }
     const fetch = await git(
       sandbox,
-      `git -C "${workdir}" fetch --depth 1 "${tokenUrl}" "+refs/heads/${defaultBranch}:refs/remotes/origin/${defaultBranch}"`,
+      `git -C "${workdir}" fetch --depth 1 "${tokenUrl}" "+refs/heads/${baseBranch}:refs/remotes/origin/${baseBranch}"`,
       { timeoutSec: FETCH_TIMEOUT_SEC, env: tokenEnv }
     )
     if (!fetch.ok) {
@@ -261,7 +262,7 @@ export async function ensureCheckout(
     }
   }
 
-  let start = `refs/remotes/origin/${defaultBranch}`
+  let start = `refs/remotes/origin/${baseBranch}`
   if (continueBranch) {
     const fetch = await git(
       sandbox,
@@ -318,7 +319,8 @@ export async function prepareCodeChange(
   opts: PiCodeHandlers & {
     sandboxKey: string
     repoFullName: string
-    defaultBranch: string
+    // The branch to branch off of and open the PR against.
+    baseBranch: string
     cloneToken: string
     instructions: string
     title: string
@@ -328,12 +330,12 @@ export async function prepareCodeChange(
     abortSignal?: AbortSignal
   }
 ): Promise<PreparedCodeChange | { error: string }> {
-  const { repoFullName, defaultBranch, instructions, title, abortSignal } = opts
+  const { repoFullName, baseBranch, instructions, title, abortSignal } = opts
   if (!REPO_FULL_NAME.test(repoFullName)) {
     return { error: `not a valid owner/repo name: ${repoFullName}` }
   }
-  if (!isSafeRef(defaultBranch)) {
-    return { error: `unsupported default branch name: ${defaultBranch}` }
+  if (!isSafeRef(baseBranch)) {
+    return { error: `unsupported base branch name: ${baseBranch}` }
   }
   if (opts.branch && !LOR_BRANCH.test(opts.branch)) {
     return {
@@ -355,7 +357,7 @@ export async function prepareCodeChange(
         const checkout = await ensureCheckout(sandbox, {
           repoFullName,
           workdir,
-          defaultBranch,
+          baseBranch,
           branch,
           continueBranch,
           cloneToken: opts.cloneToken,
@@ -476,7 +478,7 @@ export async function prepareCodeChange(
         return {
           change: {
             repoFullName,
-            baseBranch: defaultBranch,
+            baseBranch,
             baseSha: checkout.baseSha,
             branch,
             commitSha,

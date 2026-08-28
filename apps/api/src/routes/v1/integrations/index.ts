@@ -20,6 +20,7 @@ const integrationsRouter = createRouter()
   .openapi(routes.connectDatadog, handlers.connectDatadog)
   .openapi(routes.connectCloudwatch, handlers.connectCloudwatch)
   .openapi(routes.updateIntegration, handlers.updateIntegration)
+  .openapi(routes.updateGithubRepoConfig, handlers.updateGithubRepoConfig)
   .openapi(routes.disconnectIntegration, handlers.disconnectIntegration)
 
 export default integrationsRouter
