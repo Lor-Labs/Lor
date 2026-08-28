@@ -17,10 +17,17 @@ checkboxes and deviations log as steps land.
   continued run never rebuilds or re-injects a snapshot.
 - **Continuation applies to thread + task scopes only** (`contextThreadRootId`
   set). Channel-scope runs always use the fresh regime.
-- **Predecessor eligibility:** most recent run in the same `scopeKey` with
-  checkpointed steps, finished within `CONTINUATION_MAX_AGE` (start: 6h).
-  `complete` and `stopped` states qualify; `failed` qualifies too if steps
-  exist (a budget-tripped run is exactly the one worth continuing).
+- **Predecessor eligibility:** most recent finished run in the same `scopeKey`
+  with checkpointed steps. `complete` and `stopped` qualify; `failed` qualifies
+  too (a budget-tripped run is exactly the one worth continuing).
+  **No age cutoff** — a thread is one conversation however long the gap. A gap
+  over 30 min is instead reported to the model in the delta ("It has been about
+  3 days since then, so re-check anything that may have changed").
+- **The whole chain replays, not one hop.** `agent_run_step.messages` holds only
+  the messages that run generated, so continuing just the immediate predecessor
+  would silently drop everything before it. `continuedFromRunId` is walked back
+  to the chain root (cap 20 hops): root's snapshot, then each hop's delta
+  (re-rendered from its `context.conversation`) and steps.
 - **Delta rule:** appended messages = scope messages created after the
   predecessor's coverage, excluding rows the predecessor consumed as steered
   (`agent_run_queue.consumedAtStep`) — those are already inside its transcript.
@@ -94,7 +101,7 @@ Ship first: independent of Track B, immediate win for export-style tasks.
 - Result: system prompt is stable per channel; plan updates no longer
   invalidate the whole prompt cache.
 
-### B1 — continuation assembly (~400 LOC) — [ ]
+### B1 — continuation assembly (~400 LOC) — [x] built 2026-08-28, awaiting review/commit. **db:push owed** (`agent_run.continued_from_run_id`)
 
 - `packages/db/src/schemas/agent-runs.ts`: add
   `continuedFromRunId: uuid("continued_from_run_id")` on `agent_run`
@@ -141,6 +148,15 @@ Ship first: independent of Track B, immediate win for export-style tasks.
 A1 → A2 → B0 → B1 → B2 → B3. Each step: review → Jacob commits → next.
 
 ## Deviations log
+
+- **B1:** dropped `CONTINUATION_MAX_AGE` (was 6h). It was a cost guard, not a
+  correctness one — and compaction already bounds an inherited transcript's
+  size on the first step. A thread reply should carry the thread's working
+  state however long the gap; elapsed time is surfaced to the model instead.
+- **B1:** added the chain walk. Found while reviewing: a step row stores only
+  its own run's messages, so the original one-hop design would have lost run 1's
+  work as soon as run 3 continued run 2 — precisely the retry-after-retry case
+  this track exists to fix.
 
 - **B0:** no `apps/worker` change was needed. `saveContext` persists whatever
   `buildRunContext` returns, so adding `task` there put it in the snapshot

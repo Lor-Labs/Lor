@@ -1,5 +1,6 @@
 import { relations, sql } from "drizzle-orm"
 import {
+  type AnyPgColumn,
   index,
   integer,
   jsonb,
@@ -180,6 +181,16 @@ export const agentRun = pgTable(
     // so these form a coherent chain rather than interleaved chatter.
     // See reference/automation-primitives.md §5.
     handoffNote: text("handoff_note"),
+
+    // Set when this run continued a predecessor's transcript instead of
+    // rebuilding context from the chat snapshot (reference/context-continuation.md).
+    // Audit/debug only — the transcript itself is already copied into this
+    // run's steps, so losing the pointer costs nothing (hence set null, never
+    // cascade: deleting an old run must not delete the run that followed it).
+    continuedFromRunId: uuid("continued_from_run_id").references(
+      (): AnyPgColumn => agentRun.id,
+      { onDelete: "set null" }
+    ),
   },
   (table) => [
     uniqueIndex("agent_run_messageId_uidx").on(table.messageId),
