@@ -85,7 +85,13 @@ import {
 import { blaxelConfigured } from "./sandbox/blaxel"
 import { resolveSourceCitation, searchSources, sourceTools } from "./sources"
 import { generateSmallObject } from "./structured"
-import { type RunTaskContext, taskPromptSection, taskTools } from "./tasks"
+import {
+  type RunTaskContext,
+  taskContextSnapshot,
+  taskRulesSection,
+  taskStateSection,
+  taskTools,
+} from "./tasks"
 import { guardTools } from "./tool-guard"
 import {
   completeLoopTool,
@@ -1426,6 +1432,7 @@ async function buildRunContext(
     brainContext,
     rosterText,
     ...(channelName ? { channelName } : {}),
+    ...(ctx.task ? { task: taskContextSnapshot(ctx.task) } : {}),
   }
 }
 
@@ -1488,6 +1495,11 @@ export async function buildInitialUserMessage(
   }
   if (context.rosterText) {
     parts.push({ type: "text", text: context.rosterText })
+  }
+  // Last before the directive: the most volatile block sits at the very tail,
+  // so a plan update invalidates as little of the cached prefix as possible.
+  if (context.task) {
+    parts.push({ type: "text", text: taskStateSection(context.task) })
   }
   parts.push({
     type: "text",
@@ -1851,7 +1863,7 @@ export async function respond(
         loadWorkspaceInstructions(ctx.workspaceId),
       ])
       const userMessage = await buildInitialUserMessage(context)
-      instructions = `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}${context.rosterText ? `\n\n${MENTION_GUIDANCE}` : ""}${workspaceInstructions ? `\n\n${formatInstructionsBlock(workspaceInstructions)}` : ""}${ctx.task ? `\n\n${taskPromptSection(ctx.task, artifactsEnabled)}` : ""}${ctx.triggered ? `\n\n${ctx.triggered.loop ? loopPromptSection({ ...ctx.triggered, loop: ctx.triggered.loop }) : triggeredPromptSection(ctx.triggered)}` : ""}`
+      instructions = `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}${context.rosterText ? `\n\n${MENTION_GUIDANCE}` : ""}${workspaceInstructions ? `\n\n${formatInstructionsBlock(workspaceInstructions)}` : ""}${ctx.task ? `\n\n${taskRulesSection(artifactsEnabled)}` : ""}${ctx.triggered ? `\n\n${ctx.triggered.loop ? loopPromptSection({ ...ctx.triggered, loop: ctx.triggered.loop }) : triggeredPromptSection(ctx.triggered)}` : ""}`
       messages = [userMessage]
       counters = { ...ZERO_RUN_COUNTERS }
       text = ""

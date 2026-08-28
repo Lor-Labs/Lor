@@ -16,6 +16,7 @@ import { connectorTrigger } from "./connector-triggers"
 import { loop } from "./loops"
 import type { MerlinToolCall } from "./messages"
 import { message } from "./messages"
+import type { TaskPlanItem, TaskStatus } from "./tasks"
 import { triggerDelivery } from "./trigger-deliveries"
 import { user } from "./users"
 import { workspace } from "./workspaces"
@@ -364,6 +365,17 @@ export type AgentRunContextTurn = {
   images?: AgentRunContextImage[]
   files?: AgentRunContextFile[]
 }
+// Task state as of the run's start. Lives in the snapshot (not the system
+// prompt) because status/plan/summary change on every set_plan — keeping them
+// out of the instructions leaves the cached prompt prefix stable across a
+// task's runs.
+export type AgentRunContextTask = {
+  title: string
+  goal: string
+  status: TaskStatus
+  plan: TaskPlanItem[]
+  summary: string | null
+}
 export type AgentRunContext = {
   conversation: AgentRunContextTurn[]
   brainContext: string
@@ -371,6 +383,7 @@ export type AgentRunContext = {
   // Optional so pre-existing snapshots (and DM channels, which have no name)
   // keep parsing.
   channelName?: string
+  task?: AgentRunContextTask
 }
 
 export type AgentRun = typeof agentRun.$inferSelect

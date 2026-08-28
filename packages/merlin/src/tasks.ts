@@ -1,5 +1,5 @@
 import { db, eq, schema } from "@repo/db"
-import type { Task, TaskPlanItem } from "@repo/db/schema"
+import type { AgentRunContextTask, Task, TaskPlanItem } from "@repo/db/schema"
 import type { RealtimeTask } from "@repo/realtime-types/events"
 import { tool } from "ai"
 import { z } from "zod"
@@ -223,23 +223,14 @@ export type RunTaskContext = {
   summary: string | null
 }
 
-export function taskPromptSection(
-  task: RunTaskContext,
-  artifactsEnabled: boolean
-): string {
-  const plan = task.plan.length
-    ? task.plan
-        .map(
-          (i) =>
-            `- [${i.status}] ${i.text}${i.description ? ` — ${i.description}` : ""}`
-        )
-        .join("\n")
-    : "(no plan yet)"
+// Static half of the task prompt: identical for every task run, so it lives in
+// the instructions and stays inside the cached prompt prefix. The task's own
+// title/goal/status/plan are volatile and ride the conversation snapshot
+// instead — see taskStateSection.
+export function taskRulesSection(artifactsEnabled: boolean): string {
   return [
     "## Active task",
-    `You are working a delegated task for the team — not answering a one-off question. Task: "${task.title}".`,
-    `Goal: ${task.goal}`,
-    `Current plan:\n${plan}`,
+    "You are working a delegated task for the team — not answering a one-off question. The task's title, goal, and current plan appear at the end of the conversation below.",
     "",
     "Task rules:",
     "- Keep the plan current with set_plan: set it when you start, mark items done as you finish them. The team watches it live.",
@@ -253,4 +244,34 @@ export function taskPromptSection(
     "- complete_task's summary is a one-sentence headline for the card — keep the detail for the message you write after it.",
     "- Anyone on the team may reply with new instructions mid-task; treat the newest instruction as authoritative.",
   ].join("\n")
+}
+
+// Volatile half: rendered at the tail of the initial user message, where a
+// change costs only the tail of the prompt rather than invalidating all of it.
+export function taskStateSection(task: AgentRunContextTask): string {
+  const plan = task.plan.length
+    ? task.plan
+        .map(
+          (i) =>
+            `- [${i.status}] ${i.text}${i.description ? ` — ${i.description}` : ""}`
+        )
+        .join("\n")
+    : "(no plan yet)"
+  return [
+    "\n\n## Your active task",
+    `Task: "${task.title}" (status: ${task.status}).`,
+    `Goal: ${task.goal}`,
+    ...(task.summary ? [`Summary so far: ${task.summary}`] : []),
+    `Current plan:\n${plan}`,
+  ].join("\n")
+}
+
+export function taskContextSnapshot(task: RunTaskContext): AgentRunContextTask {
+  return {
+    title: task.title,
+    goal: task.goal,
+    status: task.status,
+    plan: task.plan,
+    summary: task.summary,
+  }
 }

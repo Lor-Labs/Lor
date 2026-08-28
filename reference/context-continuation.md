@@ -77,7 +77,7 @@ Ship first: independent of Track B, immediate win for export-style tasks.
 
 ## Track B — run continuation
 
-### B0 — task state out of the system prompt (~250 LOC) — [ ]
+### B0 — task state out of the system prompt (~250 LOC) — [x] built 2026-08-28, awaiting review/commit
 
 - `packages/db/src/schemas/agent-runs.ts`: extend `AgentRunContext` with an
   optional `task` snapshot `{ title, goal, status, plan, summary }` (jsonb
@@ -141,5 +141,11 @@ Ship first: independent of Track B, immediate win for export-style tasks.
 A1 → A2 → B0 → B1 → B2 → B3. Each step: review → Jacob commits → next.
 
 ## Deviations log
+
+- **B0:** no `apps/worker` change was needed. `saveContext` persists whatever
+  `buildRunContext` returns, so adding `task` there put it in the snapshot
+  automatically. Task title/goal moved to the state section too (not just
+  status/plan/summary): the system prompt now holds zero per-task data, so the
+  cached prefix is identical for every task run in a channel.
 
 - (none yet)
