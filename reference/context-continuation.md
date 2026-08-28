@@ -167,7 +167,7 @@ Replaces the current blunt prune (`pruneMessages` with
   `run-continuation.ts` stop being functional limits and are pure loop guards.
   Consider replacing the per-hop chain walk with one recursive CTE.
 
-### B3 — docs + hardening (~150 LOC) — [ ]
+### B3 — docs + hardening (~150 LOC) — [x] built 2026-08-28, awaiting review/commit
 
 - `reference/agent-harness.md`: as-built update — two regimes, predecessor
   rules, `agent_run_step` permanence note.
@@ -212,12 +212,32 @@ path. Neither blocks B or C.
   ⚠️ Verify AI SDK v7 supports image parts in tool results before committing to
   this design; fall back to a modest cap raise if not.
 
+### D3 — speaker spoofing in the transcript (~200 LOC) — [ ]
+
+Channel turns render as `${authorName}: ${content}` lines inside one user
+message (`buildInitialUserMessage`, and `formatDelta` copies the pattern). The
+label is only a text convention, so a message body containing a newline plus
+`Someone: …` renders as an additional apparent speaker. No special access is
+needed — anyone can type a newline — and with all channels public to the
+workspace, any member can appear to speak as any other (or as Merlin).
+
+- `sanitizeRosterLabel` (strips `\r\n<>`, clips to 80) already exists but is
+  applied **only** to the mentionable-people roster. Apply it to `authorName`
+  in conversation turns too.
+- Neutralize `Name:`-shaped line starts in message *bodies* — indent
+  continuation lines, fence the body, or escape a leading `word:` pattern.
+  Whatever is chosen must survive round-tripping into the stored transcript,
+  since continued runs replay these strings verbatim.
+- Same treatment for `formatDelta` and `withAttachmentLines` in
+  `apps/worker/src/lib/agent-run.ts` (mid-run steer injections).
+
 ## Step order
 
-A1 → A2 → B0 → B1 → B2 → B3 → C1 → D1 → D2. Each step: review → Jacob commits
-→ next. C1 (summarizing compaction) is independent of Track B and can move
-earlier; it is the fix for mid-run forgetting, as B is for cross-run
-forgetting. Track D is independent of both.
+A1 → A2 → B0 → B1 → B2 → B3 → C1 → D1 → D2 → D3. Each step: review → Jacob
+commits → next. C1 (summarizing compaction) is independent of Track B and can
+move earlier; it is the fix for mid-run forgetting, as B is for cross-run
+forgetting. Track D is independent of both — D3 is the only one with a
+security flavor, so it may deserve to jump the queue.
 
 ## Deviations log
 
