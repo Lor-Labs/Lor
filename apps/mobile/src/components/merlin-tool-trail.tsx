@@ -37,6 +37,7 @@ function builtinToolIcon(toolName: string): IconSvgElement {
     case "fetch_web":
       return Globe02Icon
     case "fetch_source":
+    case "export_tool_result":
       return Download01Icon
     case "ls":
     case "tree":

@@ -73,6 +73,7 @@ function toolIcon(toolName: string): TrailIcon {
     case "fetch_web":
       return GlobeMark
     case "fetch_source":
+    case "export_tool_result":
       return DownloadGlyph
     case "ls":
     case "tree":

@@ -23,6 +23,10 @@ import {
   tool,
 } from "ai"
 import { z } from "zod"
+import {
+  createExportToolResultTool,
+  EXPORT_TOOL_NAME,
+} from "./artifacts/export-tool"
 import { artifactTools } from "./artifacts/tool"
 import { attioTools, resolveWorkspaceAttio } from "./attio"
 import {
@@ -134,6 +138,8 @@ const WEB_PROMPT_LINE = `- The public web: search_web searches the web for curre
 const NOTION_PROMPT_LINE = `- The team's selected Notion content (read-only): search_notion searches page and data-source titles (not page-body text); fetch_notion_page reads a known page as Markdown with properties and comments; query_notion_data_source retrieves a database schema and structured rows; list_notion_users resolves workspace people without email addresses. Meetings are ordinary selected pages or rows—do not attempt user-specific meeting search. Reference Notion pages with normal Markdown links to their url (live results, not [[src:]] citations).`
 
 const ARTIFACTS_PROMPT_LINE = `- File deliverables: create_artifacts runs a coding agent in a clean sandbox (Python with pandas, matplotlib, openpyxl) that produces real files — reports, cleaned or analyzed data, generated documents or code. Every file it delivers is stored and returned with a link; share those links in your answer. Use it when someone asks for a file, document, or dataset — never for ordinary answers (it's slow). Non-image files people share appear in the conversation as [file: name — type, size — url] lines; pass those URLs as inputFileUrls when the work needs them. Write complete, self-contained instructions including desired filenames and formats — the agent can't ask follow-ups.`
+
+const EXPORT_PROMPT_LINE = `- Bulk data to a file: export_tool_result runs one of your other tools and saves its complete result straight to a file, returning only a receipt (url, row and byte counts, a small preview) — the data itself never enters this conversation. Reach for it whenever a tool would return more data than you need to read: database queries (run_sql and friends), long list or search results, large JSON. Never page through big results by calling a tool repeatedly and copying rows into your reply — export once and use the file. The returned url is a workspace file: share it as the deliverable, and/or pass it to create_artifacts as inputFileUrls when the data needs further processing (merging, cleaning, charts). Only read tools can be exported; anything that takes an action is refused.`
 
 const CODE_ACTIONS_PROMPT_LINE = `- Code changes: propose_code_change runs a coding agent on a connected repository, pushes the result to a lor/* branch, and opens a DRAFT pull request — it never merges anything. Use it only when someone clearly asks for a code change (fix, implement, adjust); questions about code go to investigate_code instead. Pull requests target each repository's configured base branch (its default branch unless the workspace overrides it); when someone asks to target a different existing branch, pass it as base. Always share the returned pull request link in your answer. To iterate on an open proposal (review feedback, follow-up fixes), pass its branch back to update the same pull request. Keep proposals small and focused; split unrelated changes into separate proposals.`
 
@@ -1791,6 +1797,20 @@ export async function respond(
         : {}),
     }
 
+    // Binds last: it dispatches into the finished tool map (including MCP
+    // tools), so every read tool above is exportable to a file.
+    if (artifactsEnabled && ctx.channelId) {
+      ;(tools as ToolSet)[EXPORT_TOOL_NAME] = createExportToolResultTool({
+        tools,
+        toolsContext,
+      })
+      ;(toolsContext as Record<string, unknown>)[EXPORT_TOOL_NAME] = {
+        workspaceId: ctx.workspaceId,
+        channelId: ctx.channelId,
+        task: ctx.task ? { id: ctx.task.id } : null,
+      }
+    }
+
     // Only describe the connectors actually bound for this channel.
     const connectorPromptLines = [
       env.EXA_API_KEY && caps.includes("web") ? WEB_PROMPT_LINE : null,
@@ -1802,6 +1822,7 @@ export async function respond(
       attio && caps.includes("attio") ? ATTIO_PROMPT_LINE : null,
       notion && caps.includes("notion") ? NOTION_PROMPT_LINE : null,
       artifactsEnabled ? ARTIFACTS_PROMPT_LINE : null,
+      artifactsEnabled && ctx.channelId ? EXPORT_PROMPT_LINE : null,
       codeActionsEnabled ? CODE_ACTIONS_PROMPT_LINE : null,
       ctx.proposeLoop && ctx.channelId ? LOOPS_PROMPT_LINE : null,
       customTools ? CUSTOM_TOOLS_PROMPT_LINE : null,

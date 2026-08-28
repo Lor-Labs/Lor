@@ -60,7 +60,7 @@ Ship first: independent of Track B, immediate win for export-style tasks.
 - `packages/merlin/src/artifacts/export-tool.test.ts`: CSV encoding (quotes,
   commas, newlines, unicode), shape detection, deny-list, receipt shape.
 
-### A2 — wiring + prompt (~250 LOC) — [ ]
+### A2 — wiring + prompt (~250 LOC) — [x] built 2026-08-28, awaiting review/commit; live Neon check owed
 
 - `packages/merlin/src/index.ts`: add to the tool map (assembled ~L1640) after
   the base tools exist (factory closes over the map), before `guardTools`
