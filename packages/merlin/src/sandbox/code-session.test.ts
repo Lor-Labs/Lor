@@ -93,15 +93,23 @@ describe("workdir + sandbox naming", () => {
 })
 
 describe("ensureCheckout", () => {
-  it("creates the repository parent before cloning in a fresh sandbox", async () => {
+  const completed = {
+    status: "completed" as const,
+    exitCode: 0,
+    stdout: "",
+    stderr: "",
+  }
+  // Deliberately not "main": the repo base-branch override is only honoured if
+  // every git step reads the configured branch instead of the repo default.
+  const BASE_BRANCH = "release/2026"
+
+  beforeEach(() => {
+    vi.mocked(execToCompletion).mockReset()
+  })
+
+  it("creates the repository parent and clones the configured base branch in a fresh sandbox", async () => {
     const sandbox = {} as BlaxelSandbox
     const exec = vi.mocked(execToCompletion)
-    const completed = {
-      status: "completed" as const,
-      exitCode: 0,
-      stdout: "",
-      stderr: "",
-    }
     exec
       .mockResolvedValueOnce({
         ...completed,
@@ -118,7 +126,7 @@ describe("ensureCheckout", () => {
       ensureCheckout(sandbox, {
         repoFullName: "acme/api",
         workdir: repoWorkdir("acme/api"),
-        baseBranch: "main",
+        baseBranch: BASE_BRANCH,
         branch: "lor/fix-thing-a1b2c3d4",
         continueBranch: false,
         cloneToken: "token",
@@ -133,7 +141,61 @@ describe("ensureCheckout", () => {
     expect(exec).toHaveBeenNthCalledWith(
       3,
       sandbox,
-      expect.objectContaining({ command: expect.stringContaining("git clone") })
+      expect.objectContaining({
+        command: expect.stringContaining(
+          `git clone --depth 1 --single-branch --branch "${BASE_BRANCH}"`
+        ),
+      })
+    )
+    expect(exec).toHaveBeenNthCalledWith(
+      4,
+      sandbox,
+      expect.objectContaining({
+        command: expect.stringContaining(
+          `checkout -B "lor/fix-thing-a1b2c3d4" "refs/remotes/origin/${BASE_BRANCH}"`
+        ),
+      })
+    )
+  })
+
+  it("fetches and branches from the configured base branch in an existing checkout", async () => {
+    const sandbox = {} as BlaxelSandbox
+    const exec = vi.mocked(execToCompletion)
+    exec
+      .mockResolvedValueOnce(completed)
+      .mockResolvedValueOnce(completed)
+      .mockResolvedValueOnce(completed)
+      .mockResolvedValueOnce(completed)
+      .mockResolvedValueOnce({ ...completed, stdout: `${"b".repeat(40)}\n` })
+
+    await expect(
+      ensureCheckout(sandbox, {
+        repoFullName: "acme/api",
+        workdir: repoWorkdir("acme/api"),
+        baseBranch: BASE_BRANCH,
+        branch: "lor/fix-thing-a1b2c3d4",
+        continueBranch: false,
+        cloneToken: "token",
+      })
+    ).resolves.toEqual({ baseSha: "b".repeat(40) })
+
+    expect(exec).toHaveBeenNthCalledWith(
+      3,
+      sandbox,
+      expect.objectContaining({
+        command: expect.stringContaining(
+          `+refs/heads/${BASE_BRANCH}:refs/remotes/origin/${BASE_BRANCH}`
+        ),
+      })
+    )
+    expect(exec).toHaveBeenNthCalledWith(
+      4,
+      sandbox,
+      expect.objectContaining({
+        command: expect.stringContaining(
+          `checkout -B "lor/fix-thing-a1b2c3d4" "refs/remotes/origin/${BASE_BRANCH}"`
+        ),
+      })
     )
   })
 })

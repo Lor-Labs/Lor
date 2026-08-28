@@ -3,6 +3,7 @@ import {
   type ChannelAudienceInfo,
   resolveChannelAudienceInfo,
 } from "@repo/db/queries/channel-access"
+import type { Embed } from "@repo/db/schema"
 import type {
   MentionNotification,
   ReactionNotification,
@@ -30,21 +31,12 @@ type FanoutChannel = {
   workspaceName?: string | null
 }
 
-type FanoutEmbed = {
-  title?: string | null
-  description?: string | null
-  fields?: readonly {
-    name: string
-    value: string
-  }[]
-}
-
 type FanoutMessage = {
   id: string
   content: string | null
   author: { name: string; image?: string | null }
   attachments: readonly unknown[]
-  embeds?: readonly FanoutEmbed[]
+  embeds?: readonly Embed[]
   threadRootId?: string | null
 }
 
@@ -332,6 +324,8 @@ export type NotificationPreviewMention = {
   displayUsername?: string | null
 }
 
+const NOTIFICATION_PREVIEW_MAX_LENGTH = 100
+
 // Plain-text preview for notification surfaces (desktop notifications, push).
 // Mention/citation/markdown handling mirrors apps/web/src/lib/search-preview.ts.
 export function buildNotificationContentPreview(input: {
@@ -372,7 +366,7 @@ export function buildNotificationContentPreview(input: {
     .replace(/`([^`\n]+)`/g, "$1")
     .trim()
 
-  const maxLength = input.maxLength ?? 100
+  const maxLength = input.maxLength ?? NOTIFICATION_PREVIEW_MAX_LENGTH
   if (normalized.length <= maxLength) return normalized
   return `${normalized.slice(0, maxLength)}…`
 }
@@ -394,19 +388,34 @@ async function buildResolvedNotificationContentPreview(content: string) {
   return buildNotificationContentPreview({ content, mentions })
 }
 
-function buildNotificationEmbedPreview(
-  embeds: readonly FanoutEmbed[] | undefined
-) {
-  const content = (embeds ?? [])
-    .flatMap((embed) => [
+// Embed titles/descriptions/fields are connector-supplied and unbounded, so
+// stop reading once there is enough raw text to fill the preview instead of
+// flattening and markdown-normalizing a whole payload for 100 characters.
+// Markdown stripping only shrinks text, so a few budgets' worth always suffices.
+const EMBED_PREVIEW_SCAN_BUDGET = NOTIFICATION_PREVIEW_MAX_LENGTH * 4
+
+function buildNotificationEmbedPreview(embeds: readonly Embed[] | undefined) {
+  const parts: string[] = []
+  let remaining = EMBED_PREVIEW_SCAN_BUDGET
+  for (const embed of embeds ?? []) {
+    const texts = [
       embed.title,
       embed.description,
       ...(embed.fields ?? []).flatMap((field) => [field.name, field.value]),
-    ])
-    .filter((text): text is string => Boolean(text?.trim()))
-    .join("\n")
+    ]
+    for (const text of texts) {
+      if (remaining <= 0) break
+      if (!text?.trim()) continue
+      const slice = text.slice(0, remaining)
+      parts.push(slice)
+      remaining -= slice.length
+    }
+    if (remaining <= 0) break
+  }
 
-  return content ? buildNotificationContentPreview({ content }) : ""
+  return parts.length > 0
+    ? buildNotificationContentPreview({ content: parts.join("\n") })
+    : ""
 }
 
 export function buildReactionNotification(input: {

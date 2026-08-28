@@ -62,6 +62,10 @@ export function GithubBaseBranchSettings({
           ? `Pull requests for ${input.repoFullName} will target ${input.baseBranch}`
           : `${input.repoFullName} reset to its default branch`
       )
+      // Resetting the repo currently in the editor must clear the input too,
+      // otherwise the stale branch is still there and a later Save recreates
+      // the override that was just removed.
+      if (input.repoFullName === selected) setBranch(input.baseBranch ?? "")
       return queryClient.invalidateQueries({
         queryKey: ["integrations", workspaceSlug],
       })

@@ -1,5 +1,5 @@
 import { gunzipSync, gzipSync } from "node:zlib"
-import { and, db, eq, schema } from "@repo/db"
+import { and, asc, db, eq, schema } from "@repo/db"
 import { tool } from "ai"
 import { z } from "zod"
 import {
@@ -17,11 +17,17 @@ const SEARCH_MAX = 20
 const MAX_SCOPE_REPOS = 8
 const MAX_LISTED = 30
 
-export async function activeGithubInstallation(
+// A workspace can hold more than one active GitHub connection; oldest-first
+// ordering makes "the" connection deterministic, so the repo list and the base
+// branch overrides always come from the same installation.
+async function activeGithubConnection(
   workspaceId: string
-): Promise<string | null> {
+): Promise<{ id: string; externalId: string } | null> {
   const connection = await db
-    .select({ externalId: schema.integrationConnection.externalId })
+    .select({
+      id: schema.integrationConnection.id,
+      externalId: schema.integrationConnection.externalId,
+    })
     .from(schema.integrationConnection)
     .where(
       and(
@@ -30,8 +36,16 @@ export async function activeGithubInstallation(
         eq(schema.integrationConnection.status, "active")
       )
     )
+    .orderBy(asc(schema.integrationConnection.createdAt))
     .limit(1)
     .then((r) => r[0])
+  return connection ?? null
+}
+
+export async function activeGithubInstallation(
+  workspaceId: string
+): Promise<string | null> {
+  const connection = await activeGithubConnection(workspaceId)
   return connection?.externalId ?? null
 }
 
@@ -41,23 +55,15 @@ export async function activeGithubInstallation(
 export async function githubBaseBranchOverrides(
   workspaceId: string
 ): Promise<Record<string, string>> {
+  const connection = await activeGithubConnection(workspaceId)
+  if (!connection) return {}
   const rows = await db
     .select({
       repoFullName: schema.githubRepoConfig.repoFullName,
       baseBranch: schema.githubRepoConfig.baseBranch,
     })
     .from(schema.githubRepoConfig)
-    .innerJoin(
-      schema.integrationConnection,
-      eq(schema.githubRepoConfig.connectionId, schema.integrationConnection.id)
-    )
-    .where(
-      and(
-        eq(schema.integrationConnection.workspaceId, workspaceId),
-        eq(schema.integrationConnection.provider, "github"),
-        eq(schema.integrationConnection.status, "active")
-      )
-    )
+    .where(eq(schema.githubRepoConfig.connectionId, connection.id))
   return Object.fromEntries(rows.map((r) => [r.repoFullName, r.baseBranch]))
 }
 

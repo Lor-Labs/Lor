@@ -6,7 +6,6 @@ import {
   db,
   desc,
   eq,
-  isNotNull,
   isNull,
   lte,
   MERLIN_USER_ID,
@@ -101,10 +100,11 @@ async function loadConversation(args: {
         and(
           scope,
           ne(schema.message.id, args.merlinMessageId),
-          // Attachment-only messages have null content but are real turns —
-          // dropping them made Merlin blind to uploaded files.
+          // Attachment-only messages have null/blank content but are real
+          // turns — dropping them made Merlin blind to uploaded files. Blank
+          // messages with nothing attached stay out (empty turns, placeholders).
           or(
-            isNotNull(schema.message.content),
+            sql`btrim(coalesce(${schema.message.content}, '')) <> ''`,
             sql`jsonb_array_length(coalesce(${schema.message.attachments}, '[]'::jsonb)) > 0`
           ),
           // Still-queued messages haven't been "sent" yet — each gets its own
