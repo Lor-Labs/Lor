@@ -53,8 +53,8 @@ const serverSchema = z.object({
     blankToUndefined,
     z.string().url().optional()
   ),
-  MERLIN_MODEL: defaultedString("moonshotai/kimi-k3"),
-  MERLIN_MODEL_FALLBACKS: defaultedString("thinkingmachines/inkling"),
+  MERLIN_MODEL: defaultedString("zai/glm-5.3-flash"),
+  MERLIN_MODEL_FALLBACKS: defaultedString("moonshotai/kimi-k3"),
   MERLIN_SMALL_MODEL: defaultedString("zai/glm-5.3-flash"),
   MERLIN_SMALL_MODEL_FALLBACKS: defaultedString("moonshotai/kimi-k3"),
   MERLIN_COMPACT_INPUT_TOKENS: z.coerce
@@ -65,18 +65,18 @@ const serverSchema = z.object({
   // Agent-run hard ceilings (reference/agent-harness.md, budgets). Snapshotted
   // onto each agent_run row at creation, so changing these never alters an
   // in-flight run. Emergency rails, not normal stopping targets.
-  AGENT_RUN_MAX_STEPS: z.coerce.number().int().positive().default(100),
+  AGENT_RUN_MAX_STEPS: z.coerce.number().int().positive().default(500),
   AGENT_RUN_MAX_INPUT_TOKENS: z.coerce
     .number()
     .int()
     .positive()
-    .default(1_000_000),
+    .default(10_000_000),
   AGENT_RUN_MAX_OUTPUT_TOKENS: z.coerce
     .number()
     .int()
     .positive()
-    .default(150_000),
-  AGENT_RUN_MAX_TOOL_CALLS: z.coerce.number().int().positive().default(200),
+    .default(1_000_000),
+  AGENT_RUN_MAX_TOOL_CALLS: z.coerce.number().int().positive().default(1_000),
   AGENT_RUN_MAX_TOOL_OUTPUT_BYTES_PER_CALL: z.coerce
     .number()
     .int()
@@ -86,10 +86,10 @@ const serverSchema = z.object({
     .number()
     .int()
     .positive()
-    .default(2_097_152),
-  AGENT_RUN_MAX_WALL_MS: z.coerce.number().int().positive().default(1_800_000),
+    .default(16_777_216),
+  AGENT_RUN_MAX_WALL_MS: z.coerce.number().int().positive().default(7_200_000),
   AGENT_RUN_MAX_PROVIDER_RETRIES: z.coerce.number().int().min(0).default(3),
-  AGENT_RUN_MAX_CREDITS: z.coerce.number().int().positive().default(500),
+  AGENT_RUN_MAX_CREDITS: z.coerce.number().int().positive().default(2_000),
   // Workbench sandbox sessions (create_artifacts): a coding agent produces
   // deliverable files. The timeout bounds one session; the byte/file caps
   // bound what gets harvested out of the sandbox into artifact storage.
