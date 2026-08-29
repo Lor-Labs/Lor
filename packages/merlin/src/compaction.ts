@@ -119,7 +119,7 @@ function messageTokens(message: ModelMessage): number {
   }
   return partsOf(message.content).reduce((sum, part) => {
     if (part.type === "image") return sum + IMAGE_TOKEN_ESTIMATE
-    return sum + estimateTokens(JSON.stringify(part))
+    return sum + estimateTokens(JSON.stringify(part) ?? "")
   }, 0)
 }
 
