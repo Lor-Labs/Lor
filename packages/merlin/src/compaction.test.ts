@@ -22,6 +22,7 @@ import {
   chooseSplit,
   compact,
   isSafeSplit,
+  isStateMessage,
   isSummaryMessage,
   newCompactionState,
   renderForSummary,
@@ -290,6 +291,36 @@ describe("compact", () => {
     const prompt = String(generateText.mock.calls.at(-1)?.[0]?.prompt)
     expect(prompt).toContain("notes v1")
     expect(isSafeSplit(second, second.length)).toBe(true)
+  })
+
+  it("replaces the previous task-state block instead of stacking a second", async () => {
+    const task: AgentRunContextTask = {
+      title: "Repeat task",
+      goal: "compact twice",
+      status: "running",
+      plan: [],
+      summary: null,
+    }
+    generateText.mockResolvedValue(ok("notes"))
+    const state = newCompactionState()
+    const first = await compact({
+      ...base,
+      messages: longConversation(),
+      state,
+      task,
+    })
+    expect(first.filter(isStateMessage)).toHaveLength(1)
+    // The first output's state block sits in the recent tail of the second
+    // pass; without the filter it would survive alongside the fresh block.
+    const carriedForward = [...first, ...longConversation().slice(1)]
+    const second = await compact({
+      ...base,
+      messages: carriedForward,
+      state,
+      task,
+    })
+    expect(second.filter(isStateMessage)).toHaveLength(1)
+    expect(second.findIndex(isStateMessage)).toBe(second.length - 1)
   })
 
   it("does not re-summarize when nothing new has arrived since the notes", async () => {

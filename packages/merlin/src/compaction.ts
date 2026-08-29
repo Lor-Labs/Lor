@@ -234,6 +234,19 @@ export function summaryMessage(summary: string): ModelMessage {
   }
 }
 
+// Marks the injected task-state block so a later compaction can drop the stale
+// one from the tail before appending the fresh block — same pattern as
+// SUMMARY_MARKER; two "authoritative" blocks would contradict each other.
+const STATE_MARKER = "[Current task state, restored after compaction"
+
+export function isStateMessage(message: ModelMessage): boolean {
+  return (
+    message.role === "user" &&
+    typeof message.content === "string" &&
+    message.content.startsWith(STATE_MARKER)
+  )
+}
+
 // Authoritative state, rebuilt from the database rather than trusted to prose.
 // A summary can quietly drop a plan item; the task row cannot.
 function stateMessages(task: AgentRunContextTask | undefined): ModelMessage[] {
@@ -241,7 +254,7 @@ function stateMessages(task: AgentRunContextTask | undefined): ModelMessage[] {
   return [
     {
       role: "user",
-      content: `[Current task state, restored after compaction — this is authoritative and overrides anything in the notes above.]\n${taskStateSection(task)}`,
+      content: `${STATE_MARKER} — this is authoritative and overrides anything in the notes above.]\n${taskStateSection(task)}`,
     },
   ]
 }
@@ -306,11 +319,12 @@ export async function compact(args: {
 
   // Head stays byte-identical so instructions + the original ask survive in the
   // provider's prompt cache across compaction. The old notes message is not
-  // carried over — the fresh one supersedes it.
+  // carried over — the fresh one supersedes it — and a stale state block that
+  // survived into the tail is dropped for the same reason.
   const assembled: ModelMessage[] = [
     ...messages.slice(0, 1),
     summaryMessage(state.summary),
-    ...messages.slice(split),
+    ...messages.slice(split).filter((m) => !isStateMessage(m)),
     ...stateMessages(args.task),
   ]
   if (!toolPairingHolds(assembled)) {

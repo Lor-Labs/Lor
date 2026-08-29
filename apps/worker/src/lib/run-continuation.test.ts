@@ -62,6 +62,24 @@ vi.mock("@repo/merlin", () => ({
   // Mirrors the real speaker-line shape: sanitized name, indented body lines.
   formatSpeakerLine: (name: string, body: string) =>
     `${name.replace(/[\r\n<>]+/g, " ").trim()}: ${body.replace(/\n/g, "\n  ")}`,
+  // Same algorithm as compaction.ts's isSafeSplit: a split is valid only when
+  // every tool call before it has its result before it too.
+  isSafeSplit: (messages: { content: unknown }[], index: number) => {
+    const called = new Set<string>()
+    const resolved = new Set<string>()
+    for (const m of messages.slice(0, index)) {
+      const parts = Array.isArray(m.content) ? m.content : []
+      for (const p of parts as { type?: string; toolCallId?: string }[]) {
+        if (!p.toolCallId) continue
+        if (p.type === "tool-call") called.add(p.toolCallId)
+        if (p.type === "tool-result") resolved.add(p.toolCallId)
+      }
+    }
+    for (const id of called) {
+      if (!resolved.has(id)) return false
+    }
+    return true
+  },
   userDisplayName: (u: { name: string }) => u.name,
 }))
 

@@ -333,7 +333,7 @@ export type RespondCallbacks = {
   onTaskUpdated?: (task: Task) => void
 }
 
-export { estimateMessagesTokens } from "./compaction"
+export { estimateMessagesTokens, isSafeSplit } from "./compaction"
 export type { InstructionsProposalEvent } from "./instructions"
 export { MERLIN_MODEL } from "./models"
 export {

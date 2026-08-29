@@ -19,6 +19,7 @@ import {
   buildInitialUserMessage,
   estimateMessagesTokens,
   formatSpeakerLine,
+  isSafeSplit,
   type ModelMessage,
   userDisplayName,
 } from "@repo/merlin"
@@ -351,14 +352,15 @@ export async function replayChain(headRunId: string): Promise<{
     }
   }
   // Keep the head (the original ask) and the most recent history when a chain
-  // runs long; the compactor thins what remains.
-  const trimmed =
-    messages.length > MAX_INHERITED_STEPS
-      ? [
-          ...messages.slice(0, 1),
-          ...messages.slice(messages.length - MAX_INHERITED_STEPS + 1),
-        ]
-      : messages
+  // runs long; the compactor thins what remains. The cut slides forward to a
+  // boundary where no dropped tool call leaves its result orphaned in the kept
+  // suffix — providers reject a request with an unpaired tool message.
+  let trimmed = messages
+  if (messages.length > MAX_INHERITED_STEPS) {
+    let cut = messages.length - MAX_INHERITED_STEPS + 1
+    while (cut < messages.length && !isSafeSplit(messages, cut)) cut++
+    trimmed = [messages[0] as ModelMessage, ...messages.slice(cut)]
+  }
   // What the inherited transcript will actually WEIGH on the next request —
   // not what the predecessor's last step weighed. Those differ badly when the
   // predecessor compacted: its final steps were small precisely because the
