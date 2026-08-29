@@ -249,17 +249,24 @@ path. Neither blocks B or C.
   vs `[image: photo.heic — this format can't be viewed]`. Text only, no token
   cost.
 
-### D2 — image access (~350 LOC) — [ ]
+### D2 — image access (~350 LOC) — [x] built 2026-08-29, awaiting review/commit. ⚠️ view_image needs the FIRST live test
 
-- **HEIC/HEIF are missing from `VISION_MEDIA_TYPES`** (jpeg/png/gif/webp only)
-  — the default iPhone photo format, so a phone photo is silently unviewable.
-  Transcode with `sharp` at fetch time in `fetchImageBytes`.
-- **Do not simply raise `MAX_IMAGES = 8`**: images run ~1–1.5k tokens each and
-  cache poorly, so a bigger cap is a permanent per-run bill. Instead add a
-  `view_image(url)` tool — same philosophy as `export_tool_result`: every image
-  in the thread stays reachable, but only the ones actually needed are paid for.
-  ⚠️ Verify AI SDK v7 supports image parts in tool results before committing to
-  this design; fall back to a modest cap raise if not.
+- **HEIC/HEIF viewable**: image constants + fetching moved to
+  `packages/merlin/src/images.ts`; HEIC/HEIF transcode to JPEG at fetch time
+  via `heic-convert` (wasm libheif, lazy-imported). NOT sharp — verified that
+  sharp's prebuilt binaries exclude HEVC decoding (patent pools), so the
+  runbook's original "transcode with sharp" was wrong.
+- **`view_image(url)` tool** (MAX_IMAGES stays 8): resolves the url against
+  the workspace's message attachments (same tenant/audience guard as
+  read_thread — never an arbitrary URL, no SSRF), enforces format/size, and
+  returns a small receipt from execute (the durable transcript must not carry
+  image bytes). The bytes ride `toModelOutput` (verified: ai@7.0.11 supports
+  async toModelOutput returning `{type:'content'}` with a `file` part) through
+  an LRU cache in images.ts, because toModelOutput re-runs on EVERY subsequent
+  request of the loop. The D1 over-cap placeholder now names the tool and the
+  url. ⚠️ Unverifiable offline: whether the gateway/GLM adapter accepts file
+  parts in tool-result content. If a live view_image call 400s, remove
+  `view_image` from `chatTools` (one line) while deciding a fallback.
 
 ### D3 — speaker spoofing in the transcript (~200 LOC) — [x] built 2026-08-29, awaiting review/commit
 
@@ -406,6 +413,18 @@ security flavor, so it may deserve to jump the queue.
   (unsupported format / over the size limit / over the recency cap / fetch
   failed) — the model can work around the cap ("only the 8 most recent") but
   not an unlabeled `[attachment: name]`.
+
+- **D2 (sharp rejected, heic-convert adopted):** sharp's prebuilt npm binaries
+  cannot decode HEIC — libvips is built without HEVC because of the patent
+  pools — so "transcode with sharp" required compiling libvips from source in
+  every deploy image. heic-convert decodes via wasm (libheif-js): slower per
+  image, zero native build burden. Lazy-imported so runs without HEIC never
+  load the wasm.
+- **D2 (bytes never enter the transcript):** view_image's execute returns a
+  receipt; toModelOutput supplies the actual file part at message-conversion
+  time. Two reasons: `agent_run_step` persists tool outputs verbatim (base64
+  bytes would bloat every checkpoint), and toModelOutput re-runs per request —
+  hence the url-keyed LRU in images.ts rather than fetching in execute alone.
 
 - **D3 (indent, don't pattern-match):** body neutralization indents *every*
   continuation line by two spaces (`formatSpeakerLine` in

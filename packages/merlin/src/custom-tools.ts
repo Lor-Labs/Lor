@@ -19,6 +19,7 @@ export const CUSTOM_TOOL_NAME_REGEX = /^[a-z][a-z0-9_]{2,63}$/
 export const RESERVED_TOOL_NAMES: ReadonlySet<string> = new Set([
   "search",
   "read_thread",
+  "view_image",
   "fetch_source",
   "search_sources",
   "ls",

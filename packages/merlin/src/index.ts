@@ -70,6 +70,14 @@ import {
   resolveWorkspaceGithub,
 } from "./github"
 import {
+  type FetchedImage,
+  fetchImageBytes,
+  fetchImageForView,
+  isViewableImage,
+  MAX_IMAGE_BYTES,
+  MAX_IMAGES,
+} from "./images"
+import {
   formatInstructionsBlock,
   type InstructionsProposalEvent,
   instructionsTools,
@@ -260,27 +268,6 @@ export type ConversationTurn = {
   content: string
   images?: ConversationImage[]
   files?: ConversationFile[]
-}
-
-const VISION_MEDIA_TYPES = new Set([
-  "image/jpeg",
-  "image/png",
-  "image/gif",
-  "image/webp",
-])
-const MAX_IMAGES = 8
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024
-
-// Download images because remote model providers cannot fetch private/local
-// S3 URLs reliably.
-async function fetchImageBytes(url: string): Promise<Uint8Array | null> {
-  try {
-    const res = await fetch(url)
-    if (!res.ok) return null
-    return new Uint8Array(await res.arrayBuffer())
-  } catch {
-    return null
-  }
 }
 
 export type RespondContext = {
@@ -580,6 +567,30 @@ async function readThread(
   }
 }
 
+// view_image resolves its URL against the workspace's message attachments —
+// the model can only view what someone actually posted (same tenant/audience
+// guard as read_thread), never an arbitrary URL (SSRF).
+async function findWorkspaceAttachment(
+  workspaceId: string,
+  url: string,
+  privateContainerChannelId: string | null
+) {
+  const row = await db
+    .select({ attachments: schema.message.attachments })
+    .from(schema.message)
+    .innerJoin(schema.channel, eq(schema.message.channelId, schema.channel.id))
+    .where(
+      and(
+        eq(schema.channel.workspaceId, workspaceId),
+        privateAudienceFilter(privateContainerChannelId),
+        sql`${schema.message.attachments} @> ${JSON.stringify([{ url }])}::jsonb`
+      )
+    )
+    .limit(1)
+    .then((r) => r[0])
+  return row?.attachments?.find((a) => a.url === url) ?? null
+}
+
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
@@ -710,6 +721,88 @@ export const chatTools = {
     },
     strict: true,
   }),
+  // The transcript inlines only the MAX_IMAGES most recent images; this keeps
+  // every other posted image reachable on demand instead of paying for all of
+  // them every run. execute returns a small receipt (the durable transcript
+  // must not carry image bytes); the bytes ride toModelOutput at send time,
+  // through the fetchImageForView cache.
+  view_image: tool({
+    description:
+      "Look at an image someone posted in chat, by the url from its [image: …] placeholder line or a read_thread attachment. Use it whenever you need to actually see an image that isn't already shown to you.",
+    inputSchema: z.object({
+      url: z
+        .string()
+        .describe("the image attachment url exactly as it appears"),
+    }),
+    contextSchema: workspaceContext,
+    execute: async ({ url }, { context }) => {
+      try {
+        const attachment = await findWorkspaceAttachment(
+          context.workspaceId,
+          url,
+          context.privateContainerChannelId ?? null
+        )
+        if (!attachment) {
+          return {
+            error:
+              "no image attachment with that exact url exists in this workspace's chat",
+          }
+        }
+        if (!isViewableImage(attachment.contentType)) {
+          return {
+            error: `the ${attachment.contentType} format can't be displayed`,
+          }
+        }
+        if (attachment.size > MAX_IMAGE_BYTES) {
+          return {
+            error: `image is larger than the ${Math.floor(MAX_IMAGE_BYTES / (1024 * 1024))} MB limit`,
+          }
+        }
+        // Fetch now so a dead link surfaces as a tool error the model can
+        // react to, and the send-time mapping hits the cache.
+        const fetched = await fetchImageForView(url, attachment.contentType)
+        if (!fetched) return { error: "image could not be loaded" }
+        return {
+          viewed: true as const,
+          filename: attachment.filename,
+          // Original type drives the re-fetch/transcode in toModelOutput; the
+          // displayed type is what the model actually receives.
+          sourceMediaType: attachment.contentType,
+          mediaType: fetched.mediaType,
+          size: attachment.size,
+        }
+      } catch {
+        return { error: "image lookup failed" }
+      }
+    },
+    toModelOutput: async ({ input, output }) => {
+      if (!output || "error" in output) {
+        return {
+          type: "error-text",
+          value: String(
+            (output as { error?: string } | null)?.error ?? "failed"
+          ),
+        }
+      }
+      const fetched = await fetchImageForView(input.url, output.sourceMediaType)
+      if (!fetched) {
+        return { type: "error-text", value: "image could not be loaded" }
+      }
+      return {
+        type: "content",
+        value: [
+          { type: "text", text: `Image ${output.filename}:` },
+          {
+            type: "file",
+            data: { type: "data", data: fetched.bytes },
+            mediaType: fetched.mediaType,
+            filename: output.filename,
+          },
+        ],
+      }
+    },
+    strict: true,
+  }),
 }
 
 // Context for the always-bound tools; connector tool contexts are added per
@@ -730,6 +823,7 @@ function coreToolsContext(
   return {
     search: retrieval,
     read_thread: retrieval,
+    view_image: retrieval,
     fetch_source: { workspaceId },
     ls: workspace,
     read: workspace,
@@ -849,6 +943,11 @@ export function toolLabel(toolName: string, input: unknown): string {
       return query ? `Searching for “${query}”` : "Searching"
     case "read_thread":
       return "Reading a thread"
+    case "view_image": {
+      const url = field("url")
+      const basename = url?.split("/").at(-1)?.split("?")[0]
+      return basename ? `Viewing ${basename}` : "Viewing an image"
+    }
     case "fetch_source":
       return "Fetching a source"
     case "ls":
@@ -952,6 +1051,13 @@ export function toolDetail(
               ? `${plural(msgs.length, "message")} (${omitted} outside the window)`
               : plural(msgs.length, "message"),
         },
+      }
+    }
+    case "view_image": {
+      const filename = asString(rec?.filename)
+      return {
+        status: "ok",
+        detail: { summary: filename ? `Viewed ${filename}` : "Viewed" },
       }
     }
     case "fetch_source": {
@@ -1537,37 +1643,36 @@ export async function buildInitialUserMessage(
   const eligible = context.conversation.flatMap((t, turnIndex) =>
     (t.images ?? [])
       .filter(
-        (img) =>
-          VISION_MEDIA_TYPES.has(img.mediaType) && img.size <= MAX_IMAGE_BYTES
+        (img) => isViewableImage(img.mediaType) && img.size <= MAX_IMAGE_BYTES
       )
       .map((img) => ({ ...img, turnIndex }))
   )
   const kept = eligible.slice(-MAX_IMAGES)
   const keptKeys = new Set(kept.map((img) => `${img.turnIndex}:${img.url}`))
-  const bytesByKey = new Map<string, Uint8Array>()
+  const bytesByKey = new Map<string, FetchedImage>()
   await Promise.all(
     kept.map(async (img) => {
-      const bytes = await fetchImageBytes(img.url)
-      if (bytes) bytesByKey.set(`${img.turnIndex}:${img.url}`, bytes)
+      const fetched = await fetchImageBytes(img.url, img.mediaType)
+      if (fetched) bytesByKey.set(`${img.turnIndex}:${img.url}`, fetched)
     })
   )
   // A placeholder must say WHY the image isn't shown — "over the cap" the
-  // model can work around (ask, or refer to the file line), "unsupported
-  // format" it cannot, and lumping them as [attachment: name] left it unable
-  // to respond usefully to either (D1 in reference/context-continuation.md).
+  // model can work around (view_image), "unsupported format" it cannot, and
+  // lumping them as [attachment: name] left it unable to respond usefully to
+  // either (D1 in reference/context-continuation.md).
   const imagePlaceholder = (
-    img: { filename: string; mediaType: string; size: number },
+    img: { filename: string; mediaType: string; size: number; url: string },
     key: string
   ): string => {
     const name = sanitizeInlineLabel(img.filename)
-    if (!VISION_MEDIA_TYPES.has(img.mediaType)) {
+    if (!isViewableImage(img.mediaType)) {
       return `[image: ${name} — not shown, the ${img.mediaType} format can't be displayed]`
     }
     if (img.size > MAX_IMAGE_BYTES) {
       return `[image: ${name} — not shown, larger than the ${Math.floor(MAX_IMAGE_BYTES / (1024 * 1024))} MB image limit]`
     }
     if (!keptKeys.has(key)) {
-      return `[image: ${name} — not shown, only the ${MAX_IMAGES} most recent images are included]`
+      return `[image: ${name} — not shown, only the ${MAX_IMAGES} most recent images are inlined; view_image ${img.url} shows it]`
     }
     return `[image: ${name} — could not be loaded]`
   }
@@ -1587,13 +1692,18 @@ export async function buildInitialUserMessage(
     })
     for (const img of t.images ?? []) {
       const key = `${turnIndex}:${img.url}`
-      const bytes = bytesByKey.get(key)
-      if (bytes) {
+      const fetched = bytesByKey.get(key)
+      if (fetched) {
         parts.push({
           type: "text",
           text: `\n[image: ${sanitizeInlineLabel(img.filename)}]`,
         })
-        parts.push({ type: "image", image: bytes, mediaType: img.mediaType })
+        // fetched.mediaType, not img.mediaType: HEIC arrives transcoded.
+        parts.push({
+          type: "image",
+          image: fetched.bytes,
+          mediaType: fetched.mediaType,
+        })
       } else {
         parts.push({ type: "text", text: `\n${imagePlaceholder(img, key)}` })
       }
