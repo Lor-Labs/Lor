@@ -8,6 +8,7 @@ import { useMemo } from "react"
 import {
   LoopFrequencyDialog,
   useActivateLoop,
+  useDiscardDraftLoop,
 } from "@/components/loops/loop-actions"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import { type ChannelLoop, useLoopForCard } from "@/hooks/use-channel-loops"
@@ -61,6 +62,7 @@ function LoopCardBody({ loop }: { loop: ChannelLoop }) {
     loop,
     timezone
   )
+  const discardDraft = useDiscardDraftLoop(loop)
 
   const isDraft = loop.status === "draft"
   const scheduleText = describeLoopSchedule(loop.schedule, null)
@@ -117,14 +119,27 @@ function LoopCardBody({ loop }: { loop: ChannelLoop }) {
       </button>
 
       {isDraft && (
-        <Button
-          size="sm"
-          className="shrink-0"
-          loading={isPending}
-          onClick={() => activate()}
-        >
-          Create Loop
-        </Button>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <Button
+            variant="outline"
+            size="sm"
+            className="active:scale-[0.98]"
+            disabled={isPending}
+            loading={discardDraft.isPending}
+            onClick={() => discardDraft.mutate()}
+          >
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            className="active:scale-[0.98]"
+            disabled={discardDraft.isPending}
+            loading={isPending}
+            onClick={() => activate()}
+          >
+            Create Loop
+          </Button>
+        </div>
       )}
 
       <LoopFrequencyDialog

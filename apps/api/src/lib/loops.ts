@@ -264,37 +264,56 @@ export async function completeLoopManually(input: {
   return completed
 }
 
-// Hard delete: the loop row AND its card message — the card is the loop's
-// representation, an orphan would render a stale fallback forever. Run rows
-// survive (agent_run.loopId nulls via FK) for audit. In-flight runs get the
-// same stop treatment as pause.
+// Finish removing a loop after its row is gone: the card is the loop's chat
+// representation, so leaving it behind would render a stale fallback forever.
+// Run rows survive (agent_run.loopId nulls via FK) for audit.
+async function deleteLoopCardAndEmit(loop: Loop): Promise<void> {
+  const emitter = await getEmitter().catch(() => null)
+  if (loop.cardMessageId) {
+    await db
+      .delete(schema.message)
+      .where(eq(schema.message.id, loop.cardMessageId))
+      .catch((err) => {
+        logger.error(
+          { err, loopId: loop.id },
+          "Loop delete: card message delete failed"
+        )
+      })
+    emitter?.to(channelRoom(loop.channelId)).emit("message:deleted", {
+      channelId: loop.channelId,
+      messageId: loop.cardMessageId,
+    })
+  }
+  emitter?.to(channelRoom(loop.channelId)).emit("loop:deleted", {
+    loopId: loop.id,
+    channelId: loop.channelId,
+  })
+}
+
+// Cancel the conversational creation flow. The status predicate is the safety
+// boundary: if another teammate activated the proposal first, this loses the
+// race instead of deleting a newly-live schedule.
+export async function discardDraftLoop(loopId: string): Promise<Loop | null> {
+  const discarded = await db
+    .delete(schema.loop)
+    .where(and(eq(schema.loop.id, loopId), eq(schema.loop.status, "draft")))
+    .returning()
+    .then((rows) => rows[0] ?? null)
+  if (!discarded) return null
+
+  await deleteLoopCardAndEmit(discarded)
+  return discarded
+}
+
+// Hard delete: the loop row AND its card message. In-flight runs get the same
+// stop treatment as pause.
 export async function deleteLoop(input: {
   loop: Loop
   requestedBy?: string
 }): Promise<void> {
   await stopInFlightRuns(input.loop.id, input.requestedBy)
   await db.delete(schema.loop).where(eq(schema.loop.id, input.loop.id))
-
-  const emitter = await getEmitter().catch(() => null)
-  if (input.loop.cardMessageId) {
-    await db
-      .delete(schema.message)
-      .where(eq(schema.message.id, input.loop.cardMessageId))
-      .catch((err) => {
-        logger.error(
-          { err, loopId: input.loop.id },
-          "Loop delete: card message delete failed"
-        )
-      })
-    emitter?.to(channelRoom(input.loop.channelId)).emit("message:deleted", {
-      channelId: input.loop.channelId,
-      messageId: input.loop.cardMessageId,
-    })
-  }
-  emitter?.to(channelRoom(input.loop.channelId)).emit("loop:deleted", {
-    loopId: input.loop.id,
-    channelId: input.loop.channelId,
-  })
+  await deleteLoopCardAndEmit(input.loop)
 }
 
 // Project-archive invariant: a loop can't outlive its project — archived

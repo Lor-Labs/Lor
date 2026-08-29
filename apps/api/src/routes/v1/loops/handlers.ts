@@ -8,6 +8,7 @@ import { logger } from "@/lib/logger"
 import {
   completeLoopManually,
   deleteLoop as deleteLoopAction,
+  discardDraftLoop as discardDraftLoopAction,
   emitLoopUpdated,
   pauseLoop as pauseLoopAction,
   resumeLoop as resumeLoopAction,
@@ -19,6 +20,7 @@ import type {
   ActivateLoopRoute,
   CompleteLoopRoute,
   DeleteLoopRoute,
+  DiscardDraftLoopRoute,
   ListChannelLoopsRoute,
   ListLoopRunsRoute,
   PauseLoopRoute,
@@ -169,6 +171,29 @@ export const activateLoop: AppRouteHandler<ActivateLoopRoute> = async (c) => {
   )
 
   return c.json({ loop: toRealtimeLoop(activated) }, HttpStatusCodes.OK)
+}
+
+export const discardDraftLoop: AppRouteHandler<DiscardDraftLoopRoute> = async (
+  c
+) => {
+  const currentUser = c.var.user
+  const { loopId } = c.req.valid("param")
+
+  const found = await loadAccessibleLoop(loopId, currentUser.id)
+  if (!found) {
+    return c.json(
+      { success: false as const, message: "Loop not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  const discarded = await discardDraftLoopAction(loopId)
+  if (!discarded) {
+    return c.json(
+      { success: false as const, message: "Loop is no longer a draft" },
+      HttpStatusCodes.CONFLICT
+    )
+  }
+  return c.json({ success: true as const }, HttpStatusCodes.OK)
 }
 
 // Edit schedule/instructions/name. Completed loops are immutable. Schedule
