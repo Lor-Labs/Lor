@@ -18,6 +18,7 @@ import type { AgentRunCompaction, AgentRunContext } from "@repo/db/schema"
 import {
   buildInitialUserMessage,
   estimateMessagesTokens,
+  formatSpeakerLine,
   type ModelMessage,
   userDisplayName,
 } from "@repo/merlin"
@@ -245,7 +246,12 @@ export function formatDelta(
       (a) =>
         `\n[file: ${a.filename} — ${a.mediaType}, ${a.size} bytes — ${a.url}]`
     )
-    return `${t.authorName}: ${t.content}${attachments.join("")}`
+    // Attachment lines ride inside the body so the speaker-line indent also
+    // neutralizes filename newlines.
+    return formatSpeakerLine(
+      t.authorName,
+      `${t.content}${attachments.join("")}`
+    )
   })
   // A long gap doesn't invalidate the work above, but anything time-sensitive
   // in it (query results, statuses, file contents) may have moved on.

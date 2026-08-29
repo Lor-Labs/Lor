@@ -261,7 +261,7 @@ path. Neither blocks B or C.
   ⚠️ Verify AI SDK v7 supports image parts in tool results before committing to
   this design; fall back to a modest cap raise if not.
 
-### D3 — speaker spoofing in the transcript (~200 LOC) — [ ]
+### D3 — speaker spoofing in the transcript (~200 LOC) — [x] built 2026-08-29, awaiting review/commit
 
 Channel turns render as `${authorName}: ${content}` lines inside one user
 message (`buildInitialUserMessage`, and `formatDelta` copies the pattern). The
@@ -391,3 +391,19 @@ security flavor, so it may deserve to jump the queue.
 - **C2 (`summaryFailures` resets across runs):** the circuit breaker counts one
   run's summarizer retries. Inheriting a predecessor's `3` would permanently
   disable summarization for every successor in the thread.
+
+- **D3 (indent, don't pattern-match):** body neutralization indents *every*
+  continuation line by two spaces (`formatSpeakerLine` in
+  `packages/merlin/src/transcript.ts`) rather than escaping `word:`-shaped
+  lines — no pattern to match means no pattern to evade, and only real
+  speaker lines ever start at column 0. Two spaces, not four (four is a
+  markdown code block). Applied at render time in all five speaker-line
+  surfaces (initial transcript, steer/ambient updates, continuation delta,
+  placement prompt, grounding-gate text); stored snapshots keep raw text, and
+  already-stored `continuationDelta` strings replay verbatim (unsanitized) by
+  design. Folding a delta turn's `[file: …]` lines into the body puts
+  user-controlled filenames under the same indent; `buildInitialUserMessage`'s
+  bracket lines instead use `sanitizeInlineLabel` (they interleave with image
+  parts, so they can't ride the indent). `read_thread`/`search` return
+  structured JSON — a name can't escape a JSON string field — so they need
+  nothing. `sanitizeRosterLabel` moved to `transcript.ts` unchanged.

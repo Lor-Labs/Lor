@@ -94,6 +94,11 @@ import {
 } from "./tasks"
 import { guardTools } from "./tool-guard"
 import {
+  formatSpeakerLine,
+  sanitizeInlineLabel,
+  sanitizeRosterLabel,
+} from "./transcript"
+import {
   completeLoopTool,
   loopPromptSection,
   type RunTriggeredContext,
@@ -211,14 +216,14 @@ function formatConversationUpdate(update: ConversationUpdate): string | null {
   if (update.steered.length > 0) {
     parts.push(
       `New directions arrived while you were working — treat them as part of the request and adjust what you're doing:\n${update.steered
-        .map((m) => `${m.authorName}: ${m.content}`)
+        .map((m) => formatSpeakerLine(m.authorName, m.content))
         .join("\n")}`
     )
   }
   if (update.ambient.length > 0) {
     parts.push(
       `The conversation continued while you were working. This is context, not a request — act on it only if it's addressed to you or changes your answer:\n${update.ambient
-        .map((m) => `${m.authorName}: ${m.content}`)
+        .map((m) => formatSpeakerLine(m.authorName, m.content))
         .join("\n")}`
     )
   }
@@ -344,6 +349,7 @@ export {
   type RunToolResultStore,
   type SteeredMessage,
 } from "./run"
+export { formatSpeakerLine } from "./transcript"
 export type {
   RunTriggeredContext,
   TriggeredCompleteLoop,
@@ -386,17 +392,6 @@ export function userDisplayName(u: {
   displayUsername?: string | null
 }): string {
   return u.displayUsername ?? u.username ?? u.name
-}
-
-// Display names are user-controlled, so neutralize anything that could break
-// the roster structure or forge a mention when interpolated into the prompt:
-// drop line breaks (no injected roster lines/instructions) and angle brackets
-// (no fake <@id> tokens). The real <@id> we append is the only valid mention.
-function sanitizeRosterLabel(label: string): string {
-  return label
-    .replace(/[\r\n<>]+/g, " ")
-    .trim()
-    .slice(0, 80)
 }
 
 async function searchMessages(
@@ -1491,20 +1486,29 @@ export async function buildInitialUserMessage(
     },
   ]
   context.conversation.forEach((t, turnIndex) => {
-    parts.push({ type: "text", text: `\n${t.authorName}: ${t.content}` })
+    parts.push({
+      type: "text",
+      text: `\n${formatSpeakerLine(t.authorName, t.content)}`,
+    })
     for (const img of t.images ?? []) {
       const bytes = bytesByKey.get(`${turnIndex}:${img.url}`)
       if (bytes) {
-        parts.push({ type: "text", text: `\n[image: ${img.filename}]` })
+        parts.push({
+          type: "text",
+          text: `\n[image: ${sanitizeInlineLabel(img.filename)}]`,
+        })
         parts.push({ type: "image", image: bytes, mediaType: img.mediaType })
       } else {
-        parts.push({ type: "text", text: `\n[attachment: ${img.filename}]` })
+        parts.push({
+          type: "text",
+          text: `\n[attachment: ${sanitizeInlineLabel(img.filename)}]`,
+        })
       }
     }
     for (const f of t.files ?? []) {
       parts.push({
         type: "text",
-        text: `\n[file: ${f.filename} — ${f.mediaType}, ${f.size} bytes — ${f.url}]`,
+        text: `\n[file: ${sanitizeInlineLabel(f.filename)} — ${f.mediaType}, ${f.size} bytes — ${f.url}]`,
       })
     }
   })

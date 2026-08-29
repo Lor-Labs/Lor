@@ -22,6 +22,7 @@ import type {
 } from "@repo/db/schema"
 import { withContext } from "@repo/logger"
 import {
+  formatSpeakerLine,
   groundCitations,
   respond,
   userDisplayName,
@@ -801,7 +802,7 @@ export function createMerlinRespondProcessor(
             closeReasoningSegment()
 
             gateText = `${conversation
-              .map((t) => `${t.authorName}: ${t.content}`)
+              .map((t) => formatSpeakerLine(t.authorName, t.content))
               .join("\n")}\n\nMerlin: ${answer.text}`
           } catch (err) {
             // Superseded attempt (lease lost / takeover): another worker owns

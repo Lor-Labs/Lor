@@ -59,6 +59,9 @@ vi.mock("@repo/merlin", () => ({
       (sum, m) => sum + Math.ceil(JSON.stringify(m.content).length / 4),
       0
     ),
+  // Mirrors the real speaker-line shape: sanitized name, indented body lines.
+  formatSpeakerLine: (name: string, body: string) =>
+    `${name.replace(/[\r\n<>]+/g, " ").trim()}: ${body.replace(/\n/g, "\n  ")}`,
   userDisplayName: (u: { name: string }) => u.name,
 }))
 
