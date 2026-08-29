@@ -233,6 +233,7 @@ export async function synthesizeProjectArchive(
     const toolsContext = {
       search: retrieval,
       read_thread: retrieval,
+      view_image: retrieval,
       fetch_source: { workspaceId: args.workspaceId },
       ls: readContext,
       read: readContext,

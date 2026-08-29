@@ -1,6 +1,7 @@
-import type { AgentRunContext } from "@repo/db/schema"
+import type { AgentRunCompaction, AgentRunContext } from "@repo/db/schema"
 import { env } from "@repo/env/server"
 import type { ModelMessage } from "ai"
+import type { CompactionState } from "./compaction"
 
 // Re-exported so the worker can type transcript rows without its own ai dep.
 export type { ModelMessage } from "ai"
@@ -34,7 +35,17 @@ export type SteeredMessage = {
 // model is told to act on them only if they're addressed to it).
 export type ConversationUpdate = {
   steered: SteeredMessage[]
-  ambient: { authorName: string; content: string }[]
+  ambient: { messageId: string; authorName: string; content: string }[]
+}
+
+export function conversationUpdateMessageIds(
+  update: ConversationUpdate
+): string[] {
+  return [
+    ...new Set(
+      [...update.steered, ...update.ambient].map((message) => message.messageId)
+    ),
+  ]
 }
 
 export type RunBudgets = {
@@ -63,6 +74,9 @@ export type RunCounters = {
 export type RunStepRecord = {
   step: number
   messages: ModelMessage[]
+  // IDs represented by an injected user message in this step. The worker
+  // commits these to context in the same transaction as the step row.
+  coveredMessageIds?: string[]
   model?: string
   inputTokens?: number
   cachedInputTokens?: number
@@ -78,14 +92,22 @@ export type RunToolResultStore = {
 }
 
 export type RunResume = {
-  // Full transcript: rebuilt initial user message + every checkpointed step.
+  // Transcript to resume from: the compaction baseline + steps after it when
+  // the dead attempt had compacted, else the rebuilt initial user message +
+  // every checkpointed step.
   messages: ModelMessage[]
   instructions: string
   counters: RunCounters
   answerTextSoFar: string
-  // Input size of the last checkpointed step, so the resumed loop's first
-  // request can trigger compaction before any local step exists.
+  // What the resumed loop's first request will weigh, so it can trigger
+  // compaction before any local step exists. Must be estimated from the
+  // replayed messages, never taken from the last step alone — a run that
+  // compacted ends with small steps while its raw replay stays huge.
   lastInputTokens: number
+  // Working notes persisted by the dead attempt's compactions; seeds the new
+  // attempt's compactor so notes merge forward instead of rebuilding from a
+  // clipped digest.
+  compaction: CompactionState | null
 }
 
 export type RunHandle = {
@@ -100,6 +122,11 @@ export type RunHandle = {
   // including nested usage like investigate_code). Returns the authoritative
   // cumulative counters; throws if the lease was lost.
   checkpoint: (record: RunStepRecord) => Promise<RunCounters>
+  // Persist compaction state (notes + post-compaction baseline) right after a
+  // compaction, so recovery and successors replay the compacted projection
+  // instead of the raw transcript. Best-effort — failure keeps the previous
+  // (older but still correct) baseline.
+  saveCompaction?: (state: AgentRunCompaction) => Promise<void>
   toolResults: RunToolResultStore | null
   abortSignal?: AbortSignal
   // Steering: drain messages that landed mid-run (marks steered rows
@@ -109,6 +136,20 @@ export type RunHandle = {
   // Explicit user stop, observed at step boundaries — the loop ends
   // gracefully and the worker settles the run as stopped_by_user.
   stopRequested?: () => boolean
+}
+
+export function mergeRunContextCoverage(
+  context: AgentRunContext,
+  messageIds: string[]
+): AgentRunContext {
+  if (messageIds.length === 0) return context
+  const coveredMessageIds = [
+    ...new Set([...(context.coveredMessageIds ?? []), ...messageIds]),
+  ]
+  if (coveredMessageIds.length === context.coveredMessageIds?.length) {
+    return context
+  }
+  return { ...context, coveredMessageIds }
 }
 
 export const ZERO_RUN_COUNTERS: RunCounters = {

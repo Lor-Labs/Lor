@@ -57,11 +57,16 @@ const serverSchema = z.object({
   MERLIN_MODEL_FALLBACKS: defaultedString("moonshotai/kimi-k3"),
   MERLIN_SMALL_MODEL: defaultedString("zai/glm-5.3-flash"),
   MERLIN_SMALL_MODEL_FALLBACKS: defaultedString("moonshotai/kimi-k3"),
+  // Per-request input size above which older tool calls are compacted into
+  // rolling working notes (packages/merlin/src/compaction.ts). MUST stay well
+  // under the real context window of EVERY model in the chain — primary and
+  // gateway fallbacks — or compaction stops being graceful and the request
+  // hard-fails on length.
   MERLIN_COMPACT_INPUT_TOKENS: z.coerce
     .number()
     .int()
     .positive()
-    .default(60_000),
+    .default(700_000),
   // Agent-run hard ceilings (reference/agent-harness.md, budgets). Snapshotted
   // onto each agent_run row at creation, so changing these never alters an
   // in-flight run. Emergency rails, not normal stopping targets.

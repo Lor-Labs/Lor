@@ -1,5 +1,6 @@
 import { z } from "zod"
 import { generateSmallObject } from "./structured"
+import { formatSpeakerLine } from "./transcript"
 
 const PLACEMENT_TIMEOUT_MS = 15_000
 
@@ -25,7 +26,7 @@ export async function decideReplyPlacement(
   conversation: PlacementTurn[]
 ): Promise<PlacementDecision> {
   const transcript = conversation
-    .map((t) => `${t.authorName}: ${t.content}`)
+    .map((t) => formatSpeakerLine(t.authorName, t.content))
     .join("\n")
 
   const result = await generateSmallObject({

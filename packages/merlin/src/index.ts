@@ -1,4 +1,15 @@
-import { and, asc, db, eq, MERLIN_USER_ID, ne, or, schema, sql } from "@repo/db"
+import {
+  and,
+  asc,
+  db,
+  eq,
+  inArray,
+  MERLIN_USER_ID,
+  ne,
+  or,
+  schema,
+  sql,
+} from "@repo/db"
 import {
   EMPTY_MERLIN_RUN_SCOPE,
   type MerlinRunScope,
@@ -17,12 +28,15 @@ import {
   isStepCount,
   type LanguageModelUsage,
   type ModelMessage,
-  pruneMessages,
   streamText,
   type ToolSet,
   tool,
 } from "ai"
 import { z } from "zod"
+import {
+  createExportToolResultTool,
+  EXPORT_TOOL_NAME,
+} from "./artifacts/export-tool"
 import { artifactTools } from "./artifacts/tool"
 import { attioTools, resolveWorkspaceAttio } from "./attio"
 import {
@@ -46,6 +60,12 @@ import {
 import { cloudwatchTools, resolveWorkspaceCloudwatch } from "./cloudwatch"
 import { codeTools } from "./code"
 import { codeActionTools } from "./code-actions"
+import {
+  type CompactionState,
+  compact,
+  estimateMessagesTokens,
+  newCompactionState,
+} from "./compaction"
 import { CUSTOM_TOOLS_PROMPT_LINE, workspaceCustomTools } from "./custom-tools"
 import { datadogMcpTools, resolveWorkspaceDatadog } from "./datadog"
 import { embedBrainQueryWithUsage, embedSourceQuery } from "./embeddings"
@@ -54,6 +74,14 @@ import {
   githubTools,
   resolveWorkspaceGithub,
 } from "./github"
+import {
+  type FetchedImage,
+  fetchImageBytes,
+  fetchImageForView,
+  isViewableImage,
+  MAX_IMAGE_BYTES,
+  MAX_IMAGES,
+} from "./images"
 import {
   formatInstructionsBlock,
   type InstructionsProposalEvent,
@@ -71,6 +99,7 @@ import {
   addStepToCounters,
   budgetViolation,
   type ConversationUpdate,
+  conversationUpdateMessageIds,
   defaultRunBudgets,
   type RunCounters,
   type RunHandle,
@@ -81,8 +110,20 @@ import {
 import { blaxelConfigured } from "./sandbox/blaxel"
 import { resolveSourceCitation, searchSources, sourceTools } from "./sources"
 import { generateSmallObject } from "./structured"
-import { type RunTaskContext, taskPromptSection, taskTools } from "./tasks"
+import {
+  type RunTaskContext,
+  taskContextSnapshot,
+  taskRulesSection,
+  taskStateSection,
+  taskTools,
+} from "./tasks"
+import { chooseThreadWindow } from "./thread-window"
 import { guardTools } from "./tool-guard"
+import {
+  formatSpeakerLine,
+  sanitizeInlineLabel,
+  sanitizeRosterLabel,
+} from "./transcript"
 import {
   completeLoopTool,
   loopPromptSection,
@@ -96,7 +137,7 @@ import { webTools } from "./web"
 // Step cap for the background write-back pass only; the answer loop's
 // ceilings come from the run budgets (reference/agent-harness.md, budgets).
 const WRITEBACK_MAX_STEPS = 30
-// Per-step input size that triggers pruning old tool results from the context.
+// Per-request input size that triggers compaction (compaction.ts).
 const COMPACT_INPUT_TOKENS = env.MERLIN_COMPACT_INPUT_TOKENS
 const WRITEBACK_TIMEOUT_MS = 5 * 60_000
 // search runs each backend independently, so the cap is per result kind
@@ -105,6 +146,8 @@ const SEARCH_PER_KIND_DEFAULT = 6
 const SEARCH_PER_KIND_MAX = 15
 const PREFETCH_LIMIT = 3
 const SNIPPET_MAX = 500
+// read_thread window size — a page, not a cap: omitted counts + before/after
+// cursors expose the rest of the thread instead of silently dropping it.
 const THREAD_MAX = 100
 // Max teammates listed in the mention roster injected into the answer prompt.
 const ROSTER_LIMIT = 100
@@ -134,6 +177,8 @@ const WEB_PROMPT_LINE = `- The public web: search_web searches the web for curre
 const NOTION_PROMPT_LINE = `- The team's selected Notion content (read-only): search_notion searches page and data-source titles (not page-body text); fetch_notion_page reads a known page as Markdown with properties and comments; query_notion_data_source retrieves a database schema and structured rows; list_notion_users resolves workspace people without email addresses. Meetings are ordinary selected pages or rows—do not attempt user-specific meeting search. Reference Notion pages with normal Markdown links to their url (live results, not [[src:]] citations).`
 
 const ARTIFACTS_PROMPT_LINE = `- File deliverables: create_artifacts runs a coding agent in a clean sandbox (Python with pandas, matplotlib, openpyxl) that produces real files — reports, cleaned or analyzed data, generated documents or code. Every file it delivers is stored and returned with a link; share those links in your answer. Use it when someone asks for a file, document, or dataset — never for ordinary answers (it's slow). Non-image files people share appear in the conversation as [file: name — type, size — url] lines; pass those URLs as inputFileUrls when the work needs them. Write complete, self-contained instructions including desired filenames and formats — the agent can't ask follow-ups.`
+
+const EXPORT_PROMPT_LINE = `- Bulk data to a file: export_tool_result runs one of your other tools and saves its complete result straight to a file, returning only a receipt (url, row and byte counts, a small preview) — the data itself never enters this conversation. Reach for it whenever a tool would return more data than you need to read: database queries (run_sql and friends), long list or search results, large JSON. Never page through big results by calling a tool repeatedly and copying rows into your reply — export once and use the file. The returned url is a workspace file: share it as the deliverable, and/or pass it to create_artifacts as inputFileUrls when the data needs further processing (merging, cleaning, charts). Only read tools can be exported; anything that takes an action is refused.`
 
 const CODE_ACTIONS_PROMPT_LINE = `- Code changes: propose_code_change runs a coding agent on a connected repository, pushes the result to a lor/* branch, and opens a DRAFT pull request — it never merges anything. Use it only when someone clearly asks for a code change (fix, implement, adjust); questions about code go to investigate_code instead. Pull requests target each repository's configured base branch (its default branch unless the workspace overrides it); when someone asks to target a different existing branch, pass it as base. Always share the returned pull request link in your answer. To iterate on an open proposal (review feedback, follow-up fixes), pass its branch back to update the same pull request. Keep proposals small and focused; split unrelated changes into separate proposals.`
 
@@ -199,14 +244,14 @@ function formatConversationUpdate(update: ConversationUpdate): string | null {
   if (update.steered.length > 0) {
     parts.push(
       `New directions arrived while you were working — treat them as part of the request and adjust what you're doing:\n${update.steered
-        .map((m) => `${m.authorName}: ${m.content}`)
+        .map((m) => formatSpeakerLine(m.authorName, m.content))
         .join("\n")}`
     )
   }
   if (update.ambient.length > 0) {
     parts.push(
       `The conversation continued while you were working. This is context, not a request — act on it only if it's addressed to you or changes your answer:\n${update.ambient
-        .map((m) => `${m.authorName}: ${m.content}`)
+        .map((m) => formatSpeakerLine(m.authorName, m.content))
         .join("\n")}`
     )
   }
@@ -229,27 +274,6 @@ export type ConversationTurn = {
   content: string
   images?: ConversationImage[]
   files?: ConversationFile[]
-}
-
-const VISION_MEDIA_TYPES = new Set([
-  "image/jpeg",
-  "image/png",
-  "image/gif",
-  "image/webp",
-])
-const MAX_IMAGES = 8
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024
-
-// Download images because remote model providers cannot fetch private/local
-// S3 URLs reliably.
-async function fetchImageBytes(url: string): Promise<Uint8Array | null> {
-  try {
-    const res = await fetch(url)
-    if (!res.ok) return null
-    return new Uint8Array(await res.arrayBuffer())
-  } catch {
-    return null
-  }
 }
 
 export type RespondContext = {
@@ -278,6 +302,24 @@ export type RespondContext = {
   // posting + draft loop row insert). Never set on triggered/loop runs — a
   // loop must not schedule more loops.
   proposeLoop?: ProposeLoopExecutor
+  // Set when this run continues an earlier run in the same scope instead of
+  // building a fresh conversation snapshot: the assembled transcript (prior
+  // runs' work + what has been said since) that replaces the initial user
+  // message. Instructions are still built fresh — the model's rules should
+  // reflect the current world even though its history does not.
+  // See reference/context-continuation.md.
+  continuation?: RunContinuation
+}
+
+export type RunContinuation = {
+  messages: ModelMessage[]
+  coveredMessageIds: string[]
+  // The delta message, persisted so a recovered attempt replays it verbatim.
+  deltaText: string
+  lastInputTokens: number
+  // Working notes inherited from the newest compacted run in the chain, so
+  // this run's compactor merges forward instead of rebuilding from scratch.
+  compaction: CompactionState | null
 }
 
 export type ToolEvent = MerlinToolCallUpdate
@@ -298,13 +340,16 @@ export type RespondCallbacks = {
   onTaskUpdated?: (task: Task) => void
 }
 
+export { estimateMessagesTokens, isSafeSplit } from "./compaction"
 export type { InstructionsProposalEvent } from "./instructions"
 export { MERLIN_MODEL } from "./models"
 export {
   type BudgetStopReason,
   type ConversationUpdate,
+  conversationUpdateMessageIds,
   defaultRunBudgets,
   type ModelMessage,
+  mergeRunContextCoverage,
   type RunBudgets,
   type RunCounters,
   type RunHandle,
@@ -314,6 +359,7 @@ export {
   type RunToolResultStore,
   type SteeredMessage,
 } from "./run"
+export { formatSpeakerLine } from "./transcript"
 export type {
   RunTriggeredContext,
   TriggeredCompleteLoop,
@@ -356,17 +402,6 @@ export function userDisplayName(u: {
   displayUsername?: string | null
 }): string {
   return u.displayUsername ?? u.username ?? u.name
-}
-
-// Display names are user-controlled, so neutralize anything that could break
-// the roster structure or forge a mention when interpolated into the prompt:
-// drop line breaks (no injected roster lines/instructions) and angle brackets
-// (no fake <@id> tokens). The real <@id> we append is the only valid mention.
-function sanitizeRosterLabel(label: string): string {
-  return label
-    .replace(/[\r\n<>]+/g, " ")
-    .trim()
-    .slice(0, 80)
 }
 
 async function searchMessages(
@@ -439,7 +474,8 @@ function privateAudienceFilter(privateContainerChannelId: string | null) {
 async function readThread(
   workspaceId: string,
   messageId: string,
-  privateContainerChannelId: string | null = null
+  privateContainerChannelId: string | null = null,
+  page: { before?: string; after?: string } = {}
 ) {
   // Tenant + audience guard — a run can't read a private thread by guessed id.
   const msg = await db
@@ -458,22 +494,17 @@ async function readThread(
     )
     .limit(1)
     .then((r) => r[0])
-  if (!msg) return []
+  if (!msg) return { error: "message not found or not accessible" }
 
   const rootId = msg.threadRootId ?? msg.id
-  const rows = await db
-    .select({
-      id: schema.message.id,
-      content: schema.message.content,
-      createdAt: schema.message.createdAt,
-      authorName: schema.user.name,
-      authorUsername: schema.user.username,
-      authorDisplayUsername: schema.user.displayUsername,
-      attachments: schema.message.attachments,
-    })
+  // The window is computed over an id-only index of the whole thread rather
+  // than LIMIT over full rows: exact omitted counts and stable cursors come
+  // free, and createdAt ties can't drop rows. The old shape (oldest
+  // THREAD_MAX, silently) hid the newest replies of any long thread.
+  const index = await db
+    .select({ id: schema.message.id })
     .from(schema.message)
     .innerJoin(schema.channel, eq(schema.message.channelId, schema.channel.id))
-    .innerJoin(schema.user, eq(schema.message.authorId, schema.user.id))
     .where(
       and(
         eq(schema.channel.workspaceId, workspaceId),
@@ -483,29 +514,90 @@ async function readThread(
         )
       )
     )
-    .orderBy(asc(schema.message.createdAt))
-    .limit(THREAD_MAX)
+    .orderBy(asc(schema.message.createdAt), asc(schema.message.id))
+  const ids = index.map((r) => r.id)
 
-  return rows.map((r) => ({
-    messageId: r.id,
-    author: userDisplayName({
-      name: r.authorName,
-      username: r.authorUsername,
-      displayUsername: r.authorDisplayUsername,
-    }),
-    when: r.createdAt.toISOString(),
-    text: r.content ?? "",
-    ...(r.attachments?.length
-      ? {
-          attachments: r.attachments.map((a) => ({
-            filename: a.filename,
-            contentType: a.contentType,
-            size: a.size,
-            url: a.url,
-          })),
-        }
-      : {}),
-  }))
+  const anchorId = page.before ?? page.after ?? messageId
+  const window = chooseThreadWindow(ids, anchorId, page, THREAD_MAX)
+  if (!window) {
+    return {
+      error: "the before/after cursor must be a message id from this thread",
+    }
+  }
+  const { start, end, omittedBefore, omittedAfter } = window
+
+  // The root (the thread's subject) is always included, even when the window
+  // sits far past it; omitted counts cover only the gap between the two.
+  const windowIds = ids.slice(start, end)
+  const rootInWindow = start === 0 && windowIds.length > 0
+  const fetchIds = rootInWindow ? windowIds : [ids[0] as string, ...windowIds]
+
+  const rows = fetchIds.length
+    ? await db
+        .select({
+          id: schema.message.id,
+          content: schema.message.content,
+          createdAt: schema.message.createdAt,
+          authorName: schema.user.name,
+          authorUsername: schema.user.username,
+          authorDisplayUsername: schema.user.displayUsername,
+          attachments: schema.message.attachments,
+        })
+        .from(schema.message)
+        .innerJoin(schema.user, eq(schema.message.authorId, schema.user.id))
+        .where(inArray(schema.message.id, fetchIds))
+        .orderBy(asc(schema.message.createdAt), asc(schema.message.id))
+    : []
+
+  return {
+    messages: rows.map((r) => ({
+      messageId: r.id,
+      author: userDisplayName({
+        name: r.authorName,
+        username: r.authorUsername,
+        displayUsername: r.authorDisplayUsername,
+      }),
+      when: r.createdAt.toISOString(),
+      text: r.content ?? "",
+      ...(r.attachments?.length
+        ? {
+            attachments: r.attachments.map((a) => ({
+              filename: a.filename,
+              contentType: a.contentType,
+              size: a.size,
+              url: a.url,
+            })),
+          }
+        : {}),
+    })),
+    totalMessages: ids.length,
+    omittedBefore,
+    omittedAfter,
+  }
+}
+
+// view_image resolves its URL against the workspace's message attachments —
+// the model can only view what someone actually posted (same tenant/audience
+// guard as read_thread), never an arbitrary URL (SSRF).
+async function findWorkspaceAttachment(
+  workspaceId: string,
+  url: string,
+  privateContainerChannelId: string | null
+) {
+  const row = await db
+    .select({ attachments: schema.message.attachments })
+    .from(schema.message)
+    .innerJoin(schema.channel, eq(schema.message.channelId, schema.channel.id))
+    .where(
+      and(
+        eq(schema.channel.workspaceId, workspaceId),
+        privateAudienceFilter(privateContainerChannelId),
+        sql`${schema.message.attachments} @> ${JSON.stringify([{ url }])}::jsonb`
+      )
+    )
+    .limit(1)
+    .then((r) => r[0])
+  return row?.attachments?.find((a) => a.url === url) ?? null
 }
 
 const UUID_REGEX =
@@ -608,20 +700,114 @@ export const searchTools = {
 export const chatTools = {
   read_thread: tool({
     description:
-      "Read the full thread (root message + all replies) a message belongs to. Use after search_messages to get full context around a hit.",
+      "Read the thread a message belongs to: the root message plus a window of up to 100 messages centred on the one you asked about. omittedBefore/omittedAfter report how many thread messages fall outside the window — page to them by passing before (older) or after (newer) with a message id from this thread.",
     inputSchema: z.object({
       messageId: z.string().describe("a message id from search_messages"),
+      before: z
+        .string()
+        .optional()
+        .describe("page older: the window ends just before this message id"),
+      after: z
+        .string()
+        .optional()
+        .describe("page newer: the window starts just after this message id"),
     }),
     contextSchema: workspaceContext,
-    execute: async ({ messageId }, { context }) => {
+    execute: async ({ messageId, before, after }, { context }) => {
+      if (before && after) {
+        return { error: "pass either before or after, not both" }
+      }
       try {
         return await readThread(
           context.workspaceId,
           messageId,
-          context.privateContainerChannelId ?? null
+          context.privateContainerChannelId ?? null,
+          { ...(before ? { before } : {}), ...(after ? { after } : {}) }
         )
       } catch {
         return { error: "read failed" }
+      }
+    },
+    strict: true,
+  }),
+  // The transcript inlines only the MAX_IMAGES most recent images; this keeps
+  // every other posted image reachable on demand instead of paying for all of
+  // them every run. execute returns a small receipt (the durable transcript
+  // must not carry image bytes); the bytes ride toModelOutput at send time,
+  // through the fetchImageForView cache.
+  view_image: tool({
+    description:
+      "Look at an image someone posted in chat, by the url from its [image: …] placeholder line or a read_thread attachment. Use it whenever you need to actually see an image that isn't already shown to you.",
+    inputSchema: z.object({
+      url: z
+        .string()
+        .describe("the image attachment url exactly as it appears"),
+    }),
+    contextSchema: workspaceContext,
+    execute: async ({ url }, { context }) => {
+      try {
+        const attachment = await findWorkspaceAttachment(
+          context.workspaceId,
+          url,
+          context.privateContainerChannelId ?? null
+        )
+        if (!attachment) {
+          return {
+            error:
+              "no image attachment with that exact url exists in this workspace's chat",
+          }
+        }
+        if (!isViewableImage(attachment.contentType)) {
+          return {
+            error: `the ${attachment.contentType} format can't be displayed`,
+          }
+        }
+        if (attachment.size > MAX_IMAGE_BYTES) {
+          return {
+            error: `image is larger than the ${Math.floor(MAX_IMAGE_BYTES / (1024 * 1024))} MB limit`,
+          }
+        }
+        // Fetch now so a dead link surfaces as a tool error the model can
+        // react to, and the send-time mapping hits the cache.
+        const fetched = await fetchImageForView(url, attachment.contentType)
+        if (!fetched) return { error: "image could not be loaded" }
+        return {
+          viewed: true as const,
+          filename: attachment.filename,
+          // Original type drives the re-fetch/transcode in toModelOutput; the
+          // displayed type is what the model actually receives.
+          sourceMediaType: attachment.contentType,
+          mediaType: fetched.mediaType,
+          size: attachment.size,
+        }
+      } catch {
+        return { error: "image lookup failed" }
+      }
+    },
+    toModelOutput: async ({ input, output }) => {
+      if (!output || "error" in output) {
+        return {
+          type: "error-text",
+          value: String(
+            (output as { error?: string } | null)?.error ?? "failed"
+          ),
+        }
+      }
+      const fetched = await fetchImageForView(input.url, output.sourceMediaType)
+      if (!fetched) {
+        return { type: "error-text", value: "image could not be loaded" }
+      }
+      return {
+        type: "content",
+        value: [
+          { type: "text", text: `Image ${output.filename}:` },
+          {
+            type: "file",
+            data: { type: "data", data: fetched.bytes },
+            mediaType: fetched.mediaType,
+            filename: output.filename,
+          },
+        ],
       }
     },
     strict: true,
@@ -646,6 +832,7 @@ function coreToolsContext(
   return {
     search: retrieval,
     read_thread: retrieval,
+    view_image: retrieval,
     fetch_source: { workspaceId },
     ls: workspace,
     read: workspace,
@@ -765,6 +952,11 @@ export function toolLabel(toolName: string, input: unknown): string {
       return query ? `Searching for “${query}”` : "Searching"
     case "read_thread":
       return "Reading a thread"
+    case "view_image": {
+      const url = field("url")
+      const basename = url?.split("/").at(-1)?.split("?")[0]
+      return basename ? `Viewing ${basename}` : "Viewing an image"
+    }
     case "fetch_source":
       return "Fetching a source"
     case "ls":
@@ -853,6 +1045,28 @@ export function toolDetail(
           summary: items.length === 0 ? "No results" : groups.join(", "),
           items: toItems(output),
         },
+      }
+    }
+    case "read_thread": {
+      const msgs = Array.isArray(rec?.messages) ? rec.messages : []
+      const omitted =
+        (typeof rec?.omittedBefore === "number" ? rec.omittedBefore : 0) +
+        (typeof rec?.omittedAfter === "number" ? rec.omittedAfter : 0)
+      return {
+        status: "ok",
+        detail: {
+          summary:
+            omitted > 0
+              ? `${plural(msgs.length, "message")} (${omitted} outside the window)`
+              : plural(msgs.length, "message"),
+        },
+      }
+    }
+    case "view_image": {
+      const filename = asString(rec?.filename)
+      return {
+        status: "ok",
+        detail: { summary: filename ? `Viewed ${filename}` : "Viewed" },
       }
     }
     case "fetch_source": {
@@ -1420,6 +1634,7 @@ async function buildRunContext(
     brainContext,
     rosterText,
     ...(channelName ? { channelName } : {}),
+    ...(ctx.task ? { task: taskContextSnapshot(ctx.task) } : {}),
   }
 }
 
@@ -1437,19 +1652,39 @@ export async function buildInitialUserMessage(
   const eligible = context.conversation.flatMap((t, turnIndex) =>
     (t.images ?? [])
       .filter(
-        (img) =>
-          VISION_MEDIA_TYPES.has(img.mediaType) && img.size <= MAX_IMAGE_BYTES
+        (img) => isViewableImage(img.mediaType) && img.size <= MAX_IMAGE_BYTES
       )
       .map((img) => ({ ...img, turnIndex }))
   )
   const kept = eligible.slice(-MAX_IMAGES)
-  const bytesByKey = new Map<string, Uint8Array>()
+  const keptKeys = new Set(kept.map((img) => `${img.turnIndex}:${img.url}`))
+  const bytesByKey = new Map<string, FetchedImage>()
   await Promise.all(
     kept.map(async (img) => {
-      const bytes = await fetchImageBytes(img.url)
-      if (bytes) bytesByKey.set(`${img.turnIndex}:${img.url}`, bytes)
+      const fetched = await fetchImageBytes(img.url, img.mediaType)
+      if (fetched) bytesByKey.set(`${img.turnIndex}:${img.url}`, fetched)
     })
   )
+  // A placeholder must say WHY the image isn't shown — "over the cap" the
+  // model can work around (view_image), "unsupported format" it cannot, and
+  // lumping them as [attachment: name] left it unable to respond usefully to
+  // either (D1 in reference/context-continuation.md).
+  const imagePlaceholder = (
+    img: { filename: string; mediaType: string; size: number; url: string },
+    key: string
+  ): string => {
+    const name = sanitizeInlineLabel(img.filename)
+    if (!isViewableImage(img.mediaType)) {
+      return `[image: ${name} — not shown, the ${img.mediaType} format can't be displayed]`
+    }
+    if (img.size > MAX_IMAGE_BYTES) {
+      return `[image: ${name} — not shown, larger than the ${Math.floor(MAX_IMAGE_BYTES / (1024 * 1024))} MB image limit]`
+    }
+    if (!keptKeys.has(key)) {
+      return `[image: ${name} — not shown, only the ${MAX_IMAGES} most recent images are inlined; view_image ${img.url} shows it]`
+    }
+    return `[image: ${name} — could not be loaded]`
+  }
 
   const parts: UserPart[] = [
     {
@@ -1460,20 +1695,32 @@ export async function buildInitialUserMessage(
     },
   ]
   context.conversation.forEach((t, turnIndex) => {
-    parts.push({ type: "text", text: `\n${t.authorName}: ${t.content}` })
+    parts.push({
+      type: "text",
+      text: `\n${formatSpeakerLine(t.authorName, t.content)}`,
+    })
     for (const img of t.images ?? []) {
-      const bytes = bytesByKey.get(`${turnIndex}:${img.url}`)
-      if (bytes) {
-        parts.push({ type: "text", text: `\n[image: ${img.filename}]` })
-        parts.push({ type: "image", image: bytes, mediaType: img.mediaType })
+      const key = `${turnIndex}:${img.url}`
+      const fetched = bytesByKey.get(key)
+      if (fetched) {
+        parts.push({
+          type: "text",
+          text: `\n[image: ${sanitizeInlineLabel(img.filename)}]`,
+        })
+        // fetched.mediaType, not img.mediaType: HEIC arrives transcoded.
+        parts.push({
+          type: "image",
+          image: fetched.bytes,
+          mediaType: fetched.mediaType,
+        })
       } else {
-        parts.push({ type: "text", text: `\n[attachment: ${img.filename}]` })
+        parts.push({ type: "text", text: `\n${imagePlaceholder(img, key)}` })
       }
     }
     for (const f of t.files ?? []) {
       parts.push({
         type: "text",
-        text: `\n[file: ${f.filename} — ${f.mediaType}, ${f.size} bytes — ${f.url}]`,
+        text: `\n[file: ${sanitizeInlineLabel(f.filename)} — ${f.mediaType}, ${f.size} bytes — ${f.url}]`,
       })
     }
   })
@@ -1482,6 +1729,11 @@ export async function buildInitialUserMessage(
   }
   if (context.rosterText) {
     parts.push({ type: "text", text: context.rosterText })
+  }
+  // Last before the directive: the most volatile block sits at the very tail,
+  // so a plan update invalidates as little of the cached prefix as possible.
+  if (context.task) {
+    parts.push({ type: "text", text: taskStateSection(context.task) })
   }
   parts.push({
     type: "text",
@@ -1791,6 +2043,20 @@ export async function respond(
         : {}),
     }
 
+    // Binds last: it dispatches into the finished tool map (including MCP
+    // tools), so every read tool above is exportable to a file.
+    if (artifactsEnabled && ctx.channelId) {
+      ;(tools as ToolSet)[EXPORT_TOOL_NAME] = createExportToolResultTool({
+        tools,
+        toolsContext,
+      })
+      ;(toolsContext as Record<string, unknown>)[EXPORT_TOOL_NAME] = {
+        workspaceId: ctx.workspaceId,
+        channelId: ctx.channelId,
+        task: ctx.task ? { id: ctx.task.id } : null,
+      }
+    }
+
     // Only describe the connectors actually bound for this channel.
     const connectorPromptLines = [
       env.EXA_API_KEY && caps.includes("web") ? WEB_PROMPT_LINE : null,
@@ -1802,6 +2068,7 @@ export async function respond(
       attio && caps.includes("attio") ? ATTIO_PROMPT_LINE : null,
       notion && caps.includes("notion") ? NOTION_PROMPT_LINE : null,
       artifactsEnabled ? ARTIFACTS_PROMPT_LINE : null,
+      artifactsEnabled && ctx.channelId ? EXPORT_PROMPT_LINE : null,
       codeActionsEnabled ? CODE_ACTIONS_PROMPT_LINE : null,
       ctx.proposeLoop && ctx.channelId ? LOOPS_PROMPT_LINE : null,
       customTools ? CUSTOM_TOOLS_PROMPT_LINE : null,
@@ -1815,6 +2082,15 @@ export async function respond(
     let text: string
     let counters: RunCounters
     let resumeLastInputTokens = 0
+    // Rolling working notes replacing compacted-away tool calls. Seeded from
+    // the persisted state of the attempt/predecessor this run picks up from
+    // (agent_run.compaction), so notes merge forward across recoveries and
+    // continuations; cloned because compact() mutates it.
+    const compaction: CompactionState = {
+      ...(run?.resume?.compaction ??
+        ctx.continuation?.compaction ??
+        newCompactionState()),
+    }
 
     if (run?.resume) {
       // Recovery: continue from the durable transcript with the exact same
@@ -1829,13 +2105,28 @@ export async function respond(
         buildRunContext(ctx, runScope, onUsage),
         loadWorkspaceInstructions(ctx.workspaceId),
       ])
-      const userMessage = await buildInitialUserMessage(context)
-      instructions = `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}${context.rosterText ? `\n\n${MENTION_GUIDANCE}` : ""}${workspaceInstructions ? `\n\n${formatInstructionsBlock(workspaceInstructions)}` : ""}${ctx.task ? `\n\n${taskPromptSection(ctx.task, artifactsEnabled)}` : ""}${ctx.triggered ? `\n\n${ctx.triggered.loop ? loopPromptSection({ ...ctx.triggered, loop: ctx.triggered.loop }) : triggeredPromptSection(ctx.triggered)}` : ""}`
-      messages = [userMessage]
+      instructions = `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}${context.rosterText ? `\n\n${MENTION_GUIDANCE}` : ""}${workspaceInstructions ? `\n\n${formatInstructionsBlock(workspaceInstructions)}` : ""}${ctx.task ? `\n\n${taskRulesSection(artifactsEnabled)}` : ""}${ctx.triggered ? `\n\n${ctx.triggered.loop ? loopPromptSection({ ...ctx.triggered, loop: ctx.triggered.loop }) : triggeredPromptSection(ctx.triggered)}` : ""}`
+      // A continued run inherits its predecessors' transcript in place of a
+      // fresh initial message; the snapshot records the delta it was started
+      // with so a crashed attempt replays the identical request.
+      const continuation = ctx.continuation
+      messages = continuation
+        ? continuation.messages
+        : [await buildInitialUserMessage(context)]
+      resumeLastInputTokens = continuation?.lastInputTokens ?? 0
       counters = { ...ZERO_RUN_COUNTERS }
       text = ""
       // Durable before the first model call — recovery depends on it.
-      await run?.saveContext({ context, instructions })
+      await run?.saveContext({
+        context: continuation
+          ? {
+              ...context,
+              continuationDelta: continuation.deltaText,
+              coveredMessageIds: continuation.coveredMessageIds,
+            }
+          : context,
+        instructions,
+      })
     }
 
     const guarded = guardTools(tools, {
@@ -1855,6 +2146,7 @@ export async function respond(
     // checkpoint record, so the resumed transcript (flat concat of step rows)
     // reproduces the runtime message order exactly.
     const pendingInjected: ModelMessage[] = []
+    const pendingCoveredMessageIds: string[] = []
 
     type CompletedStep = {
       response: { messages: ReadonlyArray<ModelMessage>; modelId: string }
@@ -1867,9 +2159,11 @@ export async function respond(
     const checkpointStep = async (step: CompletedStep, localIndex: number) => {
       if (localIndex <= checkpointedLocal) return
       checkpointedLocal = localIndex
+      const coveredMessageIds = pendingCoveredMessageIds.splice(0)
       const record: RunStepRecord = {
         step: baseStep + localIndex,
         messages: [...pendingInjected.splice(0), ...step.response.messages],
+        ...(coveredMessageIds.length > 0 ? { coveredMessageIds } : {}),
         model: step.response.modelId,
         inputTokens: step.usage.inputTokens,
         cachedInputTokens: step.usage.inputTokenDetails.cacheReadTokens,
@@ -1937,19 +2231,58 @@ export async function respond(
         if (approvalRequested) {
           return { toolChoice: "none" }
         }
-        // Compact old tool calls/results once the context gets heavy. Preserve
-        // reasoning parts so models can continue coherently across tool steps.
-        // A resumed run's first request has no local steps yet, so fall back
-        // to the last checkpointed step's input size.
+        // Reduce what gets SENT once the context grows heavy: old tool calls
+        // become rolling working notes, a recent tail stays verbatim, and the
+        // task's live state is restored from the database. The durable
+        // transcript (agent_run_step) is untouched. Use both the prior
+        // provider-reported input and the current message estimate: a large
+        // tool result can push the next request over the threshold before the
+        // provider has reported usage for it.
         const lastInput =
           steps.at(-1)?.usage.inputTokens ?? resumeLastInputTokens
-        let nextMessages =
-          lastInput > COMPACT_INPUT_TOKENS
-            ? pruneMessages({
-                messages: stepMessages,
-                toolCalls: "before-last-4-messages",
-              })
-            : stepMessages
+        const estimatedInput = estimateMessagesTokens(stepMessages)
+        let nextMessages = stepMessages
+        if (Math.max(lastInput, estimatedInput) > COMPACT_INPUT_TOKENS) {
+          // Surfaced in the run trail like a tool call (start frame renders a
+          // spinner, the ok frame settles into a divider). Keyed by step so a
+          // recovered attempt re-compacting at the same boundary upserts the
+          // same row instead of stacking dividers.
+          const compactionCallId = `compaction-${counters.steps}`
+          onToolEvent?.({
+            toolCallId: compactionCallId,
+            toolName: "compact_context",
+            label: "Compacting context",
+            at: text.length,
+          })
+          nextMessages = await compact({
+            messages: stepMessages,
+            state: compaction,
+            workspaceId: ctx.workspaceId,
+            ...(ctx.task ? { task: taskContextSnapshot(ctx.task) } : {}),
+            ...(onUsage ? { onUsage } : {}),
+          })
+          onToolEvent?.({
+            toolCallId: compactionCallId,
+            toolName: "compact_context",
+            label: "Compacted context",
+            at: text.length,
+            status: "ok",
+          })
+          // Durable projection: recovery and successors replay this baseline +
+          // steps after it instead of the raw transcript. Saved before steer
+          // injection below — injected messages ride the NEXT checkpoint, so
+          // including them here would double them on replay.
+          await run
+            ?.saveCompaction?.({
+              summary: compaction.summary,
+              summaryFailures: compaction.summaryFailures,
+              baselineMessages: nextMessages,
+              atStep: counters.steps,
+            })
+            .catch((err) => {
+              logger.warn({ err }, "Compaction state save failed")
+            })
+        }
         // Steering: fold in messages that landed since the last boundary.
         // Injected after pruning so an update can never be compacted away in
         // the same breath, and buffered for the next checkpoint so recovery
@@ -1966,6 +2299,9 @@ export async function respond(
               content: updateText,
             }
             pendingInjected.push(injected)
+            pendingCoveredMessageIds.push(
+              ...conversationUpdateMessageIds(update)
+            )
             nextMessages =
               nextMessages === stepMessages
                 ? [...stepMessages, injected]

@@ -148,6 +148,8 @@ export const message = pgTable(
       "gin",
       sql`to_tsvector('english', coalesce(${table.content}, ''))`
     ),
+    // Supports exact attachment-object containment used by view_image.
+    index("message_attachments_gin_idx").using("gin", table.attachments),
   ]
 )
 

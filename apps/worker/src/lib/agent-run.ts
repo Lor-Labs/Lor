@@ -14,6 +14,7 @@ import {
   MERLIN_USER_ID,
   ne,
   notExists,
+  notInArray,
   or,
   schema,
   sql,
@@ -27,7 +28,9 @@ import type {
 import {
   buildInitialUserMessage,
   type ConversationUpdate,
+  estimateMessagesTokens,
   type ModelMessage,
+  mergeRunContextCoverage,
   type RunCounters,
   type RunHandle,
   type RunResume,
@@ -36,6 +39,7 @@ import {
   userDisplayName,
 } from "@repo/merlin"
 import { logger } from "@/lib/logger"
+import { replayContinuedPrefix } from "@/lib/run-continuation"
 import { createRunEventWriter, type RunEventWriter } from "@/lib/run-events"
 
 const LEASE_TTL_MS = 60_000
@@ -106,6 +110,9 @@ export type RunExecution = {
   noteNestedUsage: (u: UsageEvent) => void
   // Post-answer usage (write-back) folds straight into the counters.
   addUsage: (u: UsageEvent) => void
+  // Persists the predecessor pointer; recovery combines it with this run's
+  // saved context to replay the predecessor chain instead of rebuilding fresh.
+  markContinuedFrom: (predecessorRunId: string) => Promise<void>
   setPhase: (phase: "answer" | "writeback") => Promise<void>
   // Fresh runs call this right after loading the conversation snapshot: steer
   // rows that predate the snapshot are already in it, so they're consumed
@@ -406,6 +413,7 @@ export async function claimAgentRun(
   }
 
   const pendingNested: UsageEvent[] = []
+  let runContext = claimed.context
 
   const checkpoint = async (record: RunStepRecord): Promise<RunCounters> => {
     let credits = await creditsFor(record)
@@ -434,6 +442,12 @@ export async function claimAgentRun(
         .returning({ step: schema.agentRunStep.step })
         .then((r) => r[0])
       const isNew = Boolean(insertedStep)
+      // Coverage becomes durable only with the step that carried the injected
+      // message, so a crash before this transaction causes safe reinjection.
+      const nextContext =
+        isNew && runContext
+          ? mergeRunContextCoverage(runContext, record.coveredMessageIds ?? [])
+          : runContext
       const row = await tx
         .update(schema.agentRun)
         .set({
@@ -444,6 +458,7 @@ export async function claimAgentRun(
           toolCalls: sql`${schema.agentRun.toolCalls} + ${isNew ? record.toolCalls : 0}`,
           toolOutputBytes: sql`${schema.agentRun.toolOutputBytes} + ${isNew ? record.toolOutputBytes : 0}`,
           creditsSpent: sql`${schema.agentRun.creditsSpent} + ${isNew ? credits : 0}`,
+          ...(nextContext !== runContext ? { context: nextContext } : {}),
         })
         .where(
           and(
@@ -459,9 +474,10 @@ export async function claimAgentRun(
         .then((r) => r[0])
       if (!row) throw new LeaseLostError()
       if (row.stopRequestedAt) requestStop()
-      return row
+      return { row, nextContext }
     })
-    counters = countersOf(updated)
+    runContext = updated.nextContext
+    counters = countersOf(updated.row)
     return counters
   }
 
@@ -490,13 +506,53 @@ export async function claimAgentRun(
       .where(eq(schema.agentRunStep.runId, runId))
       .orderBy(asc(schema.agentRunStep.step))
     const stepMessages = stepRows.flatMap((r) => r.messages as ModelMessage[])
-    const userMessage = await buildInitialUserMessage(claimed.context)
+    // A run that compacted persisted its post-compaction baseline; resuming
+    // from it (plus the steps checkpointed after it) replays exactly what the
+    // model was last sent. Replaying the raw transcript instead would re-send
+    // everything the compaction projected away — and can exceed the model
+    // context outright once a compaction has happened.
+    const compacted = claimed.compaction
+    // A continued run's prefix is the chain it inherited plus the delta it was
+    // started with — rebuilding it as a fresh initial message would silently
+    // drop every prior run's work. Falls back to the fresh shape if the chain
+    // can't be replayed. The baseline supersedes the chain walk: it already
+    // embeds the inherited transcript.
+    const prefix = compacted
+      ? (compacted.baselineMessages as ModelMessage[])
+      : claimed.continuedFromRunId
+        ? await replayContinuedPrefix({
+            continuedFromRunId: claimed.continuedFromRunId,
+            context: claimed.context,
+          })
+        : null
+    const replayedSteps = compacted
+      ? stepRows.filter((r) => r.step > compacted.atStep)
+      : stepRows
+    const messages = [
+      ...(prefix ?? [await buildInitialUserMessage(claimed.context)]),
+      ...replayedSteps.flatMap((r) => r.messages as ModelMessage[]),
+    ]
     resume = {
-      messages: [userMessage, ...stepMessages],
+      messages,
       instructions: claimed.instructions,
       counters,
+      // The full answer streamed so far, from every step row — the baseline
+      // filter above shapes the model request, not the visible text.
       answerTextSoFar: assistantText(stepMessages),
-      lastInputTokens: stepRows.at(-1)?.inputTokens ?? 0,
+      // What the first request will actually weigh, not what the last step
+      // weighed: after a compaction the last step is small while a raw replay
+      // is huge, and seeding the small number would skip the compaction the
+      // first request needs.
+      lastInputTokens: Math.max(
+        estimateMessagesTokens(messages),
+        stepRows.at(-1)?.inputTokens ?? 0
+      ),
+      compaction: compacted
+        ? {
+            summary: compacted.summary,
+            summaryFailures: compacted.summaryFailures,
+          }
+        : null,
       conversation: claimed.context.conversation,
       trail: await loadTrailSeed(runId),
     }
@@ -573,6 +629,7 @@ export async function claimAgentRun(
         )
     const ambientRows = await db
       .select({
+        id: schema.message.id,
         content: schema.message.content,
         attachments: schema.message.attachments,
         createdAt: schema.message.createdAt,
@@ -592,6 +649,9 @@ export async function claimAgentRun(
             sql`jsonb_array_length(coalesce(${schema.message.attachments}, '[]'::jsonb)) > 0`
           ),
           eq(schema.message.excludedFromMemory, false),
+          (runContext?.coveredMessageIds?.length ?? 0) > 0
+            ? notInArray(schema.message.id, runContext?.coveredMessageIds ?? [])
+            : sql`true`,
           // Routed messages ride the steer/queue path — never both tiers.
           notExists(
             db
@@ -609,6 +669,7 @@ export async function claimAgentRun(
     return {
       steered,
       ambient: ambientRows.map((r) => ({
+        messageId: r.id,
         authorName: userDisplayName(r),
         content: withAttachmentLines(r.content, r.attachments),
       })),
@@ -644,12 +705,28 @@ export async function claimAgentRun(
         abort.abort()
         throw new LeaseLostError()
       }
+      runContext = context
     },
     checkpoint: (record) =>
       checkpoint(record).catch((err) => {
         if (err instanceof LeaseLostError) abort.abort()
         throw err
       }),
+    // Best-effort: a failed write keeps the previous baseline, which replays
+    // correctly (steps after its atStep cover the gap) — just less compactly.
+    // Lease loss surfaces through the heartbeat/checkpoint, not here.
+    saveCompaction: async (state) => {
+      await db
+        .update(schema.agentRun)
+        .set({ compaction: state })
+        .where(
+          and(
+            eq(schema.agentRun.id, runId),
+            eq(schema.agentRun.leaseOwner, WORKER_ID),
+            eq(schema.agentRun.state, "working")
+          )
+        )
+    },
     drainConversation,
     stopRequested: () => stopRequested,
     toolResults: {
@@ -705,6 +782,24 @@ export async function claimAgentRun(
         })().catch((err) =>
           logger.warn({ err, runId }, "Agent run usage fold failed")
         )
+      },
+      markContinuedFrom: async (predecessorRunId) => {
+        const row = await db
+          .update(schema.agentRun)
+          .set({ continuedFromRunId: predecessorRunId })
+          .where(
+            and(
+              eq(schema.agentRun.id, runId),
+              eq(schema.agentRun.leaseOwner, WORKER_ID),
+              eq(schema.agentRun.state, "working")
+            )
+          )
+          .returning({ id: schema.agentRun.id })
+          .then((rows) => rows[0])
+        if (!row) {
+          abort.abort()
+          throw new LeaseLostError()
+        }
       },
       setPhase: async (phase) => {
         await db

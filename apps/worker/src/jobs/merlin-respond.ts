@@ -22,6 +22,7 @@ import type {
 } from "@repo/db/schema"
 import { withContext } from "@repo/logger"
 import {
+  formatSpeakerLine,
   groundCitations,
   respond,
   userDisplayName,
@@ -52,6 +53,7 @@ import type { createClient } from "redis"
 import { claimAgentRun, LeaseLostError } from "@/lib/agent-run"
 import { logger } from "@/lib/logger"
 import { createLoopCard } from "@/lib/merlin-loop"
+import { buildContinuation } from "@/lib/run-continuation"
 import { noopRunEventWriter } from "@/lib/run-events"
 import { drainScopeQueue } from "@/lib/run-queue"
 import { updateStreamMentionState } from "@/lib/stream-mentions"
@@ -62,6 +64,9 @@ type RedisClient = ReturnType<typeof createClient>
 // Batch streamed tokens so we publish ~every 24 chars, not per chunk.
 const FLUSH_THRESHOLD = 24
 const CONTEXT_LIMIT = 30
+// Thread context keeps the newest messages up to this runaway guard; channel
+// context uses the smaller rolling window below.
+const THREAD_CONTEXT_LIMIT = 1000
 // Channel messages posted at/before a thread's root, pulled into thread-scoped
 // runs. Placement-routed threads root at the mention itself, so a file
 // uploaded as its own message just before lives at channel level — invisible
@@ -135,7 +140,11 @@ async function loadConversation(args: {
         isNull(schema.message.threadRootId)
       )
 
-  const rows = await selectTurns(scope).limit(CONTEXT_LIMIT)
+  // Thread context truncates to the newest THREAD_CONTEXT_LIMIT messages as a
+  // runaway guard; channel context stays windowed to the newest CONTEXT_LIMIT.
+  const rows = await selectTurns(scope).limit(
+    args.threadRootId ? THREAD_CONTEXT_LIMIT : CONTEXT_LIMIT
+  )
 
   // Thread runs also get the channel messages that led up to the root —
   // attachments and asks posted right before the thread opened live there.
@@ -495,18 +504,39 @@ export function createMerlinRespondProcessor(
             )
           }
           try {
+            // Continuation: a follow-up run in a thread/task scope inherits the
+            // previous run's transcript (its tool results and reasoning) rather
+            // than rebuilding context from chat text alone, so it resumes the
+            // work instead of rediscovering it. Channel scope always builds
+            // fresh, and a recovered attempt already has its own transcript.
+            const continuation =
+              contextThreadRootId && !execution?.resume
+                ? await buildContinuation({
+                    scopeKey: contextThreadRootId,
+                    channelId,
+                    merlinMessageId,
+                    runId: job.data.runId,
+                  })
+                : null
+            if (continuation && execution) {
+              await execution.markContinuedFrom(continuation.predecessorRunId)
+            }
             // On recovery the persisted step-0 snapshot is the conversation —
-            // reloading would drift (new messages may have landed since).
+            // reloading would drift (new messages may have landed since). A
+            // continued run's snapshot is the delta it was started with.
             const conversation = execution?.resume
               ? execution.resume.conversation
-              : await loadConversation({
+              : (continuation?.conversation ??
+                (await loadConversation({
                   channelId,
                   threadRootId: contextThreadRootId,
                   merlinMessageId,
-                })
-            // The snapshot covers every steer row that predates it — consume
-            // them so the first boundary doesn't inject duplicates.
-            if (execution && !execution.resume) {
+                })))
+            // A fresh snapshot covers every pending steer row, so consume them
+            // before the first boundary. A continuation delta is bounded and may
+            // omit older steers; leave those rows pending rather than sweeping
+            // them all as loaded.
+            if (execution && !execution.resume && !continuation) {
               await execution.markConversationLoaded()
             }
 
@@ -626,6 +656,17 @@ export function createMerlinRespondProcessor(
                 ...(threadRootId ? { threadRootId } : {}),
                 triggerMessageId,
                 ...(job.data.runId ? { runId: job.data.runId } : {}),
+                ...(continuation
+                  ? {
+                      continuation: {
+                        messages: continuation.messages,
+                        coveredMessageIds: continuation.coveredMessageIds,
+                        deltaText: continuation.deltaText,
+                        lastInputTokens: continuation.lastInputTokens,
+                        compaction: continuation.compaction,
+                      },
+                    }
+                  : {}),
                 proposeLoop,
                 ...(task
                   ? {
@@ -763,7 +804,7 @@ export function createMerlinRespondProcessor(
             closeReasoningSegment()
 
             gateText = `${conversation
-              .map((t) => `${t.authorName}: ${t.content}`)
+              .map((t) => formatSpeakerLine(t.authorName, t.content))
               .join("\n")}\n\nMerlin: ${answer.text}`
           } catch (err) {
             // Superseded attempt (lease lost / takeover): another worker owns

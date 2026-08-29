@@ -1,5 +1,6 @@
 import { relations, sql } from "drizzle-orm"
 import {
+  type AnyPgColumn,
   index,
   integer,
   jsonb,
@@ -16,6 +17,7 @@ import { connectorTrigger } from "./connector-triggers"
 import { loop } from "./loops"
 import type { MerlinToolCall } from "./messages"
 import { message } from "./messages"
+import type { TaskPlanItem, TaskStatus } from "./tasks"
 import { triggerDelivery } from "./trigger-deliveries"
 import { user } from "./users"
 import { workspace } from "./workspaces"
@@ -179,6 +181,24 @@ export const agentRun = pgTable(
     // so these form a coherent chain rather than interleaved chatter.
     // See reference/automation-primitives.md §5.
     handoffNote: text("handoff_note"),
+
+    // Set when this run continued a predecessor's transcript instead of
+    // rebuilding context from the chat snapshot (reference/context-continuation.md).
+    // Recovery depends on this pointer plus predecessor-chain replay to rebuild
+    // the inherited prefix. Deletion still uses set null rather than cascading
+    // into the run that followed it.
+    continuedFromRunId: uuid("continued_from_run_id").references(
+      (): AnyPgColumn => agentRun.id,
+      { onDelete: "set null" }
+    ),
+
+    // Durable compaction state, overwritten on each mid-run compaction. The
+    // baseline is the post-compaction message array the model was actually
+    // sent, so recovery/continuation replays baseline + steps after atStep
+    // instead of the raw transcript (which can exceed the model context once
+    // a compaction has happened). Best-effort: when null or stale, replay
+    // falls back to the raw chain and re-compacts on the first step.
+    compaction: jsonb("compaction").$type<AgentRunCompaction>(),
   },
   (table) => [
     uniqueIndex("agent_run_messageId_uidx").on(table.messageId),
@@ -364,6 +384,17 @@ export type AgentRunContextTurn = {
   images?: AgentRunContextImage[]
   files?: AgentRunContextFile[]
 }
+// Task state as of the run's start. Lives in the snapshot (not the system
+// prompt) because status/plan/summary change on every set_plan — keeping them
+// out of the instructions leaves the cached prompt prefix stable across a
+// task's runs.
+export type AgentRunContextTask = {
+  title: string
+  goal: string
+  status: TaskStatus
+  plan: TaskPlanItem[]
+  summary: string | null
+}
 export type AgentRunContext = {
   conversation: AgentRunContextTurn[]
   brainContext: string
@@ -371,6 +402,27 @@ export type AgentRunContext = {
   // Optional so pre-existing snapshots (and DM channels, which have no name)
   // keep parsing.
   channelName?: string
+  task?: AgentRunContextTask
+  // Continued runs only (agentRun.continuedFromRunId set): the exact rendered
+  // delta message appended after the inherited transcript. Stored rather than
+  // re-rendered because it embeds elapsed time ("about 3 hours since then"),
+  // which would drift on recovery and break the byte-stable replay.
+  continuationDelta?: string
+  // Message IDs injected at step boundaries and committed with the checkpoint
+  // that first exposed them to the model. Optional for pre-existing snapshots.
+  coveredMessageIds?: string[]
+}
+
+// Written by @repo/merlin at compaction time (see compaction.ts). summary is
+// the rolling working notes — the next run in this scope seeds its compactor
+// with it so facts merge forward instead of being rebuilt from a clipped
+// digest. baselineMessages are ModelMessages, typed unknown[] for the same
+// reason as agentRunStep.messages.
+export type AgentRunCompaction = {
+  summary: string | null
+  summaryFailures: number
+  baselineMessages: unknown[]
+  atStep: number
 }
 
 export type AgentRun = typeof agentRun.$inferSelect
