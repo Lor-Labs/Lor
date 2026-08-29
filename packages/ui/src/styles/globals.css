@@ -552,5 +552,6 @@
 
 .lor-resizing,
 .lor-resizing * {
+  /* biome-ignore lint/complexity/noImportantStyles: mid-drag the resize cursor must beat every element's own cursor utility (cursor-pointer on buttons etc.), or it flickers as the pointer crosses them */
   cursor: ew-resize !important;
 }
