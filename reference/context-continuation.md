@@ -145,7 +145,19 @@ Ship first: independent of Track B, immediate win for export-style tasks.
 - Live tests owed: budget-trip → "continue" picks up mid-work; steer-then-
   continue does not duplicate messages; week-old thread falls back to fresh.
 
-### C1 — summarizing compaction (~400 LOC) — [ ]
+### C1 — summarizing compaction (~400 LOC) — [x] built + rewritten 2026-08-28, awaiting review/commit
+
+Shape (after the rewrite): one exported `compact({ messages, state, ... })` in
+`packages/merlin/src/compaction.ts`, called once from `prepareStep`. Returns the
+messages untouched below the trigger or if the reduced version fails validation.
+
+    [original ask] [working notes] [verbatim tail] [authoritative task state]
+
+Compaction is a **projection, not a deletion** — `agent_run_step` keeps the whole
+transcript forever; only what gets *sent* shrinks. Head stays byte-identical so
+the cached prefix survives. Still open from the Claude Code design: microcompaction
+(stub old tool results before summarizing), prompt-too-long retry for the
+summarizer itself, and restoring non-task state (recent artifacts, sandbox key).
 
 Replaces the current blunt prune (`pruneMessages` with
 `toolCalls: "before-last-4-messages"` at `MERLIN_COMPACT_INPUT_TOKENS`, default
@@ -240,6 +252,37 @@ forgetting. Track D is independent of both — D3 is the only one with a
 security flavor, so it may deserve to jump the queue.
 
 ## Deviations log
+
+- **C1:** context windows verified rather than guessed — GLM 5.3 Flash
+  1,310,720 and Kimi K3 1,048,576. The **fallback** binds, not the primary, so
+  `MERLIN_COMPACT_INPUT_TOKENS` went 60k → **700k**, not ~1M. Any future model
+  change must re-check the smallest window in the chain.
+- **C1:** the rolling notes are deliberately NOT persisted. A recovered attempt
+  rebuilds them from its own transcript at its first compaction, so they can
+  never describe work its messages don't contain.
+- **C1 (compaction boundary):** `ai@7.0.11` documents that a `prepareStep`
+  `messages` override **carries forward into later steps** (`index.d.ts:1644`),
+  so a compacted array becomes the new baseline. The first implementation
+  tracked "what is already summarized" as an index (`coveredThrough`) measured
+  against the pre-compaction array — after one compaction that index pointed
+  past the end of a now-shorter array, so the notes froze at v1 and never
+  picked up later work, and a low split could stack two notes messages. Fixed
+  by deriving the boundary from the array itself: the notes carry a marker
+  (`isSummaryMessage`), everything after them is unsummarized, and the split is
+  clamped to at least that point. Regression-tested by feeding `compact()` its
+  own output.
+- **C1 (rewritten):** first cut inserted notes and leaned on `pruneMessages`'
+  implicit "last 4 messages" for the tail. Rebuilt around the Claude Code
+  design Jacob supplied: single `compact()` entry point; explicit verbatim tail
+  sized by tokens; split forced onto a complete tool round (`isSafeSplit`);
+  authoritative task state re-injected from the DB after the tail instead of
+  trusted to prose; assembled result validated for tool pairing before use;
+  circuit breaker after 3 summarizer failures. `pruneMessages` is now only the
+  fallback when summarization fails or validation rejects the assembly.
+- **C1 (test tooling):** `beforeEach(() => mock.mockReset())` — arrow shorthand —
+  returns the mock, and vitest calls a returned function as teardown, invoking
+  the mock after the test. Cost an hour of false "the catch isn't catching"
+  debugging. Always use a block body in `beforeEach`.
 
 - **B1:** dropped `CONTINUATION_MAX_AGE` (was 6h). It was a cost guard, not a
   correctness one — and compaction already bounds an inherited transcript's

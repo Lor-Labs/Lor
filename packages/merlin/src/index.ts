@@ -17,7 +17,6 @@ import {
   isStepCount,
   type LanguageModelUsage,
   type ModelMessage,
-  pruneMessages,
   streamText,
   type ToolSet,
   tool,
@@ -50,6 +49,7 @@ import {
 import { cloudwatchTools, resolveWorkspaceCloudwatch } from "./cloudwatch"
 import { codeTools } from "./code"
 import { codeActionTools } from "./code-actions"
+import { type CompactionState, compact, newCompactionState } from "./compaction"
 import { CUSTOM_TOOLS_PROMPT_LINE, workspaceCustomTools } from "./custom-tools"
 import { datadogMcpTools, resolveWorkspaceDatadog } from "./datadog"
 import { embedBrainQueryWithUsage, embedSourceQuery } from "./embeddings"
@@ -106,7 +106,7 @@ import { webTools } from "./web"
 // Step cap for the background write-back pass only; the answer loop's
 // ceilings come from the run budgets (reference/agent-harness.md, budgets).
 const WRITEBACK_MAX_STEPS = 30
-// Per-step input size that triggers pruning old tool results from the context.
+// Per-request input size that triggers compaction (compaction.ts).
 const COMPACT_INPUT_TOKENS = env.MERLIN_COMPACT_INPUT_TOKENS
 const WRITEBACK_TIMEOUT_MS = 5 * 60_000
 // search runs each backend independently, so the cap is per result kind
@@ -1862,6 +1862,10 @@ export async function respond(
     let text: string
     let counters: RunCounters
     let resumeLastInputTokens = 0
+    // Rolling working notes replacing compacted-away tool calls. Not persisted:
+    // a recovered attempt rebuilds them from the transcript on its own first
+    // compaction, so they never diverge from what its messages actually hold.
+    const compaction: CompactionState = newCompactionState()
 
     if (run?.resume) {
       // Recovery: continue from the durable transcript with the exact same
@@ -1995,19 +1999,24 @@ export async function respond(
         if (approvalRequested) {
           return { toolChoice: "none" }
         }
-        // Compact old tool calls/results once the context gets heavy. Preserve
-        // reasoning parts so models can continue coherently across tool steps.
-        // A resumed run's first request has no local steps yet, so fall back
-        // to the last checkpointed step's input size.
+        // Reduce what gets SENT once the context grows heavy: old tool calls
+        // become rolling working notes, a recent tail stays verbatim, and the
+        // task's live state is restored from the database. The durable
+        // transcript (agent_run_step) is untouched. Measured on the size the
+        // provider actually reported; a resumed run's first request has no
+        // local steps yet, so it falls back to the last checkpointed step.
         const lastInput =
           steps.at(-1)?.usage.inputTokens ?? resumeLastInputTokens
-        let nextMessages =
-          lastInput > COMPACT_INPUT_TOKENS
-            ? pruneMessages({
-                messages: stepMessages,
-                toolCalls: "before-last-4-messages",
-              })
-            : stepMessages
+        let nextMessages = stepMessages
+        if (lastInput > COMPACT_INPUT_TOKENS) {
+          nextMessages = await compact({
+            messages: stepMessages,
+            state: compaction,
+            workspaceId: ctx.workspaceId,
+            ...(ctx.task ? { task: taskContextSnapshot(ctx.task) } : {}),
+            ...(onUsage ? { onUsage } : {}),
+          })
+        }
         // Steering: fold in messages that landed since the last boundary.
         // Injected after pruning so an update can never be compacted away in
         // the same breath, and buffered for the next checkpoint so recovery
