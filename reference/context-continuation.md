@@ -228,7 +228,7 @@ per-request computation). Three fixes, one UI feature:
 Found while applying the no-silent-truncation rule to the rest of the context
 path. Neither blocks B or C.
 
-### D1 — read_thread window + honest placeholders (~300 LOC) — [ ]
+### D1 — read_thread window + honest placeholders (~300 LOC) — [x] built 2026-08-29, awaiting review/commit
 
 - `packages/merlin/src/index.ts` `readThread` (~L490): today it is
   `orderBy(asc).limit(THREAD_MAX=100)` — the **oldest** 100. A 340-message
@@ -391,6 +391,21 @@ security flavor, so it may deserve to jump the queue.
 - **C2 (`summaryFailures` resets across runs):** the circuit breaker counts one
   run's summarizer retries. Inheriting a predecessor's `3` would permanently
   disable summarization for every successor in the thread.
+
+- **D1 (window over an id index, not LIMIT):** `readThread` loads an id-only
+  index of the whole thread, computes the window in JS (`chooseThreadWindow`
+  in `thread-window.ts`, pure + unit-tested), then fetches full rows for just
+  the window ids. Exact `omittedBefore`/`omittedAfter` counts and stable
+  cursors come free, and `createdAt` ties can't drop rows (ordering is
+  `createdAt, id`). Output shape changed from a bare array to
+  `{ messages, totalMessages, omittedBefore, omittedAfter }` — only the model
+  and `toolDetail` consume it, both updated. The root always returns even when
+  the window sits past it, so `omittedBefore` counts from `start - 1`.
+  Near-edge anchors slide the window to stay full rather than shrinking it.
+- **D1 (placeholders):** the four unshown-image causes now say which they are
+  (unsupported format / over the size limit / over the recency cap / fetch
+  failed) — the model can work around the cap ("only the 8 most recent") but
+  not an unlabeled `[attachment: name]`.
 
 - **D3 (indent, don't pattern-match):** body neutralization indents *every*
   continuation line by two spaces (`formatSpeakerLine` in

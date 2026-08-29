@@ -1,4 +1,15 @@
-import { and, asc, db, eq, MERLIN_USER_ID, ne, or, schema, sql } from "@repo/db"
+import {
+  and,
+  asc,
+  db,
+  eq,
+  inArray,
+  MERLIN_USER_ID,
+  ne,
+  or,
+  schema,
+  sql,
+} from "@repo/db"
 import {
   EMPTY_MERLIN_RUN_SCOPE,
   type MerlinRunScope,
@@ -92,6 +103,7 @@ import {
   taskStateSection,
   taskTools,
 } from "./tasks"
+import { chooseThreadWindow } from "./thread-window"
 import { guardTools } from "./tool-guard"
 import {
   formatSpeakerLine,
@@ -120,6 +132,8 @@ const SEARCH_PER_KIND_DEFAULT = 6
 const SEARCH_PER_KIND_MAX = 15
 const PREFETCH_LIMIT = 3
 const SNIPPET_MAX = 500
+// read_thread window size — a page, not a cap: omitted counts + before/after
+// cursors expose the rest of the thread instead of silently dropping it.
 const THREAD_MAX = 100
 // Max teammates listed in the mention roster injected into the answer prompt.
 const ROSTER_LIMIT = 100
@@ -464,7 +478,8 @@ function privateAudienceFilter(privateContainerChannelId: string | null) {
 async function readThread(
   workspaceId: string,
   messageId: string,
-  privateContainerChannelId: string | null = null
+  privateContainerChannelId: string | null = null,
+  page: { before?: string; after?: string } = {}
 ) {
   // Tenant + audience guard — a run can't read a private thread by guessed id.
   const msg = await db
@@ -483,22 +498,17 @@ async function readThread(
     )
     .limit(1)
     .then((r) => r[0])
-  if (!msg) return []
+  if (!msg) return { error: "message not found or not accessible" }
 
   const rootId = msg.threadRootId ?? msg.id
-  const rows = await db
-    .select({
-      id: schema.message.id,
-      content: schema.message.content,
-      createdAt: schema.message.createdAt,
-      authorName: schema.user.name,
-      authorUsername: schema.user.username,
-      authorDisplayUsername: schema.user.displayUsername,
-      attachments: schema.message.attachments,
-    })
+  // The window is computed over an id-only index of the whole thread rather
+  // than LIMIT over full rows: exact omitted counts and stable cursors come
+  // free, and createdAt ties can't drop rows. The old shape (oldest
+  // THREAD_MAX, silently) hid the newest replies of any long thread.
+  const index = await db
+    .select({ id: schema.message.id })
     .from(schema.message)
     .innerJoin(schema.channel, eq(schema.message.channelId, schema.channel.id))
-    .innerJoin(schema.user, eq(schema.message.authorId, schema.user.id))
     .where(
       and(
         eq(schema.channel.workspaceId, workspaceId),
@@ -508,29 +518,66 @@ async function readThread(
         )
       )
     )
-    .orderBy(asc(schema.message.createdAt))
-    .limit(THREAD_MAX)
+    .orderBy(asc(schema.message.createdAt), asc(schema.message.id))
+  const ids = index.map((r) => r.id)
 
-  return rows.map((r) => ({
-    messageId: r.id,
-    author: userDisplayName({
-      name: r.authorName,
-      username: r.authorUsername,
-      displayUsername: r.authorDisplayUsername,
-    }),
-    when: r.createdAt.toISOString(),
-    text: r.content ?? "",
-    ...(r.attachments?.length
-      ? {
-          attachments: r.attachments.map((a) => ({
-            filename: a.filename,
-            contentType: a.contentType,
-            size: a.size,
-            url: a.url,
-          })),
-        }
-      : {}),
-  }))
+  const anchorId = page.before ?? page.after ?? messageId
+  const window = chooseThreadWindow(ids, anchorId, page, THREAD_MAX)
+  if (!window) {
+    return {
+      error: "the before/after cursor must be a message id from this thread",
+    }
+  }
+  const { start, end, omittedBefore, omittedAfter } = window
+
+  // The root (the thread's subject) is always included, even when the window
+  // sits far past it; omitted counts cover only the gap between the two.
+  const windowIds = ids.slice(start, end)
+  const rootInWindow = start === 0 && windowIds.length > 0
+  const fetchIds = rootInWindow ? windowIds : [ids[0] as string, ...windowIds]
+
+  const rows = fetchIds.length
+    ? await db
+        .select({
+          id: schema.message.id,
+          content: schema.message.content,
+          createdAt: schema.message.createdAt,
+          authorName: schema.user.name,
+          authorUsername: schema.user.username,
+          authorDisplayUsername: schema.user.displayUsername,
+          attachments: schema.message.attachments,
+        })
+        .from(schema.message)
+        .innerJoin(schema.user, eq(schema.message.authorId, schema.user.id))
+        .where(inArray(schema.message.id, fetchIds))
+        .orderBy(asc(schema.message.createdAt), asc(schema.message.id))
+    : []
+
+  return {
+    messages: rows.map((r) => ({
+      messageId: r.id,
+      author: userDisplayName({
+        name: r.authorName,
+        username: r.authorUsername,
+        displayUsername: r.authorDisplayUsername,
+      }),
+      when: r.createdAt.toISOString(),
+      text: r.content ?? "",
+      ...(r.attachments?.length
+        ? {
+            attachments: r.attachments.map((a) => ({
+              filename: a.filename,
+              contentType: a.contentType,
+              size: a.size,
+              url: a.url,
+            })),
+          }
+        : {}),
+    })),
+    totalMessages: ids.length,
+    omittedBefore,
+    omittedAfter,
+  }
 }
 
 const UUID_REGEX =
@@ -633,17 +680,29 @@ export const searchTools = {
 export const chatTools = {
   read_thread: tool({
     description:
-      "Read the full thread (root message + all replies) a message belongs to. Use after search_messages to get full context around a hit.",
+      "Read the thread a message belongs to: the root message plus a window of up to 100 messages centred on the one you asked about. omittedBefore/omittedAfter report how many thread messages fall outside the window — page to them by passing before (older) or after (newer) with a message id from this thread.",
     inputSchema: z.object({
       messageId: z.string().describe("a message id from search_messages"),
+      before: z
+        .string()
+        .optional()
+        .describe("page older: the window ends just before this message id"),
+      after: z
+        .string()
+        .optional()
+        .describe("page newer: the window starts just after this message id"),
     }),
     contextSchema: workspaceContext,
-    execute: async ({ messageId }, { context }) => {
+    execute: async ({ messageId, before, after }, { context }) => {
+      if (before && after) {
+        return { error: "pass either before or after, not both" }
+      }
       try {
         return await readThread(
           context.workspaceId,
           messageId,
-          context.privateContainerChannelId ?? null
+          context.privateContainerChannelId ?? null,
+          { ...(before ? { before } : {}), ...(after ? { after } : {}) }
         )
       } catch {
         return { error: "read failed" }
@@ -877,6 +936,21 @@ export function toolDetail(
         detail: {
           summary: items.length === 0 ? "No results" : groups.join(", "),
           items: toItems(output),
+        },
+      }
+    }
+    case "read_thread": {
+      const msgs = Array.isArray(rec?.messages) ? rec.messages : []
+      const omitted =
+        (typeof rec?.omittedBefore === "number" ? rec.omittedBefore : 0) +
+        (typeof rec?.omittedAfter === "number" ? rec.omittedAfter : 0)
+      return {
+        status: "ok",
+        detail: {
+          summary:
+            omitted > 0
+              ? `${plural(msgs.length, "message")} (${omitted} outside the window)`
+              : plural(msgs.length, "message"),
         },
       }
     }
@@ -1469,6 +1543,7 @@ export async function buildInitialUserMessage(
       .map((img) => ({ ...img, turnIndex }))
   )
   const kept = eligible.slice(-MAX_IMAGES)
+  const keptKeys = new Set(kept.map((img) => `${img.turnIndex}:${img.url}`))
   const bytesByKey = new Map<string, Uint8Array>()
   await Promise.all(
     kept.map(async (img) => {
@@ -1476,6 +1551,26 @@ export async function buildInitialUserMessage(
       if (bytes) bytesByKey.set(`${img.turnIndex}:${img.url}`, bytes)
     })
   )
+  // A placeholder must say WHY the image isn't shown — "over the cap" the
+  // model can work around (ask, or refer to the file line), "unsupported
+  // format" it cannot, and lumping them as [attachment: name] left it unable
+  // to respond usefully to either (D1 in reference/context-continuation.md).
+  const imagePlaceholder = (
+    img: { filename: string; mediaType: string; size: number },
+    key: string
+  ): string => {
+    const name = sanitizeInlineLabel(img.filename)
+    if (!VISION_MEDIA_TYPES.has(img.mediaType)) {
+      return `[image: ${name} — not shown, the ${img.mediaType} format can't be displayed]`
+    }
+    if (img.size > MAX_IMAGE_BYTES) {
+      return `[image: ${name} — not shown, larger than the ${Math.floor(MAX_IMAGE_BYTES / (1024 * 1024))} MB image limit]`
+    }
+    if (!keptKeys.has(key)) {
+      return `[image: ${name} — not shown, only the ${MAX_IMAGES} most recent images are included]`
+    }
+    return `[image: ${name} — could not be loaded]`
+  }
 
   const parts: UserPart[] = [
     {
@@ -1491,7 +1586,8 @@ export async function buildInitialUserMessage(
       text: `\n${formatSpeakerLine(t.authorName, t.content)}`,
     })
     for (const img of t.images ?? []) {
-      const bytes = bytesByKey.get(`${turnIndex}:${img.url}`)
+      const key = `${turnIndex}:${img.url}`
+      const bytes = bytesByKey.get(key)
       if (bytes) {
         parts.push({
           type: "text",
@@ -1499,10 +1595,7 @@ export async function buildInitialUserMessage(
         })
         parts.push({ type: "image", image: bytes, mediaType: img.mediaType })
       } else {
-        parts.push({
-          type: "text",
-          text: `\n[attachment: ${sanitizeInlineLabel(img.filename)}]`,
-        })
+        parts.push({ type: "text", text: `\n${imagePlaceholder(img, key)}` })
       }
     }
     for (const f of t.files ?? []) {
