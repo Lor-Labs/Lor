@@ -9,6 +9,7 @@ import {
   formatAttioTranscript,
 } from "@repo/merlin/providers"
 import { decryptSecret } from "@repo/utils/crypto"
+import { attioNotificationEmbed } from "@/lib/connector-notification-embeds"
 import {
   dispatchConnectorEvent,
   type RememberDraft,
@@ -150,6 +151,15 @@ async function processCallRecording(
       event: "call_recording_ready",
       label: "Attio",
       text: `**Call recording ready** ${link} — ${minutes} min`,
+      embeds: [
+        attioNotificationEmbed({
+          event: "Call recording ready",
+          title,
+          url: recording.webUrl,
+          body: transcript,
+          fields: [{ name: "Duration", value: `${minutes} min`, inline: true }],
+        }),
+      ],
       remember: {
         kind: "call_recording",
         externalId: `call_recording#${recordingId}`,
@@ -210,6 +220,17 @@ async function processNote(
       event: "note_created",
       label: "Attio",
       text: `**Note created** ${title}${context}`,
+      embeds: [
+        attioNotificationEmbed({
+          event: "Note created",
+          title,
+          url: record?.url,
+          body,
+          fields: record
+            ? [{ name: "Record", value: record.title, inline: true }]
+            : undefined,
+        }),
+      ],
       remember: {
         kind: "note",
         externalId: `note#${noteId}`,
@@ -262,6 +283,14 @@ async function processListEntry(
       event: "list_entry_created",
       label: "Attio",
       text: `**${link}** was added to **${listName}**`,
+      embeds: [
+        attioNotificationEmbed({
+          event: "Record added to a list",
+          title: recordTitle,
+          url: record?.url,
+          fields: [{ name: "List", value: listName, inline: true }],
+        }),
+      ],
       remember: {
         kind: "list_entry",
         externalId: `list_entry#${entryId}`,

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  attioNotificationEmbed,
   githubNotificationEmbed,
   linearNotificationEmbed,
 } from "@/lib/connector-notification-embeds"
@@ -50,5 +51,37 @@ describe("connector notification embeds", () => {
       siteName: "Linear",
       color: "#5e6ad2",
     })
+  })
+
+  it("builds an informative Attio call recording card", () => {
+    expect(
+      attioNotificationEmbed({
+        event: "Call recording ready",
+        title: "EIG x CC | sync",
+        url: "https://app.attio.com/acme/meetings/recording",
+        body: "Jacob: We agreed to ship the onboarding flow next week.",
+        fields: [{ name: "Duration", value: "39 min", inline: true }],
+      })
+    ).toEqual({
+      type: "rich",
+      url: "https://app.attio.com/acme/meetings/recording",
+      eventLabel: "Call recording ready",
+      title: "EIG x CC | sync",
+      description: "Jacob: We agreed to ship the onboarding flow next week.",
+      fields: [{ name: "Duration", value: "39 min", inline: true }],
+      siteName: "Attio",
+      color: "#d01e48",
+    })
+  })
+
+  it("clips long Attio content previews", () => {
+    const embed = attioNotificationEmbed({
+      event: "Note created",
+      title: "Account plan",
+      body: "x".repeat(1_401),
+    })
+
+    expect(embed.description).toHaveLength(1_401)
+    expect(embed.description?.endsWith("…")).toBe(true)
   })
 })
