@@ -89,6 +89,17 @@ Mechanics:
 - Empty delta → fall back to fresh (nothing new to ask). Any error → fall back to fresh, logged.
 - Compaction is seeded with `max(estimate(replayed messages), last-step input)` — on both the continuation and crash-recovery paths — so a heavy inherited transcript compacts on the first step rather than after it. The last step alone is never trusted: after a compaction it is small precisely because the bulk was projected away.
 
+## Context meter (`GET /v1/runs/context/{scopeKey}`)
+
+Ring in the thread composer (`apps/web/src/components/chat/context-meter.tsx`) showing how full the model's window is for that thread, with a System / Tools / Messages breakdown on hover.
+
+- **Thread scope only.** Channel runs always rebuild a fresh snapshot, so context never accumulates there — a meter would imply a budget that doesn't exist.
+- **The total is exact**, not estimated: `agent_run_step.inputTokens` of the newest run's last checkpoint is what the provider actually counted. Only the split between segments is estimated (`octet_length` aggregates in SQL, bytes÷3 as in `compaction.ts`), then scaled onto that exact total so the parts always agree with the headline.
+- **Tools are measured, not inferred.** `AgentRunContext.toolSchemaBytes` records the serialized size of the bound tool schemas (`asSchema(...).jsonSchema`, written once at `saveContext`), because which tools are bound varies per channel and they are re-sent every request. Without it the meter folded tool tokens invisibly into the other segments.
+- Steps at or before a compaction baseline are excluded (mirroring replay), and the tooltip reports what the uncompacted transcript would weigh.
+- **Cost is credits, never USD**: `computeCredits` applies `model_rate.conversionRate` (the margin multiplier, deliberately DB-only), so a USD figure here would either expose it or need it divided back out.
+- Denominator is `MERLIN_CONTEXT_WINDOW` (default 1,048,576 — the smallest window across the model chain, which is what binds). Display only; the rail that protects runs is `MERLIN_COMPACT_INPUT_TOKENS`.
+
 ## Budgets
 
 Env-defaulted (`AGENT_RUN_*` in `packages/env` — mirror new required fields into `TEST_ENV` in `apps/api/vitest.config.ts`), snapshotted per run. Emergency ceilings, not stopping targets:

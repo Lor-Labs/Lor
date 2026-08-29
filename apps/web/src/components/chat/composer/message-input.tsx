@@ -67,6 +67,7 @@ import {
   type SlashCommandListProps,
   type SlashCommandListRef,
 } from "@/components/chat/composer/slash-command-list"
+import { ContextMeter } from "@/components/chat/context-meter"
 import type { ChatContext } from "@/components/chat/header"
 import type { PendingAttachment } from "@/hooks/use-file-upload"
 import { apiClient } from "@/lib/api-client"
@@ -114,6 +115,11 @@ interface MessageInputProps {
   context: ChatContext
   // Enables connector attachments — omitted in DMs, which have no workspace.
   channelId?: string
+  // Thread root id whose context usage the meter reports. Thread scope only:
+  // channel runs always rebuild a fresh snapshot (see merlin-respond.ts), so
+  // context never accumulates there and a meter would imply a budget that
+  // doesn't exist. Omit to hide the meter.
+  contextScopeKey?: string
   placeholder?: string
   disabled?: boolean
   disabledReason?: string
@@ -444,6 +450,7 @@ function getActiveCodeBlockPos(editor: {
 export function MessageInput({
   context,
   channelId,
+  contextScopeKey,
   placeholder: placeholderOverride,
   disabled,
   disabledReason,
@@ -1086,6 +1093,12 @@ export function MessageInput({
             <EditorContent editor={editor} className="flex-1" />
           </div>
           <div className="flex shrink-0 items-center gap-1">
+            {/* onStop is only supplied while a run is stoppable, so it doubles
+                as "Merlin is working here right now". */}
+            <ContextMeter
+              scopeKey={contextScopeKey}
+              isRunning={Boolean(onStop)}
+            />
             <Button
               size="icon"
               variant="ghost"

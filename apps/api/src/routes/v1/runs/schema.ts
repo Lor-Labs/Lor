@@ -107,6 +107,38 @@ export const removeQueuedResponseSchema = z.object({
   removed: z.boolean(),
 })
 
+export const threadContextParamsSchema = z.object({
+  scopeKey: z
+    .string()
+    .uuid()
+    .openapi({
+      param: { name: "scopeKey", in: "path", required: true },
+    }),
+})
+
+// What the model actually received on its last request in this scope, plus
+// how that total is made up. `usedTokens` is exact (reported by the provider
+// and checkpointed); the segments are byte-derived estimates scaled to it, so
+// the breakdown shows honest proportions of a real total.
+export const threadContextResponseSchema = z.object({
+  available: z.boolean(),
+  usedTokens: z.number().int(),
+  windowTokens: z.number().int(),
+  compactAtTokens: z.number().int(),
+  segments: z.object({
+    system: z.number().int(),
+    tools: z.number().int(),
+    messages: z.number().int(),
+  }),
+  compacted: z.boolean(),
+  // Tokens the whole thread's transcript would weigh uncompacted — the
+  // headline for what compaction bought.
+  rawHistoryTokens: z.number().int(),
+  creditsSpent: z.number().int(),
+  runCount: z.number().int(),
+  state: z.enum(agentRunStateEnum.enumValues).nullable(),
+})
+
 export const runEventsResponseSchema = z.object({
   run: z.object({
     id: z.string().uuid(),

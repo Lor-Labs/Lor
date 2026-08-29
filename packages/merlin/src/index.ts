@@ -24,6 +24,7 @@ import {
 } from "@repo/db/schema"
 import { env } from "@repo/env/server"
 import {
+  asSchema,
   generateText,
   isStepCount,
   type LanguageModelUsage,
@@ -1638,6 +1639,34 @@ async function buildRunContext(
   }
 }
 
+// Roughly what the bound tool definitions weigh on the wire: name, description,
+// and the JSON Schema the provider actually receives (Zod converted the same
+// way the SDK converts it). Recorded once per run so the context meter can show
+// Tools as its own segment instead of hiding them inside the others.
+function measureToolSchemaBytes(tools: Record<string, unknown>): number {
+  let bytes = 0
+  for (const [name, value] of Object.entries(tools)) {
+    const t = value as { description?: unknown; inputSchema?: unknown }
+    try {
+      bytes += Buffer.byteLength(
+        JSON.stringify({
+          name,
+          description: t.description ?? "",
+          parameters: t.inputSchema
+            ? asSchema(t.inputSchema as Parameters<typeof asSchema>[0])
+                .jsonSchema
+            : {},
+        }) ?? "",
+        "utf8"
+      )
+    } catch {
+      // A tool whose schema won't serialize just doesn't count toward the
+      // display figure; it must never fail the run.
+    }
+  }
+  return bytes
+}
+
 type UserPart =
   | { type: "text"; text: string }
   | { type: "image"; image: Uint8Array; mediaType: string }
@@ -2118,13 +2147,16 @@ export async function respond(
       text = ""
       // Durable before the first model call — recovery depends on it.
       await run?.saveContext({
-        context: continuation
-          ? {
-              ...context,
-              continuationDelta: continuation.deltaText,
-              coveredMessageIds: continuation.coveredMessageIds,
-            }
-          : context,
+        context: {
+          ...context,
+          toolSchemaBytes: measureToolSchemaBytes(tools),
+          ...(continuation
+            ? {
+                continuationDelta: continuation.deltaText,
+                coveredMessageIds: continuation.coveredMessageIds,
+              }
+            : {}),
+        },
         instructions,
       })
     }

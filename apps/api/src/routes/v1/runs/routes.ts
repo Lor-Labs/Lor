@@ -15,7 +15,35 @@ import {
   runEventsQuerySchema,
   runEventsResponseSchema,
   stopRunResponseSchema,
+  threadContextParamsSchema,
+  threadContextResponseSchema,
 } from "@/routes/v1/runs/schema"
+
+export const getThreadContext = createRoute({
+  path: "/runs/context/{scopeKey}",
+  method: "get",
+  summary: "Context usage for a conversation scope",
+  description:
+    "Returns how much of the model's context window the latest agent run in this scope last used, broken down by instructions, conversation, Merlin's work, and compaction notes, plus what the uncompacted transcript would weigh and the credits the scope has spent. Powers the composer's context meter.",
+  tags: ["Runs"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: {
+    params: threadContextParamsSchema,
+  },
+  hidden: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: threadContextResponseSchema,
+      description:
+        "Context usage for the scope (available: false when the scope has no run yet)",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type GetThreadContextRoute = typeof getThreadContext
 
 export const getRunEvents = createRoute({
   path: "/runs/by-message/{messageId}/events",

@@ -828,6 +828,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
           <MessageInput
             context={channelContext}
             channelId={view.channelId}
+            contextScopeKey={view.threadRootId}
             placeholder="Reply…"
             onSend={(content, options) => {
               const nonce = handleSend(content, options)
