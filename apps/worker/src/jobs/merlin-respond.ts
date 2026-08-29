@@ -64,8 +64,8 @@ type RedisClient = ReturnType<typeof createClient>
 // Batch streamed tokens so we publish ~every 24 chars, not per chunk.
 const FLUSH_THRESHOLD = 24
 const CONTEXT_LIMIT = 30
-// Threads are given whole (see loadConversation); this is a runaway guard, not
-// a window.
+// Thread context keeps the newest messages up to this runaway guard; channel
+// context uses the smaller rolling window below.
 const THREAD_CONTEXT_LIMIT = 1000
 // Channel messages posted at/before a thread's root, pulled into thread-scoped
 // runs. Placement-routed threads root at the mention itself, so a file
@@ -140,9 +140,8 @@ async function loadConversation(args: {
         isNull(schema.message.threadRootId)
       )
 
-  // A thread is a bounded unit someone is looking at in full, so all of it
-  // goes in — windowing it would silently hide messages they can see. A
-  // channel is an unbounded firehose, so it stays windowed.
+  // Thread context truncates to the newest THREAD_CONTEXT_LIMIT messages as a
+  // runaway guard; channel context stays windowed to the newest CONTEXT_LIMIT.
   const rows = await selectTurns(scope).limit(
     args.threadRootId ? THREAD_CONTEXT_LIMIT : CONTEXT_LIMIT
   )
@@ -533,9 +532,11 @@ export function createMerlinRespondProcessor(
                   threadRootId: contextThreadRootId,
                   merlinMessageId,
                 })))
-            // The snapshot covers every steer row that predates it — consume
-            // them so the first boundary doesn't inject duplicates.
-            if (execution && !execution.resume) {
+            // A fresh snapshot covers every pending steer row, so consume them
+            // before the first boundary. A continuation delta is bounded and may
+            // omit older steers; leave those rows pending rather than sweeping
+            // them all as loaded.
+            if (execution && !execution.resume && !continuation) {
               await execution.markConversationLoaded()
             }
 
@@ -659,6 +660,7 @@ export function createMerlinRespondProcessor(
                   ? {
                       continuation: {
                         messages: continuation.messages,
+                        coveredMessageIds: continuation.coveredMessageIds,
                         deltaText: continuation.deltaText,
                         lastInputTokens: continuation.lastInputTokens,
                         compaction: continuation.compaction,

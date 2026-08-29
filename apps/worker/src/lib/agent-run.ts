@@ -14,6 +14,7 @@ import {
   MERLIN_USER_ID,
   ne,
   notExists,
+  notInArray,
   or,
   schema,
   sql,
@@ -29,6 +30,7 @@ import {
   type ConversationUpdate,
   estimateMessagesTokens,
   type ModelMessage,
+  mergeRunContextCoverage,
   type RunCounters,
   type RunHandle,
   type RunResume,
@@ -108,8 +110,8 @@ export type RunExecution = {
   noteNestedUsage: (u: UsageEvent) => void
   // Post-answer usage (write-back) folds straight into the counters.
   addUsage: (u: UsageEvent) => void
-  // Records that this run inherited a predecessor's transcript, so a recovered
-  // attempt replays the same chain instead of rebuilding a fresh snapshot.
+  // Persists the predecessor pointer; recovery combines it with this run's
+  // saved context to replay the predecessor chain instead of rebuilding fresh.
   markContinuedFrom: (predecessorRunId: string) => Promise<void>
   setPhase: (phase: "answer" | "writeback") => Promise<void>
   // Fresh runs call this right after loading the conversation snapshot: steer
@@ -411,6 +413,7 @@ export async function claimAgentRun(
   }
 
   const pendingNested: UsageEvent[] = []
+  let runContext = claimed.context
 
   const checkpoint = async (record: RunStepRecord): Promise<RunCounters> => {
     let credits = await creditsFor(record)
@@ -439,6 +442,12 @@ export async function claimAgentRun(
         .returning({ step: schema.agentRunStep.step })
         .then((r) => r[0])
       const isNew = Boolean(insertedStep)
+      // Coverage becomes durable only with the step that carried the injected
+      // message, so a crash before this transaction causes safe reinjection.
+      const nextContext =
+        isNew && runContext
+          ? mergeRunContextCoverage(runContext, record.coveredMessageIds ?? [])
+          : runContext
       const row = await tx
         .update(schema.agentRun)
         .set({
@@ -449,6 +458,7 @@ export async function claimAgentRun(
           toolCalls: sql`${schema.agentRun.toolCalls} + ${isNew ? record.toolCalls : 0}`,
           toolOutputBytes: sql`${schema.agentRun.toolOutputBytes} + ${isNew ? record.toolOutputBytes : 0}`,
           creditsSpent: sql`${schema.agentRun.creditsSpent} + ${isNew ? credits : 0}`,
+          ...(nextContext !== runContext ? { context: nextContext } : {}),
         })
         .where(
           and(
@@ -464,9 +474,10 @@ export async function claimAgentRun(
         .then((r) => r[0])
       if (!row) throw new LeaseLostError()
       if (row.stopRequestedAt) requestStop()
-      return row
+      return { row, nextContext }
     })
-    counters = countersOf(updated)
+    runContext = updated.nextContext
+    counters = countersOf(updated.row)
     return counters
   }
 
@@ -618,6 +629,7 @@ export async function claimAgentRun(
         )
     const ambientRows = await db
       .select({
+        id: schema.message.id,
         content: schema.message.content,
         attachments: schema.message.attachments,
         createdAt: schema.message.createdAt,
@@ -637,6 +649,9 @@ export async function claimAgentRun(
             sql`jsonb_array_length(coalesce(${schema.message.attachments}, '[]'::jsonb)) > 0`
           ),
           eq(schema.message.excludedFromMemory, false),
+          (runContext?.coveredMessageIds?.length ?? 0) > 0
+            ? notInArray(schema.message.id, runContext?.coveredMessageIds ?? [])
+            : sql`true`,
           // Routed messages ride the steer/queue path — never both tiers.
           notExists(
             db
@@ -654,6 +669,7 @@ export async function claimAgentRun(
     return {
       steered,
       ambient: ambientRows.map((r) => ({
+        messageId: r.id,
         authorName: userDisplayName(r),
         content: withAttachmentLines(r.content, r.attachments),
       })),
@@ -689,6 +705,7 @@ export async function claimAgentRun(
         abort.abort()
         throw new LeaseLostError()
       }
+      runContext = context
     },
     checkpoint: (record) =>
       checkpoint(record).catch((err) => {
@@ -767,13 +784,22 @@ export async function claimAgentRun(
         )
       },
       markContinuedFrom: async (predecessorRunId) => {
-        await db
+        const row = await db
           .update(schema.agentRun)
           .set({ continuedFromRunId: predecessorRunId })
-          .where(eq(schema.agentRun.id, runId))
-          .catch((err) =>
-            logger.warn({ err, runId }, "Continuation marker write failed")
+          .where(
+            and(
+              eq(schema.agentRun.id, runId),
+              eq(schema.agentRun.leaseOwner, WORKER_ID),
+              eq(schema.agentRun.state, "working")
+            )
           )
+          .returning({ id: schema.agentRun.id })
+          .then((rows) => rows[0])
+        if (!row) {
+          abort.abort()
+          throw new LeaseLostError()
+        }
       },
       setPhase: async (phase) => {
         await db

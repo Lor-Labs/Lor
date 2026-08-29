@@ -184,9 +184,9 @@ export const agentRun = pgTable(
 
     // Set when this run continued a predecessor's transcript instead of
     // rebuilding context from the chat snapshot (reference/context-continuation.md).
-    // Audit/debug only — the transcript itself is already copied into this
-    // run's steps, so losing the pointer costs nothing (hence set null, never
-    // cascade: deleting an old run must not delete the run that followed it).
+    // Recovery depends on this pointer plus predecessor-chain replay to rebuild
+    // the inherited prefix. Deletion still uses set null rather than cascading
+    // into the run that followed it.
     continuedFromRunId: uuid("continued_from_run_id").references(
       (): AnyPgColumn => agentRun.id,
       { onDelete: "set null" }
@@ -408,6 +408,9 @@ export type AgentRunContext = {
   // re-rendered because it embeds elapsed time ("about 3 hours since then"),
   // which would drift on recovery and break the byte-stable replay.
   continuationDelta?: string
+  // Message IDs injected at step boundaries and committed with the checkpoint
+  // that first exposed them to the model. Optional for pre-existing snapshots.
+  coveredMessageIds?: string[]
 }
 
 // Written by @repo/merlin at compaction time (see compaction.ts). summary is

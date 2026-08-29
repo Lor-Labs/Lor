@@ -49,6 +49,7 @@ export type Continuation = {
   // Turns the delta rendered, stored as the new run's context.conversation so
   // this run's own successor can replay them (and a crash can rebuild).
   conversation: AgentRunContext["conversation"]
+  coveredMessageIds: string[]
   // The rendered delta, persisted verbatim so a recovered attempt replays the
   // identical message (it embeds elapsed time, which would otherwise drift).
   deltaText: string
@@ -66,6 +67,17 @@ type ChainRun = {
   context: AgentRunContext | null
   continuedFromRunId: string | null
   compaction: AgentRunCompaction | null
+}
+
+type DeltaRow = {
+  id: string
+  content: string | null
+  attachments:
+    | { url: string; filename: string; size: number; contentType: string }[]
+    | null
+  name: string
+  username: string | null
+  displayUsername: string | null
 }
 
 // Newest finished run in this scope worth continuing. `failed` qualifies on
@@ -104,14 +116,30 @@ async function findPredecessor(args: {
     .then((rows) => rows[0])
 }
 
+function hasValidBaseline(run: ChainRun): boolean {
+  const compaction = run.compaction
+  return Boolean(
+    compaction &&
+      Array.isArray(compaction.baselineMessages) &&
+      Number.isInteger(compaction.atStep) &&
+      compaction.atStep >= 0
+  )
+}
+
 // Walk continuedFromRunId back to the run that started the chain. Returned
 // oldest first: the head of this list holds the original fresh snapshot, and
-// every run after it contributed a delta.
-async function loadChain(head: ChainRun): Promise<ChainRun[]> {
+// every run after it contributed a delta. A compaction baseline is also a
+// complete root: it embeds everything older, so traversal can stop there.
+async function loadChain(head: ChainRun): Promise<ChainRun[] | null> {
   const chain: ChainRun[] = [head]
+  if (hasValidBaseline(head)) return chain
+
   let cursor = head.continuedFromRunId
   const seen = new Set([head.id])
-  while (cursor && chain.length < MAX_CHAIN_HOPS && !seen.has(cursor)) {
+  while (cursor) {
+    // Never replay a partial chain. A cycle or overlong chain without a
+    // compaction baseline falls back to the fresh context path.
+    if (chain.length >= MAX_CHAIN_HOPS || seen.has(cursor)) return null
     seen.add(cursor)
     const row = await db
       .select({
@@ -124,27 +152,49 @@ async function loadChain(head: ChainRun): Promise<ChainRun[]> {
       .where(eq(schema.agentRun.id, cursor))
       .limit(1)
       .then((rows) => rows[0])
-    if (!row?.context) break
+    if (!row?.context) return null
     chain.unshift(row)
+    if (hasValidBaseline(row)) return chain
     cursor = row.continuedFromRunId
   }
   return chain
 }
 
-// Messages that landed in the scope after the predecessor started, minus the
-// ones already inside its transcript (steered rows it consumed) and minus
-// Merlin's own placeholders. This is what the model hasn't seen yet.
+function toTurn(row: DeltaRow): AgentRunContext["conversation"][number] {
+  return {
+    authorName: userDisplayName(row),
+    content: row.content ?? "",
+    images: (row.attachments ?? [])
+      .filter((a) => a.contentType.startsWith("image/"))
+      .map((a) => ({
+        url: a.url,
+        filename: a.filename,
+        mediaType: a.contentType,
+        size: a.size,
+      })),
+    files: (row.attachments ?? [])
+      .filter((a) => !a.contentType.startsWith("image/"))
+      .map((a) => ({
+        url: a.url,
+        filename: a.filename,
+        mediaType: a.contentType,
+        size: a.size,
+      })),
+  }
+}
+
+// Messages that landed in the scope after the predecessor started, minus every
+// message durably covered by its transcript and minus Merlin's own placeholders.
 async function loadDelta(args: {
   predecessorRunId: string
   predecessorStartedAt: Date
+  predecessorContext: AgentRunContext
   scopeKey: string
   channelId: string
   merlinMessageId: string
 }) {
-  // Only rows the predecessor actually injected mid-run are already in its
-  // transcript, and those are exactly the ones with consumedAtStep set. A row
-  // that merely drained into this run keeps consumedAtStep null — it is this
-  // run's trigger and must stay in the delta.
+  // Queue rows cover guaranteed steers. The checkpointed context IDs cover
+  // ambient injections, which have no agentRunQueue row.
   const consumed = await db
     .select({ messageId: schema.agentRunQueue.messageId })
     .from(schema.agentRunQueue)
@@ -155,10 +205,14 @@ async function loadDelta(args: {
         isNotNull(schema.agentRunQueue.consumedAtStep)
       )
     )
-  const consumedIds = consumed.map((c) => c.messageId)
+  const alreadyCovered = new Set([
+    ...(args.predecessorContext.coveredMessageIds ?? []),
+    ...consumed.map((c) => c.messageId),
+  ])
 
-  return await db
+  const rows = await db
     .select({
+      id: schema.message.id,
       content: schema.message.content,
       attachments: schema.message.attachments,
       name: schema.user.name,
@@ -183,8 +237,8 @@ async function loadDelta(args: {
           isNotNull(schema.message.content),
           sql`jsonb_array_length(coalesce(${schema.message.attachments}, '[]'::jsonb)) > 0`
         ),
-        consumedIds.length > 0
-          ? notInArray(schema.message.id, consumedIds)
+        alreadyCovered.size > 0
+          ? notInArray(schema.message.id, [...alreadyCovered])
           : sql`true`,
         // Queued messages get their own follow-up run, same as the fresh path.
         sql`not exists (select 1 from ${schema.agentRunQueue} q where q.message_id = ${schema.message.id} and q.state = 'queued')`
@@ -195,32 +249,18 @@ async function loadDelta(args: {
     // extra row is fetched purely to detect that overflow.
     .orderBy(desc(schema.message.createdAt))
     .limit(MAX_DELTA_MESSAGES + 1)
-    .then((rows) => ({
-      omitted: Math.max(0, rows.length - MAX_DELTA_MESSAGES),
-      turns: rows
-        .slice(0, MAX_DELTA_MESSAGES)
-        .reverse()
-        .map((r) => ({
-          authorName: userDisplayName(r),
-          content: r.content ?? "",
-          images: (r.attachments ?? [])
-            .filter((a) => a.contentType.startsWith("image/"))
-            .map((a) => ({
-              url: a.url,
-              filename: a.filename,
-              mediaType: a.contentType,
-              size: a.size,
-            })),
-          files: (r.attachments ?? [])
-            .filter((a) => !a.contentType.startsWith("image/"))
-            .map((a) => ({
-              url: a.url,
-              filename: a.filename,
-              mediaType: a.contentType,
-              size: a.size,
-            })),
-        })),
-    }))
+
+  // The SQL predicate is authoritative; this also keeps mocked and stale reads
+  // from duplicating a durably covered message.
+  const unseen = rows.filter((row) => !alreadyCovered.has(row.id))
+  const included = unseen.slice(0, MAX_DELTA_MESSAGES).reverse()
+  const turns = included.map(toTurn)
+
+  return {
+    omitted: Math.max(0, unseen.length - MAX_DELTA_MESSAGES),
+    turns,
+    coveredMessageIds: included.map((row) => row.id),
+  }
 }
 
 function humanizeGap(ms: number): string {
@@ -292,6 +332,7 @@ export async function replayChain(headRunId: string): Promise<{
   if (!head?.context) return null
 
   const chain = await loadChain(head)
+  if (!chain) return null
   // Newest compacted projection in the chain. Its baseline embeds everything
   // sent up to that point — the original snapshot, earlier hops, its own
   // pre-compaction steps — so replay starts there and earlier hops are never
@@ -299,7 +340,8 @@ export async function replayChain(headRunId: string): Promise<{
   // history grows without limit, the baseline never exceeds one context.
   let baseIndex = -1
   for (let i = chain.length - 1; i >= 0; i--) {
-    if (chain[i]?.compaction) {
+    const run = chain[i]
+    if (run && hasValidBaseline(run)) {
       baseIndex = i
       break
     }
@@ -358,7 +400,15 @@ export async function replayChain(headRunId: string): Promise<{
   let trimmed = messages
   if (messages.length > MAX_INHERITED_STEPS) {
     let cut = messages.length - MAX_INHERITED_STEPS + 1
-    while (cut < messages.length && !isSafeSplit(messages, cut)) cut++
+    // Move backward to retain the assistant tool-call turn and every result it
+    // owns. Moving forward can leave a suffix beginning with a tool message or
+    // discard the complete pair despite room to retain it.
+    while (
+      cut > 1 &&
+      (messages[cut]?.role === "tool" || !isSafeSplit(messages, cut))
+    ) {
+      cut--
+    }
     trimmed = [messages[0] as ModelMessage, ...messages.slice(cut)]
   }
   // What the inherited transcript will actually WEIGH on the next request —
@@ -412,10 +462,14 @@ export async function buildContinuation(args: {
     })
     if (!predecessor?.context) return null
 
+    const replayed = await replayChain(predecessor.id)
+    if (!replayed) return null
+
     const since = predecessor.startedAt ?? predecessor.createdAt
-    const { turns, omitted } = await loadDelta({
+    const { turns, omitted, coveredMessageIds } = await loadDelta({
       predecessorRunId: predecessor.id,
       predecessorStartedAt: since,
+      predecessorContext: predecessor.context,
       scopeKey: args.scopeKey,
       channelId: args.channelId,
       merlinMessageId: args.merlinMessageId,
@@ -431,9 +485,6 @@ export async function buildContinuation(args: {
     // question. Let the fresh path build a normal snapshot.
     if (!deltaText) return null
 
-    const replayed = await replayChain(predecessor.id)
-    if (!replayed) return null
-
     return {
       predecessorRunId: predecessor.id,
       messages: [
@@ -441,6 +492,7 @@ export async function buildContinuation(args: {
         { role: "user", content: deltaText } satisfies ModelMessage,
       ],
       conversation: turns,
+      coveredMessageIds,
       deltaText,
       lastInputTokens: replayed.lastInputTokens,
       compaction: replayed.compaction,

@@ -43,6 +43,6 @@ export function chooseThreadWindow(
     start,
     end,
     omittedBefore: Math.max(0, start - 1),
-    omittedAfter: ids.length - end,
+    omittedAfter: ids.length - end - (end === 0 ? 1 : 0),
   }
 }

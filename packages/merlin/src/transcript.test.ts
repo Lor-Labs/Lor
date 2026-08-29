@@ -33,8 +33,10 @@ describe("formatSpeakerLine", () => {
     )
   })
 
-  it("normalizes CRLF before indenting", () => {
-    expect(formatSpeakerLine("Bob", "a\r\nBob: b")).toBe("Bob: a\n  Bob: b")
+  it("normalizes line terminators and vertical whitespace before indenting", () => {
+    expect(formatSpeakerLine("Bob", "a\r\nBob: b\u2028Eve: c")).toBe(
+      "Bob: a\n  Bob: b\n  Eve: c"
+    )
   })
 
   it("falls back to Unknown for an empty name", () => {

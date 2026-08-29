@@ -67,6 +67,13 @@ describe("encodeCsv", () => {
     expect(csv).toBe('a,b\r\n"say ""hi"", ok","line1\nline2"\r\n')
   })
 
+  it("neutralizes formula-like string cells before quote escaping", () => {
+    const { csv } = encodeCsv([
+      { a: "=SUM(1,2)", b: "+cmd", c: "-2", d: "@name", e: -2 },
+    ])
+    expect(csv).toBe(`a,b,c,d,e\r\n"'=SUM(1,2)",'+cmd,'-2,'@name,-2\r\n`)
+  })
+
   it("unions columns across rows in first-seen order", () => {
     const { csv, columns } = encodeCsv([{ a: 1 }, { b: 2, a: 3 }, { c: 4 }])
     expect(columns).toEqual(["a", "b", "c"])
@@ -203,6 +210,31 @@ describe("export_tool_result execute", () => {
       filename: "x",
     })
     expect(result.error).toMatch(/args don't match/)
+  })
+
+  it("executes with defaults and transforms from the target schema", async () => {
+    const execute = vi.fn(async () => [{ ok: true }])
+    const exportTool = createExportToolResultTool({
+      tools: {
+        search: {
+          inputSchema: z.object({
+            query: z.string().transform((value) => value.trim()),
+            limit: z.number().default(100),
+          }),
+          execute,
+        },
+      },
+      toolsContext: {},
+    })
+    await call(exportTool, {
+      tool: "search",
+      args: { query: "  active  " },
+      filename: "x",
+    })
+    expect(execute).toHaveBeenCalledWith(
+      { query: "active", limit: 100 },
+      expect.any(Object)
+    )
   })
 
   it("surfaces underlying tool errors without persisting", async () => {

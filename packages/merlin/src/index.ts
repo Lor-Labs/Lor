@@ -60,7 +60,12 @@ import {
 import { cloudwatchTools, resolveWorkspaceCloudwatch } from "./cloudwatch"
 import { codeTools } from "./code"
 import { codeActionTools } from "./code-actions"
-import { type CompactionState, compact, newCompactionState } from "./compaction"
+import {
+  type CompactionState,
+  compact,
+  estimateMessagesTokens,
+  newCompactionState,
+} from "./compaction"
 import { CUSTOM_TOOLS_PROMPT_LINE, workspaceCustomTools } from "./custom-tools"
 import { datadogMcpTools, resolveWorkspaceDatadog } from "./datadog"
 import { embedBrainQueryWithUsage, embedSourceQuery } from "./embeddings"
@@ -94,6 +99,7 @@ import {
   addStepToCounters,
   budgetViolation,
   type ConversationUpdate,
+  conversationUpdateMessageIds,
   defaultRunBudgets,
   type RunCounters,
   type RunHandle,
@@ -307,6 +313,7 @@ export type RespondContext = {
 
 export type RunContinuation = {
   messages: ModelMessage[]
+  coveredMessageIds: string[]
   // The delta message, persisted so a recovered attempt replays it verbatim.
   deltaText: string
   lastInputTokens: number
@@ -339,8 +346,10 @@ export { MERLIN_MODEL } from "./models"
 export {
   type BudgetStopReason,
   type ConversationUpdate,
+  conversationUpdateMessageIds,
   defaultRunBudgets,
   type ModelMessage,
+  mergeRunContextCoverage,
   type RunBudgets,
   type RunCounters,
   type RunHandle,
@@ -2110,7 +2119,11 @@ export async function respond(
       // Durable before the first model call — recovery depends on it.
       await run?.saveContext({
         context: continuation
-          ? { ...context, continuationDelta: continuation.deltaText }
+          ? {
+              ...context,
+              continuationDelta: continuation.deltaText,
+              coveredMessageIds: continuation.coveredMessageIds,
+            }
           : context,
         instructions,
       })
@@ -2133,6 +2146,7 @@ export async function respond(
     // checkpoint record, so the resumed transcript (flat concat of step rows)
     // reproduces the runtime message order exactly.
     const pendingInjected: ModelMessage[] = []
+    const pendingCoveredMessageIds: string[] = []
 
     type CompletedStep = {
       response: { messages: ReadonlyArray<ModelMessage>; modelId: string }
@@ -2145,9 +2159,11 @@ export async function respond(
     const checkpointStep = async (step: CompletedStep, localIndex: number) => {
       if (localIndex <= checkpointedLocal) return
       checkpointedLocal = localIndex
+      const coveredMessageIds = pendingCoveredMessageIds.splice(0)
       const record: RunStepRecord = {
         step: baseStep + localIndex,
         messages: [...pendingInjected.splice(0), ...step.response.messages],
+        ...(coveredMessageIds.length > 0 ? { coveredMessageIds } : {}),
         model: step.response.modelId,
         inputTokens: step.usage.inputTokens,
         cachedInputTokens: step.usage.inputTokenDetails.cacheReadTokens,
@@ -2218,13 +2234,15 @@ export async function respond(
         // Reduce what gets SENT once the context grows heavy: old tool calls
         // become rolling working notes, a recent tail stays verbatim, and the
         // task's live state is restored from the database. The durable
-        // transcript (agent_run_step) is untouched. Measured on the size the
-        // provider actually reported; a resumed run's first request has no
-        // local steps yet, so it falls back to the last checkpointed step.
+        // transcript (agent_run_step) is untouched. Use both the prior
+        // provider-reported input and the current message estimate: a large
+        // tool result can push the next request over the threshold before the
+        // provider has reported usage for it.
         const lastInput =
           steps.at(-1)?.usage.inputTokens ?? resumeLastInputTokens
+        const estimatedInput = estimateMessagesTokens(stepMessages)
         let nextMessages = stepMessages
-        if (lastInput > COMPACT_INPUT_TOKENS) {
+        if (Math.max(lastInput, estimatedInput) > COMPACT_INPUT_TOKENS) {
           // Surfaced in the run trail like a tool call (start frame renders a
           // spinner, the ok frame settles into a divider). Keyed by step so a
           // recovered attempt re-compacting at the same boundary upserts the
@@ -2281,6 +2299,9 @@ export async function respond(
               content: updateText,
             }
             pendingInjected.push(injected)
+            pendingCoveredMessageIds.push(
+              ...conversationUpdateMessageIds(update)
+            )
             nextMessages =
               nextMessages === stepMessages
                 ? [...stepMessages, injected]

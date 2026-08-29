@@ -40,6 +40,7 @@ const MAX_SUMMARY_FAILURES = 3
 // than UTF-16 code units, so CJK and emoji aren't under-counted, over 3 rather
 // than 4, because tool-call JSON and identifiers tokenize denser than prose.
 const BYTES_PER_TOKEN = 3
+const IMAGE_TOKEN_ESTIMATE = 1_500
 
 const SUMMARY_INSTRUCTION = `You are keeping the working notes for an agent midway through a task. Its older tool calls are about to leave its context, so these notes are the ONLY thing it will retain about them.
 
@@ -113,11 +114,13 @@ function textOf(content: unknown): string {
 }
 
 function messageTokens(message: ModelMessage): number {
-  return estimateTokens(
-    typeof message.content === "string"
-      ? message.content
-      : JSON.stringify(message.content)
-  )
+  if (typeof message.content === "string") {
+    return estimateTokens(message.content)
+  }
+  return partsOf(message.content).reduce((sum, part) => {
+    if (part.type === "image") return sum + IMAGE_TOKEN_ESTIMATE
+    return sum + estimateTokens(JSON.stringify(part))
+  }, 0)
 }
 
 // Rough size of a message array, for callers that must decide whether to

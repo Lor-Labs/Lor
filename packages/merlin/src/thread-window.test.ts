@@ -49,7 +49,8 @@ describe("chooseThreadWindow", () => {
       start: 0,
       end: 0,
       omittedBefore: 0,
-      omittedAfter: 10,
+      // The root is returned separately, leaving only the nine replies omitted.
+      omittedAfter: 9,
     })
   })
 

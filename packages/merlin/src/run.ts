@@ -35,7 +35,17 @@ export type SteeredMessage = {
 // model is told to act on them only if they're addressed to it).
 export type ConversationUpdate = {
   steered: SteeredMessage[]
-  ambient: { authorName: string; content: string }[]
+  ambient: { messageId: string; authorName: string; content: string }[]
+}
+
+export function conversationUpdateMessageIds(
+  update: ConversationUpdate
+): string[] {
+  return [
+    ...new Set(
+      [...update.steered, ...update.ambient].map((message) => message.messageId)
+    ),
+  ]
 }
 
 export type RunBudgets = {
@@ -64,6 +74,9 @@ export type RunCounters = {
 export type RunStepRecord = {
   step: number
   messages: ModelMessage[]
+  // IDs represented by an injected user message in this step. The worker
+  // commits these to context in the same transaction as the step row.
+  coveredMessageIds?: string[]
   model?: string
   inputTokens?: number
   cachedInputTokens?: number
@@ -123,6 +136,20 @@ export type RunHandle = {
   // Explicit user stop, observed at step boundaries — the loop ends
   // gracefully and the worker settles the run as stopped_by_user.
   stopRequested?: () => boolean
+}
+
+export function mergeRunContextCoverage(
+  context: AgentRunContext,
+  messageIds: string[]
+): AgentRunContext {
+  if (messageIds.length === 0) return context
+  const coveredMessageIds = [
+    ...new Set([...(context.coveredMessageIds ?? []), ...messageIds]),
+  ]
+  if (coveredMessageIds.length === context.coveredMessageIds?.length) {
+    return context
+  }
+  return { ...context, coveredMessageIds }
 }
 
 export const ZERO_RUN_COUNTERS: RunCounters = {

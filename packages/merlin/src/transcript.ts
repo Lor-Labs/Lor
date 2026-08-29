@@ -13,7 +13,7 @@
 // mention.
 export function sanitizeRosterLabel(label: string): string {
   return label
-    .replace(/[\r\n<>]+/g, " ")
+    .replace(/[\n\r\v\f\u0085\u2028\u2029<>]+/g, " ")
     .trim()
     .slice(0, 80)
 }
@@ -25,7 +25,9 @@ export function sanitizeRosterLabel(label: string): string {
 // covered the same way (filenames are user-controlled too).
 export function formatSpeakerLine(authorName: string, body: string): string {
   const name = sanitizeRosterLabel(authorName) || "Unknown"
-  const indented = body.replace(/\r\n?/g, "\n").replace(/\n/g, "\n  ")
+  const indented = body
+    .replace(/\r\n|[\n\r\v\f\u0085\u2028\u2029]/g, "\n")
+    .replace(/\n/g, "\n  ")
   return `${name}: ${indented}`
 }
 

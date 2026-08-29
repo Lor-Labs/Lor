@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 // Each db.select() call resolves to the next queued result set; the builder
 // methods in between are chainable no-ops. Queue order therefore mirrors the
-// query order in buildContinuation: predecessor → consumed → delta → steps.
+// query order in buildContinuation: predecessor → replay chain/steps → consumed → delta.
 // A queued Error makes that query reject, standing in for a DB failure.
 const results: (unknown[] | Error)[] = []
 function queue(...sets: (unknown[] | Error)[]) {
@@ -83,7 +83,7 @@ vi.mock("@repo/merlin", () => ({
   userDisplayName: (u: { name: string }) => u.name,
 }))
 
-import { buildContinuation, formatDelta } from "./run-continuation"
+import { buildContinuation, formatDelta, replayChain } from "./run-continuation"
 
 const predecessor = {
   id: "run-1",
@@ -102,6 +102,7 @@ const step2 = (text: string, runId: string) => ({
 })
 
 const deltaRow = {
+  id: "msg-go-ahead",
   content: "go ahead",
   attachments: [],
   name: "Jacob",
@@ -187,24 +188,24 @@ describe("buildContinuation", () => {
   })
 
   it("returns null when nothing was said since the predecessor ran", async () => {
-    // predecessor → consumed(none) → delta(none)
-    queue([predecessor], [], [])
+    // predecessor → chain head → steps → consumed(none) → delta(none)
+    queue([predecessor], [predecessor], [step2("work", "run-1")], [], [])
     expect(await buildContinuation(args)).toBeNull()
   })
 
   it("returns null when the chain checkpointed no steps", async () => {
-    // predecessor → consumed → delta → chain head → steps(none)
-    queue([predecessor], [], [deltaRow], [predecessor], [])
+    // predecessor → chain head → steps(none)
+    queue([predecessor], [predecessor], [])
     expect(await buildContinuation(args)).toBeNull()
   })
 
   it("assembles initial message + inherited steps + delta, in order", async () => {
     queue(
       [predecessor],
-      [],
-      [deltaRow],
       [predecessor],
-      [step2("found 2553 rows", "run-1"), step2("ok", "run-1")]
+      [step2("found 2553 rows", "run-1"), step2("ok", "run-1")],
+      [],
+      [deltaRow]
     )
     const result = await buildContinuation(args)
     expect(result).not.toBeNull()
@@ -222,9 +223,10 @@ describe("buildContinuation", () => {
     expect(result?.lastInputTokens).toBe(40_000)
     // No compacted run in the chain: nothing to inherit.
     expect(result?.compaction).toBeNull()
-    // Delta turns become the new run's snapshot conversation.
+    // Delta turns and their source IDs become the new run's snapshot.
     expect(result?.conversation).toHaveLength(1)
     expect(result?.conversation[0]?.content).toBe("go ahead")
+    expect(result?.coveredMessageIds).toEqual(["msg-go-ahead"])
   })
 
   it("replays from the compaction baseline instead of the raw transcript", async () => {
@@ -241,8 +243,6 @@ describe("buildContinuation", () => {
     }
     queue(
       [baselineRun], // findPredecessor
-      [], // consumed
-      [deltaRow], // delta
       [baselineRun], // replayChain head
       [
         {
@@ -257,7 +257,9 @@ describe("buildContinuation", () => {
           messages: [{ role: "assistant", content: "post-compaction step" }],
           inputTokens: 90_000,
         },
-      ]
+      ],
+      [], // consumed
+      [deltaRow] // delta
     )
     const result = await buildContinuation(args)
     const texts = result?.messages.map((m) => JSON.stringify(m.content))
@@ -294,11 +296,11 @@ describe("buildContinuation", () => {
     const run1 = { ...predecessor, id: "run-1", continuedFromRunId: null }
     queue(
       [run2], // findPredecessor
-      [], // consumed
-      [deltaRow], // delta
       [run2], // replayChain head
       [run1], // chain walk: run-2 → run-1
-      [step2("run1 work", "run-1"), step2("run2 work", "run-2")]
+      [step2("run1 work", "run-1"), step2("run2 work", "run-2")],
+      [], // consumed
+      [deltaRow] // delta
     )
     const result = await buildContinuation({ ...args, runId: "run-3" })
     const texts = result?.messages.map((m) => JSON.stringify(m.content))
@@ -337,8 +339,6 @@ describe("buildContinuation", () => {
     }
     queue(
       [run2], // findPredecessor
-      [], // consumed
-      [deltaRow], // delta
       [run2], // replayChain head
       [run1], // chain walk: run-2 → run-1
       [
@@ -354,7 +354,9 @@ describe("buildContinuation", () => {
           messages: [{ role: "assistant", content: "run2 work" }],
           inputTokens: 95_000,
         },
-      ]
+      ],
+      [], // consumed
+      [deltaRow] // delta
     )
     const result = await buildContinuation({ ...args, runId: "run-3" })
     const texts = result?.messages.map((m) => JSON.stringify(m.content))
@@ -379,18 +381,76 @@ describe("buildContinuation", () => {
       messages: [{ role: "assistant", content: "y".repeat(200_000) }],
       inputTokens: 900,
     }
-    queue([predecessor], [], [deltaRow], [predecessor], [heavy])
+    queue([predecessor], [predecessor], [heavy], [], [deltaRow])
     const result = await buildContinuation(args)
     expect(result?.lastInputTokens).toBeGreaterThan(40_000)
+  })
+
+  it("does not infer ambient coverage from transcript text before checkpoint", async () => {
+    const ambientRow = {
+      ...deltaRow,
+      id: "msg-ambient",
+      content: "status changed",
+    }
+    const injected = {
+      runId: "run-1",
+      step: 1,
+      messages: [
+        {
+          role: "user",
+          content:
+            "The conversation continued while you were working. This is context, not a request — act on it only if it's addressed to you or changes your answer:\nJacob: status changed",
+        },
+        { role: "assistant", content: "updated work" },
+      ],
+      inputTokens: 40_000,
+    }
+    queue([predecessor], [predecessor], [injected], [], [deltaRow, ambientRow])
+
+    const result = await buildContinuation(args)
+    expect(result?.conversation.map((turn) => turn.content)).toEqual([
+      "status changed",
+      "go ahead",
+    ])
+    expect(result?.deltaText).toContain("status changed")
+    expect(result?.conversation[0]).not.toHaveProperty("messageId")
+  })
+
+  it("excludes ambient IDs persisted by the predecessor checkpoint", async () => {
+    const coveredRow = {
+      ...deltaRow,
+      id: "msg-covered",
+      content: "already covered",
+    }
+    const coveredPredecessor = {
+      ...predecessor,
+      context: {
+        ...predecessor.context,
+        coveredMessageIds: ["msg-covered"],
+      },
+    }
+    queue(
+      [coveredPredecessor],
+      [coveredPredecessor],
+      [step2("work", "run-1")],
+      [],
+      [deltaRow, coveredRow]
+    )
+
+    const result = await buildContinuation(args)
+    expect(result?.conversation.map((turn) => turn.content)).toEqual([
+      "go ahead",
+    ])
+    expect(result?.deltaText).not.toContain("already covered")
   })
 
   it("carries the delta text so a recovered attempt can replay it verbatim", async () => {
     queue(
       [predecessor],
-      [],
-      [deltaRow],
       [predecessor],
-      [step2("work", "run-1")]
+      [step2("work", "run-1")],
+      [],
+      [deltaRow]
     )
     const result = await buildContinuation(args)
     // The rendered text and the final message must be the same string: the
@@ -400,8 +460,159 @@ describe("buildContinuation", () => {
   })
 
   it("falls back to the fresh path instead of throwing when a query fails", async () => {
-    // Predecessor and delta resolve; the chain walk blows up.
-    queue([predecessor], [], [deltaRow], new Error("db down"))
+    queue([predecessor], new Error("db down"))
     await expect(buildContinuation(args)).resolves.toBeNull()
+  })
+})
+
+describe("replayChain", () => {
+  beforeEach(() => {
+    results.length = 0
+  })
+
+  it("rejects a cursor cycle instead of replaying a partial chain", async () => {
+    const run2 = {
+      ...predecessor,
+      id: "run-2",
+      continuedFromRunId: "run-1",
+    }
+    const run1 = {
+      ...predecessor,
+      id: "run-1",
+      continuedFromRunId: "run-2",
+    }
+    queue([run2], [run1])
+    await expect(replayChain("run-2")).resolves.toBeNull()
+  })
+
+  it("replays a complete acyclic chain at the hop cap", async () => {
+    const runs = Array.from({ length: 20 }, (_, index) => ({
+      ...predecessor,
+      id: `run-${index}`,
+      continuedFromRunId: index === 0 ? null : `run-${index - 1}`,
+    }))
+    const head = runs[19]
+    expect(head).toBeDefined()
+    queue(
+      [head],
+      ...runs
+        .slice(0, 19)
+        .reverse()
+        .map((run) => [run]),
+      [step2("oldest work", "run-0"), step2("newest work", "run-19")]
+    )
+
+    const replayed = await replayChain("run-19")
+    expect(replayed?.messages.map((message) => message.content)).toEqual([
+      [{ type: "text", text: "initial:brain" }],
+      "oldest work",
+      "newest work",
+    ])
+  })
+
+  it("rejects a chain beyond the hop cap instead of replaying its suffix", async () => {
+    const runs = Array.from({ length: 21 }, (_, index) => ({
+      ...predecessor,
+      id: `run-${index}`,
+      continuedFromRunId: index === 0 ? null : `run-${index - 1}`,
+    }))
+    const head = runs[20]
+    expect(head).toBeDefined()
+    queue(
+      [head],
+      ...runs
+        .slice(1, 20)
+        .reverse()
+        .map((run) => [run])
+    )
+    await expect(replayChain("run-20")).resolves.toBeNull()
+  })
+
+  it("accepts a compaction baseline before a cursor cycle", async () => {
+    const run2 = {
+      ...predecessor,
+      id: "run-2",
+      continuedFromRunId: "run-1",
+    }
+    const run1 = {
+      ...predecessor,
+      id: "run-1",
+      continuedFromRunId: "run-2",
+      compaction: {
+        summary: "safe baseline",
+        summaryFailures: 0,
+        baselineMessages: [{ role: "user", content: "BASELINE" }],
+        atStep: 0,
+      },
+    }
+    queue([run2], [run1], [step2("continued work", "run-2")])
+
+    const replayed = await replayChain("run-2")
+    expect(replayed?.messages.map((message) => message.content)).toEqual([
+      "BASELINE",
+      "continued work",
+    ])
+  })
+
+  it("moves a trimmed suffix back to the assistant tool-call boundary", async () => {
+    const call = {
+      role: "assistant",
+      content: [
+        { type: "tool-call", toolCallId: "tool-1", toolName: "run_sql" },
+      ],
+    }
+    const result = {
+      role: "tool",
+      content: [
+        {
+          type: "tool-result",
+          toolCallId: "tool-1",
+          toolName: "run_sql",
+          output: "done",
+        },
+      ],
+    }
+    const tail = Array.from({ length: 398 }, (_, index) => ({
+      role: "assistant",
+      content: `tail-${index}`,
+    }))
+    queue(
+      [predecessor],
+      [
+        {
+          runId: "run-1",
+          step: 1,
+          messages: [call, result, ...tail],
+          inputTokens: 40_000,
+        },
+      ]
+    )
+
+    const replayed = await replayChain("run-1")
+    expect(replayed?.messages[0]).toMatchObject({ role: "user" })
+    expect(replayed?.messages[1]).toEqual(call)
+    expect(replayed?.messages[2]).toEqual(result)
+  })
+
+  it("does not trim a transcript at the inherited limit", async () => {
+    const messages = Array.from({ length: 399 }, (_, index) => ({
+      role: "assistant",
+      content: `message-${index}`,
+    }))
+    queue(
+      [predecessor],
+      [
+        {
+          runId: "run-1",
+          step: 1,
+          messages,
+          inputTokens: 40_000,
+        },
+      ]
+    )
+
+    const replayed = await replayChain("run-1")
+    expect(replayed?.messages).toHaveLength(400)
+    expect(replayed?.messages.at(-1)?.content).toBe("message-398")
   })
 })

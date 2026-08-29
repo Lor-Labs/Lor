@@ -123,7 +123,9 @@ export function encodeCsv(rows: TabularRow[]): {
   }
   const field = (value: Primitive): string => {
     if (value === null || value === undefined) return ""
-    const text = String(value)
+    const raw = String(value)
+    const text =
+      typeof value === "string" && /^[=+@-]/.test(raw) ? `'${raw}` : raw
     return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
   }
   const lines = [
@@ -186,7 +188,9 @@ type AnyToolExecute = (
 type InvokableTool = {
   execute?: AnyToolExecute
   inputSchema?: {
-    safeParse?: (input: unknown) => { success: boolean; error?: unknown }
+    safeParse?: (
+      input: unknown
+    ) => { success: true; data: unknown } | { success: false; error?: unknown }
   }
 }
 
@@ -240,9 +244,10 @@ export function createExportToolResultTool(opts: {
         }
       }
 
+      const executeInput = parsed?.success ? parsed.data : input
       let output: unknown
       try {
-        output = await target.execute(input, {
+        output = await target.execute(executeInput, {
           toolCallId,
           messages: [],
           abortSignal,

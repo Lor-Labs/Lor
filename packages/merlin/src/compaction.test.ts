@@ -21,6 +21,7 @@ vi.mock("./logger", () => ({
 import {
   chooseSplit,
   compact,
+  estimateMessagesTokens,
   isSafeSplit,
   isStateMessage,
   isSummaryMessage,
@@ -47,6 +48,22 @@ const call = (id: string): ModelMessage =>
       { type: "tool-call", toolCallId: id, toolName: "run_sql", input: {} },
     ],
   }) as unknown as ModelMessage
+
+describe("estimateMessagesTokens", () => {
+  it("estimates image parts without serializing their bytes", () => {
+    const small = new Uint8Array(10)
+    const large = new Uint8Array(100_000)
+    const message = (image: Uint8Array) =>
+      ({
+        role: "user",
+        content: [{ type: "image", image, mediaType: "image/jpeg" }],
+      }) as ModelMessage
+
+    expect(estimateMessagesTokens([message(large)])).toBe(
+      estimateMessagesTokens([message(small)])
+    )
+  })
+})
 
 const result = (id: string, output: unknown = { rows: 1 }): ModelMessage =>
   ({
