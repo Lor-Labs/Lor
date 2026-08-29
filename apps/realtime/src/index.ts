@@ -57,6 +57,7 @@ import {
   type RunRouteOutcome,
   routeToActiveRun,
 } from "@/services/merlin"
+import { isReplyToMerlin } from "@/services/merlin-routing"
 import {
   closeMerlinSession,
   isMerlinSessionOpen,
@@ -582,18 +583,23 @@ io.on("connection", (socket) => {
           })
       }
 
-      // Merlin responds when explicitly @-mentioned, or when the sender has an
-      // open session (a recent @Merlin in this scope) and isn't now addressing a
-      // teammate. Session is keyed by thread root, else channel, + sender.
+      // Merlin responds when explicitly @-mentioned or replied to, or when the
+      // sender has an open session (a recent exchange with Merlin in this
+      // scope) and isn't now addressing a teammate. Session is keyed by thread
+      // root, else channel, + sender.
       const merlinScopeId = parsed.threadRootId ?? parsed.channelId
       const merlinMentioned = isMerlinMentioned(parsed.content)
+      const replyingToMerlin = isReplyToMerlin(
+        createdMessage.message.referencedMessage
+      )
+      const explicitlyAddressesMerlin = merlinMentioned || replyingToMerlin
       const addressesTeammate = mentionsOtherUser(parsed.content)
-      let triggerMerlin = merlinMentioned
-      if (!merlinMentioned && !addressesTeammate) {
+      let triggerMerlin = explicitlyAddressesMerlin
+      if (!explicitlyAddressesMerlin && !addressesTeammate) {
         // Inside a thread Merlin is part of, plain replies always go to it (the
         // thread is the conversation) — no session window — unless the thread
         // was muted by someone addressing a teammate. Elsewhere, fall back to
-        // the timed session opened by a recent @Merlin.
+        // the timed session opened by a recent exchange with Merlin.
         if (parsed.threadRootId) {
           const inMerlinThread = await isMerlinThread(
             parsed.threadRootId
@@ -617,7 +623,7 @@ io.on("connection", (socket) => {
 
       if (!triggerMerlin) {
         // Addressing a teammate ends the sender's open Merlin session, and in a
-        // thread mutes Merlin there until someone @Merlins again.
+        // thread mutes Merlin there until someone explicitly addresses it again.
         if (addressesTeammate) {
           void closeMerlinSession(
             redisPresenceClient,
@@ -632,8 +638,8 @@ io.on("connection", (socket) => {
           }
         }
       } else {
-        // A fresh @Merlin in a thread un-mutes it (Merlin is back in).
-        if (merlinMentioned && parsed.threadRootId) {
+        // An explicit mention/reply in a thread un-mutes it (Merlin is back in).
+        if (explicitlyAddressesMerlin && parsed.threadRootId) {
           void unmuteMerlinThread(
             redisPresenceClient,
             parsed.threadRootId

@@ -116,7 +116,7 @@ The input rail counts `inputTokens - 0.9 × cachedInputTokens`. Every step re-se
 
 ## Multiplayer steering (two-tier contract)
 
-Any message that would **trigger** Merlin (mention, open session, Merlin-thread reply) is absorbed by the scope's active run, with delivery guarantees. Messages that would *not* trigger (someone addressing a teammate mid-run) are the **ambient tier**: `prepareStep` re-reads the scope at each boundary and injects them as context only ("act on these only if addressed to you") — no guarantee, never spawns or queues a run. Both arrive in one injected user message per boundary.
+Any message that would **trigger** Merlin (mention, direct reply to a Merlin-authored message, open session, Merlin-thread reply) is absorbed by the scope's active run, with delivery guarantees. Messages that would *not* trigger (someone addressing a teammate mid-run) are the **ambient tier**: `prepareStep` re-reads the scope at each boundary and injects them as context only ("act on these only if addressed to you") — no guarantee, never spawns or queues a run. Both arrive in one injected user message per boundary.
 
 How a trigger is absorbed depends on the scope:
 
