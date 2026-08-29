@@ -14,9 +14,10 @@ import {
   schema,
   sql,
 } from "@repo/db"
-import type { AgentRunContext } from "@repo/db/schema"
+import type { AgentRunCompaction, AgentRunContext } from "@repo/db/schema"
 import {
   buildInitialUserMessage,
+  estimateMessagesTokens,
   type ModelMessage,
   userDisplayName,
 } from "@repo/merlin"
@@ -52,12 +53,17 @@ export type Continuation = {
   // Predecessor's last step input size, so the first prepareStep can compact
   // an already-heavy inherited transcript before growing it further.
   lastInputTokens: number
+  // Working notes from the newest compacted run in the chain — seeds the new
+  // run's compactor so facts merge forward instead of being rebuilt from a
+  // clipped digest.
+  compaction: { summary: string | null; summaryFailures: number } | null
 }
 
 type ChainRun = {
   id: string
   context: AgentRunContext | null
   continuedFromRunId: string | null
+  compaction: AgentRunCompaction | null
 }
 
 // Newest finished run in this scope worth continuing. `failed` qualifies on
@@ -110,6 +116,7 @@ async function loadChain(head: ChainRun): Promise<ChainRun[]> {
         id: schema.agentRun.id,
         context: schema.agentRun.context,
         continuedFromRunId: schema.agentRun.continuedFromRunId,
+        compaction: schema.agentRun.compaction,
       })
       .from(schema.agentRun)
       .where(eq(schema.agentRun.id, cursor))
@@ -262,12 +269,14 @@ export function formatDelta(
 export async function replayChain(headRunId: string): Promise<{
   messages: ModelMessage[]
   lastInputTokens: number
+  compaction: { summary: string | null; summaryFailures: number } | null
 } | null> {
   const head = await db
     .select({
       id: schema.agentRun.id,
       context: schema.agentRun.context,
       continuedFromRunId: schema.agentRun.continuedFromRunId,
+      compaction: schema.agentRun.compaction,
     })
     .from(schema.agentRun)
     .where(eq(schema.agentRun.id, headRunId))
@@ -276,6 +285,21 @@ export async function replayChain(headRunId: string): Promise<{
   if (!head?.context) return null
 
   const chain = await loadChain(head)
+  // Newest compacted projection in the chain. Its baseline embeds everything
+  // sent up to that point — the original snapshot, earlier hops, its own
+  // pre-compaction steps — so replay starts there and earlier hops are never
+  // loaded. This is what keeps a long-lived thread's replay bounded: raw
+  // history grows without limit, the baseline never exceeds one context.
+  let baseIndex = -1
+  for (let i = chain.length - 1; i >= 0; i--) {
+    if (chain[i]?.compaction) {
+      baseIndex = i
+      break
+    }
+  }
+  const base = baseIndex >= 0 ? chain[baseIndex]?.compaction : null
+  const replayed = chain.slice(Math.max(baseIndex, 0))
+
   const stepRows = await db
     .select({
       runId: schema.agentRunStep.runId,
@@ -287,7 +311,7 @@ export async function replayChain(headRunId: string): Promise<{
     .where(
       inArray(
         schema.agentRunStep.runId,
-        chain.map((c) => c.id)
+        replayed.map((c) => c.id)
       )
     )
     .orderBy(asc(schema.agentRunStep.step))
@@ -300,17 +324,23 @@ export async function replayChain(headRunId: string): Promise<{
     stepsByRun.set(row.runId, list)
   }
 
-  // Oldest first: the chain head carries the original snapshot; every later
-  // hop replays the stored delta that started it, so no history is skipped.
+  // Oldest first: the first replayed run carries its baseline (or the
+  // original snapshot); every later hop replays the stored delta that started
+  // it, so no history is skipped.
   const messages: ModelMessage[] = []
-  for (const [index, run] of chain.entries()) {
+  for (const [index, run] of replayed.entries()) {
     if (!run.context) continue
-    if (index === 0) {
+    if (index === 0 && base) {
+      messages.push(...(base.baselineMessages as ModelMessage[]))
+    } else if (index === 0 && baseIndex < 0) {
       messages.push(await buildInitialUserMessage(run.context))
     } else if (run.context.continuationDelta) {
       messages.push({ role: "user", content: run.context.continuationDelta })
     }
-    for (const row of stepsByRun.get(run.id) ?? []) {
+    const rows = stepsByRun.get(run.id) ?? []
+    const afterBaseline =
+      index === 0 && base ? rows.filter((r) => r.step > base.atStep) : rows
+    for (const row of afterBaseline) {
       messages.push(...(row.messages as ModelMessage[]))
     }
   }
@@ -323,9 +353,21 @@ export async function replayChain(headRunId: string): Promise<{
           ...messages.slice(messages.length - MAX_INHERITED_STEPS + 1),
         ]
       : messages
+  // What the inherited transcript will actually WEIGH on the next request —
+  // not what the predecessor's last step weighed. Those differ badly when the
+  // predecessor compacted: its final steps were small precisely because the
+  // bulk had been projected away, while the transcript replayed here still
+  // holds all of it. Seeding the compaction trigger with the small number
+  // would send the whole thing uncompacted.
   return {
     messages: trimmed,
-    lastInputTokens: stepRows.at(-1)?.inputTokens ?? 0,
+    lastInputTokens: Math.max(
+      estimateMessagesTokens(trimmed),
+      stepRows.at(-1)?.inputTokens ?? 0
+    ),
+    // Failures reset to zero: they counted retries against one run's
+    // summarizer, not against the notes themselves.
+    compaction: base ? { summary: base.summary, summaryFailures: 0 } : null,
   }
 }
 
@@ -393,6 +435,7 @@ export async function buildContinuation(args: {
       conversation: turns,
       deltaText,
       lastInputTokens: replayed.lastInputTokens,
+      compaction: replayed.compaction,
     }
   } catch (err) {
     // Continuation is an optimization; any failure falls back to a fresh run.

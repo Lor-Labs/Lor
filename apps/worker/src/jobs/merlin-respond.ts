@@ -660,6 +660,7 @@ export function createMerlinRespondProcessor(
                         messages: continuation.messages,
                         deltaText: continuation.deltaText,
                         lastInputTokens: continuation.lastInputTokens,
+                        compaction: continuation.compaction,
                       },
                     }
                   : {}),

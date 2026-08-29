@@ -27,6 +27,7 @@ import type {
 import {
   buildInitialUserMessage,
   type ConversationUpdate,
+  estimateMessagesTokens,
   type ModelMessage,
   type RunCounters,
   type RunHandle,
@@ -494,25 +495,53 @@ export async function claimAgentRun(
       .where(eq(schema.agentRunStep.runId, runId))
       .orderBy(asc(schema.agentRunStep.step))
     const stepMessages = stepRows.flatMap((r) => r.messages as ModelMessage[])
+    // A run that compacted persisted its post-compaction baseline; resuming
+    // from it (plus the steps checkpointed after it) replays exactly what the
+    // model was last sent. Replaying the raw transcript instead would re-send
+    // everything the compaction projected away — and can exceed the model
+    // context outright once a compaction has happened.
+    const compacted = claimed.compaction
     // A continued run's prefix is the chain it inherited plus the delta it was
     // started with — rebuilding it as a fresh initial message would silently
     // drop every prior run's work. Falls back to the fresh shape if the chain
-    // can't be replayed.
-    const prefix = claimed.continuedFromRunId
-      ? await replayContinuedPrefix({
-          continuedFromRunId: claimed.continuedFromRunId,
-          context: claimed.context,
-        })
-      : null
+    // can't be replayed. The baseline supersedes the chain walk: it already
+    // embeds the inherited transcript.
+    const prefix = compacted
+      ? (compacted.baselineMessages as ModelMessage[])
+      : claimed.continuedFromRunId
+        ? await replayContinuedPrefix({
+            continuedFromRunId: claimed.continuedFromRunId,
+            context: claimed.context,
+          })
+        : null
+    const replayedSteps = compacted
+      ? stepRows.filter((r) => r.step > compacted.atStep)
+      : stepRows
+    const messages = [
+      ...(prefix ?? [await buildInitialUserMessage(claimed.context)]),
+      ...replayedSteps.flatMap((r) => r.messages as ModelMessage[]),
+    ]
     resume = {
-      messages: [
-        ...(prefix ?? [await buildInitialUserMessage(claimed.context)]),
-        ...stepMessages,
-      ],
+      messages,
       instructions: claimed.instructions,
       counters,
+      // The full answer streamed so far, from every step row — the baseline
+      // filter above shapes the model request, not the visible text.
       answerTextSoFar: assistantText(stepMessages),
-      lastInputTokens: stepRows.at(-1)?.inputTokens ?? 0,
+      // What the first request will actually weigh, not what the last step
+      // weighed: after a compaction the last step is small while a raw replay
+      // is huge, and seeding the small number would skip the compaction the
+      // first request needs.
+      lastInputTokens: Math.max(
+        estimateMessagesTokens(messages),
+        stepRows.at(-1)?.inputTokens ?? 0
+      ),
+      compaction: compacted
+        ? {
+            summary: compacted.summary,
+            summaryFailures: compacted.summaryFailures,
+          }
+        : null,
       conversation: claimed.context.conversation,
       trail: await loadTrailSeed(runId),
     }
@@ -666,6 +695,21 @@ export async function claimAgentRun(
         if (err instanceof LeaseLostError) abort.abort()
         throw err
       }),
+    // Best-effort: a failed write keeps the previous baseline, which replays
+    // correctly (steps after its atStep cover the gap) — just less compactly.
+    // Lease loss surfaces through the heartbeat/checkpoint, not here.
+    saveCompaction: async (state) => {
+      await db
+        .update(schema.agentRun)
+        .set({ compaction: state })
+        .where(
+          and(
+            eq(schema.agentRun.id, runId),
+            eq(schema.agentRun.leaseOwner, WORKER_ID),
+            eq(schema.agentRun.state, "working")
+          )
+        )
+    },
     drainConversation,
     stopRequested: () => stopRequested,
     toolResults: {

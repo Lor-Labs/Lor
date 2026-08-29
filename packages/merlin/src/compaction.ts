@@ -28,7 +28,18 @@ const MAX_SUMMARY_CHARS = 12_000
 // After this many summarizer failures, stop paying for retries and let the
 // plain prune carry the run.
 const MAX_SUMMARY_FAILURES = 3
-const CHARS_PER_TOKEN = 4
+// Token estimation is deliberately a conservative heuristic, not a real
+// tokenizer. A real one isn't available: the models here (GLM, Kimi) ship their
+// own vocabularies, and an OpenAI BPE port like gpt-tokenizer would be a
+// different wrong answer with false precision plus real CPU cost per step. The
+// exact figure comes from the provider on every step anyway — this only covers
+// the first step of a continued run and tail sizing.
+//
+// Under-counting is the dangerous direction in both uses (skip a compaction we
+// needed; keep a tail bigger than we think), so bias high: UTF-8 bytes rather
+// than UTF-16 code units, so CJK and emoji aren't under-counted, over 3 rather
+// than 4, because tool-call JSON and identifiers tokenize denser than prose.
+const BYTES_PER_TOKEN = 3
 
 const SUMMARY_INSTRUCTION = `You are keeping the working notes for an agent midway through a task. Its older tool calls are about to leave its context, so these notes are the ONLY thing it will retain about them.
 
@@ -69,7 +80,7 @@ export function isSummaryMessage(message: ModelMessage): boolean {
 }
 
 function estimateTokens(text: string): number {
-  return Math.ceil(text.length / CHARS_PER_TOKEN)
+  return Math.ceil(Buffer.byteLength(text, "utf8") / BYTES_PER_TOKEN)
 }
 
 type Part = Record<string, unknown>

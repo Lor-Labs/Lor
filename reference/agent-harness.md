@@ -65,7 +65,7 @@ queued ──claim──▶ working ──answer done──▶ finalizing ──
 `respond()` takes a `RunHandle` (persisted state in; checkpoint/event/drain/stop callbacks out), verified against `ai@7.0.11`:
 
 - `stopWhen`: one async predicate over cumulative counters (steps, tokens, tool calls, `deadlineAt`, spend, stop flag) that also performs the checkpoint.
-- `prepareStep`: compaction (`pruneMessages` shapes what's *sent*, never what's *stored*), forced final text step near ceilings, and conversation drain (steering; see below).
+- `prepareStep`: compaction (summarizing `compact()` in `compaction.ts` shapes what's *sent*, never what's *stored*; fires above `MERLIN_COMPACT_INPUT_TOKENS`, persists notes + baseline via `saveCompaction`, surfaces in the trail as a `compact_context` entry → web divider), forced final text step near ceilings, and conversation drain (steering; see below).
 - Tool wrapper (`tool-guard.ts`): 256 KB/call (env) + 2 MB cumulative output caps, byte counting, side-effect idempotency.
 - Spend: `recordUsage` stays the async ledger; the checkpoint also folds `computeCredits` into `creditsSpent` synchronously. Nested usage (`investigate_code`, future child agents) accumulates into the parent run's counters.
 - Provider retries: `maxRetries: 3`. Context-per-request stays governed by `MERLIN_COMPACT_INPUT_TOKENS`.
@@ -82,12 +82,12 @@ Two regimes, never mixed:
 Mechanics:
 
 - **Predecessor**: newest finished run in the same `scopeKey` + channel with `steps > 0` and a stored `context`. `complete`, `stopped`, and `failed` all qualify — a budget-tripped run is exactly the one worth continuing. **No age cutoff**: a thread is one conversation however long the gap; a gap over 30 min is instead reported in the delta ("about 3 days since then, so re-check anything that may have changed").
-- **Chain replay** (`replayChain`): walks `continuedFromRunId` back to the chain root (cap 20 hops), then emits root snapshot → root steps → each later hop's stored delta → that hop's steps. Necessary because a step row holds only its own run's messages.
+- **Chain replay** (`replayChain`): walks `continuedFromRunId` back to the chain root (cap 20 hops), then emits root snapshot → root steps → each later hop's stored delta → that hop's steps. Necessary because a step row holds only its own run's messages. **When any run in the chain persisted a compaction** (`agent_run.compaction`: notes + post-compaction baseline + `atStep`), replay starts at the newest baseline instead — baseline + that run's steps `> atStep` + later hops — which keeps replay bounded to one context however long the thread lives, keeps the prefix byte-identical (prompt cache), and hands the notes to the successor's compactor so facts merge forward.
 - **Delta**: scope messages created after the predecessor started, excluding Merlin's own (already assistant turns), the placeholder, still-`queued` rows, and rows the predecessor actually injected — the last identified by **`consumedAtStep IS NOT NULL`**. `drainScopeQueue` marks the winning queued row `consumed` against the *predecessor's* run id with `consumedAtStep` left null, so excluding all consumed rows would drop the very message that triggered the continued run.
 - **`context.continuationDelta`** stores the rendered delta verbatim; it embeds elapsed time, so re-rendering on recovery would change the string and break byte-stable replay (and the prompt cache). Recovery uses `replayContinuedPrefix`, not `buildInitialUserMessage`.
 - **Instructions are rebuilt fresh**, not inherited: rules reflect the current world even though history does not. They rarely change, so the cached prefix normally survives anyway.
 - Empty delta → fall back to fresh (nothing new to ask). Any error → fall back to fresh, logged.
-- Compaction is seeded with the predecessor's last-step input size, so a heavy inherited transcript compacts on the first step rather than after it.
+- Compaction is seeded with `max(estimate(replayed messages), last-step input)` — on both the continuation and crash-recovery paths — so a heavy inherited transcript compacts on the first step rather than after it. The last step alone is never trusted: after a compaction it is small precisely because the bulk was projected away.
 
 ## Budgets
 
@@ -165,6 +165,6 @@ Durable operating instructions, distinct from workspace memory (knowledge). Repo
 - **Channel-scope serialization** is live and deliberately strict; one line to relax if it chafes.
 - Live verification still owed: steer/queue/ambient/stop flows and a kill-mid-run crash-recovery exercise.
 - **Context continuation live tests owed** (built 2026-08-28, unproven in the app): budget-trip → "continue" resumes mid-work rather than restarting; a queued follow-up actually takes the continuation path; steer-then-continue doesn't duplicate messages; a crashed continued run recovers with its inherited chain intact.
-- **Compaction is still a blunt prune**, not a summary: `pruneMessages` drops tool calls before the last 4 messages once a step's input passes `MERLIN_COMPACT_INPUT_TOKENS` (60k). This is the mid-run counterpart of the forgetting continuation fixes across runs — Track C1 in `context-continuation.md`. Raising the trigger requires knowing the configured model's real context window; setting it above that turns a graceful compaction into a hard failure.
+- ~~Compaction is still a blunt prune~~ **Done (C1 + C2 in `context-continuation.md`)**: summarizing `compact()` at 700k trigger (fallback model Kimi K3's window binds, not GLM's), notes + baseline persisted in `agent_run.compaction`, replay-from-baseline on recovery and continuation, `compact_context` divider in the trail. `pruneMessages` remains only as the fallback when the summarizer fails repeatedly. Compaction live test owed alongside the continuation ones.
 - Trigger.dev remains deferred: Postgres-owned state + BullMQ-as-scheduler covers durability; revisit only for hours-long waitpoints/fan-out.
 - Next milestone after this harness: the read-only [`Slack connector`](./slack-connector-next.md).

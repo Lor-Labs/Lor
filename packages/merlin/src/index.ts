@@ -304,6 +304,9 @@ export type RunContinuation = {
   // The delta message, persisted so a recovered attempt replays it verbatim.
   deltaText: string
   lastInputTokens: number
+  // Working notes inherited from the newest compacted run in the chain, so
+  // this run's compactor merges forward instead of rebuilding from scratch.
+  compaction: CompactionState | null
 }
 
 export type ToolEvent = MerlinToolCallUpdate
@@ -324,6 +327,7 @@ export type RespondCallbacks = {
   onTaskUpdated?: (task: Task) => void
 }
 
+export { estimateMessagesTokens } from "./compaction"
 export type { InstructionsProposalEvent } from "./instructions"
 export { MERLIN_MODEL } from "./models"
 export {
@@ -1862,10 +1866,15 @@ export async function respond(
     let text: string
     let counters: RunCounters
     let resumeLastInputTokens = 0
-    // Rolling working notes replacing compacted-away tool calls. Not persisted:
-    // a recovered attempt rebuilds them from the transcript on its own first
-    // compaction, so they never diverge from what its messages actually hold.
-    const compaction: CompactionState = newCompactionState()
+    // Rolling working notes replacing compacted-away tool calls. Seeded from
+    // the persisted state of the attempt/predecessor this run picks up from
+    // (agent_run.compaction), so notes merge forward across recoveries and
+    // continuations; cloned because compact() mutates it.
+    const compaction: CompactionState = {
+      ...(run?.resume?.compaction ??
+        ctx.continuation?.compaction ??
+        newCompactionState()),
+    }
 
     if (run?.resume) {
       // Recovery: continue from the durable transcript with the exact same
@@ -2009,6 +2018,17 @@ export async function respond(
           steps.at(-1)?.usage.inputTokens ?? resumeLastInputTokens
         let nextMessages = stepMessages
         if (lastInput > COMPACT_INPUT_TOKENS) {
+          // Surfaced in the run trail like a tool call (start frame renders a
+          // spinner, the ok frame settles into a divider). Keyed by step so a
+          // recovered attempt re-compacting at the same boundary upserts the
+          // same row instead of stacking dividers.
+          const compactionCallId = `compaction-${counters.steps}`
+          onToolEvent?.({
+            toolCallId: compactionCallId,
+            toolName: "compact_context",
+            label: "Compacting context",
+            at: text.length,
+          })
           nextMessages = await compact({
             messages: stepMessages,
             state: compaction,
@@ -2016,6 +2036,27 @@ export async function respond(
             ...(ctx.task ? { task: taskContextSnapshot(ctx.task) } : {}),
             ...(onUsage ? { onUsage } : {}),
           })
+          onToolEvent?.({
+            toolCallId: compactionCallId,
+            toolName: "compact_context",
+            label: "Compacted context",
+            at: text.length,
+            status: "ok",
+          })
+          // Durable projection: recovery and successors replay this baseline +
+          // steps after it instead of the raw transcript. Saved before steer
+          // injection below — injected messages ride the NEXT checkpoint, so
+          // including them here would double them on replay.
+          await run
+            ?.saveCompaction?.({
+              summary: compaction.summary,
+              summaryFailures: compaction.summaryFailures,
+              baselineMessages: nextMessages,
+              atStep: counters.steps,
+            })
+            .catch((err) => {
+              logger.warn({ err }, "Compaction state save failed")
+            })
         }
         // Steering: fold in messages that landed since the last boundary.
         // Injected after pruning so an update can never be compacted away in

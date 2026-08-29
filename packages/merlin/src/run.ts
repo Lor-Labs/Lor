@@ -1,6 +1,7 @@
-import type { AgentRunContext } from "@repo/db/schema"
+import type { AgentRunCompaction, AgentRunContext } from "@repo/db/schema"
 import { env } from "@repo/env/server"
 import type { ModelMessage } from "ai"
+import type { CompactionState } from "./compaction"
 
 // Re-exported so the worker can type transcript rows without its own ai dep.
 export type { ModelMessage } from "ai"
@@ -78,14 +79,22 @@ export type RunToolResultStore = {
 }
 
 export type RunResume = {
-  // Full transcript: rebuilt initial user message + every checkpointed step.
+  // Transcript to resume from: the compaction baseline + steps after it when
+  // the dead attempt had compacted, else the rebuilt initial user message +
+  // every checkpointed step.
   messages: ModelMessage[]
   instructions: string
   counters: RunCounters
   answerTextSoFar: string
-  // Input size of the last checkpointed step, so the resumed loop's first
-  // request can trigger compaction before any local step exists.
+  // What the resumed loop's first request will weigh, so it can trigger
+  // compaction before any local step exists. Must be estimated from the
+  // replayed messages, never taken from the last step alone — a run that
+  // compacted ends with small steps while its raw replay stays huge.
   lastInputTokens: number
+  // Working notes persisted by the dead attempt's compactions; seeds the new
+  // attempt's compactor so notes merge forward instead of rebuilding from a
+  // clipped digest.
+  compaction: CompactionState | null
 }
 
 export type RunHandle = {
@@ -100,6 +109,11 @@ export type RunHandle = {
   // including nested usage like investigate_code). Returns the authoritative
   // cumulative counters; throws if the lease was lost.
   checkpoint: (record: RunStepRecord) => Promise<RunCounters>
+  // Persist compaction state (notes + post-compaction baseline) right after a
+  // compaction, so recovery and successors replay the compacted projection
+  // instead of the raw transcript. Best-effort — failure keeps the previous
+  // (older but still correct) baseline.
+  saveCompaction?: (state: AgentRunCompaction) => Promise<void>
   toolResults: RunToolResultStore | null
   abortSignal?: AbortSignal
   // Steering: drain messages that landed mid-run (marks steered rows

@@ -54,6 +54,11 @@ vi.mock("@repo/merlin", () => ({
     role: "user",
     content: [{ type: "text", text: `initial:${context.brainContext}` }],
   })),
+  estimateMessagesTokens: (messages: { content: unknown }[]) =>
+    messages.reduce(
+      (sum, m) => sum + Math.ceil(JSON.stringify(m.content).length / 4),
+      0
+    ),
   userDisplayName: (u: { name: string }) => u.name,
 }))
 
@@ -194,9 +199,60 @@ describe("buildContinuation", () => {
     expect(String(last?.content)).toContain("Jacob: go ahead")
     // Seeds compaction with the inherited transcript's real weight.
     expect(result?.lastInputTokens).toBe(40_000)
+    // No compacted run in the chain: nothing to inherit.
+    expect(result?.compaction).toBeNull()
     // Delta turns become the new run's snapshot conversation.
     expect(result?.conversation).toHaveLength(1)
     expect(result?.conversation[0]?.content).toBe("go ahead")
+  })
+
+  it("replays from the compaction baseline instead of the raw transcript", async () => {
+    const baselineRun = {
+      ...predecessor,
+      compaction: {
+        summary: "notes so far",
+        summaryFailures: 2,
+        baselineMessages: [
+          { role: "user", content: "BASELINE snapshot + notes + tail" },
+        ],
+        atStep: 4,
+      },
+    }
+    queue(
+      [baselineRun], // findPredecessor
+      [], // consumed
+      [deltaRow], // delta
+      [baselineRun], // replayChain head
+      [
+        {
+          runId: "run-1",
+          step: 4,
+          messages: [{ role: "assistant", content: "pre-compaction step" }],
+          inputTokens: 700_000,
+        },
+        {
+          runId: "run-1",
+          step: 5,
+          messages: [{ role: "assistant", content: "post-compaction step" }],
+          inputTokens: 90_000,
+        },
+      ]
+    )
+    const result = await buildContinuation(args)
+    const texts = result?.messages.map((m) => JSON.stringify(m.content))
+    // The baseline replaces the initial snapshot AND every step it covers
+    // (step <= atStep); only steps checkpointed after it replay on top.
+    expect(texts?.[0]).toContain("BASELINE snapshot + notes + tail")
+    expect(texts?.join("\n")).not.toContain("pre-compaction step")
+    expect(texts?.[1]).toContain("post-compaction step")
+    expect(texts?.at(-1)).toContain("Jacob: go ahead")
+    // Notes carry forward so the successor's compactor merges instead of
+    // rebuilding; failure count resets — it belonged to the old run's
+    // summarizer attempts.
+    expect(result?.compaction).toEqual({
+      summary: "notes so far",
+      summaryFailures: 0,
+    })
   })
 
   it("replays the whole chain, not just the immediate predecessor", async () => {
@@ -231,6 +287,80 @@ describe("buildContinuation", () => {
     expect(texts?.[2]).toContain("STORED DELTA from run-2")
     expect(texts?.[3]).toContain("run2 work")
     expect(texts?.at(-1)).toContain("Jacob: go ahead")
+  })
+
+  it("starts mid-chain when the compacted run is not the newest hop", async () => {
+    // run-1 compacted; run-2 continued it without compacting; run-3 continues
+    // run-2. Replay must start at run-1's baseline, then run-2's delta+steps.
+    const run1 = {
+      ...predecessor,
+      id: "run-1",
+      continuedFromRunId: null,
+      compaction: {
+        summary: "run-1 notes",
+        summaryFailures: 0,
+        baselineMessages: [{ role: "user", content: "RUN1 BASELINE" }],
+        atStep: 3,
+      },
+    }
+    const run2 = {
+      ...predecessor,
+      id: "run-2",
+      continuedFromRunId: "run-1",
+      context: {
+        conversation: [],
+        brainContext: "brain",
+        rosterText: "",
+        continuationDelta: "DELTA into run-2",
+      },
+    }
+    queue(
+      [run2], // findPredecessor
+      [], // consumed
+      [deltaRow], // delta
+      [run2], // replayChain head
+      [run1], // chain walk: run-2 → run-1
+      [
+        {
+          runId: "run-1",
+          step: 4,
+          messages: [{ role: "assistant", content: "run1 post-compaction" }],
+          inputTokens: 90_000,
+        },
+        {
+          runId: "run-2",
+          step: 1,
+          messages: [{ role: "assistant", content: "run2 work" }],
+          inputTokens: 95_000,
+        },
+      ]
+    )
+    const result = await buildContinuation({ ...args, runId: "run-3" })
+    const texts = result?.messages.map((m) => JSON.stringify(m.content))
+    expect(texts?.[0]).toContain("RUN1 BASELINE")
+    expect(texts?.[1]).toContain("run1 post-compaction")
+    expect(texts?.[2]).toContain("DELTA into run-2")
+    expect(texts?.[3]).toContain("run2 work")
+    expect(result?.compaction).toEqual({
+      summary: "run-1 notes",
+      summaryFailures: 0,
+    })
+  })
+
+  it("sizes the trigger by the inherited transcript, not the predecessor's last step", async () => {
+    // A predecessor that compacted ends with SMALL steps precisely because the
+    // bulk was projected out of its requests — but the transcript replayed
+    // here still holds all of it. Trusting the small number would send the
+    // whole thing uncompacted.
+    const heavy = {
+      runId: "run-1",
+      step: 1,
+      messages: [{ role: "assistant", content: "y".repeat(200_000) }],
+      inputTokens: 900,
+    }
+    queue([predecessor], [], [deltaRow], [predecessor], [heavy])
+    const result = await buildContinuation(args)
+    expect(result?.lastInputTokens).toBeGreaterThan(40_000)
   })
 
   it("carries the delta text so a recovered attempt can replay it verbatim", async () => {

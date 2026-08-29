@@ -1,6 +1,7 @@
 import { useMemo } from "react"
 import { ArtifactCsvPreviewCard } from "@/components/artifacts/csv-preview"
 import { ArtifactFileCard } from "@/components/chat/artifact-file-card"
+import { MerlinCompactionDivider } from "@/components/chat/merlin-compaction-divider"
 import { MerlinReasoning } from "@/components/chat/merlin-reasoning"
 import { MerlinToolTrail } from "@/components/chat/merlin-tool-trail"
 import { MessageMarkdown } from "@/components/chat/message-markdown"
@@ -19,6 +20,11 @@ type Segment =
       reasoning: MerlinReasoningSegmentView
     }
   | { kind: "tools"; key: string; tools: MerlinToolCallView[] }
+  // Context compaction marker (synthetic compact_context trail entry) —
+  // rendered as a divider across the message, not a tool step.
+  | { kind: "compaction"; key: string; tool: MerlinToolCallView }
+
+const COMPACTION_TOOL_NAME = "compact_context"
 
 type TimelineEvent =
   | {
@@ -85,10 +91,24 @@ function buildSegments(
       continue
     }
 
+    if (event.tool.toolName === COMPACTION_TOOL_NAME) {
+      segments.push({
+        kind: "compaction",
+        key: `compaction:${event.tool.toolCallId}`,
+        tool: event.tool,
+      })
+      index += 1
+      continue
+    }
+
     const tools: MerlinToolCallView[] = [event.tool]
     index += 1
     let next = events[index]
-    while (next?.kind === "tool" && next.at === event.at) {
+    while (
+      next?.kind === "tool" &&
+      next.at === event.at &&
+      next.tool.toolName !== COMPACTION_TOOL_NAME
+    ) {
       tools.push(next.tool)
       index += 1
       next = events[index]
@@ -179,6 +199,14 @@ export function MerlinMessageBody({
                 isLast &&
                 segment.reasoning.at >= (content?.length ?? 0)
               }
+            />
+          )
+        }
+        if (segment.kind === "compaction") {
+          return (
+            <MerlinCompactionDivider
+              key={segment.key}
+              active={!!streaming && !segment.tool.status}
             />
           )
         }

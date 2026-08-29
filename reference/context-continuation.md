@@ -179,6 +179,43 @@ Replaces the current blunt prune (`pruneMessages` with
   `run-continuation.ts` stop being functional limits and are pure loop guards.
   Consider replacing the per-hop chain walk with one recursive CTE.
 
+### C2 — persisted compaction + trail divider (~450 LOC) — [x] built 2026-08-29, awaiting review/commit. **db:push owed** (`agent_run.compaction`)
+
+Audit follow-up (compared against Anthropic's compaction API + Claude Code:
+the summary is *persisted state that later requests build from*, not a
+per-request computation). Three fixes, one UI feature:
+
+- **Bug fix (recovery re-sent the raw transcript):** the resume path seeded
+  the compaction trigger from `stepRows.at(-1).inputTokens`, which is small
+  *after* a compaction while the raw replay stays huge — recovery would send
+  the whole uncompacted history, and past ~2 compactions that exceeds the
+  model window outright, making the run unrecoverable. Same fix as
+  `replayChain`: `max(estimateMessagesTokens(replayed), lastStepInput)`.
+- **`agent_run.compaction` jsonb** (`AgentRunCompaction`): `{ summary,
+  summaryFailures, baselineMessages, atStep }`, overwritten on each
+  compaction via `RunHandle.saveCompaction` (best-effort, lease-guarded; a
+  failed write keeps the previous baseline, which replays correctly — steps
+  after its `atStep` cover the gap). Saved *before* steer injection: injected
+  messages ride the next checkpoint and would double on replay.
+- **Replay from the baseline:** recovery and `replayChain` start from the
+  newest baseline in scope/chain (`baselineMessages` + step rows
+  `> atStep`) instead of the raw chain. Notes (`summary`) seed the successor's
+  compactor (`RunResume.compaction` / `RunContinuation.compaction`;
+  `summaryFailures` resets across runs), so facts merge forward instead of
+  being rebuilt from `renderForSummary`'s front-clipped 120k-char digest —
+  the old rebuild silently lost everything older than the clip. Also restores
+  byte-identical prefixes across continuations (prompt cache) and drops the
+  per-continuation re-summarization spend.
+- **UI divider:** compaction rides the existing tool-trail rail as a synthetic
+  `compact_context` entry fired via `onToolEvent` from `prepareStep` (start
+  frame = spinner, `status: "ok"` frame = done) — no new event kind, socket
+  event, API schema, or message column; replay/recovery/terminal persistence
+  all come free. Keyed `compaction-${steps}` so a recovered attempt upserts
+  rather than stacking dividers. Web renders it as a hairline divider with a
+  centered "Compaction" badge (`merlin-compaction-divider.tsx`), split out of
+  tool groups in `merlin-message-body.tsx`. Mobile renders it as a plain trail
+  row (acceptable default, no changes).
+
 ### B3 — docs + hardening (~150 LOC) — [x] built 2026-08-28, awaiting review/commit
 
 - `reference/agent-harness.md`: as-built update — two regimes, predecessor
@@ -245,8 +282,8 @@ workspace, any member can appear to speak as any other (or as Merlin).
 
 ## Step order
 
-A1 → A2 → B0 → B1 → B2 → B3 → C1 → D1 → D2 → D3. Each step: review → Jacob
-commits → next. C1 (summarizing compaction) is independent of Track B and can
+A1 → A2 → B0 → B1 → B2 → B3 → C1 → C2 → D1 → D2 → D3. Each step: review →
+Jacob commits → next. C1 (summarizing compaction) is independent of Track B and can
 move earlier; it is the fix for mid-run forgetting, as B is for cross-run
 forgetting. Track D is independent of both — D3 is the only one with a
 security flavor, so it may deserve to jump the queue.
@@ -257,9 +294,34 @@ security flavor, so it may deserve to jump the queue.
   1,310,720 and Kimi K3 1,048,576. The **fallback** binds, not the primary, so
   `MERLIN_COMPACT_INPUT_TOKENS` went 60k → **700k**, not ~1M. Any future model
   change must re-check the smallest window in the chain.
-- **C1:** the rolling notes are deliberately NOT persisted. A recovered attempt
-  rebuilds them from its own transcript at its first compaction, so they can
-  never describe work its messages don't contain.
+- **C1:** the rolling notes were deliberately NOT persisted at first — a
+  recovered attempt rebuilt them from its own transcript. **Superseded by C2**
+  after the literature audit: rebuilding runs through `renderForSummary`'s
+  front-clipped digest, so everything older than ~120k chars of raw transcript
+  silently fell out of the rebuilt notes, and every continuation re-paid the
+  summarizer. Notes + baseline now persist in `agent_run.compaction`.
+- **C1 (token estimation stays a heuristic):** considered `gpt-tokenizer`;
+  rejected. It ships OpenAI encodings only (r50k/p50k/cl100k/o200k), and the
+  models here (GLM 5.3 Flash, Kimi K3) use their own vocabularies — it would be
+  a differently-wrong number with false precision, plus BPE cost over megabytes
+  every step. The exact count comes from the provider on each step regardless;
+  the estimate only covers a continued run's first step and tail sizing. Made
+  the heuristic conservative instead (UTF-8 bytes ÷ 3, was UTF-16 length ÷ 4),
+  since under-counting is the dangerous direction in both uses.
+- **C1 × B (compaction does not survive into the next run):** steps checkpoint
+  the messages they *produced*, so `agent_run_step` holds the full uncompacted
+  history and a continued run replays all of it — the predecessor's compaction
+  is discarded (good for fidelity). But `replayChain` seeded the compaction
+  trigger from the predecessor's last step's `inputTokens`, and after a
+  compaction those steps are small *because* the bulk was projected away. The
+  continued run would therefore send the entire uncompacted transcript without
+  compacting it — the exact case most at risk of exceeding the window. Now
+  seeded with `max(estimateMessagesTokens(assembled), lastStepInput)`.
+  The open design question here (replay the compacted projection instead?) was
+  settled **yes** in C2 — the "loses detail" worry was backwards, since the
+  raw-replay path re-derived notes through a clipped digest and lost *more*.
+  The same trigger-seeding bug also existed on the crash-recovery path in
+  `agent-run.ts` and was fixed in C2.
 - **C1 (compaction boundary):** `ai@7.0.11` documents that a `prepareStep`
   `messages` override **carries forward into later steps** (`index.d.ts:1644`),
   so a compacted array becomes the new baseline. The first implementation
@@ -318,4 +380,14 @@ security flavor, so it may deserve to jump the queue.
   status/plan/summary): the system prompt now holds zero per-task data, so the
   cached prefix is identical for every task run in a channel.
 
-- (none yet)
+- **C2 (UI rides the tool trail):** first cut added a `compaction` event kind
+  to `agent_run_event` + a `merlin:compaction` socket event + a persisted
+  message column — reverted. The trail already gives any tool-shaped entry
+  event-log persistence, live frames, late-join replay, recovery seeding
+  (`loadTrailSeed`), and terminal persistence on the message row, so a
+  synthetic `compact_context` MerlinToolCall gets all of it for one web render
+  branch. The DB event-kind enum already carries two reserved-unused values
+  (`queued`, `truncate`); didn't add a third.
+- **C2 (`summaryFailures` resets across runs):** the circuit breaker counts one
+  run's summarizer retries. Inheriting a predecessor's `3` would permanently
+  disable summarization for every successor in the thread.

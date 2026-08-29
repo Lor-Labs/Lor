@@ -191,6 +191,14 @@ export const agentRun = pgTable(
       (): AnyPgColumn => agentRun.id,
       { onDelete: "set null" }
     ),
+
+    // Durable compaction state, overwritten on each mid-run compaction. The
+    // baseline is the post-compaction message array the model was actually
+    // sent, so recovery/continuation replays baseline + steps after atStep
+    // instead of the raw transcript (which can exceed the model context once
+    // a compaction has happened). Best-effort: when null or stale, replay
+    // falls back to the raw chain and re-compacts on the first step.
+    compaction: jsonb("compaction").$type<AgentRunCompaction>(),
   },
   (table) => [
     uniqueIndex("agent_run_messageId_uidx").on(table.messageId),
@@ -400,6 +408,18 @@ export type AgentRunContext = {
   // re-rendered because it embeds elapsed time ("about 3 hours since then"),
   // which would drift on recovery and break the byte-stable replay.
   continuationDelta?: string
+}
+
+// Written by @repo/merlin at compaction time (see compaction.ts). summary is
+// the rolling working notes — the next run in this scope seeds its compactor
+// with it so facts merge forward instead of being rebuilt from a clipped
+// digest. baselineMessages are ModelMessages, typed unknown[] for the same
+// reason as agentRunStep.messages.
+export type AgentRunCompaction = {
+  summary: string | null
+  summaryFailures: number
+  baselineMessages: unknown[]
+  atStep: number
 }
 
 export type AgentRun = typeof agentRun.$inferSelect
