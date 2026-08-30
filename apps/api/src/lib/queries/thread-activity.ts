@@ -3,6 +3,7 @@ import type { Attachment } from "@repo/db/schema"
 import { message, messageMention, threadReadState, user } from "@repo/db/schema"
 import {
   and,
+  asc,
   count,
   desc,
   eq,
@@ -97,7 +98,9 @@ export async function fetchChannelThreadActivity({
         )
       )
       .groupBy(message.threadRootId)
-      .orderBy(desc(max(message.createdAt)))
+      // threadRootId tiebreak keeps the offset pagination stable when two
+      // roots share a freshest-reply timestamp.
+      .orderBy(desc(max(message.createdAt)), asc(message.threadRootId))
       .limit(CANDIDATE_LIMIT)
       .offset(offset)
     const candidateIds = candidateRows
