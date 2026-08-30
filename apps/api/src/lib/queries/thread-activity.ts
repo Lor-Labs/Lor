@@ -86,17 +86,22 @@ export async function fetchChannelThreadActivity({
   // Effective read cursor per root (read state ⊔ own last reply) — also feeds
   // the newReplyCount pass below.
   const readAtByRoot = new Map<string, number>()
-  let pageCursor: { freshest: Date; rootId: string } | null = null
+  // The cursor timestamp travels as Postgres text, not a JS Date — timestamps
+  // store microseconds and Date truncates to milliseconds, which would make
+  // the strict-inequality predicate skip roots in the truncated range.
+  let pageCursor: { freshest: string; rootId: string } | null = null
   while (rootIds.length < limit) {
     // Explicit row type: inference would cycle through pageCursor back into
     // this initializer (TS7022).
     const candidateRows: Array<{
       threadRootId: string | null
       freshestOtherReplyAt: Date | null
+      freshestCursor: string | null
     }> = await db
       .select({
         threadRootId: message.threadRootId,
         freshestOtherReplyAt: max(message.createdAt),
+        freshestCursor: sql<string>`max(${message.createdAt})::text`,
       })
       .from(message)
       .where(
@@ -110,7 +115,7 @@ export async function fetchChannelThreadActivity({
       .groupBy(message.threadRootId)
       .having(
         pageCursor
-          ? sql`(max(${message.createdAt}) < ${pageCursor.freshest} or (max(${message.createdAt}) = ${pageCursor.freshest} and ${message.threadRootId} > ${pageCursor.rootId}))`
+          ? sql`(max(${message.createdAt}) < ${pageCursor.freshest}::timestamp or (max(${message.createdAt}) = ${pageCursor.freshest}::timestamp and ${message.threadRootId} > ${pageCursor.rootId}))`
           : undefined
       )
       .orderBy(desc(max(message.createdAt)), asc(message.threadRootId))
@@ -171,9 +176,9 @@ export async function fetchChannelThreadActivity({
 
     if (candidateRows.length < CANDIDATE_LIMIT) break
     const last = candidateRows[candidateRows.length - 1]
-    if (!last?.threadRootId || !last.freshestOtherReplyAt) break
+    if (!last?.threadRootId || !last.freshestCursor) break
     pageCursor = {
-      freshest: last.freshestOtherReplyAt,
+      freshest: last.freshestCursor,
       rootId: last.threadRootId,
     }
   }
