@@ -151,6 +151,7 @@ const threadActivityMentionSchema = z.object({
 export const threadActivityItemSchema = z.object({
   threadRootId: z.string().uuid(),
   replyCount: z.number().int(),
+  newReplyCount: z.number().int(),
   lastReplyAt: z.string(),
   participants: z.array(
     z.object({
@@ -176,6 +177,21 @@ export const threadActivityItemSchema = z.object({
 
 export const listThreadActivityResponseSchema = z.object({
   data: z.array(threadActivityItemSchema),
+})
+
+export const threadReadParamsSchema = channelParamsSchema.extend({
+  threadRootId: z
+    .string()
+    .uuid()
+    .openapi({
+      param: { name: "threadRootId", in: "path", required: true },
+      example: "00000000-0000-0000-0000-000000000000",
+    }),
+})
+
+export const markThreadReadResponseSchema = z.object({
+  success: z.literal(true),
+  lastReadAt: z.string(),
 })
 
 // ── Reorder ──────────────────────────────────────────

@@ -32,7 +32,7 @@ import {
   signalMessageScrollerInteraction,
   useRegisteredMessageScroller,
 } from "@/components/chat/message-scroller-controls"
-import { ThreadActivityStack } from "@/components/chat/thread-activity"
+import { ThreadActivityDock } from "@/components/chat/thread-activity"
 import { PrivateHashIcon } from "@/components/ui/private-hash-icon"
 import type { ThreadActivity } from "@/hooks/use-thread-activity"
 import type { Message } from "@/lib/api-types"
@@ -75,8 +75,8 @@ interface MessageListProps {
    */
   onJumpToMessage?: (messageId: string) => void
   /**
-   * Fresh thread replies surfaced as collapsed cards at the bottom of the feed.
-   * Clicking a card opens the thread (and the parent dismisses it).
+   * Fresh thread replies surfaced in the floating dock above the composer.
+   * Clicking a blob/card opens the thread (and the parent marks it read).
    */
   threadActivities?: ThreadActivity[]
   onOpenThreadActivity?: (threadRootId: string) => void
@@ -457,19 +457,6 @@ export function MessageList({
                 </div>
               </MessageScrollerItem>
             )}
-
-            {threadActivities &&
-              threadActivities.length > 0 &&
-              onOpenThreadActivity &&
-              onDismissThreadActivity && (
-                <MessageScrollerItem className="pt-1.5">
-                  <ThreadActivityStack
-                    activities={threadActivities}
-                    onOpen={onOpenThreadActivity}
-                    onDismiss={onDismissThreadActivity}
-                  />
-                </MessageScrollerItem>
-              )}
           </MessageScrollerContent>
         </MessageScrollerViewport>
 
@@ -480,6 +467,16 @@ export function MessageList({
           hasUnloadedNewer={Boolean(hasNewer)}
           onJumpToPresent={onJumpToPresent}
         />
+
+        {threadActivities &&
+          onOpenThreadActivity &&
+          onDismissThreadActivity && (
+            <ThreadActivityDock
+              activities={threadActivities}
+              onOpen={onOpenThreadActivity}
+              onDismiss={onDismissThreadActivity}
+            />
+          )}
       </MessageScroller>
     </MessageScrollerProvider>
   )

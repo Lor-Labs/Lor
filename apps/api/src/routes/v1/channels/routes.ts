@@ -27,11 +27,13 @@ import {
   listPinnedMessagesResponseSchema,
   listThreadActivityResponseSchema,
   listThreadRepliesResponseSchema,
+  markThreadReadResponseSchema,
   messageIdParamsSchema,
   messageLocationParamsSchema,
   messageLocationResponseSchema,
   reorderChannelsRequestSchema,
   reorderChannelsResponseSchema,
+  threadReadParamsSchema,
   togglePinResponseSchema,
   updateChannelRequestSchema,
   updateChannelResponseSchema,
@@ -279,7 +281,7 @@ export const listThreadActivity = createRoute({
   method: "get",
   summary: "List unread thread activity",
   description:
-    "Returns threads in the channel that received replies from others since the caller last read the channel, for the activity cards at the bottom of the feed.",
+    "Returns threads in the channel with replies from others that the caller hasn't read, judged against the caller's per-thread read cursor (thread_read_state), for the thread-activity dock.",
   tags: ["Channels"],
   middleware: [workspaceAuthMiddleware] as const,
   request: {
@@ -289,6 +291,29 @@ export const listThreadActivity = createRoute({
     [HttpStatusCodes.OK]: jsonContent({
       schema: listThreadActivityResponseSchema,
       description: "Unread thread activity",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export const markThreadRead = createRoute({
+  path: "/workspaces/{workspaceSlug}/channels/{channelId}/threads/{threadRootId}/read",
+  method: "post",
+  summary: "Mark a thread as read",
+  description:
+    "Advances the caller's per-thread read cursor to now. Clears the thread from the thread-activity dock on all the caller's devices.",
+  tags: ["Channels"],
+  middleware: [workspaceAuthMiddleware] as const,
+  request: {
+    params: threadReadParamsSchema,
+  },
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: markThreadReadResponseSchema,
+      description: "Thread marked read",
     }),
     [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
     [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
@@ -421,6 +446,7 @@ export type ToggleMessagePinRoute = typeof toggleMessagePin
 export type ListPinnedMessagesRoute = typeof listPinnedMessages
 export type ListThreadRepliesRoute = typeof listThreadReplies
 export type ListThreadActivityRoute = typeof listThreadActivity
+export type MarkThreadReadRoute = typeof markThreadRead
 export type GetMessageLocationRoute = typeof getMessageLocation
 export type ListChannelConnectorsRoute = typeof listChannelConnectors
 export type SearchChannelConnectorRoute = typeof searchChannelConnector

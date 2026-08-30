@@ -12,6 +12,7 @@ import {
   useRef,
   useState,
 } from "react"
+import type { ThreadPage, ThreadPageParam } from "@/hooks/use-thread-messages"
 import type { Message } from "@/lib/api-types"
 import { realtimeMessageToMessage } from "@/lib/realtime-adapter"
 import type { AppSocket } from "@/lib/socket"
@@ -224,6 +225,47 @@ export function useChannelMessages({
           }
         }
       )
+      // The thread panel only receives live replies while it's open (it
+      // leaves the thread room on close), so a cached copy of this thread
+      // would go stale behind the global staleTime. Keep it current here:
+      // inject a new reply directly into the cache; for edit/delete
+      // recomputes (no `reply` attached) mark it stale so the next open
+      // refetches. An open panel is in the thread room and handles its own
+      // updates — leave it alone.
+      const threadQuery = queryClient
+        .getQueryCache()
+        .find({ queryKey: ["thread", payload.threadRootId] })
+      if (!threadQuery || threadQuery.getObserversCount() > 0) return
+      if (payload.reply) {
+        const adapted = realtimeMessageToMessage(payload.reply)
+        queryClient.setQueryData<InfiniteData<ThreadPage, ThreadPageParam>>(
+          ["thread", payload.threadRootId],
+          (old) => {
+            if (!old) return old
+            const exists = old.pages.some((page) =>
+              page.data.some((m) => m.id === adapted.id)
+            )
+            if (exists) return old
+            return {
+              ...old,
+              pages: old.pages.map((page, i) =>
+                i === 0
+                  ? {
+                      ...page,
+                      data: [adapted, ...page.data],
+                      afterCursor: adapted.id,
+                    }
+                  : page
+              ),
+            }
+          }
+        )
+      } else {
+        void queryClient.invalidateQueries({
+          queryKey: ["thread", payload.threadRootId],
+          refetchType: "none",
+        })
+      }
     }
     socket.on("message:thread:updated", handleThreadUpdated)
     return () => {

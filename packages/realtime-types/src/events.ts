@@ -238,6 +238,11 @@ export type RealtimeMessageThreadUpdated = {
     mentions: RealtimeMessageMention[]
     hasAttachments: boolean
   } | null
+  // The full reply message, present only when this update is a reply being
+  // created (absent for edit/delete recomputes). Lets clients with a cached
+  // copy of the thread inject the reply directly instead of refetching —
+  // the thread room only delivers `message:created` while the panel is open.
+  reply?: RealtimeMessage
 }
 
 export type SendMessageAck = (
@@ -322,6 +327,15 @@ export type MentionNotification = {
   isMerlinThread: boolean
   isSubscribedToThread: boolean
   createdAt: string
+}
+
+// Sent to the user room when the user reads a thread on any device (opened
+// the panel or dismissed its activity blob), so other clients drop it from
+// the thread-activity dock immediately.
+export type ThreadReadUpdated = {
+  channelId: string
+  threadRootId: string
+  lastReadAt: string
 }
 
 // Sent to the user room when a channel mute is set/cleared on any device, so
@@ -564,6 +578,7 @@ export interface ServerToClientEvents {
   "notification:reaction": (payload: ReactionNotification) => void
   "channel:read-state": (payload: ChannelReadState) => void
   "channel-mute:updated": (payload: ChannelMuteUpdated) => void
+  "thread-read:updated": (payload: ThreadReadUpdated) => void
   "project:updated": (payload: ProjectUpdatedEvent) => void
   "project:archive:progress": (payload: ProjectArchiveProgressEvent) => void
   "workspace:member:joined": (payload: WorkspaceMemberJoinedEvent) => void
