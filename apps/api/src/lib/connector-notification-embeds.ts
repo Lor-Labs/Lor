@@ -2,6 +2,7 @@ import type { Embed } from "@repo/db/schema"
 
 const GITHUB_BRAND = "#24292f"
 const LINEAR_BRAND = "#5e6ad2"
+const ATTIO_BRAND = "#d01e48"
 
 function clipBody(body?: string | null): string | undefined {
   const normalized = body?.trim()
@@ -81,5 +82,25 @@ export function linearNotificationEmbed(input: {
     ...(description ? { description } : {}),
     siteName: "Linear",
     color: LINEAR_BRAND,
+  }
+}
+
+export function attioNotificationEmbed(input: {
+  event: string
+  title: string
+  url?: string | null
+  body?: string | null
+  fields?: Embed["fields"]
+}): Embed {
+  const description = clipBody(input.body)
+  return {
+    type: "rich",
+    ...(input.url ? { url: input.url } : {}),
+    eventLabel: input.event,
+    title: input.title,
+    ...(description ? { description } : {}),
+    ...(input.fields?.length ? { fields: input.fields } : {}),
+    siteName: "Attio",
+    color: ATTIO_BRAND,
   }
 }

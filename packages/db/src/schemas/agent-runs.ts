@@ -408,6 +408,11 @@ export type AgentRunContext = {
   // re-rendered because it embeds elapsed time ("about 3 hours since then"),
   // which would drift on recovery and break the byte-stable replay.
   continuationDelta?: string
+  // Serialized size of the tool schemas bound to this run. Tool definitions are
+  // re-sent on every request but live nowhere else on the row, so the context
+  // meter would otherwise fold them into the other segments invisibly. Which
+  // tools are bound depends on the channel's connectors, hence per-run.
+  toolSchemaBytes?: number
   // Message IDs injected at step boundaries and committed with the checkpoint
   // that first exposed them to the model. Optional for pre-existing snapshots.
   coveredMessageIds?: string[]

@@ -67,6 +67,12 @@ const serverSchema = z.object({
     .int()
     .positive()
     .default(700_000),
+  // Smallest real context window across MERLIN_MODEL and its fallbacks — the
+  // one that actually binds, since the gateway may route to any of them
+  // mid-run. Verified: zai/glm-5.3-flash 1,310,720; moonshotai/kimi-k3
+  // 1,048,576. Display only (the context meter's denominator); the rail that
+  // protects the run is MERLIN_COMPACT_INPUT_TOKENS above.
+  MERLIN_CONTEXT_WINDOW: z.coerce.number().int().positive().default(1_048_576),
   // Agent-run hard ceilings (reference/agent-harness.md, budgets). Snapshotted
   // onto each agent_run row at creation, so changing these never alters an
   // in-flight run. Emergency rails, not normal stopping targets.

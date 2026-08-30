@@ -1,4 +1,16 @@
-import { and, asc, db, eq, gt, inArray, schema, sql } from "@repo/db"
+import {
+  and,
+  asc,
+  db,
+  desc,
+  eq,
+  gt,
+  inArray,
+  isNotNull,
+  schema,
+  sql,
+} from "@repo/db"
+import { env } from "@repo/env/server"
 import { AGENT_RUN_STOP_CHANNEL } from "@repo/realtime-types/queues"
 import { channelRoom, threadRoom } from "@repo/realtime-types/rooms"
 import { getEmitter } from "@/lib/bot-messages"
@@ -8,6 +20,7 @@ import { getRedisClient } from "@/lib/redis"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
   GetRunEventsRoute,
+  GetThreadContextRoute,
   RemoveQueuedMessageRoute,
   SteerQueuedMessageRoute,
   StopRunRoute,
@@ -105,6 +118,143 @@ export const getRunEvents: AppRouteHandler<GetRunEventsRoute> = async (c) => {
       },
       events,
       queue,
+    },
+    HttpStatusCodes.OK
+  )
+}
+
+// Same conservative heuristic as packages/merlin/src/compaction.ts — UTF-8
+// bytes over 3. Only used to split the exact provider total into proportions,
+// never to produce the total itself.
+const BYTES_PER_TOKEN = 3
+const EMPTY_CONTEXT = {
+  available: false as const,
+  usedTokens: 0,
+  windowTokens: env.MERLIN_CONTEXT_WINDOW,
+  compactAtTokens: env.MERLIN_COMPACT_INPUT_TOKENS,
+  segments: { system: 0, tools: 0, messages: 0 },
+  compacted: false,
+  rawHistoryTokens: 0,
+  creditsSpent: 0,
+  runCount: 0,
+  state: null,
+}
+
+export const getThreadContext: AppRouteHandler<GetThreadContextRoute> = async (
+  c
+) => {
+  const currentUser = c.var.user
+  const { scopeKey } = c.req.valid("param")
+
+  // Newest run in the scope that has actually built its context: its last
+  // checkpointed step is what the model most recently received, so it's the
+  // only number here that isn't an estimate. Runs are inserted with a null
+  // context and only fill it in once a worker claims them, so without the
+  // isNotNull guard a just-queued run would blank the meter to 0% for the
+  // seconds between sending a message and the run starting.
+  const run = await db
+    .select({
+      id: schema.agentRun.id,
+      channelId: schema.agentRun.channelId,
+      workspaceId: schema.agentRun.workspaceId,
+      channelWorkspaceId: schema.channel.workspaceId,
+      state: schema.agentRun.state,
+      compaction: schema.agentRun.compaction,
+      instructionsBytes: sql<number>`coalesce(octet_length(${schema.agentRun.instructions}), 0)`,
+      contextBytes: sql<number>`coalesce(octet_length(${schema.agentRun.context}::text), 0)`,
+      // Read the one field out in SQL rather than shipping the whole snapshot.
+      toolSchemaBytes: sql<number>`coalesce((${schema.agentRun.context} ->> 'toolSchemaBytes')::int, 0)`,
+    })
+    .from(schema.agentRun)
+    .innerJoin(schema.channel, eq(schema.agentRun.channelId, schema.channel.id))
+    .where(
+      and(
+        eq(schema.agentRun.scopeKey, scopeKey),
+        isNotNull(schema.agentRun.context)
+      )
+    )
+    .orderBy(desc(schema.agentRun.createdAt))
+    .limit(1)
+    .then((rows) => rows[0])
+
+  // "No run here" and "not yours to see" return the identical unavailable
+  // payload on purpose. Distinguishing them (200 vs 403) would let any signed-in
+  // caller probe a scope id and learn whether a run exists in a workspace they
+  // have no access to. The meter hides itself either way, so the caller loses
+  // nothing. Workspace drift on the run's channel fails closed into the same
+  // response.
+  if (!run) return c.json(EMPTY_CONTEXT, HttpStatusCodes.OK)
+  const visible =
+    run.channelWorkspaceId === run.workspaceId &&
+    (await userCanAccessChannel(run.channelId, currentUser.id))
+  if (!visible) return c.json(EMPTY_CONTEXT, HttpStatusCodes.OK)
+
+  // Steps at or before the baseline were projected out of the request, so only
+  // the ones after it are still being sent (mirrors replay in
+  // apps/worker/src/lib/run-continuation.ts).
+  const baselineStep = run.compaction?.atStep ?? 0
+  const [steps, scope] = await Promise.all([
+    db
+      .select({
+        tailBytes: sql<number>`coalesce(sum(octet_length(${schema.agentRunStep.messages}::text)) filter (where ${schema.agentRunStep.step} > ${baselineStep}), 0)`,
+        lastInputTokens: sql<number>`coalesce((array_agg(${schema.agentRunStep.inputTokens} order by ${schema.agentRunStep.step} desc))[1], 0)`,
+      })
+      .from(schema.agentRunStep)
+      .where(eq(schema.agentRunStep.runId, run.id))
+      .then((rows) => rows[0]),
+    db
+      .select({
+        creditsSpent: sql<number>`coalesce(sum(${schema.agentRun.creditsSpent}), 0)`,
+        runCount: sql<number>`count(*)`,
+        // Everything the scope has ever transcribed — what a request would
+        // weigh with no compaction at all.
+        rawHistoryBytes: sql<number>`coalesce((select sum(octet_length(s.messages::text)) from ${schema.agentRunStep} s where s.run_id in (select id from ${schema.agentRun} r where r.scope_key = ${scopeKey})), 0)`,
+      })
+      .from(schema.agentRun)
+      .where(eq(schema.agentRun.scopeKey, scopeKey))
+      .then((rows) => rows[0]),
+  ])
+
+  const toTokens = (bytes: number) => Math.ceil(Number(bytes) / BYTES_PER_TOKEN)
+  const notesBytes = Buffer.byteLength(run.compaction?.summary ?? "", "utf8")
+  // System / Tools / Messages — the conventional split. Everything that is
+  // message content (the conversation snapshot, Merlin's steps, and the
+  // compaction notes that stand in for older steps) is one segment, because to
+  // the model that is exactly what it is: the message array.
+  const estimates = {
+    system: toTokens(run.instructionsBytes),
+    tools: toTokens(run.toolSchemaBytes),
+    messages:
+      toTokens(run.contextBytes) +
+      toTokens(steps?.tailBytes ?? 0) +
+      toTokens(notesBytes),
+  }
+  const estimateTotal = estimates.system + estimates.tools + estimates.messages
+  // Before the first checkpoint there is no provider figure to anchor to.
+  const usedTokens = Number(steps?.lastInputTokens ?? 0) || estimateTotal
+  // Scale the parts onto the exact total: the segments' value is the shape of
+  // the split, and letting them disagree with the headline reads as a bug.
+  const scale = estimateTotal > 0 ? usedTokens / estimateTotal : 0
+
+  return c.json(
+    {
+      available: true,
+      usedTokens,
+      windowTokens: env.MERLIN_CONTEXT_WINDOW,
+      compactAtTokens: env.MERLIN_COMPACT_INPUT_TOKENS,
+      segments: {
+        system: Math.round(estimates.system * scale),
+        tools: Math.round(estimates.tools * scale),
+        messages: Math.round(estimates.messages * scale),
+      },
+      compacted: Boolean(run.compaction),
+      rawHistoryTokens:
+        toTokens(scope?.rawHistoryBytes ?? 0) +
+        estimates.system +
+        estimates.tools,
+      creditsSpent: Number(scope?.creditsSpent ?? 0),
+      runCount: Number(scope?.runCount ?? 0),
+      state: run.state,
     },
     HttpStatusCodes.OK
   )

@@ -373,9 +373,10 @@ apps/realtime `services/merlin.ts`, card rendering in web
 - [x] L2.3 Web card (`chat/loop-card.tsx`): name, human schedule
   (`describeLoopSchedule`), end condition line ("until the mobile app
   ships"), status chip (Draft/Active/Paused/Completed + next/last run
-  time), **Create Loop** button on drafts (confirmation dialog when the
-  activate call returns `requires_confirmation`). Drafts with null tz
-  render the schedule in the viewer's device timezone
+  time), **Cancel** and **Create Loop** buttons on drafts (Cancel uses a
+  draft-only CAS endpoint and removes the proposal card; Create opens a
+  confirmation dialog when activation returns `requires_confirmation`).
+  Drafts with null tz render the schedule in the viewer's device timezone
   (`Intl.DateTimeFormat().resolvedOptions().timeZone`) and the activate
   call sends it (editable before accepting). Live flip via `loop:updated`
   (channel room — client already joins it). ChatGPT-style editor sheet
@@ -481,8 +482,8 @@ apps/realtime `services/merlin.ts`, card rendering in web
   the chat card is now a text-only PILL — "Every hour · Name" with the
   schedule tinted (text-primary); state reads from the leading word
   ("Paused · Name", dimmed "Completed · Name") — no badges, no icon tile;
-  drafts keep a Create Loop button beside the pill. Overview-section rows
-  lost their badges/icons too (name + schedule, quiet status word on the
+  drafts keep Cancel + Create Loop actions beside the pill. Overview-section
+  rows lost their badges/icons too (name + schedule, quiet status word on the
   right) and COMPLETED LOOPS ARE HIDDEN there — the arrow button beside
   the LOOPS title opens the full list panel (which shows everything,
   completed sorted last). Also: placement prompt gained a loops carve-out

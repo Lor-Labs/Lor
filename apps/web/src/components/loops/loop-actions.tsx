@@ -80,6 +80,44 @@ export function useActivateLoop(loop: ChannelLoop | null, timezone: string) {
   }
 }
 
+// Cancel a still-pending proposal. The dedicated endpoint only accepts draft
+// rows, so a stale card can never delete a loop another teammate just activated.
+export function useDiscardDraftLoop(loop: ChannelLoop | null) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async () => {
+      if (!loop) throw new Error("Loop not loaded yet")
+      const res = await apiClient.v1.loops[":loopId"]["discard-draft"].$post({
+        param: { loopId: loop.id },
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => null)
+        throw new Error(body?.message ?? "Failed to cancel loop creation")
+      }
+      return res.json()
+    },
+    onSuccess: () => {
+      if (!loop) return
+      queryClient.setQueryData(
+        ["channel-loops", loop.channelId],
+        (existing: ChannelLoop[] | undefined) =>
+          existing?.filter((l) => l.id !== loop.id)
+      )
+    },
+    onError: (err) => {
+      if (loop) {
+        void queryClient.invalidateQueries({
+          queryKey: ["channel-loops", loop.channelId],
+        })
+      }
+      toast.error(
+        err instanceof Error ? err.message : "Failed to cancel loop creation"
+      )
+    },
+  })
+}
+
 // Loop edits (schedule/instructions/name) from the panel. Optimistic — the
 // controls reflect the change immediately; a rejected edit refetches so they
 // snap back. A 422 on schedule edits (tightened sub-hourly cadence) parks

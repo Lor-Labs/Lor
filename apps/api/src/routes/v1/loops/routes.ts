@@ -84,6 +84,32 @@ export const activateLoop = createRoute({
 
 export type ActivateLoopRoute = typeof activateLoop
 
+export const discardDraftLoop = createRoute({
+  path: "/loops/{loopId}/discard-draft",
+  method: "post",
+  summary: "Discard a draft loop",
+  description:
+    "Cancels a pending conversational loop proposal and removes its card. The request conflicts if the loop is no longer a draft.",
+  tags: ["Loops"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: {
+    params: loopParamsSchema,
+  },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: deleteLoopResponseSchema,
+      description: "Draft loop discarded",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.CONFLICT]: conflictSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type DiscardDraftLoopRoute = typeof discardDraftLoop
+
 export const updateLoop = createRoute({
   path: "/loops/{loopId}",
   method: "patch",
