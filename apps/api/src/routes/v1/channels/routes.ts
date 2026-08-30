@@ -281,7 +281,7 @@ export const listThreadActivity = createRoute({
   method: "get",
   summary: "List unread thread activity",
   description:
-    "Returns threads in the channel that received replies from others since the caller last read the channel, for the activity cards at the bottom of the feed.",
+    "Returns threads in the channel with replies from others that the caller hasn't read, judged against the caller's per-thread read cursor (thread_read_state), for the thread-activity dock.",
   tags: ["Channels"],
   middleware: [workspaceAuthMiddleware] as const,
   request: {

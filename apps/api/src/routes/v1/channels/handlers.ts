@@ -17,7 +17,7 @@ import {
 } from "@repo/merlin/connector-search"
 import { type ServerToClientEvents, userRoom } from "@repo/realtime-types"
 import { Emitter } from "@socket.io/redis-emitter"
-import { and, asc, desc, eq, inArray, or } from "drizzle-orm"
+import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm"
 import { allowedChannelConnectors } from "@/lib/channel-connectors"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
@@ -553,6 +553,8 @@ export const markThreadRead: AppRouteHandler<MarkThreadReadRoute> = async (
     .where(
       and(
         eq(message.id, threadRootId),
+        // Only real thread roots — a reply id must not become a read cursor.
+        isNull(message.threadRootId),
         eq(message.channelId, channelId),
         eq(channel.workspaceId, workspace.id)
       )
@@ -567,19 +569,24 @@ export const markThreadRead: AppRouteHandler<MarkThreadReadRoute> = async (
     )
   }
 
-  const lastReadAt = new Date()
-  await db
+  const now = new Date()
+  const upserted = await db
     .insert(threadReadState)
     .values({
       threadRootId,
       channelId,
       userId: currentUser.id,
-      lastReadAt,
+      lastReadAt: now,
     })
     .onConflictDoUpdate({
       target: [threadReadState.threadRootId, threadReadState.userId],
-      set: { lastReadAt },
+      // Monotonic cursor: a stale or racing request must not move it back.
+      set: {
+        lastReadAt: sql`GREATEST(${threadReadState.lastReadAt}, excluded.last_read_at)`,
+      },
     })
+    .returning({ lastReadAt: threadReadState.lastReadAt })
+  const lastReadAt = upserted[0]?.lastReadAt ?? now
 
   // Best-effort cross-device sync — the cursor is persisted, so a realtime
   // delivery failure must not fail the mutation.

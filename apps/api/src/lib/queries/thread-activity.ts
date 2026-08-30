@@ -74,76 +74,88 @@ export async function fetchChannelThreadActivity({
 }: FetchParams): Promise<ThreadActivityItem[]> {
   const windowStart = new Date(Date.now() - ACTIVITY_WINDOW_MS)
 
-  const candidateRows = await db
-    .select({
-      threadRootId: message.threadRootId,
-      freshestOtherReplyAt: max(message.createdAt),
-    })
-    .from(message)
-    .where(
-      and(
-        eq(message.channelId, channelId),
-        isNotNull(message.threadRootId),
-        ne(message.authorId, currentUserId),
-        gt(message.createdAt, windowStart)
-      )
-    )
-    .groupBy(message.threadRootId)
-    .orderBy(desc(max(message.createdAt)))
-    .limit(CANDIDATE_LIMIT)
-  const candidateIds = candidateRows
-    .map((r) => r.threadRootId)
-    .filter((id): id is string => id !== null)
-  if (candidateIds.length === 0) return []
-
-  const [readRows, ownReplyRows] = await Promise.all([
-    db
-      .select({
-        threadRootId: threadReadState.threadRootId,
-        lastReadAt: threadReadState.lastReadAt,
-      })
-      .from(threadReadState)
-      .where(
-        and(
-          eq(threadReadState.userId, currentUserId),
-          inArray(threadReadState.threadRootId, candidateIds)
-        )
-      ),
-    db
+  // Paginate candidates (most-recently-active first) until `limit` unread
+  // roots are found or the window is exhausted — a page of already-read
+  // recent threads must not hide older unread ones.
+  const rootIds: string[] = []
+  // Effective read cursor per root (read state ⊔ own last reply) — also feeds
+  // the newReplyCount pass below.
+  const readAtByRoot = new Map<string, number>()
+  for (let offset = 0; rootIds.length < limit; offset += CANDIDATE_LIMIT) {
+    const candidateRows = await db
       .select({
         threadRootId: message.threadRootId,
-        lastOwnReplyAt: max(message.createdAt),
+        freshestOtherReplyAt: max(message.createdAt),
       })
       .from(message)
       .where(
         and(
-          inArray(message.threadRootId, candidateIds),
-          eq(message.authorId, currentUserId)
+          eq(message.channelId, channelId),
+          isNotNull(message.threadRootId),
+          ne(message.authorId, currentUserId),
+          gt(message.createdAt, windowStart)
         )
       )
-      .groupBy(message.threadRootId),
-  ])
-  const readAtByRoot = new Map(
-    readRows.map((r) => [r.threadRootId, r.lastReadAt.getTime()])
-  )
-  for (const r of ownReplyRows) {
-    if (!r.threadRootId || !r.lastOwnReplyAt) continue
-    // Replying implies you read everything before your reply.
-    const current = readAtByRoot.get(r.threadRootId) ?? 0
-    readAtByRoot.set(
-      r.threadRootId,
-      Math.max(current, r.lastOwnReplyAt.getTime())
-    )
-  }
+      .groupBy(message.threadRootId)
+      .orderBy(desc(max(message.createdAt)))
+      .limit(CANDIDATE_LIMIT)
+      .offset(offset)
+    const candidateIds = candidateRows
+      .map((r) => r.threadRootId)
+      .filter((id): id is string => id !== null)
+    if (candidateIds.length === 0) break
 
-  const rootIds = candidateRows
-    .filter((r): r is typeof r & { threadRootId: string } => {
-      if (!r.threadRootId || !r.freshestOtherReplyAt) return false
+    const [readRows, ownReplyRows] = await Promise.all([
+      db
+        .select({
+          threadRootId: threadReadState.threadRootId,
+          lastReadAt: threadReadState.lastReadAt,
+        })
+        .from(threadReadState)
+        .where(
+          and(
+            eq(threadReadState.userId, currentUserId),
+            inArray(threadReadState.threadRootId, candidateIds)
+          )
+        ),
+      db
+        .select({
+          threadRootId: message.threadRootId,
+          lastOwnReplyAt: max(message.createdAt),
+        })
+        .from(message)
+        .where(
+          and(
+            inArray(message.threadRootId, candidateIds),
+            eq(message.authorId, currentUserId)
+          )
+        )
+        .groupBy(message.threadRootId),
+    ])
+    for (const r of readRows) {
+      readAtByRoot.set(r.threadRootId, r.lastReadAt.getTime())
+    }
+    for (const r of ownReplyRows) {
+      if (!r.threadRootId || !r.lastOwnReplyAt) continue
+      // Replying implies you read everything before your reply.
+      const current = readAtByRoot.get(r.threadRootId) ?? 0
+      readAtByRoot.set(
+        r.threadRootId,
+        Math.max(current, r.lastOwnReplyAt.getTime())
+      )
+    }
+
+    for (const r of candidateRows) {
+      if (rootIds.length >= limit) break
+      if (!r.threadRootId || !r.freshestOtherReplyAt) continue
       const readAt = readAtByRoot.get(r.threadRootId)
-      return !readAt || r.freshestOtherReplyAt.getTime() > readAt
-    })
-    .slice(0, limit)
-    .map((r) => r.threadRootId)
+      if (!readAt || r.freshestOtherReplyAt.getTime() > readAt) {
+        rootIds.push(r.threadRootId)
+      }
+    }
+
+    if (candidateRows.length < CANDIDATE_LIMIT) break
+  }
   if (rootIds.length === 0) return []
 
   const [summaryRows, replyRows] = await Promise.all([

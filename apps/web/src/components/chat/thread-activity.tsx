@@ -10,7 +10,7 @@ import {
   type Transition,
   useReducedMotion,
 } from "motion/react"
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useId, useRef, useState } from "react"
 import type { ThreadActivity } from "@/hooks/use-thread-activity"
 import type { Message } from "@/lib/api-types"
 import { STORED_MENTION_REGEX } from "@/lib/editor-utils"
@@ -50,13 +50,12 @@ const GOO_PAD = 4
 const BLOB_HEIGHT = BLOB_AVATAR + GOO_PAD * 2
 const MAX_BLOBS = 3
 const MAX_BLOB_AVATARS = 3
-const GOO_FILTER_ID = "thread-activity-goo"
 
-function GooFilterDefs() {
+function GooFilterDefs({ filterId }: { filterId: string }) {
   return (
     <svg aria-hidden="true" className="pointer-events-none absolute size-0">
       <defs>
-        <filter id={GOO_FILTER_ID} x="-50%" y="-50%" width="200%" height="200%">
+        <filter id={filterId} x="-50%" y="-50%" width="200%" height="200%">
           <feGaussianBlur in="SourceGraphic" stdDeviation="4" result="blur" />
           <feColorMatrix
             in="blur"
@@ -73,10 +72,12 @@ function GooFilterDefs() {
 
 function ThreadBlob({
   activity,
+  filterId,
   onClick,
   transition,
 }: {
   activity: ThreadActivity
+  filterId: string
   onClick: () => void
   transition: Transition
 }) {
@@ -108,7 +109,7 @@ function ThreadBlob({
         aria-hidden="true"
         className="absolute inset-0"
         style={{
-          filter: `url(#${GOO_FILTER_ID}) drop-shadow(0 2px 6px rgb(0 0 0 / 0.14))`,
+          filter: `url(#${filterId}) drop-shadow(0 2px 6px rgb(0 0 0 / 0.14))`,
         }}
       >
         {people.map((p, i) => (
@@ -300,6 +301,9 @@ export function ThreadActivityDock({
   onDismiss: (threadRootId: string) => void
 }) {
   const [expanded, setExpanded] = useState(false)
+  // Unique per dock instance — duplicate SVG filter ids are invalid DOM when
+  // two feeds are mounted at once.
+  const gooFilterId = `thread-goo-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`
   const dockRef = useRef<HTMLDivElement>(null)
   const collapseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const reducedMotion = useReducedMotion()
@@ -359,7 +363,7 @@ export function ThreadActivityDock({
         collapseTimerRef.current = setTimeout(() => setExpanded(false), 180)
       }}
     >
-      <GooFilterDefs />
+      <GooFilterDefs filterId={gooFilterId} />
       <AnimatePresence mode="popLayout" initial={false}>
         {expanded ? (
           <motion.div
@@ -416,6 +420,7 @@ export function ThreadActivityDock({
                 <ThreadBlob
                   key={activity.threadRootId}
                   activity={activity}
+                  filterId={gooFilterId}
                   onClick={() => onOpen(activity.threadRootId)}
                   transition={transition}
                 />
