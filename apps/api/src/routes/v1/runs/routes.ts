@@ -35,10 +35,9 @@ export const getThreadContext = createRoute({
     [HttpStatusCodes.OK]: jsonContent({
       schema: threadContextResponseSchema,
       description:
-        "Context usage for the scope (available: false when the scope has no run yet)",
+        "Context usage for the scope. Returns available: false when the scope has no run yet OR is not visible to the caller — the two are deliberately indistinguishable so the endpoint can't be used to probe for runs in other workspaces.",
     }),
     [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
-    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
     [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
   },
 })

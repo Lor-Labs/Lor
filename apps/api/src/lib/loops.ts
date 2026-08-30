@@ -270,19 +270,26 @@ export async function completeLoopManually(input: {
 async function deleteLoopCardAndEmit(loop: Loop): Promise<void> {
   const emitter = await getEmitter().catch(() => null)
   if (loop.cardMessageId) {
-    await db
+    // Only announce the deletion if it actually happened: telling clients to
+    // drop a row that is still in the table makes it reappear on the next
+    // fetch, which reads as the card resurrecting itself.
+    const cardDeleted = await db
       .delete(schema.message)
       .where(eq(schema.message.id, loop.cardMessageId))
+      .then(() => true)
       .catch((err) => {
         logger.error(
           { err, loopId: loop.id },
           "Loop delete: card message delete failed"
         )
+        return false
       })
-    emitter?.to(channelRoom(loop.channelId)).emit("message:deleted", {
-      channelId: loop.channelId,
-      messageId: loop.cardMessageId,
-    })
+    if (cardDeleted) {
+      emitter?.to(channelRoom(loop.channelId)).emit("message:deleted", {
+        channelId: loop.channelId,
+        messageId: loop.cardMessageId,
+      })
+    }
   }
   emitter?.to(channelRoom(loop.channelId)).emit("loop:deleted", {
     loopId: loop.id,

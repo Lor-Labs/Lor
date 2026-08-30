@@ -43,10 +43,12 @@ export function useThreadContext(
 
   const { refetch } = query
   useEffect(() => {
-    if (isRunning) return
+    // Without the scopeKey guard this can fire for a disabled query and request
+    // /runs/context/undefined, which fails the uuid param check.
+    if (isRunning || !scopeKey) return
     // Run just ended (or the composer mounted idle): pick up the final step.
     void refetch()
-  }, [isRunning, refetch])
+  }, [isRunning, scopeKey, refetch])
 
   return query
 }

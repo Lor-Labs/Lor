@@ -177,20 +177,17 @@ export const getThreadContext: AppRouteHandler<GetThreadContextRoute> = async (
     .limit(1)
     .then((rows) => rows[0])
 
-  // No run in this scope yet — the composer simply hides the meter.
+  // "No run here" and "not yours to see" return the identical unavailable
+  // payload on purpose. Distinguishing them (200 vs 403) would let any signed-in
+  // caller probe a scope id and learn whether a run exists in a workspace they
+  // have no access to. The meter hides itself either way, so the caller loses
+  // nothing. Workspace drift on the run's channel fails closed into the same
+  // response.
   if (!run) return c.json(EMPTY_CONTEXT, HttpStatusCodes.OK)
-  if (run.channelWorkspaceId !== run.workspaceId) {
-    return c.json(
-      { success: false, message: "Forbidden" },
-      HttpStatusCodes.FORBIDDEN
-    )
-  }
-  if (!(await userCanAccessChannel(run.channelId, currentUser.id))) {
-    return c.json(
-      { success: false, message: "Forbidden" },
-      HttpStatusCodes.FORBIDDEN
-    )
-  }
+  const visible =
+    run.channelWorkspaceId === run.workspaceId &&
+    (await userCanAccessChannel(run.channelId, currentUser.id))
+  if (!visible) return c.json(EMPTY_CONTEXT, HttpStatusCodes.OK)
 
   // Steps at or before the baseline were projected out of the request, so only
   // the ones after it are still being sent (mirrors replay in
