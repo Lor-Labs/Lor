@@ -20,6 +20,10 @@ export type MessageScrollCommand = ReturnType<
   typeof useMessageScroller
 >["scrollToMessage"]
 
+export type MessageScrollToEndCommand = ReturnType<
+  typeof useMessageScroller
+>["scrollToEnd"]
+
 export function highlightMessage(
   messageId: string,
   container: ParentNode = document
@@ -82,15 +86,25 @@ export function signalMessageScrollerInteraction(
 
 export function MessageScrollerCommandBridge({
   register,
+  registerScrollToEnd,
 }: {
   register: (command: MessageScrollCommand | null) => void
+  // Optional: lets a parent outside the provider jump to the live edge, which
+  // also releases the scroller from "anchored to a message" mode.
+  registerScrollToEnd?: (command: MessageScrollToEndCommand | null) => void
 }) {
-  const { scrollToMessage } = useMessageScroller()
+  const { scrollToMessage, scrollToEnd } = useMessageScroller()
 
   useLayoutEffect(() => {
     register(scrollToMessage)
     return () => register(null)
   }, [register, scrollToMessage])
+
+  useLayoutEffect(() => {
+    if (!registerScrollToEnd) return
+    registerScrollToEnd(scrollToEnd)
+    return () => registerScrollToEnd(null)
+  }, [registerScrollToEnd, scrollToEnd])
 
   return null
 }
@@ -223,6 +237,13 @@ export function useRegisteredMessageScroller() {
   const register = useCallback((command: MessageScrollCommand | null) => {
     commandRef.current = command
   }, [])
+  const scrollToEndRef = useRef<MessageScrollToEndCommand | null>(null)
+  const registerScrollToEnd = useCallback(
+    (command: MessageScrollToEndCommand | null) => {
+      scrollToEndRef.current = command
+    },
+    []
+  )
 
-  return { commandRef, register }
+  return { commandRef, register, scrollToEndRef, registerScrollToEnd }
 }
