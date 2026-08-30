@@ -529,9 +529,15 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
   }
   if (!isLoading && !openingAnchorsRef.current.initialized) {
     openingAnchorsRef.current.initialized = true
+    // Anchor only triggers of runs still streaming at open. The scroller pins
+    // an anchor to the top with a spacer below so the answer can grow into
+    // it — right for a live run, but anchoring a *completed* run from
+    // history leaves that spacer as a dead gap under the last message
+    // (thread opens with messages hoisted up and blank space above the
+    // composer). Finished threads open at the live edge instead.
     openingAnchorsRef.current.messageIds = new Set(
       messages
-        .filter((message) => message.status !== "pending")
+        .filter((message) => message.status === "pending")
         .map((message) => message.merlinTriggerMessageId)
         .filter((id): id is string => Boolean(id))
     )
