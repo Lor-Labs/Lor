@@ -12,6 +12,7 @@ import {
   isNotNull,
   max,
   ne,
+  sql,
 } from "drizzle-orm"
 
 export type ThreadActivityMention = {
@@ -77,13 +78,22 @@ export async function fetchChannelThreadActivity({
 
   // Paginate candidates (most-recently-active first) until `limit` unread
   // roots are found or the window is exhausted — a page of already-read
-  // recent threads must not hide older unread ones.
+  // recent threads must not hide older unread ones. Keyset cursor on the
+  // sort key (freshest DESC, threadRootId ASC), not OFFSET: a reply landing
+  // between pages reorders max(createdAt) and would make offsets skip or
+  // repeat roots; the strict-inequality cursor can't.
   const rootIds: string[] = []
   // Effective read cursor per root (read state ⊔ own last reply) — also feeds
   // the newReplyCount pass below.
   const readAtByRoot = new Map<string, number>()
-  for (let offset = 0; rootIds.length < limit; offset += CANDIDATE_LIMIT) {
-    const candidateRows = await db
+  let pageCursor: { freshest: Date; rootId: string } | null = null
+  while (rootIds.length < limit) {
+    // Explicit row type: inference would cycle through pageCursor back into
+    // this initializer (TS7022).
+    const candidateRows: Array<{
+      threadRootId: string | null
+      freshestOtherReplyAt: Date | null
+    }> = await db
       .select({
         threadRootId: message.threadRootId,
         freshestOtherReplyAt: max(message.createdAt),
@@ -98,11 +108,13 @@ export async function fetchChannelThreadActivity({
         )
       )
       .groupBy(message.threadRootId)
-      // threadRootId tiebreak keeps the offset pagination stable when two
-      // roots share a freshest-reply timestamp.
+      .having(
+        pageCursor
+          ? sql`(max(${message.createdAt}) < ${pageCursor.freshest} or (max(${message.createdAt}) = ${pageCursor.freshest} and ${message.threadRootId} > ${pageCursor.rootId}))`
+          : undefined
+      )
       .orderBy(desc(max(message.createdAt)), asc(message.threadRootId))
       .limit(CANDIDATE_LIMIT)
-      .offset(offset)
     const candidateIds = candidateRows
       .map((r) => r.threadRootId)
       .filter((id): id is string => id !== null)
@@ -158,6 +170,12 @@ export async function fetchChannelThreadActivity({
     }
 
     if (candidateRows.length < CANDIDATE_LIMIT) break
+    const last = candidateRows[candidateRows.length - 1]
+    if (!last?.threadRootId || !last.freshestOtherReplyAt) break
+    pageCursor = {
+      freshest: last.freshestOtherReplyAt,
+      rootId: last.threadRootId,
+    }
   }
   if (rootIds.length === 0) return []
 
