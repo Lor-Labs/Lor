@@ -1,11 +1,6 @@
 import { db } from "@repo/db"
 import type { Attachment } from "@repo/db/schema"
-import {
-  channelReadState,
-  message,
-  messageMention,
-  user,
-} from "@repo/db/schema"
+import { message, messageMention, threadReadState, user } from "@repo/db/schema"
 import {
   and,
   count,
@@ -29,6 +24,9 @@ export type ThreadActivityMention = {
 export type ThreadActivityItem = {
   threadRootId: string
   replyCount: number
+  // Replies from others after the caller's read cursor — what the dock badge
+  // shows. `replyCount` stays the thread total (matches the inline footer).
+  newReplyCount: number
   lastReplyAt: string
   participants: Array<{
     id: string
@@ -56,49 +54,96 @@ type FetchParams = {
   limit?: number
 }
 
+// Bound the unread-thread backlog: replies older than this never surface,
+// even with no thread_read_state row (new members, feature rollout).
+const ACTIVITY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
+// Candidates fetched before the per-thread read filter drops the read ones.
+const CANDIDATE_LIMIT = 30
+
 /**
- * Threads in a channel that have received replies from someone other than the
- * caller since the caller last read the channel. Powers the "thread activity"
- * cards surfaced at the bottom of the feed when you return to a channel.
+ * Threads in a channel with replies from someone other than the caller that
+ * the caller hasn't read yet. Freshness is judged per thread against
+ * thread_read_state (channel read state doesn't apply — thread replies don't
+ * advance it), so the activity dock survives reloads and syncs across devices
+ * until the thread is actually opened or dismissed.
  */
 export async function fetchChannelThreadActivity({
   channelId,
   currentUserId,
-  limit = 5,
+  limit = 8,
 }: FetchParams): Promise<ThreadActivityItem[]> {
-  const readRows = await db
-    .select({ lastReadAt: channelReadState.lastReadAt })
-    .from(channelReadState)
-    .where(
-      and(
-        eq(channelReadState.channelId, channelId),
-        eq(channelReadState.userId, currentUserId)
-      )
-    )
-    .limit(1)
-  const lastReadAt = readRows[0]?.lastReadAt ?? null
+  const windowStart = new Date(Date.now() - ACTIVITY_WINDOW_MS)
 
-  // Roots with a reply from someone else since we last read the channel,
-  // bounded to the `limit` most-recently-active so the follow-up queries below
-  // stay proportional to what we actually render (newest fresh reply == the
-  // thread's last reply, so this matches the final ordering).
-  const freshRootRows = await db
-    .select({ threadRootId: message.threadRootId })
+  const candidateRows = await db
+    .select({
+      threadRootId: message.threadRootId,
+      freshestOtherReplyAt: max(message.createdAt),
+    })
     .from(message)
     .where(
       and(
         eq(message.channelId, channelId),
         isNotNull(message.threadRootId),
         ne(message.authorId, currentUserId),
-        lastReadAt ? gt(message.createdAt, lastReadAt) : undefined
+        gt(message.createdAt, windowStart)
       )
     )
     .groupBy(message.threadRootId)
     .orderBy(desc(max(message.createdAt)))
-    .limit(limit)
-  const rootIds = freshRootRows
+    .limit(CANDIDATE_LIMIT)
+  const candidateIds = candidateRows
     .map((r) => r.threadRootId)
     .filter((id): id is string => id !== null)
+  if (candidateIds.length === 0) return []
+
+  const [readRows, ownReplyRows] = await Promise.all([
+    db
+      .select({
+        threadRootId: threadReadState.threadRootId,
+        lastReadAt: threadReadState.lastReadAt,
+      })
+      .from(threadReadState)
+      .where(
+        and(
+          eq(threadReadState.userId, currentUserId),
+          inArray(threadReadState.threadRootId, candidateIds)
+        )
+      ),
+    db
+      .select({
+        threadRootId: message.threadRootId,
+        lastOwnReplyAt: max(message.createdAt),
+      })
+      .from(message)
+      .where(
+        and(
+          inArray(message.threadRootId, candidateIds),
+          eq(message.authorId, currentUserId)
+        )
+      )
+      .groupBy(message.threadRootId),
+  ])
+  const readAtByRoot = new Map(
+    readRows.map((r) => [r.threadRootId, r.lastReadAt.getTime()])
+  )
+  for (const r of ownReplyRows) {
+    if (!r.threadRootId || !r.lastOwnReplyAt) continue
+    // Replying implies you read everything before your reply.
+    const current = readAtByRoot.get(r.threadRootId) ?? 0
+    readAtByRoot.set(
+      r.threadRootId,
+      Math.max(current, r.lastOwnReplyAt.getTime())
+    )
+  }
+
+  const rootIds = candidateRows
+    .filter((r): r is typeof r & { threadRootId: string } => {
+      if (!r.threadRootId || !r.freshestOtherReplyAt) return false
+      const readAt = readAtByRoot.get(r.threadRootId)
+      return !readAt || r.freshestOtherReplyAt.getTime() > readAt
+    })
+    .slice(0, limit)
+    .map((r) => r.threadRootId)
   if (rootIds.length === 0) return []
 
   const [summaryRows, replyRows] = await Promise.all([
@@ -117,6 +162,7 @@ export async function fetchChannelThreadActivity({
       .select({
         threadRootId: message.threadRootId,
         messageId: message.id,
+        createdAt: message.createdAt,
         content: message.content,
         attachments: message.attachments,
         authorId: user.id,
@@ -159,6 +205,18 @@ export async function fetchChannelThreadActivity({
       image: row.authorImage,
     })
     participantsByRoot.set(row.threadRootId, list)
+  }
+
+  // Unread = replies from others after the caller's effective read cursor.
+  const newCountByRoot = new Map<string, number>()
+  for (const row of replyRows) {
+    if (!row.threadRootId || row.authorId === currentUserId) continue
+    const readAt = readAtByRoot.get(row.threadRootId) ?? 0
+    if (row.createdAt.getTime() <= readAt) continue
+    newCountByRoot.set(
+      row.threadRootId,
+      (newCountByRoot.get(row.threadRootId) ?? 0) + 1
+    )
   }
 
   // Mentions for the newest reply of each root, so @mentions render as names.
@@ -206,6 +264,7 @@ export async function fetchChannelThreadActivity({
     items.push({
       threadRootId: row.threadRootId,
       replyCount: Number(row.replyCount),
+      newReplyCount: newCountByRoot.get(row.threadRootId) ?? 0,
       lastReplyAt: row.lastReplyAt.toISOString(),
       participants: participantsByRoot.get(row.threadRootId) ?? [],
       lastReply: {

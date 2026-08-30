@@ -63,6 +63,7 @@ import type { ThreadSidebarView } from "@/components/sidebar/right-panel/right-s
 import { useSocket } from "@/context/socket-context"
 import { useTaskForCard } from "@/hooks/use-channel-tasks"
 import { useFileUpload } from "@/hooks/use-file-upload"
+import { useMarkThreadRead } from "@/hooks/use-mark-thread-read"
 import { useMerlinRunReplay } from "@/hooks/use-merlin-stream"
 import { useMessageDeletion } from "@/hooks/use-message-deletion"
 import { useMessageEditing } from "@/hooks/use-message-editing"
@@ -227,6 +228,28 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
   })
 
   const rootMessage = channelCacheRoot ?? threadApiRoot
+
+  // An open panel means the thread is being read — advance the per-thread
+  // read cursor on open and on every reply that lands while it's visible, so
+  // the activity dock stays clear here and on other devices.
+  const markThreadRead = useMarkThreadRead(view.workspaceSlug, view.channelId)
+  const newestReplyId = messages[0]?.id ?? null
+  useEffect(() => {
+    if (document.visibilityState !== "visible") return
+    const timer = setTimeout(() => markThreadRead(view.threadRootId), 500)
+    return () => clearTimeout(timer)
+  }, [view.threadRootId, newestReplyId, markThreadRead])
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        markThreadRead(view.threadRootId)
+      }
+    }
+    document.addEventListener("visibilitychange", onVisibilityChange)
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange)
+    }
+  }, [view.threadRootId, markThreadRead])
 
   // MessageItem is memoized — keep the root message prop referentially
   // stable. A fresh `{ ...rootMessage, threadSummary: null }` spread on every

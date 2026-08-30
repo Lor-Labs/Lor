@@ -69,8 +69,9 @@ export function useAutoMarkRead(channelId: string | undefined) {
 
   // Thread replies broadcast to the thread room only, so they never hit
   // `message:created` here. Advance the channel read state on the lightweight
-  // `message:thread:updated` too — otherwise a thread reply seen during a
-  // visit stays "unread" and the activity card re-surfaces on every return.
+  // `message:thread:updated` too so the sidebar unread badge doesn't light up
+  // for a reply you watched land. (Thread-activity freshness is separate —
+  // it's per-thread via thread_read_state, not channel read state.)
   useEffect(() => {
     if (!socket || !channelId) return
 

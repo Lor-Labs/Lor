@@ -12,7 +12,7 @@ import { ChatSkeleton } from "@/components/chat/chat-skeleton"
 import { MessageInput } from "@/components/chat/composer/message-input"
 import { DropZoneOverlay } from "@/components/chat/drop-zone-overlay"
 import { ChatHeader } from "@/components/chat/header"
-import { MessageList } from "@/components/chat/message-list"
+import { MessageList, scrollToMessage } from "@/components/chat/message-list"
 import { RunQueuePill } from "@/components/chat/run-queue-pill"
 import { TypingIndicator } from "@/components/chat/typing-indicator"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
@@ -20,6 +20,7 @@ import { useSocket } from "@/context/socket-context"
 import { useAutoMarkRead } from "@/hooks/use-auto-mark-read"
 import { useChannelMessages } from "@/hooks/use-channel-messages"
 import { useFileUpload } from "@/hooks/use-file-upload"
+import { useMarkThreadRead } from "@/hooks/use-mark-thread-read"
 import { useMerlinRunReplay, useMerlinStream } from "@/hooks/use-merlin-stream"
 import { useMessageDeletion } from "@/hooks/use-message-deletion"
 import { useMessageEditing } from "@/hooks/use-message-editing"
@@ -405,6 +406,7 @@ function ChannelView() {
       threadActivityData?.data.map((item) => ({
         threadRootId: item.threadRootId,
         replyCount: item.replyCount,
+        newReplyCount: item.newReplyCount,
         lastReplyAt: item.lastReplyAt,
         participants: item.participants,
         lastReply: {
@@ -426,12 +428,31 @@ function ChannelView() {
       suppressThreadRootId: view?.type === "thread" ? view.threadRootId : null,
     })
 
+  const markThreadRead = useMarkThreadRead(workspaceSlug, channelId)
+
   const handleOpenThreadActivity = useCallback(
     (threadRootId: string) => {
       handleOpenThread(threadRootId)
       dismissThreadActivity(threadRootId)
+      markThreadRead(threadRootId)
+      // Bring the root into view in the main feed too, so the thread is seen
+      // in its original context. Scroll in place when it's loaded; otherwise
+      // anchor the feed on it via ?msgId (the channel refetches around it).
+      if (!scrollToMessage(threadRootId)) {
+        void navigate({
+          search: (prev) => ({ ...prev, msgId: threadRootId }),
+        })
+      }
     },
-    [handleOpenThread, dismissThreadActivity]
+    [handleOpenThread, dismissThreadActivity, markThreadRead, navigate]
+  )
+
+  const handleDismissThreadActivity = useCallback(
+    (threadRootId: string) => {
+      dismissThreadActivity(threadRootId)
+      markThreadRead(threadRootId)
+    },
+    [dismissThreadActivity, markThreadRead]
   )
 
   const { typingUsers, emitTyping } = useTypingIndicator({
@@ -535,9 +556,9 @@ function ChannelView() {
         onJumpToMessage={handleJumpToMessage}
         onReplyInThread={handleReplyInThread}
         onOpenThread={handleOpenThread}
-        threadActivities={isAtPresent ? threadActivities : []}
+        threadActivities={threadActivities}
         onOpenThreadActivity={handleOpenThreadActivity}
-        onDismissThreadActivity={dismissThreadActivity}
+        onDismissThreadActivity={handleDismissThreadActivity}
         replyingToId={replyingTo?.id ?? null}
         currentUserId={currentUserId}
         onReact={handleReact}

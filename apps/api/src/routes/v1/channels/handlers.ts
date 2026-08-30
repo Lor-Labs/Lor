@@ -7,6 +7,7 @@ import {
   message,
   messageMention,
   messageReaction,
+  threadReadState,
   user,
 } from "@repo/db/schema"
 import {
@@ -14,9 +15,12 @@ import {
   searchConnector,
   searchConnectorFiles as searchFiles,
 } from "@repo/merlin/connector-search"
+import { type ServerToClientEvents, userRoom } from "@repo/realtime-types"
+import { Emitter } from "@socket.io/redis-emitter"
 import { and, asc, desc, eq, inArray, or } from "drizzle-orm"
 import { allowedChannelConnectors } from "@/lib/channel-connectors"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
+import { logger } from "@/lib/logger"
 import { assertWorkspacePermission } from "@/lib/permissions"
 import { userCanAccessChannel } from "@/lib/queries/channel-access"
 import {
@@ -27,6 +31,7 @@ import {
   toReferencedMessage,
 } from "@/lib/queries/messages"
 import { fetchChannelThreadActivity } from "@/lib/queries/thread-activity"
+import { getRedisClient } from "@/lib/redis"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
   CreateChannelRoute,
@@ -40,6 +45,7 @@ import type {
   ListPinnedMessagesRoute,
   ListThreadActivityRoute,
   ListThreadRepliesRoute,
+  MarkThreadReadRoute,
   ReorderChannelsRoute,
   SearchChannelConnectorRoute,
   SearchConnectorFilesRoute,
@@ -521,6 +527,80 @@ export const listThreadActivity: AppRouteHandler<
   })
 
   return c.json({ data }, HttpStatusCodes.OK)
+}
+
+let threadReadEmitter: Emitter<ServerToClientEvents> | null = null
+
+async function getThreadReadEmitter() {
+  const redis = await getRedisClient()
+  if (!threadReadEmitter) {
+    threadReadEmitter = new Emitter<ServerToClientEvents>(redis)
+  }
+  return threadReadEmitter
+}
+
+export const markThreadRead: AppRouteHandler<MarkThreadReadRoute> = async (
+  c
+) => {
+  const workspace = c.var.workspace
+  const currentUser = c.var.user
+  const { channelId, threadRootId } = c.req.valid("param")
+
+  const root = await db
+    .select({ id: message.id })
+    .from(message)
+    .innerJoin(channel, eq(message.channelId, channel.id))
+    .where(
+      and(
+        eq(message.id, threadRootId),
+        eq(message.channelId, channelId),
+        eq(channel.workspaceId, workspace.id)
+      )
+    )
+    .limit(1)
+    .then((rows) => rows[0])
+
+  if (!root || !(await userCanAccessChannel(channelId, currentUser.id))) {
+    return c.json(
+      { success: false, message: "Thread not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+
+  const lastReadAt = new Date()
+  await db
+    .insert(threadReadState)
+    .values({
+      threadRootId,
+      channelId,
+      userId: currentUser.id,
+      lastReadAt,
+    })
+    .onConflictDoUpdate({
+      target: [threadReadState.threadRootId, threadReadState.userId],
+      set: { lastReadAt },
+    })
+
+  // Best-effort cross-device sync — the cursor is persisted, so a realtime
+  // delivery failure must not fail the mutation.
+  try {
+    const io = await getThreadReadEmitter()
+    io.to(userRoom(currentUser.id)).emit("thread-read:updated", {
+      channelId,
+      threadRootId,
+      lastReadAt: lastReadAt.toISOString(),
+    })
+  } catch (err) {
+    logger.error(
+      { err, userId: currentUser.id, threadRootId },
+      "thread-read:updated emit failed"
+    )
+  }
+
+  return c.json(
+    { success: true as const, lastReadAt: lastReadAt.toISOString() },
+    HttpStatusCodes.OK
+  )
 }
 
 export const toggleMessagePin: AppRouteHandler<ToggleMessagePinRoute> = async (

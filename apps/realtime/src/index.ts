@@ -527,10 +527,10 @@ io.on("connection", (socket) => {
           parsed.channelId,
           messageWithMentions.threadRootId
         )
-        io.to(channelRoom(parsed.channelId)).emit(
-          "message:thread:updated",
-          summary
-        )
+        io.to(channelRoom(parsed.channelId)).emit("message:thread:updated", {
+          ...summary,
+          reply: messageWithMentions,
+        })
       } else {
         socket
           .to(channelRoom(parsed.channelId))
@@ -785,6 +785,10 @@ io.on("connection", (socket) => {
                 "message:created",
                 placeholder
               )
+              // No `reply` here on purpose: injecting a streaming placeholder
+              // into a closed panel's cache would freeze it mid-"thinking" —
+              // its stream events only reach the open panel. Closed panels
+              // invalidate and refetch the settled row instead.
               const summary = await loadThreadSummary(
                 parsed.channelId,
                 placeholder.threadRootId

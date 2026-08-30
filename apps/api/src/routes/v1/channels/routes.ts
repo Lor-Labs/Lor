@@ -27,11 +27,13 @@ import {
   listPinnedMessagesResponseSchema,
   listThreadActivityResponseSchema,
   listThreadRepliesResponseSchema,
+  markThreadReadResponseSchema,
   messageIdParamsSchema,
   messageLocationParamsSchema,
   messageLocationResponseSchema,
   reorderChannelsRequestSchema,
   reorderChannelsResponseSchema,
+  threadReadParamsSchema,
   togglePinResponseSchema,
   updateChannelRequestSchema,
   updateChannelResponseSchema,
@@ -297,6 +299,29 @@ export const listThreadActivity = createRoute({
   },
 })
 
+export const markThreadRead = createRoute({
+  path: "/workspaces/{workspaceSlug}/channels/{channelId}/threads/{threadRootId}/read",
+  method: "post",
+  summary: "Mark a thread as read",
+  description:
+    "Advances the caller's per-thread read cursor to now. Clears the thread from the thread-activity dock on all the caller's devices.",
+  tags: ["Channels"],
+  middleware: [workspaceAuthMiddleware] as const,
+  request: {
+    params: threadReadParamsSchema,
+  },
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: markThreadReadResponseSchema,
+      description: "Thread marked read",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
 export const getMessageLocation = createRoute({
   path: "/workspaces/{workspaceSlug}/messages/{messageId}",
   method: "get",
@@ -421,6 +446,7 @@ export type ToggleMessagePinRoute = typeof toggleMessagePin
 export type ListPinnedMessagesRoute = typeof listPinnedMessages
 export type ListThreadRepliesRoute = typeof listThreadReplies
 export type ListThreadActivityRoute = typeof listThreadActivity
+export type MarkThreadReadRoute = typeof markThreadRead
 export type GetMessageLocationRoute = typeof getMessageLocation
 export type ListChannelConnectorsRoute = typeof listChannelConnectors
 export type SearchChannelConnectorRoute = typeof searchChannelConnector
