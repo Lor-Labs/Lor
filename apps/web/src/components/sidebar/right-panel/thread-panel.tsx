@@ -519,6 +519,8 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
   const {
     commandRef: messageScrollCommandRef,
     register: registerScrollCommand,
+    scrollToEndRef,
+    registerScrollToEnd,
   } = useRegisteredMessageScroller()
 
   // Scoped to this panel's scroll container so it never grabs the channel
@@ -681,7 +683,10 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
         scrollEdgeThreshold={16}
         scrollPreviousItemPeek={64}
       >
-        <MessageScrollerCommandBridge register={registerScrollCommand} />
+        <MessageScrollerCommandBridge
+          register={registerScrollCommand}
+          registerScrollToEnd={registerScrollToEnd}
+        />
         <MessageScroller className="min-h-0 flex-1">
           <MessageScrollerViewport
             ref={scrollRef}
@@ -832,6 +837,16 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
             placeholder="Reply…"
             onSend={(content, options) => {
               const nonce = handleSend(content, options)
+              // Opening an existing thread anchors an earlier message to the
+              // top, and the scroller stays in that mode — so every later
+              // resize (this reply landing, the composer growing, Merlin
+              // streaming) yanked the view back up to that old anchor (LOR-67).
+              // Jumping to the live edge is both what someone expects after
+              // sending and the only thing that releases the anchor.
+              // "auto", not "smooth": the optimistic reply appends a frame
+              // later and its own follow-to-bottom would cancel the animation
+              // mid-flight anyway.
+              scrollToEndRef.current?.()
               // Merlin is mid-answer in this thread, so the reply will queue —
               // show it in the pill immediately instead of waiting for the
               // routed round trip.
