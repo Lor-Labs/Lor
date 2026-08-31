@@ -1,10 +1,16 @@
 import { auth } from "@repo/auth"
+import {
+  type CustomRoleGrants,
+  isWorkspaceRole,
+  parseRolePermission,
+} from "@repo/auth/permissions"
 import { db } from "@repo/db"
-import { workspace, workspaceMember } from "@repo/db/schema"
+import { workspace, workspaceMember, workspaceRole } from "@repo/db/schema"
 import { setContext } from "@repo/logger"
 import { and, eq } from "drizzle-orm"
 import type { Context, Next } from "hono"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
+import { toWorkspaceAuthority } from "@/lib/permissions"
 import type { AppBindings } from "@/lib/types/app-types"
 
 /**
@@ -17,6 +23,8 @@ import type { AppBindings } from "@/lib/types/app-types"
  * - session: The session object
  * - workspace: The resolved workspace
  * - member: The user's membership in the workspace
+ * - authority: The member's resolved permission authority (static roles are
+ *   resolved in-memory; custom roles cost one workspace_role lookup)
  */
 export const workspaceAuthMiddleware = async (
   c: Context<AppBindings>,
@@ -66,10 +74,33 @@ export const workspaceAuthMiddleware = async (
     )
   }
 
+  let customGrants: CustomRoleGrants | null = null
+  if (!isWorkspaceRole(memberRecord.role)) {
+    const roleRecord = await db
+      .select({ permission: workspaceRole.permission })
+      .from(workspaceRole)
+      .where(
+        and(
+          eq(workspaceRole.workspaceId, workspaceRecord.id),
+          eq(workspaceRole.role, memberRecord.role)
+        )
+      )
+      .limit(1)
+      .then((rows) => rows[0])
+    // Deleted/dangling custom role degrades to member-tier base access
+    customGrants = roleRecord
+      ? parseRolePermission(roleRecord.permission)
+      : null
+  }
+
   c.set("user", session.user)
   c.set("session", session.session)
   c.set("workspace", workspaceRecord)
   c.set("member", memberRecord)
+  c.set(
+    "authority",
+    toWorkspaceAuthority(memberRecord, workspaceRecord, customGrants)
+  )
   setContext({
     userId: session.user.id,
     workspaceId: workspaceRecord.id,

@@ -113,7 +113,7 @@ exists). Flag if the dev DB has duplicate membership rows before pushing.
 
 ---
 
-### [ ] S2 — `apps/api` enforcement core (~350 LOC)
+### [x] S2 — `apps/api` enforcement core (~350 LOC) — built 2026-08-31
 
 - `middleware/workspace-auth.ts`: after membership lookup, if `member.role`
   isn't static, fetch the `workspace_role` row for `(workspaceId, role)`,

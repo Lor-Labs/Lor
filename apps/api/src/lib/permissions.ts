@@ -1,5 +1,5 @@
-import { auth } from "@repo/auth"
 import {
+  type CustomRoleGrants,
   canManageWorkspaceAuthority,
   isWorkspaceRole,
   type PermissionRequest,
@@ -19,64 +19,28 @@ export type PermissionForStatement<T extends StatementKey> = NonNullable<
   PermissionRequest[T]
 >[number]
 
-function toWorkspaceAuthority(
+// Ownership derives from workspace.ownerId, never from the role string.
+// customGrants are the parsed workspace_role grants for custom roles; null
+// means static role, or a deleted/dangling custom role that degrades to
+// member-tier base access (fail-safe, not a lockout).
+export function toWorkspaceAuthority(
   member: Pick<WorkspaceMember, "role" | "userId">,
-  workspace: Pick<Workspace, "ownerId">
+  workspace: Pick<Workspace, "ownerId">,
+  customGrants: CustomRoleGrants | null = null
 ): WorkspaceAuthority {
-  if (!isWorkspaceRole(member.role)) {
-    throw new HTTPException(HttpStatusCodes.FORBIDDEN, {
-      message: `Unknown workspace role: ${member.role}`,
-    })
-  }
-
   return {
     role: member.role,
     isOwner: workspace.ownerId === member.userId,
+    customGrants: isWorkspaceRole(member.role) ? null : customGrants,
   }
 }
 
-// ── Permission Check ──────────────────────────────────────
+// ── Permission Checks ──────────────────────────────────────
 
-/**
- * Checks if the current user has the specified permissions in their active workspace.
- * Uses better-auth's hasPermission API and throws HTTPException(403) when the
- * requested permission is missing.
- *
- * @example
- * await checkPermission(c.req.raw.headers, "channel", ["update"])
- *
- * // If the permission is missing, checkPermission(...) throws
- * // HTTPException(403) from the internal !result.success branch.
- */
-export async function checkPermission<
-  TResource extends StatementKey,
-  TPermissions extends readonly PermissionForStatement<TResource>[],
->(headers: Headers, resource: TResource, permissions: TPermissions) {
-  const result = await auth.api.hasPermission({
-    headers,
-    body: {
-      permissions: {
-        [resource]: [...permissions],
-      },
-    },
-  })
-
-  if (!result.success) {
-    throw new HTTPException(HttpStatusCodes.FORBIDDEN, {
-      message: `You do not have permission to ${permissions.join("/")} ${resource}`,
-    })
-  }
-
-  return true
-}
-
-export function assertWorkspacePermission(
-  member: Pick<WorkspaceMember, "role" | "userId">,
-  workspace: Pick<Workspace, "ownerId">,
+export function assertWorkspaceAuthority(
+  authority: WorkspaceAuthority,
   requestedPermissions: PermissionRequest
 ) {
-  const authority = toWorkspaceAuthority(member, workspace)
-
   if (!workspaceAuthorityHasPermissions(authority, requestedPermissions)) {
     throw new HTTPException(HttpStatusCodes.FORBIDDEN, {
       message: "You do not have permission to perform this action",
@@ -86,6 +50,27 @@ export function assertWorkspacePermission(
   return authority
 }
 
+export function assertWorkspacePermission(
+  member: Pick<WorkspaceMember, "role" | "userId">,
+  workspace: Pick<Workspace, "ownerId">,
+  requestedPermissions: PermissionRequest
+) {
+  // Static-role resolution only — custom-role grants ride on c.var.authority
+  // (workspace-auth middleware). Prefer requireWorkspacePermission route
+  // middleware or assertWorkspaceAuthority(c.var.authority, …) in handlers.
+  return assertWorkspaceAuthority(
+    toWorkspaceAuthority(member, workspace),
+    requestedPermissions
+  )
+}
+
+export function hasWorkspaceAuthority(
+  authority: WorkspaceAuthority,
+  requestedPermissions: PermissionRequest
+): boolean {
+  return workspaceAuthorityHasPermissions(authority, requestedPermissions)
+}
+
 // Non-throwing variant for handlers that shape (rather than gate) a response
 // by permission.
 export function hasWorkspacePermission(
@@ -93,9 +78,8 @@ export function hasWorkspacePermission(
   workspace: Pick<Workspace, "ownerId">,
   requestedPermissions: PermissionRequest
 ): boolean {
-  if (!isWorkspaceRole(member.role)) return false
   return workspaceAuthorityHasPermissions(
-    { role: member.role, isOwner: workspace.ownerId === member.userId },
+    toWorkspaceAuthority(member, workspace),
     requestedPermissions
   )
 }
