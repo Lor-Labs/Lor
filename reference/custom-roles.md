@@ -62,6 +62,7 @@ change proposals will be written in.
 | Message rate limit | Custom roles get the member tier (30/min). |
 | Multi-role | One role string per member. We never write comma-separated role lists. |
 | Assignment | `PATCH …/members/:id/role` widens from `z.enum(assignableWorkspaceRoles)` to also accept a custom role name that exists in this workspace's `workspace_role`. Owner stays unassignable. |
+| Route-level gates | New `requireWorkspacePermission(resource, actions)` Hono middleware factory (S2), placed after `workspaceAuthMiddleware` in route definitions — same generics/autocomplete as the statement types, delegates to `assertWorkspacePermission`, pure in-memory (no extra I/O). S3 migrates static per-handler asserts to it; target-dependent, response-shaping, and state-dependent checks stay in-handler on the same evaluator. No `anyOf` OR-paths in v1 (no route needs one post-split) — options-bag signature so it can be added non-breaking. No capability-ID indirection. Route→permission map becomes statically enumerable (feeds roles-UI labels + future self-configuration audit). |
 | Invites | Still hardcode `role: "member"` on accept. Invite-with-role is out of scope. |
 | UI surface | Workspace settings dialog gains **Members** and **Roles** tabs (Discord pattern). No new route. |
 | Web permission mirror | Web fetches the workspace's custom roles once (React Query over better-auth `listOrgRoles`) and resolves grants locally with the same `@repo/auth/permissions` helpers the API uses. |
@@ -123,6 +124,9 @@ exists). Flag if the dev DB has duplicate membership rows before pushing.
   `assertWorkspacePermission` / `hasWorkspacePermission` /
   `assertCanManageWorkspaceMember` signatures compatible for existing call
   sites; delete dead `checkPermission`.
+- New `requireWorkspacePermission(resource, actions)` middleware factory
+  (per the route-level-gates locked decision) — S3 does the actual call-site
+  migration onto it.
 - `apps/realtime/src/services/rate-limit.ts`: custom role strings fall back to
   member rate limit (must not crash on non-static roles).
 - Existing handlers must compile unchanged; behavior identical for the three
@@ -132,6 +136,9 @@ exists). Flag if the dev DB has duplicate membership rows before pushing.
 
 ### [ ] S3 — `apps/api` call-site migration (~400 LOC, mechanical)
 
+- Static gates move to route-level `requireWorkspacePermission(...)` in the
+  route definitions; dynamic checks (moderation targets, response shaping,
+  state-dependent) keep in-handler asserts.
 - mcp-servers (8 sites) AND custom-tools (3) → `customTool: ["manage"]`;
   webhooks (4) → `webhook: ["manage"]`; agent-profiles (3) →
   `agentProfile: ["manage"]`; billing (5) → `billing: ["manage"]`.
