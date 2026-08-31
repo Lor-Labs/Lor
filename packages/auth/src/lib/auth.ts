@@ -370,6 +370,7 @@ export const auth = betterAuth({
       },
       dynamicAccessControl: {
         enabled: true,
+        maximumRolesPerOrganization: 32,
       },
     }),
     admin(),

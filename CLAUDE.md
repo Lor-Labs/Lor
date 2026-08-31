@@ -85,6 +85,14 @@ the generated-file check verifies the web route tree is committed.
 
 When adding a new integration (Linear, Notion, Datadog, …), follow the runbook at `reference/adding-a-connector.md`. Connectors are declared in the `@repo/connectors` registry (typed, exhaustive over the DB enums) — adding an enum value cascades compile errors that walk you through wiring the descriptor, provider, tools, capabilities, and icon. The runbook flags which steps are compiler-enforced vs. still hand-edited.
 
+### Self-configuration roadmap (custom roles → approvals → change proposals)
+
+The next-phase product vision (Lor proposes changes to its own configuration;
+Playbooks come later) lives at `reference/self-configuration.md`. Custom
+roles/permissions work (LOR-57/LOR-82) is executed step-by-step from
+`reference/custom-roles.md` — locked decisions and status checkboxes live
+there; update them as steps land.
+
 ### Loops (scheduled Merlin runs)
 
 Loops work is executed phase-by-phase from the runbook at `reference/loops.md` — locked architecture decisions, per-phase file lists, and status checkboxes live there. Update its checkboxes and deviations log as phases land.
