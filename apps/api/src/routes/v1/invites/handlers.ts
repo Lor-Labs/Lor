@@ -4,7 +4,7 @@ import { grantFirstInvitePromo, syncSeats } from "@repo/billing"
 import { and, db, eq, schema, sql } from "@repo/db"
 import { pickWorkspaceAvatarColor } from "@repo/utils/avatar-colors"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
-import { assertWorkspacePermission } from "@/lib/permissions"
+import { assertWorkspaceAuthority } from "@/lib/permissions"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
   AcceptInviteRoute,
@@ -136,9 +136,8 @@ export const createInvite: AppRouteHandler<CreateInviteRoute> = async (c) => {
 
 export const listInvites: AppRouteHandler<ListInvitesRoute> = async (c) => {
   const workspace = c.var.workspace
-  const actor = c.var.member
 
-  assertWorkspacePermission(actor, workspace, {
+  assertWorkspaceAuthority(c.var.authority, {
     workspaceMember: ["kick"], // admins+ can view invites (same permission tier as kick)
   })
 
@@ -207,7 +206,7 @@ export const deleteInvite: AppRouteHandler<DeleteInviteRoute> = async (c) => {
 
   // Non-admin members can only delete their own invites
   if (invite.inviterId !== actor.userId) {
-    assertWorkspacePermission(actor, workspace, {
+    assertWorkspaceAuthority(c.var.authority, {
       workspaceMember: ["kick"],
     })
   }

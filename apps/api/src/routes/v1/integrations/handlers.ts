@@ -33,6 +33,7 @@ import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { lastActByTrigger } from "@/lib/last-act"
 import { logger } from "@/lib/logger"
 import { signOAuthState, verifyOAuthState } from "@/lib/oauth-state"
+import { hasWorkspaceAuthority } from "@/lib/permissions"
 import { userCanAccessChannel } from "@/lib/queries/channel-access"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import { ATTIO_EVENT_SUBSCRIPTIONS } from "@/routes/v1/integrations/attio/index"
@@ -146,8 +147,9 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
   c
 ) => {
   const workspace = c.var.workspace
-  const canManageNotion =
-    workspace.ownerId === c.var.user.id || c.var.member.role === "admin"
+  const canManageNotion = hasWorkspaceAuthority(c.var.authority, {
+    connector: ["manage"],
+  })
 
   const connections = await db
     .select({
@@ -765,7 +767,7 @@ export const connectNotion: AppRouteHandler<ConnectNotionRoute> = async (c) => {
   const workspace = c.var.workspace
   const { code, state } = c.req.valid("json")
 
-  if (!(workspace.ownerId === c.var.user.id || c.var.member.role === "admin")) {
+  if (!hasWorkspaceAuthority(c.var.authority, { connector: ["manage"] })) {
     return c.json(
       { success: false, message: "Only workspace admins can connect Notion" },
       HttpStatusCodes.FORBIDDEN
@@ -1054,7 +1056,7 @@ export const disconnectIntegration: AppRouteHandler<
   }
   if (
     connection.provider === "notion" &&
-    !(workspace.ownerId === c.var.user.id || c.var.member.role === "admin")
+    !hasWorkspaceAuthority(c.var.authority, { connector: ["manage"] })
   ) {
     return c.json(
       {

@@ -131,7 +131,7 @@ exists). Flag if the dev DB has duplicate membership rows before pushing.
 
 ---
 
-### [ ] S3 — `apps/api` call-site migration (~400 LOC, mechanical)
+### [x] S3 — `apps/api` call-site migration (~400 LOC, mechanical) — built 2026-08-31
 
 - Every gated handler moves to `assertWorkspaceAuthority(c.var.authority, …)`
   as its FIRST statement (custom-grant aware); response shaping uses

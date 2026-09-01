@@ -12,7 +12,7 @@ import {
 import { env } from "@repo/env/server"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
-import { assertWorkspacePermission } from "@/lib/permissions"
+import { assertWorkspaceAuthority } from "@/lib/permissions"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
   GetBillingRoute,
@@ -34,9 +34,7 @@ const BILLING_DISABLED = {
 
 export const getBilling: AppRouteHandler<GetBillingRoute> = async (c) => {
   const workspace = c.var.workspace
-  assertWorkspacePermission(c.var.member, workspace, {
-    organization: ["update"],
-  })
+  assertWorkspaceAuthority(c.var.authority, { billing: ["manage"] })
 
   const base = {
     enabled: billingEnabled,
@@ -68,9 +66,7 @@ export const setAutoTopupHandler: AppRouteHandler<SetAutoTopupRoute> = async (
   c
 ) => {
   const workspace = c.var.workspace
-  assertWorkspacePermission(c.var.member, workspace, {
-    organization: ["update"],
-  })
+  assertWorkspaceAuthority(c.var.authority, { billing: ["manage"] })
   const config = c.req.valid("json")
   if (!billingEnabled) {
     return c.json(BILLING_DISABLED, HttpStatusCodes.BAD_REQUEST)
@@ -96,9 +92,7 @@ export const setAutoTopupHandler: AppRouteHandler<SetAutoTopupRoute> = async (
 
 export const subscribe: AppRouteHandler<SubscribeRoute> = async (c) => {
   const workspace = c.var.workspace
-  assertWorkspacePermission(c.var.member, workspace, {
-    organization: ["update"],
-  })
+  assertWorkspaceAuthority(c.var.authority, { billing: ["manage"] })
   if (!billingEnabled) {
     return c.json(BILLING_DISABLED, HttpStatusCodes.BAD_REQUEST)
   }
@@ -121,9 +115,7 @@ export const subscribe: AppRouteHandler<SubscribeRoute> = async (c) => {
 
 export const topup: AppRouteHandler<TopupRoute> = async (c) => {
   const workspace = c.var.workspace
-  assertWorkspacePermission(c.var.member, workspace, {
-    organization: ["update"],
-  })
+  assertWorkspaceAuthority(c.var.authority, { billing: ["manage"] })
   const { size } = c.req.valid("json")
   if (!billingEnabled) {
     return c.json(BILLING_DISABLED, HttpStatusCodes.BAD_REQUEST)
@@ -146,9 +138,7 @@ export const topup: AppRouteHandler<TopupRoute> = async (c) => {
 
 export const portal: AppRouteHandler<PortalRoute> = async (c) => {
   const workspace = c.var.workspace
-  assertWorkspacePermission(c.var.member, workspace, {
-    organization: ["update"],
-  })
+  assertWorkspaceAuthority(c.var.authority, { billing: ["manage"] })
   if (!billingEnabled) {
     return c.json(BILLING_DISABLED, HttpStatusCodes.BAD_REQUEST)
   }

@@ -18,7 +18,7 @@ import {
 } from "@repo/merlin/custom-tools"
 import { encryptSecret } from "@repo/utils/crypto"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
-import { assertWorkspacePermission } from "@/lib/permissions"
+import { assertWorkspaceAuthority } from "@/lib/permissions"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
   CreateCustomToolRoute,
@@ -87,7 +87,7 @@ export const createCustomTool: AppRouteHandler<CreateCustomToolRoute> = async (
   c
 ) => {
   const workspace = c.var.workspace
-  assertWorkspacePermission(c.var.member, workspace, { channel: ["update"] })
+  assertWorkspaceAuthority(c.var.authority, { customTool: ["manage"] })
   const body = c.req.valid("json")
 
   const key = env.INTEGRATION_ENCRYPTION_KEY
@@ -168,7 +168,7 @@ export const updateCustomTool: AppRouteHandler<UpdateCustomToolRoute> = async (
   c
 ) => {
   const workspace = c.var.workspace
-  assertWorkspacePermission(c.var.member, workspace, { channel: ["update"] })
+  assertWorkspaceAuthority(c.var.authority, { customTool: ["manage"] })
   const { toolId } = c.req.valid("param")
   const body = c.req.valid("json")
 
@@ -296,7 +296,7 @@ export const deleteCustomTool: AppRouteHandler<DeleteCustomToolRoute> = async (
   c
 ) => {
   const workspace = c.var.workspace
-  assertWorkspacePermission(c.var.member, workspace, { channel: ["update"] })
+  assertWorkspaceAuthority(c.var.authority, { customTool: ["manage"] })
   const { toolId } = c.req.valid("param")
 
   // Profile grants cascade away (agent_profile_custom_tool FK).

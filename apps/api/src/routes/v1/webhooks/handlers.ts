@@ -12,7 +12,7 @@ import { decryptSecret, encryptSecret } from "@repo/utils/crypto"
 import { and, count, eq } from "drizzle-orm"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { type LastAct, lastActByTrigger } from "@/lib/last-act"
-import { assertWorkspacePermission } from "@/lib/permissions"
+import { assertWorkspaceAuthority } from "@/lib/permissions"
 import { userCanAccessChannel } from "@/lib/queries/channel-access"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
@@ -151,7 +151,7 @@ export const listChannelWebhooks: AppRouteHandler<
   const { channelId } = c.req.valid("param")
 
   // Listing exposes tokens, so it's gated like management.
-  assertWorkspacePermission(c.var.member, workspace, { channel: ["update"] })
+  assertWorkspaceAuthority(c.var.authority, { webhook: ["manage"] })
 
   if (!(await userCanAccessChannel(channelId, c.var.user.id))) {
     return c.json(
@@ -238,7 +238,7 @@ export const createChannelWebhook: AppRouteHandler<
   const { channelId } = c.req.valid("param")
   const { name, avatarUrl } = c.req.valid("json")
 
-  assertWorkspacePermission(c.var.member, workspace, { channel: ["update"] })
+  assertWorkspaceAuthority(c.var.authority, { webhook: ["manage"] })
 
   const writeAccess = await checkChannelWriteAccess(c.var.user.id, channelId)
   if (writeAccess === "not_found") {
@@ -405,7 +405,7 @@ export const updateChannelWebhook: AppRouteHandler<
     dailyRunCap,
   } = c.req.valid("json")
 
-  assertWorkspacePermission(c.var.member, workspace, { channel: ["update"] })
+  assertWorkspaceAuthority(c.var.authority, { webhook: ["manage"] })
 
   const writeAccess = await checkChannelWriteAccess(c.var.user.id, channelId)
   if (writeAccess === "not_found") {
@@ -515,7 +515,7 @@ export const deleteChannelWebhook: AppRouteHandler<
   const workspace = c.var.workspace
   const { channelId, webhookId } = c.req.valid("param")
 
-  assertWorkspacePermission(c.var.member, workspace, { channel: ["update"] })
+  assertWorkspaceAuthority(c.var.authority, { webhook: ["manage"] })
 
   const writeAccess = await checkChannelWriteAccess(c.var.user.id, channelId)
   if (writeAccess === "not_found") {

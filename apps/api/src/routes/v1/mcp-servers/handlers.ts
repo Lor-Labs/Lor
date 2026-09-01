@@ -20,8 +20,9 @@ import { decryptSecret, encryptSecret } from "@repo/utils/crypto"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
 import {
-  assertWorkspacePermission,
-  hasWorkspacePermission,
+  assertWorkspaceAuthority,
+  hasWorkspaceAuthority,
+  resolveWorkspaceAuthority,
 } from "@/lib/permissions"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import {
@@ -152,8 +153,8 @@ export const listMcpServers: AppRouteHandler<ListMcpServersRoute> = async (
     grantCounts(rows.map((r) => r.id)),
     oauthAuthorizers(rows.map((r) => r.oauthAuthorizedBy)),
   ])
-  const revealHeaders = hasWorkspacePermission(c.var.member, workspace, {
-    channel: ["update"],
+  const revealHeaders = hasWorkspaceAuthority(c.var.authority, {
+    customTool: ["manage"],
   })
   return c.json(
     {
@@ -176,7 +177,7 @@ export const createMcpServer: AppRouteHandler<CreateMcpServerRoute> = async (
   c
 ) => {
   const workspace = c.var.workspace
-  assertWorkspacePermission(c.var.member, workspace, { channel: ["update"] })
+  assertWorkspaceAuthority(c.var.authority, { customTool: ["manage"] })
   const body = c.req.valid("json")
 
   const key = env.INTEGRATION_ENCRYPTION_KEY
@@ -237,7 +238,7 @@ export const updateMcpServer: AppRouteHandler<UpdateMcpServerRoute> = async (
   c
 ) => {
   const workspace = c.var.workspace
-  assertWorkspacePermission(c.var.member, workspace, { channel: ["update"] })
+  assertWorkspaceAuthority(c.var.authority, { customTool: ["manage"] })
   const { mcpServerId } = c.req.valid("param")
   const body = c.req.valid("json")
 
@@ -401,7 +402,7 @@ export const startMcpServerOAuth: AppRouteHandler<
   StartMcpServerOAuthRoute
 > = async (c) => {
   const workspace = c.var.workspace
-  assertWorkspacePermission(c.var.member, workspace, { channel: ["update"] })
+  assertWorkspaceAuthority(c.var.authority, { customTool: ["manage"] })
   const { mcpServerId } = c.req.valid("param")
 
   try {
@@ -484,9 +485,10 @@ export const mcpServerOAuthCallback: AppRouteHandler<
   }
   if (
     !member ||
-    !hasWorkspacePermission(member, context.workspace, {
-      channel: ["update"],
-    })
+    !hasWorkspaceAuthority(
+      await resolveWorkspaceAuthority(member, context.workspace),
+      { customTool: ["manage"] }
+    )
   ) {
     await consumeMcpOAuthAttempt(context, state).catch(() => {})
     logger.warn(
@@ -524,7 +526,7 @@ export const completeMcpServerOAuth: AppRouteHandler<
   CompleteMcpServerOAuthRoute
 > = async (c) => {
   const workspace = c.var.workspace
-  assertWorkspacePermission(c.var.member, workspace, { channel: ["update"] })
+  assertWorkspaceAuthority(c.var.authority, { customTool: ["manage"] })
   const { mcpServerId } = c.req.valid("param")
   const { enabledTools } = c.req.valid("json")
   const server = await db
@@ -605,7 +607,7 @@ export const disconnectMcpServerOAuth: AppRouteHandler<
   DisconnectMcpServerOAuthRoute
 > = async (c) => {
   const workspace = c.var.workspace
-  assertWorkspacePermission(c.var.member, workspace, { channel: ["update"] })
+  assertWorkspaceAuthority(c.var.authority, { customTool: ["manage"] })
   const { mcpServerId } = c.req.valid("param")
   try {
     const row = await disconnectMcpOAuth({
@@ -661,7 +663,7 @@ export const deleteMcpServer: AppRouteHandler<DeleteMcpServerRoute> = async (
   c
 ) => {
   const workspace = c.var.workspace
-  assertWorkspacePermission(c.var.member, workspace, { channel: ["update"] })
+  assertWorkspaceAuthority(c.var.authority, { customTool: ["manage"] })
   const { mcpServerId } = c.req.valid("param")
 
   // Profile grants cascade away (agent_profile_mcp_server FK).
@@ -687,8 +689,7 @@ export const deleteMcpServer: AppRouteHandler<DeleteMcpServerRoute> = async (
 export const discoverMcpServer: AppRouteHandler<
   DiscoverMcpServerRoute
 > = async (c) => {
-  const workspace = c.var.workspace
-  assertWorkspacePermission(c.var.member, workspace, { channel: ["update"] })
+  assertWorkspaceAuthority(c.var.authority, { customTool: ["manage"] })
   const body = c.req.valid("json")
 
   const urlIssue = customToolUrlIssue(body.url)
@@ -729,7 +730,7 @@ export const rediscoverMcpServer: AppRouteHandler<
   RediscoverMcpServerRoute
 > = async (c) => {
   const workspace = c.var.workspace
-  assertWorkspacePermission(c.var.member, workspace, { channel: ["update"] })
+  assertWorkspaceAuthority(c.var.authority, { customTool: ["manage"] })
   const { mcpServerId } = c.req.valid("param")
   const body = c.req.valid("json")
 

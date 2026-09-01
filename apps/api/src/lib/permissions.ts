@@ -3,10 +3,14 @@ import {
   canManageWorkspaceAuthority,
   isWorkspaceRole,
   type PermissionRequest,
+  parseRolePermission,
   type StatementKey,
   type WorkspaceAuthority,
   workspaceAuthorityHasPermissions,
 } from "@repo/auth/permissions"
+import { db } from "@repo/db"
+import { workspaceRole } from "@repo/db/schema"
+import { and, eq } from "drizzle-orm"
 import { HTTPException } from "hono/http-exception"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import type { Workspace, WorkspaceMember } from "@/lib/types/app-types"
@@ -35,6 +39,34 @@ export function toWorkspaceAuthority(
   }
 }
 
+// Full resolution including the workspace_role lookup for custom roles.
+// workspaceAuthMiddleware uses this to populate c.var.authority; handlers
+// outside that middleware (e.g. OAuth callbacks) call it directly.
+export async function resolveWorkspaceAuthority(
+  member: Pick<WorkspaceMember, "role" | "userId">,
+  workspace: Pick<Workspace, "id" | "ownerId">
+): Promise<WorkspaceAuthority> {
+  let customGrants: CustomRoleGrants | null = null
+  if (!isWorkspaceRole(member.role)) {
+    const roleRecord = await db
+      .select({ permission: workspaceRole.permission })
+      .from(workspaceRole)
+      .where(
+        and(
+          eq(workspaceRole.workspaceId, workspace.id),
+          eq(workspaceRole.role, member.role)
+        )
+      )
+      .limit(1)
+      .then((rows) => rows[0])
+    // Deleted/dangling custom role degrades to member-tier base access
+    customGrants = roleRecord
+      ? parseRolePermission(roleRecord.permission)
+      : null
+  }
+  return toWorkspaceAuthority(member, workspace, customGrants)
+}
+
 // ── Permission Checks ──────────────────────────────────────
 
 export function assertWorkspaceAuthority(
@@ -50,38 +82,11 @@ export function assertWorkspaceAuthority(
   return authority
 }
 
-export function assertWorkspacePermission(
-  member: Pick<WorkspaceMember, "role" | "userId">,
-  workspace: Pick<Workspace, "ownerId">,
-  requestedPermissions: PermissionRequest
-) {
-  // Static-role resolution only — custom-role grants ride on c.var.authority.
-  // Handlers should call assertWorkspaceAuthority(c.var.authority, …) as
-  // their first statement; this wrapper is deleted once S3 migrates them.
-  return assertWorkspaceAuthority(
-    toWorkspaceAuthority(member, workspace),
-    requestedPermissions
-  )
-}
-
 export function hasWorkspaceAuthority(
   authority: WorkspaceAuthority,
   requestedPermissions: PermissionRequest
 ): boolean {
   return workspaceAuthorityHasPermissions(authority, requestedPermissions)
-}
-
-// Non-throwing variant for handlers that shape (rather than gate) a response
-// by permission.
-export function hasWorkspacePermission(
-  member: Pick<WorkspaceMember, "role" | "userId">,
-  workspace: Pick<Workspace, "ownerId">,
-  requestedPermissions: PermissionRequest
-): boolean {
-  return workspaceAuthorityHasPermissions(
-    toWorkspaceAuthority(member, workspace),
-    requestedPermissions
-  )
 }
 
 export function assertCanManageWorkspaceMember(

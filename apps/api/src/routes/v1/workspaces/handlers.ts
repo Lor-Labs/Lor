@@ -13,7 +13,7 @@ import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
 import {
   assertCanManageWorkspaceMember,
-  assertWorkspacePermission,
+  assertWorkspaceAuthority,
 } from "@/lib/permissions"
 import { getAvatarColorsByUserId } from "@/lib/queries/messages"
 import { getRedisClient } from "@/lib/redis"
@@ -157,7 +157,7 @@ export const updateWorkspaceMemberRole: AppRouteHandler<
   const { userId } = c.req.valid("param")
   const { role } = c.req.valid("json")
 
-  const actorAuthority = assertWorkspacePermission(actor, workspace, {
+  const actorAuthority = assertWorkspaceAuthority(c.var.authority, {
     workspaceMember: ["role:update"],
   })
 
@@ -224,7 +224,7 @@ export const kickWorkspaceMember: AppRouteHandler<
   const actor = c.var.member
   const { userId } = c.req.valid("param")
 
-  assertWorkspacePermission(actor, workspace, {
+  assertWorkspaceAuthority(c.var.authority, {
     workspaceMember: ["kick"],
   })
 
@@ -259,9 +259,8 @@ export const updateWorkspace: AppRouteHandler<UpdateWorkspaceRoute> = async (
   c
 ) => {
   const workspace = c.var.workspace
-  const actor = c.var.member
 
-  assertWorkspacePermission(actor, workspace, {
+  assertWorkspaceAuthority(c.var.authority, {
     organization: ["update"],
   })
 

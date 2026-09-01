@@ -1,3 +1,4 @@
+import type { WorkspaceAuthority } from "@repo/auth/permissions"
 import { and, asc, db, eq, inArray, isNull, max, or, schema } from "@repo/db"
 import {
   listChannelAudienceUserIds,
@@ -9,7 +10,7 @@ import { getEmitter } from "@/lib/bot-messages"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
 import { completeLoopsForChannels } from "@/lib/loops"
-import { hasWorkspacePermission } from "@/lib/permissions"
+import { hasWorkspaceAuthority } from "@/lib/permissions"
 import { enqueueProjectArchive } from "@/lib/project-archive-queue"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
@@ -116,11 +117,11 @@ async function loadProjectDetail(projectId: string) {
 // loadAccessibleProject (resolveChannelAccess), which blocks invisible admins.
 function canManageProject(
   project: Pick<ProjectRow, "creatorId">,
-  actor: { userId: string; role: string },
-  workspace: { ownerId: string }
+  actor: { userId: string },
+  authority: WorkspaceAuthority
 ) {
   if (project.creatorId === actor.userId) return true
-  return hasWorkspacePermission(actor, workspace, { channel: ["update"] })
+  return hasWorkspaceAuthority(authority, { channel: ["update"] })
 }
 
 export const listProjects: AppRouteHandler<ListProjectsRoute> = async (c) => {
@@ -175,13 +176,12 @@ export const listProjects: AppRouteHandler<ListProjectsRoute> = async (c) => {
 
 export const createProject: AppRouteHandler<CreateProjectRoute> = async (c) => {
   const workspace = c.var.workspace
-  const member = c.var.member
   const currentUser = c.var.user
   const body = c.req.valid("json")
 
   // Same gate as channel creation — projects are channel groups.
   if (
-    !hasWorkspacePermission(member, workspace, {
+    !hasWorkspaceAuthority(c.var.authority, {
       channel: ["create"],
     })
   ) {
@@ -353,7 +353,7 @@ export const updateProject: AppRouteHandler<UpdateProjectRoute> = async (c) => {
       HttpStatusCodes.NOT_FOUND
     )
   }
-  if (!canManageProject(project, member, workspace)) {
+  if (!canManageProject(project, member, c.var.authority)) {
     return c.json(
       { success: false, message: "Forbidden" },
       HttpStatusCodes.FORBIDDEN
@@ -431,7 +431,7 @@ export const archiveProject: AppRouteHandler<ArchiveProjectRoute> = async (
       HttpStatusCodes.NOT_FOUND
     )
   }
-  if (!canManageProject(project, member, workspace)) {
+  if (!canManageProject(project, member, c.var.authority)) {
     return c.json(
       { success: false, message: "Forbidden" },
       HttpStatusCodes.FORBIDDEN
@@ -560,7 +560,7 @@ export const addProjectMember: AppRouteHandler<AddProjectMemberRoute> = async (
       HttpStatusCodes.NOT_FOUND
     )
   }
-  if (!canManageProject(project, member, workspace)) {
+  if (!canManageProject(project, member, c.var.authority)) {
     return c.json(
       { success: false, message: "Forbidden" },
       HttpStatusCodes.FORBIDDEN
@@ -628,7 +628,7 @@ export const removeProjectMember: AppRouteHandler<
   // Anyone can remove themselves (leave); removing others needs management.
   if (
     userId !== currentUser.id &&
-    !canManageProject(project, member, workspace)
+    !canManageProject(project, member, c.var.authority)
   ) {
     return c.json(
       { success: false, message: "Forbidden" },

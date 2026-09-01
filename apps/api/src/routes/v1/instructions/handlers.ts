@@ -1,6 +1,9 @@
 import { and, db, desc, eq, inArray, isUniqueViolation, schema } from "@repo/db"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
-import { assertWorkspacePermission } from "@/lib/permissions"
+import {
+  assertWorkspaceAuthority,
+  hasWorkspaceAuthority,
+} from "@/lib/permissions"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
   ApproveInstructionsProposalRoute,
@@ -67,7 +70,6 @@ export const getInstructions: AppRouteHandler<GetInstructionsRoute> = async (
   c
 ) => {
   const workspace = c.var.workspace
-  const member = c.var.member
 
   // Active/pending fetched outside the history window — the active version
   // can be older than the newest VERSION_HISTORY_LIMIT rows.
@@ -82,8 +84,9 @@ export const getInstructions: AppRouteHandler<GetInstructionsRoute> = async (
   ])
   const active = current.find((row) => row.state === "active")
   const pending = current.find((row) => row.state === "pending")
-  const canManage =
-    workspace.ownerId === member.userId || member.role === "admin"
+  const canManage = hasWorkspaceAuthority(c.var.authority, {
+    instructions: ["update"],
+  })
 
   return c.json(
     {
@@ -100,11 +103,10 @@ export const updateInstructions: AppRouteHandler<
   UpdateInstructionsRoute
 > = async (c) => {
   const workspace = c.var.workspace
-  const member = c.var.member
   const user = c.var.user
   const { content, baseVersion } = c.req.valid("json")
 
-  assertWorkspacePermission(member, workspace, { instructions: ["update"] })
+  assertWorkspaceAuthority(c.var.authority, { instructions: ["update"] })
 
   const validation = schema.validateWorkspaceInstructionsContent(content)
   if (!validation.ok) {
@@ -206,11 +208,10 @@ export const approveInstructionsProposal: AppRouteHandler<
   ApproveInstructionsProposalRoute
 > = async (c) => {
   const workspace = c.var.workspace
-  const member = c.var.member
   const user = c.var.user
   const { version } = c.req.valid("param")
 
-  assertWorkspacePermission(member, workspace, { instructions: ["approve"] })
+  assertWorkspaceAuthority(c.var.authority, { instructions: ["approve"] })
 
   try {
     const outcome = await db.transaction(async (tx) => {
@@ -315,11 +316,10 @@ export const rejectInstructionsProposal: AppRouteHandler<
   RejectInstructionsProposalRoute
 > = async (c) => {
   const workspace = c.var.workspace
-  const member = c.var.member
   const user = c.var.user
   const { version } = c.req.valid("param")
 
-  assertWorkspacePermission(member, workspace, { instructions: ["approve"] })
+  assertWorkspaceAuthority(c.var.authority, { instructions: ["approve"] })
 
   const rejected = await db
     .update(schema.workspaceInstructions)

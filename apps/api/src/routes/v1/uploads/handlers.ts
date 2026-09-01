@@ -5,7 +5,10 @@ import { channel, workspace, workspaceMember } from "@repo/db/schema"
 import { env } from "@repo/env/server"
 import { and, eq } from "drizzle-orm"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
-import { assertWorkspacePermission } from "@/lib/permissions"
+import {
+  assertWorkspaceAuthority,
+  resolveWorkspaceAuthority,
+} from "@/lib/permissions"
 import { userCanAccessChannel } from "@/lib/queries/channel-access"
 import { s3Client } from "@/lib/s3"
 import type { AppRouteHandler } from "@/lib/types/app-types"
@@ -106,7 +109,7 @@ export const webhookAvatarPresign: AppRouteHandler<
   }
 
   // Webhook avatars belong to workspace text channels, managed by members
-  // with channel-update permission (same gate as the webhook CRUD routes).
+  // with webhook-manage permission (same gate as the webhook CRUD routes).
   const ch = await db
     .select({
       workspaceId: channel.workspaceId,
@@ -142,12 +145,12 @@ export const webhookAvatarPresign: AppRouteHandler<
     )
   }
 
-  assertWorkspacePermission(
-    member,
-    { ownerId: ch.ownerId },
-    {
-      channel: ["update"],
-    }
+  assertWorkspaceAuthority(
+    await resolveWorkspaceAuthority(member, {
+      id: ch.workspaceId,
+      ownerId: ch.ownerId,
+    }),
+    { webhook: ["manage"] }
   )
 
   const sanitizedFilename = filename.replace(/[^a-zA-Z0-9._-]/g, "_")
@@ -208,9 +211,13 @@ export const workspaceIconPresign: AppRouteHandler<
     )
   }
 
-  assertWorkspacePermission(member, workspaceRecord, {
-    organization: ["update"],
-  })
+  assertWorkspaceAuthority(
+    await resolveWorkspaceAuthority(member, {
+      id: workspaceId,
+      ownerId: workspaceRecord.ownerId,
+    }),
+    { organization: ["update"] }
+  )
 
   const sanitizedFilename = filename.replace(/[^a-zA-Z0-9._-]/g, "_")
   const key = `workspace-icons/${workspaceId}/${crypto.randomUUID()}/${sanitizedFilename}`
