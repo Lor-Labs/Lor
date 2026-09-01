@@ -51,6 +51,7 @@ export const agentRunStopReasonEnum = pgEnum("agent_run_stop_reason", [
   "out_of_credits",
   "error",
   "stopped_by_user",
+  "awaiting_approval",
 ])
 
 export const agentRun = pgTable(

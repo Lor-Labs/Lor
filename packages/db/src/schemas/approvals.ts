@@ -45,7 +45,14 @@ export const approval = pgTable(
     // Human-readable consequences, rendered on the approval card.
     description: text("description").notNull(),
     // Per-action shape; the requesting tool owns it on both write and read.
+    // For policy-gated calls: the raw tool input the approval binds.
     payload: jsonb("payload").$type<unknown>(),
+    // Policy-gated calls (LOR-81): the parked tool call this row authorizes.
+    // All three null for discretionary request_approval rows.
+    toolCallId: text("tool_call_id"),
+    toolName: text("tool_name"),
+    // Approval-target key that tripped the gate (@repo/connectors approval-targets).
+    target: text("target"),
     status: approvalStatusEnum("status").notNull().default("pending"),
     resolvedBy: uuid("resolved_by").references(() => user.id, {
       onDelete: "set null",
@@ -62,6 +69,10 @@ export const approval = pgTable(
     uniqueIndex("approval_task_pending_uidx")
       .on(table.taskId)
       .where(sql`status = 'pending' and task_id is not null`),
+    // A run parks at its first gate — never a second pending gate per run.
+    uniqueIndex("approval_run_pending_uidx")
+      .on(table.runId)
+      .where(sql`status = 'pending' and run_id is not null`),
   ]
 )
 

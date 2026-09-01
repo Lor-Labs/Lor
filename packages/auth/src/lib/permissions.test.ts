@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   canManageWorkspaceAuthority,
+  canResolveApproval,
   formatWorkspaceRole,
   getWorkspaceMessageRateLimit,
   getWorkspaceRolePosition,
@@ -131,6 +132,60 @@ describe("workspace permissions", () => {
     expect(getWorkspaceMessageRateLimit("support")).toBe(30)
     expect(formatWorkspaceRole("support")).toBe("support")
     expect(formatWorkspaceRole("admin")).toBe("Admin")
+  })
+
+  it("resolves approvals per resolver spec", () => {
+    const admin = { role: "admin" }
+    const member = { role: "member" }
+    const support = {
+      role: "support",
+      customGrants: { approval: ["resolve"] },
+    }
+    const supportWithout = { role: "support", customGrants: {} }
+
+    // any_member: everyone passes (channel access is the handler's floor)
+    expect(canResolveApproval(member, { kind: "any_member" }, "u1")).toBe(true)
+
+    // permission: blanket approval:resolve — admin yes, member no, custom
+    // role only when granted
+    expect(canResolveApproval(admin, { kind: "permission" }, "u1")).toBe(true)
+    expect(canResolveApproval(member, { kind: "permission" }, "u1")).toBe(false)
+    expect(canResolveApproval(support, { kind: "permission" }, "u1")).toBe(true)
+    expect(
+      canResolveApproval(supportWithout, { kind: "permission" }, "u1")
+    ).toBe(false)
+
+    // role: exact role-name match, admin does not bypass
+    expect(
+      canResolveApproval(support, { kind: "role", role: "support" }, "u1")
+    ).toBe(true)
+    expect(
+      canResolveApproval(admin, { kind: "role", role: "support" }, "u1")
+    ).toBe(false)
+
+    // user: exact person match
+    expect(
+      canResolveApproval(member, { kind: "user", userId: "u1" }, "u1")
+    ).toBe(true)
+    expect(
+      canResolveApproval(admin, { kind: "user", userId: "u1" }, "u2")
+    ).toBe(false)
+
+    // owner bypasses every spec kind
+    expect(
+      canResolveApproval(
+        { role: "member", isOwner: true },
+        { kind: "user", userId: "someone-else" },
+        "u9"
+      )
+    ).toBe(true)
+    expect(
+      canResolveApproval(
+        { role: "member", isOwner: true },
+        { kind: "role", role: "support" },
+        "u9"
+      )
+    ).toBe(true)
   })
 
   it("parses only well-formed role permission JSON", () => {

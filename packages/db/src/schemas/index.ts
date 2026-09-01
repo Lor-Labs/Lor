@@ -1,6 +1,7 @@
 export * from "./accounts"
 export * from "./agent-profiles"
 export * from "./agent-runs"
+export * from "./approval-policies"
 export * from "./approvals"
 export * from "./artifacts"
 export * from "./brain"
