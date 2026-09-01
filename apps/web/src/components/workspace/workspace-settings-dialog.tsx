@@ -10,6 +10,7 @@ import {
   Settings01Icon,
   SquareLock02Icon,
   Upload01Icon,
+  UserGroupIcon,
   Wrench01Icon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react"
@@ -59,6 +60,7 @@ import { BillingSection } from "@/components/workspace/billing-section"
 import { CustomToolsSection } from "@/components/workspace/custom-tools-section"
 import { GithubBaseBranchSettings } from "@/components/workspace/github-base-branch-settings"
 import { InstructionsSection } from "@/components/workspace/instructions-section"
+import { MembersSection } from "@/components/workspace/members-section"
 import { MerlinProfilesSection } from "@/components/workspace/merlin-profiles-section"
 import { TriggerEffects } from "@/components/workspace/trigger-effects"
 import { WorkspaceAvatar } from "@/components/workspace/workspace-avatar"
@@ -98,6 +100,7 @@ type Workspace = {
 
 export type SectionId =
   | "general"
+  | "members"
   | "connectors"
   | "custom-tools"
   | "merlin"
@@ -106,6 +109,7 @@ export type SectionId =
 
 const SECTIONS: { id: SectionId; label: string; icon: IconSvgElement }[] = [
   { id: "general", label: "General", icon: Settings01Icon },
+  { id: "members", label: "Members", icon: UserGroupIcon },
   { id: "connectors", label: "Connectors", icon: Plug01Icon },
   { id: "custom-tools", label: "Tools", icon: Wrench01Icon },
   { id: "merlin", label: "Agent profiles", icon: Layers01Icon },
@@ -297,6 +301,8 @@ export function WorkspaceSettingsDialog({
                       workspace={workspace}
                       onClose={() => onOpenChange(false)}
                     />
+                  ) : section === "members" ? (
+                    <MembersSection workspaceSlug={workspace.slug} />
                   ) : section === "connectors" ? (
                     <ConnectorsSection workspaceSlug={workspace.slug} />
                   ) : section === "custom-tools" ? (

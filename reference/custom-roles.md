@@ -166,7 +166,7 @@ exists). Flag if the dev DB has duplicate membership rows before pushing.
 
 ---
 
-### [ ] S5 — web: permission mirror + Members tab (~450 LOC)
+### [x] S5 — web: permission mirror + Members tab (~450 LOC) — built 2026-08-31
 
 - React Query hook fetching custom roles via better-auth `listOrgRoles`
   (`authClient.organization`), keyed per workspace.
@@ -213,6 +213,20 @@ exists). Flag if the dev DB has duplicate membership rows before pushing.
   attachment; single role per member; flat custom-role hierarchy (position 15,
   no day-1 ordering); owner model as proposed; Merlin's own authority is NOT
   modeled through roles (LOR-81 approval policies handle it).
+- 2026-08-31 — Assignment rule relaxed (Jacob, after seeing the admin UI):
+  non-owners may assign roles at their own position **or below** (`<` not
+  `<=` in the handler guard) — admins can promote to admin; custom-role
+  holders with `role:update` can hand out their own tier. Demoting an admin
+  stays owner-only via the moderation hierarchy (strictly-lower rule,
+  unchanged). Mirrored in web (members panel + Members section) and mobile
+  (`use-member-moderation.ts`).
+- 2026-08-31 — S5: the better-auth CLIENT plugin needs its own
+  `dynamicAccessControl: { enabled: true }` in `organizationClient(...)`
+  (packages/auth/src/lib/auth-client.ts) or the role endpoints
+  (`authClient.organization.listRoles` etc.) don't exist on the typed client.
+  Also fixed latent web-panel bug en route: the role menu previously offered
+  admins the "admin" option the server always rejects — options now mirror the
+  server's strictly-below-own-position rule.
 - 2026-08-31 — S4 reality check: role updates never emitted realtime events
   (clients invalidate react-query) — delete-role follows the same pattern; the
   response carries `reassignedMemberIds` instead of emitting `member:updated`.

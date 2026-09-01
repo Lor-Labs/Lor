@@ -174,9 +174,12 @@ export const updateWorkspaceMemberRole: AppRouteHandler<
 
   assertCanManageWorkspaceMember(actor, target, workspace)
 
+  // Non-owners can assign roles at their own position or below — an admin
+  // can promote to admin. Demoting an admin stays owner-only via the
+  // moderation hierarchy above (strictly-lower rule).
   if (
     !actorAuthority.isOwner &&
-    getWorkspaceRolePosition(role) <=
+    getWorkspaceRolePosition(role) <
       getWorkspaceAuthorityPosition(actorAuthority)
   ) {
     return c.json(

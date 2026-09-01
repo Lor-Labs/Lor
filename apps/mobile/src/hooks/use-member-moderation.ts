@@ -66,13 +66,14 @@ export function useMemberModeration({
       ) {
         return []
       }
-      // Server rule: non-owners can only hand out roles below their own.
+      // Server rule: non-owners can assign roles at their own position or
+      // below (admins can promote to admin).
       const actorPosition = getWorkspaceAuthorityPosition({ role: actorRole })
       return assignableWorkspaceRoles.filter(
         (role) =>
           role !== target.role &&
           (actorRole === "owner" ||
-            getWorkspaceRolePosition(role) > actorPosition)
+            getWorkspaceRolePosition(role) >= actorPosition)
       )
     },
     [actorRole, canManage]
