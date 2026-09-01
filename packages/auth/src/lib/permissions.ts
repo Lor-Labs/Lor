@@ -195,6 +195,11 @@ export function getWorkspaceMessageRateLimit(role: MemberRoleName) {
 }
 
 export {
+  workspaceStatementMeta,
+  workspaceStatements,
+} from "./workspace-statements"
+
+export {
   ac,
   admin,
   assignableWorkspaceRoles,

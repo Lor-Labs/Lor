@@ -179,7 +179,7 @@ exists). Flag if the dev DB has duplicate membership rows before pushing.
 
 ---
 
-### [ ] S6 — web: Roles tab (~500 LOC)
+### [x] S6 — web: Roles tab (~500 LOC) — built 2026-08-31
 
 - Roles list: static three shown read-only with their grants; custom roles
   with member counts.
@@ -213,6 +213,12 @@ exists). Flag if the dev DB has duplicate membership rows before pushing.
   attachment; single role per member; flat custom-role hierarchy (position 15,
   no day-1 ordering); owner model as proposed; Merlin's own authority is NOT
   modeled through roles (LOR-81 approval policies handle it).
+- 2026-08-31 — S6 decisions: no role RENAME in the UI — better-auth's
+  updateOrgRole can rename but leaves members' role strings dangling; edit is
+  permissions-only, rename = delete + recreate. `approval: resolve` excluded
+  from the permission matrix until LOR-81 enforces it (no dead switches).
+  Roles tab gated admin-or-owner (same check as billing). Statement labels
+  live in `workspaceStatementMeta` (packages/auth/src/lib/workspace-statements.ts).
 - 2026-08-31 — Assignment rule relaxed (Jacob, after seeing the admin UI):
   non-owners may assign roles at their own position **or below** (`<` not
   `<=` in the handler guard) — admins can promote to admin; custom-role

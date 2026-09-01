@@ -8,6 +8,7 @@ import {
   Plug01Icon,
   Scroll01Icon,
   Settings01Icon,
+  Shield01Icon,
   SquareLock02Icon,
   Upload01Icon,
   UserGroupIcon,
@@ -62,6 +63,7 @@ import { GithubBaseBranchSettings } from "@/components/workspace/github-base-bra
 import { InstructionsSection } from "@/components/workspace/instructions-section"
 import { MembersSection } from "@/components/workspace/members-section"
 import { MerlinProfilesSection } from "@/components/workspace/merlin-profiles-section"
+import { RolesSection } from "@/components/workspace/roles-section"
 import { TriggerEffects } from "@/components/workspace/trigger-effects"
 import { WorkspaceAvatar } from "@/components/workspace/workspace-avatar"
 import { apiClient } from "@/lib/api-client"
@@ -101,6 +103,7 @@ type Workspace = {
 export type SectionId =
   | "general"
   | "members"
+  | "roles"
   | "connectors"
   | "custom-tools"
   | "merlin"
@@ -110,6 +113,7 @@ export type SectionId =
 const SECTIONS: { id: SectionId; label: string; icon: IconSvgElement }[] = [
   { id: "general", label: "General", icon: Settings01Icon },
   { id: "members", label: "Members", icon: UserGroupIcon },
+  { id: "roles", label: "Roles", icon: Shield01Icon },
   { id: "connectors", label: "Connectors", icon: Plug01Icon },
   { id: "custom-tools", label: "Tools", icon: Wrench01Icon },
   { id: "merlin", label: "Agent profiles", icon: Layers01Icon },
@@ -167,8 +171,9 @@ export function WorkspaceSettingsDialog({
     activeMember && membersData?.ownerId
       ? isAdminOrOwner(activeMember, { ownerId: membersData.ownerId })
       : false
+  // Role management is gated on the same admin-or-owner tier (ac grants)
   const sections = SECTIONS.filter(
-    (s) => s.id !== "billing" || canManageBilling
+    (s) => (s.id !== "billing" && s.id !== "roles") || canManageBilling
   )
 
   // Close on Escape (no dialog primitive here, so wire it ourselves).
@@ -303,6 +308,11 @@ export function WorkspaceSettingsDialog({
                     />
                   ) : section === "members" ? (
                     <MembersSection workspaceSlug={workspace.slug} />
+                  ) : section === "roles" && canManageBilling ? (
+                    <RolesSection
+                      workspaceId={workspace.id}
+                      workspaceSlug={workspace.slug}
+                    />
                   ) : section === "connectors" ? (
                     <ConnectorsSection workspaceSlug={workspace.slug} />
                   ) : section === "custom-tools" ? (
