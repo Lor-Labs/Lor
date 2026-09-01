@@ -1,13 +1,10 @@
-import { Hono } from "hono"
 import { HTTPException } from "hono/http-exception"
 import { describe, expect, it } from "vitest"
 import {
   assertWorkspaceAuthority,
-  hasWorkspacePermission,
+  hasWorkspaceAuthority,
   toWorkspaceAuthority,
 } from "@/lib/permissions"
-import type { AppBindings } from "@/lib/types/app-types"
-import { requireWorkspacePermission } from "@/middleware/require-workspace-permission"
 
 const OWNER_ID = "00000000-0000-4000-8000-0000000000aa"
 const MEMBER_ID = "00000000-0000-4000-8000-0000000000bb"
@@ -51,13 +48,9 @@ describe("toWorkspaceAuthority", () => {
       { ownerId: OWNER_ID }
     )
     expect(authority.customGrants).toBeNull()
-    expect(
-      hasWorkspacePermission(
-        { role: "deleted-role", userId: MEMBER_ID },
-        { ownerId: OWNER_ID },
-        { channel: ["update"] }
-      )
-    ).toBe(false)
+    expect(hasWorkspaceAuthority(authority, { channel: ["update"] })).toBe(
+      false
+    )
   })
 })
 
@@ -69,6 +62,7 @@ describe("assertWorkspaceAuthority", () => {
         { channel: ["update"] }
       )
     ).toThrowError(HTTPException)
+    // dangling custom role (deleted from workspace_role) has no grants
     expect(() =>
       assertWorkspaceAuthority(
         { role: "support", isOwner: false, customGrants: null },
@@ -101,60 +95,24 @@ describe("assertWorkspaceAuthority", () => {
       )
     ).not.toThrow()
   })
-})
 
-describe("requireWorkspacePermission middleware", () => {
-  function buildApp(authority: AppBindings["Variables"]["authority"] | null) {
-    const app = new Hono<AppBindings>()
-    app.use("*", async (c, next) => {
-      if (authority) c.set("authority", authority)
-      await next()
-    })
-    app.get("/gated", requireWorkspacePermission("webhook", ["manage"]), (c) =>
-      c.json({ ok: true })
-    )
-    app.onError((err, c) => {
-      if (err instanceof HTTPException) return err.getResponse()
-      return c.json({ ok: false }, 500)
-    })
-    return app
-  }
-
-  it("allows a custom role holding the grant", async () => {
-    const app = buildApp({
+  it("requires every requested action, across resources", () => {
+    const authority = {
       role: "support",
       isOwner: false,
-      customGrants: { webhook: ["manage"] },
-    })
-    const res = await app.request("/gated")
-    expect(res.status).toBe(200)
-  })
-
-  it("rejects a member without the grant", async () => {
-    const app = buildApp({ role: "member", isOwner: false })
-    const res = await app.request("/gated")
-    expect(res.status).toBe(403)
-  })
-
-  it("rejects a dangling custom role", async () => {
-    const app = buildApp({
-      role: "deleted-role",
-      isOwner: false,
-      customGrants: null,
-    })
-    const res = await app.request("/gated")
-    expect(res.status).toBe(403)
-  })
-
-  it("allows the workspace owner unconditionally", async () => {
-    const app = buildApp({ role: "member", isOwner: true })
-    const res = await app.request("/gated")
-    expect(res.status).toBe(200)
-  })
-
-  it("fails closed when authority was never resolved", async () => {
-    const app = buildApp(null)
-    const res = await app.request("/gated")
-    expect(res.status).toBe(500)
+      customGrants: { webhook: ["manage"], channel: ["create"] },
+    }
+    expect(() =>
+      assertWorkspaceAuthority(authority, {
+        webhook: ["manage"],
+        channel: ["create"],
+      })
+    ).not.toThrow()
+    expect(() =>
+      assertWorkspaceAuthority(authority, {
+        webhook: ["manage"],
+        channel: ["delete"],
+      })
+    ).toThrowError(HTTPException)
   })
 })

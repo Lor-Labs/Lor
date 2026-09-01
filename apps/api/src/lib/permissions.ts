@@ -55,9 +55,9 @@ export function assertWorkspacePermission(
   workspace: Pick<Workspace, "ownerId">,
   requestedPermissions: PermissionRequest
 ) {
-  // Static-role resolution only — custom-role grants ride on c.var.authority
-  // (workspace-auth middleware). Prefer requireWorkspacePermission route
-  // middleware or assertWorkspaceAuthority(c.var.authority, …) in handlers.
+  // Static-role resolution only — custom-role grants ride on c.var.authority.
+  // Handlers should call assertWorkspaceAuthority(c.var.authority, …) as
+  // their first statement; this wrapper is deleted once S3 migrates them.
   return assertWorkspaceAuthority(
     toWorkspaceAuthority(member, workspace),
     requestedPermissions
