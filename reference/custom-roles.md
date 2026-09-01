@@ -230,6 +230,10 @@ Manual QA checklist (live, after db:push):
   attachment; single role per member; flat custom-role hierarchy (position 15,
   no day-1 ordering); owner model as proposed; Merlin's own authority is NOT
   modeled through roles (LOR-81 approval policies handle it).
+- 2026-08-31 — Post-S6 (Jacob): Members and Roles consolidated into ONE
+  settings section, "Members & Roles", with an underline tab bar
+  (members-roles-section.tsx). Roles tab hidden for non-admins; `?tab=roles`
+  URLs map to the combined section.
 - 2026-08-31 — S6 decisions: no role RENAME in the UI — better-auth's
   updateOrgRole can rename but leaves members' role strings dangling; edit is
   permissions-only, rename = delete + recreate. `approval: resolve` excluded
