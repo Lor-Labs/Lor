@@ -846,6 +846,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
             newestMessageId={
               orderedReplies.at(-1)?.id ?? rootMessage?.id ?? null
             }
+            viewportRef={scrollRef}
             isMerlinResponding={Boolean(pendingMerlinMessage)}
           />
         </MessageScroller>

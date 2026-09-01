@@ -24,6 +24,8 @@ export type MessageScrollToEndCommand = ReturnType<
   typeof useMessageScroller
 >["scrollToEnd"]
 
+const JUMP_TO_LATEST_REVEAL_DISTANCE = 160
+
 export function highlightMessage(
   messageId: string,
   container: ParentNode = document
@@ -146,12 +148,14 @@ export function MessageScrollTarget({
 
 export function MessageScrollerJumpToLatest({
   newestMessageId,
+  viewportRef,
   isMerlinResponding = false,
   pendingCount = 0,
   hasUnloadedNewer = false,
   onJumpToPresent,
 }: {
   newestMessageId: string | null
+  viewportRef: RefObject<HTMLDivElement | null>
   isMerlinResponding?: boolean
   pendingCount?: number
   hasUnloadedNewer?: boolean
@@ -160,6 +164,47 @@ export function MessageScrollerJumpToLatest({
   const { end: canScrollToEnd } = useMessageScrollerScrollable()
   const previousNewestIdRef = useRef(newestMessageId)
   const [hasNewActivity, setHasNewActivity] = useState(false)
+  const [isMeaningfullyScrolledUp, setIsMeaningfullyScrolledUp] =
+    useState(false)
+
+  useLayoutEffect(() => {
+    const viewport = viewportRef.current
+    if (!viewport) return
+
+    let frame: number | null = null
+    const syncDistance = () => {
+      frame = null
+      const distanceFromEnd = Math.max(
+        0,
+        viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop
+      )
+      setIsMeaningfullyScrolledUp(
+        distanceFromEnd >= JUMP_TO_LATEST_REVEAL_DISTANCE
+      )
+    }
+    const scheduleDistanceSync = () => {
+      if (frame !== null) return
+      frame = window.requestAnimationFrame(syncDistance)
+    }
+
+    syncDistance()
+    viewport.addEventListener("scroll", scheduleDistanceSync, {
+      passive: true,
+    })
+
+    const resizeObserver = new ResizeObserver(scheduleDistanceSync)
+    resizeObserver.observe(viewport)
+    const content = viewport.querySelector<HTMLElement>(
+      '[data-slot="message-scroller-content"]'
+    )
+    if (content) resizeObserver.observe(content)
+
+    return () => {
+      viewport.removeEventListener("scroll", scheduleDistanceSync)
+      resizeObserver.disconnect()
+      if (frame !== null) window.cancelAnimationFrame(frame)
+    }
+  }, [viewportRef])
 
   useEffect(() => {
     const previousNewestId = previousNewestIdRef.current
@@ -177,6 +222,17 @@ export function MessageScrollerJumpToLatest({
   useEffect(() => {
     if (!canScrollToEnd) setHasNewActivity(false)
   }, [canScrollToEnd])
+
+  const hasOffscreenLatest =
+    canScrollToEnd || hasUnloadedNewer || pendingCount > 0
+  const shouldShow =
+    hasOffscreenLatest &&
+    (isMerlinResponding ||
+      isMeaningfullyScrolledUp ||
+      hasUnloadedNewer ||
+      pendingCount > 0)
+
+  if (!shouldShow) return null
 
   const label = isMerlinResponding
     ? "Merlin is responding"
