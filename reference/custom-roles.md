@@ -151,7 +151,7 @@ exists). Flag if the dev DB has duplicate membership rows before pushing.
 
 ---
 
-### [ ] S4 — role assignment + custom-role delete API (~300 LOC)
+### [x] S4 — role assignment + custom-role delete API (~300 LOC) — built 2026-08-31
 
 - `routes/v1/workspaces` role update: schema widens to
   `z.enum(assignableWorkspaceRoles).or(z.string())`; handler validates a
@@ -213,6 +213,12 @@ exists). Flag if the dev DB has duplicate membership rows before pushing.
   attachment; single role per member; flat custom-role hierarchy (position 15,
   no day-1 ordering); owner model as proposed; Merlin's own authority is NOT
   modeled through roles (LOR-81 approval policies handle it).
+- 2026-08-31 — S4 reality check: role updates never emitted realtime events
+  (clients invalidate react-query) — delete-role follows the same pattern; the
+  response carries `reassignedMemberIds` instead of emitting `member:updated`.
+  DB-backed integration tests aren't feasible (api vitest runs env-stubbed, no
+  live DB) — assign/delete/degrade paths are covered by unit + schema tests;
+  live e2e is manual QA in S7.
 - 2026-08-31 — Jacob rejected the middleware/handler hybrid after S2 built it:
   checks live in ONE place — the top of the handler. The
   `requireWorkspacePermission` route-middleware factory was built and then

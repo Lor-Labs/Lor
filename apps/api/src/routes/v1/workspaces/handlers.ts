@@ -1,6 +1,7 @@
 import {
   getWorkspaceAuthorityPosition,
   getWorkspaceRolePosition,
+  isWorkspaceRole,
 } from "@repo/auth/permissions"
 import { syncSeats } from "@repo/billing"
 import { and, count, db, desc, eq, ilike, inArray, schema } from "@repo/db"
@@ -19,6 +20,7 @@ import { getAvatarColorsByUserId } from "@/lib/queries/messages"
 import { getRedisClient } from "@/lib/redis"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
+  DeleteWorkspaceRoleRoute,
   KickWorkspaceMemberRoute,
   ListWorkspaceMembersRoute,
   SearchMessagesRoute,
@@ -183,6 +185,26 @@ export const updateWorkspaceMemberRole: AppRouteHandler<
     )
   }
 
+  if (!isWorkspaceRole(role)) {
+    const customRole = await db
+      .select({ id: schema.workspaceRole.id })
+      .from(schema.workspaceRole)
+      .where(
+        and(
+          eq(schema.workspaceRole.workspaceId, workspace.id),
+          eq(schema.workspaceRole.role, role)
+        )
+      )
+      .limit(1)
+      .then((rows) => rows[0])
+    if (!customRole) {
+      return c.json(
+        { success: false, message: "Role not found in this workspace" },
+        HttpStatusCodes.NOT_FOUND
+      )
+    }
+  }
+
   await db
     .update(schema.workspaceMember)
     .set({ role })
@@ -251,6 +273,63 @@ export const kickWorkspaceMember: AppRouteHandler<
   void syncSeats(workspace.id)
 
   return c.json({ success: true as const }, HttpStatusCodes.OK)
+}
+
+export const deleteWorkspaceRole: AppRouteHandler<
+  DeleteWorkspaceRoleRoute
+> = async (c) => {
+  const workspace = c.var.workspace
+  const { roleName } = c.req.valid("param")
+
+  // Same gate as better-auth's role CRUD endpoints (ac statements)
+  assertWorkspaceAuthority(c.var.authority, { ac: ["delete"] })
+
+  if (isWorkspaceRole(roleName)) {
+    return c.json(
+      { success: false, message: "Static roles cannot be deleted" },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+
+  // Delete + reassignment are one transaction so no member is ever left
+  // holding a dangling role name (which would degrade them to member-tier
+  // access but display a stale role).
+  const reassignedMemberIds = await db.transaction(async (tx) => {
+    const deleted = await tx
+      .delete(schema.workspaceRole)
+      .where(
+        and(
+          eq(schema.workspaceRole.workspaceId, workspace.id),
+          eq(schema.workspaceRole.role, roleName)
+        )
+      )
+      .returning({ id: schema.workspaceRole.id })
+    if (deleted.length === 0) return null
+
+    const reassigned = await tx
+      .update(schema.workspaceMember)
+      .set({ role: "member" })
+      .where(
+        and(
+          eq(schema.workspaceMember.workspaceId, workspace.id),
+          eq(schema.workspaceMember.role, roleName)
+        )
+      )
+      .returning({ userId: schema.workspaceMember.userId })
+    return reassigned.map((row) => row.userId)
+  })
+
+  if (reassignedMemberIds === null) {
+    return c.json(
+      { success: false, message: "Role not found in this workspace" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+
+  return c.json(
+    { success: true as const, reassignedMemberIds },
+    HttpStatusCodes.OK
+  )
 }
 
 // ── Workspace Settings ─────────────────────────────────────

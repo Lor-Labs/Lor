@@ -5,6 +5,7 @@ import {
   hasWorkspaceAuthority,
   toWorkspaceAuthority,
 } from "@/lib/permissions"
+import { updateWorkspaceMemberRoleRequestSchema } from "@/routes/v1/workspaces/schema"
 
 const OWNER_ID = "00000000-0000-4000-8000-0000000000aa"
 const MEMBER_ID = "00000000-0000-4000-8000-0000000000bb"
@@ -51,6 +52,18 @@ describe("toWorkspaceAuthority", () => {
     expect(hasWorkspaceAuthority(authority, { channel: ["update"] })).toBe(
       false
     )
+  })
+})
+
+describe("updateWorkspaceMemberRole request schema", () => {
+  it("accepts static assignable and custom role names, never owner", () => {
+    const parse = (role: string) =>
+      updateWorkspaceMemberRoleRequestSchema.safeParse({ role }).success
+    expect(parse("admin")).toBe(true)
+    expect(parse("member")).toBe(true)
+    expect(parse("support")).toBe(true)
+    expect(parse("owner")).toBe(false)
+    expect(parse("")).toBe(false)
   })
 })
 
