@@ -35,6 +35,19 @@ Core task surfaces shipped 2026-08-10 (`use-tasks.ts`, `task-ui.tsx`, `task-card
 - [ ] Loop detail view (web: right-panel `loop-panel.tsx` — full prompt, structured schedule editor `PATCH /v1/loops/:id`, timezone picker; mobile activation always pins the device tz).
 - [ ] Pause/resume/complete once those routes land (L3, web-first).
 
+## Post-launch — custom roles (web shipped 2026-08-31, `reference/custom-roles.md`)
+
+- [ ] **Custom-role grants on mobile** — `use-member-moderation.ts` and
+  `use-channel-permissions.ts` resolve custom roles to member-tier
+  affordances (no `listRoles` fetch yet), so a custom-role holder with e.g.
+  `workspaceMember:kick` sees no moderation UI on mobile even though the
+  server would allow it. Port web's `use-workspace-roles.ts` +
+  `CustomRoleMap` threading when this matters.
+- [ ] **Assign custom roles from mobile** — `roleOptionsFor` offers static
+  roles only; the role PATCH endpoint accepts custom names already.
+- [ ] Roles management UI (create/edit/delete) stays web-side — same tier as
+  invite management; probably never a mobile surface.
+
 ## Post-launch — DM follow-ups
 
 - [ ] Group-DM member list sheet (group DMs can't be created from either client yet).

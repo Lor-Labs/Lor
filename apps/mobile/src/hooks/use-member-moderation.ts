@@ -4,12 +4,11 @@ import {
   canManageWorkspaceAuthority,
   getWorkspaceAuthorityPosition,
   getWorkspaceRolePosition,
-  isWorkspaceRole,
   workspaceAuthorityHasPermissions,
 } from "@repo/auth/permissions"
-import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useToast } from "heroui-native/toast"
-import { useCallback } from "react"
+import { useCallback, useMemo } from "react"
 import { useActiveMember } from "@/hooks/use-active-member"
 import { api } from "@/lib/api"
 
@@ -35,59 +34,81 @@ export function useMemberModeration({
   const queryClient = useQueryClient()
   const activeMember = useActiveMember(workspaceId)
   const activeRole = activeMember.data?.role
-  const actorRole =
-    typeof activeRole === "string" && isWorkspaceRole(activeRole)
-      ? activeRole
-      : null
+  const actorRole = typeof activeRole === "string" ? activeRole : null
+
+  // Deduped with useWorkspaceMembers — only read for ownerId, since
+  // ownership derives from workspace.ownerId, never the role string.
+  const { data: memberList } = useQuery({
+    queryKey: ["workspace-members", workspaceSlug],
+    enabled: Boolean(workspaceSlug),
+    queryFn: async () => {
+      const response = await api.v1.workspaces[":workspaceSlug"].members.$get({
+        param: { workspaceSlug },
+      })
+      if (!response.ok) throw new Error("Could not load workspace members")
+      return response.json()
+    },
+  })
+  const ownerId = memberList?.ownerId ?? null
+
+  // Custom-role actors resolve to member-tier here — mobile doesn't fetch
+  // custom-role grants yet (see reference/mobile-parity-todo.md); the server
+  // enforces real grants regardless.
+  const actorAuthority = useMemo(
+    () =>
+      actorRole && currentUserId
+        ? {
+            role: actorRole,
+            isOwner: Boolean(ownerId && currentUserId === ownerId),
+          }
+        : null,
+    [actorRole, currentUserId, ownerId]
+  )
 
   const canManage = useCallback(
     (target: ModerationTarget) => {
-      if (!actorRole || !currentUserId) return false
+      if (!actorAuthority || !currentUserId) return false
       if (target.isBot || target.id === currentUserId) return false
-      if (typeof target.role !== "string" || !isWorkspaceRole(target.role)) {
-        return false
-      }
-      return canManageWorkspaceAuthority(
-        { role: actorRole },
-        { role: target.role }
-      )
+      if (typeof target.role !== "string") return false
+      return canManageWorkspaceAuthority(actorAuthority, {
+        role: target.role,
+        isOwner: Boolean(ownerId && target.id === ownerId),
+      })
     },
-    [actorRole, currentUserId]
+    [actorAuthority, currentUserId, ownerId]
   )
 
   const roleOptionsFor = useCallback(
     (target: ModerationTarget): AssignableWorkspaceRole[] => {
-      if (!actorRole || !canManage(target)) return []
+      if (!actorAuthority || !canManage(target)) return []
       if (
-        !workspaceAuthorityHasPermissions(
-          { role: actorRole },
-          { workspaceMember: ["role:update"] }
-        )
+        !workspaceAuthorityHasPermissions(actorAuthority, {
+          workspaceMember: ["role:update"],
+        })
       ) {
         return []
       }
       // Server rule: non-owners can assign roles at their own position or
       // below (admins can promote to admin).
-      const actorPosition = getWorkspaceAuthorityPosition({ role: actorRole })
+      const actorPosition = getWorkspaceAuthorityPosition(actorAuthority)
       return assignableWorkspaceRoles.filter(
         (role) =>
           role !== target.role &&
-          (actorRole === "owner" ||
+          (actorAuthority.isOwner ||
             getWorkspaceRolePosition(role) >= actorPosition)
       )
     },
-    [actorRole, canManage]
+    [actorAuthority, canManage]
   )
 
   const canKick = useCallback(
     (target: ModerationTarget) => {
-      if (!actorRole || !canManage(target)) return false
-      return workspaceAuthorityHasPermissions(
-        { role: actorRole },
-        { workspaceMember: ["kick"] }
-      )
+      if (!actorAuthority || !canManage(target)) return false
+      return workspaceAuthorityHasPermissions(actorAuthority, {
+        workspaceMember: ["kick"],
+      })
     },
-    [actorRole, canManage]
+    [actorAuthority, canManage]
   )
 
   const canModerate = useCallback(

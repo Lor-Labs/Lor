@@ -193,7 +193,7 @@ exists). Flag if the dev DB has duplicate membership rows before pushing.
 
 ---
 
-### [ ] S7 — mobile parity + sweep (~200 LOC)
+### [x] S7 — mobile parity + sweep (~200 LOC) — code built 2026-08-31; live manual QA owed (checklist below)
 
 - `use-member-moderation.ts`: derive owner from `workspace.ownerId`, not
   `actorRole === "owner"`; custom-role fallbacks in `use-channel-permissions`
@@ -201,6 +201,23 @@ exists). Flag if the dev DB has duplicate membership rows before pushing.
 - Update `reference/mobile-parity-todo.md` (roles UI itself can lag web).
 - Final `pnpm run validate` + manual QA checklist: create role → assign →
   verify gated route 403/allow → delete role → member degrades.
+
+Manual QA checklist (live, after db:push):
+1. `db:push` — check dev DB for duplicate `(workspace_id, user_id)` rows
+   first; the new unique index fails on dupes.
+2. Settings → Roles: create role `support` with webhook:manage +
+   channel:update. Verify it appears with grant count.
+3. Settings → Members: assign `support` to a test member. Verify label.
+4. As that member: webhook settings should allow create/edit (webhook:manage);
+   billing endpoints should 403; channel edit allowed (channel:update).
+5. Edit role: remove channel:update → member loses channel edit within one
+   request (no caching layer to invalidate).
+6. Delete role → confirm dialog shows member count → member degrades to
+   Member in the list; re-fetch shows role gone.
+7. Admin promotes another member to admin (relaxed rule) — works; the new
+   admin cannot demote the first admin (hierarchy unchanged).
+8. Mobile: owner sees correct moderation options; member sheet renders the
+   custom role name; custom-role holder sees member-tier UI (known gap).
 
 ## Decisions & deviations log
 
