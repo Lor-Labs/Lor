@@ -206,7 +206,7 @@ with the rest of the realtime types; `authorizePublish` left as-is —
 `capability:code_actions` now gates `propose_code_change` through the normal
 path, making the hardcoded seam redundant rather than wrong.
 
-### [ ] P3 — resolve + resume (~450 LOC)
+### [x] P3 — resolve + resume (~450 LOC) — built 2026-09-01 (no new schema)
 
 - Approvals routes move out of `routes/v1/tasks/` into `routes/v1/approvals/`
   (task-less approvals exist now). Handler: first statement resolves authority
@@ -226,6 +226,48 @@ path, making the hardcoded seam redundant rather than wrong.
   unanswered tool call.
 - Emit `approval:updated` on resolution. Tests: resolver-spec matrix (each
   kind × allow/deny), CAS conflict, dangling-role resolver degrades safely.
+
+**As built.** `apps/api/src/lib/task-runs.ts` became `scope-runs.ts`:
+`startScopeContinuationRun` takes a scope (`workspaceId`, `channelId`,
+`scopeKey`, `threadRootId`, optional `resumeApprovalId`, optional
+`onAbandoned`) and `startTaskContinuationRun` is now a thin task-flavoured
+wrapper; `postTaskThreadMessage` became `postScopeMessage` and broadcasts into
+the thread room or the channel room. Approvals moved to
+`routes/v1/approvals/` (paths unchanged); `serializeApproval` and
+`loadApprovalResolver` live in `apps/api/src/lib/approvals.ts`, and the
+serialized row now carries `target` + `toolName`.
+
+Resolution order in the handler: channel write access (the floor) → membership
+→ `resolveWorkspaceAuthority` → `canResolveApproval`. A missing policy row for
+a still-open approval falls back to `permission` (the column default); a
+policy row whose named resolver is gone (custom role deleted, resolver user
+removed) resolves to owner-only rather than opening up.
+
+The resume is **explicit, not scope-inferred**: `resumeApprovalId` rides
+`MerlinRespondJobData`, so `buildApprovalContinuation` replays the run named by
+the approval row and works in a plain channel scope where the delta path does
+not exist. The SDK's own `approvalId` is read back out of the replayed
+transcript (`findApprovalId`) instead of being stored — it only ever exists
+there, and deriving it from the same array we send is what keeps the response
+and the request consistent.
+
+Guards: the ordinary delta path now refuses any predecessor whose stop reason
+is `awaiting_approval` (its transcript ends in an unpaired tool call), and
+`buildApprovalContinuation` returns null — falling back to a fresh context —
+for a pending approval, a non-parked predecessor, or a request part that got
+trimmed out of the replay.
+
+**New spike finding (verified against ai@7.0.11 dist, 2026-09-01):** an
+approved tool executes at the top of `streamText` and its result message lands
+in `initialResponseMessages`, which is **outside every step's
+`response.messages`**. Checkpointing steps alone would persist a tool call with
+no result and break every later replay. `prepareStep` now folds
+`responseMessages` into `pendingInjected` at `steps.length === 0`, so the
+result rides the first checkpoint. Also confirmed: the prompt converter drops
+`tool-approval-request`/`-response` parts before the provider and filters the
+resulting empty tool message, and `approvedToolCallIds` lets an
+approval-response stand in for a missing tool result during the
+`MissingToolResultsError` pairing check.
 
 ### [ ] P4 — web surfaces (~450 LOC)
 
@@ -278,6 +320,14 @@ Manual QA checklist (live, after db:push):
 
 - 2026-08-31 — Runbook drafted from verified current-state map (approval
   machinery, harness replay, AI SDK toolApproval).
+- 2026-09-01 — P3 deviations: `approval:updated` landed here (P4 keeps
+  `approval:created` and the UI); its payload is scope-shaped
+  (`approvalId`/`channelId`/`taskId`/status), emitted to the channel room. The
+  shared continuation starter was generalized as planned, and the file was
+  renamed `task-runs.ts` → `scope-runs.ts` to stop the name lying. Resolver
+  enforcement is API-side only for now — the web still shows the buttons to
+  everyone until P4 mirrors `canResolveApproval` in the UI. `AgentRunContext`
+  gained `approvalResume` (no migration: it is a jsonb field).
 - 2026-09-01 — P2 deviations: the `approval:created` socket event moved to P4
   (its types and relay live there; the task path already goes live via
   `task:updated`). `authorizePublish` left in place — the generic

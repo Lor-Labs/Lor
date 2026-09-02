@@ -14,7 +14,11 @@ import {
   schema,
   sql,
 } from "@repo/db"
-import type { AgentRunCompaction, AgentRunContext } from "@repo/db/schema"
+import type {
+  AgentRunApprovalResume,
+  AgentRunCompaction,
+  AgentRunContext,
+} from "@repo/db/schema"
 import {
   buildInitialUserMessage,
   estimateMessagesTokens,
@@ -52,7 +56,10 @@ export type Continuation = {
   coveredMessageIds: string[]
   // The rendered delta, persisted verbatim so a recovered attempt replays the
   // identical message (it embeds elapsed time, which would otherwise drift).
-  deltaText: string
+  // Null on an approval resume, which ends in a tool message instead.
+  deltaText: string | null
+  // Set instead of deltaText when this continuation resumes a parked approval.
+  approvalResume: AgentRunApprovalResume | null
   // Predecessor's last step input size, so the first prepareStep can compact
   // an already-heavy inherited transcript before growing it further.
   lastInputTokens: number
@@ -96,6 +103,7 @@ async function findPredecessor(args: {
       startedAt: schema.agentRun.startedAt,
       createdAt: schema.agentRun.createdAt,
       finishedAt: schema.agentRun.finishedAt,
+      stopReason: schema.agentRun.stopReason,
     })
     .from(schema.agentRun)
     .where(
@@ -114,6 +122,26 @@ async function findPredecessor(args: {
     .orderBy(desc(schema.agentRun.finishedAt))
     .limit(1)
     .then((rows) => rows[0])
+}
+
+// The message that resumes a parked tool call. The AI SDK only looks at the
+// LAST message for approval responses and requires role "tool", so this must
+// always be appended last — the human's own words ride the step-boundary
+// steering injection instead of a trailing user message.
+export function approvalResponseMessage(
+  resume: AgentRunApprovalResume
+): ModelMessage {
+  return {
+    role: "tool",
+    content: [
+      {
+        type: "tool-approval-response",
+        approvalId: resume.approvalId,
+        approved: resume.approved,
+        ...(resume.reason ? { reason: resume.reason } : {}),
+      },
+    ],
+  }
 }
 
 function hasValidBaseline(run: ChainRun): boolean {
@@ -383,6 +411,8 @@ export async function replayChain(headRunId: string): Promise<{
       messages.push(...(base.baselineMessages as ModelMessage[]))
     } else if (index === 0 && baseIndex < 0) {
       messages.push(await buildInitialUserMessage(run.context))
+    } else if (run.context.approvalResume) {
+      messages.push(approvalResponseMessage(run.context.approvalResume))
     } else if (run.context.continuationDelta) {
       messages.push({ role: "user", content: run.context.continuationDelta })
     }
@@ -437,10 +467,113 @@ export async function replayContinuedPrefix(args: {
 }): Promise<ModelMessage[] | null> {
   const replayed = await replayChain(args.continuedFromRunId).catch(() => null)
   if (!replayed) return null
+  const resume = args.context.approvalResume
+  if (resume) {
+    return [...replayed.messages, approvalResponseMessage(resume)]
+  }
   const delta = args.context.continuationDelta
   return delta
     ? [...replayed.messages, { role: "user", content: delta }]
     : replayed.messages
+}
+
+// The SDK's approval id for a parked call, read back out of the replayed
+// transcript. It is generated per request and only ever exists there, and
+// collectToolApprovals matches responses to requests by it — deriving it from
+// the same array we are about to send is what keeps the two consistent.
+function findApprovalId(
+  messages: ModelMessage[],
+  toolCallId: string
+): string | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i]
+    if (message?.role !== "assistant" || typeof message.content === "string") {
+      continue
+    }
+    for (const part of message.content) {
+      if (
+        part.type === "tool-approval-request" &&
+        part.toolCallId === toolCallId
+      ) {
+        return part.approvalId
+      }
+    }
+  }
+  return null
+}
+
+// Resume a run parked on a policy gate (LOR-81): replay the parked run's
+// transcript and answer its approval request. Nothing new is appended after
+// the tool message — messages that landed meanwhile ride the ordinary
+// step-boundary steering injection, which is the only order the SDK accepts.
+// Returns null whenever the resume can't be assembled safely; the caller then
+// builds a fresh context, which is always sound (the model simply re-decides).
+export async function buildApprovalContinuation(args: {
+  approvalId: string
+}): Promise<Continuation | null> {
+  try {
+    const approval = await db
+      .select({
+        runId: schema.approval.runId,
+        status: schema.approval.status,
+        toolCallId: schema.approval.toolCallId,
+      })
+      .from(schema.approval)
+      .where(eq(schema.approval.id, args.approvalId))
+      .limit(1)
+      .then((rows) => rows[0])
+    if (!approval?.runId || !approval.toolCallId) return null
+    if (approval.status !== "approved" && approval.status !== "rejected") {
+      return null
+    }
+
+    const parked = await db
+      .select({
+        state: schema.agentRun.state,
+        stopReason: schema.agentRun.stopReason,
+      })
+      .from(schema.agentRun)
+      .where(eq(schema.agentRun.id, approval.runId))
+      .limit(1)
+      .then((rows) => rows[0])
+    // Only a run that actually parked holds an unanswered approval request.
+    if (parked?.stopReason !== "awaiting_approval") return null
+    if (parked.state === "working" || parked.state === "queued") return null
+
+    const replayed = await replayChain(approval.runId)
+    if (!replayed) return null
+    const approvalId = findApprovalId(replayed.messages, approval.toolCallId)
+    // The request part was trimmed out of the replay (very long chain) — the
+    // SDK would throw InvalidToolApprovalError on the response.
+    if (!approvalId) {
+      logger.warn(
+        { approvalId: args.approvalId, runId: approval.runId },
+        "Parked approval request missing from the replayed transcript"
+      )
+      return null
+    }
+
+    const resume: AgentRunApprovalResume = {
+      approvalId,
+      approved: approval.status === "approved",
+    }
+    return {
+      predecessorRunId: approval.runId,
+      messages: [...replayed.messages, approvalResponseMessage(resume)],
+      conversation: [],
+      coveredMessageIds: [],
+      deltaText: null,
+      approvalResume: resume,
+      lastInputTokens: replayed.lastInputTokens,
+      compaction: replayed.compaction,
+    }
+  } catch (err) {
+    logger.warn(
+      { err, approvalId: args.approvalId },
+      "Approval resume failed; falling back to a fresh context"
+    )
+    return null
+  }
 }
 
 // Assemble a continued context: the full chain of prior runs in this scope
@@ -461,6 +594,12 @@ export async function buildContinuation(args: {
       excludeRunId: args.runId,
     })
     if (!predecessor?.context) return null
+    // A parked run's transcript ends in an unanswered approval request, which
+    // the provider rejects as an unpaired tool call. Only the approval resume
+    // (buildApprovalContinuation) may replay it; everything else — a new
+    // message while the gate is still open, or a resume that never started —
+    // starts fresh.
+    if (predecessor.stopReason === "awaiting_approval") return null
 
     const replayed = await replayChain(predecessor.id)
     if (!replayed) return null
@@ -494,6 +633,7 @@ export async function buildContinuation(args: {
       conversation: turns,
       coveredMessageIds,
       deltaText,
+      approvalResume: null,
       lastInputTokens: replayed.lastInputTokens,
       compaction: replayed.compaction,
     }

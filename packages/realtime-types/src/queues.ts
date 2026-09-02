@@ -27,6 +27,10 @@ export type MerlinRespondJobData = {
   // Durable agent_run row backing this job. Optional only for jobs enqueued
   // before the run table existed; new jobs always carry it.
   runId?: string
+  // Set when a resolved approval started this run (LOR-81): the run resumes
+  // the parked run's transcript and answers its tool-approval request instead
+  // of building a delta. Works in any scope, including plain channel runs.
+  resumeApprovalId?: string
 }
 
 // Headless triggered runs (the Act effect — reference/automation-primitives.md

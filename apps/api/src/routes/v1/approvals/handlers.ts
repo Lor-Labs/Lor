@@ -1,0 +1,340 @@
+import { canResolveApproval } from "@repo/auth/permissions"
+import { and, db, eq, inArray, schema } from "@repo/db"
+import { resolveChannelAccess } from "@repo/db/queries/channel-access"
+import type { Approval, Task } from "@repo/db/schema"
+import { channelRoom } from "@repo/realtime-types/rooms"
+import { loadApprovalResolver, serializeApproval } from "@/lib/approvals"
+import { getEmitter } from "@/lib/bot-messages"
+import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
+import { logger } from "@/lib/logger"
+import { resolveWorkspaceAuthority } from "@/lib/permissions"
+import {
+  emitTaskUpdated,
+  postScopeMessage,
+  startScopeContinuationRun,
+} from "@/lib/scope-runs"
+import type { AppRouteHandler } from "@/lib/types/app-types"
+import type {
+  ApproveApprovalRoute,
+  RejectApprovalRoute,
+} from "@/routes/v1/approvals/routes"
+
+type ResolveOutcome =
+  | { kind: "not_found" }
+  | { kind: "forbidden" }
+  | { kind: "archived" }
+  | { kind: "conflict" }
+  | { kind: "post_failed" }
+  | { kind: "resolved"; approval: Approval }
+
+// The conversation an approval belongs to. A policy-gated approval takes it
+// from the parked run; a task's own request_approval predates the run pointer,
+// so the task's card thread is the fallback.
+type ApprovalScope = {
+  channelId: string
+  threadRootId: string | null
+  scopeKey: string
+}
+
+function approvalScope(
+  run: {
+    channelId: string
+    threadRootId: string | null
+    scopeKey: string
+  } | null,
+  task: Task | null
+): ApprovalScope | null {
+  if (run) {
+    return {
+      channelId: run.channelId,
+      threadRootId: run.threadRootId,
+      scopeKey: run.scopeKey,
+    }
+  }
+  if (task) {
+    return {
+      channelId: task.channelId,
+      threadRootId: task.cardMessageId,
+      scopeKey: task.cardMessageId,
+    }
+  }
+  return null
+}
+
+async function resolveApproval(
+  approvalId: string,
+  userId: string,
+  resolution: "approved" | "rejected"
+): Promise<ResolveOutcome> {
+  const row = await db
+    .select({
+      approval: schema.approval,
+      workspace: schema.workspace,
+      run: {
+        channelId: schema.agentRun.channelId,
+        threadRootId: schema.agentRun.threadRootId,
+        scopeKey: schema.agentRun.scopeKey,
+      },
+      task: schema.task,
+    })
+    .from(schema.approval)
+    .innerJoin(
+      schema.workspace,
+      eq(schema.approval.workspaceId, schema.workspace.id)
+    )
+    .leftJoin(schema.agentRun, eq(schema.approval.runId, schema.agentRun.id))
+    .leftJoin(schema.task, eq(schema.approval.taskId, schema.task.id))
+    .where(eq(schema.approval.id, approvalId))
+    .limit(1)
+    .then((rows) => rows[0])
+
+  const scope = row ? approvalScope(row.run, row.task) : null
+  if (!row || !scope) return { kind: "not_found" }
+
+  // Channel write access is the floor for every approval: someone who cannot
+  // speak in the conversation can never authorize an action inside it.
+  const access = await resolveChannelAccess(userId, scope.channelId)
+  if (!access.ok) return { kind: "forbidden" }
+  // Archived channel: the resolution message and continuation run can never
+  // land, so refuse before the CAS instead of resolving into a stranded run.
+  if (!access.access.canWrite) return { kind: "archived" }
+
+  const member = await db
+    .select()
+    .from(schema.workspaceMember)
+    .where(
+      and(
+        eq(schema.workspaceMember.workspaceId, row.approval.workspaceId),
+        eq(schema.workspaceMember.userId, userId)
+      )
+    )
+    .limit(1)
+    .then((rows) => rows[0])
+  if (!member) return { kind: "forbidden" }
+
+  const authority = await resolveWorkspaceAuthority(member, row.workspace)
+  const spec = await loadApprovalResolver(
+    row.approval.workspaceId,
+    row.approval.target
+  )
+  const allowed = spec
+    ? canResolveApproval(authority, spec, userId)
+    : authority.isOwner
+  if (!allowed) return { kind: "forbidden" }
+
+  // CAS: only one resolver wins; a second click reads as already resolved.
+  const resolved = await db
+    .update(schema.approval)
+    .set({
+      status: resolution,
+      resolvedBy: userId,
+      resolvedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(schema.approval.id, approvalId),
+        eq(schema.approval.status, "pending")
+      )
+    )
+    .returning()
+    .then((rows) => rows[0] ?? null)
+  if (!resolved) return { kind: "conflict" }
+
+  // The resolution message is the continuation trigger: it lands in the run's
+  // scope as the resolver, and the next run answers it. If it can't be
+  // created, un-resolve the CAS so the caller can retry — a success response
+  // without the message would strand the run.
+  const content =
+    resolution === "approved"
+      ? `Approved — go ahead: ${resolved.description}`
+      : `Rejected — do not proceed: ${resolved.description}`
+  const messageId = await postScopeMessage({
+    channelId: scope.channelId,
+    threadRootId: scope.threadRootId,
+    authorId: userId,
+    content,
+  }).catch(() => null)
+  if (!messageId) {
+    await db
+      .update(schema.approval)
+      .set({ status: "pending", resolvedBy: null, resolvedAt: null })
+      .where(
+        and(
+          eq(schema.approval.id, approvalId),
+          eq(schema.approval.status, resolution),
+          eq(schema.approval.resolvedBy, userId)
+        )
+      )
+      .catch(() => {})
+    return { kind: "post_failed" }
+  }
+
+  // Remaining side effects are best-effort: the continuation path self-heals
+  // (an enqueue failure parks the task back in waiting_for_input).
+  try {
+    const io = await getEmitter()
+    io.to(channelRoom(scope.channelId)).emit("approval:updated", {
+      approvalId: resolved.id,
+      channelId: scope.channelId,
+      taskId: resolved.taskId,
+      status: resolved.status,
+      resolvedBy: resolved.resolvedBy,
+      resolvedAt: resolved.resolvedAt
+        ? resolved.resolvedAt.toISOString()
+        : null,
+    })
+
+    const task = row.task
+    // Only a parked task moves back to running, and only when the trigger
+    // message exists — never resurrect a terminal task (the continuation
+    // run re-claims status itself if it does start).
+    const updatedTask = task
+      ? await db
+          .update(schema.task)
+          .set({ status: "running" })
+          .where(
+            and(
+              eq(schema.task.id, task.id),
+              inArray(schema.task.status, [
+                "waiting_for_approval",
+                "waiting_for_input",
+              ])
+            )
+          )
+          .returning()
+          .then((rows) => rows[0] ?? null)
+      : null
+    if (updatedTask) await emitTaskUpdated(updatedTask)
+
+    await startScopeContinuationRun({
+      workspaceId: resolved.workspaceId,
+      channelId: scope.channelId,
+      threadRootId: scope.threadRootId,
+      scopeKey: scope.scopeKey,
+      triggerMessageId: messageId,
+      senderId: userId,
+      // Policy gates park a real tool call: the next run replays the parked
+      // transcript and answers its approval request rather than re-deciding.
+      ...(resolved.toolCallId && resolved.runId
+        ? { resumeApprovalId: resolved.id }
+        : {}),
+      ...(task
+        ? {
+            onAbandoned: async () => {
+              await db
+                .update(schema.task)
+                .set({ status: "waiting_for_input" })
+                .where(
+                  and(
+                    eq(schema.task.id, task.id),
+                    eq(schema.task.status, "running")
+                  )
+                )
+                .returning()
+                .then((rows) =>
+                  rows[0] ? emitTaskUpdated(rows[0]) : undefined
+                )
+                .catch(() => {})
+            },
+          }
+        : {}),
+    })
+  } catch (err) {
+    logger.error(
+      { err, approvalId, runId: resolved.runId },
+      "Approval post-resolution side effects failed"
+    )
+  }
+
+  return { kind: "resolved", approval: resolved }
+}
+
+export const approveApproval: AppRouteHandler<ApproveApprovalRoute> = async (
+  c
+) => {
+  const outcome = await resolveApproval(
+    c.req.valid("param").approvalId,
+    c.var.user.id,
+    "approved"
+  )
+  switch (outcome.kind) {
+    case "not_found":
+      return c.json(
+        { success: false as const, message: "Approval not found" },
+        HttpStatusCodes.NOT_FOUND
+      )
+    case "forbidden":
+      return c.json(
+        { success: false as const, message: "Forbidden" },
+        HttpStatusCodes.FORBIDDEN
+      )
+    case "archived":
+      return c.json(
+        { success: false as const, message: "Channel is archived" },
+        HttpStatusCodes.BAD_REQUEST
+      )
+    case "conflict":
+      return c.json(
+        { success: false as const, message: "Already resolved" },
+        HttpStatusCodes.CONFLICT
+      )
+    case "post_failed":
+      return c.json(
+        {
+          success: false as const,
+          message: "Failed to post approval resolution",
+        },
+        HttpStatusCodes.INTERNAL_SERVER_ERROR
+      )
+    case "resolved":
+      return c.json(
+        { approval: serializeApproval(outcome.approval) },
+        HttpStatusCodes.OK
+      )
+  }
+}
+
+export const rejectApproval: AppRouteHandler<RejectApprovalRoute> = async (
+  c
+) => {
+  const outcome = await resolveApproval(
+    c.req.valid("param").approvalId,
+    c.var.user.id,
+    "rejected"
+  )
+  switch (outcome.kind) {
+    case "not_found":
+      return c.json(
+        { success: false as const, message: "Approval not found" },
+        HttpStatusCodes.NOT_FOUND
+      )
+    case "forbidden":
+      return c.json(
+        { success: false as const, message: "Forbidden" },
+        HttpStatusCodes.FORBIDDEN
+      )
+    case "archived":
+      return c.json(
+        { success: false as const, message: "Channel is archived" },
+        HttpStatusCodes.BAD_REQUEST
+      )
+    case "conflict":
+      return c.json(
+        { success: false as const, message: "Already resolved" },
+        HttpStatusCodes.CONFLICT
+      )
+    case "post_failed":
+      return c.json(
+        {
+          success: false as const,
+          message: "Failed to post approval resolution",
+        },
+        HttpStatusCodes.INTERNAL_SERVER_ERROR
+      )
+    case "resolved":
+      return c.json(
+        { approval: serializeApproval(outcome.approval) },
+        HttpStatusCodes.OK
+      )
+  }
+}

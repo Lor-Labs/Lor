@@ -16,6 +16,7 @@ import {
   resolveMerlinRunScope,
 } from "@repo/db/queries/channel-access"
 import {
+  type AgentRunApprovalResume,
   type AgentRunContext,
   ALL_MERLIN_CAPABILITIES,
   type MerlinToolCall,
@@ -323,7 +324,11 @@ export type RunContinuation = {
   messages: ModelMessage[]
   coveredMessageIds: string[]
   // The delta message, persisted so a recovered attempt replays it verbatim.
-  deltaText: string
+  // Null on an approval resume, whose transcript ends in a tool message.
+  deltaText: string | null
+  // Set instead of deltaText when this run resumes a parked approval (LOR-81).
+  // Persisted so replay reproduces the tool-approval-response exactly.
+  approvalResume?: AgentRunApprovalResume
   lastInputTokens: number
   // Working notes inherited from the newest compacted run in the chain, so
   // this run's compactor merges forward instead of rebuilding from scratch.
@@ -2202,7 +2207,12 @@ export async function respond(
           toolSchemaBytes: measureToolSchemaBytes(tools),
           ...(continuation
             ? {
-                continuationDelta: continuation.deltaText,
+                ...(continuation.deltaText !== null
+                  ? { continuationDelta: continuation.deltaText }
+                  : {}),
+                ...(continuation.approvalResume
+                  ? { approvalResume: continuation.approvalResume }
+                  : {}),
                 coveredMessageIds: continuation.coveredMessageIds,
               }
             : {}),
@@ -2309,7 +2319,20 @@ export async function respond(
       timeout: {
         totalMs: Math.max(30_000, budgets.deadlineAt.getTime() - Date.now()),
       },
-      prepareStep: async ({ steps, messages: stepMessages }) => {
+      prepareStep: async ({
+        steps,
+        messages: stepMessages,
+        responseMessages,
+      }) => {
+        // An approval resume executes the approved tool BEFORE the first step,
+        // and the SDK keeps that result outside every step's response. Fold it
+        // into this step's checkpoint or the durable transcript would hold a
+        // tool call with no result, which no provider accepts on replay.
+        // (A crash before this first checkpoint re-executes the tool — the
+        // same at-least-once window every mid-step tool call already has.)
+        if (steps.length === 0 && responseMessages.length > 0) {
+          pendingInjected.push(...responseMessages)
+        }
         // Ceilings can land on tool use; when the next step is the last the
         // budgets allow, disable tools so the loop ends with a text answer.
         const next = budgetViolation(

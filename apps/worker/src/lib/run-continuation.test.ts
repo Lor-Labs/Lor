@@ -83,7 +83,12 @@ vi.mock("@repo/merlin", () => ({
   userDisplayName: (u: { name: string }) => u.name,
 }))
 
-import { buildContinuation, formatDelta, replayChain } from "./run-continuation"
+import {
+  buildApprovalContinuation,
+  buildContinuation,
+  formatDelta,
+  replayChain,
+} from "./run-continuation"
 
 const predecessor = {
   id: "run-1",
@@ -614,5 +619,150 @@ describe("replayChain", () => {
     const replayed = await replayChain("run-1")
     expect(replayed?.messages).toHaveLength(400)
     expect(replayed?.messages.at(-1)?.content).toBe("message-398")
+  })
+})
+
+// Approval resume (LOR-81). Query order inside buildApprovalContinuation:
+// approval row → parked run row → replayChain (chain head → step rows).
+const parkedStep = {
+  runId: "run-1",
+  step: 1,
+  messages: [
+    {
+      role: "assistant",
+      content: [
+        {
+          type: "tool-call",
+          toolCallId: "call-1",
+          toolName: "create_linear_issue",
+          input: { title: "Ship it" },
+        },
+        {
+          type: "tool-approval-request",
+          approvalId: "sdk-approval-1",
+          toolCallId: "call-1",
+        },
+      ],
+    },
+  ],
+  inputTokens: 1200,
+}
+
+const approvedRow = {
+  runId: "run-1",
+  status: "approved",
+  toolCallId: "call-1",
+}
+
+const parkedRun = { state: "complete", stopReason: "awaiting_approval" }
+
+describe("buildApprovalContinuation", () => {
+  beforeEach(() => {
+    results.length = 0
+  })
+
+  it("ends the transcript with the approval response, never a delta", async () => {
+    queue([approvedRow], [parkedRun], [predecessor], [parkedStep])
+    const result = await buildApprovalContinuation({ approvalId: "apv-1" })
+    expect(result?.predecessorRunId).toBe("run-1")
+    expect(result?.deltaText).toBeNull()
+    expect(result?.approvalResume).toEqual({
+      approvalId: "sdk-approval-1",
+      approved: true,
+    })
+    // The SDK only reads messages.at(-1) for approval responses.
+    expect(result?.messages.at(-1)).toEqual({
+      role: "tool",
+      content: [
+        {
+          type: "tool-approval-response",
+          approvalId: "sdk-approval-1",
+          approved: true,
+        },
+      ],
+    })
+  })
+
+  it("carries a rejection through as a denial", async () => {
+    queue(
+      [{ ...approvedRow, status: "rejected" }],
+      [parkedRun],
+      [predecessor],
+      [parkedStep]
+    )
+    const result = await buildApprovalContinuation({ approvalId: "apv-1" })
+    expect(result?.approvalResume?.approved).toBe(false)
+  })
+
+  it("refuses a still-pending approval", async () => {
+    queue([{ ...approvedRow, status: "pending" }])
+    expect(await buildApprovalContinuation({ approvalId: "apv-1" })).toBeNull()
+  })
+
+  it("refuses a discretionary approval with no parked tool call", async () => {
+    queue([{ ...approvedRow, toolCallId: null }])
+    expect(await buildApprovalContinuation({ approvalId: "apv-1" })).toBeNull()
+  })
+
+  it("refuses a predecessor that never parked", async () => {
+    queue([approvedRow], [{ state: "complete", stopReason: "completed" }])
+    expect(await buildApprovalContinuation({ approvalId: "apv-1" })).toBeNull()
+  })
+
+  it("refuses when the approval request was trimmed out of the replay", async () => {
+    queue(
+      [approvedRow],
+      [parkedRun],
+      [predecessor],
+      [step2("no approval request here", "run-1")]
+    )
+    expect(await buildApprovalContinuation({ approvalId: "apv-1" })).toBeNull()
+  })
+
+  it("falls back to a fresh context instead of throwing when a query fails", async () => {
+    queue(new Error("db down"))
+    expect(await buildApprovalContinuation({ approvalId: "apv-1" })).toBeNull()
+  })
+})
+
+describe("parked predecessors", () => {
+  beforeEach(() => {
+    results.length = 0
+  })
+
+  it("never replays a parked run through the delta path", async () => {
+    queue([{ ...predecessor, stopReason: "awaiting_approval" }])
+    expect(await buildContinuation(args)).toBeNull()
+  })
+
+  it("replays an earlier hop's approval response in place of a delta", async () => {
+    const head = { ...predecessor, id: "run-0" }
+    const resumeHop = {
+      id: "run-1",
+      context: {
+        conversation: [],
+        brainContext: "brain",
+        rosterText: "",
+        approvalResume: { approvalId: "sdk-approval-1", approved: true },
+      },
+      continuedFromRunId: "run-0",
+      compaction: null,
+    }
+    queue(
+      [resumeHop],
+      [head],
+      [step2("parked work", "run-0"), step2("carried on", "run-1")]
+    )
+    const replayed = await replayChain("run-1")
+    expect(replayed?.messages[2]).toEqual({
+      role: "tool",
+      content: [
+        {
+          type: "tool-approval-response",
+          approvalId: "sdk-approval-1",
+          approved: true,
+        },
+      ],
+    })
   })
 })

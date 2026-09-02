@@ -230,7 +230,7 @@ async function runActNow(input: {
   } catch (err) {
     // No job means the run can never execute — remove it so it doesn't
     // linger pending or count against the trigger's caps (mirrors
-    // task-runs' enqueue-failure cleanup).
+    // scope-runs' enqueue-failure cleanup).
     logger.error(
       { err, runId: run.id, triggerId: input.triggerId },
       "Act run enqueue failed"

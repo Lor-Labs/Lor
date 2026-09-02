@@ -53,7 +53,10 @@ import type { createClient } from "redis"
 import { claimAgentRun, LeaseLostError } from "@/lib/agent-run"
 import { logger } from "@/lib/logger"
 import { createLoopCard } from "@/lib/merlin-loop"
-import { buildContinuation } from "@/lib/run-continuation"
+import {
+  buildApprovalContinuation,
+  buildContinuation,
+} from "@/lib/run-continuation"
 import { noopRunEventWriter } from "@/lib/run-events"
 import { drainScopeQueue } from "@/lib/run-queue"
 import { updateStreamMentionState } from "@/lib/stream-mentions"
@@ -509,15 +512,23 @@ export function createMerlinRespondProcessor(
             // than rebuilding context from chat text alone, so it resumes the
             // work instead of rediscovering it. Channel scope always builds
             // fresh, and a recovered attempt already has its own transcript.
-            const continuation =
-              contextThreadRootId && !execution?.resume
-                ? await buildContinuation({
-                    scopeKey: contextThreadRootId,
-                    channelId,
-                    merlinMessageId,
-                    runId: job.data.runId,
+            // An approval resume is explicit rather than scope-inferred: it
+            // replays the parked run named by the approval row, so it also
+            // works in a plain channel scope where no delta path exists.
+            const continuation = execution?.resume
+              ? null
+              : job.data.resumeApprovalId
+                ? await buildApprovalContinuation({
+                    approvalId: job.data.resumeApprovalId,
                   })
-                : null
+                : contextThreadRootId
+                  ? await buildContinuation({
+                      scopeKey: contextThreadRootId,
+                      channelId,
+                      merlinMessageId,
+                      runId: job.data.runId,
+                    })
+                  : null
             if (continuation && execution) {
               await execution.markContinuedFrom(continuation.predecessorRunId)
             }
@@ -662,6 +673,9 @@ export function createMerlinRespondProcessor(
                         messages: continuation.messages,
                         coveredMessageIds: continuation.coveredMessageIds,
                         deltaText: continuation.deltaText,
+                        ...(continuation.approvalResume
+                          ? { approvalResume: continuation.approvalResume }
+                          : {}),
                         lastInputTokens: continuation.lastInputTokens,
                         compaction: continuation.compaction,
                       },

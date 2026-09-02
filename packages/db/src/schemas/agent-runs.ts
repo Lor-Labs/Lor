@@ -396,6 +396,15 @@ export type AgentRunContextTask = {
   plan: TaskPlanItem[]
   summary: string | null
 }
+// Approval resume (LOR-81): a continuation started by resolving a policy gate
+// carries the tool-approval-response instead of a delta message. Replayed
+// verbatim so the parked tool call stays paired on every later replay —
+// without it the provider rejects the transcript (unpaired tool call).
+export type AgentRunApprovalResume = {
+  approvalId: string
+  approved: boolean
+  reason?: string
+}
 export type AgentRunContext = {
   conversation: AgentRunContextTurn[]
   brainContext: string
@@ -409,6 +418,8 @@ export type AgentRunContext = {
   // re-rendered because it embeds elapsed time ("about 3 hours since then"),
   // which would drift on recovery and break the byte-stable replay.
   continuationDelta?: string
+  // Set instead of continuationDelta when this run resumed a parked approval.
+  approvalResume?: AgentRunApprovalResume
   // Serialized size of the tool schemas bound to this run. Tool definitions are
   // re-sent on every request but live nowhere else on the row, so the context
   // meter would otherwise fold them into the other segments invisibly. Which

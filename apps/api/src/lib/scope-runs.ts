@@ -83,32 +83,39 @@ async function channelIsArchived(channelId: string): Promise<boolean> {
   return Boolean(row?.archivedAt)
 }
 
-// Post a message into the task thread (e.g. an approval resolution, authored
-// by the resolver) and broadcast it. Returns the message id.
-export async function postTaskThreadMessage(args: {
-  task: Task
+// The room a run scope broadcasts into: its thread when it has one, else the
+// channel itself (plain channel runs, loop runs).
+function scopeRoom(channelId: string, threadRootId: string | null) {
+  return threadRootId ? threadRoom(threadRootId) : channelRoom(channelId)
+}
+
+// Post a message into a run scope (e.g. an approval resolution, authored by
+// the resolver) and broadcast it. Returns the message id.
+export async function postScopeMessage(args: {
+  channelId: string
+  threadRootId: string | null
   authorId: string
   content: string
 }): Promise<string | null> {
-  if (await channelIsArchived(args.task.channelId)) {
+  if (await channelIsArchived(args.channelId)) {
     logger.warn(
-      { taskId: args.task.id },
-      "Task thread post rejected: channel archived"
+      { channelId: args.channelId },
+      "Scope message rejected: channel archived"
     )
     return null
   }
   const inserted = await db
     .insert(schema.message)
     .values({
-      channelId: args.task.channelId,
+      channelId: args.channelId,
       authorId: args.authorId,
       content: args.content,
-      threadRootId: args.task.cardMessageId,
+      threadRootId: args.threadRootId,
     })
     .returning({ id: schema.message.id, createdAt: schema.message.createdAt })
     .then((rows) => rows[0] ?? null)
     .catch((err) => {
-      logger.error({ err, taskId: args.task.id }, "Task thread post failed")
+      logger.error({ err, channelId: args.channelId }, "Scope post failed")
       return null
     })
   if (!inserted) return null
@@ -119,7 +126,7 @@ export async function postTaskThreadMessage(args: {
   if (author) {
     const message: RealtimeMessage = {
       id: inserted.id,
-      channelId: args.task.channelId,
+      channelId: args.channelId,
       content: args.content,
       type: "default",
       pinned: false,
@@ -130,32 +137,55 @@ export async function postTaskThreadMessage(args: {
       attachments: [],
       embeds: [],
       referencedMessage: null,
-      threadRootId: args.task.cardMessageId,
+      threadRootId: args.threadRootId,
       status: "complete",
     }
     const io = await getEmitter()
-    io.to(threadRoom(args.task.cardMessageId)).emit("message:created", message)
+    io.to(scopeRoom(args.channelId, args.threadRootId)).emit(
+      "message:created",
+      message
+    )
   }
   return inserted.id
 }
 
-// Start the task's next run, answering `triggerMessageId`. Mirrors the
-// worker's completion-drain shape: if the scope is busy, the message rides
-// the scope queue (the drain starts it when the active run settles);
-// otherwise placeholder + run + enqueue, with the same race handling.
-export async function startTaskContinuationRun(args: {
-  task: Task
+export type ScopeContinuation = {
+  workspaceId: string
+  channelId: string
+  // One active run per scope; also what the worker continues from.
+  scopeKey: string
+  // Null for plain channel scopes — the placeholder posts at channel level.
+  threadRootId: string | null
   triggerMessageId: string
   senderId: string
-}): Promise<void> {
-  const { task, triggerMessageId, senderId } = args
-  const scopeKey = task.cardMessageId
+  // Set for a resolved policy gate (LOR-81): the run resumes the parked
+  // transcript and answers its approval request instead of building a delta.
+  resumeApprovalId?: string
+  // Called when no run will come after all (enqueue failed and was rolled
+  // back), so the caller can put its own workflow back in the team's court.
+  onAbandoned?: () => Promise<void>
+}
 
-  if (await channelIsArchived(task.channelId)) {
-    logger.warn(
-      { taskId: task.id },
-      "Task continuation rejected: channel archived"
-    )
+// Start a scope's next run, answering `triggerMessageId`. Mirrors the worker's
+// completion-drain shape: if the scope is busy, the message rides the scope
+// queue (the drain starts it when the active run settles); otherwise
+// placeholder + run + enqueue, with the same race handling. Shared by task
+// threads, plain channel scopes, and approval resumes.
+export async function startScopeContinuationRun(
+  args: ScopeContinuation
+): Promise<void> {
+  const {
+    workspaceId,
+    channelId,
+    scopeKey,
+    threadRootId,
+    triggerMessageId,
+    senderId,
+  } = args
+  const room = scopeRoom(channelId, threadRootId)
+
+  if (await channelIsArchived(channelId)) {
+    logger.warn({ channelId }, "Scope continuation rejected: channel archived")
     return
   }
 
@@ -171,8 +201,8 @@ export async function startTaskContinuationRun(args: {
       )
       .limit(1)
       .then((rows) => rows[0] ?? null)
-    // Task-thread scopes always carry a placeholder message; a message-less
-    // run is a headless triggered run, which can never occupy this scope.
+    // A conversational scope always carries a placeholder message; a
+    // message-less run is a headless triggered run, which can never occupy it.
     if (!active?.messageId) return false
     await db
       .insert(schema.agentRunQueue)
@@ -185,9 +215,9 @@ export async function startTaskContinuationRun(args: {
       })
       .onConflictDoNothing({ target: schema.agentRunQueue.messageId })
     const io = await getEmitter()
-    io.to(threadRoom(scopeKey)).emit("message:routed", {
-      channelId: task.channelId,
-      threadRootId: scopeKey,
+    io.to(room).emit("message:routed", {
+      channelId,
+      threadRootId,
       messageId: triggerMessageId,
       outcome: "queued",
       runId: active.id,
@@ -201,9 +231,9 @@ export async function startTaskContinuationRun(args: {
   const placeholder = await db
     .insert(schema.message)
     .values({
-      channelId: task.channelId,
+      channelId,
       authorId: MERLIN_USER_ID,
-      threadRootId: scopeKey,
+      threadRootId,
       status: "pending",
     })
     .returning({ id: schema.message.id, createdAt: schema.message.createdAt })
@@ -213,10 +243,10 @@ export async function startTaskContinuationRun(args: {
   const run = await db
     .insert(schema.agentRun)
     .values({
-      workspaceId: task.workspaceId,
-      channelId: task.channelId,
+      workspaceId,
+      channelId,
       messageId: placeholder.id,
-      threadRootId: scopeKey,
+      threadRootId,
       triggerMessageId,
       scopeKey,
       budgetSteps: env.AGENT_RUN_MAX_STEPS,
@@ -231,7 +261,7 @@ export async function startTaskContinuationRun(args: {
     .then((rows) => rows[0] ?? null)
     .catch((err) => {
       if (!isUniqueViolation(err)) {
-        logger.error({ err, taskId: task.id }, "Task run insert failed")
+        logger.error({ err, scopeKey }, "Scope run insert failed")
       }
       return null
     })
@@ -253,7 +283,7 @@ export async function startTaskContinuationRun(args: {
     if (merlin) {
       const message: RealtimeMessage = {
         id: placeholder.id,
-        channelId: task.channelId,
+        channelId,
         content: null,
         type: "default",
         pinned: false,
@@ -264,16 +294,16 @@ export async function startTaskContinuationRun(args: {
         attachments: [],
         embeds: [],
         referencedMessage: null,
-        threadRootId: scopeKey,
+        threadRootId,
         status: "pending",
         streaming: true,
         merlinTriggerMessageId: triggerMessageId,
       }
       const io = await getEmitter()
-      io.to(threadRoom(scopeKey)).emit("message:created", message)
+      io.to(room).emit("message:created", message)
     }
   } catch (err) {
-    logger.warn({ err, taskId: task.id }, "Placeholder broadcast failed")
+    logger.warn({ err, scopeKey }, "Placeholder broadcast failed")
   }
 
   try {
@@ -281,11 +311,14 @@ export async function startTaskContinuationRun(args: {
       "respond",
       {
         merlinMessageId: placeholder.id,
-        channelId: task.channelId,
-        threadRootId: scopeKey,
-        contextThreadRootId: scopeKey,
+        channelId,
+        threadRootId,
+        contextThreadRootId: threadRootId,
         triggerMessageId,
         runId: run.id,
+        ...(args.resumeApprovalId
+          ? { resumeApprovalId: args.resumeApprovalId }
+          : {}),
       },
       {
         attempts: 2,
@@ -294,7 +327,7 @@ export async function startTaskContinuationRun(args: {
       }
     )
   } catch (err) {
-    logger.error({ err, taskId: task.id }, "Task run enqueue failed")
+    logger.error({ err, scopeKey }, "Scope run enqueue failed")
     await db
       .delete(schema.agentRun)
       .where(eq(schema.agentRun.id, run.id))
@@ -304,22 +337,43 @@ export async function startTaskContinuationRun(args: {
       .where(eq(schema.message.id, placeholder.id))
       .catch(() => {})
     // Clients already saw the placeholder via message:created — retract it,
-    // and put the task back in the team's court since no run is coming.
+    // then hand the workflow back to the caller since no run is coming.
     try {
       const io = await getEmitter()
-      io.to(threadRoom(scopeKey)).emit("message:deleted", {
-        channelId: task.channelId,
+      io.to(room).emit("message:deleted", {
+        channelId,
         messageId: placeholder.id,
       })
     } catch {}
-    await db
-      .update(schema.task)
-      .set({ status: "waiting_for_input" })
-      .where(
-        and(eq(schema.task.id, task.id), eq(schema.task.status, "running"))
-      )
-      .returning()
-      .then((rows) => (rows[0] ? emitTaskUpdated(rows[0]) : undefined))
-      .catch(() => {})
+    await args.onAbandoned?.().catch(() => {})
   }
+}
+
+// Task-thread flavour: the scope is the task's card thread, and an abandoned
+// run puts the task back in the team's court.
+export async function startTaskContinuationRun(args: {
+  task: Task
+  triggerMessageId: string
+  senderId: string
+}): Promise<void> {
+  const { task } = args
+  await startScopeContinuationRun({
+    workspaceId: task.workspaceId,
+    channelId: task.channelId,
+    scopeKey: task.cardMessageId,
+    threadRootId: task.cardMessageId,
+    triggerMessageId: args.triggerMessageId,
+    senderId: args.senderId,
+    onAbandoned: async () => {
+      await db
+        .update(schema.task)
+        .set({ status: "waiting_for_input" })
+        .where(
+          and(eq(schema.task.id, task.id), eq(schema.task.status, "running"))
+        )
+        .returning()
+        .then((rows) => (rows[0] ? emitTaskUpdated(rows[0]) : undefined))
+        .catch(() => {})
+    },
+  })
 }

@@ -566,6 +566,9 @@ export interface ServerToClientEvents {
 
   // Task snapshot changed (status, plan, summary). Channel room.
   "task:updated": (payload: TaskUpdatedEvent) => void
+  // An approval was resolved (LOR-81). Channel room when the approval belongs
+  // to a channel scope, so open approval cards settle without a refetch.
+  "approval:updated": (payload: ApprovalUpdatedEvent) => void
   // Loop snapshot changed (status, schedule, run bookkeeping). Channel room.
   "loop:updated": (payload: LoopUpdatedEvent) => void
   // Loop hard-deleted (its card message goes separately via message:deleted).
@@ -647,6 +650,21 @@ export type RealtimeTask = {
 
 export type TaskUpdatedEvent = {
   task: RealtimeTask
+}
+
+export type RealtimeApprovalStatus =
+  | "pending"
+  | "approved"
+  | "rejected"
+  | "expired"
+
+export type ApprovalUpdatedEvent = {
+  approvalId: string
+  channelId: string
+  taskId: string | null
+  status: RealtimeApprovalStatus
+  resolvedBy: string | null
+  resolvedAt: string | null
 }
 
 export type RealtimeLoopStatus = "draft" | "active" | "paused" | "completed"
