@@ -28,3 +28,33 @@ export const approvalSchema = z.object({
 export const resolveApprovalResponseSchema = z.object({
   approval: approvalSchema,
 })
+
+export const channelApprovalsParamsSchema = z.object({
+  channelId: z
+    .string()
+    .uuid()
+    .openapi({
+      param: { name: "channelId", in: "path", required: true },
+    }),
+})
+
+export const approvalResolverSchema = z.object({
+  kind: z.enum(["permission", "role", "user", "any_member"]),
+  role: z.string().optional(),
+  userId: z.string().uuid().optional(),
+})
+
+// A pending gate anchored to the message whose run parked — what the chat
+// surfaces render a card under. resolver null = owner-only (dangling named
+// resolver); resolverUserName is display sugar for the user kind.
+export const channelApprovalSchema = approvalSchema.extend({
+  channelId: z.string().uuid(),
+  threadRootId: z.string().uuid().nullable(),
+  messageId: z.string().uuid().nullable(),
+  resolver: approvalResolverSchema.nullable(),
+  resolverUserName: z.string().nullable(),
+})
+
+export const listChannelApprovalsResponseSchema = z.object({
+  approvals: z.array(channelApprovalSchema),
+})

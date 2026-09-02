@@ -12,8 +12,34 @@ import {
 import { sessionAuthMiddleware } from "@/middleware/session-auth"
 import {
   approvalParamsSchema,
+  channelApprovalsParamsSchema,
+  listChannelApprovalsResponseSchema,
   resolveApprovalResponseSchema,
 } from "@/routes/v1/approvals/schema"
+
+export const listChannelApprovals = createRoute({
+  path: "/channels/{channelId}/approvals",
+  method: "get",
+  summary: "List a channel's pending approvals",
+  description:
+    "Returns pending policy-gated approvals for runs in this channel, anchored to the message whose run parked. Task-scoped request_approval rows surface through the task endpoints instead.",
+  tags: ["Approvals"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: { params: channelApprovalsParamsSchema },
+  hidden: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: listChannelApprovalsResponseSchema,
+      description: "Pending approvals",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type ListChannelApprovalsRoute = typeof listChannelApprovals
 
 // Session auth rather than workspace auth: the path carries no workspace slug,
 // so the handler resolves the approval's workspace and the caller's authority

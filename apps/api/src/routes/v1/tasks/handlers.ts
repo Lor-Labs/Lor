@@ -1,5 +1,5 @@
 import { and, db, desc, eq, inArray, schema } from "@repo/db"
-import { serializeApproval } from "@/lib/approvals"
+import { loadApprovalResolvers, serializeApproval } from "@/lib/approvals"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { userCanAccessChannel } from "@/lib/queries/channel-access"
 import { serializeTask } from "@/lib/scope-runs"
@@ -91,10 +91,29 @@ export const getTask: AppRouteHandler<GetTaskRoute> = async (c) => {
     .limit(1)
     .then((rows) => rows[0] ?? null)
 
+  // Resolver spec + display name so the card can gate its buttons client-side
+  // (the resolve endpoint enforces regardless).
+  const resolver = pending
+    ? ((await loadApprovalResolvers(row.task.workspaceId, [pending])).get(
+        pending.id
+      ) ?? null)
+    : null
+  const resolverUserName =
+    resolver?.kind === "user"
+      ? await db
+          .select({ name: schema.user.name })
+          .from(schema.user)
+          .where(eq(schema.user.id, resolver.userId))
+          .limit(1)
+          .then((rows) => rows[0]?.name ?? null)
+      : null
+
   return c.json(
     {
       task: serializeTask(row.task),
-      pendingApproval: pending ? serializeApproval(pending) : null,
+      pendingApproval: pending
+        ? { ...serializeApproval(pending), resolver, resolverUserName }
+        : null,
     },
     HttpStatusCodes.OK
   )

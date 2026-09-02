@@ -1,13 +1,18 @@
 import { canResolveApproval } from "@repo/auth/permissions"
-import { and, db, eq, inArray, schema } from "@repo/db"
+import { and, db, eq, inArray, isNotNull, schema } from "@repo/db"
 import { resolveChannelAccess } from "@repo/db/queries/channel-access"
 import type { Approval, Task } from "@repo/db/schema"
 import { channelRoom } from "@repo/realtime-types/rooms"
-import { loadApprovalResolver, serializeApproval } from "@/lib/approvals"
+import {
+  loadApprovalResolver,
+  loadApprovalResolvers,
+  serializeApproval,
+} from "@/lib/approvals"
 import { getEmitter } from "@/lib/bot-messages"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
 import { resolveWorkspaceAuthority } from "@/lib/permissions"
+import { userCanAccessChannel } from "@/lib/queries/channel-access"
 import {
   emitTaskUpdated,
   postScopeMessage,
@@ -16,8 +21,75 @@ import {
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
   ApproveApprovalRoute,
+  ListChannelApprovalsRoute,
   RejectApprovalRoute,
 } from "@/routes/v1/approvals/routes"
+
+export const listChannelApprovals: AppRouteHandler<
+  ListChannelApprovalsRoute
+> = async (c) => {
+  const currentUser = c.var.user
+  const { channelId } = c.req.valid("param")
+
+  const canAccess = await userCanAccessChannel(channelId, currentUser.id)
+  if (!canAccess) {
+    return c.json(
+      { success: false as const, message: "Forbidden" },
+      HttpStatusCodes.FORBIDDEN
+    )
+  }
+
+  const rows = await db
+    .select({
+      approval: schema.approval,
+      messageId: schema.agentRun.messageId,
+      threadRootId: schema.agentRun.threadRootId,
+      resolverUserName: schema.user.name,
+    })
+    .from(schema.approval)
+    .innerJoin(schema.agentRun, eq(schema.approval.runId, schema.agentRun.id))
+    .leftJoin(
+      schema.approvalPolicy,
+      and(
+        eq(schema.approvalPolicy.workspaceId, schema.approval.workspaceId),
+        eq(schema.approvalPolicy.target, schema.approval.target)
+      )
+    )
+    .leftJoin(
+      schema.user,
+      eq(schema.approvalPolicy.resolverUserId, schema.user.id)
+    )
+    .where(
+      and(
+        eq(schema.agentRun.channelId, channelId),
+        eq(schema.approval.status, "pending"),
+        isNotNull(schema.approval.runId)
+      )
+    )
+    .limit(50)
+
+  const workspaceId = rows[0]?.approval.workspaceId
+  const resolvers = workspaceId
+    ? await loadApprovalResolvers(
+        workspaceId,
+        rows.map((r) => r.approval)
+      )
+    : new Map()
+
+  return c.json(
+    {
+      approvals: rows.map((row) => ({
+        ...serializeApproval(row.approval),
+        channelId,
+        threadRootId: row.threadRootId,
+        messageId: row.messageId,
+        resolver: resolvers.get(row.approval.id) ?? null,
+        resolverUserName: row.resolverUserName,
+      })),
+    },
+    HttpStatusCodes.OK
+  )
+}
 
 type ResolveOutcome =
   | { kind: "not_found" }

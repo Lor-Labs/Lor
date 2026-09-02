@@ -1,5 +1,5 @@
 import type { ApprovalResolverSpec } from "@repo/auth/permissions"
-import { and, db, eq, schema } from "@repo/db"
+import { and, db, eq, inArray, schema } from "@repo/db"
 import type { Approval } from "@repo/db/schema"
 
 export function serializeApproval(row: Approval) {
@@ -15,6 +15,79 @@ export function serializeApproval(row: Approval) {
     resolvedAt: row.resolvedAt ? row.resolvedAt.toISOString() : null,
     createdAt: row.createdAt.toISOString(),
   }
+}
+
+// Resolver specs for a batch of approvals, keyed by approval id — one policy
+// query for the page instead of one per row. Same fallbacks as
+// loadApprovalResolver: no row → permission, dangling named resolver → null
+// (owner-only).
+export async function loadApprovalResolvers(
+  workspaceId: string,
+  approvals: Pick<Approval, "id" | "target">[]
+): Promise<Map<string, ApprovalResolverSpec | null>> {
+  const targets = [
+    ...new Set(
+      approvals
+        .map((a) => a.target)
+        .filter((t): t is string => typeof t === "string")
+    ),
+  ]
+  const policies =
+    targets.length > 0
+      ? await db
+          .select({
+            target: schema.approvalPolicy.target,
+            resolverKind: schema.approvalPolicy.resolverKind,
+            resolverRole: schema.approvalPolicy.resolverRole,
+            resolverUserId: schema.approvalPolicy.resolverUserId,
+          })
+          .from(schema.approvalPolicy)
+          .where(
+            and(
+              eq(schema.approvalPolicy.workspaceId, workspaceId),
+              inArray(schema.approvalPolicy.target, targets)
+            )
+          )
+      : []
+  const byTarget = new Map(policies.map((p) => [p.target, p]))
+
+  const out = new Map<string, ApprovalResolverSpec | null>()
+  for (const approval of approvals) {
+    if (!approval.target) {
+      out.set(approval.id, { kind: "any_member" })
+      continue
+    }
+    const policy = byTarget.get(approval.target)
+    if (!policy) {
+      out.set(approval.id, { kind: "permission" })
+      continue
+    }
+    switch (policy.resolverKind) {
+      case "permission":
+        out.set(approval.id, { kind: "permission" })
+        break
+      case "any_member":
+        out.set(approval.id, { kind: "any_member" })
+        break
+      case "role":
+        out.set(
+          approval.id,
+          policy.resolverRole
+            ? { kind: "role", role: policy.resolverRole }
+            : null
+        )
+        break
+      case "user":
+        out.set(
+          approval.id,
+          policy.resolverUserId
+            ? { kind: "user", userId: policy.resolverUserId }
+            : null
+        )
+        break
+    }
+  }
+  return out
 }
 
 // Who may resolve this approval. A null target means the agent asked for a

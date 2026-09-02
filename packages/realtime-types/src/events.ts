@@ -566,7 +566,10 @@ export interface ServerToClientEvents {
 
   // Task snapshot changed (status, plan, summary). Channel room.
   "task:updated": (payload: TaskUpdatedEvent) => void
-  // An approval was resolved (LOR-81). Channel room when the approval belongs
+  // A run parked on an approval gate. Channel room; ids only — the
+  // durable card data comes from the channel approvals query this invalidates.
+  "approval:created": (payload: ApprovalCreatedEvent) => void
+  // An approval was resolved. Channel room when the approval belongs
   // to a channel scope, so open approval cards settle without a refetch.
   "approval:updated": (payload: ApprovalUpdatedEvent) => void
   // Loop snapshot changed (status, schedule, run bookkeeping). Channel room.
@@ -657,6 +660,14 @@ export type RealtimeApprovalStatus =
   | "approved"
   | "rejected"
   | "expired"
+
+export type ApprovalCreatedEvent = {
+  approvalId: string
+  channelId: string
+  threadRootId: string | null
+  messageId: string | null
+  taskId: string | null
+}
 
 export type ApprovalUpdatedEvent = {
   approvalId: string

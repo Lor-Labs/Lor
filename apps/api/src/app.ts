@@ -6,6 +6,7 @@ import configureOpenAPI from "@/lib/helpers/openapi/configure-openapi"
 import { globalRateLimit } from "@/middleware/rate-limit"
 import index from "@/routes/index.route"
 import agentProfilesRouter from "@/routes/v1/agent-profiles/index"
+import approvalPoliciesRouter from "@/routes/v1/approval-policies/index"
 import approvalsRouter from "@/routes/v1/approvals/index"
 import artifactsRouter from "@/routes/v1/artifacts/index"
 import billingRouter from "@/routes/v1/billing/index"
@@ -87,6 +88,7 @@ const routes = app
   .route("/v1", artifactsRouter)
   .route("/v1", tasksRouter)
   .route("/v1", approvalsRouter)
+  .route("/v1", approvalPoliciesRouter)
   .route("/v1", loopsRouter)
   .route("/v1", instructionsRouter)
   .route("/v1", faviconRouter)

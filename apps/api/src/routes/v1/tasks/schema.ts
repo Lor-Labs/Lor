@@ -1,6 +1,9 @@
 import { z } from "@hono/zod-openapi"
 import { taskStatusEnum } from "@repo/db/schema"
-import { approvalSchema } from "@/routes/v1/approvals/schema"
+import {
+  approvalResolverSchema,
+  approvalSchema,
+} from "@/routes/v1/approvals/schema"
 
 export const taskParamsSchema = z.object({
   taskId: z
@@ -58,5 +61,10 @@ export const listChannelTasksResponseSchema = z.object({
 
 export const getTaskResponseSchema = z.object({
   task: taskSchema,
-  pendingApproval: approvalSchema.nullable(),
+  pendingApproval: approvalSchema
+    .extend({
+      resolver: approvalResolverSchema.nullable(),
+      resolverUserName: z.string().nullable(),
+    })
+    .nullable(),
 })

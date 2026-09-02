@@ -2,6 +2,7 @@ import {
   ArrowDown01Icon,
   Camera01Icon,
   Cancel01Icon,
+  CheckmarkSquare02Icon,
   CreditCardIcon,
   Layers01Icon,
   LinkSquare02Icon,
@@ -56,6 +57,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { AnimatePresence, motion } from "motion/react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
+import { ApprovalsSection } from "@/components/workspace/approvals-section"
 import { BillingSection } from "@/components/workspace/billing-section"
 import { CustomToolsSection } from "@/components/workspace/custom-tools-section"
 import { GithubBaseBranchSettings } from "@/components/workspace/github-base-branch-settings"
@@ -104,6 +106,7 @@ export type SectionId =
   | "connectors"
   | "custom-tools"
   | "merlin"
+  | "approvals"
   | "instructions"
   | "billing"
 
@@ -113,6 +116,7 @@ const SECTIONS: { id: SectionId; label: string; icon: IconSvgElement }[] = [
   { id: "connectors", label: "Connectors", icon: Plug01Icon },
   { id: "custom-tools", label: "Tools", icon: Wrench01Icon },
   { id: "merlin", label: "Agent profiles", icon: Layers01Icon },
+  { id: "approvals", label: "Approvals", icon: CheckmarkSquare02Icon },
   { id: "instructions", label: "LOR.md", icon: Scroll01Icon },
   { id: "billing", label: "Billing", icon: CreditCardIcon },
 ]
@@ -168,8 +172,10 @@ export function WorkspaceSettingsDialog({
     activeMember && membersData?.ownerId
       ? isAdminOrOwner(activeMember, { ownerId: membersData.ownerId })
       : false
+  // Approval policies ride the same admin-or-owner tier (the API enforces the
+  // approval:manage grant regardless).
   const sections = SECTIONS.filter(
-    (s) => s.id !== "billing" || canManageBilling
+    (s) => (s.id !== "billing" && s.id !== "approvals") || canManageBilling
   )
 
   // Close on Escape (no dialog primitive here, so wire it ourselves).
@@ -313,6 +319,11 @@ export function WorkspaceSettingsDialog({
                     <ConnectorsSection workspaceSlug={workspace.slug} />
                   ) : section === "custom-tools" ? (
                     <CustomToolsSection workspaceSlug={workspace.slug} />
+                  ) : section === "approvals" && canManageBilling ? (
+                    <ApprovalsSection
+                      workspaceId={workspace.id}
+                      workspaceSlug={workspace.slug}
+                    />
                   ) : section === "instructions" ? (
                     <InstructionsSection workspaceSlug={workspace.slug} />
                   ) : section === "billing" && canManageBilling ? (

@@ -15,10 +15,6 @@ describe("ToolTargetMap", () => {
       { create_linear_issue: {}, update_linear_issue: {} },
       { kind: "capability", capability: "linear_write" }
     )
-    targets.add(
-      { post_channel_message: {} },
-      { kind: "core", core: "messaging" }
-    )
     targets.addName("page_oncall", { kind: "customTool", customToolId: "ct-1" })
     targets.addName("sentry_issues", {
       kind: "mcpServer",
@@ -31,10 +27,10 @@ describe("ToolTargetMap", () => {
     expect(targets.targetFor("update_linear_issue")).toBe(
       "capability:linear_write"
     )
-    expect(targets.targetFor("post_channel_message")).toBe("core:messaging")
     expect(targets.targetFor("page_oncall")).toBe("custom_tool:ct-1")
     expect(targets.targetFor("sentry_issues")).toBe("mcp_server:mcp-1")
-    // Core tools are unmapped and can never be gated
+    // Core tools (messaging, brain, chat search) are unmapped — never gateable
+    expect(targets.targetFor("post_channel_message")).toBeNull()
     expect(targets.targetFor("search_brain")).toBeNull()
   })
 })

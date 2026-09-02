@@ -1924,10 +1924,10 @@ export async function respond(
       ...(cloudwatch && caps.includes("cloudwatch") ? cloudwatchTools : {}),
     }
     // Approval targets for the capability-gated groups. Core tools (brain,
-    // chat search, task/loop bookkeeping) stay unmapped and can never be
-    // gated. Marked from the source tool sets, so a group that didn't bind
-    // simply contributes names no bound tool answers to.
-    toolTargets.add(messageActionTools, { kind: "core", core: "messaging" })
+    // chat search, messaging/reactions, task/loop bookkeeping) stay unmapped
+    // and can never be gated — answering in chat is the product. Marked from
+    // the source tool sets, so a group that didn't bind simply contributes
+    // names no bound tool answers to.
     for (const [tools, capability] of [
       [webTools, "web"],
       [githubTools, "github"],

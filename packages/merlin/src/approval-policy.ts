@@ -25,7 +25,8 @@ export async function loadApprovalGates(
 }
 
 // Maps each bound tool name to the approval target that governs it. Tools with
-// no entry (brain, chat search, task/loop bookkeeping) can never be gated.
+// no entry (messaging/reactions, brain, chat search, task/loop bookkeeping)
+// can never be gated — answering in chat is the core product.
 export class ToolTargetMap {
   private readonly byToolName = new Map<string, string>()
 

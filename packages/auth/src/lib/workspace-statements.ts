@@ -8,7 +8,7 @@ export const workspaceStatements = {
   agentProfile: ["manage"], // create/edit Merlin capability profiles AND assign channels to them
   customTool: ["manage"], // user-added tools — both custom API tools and MCP servers
   billing: ["manage"],
-  approval: ["resolve"], // reserved for approval policies (LOR-81); not enforced yet
+  approval: ["resolve", "manage"], // resolve gated agent actions / configure the policies (LOR-81)
 } as const
 
 // Shared human-readable vocabulary for the statements — the roles UI and the
@@ -70,7 +70,10 @@ export const workspaceStatementMeta: {
   },
   approval: {
     label: "Agent approvals",
-    actions: { resolve: "Resolve agent approval requests" },
+    actions: {
+      resolve: "Resolve agent approval requests",
+      manage: "Configure approval policies",
+    },
   },
 }
 

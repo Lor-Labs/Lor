@@ -75,7 +75,7 @@ resolver authority is written in the pillar-1 vocabulary
 
 | Topic | Decision |
 |---|---|
-| Gate unit | **Coarse: one switch per capability** (`capability:<merlin_capability>` — every capability is targetable, reads included; "Linear writes" is one switch covering all three write tools). Plus **per custom tool** (`custom_tool:<id>`), **per MCP server** (`mcp_server:<id>` — one switch covers everything the server exposes), and one core target `core:messaging` (Merlin posting/reacting in channels). The `custom_tools` *capability* is grant vocabulary, not an approval target — individual tool/server rows replace it here. No per-tool granularity inside a capability. |
+| Gate unit | **Coarse: one switch per capability** (`capability:<merlin_capability>` — every capability is targetable, reads included; "Linear writes" is one switch covering all three write tools). Plus **per custom tool** (`custom_tool:<id>`), **per MCP server** (`mcp_server:<id>` — one switch covers everything the server exposes). ~~one core target `core:messaging`~~ REMOVED 2026-09-02: Merlin's own channel messaging is never gateable — answering in chat is the core product (Jacob). The `custom_tools` *capability* is grant vocabulary, not an approval target — individual tool/server rows replace it here. No per-tool granularity inside a capability. |
 | Policy storage | **Computed, own table.** `approval_policy`: a row exists only where the workspace opted in — row existence = gate ON; delete the row to turn it off. No `required` column, no seeding, no backfill when new connectors land. The settings UI renders the full target list from the registry and overlays existing rows. |
 | Defaults | **Everything off.** Out of the box Merlin behaves exactly as today; every gate is an explicit admin opt-in. No default-on connector writes, no default-on code publish. |
 | Resolver spec | Per policy row: `permission` (anyone whose authority grants `approval: ["resolve"]` — owner/admin/custom roles; the reserved statement's enforcement point) · `role` (static or custom role name) · `user` (specific person) · `any_member` (channel write access, today's behavior). Column default `permission` — pre-filled when a gate is enabled. **Owner always resolves** (escape hatch — a named resolver may have left). Channel write access stays the floor for every kind. |
@@ -155,9 +155,9 @@ checked.
 ### [x] P1 — targets + schema + resolver helper (~300 LOC) — built 2026-09-01, db:push owed
 
 - `packages/connectors`: approval-target vocabulary — `ApprovalTarget` union
-  (capability / customTool / mcpServer / core:messaging), key format
+  (capability / customTool / mcpServer), key format
   `capability:<key>` · `custom_tool:<id>` · `mcp_server:<id>` ·
-  `core:messaging`, `approvalTargetKey` / `parseApprovalTargetKey` (validates
+  `approvalTargetKey` / `parseApprovalTargetKey` (validates
   capability keys against `CAPABILITIES`, excludes `custom_tools`), core
   target labels for the UI.
 - New `packages/db/src/schemas/approval-policies.ts`: `approval_policy`
@@ -186,7 +186,7 @@ checked.
   overhead by default), `fileParkedApproval`.
 - `respond()`: gates loaded alongside capabilities; tool→target mapping built
   at assembly time from the source tool sets (capability groups),
-  `messageActionTools` → `core:messaging`, custom tools and MCP tools by id;
+  custom tools and MCP tools by id (`messageActionTools` gating was removed 2026-09-02);
   `toolApproval` + `experimental_toolApprovalSecret` passed to `streamText`
   only when present.
 - Park path: `tool-approval-request` with `isAutomatic !== true` captured from
@@ -269,7 +269,7 @@ resulting empty tool message, and `approvedToolCallIds` lets an
 approval-response stand in for a missing tool result during the
 `MissingToolResultsError` pairing check.
 
-### [ ] P4 — web surfaces (~450 LOC)
+### [x] P4 — web surfaces (~450 LOC) — built 2026-09-02
 
 - `approval:created/updated` in `packages/realtime-types` + realtime relay.
 - Generalized `ApprovalCard` on any parked run placeholder (channel + thread),
@@ -281,6 +281,31 @@ approval-response stand in for a missing tool result during the
   picker (permission / role incl. custom / person / any member). Gate the
   section like billing (owner/admin).
 - Roles matrix: un-hide `approval: resolve` checkbox (enforcement is live).
+
+**As built.** New statement action `approval: manage` (admin/owner inherit via
+the grants spread; custom roles can be granted it in the matrix) gates the
+policy CRUD: `routes/v1/approval-policies/` (GET list returns policy rows +
+the computed target list; PUT upserts by target with resolver validation —
+id-shaped targets must belong to the workspace, named resolvers must exist;
+DELETE by policy id). Targets are listed regardless of connection state — a
+gate on a disconnected connector is inert, not invalid.
+
+Card data path (deviation from the run-trail sketch): a durable
+`GET /channels/{id}/approvals` query (pending gated approvals joined to their
+run's messageId/threadRootId, resolver spec + resolver user name attached) +
+id-only `approval:created`/`approval:updated` events that just invalidate it.
+`approval:created` is emitted by the worker only after the run is terminal —
+the resolve endpoint refuses a run that hasn't finished parking.
+`ApprovalGateCard` (components/chat/approval-card.tsx) is the one card: task
+header keeps it, and `MessageApprovalCard` hangs it under any run reply
+(`merlinTriggerMessageId` marks those live and on reload). Buttons are gated
+by the shared `canResolveApproval` (authority built client-side from active
+member + ownerId + custom-role grants); non-resolvers see who can resolve.
+`getTask.pendingApproval` was enriched with `resolver`/`resolverUserName` so
+the task card gates identically. The resolve mutation moved from use-task to
+use-approvals. Settings section "Approvals" is nav-gated at the billing tier
+(admin/owner) — a custom role holding `approval:manage` can hit the API but
+won't see the nav item; cosmetic, logged below.
 
 ### [ ] P5 — push + mobile (LOR-83) (~350 LOC)
 
@@ -306,8 +331,8 @@ Manual QA checklist (live, after db:push):
    always resolve.
 6. Resolver `permission`: custom role WITH `approval:resolve` granted via the
    roles matrix resolves; plain member cannot.
-7. Non-task gate: channel @Merlin with `core:messaging` enabled → parks and
-   resumes in channel scope.
+7. Non-task gate: a capability gate tripped by a plain channel @Merlin (no
+   task) → parks and resumes in channel scope.
 8. MCP server gate: one switch parks any tool from that server.
 9. Turn a gate off (delete row) → next run executes ungated.
 10. Discretionary `request_approval` still round-trips; any member resolves.
@@ -320,6 +345,18 @@ Manual QA checklist (live, after db:push):
 
 - 2026-08-31 — Runbook drafted from verified current-state map (approval
   machinery, harness replay, AI SDK toolApproval).
+- 2026-09-02 — `core:messaging` target REMOVED entirely (Jacob: "no one
+  should have to approve this" — messaging is the core product). The
+  ApprovalTarget union has no core kind, `messageActionTools` stays unmapped,
+  and the policy page has no Core actions group. No schema impact (no rows
+  existed; db:push still pending).
+- 2026-09-02 — P4 deviations: cards are fed by a channel-approvals query +
+  invalidation events, not run-trail replay (simpler, survives reload, no
+  per-card socket state). `approval:created` carries ids only. New
+  `approval:manage` statement action added to the P1 vocabulary — policy CRUD
+  needed its own gate and "like billing" had no statement to mirror. Settings
+  nav visibility stays admin-or-owner (matrix-granted `approval:manage`
+  custom roles reach the API but not the nav item — fix opportunistically).
 - 2026-09-01 — P3 deviations: `approval:updated` landed here (P4 keeps
   `approval:created` and the UI); its payload is scope-shaped
   (`approvalId`/`channelId`/`taskId`/status), emitted to the channel room. The

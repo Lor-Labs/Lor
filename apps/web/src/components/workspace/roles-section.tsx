@@ -31,11 +31,9 @@ import {
 } from "@/hooks/use-workspace-roles"
 import { apiClient } from "@/lib/api-client"
 
-// approval:resolve is reserved for approval policies (LOR-81) — granting it
-// does nothing yet, so it stays out of the matrix until it's enforced.
-const MATRIX_RESOURCES = (
-  Object.keys(workspaceStatements) as (keyof typeof workspaceStatements)[]
-).filter((resource) => resource !== "approval")
+const MATRIX_RESOURCES = Object.keys(
+  workspaceStatements
+) as (keyof typeof workspaceStatements)[]
 
 const STATIC_ROLE_SUMMARIES: {
   role: keyof typeof staticRoles

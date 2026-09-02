@@ -25,6 +25,7 @@ import { cn } from "@repo/ui/lib/utils"
 import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { formatTime, timeAgo } from "@repo/utils/date"
 import { memo, useCallback, useEffect, useState } from "react"
+import { MessageApprovalCard } from "@/components/chat/approval-card"
 import type { MentionCandidate } from "@/components/chat/composer/mention-types"
 import { EmbedCard } from "@/components/chat/embed-card"
 import { LoopCard } from "@/components/chat/loop-card"
@@ -654,6 +655,14 @@ export const MessageItem = memo(function MessageItem({
             (message.streaming || message.status === "pending") && (
               <MerlinRunControls message={message} />
             )}
+          {/* Policy-gated approval parked on this run's reply (LOR-81).
+              merlinTriggerMessageId marks run replies live and on reload. */}
+          {message.merlinTriggerMessageId && !isEditing && (
+            <MessageApprovalCard
+              channelId={message.channelId}
+              messageId={message.id}
+            />
+          )}
           {message.routedOutcome === "steered" && (
             <span className="mt-1 inline-flex w-fit items-center gap-1 rounded-md bg-merlin/10 px-1.5 py-0.5 text-[11px] text-merlin">
               Steering Merlin's current answer

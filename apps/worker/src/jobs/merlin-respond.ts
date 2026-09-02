@@ -1064,6 +1064,35 @@ export function createMerlinRespondProcessor(
           execution?.stop()
           await settleTask(stoppedByUser ? "stopped" : "complete")
           drainQueue()
+          // Announce the gate only after the run is terminal — the resolve
+          // endpoint refuses to resume a run that hasn't finished parking.
+          // Ids only; cards read the durable row via the approvals query.
+          if (awaitingApproval && job.data.runId) {
+            const parkedApproval = await db
+              .select({
+                id: schema.approval.id,
+                taskId: schema.approval.taskId,
+              })
+              .from(schema.approval)
+              .where(
+                and(
+                  eq(schema.approval.runId, job.data.runId),
+                  eq(schema.approval.status, "pending")
+                )
+              )
+              .limit(1)
+              .then((r) => r[0] ?? null)
+              .catch(() => null)
+            if (parkedApproval) {
+              emitter.to(channelRoom(channelId)).emit("approval:created", {
+                approvalId: parkedApproval.id,
+                channelId,
+                threadRootId,
+                messageId: merlinMessageId,
+                taskId: parkedApproval.taskId,
+              })
+            }
+          }
           logger.info(
             { merlinMessageId, length: finalText.length, stoppedByUser },
             "Merlin reply complete"

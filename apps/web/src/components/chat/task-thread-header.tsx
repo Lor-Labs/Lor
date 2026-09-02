@@ -6,15 +6,11 @@ import {
   PopoverPopup,
   PopoverTrigger,
 } from "@repo/ui/components/popover"
+import { ApprovalGateCard } from "@/components/chat/approval-card"
 import { ArtifactFileCard } from "@/components/chat/artifact-file-card"
 import { TaskPlanList } from "@/components/chat/task-plan-list"
 import { useTaskForCard } from "@/hooks/use-channel-tasks"
-import {
-  type TaskApproval,
-  useResolveApproval,
-  useTask,
-  useTaskArtifacts,
-} from "@/hooks/use-task"
+import { useTask, useTaskArtifacts } from "@/hooks/use-task"
 import { formatFileSize, getFileKind } from "@/lib/attachments"
 
 export type TaskSourceFile = {
@@ -22,45 +18,6 @@ export type TaskSourceFile = {
   filename: string
   size: number
   contentType: string
-}
-
-function ApprovalCard({
-  taskId,
-  approval,
-}: {
-  taskId: string
-  approval: TaskApproval
-}) {
-  const resolve = useResolveApproval(taskId)
-  return (
-    <div className="rounded-lg border border-warning/40 bg-warning/10 p-3">
-      <p className="font-medium text-sm">Merlin asks for approval</p>
-      <p className="mt-1 text-muted-foreground text-sm">
-        {approval.description}
-      </p>
-      <div className="mt-2 flex gap-2">
-        <Button
-          size="sm"
-          disabled={resolve.isPending}
-          onClick={() =>
-            resolve.mutate({ approvalId: approval.id, resolution: "approve" })
-          }
-        >
-          Approve
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={resolve.isPending}
-          onClick={() =>
-            resolve.mutate({ approvalId: approval.id, resolution: "reject" })
-          }
-        >
-          Reject
-        </Button>
-      </div>
-    </div>
-  )
 }
 
 const SECTION_TRIGGER_CLASS =
@@ -199,7 +156,7 @@ export function TaskThreadHeader({
       )}
       {pendingApproval && (
         <div className="mt-2">
-          <ApprovalCard taskId={task.id} approval={pendingApproval} />
+          <ApprovalGateCard channelId={channelId} approval={pendingApproval} />
         </div>
       )}
     </div>
