@@ -1,7 +1,6 @@
 import type { ServerToClientEvents } from "@repo/realtime-types"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect } from "react"
-import { Alert } from "react-native"
 import { useSocket } from "@/context/socket-context"
 import { api } from "@/lib/api"
 import type { ChannelTask, TaskArtifact, TaskDetail } from "@/lib/api-types"
@@ -90,39 +89,6 @@ export function useTaskArtifacts(taskId: string | null) {
       if (!res.ok) throw new Error("Failed to fetch task artifacts")
       const payload = await res.json()
       return payload.artifacts
-    },
-  })
-}
-
-// Approve/reject a pending approval. The server posts the resolution into the
-// task thread and starts the continuation run; task:updated refreshes the UI.
-export function useResolveApproval(taskId: string | null) {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: async (args: {
-      approvalId: string
-      resolution: "approve" | "reject"
-    }) => {
-      const endpoint =
-        api.v1.approvals[":approvalId"][
-          args.resolution === "approve" ? "approve" : "reject"
-        ]
-      const res = await endpoint.$post({
-        param: { approvalId: args.approvalId },
-      })
-      if (!res.ok) throw new Error("Failed to resolve approval")
-      return res.json()
-    },
-    onError: (_error, args) => {
-      Alert.alert(
-        args.resolution === "approve" ? "Couldn't approve" : "Couldn't reject",
-        "Please try again in a moment."
-      )
-    },
-    onSettled: () => {
-      if (taskId) {
-        void queryClient.invalidateQueries({ queryKey: ["task", taskId] })
-      }
     },
   })
 }

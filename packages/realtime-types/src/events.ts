@@ -582,6 +582,10 @@ export interface ServerToClientEvents {
   "notification:unread": (payload: UnreadNotification) => void
   "notification:mention": (payload: MentionNotification) => void
   "notification:reaction": (payload: ReactionNotification) => void
+  // User room, resolver-targeted (LOR-83): a run parked on an approval gate
+  // and this user should act (or know). Online clients show an OS
+  // notification; the offline complement goes out as a mobile push instead.
+  "notification:approval": (payload: ApprovalNotification) => void
   "channel:read-state": (payload: ChannelReadState) => void
   "channel-mute:updated": (payload: ChannelMuteUpdated) => void
   "thread-read:updated": (payload: ThreadReadUpdated) => void
@@ -660,6 +664,23 @@ export type RealtimeApprovalStatus =
   | "approved"
   | "rejected"
   | "expired"
+
+// "actionable" = this user can resolve the approval; "waiting" = this user's
+// own run is blocked on someone else (informational).
+export type ApprovalNotification = {
+  approvalId: string
+  flavor: "actionable" | "waiting"
+  workspaceId: string
+  workspaceName: string
+  channelId: string
+  channelName: string | null
+  threadRootId: string | null
+  messageId: string | null
+  description: string
+  // Plain words for who can resolve ("anyone with the approvals permission",
+  // "the support role", a person's name) — rendered in the waiting flavor.
+  resolverLabel: string
+}
 
 export type ApprovalCreatedEvent = {
   approvalId: string

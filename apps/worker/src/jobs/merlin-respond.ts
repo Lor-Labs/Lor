@@ -51,6 +51,10 @@ import type { Emitter } from "@socket.io/redis-emitter"
 import type { Job, Queue } from "bullmq"
 import type { createClient } from "redis"
 import { claimAgentRun, LeaseLostError } from "@/lib/agent-run"
+import {
+  notifyApprovalParked,
+  scheduleApprovalEscalation,
+} from "@/lib/approval-notify"
 import { logger } from "@/lib/logger"
 import { createLoopCard } from "@/lib/merlin-loop"
 import {
@@ -1091,6 +1095,22 @@ export function createMerlinRespondProcessor(
                 messageId: merlinMessageId,
                 taskId: parkedApproval.taskId,
               })
+              // Directed fan-out: requester and/or resolvers, per the rules in
+              // approval-notify. Never fails the (already terminal) reply.
+              try {
+                const { scheduleEscalation } = await notifyApprovalParked(
+                  { emitter, redis },
+                  parkedApproval.id
+                )
+                if (scheduleEscalation) {
+                  await scheduleApprovalEscalation(parkedApproval.id)
+                }
+              } catch (err) {
+                logger.error(
+                  { err, approvalId: parkedApproval.id },
+                  "Approval notification fan-out failed"
+                )
+              }
             }
           }
           logger.info(

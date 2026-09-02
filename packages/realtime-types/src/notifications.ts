@@ -54,3 +54,27 @@ export function buildReactionNotificationBody(input: {
     ? `Reacted ${input.emoji} to your "${input.messagePreview}"`
     : `Reacted ${input.emoji} to your message`
 }
+
+// One wording for the approval ping on every surface (web/desktop OS
+// notification, mobile push) — LOR-83.
+export function buildApprovalNotificationContent(input: {
+  flavor: "actionable" | "waiting"
+  channelName: string | null
+  workspaceName: string
+  description: string
+  resolverLabel: string
+}): { title: string; body: string } {
+  const where = input.channelName
+    ? `#${input.channelName}`
+    : input.workspaceName
+  if (input.flavor === "waiting") {
+    return {
+      title: `Merlin is waiting for approval in ${where}`,
+      body: `Needs ${input.resolverLabel}: ${input.description}`,
+    }
+  }
+  return {
+    title: `Merlin needs your approval in ${where}`,
+    body: input.description,
+  }
+}

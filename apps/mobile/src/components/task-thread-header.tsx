@@ -4,65 +4,18 @@ import { useThemeColor } from "heroui-native/hooks"
 import { Popover } from "heroui-native/popover"
 import { type ReactNode, useState } from "react"
 import { Text, View } from "react-native"
+import { ApprovalGateCard } from "@/components/approval-card"
 import {
   TaskFileRow,
   TaskPlanList,
   TaskStatusBadge,
 } from "@/components/task-ui"
-import { Button } from "@/components/ui/button"
-import {
-  useResolveApproval,
-  useTask,
-  useTaskArtifacts,
-  useTaskForCard,
-} from "@/hooks/use-tasks"
-import type { TaskApproval } from "@/lib/api-types"
+import { useTask, useTaskArtifacts, useTaskForCard } from "@/hooks/use-tasks"
 
 export type TaskSourceFile = {
   url: string
   filename: string
   size: number
-}
-
-function ApprovalCard({
-  taskId,
-  approval,
-}: {
-  taskId: string
-  approval: TaskApproval
-}) {
-  const resolve = useResolveApproval(taskId)
-  return (
-    <View className="gap-two rounded-lor-sm bg-warning-soft p-three">
-      <Text className="text-sm font-semibold text-foreground">
-        Merlin asks for approval
-      </Text>
-      <Text className="text-sm leading-5 text-muted">
-        {approval.description}
-      </Text>
-      <View className="flex-row gap-two pt-one">
-        <Button
-          isDisabled={resolve.isPending}
-          onPress={() =>
-            resolve.mutate({ approvalId: approval.id, resolution: "approve" })
-          }
-          size="sm"
-        >
-          {resolve.isPending ? "Working…" : "Approve"}
-        </Button>
-        <Button
-          isDisabled={resolve.isPending}
-          onPress={() =>
-            resolve.mutate({ approvalId: approval.id, resolution: "reject" })
-          }
-          size="sm"
-          variant="secondary"
-        >
-          Reject
-        </Button>
-      </View>
-    </View>
-  )
 }
 
 // Anchored popover chip — the mobile analogue of web's Plan/Files popovers.
@@ -184,7 +137,7 @@ export function TaskThreadHeader({
         ) : null}
       </View>
       {pendingApproval ? (
-        <ApprovalCard approval={pendingApproval} taskId={task.id} />
+        <ApprovalGateCard approval={pendingApproval} channelId={channelId} />
       ) : null}
     </View>
   )

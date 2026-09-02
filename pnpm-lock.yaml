@@ -590,6 +590,9 @@ importers:
 
   apps/worker:
     dependencies:
+      '@repo/auth':
+        specifier: workspace:^
+        version: link:../../packages/auth
       '@repo/billing':
         specifier: workspace:^
         version: link:../../packages/billing

@@ -1,4 +1,6 @@
 import {
+  type ApprovalNotification,
+  buildApprovalNotificationContent,
   buildNotificationTitle,
   buildReactionNotificationBody,
   type MentionNotification,
@@ -140,14 +142,26 @@ export function useBrowserNotifications() {
       )
     }
 
+    // Directed approval pings (LOR-83): the server already narrowed the
+    // audience to this user, so mutes and level settings deliberately don't
+    // apply — only "nothing" and being on the channel already suppress it.
+    const onApproval = (payload: ApprovalNotification) => {
+      if (isAlreadyVisible(payload.channelId)) return
+      if (settings?.desktopNotifications === "nothing") return
+      const { title, body } = buildApprovalNotificationContent(payload)
+      showNotification(title, body, { tag: `approval-${payload.approvalId}` })
+    }
+
     socket.on("notification:mention", onMention)
     socket.on("notification:unread", onUnread)
     socket.on("notification:reaction", onReaction)
+    socket.on("notification:approval", onApproval)
 
     return () => {
       socket.off("notification:mention", onMention)
       socket.off("notification:unread", onUnread)
       socket.off("notification:reaction", onReaction)
+      socket.off("notification:approval", onApproval)
     }
   }, [socket, settings, mutes, viewedChannelId])
 }

@@ -307,7 +307,7 @@ use-approvals. Settings section "Approvals" is nav-gated at the billing tier
 (admin/owner) — a custom role holding `approval:manage` can hit the API but
 won't see the nav item; cosmetic, logged below.
 
-### [ ] P5 — push + mobile (LOR-83) (~350 LOC)
+### [x] P5 — push + mobile (LOR-83) (~350 LOC) — built 2026-09-02
 
 - `sendApprovalPush` in `packages/messaging` (resolver set, data-only deep
   link to channel/thread).
@@ -315,6 +315,29 @@ won't see the nav item; cosmetic, logged below.
   pattern); resolver gating degrades member-tier without custom-grant data
   (server enforces; gap noted in `reference/mobile-parity-todo.md`).
 - Update `reference/mobile-parity-todo.md`.
+
+**As built.** Fan-out rules locked with Jacob (2026-09-02), implemented in
+`apps/worker/src/lib/approval-notify.ts`: with E = the eligible resolver set
+(owner fallback when empty/dangling) and R = the run's trigger author (null
+for loops/triggered runs) — R ∈ E → ping only R immediately and schedule a
+2-minute escalation (BullMQ delayed job on the maintenance queue) that
+re-checks the row and pages E∖{R} only if still pending; R ∉ E → ping E
+immediately plus a "waiting on <resolver>" notice to R; no R → ping E
+immediately. `any_member` never pages beyond R — the in-channel card and the
+run's own message are the surface. Each ping is one surface per person:
+user-targeted `notification:approval` socket event (web/desktop render the OS
+notification client-side via `use-browser-notifications`, wording shared
+through `buildApprovalNotificationContent` in realtime-types) and
+`sendApprovalPush` (packages/messaging) for the offline complement —
+presence-checked at send time, deliberately no mute/settings filtering
+(directed, rare). The push's `type: "approval"` data deep-links through
+mobile's existing message target.
+
+Mobile: `dynamicAccessControl` enabled in the auth client, new
+`use-workspace-roles` + `use-approvals` hooks (query keys mirror web),
+shared `ApprovalGateCard`/`MessageApprovalCard` (task header + any parked run
+reply in `message-row.tsx`), channel + thread screens mount the live query.
+Mobile approval buttons now gate on real custom-role grants.
 
 ### [ ] P6 — validation sweep + live QA
 
@@ -345,6 +368,13 @@ Manual QA checklist (live, after db:push):
 
 - 2026-08-31 — Runbook drafted from verified current-state map (approval
   machinery, harness replay, AI SDK toolApproval).
+- 2026-09-02 — P5 deviations: notification fan-out is requester-aware with a
+  2-minute escalation (Jacob's design — see P5 as-built), not a flat
+  "push the resolver set". The `instructions-proposal` push remains
+  presence-independent while approval pushes are offline-only — inconsistent,
+  left as-is deliberately. Mobile custom-role grants are fetched for approval
+  cards only; moderation/channel-permission hooks still degrade to member
+  tier (tracked in mobile-parity-todo).
 - 2026-09-02 — `core:messaging` target REMOVED entirely (Jacob: "no one
   should have to approve this" — messaging is the core product). The
   ApprovalTarget union has no core kind, `messageActionTools` stays unmapped,

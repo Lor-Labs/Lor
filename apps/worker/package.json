@@ -10,6 +10,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@repo/auth": "workspace:^",
     "@repo/billing": "workspace:^",
     "@repo/db": "workspace:*",
     "@repo/env": "workspace:*",

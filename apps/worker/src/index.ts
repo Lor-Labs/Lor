@@ -32,12 +32,17 @@ import {
 import { LOOP_SWEEP_EVERY_MS, sweepDueLoops } from "@/jobs/sweep-due-loops"
 import { createTriggeredRunProcessor } from "@/jobs/triggered-run"
 import { signalRunStop } from "@/lib/agent-run"
+import {
+  escalateApproval,
+  MAINTENANCE_QUEUE,
+  NOTIFY_APPROVAL_JOB,
+} from "@/lib/approval-notify"
 import { logger } from "@/lib/logger"
 import { awaitInflightDrains } from "@/lib/run-queue"
 
-// Worker-internal periodic upkeep, scheduled through BullMQ (not in-process
-// timers) so replicas share one schedule and runs are visible/retryable.
-const MAINTENANCE_QUEUE = "maintenance"
+// Worker-internal periodic upkeep and delayed one-shots, scheduled through
+// BullMQ (not in-process timers) so replicas share one schedule and runs are
+// visible/retryable. The queue name lives in approval-notify (its producer).
 // A lost flush job is the only way queued Act deliveries can go unhandled, so
 // sweep for open-but-overdue windows and re-arm them.
 const ACT_WINDOW_SWEEP_EVERY_MS = 5 * 60 * 1000
@@ -286,7 +291,13 @@ async function bootstrap() {
         )
       else if (job.name === "sweep-due-loops")
         await sweepDueLoops(emitter, loopRunQueue)
-      else if (job.name === "sweep-act-windows") {
+      else if (job.name === NOTIFY_APPROVAL_JOB) {
+        const { approvalId } = job.data as { approvalId: string }
+        await escalateApproval(
+          { emitter, redis: redisEmitterClient },
+          approvalId
+        )
+      } else if (job.name === "sweep-act-windows") {
         // Claimed, so a slow re-armed flush can't be double-enqueued.
         const overdue = await claimOverdueActWindows(ACT_WINDOW_SWEEP_GRACE_MS)
         for (const triggerId of overdue) {

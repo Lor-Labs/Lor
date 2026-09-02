@@ -30,6 +30,7 @@ import { StatePanel } from "@/components/ui/state-panel"
 import { UserProfileSheet } from "@/components/user-profile-sheet"
 import { useSocket, useSocketConnected } from "@/context/socket-context"
 import { useWorkspace } from "@/context/workspace-context"
+import { useChannelApprovals } from "@/hooks/use-approvals"
 import { useAutoMarkRead } from "@/hooks/use-auto-mark-read"
 import { useChannelDetail } from "@/hooks/use-channel-detail"
 import { useChannelMessages } from "@/hooks/use-channel-messages"
@@ -85,6 +86,9 @@ export default function ChannelScreen() {
     currentUser: session?.user,
   })
   useAutoMarkRead(channelId)
+  // Live source for every approval card in this channel (message cards read
+  // the same cache); the socket handlers live here, once per screen.
+  useChannelApprovals(channelId ?? "")
   // Channel-scope queue (a send can land while a run is finalizing) —
   // surfaced in the same composer pill as thread queues.
   const pendingMerlinMessageId = useMemo(

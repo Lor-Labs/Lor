@@ -9,6 +9,7 @@ import { formatDateDivider, formatDateTime, timeAgo } from "@repo/utils/date"
 import { useThemeColor } from "heroui-native/hooks"
 import { Pressable, Text, View } from "react-native"
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated"
+import { MessageApprovalCard } from "@/components/approval-card"
 import { ConnectorIcon, connectorForName } from "@/components/connector-icon"
 import { LoopCard } from "@/components/loop-card"
 import { MerlinMessageBody } from "@/components/merlin-message-body"
@@ -223,6 +224,12 @@ function MessageRowBody({
           ) : null}
           {showMerlinRunControls && isStreaming ? (
             <MerlinRunControls message={message} />
+          ) : null}
+          {isMerlin && message.merlinTriggerMessageId ? (
+            <MessageApprovalCard
+              channelId={message.channelId}
+              messageId={message.id}
+            />
           ) : null}
           {message.routedOutcome === "steered" ? <RoutedChip /> : null}
           {message.editedAt ? (
