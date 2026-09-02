@@ -302,11 +302,14 @@ export async function workspaceCustomTools(
   workspaceId: string,
   takenNames: ReadonlySet<string>,
   grant: "all" | string[]
-): Promise<ToolSet | null> {
+  // toolIds: bound tool name → custom_tool.id, so approval policy can gate a
+  // single workspace tool.
+): Promise<{ tools: ToolSet; toolIds: Record<string, string> } | null> {
   if (!env.INTEGRATION_ENCRYPTION_KEY) return null
   if (grant !== "all" && grant.length === 0) return null
   const rows = await db
     .select({
+      id: schema.customTool.id,
       name: schema.customTool.name,
       description: schema.customTool.description,
       argsSchema: schema.customTool.argsSchema,
@@ -326,6 +329,7 @@ export async function workspaceCustomTools(
     .orderBy(asc(schema.customTool.name))
 
   const tools: ToolSet = {}
+  const toolIds: Record<string, string> = {}
   for (const row of rows) {
     if (takenNames.has(row.name) || !CUSTOM_TOOL_NAME_REGEX.test(row.name)) {
       logger.warn(
@@ -339,6 +343,7 @@ export async function workspaceCustomTools(
       inputSchema: jsonSchema(row.argsSchema),
       execute: (input) => executeCustomTool(row, input),
     })
+    toolIds[row.name] = row.id
   }
-  return Object.keys(tools).length > 0 ? tools : null
+  return Object.keys(tools).length > 0 ? { tools, toolIds } : null
 }

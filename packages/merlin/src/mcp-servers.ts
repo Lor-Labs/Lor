@@ -301,7 +301,12 @@ export type McpServerSessions = {
   // The servers whose tools bound here, each with the tool names it
   // contributed — the caller filters again against built-ins/custom tools, so
   // the prompt line can only claim servers that survived that pass.
-  servers: { name: string; description: string; toolNames: string[] }[]
+  servers: {
+    id: string
+    name: string
+    description: string
+    toolNames: string[]
+  }[]
   close: () => Promise<void>
 }
 
@@ -408,6 +413,7 @@ export async function channelMcpServers(
 
   const tools: ToolSet = {}
   const bound: {
+    id: string
     name: string
     description: string
     toolNames: string[]
@@ -434,6 +440,7 @@ export async function channelMcpServers(
     }
     Object.assign(tools, withCappedResults(serverTools))
     bound.push({
+      id: session.row.id,
       name: session.row.name,
       description: session.row.description,
       toolNames: Object.keys(serverTools),

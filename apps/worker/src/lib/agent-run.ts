@@ -677,6 +677,7 @@ export async function claimAgentRun(
   }
 
   const handle: RunHandle = {
+    runId,
     budgets: {
       steps: claimed.budgetSteps,
       inputTokens: claimed.budgetInputTokens,

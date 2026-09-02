@@ -35,8 +35,7 @@ const DEAD_RUN_GRACE_MS = 10 * 60 * 1000
 // so a worker-outage backlog isn't force-failed just before its jobs run.
 const UNCLAIMED_RUN_GRACE_MS = 30 * 60 * 1000
 
-const DEAD_RUN_MESSAGE =
-  "⚠️ I ran into an error answering that. Please try again."
+const DEAD_RUN_MESSAGE = "I ran into an error answering that. Please try again."
 
 // Run events are replay data for in-flight runs; once a run is terminal the
 // message row holds the durable trail, so prune old terminal runs' events.

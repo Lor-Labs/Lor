@@ -92,18 +92,57 @@ resolver authority is written in the pillar-1 vocabulary
 | Env | `MERLIN_TOOL_APPROVAL_SECRET` (≥32 chars, **optional**) in `packages/env` serverSchema — worker + API share it. Optional so deploys don't break; P2 decides unset behavior (gates still enforce, secret hardens the binding). Optional → no `TEST_ENV` mirror needed. |
 | Out of scope | Per-channel/per-profile policy overrides; per-tool granularity inside a capability; resolver customization for discretionary approvals; seeded policy rows; approval expiry/timeouts (enum value exists, unused); Merlin proposing policy changes (pillar 3); LOR.md flow changes; batch/multi-gate approvals; forced sandbox-cost gate (`code_intelligence` is gateable generically if a workspace opts in). |
 
-## Spike items (verify in P2 before building on them)
+## Spike results (verified against `ai@7.0.11` dist, 2026-09-01)
 
-- The `tool-approval-request` part flowing through our step checkpoint: the
-  parked assistant message (tool call + approval request) must land in
-  `agent_run_step.messages` so replay reproduces it. Verify shape.
-- Mixed step: model emits a gated call + ungated calls in one step — confirm
-  SDK behavior (do ungated calls execute before the pause?).
-- Compaction interaction: a compaction baseline that projects away the parked
-  tool call would break resume. The parked step must survive replay verbatim
-  (likely: park always ends the run before compaction can run again — confirm).
-- Tool-guard wrapper (`wrapTools`) composing with `toolApproval` — gate should
-  fire before the wrapper executes anything.
+All four spike items resolved by reading the installed SDK source. Two of the
+findings change the design; they are folded into the steps below.
+
+- **Parked step in the transcript** ✅ `toResponseMessages` pushes
+  `{type:'tool-approval-request', approvalId, toolCallId, isAutomatic?,
+  signature?}` into the assistant message of `step.response.messages`, so our
+  existing `checkpointStep` persists it with **no change**. The part is
+  stripped before the provider call (`convertToLanguageModelMessage` filters
+  it), so it costs no tokens and cannot disturb the cached prefix.
+- **Mixed step** ✅ Ungated sibling calls in the same step **do execute** — the
+  approval check runs per `tool-call` chunk and only the gated one is withheld
+  from `toolCallsToExecute`. A parked step can therefore carry real side
+  effects; the checkpoint records them normally, and the UI must not imply
+  "nothing happened".
+- **How the loop ends** ✅ (new) The continuation predicate is
+  `clientToolCalls.length === clientToolOutputs.length +
+  deniedToolApprovalResponses.length`. A `user-approval` call satisfies
+  neither, so the stream **finishes on its own with no further model call** —
+  `stopWhen` is never consulted. We need no ceiling-flag trick for policy
+  gates (unlike `request_approval`). Consequence: the model gets **no closing
+  text**, so the approval card must carry the explanation, not model prose.
+- **Compaction** ✅ Safe by construction: the park ends the stream immediately,
+  so `prepareStep` (where compaction lives) never runs again in that run. On
+  resume, `collectToolApprovals` runs at the very top of `streamText`, before
+  any step, so the approved tool executes before compaction can touch the
+  messages.
+- **Tool-guard composition** ✅ The gate fires on the `tool-call` chunk, before
+  `executeToolCall` reaches the wrapped `execute`. A parked call spends
+  nothing and writes nothing.
+- **Resume ordering constraint** ⚠️ (new, load-bearing)
+  `collectToolApprovals` only inspects `messages.at(-1)` and requires
+  `role === "tool"`. The continuation's message array must therefore **end**
+  with the approval-response tool message — we cannot append the usual delta
+  user message after it (provider tool_use/tool_result adjacency forbids it
+  anyway). The human's accompanying words instead arrive through the existing
+  step-boundary steering/ambient injection, which needs no new machinery.
+- **Revalidation on resume** ✅ `validateApprovedToolApprovals` re-verifies the
+  HMAC (throws if the secret is set and the signature is missing/invalid),
+  re-validates input against the tool schema, and re-runs the policy function;
+  only a `denied` result blocks. So turning a gate off while a run is parked
+  still executes the approved call, and re-parking never happens.
+  **Operational note:** enabling or rotating `MERLIN_TOOL_APPROVAL_SECRET`
+  invalidates in-flight parked approvals (unsigned requests then throw) — do
+  it when nothing is pending.
+- **Recovery hazard** ⚠️ (new, for P3) A transcript ending in an unanswered
+  approval request throws `MissingToolResultsError` if replayed without the
+  response. Narrow window (worker dies between the park and the run going
+  terminal). P3's continuation must detect a parked predecessor: append the
+  response when a resolved row exists, otherwise fall back to a fresh context.
 
 ## Steps
 
@@ -138,22 +177,34 @@ checked.
 - **db:push owed after this step** (Jacob): `approval_policy` table, three
   `approval` columns + index, `agent_run_stop_reason` enum value.
 
-### [ ] P2 — merlin gate wiring (~450 LOC)
+### [x] P2 — merlin gate wiring (~400 LOC) — built 2026-09-01
 
-- Spike items above, first.
-- `respond()`: resolve workspace policy rows once (alongside capabilities);
-  map bound tools → target keys at assembly time (the spread sites already
-  know which capability each tool set belongs to; custom/MCP tools carry
-  their ids; `messageActionTools` → `core:messaging`); build `toolApproval`
-  from the map; `experimental_toolApprovalSecret` from env when set.
-- Park path: on approval-request part → insert approval row (payload = raw
-  input) in the checkpoint transaction; run ends `awaiting_approval`; task
-  runs also set `waiting_for_approval`; emit `approval:created` (worker is
-  the seq/event writer).
-- `authorizePublish` seam: `capability:code_actions` gating routes through
-  the same gate (delete the hardcoded `"publish"`).
-- `request_approval` keeps its flag-park but writes the same enriched row
-  shape (target null).
+- `packages/merlin/src/approval-policy.ts`: `loadApprovalGates` (one query,
+  **deliberately uncaught** — a policy read failure fails the run rather than
+  executing gated actions ungated), `ToolTargetMap`, `buildToolApproval`
+  (returns `undefined` when the workspace opted into nothing, so zero
+  overhead by default), `fileParkedApproval`.
+- `respond()`: gates loaded alongside capabilities; tool→target mapping built
+  at assembly time from the source tool sets (capability groups),
+  `messageActionTools` → `core:messaging`, custom tools and MCP tools by id;
+  `toolApproval` + `experimental_toolApprovalSecret` passed to `streamText`
+  only when present.
+- Park path: `tool-approval-request` with `isAutomatic !== true` captured from
+  the stream; after the post-loop checkpoint sweep (so the parked step is
+  durable first) the approval row is filed with `toolCallId`/`toolName`/
+  `target`/raw input, the task parks `waiting_for_approval`, and the run trips
+  `awaiting_approval` **only if the row was actually filed**.
+- Plumbing: `RunHandle.runId` added (approval rows reference the run);
+  `workspaceCustomTools` returns `{tools, toolIds}`; `McpServerSessions.servers`
+  carries `id`; `updateTask` exported; worker's empty-answer fallback says
+  "⏸️ Waiting for approval before I continue."
+- Tests: `approval-policy.test.ts` (target mapping, gate selectivity —
+  reads stay ungated when writes are gated, single custom tool gated alone).
+
+Deferred out of P2 (see log): `approval:created` socket event moved to P4
+with the rest of the realtime types; `authorizePublish` left as-is —
+`capability:code_actions` now gates `propose_code_change` through the normal
+path, making the hardcoded seam redundant rather than wrong.
 
 ### [ ] P3 — resolve + resume (~450 LOC)
 
@@ -166,8 +217,13 @@ checked.
   works for channel/thread/loop scopes (the harness doc already flags the
   run-creation recipe triplication — extract now).
 - `run-continuation.ts`: approval branch — predecessor `awaiting_approval` +
-  resolved row → replay chain + `tool-approval-response` + delta. Denied path
-  returns the denial to the model.
+  resolved row → replay chain + a trailing `role:"tool"` message holding the
+  `tool-approval-response`. **It must be the last message** (spike finding);
+  the human's accompanying words arrive via the existing step-boundary
+  steering injection instead of a trailing delta. Denied path returns the
+  denial to the model. Guard the recovery hazard: a parked predecessor with
+  no resolved row falls back to a fresh context rather than replaying an
+  unanswered tool call.
 - Emit `approval:updated` on resolution. Tests: resolver-spec matrix (each
   kind × allow/deny), CAS conflict, dangling-role resolver degrades safely.
 
@@ -222,6 +278,14 @@ Manual QA checklist (live, after db:push):
 
 - 2026-08-31 — Runbook drafted from verified current-state map (approval
   machinery, harness replay, AI SDK toolApproval).
+- 2026-09-01 — P2 deviations: the `approval:created` socket event moved to P4
+  (its types and relay live there; the task path already goes live via
+  `task:updated`). `authorizePublish` left in place — the generic
+  `capability:code_actions` gate now covers `propose_code_change`, so the
+  hardcoded seam is redundant, not wrong; deleting it is P4-or-later hygiene.
+  Approval rows are filed by `respond()` (matching `request_approval`'s
+  existing pattern) rather than by the worker, so the row is durable even if
+  the worker dies before settling the run.
 - 2026-09-01 — Jacob locked all open decisions: policy home = own
   workspace-level table; storage = computed (rows only for opt-ins, row =
   gate on); defaults = EVERYTHING off, explicit opt-in only (rejected

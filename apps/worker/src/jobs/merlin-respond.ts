@@ -79,10 +79,10 @@ const WRITEBACK_MIN_BUDGET_FRACTION = 0.15
 const WRITEBACK_MIN_CREDITS = 50
 
 const MERLIN_ERROR_FALLBACK =
-  "⚠️ I ran into an error answering that. Please try again."
+  "I ran into an error answering that. Please try again."
 
 const OUT_OF_CREDITS_MESSAGE =
-  "⚠️ This workspace is out of Merlin credits. An admin can top up in Settings → Billing."
+  "This workspace is out of Merlin credits. An admin can top up in Settings → Billing."
 
 // Recent channel/thread messages, oldest→newest; skips the placeholder + empties.
 async function loadConversation(args: {
@@ -842,6 +842,10 @@ export function createMerlinRespondProcessor(
           // Explicit user stop: keep whatever partial answer streamed, settle
           // the run as stopped, and skip the write-back.
           const stoppedByUser = answer.stoppedFor === "stopped_by_user"
+          // Parked on an approval policy: the loop ends the moment the gate
+          // trips, so there may be no closing text — the approval card carries
+          // the explanation.
+          const awaitingApproval = answer.stoppedFor === "awaiting_approval"
 
           // Phase 2 — persist, then fan out. Persistence decides the terminal
           // status; fanout is best-effort and never downgrades a saved reply.
@@ -869,10 +873,12 @@ export function createMerlinRespondProcessor(
             finalText = grounded.text
             if (!finalText.trim()) {
               finalText = stoppedByUser
-                ? "⏹️ Stopped before I had an answer."
-                : "I couldn't pull together an answer for that — could you add a bit more detail or rephrase?"
+                ? "Stopped before I had an answer."
+                : awaitingApproval
+                  ? "Waiting for approval before I continue."
+                  : "I couldn't pull together an answer for that — could you add a bit more detail or rephrase?"
               emptyFallback = true
-              if (!stoppedByUser) {
+              if (!stoppedByUser && !awaitingApproval) {
                 logger.warn(
                   { merlinMessageId },
                   "Merlin produced no answer text; using empty fallback"

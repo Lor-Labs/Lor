@@ -187,8 +187,8 @@ async function resolveApproval(
   // without the thread message would strand the task.
   const content =
     resolution === "approved"
-      ? `✅ Approved — go ahead: ${resolved.description}`
-      : `❌ Rejected — do not proceed: ${resolved.description}`
+      ? `Approved — go ahead: ${resolved.description}`
+      : `Rejected — do not proceed: ${resolved.description}`
   const messageId = await postTaskThreadMessage({
     task: row.task,
     authorId: userId,

@@ -35,6 +35,13 @@ import {
 } from "ai"
 import { z } from "zod"
 import {
+  buildToolApproval,
+  fileParkedApproval,
+  loadApprovalGates,
+  type ParkedApproval,
+  ToolTargetMap,
+} from "./approval-policy"
+import {
   createExportToolResultTool,
   EXPORT_TOOL_NAME,
 } from "./artifacts/export-tool"
@@ -193,7 +200,7 @@ How to answer:
 
 Use reactions naturally and sparingly to complement your response. Always still answer in text, and don't narrate the reaction or mention the tool use.
 
-Use your tools silently — don't narrate that you're searching. Gather what you need, then give one clear answer. Be concise. Use Markdown. Speak in the first person; never claim to be human.`
+Use your tools silently — don't narrate that you're searching. Gather what you need, then give one clear answer. Be concise. Use Markdown. Speak in the first person; never claim to be human. Avoid putting emojis in your written answers — reactions are the main place an emoji belongs.`
 
 function buildSystemPrompt(connectorLines: string[]): string {
   return `${[SYSTEM_PROMPT_HEAD, ...connectorLines].join("\n")}\n\n${SYSTEM_PROMPT_TAIL}`
@@ -1880,6 +1887,11 @@ export async function respond(
         ctx.channelId &&
         caps.includes("code_actions")
     )
+    // Which tool targets this workspace gates (LOR-81). Deliberately not
+    // caught: executing gated actions because a policy read failed would
+    // defeat the gate, so the run fails and recovery retries.
+    const approvalGates = await loadApprovalGates(ctx.workspaceId)
+    const toolTargets = new ToolTargetMap()
     const builtinTools = {
       ...searchTools,
       ...chatTools,
@@ -1906,6 +1918,31 @@ export async function respond(
       ...(datadogMcp ? datadogMcp.tools : {}),
       ...(cloudwatch && caps.includes("cloudwatch") ? cloudwatchTools : {}),
     }
+    // Approval targets for the capability-gated groups. Core tools (brain,
+    // chat search, task/loop bookkeeping) stay unmapped and can never be
+    // gated. Marked from the source tool sets, so a group that didn't bind
+    // simply contributes names no bound tool answers to.
+    toolTargets.add(messageActionTools, { kind: "core", core: "messaging" })
+    for (const [tools, capability] of [
+      [webTools, "web"],
+      [githubTools, "github"],
+      [codeTools, "code_intelligence"],
+      [codeActionTools, "code_actions"],
+      [artifactTools, "artifacts"],
+      [linearTools, "linear"],
+      [linearWriteTools, "linear_write"],
+      [attioTools, "attio"],
+      [notionTools, "notion"],
+      [cloudwatchTools, "cloudwatch"],
+    ] as const) {
+      toolTargets.add(tools, { kind: "capability", capability })
+    }
+    if (datadogMcp) {
+      toolTargets.add(datadogMcp.tools, {
+        kind: "capability",
+        capability: "datadog",
+      })
+    }
     // Bound after the built-ins so a workspace row can never shadow one
     // (collisions are skipped inside workspaceCustomTools).
     const customTools =
@@ -1920,10 +1957,23 @@ export async function respond(
     const mcpServerSession = await mcpServersPromise
     const tools: typeof builtinTools & ToolSet = {
       ...builtinTools,
-      ...(customTools ?? {}),
+      ...(customTools?.tools ?? {}),
+    }
+    for (const [name, customToolId] of Object.entries(
+      customTools?.toolIds ?? {}
+    )) {
+      toolTargets.addName(name, { kind: "customTool", customToolId })
     }
     const boundServerToolNames = new Set<string>()
     if (mcpServerSession) {
+      for (const server of mcpServerSession.servers) {
+        for (const name of server.toolNames) {
+          toolTargets.addName(name, {
+            kind: "mcpServer",
+            mcpServerId: server.id,
+          })
+        }
+      }
       for (const [name, tool] of Object.entries(mcpServerSession.tools)) {
         if (name in tools) {
           logger.warn(
@@ -2167,6 +2217,12 @@ export async function respond(
       store: run?.toolResults ?? null,
     })
 
+    const approvalToolGate = buildToolApproval(approvalGates, toolTargets)
+    // Set when a policy gate parks a call. The SDK ends the loop on its own
+    // (the step's tool calls never all resolve), so there is no ceiling flag
+    // to trip and no further model call.
+    let parked: ParkedApproval | null = null
+
     const baseStep = counters.steps
     let checkpointedLocal = 0
     let stoppedFor: RunStopCause | undefined
@@ -2223,6 +2279,12 @@ export async function respond(
       messages,
       tools: guarded.tools,
       toolsContext,
+      // Policy gate runs before the tool-guard wrapper: a parked call never
+      // reaches execute, so nothing is spent or written.
+      ...(approvalToolGate ? { toolApproval: approvalToolGate } : {}),
+      ...(env.MERLIN_TOOL_APPROVAL_SECRET
+        ? { experimental_toolApprovalSecret: env.MERLIN_TOOL_APPROVAL_SECRET }
+        : {}),
       maxRetries: env.AGENT_RUN_MAX_PROVIDER_RETRIES,
       ...(run?.abortSignal ? { abortSignal: run.abortSignal } : {}),
       // Backstop: checkpoint the finished step, then stop hard if a ceiling is
@@ -2391,6 +2453,18 @@ export async function respond(
           at: text.length,
           ...resolved,
         })
+      } else if (part.type === "tool-approval-request") {
+        // isAutomatic marks the SDK's own approved/denied bookkeeping parts;
+        // only a real user-approval parks the run.
+        if (part.isAutomatic !== true) {
+          parked = {
+            approvalId: part.approvalId,
+            toolCallId: part.toolCall.toolCallId,
+            toolName: part.toolCall.toolName,
+            target: toolTargets.targetFor(part.toolCall.toolName) ?? "",
+            input: part.toolCall.input,
+          }
+        }
       } else if (part.type === "abort") {
         // The in-flight request was killed. User stop keeps the partial text
         // and settles gracefully; any other abort (lost lease) surfaces below
@@ -2416,6 +2490,23 @@ export async function respond(
     for (let i = checkpointedLocal; i < allSteps.length; i++) {
       const step = allSteps[i]
       if (step) await checkpointStep(step, i + 1)
+    }
+
+    // Filed only after the parked step is durable: the approval authorizes a
+    // tool call the continuation replays, so the transcript must already hold
+    // it. Task runs park the task too, exactly like request_approval.
+    if (parked && run) {
+      const filed = await fileParkedApproval({
+        workspaceId: ctx.workspaceId,
+        runId: run.runId,
+        taskId: ctx.task?.id ?? null,
+        parked,
+        label: toolLabel(parked.toolName, parked.input),
+        onTaskUpdated,
+      })
+      // Only claim the park when a row exists to resolve — otherwise the run
+      // would advertise a gate nobody can clear.
+      if (filed) trip("awaiting_approval")
     }
 
     const responseMessages = await Promise.resolve(
