@@ -190,8 +190,10 @@ const io = new Server<
   },
 })
 
+// Per-IP, so shared across every client behind one NAT — must absorb a whole
+// office reconnecting at once after a redeploy or system wake.
 const CONNECTION_RATE_WINDOW = 60
-const CONNECTION_RATE_MAX = 10
+const CONNECTION_RATE_MAX = 60
 const CONNECTION_RATE_TTL = 90
 
 io.use(async (socket, next) => {
@@ -313,13 +315,18 @@ async function initializeConnection(socket: RealtimeSocket) {
     }
 
     // Refresh TTL on the socket set so it expires if this server crashes
-    await refreshPresenceHeartbeat(redisPresenceClient, socket.data.user.id)
+    await refreshPresenceHeartbeat(
+      redisPresenceClient,
+      socket.data.user.id,
+      initSocketId
+    )
 
     // Keep refreshing while connected
     const heartbeatInterval = setInterval(() => {
       void refreshPresenceHeartbeat(
         redisPresenceClient,
-        socket.data.user.id
+        socket.data.user.id,
+        initSocketId
       ).catch(() => {})
     }, 30 * 1000)
 

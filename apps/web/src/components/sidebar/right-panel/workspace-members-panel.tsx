@@ -437,11 +437,24 @@ export function WorkspaceMembersPanel({
       )
     }
 
-    const requestSnapshot = () => {
-      if (!workspaceId) return
+    // Retry failed presence:subscribe acks (transient init/db errors on the
+    // realtime server) so the member list can't stay stale until remount.
+    let disposed = false
+    let snapshotRetryTimer: ReturnType<typeof setTimeout> | null = null
+
+    const requestSnapshot = (attempt = 0) => {
+      if (disposed || !workspaceId) return
 
       socket.emit("presence:subscribe", { workspaceId }, (result) => {
-        if (!result.ok) return
+        if (disposed) return
+        if (!result.ok) {
+          if (attempt >= 3) return
+          snapshotRetryTimer = setTimeout(
+            () => requestSnapshot(attempt + 1),
+            2000 * (attempt + 1)
+          )
+          return
+        }
         applySnapshot(result.snapshot.onlineUserIds)
       })
     }
@@ -491,6 +504,8 @@ export function WorkspaceMembersPanel({
     }
 
     return () => {
+      disposed = true
+      if (snapshotRetryTimer) clearTimeout(snapshotRetryTimer)
       socket.off("presence:ready", onPresenceReady)
       socket.off("connect", onConnect)
       socket.off("presence:user:update", onPresenceUpdate)
