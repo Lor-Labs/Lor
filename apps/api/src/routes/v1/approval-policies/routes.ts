@@ -78,7 +78,7 @@ export const deleteApprovalPolicy = createRoute({
   method: "delete",
   summary: "Turn an approval gate off",
   description:
-    "Deletes the policy row. Already-pending approvals stay answerable (they fall back to the approval permission).",
+    "Deletes the policy row. Already-pending approvals stay answerable by any member (the action is no longer gated).",
   tags: ["Approvals"],
   middleware: [workspaceAuthMiddleware] as const,
   request: { params: approvalPolicyIdParamsSchema },

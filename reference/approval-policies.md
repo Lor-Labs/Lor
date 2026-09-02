@@ -78,8 +78,8 @@ resolver authority is written in the pillar-1 vocabulary
 | Gate unit | **Coarse: one switch per capability** (`capability:<merlin_capability>` — every capability is targetable, reads included; "Linear writes" is one switch covering all three write tools). Plus **per custom tool** (`custom_tool:<id>`), **per MCP server** (`mcp_server:<id>` — one switch covers everything the server exposes). ~~one core target `core:messaging`~~ REMOVED 2026-09-02: Merlin's own channel messaging is never gateable — answering in chat is the core product (Jacob). The `custom_tools` *capability* is grant vocabulary, not an approval target — individual tool/server rows replace it here. No per-tool granularity inside a capability. |
 | Policy storage | **Computed, own table.** `approval_policy`: a row exists only where the workspace opted in — row existence = gate ON; delete the row to turn it off. No `required` column, no seeding, no backfill when new connectors land. The settings UI renders the full target list from the registry and overlays existing rows. |
 | Defaults | **Everything off.** Out of the box Merlin behaves exactly as today; every gate is an explicit admin opt-in. No default-on connector writes, no default-on code publish. |
-| Resolver spec | Per policy row: `permission` (anyone whose authority grants `approval: ["resolve"]` — owner/admin/custom roles; the reserved statement's enforcement point) · `role` (static or custom role name) · `user` (specific person) · `any_member` (channel write access, today's behavior). Column default `permission` — pre-filled when a gate is enabled. **Owner always resolves** (escape hatch — a named resolver may have left). Channel write access stays the floor for every kind. |
-| No underlying-permission matching | `approval:resolve` is a **blanket** grant. Approving a Linear write requires no Linear/connector permission — resolver authority never fragments across an approval's subject matter (Jacob: no "5 of 6 approvals" splits). |
+| Resolver spec | Per policy row: `role` (static or custom role name) · `user` (specific person) · `any_member` (channel write access, today's behavior); **teams join as a resolver kind once they exist**. ~~`permission` kind~~ REMOVED 2026-09-02 (Jacob: a blanket approvals permission is hacky — resolvers are named per gate, never granted). Column default `any_member` — pre-filled when a gate is enabled. **Owner always resolves** (escape hatch — a named resolver may have left). Channel write access stays the floor for every kind. |
+| No underlying-permission matching | Resolver authority never fragments across an approval's subject matter (Jacob: no "5 of 6 approvals" splits) — a resolver named on a gate approves that gate, full stop. The `approval` statement now carries only `manage` (the settings page); `resolve` was removed with the permission kind. |
 | `request_approval` stays | The discretionary tool remains (model judgment for un-modeled risks), same row shape + surfaces, target null. Resolver: **any channel member**, not policy-configurable in v1 (the model asked for *a* human, any human answers). |
 | Pause mechanics | Reuse the park pattern: policy gate returns `user-approval` → persist the approval row (with `toolCallId`, `toolName`, `target`, raw input in `payload`) in the same checkpoint transaction that persists the approval-request step → run ends cleanly (`stopReason: "awaiting_approval"`). Task runs also park the task `waiting_for_approval` (unchanged). Non-task runs park on the run row alone. |
 | Resume mechanics | Approve/reject → continuation run in the same scope. `run-continuation.ts` gains an approval branch: predecessor ended `awaiting_approval` + resolved row → replay chain + append the `tool-approval-response` (approved/denied) + normal delta. Approved → the tool executes with the HMAC-bound input; denied → the model gets the denial and explains/adjusts. The human-readable "✅ Approved…" thread message stays (audit trail + delta trigger). |
@@ -162,7 +162,8 @@ checked.
   target labels for the UI.
 - New `packages/db/src/schemas/approval-policies.ts`: `approval_policy`
   (`workspaceId`, `target`, `resolverKind` enum
-  `permission|role|user|any_member` default `permission`, `resolverRole`,
+  `any_member|role|user` default `any_member` (was `permission|…` — see
+  2026-09-02 deviation), `resolverRole`,
   `resolverUserId` set-null so a deleted named resolver fails closed to
   owner-only; unique `(workspaceId, target)`).
 - `packages/db/src/schemas/approvals.ts`: `toolCallId`, `toolName`, `target`
@@ -171,9 +172,9 @@ checked.
 - `agent_run` stop reason enum gains `awaiting_approval`.
 - `packages/env`: optional `MERLIN_TOOL_APPROVAL_SECRET` (min 32 chars).
 - `packages/auth/src/lib/permissions.ts`: `ApprovalResolverSpec` +
-  `canResolveApproval(authority, spec, userId)` (owner bypass; blanket
-  `approval:resolve` for `permission`; exact match for `role`/`user`;
-  `any_member` true) + tests.
+  `canResolveApproval(authority, spec, userId)` (owner bypass; exact match for
+  `role`/`user`; `any_member` true; the `permission` kind was removed
+  2026-09-02) + tests.
 - **db:push owed after this step** (Jacob): `approval_policy` table, three
   `approval` columns + index, `agent_run_stop_reason` enum value.
 
@@ -239,7 +240,8 @@ serialized row now carries `target` + `toolName`.
 
 Resolution order in the handler: channel write access (the floor) → membership
 → `resolveWorkspaceAuthority` → `canResolveApproval`. A missing policy row for
-a still-open approval falls back to `permission` (the column default); a
+a still-open approval falls back to `any_member` (the gate is off, the
+action is no longer restricted); a
 policy row whose named resolver is gone (custom role deleted, resolver user
 removed) resolves to owner-only rather than opening up.
 
@@ -278,7 +280,7 @@ approval-response stand in for a missing tool result during the
   `use-workspace-roles`); non-resolvers see who can resolve.
 - Policy settings UI: computed target list (capabilities + this workspace's
   custom tools and MCP servers + core messaging), on/off switch + resolver
-  picker (permission / role incl. custom / person / any member). Gate the
+  picker (any member / role incl. custom / person). Gate the
   section like billing (owner/admin).
 - Roles matrix: un-hide `approval: resolve` checkbox (enforcement is live).
 
@@ -352,8 +354,8 @@ Manual QA checklist (live, after db:push):
 5. Resolver `role: support` (custom role) → member without the role sees the
    card but no buttons, direct POST 403s; role holder resolves; owner can
    always resolve.
-6. Resolver `permission`: custom role WITH `approval:resolve` granted via the
-   roles matrix resolves; plain member cannot.
+6. Turn a gate off while its approval is pending → any member can still
+   resolve the stale card (gate-off fallback).
 7. Non-task gate: a capability gate tripped by a plain channel @Merlin (no
    task) → parks and resumes in channel scope.
 8. MCP server gate: one switch parks any tool from that server.
@@ -368,6 +370,15 @@ Manual QA checklist (live, after db:push):
 
 - 2026-08-31 — Runbook drafted from verified current-state map (approval
   machinery, harness replay, AI SDK toolApproval).
+- 2026-09-02 — `permission` resolver kind + `approval:resolve` grant REMOVED
+  (Jacob: "feels hacky and unnecessary" — resolvers are a member, a role, or
+  a future team, never a blanket permission). Enum is now
+  `any_member|role|user` with column default `any_member` (free edit: db:push
+  had not run). Fallbacks updated everywhere: gate deleted while pending →
+  `any_member` (the action is no longer gated); dangling named resolver →
+  owner-only, unchanged. `approval: ["manage"]` stays (ordinary
+  settings-management vocabulary). Worker fan-out lost its permission-holders
+  audience branch; the settings picker is now Any member / roles / people.
 - 2026-09-02 — P5 deviations: notification fan-out is requester-aware with a
   2-minute escalation (Jacob's design — see P5 as-built), not a flat
   "push the resolver set". The `instructions-proposal` push remains

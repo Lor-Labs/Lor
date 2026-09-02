@@ -2,7 +2,6 @@ import {
   type ApprovalResolverSpec,
   formatWorkspaceRole,
   isWorkspaceRole,
-  parseRolePermission,
 } from "@repo/auth/permissions"
 import { and, db, eq, MERLIN_USER_ID, schema } from "@repo/db"
 import { env } from "@repo/env/server"
@@ -120,7 +119,7 @@ async function loadParkedApproval(
 // The policy row's resolver spec for this approval's target; null when the
 // named resolver dangles (deleted role/user) — owner-only, matching the
 // resolve endpoint. No policy row (gate turned off while parked) falls back
-// to the column default, also matching the endpoint.
+// to any_member, also matching the endpoint.
 async function loadResolverSpec(
   workspaceId: string,
   target: string | null
@@ -141,10 +140,8 @@ async function loadResolverSpec(
     )
     .limit(1)
     .then((rows) => rows[0])
-  if (!policy) return { kind: "permission" }
+  if (!policy) return { kind: "any_member" }
   switch (policy.resolverKind) {
-    case "permission":
-      return { kind: "permission" }
     case "any_member":
       return { kind: "any_member" }
     case "role":
@@ -156,37 +153,6 @@ async function loadResolverSpec(
         ? { kind: "user", userId: policy.resolverUserId }
         : null
   }
-}
-
-// Members whose authority grants approval:resolve — owner, admins, and
-// members of custom roles carrying the grant.
-async function permissionHolders(workspaceId: string): Promise<string[]> {
-  const [members, customRoles] = await Promise.all([
-    db
-      .select({
-        userId: schema.workspaceMember.userId,
-        role: schema.workspaceMember.role,
-      })
-      .from(schema.workspaceMember)
-      .where(eq(schema.workspaceMember.workspaceId, workspaceId)),
-    db
-      .select({
-        role: schema.workspaceRole.role,
-        permission: schema.workspaceRole.permission,
-      })
-      .from(schema.workspaceRole)
-      .where(eq(schema.workspaceRole.workspaceId, workspaceId)),
-  ])
-  const grantingRoles = new Set(
-    customRoles
-      .filter((row) =>
-        parseRolePermission(row.permission)?.approval?.includes("resolve")
-      )
-      .map((row) => row.role)
-  )
-  return members
-    .filter((m) => m.role === "admin" || grantingRoles.has(m.role))
-    .map((m) => m.userId)
 }
 
 // Who the resolver spec names, plus plain words for the "waiting" flavor.
@@ -215,14 +181,6 @@ async function resolverAudience(
         userIds: requesterId ? [requesterId] : [],
         label: "anyone in the channel",
       }
-    case "permission": {
-      const holders = await permissionHolders(workspaceId)
-      const withOwner = [...new Set([...ownerFallback, ...holders])]
-      return {
-        userIds: withOwner,
-        label: "anyone with the approvals permission",
-      }
-    }
     case "role": {
       const members = await db
         .select({ userId: schema.workspaceMember.userId })

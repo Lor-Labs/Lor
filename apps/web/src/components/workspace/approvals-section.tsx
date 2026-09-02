@@ -18,7 +18,7 @@ import { formatWorkspaceRole } from "@/lib/permissions"
 type ApprovalPolicy = {
   id: string
   target: string
-  resolverKind: "permission" | "role" | "user" | "any_member"
+  resolverKind: "role" | "user" | "any_member"
   resolverRole: string | null
   resolverUserId: string | null
 }
@@ -42,9 +42,8 @@ const GROUP_ORDER: ApprovalTarget["group"][] = [
   "mcp_server",
 ]
 
-// Resolver select values: fixed kinds, plus prefixed role/user entries so one
-// select covers the whole spec.
-const KIND_PERMISSION = "permission"
+// Resolver select values: any member, plus prefixed role/person entries so
+// one select covers the whole spec (teams join later).
 const KIND_ANY_MEMBER = "any_member"
 const rolePrefix = "role:"
 const userPrefix = "user:"
@@ -54,11 +53,11 @@ function resolverValue(policy: ApprovalPolicy): string {
     case "role":
       return policy.resolverRole
         ? `${rolePrefix}${policy.resolverRole}`
-        : KIND_PERMISSION
+        : KIND_ANY_MEMBER
     case "user":
       return policy.resolverUserId
         ? `${userPrefix}${policy.resolverUserId}`
-        : KIND_PERMISSION
+        : KIND_ANY_MEMBER
     default:
       return policy.resolverKind
   }
@@ -81,9 +80,7 @@ function valueToResolver(value: string): {
       resolverUserId: value.slice(userPrefix.length),
     }
   }
-  return {
-    resolverKind: value === KIND_ANY_MEMBER ? "any_member" : "permission",
-  }
+  return { resolverKind: "any_member" }
 }
 
 const approvalPoliciesQueryKey = (workspaceSlug: string) =>
@@ -177,10 +174,6 @@ export function ApprovalsSection({
   const policyByTarget = new Map(data.policies.map((p) => [p.target, p]))
   const members = (membersData?.members ?? []).filter((m) => !m.isBot)
   const resolverItems = [
-    {
-      value: KIND_PERMISSION,
-      label: "Anyone with the approvals permission",
-    },
     { value: KIND_ANY_MEMBER, label: "Any member" },
     ...["admin", "member"].map((role) => ({
       value: `${rolePrefix}${role}`,
@@ -268,7 +261,7 @@ export function ApprovalsSection({
                           if (checked) {
                             upsert.mutate({
                               target: target.key,
-                              resolverKind: "permission",
+                              resolverKind: "any_member",
                             })
                           } else if (policy) {
                             remove.mutate(policy.id)

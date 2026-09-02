@@ -19,8 +19,8 @@ export function serializeApproval(row: Approval) {
 
 // Resolver specs for a batch of approvals, keyed by approval id — one policy
 // query for the page instead of one per row. Same fallbacks as
-// loadApprovalResolver: no row → permission, dangling named resolver → null
-// (owner-only).
+// loadApprovalResolver: no row → any_member (the gate was turned off, so the
+// action needs no restriction), dangling named resolver → null (owner-only).
 export async function loadApprovalResolvers(
   workspaceId: string,
   approvals: Pick<Approval, "id" | "target">[]
@@ -59,13 +59,10 @@ export async function loadApprovalResolvers(
     }
     const policy = byTarget.get(approval.target)
     if (!policy) {
-      out.set(approval.id, { kind: "permission" })
+      out.set(approval.id, { kind: "any_member" })
       continue
     }
     switch (policy.resolverKind) {
-      case "permission":
-        out.set(approval.id, { kind: "permission" })
-        break
       case "any_member":
         out.set(approval.id, { kind: "any_member" })
         break
@@ -116,12 +113,10 @@ export async function loadApprovalResolver(
     )
     .limit(1)
     .then((rows) => rows[0])
-  // The gate was turned off while this approval was open. The pending row
-  // still has to be answerable, so fall back to the column default.
-  if (!policy) return { kind: "permission" }
+  // The gate was turned off while this approval was open: the workspace no
+  // longer restricts the action, so anyone may wave the stale row through.
+  if (!policy) return { kind: "any_member" }
   switch (policy.resolverKind) {
-    case "permission":
-      return { kind: "permission" }
     case "any_member":
       return { kind: "any_member" }
     case "role":

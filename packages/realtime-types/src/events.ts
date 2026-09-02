@@ -677,8 +677,8 @@ export type ApprovalNotification = {
   threadRootId: string | null
   messageId: string | null
   description: string
-  // Plain words for who can resolve ("anyone with the approvals permission",
-  // "the support role", a person's name) — rendered in the waiting flavor.
+  // Plain words for who can resolve ("anyone in the channel", "the support
+  // role", a person's name) — rendered in the waiting flavor.
   resolverLabel: string
 }
 

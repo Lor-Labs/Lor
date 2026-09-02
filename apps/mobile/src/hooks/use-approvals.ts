@@ -116,8 +116,6 @@ export function resolverLabel(
   switch (resolver.kind) {
     case "any_member":
       return "Anyone in this channel can resolve this"
-    case "permission":
-      return "Needs the agent-approvals permission"
     case "role":
       return `Needs the ${resolver.role ?? "configured"} role`
     case "user":

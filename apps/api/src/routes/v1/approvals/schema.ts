@@ -39,7 +39,7 @@ export const channelApprovalsParamsSchema = z.object({
 })
 
 export const approvalResolverSchema = z.object({
-  kind: z.enum(["permission", "role", "user", "any_member"]),
+  kind: z.enum(["role", "user", "any_member"]),
   role: z.string().optional(),
   userId: z.string().uuid().optional(),
 })

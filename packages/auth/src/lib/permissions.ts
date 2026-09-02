@@ -167,18 +167,18 @@ export function workspaceAuthorityHasPermissions(
   )
 }
 
-// Approval-policy resolver (LOR-81): who may resolve a gated agent action.
+// Approval-policy resolver (LOR-81): who may resolve a gated agent action —
+// a role, a specific person, or anyone (teams later). Deliberately NOT a
+// permission grant: resolver authority is named per gate, never blanket.
 // Mirrors approval_policy.resolver_kind — kept in sync with @repo/db.
 export type ApprovalResolverSpec =
-  | { kind: "permission" }
   | { kind: "role"; role: MemberRoleName }
   | { kind: "user"; userId: string }
   | { kind: "any_member" }
 
-// approval:resolve is a blanket grant — approving never requires the
-// underlying resource permissions. Owner always resolves (escape hatch when a
-// named resolver left the workspace). Channel write access is the separate
-// floor, enforced by the resolve handler.
+// Owner always resolves (escape hatch when a named resolver left the
+// workspace). Channel write access is the separate floor, enforced by the
+// resolve handler. Role match is exact — admin does not bypass.
 export function canResolveApproval(
   authority: WorkspaceAuthority,
   spec: ApprovalResolverSpec,
@@ -189,10 +189,6 @@ export function canResolveApproval(
   switch (spec.kind) {
     case "any_member":
       return true
-    case "permission":
-      return workspaceAuthorityHasPermissions(authority, {
-        approval: ["resolve"],
-      })
     case "role":
       return normalizedAuthority.role === spec.role
     case "user":

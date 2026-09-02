@@ -51,7 +51,7 @@ describe("workspace permissions", () => {
     expect(roleHasPermissions("owner", { billing: ["manage"] })).toBe(true)
     expect(roleHasPermissions("member", { connector: ["manage"] })).toBe(false)
     expect(roleHasPermissions("member", { webhook: ["manage"] })).toBe(false)
-    expect(roleHasPermissions("member", { approval: ["resolve"] })).toBe(false)
+    expect(roleHasPermissions("member", { approval: ["manage"] })).toBe(false)
   })
 
   it("does not infer ownership from the role string", () => {
@@ -137,23 +137,10 @@ describe("workspace permissions", () => {
   it("resolves approvals per resolver spec", () => {
     const admin = { role: "admin" }
     const member = { role: "member" }
-    const support = {
-      role: "support",
-      customGrants: { approval: ["resolve"] },
-    }
-    const supportWithout = { role: "support", customGrants: {} }
+    const support = { role: "support", customGrants: {} }
 
     // any_member: everyone passes (channel access is the handler's floor)
     expect(canResolveApproval(member, { kind: "any_member" }, "u1")).toBe(true)
-
-    // permission: blanket approval:resolve — admin yes, member no, custom
-    // role only when granted
-    expect(canResolveApproval(admin, { kind: "permission" }, "u1")).toBe(true)
-    expect(canResolveApproval(member, { kind: "permission" }, "u1")).toBe(false)
-    expect(canResolveApproval(support, { kind: "permission" }, "u1")).toBe(true)
-    expect(
-      canResolveApproval(supportWithout, { kind: "permission" }, "u1")
-    ).toBe(false)
 
     // role: exact role-name match, admin does not bypass
     expect(

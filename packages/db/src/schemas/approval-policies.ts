@@ -10,11 +10,12 @@ import {
 import { user } from "./users"
 import { workspace } from "./workspaces"
 
+// "team" joins this once teams exist as a product concept (planned resolver:
+// e.g. assign a gate to #eng).
 export const approvalResolverKindEnum = pgEnum("approval_resolver_kind", [
-  "permission",
+  "any_member",
   "role",
   "user",
-  "any_member",
 ])
 
 // Which agent tool targets require human approval and who may resolve them
@@ -34,7 +35,7 @@ export const approvalPolicy = pgTable(
     target: text("target").notNull(),
     resolverKind: approvalResolverKindEnum("resolver_kind")
       .notNull()
-      .default("permission"),
+      .default("any_member"),
     // Set when resolverKind = "role" — static or custom role name.
     resolverRole: text("resolver_role"),
     // Set when resolverKind = "user". set-null on user delete so the gate
