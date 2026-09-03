@@ -120,6 +120,17 @@ export type InvitePreviewResponse = InferResponseType<
   200
 >
 
+// ── Workspace Instructions ──────────────────────────────────────────
+
+type InstructionsClient =
+  Client["v1"]["workspaces"][":workspaceSlug"]["instructions"]
+
+export type InstructionsResponse = InferResponseType<
+  InstructionsClient["$get"],
+  200
+>
+export type InstructionsVersion = InstructionsResponse["versions"][number]
+
 // ── Approvals ──────────────────────────────────────────
 
 type ChannelApprovalsClient =

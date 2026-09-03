@@ -248,7 +248,8 @@ async function resolveApproval(
   }
 
   // Remaining side effects are best-effort: the continuation path self-heals
-  // (an enqueue failure parks the task back in waiting_for_input).
+  // (an enqueue failure parks the task back in waiting_for_input). Broadcasts
+  // fail in isolation — a dead emitter must never block the continuation run.
   try {
     const io = await getEmitter()
     io.to(channelRoom(scope.channelId)).emit("approval:updated", {
@@ -261,7 +262,14 @@ async function resolveApproval(
         ? resolved.resolvedAt.toISOString()
         : null,
     })
+  } catch (err) {
+    logger.warn(
+      { err, approvalId },
+      "Approval resolution broadcast failed; continuing"
+    )
+  }
 
+  try {
     const task = row.task
     // Only a parked task moves back to running, and only when the trigger
     // message exists — never resurrect a terminal task (the continuation
@@ -282,7 +290,11 @@ async function resolveApproval(
           .returning()
           .then((rows) => rows[0] ?? null)
       : null
-    if (updatedTask) await emitTaskUpdated(updatedTask)
+    if (updatedTask) {
+      await emitTaskUpdated(updatedTask).catch((err) => {
+        logger.warn({ err, approvalId }, "Task update broadcast failed")
+      })
+    }
 
     await startScopeContinuationRun({
       workspaceId: resolved.workspaceId,
