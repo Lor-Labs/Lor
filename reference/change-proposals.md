@@ -57,17 +57,18 @@ web/mobile card renderers; `instructions:proposal` socket event +
 `instructions-approval-alert.tsx`; the LOR-83 approval notify path
 (user-targeted socket event + offline push) is reusable machinery.
 
-## Proposed decisions (to lock with Jacob before P1)
+## Locked decisions (Jacob, 2026-09-02 — do not relitigate without logging a deviation)
 
 | Topic | Proposal |
 |---|---|
 | Object shape | Two tables. `change_proposal`: workspace, channelId + cardMessageId (the card is the surface, like loops), author (user\|agent + userId), rationale, evidence (message/task/run ids), status `pending\|approved\|rejected\|applied\|failed`, resolvedBy/At, appliedAt. `change_proposal_operation`: proposalId, position, `kind` enum, typed `spec` jsonb (discriminated union in `@repo/proposals` — typed, never a free bag), `result` (created resource id after apply), per-op error text on failure. |
-| Op vocabulary v1 | `create_channel` · `create_webhook` · `set_trigger` (connector event → channel routing incl. effects) · `create_loop` (created as draft? see apply) · `update_instructions` (full content, like today) · `create_agent_profile` · `assign_channel_profile`. **Deferred: roles, approval policies, custom tools/MCP, deletes, generic updates.** Roles have no server-side creation path; approval policies are them-gating-Merlin (feels wrong for Merlin to propose loosening its own gates in v1). |
+| Op vocabulary v1 | `create_channel` · `create_webhook` · `set_trigger` (connector event → channel routing incl. effects) · `create_loop` · `update_loop` (edit an existing loop's name/instructions/schedule) · `update_instructions` (full content, like today) · `create_agent_profile` · `assign_channel_profile` · `create_custom_tool` · `create_mcp_server` · `set_approval_policy` (**upsert only, never delete** — Merlin may propose gating a tool/action, especially one it is proposing to create, when the user asks; it never proposes loosening a gate). **Deferred: roles (no server-side creation path), deleting anything, generic updates beyond loops.** |
+| Custom tool / MCP wrinkles | Proposed custom tools are researched first — the prompt directs Merlin to verify the target API (endpoint, method, body shape) via web search before proposing, and the card shows the full template. Secrets can never ride a proposal: apply creates the tool with an empty secrets map, and templates referencing `{{secrets.X}}` make the applied card say "add the secret in Settings → Tools before this tool works". MCP servers likewise: the row is created by apply; OAuth (when required) is completed by a human through the existing flow afterward, and the card links there. |
 | Who approves | The approver's authority must cover **every** operation in the set — the union of the per-resource manage permissions the ops touch (channel:create, webhook:manage, connector:manage, agentProfile:manage, instructions:update). All-or-nothing gate on the person, not fragmented partial approval. Owner/admin always qualify. No new permission statement. |
 | Apply semantics | One DB transaction, all ops or none. Every op re-validates at apply time exactly like its handler does today (name collisions, ownership, caps, content rules). On any failure: transaction rolls back, proposal → `failed` with the failing op's error, nothing half-applied. The approve endpoint applies inline (the approver's request context) — no worker hop. |
 | Partial approval / editing | Neither, in v1. Approve all, or reject with a note — Merlin revises and files a new proposal (supersede semantics like instructions: one pending proposal per channel scope). Editing ops in the UI is a later layer. |
 | Rollback v1 | Provenance only: each op records what it created/changed (ids, prior values where cheap). No automated rollback path yet — undo is manual through the normal UI, findable because everything is attributed. First-class rollback arrives with Playbooks. |
-| Instructions overlap | An `update_instructions` op applies directly on proposal approval (one human approval, not two) — it writes the new active version through the same transaction/CAS logic as the human PUT. The standalone instructions flow stays for standalone use. |
+| Instructions overlap | An `update_instructions` op applies directly on proposal approval (one human approval, not two) — it writes the new active version through the same transaction/CAS logic as the human PUT. The standalone instructions flow stays for standalone use. Jacob: LOR.md changes should be rare (it shapes every channel) — the capability exists, the prompt should treat it as a last resort. |
 | Merlin surface | New `propose_workspace_change` tool (conversational runs, like propose_loop): typed op list + rationale + evidence. Executor posts a `proposal_card` message then inserts the rows (loop-card ordering + compensation). Prompt rule: workspace config changes go through a proposal, never piecemeal tools. |
 | Apply engine home | `apps/api/src/lib/change-proposals/` — per-op appliers extracted from (or shared with) the existing handlers, so route behavior and proposal behavior can't drift. Extraction is the bulk of P2's work. |
 | Notifications | Reuse the LOR-83 shape: card in channel (ambient), user-targeted socket + offline push to people whose authority covers the proposal (bounded set: owner + admins + qualifying custom roles). Requester-first/escalation NOT needed here — proposals are not blocking a parked run. |
@@ -84,7 +85,9 @@ checked and the decisions table above is locked.
 
 - New `packages/proposals` (or a module in `@repo/connectors`-style package):
   zod schemas per op kind, `ChangeOperation` discriminated union,
-  `proposalPermissions(ops)` → the permission set an approver must hold.
+  `proposalPermissions(ops)` → the permission set an approver must hold
+  (custom tool + MCP ops → `customTool: ["manage"]`; `set_approval_policy` →
+  `approval: ["manage"]`).
 - `packages/db/src/schemas/change-proposals.ts`: `change_proposal` +
   `change_proposal_operation` per the decisions table; `proposal_card` message
   type enum value.
@@ -97,8 +100,11 @@ checked and the decisions table above is locked.
 - `apps/api/src/lib/change-proposals/appliers/*` — one applier per op kind,
   sharing validation with the existing handlers (extract the reusable core
   where needed: channel create, webhook create, trigger upsert, profile
-  create/assign, instructions activate; loop create reuses the draft+activate
-  pair semantics).
+  create/assign, instructions activate, loop create/update reusing the
+  draft+activate semantics, custom tool create sharing the SSRF/template
+  validators from `packages/merlin/src/custom-tools.ts` with an EMPTY secrets
+  map, MCP server create sharing the mcp-servers route validation, approval
+  policy upsert sharing the approval-policies handler validation).
 - POST approve: authority-union check first statement; single transaction over
   all ops; provenance written per op; proposal → `applied`; failure path →
   `failed` + per-op error; socket emit `proposal:updated`.
@@ -133,6 +139,12 @@ mid-set failure atomicity, authority-union denial, provenance links.
 
 ## Decisions & deviations log
 
+- 2026-09-02 — Decisions LOCKED by Jacob: scope v1 additionally includes
+  `update_loop`, `create_custom_tool`, `create_mcp_server` (with web-research
+  prompt guidance + the secrets/OAuth handoffs above) and `set_approval_policy`
+  as upsert-only (user-prompted gating of e.g. a proposed tool's write action —
+  never gate removal); roles and deletes stay out; approver = authority union;
+  all-or-nothing approve; atomic apply; provenance-not-rollback; instructions
+  op applies with the single proposal approval (and stays rare by prompt).
 - 2026-09-02 — Runbook drafted from verified ground truth (explorer sweep of
-  handlers/tools/schemas). Decisions table is PROPOSED, not locked — discuss
-  with Jacob before P1.
+  handlers/tools/schemas).
