@@ -73,16 +73,27 @@ export async function listOnlineUserIds(redis: RedisClient, userIds: string[]) {
   return userIds.filter((_, index) => toRedisBoolean(membership[index]))
 }
 
+const REFRESH_HEARTBEAT_SCRIPT = `
+redis.call("SADD", KEYS[1], ARGV[1])
+redis.call("EXPIRE", KEYS[1], ARGV[2])
+redis.call("SADD", KEYS[2], ARGV[3])
+`
+
 /**
- * Refresh the TTL on a user's socket set so it expires if the server dies
- * without running disconnect handlers. Call periodically per socket.
+ * Heartbeat: re-assert this socket's presence, not just a TTL refresh. A bare
+ * EXPIRE is a no-op once the key expires (missed heartbeats during a Redis
+ * blip), which left connected users permanently offline after
+ * reconcilePresence swept them. Call periodically per socket.
  */
 export async function refreshPresenceHeartbeat(
   redis: RedisClient,
-  userId: string
+  userId: string,
+  socketId: string
 ) {
-  const key = userSocketsKey(userId)
-  await redis.expire(key, PRESENCE_HEARTBEAT_TTL)
+  await redis.eval(REFRESH_HEARTBEAT_SCRIPT, {
+    keys: [userSocketsKey(userId), PRESENCE_ONLINE_USERS_SET_KEY],
+    arguments: [socketId, String(PRESENCE_HEARTBEAT_TTL), userId],
+  })
 }
 
 /**

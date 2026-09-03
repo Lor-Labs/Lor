@@ -19,8 +19,13 @@ export type BudgetStopReason =
   | "budget_wall_clock"
   | "budget_spend"
 
-// Why the answer loop ended early: a budget ceiling or an explicit user stop.
-export type RunStopCause = BudgetStopReason | "stopped_by_user"
+// Why the answer loop ended early: a budget ceiling, an explicit user stop, or
+// a tool call parked on an approval policy (LOR-81) — the resolved approval
+// starts the continuation run.
+export type RunStopCause =
+  | BudgetStopReason
+  | "stopped_by_user"
+  | "awaiting_approval"
 
 // A mid-run message a user aimed at the run (steer row) — injected at the
 // next step boundary with attribution.
@@ -111,6 +116,9 @@ export type RunResume = {
 }
 
 export type RunHandle = {
+  // The agent_run row this handle owns — approval rows and other run-scoped
+  // writes reference it.
+  runId: string
   budgets: RunBudgets
   resume: RunResume | null
   // Persist the step-0 context; called once on a fresh run, before streaming.

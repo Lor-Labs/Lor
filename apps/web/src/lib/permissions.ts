@@ -1,4 +1,5 @@
 import {
+  type CustomRoleGrants,
   canManageWorkspaceAuthority,
   formatWorkspaceRole as formatWorkspaceRoleHelper,
   isWorkspaceRole,
@@ -7,14 +8,23 @@ import {
   workspaceAuthorityHasPermissions,
 } from "@repo/auth/permissions"
 
+// Custom role name → parsed grants, fetched once per workspace via
+// useWorkspaceRoles (react-query). Optional everywhere: without it a custom
+// role resolves to member-tier affordances (the server enforces real grants
+// regardless).
+export type CustomRoleMap = Record<string, CustomRoleGrants>
+
 function toAuthority(
   member: { userId: string; role: string },
-  workspace: { ownerId: string }
-): WorkspaceAuthority | null {
-  if (!isWorkspaceRole(member.role)) return null
+  workspace: { ownerId: string },
+  customRoles?: CustomRoleMap
+): WorkspaceAuthority {
   return {
     role: member.role,
     isOwner: workspace.ownerId === member.userId,
+    customGrants: isWorkspaceRole(member.role)
+      ? null
+      : (customRoles?.[member.role] ?? null),
   }
 }
 
@@ -37,53 +47,78 @@ export function isAdminOrOwner(
 }
 
 export function formatWorkspaceRole(role: string): string {
-  if (isWorkspaceRole(role)) return formatWorkspaceRoleHelper(role)
-  return "Member"
+  if (!role) return "Member"
+  return formatWorkspaceRoleHelper(role)
 }
 
 function hasPermissions(
   member: { userId: string; role: string },
   workspace: { ownerId: string },
-  requestedPermissions: PermissionRequest
+  requestedPermissions: PermissionRequest,
+  customRoles?: CustomRoleMap
 ): boolean {
-  const authority = toAuthority(member, workspace)
-  if (!authority) return false
-  return workspaceAuthorityHasPermissions(authority, requestedPermissions)
+  return workspaceAuthorityHasPermissions(
+    toAuthority(member, workspace, customRoles),
+    requestedPermissions
+  )
 }
 
 export function canManageChannels(
   member: { userId: string; role: string },
-  workspace: { ownerId: string }
+  workspace: { ownerId: string },
+  customRoles?: CustomRoleMap
 ): boolean {
-  return hasPermissions(member, workspace, { channel: ["update"] })
+  return hasPermissions(member, workspace, { channel: ["update"] }, customRoles)
 }
 
 export function canCreateChannels(
   member: { userId: string; role: string },
-  workspace: { ownerId: string }
+  workspace: { ownerId: string },
+  customRoles?: CustomRoleMap
 ): boolean {
-  return hasPermissions(member, workspace, { channel: ["create"] })
+  return hasPermissions(member, workspace, { channel: ["create"] }, customRoles)
 }
 
 export function canDeleteChannels(
   member: { userId: string; role: string },
-  workspace: { ownerId: string }
+  workspace: { ownerId: string },
+  customRoles?: CustomRoleMap
 ): boolean {
-  return hasPermissions(member, workspace, { channel: ["delete"] })
+  return hasPermissions(member, workspace, { channel: ["delete"] }, customRoles)
 }
 
 export function canPinMessages(
   member: { userId: string; role: string },
-  workspace: { ownerId: string }
+  workspace: { ownerId: string },
+  customRoles?: CustomRoleMap
 ): boolean {
-  return hasPermissions(member, workspace, { message: ["pin"] })
+  return hasPermissions(member, workspace, { message: ["pin"] }, customRoles)
 }
 
 export function canKickWorkspaceMembers(
   member: { userId: string; role: string },
-  workspace: { ownerId: string }
+  workspace: { ownerId: string },
+  customRoles?: CustomRoleMap
 ): boolean {
-  return hasPermissions(member, workspace, { workspaceMember: ["kick"] })
+  return hasPermissions(
+    member,
+    workspace,
+    { workspaceMember: ["kick"] },
+    customRoles
+  )
+}
+
+export function canUpdateMemberRoles(
+  member: { userId: string; role: string },
+  workspace: { ownerId: string },
+  customRoles?: CustomRoleMap
+): boolean {
+  return hasPermissions(
+    member,
+    workspace,
+    { workspaceMember: ["role:update"] },
+    customRoles
+  )
 }
 
 export function canManageWorkspaceMember(
@@ -92,8 +127,8 @@ export function canManageWorkspaceMember(
   workspace: { ownerId: string }
 ): boolean {
   if (actor.userId === target.userId) return false
-  const actorAuthority = toAuthority(actor, workspace)
-  const targetAuthority = toAuthority(target, workspace)
-  if (!actorAuthority || !targetAuthority) return false
-  return canManageWorkspaceAuthority(actorAuthority, targetAuthority)
+  return canManageWorkspaceAuthority(
+    toAuthority(actor, workspace),
+    toAuthority(target, workspace)
+  )
 }

@@ -92,6 +92,7 @@ async function runDrain(args: {
       id: schema.agentRunQueue.id,
       messageId: schema.agentRunQueue.messageId,
       senderId: schema.agentRunQueue.senderId,
+      resumeApprovalId: schema.agentRunQueue.resumeApprovalId,
       messageChannelId: schema.message.channelId,
     })
     .from(schema.agentRunQueue)
@@ -300,6 +301,11 @@ async function runDrain(args: {
         contextThreadRootId: threadRootId,
         triggerMessageId,
         runId: newRun.id,
+        // A queued approval resolution keeps its resume: the follow-up run
+        // replays the parked transcript instead of building a delta.
+        ...(winner.resumeApprovalId
+          ? { resumeApprovalId: winner.resumeApprovalId }
+          : {}),
       },
       {
         attempts: 2,

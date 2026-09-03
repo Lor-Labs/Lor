@@ -21,7 +21,7 @@ import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm"
 import { allowedChannelConnectors } from "@/lib/channel-connectors"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
-import { assertWorkspacePermission } from "@/lib/permissions"
+import { assertWorkspaceAuthority } from "@/lib/permissions"
 import { userCanAccessChannel } from "@/lib/queries/channel-access"
 import {
   fetchMessages,
@@ -105,11 +105,10 @@ export const listChannels: AppRouteHandler<ListChannelsRoute> = async (c) => {
 
 export const createChannel: AppRouteHandler<CreateChannelRoute> = async (c) => {
   const workspace = c.var.workspace
-  const member = c.var.member
   const currentUser = c.var.user
   const { audience, memberIds, ...body } = c.req.valid("json")
 
-  assertWorkspacePermission(member, workspace, {
+  assertWorkspaceAuthority(c.var.authority, {
     channel: ["create"],
   })
 
@@ -202,10 +201,9 @@ export const reorderChannels: AppRouteHandler<ReorderChannelsRoute> = async (
   c
 ) => {
   const workspace = c.var.workspace
-  const member = c.var.member
   const { channels: updates } = c.req.valid("json")
 
-  assertWorkspacePermission(member, workspace, {
+  assertWorkspaceAuthority(c.var.authority, {
     channel: ["update"],
   })
 
@@ -366,12 +364,11 @@ export const getChannel: AppRouteHandler<GetChannelRoute> = async (c) => {
 
 export const updateChannel: AppRouteHandler<UpdateChannelRoute> = async (c) => {
   const workspace = c.var.workspace
-  const member = c.var.member
   const currentUser = c.var.user
   const { channelId } = c.req.valid("param")
   const body = c.req.valid("json")
 
-  assertWorkspacePermission(member, workspace, {
+  assertWorkspaceAuthority(c.var.authority, {
     channel: ["update"],
   })
 
@@ -427,11 +424,10 @@ export const updateChannel: AppRouteHandler<UpdateChannelRoute> = async (c) => {
 
 export const deleteChannel: AppRouteHandler<DeleteChannelRoute> = async (c) => {
   const workspace = c.var.workspace
-  const member = c.var.member
   const currentUser = c.var.user
   const { channelId } = c.req.valid("param")
 
-  assertWorkspacePermission(member, workspace, {
+  assertWorkspaceAuthority(c.var.authority, {
     channel: ["delete"],
   })
 
@@ -614,11 +610,10 @@ export const toggleMessagePin: AppRouteHandler<ToggleMessagePinRoute> = async (
   c
 ) => {
   const workspace = c.var.workspace
-  const member = c.var.member
   const currentUser = c.var.user
   const { channelId, messageId } = c.req.valid("param")
 
-  assertWorkspacePermission(member, workspace, {
+  assertWorkspaceAuthority(c.var.authority, {
     message: ["pin"],
   })
 

@@ -1,5 +1,7 @@
 import { and, db, eq, inArray, schema } from "@repo/db"
 import {
+  type ApprovalNotification,
+  buildApprovalNotificationContent,
   buildNotificationConversationName,
   buildNotificationTitle,
   buildReactionNotificationBody,
@@ -332,6 +334,54 @@ export async function sendReactionPushNotification(input: {
         senderName: input.notification.actorName,
         senderImage: input.notification.actorImage,
         ...(conversationName ? { conversationName } : {}),
+      },
+    }))
+  )
+}
+
+// Push half of the approval fan-out (LOR-83): the caller computed the
+// recipient set from the resolver spec; this sends only to whoever is offline
+// (online users saw the notification:approval socket event). Deliberately no
+// mute or settings check — these are directed at the few people who can (or
+// need to know they can't) unblock a parked run.
+export async function sendApprovalPush(input: {
+  userIds: string[]
+  notification: ApprovalNotification
+  redis: PresenceRedisClient
+}) {
+  if (input.userIds.length === 0) return
+  const membership = await input.redis.smIsMember(
+    PRESENCE_ONLINE_USERS_SET_KEY,
+    input.userIds
+  )
+  const offline = input.userIds.filter(
+    (_, index) => !toRedisBoolean(membership[index])
+  )
+  if (offline.length === 0) return
+
+  const tokens = await db
+    .select({ token: schema.pushToken.token })
+    .from(schema.pushToken)
+    .where(inArray(schema.pushToken.userId, offline))
+  if (tokens.length === 0) return
+
+  const { title, body } = buildApprovalNotificationContent(input.notification)
+  await deliverExpoPush(
+    tokens.map((row) => ({
+      to: row.token,
+      title,
+      body,
+      sound: "default" as const,
+      channelId: "default" as const,
+      data: {
+        // No dedicated mobile route: channelId/threadRootId deep-link through
+        // the ordinary message target, landing on the approval card.
+        type: "approval",
+        approvalId: input.notification.approvalId,
+        workspaceId: input.notification.workspaceId,
+        channelId: input.notification.channelId,
+        threadRootId: input.notification.threadRootId,
+        messageId: input.notification.messageId,
       },
     }))
   )

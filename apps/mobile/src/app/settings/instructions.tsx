@@ -198,7 +198,7 @@ export default function InstructionsApprovalScreen() {
               />
             ) : null}
             <DiffView after={pending.content} before={activeContent} />
-            {data.canManage ? (
+            {data.canApprove ? (
               <View className="gap-two">
                 <Button
                   isDisabled={resolve.isPending || pendingIsStale}

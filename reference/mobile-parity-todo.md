@@ -35,6 +35,33 @@ Core task surfaces shipped 2026-08-10 (`use-tasks.ts`, `task-ui.tsx`, `task-card
 - [ ] Loop detail view (web: right-panel `loop-panel.tsx` — full prompt, structured schedule editor `PATCH /v1/loops/:id`, timezone picker; mobile activation always pins the device tz).
 - [ ] Pause/resume/complete once those routes land (L3, web-first).
 
+## Approval policies (LOR-81/83, shipped mobile 2026-09-02)
+
+- [x] Generalized approval card under any parked run reply (`approval-card.tsx`
+  in `message-row.tsx`, gated by `merlinTriggerMessageId`); task header uses
+  the same card; buttons gated by shared `canResolveApproval` with real
+  custom-role grants; channel + thread screens mount `useChannelApprovals`.
+- [x] Approval push (`type: "approval"`) deep-links through the existing
+  message target (channelId/threadRootId) — no push-target change needed.
+- Known gap (same shape as task:updated): `approval:created/updated` arrive
+  via the channel room; a deep-linked thread without the channel screen
+  mounted still refetches on mount, so the card settles on open. Fine for v1.
+
+## Post-launch — custom roles (web shipped 2026-08-31, `reference/custom-roles.md`)
+
+- [x] **Custom-role grants fetchable on mobile** — `dynamicAccessControl`
+  enabled in the auth client + `use-workspace-roles.ts` hook (2026-09-02,
+  LOR-83). Approval cards gate their buttons with real grants; NOT yet
+  threaded into `use-member-moderation.ts` / `use-channel-permissions.ts`,
+  which still degrade custom roles to member-tier (server enforces).
+- [ ] Thread the custom-role grants map through `use-member-moderation.ts`
+  and `use-channel-permissions.ts` so e.g. `workspaceMember:kick` holders see
+  moderation UI on mobile.
+- [ ] **Assign custom roles from mobile** — `roleOptionsFor` offers static
+  roles only; the role PATCH endpoint accepts custom names already.
+- [ ] Roles management UI (create/edit/delete) stays web-side — same tier as
+  invite management; probably never a mobile surface.
+
 ## Post-launch — DM follow-ups
 
 - [ ] Group-DM member list sheet (group DMs can't be created from either client yet).

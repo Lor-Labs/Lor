@@ -5,6 +5,7 @@ import { setContext } from "@repo/logger"
 import { and, eq } from "drizzle-orm"
 import type { Context, Next } from "hono"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
+import { resolveWorkspaceAuthority } from "@/lib/permissions"
 import type { AppBindings } from "@/lib/types/app-types"
 
 /**
@@ -17,6 +18,8 @@ import type { AppBindings } from "@/lib/types/app-types"
  * - session: The session object
  * - workspace: The resolved workspace
  * - member: The user's membership in the workspace
+ * - authority: The member's resolved permission authority (static roles are
+ *   resolved in-memory; custom roles cost one workspace_role lookup)
  */
 export const workspaceAuthMiddleware = async (
   c: Context<AppBindings>,
@@ -70,6 +73,10 @@ export const workspaceAuthMiddleware = async (
   c.set("session", session.session)
   c.set("workspace", workspaceRecord)
   c.set("member", memberRecord)
+  c.set(
+    "authority",
+    await resolveWorkspaceAuthority(memberRecord, workspaceRecord)
+  )
   setContext({
     userId: session.user.id,
     workspaceId: workspaceRecord.id,

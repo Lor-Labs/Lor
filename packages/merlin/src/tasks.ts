@@ -59,7 +59,7 @@ const taskContext = z.object({
   onApprovalRequested: z.custom<() => void>().optional(),
 })
 
-async function updateTask(
+export async function updateTask(
   taskId: string,
   values: Partial<typeof schema.task.$inferInsert>,
   onTaskUpdated?: OnTaskUpdated

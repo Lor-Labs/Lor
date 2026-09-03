@@ -44,6 +44,7 @@
     "@blaxel/core": "^0.3.11",
     "@linear/sdk": "^87.0.0",
     "@notionhq/client": "^5.24.0",
+    "@repo/connectors": "workspace:^",
     "@repo/db": "workspace:^",
     "@repo/env": "workspace:^",
     "@repo/logger": "workspace:^",

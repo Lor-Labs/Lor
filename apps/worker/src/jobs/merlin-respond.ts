@@ -51,9 +51,16 @@ import type { Emitter } from "@socket.io/redis-emitter"
 import type { Job, Queue } from "bullmq"
 import type { createClient } from "redis"
 import { claimAgentRun, LeaseLostError } from "@/lib/agent-run"
+import {
+  notifyApprovalParked,
+  scheduleApprovalEscalation,
+} from "@/lib/approval-notify"
 import { logger } from "@/lib/logger"
 import { createLoopCard } from "@/lib/merlin-loop"
-import { buildContinuation } from "@/lib/run-continuation"
+import {
+  buildApprovalContinuation,
+  buildContinuation,
+} from "@/lib/run-continuation"
 import { noopRunEventWriter } from "@/lib/run-events"
 import { drainScopeQueue } from "@/lib/run-queue"
 import { updateStreamMentionState } from "@/lib/stream-mentions"
@@ -79,10 +86,10 @@ const WRITEBACK_MIN_BUDGET_FRACTION = 0.15
 const WRITEBACK_MIN_CREDITS = 50
 
 const MERLIN_ERROR_FALLBACK =
-  "⚠️ I ran into an error answering that. Please try again."
+  "I ran into an error answering that. Please try again."
 
 const OUT_OF_CREDITS_MESSAGE =
-  "⚠️ This workspace is out of Merlin credits. An admin can top up in Settings → Billing."
+  "This workspace is out of Merlin credits. An admin can top up in Settings → Billing."
 
 // Recent channel/thread messages, oldest→newest; skips the placeholder + empties.
 async function loadConversation(args: {
@@ -509,15 +516,23 @@ export function createMerlinRespondProcessor(
             // than rebuilding context from chat text alone, so it resumes the
             // work instead of rediscovering it. Channel scope always builds
             // fresh, and a recovered attempt already has its own transcript.
-            const continuation =
-              contextThreadRootId && !execution?.resume
-                ? await buildContinuation({
-                    scopeKey: contextThreadRootId,
-                    channelId,
-                    merlinMessageId,
-                    runId: job.data.runId,
+            // An approval resume is explicit rather than scope-inferred: it
+            // replays the parked run named by the approval row, so it also
+            // works in a plain channel scope where no delta path exists.
+            const continuation = execution?.resume
+              ? null
+              : job.data.resumeApprovalId
+                ? await buildApprovalContinuation({
+                    approvalId: job.data.resumeApprovalId,
                   })
-                : null
+                : contextThreadRootId
+                  ? await buildContinuation({
+                      scopeKey: contextThreadRootId,
+                      channelId,
+                      merlinMessageId,
+                      runId: job.data.runId,
+                    })
+                  : null
             if (continuation && execution) {
               await execution.markContinuedFrom(continuation.predecessorRunId)
             }
@@ -662,6 +677,9 @@ export function createMerlinRespondProcessor(
                         messages: continuation.messages,
                         coveredMessageIds: continuation.coveredMessageIds,
                         deltaText: continuation.deltaText,
+                        ...(continuation.approvalResume
+                          ? { approvalResume: continuation.approvalResume }
+                          : {}),
                         lastInputTokens: continuation.lastInputTokens,
                         compaction: continuation.compaction,
                       },
@@ -842,6 +860,10 @@ export function createMerlinRespondProcessor(
           // Explicit user stop: keep whatever partial answer streamed, settle
           // the run as stopped, and skip the write-back.
           const stoppedByUser = answer.stoppedFor === "stopped_by_user"
+          // Parked on an approval policy: the loop ends the moment the gate
+          // trips, so there may be no closing text — the approval card carries
+          // the explanation.
+          const awaitingApproval = answer.stoppedFor === "awaiting_approval"
 
           // Phase 2 — persist, then fan out. Persistence decides the terminal
           // status; fanout is best-effort and never downgrades a saved reply.
@@ -869,10 +891,12 @@ export function createMerlinRespondProcessor(
             finalText = grounded.text
             if (!finalText.trim()) {
               finalText = stoppedByUser
-                ? "⏹️ Stopped before I had an answer."
-                : "I couldn't pull together an answer for that — could you add a bit more detail or rephrase?"
+                ? "Stopped before I had an answer."
+                : awaitingApproval
+                  ? "Waiting for approval before I continue."
+                  : "I couldn't pull together an answer for that — could you add a bit more detail or rephrase?"
               emptyFallback = true
-              if (!stoppedByUser) {
+              if (!stoppedByUser && !awaitingApproval) {
                 logger.warn(
                   { merlinMessageId },
                   "Merlin produced no answer text; using empty fallback"
@@ -1044,6 +1068,51 @@ export function createMerlinRespondProcessor(
           execution?.stop()
           await settleTask(stoppedByUser ? "stopped" : "complete")
           drainQueue()
+          // Announce the gate only after the run is terminal — the resolve
+          // endpoint refuses to resume a run that hasn't finished parking.
+          // Ids only; cards read the durable row via the approvals query.
+          if (awaitingApproval && job.data.runId) {
+            const parkedApproval = await db
+              .select({
+                id: schema.approval.id,
+                taskId: schema.approval.taskId,
+              })
+              .from(schema.approval)
+              .where(
+                and(
+                  eq(schema.approval.runId, job.data.runId),
+                  eq(schema.approval.status, "pending")
+                )
+              )
+              .limit(1)
+              .then((r) => r[0] ?? null)
+              .catch(() => null)
+            if (parkedApproval) {
+              emitter.to(channelRoom(channelId)).emit("approval:created", {
+                approvalId: parkedApproval.id,
+                channelId,
+                threadRootId,
+                messageId: merlinMessageId,
+                taskId: parkedApproval.taskId,
+              })
+              // Directed fan-out: requester and/or resolvers, per the rules in
+              // approval-notify. Never fails the (already terminal) reply.
+              try {
+                const { scheduleEscalation } = await notifyApprovalParked(
+                  { emitter, redis },
+                  parkedApproval.id
+                )
+                if (scheduleEscalation) {
+                  await scheduleApprovalEscalation(parkedApproval.id)
+                }
+              } catch (err) {
+                logger.error(
+                  { err, approvalId: parkedApproval.id },
+                  "Approval notification fan-out failed"
+                )
+              }
+            }
+          }
           logger.info(
             { merlinMessageId, length: finalText.length, stoppedByUser },
             "Merlin reply complete"

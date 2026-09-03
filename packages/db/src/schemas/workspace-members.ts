@@ -1,5 +1,12 @@
 import { relations } from "drizzle-orm"
-import { index, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core"
+import {
+  index,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from "drizzle-orm/pg-core"
 import {
   createInsertSchema,
   createSelectSchema,
@@ -7,9 +14,6 @@ import {
 } from "drizzle-zod"
 import { user } from "./users"
 import { workspace } from "./workspaces"
-
-export const WORKSPACE_MEMBER_ROLES = ["member", "admin"] as const
-export type WorkspaceMemberRole = (typeof WORKSPACE_MEMBER_ROLES)[number]
 
 export const workspaceMember = pgTable(
   "workspace_member",
@@ -26,7 +30,10 @@ export const workspaceMember = pgTable(
     avatarColor: text("avatar_color").default("blue").notNull(),
   },
   (table) => [
-    index("workspaceMember_workspaceId_idx").on(table.workspaceId),
+    uniqueIndex("workspaceMember_workspaceId_userId_uidx").on(
+      table.workspaceId,
+      table.userId
+    ),
     index("workspaceMember_userId_idx").on(table.userId),
   ]
 )

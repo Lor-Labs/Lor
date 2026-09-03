@@ -2,6 +2,7 @@ import {
   ArrowDown01Icon,
   Camera01Icon,
   Cancel01Icon,
+  CheckmarkSquare02Icon,
   CreditCardIcon,
   Layers01Icon,
   LinkSquare02Icon,
@@ -10,6 +11,7 @@ import {
   Settings01Icon,
   SquareLock02Icon,
   Upload01Icon,
+  UserGroupIcon,
   Wrench01Icon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react"
@@ -55,10 +57,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { AnimatePresence, motion } from "motion/react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
+import { ApprovalsSection } from "@/components/workspace/approvals-section"
 import { BillingSection } from "@/components/workspace/billing-section"
 import { CustomToolsSection } from "@/components/workspace/custom-tools-section"
 import { GithubBaseBranchSettings } from "@/components/workspace/github-base-branch-settings"
 import { InstructionsSection } from "@/components/workspace/instructions-section"
+import { MembersRolesSection } from "@/components/workspace/members-roles-section"
 import { MerlinProfilesSection } from "@/components/workspace/merlin-profiles-section"
 import { TriggerEffects } from "@/components/workspace/trigger-effects"
 import { WorkspaceAvatar } from "@/components/workspace/workspace-avatar"
@@ -98,17 +102,21 @@ type Workspace = {
 
 export type SectionId =
   | "general"
+  | "members"
   | "connectors"
   | "custom-tools"
   | "merlin"
+  | "approvals"
   | "instructions"
   | "billing"
 
 const SECTIONS: { id: SectionId; label: string; icon: IconSvgElement }[] = [
   { id: "general", label: "General", icon: Settings01Icon },
+  { id: "members", label: "Members & Roles", icon: UserGroupIcon },
   { id: "connectors", label: "Connectors", icon: Plug01Icon },
   { id: "custom-tools", label: "Tools", icon: Wrench01Icon },
   { id: "merlin", label: "Agent profiles", icon: Layers01Icon },
+  { id: "approvals", label: "Approvals", icon: CheckmarkSquare02Icon },
   { id: "instructions", label: "LOR.md", icon: Scroll01Icon },
   { id: "billing", label: "Billing", icon: CreditCardIcon },
 ]
@@ -117,6 +125,7 @@ const SECTIONS: { id: SectionId; label: string; icon: IconSvgElement }[] = [
 // the section list.
 export function toSectionId(value: string | undefined): SectionId {
   if (value === "integrations") return "connectors"
+  if (value === "roles") return "members"
   return SECTIONS.some((s) => s.id === value) ? (value as SectionId) : "general"
 }
 
@@ -163,8 +172,10 @@ export function WorkspaceSettingsDialog({
     activeMember && membersData?.ownerId
       ? isAdminOrOwner(activeMember, { ownerId: membersData.ownerId })
       : false
+  // Approval policies ride the same admin-or-owner tier (the API enforces the
+  // approval:manage grant regardless).
   const sections = SECTIONS.filter(
-    (s) => s.id !== "billing" || canManageBilling
+    (s) => (s.id !== "billing" && s.id !== "approvals") || canManageBilling
   )
 
   // Close on Escape (no dialog primitive here, so wire it ourselves).
@@ -297,10 +308,22 @@ export function WorkspaceSettingsDialog({
                       workspace={workspace}
                       onClose={() => onOpenChange(false)}
                     />
+                  ) : section === "members" ? (
+                    <MembersRolesSection
+                      workspaceId={workspace.id}
+                      workspaceSlug={workspace.slug}
+                      // Role management rides the same admin-or-owner tier
+                      canManageRoles={canManageBilling}
+                    />
                   ) : section === "connectors" ? (
                     <ConnectorsSection workspaceSlug={workspace.slug} />
                   ) : section === "custom-tools" ? (
                     <CustomToolsSection workspaceSlug={workspace.slug} />
+                  ) : section === "approvals" && canManageBilling ? (
+                    <ApprovalsSection
+                      workspaceId={workspace.id}
+                      workspaceSlug={workspace.slug}
+                    />
                   ) : section === "instructions" ? (
                     <InstructionsSection workspaceSlug={workspace.slug} />
                   ) : section === "billing" && canManageBilling ? (

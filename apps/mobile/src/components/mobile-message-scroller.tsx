@@ -37,6 +37,7 @@ type MobileMessageScrollerProps<ItemT> = Omit<
 
 const CHAT_MAINTAIN_SCROLL_AT_END = { animated: false } as const
 const CHAT_MAINTAIN_VISIBLE_CONTENT = { data: true } as const
+const JUMP_TO_LATEST_REVEAL_DISTANCE = 160
 
 export function MobileMessageScroller<ItemT>({
   alignItemsAtEnd = true,
@@ -46,6 +47,7 @@ export function MobileMessageScroller<ItemT>({
   maintainScrollAtEndThreshold = 0.08,
   maintainVisibleContentPosition = CHAT_MAINTAIN_VISIBLE_CONTENT,
   newestItemKey,
+  onScroll,
   onTouchStart,
   ref,
   // Message rows own local UI state (reasoning disclosure, image viewer,
@@ -67,7 +69,9 @@ export function MobileMessageScroller<ItemT>({
     [ref]
   )
   const isAtEnd = useSharedValue(true)
-  const [showJumpButton, setShowJumpButton] = useState(false)
+  const [isAwayFromEnd, setIsAwayFromEnd] = useState(false)
+  const [isMeaningfullyScrolledUp, setIsMeaningfullyScrolledUp] =
+    useState(false)
   const [hasNewActivity, setHasNewActivity] = useState(false)
   const previousNewestItemKeyRef = useRef(newestItemKey)
   const foreground = useThemeColor("foreground")
@@ -75,10 +79,31 @@ export function MobileMessageScroller<ItemT>({
   useAnimatedReaction(
     () => isAtEnd.value,
     (atEnd, wasAtEnd) => {
-      if (atEnd !== wasAtEnd) runOnJS(setShowJumpButton)(!atEnd)
+      if (atEnd !== wasAtEnd) runOnJS(setIsAwayFromEnd)(!atEnd)
     },
     [isAtEnd]
   )
+
+  const handleScroll = useCallback<
+    NonNullable<LegendListProps<ItemT>["onScroll"]>
+  >(
+    (event) => {
+      const { contentOffset, contentSize, layoutMeasurement } =
+        event.nativeEvent
+      const distanceFromEnd = Math.max(
+        0,
+        contentSize.height - layoutMeasurement.height - contentOffset.y
+      )
+      setIsMeaningfullyScrolledUp(
+        distanceFromEnd >= JUMP_TO_LATEST_REVEAL_DISTANCE
+      )
+      onScroll?.(event)
+    },
+    [onScroll]
+  )
+
+  const showJumpButton =
+    isAwayFromEnd && (isMerlinResponding || isMeaningfullyScrolledUp)
 
   useEffect(() => {
     const previousKey = previousNewestItemKeyRef.current
@@ -86,16 +111,16 @@ export function MobileMessageScroller<ItemT>({
       previousKey &&
       newestItemKey &&
       previousKey !== newestItemKey &&
-      showJumpButton
+      isAwayFromEnd
     ) {
       setHasNewActivity(true)
     }
     previousNewestItemKeyRef.current = newestItemKey
-  }, [newestItemKey, showJumpButton])
+  }, [newestItemKey, isAwayFromEnd])
 
   useEffect(() => {
-    if (!showJumpButton) setHasNewActivity(false)
-  }, [showJumpButton])
+    if (!isAwayFromEnd) setHasNewActivity(false)
+  }, [isAwayFromEnd])
 
   const dismissKeyboardOnTouch = useCallback<
     NonNullable<LegendListProps<ItemT>["onTouchStart"]>
@@ -110,6 +135,8 @@ export function MobileMessageScroller<ItemT>({
 
   const jumpToLatest = useCallback(() => {
     setHasNewActivity(false)
+    setIsAwayFromEnd(false)
+    setIsMeaningfullyScrolledUp(false)
     void internalRef.current?.scrollToEnd({ animated: true })
   }, [])
 
@@ -136,6 +163,7 @@ export function MobileMessageScroller<ItemT>({
         maintainScrollAtEnd={maintainScrollAtEnd}
         maintainScrollAtEndThreshold={maintainScrollAtEndThreshold}
         maintainVisibleContentPosition={maintainVisibleContentPosition}
+        onScroll={handleScroll}
         onTouchStart={dismissKeyboardOnTouch}
         recycleItems={recycleItems}
         sharedValues={{ isAtEnd }}

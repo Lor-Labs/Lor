@@ -1,5 +1,9 @@
 import { z } from "@hono/zod-openapi"
-import { approvalStatusEnum, taskStatusEnum } from "@repo/db/schema"
+import { taskStatusEnum } from "@repo/db/schema"
+import {
+  approvalResolverSchema,
+  approvalSchema,
+} from "@/routes/v1/approvals/schema"
 
 export const taskParamsSchema = z.object({
   taskId: z
@@ -29,15 +33,6 @@ export const channelTasksQuerySchema = z.object({
     }),
 })
 
-export const approvalParamsSchema = z.object({
-  approvalId: z
-    .string()
-    .uuid()
-    .openapi({
-      param: { name: "approvalId", in: "path", required: true },
-    }),
-})
-
 export const taskSchema = z.object({
   id: z.string().uuid(),
   workspaceId: z.string().uuid(),
@@ -60,26 +55,16 @@ export const taskSchema = z.object({
   updatedAt: z.string(),
 })
 
-export const approvalSchema = z.object({
-  id: z.string().uuid(),
-  taskId: z.string().uuid().nullable(),
-  action: z.string(),
-  description: z.string(),
-  status: z.enum(approvalStatusEnum.enumValues),
-  resolvedBy: z.string().uuid().nullable(),
-  resolvedAt: z.string().nullable(),
-  createdAt: z.string(),
-})
-
 export const listChannelTasksResponseSchema = z.object({
   tasks: z.array(taskSchema),
 })
 
 export const getTaskResponseSchema = z.object({
   task: taskSchema,
-  pendingApproval: approvalSchema.nullable(),
-})
-
-export const resolveApprovalResponseSchema = z.object({
-  approval: approvalSchema,
+  pendingApproval: approvalSchema
+    .extend({
+      resolver: approvalResolverSchema.nullable(),
+      resolverUserName: z.string().nullable(),
+    })
+    .nullable(),
 })

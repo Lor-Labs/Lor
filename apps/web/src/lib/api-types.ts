@@ -120,6 +120,38 @@ export type InvitePreviewResponse = InferResponseType<
   200
 >
 
+// ── Workspace Instructions ──────────────────────────────────────────
+
+type InstructionsClient =
+  Client["v1"]["workspaces"][":workspaceSlug"]["instructions"]
+
+export type InstructionsResponse = InferResponseType<
+  InstructionsClient["$get"],
+  200
+>
+export type InstructionsVersion = InstructionsResponse["versions"][number]
+
+// ── Approvals ──────────────────────────────────────────
+
+type ChannelApprovalsClient =
+  Client["v1"]["channels"][":channelId"]["approvals"]
+
+export type ChannelApprovalList = InferResponseType<
+  ChannelApprovalsClient["$get"],
+  200
+>
+export type ChannelApproval = ChannelApprovalList["approvals"][number]
+
+type ApprovalPoliciesClient =
+  Client["v1"]["workspaces"][":workspaceSlug"]["approval-policies"]
+
+export type ApprovalPoliciesResponse = InferResponseType<
+  ApprovalPoliciesClient["$get"],
+  200
+>
+export type ApprovalPolicy = ApprovalPoliciesResponse["policies"][number]
+export type ApprovalTarget = ApprovalPoliciesResponse["targets"][number]
+
 // ── Users ──────────────────────────────────────────
 
 type UserProfileClient = Client["v1"]["users"][":userId"]

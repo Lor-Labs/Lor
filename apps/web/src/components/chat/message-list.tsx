@@ -462,6 +462,7 @@ export function MessageList({
 
         <MessageScrollerJumpToLatest
           newestMessageId={messages[0]?.id ?? null}
+          viewportRef={scrollRef}
           isMerlinResponding={Boolean(pendingMerlinMessage)}
           pendingCount={pendingCount}
           hasUnloadedNewer={Boolean(hasNewer)}

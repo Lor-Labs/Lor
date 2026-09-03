@@ -566,6 +566,12 @@ export interface ServerToClientEvents {
 
   // Task snapshot changed (status, plan, summary). Channel room.
   "task:updated": (payload: TaskUpdatedEvent) => void
+  // A run parked on an approval gate. Channel room; ids only — the
+  // durable card data comes from the channel approvals query this invalidates.
+  "approval:created": (payload: ApprovalCreatedEvent) => void
+  // An approval was resolved. Channel room when the approval belongs
+  // to a channel scope, so open approval cards settle without a refetch.
+  "approval:updated": (payload: ApprovalUpdatedEvent) => void
   // Loop snapshot changed (status, schedule, run bookkeeping). Channel room.
   "loop:updated": (payload: LoopUpdatedEvent) => void
   // Loop hard-deleted (its card message goes separately via message:deleted).
@@ -576,6 +582,10 @@ export interface ServerToClientEvents {
   "notification:unread": (payload: UnreadNotification) => void
   "notification:mention": (payload: MentionNotification) => void
   "notification:reaction": (payload: ReactionNotification) => void
+  // User room, resolver-targeted (LOR-83): a run parked on an approval gate
+  // and this user should act (or know). Online clients show an OS
+  // notification; the offline complement goes out as a mobile push instead.
+  "notification:approval": (payload: ApprovalNotification) => void
   "channel:read-state": (payload: ChannelReadState) => void
   "channel-mute:updated": (payload: ChannelMuteUpdated) => void
   "thread-read:updated": (payload: ThreadReadUpdated) => void
@@ -647,6 +657,46 @@ export type RealtimeTask = {
 
 export type TaskUpdatedEvent = {
   task: RealtimeTask
+}
+
+export type RealtimeApprovalStatus =
+  | "pending"
+  | "approved"
+  | "rejected"
+  | "expired"
+
+// "actionable" = this user can resolve the approval; "waiting" = this user's
+// own run is blocked on someone else (informational).
+export type ApprovalNotification = {
+  approvalId: string
+  flavor: "actionable" | "waiting"
+  workspaceId: string
+  workspaceName: string
+  channelId: string
+  channelName: string | null
+  threadRootId: string | null
+  messageId: string | null
+  description: string
+  // Plain words for who can resolve ("anyone in the channel", "the support
+  // role", a person's name) — rendered in the waiting flavor.
+  resolverLabel: string
+}
+
+export type ApprovalCreatedEvent = {
+  approvalId: string
+  channelId: string
+  threadRootId: string | null
+  messageId: string | null
+  taskId: string | null
+}
+
+export type ApprovalUpdatedEvent = {
+  approvalId: string
+  channelId: string
+  taskId: string | null
+  status: RealtimeApprovalStatus
+  resolvedBy: string | null
+  resolvedAt: string | null
 }
 
 export type RealtimeLoopStatus = "draft" | "active" | "paused" | "completed"

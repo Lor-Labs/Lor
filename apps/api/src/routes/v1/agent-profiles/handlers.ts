@@ -16,7 +16,7 @@ import {
 import { env } from "@repo/env/server"
 import { and, asc, desc, eq, inArray } from "drizzle-orm"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
-import { assertWorkspacePermission } from "@/lib/permissions"
+import { assertWorkspaceAuthority } from "@/lib/permissions"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
   CreateAgentProfileRoute,
@@ -234,7 +234,7 @@ export const createAgentProfile: AppRouteHandler<
   CreateAgentProfileRoute
 > = async (c) => {
   const workspace = c.var.workspace
-  assertWorkspacePermission(c.var.member, workspace, { channel: ["update"] })
+  assertWorkspaceAuthority(c.var.authority, { agentProfile: ["manage"] })
   const { name, capabilities } = c.req.valid("json")
   const body = c.req.valid("json")
   // The join tables key on (profileId, toolId) — a duplicated id in the
@@ -316,7 +316,7 @@ export const updateAgentProfile: AppRouteHandler<
   UpdateAgentProfileRoute
 > = async (c) => {
   const workspace = c.var.workspace
-  assertWorkspacePermission(c.var.member, workspace, { channel: ["update"] })
+  assertWorkspaceAuthority(c.var.authority, { agentProfile: ["manage"] })
   const { profileId } = c.req.valid("param")
   const { name, capabilities } = c.req.valid("json")
   const body = c.req.valid("json")
@@ -438,7 +438,7 @@ export const deleteAgentProfile: AppRouteHandler<
   DeleteAgentProfileRoute
 > = async (c) => {
   const workspace = c.var.workspace
-  assertWorkspacePermission(c.var.member, workspace, { channel: ["update"] })
+  assertWorkspaceAuthority(c.var.authority, { agentProfile: ["manage"] })
   const { profileId } = c.req.valid("param")
 
   const profile = await db

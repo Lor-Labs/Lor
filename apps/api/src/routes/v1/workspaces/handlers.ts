@@ -1,6 +1,7 @@
 import {
   getWorkspaceAuthorityPosition,
   getWorkspaceRolePosition,
+  isWorkspaceRole,
 } from "@repo/auth/permissions"
 import { syncSeats } from "@repo/billing"
 import { and, count, db, desc, eq, ilike, inArray, schema } from "@repo/db"
@@ -13,12 +14,13 @@ import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
 import {
   assertCanManageWorkspaceMember,
-  assertWorkspacePermission,
+  assertWorkspaceAuthority,
 } from "@/lib/permissions"
 import { getAvatarColorsByUserId } from "@/lib/queries/messages"
 import { getRedisClient } from "@/lib/redis"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
+  DeleteWorkspaceRoleRoute,
   KickWorkspaceMemberRoute,
   ListWorkspaceMembersRoute,
   SearchMessagesRoute,
@@ -157,7 +159,7 @@ export const updateWorkspaceMemberRole: AppRouteHandler<
   const { userId } = c.req.valid("param")
   const { role } = c.req.valid("json")
 
-  const actorAuthority = assertWorkspacePermission(actor, workspace, {
+  const actorAuthority = assertWorkspaceAuthority(c.var.authority, {
     workspaceMember: ["role:update"],
   })
 
@@ -172,9 +174,12 @@ export const updateWorkspaceMemberRole: AppRouteHandler<
 
   assertCanManageWorkspaceMember(actor, target, workspace)
 
+  // Non-owners can assign roles at their own position or below — an admin
+  // can promote to admin. Demoting an admin stays owner-only via the
+  // moderation hierarchy above (strictly-lower rule).
   if (
     !actorAuthority.isOwner &&
-    getWorkspaceRolePosition(role) <=
+    getWorkspaceRolePosition(role) <
       getWorkspaceAuthorityPosition(actorAuthority)
   ) {
     return c.json(
@@ -183,15 +188,42 @@ export const updateWorkspaceMemberRole: AppRouteHandler<
     )
   }
 
-  await db
-    .update(schema.workspaceMember)
-    .set({ role })
-    .where(
-      and(
-        eq(schema.workspaceMember.workspaceId, workspace.id),
-        eq(schema.workspaceMember.userId, userId)
+  // Validate + assign atomically, holding the custom-role row lock, so a
+  // concurrent role deletion (delete + member reassignment) can't interleave
+  // and commit a dangling role name onto this member.
+  const assigned = await db.transaction(async (tx) => {
+    if (!isWorkspaceRole(role)) {
+      const customRole = await tx
+        .select({ id: schema.workspaceRole.id })
+        .from(schema.workspaceRole)
+        .where(
+          and(
+            eq(schema.workspaceRole.workspaceId, workspace.id),
+            eq(schema.workspaceRole.role, role)
+          )
+        )
+        .limit(1)
+        .for("update")
+        .then((rows) => rows[0])
+      if (!customRole) return false
+    }
+    await tx
+      .update(schema.workspaceMember)
+      .set({ role })
+      .where(
+        and(
+          eq(schema.workspaceMember.workspaceId, workspace.id),
+          eq(schema.workspaceMember.userId, userId)
+        )
       )
+    return true
+  })
+  if (!assigned) {
+    return c.json(
+      { success: false, message: "Role not found in this workspace" },
+      HttpStatusCodes.NOT_FOUND
     )
+  }
 
   const updatedMember = await getWorkspaceMemberRow(workspace.id, userId)
 
@@ -224,7 +256,7 @@ export const kickWorkspaceMember: AppRouteHandler<
   const actor = c.var.member
   const { userId } = c.req.valid("param")
 
-  assertWorkspacePermission(actor, workspace, {
+  assertWorkspaceAuthority(c.var.authority, {
     workspaceMember: ["kick"],
   })
 
@@ -253,15 +285,71 @@ export const kickWorkspaceMember: AppRouteHandler<
   return c.json({ success: true as const }, HttpStatusCodes.OK)
 }
 
+export const deleteWorkspaceRole: AppRouteHandler<
+  DeleteWorkspaceRoleRoute
+> = async (c) => {
+  const workspace = c.var.workspace
+  const { roleName } = c.req.valid("param")
+
+  // Same gate as better-auth's role CRUD endpoints (ac statements)
+  assertWorkspaceAuthority(c.var.authority, { ac: ["delete"] })
+
+  if (isWorkspaceRole(roleName)) {
+    return c.json(
+      { success: false, message: "Static roles cannot be deleted" },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+
+  // Delete + reassignment are one transaction so no member is ever left
+  // holding a dangling role name (which would degrade them to member-tier
+  // access but display a stale role).
+  const reassignedMemberIds = await db.transaction(async (tx) => {
+    const deleted = await tx
+      .delete(schema.workspaceRole)
+      .where(
+        and(
+          eq(schema.workspaceRole.workspaceId, workspace.id),
+          eq(schema.workspaceRole.role, roleName)
+        )
+      )
+      .returning({ id: schema.workspaceRole.id })
+    if (deleted.length === 0) return null
+
+    const reassigned = await tx
+      .update(schema.workspaceMember)
+      .set({ role: "member" })
+      .where(
+        and(
+          eq(schema.workspaceMember.workspaceId, workspace.id),
+          eq(schema.workspaceMember.role, roleName)
+        )
+      )
+      .returning({ userId: schema.workspaceMember.userId })
+    return reassigned.map((row) => row.userId)
+  })
+
+  if (reassignedMemberIds === null) {
+    return c.json(
+      { success: false, message: "Role not found in this workspace" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+
+  return c.json(
+    { success: true as const, reassignedMemberIds },
+    HttpStatusCodes.OK
+  )
+}
+
 // ── Workspace Settings ─────────────────────────────────────
 
 export const updateWorkspace: AppRouteHandler<UpdateWorkspaceRoute> = async (
   c
 ) => {
   const workspace = c.var.workspace
-  const actor = c.var.member
 
-  assertWorkspacePermission(actor, workspace, {
+  assertWorkspaceAuthority(c.var.authority, {
     organization: ["update"],
   })
 

@@ -1,12 +1,7 @@
 import { MoreHorizontalIcon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
-import {
-  type AssignableWorkspaceRole,
-  assignableWorkspaceRoles,
-  formatWorkspaceRole,
-  isWorkspaceRole,
-} from "@repo/auth/permissions"
+import { formatWorkspaceRole } from "@repo/auth/permissions"
 import type {
   PresenceUserUpdate,
   WorkspaceMemberJoinedEvent,
@@ -46,6 +41,11 @@ import type { WorkspaceMembersSidebarView } from "@/components/sidebar/right-pan
 import { UserAvatar } from "@/components/ui/user-avatar"
 import { UserProfilePopover } from "@/components/ui/user-profile-card"
 import { useSocket } from "@/context/socket-context"
+import {
+  toCustomRoleMap,
+  useAssignableRoleOptions,
+  useWorkspaceRoles,
+} from "@/hooks/use-workspace-roles"
 import { apiClient } from "@/lib/api-client"
 import type {
   ListWorkspaceMembersResponse,
@@ -54,6 +54,7 @@ import type {
 import {
   canKickWorkspaceMembers,
   canManageWorkspaceMember,
+  canUpdateMemberRoles,
 } from "@/lib/permissions"
 
 const statusStyles: Record<WorkspaceMemberPresence["status"], string> = {
@@ -67,7 +68,7 @@ const statusLabel: Record<WorkspaceMemberPresence["status"], string> = {
 }
 
 function formatRole(role: WorkspaceMemberPresence["role"]) {
-  if (!role || !isWorkspaceRole(role)) return "Member"
+  if (!role) return "Member"
   return formatWorkspaceRole(role)
 }
 
@@ -101,6 +102,9 @@ function MemberRow({
   currentUserId,
   currentMember,
   ownerId,
+  roleOptions,
+  canUpdateRolesPermission,
+  canKickPermission,
   onRoleChange,
   onKick,
   isBusy,
@@ -109,14 +113,13 @@ function MemberRow({
   currentUserId: string | null
   currentMember: { userId: string; role: string } | null
   ownerId: string | null
-  onRoleChange: (
-    member: WorkspaceMemberPresence,
-    role: AssignableWorkspaceRole
-  ) => void
+  roleOptions: string[]
+  canUpdateRolesPermission: boolean
+  canKickPermission: boolean
+  onRoleChange: (member: WorkspaceMemberPresence, role: string) => void
   onKick: (member: WorkspaceMemberPresence) => void
   isBusy: boolean
 }) {
-  const targetRole = isWorkspaceRole(member.role) ? member.role : null
   const workspaceCtx = ownerId ? { ownerId } : null
 
   const canManageTarget =
@@ -131,11 +134,9 @@ function MemberRow({
         )
       : false
 
-  const canUpdateRole = canManageTarget && !!targetRole
-  const canKick =
-    currentMember && workspaceCtx
-      ? canKickWorkspaceMembers(currentMember, workspaceCtx) && canManageTarget
-      : false
+  const canUpdateRole =
+    canManageTarget && canUpdateRolesPermission && roleOptions.length > 0
+  const canKick = canKickPermission && canManageTarget
 
   const showActions = canUpdateRole || canKick
 
@@ -204,33 +205,24 @@ function MemberRow({
               <span className="sr-only">Moderate member</span>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              {canUpdateRole && targetRole && (
+              {canUpdateRole && (
                 <DropdownMenuSub>
                   <DropdownMenuSubTrigger>Change Role</DropdownMenuSubTrigger>
                   <DropdownMenuSubContent>
                     <DropdownMenuRadioGroup
                       value={
-                        assignableWorkspaceRoles.includes(
-                          targetRole as AssignableWorkspaceRole
-                        )
-                          ? targetRole
+                        roleOptions.includes(member.role)
+                          ? member.role
                           : "member"
                       }
                       onValueChange={(value) => {
-                        if (
-                          !assignableWorkspaceRoles.includes(
-                            value as AssignableWorkspaceRole
-                          )
-                        ) {
-                          return
-                        }
-
-                        onRoleChange(member, value as AssignableWorkspaceRole)
+                        if (!roleOptions.includes(value)) return
+                        onRoleChange(member, value)
                       }}
                     >
-                      {assignableWorkspaceRoles.map((role) => (
+                      {roleOptions.map((role) => (
                         <DropdownMenuRadioItem key={role} value={role}>
-                          {formatWorkspaceRole(role)}
+                          {formatRole(role)}
                         </DropdownMenuRadioItem>
                       ))}
                     </DropdownMenuRadioGroup>
@@ -309,6 +301,26 @@ export function WorkspaceMembersPanel({
       : null
   const ownerId = data?.ownerId ?? null
 
+  const { data: workspaceRoles } = useWorkspaceRoles(workspaceId)
+  const customRoles = useMemo(
+    () => toCustomRoleMap(workspaceRoles),
+    [workspaceRoles]
+  )
+  const workspaceCtx = ownerId ? { ownerId } : null
+  const canUpdateRolesPermission =
+    currentMember && workspaceCtx
+      ? canUpdateMemberRoles(currentMember, workspaceCtx, customRoles)
+      : false
+  const canKickPermission =
+    currentMember && workspaceCtx
+      ? canKickWorkspaceMembers(currentMember, workspaceCtx, customRoles)
+      : false
+  const roleOptions = useAssignableRoleOptions(
+    currentMember,
+    ownerId,
+    workspaceRoles
+  )
+
   useEffect(() => {
     if (!hasActiveMemberError) return
 
@@ -324,10 +336,7 @@ export function WorkspaceMembersPanel({
   }
 
   const updateRoleMutation = useMutation({
-    mutationFn: async (input: {
-      userId: string
-      role: AssignableWorkspaceRole
-    }) => {
+    mutationFn: async (input: { userId: string; role: string }) => {
       const res = await apiClient.v1.workspaces[":workspaceSlug"].members[
         ":userId"
       ].role.$patch({
@@ -374,10 +383,7 @@ export function WorkspaceMembersPanel({
 
   const isMutating = updateRoleMutation.isPending || kickMutation.isPending
 
-  const handleRoleChange = (
-    member: WorkspaceMemberPresence,
-    role: AssignableWorkspaceRole
-  ) => {
+  const handleRoleChange = (member: WorkspaceMemberPresence, role: string) => {
     if (member.role === role) return
     updateRoleMutation.mutate({ userId: member.userId, role })
   }
@@ -418,11 +424,24 @@ export function WorkspaceMembersPanel({
       )
     }
 
-    const requestSnapshot = () => {
-      if (!workspaceId) return
+    // Retry failed presence:subscribe acks (transient init/db errors on the
+    // realtime server) so the member list can't stay stale until remount.
+    let disposed = false
+    let snapshotRetryTimer: ReturnType<typeof setTimeout> | null = null
+
+    const requestSnapshot = (attempt = 0) => {
+      if (disposed || !workspaceId) return
 
       socket.emit("presence:subscribe", { workspaceId }, (result) => {
-        if (!result.ok) return
+        if (disposed) return
+        if (!result.ok) {
+          if (attempt >= 3) return
+          snapshotRetryTimer = setTimeout(
+            () => requestSnapshot(attempt + 1),
+            2000 * (attempt + 1)
+          )
+          return
+        }
         applySnapshot(result.snapshot.onlineUserIds)
       })
     }
@@ -472,6 +491,8 @@ export function WorkspaceMembersPanel({
     }
 
     return () => {
+      disposed = true
+      if (snapshotRetryTimer) clearTimeout(snapshotRetryTimer)
       socket.off("presence:ready", onPresenceReady)
       socket.off("connect", onConnect)
       socket.off("presence:user:update", onPresenceUpdate)
@@ -553,6 +574,9 @@ export function WorkspaceMembersPanel({
                           currentUserId={currentUserId}
                           currentMember={currentMember}
                           ownerId={ownerId}
+                          roleOptions={roleOptions}
+                          canUpdateRolesPermission={canUpdateRolesPermission}
+                          canKickPermission={canKickPermission}
                           onRoleChange={handleRoleChange}
                           onKick={handleKick}
                           isBusy={isMutating}
@@ -575,6 +599,9 @@ export function WorkspaceMembersPanel({
                           currentUserId={currentUserId}
                           currentMember={currentMember}
                           ownerId={ownerId}
+                          roleOptions={roleOptions}
+                          canUpdateRolesPermission={canUpdateRolesPermission}
+                          canKickPermission={canKickPermission}
                           onRoleChange={handleRoleChange}
                           onKick={handleKick}
                           isBusy={isMutating}

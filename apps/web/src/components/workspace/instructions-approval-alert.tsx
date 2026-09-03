@@ -30,7 +30,7 @@ export function InstructionsApprovalAlert({
     staleTime: 60_000,
     refetchInterval: 5 * 60_000,
   })
-  const canManage = data?.canManage ?? false
+  const canApprove = data?.canApprove ?? false
 
   // Live feedback the moment Merlin files a proposal: refresh the shared
   // query (pops this banner) and toast the admins who can act on it.
@@ -40,7 +40,7 @@ export function InstructionsApprovalAlert({
       void queryClient.invalidateQueries({
         queryKey: ["workspace-instructions"],
       })
-      if (canManage) {
+      if (canApprove) {
         toast("Merlin proposed new workspace instructions", {
           description: "Review and approve them in settings.",
           action: { label: "Review", onClick: onReview },
@@ -51,9 +51,9 @@ export function InstructionsApprovalAlert({
     return () => {
       socket.off("instructions:proposal", onProposal)
     }
-  }, [socket, queryClient, canManage, onReview])
+  }, [socket, queryClient, canApprove, onReview])
 
-  if (!data?.canManage || !data.pending) return null
+  if (!data?.canApprove || !data.pending) return null
 
   return (
     <button

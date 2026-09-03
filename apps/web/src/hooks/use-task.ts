@@ -1,5 +1,4 @@
-import { toast } from "@repo/ui/components/toast"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useQuery } from "@tanstack/react-query"
 import { apiClient } from "@/lib/api-client"
 
 export type TaskApproval = {
@@ -8,6 +7,14 @@ export type TaskApproval = {
   action: string
   description: string
   status: "pending" | "approved" | "rejected" | "expired"
+  target: string | null
+  toolName: string | null
+  resolver: {
+    kind: "permission" | "role" | "user" | "any_member"
+    role?: string
+    userId?: string
+  } | null
+  resolverUserName: string | null
   resolvedBy: string | null
   resolvedAt: string | null
   createdAt: string
@@ -65,39 +72,5 @@ export function useTaskArtifacts(taskId: string | null) {
   return useQuery({
     ...taskArtifactsQueryOptions(taskId ?? ""),
     enabled: taskId !== null,
-  })
-}
-
-// Approve/reject a pending approval. The server posts the resolution into the
-// task thread and starts the continuation run; task:updated refreshes the UI.
-export function useResolveApproval(taskId: string | null) {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: async (args: {
-      approvalId: string
-      resolution: "approve" | "reject"
-    }) => {
-      const endpoint =
-        apiClient.v1.approvals[":approvalId"][
-          args.resolution === "approve" ? "approve" : "reject"
-        ]
-      const res = await endpoint.$post({
-        param: { approvalId: args.approvalId },
-      })
-      if (!res.ok) throw new Error("Failed to resolve approval")
-      return res.json()
-    },
-    onError: (_err, args) => {
-      toast.error(
-        args.resolution === "approve"
-          ? "Couldn't approve — try again"
-          : "Couldn't reject — try again"
-      )
-    },
-    onSettled: () => {
-      if (taskId) {
-        void queryClient.invalidateQueries({ queryKey: ["task", taskId] })
-      }
-    },
   })
 }

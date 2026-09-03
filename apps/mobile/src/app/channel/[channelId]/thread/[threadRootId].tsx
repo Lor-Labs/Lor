@@ -25,6 +25,7 @@ import { StatePanel } from "@/components/ui/state-panel"
 import { UserProfileSheet } from "@/components/user-profile-sheet"
 import { useSocket, useSocketConnected } from "@/context/socket-context"
 import { useWorkspace } from "@/context/workspace-context"
+import { useChannelApprovals } from "@/hooks/use-approvals"
 import { useAutoMarkRead } from "@/hooks/use-auto-mark-read"
 import { useCanPinMessages } from "@/hooks/use-can-pin-messages"
 import { useChannelDetail } from "@/hooks/use-channel-detail"
@@ -67,6 +68,9 @@ export default function ThreadScreen() {
     currentUser: session?.user,
   })
   useAutoMarkRead(channelId)
+  // Approval cards in this thread read the channel-approvals cache; the
+  // socket handlers live here so a thread opened directly stays live too.
+  useChannelApprovals(channelId ?? "")
   // Messages queued behind the active Merlin run — surfaced above the
   // composer with steer/remove actions while it's working.
   const pendingMerlinMessage = useMemo(

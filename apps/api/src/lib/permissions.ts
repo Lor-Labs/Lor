@@ -1,12 +1,16 @@
-import { auth } from "@repo/auth"
 import {
+  type CustomRoleGrants,
   canManageWorkspaceAuthority,
   isWorkspaceRole,
   type PermissionRequest,
+  parseRolePermission,
   type StatementKey,
   type WorkspaceAuthority,
   workspaceAuthorityHasPermissions,
 } from "@repo/auth/permissions"
+import { db } from "@repo/db"
+import { workspaceRole } from "@repo/db/schema"
+import { and, eq } from "drizzle-orm"
 import { HTTPException } from "hono/http-exception"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import type { Workspace, WorkspaceMember } from "@/lib/types/app-types"
@@ -19,64 +23,56 @@ export type PermissionForStatement<T extends StatementKey> = NonNullable<
   PermissionRequest[T]
 >[number]
 
-function toWorkspaceAuthority(
+// Ownership derives from workspace.ownerId, never from the role string.
+// customGrants are the parsed workspace_role grants for custom roles; null
+// means static role, or a deleted/dangling custom role that degrades to
+// member-tier base access (fail-safe, not a lockout).
+export function toWorkspaceAuthority(
   member: Pick<WorkspaceMember, "role" | "userId">,
-  workspace: Pick<Workspace, "ownerId">
+  workspace: Pick<Workspace, "ownerId">,
+  customGrants: CustomRoleGrants | null = null
 ): WorkspaceAuthority {
-  if (!isWorkspaceRole(member.role)) {
-    throw new HTTPException(HttpStatusCodes.FORBIDDEN, {
-      message: `Unknown workspace role: ${member.role}`,
-    })
-  }
-
   return {
     role: member.role,
     isOwner: workspace.ownerId === member.userId,
+    customGrants: isWorkspaceRole(member.role) ? null : customGrants,
   }
 }
 
-// ── Permission Check ──────────────────────────────────────
-
-/**
- * Checks if the current user has the specified permissions in their active workspace.
- * Uses better-auth's hasPermission API and throws HTTPException(403) when the
- * requested permission is missing.
- *
- * @example
- * await checkPermission(c.req.raw.headers, "channel", ["update"])
- *
- * // If the permission is missing, checkPermission(...) throws
- * // HTTPException(403) from the internal !result.success branch.
- */
-export async function checkPermission<
-  TResource extends StatementKey,
-  TPermissions extends readonly PermissionForStatement<TResource>[],
->(headers: Headers, resource: TResource, permissions: TPermissions) {
-  const result = await auth.api.hasPermission({
-    headers,
-    body: {
-      permissions: {
-        [resource]: [...permissions],
-      },
-    },
-  })
-
-  if (!result.success) {
-    throw new HTTPException(HttpStatusCodes.FORBIDDEN, {
-      message: `You do not have permission to ${permissions.join("/")} ${resource}`,
-    })
-  }
-
-  return true
-}
-
-export function assertWorkspacePermission(
+// Full resolution including the workspace_role lookup for custom roles.
+// workspaceAuthMiddleware uses this to populate c.var.authority; handlers
+// outside that middleware (e.g. OAuth callbacks) call it directly.
+export async function resolveWorkspaceAuthority(
   member: Pick<WorkspaceMember, "role" | "userId">,
-  workspace: Pick<Workspace, "ownerId">,
+  workspace: Pick<Workspace, "id" | "ownerId">
+): Promise<WorkspaceAuthority> {
+  let customGrants: CustomRoleGrants | null = null
+  if (!isWorkspaceRole(member.role)) {
+    const roleRecord = await db
+      .select({ permission: workspaceRole.permission })
+      .from(workspaceRole)
+      .where(
+        and(
+          eq(workspaceRole.workspaceId, workspace.id),
+          eq(workspaceRole.role, member.role)
+        )
+      )
+      .limit(1)
+      .then((rows) => rows[0])
+    // Deleted/dangling custom role degrades to member-tier base access
+    customGrants = roleRecord
+      ? parseRolePermission(roleRecord.permission)
+      : null
+  }
+  return toWorkspaceAuthority(member, workspace, customGrants)
+}
+
+// ── Permission Checks ──────────────────────────────────────
+
+export function assertWorkspaceAuthority(
+  authority: WorkspaceAuthority,
   requestedPermissions: PermissionRequest
 ) {
-  const authority = toWorkspaceAuthority(member, workspace)
-
   if (!workspaceAuthorityHasPermissions(authority, requestedPermissions)) {
     throw new HTTPException(HttpStatusCodes.FORBIDDEN, {
       message: "You do not have permission to perform this action",
@@ -86,18 +82,11 @@ export function assertWorkspacePermission(
   return authority
 }
 
-// Non-throwing variant for handlers that shape (rather than gate) a response
-// by permission.
-export function hasWorkspacePermission(
-  member: Pick<WorkspaceMember, "role" | "userId">,
-  workspace: Pick<Workspace, "ownerId">,
+export function hasWorkspaceAuthority(
+  authority: WorkspaceAuthority,
   requestedPermissions: PermissionRequest
 ): boolean {
-  if (!isWorkspaceRole(member.role)) return false
-  return workspaceAuthorityHasPermissions(
-    { role: member.role, isOwner: workspace.ownerId === member.userId },
-    requestedPermissions
-  )
+  return workspaceAuthorityHasPermissions(authority, requestedPermissions)
 }
 
 export function assertCanManageWorkspaceMember(

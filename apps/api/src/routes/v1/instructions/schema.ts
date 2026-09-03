@@ -35,7 +35,10 @@ export const getInstructionsResponseSchema = z.object({
   active: instructionsVersionSchema.nullable(),
   pending: instructionsVersionSchema.nullable(),
   versions: z.array(instructionsVersionSchema),
+  // instructions:update — gates the editor
   canManage: z.boolean(),
+  // instructions:approve — gates proposal approve/reject controls
+  canApprove: z.boolean(),
 })
 
 export const updateInstructionsRequestSchema = z.object({

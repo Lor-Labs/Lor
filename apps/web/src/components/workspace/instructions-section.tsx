@@ -26,29 +26,12 @@ import StarterKit from "@tiptap/starter-kit"
 import { useTheme } from "next-themes"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { apiClient } from "@/lib/api-client"
+import type { InstructionsResponse as InstructionsData } from "@/lib/api-types"
 
 // Mirrors WORKSPACE_INSTRUCTIONS_MAX_TOKENS in packages/db (web can't import
 // the db package); ~4 chars/token estimate, same as the server validator.
 const MAX_TOKENS = 2000
 const estimateTokens = (content: string) => Math.ceil(content.length / 4)
-
-type InstructionsVersion = {
-  version: number
-  content: string
-  state: "active" | "pending" | "rejected" | "superseded"
-  authorType: "user" | "agent"
-  authorName: string | null
-  baseVersion: number | null
-  rationale: string | null
-  createdAt: string
-}
-
-type InstructionsData = {
-  active: InstructionsVersion | null
-  pending: InstructionsVersion | null
-  versions: InstructionsVersion[]
-  canManage: boolean
-}
 
 // FileDiff paints nothing if it mounts before the shared Shiki highlighter
 // has ever loaded (its lazy init doesn't repaint this instance), so gate the
@@ -416,7 +399,7 @@ export function InstructionsSection({
             </p>
           )}
           <DiffView before={activeContent} after={pending.content} />
-          {data.canManage && (
+          {data.canApprove && (
             <div className="flex justify-end gap-2">
               <Button
                 variant="outline"

@@ -2,6 +2,7 @@ import { createRoute } from "@hono/zod-openapi"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import jsonContent from "@/lib/helpers/openapi/json-content"
 import {
+  badRequestSchema,
   forbiddenSchema,
   internalServerErrorSchema,
   notFoundSchema,
@@ -9,6 +10,7 @@ import {
 } from "@/lib/helpers/openapi/schemas"
 import { workspaceAuthMiddleware } from "@/middleware/workspace-auth"
 import {
+  deleteWorkspaceRoleResponseSchema,
   listWorkspaceMembersResponseSchema,
   moderateWorkspaceMemberResponseSchema,
   searchMessagesQuerySchema,
@@ -18,6 +20,7 @@ import {
   updateWorkspaceRequestSchema,
   updateWorkspaceResponseSchema,
   workspaceMemberParamsSchema,
+  workspaceRoleParamsSchema,
   workspaceSlugParamsSchema,
 } from "@/routes/v1/workspaces/schema"
 
@@ -51,14 +54,14 @@ export const updateWorkspaceMemberRole = createRoute({
   method: "patch",
   summary: "Update a workspace member role",
   description:
-    "Updates a workspace member's built-in role. Requires member role update permission and sufficient hierarchy.",
+    "Updates a workspace member's role (static or custom). Requires member role update permission and sufficient hierarchy.",
   tags: ["Workspaces"],
   middleware: [workspaceAuthMiddleware] as const,
   request: {
     params: workspaceMemberParamsSchema,
     body: jsonContent({
       schema: updateWorkspaceMemberRoleRequestSchema,
-      description: "Updated built-in workspace role",
+      description: "Updated workspace role (static or custom role name)",
     }),
   },
   responses: {
@@ -75,12 +78,38 @@ export const updateWorkspaceMemberRole = createRoute({
 
 export type UpdateWorkspaceMemberRoleRoute = typeof updateWorkspaceMemberRole
 
+export const deleteWorkspaceRole = createRoute({
+  path: "/workspaces/{workspaceSlug}/roles/{roleName}",
+  method: "delete",
+  summary: "Delete a custom workspace role",
+  description:
+    "Deletes a custom role and reassigns its members to the member role. Static roles cannot be deleted. Role create/update/list go through better-auth's organization endpoints; delete is first-party so the reassignment is transactional.",
+  tags: ["Workspaces"],
+  middleware: [workspaceAuthMiddleware] as const,
+  request: {
+    params: workspaceRoleParamsSchema,
+  },
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: deleteWorkspaceRoleResponseSchema,
+      description: "Role deleted, members reassigned",
+    }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type DeleteWorkspaceRoleRoute = typeof deleteWorkspaceRole
+
 export const kickWorkspaceMember = createRoute({
   path: "/workspaces/{workspaceSlug}/members/{userId}/kick",
   method: "post",
   summary: "Kick a workspace member",
   description:
-    "Removes a member from the workspace. Requires admin or owner role; the owner cannot be kicked, and admins cannot kick other admins.",
+    "Removes a member from the workspace. Requires the workspaceMember:kick authority; the owner cannot be kicked, and the actor must outrank the target.",
   tags: ["Workspaces"],
   middleware: [workspaceAuthMiddleware] as const,
   request: {
@@ -131,7 +160,7 @@ export const updateWorkspace = createRoute({
   method: "patch",
   summary: "Update workspace settings",
   description:
-    "Updates workspace name and/or logo. Requires admin or owner role.",
+    "Updates workspace name and/or logo. Requires the organization:update authority.",
   tags: ["Workspaces"],
   middleware: [workspaceAuthMiddleware] as const,
   request: {

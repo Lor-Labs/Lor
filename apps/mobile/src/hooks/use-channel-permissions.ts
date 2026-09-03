@@ -1,7 +1,4 @@
-import {
-  isWorkspaceRole,
-  workspaceAuthorityHasPermissions,
-} from "@repo/auth/permissions"
+import { workspaceAuthorityHasPermissions } from "@repo/auth/permissions"
 import { useMemo } from "react"
 import { useActiveMember } from "@/hooks/use-active-member"
 
@@ -29,10 +26,12 @@ export function useChannelPermissions(workspaceId?: string) {
     if (member.isPending) return { ...EMPTY_PERMISSIONS, isLoading: true }
 
     const role = member.data?.role
-    if (typeof role !== "string" || !isWorkspaceRole(role)) {
+    if (typeof role !== "string") {
       return EMPTY_PERMISSIONS
     }
 
+    // Custom roles degrade to member-tier affordances here — mobile doesn't
+    // fetch custom-role grants yet; the server enforces real grants.
     const authority = { role }
     return {
       canCreateChannel: workspaceAuthorityHasPermissions(authority, {

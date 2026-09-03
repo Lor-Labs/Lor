@@ -260,7 +260,7 @@ export const getThreadContext: AppRouteHandler<GetThreadContextRoute> = async (
   )
 }
 
-const STOPPED_MESSAGE = "⏹️ Stopped."
+const STOPPED_MESSAGE = "Stopped."
 
 type StopTargetRun = {
   id: string

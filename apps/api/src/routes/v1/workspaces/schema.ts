@@ -49,12 +49,42 @@ export const moderateWorkspaceMemberResponseSchema = z.object({
 })
 
 export const updateWorkspaceMemberRoleRequestSchema = z.object({
-  role: z.enum(assignableWorkspaceRoles),
+  // Static assignable roles or a custom workspace_role name (validated
+  // against the DB in the handler). Owner is never assignable.
+  role: z
+    .string()
+    .min(1)
+    .max(64)
+    .refine((value) => value !== "owner", {
+      message: "The owner role cannot be assigned",
+    })
+    .openapi({ examples: [...assignableWorkspaceRoles, "support"] }),
 })
 
 export const updateWorkspaceMemberRoleResponseSchema = z.object({
   success: z.literal(true),
   member: workspaceMemberPresenceSchema,
+})
+
+export const workspaceRoleParamsSchema = workspaceSlugParamsSchema.extend({
+  roleName: z
+    .string()
+    .min(1)
+    .max(64)
+    .openapi({
+      param: {
+        name: "roleName",
+        in: "path",
+        required: true,
+      },
+      example: "support",
+    }),
+})
+
+export const deleteWorkspaceRoleResponseSchema = z.object({
+  success: z.literal(true),
+  // Members who held the deleted role, reset to "member"
+  reassignedMemberIds: z.array(z.string().uuid()),
 })
 
 // ── Workspace Settings ─────────────────────────────────────

@@ -8,5 +8,6 @@ const workspacesRouter = createRouter()
   .openapi(routes.updateWorkspace, handlers.updateWorkspace)
   .openapi(routes.updateWorkspaceMemberRole, handlers.updateWorkspaceMemberRole)
   .openapi(routes.kickWorkspaceMember, handlers.kickWorkspaceMember)
+  .openapi(routes.deleteWorkspaceRole, handlers.deleteWorkspaceRole)
 
 export default workspacesRouter

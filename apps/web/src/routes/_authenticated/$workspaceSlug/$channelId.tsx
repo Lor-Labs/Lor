@@ -17,6 +17,7 @@ import { RunQueuePill } from "@/components/chat/run-queue-pill"
 import { TypingIndicator } from "@/components/chat/typing-indicator"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import { useSocket } from "@/context/socket-context"
+import { useChannelApprovals } from "@/hooks/use-approvals"
 import { useAutoMarkRead } from "@/hooks/use-auto-mark-read"
 import { useChannelMessages } from "@/hooks/use-channel-messages"
 import { useFileUpload } from "@/hooks/use-file-upload"
@@ -77,6 +78,9 @@ function ChannelView() {
     useRightSidebar()
   const { data: session } = authClient.useSession()
   const currentUserId = session?.user.id
+  // Live source for every approval card in this channel (message cards read
+  // the same cache); the socket handlers live here, once per channel view.
+  useChannelApprovals(channelId)
 
   useEffect(() => {
     if (!workspaceSlug || !channelId) return

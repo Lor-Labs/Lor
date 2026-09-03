@@ -1,20 +1,10 @@
-import {
-  getWorkspaceMessageRateLimit,
-  isWorkspaceRole,
-} from "@repo/auth/permissions"
+import { getWorkspaceMessageRateLimit } from "@repo/auth/permissions"
 import type { createClient } from "redis"
 
 type RedisClient = ReturnType<typeof createClient>
 
 const WINDOW_SECONDS = 60
 const KEY_TTL_SECONDS = 90
-
-// The DB role column is plain text — unknown values fall back to the
-// `member` tier (the safest/strictest rate limit).
-function getRoleRateLimit(role: string): number {
-  if (isWorkspaceRole(role)) return getWorkspaceMessageRateLimit(role)
-  return getWorkspaceMessageRateLimit("member")
-}
 
 function getMessageRateLimitKey(
   workspaceId: string,
@@ -46,7 +36,8 @@ export async function enforceWorkspaceMessageRateLimit(
     await redis.expire(key, KEY_TTL_SECONDS)
   }
 
-  const limit = getRoleRateLimit(input.role)
+  // Custom/unknown role strings fall back to the member tier inside the helper
+  const limit = getWorkspaceMessageRateLimit(input.role)
   if (nextCount <= limit) return
 
   throw new Error(

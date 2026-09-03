@@ -12,6 +12,7 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core"
+import { approval } from "./approvals"
 import { channel } from "./channels"
 import { connectorTrigger } from "./connector-triggers"
 import { loop } from "./loops"
@@ -51,6 +52,7 @@ export const agentRunStopReasonEnum = pgEnum("agent_run_stop_reason", [
   "out_of_credits",
   "error",
   "stopped_by_user",
+  "awaiting_approval",
 ])
 
 export const agentRun = pgTable(
@@ -254,6 +256,15 @@ export const agentRunQueue = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     state: agentRunQueueStateEnum("state").notNull().default("queued"),
+    // Set when this queued message is a resolved approval riding behind an
+    // active run (LOR-81): the drained follow-up replays the parked run named
+    // by the approval instead of building a delta. Lazy AnyPgColumn reference
+    // because approvals.ts imports this file; set-null degrades the drained
+    // follow-up to a fresh context, which buildApprovalContinuation handles.
+    resumeApprovalId: uuid("resume_approval_id").references(
+      (): AnyPgColumn => approval.id,
+      { onDelete: "set null" }
+    ),
     // Steer promotes the row to the front of the drain order (before
     // unpromoted rows, FIFO among promoted).
     promotedAt: timestamp("promoted_at"),
@@ -395,6 +406,15 @@ export type AgentRunContextTask = {
   plan: TaskPlanItem[]
   summary: string | null
 }
+// Approval resume (LOR-81): a continuation started by resolving a policy gate
+// carries the tool-approval-response instead of a delta message. Replayed
+// verbatim so the parked tool call stays paired on every later replay —
+// without it the provider rejects the transcript (unpaired tool call).
+export type AgentRunApprovalResume = {
+  approvalId: string
+  approved: boolean
+  reason?: string
+}
 export type AgentRunContext = {
   conversation: AgentRunContextTurn[]
   brainContext: string
@@ -408,6 +428,8 @@ export type AgentRunContext = {
   // re-rendered because it embeds elapsed time ("about 3 hours since then"),
   // which would drift on recovery and break the byte-stable replay.
   continuationDelta?: string
+  // Set instead of continuationDelta when this run resumed a parked approval.
+  approvalResume?: AgentRunApprovalResume
   // Serialized size of the tool schemas bound to this run. Tool definitions are
   // re-sent on every request but live nowhere else on the row, so the context
   // meter would otherwise fold them into the other segments invisibly. Which

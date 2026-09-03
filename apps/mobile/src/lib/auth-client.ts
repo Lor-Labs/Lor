@@ -33,6 +33,9 @@ export const authClient = createAuthClient({
         member,
       },
       schema: inferOrgAdditionalFields<typeof auth>(),
+      // Exposes listRoles so approval cards can gate their buttons with real
+      // custom-role grants (the server enforces regardless).
+      dynamicAccessControl: { enabled: true },
     }),
     adminClient(),
     usernameClient(),

@@ -24,6 +24,7 @@ export const authClient = createAuthClient({
         member,
       },
       schema: inferOrgAdditionalFields<typeof auth>(),
+      dynamicAccessControl: { enabled: true },
     }),
     adminClient(),
     usernameClient(),
