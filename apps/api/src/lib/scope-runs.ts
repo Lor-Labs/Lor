@@ -191,7 +191,9 @@ export async function startScopeContinuationRun(
     return
   }
 
-  const queueBehindActiveRun = async (): Promise<boolean> => {
+  const queueBehindActiveRun = async (): Promise<
+    "queued" | "no_active_run" | "failed"
+  > => {
     const active = await db
       .select({ id: schema.agentRun.id, messageId: schema.agentRun.messageId })
       .from(schema.agentRun)
@@ -205,30 +207,49 @@ export async function startScopeContinuationRun(
       .then((rows) => rows[0] ?? null)
     // A conversational scope always carries a placeholder message; a
     // message-less run is a headless triggered run, which can never occupy it.
-    if (!active?.messageId) return false
-    await db
-      .insert(schema.agentRunQueue)
-      .values({
-        scopeKey,
-        runId: active.id,
+    if (!active?.messageId) return "no_active_run"
+    // A failed queue insert means no run will ever answer this trigger —
+    // surface it so the caller can abandon instead of resolving into a
+    // running task with nothing behind it.
+    try {
+      await db
+        .insert(schema.agentRunQueue)
+        .values({
+          scopeKey,
+          runId: active.id,
+          messageId: triggerMessageId,
+          senderId,
+          state: "queued",
+        })
+        .onConflictDoNothing({ target: schema.agentRunQueue.messageId })
+    } catch (err) {
+      logger.error({ err, scopeKey }, "Scope queue insert failed")
+      return "failed"
+    }
+    // The queue row is durable (the drain picks it up regardless); a failed
+    // broadcast only costs the live routing indicator.
+    try {
+      const io = await getEmitter()
+      io.to(room).emit("message:routed", {
+        channelId,
+        threadRootId,
         messageId: triggerMessageId,
-        senderId,
-        state: "queued",
+        outcome: "queued",
+        runId: active.id,
+        merlinMessageId: active.messageId,
       })
-      .onConflictDoNothing({ target: schema.agentRunQueue.messageId })
-    const io = await getEmitter()
-    io.to(room).emit("message:routed", {
-      channelId,
-      threadRootId,
-      messageId: triggerMessageId,
-      outcome: "queued",
-      runId: active.id,
-      merlinMessageId: active.messageId,
-    })
-    return true
+    } catch (err) {
+      logger.warn({ err, scopeKey }, "Queue routing broadcast failed")
+    }
+    return "queued"
   }
 
-  if (await queueBehindActiveRun()) return
+  const rideOutcome = await queueBehindActiveRun()
+  if (rideOutcome === "queued") return
+  if (rideOutcome === "failed") {
+    await args.onAbandoned?.().catch(() => {})
+    return
+  }
 
   const placeholder = await db
     .insert(schema.message)
@@ -273,12 +294,13 @@ export async function startScopeContinuationRun(
 
   if (!run) {
     // Lost the scope race — fall back to riding the winner's queue. If the
-    // winner settled in the meantime, no run answers this trigger either.
+    // winner settled in the meantime (or the queue insert failed), no run
+    // answers this trigger either.
     await db
       .delete(schema.message)
       .where(eq(schema.message.id, placeholder.id))
       .catch(() => {})
-    if (!(await queueBehindActiveRun())) {
+    if ((await queueBehindActiveRun()) !== "queued") {
       await args.onAbandoned?.().catch(() => {})
     }
     return
