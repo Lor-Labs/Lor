@@ -47,7 +47,10 @@ type InstructionsData = {
   active: InstructionsVersion | null
   pending: InstructionsVersion | null
   versions: InstructionsVersion[]
+  // instructions:update — gates the editor
   canManage: boolean
+  // instructions:approve — gates proposal approve/reject controls
+  canApprove: boolean
 }
 
 // FileDiff paints nothing if it mounts before the shared Shiki highlighter
@@ -416,7 +419,7 @@ export function InstructionsSection({
             </p>
           )}
           <DiffView before={activeContent} after={pending.content} />
-          {data.canManage && (
+          {data.canApprove && (
             <div className="flex justify-end gap-2">
               <Button
                 variant="outline"

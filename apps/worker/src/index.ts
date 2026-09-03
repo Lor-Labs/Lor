@@ -36,6 +36,7 @@ import {
   escalateApproval,
   MAINTENANCE_QUEUE,
   NOTIFY_APPROVAL_JOB,
+  parseRedisUrl,
 } from "@/lib/approval-notify"
 import { logger } from "@/lib/logger"
 import { awaitInflightDrains } from "@/lib/run-queue"
@@ -47,19 +48,6 @@ import { awaitInflightDrains } from "@/lib/run-queue"
 // sweep for open-but-overdue windows and re-arm them.
 const ACT_WINDOW_SWEEP_EVERY_MS = 5 * 60 * 1000
 const ACT_WINDOW_SWEEP_GRACE_MS = 60 * 1000
-
-function parseRedisUrl(url: string) {
-  const parsed = new URL(url)
-  const dbIndex = Number.parseInt(parsed.pathname.slice(1), 10)
-  return {
-    host: parsed.hostname,
-    port: Number(parsed.port) || 6379,
-    password: parsed.password || undefined,
-    username: parsed.username || undefined,
-    tls: parsed.protocol === "rediss:" ? {} : undefined,
-    db: Number.isFinite(dbIndex) ? dbIndex : 0,
-  }
-}
 
 async function bootstrap() {
   // Redis client for Socket.IO emitter (uses `redis` v4 package)

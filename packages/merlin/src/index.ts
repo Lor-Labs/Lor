@@ -1971,12 +1971,10 @@ export async function respond(
     }
     const boundServerToolNames = new Set<string>()
     if (mcpServerSession) {
+      const serverIdByToolName = new Map<string, string>()
       for (const server of mcpServerSession.servers) {
         for (const name of server.toolNames) {
-          toolTargets.addName(name, {
-            kind: "mcpServer",
-            mcpServerId: server.id,
-          })
+          serverIdByToolName.set(name, server.id)
         }
       }
       for (const [name, tool] of Object.entries(mcpServerSession.tools)) {
@@ -1989,6 +1987,12 @@ export async function respond(
         }
         ;(tools as ToolSet)[name] = tool
         boundServerToolNames.add(name)
+        // Only bound names get the mcpServer target — a collision loser must
+        // not overwrite the executing tool's approval target.
+        const mcpServerId = serverIdByToolName.get(name)
+        if (mcpServerId) {
+          toolTargets.addName(name, { kind: "mcpServer", mcpServerId })
+        }
       }
     }
     // Only servers that actually contributed a tool get advertised — a server

@@ -1,6 +1,12 @@
 import { authClient } from "@repo/auth/client"
-import { parseRolePermission } from "@repo/auth/permissions"
+import {
+  assignableWorkspaceRoles,
+  getWorkspaceAuthorityPosition,
+  getWorkspaceRolePosition,
+  parseRolePermission,
+} from "@repo/auth/permissions"
 import { useQuery } from "@tanstack/react-query"
+import { useMemo } from "react"
 import type { CustomRoleMap } from "@/lib/permissions"
 
 export type WorkspaceCustomRole = {
@@ -37,6 +43,30 @@ export function useWorkspaceRoles(workspaceId: string | undefined) {
       }))
     },
   })
+}
+
+// Server rule mirror: non-owners can assign roles at their own position or
+// below (admins can promote to admin; demotion stays hierarchy-gated).
+export function useAssignableRoleOptions(
+  actor: { userId: string; role: string } | null | undefined,
+  ownerId: string | null | undefined,
+  workspaceRoles: WorkspaceCustomRole[] | undefined
+): string[] {
+  return useMemo(() => {
+    if (!actor || !ownerId) return []
+    const actorIsOwner = actor.userId === ownerId
+    const actorPosition = getWorkspaceAuthorityPosition({
+      role: actor.role,
+      isOwner: actorIsOwner,
+    })
+    const candidates = [
+      ...assignableWorkspaceRoles,
+      ...(workspaceRoles ?? []).map((role) => role.role),
+    ]
+    return candidates.filter(
+      (role) => actorIsOwner || getWorkspaceRolePosition(role) >= actorPosition
+    )
+  }, [actor, ownerId, workspaceRoles])
 }
 
 export function toCustomRoleMap(

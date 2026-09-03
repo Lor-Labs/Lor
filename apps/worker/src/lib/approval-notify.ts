@@ -32,7 +32,7 @@ export const NOTIFY_APPROVAL_JOB = "notify-approval-escalation"
 // name can't drift.
 export const MAINTENANCE_QUEUE = "maintenance"
 
-function parseRedisUrl(url: string) {
+export function parseRedisUrl(url: string) {
   const parsed = new URL(url)
   const dbIndex = Number.parseInt(parsed.pathname.slice(1), 10)
   return {
@@ -176,9 +176,10 @@ async function resolverAudience(
     case "any_member":
       // Everyone in the channel can resolve; a broadcast page would be noise.
       // The requester is the one directed recipient; the in-channel card and
-      // the run's own message cover the rest.
+      // the run's own message cover the rest. Headless runs (loops, triggered)
+      // have no requester — page the owner so the park is never silent.
       return {
-        userIds: requesterId ? [requesterId] : [],
+        userIds: requesterId ? [requesterId] : ownerFallback,
         label: "anyone in the channel",
       }
     case "role": {

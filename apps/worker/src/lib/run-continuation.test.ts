@@ -731,8 +731,18 @@ describe("parked predecessors", () => {
   })
 
   it("never replays a parked run through the delta path", async () => {
-    queue([{ ...predecessor, stopReason: "awaiting_approval" }])
+    // Queue everything a successful delta continuation would consume, so this
+    // only passes because of the awaiting_approval guard — not because the
+    // mock ran dry (see control case below).
+    const parked = { ...predecessor, stopReason: "awaiting_approval" }
+    queue([parked], [parked], [step2("parked work", "run-1")], [], [deltaRow])
     expect(await buildContinuation(args)).toBeNull()
+  })
+
+  it("control: the same result sets with a settled predecessor continue", async () => {
+    const settled = { ...predecessor, stopReason: "completed" }
+    queue([settled], [settled], [step2("work", "run-1")], [], [deltaRow])
+    expect(await buildContinuation(args)).not.toBeNull()
   })
 
   it("replays an earlier hop's approval response in place of a delta", async () => {

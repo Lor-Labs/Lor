@@ -78,14 +78,20 @@ export const listChannelApprovals: AppRouteHandler<
 
   return c.json(
     {
-      approvals: rows.map((row) => ({
-        ...serializeApproval(row.approval),
-        channelId,
-        threadRootId: row.threadRootId,
-        messageId: row.messageId,
-        resolver: resolvers.get(row.approval.id) ?? null,
-        resolverUserName: row.resolverUserName,
-      })),
+      approvals: rows.map((row) => {
+        const resolver = resolvers.get(row.approval.id) ?? null
+        return {
+          ...serializeApproval(row.approval),
+          channelId,
+          threadRootId: row.threadRootId,
+          messageId: row.messageId,
+          resolver,
+          // The joined name is only meaningful for a user resolver — never
+          // surface a stale resolver_user_id's name for other kinds.
+          resolverUserName:
+            resolver?.kind === "user" ? row.resolverUserName : null,
+        }
+      }),
     },
     HttpStatusCodes.OK
   )
@@ -321,92 +327,55 @@ async function resolveApproval(
   return { kind: "resolved", approval: resolved }
 }
 
-export const approveApproval: AppRouteHandler<ApproveApprovalRoute> = async (
-  c
-) => {
-  const outcome = await resolveApproval(
-    c.req.valid("param").approvalId,
-    c.var.user.id,
-    "approved"
-  )
-  switch (outcome.kind) {
-    case "not_found":
-      return c.json(
-        { success: false as const, message: "Approval not found" },
-        HttpStatusCodes.NOT_FOUND
-      )
-    case "forbidden":
-      return c.json(
-        { success: false as const, message: "Forbidden" },
-        HttpStatusCodes.FORBIDDEN
-      )
-    case "archived":
-      return c.json(
-        { success: false as const, message: "Channel is archived" },
-        HttpStatusCodes.BAD_REQUEST
-      )
-    case "conflict":
-      return c.json(
-        { success: false as const, message: "Already resolved" },
-        HttpStatusCodes.CONFLICT
-      )
-    case "post_failed":
-      return c.json(
-        {
-          success: false as const,
-          message: "Failed to post approval resolution",
-        },
-        HttpStatusCodes.INTERNAL_SERVER_ERROR
-      )
-    case "resolved":
-      return c.json(
-        { approval: serializeApproval(outcome.approval) },
-        HttpStatusCodes.OK
-      )
+// Approve and reject share identical route shapes; one handler body maps each
+// ResolveOutcome to its response so new variants can't drift between the two.
+function resolveHandler(resolution: "approved" | "rejected") {
+  return async (c: Parameters<AppRouteHandler<ApproveApprovalRoute>>[0]) => {
+    const outcome = await resolveApproval(
+      c.req.valid("param").approvalId,
+      c.var.user.id,
+      resolution
+    )
+    switch (outcome.kind) {
+      case "not_found":
+        return c.json(
+          { success: false as const, message: "Approval not found" },
+          HttpStatusCodes.NOT_FOUND
+        )
+      case "forbidden":
+        return c.json(
+          { success: false as const, message: "Forbidden" },
+          HttpStatusCodes.FORBIDDEN
+        )
+      case "archived":
+        return c.json(
+          { success: false as const, message: "Channel is archived" },
+          HttpStatusCodes.BAD_REQUEST
+        )
+      case "conflict":
+        return c.json(
+          { success: false as const, message: "Already resolved" },
+          HttpStatusCodes.CONFLICT
+        )
+      case "post_failed":
+        return c.json(
+          {
+            success: false as const,
+            message: "Failed to post approval resolution",
+          },
+          HttpStatusCodes.INTERNAL_SERVER_ERROR
+        )
+      case "resolved":
+        return c.json(
+          { approval: serializeApproval(outcome.approval) },
+          HttpStatusCodes.OK
+        )
+    }
   }
 }
 
-export const rejectApproval: AppRouteHandler<RejectApprovalRoute> = async (
-  c
-) => {
-  const outcome = await resolveApproval(
-    c.req.valid("param").approvalId,
-    c.var.user.id,
-    "rejected"
-  )
-  switch (outcome.kind) {
-    case "not_found":
-      return c.json(
-        { success: false as const, message: "Approval not found" },
-        HttpStatusCodes.NOT_FOUND
-      )
-    case "forbidden":
-      return c.json(
-        { success: false as const, message: "Forbidden" },
-        HttpStatusCodes.FORBIDDEN
-      )
-    case "archived":
-      return c.json(
-        { success: false as const, message: "Channel is archived" },
-        HttpStatusCodes.BAD_REQUEST
-      )
-    case "conflict":
-      return c.json(
-        { success: false as const, message: "Already resolved" },
-        HttpStatusCodes.CONFLICT
-      )
-    case "post_failed":
-      return c.json(
-        {
-          success: false as const,
-          message: "Failed to post approval resolution",
-        },
-        HttpStatusCodes.INTERNAL_SERVER_ERROR
-      )
-    case "resolved":
-      return c.json(
-        { approval: serializeApproval(outcome.approval) },
-        HttpStatusCodes.OK
-      )
-  }
-}
+export const approveApproval: AppRouteHandler<ApproveApprovalRoute> =
+  resolveHandler("approved")
+
+export const rejectApproval: AppRouteHandler<RejectApprovalRoute> =
+  resolveHandler("rejected")

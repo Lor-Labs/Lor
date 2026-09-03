@@ -161,8 +161,9 @@ export type ScopeContinuation = {
   // Set for a resolved policy gate (LOR-81): the run resumes the parked
   // transcript and answers its approval request instead of building a delta.
   resumeApprovalId?: string
-  // Called when no run will come after all (enqueue failed and was rolled
-  // back), so the caller can put its own workflow back in the team's court.
+  // Called whenever no run (or queue ride) will answer the trigger after all —
+  // archived channel, failed placeholder/enqueue, lost race with a settled
+  // winner — so the caller can put its workflow back in the team's court.
   onAbandoned?: () => Promise<void>
 }
 
@@ -186,6 +187,7 @@ export async function startScopeContinuationRun(
 
   if (await channelIsArchived(channelId)) {
     logger.warn({ channelId }, "Scope continuation rejected: channel archived")
+    await args.onAbandoned?.().catch(() => {})
     return
   }
 
@@ -238,7 +240,10 @@ export async function startScopeContinuationRun(
     })
     .returning({ id: schema.message.id, createdAt: schema.message.createdAt })
     .then((rows) => rows[0] ?? null)
-  if (!placeholder) return
+  if (!placeholder) {
+    await args.onAbandoned?.().catch(() => {})
+    return
+  }
 
   const run = await db
     .insert(schema.agentRun)
@@ -267,12 +272,15 @@ export async function startScopeContinuationRun(
     })
 
   if (!run) {
-    // Lost the scope race — fall back to riding the winner's queue.
+    // Lost the scope race — fall back to riding the winner's queue. If the
+    // winner settled in the meantime, no run answers this trigger either.
     await db
       .delete(schema.message)
       .where(eq(schema.message.id, placeholder.id))
       .catch(() => {})
-    await queueBehindActiveRun()
+    if (!(await queueBehindActiveRun())) {
+      await args.onAbandoned?.().catch(() => {})
+    }
     return
   }
 

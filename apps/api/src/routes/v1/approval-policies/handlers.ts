@@ -1,6 +1,7 @@
 import { isWorkspaceRole } from "@repo/auth/permissions"
 import {
   APPROVAL_CAPABILITY_TARGETS,
+  approvalTargetKey,
   CAPABILITIES,
   parseApprovalTargetKey,
 } from "@repo/connectors"
@@ -41,19 +42,19 @@ async function workspaceApprovalTargets(
   ])
   return [
     ...APPROVAL_CAPABILITY_TARGETS.map((capability) => ({
-      key: `capability:${capability}`,
+      key: approvalTargetKey({ kind: "capability", capability }),
       label: CAPABILITIES[capability].label,
       description: CAPABILITIES[capability].description,
       group: "capability" as const,
     })),
     ...tools.map((tool) => ({
-      key: `custom_tool:${tool.id}`,
+      key: approvalTargetKey({ kind: "customTool", customToolId: tool.id }),
       label: tool.name,
       description: "Custom tool",
       group: "custom_tool" as const,
     })),
     ...servers.map((server) => ({
-      key: `mcp_server:${server.id}`,
+      key: approvalTargetKey({ kind: "mcpServer", mcpServerId: server.id }),
       label: server.name,
       description: "All tools from this MCP server",
       group: "mcp_server" as const,

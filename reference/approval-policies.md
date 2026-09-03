@@ -81,14 +81,14 @@ resolver authority is written in the pillar-1 vocabulary
 | Resolver spec | Per policy row: `role` (static or custom role name) · `user` (specific person) · `any_member` (channel write access, today's behavior); **teams join as a resolver kind once they exist**. ~~`permission` kind~~ REMOVED 2026-09-02 (Jacob: a blanket approvals permission is hacky — resolvers are named per gate, never granted). Column default `any_member` — pre-filled when a gate is enabled. **Owner always resolves** (escape hatch — a named resolver may have left). Channel write access stays the floor for every kind. |
 | No underlying-permission matching | Resolver authority never fragments across an approval's subject matter (Jacob: no "5 of 6 approvals" splits) — a resolver named on a gate approves that gate, full stop. The `approval` statement now carries only `manage` (the settings page); `resolve` was removed with the permission kind. |
 | `request_approval` stays | The discretionary tool remains (model judgment for un-modeled risks), same row shape + surfaces, target null. Resolver: **any channel member**, not policy-configurable in v1 (the model asked for *a* human, any human answers). |
-| Pause mechanics | Reuse the park pattern: policy gate returns `user-approval` → persist the approval row (with `toolCallId`, `toolName`, `target`, raw input in `payload`) in the same checkpoint transaction that persists the approval-request step → run ends cleanly (`stopReason: "awaiting_approval"`). Task runs also park the task `waiting_for_approval` (unchanged). Non-task runs park on the run row alone. |
+| Pause mechanics | Reuse the park pattern: policy gate returns `user-approval` → the approval row (with `toolCallId`, `toolName`, `target`, raw input in `payload`) is filed by `respond()` **after the post-loop checkpoint sweep** (the parked step must be durable first; not the same transaction — see 2026-09-02 deviation) → run ends cleanly (`stopReason: "awaiting_approval"`), and only if the row was actually filed. Task runs also park the task `waiting_for_approval` (unchanged). Non-task runs park on the run row alone. |
 | Resume mechanics | Approve/reject → continuation run in the same scope. `run-continuation.ts` gains an approval branch: predecessor ended `awaiting_approval` + resolved row → replay chain + append the `tool-approval-response` (approved/denied) + normal delta. Approved → the tool executes with the HMAC-bound input; denied → the model gets the denial and explains/adjusts. The human-readable "✅ Approved…" thread message stays (audit trail + delta trigger). |
 | Resolution authority enforcement | Resolve handlers get the workspace-auth treatment: first statement resolves authority (`resolveWorkspaceAuthority` — routes stay on `sessionAuthMiddleware`) and checks `canResolveApproval(authority, spec, userId)`. |
 | One pending per run | Partial unique index on `approval(run_id) where status='pending'` joins the existing per-task one. A run parks at its first gate; never a second pending gate for the same run. |
-| Realtime | New workspace-room events `approval:created` / `approval:updated` (payload = serialized approval + channel/thread pointers) so resolvers see cards without a task-status side channel. Task card liveness via `task:updated` stays. |
-| Surfaces | Generalize the task-thread `ApprovalCard`: render pending approvals on ANY run placeholder (channel, thread, loop, triggered) from the run trail + `approval:*` events. Buttons only for users who pass the resolver spec (server enforces regardless). |
-| Push (LOR-83) | `sendApprovalPush` mirrors `sendInstructionsProposalPush`: data-only deep link to the channel/thread, sent to the resolver set (for `any_member`, cap to the run's channel members), presence-independent. Never resolve from the push. |
-| Policy UI | Settings dialog section (near Agent profiles): full target list computed from the registry — capabilities, this workspace's custom tools and MCP servers, core messaging — each with an on/off switch + resolver picker. Gate the section like billing (owner/admin). Roles-UI matrix un-hides the `approval: resolve` checkbox once enforcement lands (P3). |
+| Realtime | Channel-room events `approval:created` / `approval:updated` carry **ids only** (approvalId/channelId/taskId/status) and just invalidate the channel-approvals query — cards load through `GET /channels/{id}/approvals` (see P4 as-built). Task card liveness via `task:updated` stays. |
+| Surfaces | Generalize the task-thread `ApprovalCard`: render pending approvals on ANY run placeholder (channel, thread, loop, triggered), fed by the durable `GET /channels/{id}/approvals` query; `approval:*` events only invalidate/refresh it. Buttons only for users who pass the resolver spec (server enforces regardless). |
+| Push (LOR-83) | `sendApprovalPush` mirrors `sendInstructionsProposalPush`: data-only deep link to the channel/thread, sent to the resolver set (for `any_member`, cap to the run's channel members), presence-checked at send time — push is the offline complement of the socket notification (P5 as-built). Never resolve from the push. |
+| Policy UI | Settings dialog section (near Agent profiles): full target list computed from the registry — capabilities, this workspace's custom tools and MCP servers — each with an on/off switch + resolver picker. Gate the section like billing (owner/admin). |
 | Env | `MERLIN_TOOL_APPROVAL_SECRET` (≥32 chars, **optional**) in `packages/env` serverSchema — worker + API share it. Optional so deploys don't break; P2 decides unset behavior (gates still enforce, secret hardens the binding). Optional → no `TEST_ENV` mirror needed. |
 | Out of scope | Per-channel/per-profile policy overrides; per-tool granularity inside a capability; resolver customization for discretionary approvals; seeded policy rows; approval expiry/timeouts (enum value exists, unused); Merlin proposing policy changes (pillar 3); LOR.md flow changes; batch/multi-gate approvals; forced sandbox-cost gate (`code_intelligence` is gateable generically if a workspace opts in). |
 
@@ -282,7 +282,9 @@ approval-response stand in for a missing tool result during the
   custom tools and MCP servers + core messaging), on/off switch + resolver
   picker (any member / role incl. custom / person). Gate the
   section like billing (owner/admin).
-- Roles matrix: un-hide `approval: resolve` checkbox (enforcement is live).
+- Roles matrix: expose the `approval: manage` action (policy CRUD gate;
+  `approval: resolve` was removed 2026-09-02 with the permission resolver
+  kind — resolvers are named per gate, never granted).
 
 **As built.** New statement action `approval: manage` (admin/owner inherit via
 the grants spread; custom roles can be granted it in the matrix) gates the
@@ -391,6 +393,13 @@ Manual QA checklist (live, after db:push):
   ApprovalTarget union has no core kind, `messageActionTools` stays unmapped,
   and the policy page has no Core actions group. No schema impact (no rows
   existed; db:push still pending).
+- 2026-09-02 — Doc reconciliation (CodeRabbit review): the locked-decision
+  table now matches shipped behavior — the approval row is filed by
+  `respond()` after the checkpoint sweep, not inside the checkpoint
+  transaction (durability ordering: parked step first, then the row, then
+  `awaiting_approval`); realtime events are id-only invalidations; approval
+  pushes are presence-checked at send time; the policy UI target list has no
+  core messaging group.
 - 2026-09-02 — P4 deviations: cards are fed by a channel-approvals query +
   invalidation events, not run-trail replay (simpler, survives reload, no
   per-card socket state). `approval:created` carries ids only. New

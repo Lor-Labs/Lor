@@ -1,12 +1,7 @@
 import { MoreHorizontalIcon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
-import {
-  assignableWorkspaceRoles,
-  formatWorkspaceRole,
-  getWorkspaceAuthorityPosition,
-  getWorkspaceRolePosition,
-} from "@repo/auth/permissions"
+import { formatWorkspaceRole } from "@repo/auth/permissions"
 import type {
   PresenceUserUpdate,
   WorkspaceMemberJoinedEvent,
@@ -46,7 +41,11 @@ import type { WorkspaceMembersSidebarView } from "@/components/sidebar/right-pan
 import { UserAvatar } from "@/components/ui/user-avatar"
 import { UserProfilePopover } from "@/components/ui/user-profile-card"
 import { useSocket } from "@/context/socket-context"
-import { toCustomRoleMap, useWorkspaceRoles } from "@/hooks/use-workspace-roles"
+import {
+  toCustomRoleMap,
+  useAssignableRoleOptions,
+  useWorkspaceRoles,
+} from "@/hooks/use-workspace-roles"
 import { apiClient } from "@/lib/api-client"
 import type {
   ListWorkspaceMembersResponse,
@@ -316,23 +315,11 @@ export function WorkspaceMembersPanel({
     currentMember && workspaceCtx
       ? canKickWorkspaceMembers(currentMember, workspaceCtx, customRoles)
       : false
-  // Server rule mirror: non-owners can assign roles at their own position or
-  // below (admins can promote to admin; demotion stays hierarchy-gated).
-  const roleOptions = useMemo(() => {
-    if (!currentMember || !ownerId) return []
-    const actorIsOwner = currentMember.userId === ownerId
-    const actorPosition = getWorkspaceAuthorityPosition({
-      role: currentMember.role,
-      isOwner: actorIsOwner,
-    })
-    const candidates = [
-      ...assignableWorkspaceRoles,
-      ...(workspaceRoles ?? []).map((role) => role.role),
-    ]
-    return candidates.filter(
-      (role) => actorIsOwner || getWorkspaceRolePosition(role) >= actorPosition
-    )
-  }, [currentMember, ownerId, workspaceRoles])
+  const roleOptions = useAssignableRoleOptions(
+    currentMember,
+    ownerId,
+    workspaceRoles
+  )
 
   useEffect(() => {
     if (!hasActiveMemberError) return

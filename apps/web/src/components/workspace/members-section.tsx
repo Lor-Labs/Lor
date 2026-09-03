@@ -2,11 +2,6 @@ import { UserAdd01Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
 import {
-  assignableWorkspaceRoles,
-  getWorkspaceAuthorityPosition,
-  getWorkspaceRolePosition,
-} from "@repo/auth/permissions"
-import {
   AlertDialog,
   AlertDialogClose,
   AlertDialogContent,
@@ -29,7 +24,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useMemo, useState } from "react"
 import { CreateInviteDialog } from "@/components/invite/create-invite-dialog"
 import { UserAvatar } from "@/components/ui/user-avatar"
-import { toCustomRoleMap, useWorkspaceRoles } from "@/hooks/use-workspace-roles"
+import {
+  toCustomRoleMap,
+  useAssignableRoleOptions,
+  useWorkspaceRoles,
+} from "@/hooks/use-workspace-roles"
 import { apiClient } from "@/lib/api-client"
 import type { WorkspaceMemberPresence } from "@/lib/api-types"
 import {
@@ -88,23 +87,11 @@ export function MembersSection({ workspaceSlug }: { workspaceSlug: string }) {
       ? canKickWorkspaceMembers(activeMember, workspaceCtx, customRoles)
       : false
 
-  // Server rule mirror: non-owners can assign roles at their own position or
-  // below (admins can promote to admin; demotion stays hierarchy-gated).
-  const roleOptions = useMemo(() => {
-    if (!activeMember || !ownerId) return []
-    const actorIsOwner = activeMember.userId === ownerId
-    const actorPosition = getWorkspaceAuthorityPosition({
-      role: activeMember.role,
-      isOwner: actorIsOwner,
-    })
-    const candidates = [
-      ...assignableWorkspaceRoles,
-      ...(workspaceRoles ?? []).map((role) => role.role),
-    ]
-    return candidates.filter(
-      (role) => actorIsOwner || getWorkspaceRolePosition(role) >= actorPosition
-    )
-  }, [activeMember, ownerId, workspaceRoles])
+  const roleOptions = useAssignableRoleOptions(
+    activeMember,
+    ownerId,
+    workspaceRoles
+  )
 
   const roleItems = useMemo(
     () =>

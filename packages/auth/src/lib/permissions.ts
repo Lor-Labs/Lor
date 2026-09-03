@@ -176,6 +176,72 @@ export type ApprovalResolverSpec =
   | { kind: "user"; userId: string }
   | { kind: "any_member" }
 
+// An approval_policy row's resolver columns, as read from the DB or the wire.
+export type ApprovalResolverPolicy = {
+  resolverKind: ApprovalResolverSpec["kind"]
+  resolverRole: string | null
+  resolverUserId: string | null
+}
+
+// Policy row → resolver spec. Null when the named resolver dangles (custom
+// role deleted, resolver user removed): the gate fails closed to owner-only
+// rather than silently opening up.
+export function approvalPolicyResolverSpec(
+  policy: ApprovalResolverPolicy
+): ApprovalResolverSpec | null {
+  switch (policy.resolverKind) {
+    case "any_member":
+      return { kind: "any_member" }
+    case "role":
+      return policy.resolverRole
+        ? { kind: "role", role: policy.resolverRole }
+        : null
+    case "user":
+      return policy.resolverUserId
+        ? { kind: "user", userId: policy.resolverUserId }
+        : null
+  }
+}
+
+// Serialized resolver spec as clients receive it (role/userId optional).
+export type ApprovalResolverSpecInput = {
+  kind: ApprovalResolverSpec["kind"]
+  role?: string | null
+  userId?: string | null
+}
+
+// Client-side mirror of the server's fallback: a dangling or malformed named
+// resolver normalizes to null (owner-only).
+export function normalizeApprovalResolverSpec(
+  resolver: ApprovalResolverSpecInput | null
+): ApprovalResolverSpec | null {
+  if (resolver === null) return null
+  switch (resolver.kind) {
+    case "any_member":
+      return { kind: "any_member" }
+    case "role":
+      return resolver.role ? { kind: "role", role: resolver.role } : null
+    case "user":
+      return resolver.userId ? { kind: "user", userId: resolver.userId } : null
+  }
+}
+
+// Plain-words note for people who can't resolve an approval: who can.
+export function approvalResolverLabel(
+  resolver: ApprovalResolverSpecInput | null,
+  resolverUserName: string | null
+): string {
+  if (!resolver) return "Only the workspace owner can resolve this"
+  switch (resolver.kind) {
+    case "any_member":
+      return "Anyone in this channel can resolve this"
+    case "role":
+      return `Needs the ${resolver.role ?? "configured"} role`
+    case "user":
+      return `Waiting on ${resolverUserName ?? "a specific person"}`
+  }
+}
+
 // Owner always resolves (escape hatch when a named resolver left the
 // workspace). Channel write access is the separate floor, enforced by the
 // resolve handler. Role match is exact — admin does not bypass.

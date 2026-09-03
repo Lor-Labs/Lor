@@ -109,7 +109,7 @@ export const kickWorkspaceMember = createRoute({
   method: "post",
   summary: "Kick a workspace member",
   description:
-    "Removes a member from the workspace. Requires admin or owner role; the owner cannot be kicked, and admins cannot kick other admins.",
+    "Removes a member from the workspace. Requires the workspaceMember:kick authority; the owner cannot be kicked, and the actor must outrank the target.",
   tags: ["Workspaces"],
   middleware: [workspaceAuthMiddleware] as const,
   request: {
@@ -160,7 +160,7 @@ export const updateWorkspace = createRoute({
   method: "patch",
   summary: "Update workspace settings",
   description:
-    "Updates workspace name and/or logo. Requires admin or owner role.",
+    "Updates workspace name and/or logo. Requires the organization:update authority.",
   tags: ["Workspaces"],
   middleware: [workspaceAuthMiddleware] as const,
   request: {

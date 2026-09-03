@@ -67,8 +67,9 @@ grants will be written in. Execution runbook: `reference/custom-roles.md`.
 
 Approval must be physics, not etiquette. Today the agent is *instructed* to
 call `request_approval` before consequential external writes, and any channel
-member can approve. LOR-81 moves this into the execution layer: each tool or
-action can declare whether approval is required and **who** can grant it — a
+member can approve. LOR-81 moves this into the execution layer: the workspace
+declares which tool targets require approval — one gate per capability, custom
+tool, or MCP server, everything off by default — and **who** can grant it — a
 specific person, a role (including custom roles from pillar 1), or any member.
 The run parks safely at the gate, the right people are notified, and a
 continuation run starts on approve/reject. This must hold identically for
@@ -93,9 +94,10 @@ env) HMAC-binds the approval to the exact tool name/call/input, fail-closed,
 and re-validates input + policy on resume. So LOR-81 is mostly **policy, not
 mechanism**:
 
-- which tools require approval is configuration (e.g. per-channel alongside
-  capabilities; side-effecting connector writes as the default), never
-  hardcoded and never left to the prompt;
+- which tool targets require approval is workspace-level configuration (per
+  capability / custom tool / MCP server; defaults off — see
+  `reference/approval-policies.md` locked decisions), never hardcoded and
+  never left to the prompt;
 - who may resolve is expressed in the pillar-1 vocabulary — a person, a role
   (including custom roles), or any member;
 - the pending state needs a surface: stream event → approve/deny card in the

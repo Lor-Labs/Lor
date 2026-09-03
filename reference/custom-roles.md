@@ -26,7 +26,9 @@ change proposals will be written in.
 - Two owner truths: schema says `workspace.ownerId` is authoritative, but
   `normalizeWorkspaceAuthority` (`packages/auth/src/lib/permissions.ts:73`)
   derives `isOwner` from `role === "owner"` and owner short-circuits every
-  check. Latent today (nothing writes `"owner"` into `workspace_member.role`).
+  check. Live for creators, not latent: better-auth's creator flow writes
+  `role: "owner"` into the creator's `workspace_member` row (see 2026-08-31
+  deviation entry).
 
 ### Verified better-auth 1.4.18 dynamic-AC behavior (from dist source)
 
@@ -54,7 +56,7 @@ change proposals will be written in.
 | Custom-role resolution | Resolved once per request in `workspace-auth` middleware: if `member.role` is not a static role, one indexed `workspace_role` lookup parses the permission JSON onto the context authority. Handlers/helpers stay sync. Static roles: zero extra queries. Redis caching deferred until measured. |
 | Owner truth | `workspace.ownerId` ONLY. `normalizeWorkspaceAuthority` stops deriving `isOwner` from `role === "owner"`; `isOwner` becomes an explicit required input. Mobile's `actorRole === "owner"` comparison gets the same fix. |
 | Unknown/deleted role fallback | A `member.role` string that resolves to nothing (deleted custom role, bad data) degrades to **member-tier base access with no custom grants** — never a 403 lockout, never a crash. `toWorkspaceAuthority` stops throwing. |
-| Statement taxonomy | Split now. New resources: `connector`, `webhook`, `agentProfile`, `customTool`, `billing` — each a single `["manage"]` action (their routes only ever gate admin-tier writes today; no fake granularity). `connector` = third-party integrations, named to match the UI. `customTool` covers BOTH custom API tools and MCP servers — both are user-added tools (Jacob 2026-08-31). `webhook`/`agentProfile` grants are workspace-wide and cover the full lifecycle including per-channel attachment (webhooks on any channel; assigning channels to profiles) — per-channel permission scoping is explicitly out of scope for v1. `approval: ["resolve"]` is added to the statement set but NOT enforced yet (reserved for LOR-81). `channel`/`message`/`workspaceMember`/`instructions` unchanged. |
+| Statement taxonomy | Split now. New resources: `connector`, `webhook`, `agentProfile`, `customTool`, `billing` — each a single `["manage"]` action (their routes only ever gate admin-tier writes today; no fake granularity). `connector` = third-party integrations, named to match the UI. `customTool` covers BOTH custom API tools and MCP servers — both are user-added tools (Jacob 2026-08-31). `webhook`/`agentProfile` grants are workspace-wide and cover the full lifecycle including per-channel attachment (webhooks on any channel; assigning channels to profiles) — per-channel permission scoping is explicitly out of scope for v1. ~~`approval: ["resolve"]` reserved for LOR-81~~ REMOVED 2026-09-02 with LOR-81's permission resolver kind — the `approval` statement carries only `manage` (the policy settings page). `channel`/`message`/`workspaceMember`/`instructions` unchanged. |
 | Static roles | `owner`/`admin`/`member` stay hardcoded in `packages/auth` and keep all grants (owner/admin get every new statement, member none). Not editable in the roles UI, shown read-only. |
 | Role CRUD | better-auth's endpoints via `authClient.organization` for **create / update / list / get** (they give ac-gating + grant-subset checks + name collision handling for free). **Delete is ours**: a Lor API endpoint that transactionally reassigns affected members to `member`, then deletes the `workspace_role` row — better-auth's delete leaves dangling member.role strings. |
 | Role cap | `dynamicAccessControl.maximumRolesPerOrganization: 32`. |
@@ -67,7 +69,7 @@ change proposals will be written in.
 | UI surface | Workspace settings dialog gains **Members** and **Roles** tabs (Discord pattern). No new route. |
 | Web permission mirror | Web fetches the workspace's custom roles once (React Query over better-auth `listOrgRoles`) and resolves grants locally with the same `@repo/auth/permissions` helpers the API uses. |
 | DB hygiene riding along | Delete dead `WORKSPACE_MEMBER_ROLES` const; add unique index on `workspace_member (workspaceId, userId)`. Both in S1 (db:push owed — Jacob runs it). |
-| Out of scope | `approval:resolve` enforcement (LOR-81), ownership transfer, per-channel permission overrides, invite-with-role, multi-role members, Merlin proposing roles (change-proposal phase). |
+| Out of scope | Ownership transfer, per-channel permission overrides, invite-with-role, multi-role members, Merlin proposing roles (change-proposal phase). |
 
 ## Steps
 
@@ -80,9 +82,10 @@ checked.
 ### [x] S1 — `packages/auth` + `packages/db` foundation (~350 LOC) — built 2026-08-31, db:push owed
 
 `packages/auth/src/lib/workspace-statements.ts`
-- Add `connector/webhook/agentProfile/customTool/billing: ["manage"]` and
-  `approval: ["resolve"]` to `workspaceStatements` (comment: approval
-  enforcement lands with LOR-81).
+- Add `connector/webhook/agentProfile/customTool/billing: ["manage"]` to
+  `workspaceStatements`. (The `approval: ["resolve"]` addition originally made
+  here was removed 2026-09-02; the statement now carries only `manage`, added
+  in LOR-81 P4.)
 
 `packages/auth/src/lib/permissions.ts`
 - Owner-truth fix: `WorkspaceAuthority.isOwner` becomes required;
@@ -141,8 +144,8 @@ exists). Flag if the dev DB has duplicate membership rows before pushing.
   webhooks (4) → `webhook: ["manage"]`; agent-profiles (3) →
   `agentProfile: ["manage"]`; billing (5) → `billing: ["manage"]`.
 - integrations handlers: replace the 3 inline `ownerId || role === "admin"`
-  checks with `assertWorkspacePermission(… { connector: ["manage"] })`;
-  instructions handler's inline `canManage` (L86) → `hasWorkspacePermission`.
+  checks with `assertWorkspaceAuthority(c.var.authority, { connector: ["manage"] })`;
+  instructions handler's inline `canManage` (L86) → `hasWorkspaceAuthority`.
 - projects/uploads: re-point to the statement that matches what they actually
   gate (channel-container work stays `channel`; workspace icon →
   `organization: ["update"]`).

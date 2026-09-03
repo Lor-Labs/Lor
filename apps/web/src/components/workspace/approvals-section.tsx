@@ -13,22 +13,8 @@ import { toast } from "@repo/ui/components/toast"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useWorkspaceRoles } from "@/hooks/use-workspace-roles"
 import { apiClient } from "@/lib/api-client"
+import type { ApprovalPolicy, ApprovalTarget } from "@/lib/api-types"
 import { formatWorkspaceRole } from "@/lib/permissions"
-
-type ApprovalPolicy = {
-  id: string
-  target: string
-  resolverKind: "role" | "user" | "any_member"
-  resolverRole: string | null
-  resolverUserId: string | null
-}
-
-type ApprovalTarget = {
-  key: string
-  label: string
-  description: string
-  group: "capability" | "custom_tool" | "mcp_server"
-}
 
 const GROUP_TITLES: Record<ApprovalTarget["group"], string> = {
   capability: "Connector capabilities",
@@ -188,6 +174,15 @@ export function ApprovalsSection({
       label: m.name,
     })),
   ]
+  // A policy can point at a resolver the list no longer offers (deleted role,
+  // departed member, bot); keep the select renderable instead of blank.
+  const resolverItemsFor = (policy: ApprovalPolicy) => {
+    const value = resolverValue(policy)
+    if (resolverItems.some((item) => item.value === value)) {
+      return resolverItems
+    }
+    return [...resolverItems, { value, label: "Unavailable resolver" }]
+  }
 
   const busy = upsert.isPending || remove.isPending
 
@@ -214,6 +209,7 @@ export function ApprovalsSection({
               {targets.map((target) => {
                 const policy = policyByTarget.get(target.key)
                 const switchId = `approval-gate-${target.key}`
+                const items = policy ? resolverItemsFor(policy) : resolverItems
                 return (
                   <div
                     key={target.key}
@@ -230,7 +226,7 @@ export function ApprovalsSection({
                     <div className="flex shrink-0 items-center gap-2">
                       {policy && (
                         <Select
-                          items={resolverItems}
+                          items={items}
                           value={resolverValue(policy)}
                           disabled={busy}
                           onValueChange={(value) => {
@@ -245,7 +241,7 @@ export function ApprovalsSection({
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            {resolverItems.map((item) => (
+                            {items.map((item) => (
                               <SelectItem key={item.value} value={item.value}>
                                 {item.label}
                               </SelectItem>

@@ -132,8 +132,10 @@ function RoleEditor({
     },
   })
 
+  // Editing may clear every grant (a grantless role is member-tier access);
+  // creating an empty role is almost certainly a mistake, so require one.
   const canSave =
-    (editor.mode === "edit" || name.trim().length > 0) && selected.size > 0
+    editor.mode === "edit" ? true : name.trim().length > 0 && selected.size > 0
 
   return (
     <div className="space-y-4 rounded-lg border border-border/60 p-4">

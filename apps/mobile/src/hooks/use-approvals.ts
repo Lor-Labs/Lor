@@ -1,4 +1,8 @@
-import { canResolveApproval } from "@repo/auth/permissions"
+import {
+  approvalResolverLabel,
+  canResolveApproval,
+  normalizeApprovalResolverSpec,
+} from "@repo/auth/permissions"
 import type { ServerToClientEvents } from "@repo/realtime-types"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect } from "react"
@@ -18,6 +22,11 @@ export const channelApprovalsQueryKey = (channelId: string) =>
 function channelApprovalsQueryOptions(channelId: string) {
   return {
     queryKey: channelApprovalsQueryKey(channelId),
+    // Message rows mount useMessageApproval against the same key; a short
+    // staleTime keeps each new observer from refetching the whole channel
+    // (approval:created/updated invalidations keep it live regardless).
+    staleTime: 30_000,
+    enabled: channelId.length > 0,
     queryFn: async (): Promise<ChannelApproval[]> => {
       const res = await api.v1.channels[":channelId"].approvals.$get({
         param: { channelId },
@@ -91,37 +100,13 @@ export function useCanResolveApproval(
     customGrants: customRoles?.find((r) => r.role === role)?.grants ?? null,
   }
   // Dangling or malformed named resolver: owner-only, matching the server.
-  const spec =
-    resolver === null
-      ? null
-      : resolver.kind === "role"
-        ? resolver.role
-          ? ({ kind: "role", role: resolver.role } as const)
-          : null
-        : resolver.kind === "user"
-          ? resolver.userId
-            ? ({ kind: "user", userId: resolver.userId } as const)
-            : null
-          : ({ kind: resolver.kind } as const)
+  const spec = normalizeApprovalResolverSpec(resolver ?? null)
   if (!spec) return authority.isOwner
   return canResolveApproval(authority, spec, userId)
 }
 
 // Plain-words note for people who can't resolve: who can.
-export function resolverLabel(
-  resolver: ApprovalResolverSpec | null,
-  resolverUserName: string | null
-): string {
-  if (!resolver) return "Only the workspace owner can resolve this"
-  switch (resolver.kind) {
-    case "any_member":
-      return "Anyone in this channel can resolve this"
-    case "role":
-      return `Needs the ${resolver.role ?? "configured"} role`
-    case "user":
-      return `Waiting on ${resolverUserName ?? "a specific person"}`
-  }
-}
+export { approvalResolverLabel as resolverLabel }
 
 export function useResolveChannelApproval(channelId: string) {
   const queryClient = useQueryClient()

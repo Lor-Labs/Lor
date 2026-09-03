@@ -87,6 +87,9 @@ export const getInstructions: AppRouteHandler<GetInstructionsRoute> = async (
   const canManage = hasWorkspaceAuthority(c.var.authority, {
     instructions: ["update"],
   })
+  const canApprove = hasWorkspaceAuthority(c.var.authority, {
+    instructions: ["approve"],
+  })
 
   return c.json(
     {
@@ -94,6 +97,7 @@ export const getInstructions: AppRouteHandler<GetInstructionsRoute> = async (
       pending: pending ? toVersionDto(pending) : null,
       versions: rows.map(toVersionDto),
       canManage,
+      canApprove,
     },
     HttpStatusCodes.OK
   )

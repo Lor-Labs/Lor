@@ -1,4 +1,7 @@
-import type { ApprovalResolverSpec } from "@repo/auth/permissions"
+import {
+  type ApprovalResolverSpec,
+  approvalPolicyResolverSpec,
+} from "@repo/auth/permissions"
 import { and, db, eq, inArray, schema } from "@repo/db"
 import type { Approval } from "@repo/db/schema"
 
@@ -62,27 +65,7 @@ export async function loadApprovalResolvers(
       out.set(approval.id, { kind: "any_member" })
       continue
     }
-    switch (policy.resolverKind) {
-      case "any_member":
-        out.set(approval.id, { kind: "any_member" })
-        break
-      case "role":
-        out.set(
-          approval.id,
-          policy.resolverRole
-            ? { kind: "role", role: policy.resolverRole }
-            : null
-        )
-        break
-      case "user":
-        out.set(
-          approval.id,
-          policy.resolverUserId
-            ? { kind: "user", userId: policy.resolverUserId }
-            : null
-        )
-        break
-    }
+    out.set(approval.id, approvalPolicyResolverSpec(policy))
   }
   return out
 }
@@ -116,16 +99,5 @@ export async function loadApprovalResolver(
   // The gate was turned off while this approval was open: the workspace no
   // longer restricts the action, so anyone may wave the stale row through.
   if (!policy) return { kind: "any_member" }
-  switch (policy.resolverKind) {
-    case "any_member":
-      return { kind: "any_member" }
-    case "role":
-      return policy.resolverRole
-        ? { kind: "role", role: policy.resolverRole }
-        : null
-    case "user":
-      return policy.resolverUserId
-        ? { kind: "user", userId: policy.resolverUserId }
-        : null
-  }
+  return approvalPolicyResolverSpec(policy)
 }

@@ -1,5 +1,5 @@
 import { z } from "@hono/zod-openapi"
-import { approvalStatusEnum } from "@repo/db/schema"
+import { approvalResolverKindEnum, approvalStatusEnum } from "@repo/db/schema"
 
 export const approvalParamsSchema = z.object({
   approvalId: z
@@ -39,7 +39,7 @@ export const channelApprovalsParamsSchema = z.object({
 })
 
 export const approvalResolverSchema = z.object({
-  kind: z.enum(["role", "user", "any_member"]),
+  kind: z.enum(approvalResolverKindEnum.enumValues),
   role: z.string().optional(),
   userId: z.string().uuid().optional(),
 })
