@@ -100,6 +100,7 @@ export type RealtimeMessageType =
   | "task_card"
   | "loop_card"
   | "loop_fire"
+  | "proposal_card"
 
 export type RealtimeAuthor = {
   id: string

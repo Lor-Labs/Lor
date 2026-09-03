@@ -22,6 +22,7 @@ import loopsRouter from "@/routes/v1/loops/index"
 import mcpServersRouter from "@/routes/v1/mcp-servers/index"
 import notificationSettingsRouter from "@/routes/v1/notification-settings/index"
 import projectsRouter from "@/routes/v1/projects/index"
+import proposalsRouter from "@/routes/v1/proposals/index"
 import pushTokensRouter from "@/routes/v1/push-tokens/index"
 import runsRouter from "@/routes/v1/runs/index"
 import tasksRouter from "@/routes/v1/tasks/index"
@@ -89,6 +90,7 @@ const routes = app
   .route("/v1", tasksRouter)
   .route("/v1", approvalsRouter)
   .route("/v1", approvalPoliciesRouter)
+  .route("/v1", proposalsRouter)
   .route("/v1", loopsRouter)
   .route("/v1", instructionsRouter)
   .route("/v1", faviconRouter)
