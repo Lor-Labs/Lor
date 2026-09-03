@@ -74,3 +74,21 @@ export const rejectProposalRequestSchema = z.object({
 export const rejectProposalResponseSchema = z.object({
   proposal: changeProposalSchema,
 })
+
+// Approver-typed secret values for create_custom_tool ops, keyed by the op's
+// position then secret name. They are encrypted into the tool row inside the
+// apply transaction and never persisted anywhere else.
+export const approveProposalRequestSchema = z.object({
+  secrets: z
+    .record(
+      z.string().regex(/^\d+$/),
+      z.record(z.string().min(1).max(64), z.string().min(1).max(4096))
+    )
+    .optional(),
+})
+
+export const approveProposalResponseSchema = z.object({
+  // status tells the outcome: `applied`, or `failed` with the failing op's
+  // error recorded on its operation row.
+  proposal: changeProposalSchema,
+})

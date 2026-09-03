@@ -5,6 +5,7 @@ import * as routes from "@/routes/v1/proposals/routes"
 const proposalsRouter = createRouter()
   .openapi(routes.getProposal, handlers.getProposal)
   .openapi(routes.listChannelProposals, handlers.listChannelProposals)
+  .openapi(routes.approveProposal, handlers.approveProposal)
   .openapi(routes.rejectProposal, handlers.rejectProposal)
 
 export default proposalsRouter

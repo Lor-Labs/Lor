@@ -11,6 +11,8 @@ import {
 } from "@/lib/helpers/openapi/schemas"
 import { sessionAuthMiddleware } from "@/middleware/session-auth"
 import {
+  approveProposalRequestSchema,
+  approveProposalResponseSchema,
   channelProposalsParamsSchema,
   getProposalResponseSchema,
   listChannelProposalsResponseSchema,
@@ -98,3 +100,35 @@ export const rejectProposal = createRoute({
 })
 
 export type RejectProposalRoute = typeof rejectProposal
+
+export const approveProposal = createRoute({
+  path: "/proposals/{proposalId}/approve",
+  method: "post",
+  summary: "Approve and apply a change proposal",
+  description:
+    "Applies every operation in one transaction (nothing lands on failure), posts the results into the card thread as the approver, and starts the follow-up continuation run. Secrets for proposed custom tools ride this request only.",
+  tags: ["Change proposals"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: {
+    params: proposalParamsSchema,
+    body: jsonContent({
+      schema: approveProposalRequestSchema,
+      description: "Approver-supplied secrets, when the proposal declared any",
+    }),
+  },
+  hidden: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: approveProposalResponseSchema,
+      description: "Proposal applied (or failed — see status)",
+    }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.CONFLICT]: conflictSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type ApproveProposalRoute = typeof approveProposal

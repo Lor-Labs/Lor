@@ -120,7 +120,7 @@ recomputing. (Vocabulary test removed 2026-09-03 — Jacob: no new tests; db's v
 tables, `change_proposal_status` + `change_proposal_author` +
 `change_operation_kind` enums, `proposal_card` value on `message_type`.
 
-### [ ] P2 — apply engine + approve endpoint (~500 LOC)
+### [x] P2 — apply engine + approve endpoint (~500 LOC) — built 2026-09-03
 
 - `apps/api/src/lib/change-proposals/appliers/*` — one applier per op kind,
   sharing validation with the existing handlers (extract the reusable core
@@ -138,6 +138,28 @@ tables, `change_proposal_status` + `change_proposal_author` +
   into the card thread as the approver with the apply results (webhook URL,
   created ids) — this is also what triggers Merlin's follow-up continuation;
   failure path → `failed` + per-op error; socket emit `proposal:updated`.
+
+**As built.** `apps/api/src/lib/change-proposals.ts`: one `applyOperation`
+switch over all 11 kinds inside a single `db.transaction`, ops in position
+order (a `created` ref can only point backward — forward refs read an empty
+slot and fail with a named error). Re-validates like the live routes: webhook
+channel-row lock + 10-cap, loop cron/timezone via `validateLoopSchedule` +
+`nextRunAt` recompute, instructions CAS-supersede + max(version)+1 (authorType
+`agent`, `approvedByUserId` = approver, rationale from the proposal),
+capability grantability incl. the EXA web gate, custom-tool SSRF/template/
+reserved-name checks + template-secret-refs ⊆ requiredSecrets, MCP
+`initialMcpServerOAuthStatus`, approval-policy resolver validation. Loops are
+created ACTIVE (approving the card is the high-frequency consent — no draft
+step, no 422 round-trip). Approver secrets: `approve` body carries
+`secrets[position][name]` (validated against the op's declared names, 400
+otherwise), encrypted in-tx, never persisted elsewhere. Failure path: tx rolls
+back, proposal → `failed` + `resolutionNote`, failing op row gets `error`, and
+the failure is posted into the card thread (which triggers Merlin's revision
+continuation) — success posts "Approved and applied…" with per-op
+`operationSummary` lines incl. the webhook URL and setup notes, then the same
+continuation. `authorizeResolution` shared by approve/reject (floor +
+authority union), CAS pending→approved/rejected, `proposal:updated` emitted to
+the channel room (realtime-types event added).
 
 ### [ ] P3 — merlin tool + card + notify (~400 LOC)
 

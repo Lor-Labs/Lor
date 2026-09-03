@@ -573,6 +573,9 @@ export interface ServerToClientEvents {
   // An approval was resolved. Channel room when the approval belongs
   // to a channel scope, so open approval cards settle without a refetch.
   "approval:updated": (payload: ApprovalUpdatedEvent) => void
+  // A change proposal was resolved or applied (pillar 3). Channel room; ids
+  // only — cards refetch the durable rows.
+  "proposal:updated": (payload: ProposalUpdatedEvent) => void
   // Loop snapshot changed (status, schedule, run bookkeeping). Channel room.
   "loop:updated": (payload: LoopUpdatedEvent) => void
   // Loop hard-deleted (its card message goes separately via message:deleted).
@@ -681,6 +684,12 @@ export type ApprovalNotification = {
   // Plain words for who can resolve ("anyone in the channel", "the support
   // role", a person's name) — rendered in the waiting flavor.
   resolverLabel: string
+}
+
+export type ProposalUpdatedEvent = {
+  proposalId: string
+  channelId: string
+  status: "pending" | "approved" | "rejected" | "applied" | "failed"
 }
 
 export type ApprovalCreatedEvent = {
