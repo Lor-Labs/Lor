@@ -393,6 +393,11 @@ Manual QA checklist (live, after db:push):
   ApprovalTarget union has no core kind, `messageActionTools` stays unmapped,
   and the policy page has no Core actions group. No schema impact (no rows
   existed; db:push still pending).
+- 2026-09-02 — Queue-ride resume fix (CodeRabbit review): new
+  `agent_run_queue.resume_approval_id` column (db:push owed) — an approval
+  resolved while its scope is busy rides the queue, and the completion drain
+  now forwards the resume into the follow-up job so the parked transcript
+  replays instead of degrading to a fresh-context re-ask.
 - 2026-09-02 — Doc reconciliation (CodeRabbit review): the locked-decision
   table now matches shipped behavior — the approval row is filed by
   `respond()` after the checkpoint sweep, not inside the checkpoint

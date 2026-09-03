@@ -220,6 +220,9 @@ export async function startScopeContinuationRun(
           messageId: triggerMessageId,
           senderId,
           state: "queued",
+          // The resume must survive the queue ride — the drain forwards it so
+          // the follow-up replays the parked transcript.
+          resumeApprovalId: args.resumeApprovalId ?? null,
         })
         .onConflictDoNothing({ target: schema.agentRunQueue.messageId })
     } catch (err) {

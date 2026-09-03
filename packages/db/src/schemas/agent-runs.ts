@@ -12,6 +12,7 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core"
+import { approval } from "./approvals"
 import { channel } from "./channels"
 import { connectorTrigger } from "./connector-triggers"
 import { loop } from "./loops"
@@ -255,6 +256,15 @@ export const agentRunQueue = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     state: agentRunQueueStateEnum("state").notNull().default("queued"),
+    // Set when this queued message is a resolved approval riding behind an
+    // active run (LOR-81): the drained follow-up replays the parked run named
+    // by the approval instead of building a delta. Lazy AnyPgColumn reference
+    // because approvals.ts imports this file; set-null degrades the drained
+    // follow-up to a fresh context, which buildApprovalContinuation handles.
+    resumeApprovalId: uuid("resume_approval_id").references(
+      (): AnyPgColumn => approval.id,
+      { onDelete: "set null" }
+    ),
     // Steer promotes the row to the front of the drain order (before
     // unpromoted rows, FIFO among promoted).
     promotedAt: timestamp("promoted_at"),
