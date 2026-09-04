@@ -35,6 +35,7 @@ import { MessageActionBar } from "@/components/chat/message-action-bar"
 import { AttachmentGrid } from "@/components/chat/message-attachment"
 import { MessageEditInput } from "@/components/chat/message-edit-input"
 import { MessageMarkdown } from "@/components/chat/message-markdown"
+import { ProposalCard } from "@/components/chat/proposal-card"
 import { TaskCard } from "@/components/chat/task-card"
 import { ThinkingIndicator } from "@/components/chat/thinking-indicator"
 import { UserProfilePopover } from "@/components/ui/user-profile-card"
@@ -372,13 +373,14 @@ export const MessageItem = memo(function MessageItem({
     )
   }
 
-  // Task and loop cards (and per-fire loop chips) render as their own
-  // surface, but inside the normal message row — so they keep Merlin's
+  // Task, loop and proposal cards (and per-fire loop chips) render as their
+  // own surface, but inside the normal message row — so they keep Merlin's
   // avatar, name and timestamp, and line up with every other message.
   if (
     message.type === "task_card" ||
     message.type === "loop_card" ||
-    message.type === "loop_fire"
+    message.type === "loop_fire" ||
+    message.type === "proposal_card"
   ) {
     const taskAvatar = (
       <Avatar size="lg">
@@ -445,6 +447,8 @@ export const MessageItem = memo(function MessageItem({
             )}
             {message.type === "task_card" ? (
               <TaskCard message={message} onOpenThread={onOpenThread} />
+            ) : message.type === "proposal_card" ? (
+              <ProposalCard message={message} />
             ) : (
               <LoopCard message={message} />
             )}

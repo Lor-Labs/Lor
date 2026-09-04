@@ -198,12 +198,30 @@ complement (packages/messaging; deep-links via the message target).
 Wired in merlin-respond next to proposeLoop; `postMerlinMessage` accepts the
 new card type; merlin gained the `./proposals` export.
 
-### [ ] P4 — web surfaces (~450 LOC)
+### [x] P4 — web surfaces (built 2026-09-04)
 
-- `proposal_card` renderer: op-by-op diff view (what will be created/changed,
-  the access implied), rationale, evidence links, Approve/Reject gated by the
-  authority-union mirror; applied/failed/rejected terminal states.
-- Post-apply: card shows provenance (links to the created channel/loop/…).
+- `apps/web/src/hooks/use-proposals.ts`: channel proposals query (all
+  statuses — terminal cards render on reload; the list handler dropped its
+  pending filter for this, newest-first limit 50) kept live by
+  `proposal:updated`; per-card select by cardMessageId;
+  `useCanResolveProposal` mirrors the authority union via
+  `workspaceAuthorityHasPermissions(requiredPermissions)`; approve mutation
+  carries the optional secrets payload and toasts when a 200 lands with
+  status `failed`.
+- `apps/web/src/components/chat/proposal-card.tsx`: op-by-op rows (titles +
+  detail lines per kind, `describeLoopSchedule` for cron, channel names from
+  the sidebar cache, created-refs labeled "(new)" via the proposal's own
+  ops), rationale, url-evidence chips, LOR.md content in a scrollable block,
+  password inputs per declared requiredSecrets (optional — skipping leaves a
+  setup chip), Approve / Reject-with-note (the note is what Merlin revises
+  against), terminal states: applied (per-op provenance — channel link,
+  copyable webhook URL, amber setupNote chips incl. MCP OAuth), failed
+  (per-op error + resolutionNote), rejected (note, dimmed). Non-resolvers see
+  "Waiting for someone with permission".
+- Dispatch: `proposal_card` joins the card branch in message-item;
+  `useChannelProposals` mounts once per channel view; `notification:proposal`
+  OS-notification handler in use-browser-notifications (same directed-ping
+  contract as approvals).
 
 ### [ ] P5 — mobile (~300 LOC)
 

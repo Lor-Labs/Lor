@@ -1,6 +1,6 @@
 import type { PermissionRequest } from "@repo/auth/permissions"
 import { workspaceAuthorityHasPermissions } from "@repo/auth/permissions"
-import { and, asc, db, eq, inArray, schema } from "@repo/db"
+import { and, asc, db, desc, eq, inArray, schema } from "@repo/db"
 import { resolveChannelAccess } from "@repo/db/queries/channel-access"
 import type { ChangeProposal, ChangeProposalOperation } from "@repo/db/schema"
 import { proposalPermissions } from "@repo/db/schema"
@@ -124,15 +124,13 @@ export const listChannelProposals: AppRouteHandler<
     )
   }
 
+  // All statuses: resolved cards still render their terminal state (applied
+  // provenance, failure, rejection) on reload.
   const proposals = await db
     .select()
     .from(schema.changeProposal)
-    .where(
-      and(
-        eq(schema.changeProposal.channelId, channelId),
-        eq(schema.changeProposal.status, "pending")
-      )
-    )
+    .where(eq(schema.changeProposal.channelId, channelId))
+    .orderBy(desc(schema.changeProposal.createdAt))
     .limit(50)
   const operations = await loadOperations(proposals.map((p) => p.id))
 

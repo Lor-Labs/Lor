@@ -48,9 +48,9 @@ export type GetProposalRoute = typeof getProposal
 export const listChannelProposals = createRoute({
   path: "/channels/{channelId}/proposals",
   method: "get",
-  summary: "List a channel's pending change proposals",
+  summary: "List a channel's change proposals",
   description:
-    "Returns pending proposals anchored to this channel, for card rendering on reload.",
+    "Returns the channel's proposals (all statuses, newest first) for card rendering on reload.",
   tags: ["Change proposals"],
   middleware: [sessionAuthMiddleware] as const,
   request: { params: channelProposalsParamsSchema },
