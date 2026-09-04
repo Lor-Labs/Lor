@@ -108,7 +108,7 @@ export async function postMerlinMessage(
   input: {
     channelId: string
     content: string
-    type?: "default" | "task_card" | "loop_card" | "loop_fire"
+    type?: "default" | "task_card" | "loop_card" | "loop_fire" | "proposal_card"
     // Loop fire markers point at the loop's card message so clients resolve
     // the loop row (cardMessageId) for rich chip rendering.
     referencedMessageId?: string

@@ -55,6 +55,26 @@ export function buildReactionNotificationBody(input: {
     : `Reacted ${input.emoji} to your message`
 }
 
+// One wording for the proposal ping on every surface (web/desktop OS
+// notification, mobile push) — pillar 3.
+export function buildProposalNotificationContent(input: {
+  channelName: string | null
+  workspaceName: string
+  rationale: string
+}): { title: string; body: string } {
+  const where = input.channelName
+    ? `#${input.channelName}`
+    : input.workspaceName
+  const rationale = input.rationale.trim()
+  return {
+    title: `Merlin proposed workspace changes in ${where}`,
+    body:
+      rationale.length > 140
+        ? `${rationale.slice(0, 140)}…`
+        : rationale || "Review the proposal card to approve or reject it.",
+  }
+}
+
 // One wording for the approval ping on every surface (web/desktop OS
 // notification, mobile push) — LOR-83.
 export function buildApprovalNotificationContent(input: {

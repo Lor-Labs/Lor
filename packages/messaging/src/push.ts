@@ -4,8 +4,10 @@ import {
   buildApprovalNotificationContent,
   buildNotificationConversationName,
   buildNotificationTitle,
+  buildProposalNotificationContent,
   buildReactionNotificationBody,
   PRESENCE_ONLINE_USERS_SET_KEY,
+  type ProposalNotification,
   type ReactionNotification,
   shouldNotifyForMerlinThread,
   type UnreadNotification,
@@ -382,6 +384,52 @@ export async function sendApprovalPush(input: {
         channelId: input.notification.channelId,
         threadRootId: input.notification.threadRootId,
         messageId: input.notification.messageId,
+      },
+    }))
+  )
+}
+
+// Push half of the change-proposal fan-out (pillar 3): the caller computed
+// the qualifying-approver set; this sends only to whoever is offline (online
+// users saw the notification:proposal socket event). No mute/settings
+// filtering — directed at the few people whose permissions cover it.
+export async function sendProposalPush(input: {
+  userIds: string[]
+  notification: ProposalNotification
+  redis: PresenceRedisClient
+}) {
+  if (input.userIds.length === 0) return
+  const membership = await input.redis.smIsMember(
+    PRESENCE_ONLINE_USERS_SET_KEY,
+    input.userIds
+  )
+  const offline = input.userIds.filter(
+    (_, index) => !toRedisBoolean(membership[index])
+  )
+  if (offline.length === 0) return
+
+  const tokens = await db
+    .select({ token: schema.pushToken.token })
+    .from(schema.pushToken)
+    .where(inArray(schema.pushToken.userId, offline))
+  if (tokens.length === 0) return
+
+  const { title, body } = buildProposalNotificationContent(input.notification)
+  await deliverExpoPush(
+    tokens.map((row) => ({
+      to: row.token,
+      title,
+      body,
+      sound: "default" as const,
+      channelId: "default" as const,
+      data: {
+        // Deep-links through the ordinary message target onto the card.
+        type: "proposal",
+        proposalId: input.notification.proposalId,
+        workspaceId: input.notification.workspaceId,
+        channelId: input.notification.channelId,
+        threadRootId: null,
+        messageId: input.notification.cardMessageId,
       },
     }))
   )

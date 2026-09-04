@@ -590,6 +590,8 @@ export interface ServerToClientEvents {
   // and this user should act (or know). Online clients show an OS
   // notification; the offline complement goes out as a mobile push instead.
   "notification:approval": (payload: ApprovalNotification) => void
+  // A change proposal awaits someone whose permissions cover it. User room.
+  "notification:proposal": (payload: ProposalNotification) => void
   "channel:read-state": (payload: ChannelReadState) => void
   "channel-mute:updated": (payload: ChannelMuteUpdated) => void
   "thread-read:updated": (payload: ThreadReadUpdated) => void
@@ -690,6 +692,19 @@ export type ProposalUpdatedEvent = {
   proposalId: string
   channelId: string
   status: "pending" | "approved" | "rejected" | "applied" | "failed"
+}
+
+// User-targeted ping to people whose permissions cover a new proposal —
+// online clients render the OS notification, offline ones get the push.
+export type ProposalNotification = {
+  proposalId: string
+  workspaceId: string
+  workspaceName: string
+  channelId: string
+  channelName: string | null
+  // The card message — also the thread the resolution lands in.
+  cardMessageId: string | null
+  rationale: string
 }
 
 export type ApprovalCreatedEvent = {

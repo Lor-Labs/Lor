@@ -161,7 +161,7 @@ continuation. `authorizeResolution` shared by approve/reject (floor +
 authority union), CAS pending→approved/rejected, `proposal:updated` emitted to
 the channel room (realtime-types event added).
 
-### [ ] P3 — merlin tool + card + notify (~400 LOC)
+### [x] P3 — merlin tool + card + notify (~400 LOC) — built 2026-09-03
 
 - `propose_workspace_change` tool (typed ops input mirrored from
   `packages/proposals`), conversational binding, SIDE_EFFECT_TOOLS entry,
@@ -172,6 +172,31 @@ the channel room (realtime-types event added).
   after a proposal is applied, continue in-thread and finish codebase
   integration via code tools (PR) when the change needs it; LOR.md ops are a
   last resort.
+
+**As built.** `packages/merlin/src/proposals.ts`: `propose_workspace_change`
+(input = rationale + evidence + the shared `changeOperationSchema` array,
+max 15 ops; `refIssue()` statically rejects forward/wrong-kind `created` refs
+so the model gets a fixable error, not a dead card). Bound conversational-only
+like propose_loop (`ctx.proposeChange && ctx.channelId`), toolsContext carries
+the executor, `PROPOSALS_PROMPT_LINE` sets the doctrine: the ONLY way to change
+workspace config, research custom-tool APIs via web search first, secret NAMES
+only, LOR.md rarely, finish integration from the card thread after apply.
+Added to `SIDE_EFFECT_TOOLS` and `RESERVED_TOOL_NAMES`.
+
+Worker `apps/worker/src/lib/change-proposal.ts` (`createProposalCard`):
+`proposal_card` message first (plain-text op list as the fallback body) → one
+tx that supersedes the channel's previous pending proposal (rejected +
+"Superseded by a newer proposal.") and inserts proposal + op rows →
+compensation-deletes the card on failure. Best-effort afterward:
+`proposal:updated` for superseded + new, then approver notify —
+`qualifyingApprovers` = members whose authority covers the permission union
+(owner/admins/custom roles; when the union is empty — loop-only proposals —
+only owner+admins are pinged, the card's normal message fanout covers the
+channel), each gets a user-room `notification:proposal` socket event
+(web OS notification lands in P4) and `sendProposalPush` covers the offline
+complement (packages/messaging; deep-links via the message target).
+Wired in merlin-respond next to proposeLoop; `postMerlinMessage` accepts the
+new card type; merlin gained the `./proposals` export.
 
 ### [ ] P4 — web surfaces (~450 LOC)
 
