@@ -787,6 +787,20 @@ export async function applyProposal(
 ): Promise<ApplyOutcome> {
   const ordered = [...operations].sort((a, b) => a.position - b.position)
   try {
+    // Stored specs re-validate against the vocabulary up front — a row written
+    // under an older op shape (or with a null spec) fails with its position
+    // recorded instead of crashing while building the kinds map.
+    const parsedOps = ordered.map((operation) => {
+      const parsed = changeOperationSchema.safeParse(operation.spec)
+      if (!parsed.success) {
+        fail(operation.position, "Stored operation no longer parses")
+      }
+      return {
+        id: operation.id,
+        position: operation.position,
+        spec: parsed.data,
+      }
+    })
     const results = await db.transaction(async (tx) => {
       const ctx: ApplyContext = {
         tx,
@@ -796,27 +810,20 @@ export async function applyProposal(
         rationale: proposal.rationale,
         createdIds: new Map(),
         kinds: new Map(
-          ordered.map((operation) => [operation.position, operation.spec.op])
+          parsedOps.map((operation) => [operation.position, operation.spec.op])
         ),
         secrets,
       }
       const collected = new Map<number, OperationResult>()
-      for (const operation of ordered) {
-        // Stored specs re-validate against the vocabulary before applying —
-        // rows written under an older op shape fail with the op named
-        // instead of crashing mid-transaction.
-        const parsed = changeOperationSchema.safeParse(operation.spec)
-        if (!parsed.success) {
-          fail(operation.position, "Stored operation no longer parses")
-        }
+      for (const operation of parsedOps) {
         const result = await applyOperation(
           ctx,
           operation.position,
-          parsed.data
+          operation.spec
         )
         collected.set(operation.position, result)
       }
-      for (const operation of ordered) {
+      for (const operation of parsedOps) {
         await tx
           .update(schema.changeProposalOperation)
           .set({ result: collected.get(operation.position) ?? null })

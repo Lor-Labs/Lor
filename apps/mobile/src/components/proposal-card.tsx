@@ -228,6 +228,13 @@ function opView(
         title: `Require approval for ${policyTargetLabel(spec.target, operations)}`,
         details: [resolverLine(spec)],
       }
+    // An op kind this client build doesn't know yet (server deployed ahead):
+    // render its raw name rather than crashing the card.
+    default:
+      return {
+        title: String((spec as { op: string }).op).replaceAll("_", " "),
+        details: [],
+      }
   }
 }
 
@@ -238,7 +245,8 @@ function CopyUrlRow({ url }: { url: string }) {
       accessibilityRole="button"
       className="flex-row items-center gap-two rounded-lor-sm bg-surface-secondary px-two py-two active:opacity-70"
       onPress={() => {
-        void Clipboard.setStringAsync(url).then(() => {
+        void Clipboard.setStringAsync(url).then((ok) => {
+          if (!ok) return
           setCopied(true)
           setTimeout(() => setCopied(false), 1500)
         })
@@ -303,7 +311,8 @@ function OperationItem({
       : {
           container: "border border-border bg-surface",
           color: muted,
-          icon: OP_ICONS[op.kind],
+          // Unknown kind (newer server): generic glyph, not a crash.
+          icon: (OP_ICONS[op.kind] as IconSvg | undefined) ?? SparklesIcon,
         }
 
   return (

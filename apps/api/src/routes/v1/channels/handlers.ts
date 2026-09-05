@@ -1,5 +1,8 @@
 import { db, schema } from "@repo/db"
-import { listAccessibleChannelIds } from "@repo/db/queries/channel-access"
+import {
+  listAccessibleChannelIds,
+  resolveChannelAudienceInfo,
+} from "@repo/db/queries/channel-access"
 import type { IntegrationProvider } from "@repo/db/schema"
 import {
   agentProfile,
@@ -200,17 +203,19 @@ export const createChannel: AppRouteHandler<CreateChannelRoute> = async (c) => {
   }
 
   // Teammates' sidebars refetch on this; the creator's dialog already
-  // invalidates locally. A members-only channel pings only its members —
-  // the workspace room would announce the channel's existence to everyone.
+  // invalidates locally. The effective audience (container inheritance
+  // included) decides the rooms: a members-only channel — standalone private
+  // or inside a restricted category — pings only the people who can see it.
   try {
     const io = await getEmitter()
     const payload = { workspaceId: workspace.id, channelId: newChannel.id }
-    if (isStandalonePrivate) {
-      for (const userId of resolvedMemberIds) {
+    const audience = await resolveChannelAudienceInfo(newChannel.id)
+    if (audience.audience === "workspace") {
+      io.to(workspaceRoom(workspace.id)).emit("channel:created", payload)
+    } else {
+      for (const userId of audience.userIds) {
         io.to(userRoom(userId)).emit("channel:created", payload)
       }
-    } else {
-      io.to(workspaceRoom(workspace.id)).emit("channel:created", payload)
     }
   } catch (err) {
     logger.warn(

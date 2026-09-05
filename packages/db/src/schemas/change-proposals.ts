@@ -138,21 +138,32 @@ export const createMcpServerOpSchema = z.object({
 
 // Upsert only — Merlin may propose gating an action (often one this same
 // proposal creates), never removing a gate.
-export const setApprovalPolicyOpSchema = z.object({
-  op: z.literal("set_approval_policy"),
-  target: z.discriminatedUnion("kind", [
-    // An approval-target key that exists today (capability:x, custom_tool:id…).
-    z.object({ kind: z.literal("key"), key: z.string().min(1).max(200) }),
-    // The custom tool / MCP server another op in this proposal creates.
-    z.object({
-      kind: z.literal("created"),
-      opPosition: z.number().int().min(0),
-    }),
-  ]),
-  resolverKind: z.enum(["any_member", "role", "user"]).default("any_member"),
-  resolverRole: z.string().min(1).max(100).optional(),
-  resolverUserId: z.string().uuid().optional(),
-})
+export const setApprovalPolicyOpSchema = z
+  .object({
+    op: z.literal("set_approval_policy"),
+    target: z.discriminatedUnion("kind", [
+      // An approval-target key that exists today (capability:x, custom_tool:id…).
+      z.object({ kind: z.literal("key"), key: z.string().min(1).max(200) }),
+      // The custom tool / MCP server another op in this proposal creates.
+      z.object({
+        kind: z.literal("created"),
+        opPosition: z.number().int().min(0),
+      }),
+    ]),
+    resolverKind: z.enum(["any_member", "role", "user"]).default("any_member"),
+    resolverRole: z.string().min(1).max(100).optional(),
+    resolverUserId: z.string().uuid().optional(),
+  })
+  // Named resolvers carry their name — rejected at propose time (a fixable
+  // tool error) instead of failing the whole apply later.
+  .refine((val) => val.resolverKind !== "role" || Boolean(val.resolverRole), {
+    message: "A role resolver needs resolverRole",
+    path: ["resolverRole"],
+  })
+  .refine((val) => val.resolverKind !== "user" || Boolean(val.resolverUserId), {
+    message: "A user resolver needs resolverUserId",
+    path: ["resolverUserId"],
+  })
 
 export const changeOperationSchema = z.discriminatedUnion("op", [
   createChannelOpSchema,
