@@ -15,9 +15,14 @@ import {
   searchConnector,
   searchConnectorFiles as searchFiles,
 } from "@repo/merlin/connector-search"
-import { type ServerToClientEvents, userRoom } from "@repo/realtime-types"
+import {
+  type ServerToClientEvents,
+  userRoom,
+  workspaceRoom,
+} from "@repo/realtime-types"
 import { Emitter } from "@socket.io/redis-emitter"
 import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm"
+import { getEmitter } from "@/lib/bot-messages"
 import { allowedChannelConnectors } from "@/lib/channel-connectors"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
@@ -191,6 +196,21 @@ export const createChannel: AppRouteHandler<CreateChannelRoute> = async (c) => {
     return c.json(
       { success: false, message: "Internal server error" },
       HttpStatusCodes.INTERNAL_SERVER_ERROR
+    )
+  }
+
+  // Teammates' sidebars refetch on this; the creator's dialog already
+  // invalidates locally.
+  try {
+    const io = await getEmitter()
+    io.to(workspaceRoom(workspace.id)).emit("channel:created", {
+      workspaceId: workspace.id,
+      channelId: newChannel.id,
+    })
+  } catch (err) {
+    logger.warn(
+      { err, channelId: newChannel.id },
+      "channel:created emit failed"
     )
   }
 

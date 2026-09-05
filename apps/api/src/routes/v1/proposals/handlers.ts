@@ -1,11 +1,20 @@
 import type { PermissionRequest } from "@repo/auth/permissions"
 import { workspaceAuthorityHasPermissions } from "@repo/auth/permissions"
-import { and, asc, db, desc, eq, inArray, schema } from "@repo/db"
+import {
+  and,
+  asc,
+  db,
+  desc,
+  eq,
+  inArray,
+  MERLIN_USER_ID,
+  schema,
+} from "@repo/db"
 import { resolveChannelAccess } from "@repo/db/queries/channel-access"
 import type { ChangeProposal, ChangeProposalOperation } from "@repo/db/schema"
 import { proposalPermissions } from "@repo/db/schema"
-import { channelRoom } from "@repo/realtime-types/rooms"
-import { getEmitter } from "@/lib/bot-messages"
+import { channelRoom, workspaceRoom } from "@repo/realtime-types/rooms"
+import { getEmitter, postBotMessage } from "@/lib/bot-messages"
 import {
   type ApproverSecrets,
   applyProposal,
@@ -350,6 +359,51 @@ export const rejectProposal: AppRouteHandler<RejectProposalRoute> = async (
   )
 }
 
+// Post-apply, best-effort: teammates' sidebars learn about channels the
+// proposal created, and each new channel gets a Merlin context message — which
+// also makes it light up as unread through the normal fanout.
+async function announceCreatedChannels(args: {
+  proposal: ChangeProposal
+  workspace: Workspace
+  ops: ChangeProposalOperation[]
+}): Promise<void> {
+  const created = args.ops.filter(
+    (op) => op.spec.op === "create_channel" && op.result?.resourceId
+  )
+  if (created.length === 0) return
+
+  const origin = await db
+    .select({ name: schema.channel.name })
+    .from(schema.channel)
+    .where(eq(schema.channel.id, args.proposal.channelId))
+    .limit(1)
+    .then((rows) => rows[0] ?? null)
+  const io = await getEmitter()
+
+  for (const op of created) {
+    const channelId = op.result?.resourceId
+    if (!channelId || op.spec.op !== "create_channel") continue
+    io.to(workspaceRoom(args.workspace.id)).emit("channel:created", {
+      workspaceId: args.workspace.id,
+      channelId,
+    })
+    await postBotMessage({
+      channel: {
+        id: channelId,
+        workspaceId: args.workspace.id,
+        name: op.spec.name,
+        workspaceName: args.workspace.name,
+      },
+      authorId: MERLIN_USER_ID,
+      content: origin?.name
+        ? `This channel was created from an approved change proposal in #${origin.name}.`
+        : "This channel was created from an approved change proposal.",
+    }).catch((err) => {
+      logger.warn({ err, channelId }, "New-channel context message failed")
+    })
+  }
+}
+
 export const approveProposal: AppRouteHandler<ApproveProposalRoute> = async (
   c
 ) => {
@@ -464,6 +518,16 @@ export const approveProposal: AppRouteHandler<ApproveProposalRoute> = async (
     authorId: currentUser.id,
     content,
   })
+
+  if (outcome.ok) {
+    await announceCreatedChannels({
+      proposal: settled,
+      workspace: auth.workspace,
+      ops: settledOps,
+    }).catch((err) => {
+      logger.warn({ err, proposalId }, "Created-channel announce failed")
+    })
+  }
 
   await emitProposalUpdated(settled)
   return c.json(

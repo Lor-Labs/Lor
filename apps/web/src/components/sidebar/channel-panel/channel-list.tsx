@@ -53,6 +53,7 @@ import { EditChannelDialog } from "@/components/sidebar/channel-panel/edit-chann
 import { PrivateHashIcon } from "@/components/ui/private-hash-icon"
 import { useMobileSidebar } from "@/context/mobile-sidebar-context"
 import { useUnread } from "@/context/unread-context"
+import { useChannelCreated } from "@/hooks/use-channel-created"
 import { MUTE_DURATIONS, useChannelMutes } from "@/hooks/use-channel-mutes"
 import { useProjectUpdates } from "@/hooks/use-project-updates"
 import { apiClient } from "@/lib/api-client"
@@ -241,6 +242,8 @@ export function ChannelList() {
   const muteControls = useChannelMutes()
   // Live refetch on project archive start/finish (spinner → Archived section).
   useProjectUpdates(workspaceSlug)
+  // Channels created elsewhere (a teammate, a proposal apply) appear live.
+  useChannelCreated(workspaceSlug)
 
   // Projects render distinctly (folder disclosure + dashed boundary); match
   // category ids against the project list so public projects get it too.

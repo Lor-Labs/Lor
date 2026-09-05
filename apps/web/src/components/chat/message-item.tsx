@@ -452,6 +452,18 @@ export const MessageItem = memo(function MessageItem({
             ) : (
               <LoopCard message={message} />
             )}
+            {/* Proposal resolutions and Merlin's follow-up land in the card's
+                thread; the standard reply footer is the way in (the card
+                itself is deliberately not clickable, unlike task cards). */}
+            {message.type === "proposal_card" &&
+              onOpenThread &&
+              message.threadSummary &&
+              message.threadSummary.replyCount > 0 && (
+                <ThreadFooter
+                  summary={message.threadSummary}
+                  onClick={() => onOpenThread(message.id)}
+                />
+              )}
           </div>
         </div>
       </div>

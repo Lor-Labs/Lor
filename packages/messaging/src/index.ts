@@ -22,6 +22,7 @@ export {
   MARKDOWN_USER_MENTION_REGEX,
   USER_MENTION_REGEX,
 } from "./mentions"
+export { loadThreadSummary } from "./thread-summary"
 
 // Minimal shapes so both realtime (human send) and worker (Merlin reply) can call this.
 type FanoutChannel = {

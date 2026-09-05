@@ -593,6 +593,7 @@ export interface ServerToClientEvents {
   // A change proposal awaits someone whose permissions cover it. User room.
   "notification:proposal": (payload: ProposalNotification) => void
   "channel:read-state": (payload: ChannelReadState) => void
+  "channel:created": (payload: ChannelCreatedEvent) => void
   "channel-mute:updated": (payload: ChannelMuteUpdated) => void
   "thread-read:updated": (payload: ThreadReadUpdated) => void
   "project:updated": (payload: ProjectUpdatedEvent) => void
@@ -601,6 +602,11 @@ export interface ServerToClientEvents {
   "typing:update": (payload: TypingIndicatorEvent) => void
   "billing:updated": (payload: BillingUpdatedEvent) => void
   "instructions:proposal": (payload: InstructionsProposalUpdate) => void
+}
+
+export type ChannelCreatedEvent = {
+  workspaceId: string
+  channelId: string
 }
 
 // Emitted to the workspace room when Merlin files a workspace-instructions

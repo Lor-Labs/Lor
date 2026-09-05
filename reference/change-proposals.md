@@ -222,6 +222,29 @@ new card type; merlin gained the `./proposals` export.
   `useChannelProposals` mounts once per channel view; `notification:proposal`
   OS-notification handler in use-browser-notifications (same directed-ping
   contract as approvals).
+- 2026-09-05 — live thread footers for server-posted replies: `loadThreadSummary`
+  moved from apps/realtime into `@repo/messaging`; the API's scope-run paths
+  (postScopeMessage resolutions, Merlin placeholder create/retract) now emit
+  `message:thread:updated` to the channel room, so proposal/task card reply
+  footers update without a reload. Card polish same day: header checkmark on
+  applied removed; sources render as favicon badges (via /v1/favicon proxy,
+  link-glyph fallback) instead of a dropdown; card chrome removed (renders
+  straight into the channel); step panels default open; step detail collapses
+  behind its first line.
+- 2026-09-05 (Jacob review round 2): ops render as a hand-rolled TIMELINE
+  (size-6 icon indicators on a connecting rail — muted while pending, primary
+  fill when applied, destructive on the failing op; reui timeline as visual
+  reference, NOT installed — packages/ui is coss ui). Whole-card thread click
+  REMOVED (read as a task card, confusing); the standard ThreadFooter
+  ("N replies") renders under the card instead once resolutions land.
+- 2026-09-04 QA fixes: card redesigned on the TaskCard pattern (bg-card
+  surface, status badge, recessed op well with per-kind HugeIcons, stretched
+  overlay button opens the card's thread — interactive rows at z-20);
+  `channel:created` workspace-room event added (emitted by the regular
+  create-channel handler AND `announceCreatedChannels` post-apply) with a
+  `useChannelCreated` sidebar listener; each proposal-created channel also
+  gets a Merlin context message via `postBotMessage`, which lights it unread
+  through the normal fanout. Mobile channel:created listener deferred to P5.
 
 ### [ ] P5 — mobile (~300 LOC)
 
