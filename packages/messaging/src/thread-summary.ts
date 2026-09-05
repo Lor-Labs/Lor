@@ -32,6 +32,17 @@ export async function loadThreadSummary(
     }
   }
 
+  // Independent of the replies — fetched alongside them.
+  const workspaceIdPromise = db
+    .select({ workspaceId: schema.channel.workspaceId })
+    .from(schema.channel)
+    .where(eq(schema.channel.id, channelId))
+    .limit(1)
+    .then((rows) => rows[0]?.workspaceId ?? null)
+  // If a replies query throws first, this in-flight promise must not surface
+  // as an unhandled rejection; awaiting it below still propagates its error.
+  workspaceIdPromise.catch(() => {})
+
   const recentReplies = await db
     .select({
       messageId: schema.message.id,
@@ -79,12 +90,7 @@ export async function loadThreadSummary(
       ...mentionRows.map((mention) => mention.id),
     ]),
   ]
-  const threadWorkspaceId = await db
-    .select({ workspaceId: schema.channel.workspaceId })
-    .from(schema.channel)
-    .where(eq(schema.channel.id, channelId))
-    .limit(1)
-    .then((rows) => rows[0]?.workspaceId ?? null)
+  const threadWorkspaceId = await workspaceIdPromise
   const avatarColorRows =
     threadWorkspaceId && avatarColorUserIds.length > 0
       ? await db

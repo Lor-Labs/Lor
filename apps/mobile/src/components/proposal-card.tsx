@@ -12,7 +12,7 @@ import WebhookIcon from "@hugeicons/core-free-icons/WebhookIcon"
 import Wrench01Icon from "@hugeicons/core-free-icons/Wrench01Icon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
 import { describeLoopSchedule } from "@repo/realtime-types/loops"
-import { useQueryClient } from "@tanstack/react-query"
+import { useQuery } from "@tanstack/react-query"
 import * as Clipboard from "expo-clipboard"
 import { useRouter } from "expo-router"
 import { useThemeColor } from "heroui-native/hooks"
@@ -35,10 +35,8 @@ import type {
 } from "@/lib/api-types"
 
 // Mobile mirror of web's change-proposal timeline (pillar 3,
-// reference/change-proposals.md): one indicator per operation on a connecting
-// rail, no card chrome of its own; per-step detail sits in a framed panel
-// (always expanded here — no collapse on mobile). Approve may carry secret
-// values typed by the approver; they ride the request only.
+// reference/change-proposals.md). Step details stay expanded — no collapse on
+// mobile. Approver-typed secrets ride the approve request only.
 
 type IconSvg = typeof HashtagIcon
 
@@ -418,7 +416,6 @@ export function ProposalCard({ message }: { message: Message }) {
 
 function ProposalCardBody({ proposal }: { proposal: ChannelProposal }) {
   const { workspace } = useWorkspace()
-  const queryClient = useQueryClient()
   const approve = useApproveProposal(proposal.channelId)
   const reject = useRejectProposal(proposal.channelId)
   const canResolve = useCanResolveProposal(proposal.requiredPermissions)
@@ -428,10 +425,12 @@ function ProposalCardBody({ proposal }: { proposal: ChannelProposal }) {
   const [rejecting, setRejecting] = useState(false)
   const [note, setNote] = useState("")
 
-  const channelsData = queryClient.getQueryData<ChannelNameSource>([
-    "channels",
-    workspace?.slug,
-  ])
+  // Subscribed read of the channel list another screen fetched (enabled:false
+  // never fetches) — labels refresh when that cache fills or updates.
+  const { data: channelsData } = useQuery<ChannelNameSource>({
+    queryKey: ["channels", workspace?.slug],
+    enabled: false,
+  })
   const channelNames = new Map<string, string>()
   for (const ch of channelsData?.uncategorized ?? []) {
     if (ch.name) channelNames.set(ch.id, ch.name)

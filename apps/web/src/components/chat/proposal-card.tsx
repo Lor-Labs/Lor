@@ -265,6 +265,13 @@ function opView(
         title: `Require approval for ${policyTargetLabel(spec.target, operations)}`,
         details: [resolverLine(spec)],
       }
+    // An op kind this client build doesn't know yet (server deployed ahead):
+    // render its raw name rather than crashing the card.
+    default:
+      return {
+        title: String((spec as { op: string }).op).replaceAll("_", " "),
+        details: [],
+      }
   }
 }
 
@@ -297,7 +304,10 @@ function OperationItem({
     spec.op === "create_custom_tool" ? spec.requiredSecrets : []
 
   const copyUrl = (url: string) => {
-    void navigator.clipboard.writeText(url).then(() => toast.success("Copied"))
+    navigator.clipboard
+      .writeText(url)
+      .then(() => toast.success("Copied"))
+      .catch(() => toast.error("Couldn't copy — select the URL manually"))
   }
 
   // The first detail line doubles as the panel's always-visible header; the
@@ -416,7 +426,9 @@ function OperationItem({
                 ? AlertCircleIcon
                 : applied
                   ? Tick02Icon
-                  : OP_ICONS[op.kind]
+                  : // Unknown kind (newer server): generic glyph, not a crash.
+                    ((OP_ICONS[op.kind] as IconSvgObject | undefined) ??
+                    SparklesIcon)
             }
             size={13}
             strokeWidth={2}

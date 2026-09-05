@@ -200,13 +200,18 @@ export const createChannel: AppRouteHandler<CreateChannelRoute> = async (c) => {
   }
 
   // Teammates' sidebars refetch on this; the creator's dialog already
-  // invalidates locally.
+  // invalidates locally. A members-only channel pings only its members —
+  // the workspace room would announce the channel's existence to everyone.
   try {
     const io = await getEmitter()
-    io.to(workspaceRoom(workspace.id)).emit("channel:created", {
-      workspaceId: workspace.id,
-      channelId: newChannel.id,
-    })
+    const payload = { workspaceId: workspace.id, channelId: newChannel.id }
+    if (isStandalonePrivate) {
+      for (const userId of resolvedMemberIds) {
+        io.to(userRoom(userId)).emit("channel:created", payload)
+      }
+    } else {
+      io.to(workspaceRoom(workspace.id)).emit("channel:created", payload)
+    }
   } catch (err) {
     logger.warn(
       { err, channelId: newChannel.id },

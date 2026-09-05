@@ -1,4 +1,4 @@
-import { relations } from "drizzle-orm"
+import { relations, sql } from "drizzle-orm"
 import {
   index,
   integer,
@@ -300,6 +300,12 @@ export const changeProposal = pgTable(
       table.status
     ),
     uniqueIndex("changeProposal_cardMessageId_uidx").on(table.cardMessageId),
+    // One live card per channel, enforced against races too — the executor's
+    // supersede-then-insert normally maintains this; a concurrent loser hits
+    // this index and its compensation path.
+    uniqueIndex("changeProposal_channel_pending_uidx")
+      .on(table.channelId)
+      .where(sql`${table.status} = 'pending'`),
   ]
 )
 

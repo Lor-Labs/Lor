@@ -126,6 +126,14 @@ export async function createProposalCard(
         .delete(schema.message)
         .where(eq(schema.message.id, cardId))
         .catch(() => {})
+      // Clients already saw the card via message:created — retract it so no
+      // phantom card lingers until reload.
+      try {
+        deps.emitter.to(channelRoom(input.channelId)).emit("message:deleted", {
+          channelId: input.channelId,
+          messageId: cardId,
+        })
+      } catch {}
       throw err
     })
 

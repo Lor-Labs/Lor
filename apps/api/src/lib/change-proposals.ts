@@ -6,7 +6,7 @@ import {
   isConnectorEvent,
   parseApprovalTargetKey,
 } from "@repo/connectors"
-import { and, db, eq, max, schema, sql } from "@repo/db"
+import { and, db, eq, isUniqueViolation, max, schema, sql } from "@repo/db"
 import type {
   ChangeOperation,
   ChangeProposal,
@@ -15,7 +15,10 @@ import type {
   OperationResult,
   ResourceRef,
 } from "@repo/db/schema"
-import { validateWorkspaceInstructionsContent } from "@repo/db/schema"
+import {
+  changeOperationSchema,
+  validateWorkspaceInstructionsContent,
+} from "@repo/db/schema"
 import { env } from "@repo/env/server"
 import {
   bodyMustBeJson,
@@ -263,7 +266,9 @@ async function applyOperation(
           name: spec.name,
           instructions: spec.instructions,
           schedule: spec.schedule,
-          timezone: spec.timezone,
+          // Persist the resolved timezone: the sweep treats an active loop
+          // with a null timezone as an invariant violation and pauses it.
+          timezone,
           status: "active",
           nextRunAt,
           endCondition: spec.endCondition,
@@ -316,7 +321,10 @@ async function applyOperation(
         )
         if (!validation.ok) fail(position, validation.reason)
         if (spec.schedule !== undefined) values.schedule = spec.schedule
-        if (spec.timezone !== undefined) values.timezone = spec.timezone
+        // Null means "reset to default" — store UTC, never null (see above).
+        if (spec.timezone !== undefined) {
+          values.timezone = spec.timezone ?? "UTC"
+        }
         // Approval is the consent (the card shows the new cadence).
         if (validation.requiresConfirmation) {
           values.highFrequencyConfirmedAt = new Date()
@@ -327,6 +335,9 @@ async function applyOperation(
           if (!next) fail(position, "Schedule has no future fires")
           values.nextRunAt = next
         }
+      }
+      if (Object.keys(values).length === 0) {
+        fail(position, "The loop edit changes nothing")
       }
       // CAS on the status the edit was computed against, like the route.
       const updated = await ctx.tx
@@ -566,9 +577,16 @@ async function applyOperation(
         })
         .returning({ id: schema.customTool.id })
         .then((rows) => rows[0])
-        .catch(() => null)
+        .catch((err) => {
+          // Only a unique violation means a name conflict; anything else
+          // surfaces as the generic apply failure with its real cause logged.
+          if (isUniqueViolation(err)) {
+            fail(position, `A tool named "${spec.name}" already exists`)
+          }
+          throw err
+        })
       if (!inserted) {
-        fail(position, `A tool named "${spec.name}" already exists`)
+        fail(position, "Failed to create the tool")
       }
       ctx.createdIds.set(position, inserted.id)
       const missing = spec.requiredSecrets.filter((name) => !(name in provided))
@@ -603,9 +621,14 @@ async function applyOperation(
         })
         .returning({ id: schema.mcpServer.id })
         .then((rows) => rows[0])
-        .catch(() => null)
+        .catch((err) => {
+          if (isUniqueViolation(err)) {
+            fail(position, `A server named "${spec.name}" already exists`)
+          }
+          throw err
+        })
       if (!inserted) {
-        fail(position, `A server named "${spec.name}" already exists`)
+        fail(position, "Failed to create the MCP server")
       }
       ctx.createdIds.set(position, inserted.id)
       return {
@@ -779,12 +802,17 @@ export async function applyProposal(
       }
       const collected = new Map<number, OperationResult>()
       for (const operation of ordered) {
-        // Forward references would read an empty createdIds slot — reject
-        // explicitly so the error names the op instead of "not created".
+        // Stored specs re-validate against the vocabulary before applying —
+        // rows written under an older op shape fail with the op named
+        // instead of crashing mid-transaction.
+        const parsed = changeOperationSchema.safeParse(operation.spec)
+        if (!parsed.success) {
+          fail(operation.position, "Stored operation no longer parses")
+        }
         const result = await applyOperation(
           ctx,
           operation.position,
-          operation.spec
+          parsed.data
         )
         collected.set(operation.position, result)
       }
