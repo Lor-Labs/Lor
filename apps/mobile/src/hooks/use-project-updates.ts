@@ -23,9 +23,18 @@ export function useProjectUpdates(workspaceSlug: string | undefined) {
         queryKey: ["channel", workspaceSlug],
       })
     }
+    // Channels created outside this client (a teammate, a change-proposal
+    // apply) arrive on the workspace room; refetch the channel list.
+    const onChannelCreated = () => {
+      void queryClient.invalidateQueries({
+        queryKey: ["channels", workspaceSlug],
+      })
+    }
     socket.on("project:updated", onUpdated)
+    socket.on("channel:created", onChannelCreated)
     return () => {
       socket.off("project:updated", onUpdated)
+      socket.off("channel:created", onChannelCreated)
     }
   }, [socket, queryClient, workspaceSlug])
 }

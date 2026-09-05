@@ -17,6 +17,7 @@ import { MerlinReasoning } from "@/components/merlin-reasoning"
 import { MessageAttachments } from "@/components/message-attachments"
 import { MessageContent } from "@/components/message-content"
 import { MessageEmbed } from "@/components/message-embed"
+import { ProposalCard } from "@/components/proposal-card"
 import { TaskCard } from "@/components/task-card"
 import { ThinkingIndicator } from "@/components/thinking-indicator"
 import { Avatar } from "@/components/ui/avatar"
@@ -187,6 +188,8 @@ function MessageRowBody({
         <TaskCard message={message} onOpenThread={onOpenThread} />
       ) : message.type === "loop_card" || message.type === "loop_fire" ? (
         <LoopCard message={message} />
+      ) : message.type === "proposal_card" ? (
+        <ProposalCard message={message} />
       ) : (
         <>
           {message.type === "reply" ? (

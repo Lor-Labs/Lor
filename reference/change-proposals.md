@@ -246,9 +246,26 @@ new card type; merlin gained the `./proposals` export.
   gets a Merlin context message via `postBotMessage`, which lights it unread
   through the normal fanout. Mobile channel:created listener deferred to P5.
 
-### [ ] P5 — mobile (~300 LOC)
+### [x] P5 — mobile (built 2026-09-05)
 
-- Card renderer + resolve, same hooks pattern as approvals; push deep link.
+- `apps/mobile/src/hooks/use-proposals.ts`: mirror of use-approvals (30s
+  staleTime channel query, all statuses; `proposal:updated` invalidation;
+  `useCanResolveProposal` = authority-union mirror via
+  `workspaceAuthorityHasPermissions` with real custom-role grants; approve
+  carries the secrets payload, 200-with-`failed` surfaces a native Alert).
+- `apps/mobile/src/components/proposal-card.tsx`: timeline renderer (heroui
+  tokens — indicator circles on a 2px rail: outlined+op-glyph pending,
+  accent-soft check applied, danger-soft on the failing op; framed per-step
+  panels, always expanded; secureTextEntry secret inputs;
+  reject-with-note TextInput; copy-webhook-URL row via expo-clipboard;
+  "Open #channel" provenance routes to the channel screen; hostname source
+  chips). Wired into message-row's card branch; ThreadFooter already renders
+  for cards on mobile, so the thread entry came free.
+- Mounted `useChannelProposals` on the channel + thread screens (next to
+  approvals); `channel:created` listener added to use-project-updates.
+- Push: `type: "proposal"` needed NO push-target change — the payload's
+  channelId/messageId already parse as a message target.
+- reference/mobile-parity-todo.md updated (collapse + favicons stay web-only).
 
 ### [ ] P6 — vertical slice QA
 

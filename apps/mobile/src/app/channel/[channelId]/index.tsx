@@ -39,6 +39,7 @@ import { useMemberModeration } from "@/hooks/use-member-moderation"
 import { useOpenDM } from "@/hooks/use-open-dm"
 import { useProfileSheet } from "@/hooks/use-profile-sheet"
 import { useProjectUpdates } from "@/hooks/use-project-updates"
+import { useChannelProposals } from "@/hooks/use-proposals"
 import { useRunQueue } from "@/hooks/use-run-queue"
 import { useTypingIndicator } from "@/hooks/use-typing-indicator"
 import { useWorkspaceMentionCandidates } from "@/hooks/use-workspace-mention-candidates"
@@ -89,6 +90,8 @@ export default function ChannelScreen() {
   // Live source for every approval card in this channel (message cards read
   // the same cache); the socket handlers live here, once per screen.
   useChannelApprovals(channelId ?? "")
+  // Proposal cards read this cache the same way.
+  useChannelProposals(channelId ?? "")
   // Channel-scope queue (a send can land while a run is finalizing) —
   // surfaced in the same composer pill as thread queues.
   const pendingMerlinMessageId = useMemo(

@@ -47,6 +47,20 @@ Core task surfaces shipped 2026-08-10 (`use-tasks.ts`, `task-ui.tsx`, `task-card
   via the channel room; a deep-linked thread without the channel screen
   mounted still refetches on mount, so the card settles on open. Fine for v1.
 
+## Change proposals (pillar 3, shipped mobile 2026-09-05)
+
+- [x] `proposal_card` timeline renderer (`proposal-card.tsx`; mirrors web —
+  indicator-on-rail per op, framed detail panels, status chip, secret
+  TextInputs, reject-with-note, copy webhook URL, Open #channel provenance);
+  hooks in `use-proposals.ts` (all-statuses channel query, `proposal:updated`
+  invalidation, authority-union mirror via `workspaceAuthorityHasPermissions`).
+- [x] Proposal push (`type: "proposal"`) deep-links through the existing
+  message target — no push-target change needed.
+- [x] `channel:created` listener (in `use-project-updates.ts`) refetches the
+  channel list when a proposal apply (or a teammate) creates a channel.
+- Web-only for now: collapsible step panels (mobile panels always expanded)
+  and favicon source badges (mobile shows hostname chips, no favicon fetch).
+
 ## Post-launch — custom roles (web shipped 2026-08-31, `reference/custom-roles.md`)
 
 - [x] **Custom-role grants fetchable on mobile** — `dynamicAccessControl`
