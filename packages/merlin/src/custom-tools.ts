@@ -30,6 +30,7 @@ export const RESERVED_TOOL_NAMES: ReadonlySet<string> = new Set([
   "move",
   "link",
   "propose_instructions",
+  "propose_workspace_change",
   "react_to_message",
   "search_web",
   "fetch_web",

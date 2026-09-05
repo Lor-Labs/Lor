@@ -142,6 +142,19 @@ export type ChannelApprovalList = InferResponseType<
 >
 export type ChannelApproval = ChannelApprovalList["approvals"][number]
 
+// ── Change proposals ──────────────────────────────────────────
+
+type ChannelProposalsClient =
+  Client["v1"]["channels"][":channelId"]["proposals"]
+
+export type ChannelProposalList = InferResponseType<
+  ChannelProposalsClient["$get"],
+  200
+>
+export type ChannelProposal = ChannelProposalList["proposals"][number]
+export type ProposalOperation = ChannelProposal["operations"][number]
+export type ProposalOperationSpec = ProposalOperation["spec"]
+
 type ApprovalPoliciesClient =
   Client["v1"]["workspaces"][":workspaceSlug"]["approval-policies"]
 

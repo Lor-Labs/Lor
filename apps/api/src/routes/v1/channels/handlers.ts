@@ -1,5 +1,8 @@
 import { db, schema } from "@repo/db"
-import { listAccessibleChannelIds } from "@repo/db/queries/channel-access"
+import {
+  listAccessibleChannelIds,
+  resolveChannelAudienceInfo,
+} from "@repo/db/queries/channel-access"
 import type { IntegrationProvider } from "@repo/db/schema"
 import {
   agentProfile,
@@ -15,9 +18,14 @@ import {
   searchConnector,
   searchConnectorFiles as searchFiles,
 } from "@repo/merlin/connector-search"
-import { type ServerToClientEvents, userRoom } from "@repo/realtime-types"
+import {
+  type ServerToClientEvents,
+  userRoom,
+  workspaceRoom,
+} from "@repo/realtime-types"
 import { Emitter } from "@socket.io/redis-emitter"
 import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm"
+import { getEmitter } from "@/lib/bot-messages"
 import { allowedChannelConnectors } from "@/lib/channel-connectors"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
@@ -191,6 +199,28 @@ export const createChannel: AppRouteHandler<CreateChannelRoute> = async (c) => {
     return c.json(
       { success: false, message: "Internal server error" },
       HttpStatusCodes.INTERNAL_SERVER_ERROR
+    )
+  }
+
+  // Teammates' sidebars refetch on this; the creator's dialog already
+  // invalidates locally. The effective audience (container inheritance
+  // included) decides the rooms: a members-only channel — standalone private
+  // or inside a restricted category — pings only the people who can see it.
+  try {
+    const io = await getEmitter()
+    const payload = { workspaceId: workspace.id, channelId: newChannel.id }
+    const audience = await resolveChannelAudienceInfo(newChannel.id)
+    if (audience.audience === "workspace") {
+      io.to(workspaceRoom(workspace.id)).emit("channel:created", payload)
+    } else {
+      for (const userId of audience.userIds) {
+        io.to(userRoom(userId)).emit("channel:created", payload)
+      }
+    }
+  } catch (err) {
+    logger.warn(
+      { err, channelId: newChannel.id },
+      "channel:created emit failed"
     )
   }
 

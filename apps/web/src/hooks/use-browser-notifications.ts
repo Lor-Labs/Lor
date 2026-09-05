@@ -2,8 +2,10 @@ import {
   type ApprovalNotification,
   buildApprovalNotificationContent,
   buildNotificationTitle,
+  buildProposalNotificationContent,
   buildReactionNotificationBody,
   type MentionNotification,
+  type ProposalNotification,
   type ReactionNotification,
   shouldNotifyForMerlinThread,
   type UnreadNotification,
@@ -152,16 +154,27 @@ export function useBrowserNotifications() {
       showNotification(title, body, { tag: `approval-${payload.approvalId}` })
     }
 
+    // Same contract as approvals: the server already narrowed the audience to
+    // people who can approve this proposal.
+    const onProposal = (payload: ProposalNotification) => {
+      if (isAlreadyVisible(payload.channelId)) return
+      if (settings?.desktopNotifications === "nothing") return
+      const { title, body } = buildProposalNotificationContent(payload)
+      showNotification(title, body, { tag: `proposal-${payload.proposalId}` })
+    }
+
     socket.on("notification:mention", onMention)
     socket.on("notification:unread", onUnread)
     socket.on("notification:reaction", onReaction)
     socket.on("notification:approval", onApproval)
+    socket.on("notification:proposal", onProposal)
 
     return () => {
       socket.off("notification:mention", onMention)
       socket.off("notification:unread", onUnread)
       socket.off("notification:reaction", onReaction)
       socket.off("notification:approval", onApproval)
+      socket.off("notification:proposal", onProposal)
     }
   }, [socket, settings, mutes, viewedChannelId])
 }

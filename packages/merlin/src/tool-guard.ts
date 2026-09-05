@@ -32,6 +32,7 @@ export const SIDE_EFFECT_TOOLS = new Set([
   "complete_loop",
   // Creates a draft loop row + card message; replay must not duplicate them.
   "propose_loop",
+  "propose_workspace_change",
 ])
 
 // Canonical JSON (sorted object keys) so the same logical input always hashes

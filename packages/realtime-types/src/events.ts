@@ -100,6 +100,7 @@ export type RealtimeMessageType =
   | "task_card"
   | "loop_card"
   | "loop_fire"
+  | "proposal_card"
 
 export type RealtimeAuthor = {
   id: string
@@ -572,6 +573,9 @@ export interface ServerToClientEvents {
   // An approval was resolved. Channel room when the approval belongs
   // to a channel scope, so open approval cards settle without a refetch.
   "approval:updated": (payload: ApprovalUpdatedEvent) => void
+  // A change proposal was resolved or applied (pillar 3). Channel room; ids
+  // only — cards refetch the durable rows.
+  "proposal:updated": (payload: ProposalUpdatedEvent) => void
   // Loop snapshot changed (status, schedule, run bookkeeping). Channel room.
   "loop:updated": (payload: LoopUpdatedEvent) => void
   // Loop hard-deleted (its card message goes separately via message:deleted).
@@ -586,7 +590,10 @@ export interface ServerToClientEvents {
   // and this user should act (or know). Online clients show an OS
   // notification; the offline complement goes out as a mobile push instead.
   "notification:approval": (payload: ApprovalNotification) => void
+  // A change proposal awaits someone whose permissions cover it. User room.
+  "notification:proposal": (payload: ProposalNotification) => void
   "channel:read-state": (payload: ChannelReadState) => void
+  "channel:created": (payload: ChannelCreatedEvent) => void
   "channel-mute:updated": (payload: ChannelMuteUpdated) => void
   "thread-read:updated": (payload: ThreadReadUpdated) => void
   "project:updated": (payload: ProjectUpdatedEvent) => void
@@ -595,6 +602,11 @@ export interface ServerToClientEvents {
   "typing:update": (payload: TypingIndicatorEvent) => void
   "billing:updated": (payload: BillingUpdatedEvent) => void
   "instructions:proposal": (payload: InstructionsProposalUpdate) => void
+}
+
+export type ChannelCreatedEvent = {
+  workspaceId: string
+  channelId: string
 }
 
 // Emitted to the workspace room when Merlin files a workspace-instructions
@@ -680,6 +692,25 @@ export type ApprovalNotification = {
   // Plain words for who can resolve ("anyone in the channel", "the support
   // role", a person's name) — rendered in the waiting flavor.
   resolverLabel: string
+}
+
+export type ProposalUpdatedEvent = {
+  proposalId: string
+  channelId: string
+  status: "pending" | "approved" | "rejected" | "applied" | "failed"
+}
+
+// User-targeted ping to people whose permissions cover a new proposal —
+// online clients render the OS notification, offline ones get the push.
+export type ProposalNotification = {
+  proposalId: string
+  workspaceId: string
+  workspaceName: string
+  channelId: string
+  channelName: string | null
+  // The card message — also the thread the resolution lands in.
+  cardMessageId: string | null
+  rationale: string
 }
 
 export type ApprovalCreatedEvent = {

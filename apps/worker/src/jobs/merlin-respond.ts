@@ -29,6 +29,7 @@ import {
   writeBack,
 } from "@repo/merlin"
 import type { ProposeLoopExecutor } from "@repo/merlin/loops"
+import type { ProposeChangeExecutor } from "@repo/merlin/proposals"
 import { toRealtimeTask } from "@repo/merlin/tasks"
 import {
   buildMessageFanout,
@@ -55,6 +56,7 @@ import {
   notifyApprovalParked,
   scheduleApprovalEscalation,
 } from "@/lib/approval-notify"
+import { createProposalCard } from "@/lib/change-proposal"
 import { logger } from "@/lib/logger"
 import { createLoopCard } from "@/lib/merlin-loop"
 import {
@@ -663,6 +665,11 @@ export function createMerlinRespondProcessor(
                   ...loopInput,
                 }
               )
+            const proposeChange: ProposeChangeExecutor = (changeInput) =>
+              createProposalCard(
+                { emitter, redis },
+                { workspaceId, channelId, ...changeInput }
+              )
             answer = await respond(
               {
                 workspaceId,
@@ -686,6 +693,7 @@ export function createMerlinRespondProcessor(
                     }
                   : {}),
                 proposeLoop,
+                proposeChange,
                 ...(task
                   ? {
                       task: {

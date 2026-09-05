@@ -4,8 +4,10 @@ import {
   buildApprovalNotificationContent,
   buildNotificationConversationName,
   buildNotificationTitle,
+  buildProposalNotificationContent,
   buildReactionNotificationBody,
   PRESENCE_ONLINE_USERS_SET_KEY,
+  type ProposalNotification,
   type ReactionNotification,
   shouldNotifyForMerlinThread,
   type UnreadNotification,
@@ -339,15 +341,17 @@ export async function sendReactionPushNotification(input: {
   )
 }
 
-// Push half of the approval fan-out (LOR-83): the caller computed the
-// recipient set from the resolver spec; this sends only to whoever is offline
-// (online users saw the notification:approval socket event). Deliberately no
-// mute or settings check — these are directed at the few people who can (or
-// need to know they can't) unblock a parked run.
-export async function sendApprovalPush(input: {
+// Shared shape of the directed pushes (approvals, proposals): the caller
+// computed the recipient set; this sends only to whoever is offline (online
+// users saw the directed socket event). Deliberately no mute or settings
+// check — these target the few people who can act. The data payload
+// deep-links through the ordinary message target, landing on the card.
+async function sendDirectedPush(input: {
   userIds: string[]
-  notification: ApprovalNotification
   redis: PresenceRedisClient
+  title: string
+  body: string
+  data: Record<string, string | null>
 }) {
   if (input.userIds.length === 0) return
   const membership = await input.redis.smIsMember(
@@ -365,26 +369,62 @@ export async function sendApprovalPush(input: {
     .where(inArray(schema.pushToken.userId, offline))
   if (tokens.length === 0) return
 
-  const { title, body } = buildApprovalNotificationContent(input.notification)
   await deliverExpoPush(
     tokens.map((row) => ({
       to: row.token,
-      title,
-      body,
+      title: input.title,
+      body: input.body,
       sound: "default" as const,
       channelId: "default" as const,
-      data: {
-        // No dedicated mobile route: channelId/threadRootId deep-link through
-        // the ordinary message target, landing on the approval card.
-        type: "approval",
-        approvalId: input.notification.approvalId,
-        workspaceId: input.notification.workspaceId,
-        channelId: input.notification.channelId,
-        threadRootId: input.notification.threadRootId,
-        messageId: input.notification.messageId,
-      },
+      data: input.data,
     }))
   )
+}
+
+// Push half of the approval fan-out (LOR-83).
+export async function sendApprovalPush(input: {
+  userIds: string[]
+  notification: ApprovalNotification
+  redis: PresenceRedisClient
+}) {
+  const { title, body } = buildApprovalNotificationContent(input.notification)
+  await sendDirectedPush({
+    userIds: input.userIds,
+    redis: input.redis,
+    title,
+    body,
+    data: {
+      type: "approval",
+      approvalId: input.notification.approvalId,
+      workspaceId: input.notification.workspaceId,
+      channelId: input.notification.channelId,
+      threadRootId: input.notification.threadRootId,
+      messageId: input.notification.messageId,
+    },
+  })
+}
+
+// Push half of the change-proposal fan-out (pillar 3).
+export async function sendProposalPush(input: {
+  userIds: string[]
+  notification: ProposalNotification
+  redis: PresenceRedisClient
+}) {
+  const { title, body } = buildProposalNotificationContent(input.notification)
+  await sendDirectedPush({
+    userIds: input.userIds,
+    redis: input.redis,
+    title,
+    body,
+    data: {
+      type: "proposal",
+      proposalId: input.notification.proposalId,
+      workspaceId: input.notification.workspaceId,
+      channelId: input.notification.channelId,
+      threadRootId: null,
+      messageId: input.notification.cardMessageId,
+    },
+  })
 }
 
 // Notifies workspace owner/admins that Merlin filed an instructions proposal.

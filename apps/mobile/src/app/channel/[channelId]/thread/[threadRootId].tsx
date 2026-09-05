@@ -31,6 +31,7 @@ import { useCanPinMessages } from "@/hooks/use-can-pin-messages"
 import { useChannelDetail } from "@/hooks/use-channel-detail"
 import { useOpenDM } from "@/hooks/use-open-dm"
 import { useProfileSheet } from "@/hooks/use-profile-sheet"
+import { useChannelProposals } from "@/hooks/use-proposals"
 import { useRunQueue } from "@/hooks/use-run-queue"
 import { useStopMerlinRun } from "@/hooks/use-stop-merlin-run"
 import { useThreadMessages } from "@/hooks/use-thread-messages"
@@ -71,6 +72,8 @@ export default function ThreadScreen() {
   // Approval cards in this thread read the channel-approvals cache; the
   // socket handlers live here so a thread opened directly stays live too.
   useChannelApprovals(channelId ?? "")
+  // A proposal card opened as a thread root reads the same cache.
+  useChannelProposals(channelId ?? "")
   // Messages queued behind the active Merlin run — surfaced above the
   // composer with steer/remove actions while it's working.
   const pendingMerlinMessage = useMemo(

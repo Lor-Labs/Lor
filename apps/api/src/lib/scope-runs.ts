@@ -10,6 +10,7 @@ import {
 import type { Task } from "@repo/db/schema"
 import { env } from "@repo/env/server"
 import { toRealtimeTask } from "@repo/merlin/tasks"
+import { loadThreadSummary } from "@repo/messaging"
 import type { RealtimeMessage } from "@repo/realtime-types"
 import {
   MERLIN_RESPOND_QUEUE,
@@ -89,6 +90,30 @@ function scopeRoom(channelId: string, threadRootId: string | null) {
   return threadRootId ? threadRoom(threadRootId) : channelRoom(channelId)
 }
 
+// Thread replies posted server-side must update the channel feed's "N replies"
+// footer just like gateway-sent ones: recompute the summary and broadcast it
+// to the channel room. `reply` rides along only for a settled message (never a
+// streaming placeholder — injecting one into a closed panel's cache would
+// freeze it mid-"thinking"). Best effort; the reply row is already durable.
+async function emitScopeThreadSummary(
+  channelId: string,
+  threadRootId: string,
+  reply?: RealtimeMessage
+): Promise<void> {
+  try {
+    const [io, summary] = await Promise.all([
+      getEmitter(),
+      loadThreadSummary(channelId, threadRootId),
+    ])
+    io.to(channelRoom(channelId)).emit(
+      "message:thread:updated",
+      reply ? { ...summary, reply } : summary
+    )
+  } catch (err) {
+    logger.warn({ err, threadRootId }, "Scope thread summary emit failed")
+  }
+}
+
 // Post a message into a run scope (e.g. an approval resolution, authored by
 // the resolver) and broadcast it. Returns the message id.
 export async function postScopeMessage(args: {
@@ -123,6 +148,7 @@ export async function postScopeMessage(args: {
   // The message is committed; a failed author lookup only costs the live
   // broadcast (clients catch up on refetch) — never the caller's 200.
   const author = await loadAuthor(args.authorId).catch(() => null)
+  let realtimeReply: RealtimeMessage | undefined
   if (author) {
     const message: RealtimeMessage = {
       id: inserted.id,
@@ -140,10 +166,18 @@ export async function postScopeMessage(args: {
       threadRootId: args.threadRootId,
       status: "complete",
     }
+    realtimeReply = message
     const io = await getEmitter()
     io.to(scopeRoom(args.channelId, args.threadRootId)).emit(
       "message:created",
       message
+    )
+  }
+  if (args.threadRootId) {
+    await emitScopeThreadSummary(
+      args.channelId,
+      args.threadRootId,
+      realtimeReply
     )
   }
   return inserted.id
@@ -335,6 +369,11 @@ export async function startScopeContinuationRun(
       const io = await getEmitter()
       io.to(room).emit("message:created", message)
     }
+    // The pending placeholder counts as a reply on purpose (that "1 reply" is
+    // the working signal); no `reply` attached — it's still streaming.
+    if (threadRootId) {
+      await emitScopeThreadSummary(channelId, threadRootId)
+    }
   } catch (err) {
     logger.warn({ err, scopeKey }, "Placeholder broadcast failed")
   }
@@ -378,6 +417,9 @@ export async function startScopeContinuationRun(
         messageId: placeholder.id,
       })
     } catch {}
+    if (threadRootId) {
+      await emitScopeThreadSummary(channelId, threadRootId)
+    }
     await args.onAbandoned?.().catch(() => {})
   }
 }

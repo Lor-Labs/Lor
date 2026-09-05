@@ -28,6 +28,7 @@ import { useMessageEditing } from "@/hooks/use-message-editing"
 import { useMessagePinning } from "@/hooks/use-message-pinning"
 import { useMessageReactions } from "@/hooks/use-message-reactions"
 import { useMessageSending } from "@/hooks/use-message-sending"
+import { useChannelProposals } from "@/hooks/use-proposals"
 import { useQueuedMessageSteering } from "@/hooks/use-queued-message-steering"
 import { useReplyState } from "@/hooks/use-reply-state"
 import { useRunQueue } from "@/hooks/use-run-queue"
@@ -78,9 +79,11 @@ function ChannelView() {
     useRightSidebar()
   const { data: session } = authClient.useSession()
   const currentUserId = session?.user.id
-  // Live source for every approval card in this channel (message cards read
-  // the same cache); the socket handlers live here, once per channel view.
+  // Live source for every approval and proposal card in this channel (message
+  // cards read the same caches); the socket handlers live here, once per
+  // channel view.
   useChannelApprovals(channelId)
+  useChannelProposals(channelId)
 
   useEffect(() => {
     if (!workspaceSlug || !channelId) return

@@ -81,6 +81,12 @@ export type ChannelApprovalList = InferResponseType<
   200
 >
 export type ChannelApproval = ChannelApprovalList["approvals"][number]
+export type ChannelProposalList = InferResponseType<
+  Client["v1"]["channels"][":channelId"]["proposals"]["$get"],
+  200
+>
+export type ChannelProposal = ChannelProposalList["proposals"][number]
+export type ProposalOperation = ChannelProposal["operations"][number]
 export type TaskArtifact = InferResponseType<
   Client["v1"]["tasks"][":taskId"]["artifacts"]["$get"],
   200

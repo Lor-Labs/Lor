@@ -105,6 +105,11 @@ import { messageActionTools, type OnMessageReaction } from "./message-actions"
 import { MERLIN_MODEL, mainGatewayOptions, merlinModel } from "./models"
 import { notionTools, resolveWorkspaceNotion } from "./notion"
 import {
+  PROPOSALS_PROMPT_LINE,
+  type ProposeChangeExecutor,
+  proposeChangeTool,
+} from "./proposals"
+import {
   addStepToCounters,
   budgetViolation,
   type ConversationUpdate,
@@ -311,6 +316,9 @@ export type RespondContext = {
   // posting + draft loop row insert). Never set on triggered/loop runs — a
   // loop must not schedule more loops.
   proposeLoop?: ProposeLoopExecutor
+  // Files a workspace change-proposal card (pillar 3). Conversational runs
+  // only, same rationale as proposeLoop.
+  proposeChange?: ProposeChangeExecutor
   // Set when this run continues an earlier run in the same scope instead of
   // building a fresh conversation snapshot: the assembled transcript (prior
   // runs' work + what has been said since) that replaces the initial user
@@ -1916,6 +1924,7 @@ export async function respond(
       ...(ctx.triggered ? triggeredTools : {}),
       ...(ctx.triggered?.completeLoop ? completeLoopTool : {}),
       ...(ctx.proposeLoop && ctx.channelId ? proposeLoopTool : {}),
+      ...(ctx.proposeChange && ctx.channelId ? proposeChangeTool : {}),
       ...(linear && caps.includes("linear") ? linearTools : {}),
       ...(linear && caps.includes("linear_write") ? linearWriteTools : {}),
       ...(attio && caps.includes("attio") ? attioTools : {}),
@@ -2095,6 +2104,13 @@ export async function respond(
       ...(ctx.proposeLoop && ctx.channelId
         ? { propose_loop: { createLoopCard: ctx.proposeLoop } }
         : {}),
+      ...(ctx.proposeChange && ctx.channelId
+        ? {
+            propose_workspace_change: {
+              createProposalCard: ctx.proposeChange,
+            },
+          }
+        : {}),
       ...(linear
         ? {
             search_linear: linear,
@@ -2159,6 +2175,7 @@ export async function respond(
       artifactsEnabled && ctx.channelId ? EXPORT_PROMPT_LINE : null,
       codeActionsEnabled ? CODE_ACTIONS_PROMPT_LINE : null,
       ctx.proposeLoop && ctx.channelId ? LOOPS_PROMPT_LINE : null,
+      ctx.proposeChange && ctx.channelId ? PROPOSALS_PROMPT_LINE : null,
       customTools ? CUSTOM_TOOLS_PROMPT_LINE : null,
       promptMcpServers.length > 0
         ? mcpServersPromptLine(promptMcpServers)
