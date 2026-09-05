@@ -18,10 +18,11 @@ import { user } from "./users"
 export const messageTypeEnum = pgEnum("message_type", [
   "default",
   "reply",
-  "system_join",
-  "system_leave",
-  "system_pin",
-  "channel_name_change",
+  // Channel event — an inline system row in the feed ("X created this
+  // channel", "Alice was added"). The specific kind lives in eventType,
+  // structured copy data in eventPayload, and content always carries the
+  // plain-text rendering as the search/forward-compat fallback.
+  "event",
   // A task's card — rendered as the live task card and acting as the
   // thread root of the task's conversation. The task row (see tasks.ts) is
   // looked up by cardMessageId.
@@ -37,6 +38,19 @@ export const messageTypeEnum = pgEnum("message_type", [
   // card message so clients resolve the loop row through cardMessageId
   // (falls back to plain content once the loop/card is gone).
   "loop_fire",
+])
+
+// Kinds of channel events (message.type = "event"). Adding a kind means a new
+// enum value here + a payload shape + emitter + client copy.
+export const channelEventTypeEnum = pgEnum("channel_event_type", [
+  "channel_created",
+  "channel_renamed",
+  "member_added",
+  "member_removed",
+  "member_left",
+  "loop_created",
+  "loop_paused",
+  "loop_completed",
 ])
 
 // Lifecycle of a message row. Everything is "complete" except a Merlin
@@ -62,6 +76,12 @@ export const message = pgTable(
     content: text("content"),
     type: messageTypeEnum("type").notNull().default("default"),
     status: messageStatusEnum("status").notNull().default("complete"),
+
+    // Set only when type = "event". authorId is the actor; secondary parties
+    // and copy data (old/new name, added user ids, loop name) live in the
+    // payload, discriminated by eventType.
+    eventType: channelEventTypeEnum("event_type"),
+    eventPayload: jsonb("event_payload").$type<ChannelEventPayload>(),
 
     // for replies — points to the message being replied to
     referencedMessageId: uuid("referenced_message_id").references(
@@ -185,6 +205,50 @@ export const insertMessageSchema = createInsertSchema(message).omit({
 })
 
 export type MessageStatus = (typeof messageStatusEnum.enumValues)[number]
+export type ChannelEventType = (typeof channelEventTypeEnum.enumValues)[number]
+
+// Structured data for channel events, keyed by message.eventType. Names that
+// must survive referent deletion (loop name, origin channel) are snapshotted;
+// user names are not — clients resolve ids like mentions, and the message
+// content carries the plain-text fallback.
+export type ChannelCreatedPayload = {
+  // Set when the channel came from an approved change proposal.
+  via?: "proposal"
+  originChannelId?: string
+  originChannelName?: string
+}
+
+export type ChannelRenamedPayload = {
+  from: string
+  to: string
+}
+
+export type MemberAddedPayload = {
+  // Users added; the adder is the message author.
+  userIds: string[]
+}
+
+export type MemberRemovedPayload = {
+  // User removed; the remover is the message author. member_left carries no
+  // payload — the author is the leaver.
+  userId: string
+}
+
+export type LoopEventPayload = {
+  loopId: string
+  loopName: string
+  // loop_paused only
+  reason?: "failures" | "out_of_credits"
+  via?: "proposal"
+}
+
+export type ChannelEventPayload =
+  | ChannelCreatedPayload
+  | ChannelRenamedPayload
+  | MemberAddedPayload
+  | MemberRemovedPayload
+  | LoopEventPayload
+  | null
 
 // Type definitions for the JSONB fields
 export type Attachment = {

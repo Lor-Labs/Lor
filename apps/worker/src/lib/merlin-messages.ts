@@ -1,4 +1,5 @@
 import { db, eq, MERLIN_USER_ID, schema } from "@repo/db"
+import type { ChannelEventPayload, ChannelEventType } from "@repo/db/schema"
 import {
   buildMessageFanout,
   sendMessagePushNotifications,
@@ -108,7 +109,16 @@ export async function postMerlinMessage(
   input: {
     channelId: string
     content: string
-    type?: "default" | "task_card" | "loop_card" | "loop_fire" | "proposal_card"
+    type?:
+      | "default"
+      | "event"
+      | "task_card"
+      | "loop_card"
+      | "loop_fire"
+      | "proposal_card"
+    // Channel event kind + structured copy data (type "event" only).
+    eventType?: ChannelEventType
+    eventPayload?: ChannelEventPayload
     // Loop fire markers point at the loop's card message so clients resolve
     // the loop row (cardMessageId) for rich chip rendering.
     referencedMessageId?: string
@@ -125,7 +135,10 @@ export async function postMerlinMessage(
       authorId: MERLIN_USER_ID,
       content: input.content,
       type: input.type ?? "default",
+      eventType: input.eventType ?? null,
+      eventPayload: input.eventPayload ?? null,
       referencedMessageId: input.referencedMessageId ?? null,
+      excludedFromMemory: input.type === "event",
     })
     .returning({ id: schema.message.id, createdAt: schema.message.createdAt })
     .then((rows) => rows[0])
@@ -144,6 +157,8 @@ export async function postMerlinMessage(
     channelId: input.channelId,
     content: input.content,
     type: input.type ?? "default",
+    eventType: input.eventType ?? null,
+    eventPayload: input.eventPayload ?? null,
     pinned: false,
     createdAt: inserted.createdAt.toISOString(),
     author: { ...author, avatarColor: null },

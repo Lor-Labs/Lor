@@ -93,14 +93,36 @@ export type JoinLeaveAck = (result: OkResult | ErrorResult) => void
 export type RealtimeMessageType =
   | "default"
   | "reply"
-  | "system_join"
-  | "system_leave"
-  | "system_pin"
-  | "channel_name_change"
+  | "event"
   | "task_card"
   | "loop_card"
   | "loop_fire"
   | "proposal_card"
+
+// Mirrors channel_event_type / ChannelEventPayload in @repo/db (messages.ts) —
+// hand-copied like RealtimeMessageType so clients don't pull in drizzle.
+export type RealtimeChannelEventType =
+  | "channel_created"
+  | "channel_renamed"
+  | "member_added"
+  | "member_removed"
+  | "member_left"
+  | "loop_created"
+  | "loop_paused"
+  | "loop_completed"
+
+export type RealtimeChannelEventPayload =
+  | { via?: "proposal"; originChannelId?: string; originChannelName?: string }
+  | { from: string; to: string }
+  | { userIds: string[] }
+  | { userId: string }
+  | {
+      loopId: string
+      loopName: string
+      reason?: "failures" | "out_of_credits"
+      via?: "proposal"
+    }
+  | null
 
 export type RealtimeAuthor = {
   id: string
@@ -166,6 +188,10 @@ export type RealtimeMessage = {
   // system/attachment-only message shapes from persisted history.
   content: string | null
   type: RealtimeMessageType
+  // Set only when type = "event" — the channel-event kind and its structured
+  // copy data (see @repo/db ChannelEventPayload).
+  eventType?: RealtimeChannelEventType | null
+  eventPayload?: RealtimeChannelEventPayload
   pinned: boolean
   createdAt: string
   author: RealtimeAuthor

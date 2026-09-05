@@ -84,15 +84,9 @@ Branch in `apps/web/src/components/chat/message-item.tsx` BEFORE the card branch
 - Copy lives in ONE shared function `renderChannelEvent(message)` → `{ icon, text }` — feeds the web row, collapse summaries, and the mobile row.
 - **Collapsing (the chunkiness cut):** consecutive event rows of the same type inside the 5-minute group window collapse client-side into one row ("Alice, Bob and 2 others were added by Merlin"), expandable on click. No server aggregation.
 
-### UI experimentation plan
+### UI (locked 2026-09-05)
 
-Build `ChannelEventRow` with a `variant` prop and try at least these three against real data before locking:
-
-1. **Inline muted row (Slack-style)** — left-aligned at the message text indent (`pl-[52px]`), 12px HugeIcon + `text-xs text-muted-foreground`, timestamp on hover. Reads as part of the conversation flow.
-2. **Pill-on-rule (house idiom)** — the recipe from `date-divider.tsx` / `merlin-compaction-divider.tsx`: `h-px bg-border/70` rule with a centered `rounded-full border border-border/70 bg-background px-2.5 py-0.5 text-xs font-medium text-muted-foreground` pill + leading icon. Reads as a timeline boundary. Risk: competes with date dividers.
-3. **Icon-gutter row (Discord-style)** — small icon in the avatar gutter, muted single line, always-visible timestamp. Plays best with collapsing (`AvatarGroup`, `packages/ui/src/components/avatar.tsx:90`, for "3 people joined").
-
-Notes for whichever wins: hand-rolled `h-px bg-border/70` (not the Separator component) matches the timeline; icons `size={12}`/`size-3.5` `strokeWidth={2}`; tokens only, no hardcoded colors; per-type icon map (user-add, user-minus, pencil, repeat).
+Jacob picked the **gutter layout without an icon**: an empty avatar-gutter spacer keeps the sentence on the message-content axis, `text-xs text-muted-foreground`, actor/subject names in `font-medium text-foreground/80`, timestamp revealed on hover, row hover `bg-muted/40`. The inline and pill variants (and the per-kind icon map) were built, compared, and deleted.
 
 ## Mobile
 
@@ -100,15 +94,22 @@ Ships in the same phase as web. `apps/mobile/src/components/message-row.tsx` get
 
 ## Status
 
-- [ ] Schema: `event` message type + `channel_event_type` enum (8 values) + `eventType`/`eventPayload` columns, 4 dormant message_type values dropped (then Jacob runs db:push)
-- [ ] `postBotMessage` type/silent/eventPayload + `postChannelEvent` helper
-- [ ] Emission points wired (table above)
-- [ ] Web `ChannelEventRow` + variants + collapsing
-- [ ] Grouping fix in `message-list.tsx`
-- [ ] UI variant chosen, others deleted
-- [ ] Prose stand-ins removed (`announceCreatedChannels` text, auto-pause note)
-- [ ] Mobile event row shipped (same phase)
+- [x] Schema: `event` message type + `channel_event_type` enum (8 values) + `eventType`/`eventPayload` columns, 4 dormant message_type values dropped — **db:push owed**
+- [x] `postBotMessage` type/silent/eventType/eventPayload + `postChannelEvent` helper (`apps/api/src/lib/channel-events.ts`, incl. `postLoopChannelEvent`)
+- [x] Emission points wired (table above)
+- [x] Web `ChannelEventRow` + variants + collapsing (`apps/web/src/components/chat/channel-event-row.tsx`)
+- [x] Grouping handled in `message-list.tsx`
+- [x] UI variant chosen, others deleted — **locked 2026-09-05: gutter layout WITHOUT the icon** (empty gutter keeps the text on the message-content axis); pill/inline variants deleted
+- [x] Prose stand-ins removed (`announceCreatedChannels` text, auto-pause note)
+- [x] Mobile event row shipped (same phase; gutter look, shares collapse logic)
+- [ ] Live QA (create/rename channel, add/remove member, loop lifecycle)
 
 ## Deviations log
 
-(record deviations from this spec as they land)
+- 2026-09-05 (build): Event rendering branches in **message-list** (web + mobile), not message-item — the collapse pass needs neighbor visibility. MessageItem never sees event rows.
+- 2026-09-05 (build): Instead of excluding events from the author-group window, a message directly after an event row **forces its header** — a headerless message under an event row looked orphaned.
+- 2026-09-05 (build): Member events post into **every active text child channel** of the project (membership lives on the category, which has no timeline). No-op adds (already a member) and no-op removals emit nothing.
+- 2026-09-05 (build): `loop_completed` also fires from the worker `complete_loop` executor (actor Merlin), and shared copy lives in `packages/messaging/src/channel-events.ts` (`channelEventContent`) since both api and worker build content.
+- 2026-09-05 (build): Silent events are excluded from the web "N new" jump-pill count (`use-channel-messages.ts`); they land via the return-to-present refetch.
+- 2026-09-05 (build): `postMerlinMessage` marks `type: "event"` rows `excludedFromMemory` at insert (worker path).
+- 2026-09-05 (build): Web/mobile resolve `member_added` user ids to names via the workspace-members/mention-candidates map; unresolvable ids render "a teammate" with the exact sentence still available in `content`.

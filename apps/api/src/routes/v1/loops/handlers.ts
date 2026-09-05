@@ -3,6 +3,7 @@ import { resolveChannelAccess } from "@repo/db/queries/channel-access"
 import type { Loop } from "@repo/db/schema"
 import { nextLoopRunAt, validateLoopSchedule } from "@repo/merlin/loop-schedule"
 import { toRealtimeLoop } from "@repo/merlin/loops"
+import { postLoopChannelEvent } from "@/lib/channel-events"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
 import {
@@ -169,6 +170,14 @@ export const activateLoop: AppRouteHandler<ActivateLoopRoute> = async (c) => {
   await emitLoopUpdated(activated).catch((err) =>
     logger.error({ err, loopId }, "Loop activation emit failed")
   )
+
+  // Activation is the loop's public creation moment — the draft card was the
+  // proposal (see reference/channel-events.md).
+  await postLoopChannelEvent({
+    loop: activated,
+    actorId: currentUser.id,
+    eventType: "loop_created",
+  })
 
   return c.json({ loop: toRealtimeLoop(activated) }, HttpStatusCodes.OK)
 }

@@ -7,6 +7,7 @@ import {
 import type { ProjectUpdatedEvent } from "@repo/realtime-types/events"
 import { userRoom } from "@repo/realtime-types/rooms"
 import { getEmitter } from "@/lib/bot-messages"
+import { postChannelEvent } from "@/lib/channel-events"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
 import { completeLoopsForChannels } from "@/lib/loops"
@@ -25,6 +26,39 @@ import type {
 
 // Project membership lives on the category channel (the access container) —
 // the same channel_member rows the shared resolver checks.
+
+// Membership changes are per-project but visible per-channel, so the event row
+// lands in every active text channel of the project.
+async function postMemberEventToProjectChannels(input: {
+  categoryChannelId: string
+  actorId: string
+  event:
+    | { eventType: "member_added"; payload: { userIds: string[] } }
+    | { eventType: "member_removed"; payload: { userId: string } }
+    | { eventType: "member_left" }
+}) {
+  const children = await db
+    .select({
+      id: schema.channel.id,
+      workspaceId: schema.channel.workspaceId,
+      name: schema.channel.name,
+    })
+    .from(schema.channel)
+    .where(
+      and(
+        eq(schema.channel.parentId, input.categoryChannelId),
+        eq(schema.channel.type, "text"),
+        isNull(schema.channel.archivedAt)
+      )
+    )
+  for (const channel of children) {
+    await postChannelEvent({
+      channel,
+      actorId: input.actorId,
+      ...input.event,
+    })
+  }
+}
 
 type ProjectRow = typeof schema.project.$inferSelect
 
@@ -591,10 +625,22 @@ export const addProjectMember: AppRouteHandler<AddProjectMemberRoute> = async (
     )
   }
 
-  await db
+  const insertedMember = await db
     .insert(schema.channelMember)
     .values({ channelId: project.categoryChannelId, userId })
     .onConflictDoNothing()
+    .returning({ id: schema.channelMember.id })
+    .then((rows) => rows[0])
+
+  // onConflictDoNothing returns no row when the user was already a member —
+  // no event for a no-op add.
+  if (insertedMember) {
+    await postMemberEventToProjectChannels({
+      categoryChannelId: project.categoryChannelId,
+      actorId: currentUser.id,
+      event: { eventType: "member_added", payload: { userIds: [userId] } },
+    })
+  }
 
   await emitProjectUpdated({
     projectId: project.id,
@@ -649,10 +695,8 @@ export const removeProjectMember: AppRouteHandler<
       .from(schema.channelMember)
       .where(eq(schema.channelMember.channelId, project.categoryChannelId))
       .for("update")
-    if (
-      remaining.length <= 1 &&
-      remaining.some((row) => row.userId === userId)
-    ) {
+    const wasMember = remaining.some((row) => row.userId === userId)
+    if (remaining.length <= 1 && wasMember) {
       return { ok: false as const }
     }
     await tx
@@ -663,7 +707,7 @@ export const removeProjectMember: AppRouteHandler<
           eq(schema.channelMember.userId, userId)
         )
       )
-    return { ok: true as const }
+    return { ok: true as const, wasMember }
   })
 
   if (!removed.ok) {
@@ -671,6 +715,17 @@ export const removeProjectMember: AppRouteHandler<
       { success: false, message: "A project must keep at least one member" },
       HttpStatusCodes.BAD_REQUEST
     )
+  }
+
+  if (removed.wasMember) {
+    await postMemberEventToProjectChannels({
+      categoryChannelId: project.categoryChannelId,
+      actorId: currentUser.id,
+      event:
+        userId === currentUser.id
+          ? { eventType: "member_left" }
+          : { eventType: "member_removed", payload: { userId } },
+    })
   }
 
   // The removed user left the audience, so notify them explicitly too.

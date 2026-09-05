@@ -3,6 +3,11 @@ import { formatDateDivider } from "@repo/utils/date"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Pressable, View } from "react-native"
 import Animated, { FadeInUp, FadeOutUp } from "react-native-reanimated"
+import {
+  ChannelEventRow,
+  isCollapsibleChannelEvent,
+  type ResolveUserName,
+} from "@/components/channel-event-row"
 import type { ChatMessageListKeyboardProps } from "@/components/chat-keyboard-layout"
 import { MessageActionMenu } from "@/components/message-action-menu"
 import {
@@ -42,6 +47,7 @@ export function MessageList({
   focusMessageId,
   keyboardProps,
   listKey,
+  resolveUserName,
 }: {
   avatarColorByUserId?: ReadonlyMap<string, string>
   messages: Message[]
@@ -64,6 +70,8 @@ export function MessageList({
   focusMessageId?: string | null
   keyboardProps: ChatMessageListKeyboardProps
   listKey: string
+  // Resolves event-payload user ids to display names (channel events).
+  resolveUserName?: ResolveUserName
 }) {
   const [selectedMessage, setSelectedMessage] = useState<Message | null>(null)
   const [jumpTargetId, setJumpTargetId] = useState<string | null>(null)
@@ -204,15 +212,66 @@ export function MessageList({
           onFirstVisibleItemChanged={handleFirstVisibleItemChanged}
           renderItem={({ item, index }) => {
             const older = orderedMessages[index - 1]
+            const withinGroupWindow =
+              !!older &&
+              new Date(item.createdAt).getTime() -
+                new Date(older.createdAt).getTime() <=
+                MESSAGE_GROUP_WINDOW_MS
+            const showDate =
+              !older || !areMessagesOnSameDay(item.createdAt, older.createdAt)
+
+            if (item.type === "event") {
+              // Consecutive same-kind membership events collapse into one row,
+              // rendered on the first of the run (mirrors web message-list).
+              const chainsWithOlder =
+                isCollapsibleChannelEvent(item) &&
+                !!older &&
+                older.type === "event" &&
+                older.eventType === item.eventType &&
+                areMessagesOnSameDay(item.createdAt, older.createdAt) &&
+                withinGroupWindow
+              if (chainsWithOlder) return <View />
+              const group = [item]
+              if (isCollapsibleChannelEvent(item)) {
+                for (let j = index + 1; j < orderedMessages.length; j++) {
+                  const next = orderedMessages[j]
+                  const tail = group[group.length - 1]
+                  if (
+                    !next ||
+                    !tail ||
+                    next.type !== "event" ||
+                    next.eventType !== item.eventType ||
+                    !areMessagesOnSameDay(next.createdAt, tail.createdAt) ||
+                    new Date(next.createdAt).getTime() -
+                      new Date(tail.createdAt).getTime() >
+                      MESSAGE_GROUP_WINDOW_MS
+                  ) {
+                    break
+                  }
+                  group.push(next)
+                }
+              }
+              return (
+                <View>
+                  {showDate ? (
+                    <MessageDateDivider date={item.createdAt} />
+                  ) : null}
+                  <ChannelEventRow
+                    events={group}
+                    resolveUserName={resolveUserName}
+                  />
+                </View>
+              )
+            }
+
             const showHeader =
               !older ||
               item.type === "reply" ||
               older.authorId !== item.authorId ||
-              new Date(item.createdAt).getTime() -
-                new Date(older.createdAt).getTime() >
-                MESSAGE_GROUP_WINDOW_MS
-            const showDate =
-              !older || !areMessagesOnSameDay(item.createdAt, older.createdAt)
+              !withinGroupWindow ||
+              // An event row interrupts the visual group — re-anchor the next
+              // message with its header.
+              older.type === "event"
             const actionLabel = item.threadSummary
               ? "Open thread"
               : "Reply in thread"

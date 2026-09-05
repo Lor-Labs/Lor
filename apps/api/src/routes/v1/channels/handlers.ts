@@ -27,6 +27,7 @@ import { Emitter } from "@socket.io/redis-emitter"
 import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm"
 import { getEmitter } from "@/lib/bot-messages"
 import { allowedChannelConnectors } from "@/lib/channel-connectors"
+import { postChannelEvent } from "@/lib/channel-events"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
 import { assertWorkspaceAuthority } from "@/lib/permissions"
@@ -222,6 +223,15 @@ export const createChannel: AppRouteHandler<CreateChannelRoute> = async (c) => {
       { err, channelId: newChannel.id },
       "channel:created emit failed"
     )
+  }
+
+  // Categories have no timeline to post into.
+  if (newChannel.type !== "category") {
+    await postChannelEvent({
+      channel: newChannel,
+      actorId: currentUser.id,
+      eventType: "channel_created",
+    })
   }
 
   return c.json(newChannel, HttpStatusCodes.CREATED)
@@ -433,6 +443,16 @@ export const updateChannel: AppRouteHandler<UpdateChannelRoute> = async (c) => {
     }
   }
 
+  // Read the prior name so a rename can be detected after the update.
+  const prior = await db
+    .select({ name: channel.name })
+    .from(channel)
+    .where(
+      and(eq(channel.id, channelId), eq(channel.workspaceId, workspace.id))
+    )
+    .limit(1)
+    .then((rows) => rows[0])
+
   const updated = await db
     .update(channel)
     .set(body)
@@ -447,6 +467,20 @@ export const updateChannel: AppRouteHandler<UpdateChannelRoute> = async (c) => {
       { success: false, message: "Channel not found" },
       HttpStatusCodes.NOT_FOUND
     )
+  }
+
+  if (
+    updated.type !== "category" &&
+    prior?.name &&
+    updated.name &&
+    prior.name !== updated.name
+  ) {
+    await postChannelEvent({
+      channel: updated,
+      actorId: currentUser.id,
+      eventType: "channel_renamed",
+      payload: { from: prior.name, to: updated.name },
+    })
   }
 
   return c.json(updated, HttpStatusCodes.OK)

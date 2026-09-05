@@ -1,5 +1,9 @@
 import { db, schema } from "@repo/db"
-import type { Embed } from "@repo/db/schema"
+import type {
+  ChannelEventPayload,
+  ChannelEventType,
+  Embed,
+} from "@repo/db/schema"
 import {
   buildMessageFanout,
   sendMessagePushNotifications,
@@ -34,6 +38,13 @@ type PostBotMessageInput = {
   }
   authorId: string
   content: string
+  type?: "default" | "event"
+  eventType?: ChannelEventType
+  eventPayload?: ChannelEventPayload
+  // Skips unread/mention/push fanout entirely — the row still broadcasts
+  // message:created to the channel room. Channel events post silent so they
+  // don't bump unreads (loop_fire precedent).
+  silent?: boolean
   // Structured cards (webhook embeds/attachments); rendered by the clients.
   embeds?: Embed[]
   overrideName?: string
@@ -64,6 +75,9 @@ export async function postBotMessage(
       channelId: input.channel.id,
       authorId: input.authorId,
       content: input.content,
+      type: input.type ?? "default",
+      eventType: input.eventType ?? null,
+      eventPayload: input.eventPayload ?? null,
       embeds: input.embeds ?? [],
       overrideName: input.overrideName ?? null,
       overrideAvatarUrl: input.overrideAvatarUrl ?? null,
@@ -92,56 +106,61 @@ export async function postBotMessage(
   const io = await getEmitter()
 
   // Fanout failure must not fail the post — the message row is persisted.
+  // Silent posts skip fanout entirely; the channel-room broadcast still runs.
   let mentions: RealtimeMessage["mentions"] = []
-  try {
-    const workspaceName =
-      input.channel.workspaceName ??
-      (input.channel.workspaceId
-        ? await db
-            .select({ name: schema.workspace.name })
-            .from(schema.workspace)
-            .where(eq(schema.workspace.id, input.channel.workspaceId))
-            .limit(1)
-            .then((rows) => rows[0]?.name ?? null)
-        : null)
-    const redis = await getRedisClient()
-    const fanout = await buildMessageFanout({
-      authorId: input.authorId,
-      channel: { ...input.channel, workspaceName },
-      message: {
-        id: inserted.id,
-        content: input.content,
-        author: {
-          name: input.overrideName ?? author.name,
-          image: input.overrideAvatarUrl ?? author.image,
+  if (!input.silent) {
+    try {
+      const workspaceName =
+        input.channel.workspaceName ??
+        (input.channel.workspaceId
+          ? await db
+              .select({ name: schema.workspace.name })
+              .from(schema.workspace)
+              .where(eq(schema.workspace.id, input.channel.workspaceId))
+              .limit(1)
+              .then((rows) => rows[0]?.name ?? null)
+          : null)
+      const redis = await getRedisClient()
+      const fanout = await buildMessageFanout({
+        authorId: input.authorId,
+        channel: { ...input.channel, workspaceName },
+        message: {
+          id: inserted.id,
+          content: input.content,
+          author: {
+            name: input.overrideName ?? author.name,
+            image: input.overrideAvatarUrl ?? author.image,
+          },
+          attachments: [],
+          embeds: input.embeds,
         },
-        attachments: [],
-        embeds: input.embeds,
-      },
-      redis,
-    })
-    mentions = fanout.messageMentions
-    for (const n of fanout.unreadNotifications) {
-      io.to(userRoom(n.userId)).emit("notification:unread", n.payload)
+        redis,
+      })
+      mentions = fanout.messageMentions
+      for (const n of fanout.unreadNotifications) {
+        io.to(userRoom(n.userId)).emit("notification:unread", n.payload)
+      }
+      for (const n of fanout.mentionNotifications) {
+        io.to(userRoom(n.userId)).emit("notification:mention", n.payload)
+      }
+      void sendMessagePushNotifications({ fanout, redis }).catch((err) => {
+        logger.error(
+          { err, messageId: inserted.id },
+          "Push notification send failed"
+        )
+      })
+    } catch (err) {
+      logger.error({ err, messageId: inserted.id }, "Bot message fanout failed")
     }
-    for (const n of fanout.mentionNotifications) {
-      io.to(userRoom(n.userId)).emit("notification:mention", n.payload)
-    }
-    void sendMessagePushNotifications({ fanout, redis }).catch((err) => {
-      logger.error(
-        { err, messageId: inserted.id },
-        "Push notification send failed"
-      )
-    })
-  } catch (err) {
-    logger.error({ err, messageId: inserted.id }, "Bot message fanout failed")
   }
 
   const message: RealtimeMessage = {
     id: inserted.id,
     channelId: input.channel.id,
     content: input.content,
-    type: "default",
+    type: input.type ?? "default",
+    eventType: input.eventType ?? null,
+    eventPayload: input.eventPayload ?? null,
     pinned: false,
     createdAt: inserted.createdAt.toISOString(),
     author,

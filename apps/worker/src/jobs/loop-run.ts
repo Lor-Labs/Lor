@@ -2,6 +2,7 @@ import { and, db, eq, schema, sql } from "@repo/db"
 import { loopRunBriefing } from "@repo/merlin/loop-runs"
 import { describeLoopSchedule } from "@repo/merlin/loop-schedule"
 import { toRealtimeLoop } from "@repo/merlin/loops"
+import { channelEventContent } from "@repo/messaging"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
 import type {
   LoopRunJobData,
@@ -99,12 +100,19 @@ export async function settleLoopRun(
     "Loop auto-paused after consecutive failures"
   )
   emitLoopUpdated(deps.emitter, paused)
+  const reason =
+    paused.pausedReason === "out_of_credits" ? "out_of_credits" : "failures"
   await postMerlinMessage(deps, {
     channelId: paused.channelId,
-    content:
-      paused.pausedReason === "out_of_credits"
-        ? `Paused the loop **${paused.name}** — the workspace is out of credits. Resume it once credits are topped up.`
-        : `Paused the loop **${paused.name}** after ${LOOP_AUTO_PAUSE_FAILURES} consecutive failed runs — resume it when ready.`,
+    content: channelEventContent({
+      eventType: "loop_paused",
+      loopName: paused.name,
+      reason,
+    }),
+    type: "event",
+    eventType: "loop_paused",
+    eventPayload: { loopId: paused.id, loopName: paused.name, reason },
+    silent: true,
   }).catch((err) =>
     logger.error({ err, loopId }, "Loop auto-pause channel note failed")
   )
@@ -238,6 +246,26 @@ export function createLoopRunProcessor(
                   "Loop completed by complete_loop"
                 )
                 emitLoopUpdated(emitter, completed)
+                await postMerlinMessage(
+                  { emitter, redis },
+                  {
+                    channelId: completed.channelId,
+                    content: channelEventContent({
+                      eventType: "loop_completed",
+                      actorName: "Merlin",
+                      loopName: completed.name,
+                    }),
+                    type: "event",
+                    eventType: "loop_completed",
+                    eventPayload: {
+                      loopId: completed.id,
+                      loopName: completed.name,
+                    },
+                    silent: true,
+                  }
+                ).catch((err) =>
+                  logger.error({ err, loopId }, "Loop completed event failed")
+                )
               }
             : // No end condition = nothing for the model to judge — don't hand
               // it a stop-everything button (one live loop got wrongly

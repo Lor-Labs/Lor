@@ -134,6 +134,8 @@ export function realtimeMessageToMessage(message: RealtimeMessage): Message {
     authorId: message.author.id,
     content: message.content,
     type: message.type,
+    eventType: message.eventType ?? null,
+    eventPayload: message.eventPayload ?? null,
     status: message.status ?? (message.streaming ? "pending" : "complete"),
     createdAt: message.createdAt,
     author: message.author,
@@ -183,6 +185,8 @@ export function createOptimisticMessage({
     authorId: author.id,
     content,
     type: referencedMessage ? "reply" : "default",
+    eventType: null,
+    eventPayload: null,
     status: "complete",
     createdAt: new Date().toISOString(),
     author: {
