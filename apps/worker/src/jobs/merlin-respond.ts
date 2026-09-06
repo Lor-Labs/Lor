@@ -33,6 +33,7 @@ import type { ProposeChangeExecutor } from "@repo/merlin/proposals"
 import { toRealtimeTask } from "@repo/merlin/tasks"
 import {
   buildMessageFanout,
+  loadThreadSummary,
   sendInstructionsProposalPush,
   sendMessagePushNotifications,
   sendReactionPushNotification,
@@ -256,33 +257,51 @@ export function createMerlinRespondProcessor(
         }
         // Park the task when its run ends. `waiting_for_input` only from
         // `running` — completed/waiting_for_approval set by tools stand.
+        // `completed` is terminal for every outcome: a failure after
+        // complete_task (fanout, write-back) must never flip a finished task
+        // back to failed.
+        let taskSettled = false
         const settleTask = async (
           outcome: "complete" | "failed" | "stopped"
         ) => {
           if (!task) return
+          taskSettled = true
           try {
             const fresh = await db
-              .select({ status: schema.task.status })
+              .select({ status: schema.task.status, plan: schema.task.plan })
               .from(schema.task)
               .where(eq(schema.task.id, task.id))
               .limit(1)
               .then((rows) => rows[0])
             if (!fresh) return
             const status =
-              outcome === "failed"
-                ? "failed"
-                : outcome === "stopped"
-                  ? "stopped"
-                  : fresh.status === "running"
-                    ? "waiting_for_input"
-                    : fresh.status
+              fresh.status === "completed"
+                ? "completed"
+                : outcome === "failed"
+                  ? "failed"
+                  : outcome === "stopped"
+                    ? "stopped"
+                    : fresh.status === "running"
+                      ? "waiting_for_input"
+                      : fresh.status
+            // Nothing is running once the run settles — demote active plan
+            // steps so the card stops showing a spinning step (complete_task
+            // normalizes the plan itself on success).
+            const plan =
+              status === "completed"
+                ? fresh.plan
+                : fresh.plan.map((item) =>
+                    item.status === "active"
+                      ? { ...item, status: "pending" as const }
+                      : item
+                  )
             // CAS: settle only the state this run observed, and only while
             // the task is still ours — a fast approval can start a
             // continuation before this run finishes finalizing, and that
             // run's state must not be clobbered.
             const updated = await db
               .update(schema.task)
-              .set({ status, activeRunId: null })
+              .set({ status, activeRunId: null, plan })
               .where(
                 and(
                   eq(schema.task.id, task.id),
@@ -298,8 +317,30 @@ export function createMerlinRespondProcessor(
               .returning()
               .then((rows) => rows[0])
             if (updated) emitTaskUpdated(updated)
+            else
+              logger.warn(
+                { taskId: task.id, outcome, observed: fresh.status },
+                "Task settle skipped; status moved under us"
+              )
           } catch (err) {
             logger.warn({ err, taskId: task.id }, "Task settle failed")
+          }
+        }
+
+        // Channel feeds learn about threaded replies only via
+        // message:thread:updated — the placeholder emitted one at creation
+        // with an empty pending preview, so every settle must broadcast the
+        // recomputed summary or channel viewers keep a "thinking" footer
+        // until reload (the stream frames go to the thread room only).
+        const emitThreadSummary = async () => {
+          if (!threadRootId) return
+          try {
+            const summary = await loadThreadSummary(channelId, threadRootId)
+            emitter
+              .to(channelRoom(channelId))
+              .emit("message:thread:updated", summary)
+          } catch (err) {
+            logger.warn({ err, threadRootId }, "Thread summary emit failed")
           }
         }
 
@@ -330,6 +371,20 @@ export function createMerlinRespondProcessor(
             { merlinMessageId, runId: job.data.runId },
             "Run already terminal or owned elsewhere; skipping"
           )
+          // A retry landing after its crashed predecessor's run went terminal
+          // (or a stop that raced the claim) is the last actor that can settle
+          // the task — skip only when another attempt still owns a live lease.
+          if (task && job.data.runId) {
+            const runState = await db
+              .select({ state: schema.agentRun.state })
+              .from(schema.agentRun)
+              .where(eq(schema.agentRun.id, job.data.runId))
+              .then((rows) => rows[0]?.state)
+              .catch(() => undefined)
+            if (runState === "complete") await settleTask("complete")
+            else if (runState === "failed") await settleTask("failed")
+            else if (runState === "stopped") await settleTask("stopped")
+          }
           drainQueue()
           return
         }
@@ -344,7 +399,12 @@ export function createMerlinRespondProcessor(
               const row = rows[0]
               if (row) emitTaskUpdated(row)
             })
-            .catch(() => {})
+            .catch((err) =>
+              logger.warn(
+                { err, taskId: task.id },
+                "Task claim status write failed"
+              )
+            )
         }
         try {
           const runWriter = execution?.writer ?? noopRunEventWriter
@@ -413,6 +473,7 @@ export function createMerlinRespondProcessor(
               .catch(() => {})
             emit(MERLIN_ERROR_FALLBACK, true, "failed", true)
             await settleTask("failed")
+            await emitThreadSummary()
             drainQueue()
             return
           }
@@ -578,6 +639,7 @@ export function createMerlinRespondProcessor(
               await runWriter.transition("failed", { stopReason: "error" })
               execution?.stop()
               await settleTask("failed")
+              await emitThreadSummary()
               drainQueue()
               return
             }
@@ -623,6 +685,7 @@ export function createMerlinRespondProcessor(
               })
               execution?.stop()
               await settleTask("failed")
+              await emitThreadSummary()
               drainQueue()
               emitter.to(workspaceRoom(workspaceId)).emit("billing:updated", {
                 workspaceId,
@@ -861,6 +924,7 @@ export function createMerlinRespondProcessor(
             })
             execution?.stop()
             await settleTask("failed")
+            await emitThreadSummary()
             drainQueue()
             return
           }
@@ -983,6 +1047,7 @@ export function createMerlinRespondProcessor(
             await runWriter.transition("failed", { stopReason: "error" })
             execution?.stop()
             await settleTask("failed")
+            await emitThreadSummary()
             drainQueue()
             return
           }
@@ -1075,6 +1140,7 @@ export function createMerlinRespondProcessor(
           // Heartbeat off: the run is terminal; write-back needs no lease.
           execution?.stop()
           await settleTask(stoppedByUser ? "stopped" : "complete")
+          await emitThreadSummary()
           drainQueue()
           // Announce the gate only after the run is terminal — the resolve
           // endpoint refuses to resume a run that hasn't finished parking.
@@ -1218,6 +1284,17 @@ export function createMerlinRespondProcessor(
             // Flush any write-back memory events buffered after completion.
             await runWriter.close()
           }
+        } catch (err) {
+          // A throw escaping every inner handler (statements between the try
+          // blocks) would leave the task running forever — the dead-run sweep
+          // fails the run, never the task. Settle here, then rethrow so BullMQ
+          // still records the failure. Lease loss is the exception: the
+          // superseding attempt owns the task's settlement.
+          if (!taskSettled && !(err instanceof LeaseLostError)) {
+            await settleTask("failed")
+            await emitThreadSummary()
+          }
+          throw err
         } finally {
           // Heartbeat/stop-signal cleanup for every exit path, including
           // throws outside the inner try blocks (idempotent — most paths

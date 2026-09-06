@@ -112,13 +112,17 @@ function DMConversation() {
     [navigate]
   )
 
-  // Join/leave the DM channel room for real-time messages
+  // Join/leave the DM channel room for real-time messages. Re-join on every
+  // "connect" — rooms don't survive a reconnect.
   useEffect(() => {
     if (!socket) return
 
-    socket.emit("channel:join", { channelId: dmId })
+    const join = () => socket.emit("channel:join", { channelId: dmId })
+    join()
+    socket.on("connect", join)
 
     return () => {
+      socket.off("connect", join)
       socket.emit("channel:leave", { channelId: dmId })
     }
   }, [socket, dmId])

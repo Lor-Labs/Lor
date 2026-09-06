@@ -138,6 +138,20 @@ function clearReplayState(messageId: string) {
   replayStarted.delete(messageId)
 }
 
+// Failed replays re-arm after a beat so a later view retries instead of
+// staying suppressed for the life of the page (render churn stays debounced).
+const REPLAY_RETRY_MS = 30_000
+function scheduleReplayRetry(messageId: string) {
+  setTimeout(() => clearReplayState(messageId), REPLAY_RETRY_MS)
+}
+
+// A reconnect may have eaten terminal frames — drop all replay bookkeeping so
+// pending placeholders re-replay against the durable log.
+export function resetMerlinReplayState() {
+  replayGates.clear()
+  replayStarted.clear()
+}
+
 // Returns true when the frame was consumed (buffered or already covered by
 // replay) and must not be applied now.
 function gateFrame(frame: BufferedFrame): boolean {
@@ -328,16 +342,21 @@ function applyReplayEvents(
       steeringBy = p.authorName
     }
   }
-  patchMessage(queryClient, key, messageId, (m) => ({
-    ...m,
-    ...(content !== undefined ? { content } : {}),
-    ...(reasoning !== undefined ? { merlinReasoning: reasoning } : {}),
-    ...(segments ? { merlinReasoningSegments: segments } : {}),
-    ...(toolCalls ? { merlinToolCalls: toolCalls } : {}),
-    ...(remembered.length > 0 ? { remembered } : {}),
-    ...(steeringBy ? { steeringBy } : {}),
-    streaming: true,
-  }))
+  patchMessage(queryClient, key, messageId, (m) => {
+    // The message settled while the replay fetch was in flight (done frame or
+    // refetch won the race) — never flip a finished reply back to streaming.
+    if (m.status === "complete" || m.status === "failed") return m
+    return {
+      ...m,
+      ...(content !== undefined ? { content } : {}),
+      ...(reasoning !== undefined ? { merlinReasoning: reasoning } : {}),
+      ...(segments ? { merlinReasoningSegments: segments } : {}),
+      ...(toolCalls ? { merlinToolCalls: toolCalls } : {}),
+      ...(remembered.length > 0 ? { remembered } : {}),
+      ...(steeringBy ? { steeringBy } : {}),
+      streaming: true,
+    }
+  })
 }
 
 async function replayRun(
@@ -353,9 +372,11 @@ async function replayRun(
     )
     // 404 = legacy run with no durable log; anything else is best-effort too —
     // fall back to live-frames-only exactly as before replay existed. The
-    // replayStarted marker stays so render churn doesn't re-fetch in a loop.
+    // replayStarted marker re-arms on a timer, not immediately, so render
+    // churn doesn't re-fetch in a loop but a transient failure still retries.
     if (!res.ok) {
       replayGates.delete(args.messageId)
+      scheduleReplayRetry(args.messageId)
       for (const frame of gate.frames) applyBufferedFrame(queryClient, frame)
       return
     }
@@ -389,6 +410,7 @@ async function replayRun(
     }
   } catch {
     replayGates.delete(args.messageId)
+    scheduleReplayRetry(args.messageId)
     for (const frame of gate.frames) applyBufferedFrame(queryClient, frame)
   }
 }

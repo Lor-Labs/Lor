@@ -91,7 +91,11 @@ function ProjectOverview() {
 
   useEffect(() => {
     if (!socket || !archiving || !categoryChannelId) return
-    socket.emit("channel:join", { channelId: categoryChannelId })
+    // Re-join on every "connect" — rooms don't survive a reconnect.
+    const join = () =>
+      socket.emit("channel:join", { channelId: categoryChannelId })
+    join()
+    socket.on("connect", join)
 
     const onProgress = (payload: ProjectArchiveProgressEvent) => {
       if (payload.projectId !== projectId) return
@@ -125,6 +129,7 @@ function ProjectOverview() {
     socket.on("project:archive:progress", onProgress)
     return () => {
       socket.off("project:archive:progress", onProgress)
+      socket.off("connect", join)
       socket.emit("channel:leave", { channelId: categoryChannelId })
     }
   }, [socket, archiving, categoryChannelId, projectId])

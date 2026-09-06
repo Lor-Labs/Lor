@@ -245,8 +245,9 @@ export async function startScopeContinuationRun(
     // A failed queue insert means no run will ever answer this trigger —
     // surface it so the caller can abandon instead of resolving into a
     // running task with nothing behind it.
+    let insertedId: string | null = null
     try {
-      await db
+      insertedId = await db
         .insert(schema.agentRunQueue)
         .values({
           scopeKey,
@@ -259,9 +260,43 @@ export async function startScopeContinuationRun(
           resumeApprovalId: args.resumeApprovalId ?? null,
         })
         .onConflictDoNothing({ target: schema.agentRunQueue.messageId })
+        .returning({ id: schema.agentRunQueue.id })
+        .then((rows) => rows[0]?.id ?? null)
     } catch (err) {
       logger.error({ err, scopeKey }, "Scope queue insert failed")
       return "failed"
+    }
+    // Conflict: this trigger already routed (client resend) — it rides
+    // whatever handled it the first time.
+    if (!insertedId) return "queued"
+    // The run may have gone terminal (and drained its queue) between the
+    // read and the insert — recheck, mirroring routeToActiveRun in the
+    // realtime service, or the row strands with nothing left to start it.
+    const nowState = await db
+      .select({ state: schema.agentRun.state })
+      .from(schema.agentRun)
+      .where(eq(schema.agentRun.id, active.id))
+      .then((rows) => rows[0]?.state)
+      .catch(() => undefined)
+    if (
+      !nowState ||
+      nowState === "complete" ||
+      nowState === "failed" ||
+      nowState === "stopped"
+    ) {
+      const undone = await db
+        .delete(schema.agentRunQueue)
+        .where(
+          and(
+            eq(schema.agentRunQueue.id, insertedId),
+            eq(schema.agentRunQueue.state, "queued")
+          )
+        )
+        .returning({ id: schema.agentRunQueue.id })
+        .catch(() => [])
+      // Undone: start a fresh run instead. Not undone: the terminal drain
+      // swept the row first, so it's riding a follow-up run.
+      if (undone.length > 0) return "no_active_run"
     }
     // The queue row is durable (the drain picks it up regardless); a failed
     // broadcast only costs the live routing indicator.
@@ -394,7 +429,9 @@ export async function startScopeContinuationRun(
       },
       {
         attempts: 2,
-        backoff: { type: "fixed", delay: 5000 },
+        // Must exceed the run lease TTL (60s) or the retry can never reclaim
+        // a crashed attempt — it sees a live lease and skips.
+        backoff: { type: "fixed", delay: 90_000 },
         jobId: run.id,
       }
     )

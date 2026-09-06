@@ -1,8 +1,10 @@
 import { db, eq, isUniqueViolation, MERLIN_USER_ID, schema } from "@repo/db"
 import { env } from "@repo/env/server"
+import { settleAbandonedRunTask, toRealtimeTask } from "@repo/merlin/tasks"
+import { loadThreadSummary } from "@repo/messaging"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
 import type { MerlinRespondJobData } from "@repo/realtime-types/queues"
-import { threadRoom } from "@repo/realtime-types/rooms"
+import { channelRoom, threadRoom } from "@repo/realtime-types/rooms"
 import type { Emitter } from "@socket.io/redis-emitter"
 import type { Queue } from "bullmq"
 import type { createClient } from "redis"
@@ -58,7 +60,7 @@ export async function createMerlinTask(
       goal: input.goal,
       originRunId: input.originRunId ?? null,
     })
-    .returning({ id: schema.task.id })
+    .returning()
     .then((rows) => rows[0] ?? null)
   if (!task) {
     await db
@@ -67,6 +69,23 @@ export async function createMerlinTask(
       .catch(() => {})
     throw new Error("Task insert returned no row")
   }
+  // Without this the card renders its degraded no-status fallback until the
+  // channel-tasks query refetches (the gateway's createTaskWithCard emits it;
+  // this path previously didn't).
+  deps.emitter
+    .to(channelRoom(input.channelId))
+    .emit("task:updated", { task: toRealtimeTask(task) })
+
+  // A task stranded at its born-"running" default with no run behind it can
+  // never settle — fail it on every path that bails before the enqueue.
+  const failTask = () =>
+    settleAbandonedRunTask({ threadRootId: cardId }, "failed", (row) =>
+      deps.emitter
+        .to(channelRoom(input.channelId))
+        .emit("task:updated", { task: toRealtimeTask(row) })
+    ).catch((err) =>
+      logger.error({ err, taskId: task.id }, "Task fail-settle failed")
+    )
 
   const placeholder = await db
     .insert(schema.message)
@@ -78,7 +97,10 @@ export async function createMerlinTask(
     })
     .returning({ id: schema.message.id, createdAt: schema.message.createdAt })
     .then((rows) => rows[0] ?? null)
-  if (!placeholder) return { taskId: task.id }
+  if (!placeholder) {
+    await failTask()
+    return { taskId: task.id }
+  }
 
   const taskRun = await db
     .insert(schema.agentRun)
@@ -110,6 +132,7 @@ export async function createMerlinTask(
       .delete(schema.message)
       .where(eq(schema.message.id, placeholder.id))
       .catch(() => {})
+    await failTask()
     return { taskId: task.id }
   }
 
@@ -134,6 +157,17 @@ export async function createMerlinTask(
       merlinTriggerMessageId: cardId,
     })
   }
+  // Channel viewers see the card via message:created; the pending reply only
+  // reaches them through the thread summary (nobody has joined the new thread).
+  void loadThreadSummary(input.channelId, cardId)
+    .then((summary) =>
+      deps.emitter
+        .to(channelRoom(input.channelId))
+        .emit("message:thread:updated", summary)
+    )
+    .catch((err) =>
+      logger.warn({ err, taskId: task.id }, "Task thread summary emit failed")
+    )
 
   try {
     await deps.respondQueue.add(
@@ -148,7 +182,9 @@ export async function createMerlinTask(
       },
       {
         attempts: 2,
-        backoff: { type: "fixed", delay: 5000 },
+        // Must exceed the run lease TTL (60s) or the retry can never reclaim
+        // a crashed attempt — it sees a live lease and skips.
+        backoff: { type: "fixed", delay: 90_000 },
         jobId: taskRun.id,
       }
     )
@@ -162,6 +198,7 @@ export async function createMerlinTask(
       .delete(schema.message)
       .where(eq(schema.message.id, placeholder.id))
       .catch(() => {})
+    await failTask()
   }
   return { taskId: task.id }
 }

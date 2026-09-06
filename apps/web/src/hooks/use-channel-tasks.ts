@@ -40,14 +40,22 @@ export function useChannelTasks(channelId: string) {
       payload
     ) => {
       if (payload.task.channelId !== channelId) return
-      queryClient.setQueryData(
-        ["channel-tasks", channelId],
-        (existing: ChannelTask[] | undefined) => {
-          if (!existing) return existing
-          const rest = existing.filter((t) => t.id !== payload.task.id)
-          return [payload.task, ...rest]
-        }
-      )
+      // Cold cache: the list hasn't resolved yet, so patching would drop the
+      // event (a terminal status lost this way spins forever) — refetch.
+      const existing = queryClient.getQueryData<ChannelTask[]>([
+        "channel-tasks",
+        channelId,
+      ])
+      if (!existing) {
+        void queryClient.invalidateQueries({
+          queryKey: ["channel-tasks", channelId],
+        })
+      } else {
+        queryClient.setQueryData(
+          ["channel-tasks", channelId],
+          [payload.task, ...existing.filter((t) => t.id !== payload.task.id)]
+        )
+      }
       // Status flips change what the detail view shows (pending approval,
       // fresh artifacts) — refetch those lazily.
       queryClient.invalidateQueries({ queryKey: ["task", payload.task.id] })

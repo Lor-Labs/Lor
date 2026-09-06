@@ -89,11 +89,15 @@ export function useThreadMessages({
     enabled,
   })
 
-  // Join/leave the thread room for live replies.
+  // Join/leave the thread room for live replies. Re-join on every "connect" —
+  // rooms don't survive a reconnect and the socket identity never changes.
   useEffect(() => {
     if (!socket || !enabled) return
-    socket.emit("thread:join", { threadRootId })
+    const join = () => socket.emit("thread:join", { threadRootId })
+    join()
+    socket.on("connect", join)
     return () => {
+      socket.off("connect", join)
       socket.emit("thread:leave", { threadRootId })
     }
   }, [socket, threadRootId, enabled])
