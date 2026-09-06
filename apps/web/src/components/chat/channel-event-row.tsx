@@ -393,7 +393,7 @@ export function ChannelEventRow({
         return (
           <div
             key={message.id}
-            className="group/event flex items-center gap-3 px-4 py-1 hover:bg-muted/40"
+            className="group/event my-2 flex items-center gap-3 px-4 py-1 hover:bg-muted/40"
           >
             <div className="w-10 shrink-0" />
             <div className="min-w-0 text-xs text-muted-foreground">

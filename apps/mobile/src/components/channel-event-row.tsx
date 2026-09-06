@@ -202,7 +202,7 @@ export function ChannelEventRow({
             : eventText(message, resolveUserName)
         return (
           <View
-            className="flex-row items-center gap-three px-four py-one"
+            className="my-two flex-row items-center gap-three px-four py-one"
             key={message.id}
           >
             {/* Empty gutter keeps the text on the message-content axis. */}
