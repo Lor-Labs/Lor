@@ -1,4 +1,4 @@
-import { Infinity01Icon } from "@hugeicons/core-free-icons"
+import { HashtagIcon, Infinity01Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { describeLoopSchedule } from "@repo/realtime-types/loops"
 import {
@@ -10,9 +10,12 @@ import { Skeleton } from "@repo/ui/components/skeleton"
 import { cn } from "@repo/ui/lib/utils"
 import { formatDateTime, formatTime, timeAgo } from "@repo/utils/date"
 import { useQuery } from "@tanstack/react-query"
+import { Link, useParams } from "@tanstack/react-router"
 import { type ReactNode, useState } from "react"
+import { PrivateHashIcon } from "@/components/ui/private-hash-icon"
 import { UserHoverCard } from "@/components/ui/user-profile-card"
 import { channelLoopsQueryOptions } from "@/hooks/use-channel-loops"
+import { apiClient } from "@/lib/api-client"
 import type { Message } from "@/lib/api-types"
 
 // Channel events ("Jacob created this channel", "Alice was added") — compact
@@ -23,6 +26,7 @@ import type { Message } from "@/lib/api-types"
 // the union isn't discriminated, so kinds narrow via these).
 type CreatedPayload = {
   via?: "proposal"
+  originChannelId?: string
   originChannelName?: string
 }
 type RenamedPayload = { from: string; to: string }
@@ -41,6 +45,9 @@ function Name({ children }: { children: ReactNode }) {
   return <span className="font-medium text-foreground/80">{children}</span>
 }
 
+const HOVER_NAME_CLASS =
+  "cursor-pointer font-medium text-foreground/80 underline-offset-2 hover:underline"
+
 // A user's name in event copy — a 500ms hover opens the profile card
 // (Notion-mention style), same card the avatar popover shows.
 function UserName({
@@ -54,9 +61,7 @@ function UserName({
 }) {
   return (
     <UserHoverCard userId={userId} avatarColor={avatarColor}>
-      <span className="cursor-pointer font-medium text-foreground/80 underline-offset-2 hover:underline">
-        {children}
-      </span>
+      <span className={HOVER_NAME_CLASS}>{children}</span>
     </UserHoverCard>
   )
 }
@@ -77,9 +82,7 @@ function LoopName({
       <HoverCardTrigger
         delay={500}
         closeDelay={100}
-        render={
-          <span className="cursor-pointer font-medium text-foreground/80 underline-offset-2 hover:underline" />
-        }
+        render={<span className={HOVER_NAME_CLASS} />}
       >
         {children}
       </HoverCardTrigger>
@@ -87,6 +90,115 @@ function LoopName({
         <LoopHoverContent channelId={channelId} loopId={loopId} />
       </HoverCardContent>
     </HoverCard>
+  )
+}
+
+// A channel reference in event copy — 500ms hover previews the channel
+// (topic, private/archived state); click navigates to it. Shares the channel
+// page's ["channel", slug, id] query cache.
+function ChannelName({
+  channelId,
+  children,
+}: {
+  channelId: string
+  children: ReactNode
+}) {
+  const { workspaceSlug } = useParams({ strict: false })
+  return (
+    <HoverCard>
+      <HoverCardTrigger
+        delay={500}
+        closeDelay={100}
+        render={
+          workspaceSlug ? (
+            <Link
+              to="/$workspaceSlug/$channelId"
+              params={{ workspaceSlug, channelId }}
+              className={HOVER_NAME_CLASS}
+            />
+          ) : (
+            <span className={HOVER_NAME_CLASS} />
+          )
+        }
+      >
+        {children}
+      </HoverCardTrigger>
+      <HoverCardContent side="top" align="start" className="w-72">
+        {workspaceSlug ? (
+          <ChannelHoverContent
+            workspaceSlug={workspaceSlug}
+            channelId={channelId}
+          />
+        ) : null}
+      </HoverCardContent>
+    </HoverCard>
+  )
+}
+
+function ChannelHoverContent({
+  workspaceSlug,
+  channelId,
+}: {
+  workspaceSlug: string
+  channelId: string
+}) {
+  const { data, isPending, isError } = useQuery({
+    queryKey: ["channel", workspaceSlug, channelId],
+    queryFn: async () => {
+      const res = await apiClient.v1.workspaces[":workspaceSlug"].channels[
+        ":channelId"
+      ].$get({ param: { workspaceSlug, channelId } })
+      if (!res.ok) throw new Error("Failed to fetch channel")
+      return res.json()
+    },
+  })
+
+  if (isPending) {
+    return (
+      <div className="space-y-2">
+        <Skeleton className="h-4 w-36 rounded" />
+        <Skeleton className="h-3 w-24 rounded" />
+      </div>
+    )
+  }
+  if (isError || !data) {
+    return (
+      <div className="text-sm text-muted-foreground">
+        This channel is private or no longer exists.
+      </div>
+    )
+  }
+
+  const isPrivate = data.audience === "members"
+  const meta = [
+    isPrivate ? "Private channel" : null,
+    data.archivedAt ? "Archived" : null,
+    `Created ${formatDateTime(data.createdAt)}`,
+  ].filter(Boolean)
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-center gap-1.5">
+        {isPrivate ? (
+          <PrivateHashIcon className="size-4 shrink-0 text-muted-foreground" />
+        ) : (
+          <HugeiconsIcon
+            icon={HashtagIcon}
+            size={15}
+            className="shrink-0 text-muted-foreground"
+          />
+        )}
+        <span className="min-w-0 truncate text-sm font-semibold">
+          {data.name}
+        </span>
+      </div>
+      {data.topic ? (
+        <p className="line-clamp-2 text-xs text-muted-foreground">
+          {data.topic}
+        </p>
+      ) : null}
+      <div className="text-xs text-muted-foreground/70">{meta.join(" · ")}</div>
+    </div>
   )
 }
 
@@ -197,7 +309,18 @@ function eventText(
         return (
           <>
             {actor} created this channel from an approved change proposal
-            {p.originChannelName ? ` in #${p.originChannelName}` : null}
+            {p.originChannelName ? (
+              <>
+                {" in "}
+                {p.originChannelId ? (
+                  <ChannelName channelId={p.originChannelId}>
+                    #{p.originChannelName}
+                  </ChannelName>
+                ) : (
+                  <Name>#{p.originChannelName}</Name>
+                )}
+              </>
+            ) : null}
           </>
         )
       }
@@ -206,10 +329,12 @@ function eventText(
     case "channel_renamed": {
       if (!payload) break
       const p = payload as RenamedPayload
+      // The old name no longer resolves to anything — plain text; the new
+      // name is the channel itself.
       return (
         <>
           {actor} renamed the channel from <Name>#{p.from}</Name> to{" "}
-          <Name>#{p.to}</Name>
+          <ChannelName channelId={message.channelId}>#{p.to}</ChannelName>
         </>
       )
     }
