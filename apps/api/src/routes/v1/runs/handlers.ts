@@ -11,12 +11,15 @@ import {
   sql,
 } from "@repo/db"
 import { env } from "@repo/env/server"
+import { settleAbandonedRunTask } from "@repo/merlin/tasks"
 import { AGENT_RUN_STOP_CHANNEL } from "@repo/realtime-types/queues"
 import { channelRoom, threadRoom } from "@repo/realtime-types/rooms"
 import { getEmitter } from "@/lib/bot-messages"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
+import { logger } from "@/lib/logger"
 import { userCanAccessChannel } from "@/lib/queries/channel-access"
 import { getRedisClient } from "@/lib/redis"
+import { emitTaskUpdated } from "@/lib/scope-runs"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
   GetRunEventsRoute,
@@ -317,23 +320,38 @@ async function requestRunStop(
           )
         )
         .catch(() => {})
-      const emitter = await getEmitter()
-      emitter
-        .to(
-          run.threadRootId
-            ? threadRoom(run.threadRootId)
-            : channelRoom(run.channelId)
-        )
-        .emit("message:stream", {
-          channelId: run.channelId,
-          threadRootId: run.threadRootId,
-          messageId: run.messageId,
-          delta: STOPPED_MESSAGE,
-          done: true,
-          status: "complete",
-          replace: true,
-          runId: run.id,
-        })
+      // A queued run's task was born "running" and no worker will ever settle
+      // it — the run is stopping before any claim.
+      await settleAbandonedRunTask(
+        { id: run.id, threadRootId: run.threadRootId },
+        "stopped",
+        (task) => void emitTaskUpdated(task)
+      ).catch((err) =>
+        logger.warn({ err, runId: run.id }, "Stopped-run task settle failed")
+      )
+      // The stop is already durable — a failed broadcast must not turn it
+      // into a 500 (clients would keep a spinning placeholder AND an error).
+      try {
+        const emitter = await getEmitter()
+        emitter
+          .to(
+            run.threadRootId
+              ? threadRoom(run.threadRootId)
+              : channelRoom(run.channelId)
+          )
+          .emit("message:stream", {
+            channelId: run.channelId,
+            threadRootId: run.threadRootId,
+            messageId: run.messageId,
+            delta: STOPPED_MESSAGE,
+            done: true,
+            status: "complete",
+            replace: true,
+            runId: run.id,
+          })
+      } catch (err) {
+        logger.warn({ err, runId: run.id }, "Stop broadcast failed")
+      }
       return { state: "stopped", stopped: true }
     }
     // Claimed between the read and the update — fall through to the flag.
@@ -589,14 +607,18 @@ export const removeQueuedMessage: AppRouteHandler<
   }
 
   const threadRootId = row.scopeKey === row.channelId ? null : row.scopeKey
-  const emitter = await getEmitter()
-  emitter
-    .to(threadRootId ? threadRoom(threadRootId) : channelRoom(row.channelId))
-    .emit("run:queue:updated", {
-      channelId: row.channelId,
-      threadRootId,
-      messageId,
-      state: "cancelled",
-    })
+  try {
+    const emitter = await getEmitter()
+    emitter
+      .to(threadRootId ? threadRoom(threadRootId) : channelRoom(row.channelId))
+      .emit("run:queue:updated", {
+        channelId: row.channelId,
+        threadRootId,
+        messageId,
+        state: "cancelled",
+      })
+  } catch (err) {
+    logger.warn({ err, messageId }, "Cancelled queue message emit failed")
+  }
   return c.json({ removed: true }, HttpStatusCodes.OK)
 }

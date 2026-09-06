@@ -6,10 +6,15 @@ import {
   isNotNull,
   isNull,
   lt,
+  MERLIN_USER_ID,
+  notExists,
   or,
   schema,
 } from "@repo/db"
+import { env } from "@repo/env/server"
 import { openActWindow, releaseActRunDeliveries } from "@repo/merlin/act-runs"
+import { settleAbandonedRunTask, toRealtimeTask } from "@repo/merlin/tasks"
+import { loadThreadSummary } from "@repo/messaging"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
 import {
   ACT_FLUSH_JOB,
@@ -163,6 +168,36 @@ export async function sweepDeadRuns(
       status: "failed",
       replace: true,
     })
+    // Channel viewers only see threaded settles via message:thread:updated.
+    if (run.threadRootId) {
+      await loadThreadSummary(run.channelId, run.threadRootId)
+        .then((summary) =>
+          emitter
+            .to(channelRoom(run.channelId))
+            .emit("message:thread:updated", summary)
+        )
+        .catch((err) =>
+          logger.warn(
+            { err, runId: run.id },
+            "Dead-run thread summary emit failed"
+          )
+        )
+    }
+  }
+  // A dead run's task would otherwise stay "running" forever — every settle
+  // path lives in the crashed processor, and this sweep is the only actor
+  // left. Settles the run's own task (claimed or never-claimed first run).
+  for (const run of dead) {
+    await settleAbandonedRunTask(
+      { id: run.id, threadRootId: run.threadRootId },
+      "failed",
+      (task) =>
+        emitter
+          .to(channelRoom(run.channelId))
+          .emit("task:updated", { task: toRealtimeTask(task) })
+    ).catch((err) =>
+      logger.error({ err, runId: run.id }, "Dead-run task settle failed")
+    )
   }
   // A dead run may have steered/queued messages behind it — drain each scope
   // so they start a follow-up run instead of stranding.
@@ -220,4 +255,74 @@ export async function sweepDeadRuns(
       "Swept dead agent runs past their deadline"
     )
   }
+}
+
+// Legacy jobs have no run row; allow their full wall budget before cleanup.
+export async function sweepOrphanedPlaceholders(
+  emitter: Emitter<ServerToClientEvents>
+) {
+  const cutoff = new Date(
+    Date.now() - env.AGENT_RUN_MAX_WALL_MS - UNCLAIMED_RUN_GRACE_MS
+  )
+  const orphans = await db
+    .update(schema.message)
+    .set({ status: "failed", content: DEAD_RUN_MESSAGE })
+    .where(
+      and(
+        eq(schema.message.authorId, MERLIN_USER_ID),
+        eq(schema.message.status, "pending"),
+        lt(schema.message.createdAt, cutoff),
+        notExists(
+          db
+            .select({ id: schema.agentRun.id })
+            .from(schema.agentRun)
+            .where(eq(schema.agentRun.messageId, schema.message.id))
+        )
+      )
+    )
+    .returning()
+  for (const message of orphans) {
+    try {
+      emitter
+        .to(
+          message.threadRootId
+            ? threadRoom(message.threadRootId)
+            : channelRoom(message.channelId)
+        )
+        .emit("message:stream", {
+          channelId: message.channelId,
+          threadRootId: message.threadRootId,
+          messageId: message.id,
+          delta: DEAD_RUN_MESSAGE,
+          done: true,
+          status: "failed",
+          replace: true,
+        })
+      await settleAbandonedRunTask(
+        { threadRootId: message.threadRootId },
+        "failed",
+        (task) => {
+          emitter
+            .to(channelRoom(message.channelId))
+            .emit("task:updated", { task: toRealtimeTask(task) })
+        }
+      )
+      if (message.threadRootId) {
+        const summary = await loadThreadSummary(
+          message.channelId,
+          message.threadRootId
+        )
+        emitter
+          .to(channelRoom(message.channelId))
+          .emit("message:thread:updated", summary)
+      }
+    } catch (err) {
+      logger.error(
+        { err, messageId: message.id },
+        "Orphaned placeholder settlement failed"
+      )
+    }
+  }
+  if (orphans.length)
+    logger.warn({ count: orphans.length }, "Swept orphaned Merlin placeholders")
 }

@@ -13,3 +13,8 @@ export function channelRoom(channelId: string) {
 export function threadRoom(threadRootId: string) {
   return `thread:${threadRootId}`
 }
+
+// Joined before async initialization so revocation also reaches connecting sockets.
+export function userConnectionRoom(userId: string) {
+  return `user-connections:${userId}`
+}
