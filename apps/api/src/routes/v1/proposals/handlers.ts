@@ -382,15 +382,21 @@ async function announceCreatedResources(args: {
     .where(eq(schema.channel.id, args.proposal.channelId))
     .limit(1)
     .then((rows) => rows[0] ?? null)
-  const io = await getEmitter()
 
   for (const op of createdChannels) {
     const channelId = op.result?.resourceId
     if (!channelId || op.spec.op !== "create_channel") continue
-    io.to(workspaceRoom(args.workspace.id)).emit("channel:created", {
-      workspaceId: args.workspace.id,
-      channelId,
-    })
+    // Sidebar ping is best effort and acquired per-emit — an emitter (Redis)
+    // failure must not stop the durable event rows below from being written.
+    try {
+      const io = await getEmitter()
+      io.to(workspaceRoom(args.workspace.id)).emit("channel:created", {
+        workspaceId: args.workspace.id,
+        channelId,
+      })
+    } catch (err) {
+      logger.warn({ err, channelId }, "channel:created emit failed")
+    }
     await postChannelEvent({
       channel: {
         id: channelId,

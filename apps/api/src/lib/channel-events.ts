@@ -62,34 +62,42 @@ export async function postChannelEvent(
 }
 
 // Loop lifecycle events resolve the loop's channel themselves — callers hold
-// only the loop row.
+// only the loop row. Best effort like postChannelEvent: a lookup failure must
+// not fail the loop transition that already committed.
 export async function postLoopChannelEvent(input: {
   loop: { id: string; name: string; channelId: string }
   actorId: string
   eventType: "loop_created" | "loop_paused" | "loop_completed"
   reason?: "failures" | "out_of_credits"
 }): Promise<void> {
-  const channel = await db
-    .select({
-      id: schema.channel.id,
-      workspaceId: schema.channel.workspaceId,
-      name: schema.channel.name,
+  try {
+    const channel = await db
+      .select({
+        id: schema.channel.id,
+        workspaceId: schema.channel.workspaceId,
+        name: schema.channel.name,
+      })
+      .from(schema.channel)
+      .where(eq(schema.channel.id, input.loop.channelId))
+      .limit(1)
+      .then((rows) => rows[0])
+    if (!channel) return
+    await postChannelEvent({
+      channel,
+      actorId: input.actorId,
+      eventType: input.eventType,
+      payload: {
+        loopId: input.loop.id,
+        loopName: input.loop.name,
+        reason: input.reason,
+      },
     })
-    .from(schema.channel)
-    .where(eq(schema.channel.id, input.loop.channelId))
-    .limit(1)
-    .then((rows) => rows[0])
-  if (!channel) return
-  await postChannelEvent({
-    channel,
-    actorId: input.actorId,
-    eventType: input.eventType,
-    payload: {
-      loopId: input.loop.id,
-      loopName: input.loop.name,
-      reason: input.reason,
-    },
-  })
+  } catch (err) {
+    logger.error(
+      { err, loopId: input.loop.id, eventType: input.eventType },
+      "Loop channel event failed"
+    )
+  }
 }
 
 async function buildEventContent(

@@ -223,8 +223,12 @@ export function MessageList({
             if (item.type === "event") {
               // Consecutive same-kind membership events collapse into one row,
               // rendered on the first of the run (mirrors web message-list).
+              // The jump target never chains — scrollToJumpTarget must land on
+              // a rendered row.
+              const jumpFocusId = jumpTargetId ?? focusMessageId
               const chainsWithOlder =
                 isCollapsibleChannelEvent(item) &&
+                item.id !== jumpFocusId &&
                 !!older &&
                 older.type === "event" &&
                 older.eventType === item.eventType &&
@@ -239,6 +243,7 @@ export function MessageList({
                   if (
                     !next ||
                     !tail ||
+                    next.id === jumpFocusId ||
                     next.type !== "event" ||
                     next.eventType !== item.eventType ||
                     !areMessagesOnSameDay(next.createdAt, tail.createdAt) ||

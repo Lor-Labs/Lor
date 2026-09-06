@@ -436,9 +436,12 @@ export function MessageList({
 
               if (msg.type === "event") {
                 // Consecutive same-kind membership events collapse into one
-                // row, rendered on the first of the run.
+                // row, rendered on the first of the run. The scroll target
+                // never chains — it must keep its own MessageScrollerItem so
+                // an anchored jump (search/permalink) can center it.
                 const chainsWithPrevious =
                   isCollapsibleChannelEvent(msg) &&
+                  msg.id !== scrollTargetId &&
                   !!previous &&
                   previous.type === "event" &&
                   previous.eventType === msg.eventType &&
@@ -453,6 +456,7 @@ export function MessageList({
                     if (
                       !next ||
                       !tail ||
+                      next.id === scrollTargetId ||
                       next.type !== "event" ||
                       next.eventType !== msg.eventType ||
                       !isSameDay(next.createdAt, tail.createdAt) ||

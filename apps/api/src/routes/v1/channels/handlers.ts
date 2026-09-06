@@ -443,35 +443,41 @@ export const updateChannel: AppRouteHandler<UpdateChannelRoute> = async (c) => {
     }
   }
 
-  // Read the prior name so a rename can be detected after the update.
-  const prior = await db
-    .select({ name: channel.name })
-    .from(channel)
-    .where(
-      and(eq(channel.id, channelId), eq(channel.workspaceId, workspace.id))
-    )
-    .limit(1)
-    .then((rows) => rows[0])
+  // Prior-name read + update in one transaction with a row lock, so a
+  // concurrent rename can't make the event report a stale "from" name.
+  const result = await db.transaction(async (tx) => {
+    const prior = await tx
+      .select({ name: channel.name })
+      .from(channel)
+      .where(
+        and(eq(channel.id, channelId), eq(channel.workspaceId, workspace.id))
+      )
+      .limit(1)
+      .for("update")
+      .then((rows) => rows[0])
+    if (!prior) return null
+    const updated = await tx
+      .update(channel)
+      .set(body)
+      .where(
+        and(eq(channel.id, channelId), eq(channel.workspaceId, workspace.id))
+      )
+      .returning()
+      .then((rows) => rows[0])
+    return updated ? { prior, updated } : null
+  })
 
-  const updated = await db
-    .update(channel)
-    .set(body)
-    .where(
-      and(eq(channel.id, channelId), eq(channel.workspaceId, workspace.id))
-    )
-    .returning()
-    .then((rows) => rows[0])
-
-  if (!updated) {
+  if (!result) {
     return c.json(
       { success: false, message: "Channel not found" },
       HttpStatusCodes.NOT_FOUND
     )
   }
+  const { prior, updated } = result
 
   if (
     updated.type !== "category" &&
-    prior?.name &&
+    prior.name &&
     updated.name &&
     prior.name !== updated.name
   ) {
