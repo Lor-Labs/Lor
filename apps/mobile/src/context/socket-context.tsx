@@ -51,7 +51,6 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     let cancelled = false
     let retryTimer: ReturnType<typeof setTimeout> | null = null
     let retryDelay = RECONNECT_BASE_DELAY_MS
-    let hadConnected = false
     let backgrounded = AppState.currentState === "background"
     const connect = () => {
       if (!cancelled && !s.connected) s.connect()
@@ -69,8 +68,8 @@ export function SocketProvider({ children }: { children: ReactNode }) {
       retryDelay = RECONNECT_BASE_DELAY_MS
       if (retryTimer) clearTimeout(retryTimer)
       retryTimer = null
-      if (hadConnected) void queryClient.invalidateQueries()
-      hadConnected = true
+      // Single owner for reconnect refetches, including an initially late socket.
+      void queryClient.invalidateQueries()
       if (__DEV__) console.log("[socket] connected:", s.id)
     }
     const onDisconnect = (reason: string) => {
@@ -118,7 +117,6 @@ export function SocketProvider({ children }: { children: ReactNode }) {
         if (backgrounded) {
           backgrounded = false
           s.disconnect()
-          void queryClient.invalidateQueries()
         }
         connect()
       }

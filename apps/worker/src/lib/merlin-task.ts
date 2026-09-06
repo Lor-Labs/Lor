@@ -157,18 +157,6 @@ export async function createMerlinTask(
       merlinTriggerMessageId: cardId,
     })
   }
-  // Channel viewers see the card via message:created; the pending reply only
-  // reaches them through the thread summary (nobody has joined the new thread).
-  void loadThreadSummary(input.channelId, cardId)
-    .then((summary) =>
-      deps.emitter
-        .to(channelRoom(input.channelId))
-        .emit("message:thread:updated", summary)
-    )
-    .catch((err) =>
-      logger.warn({ err, taskId: task.id }, "Task thread summary emit failed")
-    )
-
   try {
     await deps.respondQueue.add(
       "respond",
@@ -188,6 +176,17 @@ export async function createMerlinTask(
         jobId: taskRun.id,
       }
     )
+    // Channel viewers see the card via message:created; the pending reply only
+    // reaches them through the thread summary (nobody has joined the new thread).
+    await loadThreadSummary(input.channelId, cardId)
+      .then((summary) =>
+        deps.emitter
+          .to(channelRoom(input.channelId))
+          .emit("message:thread:updated", summary)
+      )
+      .catch((err) =>
+        logger.warn({ err, taskId: task.id }, "Task thread summary emit failed")
+      )
   } catch (err) {
     logger.error({ err, taskId: task.id }, "Task first-run enqueue failed")
     await db
@@ -198,6 +197,10 @@ export async function createMerlinTask(
       .delete(schema.message)
       .where(eq(schema.message.id, placeholder.id))
       .catch(() => {})
+    deps.emitter.to(threadRoom(cardId)).emit("message:deleted", {
+      channelId: input.channelId,
+      messageId: placeholder.id,
+    })
     await failTask()
   }
   return { taskId: task.id }

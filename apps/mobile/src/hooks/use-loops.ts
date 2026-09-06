@@ -54,16 +54,9 @@ export function useChannelLoops(channelId: string) {
           existing?.filter((l) => l.id !== payload.loopId)
       )
     }
-    const refetchOnConnect = () => {
-      void queryClient.invalidateQueries({
-        queryKey: ["channel-loops", channelId],
-      })
-    }
-    socket.on("connect", refetchOnConnect)
     socket.on("loop:updated", handleLoopUpdated)
     socket.on("loop:deleted", handleLoopDeleted)
     return () => {
-      socket.off("connect", refetchOnConnect)
       socket.off("loop:updated", handleLoopUpdated)
       socket.off("loop:deleted", handleLoopDeleted)
     }

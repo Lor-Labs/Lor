@@ -2,6 +2,9 @@ import { randomUUID } from "node:crypto"
 import type { createClient } from "redis"
 import { logger } from "@/lib/logger"
 
+export const MESSAGE_DELIVERY_RETRY =
+  "Message is still being delivered. Please retry shortly."
+
 const RECEIPT_TTL_SECONDS = 7 * 24 * 60 * 60
 const LEASE_MS = 90_000
 
@@ -20,7 +23,7 @@ export async function claimMessageDelivery(
     if (stage === "broadcast" || stage === "complete") {
       return { busy: true as const }
     }
-    throw new Error("Message is still being delivered. Please retry shortly.")
+    throw new Error(MESSAGE_DELIVERY_RETRY)
   }
   let leaseLost = false
   const heartbeat = setInterval(() => {

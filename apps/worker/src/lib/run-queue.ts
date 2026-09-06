@@ -289,24 +289,6 @@ async function runDrain(args: {
   args.emitter
     .to(threadRootId ? threadRoom(threadRootId) : channelRoom(run.channelId))
     .emit("message:created", realtimePlaceholder)
-  // Channel feeds only learn about threaded activity via
-  // message:thread:updated — without this, a follow-up run bumps nothing for
-  // viewers outside the thread until reload.
-  if (threadRootId) {
-    void loadThreadSummary(run.channelId, threadRootId)
-      .then((summary) =>
-        args.emitter
-          .to(channelRoom(run.channelId))
-          .emit("message:thread:updated", summary)
-      )
-      .catch((err) =>
-        logger.warn(
-          { err, threadRootId },
-          "Follow-up thread summary emit failed"
-        )
-      )
-  }
-
   try {
     await args.respondQueue.add(
       "respond",
@@ -358,6 +340,24 @@ async function runDrain(args: {
     })
     return
   }
+  // Channel feeds only learn about threaded activity via
+  // message:thread:updated — without this, a follow-up run bumps nothing for
+  // viewers outside the thread until reload.
+  if (threadRootId) {
+    await loadThreadSummary(run.channelId, threadRootId)
+      .then((summary) =>
+        args.emitter
+          .to(channelRoom(run.channelId))
+          .emit("message:thread:updated", summary)
+      )
+      .catch((err) =>
+        logger.warn(
+          { err, threadRootId },
+          "Follow-up thread summary emit failed"
+        )
+      )
+  }
+
   logger.info(
     {
       scopeKey: run.scopeKey,

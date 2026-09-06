@@ -1,4 +1,5 @@
 import { db, schema } from "@repo/db"
+import { resolveChannelAudienceInfo } from "@repo/db/queries/channel-access"
 import type {
   ChannelCreatedPayload,
   ChannelRenamedPayload,
@@ -7,9 +8,34 @@ import type {
   MemberRemovedPayload,
 } from "@repo/db/schema"
 import { channelEventContent } from "@repo/messaging"
+import {
+  type ServerToClientEvents,
+  userRoom,
+  workspaceRoom,
+} from "@repo/realtime-types"
+import type { Emitter } from "@socket.io/redis-emitter"
 import { eq, inArray } from "drizzle-orm"
 import { postBotMessage } from "@/lib/bot-messages"
 import { logger } from "@/lib/logger"
+
+export async function emitChannelCreated(
+  io: Emitter<ServerToClientEvents>,
+  workspaceId: string,
+  channelId: string
+) {
+  const payload: Parameters<ServerToClientEvents["channel:created"]>[0] = {
+    workspaceId,
+    channelId,
+  }
+  const audience = await resolveChannelAudienceInfo(channelId)
+  if (audience.audience === "workspace") {
+    io.to(workspaceRoom(workspaceId)).emit("channel:created", payload)
+  } else {
+    for (const userId of audience.userIds) {
+      io.to(userRoom(userId)).emit("channel:created", payload)
+    }
+  }
+}
 
 // Discriminated so each emitter passes exactly the payload its kind needs.
 type ChannelEventInput =

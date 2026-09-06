@@ -3,7 +3,7 @@ import {
   type InstructionsProposalUpdate,
   workspaceRoom,
 } from "@repo/realtime-types"
-import { getEmitter } from "@/lib/bot-messages"
+import { publishRealtime } from "@/lib/bot-messages"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
 import {
@@ -20,10 +20,12 @@ import type {
 
 async function emitInstructionsUpdated(payload: InstructionsProposalUpdate) {
   try {
-    const emitter = await getEmitter()
-    emitter
-      .to(workspaceRoom(payload.workspaceId))
-      .emit("instructions:updated", payload)
+    await publishRealtime((io) => {
+      io.to(workspaceRoom(payload.workspaceId)).emit(
+        "instructions:updated",
+        payload
+      )
+    })
   } catch (err) {
     logger.warn({ err, ...payload }, "Instructions update emit failed")
   }

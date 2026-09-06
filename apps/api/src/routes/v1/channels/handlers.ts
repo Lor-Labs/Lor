@@ -1,8 +1,5 @@
 import { db, schema } from "@repo/db"
-import {
-  listAccessibleChannelIds,
-  resolveChannelAudienceInfo,
-} from "@repo/db/queries/channel-access"
+import { listAccessibleChannelIds } from "@repo/db/queries/channel-access"
 import type { IntegrationProvider } from "@repo/db/schema"
 import {
   agentProfile,
@@ -23,13 +20,12 @@ import {
   type ServerToClientEvents,
   threadRoom,
   userRoom,
-  workspaceRoom,
 } from "@repo/realtime-types"
 import { Emitter } from "@socket.io/redis-emitter"
 import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm"
 import { getEmitter } from "@/lib/bot-messages"
 import { allowedChannelConnectors } from "@/lib/channel-connectors"
-import { postChannelEvent } from "@/lib/channel-events"
+import { emitChannelCreated, postChannelEvent } from "@/lib/channel-events"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
 import { assertWorkspaceAuthority } from "@/lib/permissions"
@@ -211,15 +207,7 @@ export const createChannel: AppRouteHandler<CreateChannelRoute> = async (c) => {
   // or inside a restricted category — pings only the people who can see it.
   try {
     const io = await getEmitter()
-    const payload = { workspaceId: workspace.id, channelId: newChannel.id }
-    const audience = await resolveChannelAudienceInfo(newChannel.id)
-    if (audience.audience === "workspace") {
-      io.to(workspaceRoom(workspace.id)).emit("channel:created", payload)
-    } else {
-      for (const userId of audience.userIds) {
-        io.to(userRoom(userId)).emit("channel:created", payload)
-      }
-    }
+    await emitChannelCreated(io, workspace.id, newChannel.id)
   } catch (err) {
     logger.warn(
       { err, channelId: newChannel.id },

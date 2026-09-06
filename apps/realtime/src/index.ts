@@ -68,7 +68,10 @@ import {
   openMerlinSession,
   unmuteMerlinThread,
 } from "@/services/merlin-session"
-import { claimMessageDelivery } from "@/services/message-delivery"
+import {
+  claimMessageDelivery,
+  MESSAGE_DELIVERY_RETRY,
+} from "@/services/message-delivery"
 import {
   createMessage,
   deleteMessage,
@@ -549,10 +552,7 @@ io.on("connection", (socket) => {
           clientKey: parsed.nonce ?? "",
           workspaceId: accessibleChannel.workspaceId,
         })
-        if (!original)
-          throw new Error(
-            "Message is still being delivered. Please retry shortly."
-          )
+        if (!original) throw new Error(MESSAGE_DELIVERY_RETRY)
         ack?.({ ok: true, message: original })
         return
       }
@@ -669,6 +669,9 @@ io.on("connection", (socket) => {
       }
 
       const routeMerlin = async () => {
+        // DMs have no workspace context; Merlin only runs in workspace channels.
+        const workspaceId = accessibleChannel.workspaceId
+        if (!workspaceId) return
         const [existingRun] = await db
           .select()
           .from(schema.agentRun)
@@ -860,17 +863,13 @@ io.on("connection", (socket) => {
           })
             .then(async (merlinMessage) => {
               try {
-                // Merlin only answers in workspace channels; without a workspace
-                // the worker rejects the job anyway, so skip the run row.
-                const runId = accessibleChannel.workspaceId
-                  ? await createAgentRun({
-                      workspaceId: accessibleChannel.workspaceId,
-                      channelId: parsed.channelId,
-                      messageId: merlinMessage.id,
-                      threadRootId: merlinThreadRootId,
-                      triggerMessageId: createdMessage.message.id,
-                    })
-                  : null
+                const runId = await createAgentRun({
+                  workspaceId,
+                  channelId: parsed.channelId,
+                  messageId: merlinMessage.id,
+                  threadRootId: merlinThreadRootId,
+                  triggerMessageId: createdMessage.message.id,
+                })
                 if (!runId)
                   throw new Error("Merlin requires a durable agent run")
                 if (runId === "conflict") {
@@ -949,14 +948,14 @@ io.on("connection", (socket) => {
                     threadRootId: merlinThreadRootId,
                     contextThreadRootId: parsed.threadRootId ?? null,
                     triggerMessageId: createdMessage.message.id,
-                    ...(runId ? { runId } : {}),
+                    runId,
                   },
                   {
                     attempts: 2,
                     // Must exceed the run lease TTL (60s) or the retry can never
                     // reclaim a crashed attempt — it sees a live lease and skips.
                     backoff: { type: "fixed", delay: 90_000 },
-                    ...(runId ? { jobId: runId } : {}),
+                    jobId: runId,
                   }
                 )
               } catch (err) {

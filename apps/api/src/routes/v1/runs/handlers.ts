@@ -325,7 +325,14 @@ async function requestRunStop(
       await settleAbandonedRunTask(
         { id: run.id, threadRootId: run.threadRootId },
         "stopped",
-        (task) => void emitTaskUpdated(task)
+        (task) => {
+          void emitTaskUpdated(task).catch((err) => {
+            logger.warn(
+              { err, runId: run.id, taskId: task.id },
+              "Stopped-run task emit failed"
+            )
+          })
+        }
       ).catch((err) =>
         logger.warn({ err, runId: run.id }, "Stopped-run task settle failed")
       )

@@ -147,9 +147,9 @@ function groupText(
     )
   }
   if (kind === "member_removed") {
-    const userIds = events.map(
-      (e) => (e.eventPayload as RemovedPayload)?.userId
-    )
+    const userIds = events
+      .map((e) => (e.eventPayload as RemovedPayload | null)?.userId)
+      .filter((id): id is string => typeof id === "string")
     const names = joinNodes(memberNames(userIds, resolveUserName))
     return sameActor ? (
       <>

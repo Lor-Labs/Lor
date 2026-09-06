@@ -95,7 +95,11 @@ export async function settleAbandonedRunTask(
     .update(schema.task)
     .set({ status, activeRunId: null, plan })
     .where(
-      and(eq(schema.task.id, target.id), eq(schema.task.status, "running"))
+      and(
+        eq(schema.task.id, target.id),
+        eq(schema.task.status, "running"),
+        linkage
+      )
     )
     .returning()
     .then((rows) => rows[0] ?? null)

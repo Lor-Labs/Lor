@@ -248,7 +248,6 @@ export function createMerlinRespondProcessor(
               .where(eq(schema.task.cardMessageId, threadRootId))
               .limit(1)
               .then((rows) => rows[0] ?? null)
-              .catch(() => null)
           : null
         const emitTaskUpdated = (row: typeof schema.task.$inferSelect) => {
           emitter
@@ -261,11 +260,15 @@ export function createMerlinRespondProcessor(
         // complete_task (fanout, write-back) must never flip a finished task
         // back to failed.
         let taskSettled = false
+        let taskSettlementOutcome: "complete" | "failed" | "stopped" = "failed"
         const settleTask = async (
           outcome: "complete" | "failed" | "stopped"
         ) => {
-          if (!task) return
-          taskSettled = true
+          taskSettlementOutcome = outcome
+          if (!task) {
+            taskSettled = true
+            return
+          }
           try {
             const fresh = await db
               .select({ status: schema.task.status, plan: schema.task.plan })
@@ -273,7 +276,10 @@ export function createMerlinRespondProcessor(
               .where(eq(schema.task.id, task.id))
               .limit(1)
               .then((rows) => rows[0])
-            if (!fresh) return
+            if (!fresh) {
+              taskSettled = true
+              return
+            }
             const status =
               fresh.status === "completed"
                 ? "completed"
@@ -316,6 +322,7 @@ export function createMerlinRespondProcessor(
               )
               .returning()
               .then((rows) => rows[0])
+            taskSettled = true
             if (updated) emitTaskUpdated(updated)
             else
               logger.warn(
@@ -324,6 +331,7 @@ export function createMerlinRespondProcessor(
               )
           } catch (err) {
             logger.warn({ err, taskId: task.id }, "Task settle failed")
+            throw err
           }
         }
 
@@ -374,16 +382,20 @@ export function createMerlinRespondProcessor(
           // A retry landing after its crashed predecessor's run went terminal
           // (or a stop that raced the claim) is the last actor that can settle
           // the task — skip only when another attempt still owns a live lease.
-          if (task && job.data.runId) {
+          if (job.data.runId) {
             const runState = await db
               .select({ state: schema.agentRun.state })
               .from(schema.agentRun)
               .where(eq(schema.agentRun.id, job.data.runId))
               .then((rows) => rows[0]?.state)
-              .catch(() => undefined)
-            if (runState === "complete") await settleTask("complete")
-            else if (runState === "failed") await settleTask("failed")
-            else if (runState === "stopped") await settleTask("stopped")
+            if (
+              runState === "complete" ||
+              runState === "failed" ||
+              runState === "stopped"
+            ) {
+              await settleTask(runState)
+              await emitThreadSummary()
+            }
           }
           drainQueue()
           return
@@ -1291,7 +1303,7 @@ export function createMerlinRespondProcessor(
           // still records the failure. Lease loss is the exception: the
           // superseding attempt owns the task's settlement.
           if (!taskSettled && !(err instanceof LeaseLostError)) {
-            await settleTask("failed")
+            await settleTask(taskSettlementOutcome)
             await emitThreadSummary()
           }
           throw err
