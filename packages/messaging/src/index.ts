@@ -18,6 +18,11 @@ import {
 } from "./mentions"
 
 export {
+  type ChannelEventContentInput,
+  channelEventContent,
+  joinNames,
+} from "./channel-events"
+export {
   extractDirectMentionUserIds,
   MARKDOWN_USER_MENTION_REGEX,
   USER_MENTION_REGEX,

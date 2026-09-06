@@ -1,6 +1,7 @@
 import { db } from "@repo/db"
 import type {
   Attachment,
+  ChannelEventPayload,
   Embed,
   MerlinMemory,
   MerlinReasoningSegment,
@@ -75,6 +76,8 @@ type BareMessageRow = {
   content: string | null
   type: (typeof message.type.enumValues)[number]
   status: (typeof message.status.enumValues)[number]
+  eventType: (typeof message.eventType.enumValues)[number] | null
+  eventPayload: ChannelEventPayload | null
   pinned: boolean
   attachments: Attachment[] | null
   embeds: Embed[] | null
@@ -104,6 +107,8 @@ export const messageSelect = {
   content: message.content,
   type: message.type,
   status: message.status,
+  eventType: message.eventType,
+  eventPayload: message.eventPayload,
   pinned: message.pinned,
   attachments: message.attachments,
   embeds: message.embeds,

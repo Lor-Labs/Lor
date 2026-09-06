@@ -134,6 +134,15 @@ export default function ChannelScreen() {
       ),
     [mentions.members]
   )
+  const memberNameById = useMemo(
+    () =>
+      new Map(mentions.members.map((member) => [member.userId, member.name])),
+    [mentions.members]
+  )
+  const resolveUserName = useCallback(
+    (userId: string) => memberNameById.get(userId),
+    [memberNameById]
+  )
   const {
     closeProfile,
     mentionFromProfile,
@@ -486,6 +495,7 @@ export default function ChannelScreen() {
                   : undefined
               }
               replyingToId={replyingTo?.id}
+              resolveUserName={resolveUserName}
             />
           )}
           typingIndicator={<TypingIndicator users={typingUsers} />}

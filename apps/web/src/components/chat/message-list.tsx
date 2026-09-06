@@ -19,6 +19,10 @@ import {
   useMemo,
   useRef,
 } from "react"
+import {
+  ChannelEventRow,
+  isCollapsibleChannelEvent,
+} from "@/components/chat/channel-event-row"
 import type { MentionCandidate } from "@/components/chat/composer/mention-types"
 import { DateDivider } from "@/components/chat/date-divider"
 import type { ChatContext } from "@/components/chat/header"
@@ -198,6 +202,21 @@ export function MessageList({
   const ownedCommandRef = useRef<MessageScrollCommand | null>(null)
 
   const orderedMessages = useMemo(() => [...messages].reverse(), [messages])
+  // Event rows resolve member ids (payload userIds) to names like mentions do.
+  const userNameById = useMemo(
+    () =>
+      new Map(
+        (mentionCandidates ?? []).map((candidate) => [
+          candidate.id,
+          candidate.name ?? candidate.label,
+        ])
+      ),
+    [mentionCandidates]
+  )
+  const resolveUserName = useCallback(
+    (userId: string) => userNameById.get(userId),
+    [userNameById]
+  )
   const pendingMerlinMessage = messages.find(
     (message) => message.status === "pending"
   )
@@ -414,12 +433,61 @@ export function MessageList({
                 !!previous &&
                 differenceInMinutes(msg.createdAt, previous.createdAt) <=
                   MESSAGE_GROUP_WINDOW_MINUTES
+
+              if (msg.type === "event") {
+                // Consecutive same-kind membership events collapse into one
+                // row, rendered on the first of the run. The scroll target
+                // never chains — it must keep its own MessageScrollerItem so
+                // an anchored jump (search/permalink) can center it.
+                const chainsWithPrevious =
+                  isCollapsibleChannelEvent(msg) &&
+                  msg.id !== scrollTargetId &&
+                  !!previous &&
+                  previous.type === "event" &&
+                  previous.eventType === msg.eventType &&
+                  isSameDay(msg.createdAt, previous.createdAt) &&
+                  isWithinGroupWindow
+                if (chainsWithPrevious) return null
+                const group = [msg]
+                if (isCollapsibleChannelEvent(msg)) {
+                  for (let j = i + 1; j < orderedMessages.length; j++) {
+                    const next = orderedMessages[j]
+                    const tail = group[group.length - 1]
+                    if (
+                      !next ||
+                      !tail ||
+                      next.id === scrollTargetId ||
+                      next.type !== "event" ||
+                      next.eventType !== msg.eventType ||
+                      !isSameDay(next.createdAt, tail.createdAt) ||
+                      differenceInMinutes(next.createdAt, tail.createdAt) >
+                        MESSAGE_GROUP_WINDOW_MINUTES
+                    ) {
+                      break
+                    }
+                    group.push(next)
+                  }
+                }
+                return (
+                  <MessageScrollerItem key={msg.id} messageId={msg.id}>
+                    {isDateBoundary && <DateDivider date={msg.createdAt} />}
+                    <ChannelEventRow
+                      events={group}
+                      resolveUserName={resolveUserName}
+                    />
+                  </MessageScrollerItem>
+                )
+              }
+
               const showHeader =
                 isDateBoundary ||
                 !previous ||
                 previous.authorId !== msg.authorId ||
                 !isWithinGroupWindow ||
-                msg.type === "reply"
+                msg.type === "reply" ||
+                // An event row interrupts the visual group — re-anchor the
+                // next message with its header.
+                previous.type === "event"
 
               return (
                 <MessageScrollerItem key={msg.id} messageId={msg.id}>

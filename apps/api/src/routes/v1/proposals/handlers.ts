@@ -14,12 +14,13 @@ import { resolveChannelAccess } from "@repo/db/queries/channel-access"
 import type { ChangeProposal, ChangeProposalOperation } from "@repo/db/schema"
 import { proposalPermissions } from "@repo/db/schema"
 import { channelRoom, workspaceRoom } from "@repo/realtime-types/rooms"
-import { getEmitter, postBotMessage } from "@/lib/bot-messages"
+import { getEmitter } from "@/lib/bot-messages"
 import {
   type ApproverSecrets,
   applyProposal,
   operationSummary,
 } from "@/lib/change-proposals"
+import { postChannelEvent } from "@/lib/channel-events"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
 import { resolveWorkspaceAuthority } from "@/lib/permissions"
@@ -360,17 +361,20 @@ export const rejectProposal: AppRouteHandler<RejectProposalRoute> = async (
 }
 
 // Post-apply, best-effort: teammates' sidebars learn about channels the
-// proposal created, and each new channel gets a Merlin context message — which
-// also makes it light up as unread through the normal fanout.
-async function announceCreatedChannels(args: {
+// proposal created, and each created channel/loop gets a channel event —
+// channel_created uses normal fanout so the new channel lights up as unread.
+async function announceCreatedResources(args: {
   proposal: ChangeProposal
   workspace: Workspace
   ops: ChangeProposalOperation[]
 }): Promise<void> {
-  const created = args.ops.filter(
+  const createdChannels = args.ops.filter(
     (op) => op.spec.op === "create_channel" && op.result?.resourceId
   )
-  if (created.length === 0) return
+  const createdLoops = args.ops.filter(
+    (op) => op.spec.op === "create_loop" && op.result?.resourceId
+  )
+  if (createdChannels.length === 0 && createdLoops.length === 0) return
 
   const origin = await db
     .select({ name: schema.channel.name })
@@ -378,28 +382,58 @@ async function announceCreatedChannels(args: {
     .where(eq(schema.channel.id, args.proposal.channelId))
     .limit(1)
     .then((rows) => rows[0] ?? null)
-  const io = await getEmitter()
 
-  for (const op of created) {
+  for (const op of createdChannels) {
     const channelId = op.result?.resourceId
     if (!channelId || op.spec.op !== "create_channel") continue
-    io.to(workspaceRoom(args.workspace.id)).emit("channel:created", {
-      workspaceId: args.workspace.id,
-      channelId,
-    })
-    await postBotMessage({
+    // Sidebar ping is best effort and acquired per-emit — an emitter (Redis)
+    // failure must not stop the durable event rows below from being written.
+    try {
+      const io = await getEmitter()
+      io.to(workspaceRoom(args.workspace.id)).emit("channel:created", {
+        workspaceId: args.workspace.id,
+        channelId,
+      })
+    } catch (err) {
+      logger.warn({ err, channelId }, "channel:created emit failed")
+    }
+    await postChannelEvent({
       channel: {
         id: channelId,
         workspaceId: args.workspace.id,
         name: op.spec.name,
         workspaceName: args.workspace.name,
       },
-      authorId: MERLIN_USER_ID,
-      content: origin?.name
-        ? `This channel was created from an approved change proposal in #${origin.name}.`
-        : "This channel was created from an approved change proposal.",
-    }).catch((err) => {
-      logger.warn({ err, channelId }, "New-channel context message failed")
+      actorId: MERLIN_USER_ID,
+      eventType: "channel_created",
+      payload: {
+        via: "proposal",
+        originChannelId: args.proposal.channelId,
+        originChannelName: origin?.name ?? undefined,
+      },
+    })
+  }
+
+  for (const op of createdLoops) {
+    const loopId = op.result?.resourceId
+    if (!loopId || op.spec.op !== "create_loop") continue
+    const loopChannel = await db
+      .select({
+        id: schema.channel.id,
+        workspaceId: schema.channel.workspaceId,
+        name: schema.channel.name,
+      })
+      .from(schema.channel)
+      .innerJoin(schema.loop, eq(schema.loop.channelId, schema.channel.id))
+      .where(eq(schema.loop.id, loopId))
+      .limit(1)
+      .then((rows) => rows[0])
+    if (!loopChannel) continue
+    await postChannelEvent({
+      channel: { ...loopChannel, workspaceName: args.workspace.name },
+      actorId: MERLIN_USER_ID,
+      eventType: "loop_created",
+      payload: { loopId, loopName: op.spec.name, via: "proposal" },
     })
   }
 }
@@ -520,12 +554,12 @@ export const approveProposal: AppRouteHandler<ApproveProposalRoute> = async (
   })
 
   if (outcome.ok) {
-    await announceCreatedChannels({
+    await announceCreatedResources({
       proposal: settled,
       workspace: auth.workspace,
       ops: settledOps,
     }).catch((err) => {
-      logger.warn({ err, proposalId }, "Created-channel announce failed")
+      logger.warn({ err, proposalId }, "Created-resource announce failed")
     })
   }
 

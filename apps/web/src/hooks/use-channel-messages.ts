@@ -179,6 +179,9 @@ export function useChannelMessages({
           }
         )
       } else {
+        // Channel events are ambient — they shouldn't count on the "N new"
+        // jump pill. They land via the refetch when returning to present.
+        if (adapted.type === "event") return
         setPendingMessages((prev) => {
           if (prev.some((m) => m.id === adapted.id)) return prev
           return [...prev, adapted]

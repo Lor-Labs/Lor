@@ -27,6 +27,7 @@ import { Emitter } from "@socket.io/redis-emitter"
 import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm"
 import { getEmitter } from "@/lib/bot-messages"
 import { allowedChannelConnectors } from "@/lib/channel-connectors"
+import { postChannelEvent } from "@/lib/channel-events"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
 import { assertWorkspaceAuthority } from "@/lib/permissions"
@@ -222,6 +223,15 @@ export const createChannel: AppRouteHandler<CreateChannelRoute> = async (c) => {
       { err, channelId: newChannel.id },
       "channel:created emit failed"
     )
+  }
+
+  // Categories have no timeline to post into.
+  if (newChannel.type !== "category") {
+    await postChannelEvent({
+      channel: newChannel,
+      actorId: currentUser.id,
+      eventType: "channel_created",
+    })
   }
 
   return c.json(newChannel, HttpStatusCodes.CREATED)
@@ -433,20 +443,50 @@ export const updateChannel: AppRouteHandler<UpdateChannelRoute> = async (c) => {
     }
   }
 
-  const updated = await db
-    .update(channel)
-    .set(body)
-    .where(
-      and(eq(channel.id, channelId), eq(channel.workspaceId, workspace.id))
-    )
-    .returning()
-    .then((rows) => rows[0])
+  // Prior-name read + update in one transaction with a row lock, so a
+  // concurrent rename can't make the event report a stale "from" name.
+  const result = await db.transaction(async (tx) => {
+    const prior = await tx
+      .select({ name: channel.name })
+      .from(channel)
+      .where(
+        and(eq(channel.id, channelId), eq(channel.workspaceId, workspace.id))
+      )
+      .limit(1)
+      .for("update")
+      .then((rows) => rows[0])
+    if (!prior) return null
+    const updated = await tx
+      .update(channel)
+      .set(body)
+      .where(
+        and(eq(channel.id, channelId), eq(channel.workspaceId, workspace.id))
+      )
+      .returning()
+      .then((rows) => rows[0])
+    return updated ? { prior, updated } : null
+  })
 
-  if (!updated) {
+  if (!result) {
     return c.json(
       { success: false, message: "Channel not found" },
       HttpStatusCodes.NOT_FOUND
     )
+  }
+  const { prior, updated } = result
+
+  if (
+    updated.type !== "category" &&
+    prior.name &&
+    updated.name &&
+    prior.name !== updated.name
+  ) {
+    await postChannelEvent({
+      channel: updated,
+      actorId: currentUser.id,
+      eventType: "channel_renamed",
+      payload: { from: prior.name, to: updated.name },
+    })
   }
 
   return c.json(updated, HttpStatusCodes.OK)

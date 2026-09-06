@@ -1,4 +1,13 @@
-import { and, db, eq, inArray, isUniqueViolation, schema, sql } from "@repo/db"
+import {
+  and,
+  db,
+  eq,
+  inArray,
+  isUniqueViolation,
+  MERLIN_USER_ID,
+  schema,
+  sql,
+} from "@repo/db"
 import type { Loop } from "@repo/db/schema"
 import { env } from "@repo/env/server"
 import { nextLoopRunAt, validateLoopSchedule } from "@repo/merlin/loop-schedule"
@@ -12,6 +21,7 @@ import {
 import { channelRoom } from "@repo/realtime-types/rooms"
 import { Queue } from "bullmq"
 import { getEmitter } from "@/lib/bot-messages"
+import { postLoopChannelEvent } from "@/lib/channel-events"
 import { logger } from "@/lib/logger"
 import { getRedisClient } from "@/lib/redis"
 
@@ -261,6 +271,11 @@ export async function completeLoopManually(input: {
   await stopInFlightRuns(input.loopId, input.requestedBy)
 
   await emitLoopUpdated(completed)
+  await postLoopChannelEvent({
+    loop: completed,
+    actorId: input.requestedBy ?? MERLIN_USER_ID,
+    eventType: "loop_completed",
+  })
   return completed
 }
 

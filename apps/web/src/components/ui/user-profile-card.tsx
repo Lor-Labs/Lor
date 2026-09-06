@@ -8,6 +8,11 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@repo/ui/components/popover"
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "@repo/ui/components/preview-card"
 import { Skeleton } from "@repo/ui/components/skeleton"
 import { toast } from "@repo/ui/components/toast"
 import { cn } from "@repo/ui/lib/utils"
@@ -153,6 +158,29 @@ function ProfileCardContent({
         </div>
       )}
     </div>
+  )
+}
+
+// Hover twin of UserProfilePopover (Notion-mention style) — same card, shown
+// after a 500ms hover instead of a click (matches the @mention hover cards).
+// Content mounts on open, so the profile fetch only happens when the card
+// actually shows.
+export function UserHoverCard({
+  avatarColor,
+  userId,
+  children,
+}: {
+  avatarColor?: string | null
+  userId: string
+  children: React.ReactElement
+}) {
+  return (
+    <HoverCard>
+      <HoverCardTrigger delay={500} closeDelay={100} render={children} />
+      <HoverCardContent side="top" align="start" className="w-72">
+        <ProfileCardContent avatarColor={avatarColor} userId={userId} />
+      </HoverCardContent>
+    </HoverCard>
   )
 }
 
