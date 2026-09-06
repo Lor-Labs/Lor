@@ -88,6 +88,8 @@ Branch in `apps/web/src/components/chat/message-item.tsx` BEFORE the card branch
 
 Jacob picked the **gutter layout without an icon**: an empty avatar-gutter spacer keeps the sentence on the message-content axis, `text-xs text-muted-foreground`, actor/subject names in `font-medium text-foreground/80`, timestamp revealed on hover, row hover `bg-muted/40`. The inline and pill variants (and the per-kind icon map) were built, compared, and deleted.
 
+**Hover cards (web, 2026-09-05):** names in event copy are Notion-mention-style hover targets with a **500ms open delay** (`delay={500}`, `closeDelay={100}` on the Base UI PreviewCard trigger — matches the @mention hover cards; Jacob first asked for 1s, then settled on 500ms). User names open the same profile card as the avatar popover (`UserHoverCard` in `user-profile-card.tsx`, reusing `ProfileCardContent` — profile fetch mounts only when the card opens). Loop names open a loop card (`LoopName`/`LoopHoverContent` in `channel-event-row.tsx`): ∞ icon + name, schedule/status lead, next run, last ran — resolved from the `["channel-loops", channelId]` query, with a "no longer exists" fallback. Mobile has no hover equivalent; nothing shipped there.
+
 ## Mobile
 
 Ships in the same phase as web. `apps/mobile/src/components/message-row.tsx` gets an event branch mirroring web's chosen variant, sharing `renderChannelEvent` copy (or a mobile twin if the shared package boundary makes it awkward). Track in `reference/mobile-parity-todo.md` only if mobile lags a build behind — the goal is it doesn't.

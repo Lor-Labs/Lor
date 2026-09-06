@@ -1,5 +1,18 @@
-import { formatTime } from "@repo/utils/date"
+import { Infinity01Icon } from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
+import { describeLoopSchedule } from "@repo/realtime-types/loops"
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "@repo/ui/components/preview-card"
+import { Skeleton } from "@repo/ui/components/skeleton"
+import { cn } from "@repo/ui/lib/utils"
+import { formatDateTime, formatTime, timeAgo } from "@repo/utils/date"
+import { useQuery } from "@tanstack/react-query"
 import { type ReactNode, useState } from "react"
+import { UserHoverCard } from "@/components/ui/user-profile-card"
+import { channelLoopsQueryOptions } from "@/hooks/use-channel-loops"
 import type { Message } from "@/lib/api-types"
 
 // Channel events ("Jacob created this channel", "Alice was added") — compact
@@ -28,6 +41,120 @@ function Name({ children }: { children: ReactNode }) {
   return <span className="font-medium text-foreground/80">{children}</span>
 }
 
+// A user's name in event copy — a 500ms hover opens the profile card
+// (Notion-mention style), same card the avatar popover shows.
+function UserName({
+  userId,
+  avatarColor,
+  children,
+}: {
+  userId: string
+  avatarColor?: string | null
+  children: ReactNode
+}) {
+  return (
+    <UserHoverCard userId={userId} avatarColor={avatarColor}>
+      <span className="cursor-pointer font-medium text-foreground/80 underline-offset-2 hover:underline">
+        {children}
+      </span>
+    </UserHoverCard>
+  )
+}
+
+// A loop's name in event copy — a 500ms hover shows the loop's schedule/status,
+// resolved from the channel-loops cache (fetch mounts only when the card opens).
+function LoopName({
+  channelId,
+  loopId,
+  children,
+}: {
+  channelId: string
+  loopId: string
+  children: ReactNode
+}) {
+  return (
+    <HoverCard>
+      <HoverCardTrigger
+        delay={500}
+        closeDelay={100}
+        render={
+          <span className="cursor-pointer font-medium text-foreground/80 underline-offset-2 hover:underline" />
+        }
+      >
+        {children}
+      </HoverCardTrigger>
+      <HoverCardContent side="top" align="start" className="w-72">
+        <LoopHoverContent channelId={channelId} loopId={loopId} />
+      </HoverCardContent>
+    </HoverCard>
+  )
+}
+
+function LoopHoverContent({
+  channelId,
+  loopId,
+}: {
+  channelId: string
+  loopId: string
+}) {
+  const { data, isPending } = useQuery(channelLoopsQueryOptions(channelId))
+  const loop = data?.find((candidate) => candidate.id === loopId)
+
+  if (isPending) {
+    return (
+      <div className="space-y-2">
+        <Skeleton className="h-4 w-36 rounded" />
+        <Skeleton className="h-3 w-24 rounded" />
+      </div>
+    )
+  }
+  if (!loop) {
+    return (
+      <div className="text-sm text-muted-foreground">
+        This loop no longer exists.
+      </div>
+    )
+  }
+
+  const scheduleText = describeLoopSchedule(loop.schedule, null)
+  const isLive = loop.status === "active" || loop.status === "draft"
+  const lead =
+    loop.status === "paused"
+      ? `Paused · ${scheduleText}`
+      : loop.status === "completed"
+        ? `Completed · ${scheduleText}`
+        : scheduleText
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-center gap-2">
+        <HugeiconsIcon
+          icon={Infinity01Icon}
+          size={15}
+          className={cn(
+            "shrink-0",
+            isLive ? "text-primary" : "text-muted-foreground"
+          )}
+        />
+        <span className="min-w-0 truncate text-sm font-semibold">
+          {loop.name}
+        </span>
+      </div>
+      <div className="text-xs text-muted-foreground">{lead}</div>
+      {loop.status === "active" && loop.nextRunAt ? (
+        <div className="text-xs text-muted-foreground">
+          Next run {formatDateTime(loop.nextRunAt)}
+        </div>
+      ) : null}
+      {loop.lastRunAt ? (
+        <div className="text-xs text-muted-foreground">
+          Last ran {timeAgo(loop.lastRunAt)}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 function joinNodes(nodes: ReactNode[]): ReactNode[] {
   return nodes.flatMap((node, i) => {
     if (i === 0) return [node]
@@ -41,7 +168,9 @@ function memberNames(
   resolveUserName?: ResolveUserName
 ): ReactNode[] {
   return userIds.map((id) => (
-    <Name key={id}>{resolveUserName?.(id) ?? "a teammate"}</Name>
+    <UserName key={id} userId={id}>
+      {resolveUserName?.(id) ?? "a teammate"}
+    </UserName>
   ))
 }
 
@@ -51,7 +180,14 @@ function eventText(
   message: Message,
   resolveUserName?: ResolveUserName
 ): ReactNode {
-  const actor = <Name>{message.author.name}</Name>
+  const actor = (
+    <UserName
+      userId={message.authorId}
+      avatarColor={message.author.avatarColor}
+    >
+      {message.author.name}
+    </UserName>
+  )
   const payload = message.eventPayload
 
   switch (message.eventType) {
@@ -102,7 +238,10 @@ function eventText(
       const p = payload as LoopPayload
       return (
         <>
-          {actor} created the loop <Name>{p.loopName}</Name>
+          {actor} created the loop{" "}
+          <LoopName channelId={message.channelId} loopId={p.loopId}>
+            {p.loopName}
+          </LoopName>
           {p.via === "proposal" ? " from an approved change proposal" : null}
         </>
       )
@@ -112,7 +251,11 @@ function eventText(
       const p = payload as LoopPayload
       return (
         <>
-          The loop <Name>{p.loopName}</Name> was paused
+          The loop{" "}
+          <LoopName channelId={message.channelId} loopId={p.loopId}>
+            {p.loopName}
+          </LoopName>{" "}
+          was paused
           {p.reason === "out_of_credits"
             ? " — out of credits"
             : " after repeated failures"}
@@ -124,7 +267,10 @@ function eventText(
       const p = payload as LoopPayload
       return (
         <>
-          {actor} completed the loop <Name>{p.loopName}</Name>
+          {actor} completed the loop{" "}
+          <LoopName channelId={message.channelId} loopId={p.loopId}>
+            {p.loopName}
+          </LoopName>
         </>
       )
     }
@@ -138,10 +284,16 @@ function groupText(
   events: Message[],
   resolveUserName?: ResolveUserName
 ): ReactNode {
-  const kind = events[0]?.eventType
+  const first = events[0]
+  if (!first) return null
+  const kind = first.eventType
   const actorIds = new Set(events.map((e) => e.authorId))
   const sameActor = actorIds.size === 1
-  const actor = <Name>{events[0]?.author.name}</Name>
+  const actor = (
+    <UserName userId={first.authorId} avatarColor={first.author.avatarColor}>
+      {first.author.name}
+    </UserName>
+  )
 
   if (kind === "member_added") {
     const userIds = [
@@ -175,7 +327,15 @@ function groupText(
   }
   // member_left — the actors ARE the subjects.
   const names = joinNodes(
-    events.map((e) => <Name key={e.id}>{e.author.name}</Name>)
+    events.map((e) => (
+      <UserName
+        key={e.id}
+        userId={e.authorId}
+        avatarColor={e.author.avatarColor}
+      >
+        {e.author.name}
+      </UserName>
+    ))
   )
   return <>{names} left the channel</>
 }
