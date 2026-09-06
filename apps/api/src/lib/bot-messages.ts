@@ -29,6 +29,26 @@ export async function getEmitter() {
   return emitter
 }
 
+// Await publishes when the caller needs emit failures in its own error path.
+export async function publishRealtime(
+  emit: (io: Emitter<ServerToClientEvents>) => void
+) {
+  const redis = await getRedisClient()
+  const publishes: Promise<number>[] = []
+  const io = new Emitter<ServerToClientEvents>({
+    publish(channel: string, message: string | Buffer) {
+      const result = redis.publish(channel, message)
+      publishes.push(result)
+      return result
+    },
+  })
+  try {
+    emit(io)
+  } finally {
+    await Promise.all(publishes)
+  }
+}
+
 type PostBotMessageInput = {
   channel: {
     id: string

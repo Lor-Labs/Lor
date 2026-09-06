@@ -1,3 +1,4 @@
+import type { ServerToClientEvents } from "@repo/realtime-types"
 import type { InfiniteData, QueryClient } from "@tanstack/react-query"
 import { useCallback, useEffect } from "react"
 import { updateMessagesAcrossPages } from "@/lib/message-cache-utils"
@@ -5,42 +6,51 @@ import type { AppSocket } from "@/lib/socket"
 
 interface MessagePage {
   data: { id: string }[]
+  root?: { id: string } | null
 }
 
 interface UseMessageDeletionOptions {
   socket: AppSocket | null
   queryClient: QueryClient
   channelId: string
+  threadRootId?: string
 }
 
 export function useMessageDeletion({
   socket,
   queryClient,
   channelId,
+  threadRootId,
 }: UseMessageDeletionOptions) {
   const removeMessageFromCache = useCallback(
     (messageId: string) => {
-      queryClient.setQueryData<InfiniteData<MessagePage>>(
-        ["messages", channelId],
-        (old) => {
+      const updateCache = (key: readonly unknown[]) => {
+        queryClient.setQueryData<InfiniteData<MessagePage>>(key, (old) => {
           if (!old) return old
-          return updateMessagesAcrossPages(old, (msgs) =>
-            msgs.filter((m) => m.id !== messageId)
+          const updated = updateMessagesAcrossPages(old, (messages) =>
+            messages.filter((m) => m.id !== messageId)
           )
-        }
-      )
+          return {
+            ...updated,
+            pages: updated.pages.map((page) =>
+              page.root?.id === messageId ? { ...page, root: null } : page
+            ),
+          }
+        })
+      }
+      updateCache(["messages", channelId])
+      if (threadRootId) updateCache(["thread", threadRootId])
     },
-    [queryClient, channelId]
+    [queryClient, channelId, threadRootId]
   )
 
   // Listen for message:deleted from other clients
   useEffect(() => {
     if (!socket) return
 
-    const handleDeleted = (payload: {
-      channelId: string
-      messageId: string
-    }) => {
+    const handleDeleted: ServerToClientEvents["message:deleted"] = (
+      payload
+    ) => {
       if (payload.channelId !== channelId) return
       removeMessageFromCache(payload.messageId)
     }
@@ -64,10 +74,14 @@ export function useMessageDeletion({
           void queryClient.invalidateQueries({
             queryKey: ["messages", channelId],
           })
+          if (threadRootId)
+            void queryClient.invalidateQueries({
+              queryKey: ["thread", threadRootId],
+            })
         }
       })
     },
-    [socket, channelId, removeMessageFromCache, queryClient]
+    [socket, channelId, threadRootId, removeMessageFromCache, queryClient]
   )
 
   return { handleDelete }

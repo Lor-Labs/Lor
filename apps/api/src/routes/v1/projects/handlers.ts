@@ -13,6 +13,7 @@ import { logger } from "@/lib/logger"
 import { completeLoopsForChannels } from "@/lib/loops"
 import { hasWorkspaceAuthority } from "@/lib/permissions"
 import { enqueueProjectArchive } from "@/lib/project-archive-queue"
+import { disconnectUserSockets } from "@/lib/socket-access"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
   AddProjectMemberRoute,
@@ -421,6 +422,12 @@ export const updateProject: AppRouteHandler<UpdateProjectRoute> = async (c) => {
       HttpStatusCodes.NOT_FOUND
     )
   }
+  await emitProjectUpdated({
+    projectId: detail.id,
+    categoryChannelId: detail.categoryChannelId,
+    status: detail.status,
+    archivedAt: detail.archivedAt,
+  })
   return c.json(detail, HttpStatusCodes.OK)
 }
 
@@ -717,16 +724,20 @@ export const removeProjectMember: AppRouteHandler<
     )
   }
 
-  if (removed.wasMember) {
-    await postMemberEventToProjectChannels({
-      categoryChannelId: project.categoryChannelId,
-      actorId: currentUser.id,
-      event:
-        userId === currentUser.id
-          ? { eventType: "member_left" }
-          : { eventType: "member_removed", payload: { userId } },
-    })
+  if (!removed.wasMember) {
+    return c.json({ success: true as const }, HttpStatusCodes.OK)
   }
+
+  await disconnectUserSockets(userId)
+
+  await postMemberEventToProjectChannels({
+    categoryChannelId: project.categoryChannelId,
+    actorId: currentUser.id,
+    event:
+      userId === currentUser.id
+        ? { eventType: "member_left" }
+        : { eventType: "member_removed", payload: { userId } },
+  })
 
   // The removed user left the audience, so notify them explicitly too.
   await emitProjectUpdated(

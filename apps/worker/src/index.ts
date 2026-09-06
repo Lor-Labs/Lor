@@ -28,6 +28,7 @@ import {
   pruneRunEvents,
   RUN_EVENT_PRUNE_EVERY_MS,
   sweepDeadRuns,
+  sweepOrphanedPlaceholders,
 } from "@/jobs/prune-run-events"
 import { LOOP_SWEEP_EVERY_MS, sweepDueLoops } from "@/jobs/sweep-due-loops"
 import { createTriggeredRunProcessor } from "@/jobs/triggered-run"
@@ -40,6 +41,10 @@ import {
 } from "@/lib/approval-notify"
 import { logger } from "@/lib/logger"
 import { awaitInflightDrains } from "@/lib/run-queue"
+
+process.on("unhandledRejection", (reason) => {
+  logger.error({ err: reason }, "Unhandled promise rejection")
+})
 
 // Worker-internal periodic upkeep and delayed one-shots, scheduled through
 // BullMQ (not in-process timers) so replicas share one schedule and runs are
@@ -270,14 +275,15 @@ async function bootstrap() {
     MAINTENANCE_QUEUE,
     async (job) => {
       if (job.name === "prune-run-events") await pruneRunEvents()
-      else if (job.name === "sweep-dead-runs")
+      else if (job.name === "sweep-dead-runs") {
         await sweepDeadRuns(
           emitter,
           redisEmitterClient,
           merlinRespondQueue,
           triggeredRunQueue
         )
-      else if (job.name === "sweep-due-loops")
+        await sweepOrphanedPlaceholders(emitter)
+      } else if (job.name === "sweep-due-loops")
         await sweepDueLoops(emitter, loopRunQueue)
       else if (job.name === NOTIFY_APPROVAL_JOB) {
         const { approvalId } = job.data as { approvalId: string }

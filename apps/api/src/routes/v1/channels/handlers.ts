@@ -1,8 +1,5 @@
 import { db, schema } from "@repo/db"
-import {
-  listAccessibleChannelIds,
-  resolveChannelAudienceInfo,
-} from "@repo/db/queries/channel-access"
+import { listAccessibleChannelIds } from "@repo/db/queries/channel-access"
 import type { IntegrationProvider } from "@repo/db/schema"
 import {
   agentProfile,
@@ -19,15 +16,16 @@ import {
   searchConnectorFiles as searchFiles,
 } from "@repo/merlin/connector-search"
 import {
+  channelRoom,
   type ServerToClientEvents,
+  threadRoom,
   userRoom,
-  workspaceRoom,
 } from "@repo/realtime-types"
 import { Emitter } from "@socket.io/redis-emitter"
 import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm"
 import { getEmitter } from "@/lib/bot-messages"
 import { allowedChannelConnectors } from "@/lib/channel-connectors"
-import { postChannelEvent } from "@/lib/channel-events"
+import { emitChannelCreated, postChannelEvent } from "@/lib/channel-events"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
 import { assertWorkspaceAuthority } from "@/lib/permissions"
@@ -208,16 +206,7 @@ export const createChannel: AppRouteHandler<CreateChannelRoute> = async (c) => {
   // included) decides the rooms: a members-only channel — standalone private
   // or inside a restricted category — pings only the people who can see it.
   try {
-    const io = await getEmitter()
-    const payload = { workspaceId: workspace.id, channelId: newChannel.id }
-    const audience = await resolveChannelAudienceInfo(newChannel.id)
-    if (audience.audience === "workspace") {
-      io.to(workspaceRoom(workspace.id)).emit("channel:created", payload)
-    } else {
-      for (const userId of audience.userIds) {
-        io.to(userRoom(userId)).emit("channel:created", payload)
-      }
-    }
+    await emitChannelCreated(workspace.id, newChannel.id)
   } catch (err) {
     logger.warn(
       { err, channelId: newChannel.id },
@@ -692,6 +681,7 @@ export const toggleMessagePin: AppRouteHandler<ToggleMessagePinRoute> = async (
     .select({
       id: message.id,
       pinned: message.pinned,
+      threadRootId: message.threadRootId,
       channelId: message.channelId,
     })
     .from(message)
@@ -719,6 +709,15 @@ export const toggleMessagePin: AppRouteHandler<ToggleMessagePinRoute> = async (
     .update(message)
     .set({ pinned: newPinned })
     .where(eq(message.id, messageId))
+
+  try {
+    const emitter = await getEmitter()
+    emitter
+      .to([channelRoom(channelId), threadRoom(msg.threadRootId ?? messageId)])
+      .emit("message:pin:toggled", { channelId, messageId, pinned: newPinned })
+  } catch (err) {
+    logger.warn({ err, messageId }, "Message pin emit failed")
+  }
 
   return c.json(
     { success: true as const, pinned: newPinned },

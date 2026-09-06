@@ -30,6 +30,11 @@ export function useChannelTasks(channelId: string) {
       payload
     ) => {
       if (payload.task.channelId !== channelId) return
+      if (!queryClient.getQueryData(["channel-tasks", channelId])) {
+        void queryClient.invalidateQueries({
+          queryKey: ["channel-tasks", channelId],
+        })
+      }
       queryClient.setQueryData(
         ["channel-tasks", channelId],
         (existing: ChannelTask[] | undefined) => {

@@ -30,6 +30,11 @@ export function useChannelLoops(channelId: string) {
       payload
     ) => {
       if (payload.loop.channelId !== channelId) return
+      if (!queryClient.getQueryData(["channel-loops", channelId])) {
+        void queryClient.invalidateQueries({
+          queryKey: ["channel-loops", channelId],
+        })
+      }
       queryClient.setQueryData(
         ["channel-loops", channelId],
         (existing: ChannelLoop[] | undefined) => {

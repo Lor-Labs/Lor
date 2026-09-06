@@ -18,6 +18,7 @@ import {
 } from "@/lib/permissions"
 import { getAvatarColorsByUserId } from "@/lib/queries/messages"
 import { getRedisClient } from "@/lib/redis"
+import { disconnectUserSockets } from "@/lib/socket-access"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
   DeleteWorkspaceRoleRoute,
@@ -279,6 +280,8 @@ export const kickWorkspaceMember: AppRouteHandler<
         eq(schema.workspaceMember.userId, userId)
       )
     )
+
+  await disconnectUserSockets(userId)
 
   void syncSeats(workspace.id)
 

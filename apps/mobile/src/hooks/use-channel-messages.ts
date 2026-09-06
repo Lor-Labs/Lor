@@ -4,6 +4,7 @@ import type {
 } from "@repo/realtime-types"
 import { useQueryClient } from "@tanstack/react-query"
 import { useCallback, useEffect, useRef, useState } from "react"
+import { useChannelRoom } from "@/hooks/use-channel-room"
 import { api } from "@/lib/api"
 import type { Message } from "@/lib/api-types"
 import {
@@ -71,6 +72,7 @@ export function useChannelMessages({
   const sourceKind = source.kind
   const workspaceSlug = source.kind === "channel" ? source.workspaceSlug : ""
   const channelId = source.kind === "channel" ? source.channelId : source.dmId
+  useChannelRoom(socket, channelId)
   const queryClient = useQueryClient()
   const [messages, setMessages] = useState<Message[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -237,11 +239,7 @@ export function useChannelMessages({
   useEffect(() => {
     if (!socket) return
 
-    const joinChannel = () => {
-      socket.emit("channel:join", { channelId })
-    }
     const rejoinChannel = () => {
-      joinChannel()
       void reload({ replace: true, silent: true })
     }
     const receiveMessage = (
@@ -377,7 +375,6 @@ export function useChannelMessages({
       )
     }
 
-    if (socket.connected) joinChannel()
     socket.on("connect", rejoinChannel)
     socket.on("message:created", receiveMessage)
     socket.on("message:updated", updateMessage)
@@ -395,7 +392,6 @@ export function useChannelMessages({
     socket.on("message:thread:updated", updateThreadSummary)
 
     return () => {
-      if (socket.connected) socket.emit("channel:leave", { channelId })
       socket.off("connect", rejoinChannel)
       socket.off("message:created", receiveMessage)
       socket.off("message:updated", updateMessage)

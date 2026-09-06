@@ -1,4 +1,4 @@
-import { db, eq, schema } from "@repo/db"
+import { and, db, eq, isNull, or, schema } from "@repo/db"
 import type { AgentRunContextTask, Task, TaskPlanItem } from "@repo/db/schema"
 import type { RealtimeTask } from "@repo/realtime-types/events"
 import { tool } from "ai"
@@ -58,6 +58,59 @@ const taskContext = z.object({
   // Lets respond() force a final text step once an approval is pending.
   onApprovalRequested: z.custom<() => void>().optional(),
 })
+
+// Settle the task a run leaves behind when it dies outside its processor
+// (crash swept by sweepDeadRuns, stopped while still queued, or a first run
+// that never got enqueued). Keys on the claimed run id, or — for a run that
+// never claimed — the task card that is the run's thread root, guarded on
+// activeRunId being unset so a newer continuation's task is never clobbered.
+// Active plan steps demote to pending so the card stops showing a spinning
+// step (complete_task normalizes the plan on success; abnormal ends must too).
+export async function settleAbandonedRunTask(
+  run: { id?: string; threadRootId: string | null },
+  status: "failed" | "stopped",
+  onTaskUpdated?: OnTaskUpdated
+): Promise<void> {
+  const linkage = or(
+    run.id ? eq(schema.task.activeRunId, run.id) : undefined,
+    run.threadRootId
+      ? and(
+          eq(schema.task.cardMessageId, run.threadRootId),
+          isNull(schema.task.activeRunId)
+        )
+      : undefined
+  )
+  if (!linkage) return
+  const target = await db
+    .select({ id: schema.task.id, plan: schema.task.plan })
+    .from(schema.task)
+    .where(and(eq(schema.task.status, "running"), linkage))
+    .limit(1)
+    .then((rows) => rows[0] ?? null)
+  if (!target) return
+  const plan = target.plan.map((item) =>
+    item.status === "active" ? { ...item, status: "pending" as const } : item
+  )
+  const row = await db
+    .update(schema.task)
+    .set({ status, activeRunId: null, plan })
+    .where(
+      and(
+        eq(schema.task.id, target.id),
+        eq(schema.task.status, "running"),
+        linkage
+      )
+    )
+    .returning()
+    .then((rows) => rows[0] ?? null)
+  if (row && onTaskUpdated) {
+    try {
+      onTaskUpdated(row)
+    } catch (err) {
+      logger.error({ err }, "onTaskUpdated listener failed")
+    }
+  }
+}
 
 export async function updateTask(
   taskId: string,

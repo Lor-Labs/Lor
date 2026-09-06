@@ -423,9 +423,7 @@ function groupText(
   if (kind === "member_added") {
     const userIds = [
       ...new Set(
-        events.flatMap(
-          (e) => ((e.eventPayload as AddedPayload) ?? {}).userIds ?? []
-        )
+        events.flatMap((e) => (e.eventPayload as AddedPayload)?.userIds ?? [])
       ),
     ]
     const names = joinNodes(memberNames(userIds, resolveUserName))
@@ -438,9 +436,9 @@ function groupText(
     )
   }
   if (kind === "member_removed") {
-    const userIds = events.map(
-      (e) => ((e.eventPayload as RemovedPayload) ?? {}).userId
-    )
+    const userIds = events
+      .map((e) => (e.eventPayload as RemovedPayload | null)?.userId)
+      .filter((id): id is string => typeof id === "string")
     const names = joinNodes(memberNames(userIds, resolveUserName))
     return sameActor ? (
       <>

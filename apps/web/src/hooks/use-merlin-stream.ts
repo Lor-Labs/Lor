@@ -5,7 +5,7 @@ import {
   upsertToolCall,
 } from "@repo/utils/merlin"
 import type { InfiniteData, QueryClient } from "@tanstack/react-query"
-import { useEffect } from "react"
+import { useEffect, useSyncExternalStore } from "react"
 import { apiClient } from "@/lib/api-client"
 import { updateMessagesAcrossPages } from "@/lib/message-cache-utils"
 import type { AppSocket } from "@/lib/socket"
@@ -133,9 +133,53 @@ const replayGates = new Map<string, ReplayGate>()
 // Message ids whose replay has been kicked off, so re-renders don't re-fetch.
 const replayStarted = new Set<string>()
 
+const replayRetryTimers = new Map<string, ReturnType<typeof setTimeout>>()
+const replayRetryListeners = new Set<() => void>()
+let replayRetryRevision = 0
+
+function subscribeReplayRetry(listener: () => void) {
+  replayRetryListeners.add(listener)
+  return () => {
+    replayRetryListeners.delete(listener)
+  }
+}
+
+function getReplayRetryRevision() {
+  return replayRetryRevision
+}
+
+function notifyReplayRetry() {
+  replayRetryRevision += 1
+  for (const listener of replayRetryListeners) listener()
+}
+
 function clearReplayState(messageId: string) {
+  const timer = replayRetryTimers.get(messageId)
+  if (timer) clearTimeout(timer)
+  replayRetryTimers.delete(messageId)
   replayGates.delete(messageId)
   replayStarted.delete(messageId)
+}
+
+const REPLAY_RETRY_MS = 30_000
+function scheduleReplayRetry(messageId: string) {
+  if (replayRetryTimers.has(messageId)) return
+  replayRetryTimers.set(
+    messageId,
+    setTimeout(() => {
+      clearReplayState(messageId)
+      notifyReplayRetry()
+    }, REPLAY_RETRY_MS)
+  )
+}
+
+// A reconnect may have missed terminal frames; mounted views must replay again.
+export function resetMerlinReplayState() {
+  for (const timer of replayRetryTimers.values()) clearTimeout(timer)
+  replayRetryTimers.clear()
+  replayGates.clear()
+  replayStarted.clear()
+  notifyReplayRetry()
 }
 
 // Returns true when the frame was consumed (buffered or already covered by
@@ -328,16 +372,21 @@ function applyReplayEvents(
       steeringBy = p.authorName
     }
   }
-  patchMessage(queryClient, key, messageId, (m) => ({
-    ...m,
-    ...(content !== undefined ? { content } : {}),
-    ...(reasoning !== undefined ? { merlinReasoning: reasoning } : {}),
-    ...(segments ? { merlinReasoningSegments: segments } : {}),
-    ...(toolCalls ? { merlinToolCalls: toolCalls } : {}),
-    ...(remembered.length > 0 ? { remembered } : {}),
-    ...(steeringBy ? { steeringBy } : {}),
-    streaming: true,
-  }))
+  patchMessage(queryClient, key, messageId, (m) => {
+    // The message settled while the replay fetch was in flight (done frame or
+    // refetch won the race) — never flip a finished reply back to streaming.
+    if (m.status === "complete" || m.status === "failed") return m
+    return {
+      ...m,
+      ...(content !== undefined ? { content } : {}),
+      ...(reasoning !== undefined ? { merlinReasoning: reasoning } : {}),
+      ...(segments ? { merlinReasoningSegments: segments } : {}),
+      ...(toolCalls ? { merlinToolCalls: toolCalls } : {}),
+      ...(remembered.length > 0 ? { remembered } : {}),
+      ...(steeringBy ? { steeringBy } : {}),
+      streaming: true,
+    }
+  })
 }
 
 async function replayRun(
@@ -351,15 +400,19 @@ async function replayRun(
     const res = await apiClient.v1.runs["by-message"][":messageId"].events.$get(
       { param: { messageId: args.messageId }, query: {} }
     )
+    if (replayGates.get(args.messageId) !== gate) return
     // 404 = legacy run with no durable log; anything else is best-effort too —
     // fall back to live-frames-only exactly as before replay existed. The
-    // replayStarted marker stays so render churn doesn't re-fetch in a loop.
+    // replayStarted marker re-arms on a timer, not immediately, so render
+    // churn doesn't re-fetch in a loop but a transient failure still retries.
     if (!res.ok) {
       replayGates.delete(args.messageId)
+      scheduleReplayRetry(args.messageId)
       for (const frame of gate.frames) applyBufferedFrame(queryClient, frame)
       return
     }
     const { run, events } = await res.json()
+    if (replayGates.get(args.messageId) !== gate) return
 
     // Terminal run: the message row already holds the final content, trail,
     // and mentions — refetch it instead of rebuilding from events.
@@ -388,7 +441,9 @@ async function replayRun(
       }
     }
   } catch {
+    if (replayGates.get(args.messageId) !== gate) return
     replayGates.delete(args.messageId)
+    scheduleReplayRetry(args.messageId)
     for (const frame of gate.frames) applyBufferedFrame(queryClient, frame)
   }
 }
@@ -538,6 +593,10 @@ export function useMerlinRunReplay({
   channelId,
   messages,
 }: UseMerlinRunReplayOptions) {
+  const retryRevision = useSyncExternalStore(
+    subscribeReplayRetry,
+    getReplayRetryRevision
+  )
   const pendingIds = messages
     .filter((m) => m.status === "pending" && !replayStarted.has(m.id))
     .map((m) => `${m.id}:${m.threadRootId ?? ""}`)
@@ -555,5 +614,5 @@ export function useMerlinRunReplay({
         messageId,
       })
     }
-  }, [pendingIds, queryClient, channelId])
+  }, [pendingIds, queryClient, channelId, retryRevision])
 }

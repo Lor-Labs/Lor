@@ -10,6 +10,7 @@ import {
   sql,
 } from "@repo/db"
 import { env } from "@repo/env/server"
+import { loadThreadSummary } from "@repo/messaging"
 import type {
   MerlinRespondJobData,
   RealtimeMessage,
@@ -285,12 +286,9 @@ async function runDrain(args: {
     streaming: true,
     merlinTriggerMessageId: triggerMessageId,
   }
-  // Thread footer counts refresh with the next real reply; the worker skips
-  // the summary recompute the realtime service does on its own placeholders.
   args.emitter
     .to(threadRootId ? threadRoom(threadRootId) : channelRoom(run.channelId))
     .emit("message:created", realtimePlaceholder)
-
   try {
     await args.respondQueue.add(
       "respond",
@@ -309,7 +307,9 @@ async function runDrain(args: {
       },
       {
         attempts: 2,
-        backoff: { type: "fixed", delay: 5000 },
+        // Must exceed the run lease TTL (60s) or the retry can never reclaim
+        // a crashed attempt — it sees a live lease and skips.
+        backoff: { type: "fixed", delay: 90_000 },
         jobId: newRun.id,
       }
     )
@@ -340,6 +340,24 @@ async function runDrain(args: {
     })
     return
   }
+  // Channel feeds only learn about threaded activity via
+  // message:thread:updated — without this, a follow-up run bumps nothing for
+  // viewers outside the thread until reload.
+  if (threadRootId) {
+    await loadThreadSummary(run.channelId, threadRootId)
+      .then((summary) =>
+        args.emitter
+          .to(channelRoom(run.channelId))
+          .emit("message:thread:updated", summary)
+      )
+      .catch((err) =>
+        logger.warn(
+          { err, threadRootId },
+          "Follow-up thread summary emit failed"
+        )
+      )
+  }
+
   logger.info(
     {
       scopeKey: run.scopeKey,

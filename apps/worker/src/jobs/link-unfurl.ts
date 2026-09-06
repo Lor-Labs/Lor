@@ -6,7 +6,7 @@ import type {
   RealtimeMessageEmbedsUpdated,
 } from "@repo/realtime-types"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
-import { channelRoom } from "@repo/realtime-types/rooms"
+import { channelRoom, threadRoom } from "@repo/realtime-types/rooms"
 import type { Emitter } from "@socket.io/redis-emitter"
 import type { Job } from "bullmq"
 import ogs from "open-graph-scraper"
@@ -125,7 +125,10 @@ export function createLinkUnfurlProcessor(
           .update(schema.message)
           .set({ embeds })
           .where(eq(schema.message.id, messageId))
-          .returning({ id: schema.message.id })
+          .returning({
+            id: schema.message.id,
+            threadRootId: schema.message.threadRootId,
+          })
 
         if (!updated) {
           logger.warn({ messageId }, "Message not found for embed update")
@@ -138,8 +141,14 @@ export function createLinkUnfurlProcessor(
           embeds,
         }
 
+        // The row also routes jobs enqueued before threadRootId was added.
+        const rootId = updated.threadRootId
         emitter
-          .to(channelRoom(channelId))
+          .to(
+            rootId
+              ? threadRoom(rootId)
+              : [channelRoom(channelId), threadRoom(messageId)]
+          )
           .emit("message:embeds:updated", payload)
         logger.info(
           { messageId, embedCount: embeds.length },

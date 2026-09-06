@@ -175,7 +175,7 @@ export async function createTaskWithCard(args: {
 // an in-flight run keeps its ceilings across retries and config changes.
 // "conflict" = the scope's one-active-run index rejected the insert (another
 // mention won the race) — the caller re-routes at the winner. Other failures
-// must never block the answer; the worker treats a missing runId as legacy.
+// are propagated so the caller can compensate its placeholder.
 export async function createAgentRun(args: {
   workspaceId: string
   channelId: string
@@ -206,10 +206,8 @@ export async function createAgentRun(args: {
     return row?.id ?? null
   } catch (err) {
     if (isUniqueViolation(err)) return "conflict"
-    // The answer proceeds as a legacy (non-durable) job — worth surfacing,
-    // since it silently loses replay/budgets/steering for this response.
     logger.error({ err, channelId: args.channelId }, "Agent run insert failed")
-    return null
+    throw err
   }
 }
 
