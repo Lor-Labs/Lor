@@ -19,7 +19,9 @@ import {
   searchConnectorFiles as searchFiles,
 } from "@repo/merlin/connector-search"
 import {
+  channelRoom,
   type ServerToClientEvents,
+  threadRoom,
   userRoom,
   workspaceRoom,
 } from "@repo/realtime-types"
@@ -692,6 +694,7 @@ export const toggleMessagePin: AppRouteHandler<ToggleMessagePinRoute> = async (
     .select({
       id: message.id,
       pinned: message.pinned,
+      threadRootId: message.threadRootId,
       channelId: message.channelId,
     })
     .from(message)
@@ -719,6 +722,15 @@ export const toggleMessagePin: AppRouteHandler<ToggleMessagePinRoute> = async (
     .update(message)
     .set({ pinned: newPinned })
     .where(eq(message.id, messageId))
+
+  try {
+    const emitter = await getEmitter()
+    emitter
+      .to([channelRoom(channelId), threadRoom(msg.threadRootId ?? messageId)])
+      .emit("message:pin:toggled", { channelId, messageId, pinned: newPinned })
+  } catch (err) {
+    logger.warn({ err, messageId }, "Message pin emit failed")
+  }
 
   return c.json(
     { success: true as const, pinned: newPinned },

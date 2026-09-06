@@ -1,28 +1,35 @@
-import type { RealtimeMessageMention } from "@repo/realtime-types"
+import type {
+  RealtimeMessageMention,
+  ServerToClientEvents,
+} from "@repo/realtime-types"
 import type { InfiniteData, QueryClient } from "@tanstack/react-query"
 import { useCallback, useEffect } from "react"
 import { updateMessagesAcrossPages } from "@/lib/message-cache-utils"
 import type { AppSocket } from "@/lib/socket"
 
+type EditableMessage = {
+  id: string
+  content: string | null
+  editedAt: string | null
+  mentions?: RealtimeMessageMention[]
+}
 interface MessagePage {
-  data: {
-    id: string
-    content: string | null
-    editedAt: string | null
-    mentions?: RealtimeMessageMention[]
-  }[]
+  data: EditableMessage[]
+  root?: EditableMessage | null
 }
 
 interface UseMessageEditingOptions {
   socket: AppSocket | null
   queryClient: QueryClient
   channelId: string
+  threadRootId?: string
 }
 
 export function useMessageEditing({
   socket,
   queryClient,
   channelId,
+  threadRootId,
 }: UseMessageEditingOptions) {
   const updateMessageInCache = useCallback(
     (
@@ -31,33 +38,42 @@ export function useMessageEditing({
       editedAt: string,
       mentions?: RealtimeMessageMention[]
     ) => {
-      queryClient.setQueryData<InfiniteData<MessagePage>>(
-        ["messages", channelId],
-        (old) => {
+      const update = (message: EditableMessage) =>
+        message.id === messageId
+          ? {
+              ...message,
+              content,
+              editedAt,
+              mentions: mentions ?? message.mentions,
+            }
+          : message
+      const updateCache = (key: readonly unknown[]) => {
+        queryClient.setQueryData<InfiniteData<MessagePage>>(key, (old) => {
           if (!old) return old
-          return updateMessagesAcrossPages(old, (msgs) =>
-            msgs.map((m) =>
-              m.id === messageId
-                ? { ...m, content, editedAt, mentions: mentions ?? m.mentions }
-                : m
-            )
+          const updated = updateMessagesAcrossPages(old, (messages) =>
+            messages.map(update)
           )
-        }
-      )
+          return {
+            ...updated,
+            pages: updated.pages.map((page) => ({
+              ...page,
+              ...(page.root ? { root: update(page.root) } : {}),
+            })),
+          }
+        })
+      }
+      updateCache(["messages", channelId])
+      if (threadRootId) updateCache(["thread", threadRootId])
     },
-    [queryClient, channelId]
+    [queryClient, channelId, threadRootId]
   )
 
   useEffect(() => {
     if (!socket) return
 
-    const handleUpdated = (payload: {
-      channelId: string
-      messageId: string
-      content: string
-      editedAt: string
-      mentions: RealtimeMessageMention[]
-    }) => {
+    const handleUpdated: ServerToClientEvents["message:updated"] = (
+      payload
+    ) => {
       if (payload.channelId !== channelId) return
       updateMessageInCache(
         payload.messageId,
@@ -89,6 +105,10 @@ export function useMessageEditing({
             void queryClient.invalidateQueries({
               queryKey: ["messages", channelId],
             })
+            if (threadRootId)
+              void queryClient.invalidateQueries({
+                queryKey: ["thread", threadRootId],
+              })
             return
           }
           updateMessageInCache(
@@ -100,7 +120,7 @@ export function useMessageEditing({
         }
       )
     },
-    [socket, channelId, updateMessageInCache, queryClient]
+    [socket, channelId, threadRootId, updateMessageInCache, queryClient]
   )
 
   return { handleEdit }

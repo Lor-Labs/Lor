@@ -53,8 +53,15 @@ export function useChannelProposals(channelId: string) {
         queryKey: channelProposalsQueryKey(channelId),
       })
     }
+    const refetchOnConnect = () => {
+      void queryClient.invalidateQueries({
+        queryKey: ["channel-proposals", channelId],
+      })
+    }
+    socket.on("connect", refetchOnConnect)
     socket.on("proposal:updated", handleUpdated)
     return () => {
+      socket.off("connect", refetchOnConnect)
       socket.off("proposal:updated", handleUpdated)
     }
   }, [socket, queryClient, channelId])

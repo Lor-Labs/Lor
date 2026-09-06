@@ -1,5 +1,11 @@
 import { and, db, desc, eq, inArray, isUniqueViolation, schema } from "@repo/db"
+import {
+  type InstructionsProposalUpdate,
+  workspaceRoom,
+} from "@repo/realtime-types"
+import { getEmitter } from "@/lib/bot-messages"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
+import { logger } from "@/lib/logger"
 import {
   assertWorkspaceAuthority,
   hasWorkspaceAuthority,
@@ -11,6 +17,17 @@ import type {
   RejectInstructionsProposalRoute,
   UpdateInstructionsRoute,
 } from "@/routes/v1/instructions/routes"
+
+async function emitInstructionsUpdated(payload: InstructionsProposalUpdate) {
+  try {
+    const emitter = await getEmitter()
+    emitter
+      .to(workspaceRoom(payload.workspaceId))
+      .emit("instructions:updated", payload)
+  } catch (err) {
+    logger.warn({ err, ...payload }, "Instructions update emit failed")
+  }
+}
 
 const VERSION_HISTORY_LIMIT = 50
 
@@ -186,6 +203,10 @@ export const updateInstructions: AppRouteHandler<
       )
     }
 
+    await emitInstructionsUpdated({
+      workspaceId: workspace.id,
+      version: created.version,
+    })
     return c.json(
       {
         success: true as const,
@@ -300,6 +321,7 @@ export const approveInstructionsProposal: AppRouteHandler<
         HttpStatusCodes.CONFLICT
       )
     }
+    await emitInstructionsUpdated({ workspaceId: workspace.id, version })
     return c.json({ success: true as const }, HttpStatusCodes.OK)
   } catch (err) {
     if (isUniqueViolation(err) || err instanceof ProposalRaceError) {
@@ -343,5 +365,6 @@ export const rejectInstructionsProposal: AppRouteHandler<
       HttpStatusCodes.NOT_FOUND
     )
   }
+  await emitInstructionsUpdated({ workspaceId: workspace.id, version })
   return c.json({ success: true as const }, HttpStatusCodes.OK)
 }

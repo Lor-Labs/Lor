@@ -1,7 +1,9 @@
 import { authClient } from "@repo/auth/client"
 import { isTauri } from "@repo/auth/tauri-fetch"
+import { useQueryClient } from "@tanstack/react-query"
 import type { ReactNode } from "react"
 import { createContext, useContext, useEffect, useState } from "react"
+import { resetMerlinReplayState } from "@/hooks/use-merlin-stream"
 import { type AppSocket, getSocket } from "@/lib/socket"
 
 const SocketContext = createContext<AppSocket | null>(null)
@@ -21,6 +23,7 @@ export function SocketProvider({
   children: ReactNode
 }) {
   const [socket, setSocket] = useState<AppSocket | null>(null)
+  const queryClient = useQueryClient()
 
   useEffect(() => {
     if (!enabled) return
@@ -68,9 +71,20 @@ export function SocketProvider({
       }, retryDelay)
     }
 
+    let hadConnected = false
     const onConnect = () => {
       retryDelay = RECONNECT_BASE_DELAY_MS
       console.log("[socket] connected:", s.id)
+      // A reconnect lands on a fresh server-side socket with no channel or
+      // thread rooms (only user/workspace are auto-joined) — the join sites
+      // re-emit via their own "connect" listeners. Every event broadcast while
+      // disconnected is gone, so refetch whatever is on screen and re-arm
+      // Merlin replay; otherwise the UI stays silently stale until reload.
+      if (hadConnected) {
+        resetMerlinReplayState()
+        void queryClient.invalidateQueries()
+      }
+      hadConnected = true
     }
     const onDisconnect = (reason: string) => {
       console.log("[socket] disconnected:", reason)
@@ -88,6 +102,12 @@ export function SocketProvider({
       if (!s.connected && !s.active) connect()
     }
 
+    const onInstructionsUpdated = () => {
+      void queryClient.invalidateQueries({
+        queryKey: ["workspace-instructions"],
+      })
+    }
+    s.on("instructions:updated", onInstructionsUpdated)
     s.on("connect", onConnect)
     s.on("disconnect", onDisconnect)
     s.on("connect_error", onConnectError)
@@ -101,6 +121,7 @@ export function SocketProvider({
     return () => {
       cancelled = true
       if (retryTimer) clearTimeout(retryTimer)
+      s.off("instructions:updated", onInstructionsUpdated)
       s.off("connect", onConnect)
       s.off("disconnect", onDisconnect)
       s.off("connect_error", onConnectError)
@@ -110,7 +131,7 @@ export function SocketProvider({
       s.disconnect()
       setSocket(null)
     }
-  }, [enabled])
+  }, [enabled, queryClient])
 
   return (
     <SocketContext.Provider value={socket}>{children}</SocketContext.Provider>

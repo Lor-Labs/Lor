@@ -156,7 +156,7 @@ async function loadReferencedMessage(
   }
 }
 
-async function loadMessageByClientKey(args: {
+export async function loadMessageByClientKey(args: {
   authorId: string
   channelId: string
   clientKey: string
@@ -252,6 +252,7 @@ export type DeleteMessageResult = {
 }
 
 export type ToggleMessageReactionResult = {
+  threadRootId: string | null
   update: RealtimeMessageReactionUpdated
   channel: AccessibleChannel
   notification: {
@@ -543,6 +544,7 @@ export async function deleteMessage(
 }
 
 export type EditMessageResult = {
+  threadRootId: string | null
   channelId: string
   messageId: string
   content: string
@@ -566,6 +568,7 @@ export async function editMessage(
     .select({
       id: schema.message.id,
       authorId: schema.message.authorId,
+      threadRootId: schema.message.threadRootId,
     })
     .from(schema.message)
     .where(
@@ -601,6 +604,7 @@ export async function editMessage(
   })
 
   return {
+    threadRootId: messageRecord.threadRootId,
     channelId: input.payload.channelId,
     messageId: input.payload.messageId,
     content: input.payload.content,
@@ -725,6 +729,7 @@ export async function toggleMessageReaction(input: ToggleMessageReactionInput) {
     : null
 
   return {
+    threadRootId: messageRecord.threadRootId,
     update: {
       channelId: input.payload.channelId,
       messageId: input.payload.messageId,

@@ -5,6 +5,7 @@ import type {
 } from "@repo/realtime-types"
 import { useQueryClient } from "@tanstack/react-query"
 import { useCallback, useEffect, useRef, useState } from "react"
+import { useChannelRoom } from "@/hooks/use-channel-room"
 import { api } from "@/lib/api"
 import type { Message, ThreadMessageList } from "@/lib/api-types"
 import {
@@ -74,6 +75,7 @@ export function useThreadMessages({
   socket: AppSocket | null
   currentUser?: CurrentUser
 }) {
+  useChannelRoom(socket, channelId)
   const queryClient = useQueryClient()
   const [messages, setMessages] = useState<Message[]>([])
   const [root, setRoot] = useState<Message | null>(null)
@@ -402,7 +404,6 @@ export function useThreadMessages({
 
     const joinThread = () => {
       socket.emit("thread:join", { threadRootId })
-      socket.emit("channel:join", { channelId })
     }
     const rejoinThread = () => {
       joinThread()
@@ -668,7 +669,6 @@ export function useThreadMessages({
 
     return () => {
       if (socket.connected) socket.emit("thread:leave", { threadRootId })
-      if (socket.connected) socket.emit("channel:leave", { channelId })
       socket.off("connect", rejoinThread)
       socket.off("message:created", receiveMessage)
       socket.off("message:updated", updateMessage)

@@ -30,6 +30,11 @@ export function useChannelLoops(channelId: string) {
       payload
     ) => {
       if (payload.loop.channelId !== channelId) return
+      if (!queryClient.getQueryData(["channel-loops", channelId])) {
+        void queryClient.invalidateQueries({
+          queryKey: ["channel-loops", channelId],
+        })
+      }
       queryClient.setQueryData(
         ["channel-loops", channelId],
         (existing: ChannelLoop[] | undefined) => {
@@ -49,9 +54,16 @@ export function useChannelLoops(channelId: string) {
           existing?.filter((l) => l.id !== payload.loopId)
       )
     }
+    const refetchOnConnect = () => {
+      void queryClient.invalidateQueries({
+        queryKey: ["channel-loops", channelId],
+      })
+    }
+    socket.on("connect", refetchOnConnect)
     socket.on("loop:updated", handleLoopUpdated)
     socket.on("loop:deleted", handleLoopDeleted)
     return () => {
+      socket.off("connect", refetchOnConnect)
       socket.off("loop:updated", handleLoopUpdated)
       socket.off("loop:deleted", handleLoopDeleted)
     }

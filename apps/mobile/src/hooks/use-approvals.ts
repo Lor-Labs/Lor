@@ -56,9 +56,16 @@ export function useChannelApprovals(channelId: string) {
     }
     const handleCreated: ServerToClientEvents["approval:created"] = refetch
     const handleUpdated: ServerToClientEvents["approval:updated"] = refetch
+    const refetchOnConnect = () => {
+      void queryClient.invalidateQueries({
+        queryKey: ["channel-approvals", channelId],
+      })
+    }
+    socket.on("connect", refetchOnConnect)
     socket.on("approval:created", handleCreated)
     socket.on("approval:updated", handleUpdated)
     return () => {
+      socket.off("connect", refetchOnConnect)
       socket.off("approval:created", handleCreated)
       socket.off("approval:updated", handleUpdated)
     }

@@ -1,10 +1,11 @@
+import { randomUUID } from "node:crypto"
 import { createServer } from "node:http"
 import { auth, type Session } from "@repo/auth"
-import { and, db, eq, schema } from "@repo/db"
+import { and, db, eq, notExists, schema } from "@repo/db"
 import { env } from "@repo/env/server"
 import { enterContext } from "@repo/logger"
 import { decideReplyPlacement } from "@repo/merlin/placement"
-import { toRealtimeTask } from "@repo/merlin/tasks"
+import { settleAbandonedRunTask, toRealtimeTask } from "@repo/merlin/tasks"
 import {
   buildMessageFanout,
   sendMessagePushNotifications,
@@ -27,6 +28,7 @@ import {
   threadRoomPayloadSchema,
   toggleMessageReactionPayloadSchema,
   typingStartPayloadSchema,
+  userConnectionRoom,
   userRoom,
   workspaceMemberJoinedPayloadSchema,
   workspaceRoom,
@@ -66,10 +68,12 @@ import {
   openMerlinSession,
   unmuteMerlinThread,
 } from "@/services/merlin-session"
+import { claimMessageDelivery } from "@/services/message-delivery"
 import {
   createMessage,
   deleteMessage,
   editMessage,
+  loadMessageByClientKey,
   loadThreadSummary,
   toggleMessageReaction,
 } from "@/services/messages"
@@ -260,6 +264,40 @@ io.use(async (socket, next) => {
   }
 })
 
+async function clearSocketPresence(socket: RealtimeSocket, socketId: string) {
+  const { becameOffline } = await markUserDisconnected(
+    redisPresenceClient,
+    socket.data.user.id,
+    socketId
+  )
+  if (!becameOffline) return
+  const workspaceIds =
+    socket.data.workspaceIds ??
+    (
+      await db
+        .select({ workspaceId: schema.workspaceMember.workspaceId })
+        .from(schema.workspaceMember)
+        .where(eq(schema.workspaceMember.userId, socket.data.user.id))
+    ).map((row) => row.workspaceId)
+  for (const workspaceId of workspaceIds) {
+    io.to(workspaceRoom(workspaceId)).emit("presence:user:update", {
+      workspaceId,
+      userId: socket.data.user.id,
+      status: "offline",
+    })
+  }
+}
+
+async function refreshSocketPresence(socket: RealtimeSocket, socketId: string) {
+  await refreshPresenceHeartbeat(
+    redisPresenceClient,
+    socket.data.user.id,
+    socketId
+  )
+  // A refresh queued before disconnect may reinsert the socket after cleanup.
+  if (!socket.connected) await clearSocketPresence(socket, socketId)
+}
+
 async function initializeConnection(socket: RealtimeSocket) {
   try {
     const initSocketId = socket.id
@@ -294,13 +332,7 @@ async function initializeConnection(socket: RealtimeSocket) {
       socket.id === initSocketId
 
     if (!isCurrentSocketAlive) {
-      if (becameOnline) {
-        await markUserDisconnected(
-          redisPresenceClient,
-          socket.data.user.id,
-          initSocketId
-        )
-      }
+      await clearSocketPresence(socket, initSocketId)
       return false
     }
 
@@ -315,24 +347,26 @@ async function initializeConnection(socket: RealtimeSocket) {
     }
 
     // Refresh TTL on the socket set so it expires if this server crashes
-    await refreshPresenceHeartbeat(
-      redisPresenceClient,
-      socket.data.user.id,
-      initSocketId
-    )
+    await refreshSocketPresence(socket, initSocketId)
 
     // Keep refreshing while connected
     const heartbeatInterval = setInterval(() => {
-      void refreshPresenceHeartbeat(
-        redisPresenceClient,
-        socket.data.user.id,
-        initSocketId
-      ).catch(() => {})
+      void refreshSocketPresence(socket, initSocketId).catch((err) => {
+        logger.warn(
+          { err, socketId: initSocketId },
+          "Presence heartbeat failed"
+        )
+      })
     }, 30 * 1000)
 
-    socket.once("disconnect", () => {
-      clearInterval(heartbeatInterval)
-    })
+    const clearHeartbeat = () => clearInterval(heartbeatInterval)
+    socket.once("disconnect", clearHeartbeat)
+    if (!socket.connected) {
+      clearHeartbeat()
+      socket.off("disconnect", clearHeartbeat)
+      await clearSocketPresence(socket, initSocketId)
+      return false
+    }
 
     socket.emit("presence:ready", {
       userId: socket.data.user.id,
@@ -368,6 +402,7 @@ async function initializeConnection(socket: RealtimeSocket) {
 }
 
 io.on("connection", (socket) => {
+  void socket.join(userConnectionRoom(socket.data.user.id))
   socket.data.isAlive = true
   socket.data.initialized = false
   socket.data.initPromise = initializeConnection(socket).then((initialized) => {
@@ -477,8 +512,10 @@ io.on("connection", (socket) => {
   })
 
   socket.on("message:send", async (payload, ack) => {
+    let delivery: Awaited<ReturnType<typeof claimMessageDelivery>> | undefined
+    let acknowledged = false
     try {
-      const parsed = sendMessagePayloadSchema.parse(payload)
+      let parsed = sendMessagePayloadSchema.parse(payload)
       const accessibleChannel = await assertUserCanAccessChannel(
         socket.data.user.id,
         parsed.channelId
@@ -497,75 +534,111 @@ io.on("connection", (socket) => {
         )
       }
 
+      delivery = await claimMessageDelivery(
+        redisPresenceClient,
+        socket.data.user.id,
+        parsed.channelId,
+        parsed.nonce ?? randomUUID()
+      )
+
+      if (delivery.busy) {
+        // A lost ack can be retried while the original is still routing Merlin.
+        const original = await loadMessageByClientKey({
+          authorId: socket.data.user.id,
+          channelId: parsed.channelId,
+          clientKey: parsed.nonce ?? "",
+          workspaceId: accessibleChannel.workspaceId,
+        })
+        if (!original)
+          throw new Error(
+            "Message is still being delivered. Please retry shortly."
+          )
+        ack?.({ ok: true, message: original })
+        return
+      }
+
       const createdMessage = await createMessage({
         userId: socket.data.user.id,
         payload: parsed,
         accessibleChannel,
       })
 
-      // Client retry of an already-persisted send: ack the original row and
-      // stop — fanout, broadcast, and triggers already ran the first time.
-      if (createdMessage.deduplicated) {
+      if (
+        createdMessage.deduplicated &&
+        (delivery.fresh || delivery.stage === "complete")
+      ) {
+        if (delivery.fresh) await delivery.checkpoint("complete")
         ack?.({ ok: true, message: createdMessage.message })
         return
       }
 
-      const fanout = await buildMessageFanout({
-        authorId: socket.data.user.id,
-        channel: createdMessage.channel,
-        message: createdMessage.message,
-        // @here resolves against live presence; fanout fails closed without it.
-        redis: redisPresenceClient,
-      })
-
+      // Resume using persisted content, never a changed retry payload.
+      parsed = {
+        ...parsed,
+        content: createdMessage.message.content ?? undefined,
+        threadRootId: createdMessage.message.threadRootId ?? undefined,
+      }
+      const fanout =
+        delivery.stage === "pending"
+          ? await buildMessageFanout({
+              authorId: socket.data.user.id,
+              channel: createdMessage.channel,
+              message: createdMessage.message,
+              redis: redisPresenceClient,
+            })
+          : null
       const messageWithMentions = {
         ...createdMessage.message,
-        mentions: fanout.messageMentions,
+        mentions: fanout?.messageMentions ?? createdMessage.message.mentions,
       }
+      const summary = messageWithMentions.threadRootId
+        ? await loadThreadSummary(
+            parsed.channelId,
+            messageWithMentions.threadRootId
+          )
+        : null
 
-      // Thread replies broadcast to the thread room only; the channel feed
-      // gets a lightweight `message:thread:updated` instead so its
-      // "N replies" footer can update without showing the reply inline.
+      // Finish fallible reads before fanout; retries may repeat message IDs,
+      // but notification deltas and pushes have a single delivery claim.
+      await delivery.checkpoint("broadcast")
       if (messageWithMentions.threadRootId) {
         socket
           .to(threadRoom(messageWithMentions.threadRootId))
           .emit("message:created", messageWithMentions)
-        const summary = await loadThreadSummary(
-          parsed.channelId,
-          messageWithMentions.threadRootId
-        )
-        io.to(channelRoom(parsed.channelId)).emit("message:thread:updated", {
-          ...summary,
-          reply: messageWithMentions,
-        })
+        if (summary)
+          io.to(channelRoom(parsed.channelId)).emit("message:thread:updated", {
+            ...summary,
+            reply: messageWithMentions,
+          })
       } else {
         socket
           .to(channelRoom(parsed.channelId))
           .emit("message:created", messageWithMentions)
       }
-
-      for (const unreadNotification of fanout.unreadNotifications) {
-        io.to(userRoom(unreadNotification.userId)).emit(
-          "notification:unread",
-          unreadNotification.payload
+      if (fanout) {
+        for (const notification of fanout.unreadNotifications) {
+          io.to(userRoom(notification.userId)).emit(
+            "notification:unread",
+            notification.payload
+          )
+        }
+        for (const notification of fanout.mentionNotifications) {
+          io.to(userRoom(notification.userId)).emit(
+            "notification:mention",
+            notification.payload
+          )
+        }
+        void sendMessagePushNotifications({
+          fanout,
+          threadRootId: messageWithMentions.threadRootId,
+          redis: redisPresenceClient,
+        }).catch((err) =>
+          logger.error({ err }, "Push notification send failed")
         )
       }
 
-      for (const mentionNotification of fanout.mentionNotifications) {
-        io.to(userRoom(mentionNotification.userId)).emit(
-          "notification:mention",
-          mentionNotification.payload
-        )
-      }
-
-      void sendMessagePushNotifications({
-        fanout,
-        threadRootId: messageWithMentions.threadRootId,
-        redis: redisPresenceClient,
-      }).catch((err) => {
-        logger.error({ err }, "Push notification send failed")
-      })
-
+      // Placement can exceed mobile's ack timeout; confirm delivery first.
+      acknowledged = true
       ack?.({ ok: true, message: messageWithMentions })
 
       // Enqueue link unfurl job if the message contains a URL
@@ -580,264 +653,419 @@ io.on("connection", (socket) => {
         : null
       if (urlMatches && urlMatches.length > 0) {
         void linkUnfurlQueue
-          .add("unfurl", {
-            messageId: createdMessage.message.id,
-            channelId: parsed.channelId,
-            urls: urlMatches,
-          })
+          .add(
+            "unfurl",
+            {
+              messageId: createdMessage.message.id,
+              channelId: parsed.channelId,
+              threadRootId: createdMessage.message.threadRootId,
+              urls: urlMatches,
+            },
+            { jobId: createdMessage.message.id }
+          )
           .catch((err) => {
             logger.error({ err }, "Failed to enqueue link-unfurl")
           })
       }
 
-      // Merlin responds when explicitly @-mentioned or replied to, or when the
-      // sender has an open session (a recent exchange with Merlin in this
-      // scope) and isn't now addressing a teammate. Session is keyed by thread
-      // root, else channel, + sender.
-      const merlinScopeId = parsed.threadRootId ?? parsed.channelId
-      const merlinMentioned = isMerlinMentioned(parsed.content)
-      const replyingToMerlin = isReplyToMerlin(
-        createdMessage.message.referencedMessage
-      )
-      const explicitlyAddressesMerlin = merlinMentioned || replyingToMerlin
-      const addressesTeammate = mentionsOtherUser(parsed.content)
-      let triggerMerlin = explicitlyAddressesMerlin
-      if (!explicitlyAddressesMerlin && !addressesTeammate) {
-        // Inside a thread Merlin is part of, plain replies always go to it (the
-        // thread is the conversation) — no session window — unless the thread
-        // was muted by someone addressing a teammate. Elsewhere, fall back to
-        // the timed session opened by a recent exchange with Merlin.
-        if (parsed.threadRootId) {
-          const inMerlinThread = await isMerlinThread(
-            parsed.threadRootId
-          ).catch(() => false)
-          const muted =
-            inMerlinThread &&
-            (await isMerlinThreadMuted(
-              redisPresenceClient,
-              parsed.threadRootId
-            ).catch(() => false))
-          triggerMerlin = inMerlinThread && !muted
+      const routeMerlin = async () => {
+        const [existingRun] = await db
+          .select()
+          .from(schema.agentRun)
+          .where(
+            eq(schema.agentRun.triggerMessageId, createdMessage.message.id)
+          )
+          .limit(1)
+        if (existingRun) {
+          if (existingRun.state === "queued" && existingRun.messageId) {
+            await merlinRespondQueue.add(
+              "respond",
+              {
+                runId: existingRun.id,
+                merlinMessageId: existingRun.messageId,
+                channelId: existingRun.channelId,
+                threadRootId: existingRun.threadRootId,
+                contextThreadRootId: parsed.threadRootId ?? null,
+                triggerMessageId: createdMessage.message.id,
+              },
+              {
+                jobId: existingRun.id,
+                attempts: 2,
+                backoff: { type: "fixed", delay: 90_000 },
+              }
+            )
+          }
+          return
         }
-        if (!triggerMerlin) {
-          triggerMerlin = await isMerlinSessionOpen(
-            redisPresenceClient,
-            merlinScopeId,
-            socket.data.user.id
-          ).catch(() => false)
-        }
-      }
-
-      if (!triggerMerlin) {
-        // Addressing a teammate ends the sender's open Merlin session, and in a
-        // thread mutes Merlin there until someone explicitly addresses it again.
-        if (addressesTeammate) {
-          void closeMerlinSession(
-            redisPresenceClient,
-            merlinScopeId,
-            socket.data.user.id
-          ).catch(() => {})
+        const [queued] = await db
+          .select({ id: schema.agentRunQueue.id })
+          .from(schema.agentRunQueue)
+          .where(eq(schema.agentRunQueue.messageId, createdMessage.message.id))
+          .limit(1)
+        if (queued) return
+        // Merlin responds when explicitly @-mentioned or replied to, or when the
+        // sender has an open session (a recent exchange with Merlin in this
+        // scope) and isn't now addressing a teammate. Session is keyed by thread
+        // root, else channel, + sender.
+        const merlinScopeId = parsed.threadRootId ?? parsed.channelId
+        const merlinMentioned = isMerlinMentioned(parsed.content)
+        const replyingToMerlin = isReplyToMerlin(
+          createdMessage.message.referencedMessage
+        )
+        const explicitlyAddressesMerlin = merlinMentioned || replyingToMerlin
+        const addressesTeammate = mentionsOtherUser(parsed.content)
+        let triggerMerlin = explicitlyAddressesMerlin
+        if (!explicitlyAddressesMerlin && !addressesTeammate) {
+          // Inside a thread Merlin is part of, plain replies always go to it (the
+          // thread is the conversation) — no session window — unless the thread
+          // was muted by someone addressing a teammate. Elsewhere, fall back to
+          // the timed session opened by a recent exchange with Merlin.
           if (parsed.threadRootId) {
-            void muteMerlinThread(
+            const inMerlinThread = await isMerlinThread(
+              parsed.threadRootId
+            ).catch(() => false)
+            const muted =
+              inMerlinThread &&
+              (await isMerlinThreadMuted(
+                redisPresenceClient,
+                parsed.threadRootId
+              ).catch(() => false))
+            triggerMerlin = inMerlinThread && !muted
+          }
+          if (!triggerMerlin) {
+            triggerMerlin = await isMerlinSessionOpen(
+              redisPresenceClient,
+              merlinScopeId,
+              socket.data.user.id
+            ).catch(() => false)
+          }
+        }
+
+        if (!triggerMerlin) {
+          // Addressing a teammate ends the sender's open Merlin session, and in a
+          // thread mutes Merlin there until someone explicitly addresses it again.
+          if (addressesTeammate) {
+            void closeMerlinSession(
+              redisPresenceClient,
+              merlinScopeId,
+              socket.data.user.id
+            ).catch(() => {})
+            if (parsed.threadRootId) {
+              void muteMerlinThread(
+                redisPresenceClient,
+                parsed.threadRootId
+              ).catch(() => {})
+            }
+          }
+        } else {
+          // An explicit mention/reply in a thread un-mutes it (Merlin is back in).
+          if (explicitlyAddressesMerlin && parsed.threadRootId) {
+            void unmuteMerlinThread(
               redisPresenceClient,
               parsed.threadRootId
             ).catch(() => {})
           }
-        }
-      } else {
-        // An explicit mention/reply in a thread un-mutes it (Merlin is back in).
-        if (explicitlyAddressesMerlin && parsed.threadRootId) {
-          void unmuteMerlinThread(
+          // Open/refresh the session so follow-ups continue without re-mentioning.
+          void openMerlinSession(
             redisPresenceClient,
-            parsed.threadRootId
-          ).catch(() => {})
-        }
-        // Open/refresh the session so follow-ups continue without re-mentioning.
-        void openMerlinSession(
-          redisPresenceClient,
-          merlinScopeId,
-          socket.data.user.id
-        ).catch((err) => {
-          logger.error({ err }, "Failed to open Merlin session")
-        })
-
-        // One active run per scope: a mid-run send is absorbed by the active
-        // run — steered at its next step boundary, or queued for the
-        // follow-up run — instead of spawning a sibling.
-        const emitRouted = (routed: RunRouteOutcome) => {
-          const target = parsed.threadRootId
-            ? threadRoom(parsed.threadRootId)
-            : channelRoom(parsed.channelId)
-          io.to(target).emit("message:routed", {
-            channelId: parsed.channelId,
-            threadRootId: parsed.threadRootId ?? null,
-            messageId: createdMessage.message.id,
-            outcome: routed.outcome,
-            runId: routed.runId,
-            merlinMessageId: routed.merlinMessageId,
+            merlinScopeId,
+            socket.data.user.id
+          ).catch((err) => {
+            logger.error({ err }, "Failed to open Merlin session")
           })
-        }
-        const routed = await routeToActiveRun({
-          scopeKey: merlinScopeId,
-          threadScope: Boolean(parsed.threadRootId),
-          messageId: createdMessage.message.id,
-          senderId: socket.data.user.id,
-        }).catch((err) => {
-          logger.error({ err }, "Merlin run routing failed")
-          return null
-        })
-        if (routed) {
-          emitRouted(routed)
-          return
-        }
 
-        // Decide where Merlin replies. A mention already in a thread stays
-        // there; a main-channel mention may answer in-channel (broadly useful),
-        // duck into a thread rooted at the triggering message (narrow/noisy),
-        // or become a task (clear delegation with a deliverable) whose
-        // card message roots the task's thread.
-        let merlinThreadRootId = parsed.threadRootId ?? null
-        if (merlinThreadRootId === null) {
-          const placementStart = performance.now()
-          try {
-            const recent = await loadRecentChannelMessages(parsed.channelId)
-            const { placement, taskTitle } = await decideReplyPlacement(recent)
-            if (placement === "thread") {
-              merlinThreadRootId = createdMessage.message.id
-            } else if (placement === "task" && accessibleChannel.workspaceId) {
-              const created = await createTaskWithCard({
-                accessibleChannel,
-                workspaceId: accessibleChannel.workspaceId,
-                channelId: parsed.channelId,
-                creatorId: socket.data.user.id,
-                goal: parsed.content ?? "",
-                title: taskTitle,
-              })
-              if (created) {
-                merlinThreadRootId = created.card.id
-                io.to(channelRoom(parsed.channelId)).emit(
-                  "message:created",
-                  created.card
-                )
-                io.to(channelRoom(parsed.channelId)).emit("task:updated", {
-                  task: toRealtimeTask(created.task),
-                })
-              } else {
-                // Card/task insert failed — degrade to a plain threaded answer.
-                merlinThreadRootId = createdMessage.message.id
-              }
-            }
-          } catch (err) {
-            logger.error({ err }, "Merlin placement decision failed")
-          }
-          logger.info(
-            {
+          // One active run per scope: a mid-run send is absorbed by the active
+          // run — steered at its next step boundary, or queued for the
+          // follow-up run — instead of spawning a sibling.
+          const emitRouted = (routed: RunRouteOutcome) => {
+            const target = parsed.threadRootId
+              ? threadRoom(parsed.threadRootId)
+              : channelRoom(parsed.channelId)
+            io.to(target).emit("message:routed", {
               channelId: parsed.channelId,
-              ms: Math.round(performance.now() - placementStart),
-            },
-            "Merlin placement decision timing"
-          )
-        }
+              threadRootId: parsed.threadRootId ?? null,
+              messageId: createdMessage.message.id,
+              outcome: routed.outcome,
+              runId: routed.runId,
+              merlinMessageId: routed.merlinMessageId,
+            })
+          }
+          const routed = await routeToActiveRun({
+            scopeKey: merlinScopeId,
+            threadScope: Boolean(parsed.threadRootId),
+            messageId: createdMessage.message.id,
+            senderId: socket.data.user.id,
+          })
+          if (routed) {
+            emitRouted(routed)
+            return
+          }
 
-        void createMerlinPlaceholder({
-          accessibleChannel,
-          channelId: parsed.channelId,
-          threadRootId: merlinThreadRootId,
-        })
-          .then(async (merlinMessage) => {
-            // Merlin only answers in workspace channels; without a workspace
-            // the worker rejects the job anyway, so skip the run row.
-            const runId = accessibleChannel.workspaceId
-              ? await createAgentRun({
+          // Decide where Merlin replies. A mention already in a thread stays
+          // there; a main-channel mention may answer in-channel (broadly useful),
+          // duck into a thread rooted at the triggering message (narrow/noisy),
+          // or become a task (clear delegation with a deliverable) whose
+          // card message roots the task's thread.
+          let merlinThreadRootId = parsed.threadRootId ?? null
+          if (merlinThreadRootId === null) {
+            const placementStart = performance.now()
+            try {
+              const recent = await loadRecentChannelMessages(parsed.channelId)
+              const { placement, taskTitle } =
+                await decideReplyPlacement(recent)
+              if (placement === "thread") {
+                merlinThreadRootId = createdMessage.message.id
+              } else if (
+                placement === "task" &&
+                accessibleChannel.workspaceId
+              ) {
+                const created = await createTaskWithCard({
+                  accessibleChannel,
                   workspaceId: accessibleChannel.workspaceId,
                   channelId: parsed.channelId,
-                  messageId: merlinMessage.id,
-                  threadRootId: merlinThreadRootId,
-                  triggerMessageId: createdMessage.message.id,
+                  creatorId: socket.data.user.id,
+                  goal: parsed.content ?? "",
+                  title: taskTitle,
                 })
-              : null
-            if (runId === "conflict") {
-              // Another mention claimed the scope between our check and the
-              // insert: drop the never-emitted placeholder and route at the
-              // winner instead. A failed delete leaves an orphaned pending
-              // row that reads as a stuck "thinking" message on reload.
-              await db
-                .delete(schema.message)
-                .where(eq(schema.message.id, merlinMessage.id))
-                .catch((err) =>
-                  logger.error(
-                    { err, messageId: merlinMessage.id },
-                    "Failed to delete orphaned Merlin placeholder"
+                if (created) {
+                  merlinThreadRootId = created.card.id
+                  io.to(channelRoom(parsed.channelId)).emit(
+                    "message:created",
+                    created.card
+                  )
+                  io.to(channelRoom(parsed.channelId)).emit("task:updated", {
+                    task: toRealtimeTask(created.task),
+                  })
+                } else {
+                  // Card/task insert failed — degrade to a plain threaded answer.
+                  merlinThreadRootId = createdMessage.message.id
+                }
+              }
+            } catch (err) {
+              logger.error({ err }, "Merlin placement decision failed")
+            }
+            logger.info(
+              {
+                channelId: parsed.channelId,
+                ms: Math.round(performance.now() - placementStart),
+              },
+              "Merlin placement decision timing"
+            )
+          }
+
+          await createMerlinPlaceholder({
+            accessibleChannel,
+            channelId: parsed.channelId,
+            threadRootId: merlinThreadRootId,
+          })
+            .then(async (merlinMessage) => {
+              try {
+                // Merlin only answers in workspace channels; without a workspace
+                // the worker rejects the job anyway, so skip the run row.
+                const runId = accessibleChannel.workspaceId
+                  ? await createAgentRun({
+                      workspaceId: accessibleChannel.workspaceId,
+                      channelId: parsed.channelId,
+                      messageId: merlinMessage.id,
+                      threadRootId: merlinThreadRootId,
+                      triggerMessageId: createdMessage.message.id,
+                    })
+                  : null
+                if (!runId)
+                  throw new Error("Merlin requires a durable agent run")
+                if (runId === "conflict") {
+                  // Another mention claimed the scope between our check and the
+                  // insert: drop the never-emitted placeholder and route at the
+                  // winner instead. A failed delete leaves an orphaned pending
+                  // row that reads as a stuck "thinking" message on reload.
+                  await db
+                    .delete(schema.message)
+                    .where(eq(schema.message.id, merlinMessage.id))
+                    .catch((err) =>
+                      logger.error(
+                        { err, messageId: merlinMessage.id },
+                        "Failed to delete orphaned Merlin placeholder"
+                      )
+                    )
+                  const lateRouted = await routeToActiveRun({
+                    scopeKey: merlinThreadRootId ?? parsed.channelId,
+                    threadScope: merlinThreadRootId !== null,
+                    messageId: createdMessage.message.id,
+                    senderId: socket.data.user.id,
+                  })
+                  if (!lateRouted)
+                    throw new Error("Merlin scope changed during routing")
+                  emitRouted(lateRouted)
+                  return
+                }
+                // Flag the placeholder as streaming so the "Merlin is thinking"
+                // indicator shows the instant it lands (independent of the worker's
+                // first stream event arriving).
+                const placeholder = {
+                  ...merlinMessage,
+                  streaming: true,
+                  merlinTriggerMessageId: createdMessage.message.id,
+                }
+                if (placeholder.threadRootId) {
+                  io.to(threadRoom(placeholder.threadRootId)).emit(
+                    "message:created",
+                    placeholder
+                  )
+                  // No `reply` here on purpose: injecting a streaming placeholder
+                  // into a closed panel's cache would freeze it mid-"thinking" —
+                  // its stream events only reach the open panel. Closed panels
+                  // invalidate and refetch the settled row instead.
+                  await loadThreadSummary(
+                    parsed.channelId,
+                    placeholder.threadRootId
+                  )
+                    .then((summary) =>
+                      io
+                        .to(channelRoom(parsed.channelId))
+                        .emit("message:thread:updated", summary)
+                    )
+                    .catch((err) =>
+                      logger.warn(
+                        { err, messageId: placeholder.id },
+                        "Merlin startup thread summary failed"
+                      )
+                    )
+                } else {
+                  io.to(channelRoom(parsed.channelId)).emit(
+                    "message:created",
+                    placeholder
+                  )
+                }
+                // One recovery attempt: a crashed/stalled attempt is retried once
+                // and resumes from the run's last checkpoint (the run's own
+                // attempt cap is the authoritative guard). Handled errors don't
+                // retry — the worker catches them and posts a fallback instead of
+                // throwing. jobId = runId dedupes re-enqueues of the same run.
+                await merlinRespondQueue.add(
+                  "respond",
+                  {
+                    merlinMessageId: merlinMessage.id,
+                    channelId: parsed.channelId,
+                    threadRootId: merlinThreadRootId,
+                    contextThreadRootId: parsed.threadRootId ?? null,
+                    triggerMessageId: createdMessage.message.id,
+                    ...(runId ? { runId } : {}),
+                  },
+                  {
+                    attempts: 2,
+                    // Must exceed the run lease TTL (60s) or the retry can never
+                    // reclaim a crashed attempt — it sees a live lease and skips.
+                    backoff: { type: "fixed", delay: 90_000 },
+                    ...(runId ? { jobId: runId } : {}),
+                  }
+                )
+              } catch (err) {
+                // A failed insert must not leave a pending message without a run.
+                const [orphan] = await db
+                  .update(schema.message)
+                  .set({
+                    status: "failed",
+                    content:
+                      "I couldn't start that response. Please try again.",
+                  })
+                  .where(
+                    and(
+                      eq(schema.message.id, merlinMessage.id),
+                      eq(schema.message.status, "pending"),
+                      notExists(
+                        db
+                          .select({ id: schema.agentRun.id })
+                          .from(schema.agentRun)
+                          .where(
+                            eq(schema.agentRun.messageId, schema.message.id)
+                          )
+                      )
+                    )
+                  )
+                  .returning()
+                if (orphan) {
+                  // Startup may fail before the placeholder's first broadcast.
+                  io.to(
+                    orphan.threadRootId
+                      ? threadRoom(orphan.threadRootId)
+                      : channelRoom(orphan.channelId)
+                  ).emit("message:created", {
+                    ...merlinMessage,
+                    status: "failed",
+                    content: orphan.content,
+                    streaming: false,
+                  })
+                  io.to(
+                    orphan.threadRootId
+                      ? threadRoom(orphan.threadRootId)
+                      : channelRoom(orphan.channelId)
+                  ).emit("message:stream", {
+                    channelId: orphan.channelId,
+                    threadRootId: orphan.threadRootId,
+                    messageId: orphan.id,
+                    delta: orphan.content ?? "",
+                    done: true,
+                    status: "failed",
+                    replace: true,
+                  })
+                  await settleAbandonedRunTask(
+                    { threadRootId: orphan.threadRootId },
+                    "failed",
+                    (task) => {
+                      io.to(channelRoom(orphan.channelId)).emit(
+                        "task:updated",
+                        { task: toRealtimeTask(task) }
+                      )
+                    }
+                  )
+                  if (orphan.threadRootId) {
+                    const summary = await loadThreadSummary(
+                      orphan.channelId,
+                      orphan.threadRootId
+                    )
+                    io.to(channelRoom(orphan.channelId)).emit(
+                      "message:thread:updated",
+                      summary
+                    )
+                  }
+                }
+                throw err
+              }
+            })
+            .catch(async (err) => {
+              logger.error({ err }, "Failed to start Merlin response")
+              const [run] = await db
+                .select({ id: schema.agentRun.id })
+                .from(schema.agentRun)
+                .where(
+                  eq(
+                    schema.agentRun.triggerMessageId,
+                    createdMessage.message.id
                   )
                 )
-              const lateRouted = await routeToActiveRun({
-                scopeKey: merlinThreadRootId ?? parsed.channelId,
-                threadScope: merlinThreadRootId !== null,
-                messageId: createdMessage.message.id,
-                senderId: socket.data.user.id,
-              }).catch(() => null)
-              if (lateRouted) emitRouted(lateRouted)
-              return
-            }
-            // Flag the placeholder as streaming so the "Merlin is thinking"
-            // indicator shows the instant it lands (independent of the worker's
-            // first stream event arriving).
-            const placeholder = {
-              ...merlinMessage,
-              streaming: true,
-              merlinTriggerMessageId: createdMessage.message.id,
-            }
-            if (placeholder.threadRootId) {
-              io.to(threadRoom(placeholder.threadRootId)).emit(
-                "message:created",
-                placeholder
-              )
-              // No `reply` here on purpose: injecting a streaming placeholder
-              // into a closed panel's cache would freeze it mid-"thinking" —
-              // its stream events only reach the open panel. Closed panels
-              // invalidate and refetch the settled row instead.
-              const summary = await loadThreadSummary(
-                parsed.channelId,
-                placeholder.threadRootId
-              )
-              io.to(channelRoom(parsed.channelId)).emit(
-                "message:thread:updated",
-                summary
-              )
-            } else {
-              io.to(channelRoom(parsed.channelId)).emit(
-                "message:created",
-                placeholder
-              )
-            }
-            // One recovery attempt: a crashed/stalled attempt is retried once
-            // and resumes from the run's last checkpoint (the run's own
-            // attempt cap is the authoritative guard). Handled errors don't
-            // retry — the worker catches them and posts a fallback instead of
-            // throwing. jobId = runId dedupes re-enqueues of the same run.
-            await merlinRespondQueue.add(
-              "respond",
-              {
-                merlinMessageId: merlinMessage.id,
-                channelId: parsed.channelId,
-                threadRootId: merlinThreadRootId,
-                contextThreadRootId: parsed.threadRootId ?? null,
-                triggerMessageId: createdMessage.message.id,
-                ...(runId ? { runId } : {}),
-              },
-              {
-                attempts: 2,
-                backoff: { type: "fixed", delay: 5000 },
-                ...(runId ? { jobId: runId } : {}),
+                .limit(1)
+              if (!run) {
+                await settleAbandonedRunTask(
+                  { threadRootId: merlinThreadRootId },
+                  "failed",
+                  (task) => {
+                    io.to(channelRoom(parsed.channelId)).emit("task:updated", {
+                      task: toRealtimeTask(task),
+                    })
+                  }
+                )
               }
-            )
-          })
-          .catch((err) => {
-            logger.error({ err }, "Failed to start Merlin response")
-          })
+              throw err
+            })
+        }
       }
+      await routeMerlin()
+      await delivery.checkpoint("complete")
     } catch (error) {
-      ack?.({ ok: false, error: toErrorMessage(error) })
+      logger.error({ err: error }, "Message delivery failed")
+      if (!acknowledged) ack?.({ ok: false, error: toErrorMessage(error) })
+    } finally {
+      if (delivery && !delivery.busy) await delivery.release()
     }
   })
 
@@ -871,7 +1099,7 @@ io.on("connection", (socket) => {
         )
       } else {
         socket
-          .to(channelRoom(parsed.channelId))
+          .to([channelRoom(parsed.channelId), threadRoom(result.messageId)])
           .emit("message:deleted", deletedPayload)
       }
 
@@ -890,13 +1118,19 @@ io.on("connection", (socket) => {
         redis: redisPresenceClient,
       })
 
-      socket.to(channelRoom(parsed.channelId)).emit("message:updated", {
-        channelId: result.channelId,
-        messageId: result.messageId,
-        content: result.content,
-        editedAt: result.editedAt,
-        mentions: result.mentions,
-      })
+      socket
+        .to(
+          result.threadRootId
+            ? threadRoom(result.threadRootId)
+            : [channelRoom(parsed.channelId), threadRoom(result.messageId)]
+        )
+        .emit("message:updated", {
+          channelId: result.channelId,
+          messageId: result.messageId,
+          content: result.content,
+          editedAt: result.editedAt,
+          mentions: result.mentions,
+        })
 
       ack?.({ ok: true, editedAt: result.editedAt, mentions: result.mentions })
     } catch (error) {
@@ -915,7 +1149,11 @@ io.on("connection", (socket) => {
       })
 
       socket
-        .to(channelRoom(parsed.channelId))
+        .to(
+          reactionUpdate.threadRootId
+            ? threadRoom(reactionUpdate.threadRootId)
+            : [channelRoom(parsed.channelId), threadRoom(parsed.messageId)]
+        )
         .emit("message:reaction:updated", reactionUpdate.update)
 
       const reactionNotification = reactionUpdate.notification
@@ -1042,21 +1280,7 @@ io.on("connection", (socket) => {
 
     void (async () => {
       try {
-        const { becameOffline } = await markUserDisconnected(
-          redisPresenceClient,
-          socket.data.user.id,
-          socket.id
-        )
-
-        if (!becameOffline) return
-
-        for (const workspaceId of socket.data.workspaceIds ?? []) {
-          io.to(workspaceRoom(workspaceId)).emit("presence:user:update", {
-            workspaceId,
-            userId: socket.data.user.id,
-            status: "offline",
-          })
-        }
+        await clearSocketPresence(socket, socket.id)
       } catch (error) {
         logger.error(
           { err: error, socketId: socket.id, userId: socket.data.user.id },

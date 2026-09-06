@@ -30,6 +30,11 @@ export function useChannelTasks(channelId: string) {
       payload
     ) => {
       if (payload.task.channelId !== channelId) return
+      if (!queryClient.getQueryData(["channel-tasks", channelId])) {
+        void queryClient.invalidateQueries({
+          queryKey: ["channel-tasks", channelId],
+        })
+      }
       queryClient.setQueryData(
         ["channel-tasks", channelId],
         (existing: ChannelTask[] | undefined) => {
@@ -47,8 +52,17 @@ export function useChannelTasks(channelId: string) {
         queryKey: ["task-artifacts", payload.task.id],
       })
     }
+    const refetchOnConnect = () => {
+      void queryClient.invalidateQueries({
+        queryKey: ["channel-tasks", channelId],
+      })
+      void queryClient.invalidateQueries({ queryKey: ["task"] })
+      void queryClient.invalidateQueries({ queryKey: ["task-artifacts"] })
+    }
+    socket.on("connect", refetchOnConnect)
     socket.on("task:updated", handleTaskUpdated)
     return () => {
+      socket.off("connect", refetchOnConnect)
       socket.off("task:updated", handleTaskUpdated)
     }
   }, [socket, queryClient, channelId])

@@ -422,11 +422,13 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
     socket,
     queryClient,
     channelId: view.channelId,
+    threadRootId: view.threadRootId,
   })
   const { handleEdit } = useMessageEditing({
     socket,
     queryClient,
     channelId: view.channelId,
+    threadRootId: view.threadRootId,
   })
 
   const fileUpload = useFileUpload(view.channelId)

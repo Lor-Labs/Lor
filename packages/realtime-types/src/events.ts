@@ -628,6 +628,7 @@ export interface ServerToClientEvents {
   "typing:update": (payload: TypingIndicatorEvent) => void
   "billing:updated": (payload: BillingUpdatedEvent) => void
   "instructions:proposal": (payload: InstructionsProposalUpdate) => void
+  "instructions:updated": (payload: InstructionsProposalUpdate) => void
 }
 
 export type ChannelCreatedEvent = {

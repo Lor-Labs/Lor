@@ -13,6 +13,7 @@ import { logger } from "@/lib/logger"
 import { completeLoopsForChannels } from "@/lib/loops"
 import { hasWorkspaceAuthority } from "@/lib/permissions"
 import { enqueueProjectArchive } from "@/lib/project-archive-queue"
+import { disconnectUserSockets } from "@/lib/socket-access"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
   AddProjectMemberRoute,
@@ -414,6 +415,13 @@ export const updateProject: AppRouteHandler<UpdateProjectRoute> = async (c) => {
     }
   })
 
+  await emitProjectUpdated({
+    projectId: project.id,
+    categoryChannelId: project.categoryChannelId,
+    status: project.status,
+    archivedAt: project.archivedAt?.toISOString() ?? null,
+  })
+
   const detail = await loadProjectDetail(project.id)
   if (!detail) {
     return c.json(
@@ -716,6 +724,8 @@ export const removeProjectMember: AppRouteHandler<
       HttpStatusCodes.BAD_REQUEST
     )
   }
+
+  await disconnectUserSockets(userId)
 
   if (removed.wasMember) {
     await postMemberEventToProjectChannels({

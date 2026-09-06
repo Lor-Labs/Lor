@@ -10,10 +10,17 @@ import {
   MERLIN_USER_ID,
   schema,
 } from "@repo/db"
-import { resolveChannelAccess } from "@repo/db/queries/channel-access"
+import {
+  resolveChannelAccess,
+  resolveChannelAudienceInfo,
+} from "@repo/db/queries/channel-access"
 import type { ChangeProposal, ChangeProposalOperation } from "@repo/db/schema"
 import { proposalPermissions } from "@repo/db/schema"
-import { channelRoom, workspaceRoom } from "@repo/realtime-types/rooms"
+import {
+  channelRoom,
+  userRoom,
+  workspaceRoom,
+} from "@repo/realtime-types/rooms"
 import { getEmitter } from "@/lib/bot-messages"
 import {
   type ApproverSecrets,
@@ -390,10 +397,15 @@ async function announceCreatedResources(args: {
     // failure must not stop the durable event rows below from being written.
     try {
       const io = await getEmitter()
-      io.to(workspaceRoom(args.workspace.id)).emit("channel:created", {
-        workspaceId: args.workspace.id,
-        channelId,
-      })
+      const payload = { workspaceId: args.workspace.id, channelId }
+      const audience = await resolveChannelAudienceInfo(channelId)
+      if (audience.audience === "workspace") {
+        io.to(workspaceRoom(args.workspace.id)).emit("channel:created", payload)
+      } else {
+        for (const userId of audience.userIds) {
+          io.to(userRoom(userId)).emit("channel:created", payload)
+        }
+      }
     } catch (err) {
       logger.warn({ err, channelId }, "channel:created emit failed")
     }
