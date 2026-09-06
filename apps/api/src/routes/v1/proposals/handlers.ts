@@ -389,8 +389,7 @@ async function announceCreatedResources(args: {
     // Sidebar ping is best effort and acquired per-emit — an emitter (Redis)
     // failure must not stop the durable event rows below from being written.
     try {
-      const io = await getEmitter()
-      await emitChannelCreated(io, args.workspace.id, channelId)
+      await emitChannelCreated(args.workspace.id, channelId)
     } catch (err) {
       logger.warn({ err, channelId }, "channel:created emit failed")
     }

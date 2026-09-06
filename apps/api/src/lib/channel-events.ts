@@ -13,13 +13,11 @@ import {
   userRoom,
   workspaceRoom,
 } from "@repo/realtime-types"
-import type { Emitter } from "@socket.io/redis-emitter"
 import { eq, inArray } from "drizzle-orm"
-import { postBotMessage } from "@/lib/bot-messages"
+import { postBotMessage, publishRealtime } from "@/lib/bot-messages"
 import { logger } from "@/lib/logger"
 
 export async function emitChannelCreated(
-  io: Emitter<ServerToClientEvents>,
   workspaceId: string,
   channelId: string
 ) {
@@ -28,13 +26,15 @@ export async function emitChannelCreated(
     channelId,
   }
   const audience = await resolveChannelAudienceInfo(channelId)
-  if (audience.audience === "workspace") {
-    io.to(workspaceRoom(workspaceId)).emit("channel:created", payload)
-  } else {
-    for (const userId of audience.userIds) {
-      io.to(userRoom(userId)).emit("channel:created", payload)
+  await publishRealtime((io) => {
+    if (audience.audience === "workspace") {
+      io.to(workspaceRoom(workspaceId)).emit("channel:created", payload)
+    } else {
+      for (const userId of audience.userIds) {
+        io.to(userRoom(userId)).emit("channel:created", payload)
+      }
     }
-  }
+  })
 }
 
 // Discriminated so each emitter passes exactly the payload its kind needs.

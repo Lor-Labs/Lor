@@ -206,8 +206,7 @@ export const createChannel: AppRouteHandler<CreateChannelRoute> = async (c) => {
   // included) decides the rooms: a members-only channel — standalone private
   // or inside a restricted category — pings only the people who can see it.
   try {
-    const io = await getEmitter()
-    await emitChannelCreated(io, workspace.id, newChannel.id)
+    await emitChannelCreated(workspace.id, newChannel.id)
   } catch (err) {
     logger.warn(
       { err, channelId: newChannel.id },
