@@ -128,16 +128,20 @@ export function SocketProvider({
 
     // A suspended webview can still report connected after its server socket died.
     let lastWake = 0
+    let wasHidden = document.visibilityState === "hidden"
     const onWake = () => {
-      if (
-        document.visibilityState === "hidden" ||
-        Date.now() - lastWake < 5_000
-      )
+      if (document.visibilityState === "hidden") {
+        wasHidden = true
         return
+      }
+      const resumedFromHidden = wasHidden
+      wasHidden = false
+      // Hidden resumes need recovery even inside an ordinary focus cooldown.
+      if (!resumedFromHidden && Date.now() - lastWake < 5_000) return
       lastWake = Date.now()
       authGeneration += 1
       if (authTimer) clearTimeout(authTimer)
-      if (!s.connected) needsRecovery = true
+      if (resumedFromHidden || !s.connected) needsRecovery = true
       // The synchronous client disconnect is intentional, not connection loss.
       disconnectingForWake = true
       s.disconnect()
