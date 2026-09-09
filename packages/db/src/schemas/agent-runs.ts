@@ -435,6 +435,8 @@ export type AgentRunContext = {
   // meter would otherwise fold them into the other segments invisibly. Which
   // tools are bound depends on the channel's connectors, hence per-run.
   toolSchemaBytes?: number
+  // Includes the inherited transcript on continuations, before the first checkpoint.
+  initialMessagesTokens?: number
   // Message IDs injected at step boundaries and committed with the checkpoint
   // that first exposed them to the model. Optional for pre-existing snapshots.
   coveredMessageIds?: string[]
@@ -449,6 +451,7 @@ export type AgentRunCompaction = {
   summary: string | null
   summaryFailures: number
   baselineMessages: unknown[]
+  messageTokens?: number
   atStep: number
 }
 

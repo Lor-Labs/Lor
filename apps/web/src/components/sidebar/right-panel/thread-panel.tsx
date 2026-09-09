@@ -163,9 +163,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
     queryKey: ["messages", view.channelId],
     enabled: false,
   })
-  // Prefer the channel cache copy (stays live with edits/reactions/unfurls);
-  // fall back to the API root (below) when the root isn't loaded in the feed —
-  // e.g. an old thread reopened from the URL on refresh.
+  // Fallback while the thread loads; its own root remains current off-route.
   const channelCacheRoot = useMemo(
     () => findMessageInChannelCache(channelCache, view.threadRootId),
     [channelCache, view.threadRootId]
@@ -227,7 +225,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
     pendingNoncesRef: pendingNonces,
   })
 
-  const rootMessage = channelCacheRoot ?? threadApiRoot
+  const rootMessage = threadApiRoot ?? channelCacheRoot
 
   // An open panel means the thread is being read — advance the per-thread
   // read cursor on open and on every reply that lands while it's visible, so
@@ -377,7 +375,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
   useMerlinRunReplay({
     queryClient,
     channelId: view.channelId,
-    messages,
+    messages: rootMessage ? [rootMessage, ...messages] : messages,
   })
 
   // Messages queued behind the active run — surfaced above the composer with

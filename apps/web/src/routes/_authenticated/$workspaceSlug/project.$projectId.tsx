@@ -17,6 +17,7 @@ import { MessageMarkdown } from "@/components/chat/message-markdown"
 import { UserAvatar } from "@/components/ui/user-avatar"
 import { useSocket } from "@/context/socket-context"
 import { useProjectUpdates } from "@/hooks/use-project-updates"
+import { useRealtimeRoom } from "@/hooks/use-realtime-room"
 import { apiClient } from "@/lib/api-client"
 import type { MerlinToolCallView } from "@/lib/api-types"
 
@@ -89,14 +90,10 @@ function ProjectOverview() {
     setLiveMemories([])
   }, [projectId])
 
+  useRealtimeRoom(socket, "channel", archiving ? categoryChannelId : undefined)
+
   useEffect(() => {
     if (!socket || !archiving || !categoryChannelId) return
-    // Re-join on every "connect" — rooms don't survive a reconnect.
-    const join = () =>
-      socket.emit("channel:join", { channelId: categoryChannelId })
-    join()
-    socket.on("connect", join)
-
     const onProgress = (payload: ProjectArchiveProgressEvent) => {
       if (payload.projectId !== projectId) return
       if (payload.toolCall) {
@@ -129,8 +126,6 @@ function ProjectOverview() {
     socket.on("project:archive:progress", onProgress)
     return () => {
       socket.off("project:archive:progress", onProgress)
-      socket.off("connect", join)
-      socket.emit("channel:leave", { channelId: categoryChannelId })
     }
   }, [socket, archiving, categoryChannelId, projectId])
 

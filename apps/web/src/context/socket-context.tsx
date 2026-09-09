@@ -3,7 +3,10 @@ import { isTauri } from "@repo/auth/tauri-fetch"
 import { useQueryClient } from "@tanstack/react-query"
 import type { ReactNode } from "react"
 import { createContext, useContext, useEffect, useState } from "react"
-import { resetMerlinReplayState } from "@/hooks/use-merlin-stream"
+import {
+  resetMerlinReplayState,
+  useMerlinStream,
+} from "@/hooks/use-merlin-stream"
 import { type AppSocket, getSocket } from "@/lib/socket"
 
 const SocketContext = createContext<AppSocket | null>(null)
@@ -24,6 +27,7 @@ export function SocketProvider({
 }) {
   const [socket, setSocket] = useState<AppSocket | null>(null)
   const queryClient = useQueryClient()
+  useMerlinStream({ socket, queryClient })
 
   useEffect(() => {
     if (!enabled) return
@@ -33,28 +37,30 @@ export function SocketProvider({
     let retryTimer: ReturnType<typeof setTimeout> | null = null
     let retryDelay = RECONNECT_BASE_DELAY_MS
 
-    // The webview WS handshake can't carry the Rust cookie jar, so desktop
-    // (Tauri) passes the session token in the handshake auth payload
-    // (in-memory only). Re-resolved before every connect so a reconnect after
-    // sleep doesn't reuse a rotated/stale token, and a failed/empty session
-    // can't reconnect with a previous user's credentials.
-    const resolveAuth = async () => {
-      if (!isTauri) return
-      s.auth = {}
-      try {
-        const { data } = await authClient.getSession()
-        const token = data?.session?.token
-        if (!cancelled) s.auth = token ? { token } : {}
-      } catch {
-        // leave auth empty; the server rejects and scheduleRetry backs off
-      }
-    }
+    // Socket.IO invokes auth on automatic reconnects too; desktop tokens rotate.
+    let authGeneration = 0
+    let authTimer: ReturnType<typeof setTimeout> | undefined
+    s.auth = isTauri
+      ? (callback) => {
+          if (authTimer) clearTimeout(authTimer)
+          const generation = ++authGeneration
+          let finished = false
+          const finish = (token?: string) => {
+            if (finished || cancelled || generation !== authGeneration) return
+            finished = true
+            if (authTimer) clearTimeout(authTimer)
+            callback(token ? { token } : {})
+          }
+          authTimer = setTimeout(() => finish(), 10_000)
+          void authClient.getSession().then(
+            ({ data }) => finish(data?.session?.token),
+            () => finish()
+          )
+        }
+      : {}
 
     const connect = () => {
-      if (cancelled || s.connected) return
-      void resolveAuth().then(() => {
-        if (!cancelled) s.connect()
-      })
+      if (!cancelled && !s.connected) s.connect()
     }
 
     // socket.io stops reconnecting entirely when the server rejects the
@@ -71,20 +77,13 @@ export function SocketProvider({
       }, retryDelay)
     }
 
-    let hadConnected = false
     const onConnect = () => {
       retryDelay = RECONNECT_BASE_DELAY_MS
+      if (retryTimer) clearTimeout(retryTimer)
+      retryTimer = null
       console.log("[socket] connected:", s.id)
-      // A reconnect lands on a fresh server-side socket with no channel or
-      // thread rooms (only user/workspace are auto-joined) — the join sites
-      // re-emit via their own "connect" listeners. Every event broadcast while
-      // disconnected is gone, so refetch whatever is on screen and re-arm
-      // Merlin replay; otherwise the UI stays silently stale until reload.
-      if (hadConnected) {
-        resetMerlinReplayState()
-        void queryClient.invalidateQueries()
-      }
-      hadConnected = true
+      resetMerlinReplayState()
+      void queryClient.invalidateQueries()
     }
     const onDisconnect = (reason: string) => {
       console.log("[socket] disconnected:", reason)
@@ -95,11 +94,19 @@ export function SocketProvider({
       if (!s.active) scheduleRetry()
     }
 
-    // After system sleep (laptop lid closed) the socket is usually dead;
-    // reconnect on wake/focus instead of waiting out ping timeouts.
+    // A suspended webview can still report connected after its server socket died.
+    let lastWake = 0
     const onWake = () => {
-      if (document.visibilityState === "hidden") return
-      if (!s.connected && !s.active) connect()
+      if (
+        document.visibilityState === "hidden" ||
+        Date.now() - lastWake < 5_000
+      )
+        return
+      lastWake = Date.now()
+      authGeneration += 1
+      if (authTimer) clearTimeout(authTimer)
+      s.disconnect()
+      connect()
     }
 
     const onInstructionsUpdated = () => {
@@ -120,6 +127,7 @@ export function SocketProvider({
 
     return () => {
       cancelled = true
+      if (authTimer) clearTimeout(authTimer)
       if (retryTimer) clearTimeout(retryTimer)
       s.off("instructions:updated", onInstructionsUpdated)
       s.off("connect", onConnect)
