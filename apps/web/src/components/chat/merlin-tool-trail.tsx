@@ -206,7 +206,7 @@ function SubStepRow({ toolCall }: { toolCall: MerlinToolCallView }) {
         {diff && <DiffCounts diff={diff} />}
         <HugeiconsIcon
           icon={ArrowRight01Icon}
-          className="size-3 shrink-0 transition-[opacity,transform] group-hover/tool-step:opacity-100 group-focus-visible/tool-step:opacity-100 group-data-panel-open/tool-step:rotate-90 group-data-panel-open/tool-step:opacity-100 [@media(hover:hover)]:opacity-0"
+          className="invisible size-3 shrink-0 transition-transform group-hover/tool-step:visible group-focus-visible/tool-step:visible group-data-panel-open/tool-step:visible group-data-panel-open/tool-step:rotate-90"
           strokeWidth={2}
         />
       </CollapsibleTrigger>
