@@ -18,6 +18,27 @@ export function useSocket() {
 const RECONNECT_BASE_DELAY_MS = 1_000
 const RECONNECT_MAX_DELAY_MS = 30_000
 
+// Message/thread queries reconcile after room joins; these caches use other events.
+const RECONNECT_QUERY_KEYS = new Set<unknown>([
+  "channel-tasks",
+  "task",
+  "task-artifacts",
+  "channel-approvals",
+  "channel-proposals",
+  "channel-loops",
+  "loop-runs",
+  "thread-context",
+  "thread-activity",
+  "pinned-messages",
+  "workspace-instructions",
+  "channels",
+  "channel",
+  "projects",
+  "project",
+  "billing",
+  "channel-mutes",
+])
+
 export function SocketProvider({
   enabled,
   children,
@@ -36,6 +57,8 @@ export function SocketProvider({
     let cancelled = false
     let retryTimer: ReturnType<typeof setTimeout> | null = null
     let retryDelay = RECONNECT_BASE_DELAY_MS
+    let needsRecovery = false
+    let disconnectingForWake = false
 
     // Socket.IO invokes auth on automatic reconnects too; desktop tokens rotate.
     let authGeneration = 0
@@ -83,14 +106,23 @@ export function SocketProvider({
       retryTimer = null
       console.log("[socket] connected:", s.id)
       resetMerlinReplayState()
-      void queryClient.invalidateQueries()
+      if (needsRecovery) {
+        void queryClient.invalidateQueries()
+      } else {
+        void queryClient.invalidateQueries({
+          predicate: (query) => RECONNECT_QUERY_KEYS.has(query.queryKey[0]),
+        })
+      }
+      needsRecovery = false
     }
     const onDisconnect = (reason: string) => {
       console.log("[socket] disconnected:", reason)
+      if (!disconnectingForWake) needsRecovery = true
       if (!s.active) scheduleRetry()
     }
     const onConnectError = (err: Error) => {
       console.error("[socket] connection error:", err.message)
+      needsRecovery = true
       if (!s.active) scheduleRetry()
     }
 
@@ -105,7 +137,11 @@ export function SocketProvider({
       lastWake = Date.now()
       authGeneration += 1
       if (authTimer) clearTimeout(authTimer)
+      if (!s.connected) needsRecovery = true
+      // The synchronous client disconnect is intentional, not connection loss.
+      disconnectingForWake = true
       s.disconnect()
+      disconnectingForWake = false
       connect()
     }
 
