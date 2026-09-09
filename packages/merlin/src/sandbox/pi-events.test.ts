@@ -46,6 +46,27 @@ describe("piToolLabel", () => {
 })
 
 describe("createPiEventCollector", () => {
+  it("preserves long multiline commands in start and completion frames", () => {
+    const onStep = vi.fn()
+    const collector = createPiEventCollector({ onStep })
+    const command =
+      "cd /workspace/repos/care-cycle/apps/api && pnpm run check:fix && pnpm run validate\nprintf 'validation finished\\n'"
+
+    collector.consume(toolStart("bash", { command }))
+    collector.consume(
+      JSON.stringify({
+        type: "tool_execution_end",
+        toolCallId: "tc-1",
+        isError: false,
+      })
+    )
+
+    expect(onStep.mock.calls.map(([step]) => step.label)).toEqual([
+      `Ran ${command}`,
+      `Ran ${command}`,
+    ])
+  })
+
   it("ignores non-events and reports tool execution", () => {
     const onStep = vi.fn()
     const collector = createPiEventCollector({ onStep })
