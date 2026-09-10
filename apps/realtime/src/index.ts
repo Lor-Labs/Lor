@@ -814,8 +814,13 @@ io.on("connection", (socket) => {
             const placementStart = performance.now()
             try {
               const recent = await loadRecentChannelMessages(parsed.channelId)
-              const { placement, taskTitle } =
-                await decideReplyPlacement(recent)
+              const { placement, taskTitle } = await decideReplyPlacement(
+                recent,
+                {
+                  authorName: createdMessage.message.author.name,
+                  content: createdMessage.message.content ?? "",
+                }
+              )
               if (placement === "thread") {
                 merlinThreadRootId = createdMessage.message.id
               } else if (
