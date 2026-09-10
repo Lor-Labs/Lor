@@ -2226,6 +2226,7 @@ export async function respond(
         context: {
           ...context,
           toolSchemaBytes: measureToolSchemaBytes(tools),
+          initialMessagesTokens: estimateMessagesTokens(messages),
           ...(continuation
             ? {
                 ...(continuation.deltaText !== null
@@ -2415,6 +2416,7 @@ export async function respond(
               summary: compaction.summary,
               summaryFailures: compaction.summaryFailures,
               baselineMessages: nextMessages,
+              messageTokens: estimateMessagesTokens(nextMessages),
               atStep: counters.steps,
             })
             .catch((err) => {

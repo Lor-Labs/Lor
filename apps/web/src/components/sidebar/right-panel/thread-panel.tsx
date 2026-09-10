@@ -36,8 +36,10 @@ import {
   type PointerEvent as ReactPointerEvent,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
+  useState,
 } from "react"
 import { useDropzone } from "react-dropzone"
 import { MessageInput } from "@/components/chat/composer/message-input"
@@ -163,9 +165,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
     queryKey: ["messages", view.channelId],
     enabled: false,
   })
-  // Prefer the channel cache copy (stays live with edits/reactions/unfurls);
-  // fall back to the API root (below) when the root isn't loaded in the feed —
-  // e.g. an old thread reopened from the URL on refresh.
+  // Fallback while the thread loads; its own root remains current off-route.
   const channelCacheRoot = useMemo(
     () => findMessageInChannelCache(channelCache, view.threadRootId),
     [channelCache, view.threadRootId]
@@ -227,7 +227,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
     pendingNoncesRef: pendingNonces,
   })
 
-  const rootMessage = channelCacheRoot ?? threadApiRoot
+  const rootMessage = threadApiRoot ?? channelCacheRoot
 
   // An open panel means the thread is being read — advance the per-thread
   // read cursor on open and on every reply that lands while it's visible, so
@@ -377,7 +377,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
   useMerlinRunReplay({
     queryClient,
     channelId: view.channelId,
-    messages,
+    messages: rootMessage ? [rootMessage, ...messages] : messages,
   })
 
   // Messages queued behind the active run — surfaced above the composer with
@@ -553,6 +553,19 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
     scrollToEndRef,
     registerScrollToEnd,
   } = useRegisteredMessageScroller()
+  const [sendScrollVersion, setSendScrollVersion] = useState(0)
+  useLayoutEffect(() => {
+    if (!sendScrollVersion) return
+    scrollToEndRef.current?.({ behavior: "auto" })
+    // Query notifications and composer resizing may land after the send commit.
+    const viewport = scrollRef.current
+    const frame = window.requestAnimationFrame(() => {
+      if (viewport && scrollRef.current === viewport) {
+        scrollToEndRef.current?.({ behavior: "auto" })
+      }
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [sendScrollVersion, scrollToEndRef])
 
   // Scoped to this panel's scroll container so it never grabs the channel
   // feed's copy of the same message id (the root appears in both).
@@ -711,7 +724,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
         key={view.threadRootId}
         autoScroll
         defaultScrollPosition="last-anchor"
-        scrollEdgeThreshold={16}
+        scrollEdgeThreshold={64}
         scrollPreviousItemPeek={64}
       >
         <MessageScrollerCommandBridge
@@ -722,7 +735,9 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
           <MessageScrollerViewport
             ref={scrollRef}
             onPointerDown={handleReaderPointerDown}
-            reconcileFollowOutput={Boolean(pendingMerlinMessage)}
+            reconcileFollowOutput
+            followOutputThreshold={64}
+            className="[overflow-anchor:none]"
             aria-label="Thread messages"
           >
             <MessageScrollerContent
@@ -869,16 +884,10 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
             placeholder="Reply…"
             onSend={(content, options) => {
               const nonce = handleSend(content, options)
-              // Opening an existing thread anchors an earlier message to the
-              // top, and the scroller stays in that mode — so every later
-              // resize (this reply landing, the composer growing, Merlin
-              // streaming) yanked the view back up to that old anchor (LOR-67).
-              // Jumping to the live edge is both what someone expects after
-              // sending and the only thing that releases the anchor.
-              // "auto", not "smooth": the optimistic reply appends a frame
-              // later and its own follow-to-bottom would cancel the animation
-              // mid-flight anyway.
-              scrollToEndRef.current?.()
+              // Retire opening anchors so a later resize cannot recapture them.
+              openingAnchorsRef.current.messageIds.clear()
+              scrollToEndRef.current?.({ behavior: "auto" })
+              setSendScrollVersion((version) => version + 1)
               // Merlin is mid-answer in this thread, so the reply will queue —
               // show it in the pill immediately instead of waiting for the
               // routed round trip.

@@ -1,6 +1,7 @@
 import type { RealtimeMessageEmbedsUpdated } from "@repo/realtime-types"
 import type { InfiniteData, QueryClient } from "@tanstack/react-query"
 import { useCallback, useEffect, useMemo, useRef } from "react"
+import type { ThreadPage } from "@/hooks/use-thread-messages"
 import type { Message } from "@/lib/api-types"
 import { updateMessagesAcrossPages } from "@/lib/message-cache-utils"
 import {
@@ -120,13 +121,30 @@ export function useMessageSending({
           m.id === update.messageId ? { ...m, embeds: update.embeds } : m
         )
       )
+      if (threadRootId === update.messageId) {
+        queryClient.setQueryData<InfiniteData<ThreadPage>>(
+          ["thread", threadRootId],
+          (old) =>
+            old
+              ? {
+                  ...old,
+                  pages: old.pages.map((page) => ({
+                    ...page,
+                    root: page.root
+                      ? { ...page.root, embeds: update.embeds }
+                      : page.root,
+                  })),
+                }
+              : old
+        )
+      }
     }
 
     socket.on("message:embeds:updated", handleEmbedsUpdated)
     return () => {
       socket.off("message:embeds:updated", handleEmbedsUpdated)
     }
-  }, [socket, channelId, updateMessagesInCache])
+  }, [socket, channelId, threadRootId, queryClient, updateMessagesInCache])
 
   const handleSend = useCallback(
     (

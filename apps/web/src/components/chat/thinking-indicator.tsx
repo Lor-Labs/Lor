@@ -23,9 +23,29 @@ const WORDS = [
   "Effervescing",
   "Wizarding",
   "Marinating",
+  "Pondering",
+  "Spellweaving",
+  "Divining",
+  "Cogitating",
+  "Tinkering",
+  "Stargazing",
+  "Transmuting",
+  "Contemplating",
+  "Deciphering",
+  "Alchemizing",
+  "Untangling",
+  "Brewing",
+  "Illuminating",
+  "Riffing",
+  "Dreamweaving",
+  "Runesmithing",
+  "Wandwaving",
+  "Puzzling",
+  "Envisioning",
+  "Spellchecking",
 ]
 
-const ROTATE_MS = 2200
+const ROTATE_MS = 5_000
 
 export function ThinkingIndicator() {
   // Start somewhere random so two concurrent replies don't chant in unison,

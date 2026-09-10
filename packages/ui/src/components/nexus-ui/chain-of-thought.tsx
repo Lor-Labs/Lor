@@ -179,7 +179,7 @@ function ChainOfThoughtTrigger({
       {icon}
       <div className="flex min-w-0 flex-1 items-start gap-1.25 overflow-hidden">
         <TextShimmer
-          className="truncate text-left text-sm leading-4.5 text-ellipsis whitespace-nowrap"
+          className="min-w-0 truncate text-left text-sm leading-4.5 text-ellipsis whitespace-nowrap"
           spread={10}
           invertLight
           color={SHIMMER_BEAM}
@@ -399,7 +399,7 @@ function ChainOfThoughtStepTitle({
           </div>
         ) : null}
         <TextShimmer
-          className="truncate text-left text-sm leading-4.5 text-ellipsis whitespace-nowrap"
+          className="min-w-0 flex-1 truncate text-left text-sm leading-4.5 text-ellipsis whitespace-nowrap"
           spread={10}
           invertLight
           color={SHIMMER_BEAM}
@@ -433,7 +433,7 @@ function ChainOfThoughtStepTitle({
       ) : null}
       <div className="flex min-w-0 flex-1 items-start gap-1.25 overflow-hidden">
         <TextShimmer
-          className="truncate text-left text-sm leading-4.5 text-ellipsis whitespace-nowrap"
+          className="min-w-0 truncate text-left text-sm leading-4.5 text-ellipsis whitespace-nowrap"
           spread={10}
           invertLight
           color={SHIMMER_BEAM}

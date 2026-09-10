@@ -140,6 +140,7 @@ export const threadContextResponseSchema = z.object({
 })
 
 export const runEventsResponseSchema = z.object({
+  nextCursor: z.number().int().nullable(),
   run: z.object({
     id: z.string().uuid(),
     messageId: z.string().uuid(),

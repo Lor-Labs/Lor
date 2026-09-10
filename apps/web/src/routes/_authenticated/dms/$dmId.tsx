@@ -17,6 +17,7 @@ import { useMessageDeletion } from "@/hooks/use-message-deletion"
 import { useMessageEditing } from "@/hooks/use-message-editing"
 import { useMessageReactions } from "@/hooks/use-message-reactions"
 import { useMessageSending } from "@/hooks/use-message-sending"
+import { useRealtimeRoom } from "@/hooks/use-realtime-room"
 import { useReplyState } from "@/hooks/use-reply-state"
 import { useTypingIndicator } from "@/hooks/use-typing-indicator"
 import { apiClient } from "@/lib/api-client"
@@ -112,20 +113,7 @@ function DMConversation() {
     [navigate]
   )
 
-  // Join/leave the DM channel room for real-time messages. Re-join on every
-  // "connect" — rooms don't survive a reconnect.
-  useEffect(() => {
-    if (!socket) return
-
-    const join = () => socket.emit("channel:join", { channelId: dmId })
-    join()
-    socket.on("connect", join)
-
-    return () => {
-      socket.off("connect", join)
-      socket.emit("channel:leave", { channelId: dmId })
-    }
-  }, [socket, dmId])
+  useRealtimeRoom(socket, "channel", dmId)
 
   const { handleReact } = useMessageReactions({
     socket,

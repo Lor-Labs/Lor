@@ -29,8 +29,7 @@ import type {
   StopRunRoute,
 } from "@/routes/v1/runs/routes"
 
-// Retention cleanup prunes terminal runs' events; a full replay is bounded by
-// one run's answer, but cap defensively.
+// Page durable events so long runs can be recovered without silent truncation.
 const EVENT_LIMIT = 10_000
 
 export const getRunEvents: AppRouteHandler<GetRunEventsRoute> = async (c) => {
@@ -93,7 +92,7 @@ export const getRunEvents: AppRouteHandler<GetRunEventsRoute> = async (c) => {
         )
       )
       .orderBy(asc(schema.agentRunEvent.seq))
-      .limit(EVENT_LIMIT),
+      .limit(EVENT_LIMIT + 1),
     db
       .select({
         messageId: schema.agentRunQueue.messageId,
@@ -119,7 +118,11 @@ export const getRunEvents: AppRouteHandler<GetRunEventsRoute> = async (c) => {
         state: run.state,
         stopReason: run.stopReason,
       },
-      events,
+      events: events.slice(0, EVENT_LIMIT),
+      nextCursor:
+        events.length > EVENT_LIMIT
+          ? (events[EVENT_LIMIT - 1]?.seq ?? null)
+          : null,
       queue,
     },
     HttpStatusCodes.OK
@@ -127,8 +130,7 @@ export const getRunEvents: AppRouteHandler<GetRunEventsRoute> = async (c) => {
 }
 
 // Same conservative heuristic as packages/merlin/src/compaction.ts — UTF-8
-// bytes over 3. Only used to split the exact provider total into proportions,
-// never to produce the total itself.
+// bytes over 3. Estimates fill the gap before a provider checkpoint exists.
 const BYTES_PER_TOKEN = 3
 const EMPTY_CONTEXT = {
   available: false as const,
@@ -164,6 +166,9 @@ export const getThreadContext: AppRouteHandler<GetThreadContextRoute> = async (
       state: schema.agentRun.state,
       compaction: schema.agentRun.compaction,
       instructionsBytes: sql<number>`coalesce(octet_length(${schema.agentRun.instructions}), 0)`,
+      initialMessagesTokens: sql<
+        number | null
+      >`(${schema.agentRun.context} ->> 'initialMessagesTokens')::int`,
       contextBytes: sql<number>`coalesce(octet_length(${schema.agentRun.context}::text), 0)`,
       // Read the one field out in SQL rather than shipping the whole snapshot.
       toolSchemaBytes: sql<number>`coalesce((${schema.agentRun.context} ->> 'toolSchemaBytes')::int, 0)`,
@@ -200,7 +205,7 @@ export const getThreadContext: AppRouteHandler<GetThreadContextRoute> = async (
     db
       .select({
         tailBytes: sql<number>`coalesce(sum(octet_length(${schema.agentRunStep.messages}::text)) filter (where ${schema.agentRunStep.step} > ${baselineStep}), 0)`,
-        lastInputTokens: sql<number>`coalesce((array_agg(${schema.agentRunStep.inputTokens} order by ${schema.agentRunStep.step} desc))[1], 0)`,
+        lastInputTokens: sql<number>`coalesce((array_agg(${schema.agentRunStep.inputTokens} order by ${schema.agentRunStep.step} desc) filter (where ${schema.agentRunStep.inputTokens} > 0 and ${schema.agentRunStep.step} > ${baselineStep}))[1], 0)`,
       })
       .from(schema.agentRunStep)
       .where(eq(schema.agentRunStep.runId, run.id))
@@ -209,6 +214,9 @@ export const getThreadContext: AppRouteHandler<GetThreadContextRoute> = async (
       .select({
         creditsSpent: sql<number>`coalesce(sum(${schema.agentRun.creditsSpent}), 0)`,
         runCount: sql<number>`count(*)`,
+        state: sql<
+          typeof schema.agentRun.$inferSelect.state
+        >`(array_agg(${schema.agentRun.state} order by ${schema.agentRun.createdAt} desc))[1]`,
         // Everything the scope has ever transcribed — what a request would
         // weigh with no compaction at all.
         rawHistoryBytes: sql<number>`coalesce((select sum(octet_length(s.messages::text)) from ${schema.agentRunStep} s where s.run_id in (select id from ${schema.agentRun} r where r.scope_key = ${scopeKey})), 0)`,
@@ -219,18 +227,21 @@ export const getThreadContext: AppRouteHandler<GetThreadContextRoute> = async (
   ])
 
   const toTokens = (bytes: number) => Math.ceil(Number(bytes) / BYTES_PER_TOKEN)
-  const notesBytes = Buffer.byteLength(run.compaction?.summary ?? "", "utf8")
-  // System / Tools / Messages — the conventional split. Everything that is
-  // message content (the conversation snapshot, Merlin's steps, and the
-  // compaction notes that stand in for older steps) is one segment, because to
-  // the model that is exactly what it is: the message array.
+  // Compaction's baseline already contains its summary. A continuation's
+  // initial request includes inherited turns absent from context.conversation.
+  const initialMessagesTokens = run.compaction
+    ? (run.compaction.messageTokens ??
+      toTokens(
+        Buffer.byteLength(
+          JSON.stringify(run.compaction.baselineMessages),
+          "utf8"
+        )
+      ))
+    : (run.initialMessagesTokens ?? toTokens(run.contextBytes))
   const estimates = {
     system: toTokens(run.instructionsBytes),
     tools: toTokens(run.toolSchemaBytes),
-    messages:
-      toTokens(run.contextBytes) +
-      toTokens(steps?.tailBytes ?? 0) +
-      toTokens(notesBytes),
+    messages: initialMessagesTokens + toTokens(steps?.tailBytes ?? 0),
   }
   const estimateTotal = estimates.system + estimates.tools + estimates.messages
   // Before the first checkpoint there is no provider figure to anchor to.
@@ -238,6 +249,11 @@ export const getThreadContext: AppRouteHandler<GetThreadContextRoute> = async (
   // Scale the parts onto the exact total: the segments' value is the shape of
   // the split, and letting them disagree with the headline reads as a bug.
   const scale = estimateTotal > 0 ? usedTokens / estimateTotal : 0
+  const systemTokens = Math.round(estimates.system * scale)
+  const toolTokens = Math.min(
+    usedTokens - systemTokens,
+    Math.round(estimates.tools * scale)
+  )
 
   return c.json(
     {
@@ -246,9 +262,9 @@ export const getThreadContext: AppRouteHandler<GetThreadContextRoute> = async (
       windowTokens: env.MERLIN_CONTEXT_WINDOW,
       compactAtTokens: env.MERLIN_COMPACT_INPUT_TOKENS,
       segments: {
-        system: Math.round(estimates.system * scale),
-        tools: Math.round(estimates.tools * scale),
-        messages: Math.round(estimates.messages * scale),
+        system: systemTokens,
+        tools: toolTokens,
+        messages: usedTokens - systemTokens - toolTokens,
       },
       compacted: Boolean(run.compaction),
       rawHistoryTokens:
@@ -257,7 +273,7 @@ export const getThreadContext: AppRouteHandler<GetThreadContextRoute> = async (
         estimates.tools,
       creditsSpent: Number(scope?.creditsSpent ?? 0),
       runCount: Number(scope?.runCount ?? 0),
-      state: run.state,
+      state: scope?.state ?? run.state,
     },
     HttpStatusCodes.OK
   )

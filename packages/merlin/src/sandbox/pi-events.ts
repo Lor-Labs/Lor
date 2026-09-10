@@ -71,7 +71,7 @@ export function piToolLabel(name: string, input: unknown): string {
       return path ? `Edited ${path}` : "Edited a file"
     case "bash": {
       const command = asString(args?.command)
-      return command ? `Ran ${command.slice(0, 60)}` : "Ran a command"
+      return command ? `Ran ${command}` : "Ran a command"
     }
     default:
       return name

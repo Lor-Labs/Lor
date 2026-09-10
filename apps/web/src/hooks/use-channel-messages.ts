@@ -14,6 +14,7 @@ import {
 } from "react"
 import type { ThreadPage, ThreadPageParam } from "@/hooks/use-thread-messages"
 import type { Message } from "@/lib/api-types"
+import { preserveMessageStream } from "@/lib/message-cache-utils"
 import { realtimeMessageToMessage } from "@/lib/realtime-adapter"
 import type { AppSocket } from "@/lib/socket"
 
@@ -78,7 +79,20 @@ export function useChannelMessages({
         else if ("before" in pageParam) params.before = pageParam.before
         else if ("after" in pageParam) params.after = pageParam.after
       }
-      return fetchPage(params)
+      const page = await fetchPage(params)
+      const cached = queryClient.getQueryData<InfiniteData<MessagesPage>>([
+        "messages",
+        channelId,
+      ])
+      const byId = new Map(
+        cached?.pages.flatMap((p) => p.data.map((m) => [m.id, m] as const))
+      )
+      return {
+        ...page,
+        data: page.data.map((message) =>
+          preserveMessageStream(message, byId.get(message.id))
+        ),
+      }
     },
     initialPageParam: normalizedAnchor ? { around: normalizedAnchor } : null,
     getNextPageParam: (lastPage) =>

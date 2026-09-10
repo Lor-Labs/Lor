@@ -4,7 +4,9 @@ import {
   useQueryClient,
 } from "@tanstack/react-query"
 import { type MutableRefObject, useCallback, useEffect, useMemo } from "react"
+import { useRealtimeRoom } from "@/hooks/use-realtime-room"
 import type { Message } from "@/lib/api-types"
+import { preserveMessageStream } from "@/lib/message-cache-utils"
 import { realtimeMessageToMessage } from "@/lib/realtime-adapter"
 import type { AppSocket } from "@/lib/socket"
 
@@ -79,7 +81,26 @@ export function useThreadMessages({
         else if ("before" in pageParam) params.before = pageParam.before
         else if ("after" in pageParam) params.after = pageParam.after
       }
-      return fetchPage(params)
+      const page = await fetchPage(params)
+      const cached = queryClient.getQueryData<InfiniteData<ThreadPage>>([
+        "thread",
+        threadRootId,
+      ])
+      const byId = new Map(
+        cached?.pages.flatMap((p) => p.data.map((m) => [m.id, m] as const))
+      )
+      return {
+        ...page,
+        data: page.data.map((message) =>
+          preserveMessageStream(message, byId.get(message.id))
+        ),
+        root: page.root
+          ? preserveMessageStream(
+              page.root,
+              cached?.pages[0]?.root ?? undefined
+            )
+          : page.root,
+      }
     },
     initialPageParam: null,
     getNextPageParam: (lastPage) =>
@@ -89,18 +110,8 @@ export function useThreadMessages({
     enabled,
   })
 
-  // Join/leave the thread room for live replies. Re-join on every "connect" —
-  // rooms don't survive a reconnect and the socket identity never changes.
-  useEffect(() => {
-    if (!socket || !enabled) return
-    const join = () => socket.emit("thread:join", { threadRootId })
-    join()
-    socket.on("connect", join)
-    return () => {
-      socket.off("connect", join)
-      socket.emit("thread:leave", { threadRootId })
-    }
-  }, [socket, threadRootId, enabled])
+  useRealtimeRoom(socket, "channel", enabled ? channelId : undefined)
+  useRealtimeRoom(socket, "thread", enabled ? threadRootId : undefined)
 
   // Subscribe to live replies in this thread.
   useEffect(() => {

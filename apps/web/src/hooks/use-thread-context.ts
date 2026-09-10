@@ -19,10 +19,8 @@ export type ThreadContextUsage = {
   state: string | null
 }
 
-// Context usage for a conversation scope (thread root id, or channel id for a
-// channel-scoped run). Polls while a run is working so the meter grows as
-// Merlin works, and refetches once when it stops — the final step's numbers
-// only exist after the run's last checkpoint.
+// Poll independently of websocket state so missed terminal frames and late
+// checkpoints cannot freeze the meter.
 export function useThreadContext(
   scopeKey: string | undefined,
   isRunning: boolean
@@ -38,15 +36,23 @@ export function useThreadContext(
     },
     enabled: Boolean(scopeKey),
     staleTime: 15_000,
-    refetchInterval: isRunning ? 10_000 : false,
+    refetchInterval: (query) => {
+      const state = query.state.data?.state
+      return isRunning ||
+        state === "queued" ||
+        state === "working" ||
+        state === "finalizing"
+        ? 10_000
+        : 30_000
+    },
   })
 
   const { refetch } = query
   useEffect(() => {
     // Without the scopeKey guard this can fire for a disabled query and request
     // /runs/context/undefined, which fails the uuid param check.
-    if (isRunning || !scopeKey) return
-    // Run just ended (or the composer mounted idle): pick up the final step.
+    if (!scopeKey) return
+    // Refresh on both start and stop; the checkpoint may arrive after the UI settles.
     void refetch()
   }, [isRunning, scopeKey, refetch])
 

@@ -13,6 +13,11 @@ import {
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react"
 import { env } from "@repo/env/client"
 import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@repo/ui/components/collapsible"
+import {
   ChainOfThought,
   ChainOfThoughtContent,
   ChainOfThoughtStep,
@@ -188,61 +193,59 @@ function DiffCounts({
   )
 }
 
-// A nested sandbox sub-step. File changes (write/edit) get Codex-style
-// +N/−N counts and expand into the unified diff.
+// Keep the full label in the disclosure; only the single-line preview clips.
 function SubStepRow({ toolCall }: { toolCall: MerlinToolCallView }) {
-  const [open, setOpen] = useState(false)
   const Icon = toolIcon(toolCall.toolName)
   const diff = toolCall.diff
 
-  const row = (
-    <>
-      <Icon className="size-3 shrink-0" />
-      <span className="truncate">{toolCall.label}</span>
-      {diff && <DiffCounts diff={diff} />}
-    </>
-  )
-  if (!diff?.patch) {
-    return (
-      <span className="inline-flex items-center gap-1.5 text-muted-foreground text-xs">
-        {row}
-      </span>
-    )
-  }
   return (
-    <div className="flex flex-col gap-1">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="inline-flex cursor-pointer items-center gap-1.5 text-left text-muted-foreground text-xs hover:text-foreground"
-      >
-        {row}
+    <Collapsible className="min-w-0 w-full">
+      <CollapsibleTrigger className="group/tool-step flex w-full min-w-0 cursor-pointer items-center gap-1.5 rounded-sm text-left text-muted-foreground text-xs outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
+        <Icon className="size-3 shrink-0" />
+        <span className="min-w-0 flex-1 truncate">{toolCall.label}</span>
+        {diff && <DiffCounts diff={diff} />}
         <HugeiconsIcon
           icon={ArrowRight01Icon}
-          className={`size-3 shrink-0 transition-transform ${open ? "rotate-90" : ""}`}
+          className="invisible size-3 shrink-0 transition-transform group-hover/tool-step:visible group-focus-visible/tool-step:visible group-data-panel-open/tool-step:visible group-data-panel-open/tool-step:rotate-90"
           strokeWidth={2}
         />
-      </button>
-      {open && (
-        <pre className="max-h-64 overflow-auto rounded-md border border-border/50 bg-muted/30 p-2 font-mono text-[11px] leading-4">
-          {diff.patch.split("\n").map((line, i) => (
-            <div
-              // Patch lines have no identity beyond position.
-              // biome-ignore lint/suspicious/noArrayIndexKey: static content
-              key={i}
-              className={`whitespace-pre-wrap break-all px-1 ${diffLineClass(line)}`}
-            >
-              {line || " "}
-            </div>
-          ))}
-          {diff.truncated && (
-            <div className="px-1 text-muted-foreground/60">
-              … diff truncated
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="mt-1 mb-1 max-h-64 overflow-auto rounded-md border border-border/50 bg-muted/30 p-2 text-[11px] leading-4">
+          <pre className="whitespace-pre-wrap font-mono [overflow-wrap:anywhere]">
+            {toolCall.label}
+          </pre>
+          {diff?.patch && (
+            <pre className="mt-2 border-border/50 border-t pt-2 font-mono">
+              {diff.patch.split("\n").map((line, i) => (
+                <div
+                  // biome-ignore lint/suspicious/noArrayIndexKey: static patch lines
+                  key={i}
+                  className={`whitespace-pre-wrap break-all px-1 ${diffLineClass(line)}`}
+                >
+                  {line || " "}
+                </div>
+              ))}
+              {diff.truncated && (
+                <div className="px-1 text-muted-foreground/60">
+                  … diff truncated
+                </div>
+              )}
+            </pre>
+          )}
+          {toolCall.detail?.summary && (
+            <pre className="mt-2 whitespace-pre-wrap border-border/50 border-t pt-2 font-mono [overflow-wrap:anywhere]">
+              {toolCall.detail.summary}
+            </pre>
+          )}
+          {toolCall.status && (
+            <div className="mt-2 text-right text-muted-foreground">
+              {toolCall.status === "error" ? "Failed" : "Success"}
             </div>
           )}
-        </pre>
-      )}
-    </div>
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
   )
 }
 
@@ -314,7 +317,7 @@ export function MerlinToolTrail({
                   {/* Nested sub-steps (e.g. the code agent's own tool calls),
                       streamed live as it explores. */}
                   {children.length > 0 && (
-                    <div className="flex flex-col gap-1 border-border/50 border-l pl-2.5">
+                    <div className="flex min-w-0 flex-col gap-1 border-border/50 border-l pl-2.5">
                       {children.map((c) => (
                         <SubStepRow key={c.toolCallId} toolCall={c} />
                       ))}

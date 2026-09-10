@@ -38,9 +38,11 @@ function MessageScrollerViewport({
   onTouchMove,
   onWheel,
   reconcileFollowOutput = false,
+  followOutputThreshold = 1,
   ...props
 }: React.ComponentProps<typeof MessageScrollerPrimitive.Viewport> & {
   reconcileFollowOutput?: boolean
+  followOutputThreshold?: number
 }) {
   const { scrollToEnd } = useMessageScroller()
   const reconcileFrameRef = React.useRef<number | null>(null)
@@ -57,11 +59,11 @@ function MessageScrollerViewport({
           Math.abs(viewport.scrollTop - initialScrollTop) <= 0.5
         const isAtEnd =
           viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop <=
-          1
+          followOutputThreshold
         if (stayedStill && isAtEnd) scrollToEnd({ behavior: "auto" })
       })
     },
-    [reconcileFollowOutput, scrollToEnd]
+    [reconcileFollowOutput, followOutputThreshold, scrollToEnd]
   )
 
   React.useEffect(

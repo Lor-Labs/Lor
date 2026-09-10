@@ -23,7 +23,7 @@ import { useChannelMessages } from "@/hooks/use-channel-messages"
 import { useChannelTasks } from "@/hooks/use-channel-tasks"
 import { useFileUpload } from "@/hooks/use-file-upload"
 import { useMarkThreadRead } from "@/hooks/use-mark-thread-read"
-import { useMerlinRunReplay, useMerlinStream } from "@/hooks/use-merlin-stream"
+import { useMerlinRunReplay } from "@/hooks/use-merlin-stream"
 import { useMessageDeletion } from "@/hooks/use-message-deletion"
 import { useMessageEditing } from "@/hooks/use-message-editing"
 import { useMessagePinning } from "@/hooks/use-message-pinning"
@@ -31,6 +31,7 @@ import { useMessageReactions } from "@/hooks/use-message-reactions"
 import { useMessageSending } from "@/hooks/use-message-sending"
 import { useChannelProposals } from "@/hooks/use-proposals"
 import { useQueuedMessageSteering } from "@/hooks/use-queued-message-steering"
+import { useRealtimeRoom } from "@/hooks/use-realtime-room"
 import { useReplyState } from "@/hooks/use-reply-state"
 import { useRunQueue } from "@/hooks/use-run-queue"
 import { useThreadActivity } from "@/hooks/use-thread-activity"
@@ -281,21 +282,7 @@ function ChannelView() {
     },
   })
 
-  // Join/leave the channel room for real-time messages. Rooms don't survive a
-  // reconnect (fresh server-side socket, no membership) and the singleton
-  // socket's identity never changes, so re-join on every "connect".
-  useEffect(() => {
-    if (!socket) return
-
-    const join = () => socket.emit("channel:join", { channelId })
-    join()
-    socket.on("connect", join)
-
-    return () => {
-      socket.off("connect", join)
-      socket.emit("channel:leave", { channelId })
-    }
-  }, [socket, channelId])
+  useRealtimeRoom(socket, "channel", channelId)
 
   const { handleReact } = useMessageReactions({
     socket,
@@ -317,7 +304,6 @@ function ChannelView() {
     channelId,
   })
 
-  useMerlinStream({ socket, queryClient, channelId })
   useMerlinRunReplay({ queryClient, channelId, messages })
 
   // Channel-scope queue (a send can land while a run is finalizing) —

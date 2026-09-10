@@ -28,20 +28,22 @@ type ToolCall = {
   status?: "ok" | "error"
 }
 
+type StreamMessage = {
+  id: string
+  content: string | null
+  streaming?: boolean
+  status?: "pending" | "complete" | "failed"
+  remembered?: { path: string; action: "created" | "updated" }[]
+  merlinToolCalls?: ToolCall[]
+  merlinReasoning?: string | null
+  merlinReasoningSegments?: MerlinReasoningSegment[]
+  mentions?: RealtimeMessageMention[]
+  steeringBy?: string
+  routedOutcome?: "steered" | "queued"
+}
 interface MessagePage {
-  data: {
-    id: string
-    content: string | null
-    streaming?: boolean
-    status?: "pending" | "complete" | "failed"
-    remembered?: { path: string; action: "created" | "updated" }[]
-    merlinToolCalls?: ToolCall[]
-    merlinReasoning?: string | null
-    merlinReasoningSegments?: MerlinReasoningSegment[]
-    mentions?: RealtimeMessageMention[]
-    steeringBy?: string
-    routedOutcome?: "steered" | "queued"
-  }[]
+  data: StreamMessage[]
+  root?: StreamMessage | null
 }
 
 type StreamPayload = {
@@ -132,6 +134,8 @@ type ReplayGate =
 const replayGates = new Map<string, ReplayGate>()
 // Message ids whose replay has been kicked off, so re-renders don't re-fetch.
 const replayStarted = new Set<string>()
+const replayOwners = new Map<string, number>()
+const lastFrameAt = new Map<string, number>()
 
 const replayRetryTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const replayRetryListeners = new Set<() => void>()
@@ -186,6 +190,8 @@ export function resetMerlinReplayState() {
 // replay) and must not be applied now.
 function gateFrame(frame: BufferedFrame): boolean {
   const { payload } = frame
+  if (replayOwners.has(payload.messageId))
+    lastFrameAt.set(payload.messageId, Date.now())
   const gate = replayGates.get(payload.messageId)
   if (!gate) return false
   if (gate.state === "buffering") {
@@ -211,12 +217,24 @@ function patchMessage(
   messageId: string,
   patch: (m: MessagePage["data"][number]) => MessagePage["data"][number]
 ) {
-  queryClient.setQueryData<InfiniteData<MessagePage>>(key, (old) => {
-    if (!old) return old
-    return updateMessagesAcrossPages(old, (msgs) =>
-      msgs.map((m) => (m.id === messageId ? patch(m) : m))
-    )
-  })
+  const updateCache = (cacheKey: (string | null)[]) => {
+    queryClient.setQueryData<InfiniteData<MessagePage>>(cacheKey, (old) => {
+      if (!old) return old
+      const updated = updateMessagesAcrossPages(old, (msgs) =>
+        msgs.map((m) => (m.id === messageId ? patch(m) : m))
+      )
+      return {
+        ...updated,
+        pages: updated.pages.map((page) =>
+          page.root?.id === messageId
+            ? { ...page, root: patch(page.root) }
+            : page
+        ),
+      }
+    })
+  }
+  updateCache(key)
+  if (key[0] === "messages") updateCache(["thread", messageId])
 }
 
 function applyStreamFrame(queryClient: QueryClient, payload: StreamPayload) {
@@ -224,15 +242,18 @@ function applyStreamFrame(queryClient: QueryClient, payload: StreamPayload) {
     queryClient,
     messagesCacheKey(payload.channelId, payload.threadRootId),
     payload.messageId,
-    (m) => ({
-      ...m,
-      content: payload.replace
-        ? payload.delta
-        : (m.content ?? "") + payload.delta,
-      streaming: !payload.done,
-      ...(payload.status ? { status: payload.status } : {}),
-      ...(payload.mentions ? { mentions: payload.mentions } : {}),
-    })
+    (m) =>
+      (m.status === "complete" || m.status === "failed") && !payload.replace
+        ? m
+        : {
+            ...m,
+            content: payload.replace
+              ? payload.delta
+              : (m.content ?? "") + payload.delta,
+            streaming: !payload.done,
+            ...(payload.status ? { status: payload.status } : {}),
+            ...(payload.mentions ? { mentions: payload.mentions } : {}),
+          }
   )
   if (payload.done) clearReplayState(payload.messageId)
 }
@@ -245,15 +266,18 @@ function applyReasoningFrame(
     queryClient,
     messagesCacheKey(payload.channelId, payload.threadRootId),
     payload.messageId,
-    (m) => ({
-      ...m,
-      merlinReasoning: (m.merlinReasoning ?? "") + payload.delta,
-      merlinReasoningSegments: appendReasoningSegment(
-        m.merlinReasoningSegments,
-        payload
-      ),
-      streaming: true,
-    })
+    (m) =>
+      m.status === "complete" || m.status === "failed"
+        ? m
+        : {
+            ...m,
+            merlinReasoning: (m.merlinReasoning ?? "") + payload.delta,
+            merlinReasoningSegments: appendReasoningSegment(
+              m.merlinReasoningSegments,
+              payload
+            ),
+            streaming: true,
+          }
   )
 }
 
@@ -297,7 +321,10 @@ function applySteerFrame(queryClient: QueryClient, payload: SteerPayload) {
     queryClient,
     messagesCacheKey(payload.channelId, payload.threadRootId),
     payload.messageId,
-    (m) => ({ ...m, steeringBy: payload.authorName, streaming: true })
+    (m) =>
+      m.status === "complete" || m.status === "failed"
+        ? m
+        : { ...m, steeringBy: payload.authorName, streaming: true }
   )
 }
 
@@ -394,11 +421,23 @@ async function replayRun(
   args: { channelId: string; threadRootId: string | null; messageId: string }
 ) {
   const key = messagesCacheKey(args.channelId, args.threadRootId)
+  const refreshMessage = () => {
+    void queryClient.invalidateQueries({ queryKey: key })
+    if (!args.threadRootId) {
+      void queryClient.invalidateQueries({
+        queryKey: ["thread", args.messageId],
+      })
+    }
+    void queryClient.invalidateQueries({
+      queryKey: ["thread-context", args.threadRootId ?? args.channelId],
+    })
+  }
   const gate: ReplayGate = { state: "buffering", frames: [] }
   replayGates.set(args.messageId, gate)
   try {
     const res = await apiClient.v1.runs["by-message"][":messageId"].events.$get(
-      { param: { messageId: args.messageId }, query: {} }
+      { param: { messageId: args.messageId }, query: {} },
+      { init: { signal: AbortSignal.timeout(10_000) } }
     )
     if (replayGates.get(args.messageId) !== gate) return
     // 404 = legacy run with no durable log; anything else is best-effort too —
@@ -406,12 +445,13 @@ async function replayRun(
     // replayStarted marker re-arms on a timer, not immediately, so render
     // churn doesn't re-fetch in a loop but a transient failure still retries.
     if (!res.ok) {
+      if (res.status === 404) refreshMessage()
       replayGates.delete(args.messageId)
       scheduleReplayRetry(args.messageId)
       for (const frame of gate.frames) applyBufferedFrame(queryClient, frame)
       return
     }
-    const { run, events } = await res.json()
+    const { run, events, nextCursor: responseNextCursor } = await res.json()
     if (replayGates.get(args.messageId) !== gate) return
 
     // Terminal run: the message row already holds the final content, trail,
@@ -422,10 +462,37 @@ async function replayRun(
       run.state === "stopped"
     ) {
       replayGates.delete(args.messageId)
-      void queryClient.invalidateQueries({ queryKey: key })
+      refreshMessage()
       return
     }
 
+    let cursor = events.at(-1)?.seq
+    let hasMore = responseNextCursor != null
+    while (hasMore && cursor !== undefined) {
+      const page = await apiClient.v1.runs["by-message"][
+        ":messageId"
+      ].events.$get(
+        { param: { messageId: args.messageId }, query: { after: cursor } },
+        { init: { signal: AbortSignal.timeout(10_000) } }
+      )
+      if (!page.ok) throw new Error("Couldn't recover the remaining run events")
+      const body = await page.json()
+      if (replayGates.get(args.messageId) !== gate) return
+      if (
+        body.run.state === "complete" ||
+        body.run.state === "failed" ||
+        body.run.state === "stopped"
+      ) {
+        replayGates.delete(args.messageId)
+        refreshMessage()
+        return
+      }
+      events.push(...body.events)
+      const next = body.events.at(-1)?.seq
+      if (next === undefined || next <= cursor) break
+      cursor = next
+      hasMore = body.nextCursor != null
+    }
     applyReplayEvents(queryClient, key, args.messageId, events)
     const maxSeq = events.at(-1)?.seq ?? -1
     const buffered = gate.frames
@@ -451,7 +518,6 @@ async function replayRun(
 interface UseMerlinStreamOptions {
   socket: AppSocket | null
   queryClient: QueryClient
-  channelId: string
 }
 
 // Appends Merlin's streamed reply deltas into its placeholder message and
@@ -459,13 +525,11 @@ interface UseMerlinStreamOptions {
 export function useMerlinStream({
   socket,
   queryClient,
-  channelId,
 }: UseMerlinStreamOptions) {
   useEffect(() => {
     if (!socket) return
 
     const handleStream = (payload: StreamPayload) => {
-      if (payload.channelId !== channelId) return
       if (gateFrame({ type: "stream", payload })) return
       applyStreamFrame(queryClient, payload)
     }
@@ -474,13 +538,12 @@ export function useMerlinStream({
     return () => {
       socket.off("message:stream", handleStream)
     }
-  }, [socket, channelId, queryClient])
+  }, [socket, queryClient])
 
   useEffect(() => {
     if (!socket) return
 
     const handleReasoning = (payload: ReasoningPayload) => {
-      if (payload.channelId !== channelId) return
       if (gateFrame({ type: "reasoning", payload })) return
       applyReasoningFrame(queryClient, payload)
     }
@@ -489,13 +552,12 @@ export function useMerlinStream({
     return () => {
       socket.off("merlin:reasoning", handleReasoning)
     }
-  }, [socket, channelId, queryClient])
+  }, [socket, queryClient])
 
   useEffect(() => {
     if (!socket) return
 
     const handleMemory = (payload: MemoryPayload) => {
-      if (payload.channelId !== channelId) return
       if (gateFrame({ type: "memory", payload })) return
       applyMemoryFrame(queryClient, payload)
     }
@@ -504,13 +566,12 @@ export function useMerlinStream({
     return () => {
       socket.off("merlin:memory", handleMemory)
     }
-  }, [socket, channelId, queryClient])
+  }, [socket, queryClient])
 
   useEffect(() => {
     if (!socket) return
 
     const handleTool = (payload: ToolPayload) => {
-      if (payload.channelId !== channelId) return
       if (gateFrame({ type: "tool", payload })) return
       applyToolFrame(queryClient, payload)
     }
@@ -519,13 +580,12 @@ export function useMerlinStream({
     return () => {
       socket.off("merlin:tool", handleTool)
     }
-  }, [socket, channelId, queryClient])
+  }, [socket, queryClient])
 
   useEffect(() => {
     if (!socket) return
 
     const handleSteer = (payload: SteerPayload) => {
-      if (payload.channelId !== channelId) return
       // The steer landed — the chip on the steered message has done its job.
       // Ungated: chips aren't replayed state, so clearing is always safe.
       patchMessage(
@@ -541,7 +601,6 @@ export function useMerlinStream({
     // The sender's mid-run message was absorbed by the active run — chip the
     // routed message so they see what happened (steered vs queued).
     const handleRouted = (payload: RoutedPayload) => {
-      if (payload.channelId !== channelId) return
       patchMessage(
         queryClient,
         messagesCacheKey(payload.channelId, payload.threadRootId),
@@ -552,7 +611,6 @@ export function useMerlinStream({
 
     // The queue row settled (drained, rejected, or withdrawn) — drop the chip.
     const handleQueueUpdated = (payload: QueueUpdatedPayload) => {
-      if (payload.channelId !== channelId) return
       patchMessage(
         queryClient,
         messagesCacheKey(payload.channelId, payload.threadRootId),
@@ -569,7 +627,7 @@ export function useMerlinStream({
       socket.off("message:routed", handleRouted)
       socket.off("run:queue:updated", handleQueueUpdated)
     }
-  }, [socket, channelId, queryClient])
+  }, [socket, queryClient])
 }
 
 interface UseMerlinRunReplayOptions {
@@ -598,9 +656,43 @@ export function useMerlinRunReplay({
     getReplayRetryRevision
   )
   const pendingIds = messages
-    .filter((m) => m.status === "pending" && !replayStarted.has(m.id))
+    .filter((m) => m.status === "pending")
     .map((m) => `${m.id}:${m.threadRootId ?? ""}`)
     .join(",")
+
+  useEffect(() => {
+    const ids = pendingIds
+      .split(",")
+      .map((entry) => entry.split(":")[0])
+      .filter((id): id is string => Boolean(id))
+    for (const id of ids) replayOwners.set(id, (replayOwners.get(id) ?? 0) + 1)
+    const recover = () => {
+      if (document.visibilityState === "hidden") return
+      for (const id of ids) {
+        if (
+          replayGates.get(id)?.state === "buffering" ||
+          replayRetryTimers.has(id) ||
+          Date.now() - (lastFrameAt.get(id) ?? 0) < 15_000
+        )
+          continue
+        clearReplayState(id)
+      }
+      notifyReplayRetry()
+    }
+    const timer = ids.length ? setInterval(recover, 15_000) : undefined
+    return () => {
+      if (timer) clearInterval(timer)
+      for (const id of ids) {
+        const owners = (replayOwners.get(id) ?? 1) - 1
+        if (owners > 0) replayOwners.set(id, owners)
+        else {
+          replayOwners.delete(id)
+          lastFrameAt.delete(id)
+          clearReplayState(id)
+        }
+      }
+    }
+  }, [pendingIds])
 
   useEffect(() => {
     if (!pendingIds) return

@@ -227,10 +227,7 @@ export function MessageScrollerJumpToLatest({
     canScrollToEnd || hasUnloadedNewer || pendingCount > 0
   const shouldShow =
     hasOffscreenLatest &&
-    (isMerlinResponding ||
-      isMeaningfullyScrolledUp ||
-      hasUnloadedNewer ||
-      pendingCount > 0)
+    (isMeaningfullyScrolledUp || hasUnloadedNewer || pendingCount > 0)
 
   if (!shouldShow) return null
 
