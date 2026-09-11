@@ -13,6 +13,7 @@ interface RightSidebarContextValue {
   view: RightSidebarView | null
   setView: (view: RightSidebarView | null) => void
   clearView: () => void
+  consumeComposerDraft: (id: string) => void
   isCollapsed: boolean
   toggleCollapsed: () => void
   panelWidth: number
@@ -122,6 +123,14 @@ export function RightSidebarProvider({ children }: { children: ReactNode }) {
     setView(null)
   }, [])
 
+  const consumeComposerDraft = useCallback((id: string) => {
+    setView((current) =>
+      current?.type === "thread" && current.composerDraft?.id === id
+        ? { ...current, composerDraft: undefined }
+        : current
+    )
+  }, [])
+
   const toggleCollapsed = useCallback(() => {
     setIsCollapsed((prev) => {
       const next = !prev
@@ -147,6 +156,7 @@ export function RightSidebarProvider({ children }: { children: ReactNode }) {
       view,
       setView,
       clearView,
+      consumeComposerDraft,
       isCollapsed,
       toggleCollapsed,
       panelWidth,
@@ -156,6 +166,7 @@ export function RightSidebarProvider({ children }: { children: ReactNode }) {
     [
       view,
       clearView,
+      consumeComposerDraft,
       isCollapsed,
       toggleCollapsed,
       panelWidth,

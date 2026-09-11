@@ -143,6 +143,9 @@ async function processCallRecording(
   const lastEnd = recording.segments.at(-1)?.endTime ?? 0
   const minutes = Math.max(1, Math.round(lastEnd / 60))
   const link = recording.webUrl ? `[${title}](${recording.webUrl})` : title
+  const participants = [
+    ...new Set(recording.segments.map((s) => s.speaker)),
+  ].filter((name) => name && name !== "Unknown")
 
   return () =>
     dispatchConnectorEvent({
@@ -152,13 +155,25 @@ async function processCallRecording(
       label: "Attio",
       text: `**Call recording ready** ${link} — ${minutes} min`,
       embeds: [
-        attioNotificationEmbed({
-          event: "Call recording ready",
-          title,
-          url: recording.webUrl,
-          body: transcript,
-          fields: [{ name: "Duration", value: `${minutes} min`, inline: true }],
-        }),
+        {
+          ...attioNotificationEmbed({
+            event: "Call recording ready",
+            title,
+            url: recording.webUrl,
+            fields: [
+              { name: "Duration", value: `${minutes} min`, inline: true },
+            ],
+          }),
+          meeting: {
+            meetingId,
+            recordingId,
+            durationMinutes: minutes,
+            participants,
+            transcript,
+            transcriptTruncated: transcript.length > TRANSCRIPT_INGEST_MAX,
+            followUps: [],
+          },
+        },
       ],
       remember: {
         kind: "call_recording",

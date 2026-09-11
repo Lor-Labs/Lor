@@ -29,6 +29,10 @@ import { MessageApprovalCard } from "@/components/chat/approval-card"
 import type { MentionCandidate } from "@/components/chat/composer/mention-types"
 import { EmbedCard } from "@/components/chat/embed-card"
 import { LoopCard } from "@/components/chat/loop-card"
+import {
+  isAttioRecording,
+  MeetingRecordingCard,
+} from "@/components/chat/meeting-recording-card"
 import { MerlinMessageBody } from "@/components/chat/merlin-message-body"
 import { MerlinReasoning } from "@/components/chat/merlin-reasoning"
 import { MessageActionBar } from "@/components/chat/message-action-bar"
@@ -713,9 +717,17 @@ export const MessageItem = memo(function MessageItem({
           )}
           {message.embeds.length > 0 && (
             <div className="flex flex-col gap-1">
-              {message.embeds.map((embed, index) => (
-                <EmbedCard key={`${embed.url}-${index}`} embed={embed} />
-              ))}
+              {message.embeds.map((embed, index) =>
+                isAttioRecording(embed) ? (
+                  <MeetingRecordingCard
+                    key={`${embed.url}-${index}`}
+                    embed={embed}
+                    message={message}
+                  />
+                ) : (
+                  <EmbedCard key={`${embed.url}-${index}`} embed={embed} />
+                )
+              )}
             </div>
           )}
           {message.reactions.length > 0 && (

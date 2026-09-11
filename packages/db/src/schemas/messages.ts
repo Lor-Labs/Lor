@@ -285,6 +285,16 @@ export type Embed = {
   timestamp?: string
   // Normalized #rrggbb accent (Discord int / Slack hex-or-alias, sender-chosen).
   color?: string
+  meeting?: {
+    recordingId: string
+    meetingId: string
+    durationMinutes: number
+    participants: string[]
+    transcript: string
+    transcriptTruncated: boolean
+    summary?: string
+    followUps: { label: string; prompt: string }[]
+  }
 }
 
 export type MerlinToolCall = {

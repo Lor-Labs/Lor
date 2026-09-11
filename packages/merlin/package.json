@@ -8,6 +8,7 @@
     "./act-runs": "./src/act-runs.ts",
     "./artifacts": "./src/artifacts/service.ts",
     "./attio": "./src/attio.ts",
+    "./meeting-insights": "./src/meeting-insights.ts",
     "./capabilities": "./src/capabilities.ts",
     "./connector-search": "./src/connector-search.ts",
     "./custom-tools": "./src/custom-tools.ts",

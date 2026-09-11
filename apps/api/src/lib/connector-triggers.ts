@@ -3,6 +3,7 @@ import type { ConnectorEventKey } from "@repo/connectors"
 import { APP_USER_ID, and, db, eq, schema } from "@repo/db"
 import type { Embed, IntegrationProvider } from "@repo/db/schema"
 import { ACT_DELIVERY_PAYLOAD_MAX } from "@repo/merlin/act-runs"
+import { enrichMeetingEmbed } from "@repo/merlin/meeting-insights"
 import { type IngestSourceInput, ingestSource } from "@repo/merlin/sources"
 import { startActRun } from "@/lib/act-runs"
 import { postBotMessage } from "@/lib/bot-messages"
@@ -121,11 +122,30 @@ export async function dispatchConnectorEvent(input: {
   if (target.trigger.post) {
     // A POST failure must not take Remember, the delivery log, or Act with it.
     try {
+      const embeds =
+        input.provider === "attio" && input.event === "call_recording_ready"
+          ? await Promise.all(
+              (input.embeds ?? []).map((embed) =>
+                enrichMeetingEmbed(
+                  embed,
+                  target.connection.workspaceId,
+                  (usage) => {
+                    void recordUsage(usage).catch((err) =>
+                      logger.warn(
+                        { err },
+                        "Meeting insight usage recording failed"
+                      )
+                    )
+                  }
+                )
+              )
+            )
+          : input.embeds
       const message = await postBotMessage({
         channel: target.channel,
         authorId: APP_USER_ID,
         content: input.text,
-        embeds: input.embeds,
+        embeds,
         overrideName: input.label,
         overrideAvatarUrl: input.avatarUrl,
         // Memory rule: with Remember on, the `source` row is the canonical copy
