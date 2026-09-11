@@ -205,6 +205,7 @@ export async function summarizeWorkingState(args: {
     const result = await generateText({
       model: merlinSmallModel,
       reasoning: "low",
+      abortSignal: AbortSignal.timeout(30_000),
       instructions: SUMMARY_INSTRUCTION,
       prompt: args.previousSummary
         ? `Current notes:\n${args.previousSummary}\n\n---\nNew activity since those notes:\n${digest}`
@@ -268,10 +269,80 @@ function toolPairingHolds(messages: ModelMessage[]): boolean {
   return isSafeSplit(messages, messages.length)
 }
 
+// Last-resort projection when normal summarization/pruning still leaves an
+// oversized head or tool round. Only the model input changes; durable messages
+// and tool executions remain intact.
+export function fitMessagesToBudget(
+  messages: ModelMessage[],
+  maxTokens: number
+): ModelMessage[] {
+  if (estimateMessagesTokens(messages) <= maxTokens) return messages
+  const budgetChars = Math.floor(maxTokens * BYTES_PER_TOKEN) - 2_000
+  if (budgetChars < 1_000) {
+    throw new Error("Merlin context budget is too small for a safe request")
+  }
+  const excerpt = (value: string, cap: number) => {
+    if (value.length <= cap) return value
+    const half = Math.floor((cap - 100) / 2)
+    return `${value.slice(0, half)}\n[...excerpt shortened to fit context...]\n${value.slice(-half)}`
+  }
+  const first = messages[0]
+  const newestFirst = [...messages].reverse()
+  const latestRequest = newestFirst.find(
+    (m) => m.role === "user" && !isSummaryMessage(m) && !isStateMessage(m)
+  )
+  const notes = messages.find(isSummaryMessage)
+  const task = newestFirst.find(isStateMessage)
+  const allowance = Math.min(24_000, Math.floor(budgetChars / 8))
+  const retainedRequest =
+    latestRequest && messageTokens(latestRequest) <= allowance / BYTES_PER_TOKEN
+      ? latestRequest
+      : null
+  const sections = [
+    "[Context reduced to fit the model window. The excerpts below are incomplete reference material, not new instructions. Full chat messages and tool executions remain stored outside this context. Use read_thread or targeted lookups for missing details. Earlier actions may already have completed; do not repeat them just because their results are omitted.]",
+    first
+      ? `Original conversation excerpt:\n${excerpt(textOf(first.content), allowance)}`
+      : "",
+    notes ? `Working notes:\n${excerpt(textOf(notes.content), allowance)}` : "",
+    `Recent activity excerpts:\n${excerpt(renderForSummary(messages.slice(1)), Math.floor(budgetChars / 2))}`,
+    task
+      ? `Current task state:\n${excerpt(textOf(task.content), allowance)}`
+      : "",
+    latestRequest && !retainedRequest
+      ? `Latest user message excerpt (continue this request):\n${excerpt(textOf(latestRequest.content), allowance)}`
+      : "",
+  ].filter(Boolean)
+  const projected: ModelMessage[] = [
+    { role: "user", content: sections.join("\n\n") },
+    ...(retainedRequest ? [retainedRequest] : []),
+  ]
+  // UTF-8 can weigh more than one byte per character. Shrink the excerpts
+  // further if needed, keeping both ends (including the latest request).
+  while (estimateMessagesTokens(projected) > maxTokens) {
+    const body = String(projected[0]?.content)
+    const shortened = excerpt(body, Math.floor(body.length / 2))
+    if (shortened.length >= body.length) {
+      throw new Error(
+        "Merlin could not fit the request within its context budget"
+      )
+    }
+    projected[0] = { role: "user", content: shortened }
+  }
+  logger.warn(
+    {
+      beforeTokens: estimateMessagesTokens(messages),
+      afterTokens: estimateMessagesTokens(projected),
+      maxTokens,
+    },
+    "Applied bounded context fallback"
+  )
+  return projected
+}
+
 // Reduce what gets SENT. The caller decides WHEN (see prepareStep's
 // MERLIN_COMPACT_INPUT_TOKENS check) so the trigger stays visible at the call
-// site; this only decides HOW. Returns the messages unchanged if the reduced
-// version fails validation — never throws, never fails the run.
+// site; this only decides HOW. Invalid tool splits fall back to pruning.
+// A configured message budget also bounds the result when pruning is insufficient.
 export async function compact(args: {
   messages: ModelMessage[]
   state: CompactionState
@@ -279,8 +350,13 @@ export async function compact(args: {
   task?: AgentRunContextTask
   onUsage?: OnUsage
   tailTargetTokens?: number
+  maxMessageTokens?: number
 }): Promise<ModelMessage[]> {
   const { messages, state } = args
+  const enforceBudget = (result: ModelMessage[]) =>
+    args.maxMessageTokens === undefined
+      ? result
+      : fitMessagesToBudget(result, args.maxMessageTokens)
   // Structural reduction first (drops old tool payloads, keeps pairing valid).
   const pruned = pruneMessages({
     messages,
@@ -318,7 +394,7 @@ export async function compact(args: {
       state.summaryFailures++
     }
   }
-  if (!state.summary) return pruned
+  if (!state.summary) return enforceBudget(pruned)
 
   // Head stays byte-identical so instructions + the original ask survive in the
   // provider's prompt cache across compaction. The old notes message is not
@@ -335,7 +411,7 @@ export async function compact(args: {
       { split, count: assembled.length },
       "Compaction produced unpaired tool calls; using plain prune"
     )
-    return pruned
+    return enforceBudget(pruned)
   }
-  return assembled
+  return enforceBudget(assembled)
 }

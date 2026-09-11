@@ -73,6 +73,7 @@ import {
   type CompactionState,
   compact,
   estimateMessagesTokens,
+  fitMessagesToBudget,
   newCompactionState,
 } from "./compaction"
 import { CUSTOM_TOOLS_PROMPT_LINE, workspaceCustomTools } from "./custom-tools"
@@ -2140,6 +2141,24 @@ export async function respond(
       })
     }
 
+    // Reserve room for instructions, tool schemas, output, and messages that
+    // arrive mid-step. Compaction must run even on a forced final answer.
+    const fixedInputTokens =
+      estimateMessagesTokens([{ role: "system", content: instructions }]) +
+      Math.ceil(measureToolSchemaBytes(tools) / 3)
+    const messageBudget =
+      Math.min(
+        COMPACT_INPUT_TOKENS,
+        Math.floor(env.MERLIN_CONTEXT_WINDOW * 0.8)
+      ) - fixedInputTokens
+    if (messageBudget < 8_000) {
+      throw new Error(
+        "Merlin instructions and tools leave insufficient context for messages"
+      )
+    }
+    const compactMessageBudget = Math.floor(messageBudget * 0.75)
+    const updateMessageBudget = Math.floor(messageBudget * 0.25)
+
     const guarded = guardTools(tools, {
       priorBytes: counters.toolOutputBytes,
       totalBudgetBytes: budgets.toolOutputBytes,
@@ -2258,15 +2277,9 @@ export async function respond(
           { ...counters, steps: counters.steps + 1 },
           budgets
         )
-        if (next) {
-          trip(next)
-          return { toolChoice: "none" }
-        }
-        // A pending approval means the run must wrap up — the task resumes
-        // through a fresh run when a human resolves it.
-        if (approvalRequested) {
-          return { toolChoice: "none" }
-        }
+        if (next) trip(next)
+        const toolChoice =
+          next || approvalRequested ? ("none" as const) : undefined
         // Reduce what gets SENT once the context grows heavy: old tool calls
         // become rolling working notes, a recent tail stays verbatim, and the
         // task's live state is restored from the database. The durable
@@ -2278,7 +2291,7 @@ export async function respond(
           steps.at(-1)?.usage.inputTokens ?? resumeLastInputTokens
         const estimatedInput = estimateMessagesTokens(stepMessages)
         let nextMessages = stepMessages
-        if (Math.max(lastInput, estimatedInput) > COMPACT_INPUT_TOKENS) {
+        if (Math.max(lastInput, estimatedInput) > compactMessageBudget) {
           // Surfaced in the run trail like a tool call (start frame renders a
           // spinner, the ok frame settles into a divider). Keyed by step so a
           // recovered attempt re-compacting at the same boundary upserts the
@@ -2293,6 +2306,7 @@ export async function respond(
           nextMessages = await compact({
             messages: stepMessages,
             state: compaction,
+            maxMessageTokens: compactMessageBudget,
             workspaceId: ctx.workspaceId,
             ...(ctx.task ? { task: taskContextSnapshot(ctx.task) } : {}),
             ...(onUsage ? { onUsage } : {}),
@@ -2316,6 +2330,11 @@ export async function respond(
               messageTokens: estimateMessagesTokens(nextMessages),
               atStep: counters.steps,
             })
+            .then(() => {
+              // Approval-resume results were already included in the saved
+              // baseline. Checkpointing them again could orphan tool results.
+              pendingInjected.length = 0
+            })
             .catch((err) => {
               logger.warn({ err }, "Compaction state save failed")
             })
@@ -2331,21 +2350,24 @@ export async function respond(
           })
           const updateText = update && formatConversationUpdate(update)
           if (updateText) {
-            const injected: ModelMessage = {
-              role: "user",
-              content: updateText,
-            }
-            pendingInjected.push(injected)
+            const injected = fitMessagesToBudget(
+              [{ role: "user", content: updateText }],
+              updateMessageBudget
+            )
+            pendingInjected.push(...injected)
             pendingCoveredMessageIds.push(
               ...conversationUpdateMessageIds(update)
             )
             nextMessages =
               nextMessages === stepMessages
-                ? [...stepMessages, injected]
-                : [...nextMessages, injected]
+                ? [...stepMessages, ...injected]
+                : [...nextMessages, ...injected]
           }
         }
-        return nextMessages === stepMessages ? {} : { messages: nextMessages }
+        return {
+          ...(toolChoice ? { toolChoice } : {}),
+          ...(nextMessages === stepMessages ? {} : { messages: nextMessages }),
+        }
       },
       // Reasoning is provider-neutral in AI SDK v7. The gateway handles
       // provider routing and same-model retries; explicit model fallbacks stay
