@@ -16,6 +16,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
 } from "react"
@@ -32,7 +33,9 @@ import {
   type MessageScrollCommand,
   MessageScrollerCommandBridge,
   MessageScrollerJumpToLatest,
+  MessageScrollerReflowAnchor,
   MessageScrollTarget,
+  pinMessageDuringReflow,
   signalMessageScrollerInteraction,
   useRegisteredMessageScroller,
 } from "@/components/chat/message-scroller-controls"
@@ -147,6 +150,18 @@ const MESSAGE_SKELETON_GROUPS = [
 const MESSAGE_GROUP_WINDOW_MINUTES = 5
 
 let activeMessageScrollCommand: MessageScrollCommand | null = null
+let activeMessageScrollViewport: HTMLElement | null = null
+
+// Pins a visible message through the right panel's open/close width animation
+// so it doesn't drift as rows re-wrap. The channel route calls this with the
+// thread root when the thread panel opens, closes, or collapses.
+export function pinMessageForPanelReflow(messageId: string): void {
+  pinMessageDuringReflow(
+    activeMessageScrollViewport,
+    messageId,
+    activeMessageScrollCommand
+  )
+}
 
 export function scrollToMessage(messageId: string): boolean {
   const didScroll =
@@ -260,6 +275,17 @@ export function MessageList({
     },
     [onJumpToMessage, scrollToLocalMessage]
   )
+  // Registered every render: the viewport only exists once messages render
+  // (loading/empty states return early without mounting the scroller).
+  useLayoutEffect(() => {
+    const viewport = scrollRef.current
+    if (viewport) activeMessageScrollViewport = viewport
+    return () => {
+      if (activeMessageScrollViewport === viewport) {
+        activeMessageScrollViewport = null
+      }
+    }
+  })
   const handleReaderPointerDown = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
       signalMessageScrollerInteraction(
@@ -527,6 +553,8 @@ export function MessageList({
             )}
           </MessageScrollerContent>
         </MessageScrollerViewport>
+
+        <MessageScrollerReflowAnchor viewportRef={scrollRef} />
 
         <MessageScrollerJumpToLatest
           newestMessageId={messages[0]?.id ?? null}
