@@ -2095,11 +2095,33 @@ export async function respond(
         newCompactionState()),
     }
 
+    // Reserve room for instructions, tool schemas, output, and messages that
+    // arrive mid-step. Compaction must run even on a forced final answer.
+    const toolSchemaBytes = measureToolSchemaBytes(tools)
+    const getMessageBudget = (instructions: string) => {
+      const fixedInputTokens =
+        estimateMessagesTokens([{ role: "system", content: instructions }]) +
+        Math.ceil(toolSchemaBytes / 3)
+      const messageBudget =
+        Math.min(
+          COMPACT_INPUT_TOKENS,
+          Math.floor(env.MERLIN_CONTEXT_WINDOW * 0.8)
+        ) - fixedInputTokens
+      if (messageBudget < 8_000) {
+        throw new Error(
+          "Merlin instructions and tools leave insufficient context for messages"
+        )
+      }
+      return messageBudget
+    }
+    let messageBudget: number
+
     if (run?.resume) {
       // Recovery: continue from the durable transcript with the exact same
       // instructions — never rebuild context (drift) or re-bill the prefetch.
       messages = run.resume.messages
       instructions = run.resume.instructions
+      messageBudget = getMessageBudget(instructions)
       counters = { ...run.resume.counters }
       text = run.resume.answerTextSoFar
       resumeLastInputTokens = run.resume.lastInputTokens
@@ -2109,6 +2131,7 @@ export async function respond(
         loadWorkspaceInstructions(ctx.workspaceId),
       ])
       instructions = `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}${context.rosterText ? `\n\n${MENTION_GUIDANCE}` : ""}${workspaceInstructions ? `\n\n${formatInstructionsBlock(workspaceInstructions)}` : ""}${ctx.task ? `\n\n${taskRulesSection(artifactsEnabled)}` : ""}${ctx.triggered ? `\n\n${ctx.triggered.loop ? loopPromptSection({ ...ctx.triggered, loop: ctx.triggered.loop }) : triggeredPromptSection(ctx.triggered)}` : ""}`
+      messageBudget = getMessageBudget(instructions)
       // A continued run inherits its predecessors' transcript in place of a
       // fresh initial message; the snapshot records the delta it was started
       // with so a crashed attempt replays the identical request.
@@ -2123,7 +2146,7 @@ export async function respond(
       await run?.saveContext({
         context: {
           ...context,
-          toolSchemaBytes: measureToolSchemaBytes(tools),
+          toolSchemaBytes,
           initialMessagesTokens: estimateMessagesTokens(messages),
           ...(continuation
             ? {
@@ -2141,21 +2164,6 @@ export async function respond(
       })
     }
 
-    // Reserve room for instructions, tool schemas, output, and messages that
-    // arrive mid-step. Compaction must run even on a forced final answer.
-    const fixedInputTokens =
-      estimateMessagesTokens([{ role: "system", content: instructions }]) +
-      Math.ceil(measureToolSchemaBytes(tools) / 3)
-    const messageBudget =
-      Math.min(
-        COMPACT_INPUT_TOKENS,
-        Math.floor(env.MERLIN_CONTEXT_WINDOW * 0.8)
-      ) - fixedInputTokens
-    if (messageBudget < 8_000) {
-      throw new Error(
-        "Merlin instructions and tools leave insufficient context for messages"
-      )
-    }
     const compactMessageBudget = Math.floor(messageBudget * 0.75)
     const updateMessageBudget = Math.floor(messageBudget * 0.25)
 

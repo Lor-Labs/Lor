@@ -29,13 +29,21 @@ export async function decideReplyPlacement(
   currentRequest?: PlacementTurn
 ): Promise<PlacementDecision> {
   const request = currentRequest ?? conversation.at(-1)
-  const background = currentRequest
-    ? conversation.filter(
-        (turn) =>
-          turn.authorName !== currentRequest.authorName ||
-          turn.content !== currentRequest.content
-      )
-    : conversation.slice(0, -1)
+  let requestIndex = conversation.length - 1
+  if (currentRequest) {
+    requestIndex = -1
+    for (let index = conversation.length - 1; index >= 0; index--) {
+      const turn = conversation[index]
+      if (
+        turn?.authorName === currentRequest.authorName &&
+        turn.content === currentRequest.content
+      ) {
+        requestIndex = index
+        break
+      }
+    }
+  }
+  const background = conversation.filter((_, index) => index !== requestIndex)
   const transcript = background
     .map((t) => formatSpeakerLine(t.authorName, t.content))
     .join("\n")

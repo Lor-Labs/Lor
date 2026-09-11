@@ -67,9 +67,12 @@ export async function loadConversation(args: {
       .orderBy(desc(schema.message.createdAt))
 
   const scope = args.threadRootId
-    ? or(
-        eq(schema.message.id, args.threadRootId),
-        eq(schema.message.threadRootId, args.threadRootId)
+    ? and(
+        eq(schema.message.channelId, args.channelId),
+        or(
+          eq(schema.message.id, args.threadRootId),
+          eq(schema.message.threadRootId, args.threadRootId)
+        )
       )
     : and(
         eq(schema.message.channelId, args.channelId),
@@ -89,7 +92,12 @@ export async function loadConversation(args: {
     const root = await db
       .select({ createdAt: schema.message.createdAt })
       .from(schema.message)
-      .where(eq(schema.message.id, args.threadRootId))
+      .where(
+        and(
+          eq(schema.message.channelId, args.channelId),
+          eq(schema.message.id, args.threadRootId)
+        )
+      )
       .limit(1)
       .then((r) => r[0])
     if (root) {
