@@ -24,6 +24,7 @@ export async function loadConversation(args: {
   channelId: string
   threadRootId: string | null
   merlinMessageId: string
+  triggerMessageId?: string
 }) {
   const selectTurns = (scope: SQL | undefined) =>
     db
@@ -81,9 +82,22 @@ export async function loadConversation(args: {
 
   // Thread context truncates to the newest THREAD_CONTEXT_LIMIT messages as a
   // runaway guard; channel context stays windowed to the newest CONTEXT_LIMIT.
-  const rows = await selectTurns(scope).limit(
-    args.threadRootId ? THREAD_CONTEXT_LIMIT : CONTEXT_LIMIT
-  )
+  const limit = args.threadRootId ? THREAD_CONTEXT_LIMIT : CONTEXT_LIMIT
+  const rows = await selectTurns(scope).limit(limit)
+  if (
+    args.triggerMessageId &&
+    !rows.some((row) => row.messageId === args.triggerMessageId)
+  ) {
+    const [trigger] = await selectTurns(
+      and(scope, eq(schema.message.id, args.triggerMessageId))
+    ).limit(1)
+    if (trigger) {
+      // The missing trigger is older than the newest window. Reserve its
+      // slot by dropping the oldest other turn, keeping newest-first order.
+      rows.splice(limit - 1)
+      rows.push(trigger)
+    }
+  }
 
   // Thread runs also get the channel messages that led up to the root —
   // attachments and asks posted right before the thread opened live there.

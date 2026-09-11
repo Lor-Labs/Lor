@@ -244,11 +244,14 @@ Decide for yourself. Don't reply to the user; just maintain memory. End with one
 // Mid-run conversation updates, injected at a step boundary as a single user
 // message. Steered messages are directives aimed at the run; ambient ones are
 // context the model should act on only if they're addressed to it.
+const STEERING_UPDATE_HEADER =
+  "New directions arrived while you were working — treat them as part of the request and adjust what you're doing:"
+
 function formatConversationUpdate(update: ConversationUpdate): string | null {
   const parts: string[] = []
   if (update.steered.length > 0) {
     parts.push(
-      `New directions arrived while you were working — treat them as part of the request and adjust what you're doing:\n${update.steered
+      `${STEERING_UPDATE_HEADER}\n${update.steered
         .map((m) => formatSpeakerLine(m.authorName, m.content))
         .join("\n")}`
     )
@@ -261,6 +264,37 @@ function formatConversationUpdate(update: ConversationUpdate): string | null {
     )
   }
   return parts.length > 0 ? parts.join("\n\n") : null
+}
+
+function formatBoundedSteeringUpdate(
+  update: ConversationUpdate,
+  maxTokens: number
+): string {
+  const fits = (content: string) =>
+    estimateMessagesTokens([{ role: "user", content }]) <= maxTokens
+  const full = formatConversationUpdate(update) ?? ""
+  if (fits(full)) return full
+
+  // Drop ambient context before shortening any active directions. The generic
+  // history fallback labels excerpts as reference material, which is wrong here.
+  const directions = update.steered
+    .map((message) => formatSpeakerLine(message.authorName, message.content))
+    .join("\n")
+  const ambientNotice = update.ambient.length
+    ? "\n\n[Ambient context omitted to preserve the new directions.]"
+    : ""
+  const directed = `${STEERING_UPDATE_HEADER}\n${directions}${ambientNotice}`
+  if (fits(directed)) return directed
+
+  let chars = directions.length
+  while (chars > 0) {
+    chars = Math.floor(chars / 2)
+    const head = Math.ceil(chars / 2)
+    const tail = Math.floor(chars / 2)
+    const shortened = `${STEERING_UPDATE_HEADER}\n${directions.slice(0, head)}\n  [...new directions shortened; use read_thread to retrieve missing details before acting on them...]\n  ${tail > 0 ? directions.slice(-tail) : ""}${ambientNotice}`
+    if (fits(shortened)) return shortened
+  }
+  throw new Error("Merlin context budget is too small for steering directions")
 }
 
 export type ConversationImage = {
@@ -2356,12 +2390,19 @@ export async function respond(
             logger.warn({ err }, "Merlin conversation drain failed")
             return null
           })
-          const updateText = update && formatConversationUpdate(update)
+          const updateText =
+            update &&
+            (update.steered.length > 0
+              ? formatBoundedSteeringUpdate(update, updateMessageBudget)
+              : formatConversationUpdate(update))
           if (updateText) {
-            const injected = fitMessagesToBudget(
-              [{ role: "user", content: updateText }],
-              updateMessageBudget
-            )
+            const updateMessages: ModelMessage[] = [
+              { role: "user", content: updateText },
+            ]
+            const injected =
+              update.steered.length > 0
+                ? updateMessages
+                : fitMessagesToBudget(updateMessages, updateMessageBudget)
             pendingInjected.push(...injected)
             pendingCoveredMessageIds.push(
               ...conversationUpdateMessageIds(update)

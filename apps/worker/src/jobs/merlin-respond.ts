@@ -488,6 +488,7 @@ export function createMerlinRespondProcessor(
                     channelId,
                     threadRootId: contextThreadRootId,
                     merlinMessageId,
+                    triggerMessageId,
                   })
             const { conversation } = snapshot
             const backgroundConversation =
