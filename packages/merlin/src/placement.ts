@@ -13,6 +13,8 @@ const PLACEMENT_PROMPT = `You decide how Merlin — an AI teammate — should ha
 - "thread": answer in a thread off the latest message. Use for a narrow clarification, a personal or back-and-forth exchange, a long/detailed answer that would clutter the channel, or anything of low general interest.
 - "task": treat it as delegated work, not a question. Use ONLY when the latest message clearly assigns Merlin a substantial job with a deliverable outcome — produce or transform files, analyze data and deliver results, write a document or report, complete multi-step work. A question about the team's work is never a task, even a hard one. Requests to change code or open a pull request are also never a task — Merlin's code tools handle those in the conversation. Likewise, requests for recurring or scheduled work ("check X every hour", "post a digest every Friday", "set up/recreate that loop") are never a task — Merlin's loop tools handle those in the conversation.
 
+Earlier channel messages are background only. They may have been answered in separate threads whose replies are not shown. Do not treat their requests as pending work or include their deliverables in the task title. Classify and title only the current request; use background only to resolve references in that request.
+
 Between "channel" and "thread", lean toward "thread" when unsure — keep the main channel uncluttered. Choose "task" only on a clear delegation.
 
 When you choose "task", also set "taskTitle": a short imperative title for the work, 3–8 words, like an issue title (e.g. "Prepare CPA-ready financial package"). Omit it otherwise.`
@@ -23,9 +25,26 @@ export type PlacementDecision = {
 }
 
 export async function decideReplyPlacement(
-  conversation: PlacementTurn[]
+  conversation: PlacementTurn[],
+  currentRequest?: PlacementTurn
 ): Promise<PlacementDecision> {
-  const transcript = conversation
+  const request = currentRequest ?? conversation.at(-1)
+  let requestIndex = conversation.length - 1
+  if (currentRequest) {
+    requestIndex = -1
+    for (let index = conversation.length - 1; index >= 0; index--) {
+      const turn = conversation[index]
+      if (
+        turn?.authorName === currentRequest.authorName &&
+        turn.content === currentRequest.content
+      ) {
+        requestIndex = index
+        break
+      }
+    }
+  }
+  const background = conversation.filter((_, index) => index !== requestIndex)
+  const transcript = background
     .map((t) => formatSpeakerLine(t.authorName, t.content))
     .join("\n")
 
@@ -34,7 +53,7 @@ export async function decideReplyPlacement(
       placement: z.enum(["channel", "thread", "task"]),
       taskTitle: z.string().optional(),
     }),
-    prompt: `${PLACEMENT_PROMPT}\n\nRecent conversation:\n${transcript}`,
+    prompt: `${PLACEMENT_PROMPT}\n\nEarlier channel background (not pending requests):\n${transcript}\n\nCurrent request:\n${request ? formatSpeakerLine(request.authorName, request.content) : "(none)"}`,
     // Inline realtime path; callers default to channel on abort.
     abortSignal: AbortSignal.timeout(PLACEMENT_TIMEOUT_MS),
   })

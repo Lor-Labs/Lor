@@ -390,6 +390,7 @@ export type AgentRunContextImage = {
 // lines with their URLs so file tools can pull them as inputs.
 export type AgentRunContextFile = AgentRunContextImage
 export type AgentRunContextTurn = {
+  messageId?: string
   authorName: string
   content: string
   images?: AgentRunContextImage[]
@@ -417,6 +418,10 @@ export type AgentRunApprovalResume = {
 }
 export type AgentRunContext = {
   conversation: AgentRunContextTurn[]
+  // Nearby channel messages are reference material, outside the active thread.
+  backgroundConversation?: AgentRunContextTurn[]
+  threadRootId?: string
+  triggerMessageId?: string
   brainContext: string
   rosterText: string
   // Optional so pre-existing snapshots (and DM channels, which have no name)

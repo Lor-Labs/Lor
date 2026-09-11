@@ -73,6 +73,7 @@ import {
   type CompactionState,
   compact,
   estimateMessagesTokens,
+  fitMessagesToBudget,
   newCompactionState,
 } from "./compaction"
 import { CUSTOM_TOOLS_PROMPT_LINE, workspaceCustomTools } from "./custom-tools"
@@ -83,14 +84,8 @@ import {
   githubTools,
   resolveWorkspaceGithub,
 } from "./github"
-import {
-  type FetchedImage,
-  fetchImageBytes,
-  fetchImageForView,
-  isViewableImage,
-  MAX_IMAGE_BYTES,
-  MAX_IMAGES,
-} from "./images"
+import { fetchImageForView, isViewableImage, MAX_IMAGE_BYTES } from "./images"
+import { buildInitialUserMessage } from "./initial-message"
 import {
   formatInstructionsBlock,
   type InstructionsProposalEvent,
@@ -128,16 +123,11 @@ import {
   type RunTaskContext,
   taskContextSnapshot,
   taskRulesSection,
-  taskStateSection,
   taskTools,
 } from "./tasks"
 import { chooseThreadWindow } from "./thread-window"
 import { guardTools } from "./tool-guard"
-import {
-  formatSpeakerLine,
-  sanitizeInlineLabel,
-  sanitizeRosterLabel,
-} from "./transcript"
+import { formatSpeakerLine, sanitizeRosterLabel } from "./transcript"
 import {
   completeLoopTool,
   loopPromptSection,
@@ -201,6 +191,7 @@ const LOOPS_PROMPT_LINE = `- Scheduled loops: propose_loop turns a recurring ask
 const SYSTEM_PROMPT_TAIL = `You can also see images people share in the channel — they're included inline in the conversation below.
 
 How to answer:
+- Work on the current request in the active conversation only. Earlier requests from other threads or channel background are reference material, not unfinished assignments, even if you cannot see their replies or resolution. Use them only when relevant to the current request; do not add their deliverables to this task or resume them unless the user asks. The same applies to requests found in brain notes and search results.
 - For questions about THIS team/workspace, check your brain first, then use search for anything it doesn't cover. Ground your answer in what you find; note who said it and roughly when. Cite your sources inline in double brackets: a brain page by its exact path, e.g. [[/decisions/auth]]; a specific message by its id, e.g. [[msg:0b9c…]]; or a connected-tool source by its id, e.g. [[src:0b9c…]]. If nothing turns up, say you don't have it in memory yet — never invent specifics or cite pages, messages, or sources you didn't read.
 - For general questions (how-to, definitions, quick help), just answer directly; no lookup needed.
 
@@ -253,11 +244,14 @@ Decide for yourself. Don't reply to the user; just maintain memory. End with one
 // Mid-run conversation updates, injected at a step boundary as a single user
 // message. Steered messages are directives aimed at the run; ambient ones are
 // context the model should act on only if they're addressed to it.
+const STEERING_UPDATE_HEADER =
+  "New directions arrived while you were working — treat them as part of the request and adjust what you're doing:"
+
 function formatConversationUpdate(update: ConversationUpdate): string | null {
   const parts: string[] = []
   if (update.steered.length > 0) {
     parts.push(
-      `New directions arrived while you were working — treat them as part of the request and adjust what you're doing:\n${update.steered
+      `${STEERING_UPDATE_HEADER}\n${update.steered
         .map((m) => formatSpeakerLine(m.authorName, m.content))
         .join("\n")}`
     )
@@ -272,6 +266,37 @@ function formatConversationUpdate(update: ConversationUpdate): string | null {
   return parts.length > 0 ? parts.join("\n\n") : null
 }
 
+function formatBoundedSteeringUpdate(
+  update: ConversationUpdate,
+  maxTokens: number
+): string {
+  const fits = (content: string) =>
+    estimateMessagesTokens([{ role: "user", content }]) <= maxTokens
+  const full = formatConversationUpdate(update) ?? ""
+  if (fits(full)) return full
+
+  // Drop ambient context before shortening any active directions. The generic
+  // history fallback labels excerpts as reference material, which is wrong here.
+  const directions = update.steered
+    .map((message) => formatSpeakerLine(message.authorName, message.content))
+    .join("\n")
+  const ambientNotice = update.ambient.length
+    ? "\n\n[Ambient context omitted to preserve the new directions.]"
+    : ""
+  const directed = `${STEERING_UPDATE_HEADER}\n${directions}${ambientNotice}`
+  if (fits(directed)) return directed
+
+  let chars = directions.length
+  while (chars > 0) {
+    chars = Math.floor(chars / 2)
+    const head = Math.ceil(chars / 2)
+    const tail = Math.floor(chars / 2)
+    const shortened = `${STEERING_UPDATE_HEADER}\n${directions.slice(0, head)}\n  [...new directions shortened; use read_thread to retrieve missing details before acting on them...]\n  ${tail > 0 ? directions.slice(-tail) : ""}${ambientNotice}`
+    if (fits(shortened)) return shortened
+  }
+  throw new Error("Merlin context budget is too small for steering directions")
+}
+
 export type ConversationImage = {
   url: string
   filename: string
@@ -284,6 +309,7 @@ export type ConversationImage = {
 export type ConversationFile = ConversationImage
 
 export type ConversationTurn = {
+  messageId?: string
   authorName: string
   content: string
   images?: ConversationImage[]
@@ -293,6 +319,7 @@ export type ConversationTurn = {
 export type RespondContext = {
   workspaceId: string
   conversation: ConversationTurn[]
+  backgroundConversation?: ConversationTurn[]
   channelId?: string
   // The thread this run answers in (null/absent for channel scope). With
   // channelId it forms the conversation scope key — code-action sandboxes
@@ -362,6 +389,7 @@ export type RespondCallbacks = {
 }
 
 export { estimateMessagesTokens, isSafeSplit } from "./compaction"
+export { buildInitialUserMessage } from "./initial-message"
 export type { InstructionsProposalEvent } from "./instructions"
 export { MERLIN_MODEL } from "./models"
 export {
@@ -1568,7 +1596,11 @@ async function buildRunContext(
   runScope: MerlinRunScope,
   onUsage?: OnUsage
 ): Promise<AgentRunContext> {
-  const question = ctx.conversation[ctx.conversation.length - 1]?.content ?? ""
+  const trigger = ctx.triggerMessageId
+    ? ctx.conversation.find((turn) => turn.messageId === ctx.triggerMessageId)
+    : undefined
+  const question =
+    (trigger ?? ctx.conversation[ctx.conversation.length - 1])?.content ?? ""
   let brainContext = ""
   if (question.trim()) {
     const prefetchStart = performance.now()
@@ -1652,6 +1684,11 @@ async function buildRunContext(
 
   return {
     conversation: ctx.conversation,
+    ...(ctx.backgroundConversation?.length
+      ? { backgroundConversation: ctx.backgroundConversation }
+      : {}),
+    ...(ctx.threadRootId ? { threadRootId: ctx.threadRootId } : {}),
+    ...(ctx.triggerMessageId ? { triggerMessageId: ctx.triggerMessageId } : {}),
     brainContext,
     rosterText,
     ...(channelName ? { channelName } : {}),
@@ -1685,111 +1722,6 @@ function measureToolSchemaBytes(tools: Record<string, unknown>): number {
     }
   }
   return bytes
-}
-
-type UserPart =
-  | { type: "text"; text: string }
-  | { type: "image"; image: Uint8Array; mediaType: string }
-
-// Deterministically assemble the initial user message from a run context.
-// Exported so the worker can rebuild the exact request when resuming a run;
-// image bytes are re-fetched from their URLs (a failed fetch degrades to the
-// same attachment placeholder as the original pass).
-export async function buildInitialUserMessage(
-  context: AgentRunContext
-): Promise<ModelMessage> {
-  const eligible = context.conversation.flatMap((t, turnIndex) =>
-    (t.images ?? [])
-      .filter(
-        (img) => isViewableImage(img.mediaType) && img.size <= MAX_IMAGE_BYTES
-      )
-      .map((img) => ({ ...img, turnIndex }))
-  )
-  const kept = eligible.slice(-MAX_IMAGES)
-  const keptKeys = new Set(kept.map((img) => `${img.turnIndex}:${img.url}`))
-  const bytesByKey = new Map<string, FetchedImage>()
-  await Promise.all(
-    kept.map(async (img) => {
-      const fetched = await fetchImageBytes(img.url, img.mediaType)
-      if (fetched) bytesByKey.set(`${img.turnIndex}:${img.url}`, fetched)
-    })
-  )
-  // A placeholder must say WHY the image isn't shown — "over the cap" the
-  // model can work around (view_image), "unsupported format" it cannot, and
-  // lumping them as [attachment: name] left it unable to respond usefully to
-  // either (D1 in reference/context-continuation.md).
-  const imagePlaceholder = (
-    img: { filename: string; mediaType: string; size: number; url: string },
-    key: string
-  ): string => {
-    const name = sanitizeInlineLabel(img.filename)
-    if (!isViewableImage(img.mediaType)) {
-      return `[image: ${name} — not shown, the ${img.mediaType} format can't be displayed]`
-    }
-    if (img.size > MAX_IMAGE_BYTES) {
-      return `[image: ${name} — not shown, larger than the ${Math.floor(MAX_IMAGE_BYTES / (1024 * 1024))} MB image limit]`
-    }
-    if (!keptKeys.has(key)) {
-      return `[image: ${name} — not shown, only the ${MAX_IMAGES} most recent images are inlined; view_image ${img.url} shows it]`
-    }
-    return `[image: ${name} — could not be loaded]`
-  }
-
-  const parts: UserPart[] = [
-    {
-      type: "text",
-      text: context.channelName
-        ? `Recent conversation in the #${context.channelName} channel:`
-        : "Recent conversation in this channel:",
-    },
-  ]
-  context.conversation.forEach((t, turnIndex) => {
-    parts.push({
-      type: "text",
-      text: `\n${formatSpeakerLine(t.authorName, t.content)}`,
-    })
-    for (const img of t.images ?? []) {
-      const key = `${turnIndex}:${img.url}`
-      const fetched = bytesByKey.get(key)
-      if (fetched) {
-        parts.push({
-          type: "text",
-          text: `\n[image: ${sanitizeInlineLabel(img.filename)}]`,
-        })
-        // fetched.mediaType, not img.mediaType: HEIC arrives transcoded.
-        parts.push({
-          type: "image",
-          image: fetched.bytes,
-          mediaType: fetched.mediaType,
-        })
-      } else {
-        parts.push({ type: "text", text: `\n${imagePlaceholder(img, key)}` })
-      }
-    }
-    for (const f of t.files ?? []) {
-      parts.push({
-        type: "text",
-        text: `\n[file: ${sanitizeInlineLabel(f.filename)} — ${f.mediaType}, ${f.size} bytes — ${f.url}]`,
-      })
-    }
-  })
-  if (context.brainContext) {
-    parts.push({ type: "text", text: context.brainContext })
-  }
-  if (context.rosterText) {
-    parts.push({ type: "text", text: context.rosterText })
-  }
-  // Last before the directive: the most volatile block sits at the very tail,
-  // so a plan update invalidates as little of the cached prefix as possible.
-  if (context.task) {
-    parts.push({ type: "text", text: taskStateSection(context.task) })
-  }
-  parts.push({
-    type: "text",
-    text: "\n\n---\nAnswer the most recent message, grounded in the brain notes, images, and conversation above. Use your tools (brain ls/read, search) for anything they don't cover.",
-  })
-
-  return { role: "user", content: parts }
 }
 
 export async function respond(
@@ -2197,11 +2129,33 @@ export async function respond(
         newCompactionState()),
     }
 
+    // Reserve room for instructions, tool schemas, output, and messages that
+    // arrive mid-step. Compaction must run even on a forced final answer.
+    const toolSchemaBytes = measureToolSchemaBytes(tools)
+    const getMessageBudget = (instructions: string) => {
+      const fixedInputTokens =
+        estimateMessagesTokens([{ role: "system", content: instructions }]) +
+        Math.ceil(toolSchemaBytes / 3)
+      const messageBudget =
+        Math.min(
+          COMPACT_INPUT_TOKENS,
+          Math.floor(env.MERLIN_CONTEXT_WINDOW * 0.8)
+        ) - fixedInputTokens
+      if (messageBudget < 8_000) {
+        throw new Error(
+          "Merlin instructions and tools leave insufficient context for messages"
+        )
+      }
+      return messageBudget
+    }
+    let messageBudget: number
+
     if (run?.resume) {
       // Recovery: continue from the durable transcript with the exact same
       // instructions — never rebuild context (drift) or re-bill the prefetch.
       messages = run.resume.messages
       instructions = run.resume.instructions
+      messageBudget = getMessageBudget(instructions)
       counters = { ...run.resume.counters }
       text = run.resume.answerTextSoFar
       resumeLastInputTokens = run.resume.lastInputTokens
@@ -2211,6 +2165,7 @@ export async function respond(
         loadWorkspaceInstructions(ctx.workspaceId),
       ])
       instructions = `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}${context.rosterText ? `\n\n${MENTION_GUIDANCE}` : ""}${workspaceInstructions ? `\n\n${formatInstructionsBlock(workspaceInstructions)}` : ""}${ctx.task ? `\n\n${taskRulesSection(artifactsEnabled)}` : ""}${ctx.triggered ? `\n\n${ctx.triggered.loop ? loopPromptSection({ ...ctx.triggered, loop: ctx.triggered.loop }) : triggeredPromptSection(ctx.triggered)}` : ""}`
+      messageBudget = getMessageBudget(instructions)
       // A continued run inherits its predecessors' transcript in place of a
       // fresh initial message; the snapshot records the delta it was started
       // with so a crashed attempt replays the identical request.
@@ -2225,7 +2180,7 @@ export async function respond(
       await run?.saveContext({
         context: {
           ...context,
-          toolSchemaBytes: measureToolSchemaBytes(tools),
+          toolSchemaBytes,
           initialMessagesTokens: estimateMessagesTokens(messages),
           ...(continuation
             ? {
@@ -2242,6 +2197,9 @@ export async function respond(
         instructions,
       })
     }
+
+    const compactMessageBudget = Math.floor(messageBudget * 0.75)
+    const updateMessageBudget = Math.floor(messageBudget * 0.25)
 
     const guarded = guardTools(tools, {
       priorBytes: counters.toolOutputBytes,
@@ -2361,15 +2319,9 @@ export async function respond(
           { ...counters, steps: counters.steps + 1 },
           budgets
         )
-        if (next) {
-          trip(next)
-          return { toolChoice: "none" }
-        }
-        // A pending approval means the run must wrap up — the task resumes
-        // through a fresh run when a human resolves it.
-        if (approvalRequested) {
-          return { toolChoice: "none" }
-        }
+        if (next) trip(next)
+        const toolChoice =
+          next || approvalRequested ? ("none" as const) : undefined
         // Reduce what gets SENT once the context grows heavy: old tool calls
         // become rolling working notes, a recent tail stays verbatim, and the
         // task's live state is restored from the database. The durable
@@ -2381,7 +2333,7 @@ export async function respond(
           steps.at(-1)?.usage.inputTokens ?? resumeLastInputTokens
         const estimatedInput = estimateMessagesTokens(stepMessages)
         let nextMessages = stepMessages
-        if (Math.max(lastInput, estimatedInput) > COMPACT_INPUT_TOKENS) {
+        if (Math.max(lastInput, estimatedInput) > compactMessageBudget) {
           // Surfaced in the run trail like a tool call (start frame renders a
           // spinner, the ok frame settles into a divider). Keyed by step so a
           // recovered attempt re-compacting at the same boundary upserts the
@@ -2396,6 +2348,7 @@ export async function respond(
           nextMessages = await compact({
             messages: stepMessages,
             state: compaction,
+            maxMessageTokens: compactMessageBudget,
             workspaceId: ctx.workspaceId,
             ...(ctx.task ? { task: taskContextSnapshot(ctx.task) } : {}),
             ...(onUsage ? { onUsage } : {}),
@@ -2419,6 +2372,11 @@ export async function respond(
               messageTokens: estimateMessagesTokens(nextMessages),
               atStep: counters.steps,
             })
+            .then(() => {
+              // Approval-resume results were already included in the saved
+              // baseline. Checkpointing them again could orphan tool results.
+              pendingInjected.length = 0
+            })
             .catch((err) => {
               logger.warn({ err }, "Compaction state save failed")
             })
@@ -2432,23 +2390,33 @@ export async function respond(
             logger.warn({ err }, "Merlin conversation drain failed")
             return null
           })
-          const updateText = update && formatConversationUpdate(update)
+          const updateText =
+            update &&
+            (update.steered.length > 0
+              ? formatBoundedSteeringUpdate(update, updateMessageBudget)
+              : formatConversationUpdate(update))
           if (updateText) {
-            const injected: ModelMessage = {
-              role: "user",
-              content: updateText,
-            }
-            pendingInjected.push(injected)
+            const updateMessages: ModelMessage[] = [
+              { role: "user", content: updateText },
+            ]
+            const injected =
+              update.steered.length > 0
+                ? updateMessages
+                : fitMessagesToBudget(updateMessages, updateMessageBudget)
+            pendingInjected.push(...injected)
             pendingCoveredMessageIds.push(
               ...conversationUpdateMessageIds(update)
             )
             nextMessages =
               nextMessages === stepMessages
-                ? [...stepMessages, injected]
-                : [...nextMessages, injected]
+                ? [...stepMessages, ...injected]
+                : [...nextMessages, ...injected]
           }
         }
-        return nextMessages === stepMessages ? {} : { messages: nextMessages }
+        return {
+          ...(toolChoice ? { toolChoice } : {}),
+          ...(nextMessages === stepMessages ? {} : { messages: nextMessages }),
+        }
       },
       // Reasoning is provider-neutral in AI SDK v7. The gateway handles
       // provider routing and same-model retries; explicit model fallbacks stay
