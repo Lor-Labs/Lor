@@ -621,7 +621,7 @@ export const MessageItem = memo(function MessageItem({
               </span>
             </div>
           )}
-          {message.merlinReasoning && !hasReasoningSegments ? (
+          {message.merlinReasoning && !hasReasoningSegments && !hasToolCalls ? (
             <MerlinReasoning
               text={message.merlinReasoning}
               active={!!message.streaming && !message.content}
@@ -643,7 +643,10 @@ export const MessageItem = memo(function MessageItem({
             // `status === "pending"` survives a reload / late thread join. Once
             // reasoning starts, that block takes over the "thinking" affordance.
             <ThinkingIndicator />
-          ) : message.status === "failed" && !message.content ? (
+          ) : message.status === "failed" &&
+            !message.content &&
+            !hasToolCalls &&
+            !hasReasoningSegments ? (
             <span className="text-sm text-muted-foreground italic">
               Merlin couldn't respond to that.
             </span>
@@ -652,7 +655,11 @@ export const MessageItem = memo(function MessageItem({
               content={message.content}
               toolCalls={message.merlinToolCalls ?? []}
               reasoningSegments={message.merlinReasoningSegments ?? []}
-              streaming={message.streaming}
+              streaming={message.streaming || message.status === "pending"}
+              failed={message.status === "failed"}
+              legacyReasoning={
+                !hasReasoningSegments ? message.merlinReasoning : null
+              }
               mentions={message.mentions}
               onCitationJump={onJumpToMessage}
             />

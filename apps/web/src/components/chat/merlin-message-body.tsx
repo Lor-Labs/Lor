@@ -1,6 +1,10 @@
 import { useMemo } from "react"
 import { ArtifactCsvPreviewCard } from "@/components/artifacts/csv-preview"
 import { ArtifactFileCard } from "@/components/chat/artifact-file-card"
+import {
+  MerlinActivity,
+  MerlinActivityGroup,
+} from "@/components/chat/merlin-activity"
 import { MerlinCompactionDivider } from "@/components/chat/merlin-compaction-divider"
 import { MerlinReasoning } from "@/components/chat/merlin-reasoning"
 import { MerlinToolTrail } from "@/components/chat/merlin-tool-trail"
@@ -25,6 +29,31 @@ type Segment =
   | { kind: "compaction"; key: string; tool: MerlinToolCallView }
 
 const COMPACTION_TOOL_NAME = "compact_context"
+
+type ActivityBlock =
+  | Extract<Segment, { kind: "text" }>
+  | {
+      kind: "work"
+      key: string
+      segments: Exclude<Segment, { kind: "text" }>[]
+    }
+
+function groupActivity(segments: Segment[]): ActivityBlock[] {
+  const blocks: ActivityBlock[] = []
+  for (const segment of segments) {
+    if (segment.kind === "text") {
+      if (segment.text.trim()) blocks.push(segment)
+      continue
+    }
+    const previous = blocks.at(-1)
+    if (previous?.kind === "work") {
+      previous.segments.push(segment)
+    } else {
+      blocks.push({ kind: "work", key: segment.key, segments: [segment] })
+    }
+  }
+  return blocks
+}
 
 type TimelineEvent =
   | {
@@ -136,6 +165,8 @@ export function MerlinMessageBody({
   toolCalls,
   reasoningSegments,
   streaming,
+  failed = false,
+  legacyReasoning,
   mentions,
   onCitationJump,
 }: {
@@ -143,6 +174,8 @@ export function MerlinMessageBody({
   toolCalls: MerlinToolCallView[]
   reasoningSegments: MerlinReasoningSegmentView[]
   streaming?: boolean
+  failed?: boolean
+  legacyReasoning?: string | null
   mentions: Message["mentions"]
   onCitationJump?: (messageId: string) => void
 }) {
@@ -175,50 +208,120 @@ export function MerlinMessageBody({
     }
   }, [content, toolCalls, reasoningSegments])
 
+  // The trailing text is the answer. Earlier text belongs to the work log.
+  // Settled legacy replies may have tool entries after their answer text.
+  let answerIndex = -1
+  for (let index = segments.length - 1; index >= 0; index--) {
+    const segment = segments[index]
+    if (segment?.kind === "text" && segment.text.trim()) {
+      answerIndex = index
+      break
+    }
+    if (streaming) break
+  }
+  const answer = segments[answerIndex]
+  const activitySegments = segments.filter((_, index) => index !== answerIndex)
+  if (legacyReasoning) {
+    activitySegments.unshift({
+      kind: "reasoning",
+      key: "reasoning:legacy",
+      reasoning: { text: legacyReasoning, at: 0, order: -1 },
+    })
+  }
+  const activityBlocks = groupActivity(activitySegments)
+  const visibleTools = toolCalls.filter(
+    (tool) => tool.toolName !== COMPACTION_TOOL_NAME
+  )
+
   return (
     <>
-      {segments.map((segment, index) => {
-        const isLast = index === segments.length - 1
-        if (segment.kind === "text") {
-          return (
-            <MessageMarkdown
-              key={segment.key}
-              content={segment.text}
-              mentions={mentions}
-              onCitationJump={onCitationJump}
-            />
-          )
-        }
-        if (segment.kind === "reasoning") {
-          return (
-            <MerlinReasoning
-              key={segment.key}
-              text={segment.reasoning.text}
-              active={
-                !!streaming &&
-                isLast &&
-                segment.reasoning.at >= (content?.length ?? 0)
-              }
-            />
-          )
-        }
-        if (segment.kind === "compaction") {
-          return (
-            <MerlinCompactionDivider
-              key={segment.key}
-              active={!!streaming && !segment.tool.status}
-            />
-          )
-        }
-        return (
-          <MerlinToolTrail
-            key={segment.key}
-            toolCalls={segment.tools}
-            childrenByParent={childrenByParent}
-            streaming={streaming && isLast}
-          />
-        )
-      })}
+      {activityBlocks.length > 0 && (
+        <MerlinActivity
+          active={Boolean(streaming)}
+          failed={failed}
+          toolCount={visibleTools.length}
+          errorCount={
+            visibleTools.filter((tool) => tool.status === "error").length
+          }
+        >
+          {activityBlocks.map((block) => {
+            if (block.kind === "text") {
+              return (
+                <MessageMarkdown
+                  key={block.key}
+                  content={block.text}
+                  mentions={mentions}
+                  onCitationJump={onCitationJump}
+                  className="text-foreground leading-relaxed"
+                />
+              )
+            }
+            const groupTools = block.segments.flatMap((segment) =>
+              segment.kind === "tools" ? segment.tools : []
+            )
+            const allGroupTools = groupTools.flatMap((tool) => [
+              tool,
+              ...(childrenByParent.get(tool.toolCallId) ?? []),
+            ])
+            return (
+              <MerlinActivityGroup
+                key={block.key}
+                active={
+                  Boolean(streaming) &&
+                  block.segments.at(-1) === segments.at(-1)
+                }
+                toolCount={groupTools.length}
+                errorCount={
+                  allGroupTools.filter((tool) => tool.status === "error").length
+                }
+              >
+                {block.segments.map((segment) => {
+                  if (segment.kind === "reasoning") {
+                    return (
+                      <MerlinReasoning
+                        key={segment.key}
+                        text={segment.reasoning.text}
+                        active={
+                          Boolean(streaming) && segment === segments.at(-1)
+                        }
+                      />
+                    )
+                  }
+                  if (segment.kind === "compaction") {
+                    return (
+                      <MerlinCompactionDivider
+                        key={segment.key}
+                        active={!!streaming && !segment.tool.status}
+                      />
+                    )
+                  }
+                  return (
+                    <MerlinToolTrail
+                      key={segment.key}
+                      toolCalls={segment.tools}
+                      childrenByParent={childrenByParent}
+                      streaming={streaming}
+                      embedded
+                    />
+                  )
+                })}
+              </MerlinActivityGroup>
+            )
+          })}
+        </MerlinActivity>
+      )}
+      {answer?.kind === "text" && (
+        <MessageMarkdown
+          content={answer.text}
+          mentions={mentions}
+          onCitationJump={onCitationJump}
+        />
+      )}
+      {failed && !content?.trim() && (
+        <p className="text-sm text-muted-foreground italic">
+          Merlin couldn't finish this response.
+        </p>
+      )}
       {deliverables.length > 0 && (
         <div className="mt-2 flex flex-col gap-1.5">
           {deliverables.map((file) =>
