@@ -5,6 +5,7 @@ import {
   SquareIcon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
+import { MERLIN_USER_ID } from "@repo/db/constants"
 import {
   AlertDialog,
   AlertDialogClose,
@@ -75,7 +76,6 @@ interface MessageItemProps {
 }
 
 const PREVIEW_MAX_CHARS = 100
-const MERLIN_USER_ID = "00000000-0000-4000-8000-000000000001"
 
 // Prefer the mentions the API now attaches to the quoted message; fall back to
 // the channel's mentionable users for optimistic sends and older payloads that
@@ -484,7 +484,7 @@ export const MessageItem = memo(function MessageItem({
         "group relative px-4 py-0.5 transition-colors",
         isReplyTarget
           ? "bg-primary/[0.07] before:absolute before:inset-y-0 before:left-0 before:w-[3px] before:bg-primary"
-          : !wrapContentAroundAvatar && "hover:bg-muted/30"
+          : !canWrapUnderAvatar && "hover:bg-muted/30"
       )}
     >
       <div
