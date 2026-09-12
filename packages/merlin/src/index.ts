@@ -120,10 +120,13 @@ import { blaxelConfigured } from "./sandbox/blaxel"
 import { resolveSourceCitation, searchSources, sourceTools } from "./sources"
 import { generateSmallObject } from "./structured"
 import {
+  type CreateTaskForThread,
   type RunTaskContext,
+  type StartTaskInput,
   taskContextSnapshot,
   taskRulesSection,
   taskTools,
+  toRunTaskContext,
 } from "./tasks"
 import { chooseThreadWindow } from "./thread-window"
 import { guardTools } from "./tool-guard"
@@ -327,10 +330,14 @@ export type RespondContext = {
   threadRootId?: string
   triggerMessageId?: string
   runId?: string
-  // Set when this run belongs to a task (the scope's thread root is a
-  // task card): binds the task tools, task prompt rules, and workbench
-  // continuity.
+  // Set when this run belongs to a task (a task row anchors to the scope's
+  // thread root): task prompt rules and workbench continuity. Task tools bind
+  // on every thread-scope run — start_task adopts the thread mid-run.
   task?: RunTaskContext
+  // Host callback backing start_task: posts the projected card and inserts
+  // the task row anchored to this run's thread root. Worker-provided on
+  // thread-scope runs.
+  createTask?: CreateTaskForThread
   // Set on headless triggered runs (the Act effect): binds the disposition
   // tools and injects the trigger's instructions — which appear in the
   // system prompt only when the trigger fires.
@@ -921,6 +928,8 @@ export function toolLabel(toolName: string, input: unknown): string {
       return repo ? `Proposing a change to ${repo}` : "Proposing a code change"
     case "create_artifacts":
       return "Working on files"
+    case "start_task":
+      return "Starting a task"
     case "set_plan":
       return "Updating the plan"
     case "propose_loop":
@@ -1743,6 +1752,16 @@ export async function respond(
   // Set by request_approval: prepareStep then forces a final text step so the
   // run ends cleanly while the task parks in waiting_for_approval.
   let approvalRequested = false
+  // Live task pointer: seeded from ctx, written when start_task adopts the
+  // thread mid-run, refreshed on every task update. Tool contexts resolve
+  // eagerly, so anything task-dependent must read through this ref.
+  const taskRef: { current: RunTaskContext | null } = {
+    current: ctx.task ?? null,
+  }
+  const notifyTaskUpdated = (row: Task) => {
+    taskRef.current = toRunTaskContext(row)
+    onTaskUpdated?.(row)
+  }
 
   // The run's retrieval/write boundary — fails closed to workspace-public.
   const runScope = ctx.channelId
@@ -1852,7 +1871,7 @@ export async function respond(
         : {}),
       ...(codeActionsEnabled ? codeActionTools : {}),
       ...(artifactsEnabled ? artifactTools : {}),
-      ...(ctx.task ? taskTools : {}),
+      ...(ctx.task || ctx.threadRootId ? taskTools : {}),
       ...(ctx.triggered ? triggeredTools : {}),
       ...(ctx.triggered?.completeLoop ? completeLoopTool : {}),
       ...(ctx.proposeLoop && ctx.channelId ? proposeLoopTool : {}),
@@ -1997,25 +2016,41 @@ export async function respond(
               channelId: ctx.channelId,
               // Task runs get workbench continuity (persistent sandbox + pi
               // session); plain answers produce standalone artifacts ephemerally.
-              task: ctx.task ? { id: ctx.task.id } : null,
+              // Getter, not a value: the task may start mid-run.
+              getTask: () =>
+                taskRef.current ? { id: taskRef.current.id } : null,
               deadlineAt: budgets.deadlineAt,
               onUsage,
               onToolEvent,
             },
           }
         : {}),
-      ...(ctx.task
+      ...(ctx.task || ctx.threadRootId
         ? (() => {
+            const getTaskId = () => taskRef.current?.id ?? null
             const taskToolContext = {
-              taskId: ctx.task.id,
+              getTaskId,
               workspaceId: ctx.workspaceId,
               runId: ctx.runId ?? null,
-              onTaskUpdated,
+              onTaskUpdated: notifyTaskUpdated,
               onApprovalRequested: () => {
                 approvalRequested = true
               },
             }
             return {
+              start_task: {
+                getTaskId,
+                ...(ctx.createTask
+                  ? {
+                      createTask: (async (input: StartTaskInput) => {
+                        const row = (await ctx.createTask?.(input)) ?? null
+                        // The host already emitted task:updated; just adopt.
+                        if (row) taskRef.current = toRunTaskContext(row)
+                        return row
+                      }) satisfies CreateTaskForThread,
+                    }
+                  : {}),
+              },
               set_plan: taskToolContext,
               complete_task: taskToolContext,
               request_approval: taskToolContext,
@@ -2089,7 +2124,7 @@ export async function respond(
       ;(toolsContext as Record<string, unknown>)[EXPORT_TOOL_NAME] = {
         workspaceId: ctx.workspaceId,
         channelId: ctx.channelId,
-        task: ctx.task ? { id: ctx.task.id } : null,
+        getTask: () => (taskRef.current ? { id: taskRef.current.id } : null),
       }
     }
 
@@ -2164,7 +2199,7 @@ export async function respond(
         buildRunContext(ctx, runScope, onUsage),
         loadWorkspaceInstructions(ctx.workspaceId),
       ])
-      instructions = `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}${context.rosterText ? `\n\n${MENTION_GUIDANCE}` : ""}${workspaceInstructions ? `\n\n${formatInstructionsBlock(workspaceInstructions)}` : ""}${ctx.task ? `\n\n${taskRulesSection(artifactsEnabled)}` : ""}${ctx.triggered ? `\n\n${ctx.triggered.loop ? loopPromptSection({ ...ctx.triggered, loop: ctx.triggered.loop }) : triggeredPromptSection(ctx.triggered)}` : ""}`
+      instructions = `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}${context.rosterText ? `\n\n${MENTION_GUIDANCE}` : ""}${workspaceInstructions ? `\n\n${formatInstructionsBlock(workspaceInstructions)}` : ""}${ctx.task || ctx.threadRootId ? `\n\n${taskRulesSection(artifactsEnabled, !!ctx.task)}` : ""}${ctx.triggered ? `\n\n${ctx.triggered.loop ? loopPromptSection({ ...ctx.triggered, loop: ctx.triggered.loop }) : triggeredPromptSection(ctx.triggered)}` : ""}`
       messageBudget = getMessageBudget(instructions)
       // A continued run inherits its predecessors' transcript in place of a
       // fresh initial message; the snapshot records the delta it was started
@@ -2350,7 +2385,9 @@ export async function respond(
             state: compaction,
             maxMessageTokens: compactMessageBudget,
             workspaceId: ctx.workspaceId,
-            ...(ctx.task ? { task: taskContextSnapshot(ctx.task) } : {}),
+            ...(taskRef.current
+              ? { task: taskContextSnapshot(taskRef.current) }
+              : {}),
             ...(onUsage ? { onUsage } : {}),
           })
           onToolEvent?.({
@@ -2513,10 +2550,10 @@ export async function respond(
       const filed = await fileParkedApproval({
         workspaceId: ctx.workspaceId,
         runId: run.runId,
-        taskId: ctx.task?.id ?? null,
+        taskId: taskRef.current?.id ?? null,
         parked,
         label: toolLabel(parked.toolName, parked.input),
-        onTaskUpdated,
+        onTaskUpdated: notifyTaskUpdated,
       })
       // Only claim the park when a row exists to resolve — otherwise the run
       // would advertise a gate nobody can clear.

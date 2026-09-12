@@ -25,8 +25,9 @@ const artifactsContext = z.object({
   workspaceId: z.string(),
   channelId: z.string(),
   // Task runs get continuity: the task's persistent sandbox, Pi session
-  // resume, artifact reseeding. Null for plain-answer sessions.
-  task: z.custom<{ id: string } | null>(),
+  // resume, artifact reseeding. Null for plain-answer sessions. A getter
+  // because the task may start mid-run (start_task).
+  getTask: z.custom<() => { id: string } | null>(),
   deadlineAt: z.custom<Date>().optional(),
   onUsage: z.custom<OnUsage>().optional(),
   onToolEvent: z.custom<(e: MerlinToolCallUpdate) => void>().optional(),
@@ -200,7 +201,7 @@ export const artifactTools = {
         inputs.push(input)
       }
 
-      const task = context.task
+      const task = context.getTask()
       const startSession = async () => {
         const budget = sessionBudget()
         if ("error" in budget) return budget
@@ -259,7 +260,7 @@ export const artifactTools = {
             await writeArtifactVersion({
               workspaceId: context.workspaceId,
               channelId: context.channelId,
-              taskId: context.task?.id ?? null,
+              taskId: task?.id ?? null,
               path: file.path,
               contentType: file.contentType,
               bytes: file.bytes,

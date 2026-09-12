@@ -1,6 +1,16 @@
 import { randomUUID } from "node:crypto"
 import { checkCredits, recordUsage } from "@repo/billing"
-import { and, db, eq, isNull, MERLIN_USER_ID, ne, or, schema } from "@repo/db"
+import {
+  and,
+  db,
+  eq,
+  isNull,
+  isUniqueViolation,
+  MERLIN_USER_ID,
+  ne,
+  or,
+  schema,
+} from "@repo/db"
 import type {
   MerlinMemory,
   MerlinReasoningSegment,
@@ -15,6 +25,7 @@ import {
 } from "@repo/merlin"
 import type { ProposeLoopExecutor } from "@repo/merlin/loops"
 import type { ProposeChangeExecutor } from "@repo/merlin/proposals"
+import type { StartTaskInput } from "@repo/merlin/tasks"
 import { toRealtimeTask } from "@repo/merlin/tasks"
 import {
   buildMessageFanout,
@@ -46,6 +57,7 @@ import { createProposalCard } from "@/lib/change-proposal"
 import { logger } from "@/lib/logger"
 import { loadConversation } from "@/lib/merlin-conversation"
 import { createLoopCard } from "@/lib/merlin-loop"
+import { postMerlinMessage } from "@/lib/merlin-messages"
 import {
   buildApprovalContinuation,
   buildContinuation,
@@ -107,7 +119,9 @@ export function createMerlinRespondProcessor(
         }
 
         // The task anchored to this run's thread root, when one exists.
-        const task = threadRootId
+        // Mutable: start_task can create one mid-run, and every settle path
+        // below must see it (a const capture would strand it running forever).
+        let task = threadRootId
           ? await db
               .select()
               .from(schema.task)
@@ -268,10 +282,11 @@ export function createMerlinRespondProcessor(
         }
         const execution = claim.kind === "claimed" ? claim.execution : null
         if (task && execution) {
+          const claimedTask = task
           await db
             .update(schema.task)
             .set({ status: "running", activeRunId: job.data.runId ?? null })
-            .where(eq(schema.task.id, task.id))
+            .where(eq(schema.task.id, claimedTask.id))
             .returning()
             .then((rows) => {
               const row = rows[0]
@@ -279,7 +294,7 @@ export function createMerlinRespondProcessor(
             })
             .catch((err) =>
               logger.warn(
-                { err, taskId: task.id },
+                { err, taskId: claimedTask.id },
                 "Task claim status write failed"
               )
             )
@@ -595,6 +610,63 @@ export function createMerlinRespondProcessor(
               userId: triggerUserId,
             }
 
+            // start_task: adopt this run's thread as a new task. Posts the
+            // projected card into the channel, anchors the task to the thread
+            // root, and assigns it to this run so settleTask owns it.
+            const createTaskForThread = async (input: StartTaskInput) => {
+              if (!threadRootId) return null
+              const { messageId: cardId } = await postMerlinMessage(
+                { emitter, redis },
+                {
+                  channelId,
+                  content: input.goal,
+                  type: "task_card",
+                }
+              )
+              try {
+                const row = await db
+                  .insert(schema.task)
+                  .values({
+                    workspaceId,
+                    channelId,
+                    threadRootId,
+                    cardMessageId: cardId,
+                    creatorId: triggerUserId,
+                    title: input.title,
+                    goal: input.goal,
+                    plan: input.plan,
+                    activeRunId: job.data.runId ?? null,
+                  })
+                  .returning()
+                  .then((rows) => rows[0] ?? null)
+                if (!row) throw new Error("Task insert returned no row")
+                task = row
+                emitTaskUpdated(row)
+                return row
+              } catch (err) {
+                await db
+                  .delete(schema.message)
+                  .where(eq(schema.message.id, cardId))
+                  .catch(() => {})
+                if (isUniqueViolation(err)) {
+                  // Lost a race on the thread's unique anchor — adopt the
+                  // winner instead of failing the tool call.
+                  const existing = await db
+                    .select()
+                    .from(schema.task)
+                    .where(eq(schema.task.threadRootId, threadRootId))
+                    .limit(1)
+                    .then((rows) => rows[0] ?? null)
+                  if (existing) {
+                    task = existing
+                    return existing
+                  }
+                }
+                logger.error({ err, threadRootId }, "start_task failed")
+                return null
+              }
+            }
+
             let pending = ""
             const flushPendingText = () => {
               if (!pending) return
@@ -655,6 +727,7 @@ export function createMerlinRespondProcessor(
                       },
                     }
                   : {}),
+                ...(threadRootId ? { createTask: createTaskForThread } : {}),
               },
               {
                 onTaskUpdated: emitTaskUpdated,

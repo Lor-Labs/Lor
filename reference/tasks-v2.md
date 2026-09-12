@@ -66,7 +66,7 @@ Type-driven mechanical move. Add `useTaskForThread(channelId, threadRootId)` bes
 
 Verify: type-check both apps; live: open task card → correct thread; task panel re-skins; loop panel history links work.
 
-### Step 3 — Emergent tasks: `start_task` + mutable task plumbing (~300 LOC) — [ ] built [ ] committed
+### Step 3 — Emergent tasks: `start_task` + mutable task plumbing (~300 LOC) — [x] built (2026-09-12) [ ] committed
 
 The highest-risk step. Both creation paths coexist after it (routing-time cards still work), so it is independently verifiable.
 
@@ -120,5 +120,6 @@ Verify: live upgrade of a Q&A thread into a task with the panel open; strip appe
 
 ## Deviations log
 
+- Step 3: the export tool (`export-tool.ts`) also carried a static task context — converted to the same `getTask` getter as `create_artifacts` (`start_task` is export-denied for free via `SIDE_EFFECT_TOOLS`). The task-tools binding gate is `ctx.task || ctx.threadRootId`, so spawned (card-as-root) task runs bind `start_task` too — it errors with "a task already exists" if called. `taskRef` freshness rides a `notifyTaskUpdated` wrapper around the run's task-update listener, so compaction snapshots also see live plan/status now. Worker `createTask` resolves `creatorId` from the already-loaded `triggerUserId` and adopts the existing row on a unique-violation race instead of failing the tool call. Existing test files updated for the new signatures only (no new tests).
 - Step 2: mobile `TaskCard` keeps its `(message: Message)` callback but passes `{ ...message, id: task.threadRootId }` — both screen handlers navigate by `.id` only, and pins uses `router.replace` vs the channel's `push`, so direct navigation from the card was rejected. `useTaskForCard` survives in both apps (the card message is still the card's own lookup key). Web thread-panel `isTask` now derives from the tasks query instead of the root message type, so the "Task" title can lag one query behind on cold load — accepted (it's the live-upgrade path anyway).
 - Step 1: no web/mobile patches were needed — `cardMessageId: string | null` compiles cleanly in both apps (loop panel already consumed a nullable field via the loops schema), and the loops run-history handler spreads the selected task row, so `threadRootId` flowed into the response without a mapping change. Both task relations to `message` got explicit `relationName`s (`taskThreadRoot` / `taskCardMessage`) since the table now holds two FKs to the same target.
