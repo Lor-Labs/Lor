@@ -1,4 +1,4 @@
-import { useMemo } from "react"
+import { memo, useMemo } from "react"
 import { ArtifactCsvPreviewCard } from "@/components/artifacts/csv-preview"
 import { ArtifactFileCard } from "@/components/chat/artifact-file-card"
 import {
@@ -160,7 +160,7 @@ function buildSegments(
   return segments
 }
 
-export function MerlinMessageBody({
+export const MerlinMessageBody = memo(function MerlinMessageBody({
   content,
   toolCalls,
   reasoningSegments,
@@ -348,4 +348,4 @@ export function MerlinMessageBody({
       )}
     </>
   )
-}
+})

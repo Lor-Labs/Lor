@@ -57,19 +57,36 @@ export function DesktopWindowFrame({
     const appWindow = getCurrentWindow()
     let disposed = false
     let stopListening: (() => void) | undefined
+    let resizeTimer: ReturnType<typeof setTimeout> | undefined
+    let syncing = false
 
     // Swallow IPC failures — keep the last known fullscreen state rather than
     // surfacing unhandled rejections.
     const syncFullscreenState = async () => {
+      if (disposed) return
+      if (syncing) {
+        scheduleFullscreenSync()
+        return
+      }
+      syncing = true
       try {
         const fullscreen = await appWindow.isFullscreen()
         if (!disposed) setIsFullscreen(fullscreen)
-      } catch {}
+      } catch {
+      } finally {
+        syncing = false
+      }
+    }
+
+    // Live resizing emits many native events; query once after it settles.
+    const scheduleFullscreenSync = () => {
+      clearTimeout(resizeTimer)
+      resizeTimer = setTimeout(() => void syncFullscreenState(), 100)
     }
 
     void syncFullscreenState()
     appWindow
-      .onResized(syncFullscreenState)
+      .onResized(scheduleFullscreenSync)
       .then((unlisten) => {
         if (disposed) {
           unlisten()
@@ -81,6 +98,7 @@ export function DesktopWindowFrame({
 
     return () => {
       disposed = true
+      clearTimeout(resizeTimer)
       stopListening?.()
     }
   }, [])

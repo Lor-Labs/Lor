@@ -8,7 +8,7 @@ import {
 } from "@repo/ui/components/preview-card"
 import { cn } from "@repo/ui/lib/utils"
 import { getAvatarInitials } from "@repo/utils/avatar-colors"
-import { type ReactNode, useMemo, useState } from "react"
+import { memo, type ReactNode, useMemo, useState } from "react"
 import type { Components } from "streamdown"
 import type { Message } from "@/lib/api-types"
 import { connectorForUrl, connectorLogo } from "@/lib/connector-ui"
@@ -179,7 +179,7 @@ interface MessageMarkdownProps {
   onCitationJump?: (messageId: string) => void
 }
 
-export function MessageMarkdown({
+export const MessageMarkdown = memo(function MessageMarkdown({
   content,
   mentions,
   className,
@@ -353,4 +353,4 @@ export function MessageMarkdown({
       )}
     </div>
   )
-}
+})

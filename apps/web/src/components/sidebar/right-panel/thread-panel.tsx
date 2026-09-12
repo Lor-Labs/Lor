@@ -40,6 +40,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react"
 import { useDropzone } from "react-dropzone"
 import { MessageInput } from "@/components/chat/composer/message-input"
@@ -163,14 +164,29 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
   // Subscribe to the channel cache so the root reflects edits, reactions,
   // and embed unfurls while the thread panel is open. The channel feed hook
   // (in the main view) owns the actual fetch — we just read here.
-  const { data: channelCache } = useQuery<ChannelMessagesCache>({
-    queryKey: ["messages", view.channelId],
-    enabled: false,
-  })
-  // Fallback while the thread loads; its own root remains current off-route.
-  const channelCacheRoot = useMemo(
-    () => findMessageInChannelCache(channelCache, view.threadRootId),
-    [channelCache, view.threadRootId]
+  const subscribeToChannelCache = useCallback(
+    (onChange: () => void) =>
+      queryClient.getQueryCache().subscribe((event) => {
+        const key = event.query.queryKey
+        if (key[0] === "messages" && key[1] === view.channelId) onChange()
+      }),
+    [queryClient, view.channelId]
+  )
+  const getChannelRoot = useCallback(
+    () =>
+      findMessageInChannelCache(
+        queryClient.getQueryData<ChannelMessagesCache>([
+          "messages",
+          view.channelId,
+        ]),
+        view.threadRootId
+      ),
+    [queryClient, view.channelId, view.threadRootId]
+  )
+  const channelCacheRoot = useSyncExternalStore(
+    subscribeToChannelCache,
+    getChannelRoot,
+    getChannelRoot
   )
 
   const fetchThreadPage = useCallback(

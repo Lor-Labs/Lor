@@ -209,6 +209,7 @@ export function MessageList({
   const olderSentinelRef = useRef<HTMLDivElement>(null)
   const newerSentinelRef = useRef<HTMLDivElement>(null)
   const stickyDateRef = useRef<HTMLDivElement>(null)
+  const dateDividersRef = useRef<HTMLElement[]>([])
   const scrollFrameRef = useRef<number | null>(null)
   const {
     commandRef: messageScrollCommandRef,
@@ -307,24 +308,41 @@ export function MessageList({
 
       // Determine which date divider has scrolled past the top
       const containerTop = el.getBoundingClientRect().top
-      const dividers = el.querySelectorAll("[data-date-divider]")
-      let topDate: string | null = null
-
-      for (const divider of dividers) {
-        const rect = divider.getBoundingClientRect()
-        if (rect.top <= containerTop + 8) {
-          topDate = (divider as HTMLElement).dataset.dateDivider ?? null
+      const dividers = dateDividersRef.current
+      let low = 0
+      let high = dividers.length
+      while (low < high) {
+        const mid = (low + high) >>> 1
+        const divider = dividers[mid]
+        if (
+          divider &&
+          divider.getBoundingClientRect().top <= containerTop + 8
+        ) {
+          low = mid + 1
         } else {
-          break
+          high = mid
         }
       }
+      const topDate = dividers[low - 1]?.dataset.dateDivider ?? ""
 
       const stickyDate = stickyDateRef.current
       if (!stickyDate) return
-      stickyDate.textContent = topDate ?? ""
-      stickyDate.dataset.visible = topDate ? "true" : "false"
+      if (stickyDate.textContent !== topDate) stickyDate.textContent = topDate
+      const visible = topDate ? "true" : "false"
+      if (stickyDate.dataset.visible !== visible) {
+        stickyDate.dataset.visible = visible
+      }
     })
   }, [])
+
+  useLayoutEffect(() => {
+    // Dates are ordered; only rebuild the index when the message list changes.
+    dateDividersRef.current = Array.from(
+      scrollRef.current?.querySelectorAll<HTMLElement>("[data-date-divider]") ??
+        []
+    )
+    handleScroll()
+  }, [orderedMessages, isLoading, handleScroll])
 
   useEffect(
     () => () => {

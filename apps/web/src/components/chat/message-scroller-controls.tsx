@@ -57,6 +57,30 @@ const PANEL_REFLOW_PIN_DURATION_MS = 500
 const NEAR_END_ANCHOR_PX = 24
 const REFLOW_SETTLE_MS = 250
 
+// Message rows are in document order. Avoid measuring every preceding row
+// on each scroll or click in a long conversation.
+function findRowAtTop(
+  rows: ArrayLike<HTMLElement>,
+  viewportTop: number,
+  includePartial: boolean
+) {
+  let low = 0
+  let high = rows.length
+  while (low < high) {
+    const mid = (low + high) >>> 1
+    const rect = rows[mid]?.getBoundingClientRect()
+    if (
+      rect &&
+      (includePartial ? rect.bottom > viewportTop : rect.top >= viewportTop)
+    ) {
+      high = mid
+    } else {
+      low = mid + 1
+    }
+  }
+  return rows[low] ?? null
+}
+
 // True while pinMessageDuringReflow is holding a specific clicked row, so the
 // generic width anchor below doesn't double-correct the same reflow.
 let explicitReflowPinActive = false
@@ -150,6 +174,19 @@ export function MessageScrollerReflowAnchor({
     let forcedCapture = false
     let holdFrame: number | null = null
     let settleTimer: number | null = null
+    const content = viewport.querySelector<HTMLElement>(
+      '[data-slot="message-scroller-content"]'
+    )
+    let rows: HTMLElement[] = []
+    const refreshRows = () => {
+      rows = Array.from(content?.children ?? []).filter(
+        (element): element is HTMLElement =>
+          element instanceof HTMLElement && Boolean(element.dataset.messageId)
+      )
+    }
+    refreshRows()
+    const rowObserver = new MutationObserver(refreshRows)
+    if (content) rowObserver.observe(content, { childList: true })
 
     const captureAnchor = () => {
       const distanceFromEnd =
@@ -159,18 +196,14 @@ export function MessageScrollerReflowAnchor({
         return
       }
       const viewportTop = viewport.getBoundingClientRect().top
-      const rows = viewport.querySelectorAll<HTMLElement>(
-        '[data-slot="message-scroller-item"][data-message-id]'
-      )
       anchor = null
-      for (const el of Array.from(rows)) {
+      const el = findRowAtTop(rows, viewportTop, true)
+      if (el) {
         const rect = el.getBoundingClientRect()
-        if (rect.bottom <= viewportTop) continue
         const messageId = el.dataset.messageId
         if (messageId) {
           anchor = { nearEnd: false, messageId, offset: rect.top - viewportTop }
         }
-        break
       }
     }
     // Mid-animation scroll events come from our own corrections — keep the
@@ -263,6 +296,7 @@ export function MessageScrollerReflowAnchor({
 
     return () => {
       observer.disconnect()
+      rowObserver.disconnect()
       viewport.removeEventListener("scroll", handleScroll)
       viewport.removeEventListener("wheel", yieldToUser)
       viewport.removeEventListener("touchmove", yieldToUser)
@@ -292,14 +326,17 @@ export function signalMessageScrollerInteraction(
     const rect = row.getBoundingClientRect()
     return rect.top >= viewportRect.top && rect.bottom <= viewportRect.bottom
   }
-  const stableRow =
+  const firstRow =
     targetRow && isFullyVisible(targetRow)
       ? targetRow
-      : Array.from(
+      : findRowAtTop(
           viewport.querySelectorAll<HTMLElement>(
             '[data-slot="message-scroller-item"][data-message-id]'
-          )
-        ).find(isFullyVisible)
+          ),
+          viewportRect.top,
+          false
+        )
+  const stableRow = firstRow && isFullyVisible(firstRow) ? firstRow : null
   const messageId = stableRow?.dataset.messageId
   if (!messageId) return
   // A nearest no-op still changes the primitive from follow-output to an
