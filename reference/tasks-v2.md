@@ -52,7 +52,7 @@ No behavior change: routing still creates card-as-root tasks; both columns are s
 
 Verify: `pnpm run check`, `pnpm run check-types`; live: channel delegation still produces a card-rooted task, approval deep link still opens the thread.
 
-### Step 2 — Re-anchor: web + mobile UI (~180 LOC) — [ ] built [ ] committed
+### Step 2 — Re-anchor: web + mobile UI (~180 LOC) — [x] built (2026-09-11) [ ] committed
 
 Type-driven mechanical move. Add `useTaskForThread(channelId, threadRootId)` beside `useTaskForCard` in both apps.
 
@@ -120,4 +120,5 @@ Verify: live upgrade of a Q&A thread into a task with the panel open; strip appe
 
 ## Deviations log
 
+- Step 2: mobile `TaskCard` keeps its `(message: Message)` callback but passes `{ ...message, id: task.threadRootId }` — both screen handlers navigate by `.id` only, and pins uses `router.replace` vs the channel's `push`, so direct navigation from the card was rejected. `useTaskForCard` survives in both apps (the card message is still the card's own lookup key). Web thread-panel `isTask` now derives from the tasks query instead of the root message type, so the "Task" title can lag one query behind on cold load — accepted (it's the live-upgrade path anyway).
 - Step 1: no web/mobile patches were needed — `cardMessageId: string | null` compiles cleanly in both apps (loop panel already consumed a nullable field via the loops schema), and the loops run-history handler spreads the selected task row, so `threadRootId` flowed into the response without a mapping change. Both task relations to `message` got explicit `relationName`s (`taskThreadRoot` / `taskCardMessage`) since the table now holds two FKs to the same target.

@@ -10,7 +10,7 @@ import {
   TaskPlanList,
   TaskStatusBadge,
 } from "@/components/task-ui"
-import { useTask, useTaskArtifacts, useTaskForCard } from "@/hooks/use-tasks"
+import { useTask, useTaskArtifacts, useTaskForThread } from "@/hooks/use-tasks"
 
 export type TaskSourceFile = {
   url: string
@@ -52,19 +52,19 @@ function SectionPopover({
   )
 }
 
-// Docked strip under the thread header when the root is a task card: status,
-// Plan/Files popover chips (Outputs = artifacts, Sources = thread uploads),
-// and the pending approval card, which is always visible.
+// Docked strip under the thread header when a task anchors to the thread:
+// status, Plan/Files popover chips (Outputs = artifacts, Sources = thread
+// uploads), and the pending approval card, which is always visible.
 export function TaskThreadHeader({
   channelId,
-  cardMessageId,
+  threadRootId,
   sources,
 }: {
   channelId: string
-  cardMessageId: string
+  threadRootId: string
   sources: TaskSourceFile[]
 }) {
-  const task = useTaskForCard(channelId, cardMessageId)
+  const task = useTaskForThread(channelId, threadRootId)
   const { data: detail } = useTask(task?.id ?? null)
   const { data: artifacts } = useTaskArtifacts(task?.id ?? null)
 
@@ -75,7 +75,10 @@ export function TaskThreadHeader({
       ? detail.pendingApproval
       : null
   const outputs = artifacts ?? []
-  const doneCount = task.plan.filter((item) => item.status === "done").length
+  const doneCount =
+    task.status === "completed"
+      ? task.plan.length
+      : task.plan.filter((item) => item.status === "done").length
   const fileCount = outputs.length + sources.length
   const showPlan = task.plan.length > 0
   const showFiles = fileCount > 0

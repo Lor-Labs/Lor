@@ -19,8 +19,8 @@ export function MerlinMessageBody({
   const { segments, childrenByParent, deliverables } = useMemo(() => {
     const toolCalls = message.merlinToolCalls ?? []
     const children = new Map<string, MerlinToolCall[]>()
-    // Files produced by create_artifacts — presented at the end of the
-    // message, deduped by artifact (the latest version wins).
+    // Deliverables from any top-level tool call (mirrors web) — presented at
+    // the end of the message, deduped by artifact (the latest version wins).
     const files = new Map<
       string,
       NonNullable<MerlinToolCall["files"]>[number]
@@ -32,10 +32,8 @@ export function MerlinMessageBody({
         children.set(toolCall.parentToolCallId, existing)
         continue
       }
-      if (toolCall.toolName === "create_artifacts") {
-        for (const file of toolCall.files ?? []) {
-          files.set(file.artifactId, file)
-        }
+      for (const file of toolCall.files ?? []) {
+        files.set(file.artifactId, file)
       }
     }
     return {

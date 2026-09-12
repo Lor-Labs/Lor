@@ -69,6 +69,16 @@ export function useTaskForCard(
   return data?.find((t) => t.cardMessageId === cardMessageId) ?? null
 }
 
+// Task anchored to a thread — the screen re-skin predicate: a thread is a task
+// thread iff a task row exists for its root. Mirrors web.
+export function useTaskForThread(
+  channelId: string,
+  threadRootId: string
+): ChannelTask | null {
+  const { data } = useChannelTasks(channelId)
+  return data?.find((t) => t.threadRootId === threadRootId) ?? null
+}
+
 export function useTask(taskId: string | null) {
   return useQuery({
     queryKey: ["task", taskId ?? ""],

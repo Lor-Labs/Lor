@@ -8,7 +8,7 @@ import {
 import { ApprovalGateCard } from "@/components/chat/approval-card"
 import { ArtifactFileCard } from "@/components/chat/artifact-file-card"
 import { TaskPlanList } from "@/components/chat/task-plan-list"
-import { useTaskForCard } from "@/hooks/use-channel-tasks"
+import { useTaskForThread } from "@/hooks/use-channel-tasks"
 import { useTask, useTaskArtifacts } from "@/hooks/use-task"
 import { formatFileSize, getFileKind } from "@/lib/attachments"
 
@@ -54,14 +54,14 @@ function SourceRow({ source }: { source: TaskSourceFile }) {
 // only artifacts are editable, and only artifacts open the takeover view.
 export function TaskThreadHeader({
   channelId,
-  cardMessageId,
+  threadRootId,
   sources,
 }: {
   channelId: string
-  cardMessageId: string
+  threadRootId: string
   sources: TaskSourceFile[]
 }) {
-  const task = useTaskForCard(channelId, cardMessageId)
+  const task = useTaskForThread(channelId, threadRootId)
   const { data: detail } = useTask(task?.id ?? null)
   const { data: artifacts } = useTaskArtifacts(task?.id ?? null)
 

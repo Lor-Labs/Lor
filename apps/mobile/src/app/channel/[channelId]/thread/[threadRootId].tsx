@@ -34,6 +34,7 @@ import { useProfileSheet } from "@/hooks/use-profile-sheet"
 import { useChannelProposals } from "@/hooks/use-proposals"
 import { useRunQueue } from "@/hooks/use-run-queue"
 import { useStopMerlinRun } from "@/hooks/use-stop-merlin-run"
+import { useTaskForThread } from "@/hooks/use-tasks"
 import { useThreadMessages } from "@/hooks/use-thread-messages"
 import { useTypingIndicator } from "@/hooks/use-typing-indicator"
 import { useWorkspaceMentionCandidates } from "@/hooks/use-workspace-mention-candidates"
@@ -134,7 +135,9 @@ export default function ThreadScreen() {
   })
   const { openDM } = useOpenDM()
 
-  const isTaskThread = thread.root?.type === "task_card"
+  // A thread is a task thread iff a task row anchors to its root — the root
+  // message type no longer decides.
+  const isTaskThread = !!useTaskForThread(channelId, threadRootId)
   // Files uploaded into the task thread (from any loaded message) — the
   // "Sources" side of the task header's Files section.
   const taskSources = useMemo<TaskSourceFile[]>(() => {
@@ -284,9 +287,9 @@ export default function ThreadScreen() {
       </View>
       {isTaskThread ? (
         <TaskThreadHeader
-          cardMessageId={threadRootId}
           channelId={channelId}
           sources={taskSources}
+          threadRootId={threadRootId}
         />
       ) : null}
       <ChatKeyboardLayout

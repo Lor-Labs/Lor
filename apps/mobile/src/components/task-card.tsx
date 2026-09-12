@@ -38,7 +38,11 @@ export function TaskCard({
       accessibilityRole={onOpenThread ? "button" : undefined}
       className="mt-one max-w-[420px] rounded-lor-sm border border-border bg-surface pb-three"
       disabled={!onOpenThread}
-      onPress={() => onOpenThread?.(message)}
+      // The task's anchor thread is no longer necessarily the card message;
+      // handlers navigate by .id only, so hand them the root id.
+      onPress={() =>
+        onOpenThread?.(task ? { ...message, id: task.threadRootId } : message)
+      }
     >
       <View className="flex-row items-start gap-two px-three pt-three">
         <View className="min-w-0 flex-1 gap-one">

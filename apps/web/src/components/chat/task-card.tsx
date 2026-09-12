@@ -31,8 +31,11 @@ export function TaskCard({
   const task = useTaskForCard(message.channelId, message.id)
   const { data: artifacts } = useTaskArtifacts(task?.id ?? null)
   const { view, isCollapsed } = useRightSidebar()
+  const threadRootId = task?.threadRootId ?? message.id
   const isOpenThread =
-    !isCollapsed && view?.type === "thread" && view.threadRootId === message.id
+    !isCollapsed &&
+    view?.type === "thread" &&
+    view.threadRootId === threadRootId
 
   if (!task) {
     return (
@@ -77,7 +80,7 @@ export function TaskCard({
         <button
           type="button"
           aria-label="Open task thread"
-          onClick={() => onOpenThread(message.id)}
+          onClick={() => onOpenThread(threadRootId)}
           className="absolute inset-0 z-10 cursor-pointer rounded-xl"
         />
       )}
