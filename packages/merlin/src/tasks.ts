@@ -223,9 +223,23 @@ export const taskTools = {
     execute: async ({ items }, { context }) => {
       const taskId = context.getTaskId()
       if (!taskId) return { error: NO_TASK_ERROR }
+      const current = await db
+        .select({ status: schema.task.status })
+        .from(schema.task)
+        .where(eq(schema.task.id, taskId))
+        .limit(1)
+        .then((rows) => rows[0])
+      if (!current) return { error: "task not found" }
+      // Replanning a completed task is the explicit reopen — follow-up chatter
+      // in the thread never flips it (the worker claim skips completed tasks).
       const row = await updateTask(
         taskId,
-        { plan: normalizePlanItems(items) },
+        {
+          plan: normalizePlanItems(items),
+          ...(current.status === "completed"
+            ? { status: "running" as const, activeRunId: context.runId }
+            : {}),
+        },
         context.onTaskUpdated
       )
       if (!row) return { error: "task not found" }

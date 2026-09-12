@@ -24,6 +24,8 @@ The v1 task welds four concepts together: a routing-time prediction (the placeme
 8. **No separate human todo primitive.** The task plan is the checklist.
 9. **Activity surface: docked wins.** The thread panel's docked strip generalizes; Plan/Files chips stay task-only (Files until decision 7's follow-up); a new Activity chip mirrors the live run's work log. The per-message `MerlinActivity` collapsible stays as the in-timeline historical record. It is already task-blind, so "watch Merlin's computer" works for plain answers today — browser events later stream into the same `merlin:tool` machinery.
 
+10. **Completed tasks don't resurrect on replies** (decided 2026-09-12). The worker claim skips the `running` flip for `completed` tasks, so a quick follow-up question in a finished task thread stays a question. Reopening is an explicit act of task work: `set_plan` on a completed task flips it back to `running` (+ adopts the run via `activeRunId`); `request_approval`/`complete_task` set their own states as before. `failed`/`stopped` tasks keep v1 resurrection (a reply meaning "try again" should revive them).
+
 ## Hazards (from the map — verify each step against these)
 
 - **`settleTask` captures `task` as a `const`** (`apps/worker/src/jobs/merlin-respond.ts:110`). A task created at step 4 of a run is invisible to all 8 settle sites → stuck `running` forever, and `settleAbandonedRunTask`'s fallback can't rescue it (requires `activeRunId IS NULL`). Mutable holder + set `activeRunId` at creation are both mandatory.

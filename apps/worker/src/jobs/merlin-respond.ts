@@ -281,7 +281,10 @@ export function createMerlinRespondProcessor(
           return
         }
         const execution = claim.kind === "claimed" ? claim.execution : null
-        if (task && execution) {
+        // Completed tasks don't resurrect on follow-up replies — a quick
+        // question in a finished task thread stays a question. Task tools
+        // reopen explicitly (set_plan flips completed back to running).
+        if (task && execution && task.status !== "completed") {
           const claimedTask = task
           await db
             .update(schema.task)
