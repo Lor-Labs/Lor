@@ -481,7 +481,7 @@ export const MessageItem = memo(function MessageItem({
         "group relative px-4 py-0.5 transition-colors",
         isReplyTarget
           ? "bg-primary/[0.07] before:absolute before:inset-y-0 before:left-0 before:w-[3px] before:bg-primary"
-          : "hover:bg-muted/40"
+          : !wrapContentAroundAvatar && "hover:bg-muted/30"
       )}
     >
       <div
