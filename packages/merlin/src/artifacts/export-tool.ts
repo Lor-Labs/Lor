@@ -13,7 +13,7 @@ export const EXPORT_TOOL_NAME = "export_tool_result"
 export const EXPORT_DENIED_TOOLS = new Set([
   ...SIDE_EFFECT_TOOLS,
   "request_approval",
-  "set_plan",
+  "update_plan",
   "complete_plan",
   EXPORT_TOOL_NAME,
 ])

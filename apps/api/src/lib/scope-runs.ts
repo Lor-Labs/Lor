@@ -3,6 +3,7 @@ import {
   db,
   eq,
   inArray,
+  isNull,
   isUniqueViolation,
   MERLIN_USER_ID,
   schema,
@@ -481,7 +482,13 @@ export async function startPlanContinuationRun(args: {
         .update(schema.plan)
         .set({ status: "waiting_for_input" })
         .where(
-          and(eq(schema.plan.id, plan.id), eq(schema.plan.status, "running"))
+          and(
+            eq(schema.plan.id, plan.id),
+            eq(schema.plan.status, "running"),
+            // Only when no run owns the plan — a newer continuation may have
+            // claimed it between this run's creation and its abandonment.
+            isNull(schema.plan.activeRunId)
+          )
         )
         .returning()
         .then((rows) => (rows[0] ? emitPlanUpdated(rows[0]) : undefined))
