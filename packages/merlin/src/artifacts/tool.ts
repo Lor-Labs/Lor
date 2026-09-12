@@ -185,11 +185,13 @@ export const artifactTools = {
         inputs.push(input)
       }
 
-      const task = context.getTask()
       const sandboxKey = context.sandboxKey
       const startSession = async () => {
         const budget = sessionBudget()
         if ("error" in budget) return budget
+        // Resolved after the session-queue wait: a start_task landing while
+        // this call was queued still gets its artifacts reseeded.
+        const task = context.getTask()
         return runWorkbenchSession({
           instructions,
           inputs,
@@ -241,7 +243,9 @@ export const artifactTools = {
 
       // Per-file persistence: a failure mid-list must not hide the files that
       // WERE stored (their versions are committed and visible), or the model
-      // re-runs the whole session for deliverables it already has.
+      // re-runs the whole session for deliverables it already has. Task
+      // re-read so a start_task that landed mid-session still gets credit.
+      const task = context.getTask()
       const manifest = []
       const unstored: string[] = []
       for (const file of result.files) {

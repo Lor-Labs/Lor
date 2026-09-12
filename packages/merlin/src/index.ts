@@ -2030,9 +2030,15 @@ export async function respond(
       ...(ctx.task || ctx.threadRootId
         ? (() => {
             const getTaskId = () => taskRef.current?.id ?? null
+            // One reopen per run, only when the run began on a completed task.
+            let reopenAvailable = ctx.task?.status === "completed"
             const taskToolContext = {
               getTaskId,
-              startedCompleted: ctx.task?.status === "completed",
+              consumeReopen: () => {
+                if (!reopenAvailable) return false
+                reopenAvailable = false
+                return true
+              },
               workspaceId: ctx.workspaceId,
               runId: ctx.runId ?? null,
               onTaskUpdated: notifyTaskUpdated,

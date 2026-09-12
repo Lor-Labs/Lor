@@ -70,9 +70,10 @@ export type CreateTaskForThread = (
 // start_task alone and retry (observed to self-correct).
 const taskContext = z.object({
   getTaskId: z.custom<() => string | null>(),
-  // True when the run began on an already-completed task — the only state
-  // where set_plan reopens (a same-run complete_task then set_plan must not).
-  startedCompleted: z.boolean().optional(),
+  // Grants ONE reopen per run, and only when the run began on an
+  // already-completed task — a same-run complete_task then set_plan must not
+  // resurrect what it just settled, and neither may a second reopen cycle.
+  consumeReopen: z.custom<() => boolean>().optional(),
   workspaceId: z.string(),
   runId: z.string().nullable(),
   onTaskUpdated: z.custom<OnTaskUpdated>().optional(),
@@ -165,13 +166,22 @@ const planItemSchema = z.object({
   description: z.string().max(MAX_DESCRIPTION_CHARS).nullable(),
 })
 
+// Trims labels and drops whitespace-only items — zod's min(1) passes " ".
 function normalizePlanItems(
   items: z.infer<typeof planItemSchema>[]
 ): TaskPlanItem[] {
-  return items.map(({ text, status, description }) => {
+  const normalized: TaskPlanItem[] = []
+  for (const { text, status, description } of items) {
+    const label = text.trim()
+    if (!label) continue
     const detail = description?.trim()
-    return detail ? { text, status, description: detail } : { text, status }
-  })
+    normalized.push(
+      detail
+        ? { text: label, status, description: detail }
+        : { text: label, status }
+    )
+  }
+  return normalized
 }
 
 const startTaskContext = z.object({
@@ -204,10 +214,16 @@ export const taskTools = {
       if (!context.createTask) {
         return { error: "tasks can't be started from this context" }
       }
+      const trimmedTitle = title.trim()
+      const trimmedGoal = goal.trim()
+      const items = normalizePlanItems(plan)
+      if (!trimmedTitle || !trimmedGoal || items.length === 0) {
+        return { error: "title, goal, and plan items must not be blank" }
+      }
       const row = await context.createTask({
-        title: title.trim(),
-        goal: goal.trim(),
-        plan: normalizePlanItems(plan),
+        title: trimmedTitle,
+        goal: trimmedGoal,
+        plan: items,
       })
       if (!row) return { error: "couldn't start the task" }
       return {
@@ -229,6 +245,8 @@ export const taskTools = {
     execute: async ({ items }, { context }) => {
       const taskId = context.getTaskId()
       if (!taskId) return { error: NO_TASK_ERROR }
+      const plan = normalizePlanItems(items)
+      if (plan.length === 0) return { error: "plan items must not be blank" }
       const current = await db
         .select({ status: schema.task.status })
         .from(schema.task)
@@ -239,13 +257,14 @@ export const taskTools = {
       // Replanning a task that was ALREADY completed when this run started is
       // the explicit reopen — follow-up chatter never flips it (the worker
       // claim skips completed tasks), and a same-run set_plan racing its own
-      // complete_task must not resurrect what it just settled.
+      // complete_task must not resurrect what it just settled. Consumed on
+      // use: one reopen per run.
       const reopen =
-        context.startedCompleted === true && current.status === "completed"
+        current.status === "completed" && context.consumeReopen?.() === true
       const row = await updateTask(
         taskId,
         {
-          plan: normalizePlanItems(items),
+          plan,
           ...(reopen
             ? { status: "running" as const, activeRunId: context.runId }
             : {}),

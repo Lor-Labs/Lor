@@ -110,7 +110,7 @@ export function ThreadWorkHeader({
 
   return (
     <View className="gap-two border-b border-separator px-four pb-three">
-      <View className="flex-row items-center gap-two">
+      <View className="flex-row flex-wrap items-center gap-two">
         {task ? <TaskStatusBadge status={task.status} /> : null}
         {task && showPlan ? (
           <SectionPopover label={`Plan · ${doneCount}/${task.plan.length}`}>

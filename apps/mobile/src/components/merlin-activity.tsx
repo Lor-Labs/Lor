@@ -5,11 +5,10 @@ import { type ReactNode, useState } from "react"
 import { Pressable, Text, View } from "react-native"
 import { Shimmer } from "@/components/shimmer"
 
-// Mobile port of web's merlin-activity.tsx outer collapsible: the work log
-// wrapping everything before a Merlin message's final answer. Auto-opens while
-// the run streams and collapses at the run boundary; manual toggles win
-// mid-run. Single-level on mobile — the reasoning and tool-trail rows inside
-// carry their own disclosures, so web's inner group tier is skipped.
+// Work log ahead of a Merlin message's answer (web merlin-activity.tsx port).
+// Auto-opens while the run streams, collapses at the run boundary, manual
+// toggles win mid-run. Single-level on mobile — the rows inside carry their
+// own disclosures, so web's inner group tier is skipped.
 export function MerlinActivity({
   active,
   failed,
@@ -39,10 +38,20 @@ export function MerlinActivity({
         ? "Worked"
         : "Thought process"
 
+  const accessibilityLabel = [
+    label,
+    toolCount > 0
+      ? `${toolCount} tool ${toolCount === 1 ? "call" : "calls"}`
+      : null,
+    errorCount > 0 ? `${errorCount} failed` : null,
+  ]
+    .filter(Boolean)
+    .join(", ")
+
   return (
     <View className="mb-one">
       <Pressable
-        accessibilityLabel={label}
+        accessibilityLabel={accessibilityLabel}
         accessibilityRole="button"
         accessibilityState={{ expanded: open }}
         className="min-h-8 flex-row items-center gap-one self-start"
