@@ -424,6 +424,27 @@ export function MessageList({
   }
 
   if (messages.length === 0) {
+    // An empty loaded window can still have older history (e.g. every loaded
+    // message deleted, or an empty anchored page) — keep the container and
+    // sentinel mounted so pagination stays reachable instead of showing a
+    // false start-of-channel state.
+    if (hasOlder) {
+      return (
+        <div
+          ref={scrollRef}
+          className="flex flex-1 items-center justify-center overflow-y-auto"
+        >
+          <div
+            ref={olderSentinelRef}
+            className="flex h-12 items-center justify-center"
+          >
+            {isFetchingOlder && (
+              <Spinner className="size-5 text-muted-foreground motion-reduce:animate-none" />
+            )}
+          </div>
+        </div>
+      )
+    }
     return <EmptyState context={context} />
   }
 
