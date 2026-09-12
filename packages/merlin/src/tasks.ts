@@ -137,15 +137,24 @@ export async function settleAbandonedRunTask(
   }
 }
 
+// `observedStatus` is a CAS guard (same idiom as the worker's settleTask): the
+// write lands only if the status still matches what the caller read, so a
+// concurrent complete_task can't be overwritten by a stale plan snapshot.
 export async function updateTask(
   taskId: string,
   values: Partial<typeof schema.task.$inferInsert>,
-  onTaskUpdated?: OnTaskUpdated
+  onTaskUpdated?: OnTaskUpdated,
+  observedStatus?: Task["status"]
 ): Promise<Task | null> {
   const row = await db
     .update(schema.task)
     .set(values)
-    .where(eq(schema.task.id, taskId))
+    .where(
+      and(
+        eq(schema.task.id, taskId),
+        observedStatus ? eq(schema.task.status, observedStatus) : undefined
+      )
+    )
     .returning()
     .then((rows) => rows[0] ?? null)
   if (row && onTaskUpdated) {
@@ -269,9 +278,15 @@ export const taskTools = {
             ? { status: "running" as const, activeRunId: context.runId }
             : {}),
         },
-        context.onTaskUpdated
+        context.onTaskUpdated,
+        current.status
       )
-      if (!row) return { error: "task not found" }
+      if (!row) {
+        return {
+          error:
+            "task status changed while updating the plan (it may have just completed) — re-check the task before retrying",
+        }
+      }
       return { ok: true }
     },
     strict: true,
@@ -296,7 +311,7 @@ export const taskTools = {
       // Completing the task settles the checklist: the model routinely forgets
       // a final set_plan, which left cards showing a spinning step forever.
       const current = await db
-        .select({ plan: schema.task.plan })
+        .select({ status: schema.task.status, plan: schema.task.plan })
         .from(schema.task)
         .where(eq(schema.task.id, taskId))
         .limit(1)
@@ -308,9 +323,15 @@ export const taskTools = {
       const row = await updateTask(
         taskId,
         { status: "completed", summary, plan },
-        context.onTaskUpdated
+        context.onTaskUpdated,
+        current.status
       )
-      if (!row) return { error: "task not found" }
+      if (!row) {
+        return {
+          error:
+            "task status changed while completing — re-check the task's current state",
+        }
+      }
       return { ok: true }
     },
     strict: true,
