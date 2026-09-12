@@ -81,7 +81,7 @@ function ChannelView() {
   const isMobile = useIsMobile()
   useAutoMarkRead(channelId)
   const queryClient = useQueryClient()
-  const { view, setView, clearView, isCollapsed, toggleCollapsed } =
+  const { view, setView, clearView, isCollapsed, toggleCollapsed, panelWidth } =
     useRightSidebar()
   const { data: session } = authClient.useSession()
   const currentUserId = session?.user.id
@@ -271,17 +271,24 @@ function ChannelView() {
   // Opening, closing, or collapsing the thread panel animates the channel
   // width, re-wrapping every message row. Pin the thread's root message (the
   // card the user is working with) through that reflow so it stays put on
-  // screen. Layout effect: the pin must start before the first animation frame.
+  // screen. Gate on the panel's effective width: switching between threads
+  // keeps the panel where it is, so pinning there would only yank the scroller
+  // out of follow-output. Layout effect: the pin must start before the first
+  // animation frame.
   const openThreadRootRef = useRef<string | null>(null)
+  const panelReflowWidthRef = useRef<number | null>(null)
   useLayoutEffect(() => {
     const currentRoot =
       view?.type === "thread" && !isCollapsed ? view.threadRootId : null
     const previousRoot = openThreadRootRef.current
     openThreadRootRef.current = currentRoot
-    if (previousRoot === currentRoot) return
+    const effectiveWidth = view && !isCollapsed ? panelWidth : 0
+    const previousWidth = panelReflowWidthRef.current
+    panelReflowWidthRef.current = effectiveWidth
+    if (previousWidth === null || previousWidth === effectiveWidth) return
     const anchorRoot = previousRoot ?? currentRoot
     if (anchorRoot) pinMessageForPanelReflow(anchorRoot)
-  }, [view, isCollapsed])
+  }, [view, isCollapsed, panelWidth])
 
   // MessageItem is memoized — forward a stable callback identity so route
   // re-renders don't re-render every message row.

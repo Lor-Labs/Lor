@@ -70,7 +70,7 @@ export function MeetingRecordingCard({
           <h3 className="text-base font-semibold leading-snug tracking-tight text-foreground [overflow-wrap:anywhere]">
             {embed.title ?? "Call recording"}
           </h3>
-          {!!meeting?.participants.length && (
+          {!!meeting?.participants?.length && (
             <p className="text-xs leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
               {meeting.participants.join(" · ")}
             </p>
@@ -111,7 +111,7 @@ export function MeetingRecordingCard({
             Explore with Merlin
           </p>
           <div className="flex flex-wrap gap-2">
-            {meeting?.followUps.map((followUp) => (
+            {meeting?.followUps?.map((followUp) => (
               <button
                 key={followUp.prompt}
                 type="button"

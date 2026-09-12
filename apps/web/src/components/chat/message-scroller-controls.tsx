@@ -84,6 +84,9 @@ function findRowAtTop(
 // True while pinMessageDuringReflow is holding a specific clicked row, so the
 // generic width anchor below doesn't double-correct the same reflow.
 let explicitReflowPinActive = false
+// The active pin's cleanup. A new pin cancels the previous one first, so two
+// pins never fight over the viewport and a stale timer can't clear the flag.
+let cancelActiveReflowPin: (() => void) | null = null
 
 // Opening or widening the right panel animates the transcript narrower, so
 // every row re-wraps taller while scrollTop stays put — the clicked message
@@ -111,6 +114,7 @@ export function pinMessageDuringReflow(
   // Flip the scroller out of follow-output first, so its own resize handling
   // (snap to end) doesn't fight the pin.
   command?.(messageId, { align: "nearest", behavior: "auto" })
+  cancelActiveReflowPin?.()
   explicitReflowPinActive = true
   const targetOffset =
     row.getBoundingClientRect().top - viewport.getBoundingClientRect().top
@@ -134,11 +138,13 @@ export function pinMessageDuringReflow(
   const observer = new ResizeObserver(correct)
   const cancel = () => {
     explicitReflowPinActive = false
+    cancelActiveReflowPin = null
     observer.disconnect()
     window.clearTimeout(timer)
     viewport.removeEventListener("wheel", cancel)
     viewport.removeEventListener("touchmove", cancel)
   }
+  cancelActiveReflowPin = cancel
   observer.observe(viewport)
   const content = viewport.querySelector<HTMLElement>(
     '[data-slot="message-scroller-content"]'
