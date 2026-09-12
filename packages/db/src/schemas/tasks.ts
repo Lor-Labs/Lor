@@ -1,4 +1,4 @@
-import { relations } from "drizzle-orm"
+import { relations, sql } from "drizzle-orm"
 import {
   index,
   jsonb,
@@ -16,11 +16,10 @@ import { user } from "./users"
 import { workspace } from "./workspaces"
 
 // A task: a delegated outcome Merlin works toward across a chain of
-// agent runs. The card message is the thread root, so the task's conversation
-// scope is that thread — steering, queueing, stop, and replay reuse the
-// thread-scope machinery unchanged. Never `waiting_for_*` while a run is
-// active; approval and input waits happen *between* runs (a run always ends
-// cleanly first).
+// agent runs. The task anchors to a thread root, so its conversation scope is
+// that thread — steering, queueing, stop, and replay reuse the thread-scope
+// machinery unchanged. Never `waiting_for_*` while a run is active; approval
+// and input waits happen *between* runs (a run always ends cleanly first).
 export const taskStatusEnum = pgEnum("task_status", [
   "running",
   "waiting_for_input",
@@ -45,11 +44,17 @@ export const task = pgTable(
     channelId: uuid("channel_id")
       .notNull()
       .references(() => channel.id, { onDelete: "cascade" }),
-    // The task card message — rendered as the card in the channel feed and
-    // acting as the thread root every task run executes under.
-    cardMessageId: uuid("card_message_id")
+    // The thread root every task run executes under — the task's conversation
+    // scope (task.threadRootId = agent_run.scopeKey).
+    threadRootId: uuid("thread_root_id")
       .notNull()
       .references(() => message.id, { onDelete: "cascade" }),
+    // The task card message rendered in the channel feed — a projection of the
+    // task, not its anchor. Spawned tasks (loops/Act) keep card-as-root, so it
+    // can equal threadRootId.
+    cardMessageId: uuid("card_message_id").references(() => message.id, {
+      onDelete: "set null",
+    }),
     creatorId: uuid("creator_id").references(() => user.id, {
       onDelete: "set null",
     }),
@@ -72,7 +77,10 @@ export const task = pgTable(
     }),
   },
   (table) => [
-    uniqueIndex("task_cardMessageId_uidx").on(table.cardMessageId),
+    uniqueIndex("task_threadRootId_uidx").on(table.threadRootId),
+    uniqueIndex("task_cardMessageId_uidx")
+      .on(table.cardMessageId)
+      .where(sql`card_message_id is not null`),
     index("task_channelId_status_idx").on(table.channelId, table.status),
     index("task_workspaceId_createdAt_idx").on(
       table.workspaceId,
@@ -91,9 +99,15 @@ export const taskRelations = relations(task, ({ one }) => ({
     fields: [task.channelId],
     references: [channel.id],
   }),
+  threadRoot: one(message, {
+    fields: [task.threadRootId],
+    references: [message.id],
+    relationName: "taskThreadRoot",
+  }),
   cardMessage: one(message, {
     fields: [task.cardMessageId],
     references: [message.id],
+    relationName: "taskCardMessage",
   }),
 }))
 

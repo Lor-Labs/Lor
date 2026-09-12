@@ -83,7 +83,7 @@ async function resolveThreadNotificationContext(message: FanoutMessage) {
     db
       .select({ userId: schema.task.creatorId })
       .from(schema.task)
-      .where(eq(schema.task.cardMessageId, threadRootId))
+      .where(eq(schema.task.threadRootId, threadRootId))
       .limit(1)
       .then((rows) => rows[0]?.userId ?? null),
   ])

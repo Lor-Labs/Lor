@@ -36,7 +36,7 @@ The v1 task welds four concepts together: a routing-time prediction (the placeme
 
 ## Steps
 
-### Step 1 — Re-anchor: schema + server + wire types (~120 LOC) — [ ] built [ ] committed
+### Step 1 — Re-anchor: schema + server + wire types (~120 LOC) — [x] built (2026-09-11) [ ] committed
 
 No behavior change: routing still creates card-as-root tasks; both columns are set to the card id. This step only makes `threadRootId` the join key everywhere on the server.
 
@@ -120,4 +120,4 @@ Verify: live upgrade of a Q&A thread into a task with the panel open; strip appe
 
 ## Deviations log
 
-(record deviations from the plan here as steps land)
+- Step 1: no web/mobile patches were needed — `cardMessageId: string | null` compiles cleanly in both apps (loop panel already consumed a nullable field via the loops schema), and the loops run-history handler spreads the selected task row, so `threadRootId` flowed into the response without a mapping change. Both task relations to `message` got explicit `relationName`s (`taskThreadRoot` / `taskCardMessage`) since the table now holds two FKs to the same target.

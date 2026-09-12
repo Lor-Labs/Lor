@@ -152,6 +152,7 @@ export async function createTaskWithCard(args: {
       .values({
         workspaceId: args.workspaceId,
         channelId: args.channelId,
+        threadRootId: card.id,
         cardMessageId: card.id,
         creatorId: args.creatorId,
         title,

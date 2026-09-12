@@ -25,6 +25,7 @@ export function toRealtimeTask(row: Task): RealtimeTask {
     id: row.id,
     workspaceId: row.workspaceId,
     channelId: row.channelId,
+    threadRootId: row.threadRootId,
     cardMessageId: row.cardMessageId,
     creatorId: row.creatorId,
     title: row.title,
@@ -62,7 +63,7 @@ const taskContext = z.object({
 // Settle the task a run leaves behind when it dies outside its processor
 // (crash swept by sweepDeadRuns, stopped while still queued, or a first run
 // that never got enqueued). Keys on the claimed run id, or — for a run that
-// never claimed — the task card that is the run's thread root, guarded on
+// never claimed — the task anchored to the run's thread root, guarded on
 // activeRunId being unset so a newer continuation's task is never clobbered.
 // Active plan steps demote to pending so the card stops showing a spinning
 // step (complete_task normalizes the plan on success; abnormal ends must too).
@@ -75,7 +76,7 @@ export async function settleAbandonedRunTask(
     run.id ? eq(schema.task.activeRunId, run.id) : undefined,
     run.threadRootId
       ? and(
-          eq(schema.task.cardMessageId, run.threadRootId),
+          eq(schema.task.threadRootId, run.threadRootId),
           isNull(schema.task.activeRunId)
         )
       : undefined

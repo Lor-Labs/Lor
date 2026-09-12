@@ -107,7 +107,7 @@ type ResolveOutcome =
 
 // The conversation an approval belongs to. A policy-gated approval takes it
 // from the parked run; a task's own request_approval predates the run pointer,
-// so the task's card thread is the fallback.
+// so the task's anchor thread is the fallback.
 type ApprovalScope = {
   channelId: string
   threadRootId: string | null
@@ -132,8 +132,8 @@ function approvalScope(
   if (task) {
     return {
       channelId: task.channelId,
-      threadRootId: task.cardMessageId,
-      scopeKey: task.cardMessageId,
+      threadRootId: task.threadRootId,
+      scopeKey: task.threadRootId,
     }
   }
   return null

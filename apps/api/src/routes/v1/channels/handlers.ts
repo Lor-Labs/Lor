@@ -1029,7 +1029,7 @@ export const listThreadReplies: AppRouteHandler<
                 eq(schema.workspaceMember.workspaceId, workspace.id)
               )
             )
-            .where(eq(schema.task.cardMessageId, messageId))
+            .where(eq(schema.task.threadRootId, messageId))
             .limit(1)
             .then((rows) => rows[0] ?? null)
         : Promise.resolve(null),

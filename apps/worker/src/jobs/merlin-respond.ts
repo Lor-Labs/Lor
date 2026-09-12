@@ -106,12 +106,12 @@ export function createMerlinRespondProcessor(
           )
         }
 
-        // The task, when this run's thread root is a task card.
+        // The task anchored to this run's thread root, when one exists.
         const task = threadRootId
           ? await db
               .select()
               .from(schema.task)
-              .where(eq(schema.task.cardMessageId, threadRootId))
+              .where(eq(schema.task.threadRootId, threadRootId))
               .limit(1)
               .then((rows) => rows[0] ?? null)
           : null
