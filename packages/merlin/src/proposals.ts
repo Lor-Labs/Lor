@@ -101,7 +101,7 @@ export const proposeChangeTool = {
         .max(10)
         .nullable()
         .describe(
-          "links that motivated this: message/task/run ids from this workspace, or URLs (API docs you verified). Null when none"
+          "links that motivated this: message/plan/run ids from this workspace, or URLs (API docs you verified). Null when none"
         ),
       operations: z
         .array(changeOperationSchema)

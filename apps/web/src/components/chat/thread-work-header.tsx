@@ -9,13 +9,13 @@ import { useMemo } from "react"
 import { ApprovalGateCard } from "@/components/chat/approval-card"
 import { ArtifactFileCard } from "@/components/chat/artifact-file-card"
 import { MerlinToolTrail } from "@/components/chat/merlin-tool-trail"
-import { TaskPlanList } from "@/components/chat/task-plan-list"
-import { useTaskForThread } from "@/hooks/use-channel-tasks"
-import { useTask, useTaskArtifacts } from "@/hooks/use-task"
+import { PlanStepList } from "@/components/chat/plan-step-list"
+import { usePlanForThread } from "@/hooks/use-channel-plans"
+import { usePlan, usePlanArtifacts } from "@/hooks/use-plan"
 import type { MerlinToolCallView, Message } from "@/lib/api-types"
 import { formatFileSize, getFileKind } from "@/lib/attachments"
 
-export type TaskSourceFile = {
+export type PlanSourceFile = {
   url: string
   filename: string
   size: number
@@ -35,7 +35,7 @@ function SectionChevron() {
   )
 }
 
-function SourceRow({ source }: { source: TaskSourceFile }) {
+function SourceRow({ source }: { source: PlanSourceFile }) {
   const kind = getFileKind(source.contentType, source.filename)
   return (
     <a
@@ -52,7 +52,7 @@ function SourceRow({ source }: { source: TaskSourceFile }) {
 }
 
 // Docked strip under the thread panel header — the thread's work surface.
-// Plan/Files popover chips (the anti-lost-in-scroll anchors) when a task
+// Plan/Files popover chips (the anti-lost-in-scroll anchors) when a plan
 // anchors to the thread, an Activity chip mirroring the newest run's tool
 // trail whenever Merlin is (or was) working here, and the pending approval
 // card, always visible. Renders a bare border when idle so the panel header's
@@ -65,12 +65,12 @@ export function ThreadWorkHeader({
 }: {
   channelId: string
   threadRootId: string
-  sources: TaskSourceFile[]
+  sources: PlanSourceFile[]
   activityMessage: Message | null
 }) {
-  const task = useTaskForThread(channelId, threadRootId)
-  const { data: detail } = useTask(task?.id ?? null)
-  const { data: artifacts } = useTaskArtifacts(task?.id ?? null)
+  const plan = usePlanForThread(channelId, threadRootId)
+  const { data: detail } = usePlan(plan?.id ?? null)
+  const { data: artifacts } = usePlanArtifacts(plan?.id ?? null)
 
   const { activityCalls, childrenByParent } = useMemo(() => {
     const topLevel: MerlinToolCallView[] = []
@@ -93,14 +93,14 @@ export function ThreadWorkHeader({
       ? detail.pendingApproval
       : null
   const outputs = artifacts ?? []
-  const doneCount = !task
+  const doneCount = !plan
     ? 0
-    : task.status === "completed"
-      ? task.plan.length
-      : task.plan.filter((item) => item.status === "done").length
+    : plan.status === "completed"
+      ? plan.steps.length
+      : plan.steps.filter((item) => item.status === "done").length
   const fileCount = outputs.length + sources.length
-  const showPlan = !!task && task.plan.length > 0
-  const showFiles = !!task && fileCount > 0
+  const showPlan = !!plan && plan.steps.length > 0
+  const showFiles = !!plan && fileCount > 0
   const showActivity = activityCalls.length > 0
 
   if (!showPlan && !showFiles && !showActivity && !pendingApproval) {
@@ -111,11 +111,11 @@ export function ThreadWorkHeader({
     <div className="shrink-0 border-b px-3 pb-2">
       {(showPlan || showFiles || showActivity) && (
         <div className="-ml-0.5 flex items-center gap-1">
-          {task && showPlan && (
+          {plan && showPlan && (
             <Popover>
               <PopoverTrigger className={SECTION_TRIGGER_CLASS}>
                 <SectionChevron />
-                {`Plan · ${doneCount}/${task.plan.length}`}
+                {`Steps · ${doneCount}/${plan.steps.length}`}
               </PopoverTrigger>
               <PopoverPopup
                 side="bottom"
@@ -123,7 +123,7 @@ export function ThreadWorkHeader({
                 className="w-80"
                 viewportClassName="p-3"
               >
-                <TaskPlanList items={task.plan} />
+                <PlanStepList items={plan.steps} />
               </PopoverPopup>
             </Popover>
           )}

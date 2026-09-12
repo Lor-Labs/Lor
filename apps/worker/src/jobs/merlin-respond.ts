@@ -24,9 +24,9 @@ import {
   writeBack,
 } from "@repo/merlin"
 import type { ProposeLoopExecutor } from "@repo/merlin/loops"
+import type { StartPlanInput } from "@repo/merlin/plans"
+import { toRealtimePlan } from "@repo/merlin/plans"
 import type { ProposeChangeExecutor } from "@repo/merlin/proposals"
-import type { StartTaskInput } from "@repo/merlin/tasks"
-import { toRealtimeTask } from "@repo/merlin/tasks"
 import {
   buildMessageFanout,
   loadThreadSummary,
@@ -118,46 +118,46 @@ export function createMerlinRespondProcessor(
           )
         }
 
-        // The task anchored to this run's thread root, when one exists.
-        // Mutable: start_task can create one mid-run, and every settle path
+        // The plan anchored to this run's thread root, when one exists.
+        // Mutable: start_plan can create one mid-run, and every settle path
         // below must see it (a const capture would strand it running forever).
-        let task = threadRootId
+        let plan = threadRootId
           ? await db
               .select()
-              .from(schema.task)
-              .where(eq(schema.task.threadRootId, threadRootId))
+              .from(schema.plan)
+              .where(eq(schema.plan.threadRootId, threadRootId))
               .limit(1)
               .then((rows) => rows[0] ?? null)
           : null
-        const emitTaskUpdated = (row: typeof schema.task.$inferSelect) => {
+        const emitPlanUpdated = (row: typeof schema.plan.$inferSelect) => {
           emitter
             .to(channelRoom(channelId))
-            .emit("task:updated", { task: toRealtimeTask(row) })
+            .emit("plan:updated", { plan: toRealtimePlan(row) })
         }
-        // Park the task when its run ends. `waiting_for_input` only from
+        // Park the plan when its run ends. `waiting_for_input` only from
         // `running` — completed/waiting_for_approval set by tools stand.
         // `completed` is terminal for every outcome: a failure after
-        // complete_task (fanout, write-back) must never flip a finished task
+        // complete_plan (fanout, write-back) must never flip a finished plan
         // back to failed.
-        let taskSettled = false
-        let taskSettlementOutcome: "complete" | "failed" | "stopped" = "failed"
-        const settleTask = async (
+        let planSettled = false
+        let planSettlementOutcome: "complete" | "failed" | "stopped" = "failed"
+        const settlePlan = async (
           outcome: "complete" | "failed" | "stopped"
         ) => {
-          taskSettlementOutcome = outcome
-          if (!task) {
-            taskSettled = true
+          planSettlementOutcome = outcome
+          if (!plan) {
+            planSettled = true
             return
           }
           try {
             const fresh = await db
-              .select({ status: schema.task.status, plan: schema.task.plan })
-              .from(schema.task)
-              .where(eq(schema.task.id, task.id))
+              .select({ status: schema.plan.status, steps: schema.plan.steps })
+              .from(schema.plan)
+              .where(eq(schema.plan.id, plan.id))
               .limit(1)
               .then((rows) => rows[0])
             if (!fresh) {
-              taskSettled = true
+              planSettled = true
               return
             }
             const status =
@@ -171,46 +171,46 @@ export function createMerlinRespondProcessor(
                       ? "waiting_for_input"
                       : fresh.status
             // Nothing is running once the run settles — demote active plan
-            // steps so the card stops showing a spinning step (complete_task
+            // steps so the card stops showing a spinning step (complete_plan
             // normalizes the plan itself on success).
-            const plan =
+            const steps =
               status === "completed"
-                ? fresh.plan
-                : fresh.plan.map((item) =>
+                ? fresh.steps
+                : fresh.steps.map((item) =>
                     item.status === "active"
                       ? { ...item, status: "pending" as const }
                       : item
                   )
             // CAS: settle only the state this run observed, and only while
-            // the task is still ours — a fast approval can start a
+            // the plan is still ours — a fast approval can start a
             // continuation before this run finishes finalizing, and that
             // run's state must not be clobbered.
             const updated = await db
-              .update(schema.task)
-              .set({ status, activeRunId: null, plan })
+              .update(schema.plan)
+              .set({ status, activeRunId: null, steps })
               .where(
                 and(
-                  eq(schema.task.id, task.id),
-                  eq(schema.task.status, fresh.status),
+                  eq(schema.plan.id, plan.id),
+                  eq(schema.plan.status, fresh.status),
                   job.data.runId
                     ? or(
-                        eq(schema.task.activeRunId, job.data.runId),
-                        isNull(schema.task.activeRunId)
+                        eq(schema.plan.activeRunId, job.data.runId),
+                        isNull(schema.plan.activeRunId)
                       )
                     : undefined
                 )
               )
               .returning()
               .then((rows) => rows[0])
-            taskSettled = true
-            if (updated) emitTaskUpdated(updated)
+            planSettled = true
+            if (updated) emitPlanUpdated(updated)
             else
               logger.warn(
-                { taskId: task.id, outcome, observed: fresh.status },
-                "Task settle skipped; status moved under us"
+                { planId: plan.id, outcome, observed: fresh.status },
+                "Plan settle skipped; status moved under us"
               )
           } catch (err) {
-            logger.warn({ err, taskId: task.id }, "Task settle failed")
+            logger.warn({ err, planId: plan.id }, "Plan settle failed")
             throw err
           }
         }
@@ -261,7 +261,7 @@ export function createMerlinRespondProcessor(
           )
           // A retry landing after its crashed predecessor's run went terminal
           // (or a stop that raced the claim) is the last actor that can settle
-          // the task — skip only when another attempt still owns a live lease.
+          // the plan — skip only when another attempt still owns a live lease.
           if (job.data.runId) {
             const runState = await db
               .select({ state: schema.agentRun.state })
@@ -273,7 +273,7 @@ export function createMerlinRespondProcessor(
               runState === "failed" ||
               runState === "stopped"
             ) {
-              await settleTask(runState)
+              await settlePlan(runState)
               await emitThreadSummary()
             }
           }
@@ -281,24 +281,24 @@ export function createMerlinRespondProcessor(
           return
         }
         const execution = claim.kind === "claimed" ? claim.execution : null
-        // Completed tasks don't resurrect on follow-up replies — a quick
-        // question in a finished task thread stays a question. Task tools
-        // reopen explicitly (set_plan flips completed back to running).
-        if (task && execution && task.status !== "completed") {
-          const claimedTask = task
+        // Completed plans don't resurrect on follow-up replies — a quick
+        // question in a finished plan thread stays a question. Plan tools
+        // reopen explicitly (update_plan flips completed back to running).
+        if (plan && execution && plan.status !== "completed") {
+          const claimedPlan = plan
           await db
-            .update(schema.task)
+            .update(schema.plan)
             .set({ status: "running", activeRunId: job.data.runId ?? null })
-            .where(eq(schema.task.id, claimedTask.id))
+            .where(eq(schema.plan.id, claimedPlan.id))
             .returning()
             .then((rows) => {
               const row = rows[0]
-              if (row) emitTaskUpdated(row)
+              if (row) emitPlanUpdated(row)
             })
             .catch((err) =>
               logger.warn(
-                { err, taskId: claimedTask.id },
-                "Task claim status write failed"
+                { err, planId: claimedPlan.id },
+                "Plan claim status write failed"
               )
             )
         }
@@ -368,7 +368,7 @@ export function createMerlinRespondProcessor(
               .where(eq(schema.message.id, merlinMessageId))
               .catch(() => {})
             emit(MERLIN_ERROR_FALLBACK, true, "failed", true)
-            await settleTask("failed")
+            await settlePlan("failed")
             await emitThreadSummary()
             drainQueue()
             return
@@ -470,7 +470,7 @@ export function createMerlinRespondProcessor(
             )
           }
           try {
-            // Continuation: a follow-up run in a thread/task scope inherits the
+            // Continuation: a follow-up run in a thread/plan scope inherits the
             // previous run's transcript (its tool results and reasoning) rather
             // than rebuilding context from chat text alone, so it resumes the
             // work instead of rediscovering it. Channel scope always builds
@@ -541,7 +541,7 @@ export function createMerlinRespondProcessor(
               emit(MERLIN_ERROR_FALLBACK, true, "failed")
               await runWriter.transition("failed", { stopReason: "error" })
               execution?.stop()
-              await settleTask("failed")
+              await settlePlan("failed")
               await emitThreadSummary()
               drainQueue()
               return
@@ -587,7 +587,7 @@ export function createMerlinRespondProcessor(
                 stopReason: "out_of_credits",
               })
               execution?.stop()
-              await settleTask("failed")
+              await settlePlan("failed")
               await emitThreadSummary()
               drainQueue()
               emitter.to(workspaceRoom(workspaceId)).emit("billing:updated", {
@@ -613,22 +613,22 @@ export function createMerlinRespondProcessor(
               userId: triggerUserId,
             }
 
-            // start_task: adopt this run's thread as a new task. Posts the
-            // projected card into the channel, anchors the task to the thread
-            // root, and assigns it to this run so settleTask owns it.
-            const createTaskForThread = async (input: StartTaskInput) => {
+            // start_plan: adopt this run's thread as a new plan. Posts the
+            // projected card into the channel, anchors the plan to the thread
+            // root, and assigns it to this run so settlePlan owns it.
+            const createPlanForThread = async (input: StartPlanInput) => {
               if (!threadRootId) return null
               const { messageId: cardId } = await postMerlinMessage(
                 { emitter, redis },
                 {
                   channelId,
                   content: input.goal,
-                  type: "task_card",
+                  type: "plan_card",
                 }
               )
               try {
                 const row = await db
-                  .insert(schema.task)
+                  .insert(schema.plan)
                   .values({
                     workspaceId,
                     channelId,
@@ -637,14 +637,14 @@ export function createMerlinRespondProcessor(
                     creatorId: triggerUserId,
                     title: input.title,
                     goal: input.goal,
-                    plan: input.plan,
+                    steps: input.steps,
                     activeRunId: job.data.runId ?? null,
                   })
                   .returning()
                   .then((rows) => rows[0] ?? null)
-                if (!row) throw new Error("Task insert returned no row")
-                task = row
-                emitTaskUpdated(row)
+                if (!row) throw new Error("Plan insert returned no row")
+                plan = row
+                emitPlanUpdated(row)
                 return row
               } catch (err) {
                 await db
@@ -656,16 +656,16 @@ export function createMerlinRespondProcessor(
                   // winner instead of failing the tool call.
                   const existing = await db
                     .select()
-                    .from(schema.task)
-                    .where(eq(schema.task.threadRootId, threadRootId))
+                    .from(schema.plan)
+                    .where(eq(schema.plan.threadRootId, threadRootId))
                     .limit(1)
                     .then((rows) => rows[0] ?? null)
                   if (existing) {
-                    task = existing
+                    plan = existing
                     return existing
                   }
                 }
-                logger.error({ err, threadRootId }, "start_task failed")
+                logger.error({ err, threadRootId }, "start_plan failed")
                 return null
               }
             }
@@ -718,22 +718,22 @@ export function createMerlinRespondProcessor(
                   : {}),
                 proposeLoop,
                 proposeChange,
-                ...(task
+                ...(plan
                   ? {
-                      task: {
-                        id: task.id,
-                        title: task.title,
-                        goal: task.goal,
-                        status: task.status,
-                        plan: task.plan,
-                        summary: task.summary,
+                      plan: {
+                        id: plan.id,
+                        title: plan.title,
+                        goal: plan.goal,
+                        status: plan.status,
+                        steps: plan.steps,
+                        summary: plan.summary,
                       },
                     }
                   : {}),
-                ...(threadRootId ? { createTask: createTaskForThread } : {}),
+                ...(threadRootId ? { createPlan: createPlanForThread } : {}),
               },
               {
-                onTaskUpdated: emitTaskUpdated,
+                onPlanUpdated: emitPlanUpdated,
                 onMessageReaction: ({ update, notification }) => {
                   emitter
                     .to(channelRoom(update.channelId))
@@ -885,7 +885,7 @@ export function createMerlinRespondProcessor(
                   : "error",
             })
             execution?.stop()
-            await settleTask("failed")
+            await settlePlan("failed")
             await emitThreadSummary()
             drainQueue()
             return
@@ -1008,7 +1008,7 @@ export function createMerlinRespondProcessor(
             emit(MERLIN_ERROR_FALLBACK, true, "failed", true)
             await runWriter.transition("failed", { stopReason: "error" })
             execution?.stop()
-            await settleTask("failed")
+            await settlePlan("failed")
             await emitThreadSummary()
             drainQueue()
             return
@@ -1101,7 +1101,7 @@ export function createMerlinRespondProcessor(
           })
           // Heartbeat off: the run is terminal; write-back needs no lease.
           execution?.stop()
-          await settleTask(stoppedByUser ? "stopped" : "complete")
+          await settlePlan(stoppedByUser ? "stopped" : "complete")
           await emitThreadSummary()
           drainQueue()
           // Announce the gate only after the run is terminal — the resolve
@@ -1111,7 +1111,7 @@ export function createMerlinRespondProcessor(
             const parkedApproval = await db
               .select({
                 id: schema.approval.id,
-                taskId: schema.approval.taskId,
+                planId: schema.approval.planId,
               })
               .from(schema.approval)
               .where(
@@ -1129,7 +1129,7 @@ export function createMerlinRespondProcessor(
                 channelId,
                 threadRootId,
                 messageId: merlinMessageId,
-                taskId: parkedApproval.taskId,
+                planId: parkedApproval.planId,
               })
               // Directed fan-out: requester and/or resolvers, per the rules in
               // approval-notify. Never fails the (already terminal) reply.
@@ -1248,12 +1248,12 @@ export function createMerlinRespondProcessor(
           }
         } catch (err) {
           // A throw escaping every inner handler (statements between the try
-          // blocks) would leave the task running forever — the dead-run sweep
-          // fails the run, never the task. Settle here, then rethrow so BullMQ
+          // blocks) would leave the plan running forever — the dead-run sweep
+          // fails the run, never the plan. Settle here, then rethrow so BullMQ
           // still records the failure. Lease loss is the exception: the
-          // superseding attempt owns the task's settlement.
-          if (!taskSettled && !(err instanceof LeaseLostError)) {
-            await settleTask(taskSettlementOutcome)
+          // superseding attempt owns the plan's settlement.
+          if (!planSettled && !(err instanceof LeaseLostError)) {
+            await settlePlan(planSettlementOutcome)
             await emitThreadSummary()
           }
           throw err

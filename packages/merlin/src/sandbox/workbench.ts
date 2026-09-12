@@ -260,7 +260,7 @@ export async function runWorkbenchSession(
     if (abortSignal?.aborted) return { error: "cancelled" }
 
     // A timeout or crash must not vaporize finished work: fall through and
-    // harvest whatever reached /workspace/out — the task's next session
+    // harvest whatever reached /workspace/out — the plan's next session
     // resumes the same sandbox instead of restarting.
     const errorDetail =
       (run.result.stderr || run.result.stdout).slice(0, 300) || "unknown error"

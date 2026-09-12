@@ -40,7 +40,7 @@ function CopyButton({ text }: { text: string }) {
 }
 
 // Artifact viewer over the channel panel — NOT fullscreen: the workspace
-// sidebar and the right thread panel stay, so opening a task's CSV gives
+// sidebar and the right thread panel stay, so opening a plan's CSV gives
 // file-wide-center with the conversation still beside it. Addressed by
 // ?artifactId= — the URL is the share link today and the multiplayer room
 // key when live editing lands. Opens by morphing out of the in-chat CSV

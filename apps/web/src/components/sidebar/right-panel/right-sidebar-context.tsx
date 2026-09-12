@@ -28,7 +28,7 @@ const PANEL_WIDTH_KEYS = {
 } as const
 
 /**
- * Threads and tasks are reading/working surfaces, so they open roughly half
+ * Threads and plans are reading/working surfaces, so they open roughly half
  * the viewport. Members / pinned / attachments are lists — they get a narrow
  * fixed width. Each class remembers its own user-dragged width. Loop detail
  * is a reading surface too (full prompt text), so it rides the wide class.

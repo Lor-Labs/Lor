@@ -23,10 +23,10 @@ export const messageTypeEnum = pgEnum("message_type", [
   // structured copy data in eventPayload, and content always carries the
   // plain-text rendering as the search/forward-compat fallback.
   "event",
-  // A task's card — rendered as the live task card and acting as the
-  // thread root of the task's conversation. The task row (see tasks.ts) is
+  // A plan's card — rendered as the live plan card and acting as the
+  // thread root of the plan's conversation. The plan row (see plans.ts) is
   // looked up by cardMessageId.
-  "task_card",
+  "plan_card",
   // A loop's card — the scheduled-run automation's live status card. The
   // loop row (see loops.ts) is looked up by cardMessageId.
   "loop_card",

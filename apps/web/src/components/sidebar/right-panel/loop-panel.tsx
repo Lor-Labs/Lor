@@ -83,7 +83,7 @@ import {
   useLoopRuns,
 } from "@/hooks/use-channel-loops"
 import { LOOP_PAUSED_REASON_LABEL, LOOP_STATUS_META } from "@/lib/loop-ui"
-import { TASK_STATUS_META } from "@/lib/task-ui"
+import { PLAN_STATUS_META } from "@/lib/plan-ui"
 
 // Loop detail panel (ChatGPT-scheduled-tasks inspired): the card in chat is
 // a compact pill; everything else lives here — the editable prompt, a
@@ -270,7 +270,7 @@ const RUN_STATE_META: Record<
 
 // One run in the history: collapsed = time + a one-line note preview;
 // expanded = the full closing note (rendered as markdown), recorded actions,
-// stop reason, and whatever the run spawned (task rows open their thread;
+// stop reason, and whatever the run spawned (plan rows open their thread;
 // artifact chips). Expansion animates via the grid-rows 0fr→1fr trick — the
 // preview folds away as the detail unfolds, so the note reads as growing
 // in place.
@@ -281,11 +281,11 @@ function LoopRunRow({ run, view }: { run: LoopRun; view: LoopSidebarView }) {
   const hasDetail =
     Boolean(run.note) ||
     run.effects.length > 0 ||
-    run.tasks.length > 0 ||
+    run.plans.length > 0 ||
     run.artifacts.length > 0 ||
     Boolean(run.stopReason && run.stopReason !== "completed")
 
-  const openTaskThread = (threadRootId: string) => {
+  const openPlanThread = (threadRootId: string) => {
     setView({
       type: "thread",
       workspaceSlug: view.workspaceSlug,
@@ -388,31 +388,31 @@ function LoopRunRow({ run, view }: { run: LoopRun; view: LoopSidebarView }) {
                 ))}
               </div>
             )}
-            {run.tasks.length > 0 && (
+            {run.plans.length > 0 && (
               <div className="space-y-1">
-                {run.tasks.map((task) => {
-                  const taskMeta = TASK_STATUS_META[task.status]
+                {run.plans.map((plan) => {
+                  const planMeta = PLAN_STATUS_META[plan.status]
                   return (
                     <button
-                      key={task.id}
+                      key={plan.id}
                       type="button"
-                      onClick={() => openTaskThread(task.threadRootId)}
+                      onClick={() => openPlanThread(plan.threadRootId)}
                       className="flex w-full cursor-pointer items-center justify-between gap-3 rounded-lg bg-secondary/60 px-3 py-2 text-left ring-1 ring-border/40 ring-inset transition-colors hover:bg-secondary disabled:cursor-default"
                     >
                       <span className="min-w-0 truncate text-sm">
-                        {task.title}
+                        {plan.title}
                       </span>
                       <Badge
-                        variant={taskMeta.badgeVariant}
+                        variant={planMeta.badgeVariant}
                         size="sm"
                         className="shrink-0"
                       >
                         <HugeiconsIcon
-                          icon={taskMeta.icon}
+                          icon={planMeta.icon}
                           size={12}
-                          className={taskMeta.spin ? "animate-spin" : undefined}
+                          className={planMeta.spin ? "animate-spin" : undefined}
                         />
-                        {taskMeta.label}
+                        {planMeta.label}
                       </Badge>
                     </button>
                   )

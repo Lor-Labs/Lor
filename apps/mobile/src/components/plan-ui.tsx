@@ -7,14 +7,14 @@ import { useState } from "react"
 import { ActivityIndicator, Pressable, Text, View } from "react-native"
 import { formatFileSize } from "@/components/message-attachments"
 import { Shimmer } from "@/components/shimmer"
-import type { ChannelTask, TaskPlanItem } from "@/lib/api-types"
+import type { ChannelPlan, PlanStep } from "@/lib/api-types"
 import { openExternalUrl } from "@/lib/open-url"
 
 // Long plans collapse so a 20-step breakdown doesn't bury the delivered files.
 const INITIAL_VISIBLE_STEPS = 4
 
 const STATUS_META: Record<
-  ChannelTask["status"],
+  ChannelPlan["status"],
   { label: string; container: string; text: string; running?: boolean }
 > = {
   running: {
@@ -50,7 +50,7 @@ const STATUS_META: Record<
   },
 }
 
-export function TaskStatusBadge({ status }: { status: ChannelTask["status"] }) {
+export function PlanStatusBadge({ status }: { status: ChannelPlan["status"] }) {
   const accent = useThemeColor("accent")
   const meta = STATUS_META[status]
   return (
@@ -68,7 +68,7 @@ export function TaskStatusBadge({ status }: { status: ChannelTask["status"] }) {
 // 24px markers, mirroring web: filled foreground disc with a knocked-out tick
 // for done, bordered disc with a spinner while active, empty bordered disc for
 // pending. Monochrome throughout — colour is reserved for the status badge.
-function PlanMarker({ status }: { status: TaskPlanItem["status"] }) {
+function PlanMarker({ status }: { status: PlanStep["status"] }) {
   const [foreground, background] = useThemeColor(["foreground", "background"])
   if (status === "done") {
     return (
@@ -94,13 +94,13 @@ function PlanMarker({ status }: { status: TaskPlanItem["status"] }) {
   )
 }
 
-export function TaskPlanProgress({ items }: { items: TaskPlanItem[] }) {
+export function PlanStepProgress({ items }: { items: PlanStep[] }) {
   const total = items.length
   const done = items.filter((item) => item.status === "done").length
   const activeIndex = items.findIndex((item) => item.status === "active")
 
   // Whichever reading is true right now: the step being worked, or the finished
-  // count when nothing is active (a task can wait between steps).
+  // count when nothing is active (a plan can wait between steps).
   const label =
     activeIndex >= 0
       ? `Step ${activeIndex + 1} of ${total}`
@@ -132,7 +132,7 @@ export function TaskPlanProgress({ items }: { items: TaskPlanItem[] }) {
   )
 }
 
-export function TaskPlanList({ items }: { items: TaskPlanItem[] }) {
+export function PlanStepList({ items }: { items: PlanStep[] }) {
   const [expanded, setExpanded] = useState(false)
   const muted = useThemeColor("muted")
   if (items.length === 0) return null
@@ -198,9 +198,9 @@ export function TaskPlanList({ items }: { items: TaskPlanItem[] }) {
   )
 }
 
-// Compact file row for task deliverables. Files open in the in-app browser
+// Compact file row for plan deliverables. Files open in the in-app browser
 // sheet — mobile has no artifact viewer yet, by decision.
-export function TaskFileRow({
+export function PlanFileRow({
   name,
   size,
   url,

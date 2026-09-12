@@ -15,12 +15,12 @@ import { message } from "./messages"
 import { user } from "./users"
 import { workspace } from "./workspaces"
 
-// A task: a delegated outcome Merlin works toward across a chain of
-// agent runs. The task anchors to a thread root, so its conversation scope is
+// A plan: a delegated outcome Merlin works toward across a chain of
+// agent runs. The plan anchors to a thread root, so its conversation scope is
 // that thread — steering, queueing, stop, and replay reuse the thread-scope
 // machinery unchanged. Never `waiting_for_*` while a run is active; approval
 // and input waits happen *between* runs (a run always ends cleanly first).
-export const taskStatusEnum = pgEnum("task_status", [
+export const planStatusEnum = pgEnum("plan_status", [
   "running",
   "waiting_for_input",
   "waiting_for_approval",
@@ -29,8 +29,8 @@ export const taskStatusEnum = pgEnum("task_status", [
   "stopped",
 ])
 
-export const task = pgTable(
-  "task",
+export const plan = pgTable(
+  "plan",
   {
     id: uuid("id").defaultRandom().primaryKey(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -44,13 +44,13 @@ export const task = pgTable(
     channelId: uuid("channel_id")
       .notNull()
       .references(() => channel.id, { onDelete: "cascade" }),
-    // The thread root every task run executes under — the task's conversation
-    // scope (task.threadRootId = agent_run.scopeKey).
+    // The thread root every plan run executes under — the plan's conversation
+    // scope (plan.threadRootId = agent_run.scopeKey).
     threadRootId: uuid("thread_root_id")
       .notNull()
       .references(() => message.id, { onDelete: "cascade" }),
-    // The task card message rendered in the channel feed — a projection of the
-    // task, not its anchor. Spawned tasks (loops/Act) keep card-as-root, so it
+    // The plan card message rendered in the channel feed — a projection of the
+    // plan, not its anchor. Spawned plans (loops/Act) keep card-as-root, so it
     // can equal threadRootId.
     cardMessageId: uuid("card_message_id").references(() => message.id, {
       onDelete: "set null",
@@ -61,57 +61,57 @@ export const task = pgTable(
     title: text("title").notNull(),
     // The originating ask, verbatim — injected into every continuation run.
     goal: text("goal").notNull(),
-    status: taskStatusEnum("status").notNull().default("running"),
-    plan: jsonb("plan").$type<TaskPlanItem[]>().notNull().default([]),
-    // Set by the complete_task tool; a run ending without it parks the task
+    status: planStatusEnum("status").notNull().default("running"),
+    steps: jsonb("steps").$type<PlanStep[]>().notNull().default([]),
+    // Set by the complete_plan tool; a run ending without it parks the plan
     // in waiting_for_input instead.
     summary: text("summary"),
     activeRunId: uuid("active_run_id").references(() => agentRun.id, {
       onDelete: "set null",
     }),
-    // Provenance: the agent run whose create_task spawned this task (Act
+    // Provenance: the agent run whose create_plan spawned this plan (Act
     // trigger or loop runs). Null for human/conversational creation. Loop
-    // → spawned tasks resolves through agent_run.loopId + this.
+    // → spawned plans resolves through agent_run.loopId + this.
     originRunId: uuid("origin_run_id").references(() => agentRun.id, {
       onDelete: "set null",
     }),
   },
   (table) => [
-    uniqueIndex("task_threadRootId_uidx").on(table.threadRootId),
-    uniqueIndex("task_cardMessageId_uidx")
+    uniqueIndex("plan_threadRootId_uidx").on(table.threadRootId),
+    uniqueIndex("plan_cardMessageId_uidx")
       .on(table.cardMessageId)
       .where(sql`card_message_id is not null`),
-    index("task_channelId_status_idx").on(table.channelId, table.status),
-    index("task_workspaceId_createdAt_idx").on(
+    index("plan_channelId_status_idx").on(table.channelId, table.status),
+    index("plan_workspaceId_createdAt_idx").on(
       table.workspaceId,
       table.createdAt
     ),
-    index("task_originRunId_idx").on(table.originRunId),
+    index("plan_originRunId_idx").on(table.originRunId),
   ]
 )
 
-export const taskRelations = relations(task, ({ one }) => ({
+export const planRelations = relations(plan, ({ one }) => ({
   workspace: one(workspace, {
-    fields: [task.workspaceId],
+    fields: [plan.workspaceId],
     references: [workspace.id],
   }),
   channel: one(channel, {
-    fields: [task.channelId],
+    fields: [plan.channelId],
     references: [channel.id],
   }),
   threadRoot: one(message, {
-    fields: [task.threadRootId],
+    fields: [plan.threadRootId],
     references: [message.id],
-    relationName: "taskThreadRoot",
+    relationName: "planThreadRoot",
   }),
   cardMessage: one(message, {
-    fields: [task.cardMessageId],
+    fields: [plan.cardMessageId],
     references: [message.id],
-    relationName: "taskCardMessage",
+    relationName: "planCardMessage",
   }),
 }))
 
-export type TaskPlanItem = {
+export type PlanStep = {
   text: string
   status: "pending" | "active" | "done"
   // One short clause of extra context, when the label alone isn't enough.
@@ -119,6 +119,6 @@ export type TaskPlanItem = {
   description?: string
 }
 
-export type Task = typeof task.$inferSelect
-export type NewTask = typeof task.$inferInsert
-export type TaskStatus = (typeof taskStatusEnum.enumValues)[number]
+export type Plan = typeof plan.$inferSelect
+export type NewPlan = typeof plan.$inferInsert
+export type PlanStatus = (typeof planStatusEnum.enumValues)[number]

@@ -25,11 +25,11 @@ export const SIDE_EFFECT_TOOLS = new Set([
   "create_artifacts",
   "react_to_message",
   // Triggered dispositions: without these a retried step posts the same
-  // message (or opens the same task) twice.
+  // message (or starts the same plan) twice.
   "post_channel_message",
-  "create_task",
-  // Adopts the run's thread as a task; replay must not create a duplicate.
-  "start_task",
+  "create_plan",
+  // Adopts the run's thread as a plan; replay must not create a duplicate.
+  "start_plan",
   // Loop runs: a retried step must not double-complete the loop.
   "complete_loop",
   // Creates a draft loop row + card message; replay must not duplicate them.

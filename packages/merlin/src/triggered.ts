@@ -3,7 +3,7 @@ import { z } from "zod"
 
 // The Act effect: a trigger hands its instructions + the inbound payload to a
 // headless agent run, and Merlin decides the disposition — post to the
-// channel, create a task, or do nothing. These are the disposition tools; the
+// channel, start a plan, or do nothing. These are the disposition tools; the
 // worker supplies the executors via context (it owns message fanout and run
 // enqueueing). See reference/automation-primitives.md §2.
 
@@ -15,10 +15,10 @@ export type TriggeredPostMessage = (
   content: string
 ) => Promise<{ messageId: string }>
 
-export type TriggeredCreateTask = (input: {
+export type TriggeredCreatePlan = (input: {
   title: string
   goal: string
-}) => Promise<{ taskId: string }>
+}) => Promise<{ planId: string }>
 
 export type TriggeredCompleteLoop = (input: {
   closingNote: string
@@ -35,7 +35,7 @@ export type RunTriggeredContext = {
   // since. Null on the first run.
   briefing?: string | null
   postMessage: TriggeredPostMessage
-  createTask: TriggeredCreateTask
+  createPlan: TriggeredCreatePlan
   // Loop runs only: switches the prompt section to the scheduled-loop
   // framing. See reference/loops.md.
   loop?: {
@@ -52,8 +52,8 @@ const postContext = z.object({
   postMessage: z.custom<TriggeredPostMessage>(),
 })
 
-const createTaskContext = z.object({
-  createTask: z.custom<TriggeredCreateTask>(),
+const createPlanContext = z.object({
+  createPlan: z.custom<TriggeredCreatePlan>(),
 })
 
 const completeLoopContext = z.object({
@@ -78,20 +78,20 @@ export const triggeredTools = {
     },
   }),
 
-  create_task: tool({
+  create_plan: tool({
     description:
-      "Create a tracked task in this channel for multi-step work worth a live card the team can watch and steer (a fresh task run starts immediately with your goal as its brief). This is an escalation — use it when the event genuinely needs investigation or deliverables, not for anything a single posted message covers. `goal` is the full brief for the run that executes the task: include the relevant details from the event payload, since the task won't see it otherwise.",
+      "Create a tracked plan in this channel for multi-step work worth a live card the team can watch and steer (a fresh plan run starts immediately with your goal as its brief). This is an escalation — use it when the event genuinely needs investigation or deliverables, not for anything a single posted message covers. `goal` is the full brief for the run that executes the plan: include the relevant details from the event payload, since the plan run won't see it otherwise.",
     inputSchema: z.object({
       title: z.string().min(1).max(MAX_TITLE_CHARS),
       goal: z.string().min(1).max(MAX_GOAL_CHARS),
     }),
-    contextSchema: createTaskContext,
+    contextSchema: createPlanContext,
     execute: async ({ title, goal }, { context }) => {
       try {
-        const { taskId } = await context.createTask({ title, goal })
-        return { ok: true as const, taskId }
+        const { planId } = await context.createPlan({ title, goal })
+        return { ok: true as const, planId }
       } catch {
-        return { ok: false as const, error: "Failed to create the task" }
+        return { ok: false as const, error: "Failed to create the plan" }
       }
     },
   }),
@@ -124,7 +124,7 @@ const CLOSING_NOTE_LINES = [
   "## Your closing note (handoff)",
   "Nobody reads your final answer directly — but the next run will. Runs here are strictly serialized, so you are writing to your successor. End with a short note covering:",
   "- what you concluded (the diagnosis, not a recap of the input),",
-  "- what you actually did, with references someone can check (PR/issue numbers, task titles, URLs),",
+  "- what you actually did, with references someone can check (PR/issue numbers, plan titles, URLs),",
   "- what the next run should watch for or verify before repeating your work.",
   "Write it as terse notes, not prose. If you deliberately did nothing, say why in one line — that is valuable to your successor too.",
 ]
@@ -143,7 +143,7 @@ export function triggeredPromptSection(t: {
       "(none — use your judgment about what this event needs)",
     "",
     "Disposition rules:",
-    "- Decide what this event warrants: post_channel_message to tell the team something, create_task for multi-step work worth tracking, other tools to act directly — or nothing at all.",
+    "- Decide what this event warrants: post_channel_message to tell the team something, create_plan for multi-step work worth tracking, other tools to act directly — or nothing at all.",
     "- Doing nothing is a normal outcome (instructions often apply to only some events). To do nothing, take no action tools and say so in your closing note.",
     "- Don't ask clarifying questions — nobody will answer. When the instructions don't cover the situation, make the conservative call.",
     "",
@@ -183,7 +183,7 @@ export function loopPromptSection(t: {
         ]
       : []),
     "Disposition rules:",
-    "- Decide what this run warrants: post_channel_message to tell the team something, create_task for multi-step work worth tracking, other tools to act directly — or nothing at all.",
+    "- Decide what this run warrants: post_channel_message to tell the team something, create_plan for multi-step work worth tracking, other tools to act directly — or nothing at all.",
     "- Doing nothing is a normal outcome (some scheduled checks find nothing new). Never post just to say nothing changed unless the instructions ask for it; say so in your closing note instead.",
     "- Don't ask clarifying questions — nobody will answer. When the instructions don't cover the situation, make the conservative call.",
     "",

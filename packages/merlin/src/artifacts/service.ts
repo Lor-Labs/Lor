@@ -9,8 +9,8 @@ import {
 export type WriteArtifactVersionInput = {
   workspaceId: string
   channelId: string
-  taskId?: string | null
-  // Logical filename within the task workspace, e.g. "report.md".
+  planId?: string | null
+  // Logical filename within the plan workspace, e.g. "report.md".
   path: string
   contentType: string
   bytes: Uint8Array
@@ -82,21 +82,21 @@ export async function writeArtifactVersion(
   }
 }
 
-// Within a task, (taskId, path) names one artifact and repeated writes
-// version it; outside a task every write is a fresh artifact.
+// Within a plan, (planId, path) names one artifact and repeated writes
+// version it; outside a plan every write is a fresh artifact.
 async function resolveArtifact(
   input: WriteArtifactVersionInput
 ): Promise<{ id: string }> {
   const values = {
     workspaceId: input.workspaceId,
     channelId: input.channelId,
-    taskId: input.taskId ?? null,
+    planId: input.planId ?? null,
     path: input.path,
     mime: input.contentType,
     createdById: input.authorId,
   }
 
-  if (!input.taskId) {
+  if (!input.planId) {
     const inserted = await db
       .insert(schema.artifact)
       .values(values)
@@ -106,7 +106,7 @@ async function resolveArtifact(
     return inserted
   }
 
-  const existing = await findTaskArtifact(input.taskId, input.path)
+  const existing = await findPlanArtifact(input.planId, input.path)
   if (existing) return existing
 
   const inserted = await db
@@ -118,20 +118,20 @@ async function resolveArtifact(
   if (inserted) return inserted
 
   // Lost the insert race — the winner's row is the artifact.
-  const raced = await findTaskArtifact(input.taskId, input.path)
+  const raced = await findPlanArtifact(input.planId, input.path)
   if (!raced) throw new Error("artifact upsert failed")
   return raced
 }
 
-async function findTaskArtifact(
-  taskId: string,
+async function findPlanArtifact(
+  planId: string,
   path: string
 ): Promise<{ id: string } | null> {
   const row = await db
     .select({ id: schema.artifact.id })
     .from(schema.artifact)
     .where(
-      and(eq(schema.artifact.taskId, taskId), eq(schema.artifact.path, path))
+      and(eq(schema.artifact.planId, planId), eq(schema.artifact.path, path))
     )
     .limit(1)
     .then((rows) => rows[0])

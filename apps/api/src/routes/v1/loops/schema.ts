@@ -4,7 +4,7 @@ import {
   agentRunStopReasonEnum,
   loopPausedReasonEnum,
   loopStatusEnum,
-  taskStatusEnum,
+  planStatusEnum,
 } from "@repo/db/schema"
 import { artifactSchema } from "@/routes/v1/artifacts/schema"
 
@@ -115,7 +115,7 @@ export const requiresConfirmationResponseSchema = z.object({
 })
 
 // One scheduled run in the loop's history: outcome, the closing note the run
-// left for its successor, and what it spawned (tasks/artifacts by originRunId).
+// left for its successor, and what it spawned (plans/artifacts by originRunId).
 export const loopRunSchema = z.object({
   id: z.string().uuid(),
   state: z.enum(agentRunStateEnum.enumValues),
@@ -128,11 +128,11 @@ export const loopRunSchema = z.object({
   // Distinct side-effecting tools the run executed — the mechanical account
   // that survives a run dying before it wrote a note.
   effects: z.array(z.string()),
-  tasks: z.array(
+  plans: z.array(
     z.object({
       id: z.string().uuid(),
       title: z.string(),
-      status: z.enum(taskStatusEnum.enumValues),
+      status: z.enum(planStatusEnum.enumValues),
       threadRootId: z.string().uuid(),
       cardMessageId: z.string().uuid().nullable(),
     })

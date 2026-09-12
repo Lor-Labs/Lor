@@ -65,17 +65,17 @@ export type DMSearchResults = InferResponseType<
   200
 >
 export type DMSearchResult = DMSearchResults["data"][number]
-export type ChannelTaskList = InferResponseType<
-  Client["v1"]["channels"][":channelId"]["tasks"]["$get"],
+export type ChannelPlanList = InferResponseType<
+  Client["v1"]["channels"][":channelId"]["plans"]["$get"],
   200
 >
-export type ChannelTask = ChannelTaskList["tasks"][number]
-export type TaskPlanItem = ChannelTask["plan"][number]
-export type TaskDetail = InferResponseType<
-  Client["v1"]["tasks"][":taskId"]["$get"],
+export type ChannelPlan = ChannelPlanList["plans"][number]
+export type PlanStep = ChannelPlan["steps"][number]
+export type PlanDetail = InferResponseType<
+  Client["v1"]["plans"][":planId"]["$get"],
   200
 >
-export type TaskApproval = NonNullable<TaskDetail["pendingApproval"]>
+export type PlanApproval = NonNullable<PlanDetail["pendingApproval"]>
 export type ChannelApprovalList = InferResponseType<
   Client["v1"]["channels"][":channelId"]["approvals"]["$get"],
   200
@@ -87,8 +87,8 @@ export type ChannelProposalList = InferResponseType<
 >
 export type ChannelProposal = ChannelProposalList["proposals"][number]
 export type ProposalOperation = ChannelProposal["operations"][number]
-export type TaskArtifact = InferResponseType<
-  Client["v1"]["tasks"][":taskId"]["artifacts"]["$get"],
+export type PlanArtifact = InferResponseType<
+  Client["v1"]["plans"][":planId"]["artifacts"]["$get"],
   200
 >["artifacts"][number]
 

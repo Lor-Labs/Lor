@@ -14,7 +14,7 @@ export const EXPORT_DENIED_TOOLS = new Set([
   ...SIDE_EFFECT_TOOLS,
   "request_approval",
   "set_plan",
-  "complete_task",
+  "complete_plan",
   EXPORT_TOOL_NAME,
 ])
 
@@ -176,9 +176,9 @@ function errorText(output: unknown): string | null {
 const exportContext = z.object({
   workspaceId: z.string(),
   channelId: z.string(),
-  // Task runs attach the file to the task's artifact set. A getter because
-  // the task may start mid-run (start_task).
-  getTask: z.custom<() => { id: string } | null>(),
+  // Plan runs attach the file to the plan's artifact set. A getter because
+  // the plan may start mid-run (start_plan).
+  getPlan: z.custom<() => { id: string } | null>(),
 })
 
 type AnyToolExecute = (
@@ -293,7 +293,7 @@ export function createExportToolResultTool(opts: {
         const manifest = await writeArtifactVersion({
           workspaceId: context.workspaceId,
           channelId: context.channelId,
-          taskId: context.getTask()?.id ?? null,
+          planId: context.getPlan()?.id ?? null,
           path,
           contentType: finalFormat === "csv" ? "text/csv" : "application/json",
           bytes,

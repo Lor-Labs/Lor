@@ -22,7 +22,7 @@ export const listChannelApprovals = createRoute({
   method: "get",
   summary: "List a channel's pending approvals",
   description:
-    "Returns pending policy-gated approvals for runs in this channel, anchored to the message whose run parked. Task-scoped request_approval rows surface through the task endpoints instead.",
+    "Returns pending policy-gated approvals for runs in this channel, anchored to the message whose run parked. Plan-scoped request_approval rows surface through the plan endpoints instead.",
   tags: ["Approvals"],
   middleware: [sessionAuthMiddleware] as const,
   request: { params: channelApprovalsParamsSchema },

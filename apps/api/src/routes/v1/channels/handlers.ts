@@ -964,7 +964,7 @@ export const listThreadReplies: AppRouteHandler<
   // The root is fetched as a single channel-level message (around + limit 1)
   // so the panel can show it even when it's scrolled out of the channel feed.
   const isInitialPage = !before && !after
-  const [replies, rootResult, participantRows, taskCreatorRow] =
+  const [replies, rootResult, participantRows, planCreatorRow] =
     await Promise.all([
       fetchMessages({
         channelId,
@@ -1020,8 +1020,8 @@ export const listThreadReplies: AppRouteHandler<
               image: user.image,
               avatarColor: schema.workspaceMember.avatarColor,
             })
-            .from(schema.task)
-            .innerJoin(user, eq(schema.task.creatorId, user.id))
+            .from(schema.plan)
+            .innerJoin(user, eq(schema.plan.creatorId, user.id))
             .leftJoin(
               schema.workspaceMember,
               and(
@@ -1029,7 +1029,7 @@ export const listThreadReplies: AppRouteHandler<
                 eq(schema.workspaceMember.workspaceId, workspace.id)
               )
             )
-            .where(eq(schema.task.threadRootId, messageId))
+            .where(eq(schema.plan.threadRootId, messageId))
             .limit(1)
             .then((rows) => rows[0] ?? null)
         : Promise.resolve(null),
@@ -1038,7 +1038,7 @@ export const listThreadReplies: AppRouteHandler<
   const participants = new Map(
     participantRows.map((participant) => [participant.id, participant])
   )
-  if (taskCreatorRow) participants.set(taskCreatorRow.id, taskCreatorRow)
+  if (planCreatorRow) participants.set(planCreatorRow.id, planCreatorRow)
 
   return c.json(
     {

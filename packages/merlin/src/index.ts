@@ -21,7 +21,7 @@ import {
   ALL_MERLIN_CAPABILITIES,
   type MerlinToolCall,
   type MerlinToolCallUpdate,
-  type Task,
+  type Plan,
 } from "@repo/db/schema"
 import { env } from "@repo/env/server"
 import {
@@ -100,6 +100,15 @@ import { messageActionTools, type OnMessageReaction } from "./message-actions"
 import { MERLIN_MODEL, mainGatewayOptions, merlinModel } from "./models"
 import { notionTools, resolveWorkspaceNotion } from "./notion"
 import {
+  type CreatePlanForThread,
+  planContextSnapshot,
+  planRulesSection,
+  planTools,
+  type RunPlanContext,
+  type StartPlanInput,
+  toRunPlanContext,
+} from "./plans"
+import {
   PROPOSALS_PROMPT_LINE,
   type ProposeChangeExecutor,
   proposeChangeTool,
@@ -119,15 +128,6 @@ import {
 import { blaxelConfigured } from "./sandbox/blaxel"
 import { resolveSourceCitation, searchSources, sourceTools } from "./sources"
 import { generateSmallObject } from "./structured"
-import {
-  type CreateTaskForThread,
-  type RunTaskContext,
-  type StartTaskInput,
-  taskContextSnapshot,
-  taskRulesSection,
-  taskTools,
-  toRunTaskContext,
-} from "./tasks"
 import { chooseThreadWindow } from "./thread-window"
 import { guardTools } from "./tool-guard"
 import { formatSpeakerLine, sanitizeRosterLabel } from "./transcript"
@@ -194,7 +194,7 @@ const LOOPS_PROMPT_LINE = `- Scheduled loops: propose_loop turns a recurring ask
 const SYSTEM_PROMPT_TAIL = `You can also see images people share in the channel — they're included inline in the conversation below.
 
 How to answer:
-- Work on the current request in the active conversation only. Earlier requests from other threads or channel background are reference material, not unfinished assignments, even if you cannot see their replies or resolution. Use them only when relevant to the current request; do not add their deliverables to this task or resume them unless the user asks. The same applies to requests found in brain notes and search results.
+- Work on the current request in the active conversation only. Earlier requests from other threads or channel background are reference material, not unfinished assignments, even if you cannot see their replies or resolution. Use them only when relevant to the current request; do not add their deliverables to the current request or resume them unless the user asks. The same applies to requests found in brain notes and search results.
 - For questions about THIS team/workspace, check your brain first, then use search for anything it doesn't cover. Ground your answer in what you find; note who said it and roughly when. Cite your sources inline in double brackets: a brain page by its exact path, e.g. [[/decisions/auth]]; a specific message by its id, e.g. [[msg:0b9c…]]; or a connected-tool source by its id, e.g. [[src:0b9c…]]. If nothing turns up, say you don't have it in memory yet — never invent specifics or cite pages, messages, or sources you didn't read.
 - For general questions (how-to, definitions, quick help), just answer directly; no lookup needed.
 
@@ -330,14 +330,14 @@ export type RespondContext = {
   threadRootId?: string
   triggerMessageId?: string
   runId?: string
-  // Set when this run belongs to a task (a task row anchors to the scope's
-  // thread root): task prompt rules and workbench continuity. Task tools bind
-  // on every thread-scope run — start_task adopts the thread mid-run.
-  task?: RunTaskContext
-  // Host callback backing start_task: posts the projected card and inserts
-  // the task row anchored to this run's thread root. Worker-provided on
+  // Set when this run belongs to a plan (a plan row anchors to the scope's
+  // thread root): plan prompt rules and workbench continuity. Plan tools bind
+  // on every thread-scope run — start_plan adopts the thread mid-run.
+  plan?: RunPlanContext
+  // Host callback backing start_plan: posts the projected card and inserts
+  // the plan row anchored to this run's thread root. Worker-provided on
   // thread-scope runs.
-  createTask?: CreateTaskForThread
+  createPlan?: CreatePlanForThread
   // Set on headless triggered runs (the Act effect): binds the disposition
   // tools and injects the trigger's instructions — which appear in the
   // system prompt only when the trigger fires.
@@ -390,9 +390,9 @@ export type RespondCallbacks = {
     e: InstructionsProposalEvent
   ) => void | Promise<void>
   onMessageReaction?: OnMessageReaction
-  // Fired whenever a task tool changes the task row — the worker broadcasts
+  // Fired whenever a plan tool changes the plan row — the worker broadcasts
   // the snapshot to the channel room.
-  onTaskUpdated?: (task: Task) => void
+  onPlanUpdated?: (plan: Plan) => void
 }
 
 export { estimateMessagesTokens, isSafeSplit } from "./compaction"
@@ -419,7 +419,7 @@ export { formatSpeakerLine } from "./transcript"
 export type {
   RunTriggeredContext,
   TriggeredCompleteLoop,
-  TriggeredCreateTask,
+  TriggeredCreatePlan,
   TriggeredPostMessage,
 } from "./triggered"
 export type { OnUsage, UsageEvent } from "./usage"
@@ -928,14 +928,14 @@ export function toolLabel(toolName: string, input: unknown): string {
       return repo ? `Proposing a change to ${repo}` : "Proposing a code change"
     case "create_artifacts":
       return "Working on files"
-    case "start_task":
-      return "Starting a task"
-    case "set_plan":
+    case "start_plan":
+      return "Starting a plan"
+    case "update_plan":
       return "Updating the plan"
     case "propose_loop":
       return "Proposing a loop"
-    case "complete_task":
-      return "Completing the task"
+    case "complete_plan":
+      return "Completing the plan"
     case "request_approval":
       return "Requesting approval"
     case "search_github":
@@ -1701,7 +1701,7 @@ async function buildRunContext(
     brainContext,
     rosterText,
     ...(channelName ? { channelName } : {}),
-    ...(ctx.task ? { task: taskContextSnapshot(ctx.task) } : {}),
+    ...(ctx.plan ? { plan: planContextSnapshot(ctx.plan) } : {}),
   }
 }
 
@@ -1743,24 +1743,24 @@ export async function respond(
     onUsage,
     onInstructionsProposal,
     onMessageReaction,
-    onTaskUpdated,
+    onPlanUpdated,
   }: RespondCallbacks,
   run?: RunHandle
 ): Promise<RespondResult> {
   const respondStart = performance.now()
   const budgets = run?.budgets ?? defaultRunBudgets()
   // Set by request_approval: prepareStep then forces a final text step so the
-  // run ends cleanly while the task parks in waiting_for_approval.
+  // run ends cleanly while the plan parks in waiting_for_approval.
   let approvalRequested = false
-  // Live task pointer: seeded from ctx, written when start_task adopts the
-  // thread mid-run, refreshed on every task update. Tool contexts resolve
-  // eagerly, so anything task-dependent must read through this ref.
-  const taskRef: { current: RunTaskContext | null } = {
-    current: ctx.task ?? null,
+  // Live plan pointer: seeded from ctx, written when start_plan adopts the
+  // thread mid-run, refreshed on every plan update. Tool contexts resolve
+  // eagerly, so anything plan-dependent must read through this ref.
+  const planRef: { current: RunPlanContext | null } = {
+    current: ctx.plan ?? null,
   }
-  const notifyTaskUpdated = (row: Task) => {
-    taskRef.current = toRunTaskContext(row)
-    onTaskUpdated?.(row)
+  const notifyPlanUpdated = (row: Plan) => {
+    planRef.current = toRunPlanContext(row)
+    onPlanUpdated?.(row)
   }
 
   // The run's retrieval/write boundary — fails closed to workspace-public.
@@ -1871,7 +1871,7 @@ export async function respond(
         : {}),
       ...(codeActionsEnabled ? codeActionTools : {}),
       ...(artifactsEnabled ? artifactTools : {}),
-      ...(ctx.task || ctx.threadRootId ? taskTools : {}),
+      ...(ctx.plan || ctx.threadRootId ? planTools : {}),
       ...(ctx.triggered ? triggeredTools : {}),
       ...(ctx.triggered?.completeLoop ? completeLoopTool : {}),
       ...(ctx.proposeLoop && ctx.channelId ? proposeLoopTool : {}),
@@ -1884,7 +1884,7 @@ export async function respond(
       ...(cloudwatch && caps.includes("cloudwatch") ? cloudwatchTools : {}),
     }
     // Approval targets for the capability-gated groups. Core tools (brain,
-    // chat search, messaging/reactions, task/loop bookkeeping) stay unmapped
+    // chat search, messaging/reactions, plan/loop bookkeeping) stay unmapped
     // and can never be gated — answering in chat is the product. Marked from
     // the source tool sets, so a group that didn't bind simply contributes
     // names no bound tool answers to.
@@ -2018,22 +2018,22 @@ export async function respond(
               // override with loop.id). Channel-scope one-shots stay ephemeral
               // — no channelId fallback here, unlike code sessions.
               sandboxKey: ctx.sandboxKey ?? ctx.threadRootId ?? null,
-              // Getter, not a value: the task may start mid-run.
-              getTask: () =>
-                taskRef.current ? { id: taskRef.current.id } : null,
+              // Getter, not a value: the plan may start mid-run.
+              getPlan: () =>
+                planRef.current ? { id: planRef.current.id } : null,
               deadlineAt: budgets.deadlineAt,
               onUsage,
               onToolEvent,
             },
           }
         : {}),
-      ...(ctx.task || ctx.threadRootId
+      ...(ctx.plan || ctx.threadRootId
         ? (() => {
-            const getTaskId = () => taskRef.current?.id ?? null
-            // One reopen per run, only when the run began on a completed task.
-            let reopenAvailable = ctx.task?.status === "completed"
-            const taskToolContext = {
-              getTaskId,
+            const getPlanId = () => planRef.current?.id ?? null
+            // One reopen per run, only when the run began on a completed plan.
+            let reopenAvailable = ctx.plan?.status === "completed"
+            const planToolContext = {
+              getPlanId,
               consumeReopen: () => {
                 if (!reopenAvailable) return false
                 reopenAvailable = false
@@ -2041,35 +2041,35 @@ export async function respond(
               },
               workspaceId: ctx.workspaceId,
               runId: ctx.runId ?? null,
-              onTaskUpdated: notifyTaskUpdated,
+              onPlanUpdated: notifyPlanUpdated,
               onApprovalRequested: () => {
                 approvalRequested = true
               },
             }
             return {
-              start_task: {
-                getTaskId,
-                ...(ctx.createTask
+              start_plan: {
+                getPlanId,
+                ...(ctx.createPlan
                   ? {
-                      createTask: (async (input: StartTaskInput) => {
-                        const row = (await ctx.createTask?.(input)) ?? null
-                        // The host already emitted task:updated; just adopt.
-                        if (row) taskRef.current = toRunTaskContext(row)
+                      createPlan: (async (input: StartPlanInput) => {
+                        const row = (await ctx.createPlan?.(input)) ?? null
+                        // The host already emitted plan:updated; just adopt.
+                        if (row) planRef.current = toRunPlanContext(row)
                         return row
-                      }) satisfies CreateTaskForThread,
+                      }) satisfies CreatePlanForThread,
                     }
                   : {}),
               },
-              set_plan: taskToolContext,
-              complete_task: taskToolContext,
-              request_approval: taskToolContext,
+              update_plan: planToolContext,
+              complete_plan: planToolContext,
+              request_approval: planToolContext,
             }
           })()
         : {}),
       ...(ctx.triggered
         ? {
             post_channel_message: { postMessage: ctx.triggered.postMessage },
-            create_task: { createTask: ctx.triggered.createTask },
+            create_plan: { createPlan: ctx.triggered.createPlan },
             ...(ctx.triggered.completeLoop
               ? {
                   complete_loop: { completeLoop: ctx.triggered.completeLoop },
@@ -2133,7 +2133,7 @@ export async function respond(
       ;(toolsContext as Record<string, unknown>)[EXPORT_TOOL_NAME] = {
         workspaceId: ctx.workspaceId,
         channelId: ctx.channelId,
-        getTask: () => (taskRef.current ? { id: taskRef.current.id } : null),
+        getPlan: () => (planRef.current ? { id: planRef.current.id } : null),
       }
     }
 
@@ -2208,7 +2208,7 @@ export async function respond(
         buildRunContext(ctx, runScope, onUsage),
         loadWorkspaceInstructions(ctx.workspaceId),
       ])
-      instructions = `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}${context.rosterText ? `\n\n${MENTION_GUIDANCE}` : ""}${workspaceInstructions ? `\n\n${formatInstructionsBlock(workspaceInstructions)}` : ""}${ctx.task || ctx.threadRootId ? `\n\n${taskRulesSection(artifactsEnabled, !!ctx.task)}` : ""}${ctx.triggered ? `\n\n${ctx.triggered.loop ? loopPromptSection({ ...ctx.triggered, loop: ctx.triggered.loop }) : triggeredPromptSection(ctx.triggered)}` : ""}`
+      instructions = `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}${context.rosterText ? `\n\n${MENTION_GUIDANCE}` : ""}${workspaceInstructions ? `\n\n${formatInstructionsBlock(workspaceInstructions)}` : ""}${ctx.plan || ctx.threadRootId ? `\n\n${planRulesSection(artifactsEnabled, !!ctx.plan)}` : ""}${ctx.triggered ? `\n\n${ctx.triggered.loop ? loopPromptSection({ ...ctx.triggered, loop: ctx.triggered.loop }) : triggeredPromptSection(ctx.triggered)}` : ""}`
       messageBudget = getMessageBudget(instructions)
       // A continued run inherits its predecessors' transcript in place of a
       // fresh initial message; the snapshot records the delta it was started
@@ -2368,7 +2368,7 @@ export async function respond(
           next || approvalRequested ? ("none" as const) : undefined
         // Reduce what gets SENT once the context grows heavy: old tool calls
         // become rolling working notes, a recent tail stays verbatim, and the
-        // task's live state is restored from the database. The durable
+        // plan's live state is restored from the database. The durable
         // transcript (agent_run_step) is untouched. Use both the prior
         // provider-reported input and the current message estimate: a large
         // tool result can push the next request over the threshold before the
@@ -2394,8 +2394,8 @@ export async function respond(
             state: compaction,
             maxMessageTokens: compactMessageBudget,
             workspaceId: ctx.workspaceId,
-            ...(taskRef.current
-              ? { task: taskContextSnapshot(taskRef.current) }
+            ...(planRef.current
+              ? { plan: planContextSnapshot(planRef.current) }
               : {}),
             ...(onUsage ? { onUsage } : {}),
           })
@@ -2554,15 +2554,15 @@ export async function respond(
 
     // Filed only after the parked step is durable: the approval authorizes a
     // tool call the continuation replays, so the transcript must already hold
-    // it. Task runs park the task too, exactly like request_approval.
+    // it. Plan runs park the plan too, exactly like request_approval.
     if (parked && run) {
       const filed = await fileParkedApproval({
         workspaceId: ctx.workspaceId,
         runId: run.runId,
-        taskId: taskRef.current?.id ?? null,
+        planId: planRef.current?.id ?? null,
         parked,
         label: toolLabel(parked.toolName, parked.input),
-        onTaskUpdated: notifyTaskUpdated,
+        onPlanUpdated: notifyPlanUpdated,
       })
       // Only claim the park when a row exists to resolve — otherwise the run
       // would advertise a gate nobody can clear.

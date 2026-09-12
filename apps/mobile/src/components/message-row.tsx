@@ -17,8 +17,8 @@ import { MerlinReasoning } from "@/components/merlin-reasoning"
 import { MessageAttachments } from "@/components/message-attachments"
 import { MessageContent } from "@/components/message-content"
 import { MessageEmbed } from "@/components/message-embed"
+import { PlanCard } from "@/components/plan-card"
 import { ProposalCard } from "@/components/proposal-card"
-import { TaskCard } from "@/components/task-card"
 import { ThinkingIndicator } from "@/components/thinking-indicator"
 import { Avatar } from "@/components/ui/avatar"
 import { useStopMerlinRun } from "@/hooks/use-stop-merlin-run"
@@ -184,8 +184,8 @@ function MessageRowBody({
           Sending
         </Text>
       ) : null}
-      {message.type === "task_card" ? (
-        <TaskCard message={message} onOpenThread={onOpenThread} />
+      {message.type === "plan_card" ? (
+        <PlanCard message={message} onOpenThread={onOpenThread} />
       ) : message.type === "loop_card" || message.type === "loop_fire" ? (
         <LoopCard message={message} />
       ) : message.type === "proposal_card" ? (

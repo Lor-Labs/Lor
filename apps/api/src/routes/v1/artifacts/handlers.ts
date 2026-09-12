@@ -6,7 +6,7 @@ import { userCanAccessChannel } from "@/lib/queries/channel-access"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
   GetArtifactRoute,
-  ListTaskArtifactsRoute,
+  ListPlanArtifactsRoute,
 } from "@/routes/v1/artifacts/routes"
 import type { getArtifactResponseSchema } from "@/routes/v1/artifacts/schema"
 
@@ -79,39 +79,39 @@ export const getArtifact: AppRouteHandler<GetArtifactRoute> = async (c) => {
   return c.json(payload, HttpStatusCodes.OK)
 }
 
-export const listTaskArtifacts: AppRouteHandler<
-  ListTaskArtifactsRoute
+export const listPlanArtifacts: AppRouteHandler<
+  ListPlanArtifactsRoute
 > = async (c) => {
   const currentUser = c.var.user
-  const { taskId } = c.req.valid("param")
+  const { planId } = c.req.valid("param")
 
-  const taskRow = await db
+  const planRow = await db
     .select({
-      id: schema.task.id,
-      channelId: schema.task.channelId,
-      workspaceId: schema.task.workspaceId,
+      id: schema.plan.id,
+      channelId: schema.plan.channelId,
+      workspaceId: schema.plan.workspaceId,
       channelWorkspaceId: schema.channel.workspaceId,
     })
-    .from(schema.task)
-    .innerJoin(schema.channel, eq(schema.task.channelId, schema.channel.id))
-    .where(eq(schema.task.id, taskId))
+    .from(schema.plan)
+    .innerJoin(schema.channel, eq(schema.plan.channelId, schema.channel.id))
+    .where(eq(schema.plan.id, planId))
     .limit(1)
     .then((rows) => rows[0])
 
-  if (!taskRow) {
+  if (!planRow) {
     return c.json(
-      { success: false as const, message: "Task not found" },
+      { success: false as const, message: "Plan not found" },
       HttpStatusCodes.NOT_FOUND
     )
   }
-  if (taskRow.channelWorkspaceId !== taskRow.workspaceId) {
+  if (planRow.channelWorkspaceId !== planRow.workspaceId) {
     return c.json(
       { success: false as const, message: "Forbidden" },
       HttpStatusCodes.FORBIDDEN
     )
   }
   const canAccess = await userCanAccessChannel(
-    taskRow.channelId,
+    planRow.channelId,
     currentUser.id
   )
   if (!canAccess) {
@@ -134,7 +134,7 @@ export const listTaskArtifacts: AppRouteHandler<
         eq(schema.artifactVersion.version, schema.artifact.currentVersion)
       )
     )
-    .where(eq(schema.artifact.taskId, taskId))
+    .where(eq(schema.artifact.planId, planId))
     .orderBy(desc(schema.artifact.createdAt))
     .limit(100)
 
@@ -157,7 +157,7 @@ export function serializeArtifact(
     id: artifact.id,
     workspaceId: artifact.workspaceId,
     channelId: artifact.channelId,
-    taskId: artifact.taskId,
+    planId: artifact.planId,
     path: artifact.path,
     mime: artifact.mime,
     currentVersion: artifact.currentVersion,

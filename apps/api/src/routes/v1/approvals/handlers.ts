@@ -1,7 +1,7 @@
 import { canResolveApproval } from "@repo/auth/permissions"
 import { and, db, eq, inArray, isNotNull, schema } from "@repo/db"
 import { resolveChannelAccess } from "@repo/db/queries/channel-access"
-import type { Approval, Task } from "@repo/db/schema"
+import type { Approval, Plan } from "@repo/db/schema"
 import { channelRoom } from "@repo/realtime-types/rooms"
 import {
   loadApprovalResolver,
@@ -14,7 +14,7 @@ import { logger } from "@/lib/logger"
 import { resolveWorkspaceAuthority } from "@/lib/permissions"
 import { userCanAccessChannel } from "@/lib/queries/channel-access"
 import {
-  emitTaskUpdated,
+  emitPlanUpdated,
   postScopeMessage,
   startScopeContinuationRun,
 } from "@/lib/scope-runs"
@@ -106,8 +106,8 @@ type ResolveOutcome =
   | { kind: "resolved"; approval: Approval }
 
 // The conversation an approval belongs to. A policy-gated approval takes it
-// from the parked run; a task's own request_approval predates the run pointer,
-// so the task's anchor thread is the fallback.
+// from the parked run; a plan's own request_approval predates the run pointer,
+// so the plan's anchor thread is the fallback.
 type ApprovalScope = {
   channelId: string
   threadRootId: string | null
@@ -120,7 +120,7 @@ function approvalScope(
     threadRootId: string | null
     scopeKey: string
   } | null,
-  task: Task | null
+  plan: Plan | null
 ): ApprovalScope | null {
   if (run) {
     return {
@@ -129,11 +129,11 @@ function approvalScope(
       scopeKey: run.scopeKey,
     }
   }
-  if (task) {
+  if (plan) {
     return {
-      channelId: task.channelId,
-      threadRootId: task.threadRootId,
-      scopeKey: task.threadRootId,
+      channelId: plan.channelId,
+      threadRootId: plan.threadRootId,
+      scopeKey: plan.threadRootId,
     }
   }
   return null
@@ -153,7 +153,7 @@ async function resolveApproval(
         threadRootId: schema.agentRun.threadRootId,
         scopeKey: schema.agentRun.scopeKey,
       },
-      task: schema.task,
+      plan: schema.plan,
     })
     .from(schema.approval)
     .innerJoin(
@@ -161,12 +161,12 @@ async function resolveApproval(
       eq(schema.approval.workspaceId, schema.workspace.id)
     )
     .leftJoin(schema.agentRun, eq(schema.approval.runId, schema.agentRun.id))
-    .leftJoin(schema.task, eq(schema.approval.taskId, schema.task.id))
+    .leftJoin(schema.plan, eq(schema.approval.planId, schema.plan.id))
     .where(eq(schema.approval.id, approvalId))
     .limit(1)
     .then((rows) => rows[0])
 
-  const scope = row ? approvalScope(row.run, row.task) : null
+  const scope = row ? approvalScope(row.run, row.plan) : null
   if (!row || !scope) return { kind: "not_found" }
 
   // Channel write access is the floor for every approval: someone who cannot
@@ -248,14 +248,14 @@ async function resolveApproval(
   }
 
   // Remaining side effects are best-effort: the continuation path self-heals
-  // (an enqueue failure parks the task back in waiting_for_input). Broadcasts
+  // (an enqueue failure parks the plan back in waiting_for_input). Broadcasts
   // fail in isolation — a dead emitter must never block the continuation run.
   try {
     const io = await getEmitter()
     io.to(channelRoom(scope.channelId)).emit("approval:updated", {
       approvalId: resolved.id,
       channelId: scope.channelId,
-      taskId: resolved.taskId,
+      planId: resolved.planId,
       status: resolved.status,
       resolvedBy: resolved.resolvedBy,
       resolvedAt: resolved.resolvedAt
@@ -270,18 +270,18 @@ async function resolveApproval(
   }
 
   try {
-    const task = row.task
-    // Only a parked task moves back to running, and only when the trigger
-    // message exists — never resurrect a terminal task (the continuation
+    const plan = row.plan
+    // Only a parked plan moves back to running, and only when the trigger
+    // message exists — never resurrect a terminal plan (the continuation
     // run re-claims status itself if it does start).
-    const updatedTask = task
+    const updatedPlan = plan
       ? await db
-          .update(schema.task)
+          .update(schema.plan)
           .set({ status: "running" })
           .where(
             and(
-              eq(schema.task.id, task.id),
-              inArray(schema.task.status, [
+              eq(schema.plan.id, plan.id),
+              inArray(schema.plan.status, [
                 "waiting_for_approval",
                 "waiting_for_input",
               ])
@@ -290,9 +290,9 @@ async function resolveApproval(
           .returning()
           .then((rows) => rows[0] ?? null)
       : null
-    if (updatedTask) {
-      await emitTaskUpdated(updatedTask).catch((err) => {
-        logger.warn({ err, approvalId }, "Task update broadcast failed")
+    if (updatedPlan) {
+      await emitPlanUpdated(updatedPlan).catch((err) => {
+        logger.warn({ err, approvalId }, "Plan update broadcast failed")
       })
     }
 
@@ -308,21 +308,21 @@ async function resolveApproval(
       ...(resolved.toolCallId && resolved.runId
         ? { resumeApprovalId: resolved.id }
         : {}),
-      ...(task
+      ...(plan
         ? {
             onAbandoned: async () => {
               await db
-                .update(schema.task)
+                .update(schema.plan)
                 .set({ status: "waiting_for_input" })
                 .where(
                   and(
-                    eq(schema.task.id, task.id),
-                    eq(schema.task.status, "running")
+                    eq(schema.plan.id, plan.id),
+                    eq(schema.plan.status, "running")
                   )
                 )
                 .returning()
                 .then((rows) =>
-                  rows[0] ? emitTaskUpdated(rows[0]) : undefined
+                  rows[0] ? emitPlanUpdated(rows[0]) : undefined
                 )
                 .catch(() => {})
             },

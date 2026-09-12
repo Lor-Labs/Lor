@@ -58,7 +58,7 @@ import {
 import { RunQueuePill } from "@/components/chat/run-queue-pill"
 import { ThreadSubscriberStack } from "@/components/chat/thread-subscriber-stack"
 import {
-  type TaskSourceFile,
+  type PlanSourceFile,
   ThreadWorkHeader,
 } from "@/components/chat/thread-work-header"
 import { TypingIndicator } from "@/components/chat/typing-indicator"
@@ -66,7 +66,7 @@ import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-h
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import type { ThreadSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
 import { useSocket } from "@/context/socket-context"
-import { useTaskForThread } from "@/hooks/use-channel-tasks"
+import { usePlanForThread } from "@/hooks/use-channel-plans"
 import { useFileUpload } from "@/hooks/use-file-upload"
 import { useMarkThreadRead } from "@/hooks/use-mark-thread-read"
 import { useMerlinRunReplay } from "@/hooks/use-merlin-stream"
@@ -74,17 +74,17 @@ import { useMessageDeletion } from "@/hooks/use-message-deletion"
 import { useMessageEditing } from "@/hooks/use-message-editing"
 import { useMessageReactions } from "@/hooks/use-message-reactions"
 import { useMessageSending } from "@/hooks/use-message-sending"
+import { usePlanArtifacts } from "@/hooks/use-plan"
 import { useQueuedMessageSteering } from "@/hooks/use-queued-message-steering"
 import { useReplyState } from "@/hooks/use-reply-state"
 import { useRunQueue } from "@/hooks/use-run-queue"
 import { useStopMerlinRun } from "@/hooks/use-stop-merlin-run"
-import { useTaskArtifacts } from "@/hooks/use-task"
 import { useThreadMessages } from "@/hooks/use-thread-messages"
 import { useTypingIndicator } from "@/hooks/use-typing-indicator"
 import { apiClient } from "@/lib/api-client"
 import type { Message } from "@/lib/api-types"
 import { broadcastMentionCandidates } from "@/lib/broadcast-mentions"
-import { TASK_STATUS_META } from "@/lib/task-ui"
+import { PLAN_STATUS_META } from "@/lib/plan-ui"
 
 const MESSAGE_GROUP_WINDOW_MINUTES = 5
 
@@ -278,16 +278,16 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
     [rootMessage]
   )
 
-  // Task threads get their own panel identity: header says Task + live
+  // Plan threads get their own panel identity: header says Plan + live
   // status, and the docked strip below carries plan/files/approval. A thread
-  // is a task thread iff a task row anchors to its root — the root message
-  // type no longer decides (any thread can become a task mid-conversation).
-  const task = useTaskForThread(view.channelId, view.threadRootId)
-  const isTask = !!task
-  const taskStatusMeta = task ? TASK_STATUS_META[task.status] : null
-  const { data: taskArtifacts } = useTaskArtifacts(task?.id ?? null)
+  // is a plan thread iff a plan row anchors to its root — the root message
+  // type no longer decides (any thread can become a plan mid-conversation).
+  const plan = usePlanForThread(view.channelId, view.threadRootId)
+  const isPlan = !!plan
+  const planStatusMeta = plan ? PLAN_STATUS_META[plan.status] : null
+  const { data: planArtifacts } = usePlanArtifacts(plan?.id ?? null)
   // Newest Merlin reply with tool calls — the Activity chip's work log. Shown
-  // for any thread where Merlin worked, task or not.
+  // for any thread where Merlin worked, plan or not.
   const activityMessage = useMemo(
     () =>
       messages.find(
@@ -297,7 +297,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
       ) ?? null,
     [messages]
   )
-  const showWorkHeader = isTask || activityMessage !== null
+  const showWorkHeader = isPlan || activityMessage !== null
 
   const handleCopyAsMarkdown = useCallback(async () => {
     try {
@@ -326,26 +326,26 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
       )
       const sections: string[] = []
 
-      if (isTask && task) {
-        sections.push(`# ${task.title}`, "", task.goal)
+      if (isPlan && plan) {
+        sections.push(`# ${plan.title}`, "", plan.goal)
         sections.push(
           "",
-          `**Status:** ${TASK_STATUS_META[task.status].label}`,
-          `**Created:** ${formatDateTime(task.createdAt)}`
+          `**Status:** ${PLAN_STATUS_META[plan.status].label}`,
+          `**Created:** ${formatDateTime(plan.createdAt)}`
         )
-        if (task.plan.length > 0) {
-          sections.push("", "## Plan", "")
-          for (const item of task.plan) {
+        if (plan.steps.length > 0) {
+          sections.push("", "## Steps", "")
+          for (const item of plan.steps) {
             const marker = item.status === "done" ? "x" : " "
             const active = item.status === "active" ? " _(in progress)_" : ""
             sections.push(`- [${marker}] ${item.text}${active}`)
             if (item.description) sections.push(`  - ${item.description}`)
           }
         }
-        if (task.summary) sections.push("", "## Summary", "", task.summary)
-        if (taskArtifacts && taskArtifacts.length > 0) {
+        if (plan.summary) sections.push("", "## Summary", "", plan.summary)
+        if (planArtifacts && planArtifacts.length > 0) {
           sections.push("", "## Outputs", "")
-          for (const artifact of taskArtifacts) {
+          for (const artifact of planArtifacts) {
             sections.push(
               artifact.url
                 ? `- [${artifact.path}](${artifact.url})`
@@ -358,7 +358,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
         sections.push("# Thread", "")
       }
 
-      const headingLevel = isTask ? 3 : 2
+      const headingLevel = isPlan ? 3 : 2
       if (root) sections.push(messageToMarkdown(root, headingLevel))
       for (const message of orderedMessages) {
         sections.push("", messageToMarkdown(message, headingLevel))
@@ -368,26 +368,26 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
       if (actionsMenuTriggerRef.current) {
         anchoredToastManager.add({
           data: { tooltipStyle: true },
-          id: `copy-${isTask ? "task" : "thread"}-markdown`,
+          id: `copy-${isPlan ? "plan" : "thread"}-markdown`,
           positionerProps: {
             anchor: actionsMenuTriggerRef.current,
             sideOffset: 6,
           },
           timeout: 1800,
-          title: `${isTask ? "Task" : "Thread"} copied`,
+          title: `${isPlan ? "Plan" : "Thread"} copied`,
         })
       }
     } catch {
-      toast.error(`Couldn't copy ${isTask ? "task" : "thread"}`)
+      toast.error(`Couldn't copy ${isPlan ? "plan" : "thread"}`)
     }
-  }, [fetchThreadPage, isTask, messages, rootMessage, task, taskArtifacts])
+  }, [fetchThreadPage, isPlan, messages, rootMessage, plan, planArtifacts])
 
-  // Files the team fed the task, gathered from the loaded slice of the
+  // Files the team fed the plan, gathered from the loaded slice of the
   // thread (sources ≠ outputs: uploads stay plain links, artifacts open the
   // viewer).
-  const taskSources = useMemo<TaskSourceFile[]>(() => {
-    if (!isTask) return []
-    const seen = new Map<string, TaskSourceFile>()
+  const planSources = useMemo<PlanSourceFile[]>(() => {
+    if (!isPlan) return []
+    const seen = new Map<string, PlanSourceFile>()
     const collect = (msg: Message | null) => {
       for (const attachment of msg?.attachments ?? []) {
         if (seen.has(attachment.url)) continue
@@ -402,7 +402,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
     collect(rootMessage)
     for (const msg of [...messages].reverse()) collect(msg)
     return [...seen.values()]
-  }, [isTask, rootMessage, messages])
+  }, [isPlan, rootMessage, messages])
 
   // Opening a thread mid-run replays the durable trace into the thread cache.
   useMerlinRunReplay({
@@ -688,22 +688,22 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
     >
       <DropZoneOverlay isDragActive={isDragActive} />
       <RightPanelHeader
-        title={isTask ? "Task" : "Thread"}
+        title={isPlan ? "Plan" : "Thread"}
         workspaceSlug={view.workspaceSlug}
         channelId={view.channelId}
         titleAdornment={
-          taskStatusMeta ? (
+          planStatusMeta ? (
             <span className="inline-flex items-center gap-1.5 text-muted-foreground text-xs">
               <HugeiconsIcon
-                icon={taskStatusMeta.icon}
+                icon={planStatusMeta.icon}
                 size={14}
                 className={
-                  taskStatusMeta.spin
+                  planStatusMeta.spin
                     ? "animate-spin text-primary"
                     : "text-primary"
                 }
               />
-              {taskStatusMeta.label}
+              {planStatusMeta.label}
             </span>
           ) : undefined
         }
@@ -717,7 +717,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
                   <button
                     ref={actionsMenuTriggerRef}
                     type="button"
-                    aria-label={`${isTask ? "Task" : "Thread"} actions`}
+                    aria-label={`${isPlan ? "Plan" : "Thread"} actions`}
                     className="flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground data-popup-open:bg-foreground/5 data-popup-open:text-foreground"
                   />
                 }
@@ -735,7 +735,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => void handleCopyAsMarkdown()}>
                   <HugeiconsIcon icon={Copy01Icon} strokeWidth={2} />
-                  {`Copy ${isTask ? "task" : "thread"} as Markdown`}
+                  {`Copy ${isPlan ? "plan" : "thread"} as Markdown`}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -747,7 +747,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
         <ThreadWorkHeader
           channelId={view.channelId}
           threadRootId={view.threadRootId}
-          sources={taskSources}
+          sources={planSources}
           activityMessage={activityMessage}
         />
       )}

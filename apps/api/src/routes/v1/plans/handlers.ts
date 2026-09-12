@@ -2,12 +2,12 @@ import { and, db, desc, eq, inArray, schema } from "@repo/db"
 import { loadApprovalResolvers, serializeApproval } from "@/lib/approvals"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { userCanAccessChannel } from "@/lib/queries/channel-access"
-import { serializeTask } from "@/lib/scope-runs"
+import { serializePlan } from "@/lib/scope-runs"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
-  GetTaskRoute,
-  ListChannelTasksRoute,
-} from "@/routes/v1/tasks/routes"
+  GetPlanRoute,
+  ListChannelPlansRoute,
+} from "@/routes/v1/plans/routes"
 
 const ACTIVE_STATUSES = [
   "running",
@@ -15,7 +15,7 @@ const ACTIVE_STATUSES = [
   "waiting_for_approval",
 ] as const
 
-export const listChannelTasks: AppRouteHandler<ListChannelTasksRoute> = async (
+export const listChannelPlans: AppRouteHandler<ListChannelPlansRoute> = async (
   c
 ) => {
   const currentUser = c.var.user
@@ -30,46 +30,46 @@ export const listChannelTasks: AppRouteHandler<ListChannelTasksRoute> = async (
     )
   }
 
-  const tasks = await db
+  const plans = await db
     .select()
-    .from(schema.task)
+    .from(schema.plan)
     .where(
       and(
-        eq(schema.task.channelId, channelId),
+        eq(schema.plan.channelId, channelId),
         ...(active === "true"
-          ? [inArray(schema.task.status, [...ACTIVE_STATUSES])]
+          ? [inArray(schema.plan.status, [...ACTIVE_STATUSES])]
           : [])
       )
     )
-    .orderBy(desc(schema.task.createdAt))
+    .orderBy(desc(schema.plan.createdAt))
     .limit(50)
 
-  return c.json({ tasks: tasks.map(serializeTask) }, HttpStatusCodes.OK)
+  return c.json({ plans: plans.map(serializePlan) }, HttpStatusCodes.OK)
 }
 
-export const getTask: AppRouteHandler<GetTaskRoute> = async (c) => {
+export const getPlan: AppRouteHandler<GetPlanRoute> = async (c) => {
   const currentUser = c.var.user
-  const { taskId } = c.req.valid("param")
+  const { planId } = c.req.valid("param")
 
   const row = await db
     .select({
-      task: schema.task,
+      plan: schema.plan,
       channelWorkspaceId: schema.channel.workspaceId,
     })
-    .from(schema.task)
-    .innerJoin(schema.channel, eq(schema.task.channelId, schema.channel.id))
-    .where(eq(schema.task.id, taskId))
+    .from(schema.plan)
+    .innerJoin(schema.channel, eq(schema.plan.channelId, schema.channel.id))
+    .where(eq(schema.plan.id, planId))
     .limit(1)
     .then((rows) => rows[0])
 
-  if (!row || row.channelWorkspaceId !== row.task.workspaceId) {
+  if (!row || row.channelWorkspaceId !== row.plan.workspaceId) {
     return c.json(
-      { success: false as const, message: "Task not found" },
+      { success: false as const, message: "Plan not found" },
       HttpStatusCodes.NOT_FOUND
     )
   }
   const canAccess = await userCanAccessChannel(
-    row.task.channelId,
+    row.plan.channelId,
     currentUser.id
   )
   if (!canAccess) {
@@ -84,7 +84,7 @@ export const getTask: AppRouteHandler<GetTaskRoute> = async (c) => {
     .from(schema.approval)
     .where(
       and(
-        eq(schema.approval.taskId, taskId),
+        eq(schema.approval.planId, planId),
         eq(schema.approval.status, "pending")
       )
     )
@@ -94,7 +94,7 @@ export const getTask: AppRouteHandler<GetTaskRoute> = async (c) => {
   // Resolver spec + display name so the card can gate its buttons client-side
   // (the resolve endpoint enforces regardless).
   const resolver = pending
-    ? ((await loadApprovalResolvers(row.task.workspaceId, [pending])).get(
+    ? ((await loadApprovalResolvers(row.plan.workspaceId, [pending])).get(
         pending.id
       ) ?? null)
     : null
@@ -110,7 +110,7 @@ export const getTask: AppRouteHandler<GetTaskRoute> = async (c) => {
 
   return c.json(
     {
-      task: serializeTask(row.task),
+      plan: serializePlan(row.plan),
       pendingApproval: pending
         ? { ...serializeApproval(pending), resolver, resolverUserName }
         : null,

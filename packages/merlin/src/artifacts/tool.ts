@@ -28,10 +28,10 @@ const artifactsContext = z.object({
   // Thread-scope runs get continuity: the scope's persistent sandbox + Pi
   // session resume. Null = ephemeral (channel-scope one-shots).
   sandboxKey: z.custom<string | null>(),
-  // Task runs additionally reseed /workspace/out from the task's artifact
-  // versions and attribute new versions to the task. A getter because the
-  // task may start mid-run (start_task).
-  getTask: z.custom<() => { id: string } | null>(),
+  // Plan runs additionally reseed /workspace/out from the plan's artifact
+  // versions and attribute new versions to the plan. A getter because the
+  // plan may start mid-run (start_plan).
+  getPlan: z.custom<() => { id: string } | null>(),
   deadlineAt: z.custom<Date>().optional(),
   onUsage: z.custom<OnUsage>().optional(),
   onToolEvent: z.custom<(e: MerlinToolCallUpdate) => void>().optional(),
@@ -39,10 +39,10 @@ const artifactsContext = z.object({
 
 const serializeWorkbenchSession = createSessionSerializer()
 
-// Current versions of the task's artifacts, reseeded into /workspace/out so
+// Current versions of the plan's artifacts, reseeded into /workspace/out so
 // the agent always works from artifact truth (humans may have edited).
-async function loadTaskOutSeed(
-  taskId: string
+async function loadPlanOutSeed(
+  planId: string
 ): Promise<WorkbenchContinuity["outSeed"]> {
   const rows = await db
     .select({
@@ -58,7 +58,7 @@ async function loadTaskOutSeed(
         eq(schema.artifactVersion.version, schema.artifact.currentVersion)
       )
     )
-    .where(eq(schema.artifact.taskId, taskId))
+    .where(eq(schema.artifact.planId, planId))
   const seeds: WorkbenchContinuity["outSeed"] = []
   let total = 0
   for (const row of rows) {
@@ -138,7 +138,7 @@ export const artifactTools = {
       { instructions, inputFileUrls },
       { toolCallId, context, abortSignal }
     ) => {
-      // Re-derived when the session actually starts: a task session can wait
+      // Re-derived when the session actually starts: a plan session can wait
       // behind a sibling call, and the deadline moves on meanwhile.
       const sessionBudget = (): { timeoutSec: number } | { error: string } => {
         const remainingMs = context.deadlineAt
@@ -189,9 +189,9 @@ export const artifactTools = {
       const startSession = async () => {
         const budget = sessionBudget()
         if ("error" in budget) return budget
-        // Resolved after the session-queue wait: a start_task landing while
+        // Resolved after the session-queue wait: a start_plan landing while
         // this call was queued still gets its artifacts reseeded.
-        const task = context.getTask()
+        const plan = context.getPlan()
         return runWorkbenchSession({
           instructions,
           inputs,
@@ -201,7 +201,7 @@ export const artifactTools = {
             ? {
                 continuity: {
                   sandboxKey,
-                  outSeed: task ? await loadTaskOutSeed(task.id) : [],
+                  outSeed: plan ? await loadPlanOutSeed(plan.id) : [],
                 },
               }
             : {}),
@@ -243,9 +243,9 @@ export const artifactTools = {
 
       // Per-file persistence: a failure mid-list must not hide the files that
       // WERE stored (their versions are committed and visible), or the model
-      // re-runs the whole session for deliverables it already has. Task
-      // re-read so a start_task that landed mid-session still gets credit.
-      const task = context.getTask()
+      // re-runs the whole session for deliverables it already has. Plan
+      // re-read so a start_plan that landed mid-session still gets credit.
+      const plan = context.getPlan()
       const manifest = []
       const unstored: string[] = []
       for (const file of result.files) {
@@ -254,7 +254,7 @@ export const artifactTools = {
             await writeArtifactVersion({
               workspaceId: context.workspaceId,
               channelId: context.channelId,
-              taskId: task?.id ?? null,
+              planId: plan?.id ?? null,
               path: file.path,
               contentType: file.contentType,
               bytes: file.bytes,

@@ -7,15 +7,15 @@ import { Text, View } from "react-native"
 import { ApprovalGateCard } from "@/components/approval-card"
 import { MerlinToolTrail } from "@/components/merlin-tool-trail"
 import {
-  TaskFileRow,
-  TaskPlanList,
-  TaskStatusBadge,
-} from "@/components/task-ui"
-import { useTask, useTaskArtifacts, useTaskForThread } from "@/hooks/use-tasks"
+  PlanFileRow,
+  PlanStatusBadge,
+  PlanStepList,
+} from "@/components/plan-ui"
+import { usePlan, usePlanArtifacts, usePlanForThread } from "@/hooks/use-plans"
 import type { Message } from "@/lib/api-types"
 import type { MerlinToolCall } from "@/lib/merlin"
 
-export type TaskSourceFile = {
+export type PlanSourceFile = {
   url: string
   filename: string
   size: number
@@ -56,7 +56,7 @@ function SectionPopover({
 }
 
 // Docked strip under the thread header — the thread's work surface (mirrors
-// web's thread-work-header). Status + Plan/Files popover chips when a task
+// web's thread-work-header). Status + Plan/Files popover chips when a plan
 // anchors to the thread, an Activity chip mirroring the newest run's tool
 // trail whenever Merlin worked here, and the pending approval card, which is
 // always visible.
@@ -68,12 +68,12 @@ export function ThreadWorkHeader({
 }: {
   channelId: string
   threadRootId: string
-  sources: TaskSourceFile[]
+  sources: PlanSourceFile[]
   activityMessage: Message | null
 }) {
-  const task = useTaskForThread(channelId, threadRootId)
-  const { data: detail } = useTask(task?.id ?? null)
-  const { data: artifacts } = useTaskArtifacts(task?.id ?? null)
+  const plan = usePlanForThread(channelId, threadRootId)
+  const { data: detail } = usePlan(plan?.id ?? null)
+  const { data: artifacts } = usePlanArtifacts(plan?.id ?? null)
 
   const { activityCalls, childrenByParent } = useMemo(() => {
     const topLevel: MerlinToolCall[] = []
@@ -96,14 +96,14 @@ export function ThreadWorkHeader({
       ? detail.pendingApproval
       : null
   const outputs = artifacts ?? []
-  const doneCount = !task
+  const doneCount = !plan
     ? 0
-    : task.status === "completed"
-      ? task.plan.length
-      : task.plan.filter((item) => item.status === "done").length
+    : plan.status === "completed"
+      ? plan.steps.length
+      : plan.steps.filter((item) => item.status === "done").length
   const fileCount = outputs.length + sources.length
-  const showPlan = !!task && task.plan.length > 0
-  const showFiles = !!task && fileCount > 0
+  const showPlan = !!plan && plan.steps.length > 0
+  const showFiles = !!plan && fileCount > 0
   const showActivity = activityCalls.length > 0
 
   if (!showPlan && !showFiles && !showActivity && !pendingApproval) return null
@@ -111,10 +111,10 @@ export function ThreadWorkHeader({
   return (
     <View className="gap-two border-b border-separator px-four pb-three">
       <View className="flex-row flex-wrap items-center gap-two">
-        {task ? <TaskStatusBadge status={task.status} /> : null}
-        {task && showPlan ? (
-          <SectionPopover label={`Plan · ${doneCount}/${task.plan.length}`}>
-            {() => <TaskPlanList items={task.plan} />}
+        {plan ? <PlanStatusBadge status={plan.status} /> : null}
+        {plan && showPlan ? (
+          <SectionPopover label={`Steps · ${doneCount}/${plan.steps.length}`}>
+            {() => <PlanStepList items={plan.steps} />}
           </SectionPopover>
         ) : null}
         {showFiles ? (
@@ -129,7 +129,7 @@ export function ThreadWorkHeader({
                       </Text>
                     ) : null}
                     {outputs.map((artifact) => (
-                      <TaskFileRow
+                      <PlanFileRow
                         key={artifact.id}
                         name={artifact.path}
                         onOpen={close}
@@ -147,7 +147,7 @@ export function ThreadWorkHeader({
                       </Text>
                     ) : null}
                     {sources.map((source) => (
-                      <TaskFileRow
+                      <PlanFileRow
                         key={source.url}
                         name={source.filename}
                         onOpen={close}

@@ -40,8 +40,8 @@ import { MessageActionBar } from "@/components/chat/message-action-bar"
 import { AttachmentGrid } from "@/components/chat/message-attachment"
 import { MessageEditInput } from "@/components/chat/message-edit-input"
 import { MessageMarkdown } from "@/components/chat/message-markdown"
+import { PlanCard } from "@/components/chat/plan-card"
 import { ProposalCard } from "@/components/chat/proposal-card"
-import { TaskCard } from "@/components/chat/task-card"
 import { ThinkingIndicator } from "@/components/chat/thinking-indicator"
 import { UserProfilePopover } from "@/components/ui/user-profile-card"
 import { useStopMerlinRun } from "@/hooks/use-stop-merlin-run"
@@ -380,16 +380,16 @@ export const MessageItem = memo(function MessageItem({
     )
   }
 
-  // Task, loop and proposal cards (and per-fire loop chips) render as their
+  // Plan, loop and proposal cards (and per-fire loop chips) render as their
   // own surface, but inside the normal message row — so they keep Merlin's
   // avatar, name and timestamp, and line up with every other message.
   if (
-    message.type === "task_card" ||
+    message.type === "plan_card" ||
     message.type === "loop_card" ||
     message.type === "loop_fire" ||
     message.type === "proposal_card"
   ) {
-    const taskAvatar = (
+    const planAvatar = (
       <Avatar size="lg">
         {avatarUrl && <AvatarImage src={avatarUrl} alt={displayName} />}
         <AvatarFallback
@@ -406,7 +406,7 @@ export const MessageItem = memo(function MessageItem({
         <div className="flex gap-3">
           {showHeader ? (
             isApp ? (
-              <div className="mt-0.5 self-start">{taskAvatar}</div>
+              <div className="mt-0.5 self-start">{planAvatar}</div>
             ) : (
               <UserProfilePopover
                 align="start"
@@ -418,7 +418,7 @@ export const MessageItem = memo(function MessageItem({
                   type="button"
                   className="mt-0.5 cursor-pointer self-start"
                 >
-                  {taskAvatar}
+                  {planAvatar}
                 </button>
               </UserProfilePopover>
             )
@@ -452,8 +452,8 @@ export const MessageItem = memo(function MessageItem({
                 </span>
               </div>
             )}
-            {message.type === "task_card" ? (
-              <TaskCard message={message} onOpenThread={onOpenThread} />
+            {message.type === "plan_card" ? (
+              <PlanCard message={message} onOpenThread={onOpenThread} />
             ) : message.type === "proposal_card" ? (
               <ProposalCard message={message} />
             ) : (
@@ -461,7 +461,7 @@ export const MessageItem = memo(function MessageItem({
             )}
             {/* Proposal resolutions and Merlin's follow-up land in the card's
                 thread; the standard reply footer is the way in (the card
-                itself is deliberately not clickable, unlike task cards). */}
+                itself is deliberately not clickable, unlike plan cards). */}
             {message.type === "proposal_card" &&
               onOpenThread &&
               message.threadSummary &&

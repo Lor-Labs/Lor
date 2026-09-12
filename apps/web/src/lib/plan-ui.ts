@@ -6,18 +6,18 @@ import {
   Clock01Icon,
   Loading03Icon,
 } from "@hugeicons/core-free-icons"
-import type { RealtimeTaskStatus } from "@repo/realtime-types"
+import type { RealtimePlanStatus } from "@repo/realtime-types"
 
 type IconSvgObject = typeof Clock01Icon
 
-export type TaskStatusMeta = {
+export type PlanStatusMeta = {
   label: string
   badgeVariant: "info" | "warning" | "success" | "error" | "secondary"
   icon: IconSvgObject
   spin?: boolean
 }
 
-export const TASK_STATUS_META: Record<RealtimeTaskStatus, TaskStatusMeta> = {
+export const PLAN_STATUS_META: Record<RealtimePlanStatus, PlanStatusMeta> = {
   running: {
     label: "Running",
     badgeVariant: "info",

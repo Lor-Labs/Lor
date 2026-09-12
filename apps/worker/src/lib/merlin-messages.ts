@@ -112,7 +112,7 @@ export async function postMerlinMessage(
     type?:
       | "default"
       | "event"
-      | "task_card"
+      | "plan_card"
       | "loop_card"
       | "loop_fire"
       | "proposal_card"

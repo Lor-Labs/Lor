@@ -1,4 +1,4 @@
-import type { AgentRunContextTask } from "@repo/db/schema"
+import type { AgentRunContextPlan } from "@repo/db/schema"
 import type { ModelMessage } from "ai"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -261,20 +261,20 @@ describe("compact", () => {
     expect(isSafeSplit(out, out.length)).toBe(true)
   })
 
-  it("restores authoritative task state after the tail", async () => {
+  it("restores authoritative plan state after the tail", async () => {
     generateText.mockResolvedValue(ok("notes"))
-    const task: AgentRunContextTask = {
+    const plan: AgentRunContextPlan = {
       title: "Export CSV",
       goal: "the goal",
       status: "running",
-      plan: [{ text: "Query the audit log", status: "active" }],
+      steps: [{ text: "Query the audit log", status: "active" }],
       summary: null,
     }
     const out = await compact({
       ...base,
       messages: longConversation(),
       state: newCompactionState(),
-      task,
+      plan,
     })
     const last = String(out.at(-1)?.content)
     expect(last).toContain("Query the audit log")
@@ -310,12 +310,12 @@ describe("compact", () => {
     expect(isSafeSplit(second, second.length)).toBe(true)
   })
 
-  it("replaces the previous task-state block instead of stacking a second", async () => {
-    const task: AgentRunContextTask = {
-      title: "Repeat task",
+  it("replaces the previous plan-state block instead of stacking a second", async () => {
+    const plan: AgentRunContextPlan = {
+      title: "Repeat plan",
       goal: "compact twice",
       status: "running",
-      plan: [],
+      steps: [],
       summary: null,
     }
     generateText.mockResolvedValue(ok("notes"))
@@ -324,7 +324,7 @@ describe("compact", () => {
       ...base,
       messages: longConversation(),
       state,
-      task,
+      plan,
     })
     expect(first.filter(isStateMessage)).toHaveLength(1)
     // The first output's state block sits in the recent tail of the second
@@ -334,7 +334,7 @@ describe("compact", () => {
       ...base,
       messages: carriedForward,
       state,
-      task,
+      plan,
     })
     expect(second.filter(isStateMessage)).toHaveLength(1)
     expect(second.findIndex(isStateMessage)).toBe(second.length - 1)

@@ -8,7 +8,7 @@ import type { Approval } from "@repo/db/schema"
 export function serializeApproval(row: Approval) {
   return {
     id: row.id,
-    taskId: row.taskId,
+    planId: row.planId,
     action: row.action,
     description: row.description,
     status: row.status,

@@ -1,6 +1,6 @@
 import { db, eq, isUniqueViolation, MERLIN_USER_ID, schema } from "@repo/db"
 import { env } from "@repo/env/server"
-import { settleAbandonedRunTask, toRealtimeTask } from "@repo/merlin/tasks"
+import { settleAbandonedRunPlan, toRealtimePlan } from "@repo/merlin/plans"
 import { loadThreadSummary } from "@repo/messaging"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
 import type { MerlinRespondJobData } from "@repo/realtime-types/queues"
@@ -16,19 +16,19 @@ import {
 
 type RedisClient = ReturnType<typeof createClient>
 
-export type MerlinTaskDeps = {
+export type MerlinPlanDeps = {
   emitter: Emitter<ServerToClientEvents>
   redis: RedisClient
   respondQueue: Queue<MerlinRespondJobData>
 }
 
-// Card + task row + the task's first run — the same card-is-thread-root
-// shape as createTaskWithCard + the follow-up-run pattern in run-queue.ts,
-// so the created task lives entirely on existing task rails. Used by the
+// Card + plan row + the plan's first run — the same card-is-thread-root
+// shape + the follow-up-run pattern in run-queue.ts,
+// so the created plan lives entirely on existing plan rails. Used by the
 // unattended processors (Act triggers, loops) when Merlin's disposition is
-// create_task; `originRunId` records which run spawned it.
-export async function createMerlinTask(
-  deps: MerlinTaskDeps,
+// create_plan; `originRunId` records which run spawned it.
+export async function createMerlinPlan(
+  deps: MerlinPlanDeps,
   input: {
     workspaceId: string
     channelId: string
@@ -36,25 +36,25 @@ export async function createMerlinTask(
     goal: string
     originRunId?: string
   }
-): Promise<{ taskId: string }> {
+): Promise<{ planId: string }> {
   const postMerlinMessage = (msg: {
     channelId: string
     content: string
-    type?: "default" | "task_card"
+    type?: "default" | "plan_card"
   }) =>
     postMerlinChannelMessage({ emitter: deps.emitter, redis: deps.redis }, msg)
 
   const { messageId: cardId } = await postMerlinMessage({
     channelId: input.channelId,
     content: input.goal,
-    type: "task_card",
+    type: "plan_card",
   })
-  const task = await db
-    .insert(schema.task)
+  const plan = await db
+    .insert(schema.plan)
     .values({
       workspaceId: input.workspaceId,
       channelId: input.channelId,
-      // Spawned tasks keep card-as-root: no human root message exists.
+      // Spawned plans keep card-as-root: no human root message exists.
       threadRootId: cardId,
       cardMessageId: cardId,
       creatorId: MERLIN_USER_ID,
@@ -64,29 +64,29 @@ export async function createMerlinTask(
     })
     .returning()
     .then((rows) => rows[0] ?? null)
-  if (!task) {
+  if (!plan) {
     await db
       .delete(schema.message)
       .where(eq(schema.message.id, cardId))
       .catch(() => {})
-    throw new Error("Task insert returned no row")
+    throw new Error("Plan insert returned no row")
   }
   // Without this the card renders its degraded no-status fallback until the
-  // channel-tasks query refetches (the gateway's createTaskWithCard emits it;
+  // channel-plans query refetches (nothing else emits for spawned cards;
   // this path previously didn't).
   deps.emitter
     .to(channelRoom(input.channelId))
-    .emit("task:updated", { task: toRealtimeTask(task) })
+    .emit("plan:updated", { plan: toRealtimePlan(plan) })
 
-  // A task stranded at its born-"running" default with no run behind it can
+  // A plan stranded at its born-"running" default with no run behind it can
   // never settle — fail it on every path that bails before the enqueue.
-  const failTask = () =>
-    settleAbandonedRunTask({ threadRootId: cardId }, "failed", (row) =>
+  const failPlan = () =>
+    settleAbandonedRunPlan({ threadRootId: cardId }, "failed", (row) =>
       deps.emitter
         .to(channelRoom(input.channelId))
-        .emit("task:updated", { task: toRealtimeTask(row) })
+        .emit("plan:updated", { plan: toRealtimePlan(row) })
     ).catch((err) =>
-      logger.error({ err, taskId: task.id }, "Task fail-settle failed")
+      logger.error({ err, planId: plan.id }, "Plan fail-settle failed")
     )
 
   const placeholder = await db
@@ -100,11 +100,11 @@ export async function createMerlinTask(
     .returning({ id: schema.message.id, createdAt: schema.message.createdAt })
     .then((rows) => rows[0] ?? null)
   if (!placeholder) {
-    await failTask()
-    return { taskId: task.id }
+    await failPlan()
+    return { planId: plan.id }
   }
 
-  const taskRun = await db
+  const planRun = await db
     .insert(schema.agentRun)
     .values({
       workspaceId: input.workspaceId,
@@ -125,17 +125,17 @@ export async function createMerlinTask(
     .then((rows) => rows[0] ?? null)
     .catch((err) => {
       if (!isUniqueViolation(err)) {
-        logger.error({ err, taskId: task.id }, "Task first-run insert failed")
+        logger.error({ err, planId: plan.id }, "Plan first-run insert failed")
       }
       return null
     })
-  if (!taskRun) {
+  if (!planRun) {
     await db
       .delete(schema.message)
       .where(eq(schema.message.id, placeholder.id))
       .catch(() => {})
-    await failTask()
-    return { taskId: task.id }
+    await failPlan()
+    return { planId: plan.id }
   }
 
   const author = await loadMerlinAuthor()
@@ -168,14 +168,14 @@ export async function createMerlinTask(
         threadRootId: cardId,
         contextThreadRootId: cardId,
         triggerMessageId: cardId,
-        runId: taskRun.id,
+        runId: planRun.id,
       },
       {
         attempts: 2,
         // Must exceed the run lease TTL (60s) or the retry can never reclaim
         // a crashed attempt — it sees a live lease and skips.
         backoff: { type: "fixed", delay: 90_000 },
-        jobId: taskRun.id,
+        jobId: planRun.id,
       }
     )
     // Channel viewers see the card via message:created; the pending reply only
@@ -187,13 +187,13 @@ export async function createMerlinTask(
           .emit("message:thread:updated", summary)
       )
       .catch((err) =>
-        logger.warn({ err, taskId: task.id }, "Task thread summary emit failed")
+        logger.warn({ err, planId: plan.id }, "Plan thread summary emit failed")
       )
   } catch (err) {
-    logger.error({ err, taskId: task.id }, "Task first-run enqueue failed")
+    logger.error({ err, planId: plan.id }, "Plan first-run enqueue failed")
     await db
       .delete(schema.agentRun)
-      .where(eq(schema.agentRun.id, taskRun.id))
+      .where(eq(schema.agentRun.id, planRun.id))
       .catch(() => {})
     await db
       .delete(schema.message)
@@ -203,7 +203,7 @@ export async function createMerlinTask(
       channelId: input.channelId,
       messageId: placeholder.id,
     })
-    await failTask()
+    await failPlan()
   }
-  return { taskId: task.id }
+  return { planId: plan.id }
 }

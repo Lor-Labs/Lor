@@ -24,7 +24,7 @@ import { useSocket } from "@/context/socket-context"
 import { useChannelApprovals } from "@/hooks/use-approvals"
 import { useAutoMarkRead } from "@/hooks/use-auto-mark-read"
 import { useChannelMessages } from "@/hooks/use-channel-messages"
-import { useChannelTasks } from "@/hooks/use-channel-tasks"
+import { useChannelPlans } from "@/hooks/use-channel-plans"
 import { useFileUpload } from "@/hooks/use-file-upload"
 import { useMarkThreadRead } from "@/hooks/use-mark-thread-read"
 import { useMerlinRunReplay } from "@/hooks/use-merlin-stream"
@@ -90,10 +90,10 @@ function ChannelView() {
   // channel view.
   useChannelApprovals(channelId)
   useChannelProposals(channelId)
-  // Tasks too — cards mount/unmount with scrolling, so without a route-level
-  // subscription a terminal task:updated can arrive with no listener and the
+  // Plans too — cards mount/unmount with scrolling, so without a route-level
+  // subscription a terminal plan:updated can arrive with no listener and the
   // card spins on "running" until a refetch.
-  useChannelTasks(channelId)
+  useChannelPlans(channelId)
 
   useEffect(() => {
     if (!workspaceSlug || !channelId) return

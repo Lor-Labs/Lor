@@ -278,7 +278,7 @@ export function TriggerEffects({
         id={`${idPrefix}-act`}
         icon={MagicWand01Icon}
         title="Act"
-        description="Wake Merlin to take action — it can reply, create tasks, and call your tools"
+        description="Wake Merlin to take action — it can reply, start plans, and call your tools"
         checked={value.actInstructions !== null}
         disabled={disabled}
         onCheckedChange={(checked) =>
@@ -290,7 +290,7 @@ export function TriggerEffects({
             <Textarea
               key={value.actInstructions}
               defaultValue={value.actInstructions}
-              placeholder="e.g. “if this is a refund over $500, summarize it and create a task”"
+              placeholder="e.g. “if this is a refund over $500, summarize it and start a plan”"
               className="min-h-16 text-xs"
               rows={3}
               maxLength={4000}

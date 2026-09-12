@@ -176,7 +176,7 @@ export async function synthesizeProjectArchive(
   const caps = grants.capabilities
 
   // Read-only connector binding — keep in sync with respond()'s toolset (no
-  // write tools, no task/artifact/message-action tools here).
+  // write tools, no plan/artifact/message-action tools here).
   const needsGithub =
     caps.includes("github") || caps.includes("code_intelligence")
   const [github, linear, attio, notion, datadogMcp, cloudwatch] =

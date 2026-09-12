@@ -5,7 +5,7 @@ import { and, db, eq, notExists, schema } from "@repo/db"
 import { env } from "@repo/env/server"
 import { enterContext } from "@repo/logger"
 import { decideReplyPlacement } from "@repo/merlin/placement"
-import { settleAbandonedRunTask, toRealtimeTask } from "@repo/merlin/tasks"
+import { settleAbandonedRunPlan, toRealtimePlan } from "@repo/merlin/plans"
 import {
   buildMessageFanout,
   sendMessagePushNotifications,
@@ -806,8 +806,8 @@ io.on("connection", (socket) => {
           // Decide where Merlin replies. A mention already in a thread stays
           // there; a main-channel mention answers in-channel (broadly useful)
           // or ducks into a thread rooted at the triggering message (narrow,
-          // noisy, or delegated work — start_task adopts the thread mid-run
-          // when Merlin commits to a task).
+          // noisy, or delegated work — start_plan adopts the thread mid-run
+          // when Merlin commits to a plan).
           let merlinThreadRootId = parsed.threadRootId ?? null
           if (merlinThreadRootId === null) {
             const placementStart = performance.now()
@@ -983,13 +983,13 @@ io.on("connection", (socket) => {
                     status: "failed",
                     replace: true,
                   })
-                  await settleAbandonedRunTask(
+                  await settleAbandonedRunPlan(
                     { threadRootId: orphan.threadRootId },
                     "failed",
-                    (task) => {
+                    (plan) => {
                       io.to(channelRoom(orphan.channelId)).emit(
-                        "task:updated",
-                        { task: toRealtimeTask(task) }
+                        "plan:updated",
+                        { plan: toRealtimePlan(plan) }
                       )
                     }
                   )
@@ -1020,12 +1020,12 @@ io.on("connection", (socket) => {
                 )
                 .limit(1)
               if (!run) {
-                await settleAbandonedRunTask(
+                await settleAbandonedRunPlan(
                   { threadRootId: merlinThreadRootId },
                   "failed",
-                  (task) => {
-                    io.to(channelRoom(parsed.channelId)).emit("task:updated", {
-                      task: toRealtimeTask(task),
+                  (plan) => {
+                    io.to(channelRoom(parsed.channelId)).emit("plan:updated", {
+                      plan: toRealtimePlan(plan),
                     })
                   }
                 )

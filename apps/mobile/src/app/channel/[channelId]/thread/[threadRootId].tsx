@@ -16,7 +16,7 @@ import {
 } from "@/components/thread-message-list"
 import { ThreadParticipantStack } from "@/components/thread-participant-stack"
 import {
-  type TaskSourceFile,
+  type PlanSourceFile,
   ThreadWorkHeader,
 } from "@/components/thread-work-header"
 import { TypingIndicator } from "@/components/typing-indicator"
@@ -31,11 +31,11 @@ import { useAutoMarkRead } from "@/hooks/use-auto-mark-read"
 import { useCanPinMessages } from "@/hooks/use-can-pin-messages"
 import { useChannelDetail } from "@/hooks/use-channel-detail"
 import { useOpenDM } from "@/hooks/use-open-dm"
+import { usePlanForThread } from "@/hooks/use-plans"
 import { useProfileSheet } from "@/hooks/use-profile-sheet"
 import { useChannelProposals } from "@/hooks/use-proposals"
 import { useRunQueue } from "@/hooks/use-run-queue"
 import { useStopMerlinRun } from "@/hooks/use-stop-merlin-run"
-import { useTaskForThread } from "@/hooks/use-tasks"
 import { useThreadMessages } from "@/hooks/use-thread-messages"
 import { useTypingIndicator } from "@/hooks/use-typing-indicator"
 import { useWorkspaceMentionCandidates } from "@/hooks/use-workspace-mention-candidates"
@@ -136,11 +136,11 @@ export default function ThreadScreen() {
   })
   const { openDM } = useOpenDM()
 
-  // A thread is a task thread iff a task row anchors to its root — the root
+  // A thread is a plan thread iff a plan row anchors to its root — the root
   // message type no longer decides.
-  const isTaskThread = !!useTaskForThread(channelId, threadRootId)
+  const isPlanThread = !!usePlanForThread(channelId, threadRootId)
   // Newest Merlin reply with tool calls — the work header's Activity chip.
-  // Shown for any thread where Merlin worked, task or not (mirrors web).
+  // Shown for any thread where Merlin worked, plan or not (mirrors web).
   const activityMessage = useMemo(
     () =>
       thread.messages.find(
@@ -150,12 +150,12 @@ export default function ThreadScreen() {
       ) ?? null,
     [thread.messages]
   )
-  const showWorkHeader = isTaskThread || activityMessage !== null
-  // Files uploaded into the task thread (from any loaded message) — the
-  // "Sources" side of the task header's Files section.
-  const taskSources = useMemo<TaskSourceFile[]>(() => {
-    if (!isTaskThread) return []
-    const byUrl = new Map<string, TaskSourceFile>()
+  const showWorkHeader = isPlanThread || activityMessage !== null
+  // Files uploaded into the plan thread (from any loaded message) — the
+  // "Sources" side of the plan header's Files section.
+  const planSources = useMemo<PlanSourceFile[]>(() => {
+    if (!isPlanThread) return []
+    const byUrl = new Map<string, PlanSourceFile>()
     for (const message of [thread.root, ...thread.messages]) {
       for (const attachment of message?.attachments ?? []) {
         byUrl.set(attachment.url, {
@@ -166,7 +166,7 @@ export default function ThreadScreen() {
       }
     }
     return [...byUrl.values()]
-  }, [isTaskThread, thread.root, thread.messages])
+  }, [isPlanThread, thread.root, thread.messages])
 
   const stopPendingMerlin = useCallback(async () => {
     const messageId = pendingMerlinMessage?.id
@@ -283,7 +283,7 @@ export default function ThreadScreen() {
         </IconButton>
         <View className="min-w-0 flex-1 gap-px">
           <Text className="text-[17px] font-bold tracking-[-0.2px] text-foreground">
-            {isTaskThread ? "Task" : "Thread"}
+            {isPlanThread ? "Plan" : "Thread"}
           </Text>
           <Text
             className="text-xs font-medium leading-4 text-muted"
@@ -302,7 +302,7 @@ export default function ThreadScreen() {
         <ThreadWorkHeader
           activityMessage={activityMessage}
           channelId={channelId}
-          sources={taskSources}
+          sources={planSources}
           threadRootId={threadRootId}
         />
       ) : null}
