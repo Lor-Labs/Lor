@@ -682,7 +682,11 @@ export type RealtimeTask = {
   id: string
   workspaceId: string
   channelId: string
-  cardMessageId: string
+  // The thread root the task's runs execute under — the task's conversation.
+  threadRootId: string
+  // The projected card message in the channel feed; equals threadRootId for
+  // spawned (card-as-root) tasks, null only if the card was deleted.
+  cardMessageId: string | null
   creatorId: string | null
   title: string
   goal: string

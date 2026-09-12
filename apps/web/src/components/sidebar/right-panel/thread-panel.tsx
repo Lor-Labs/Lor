@@ -5,6 +5,7 @@ import {
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
+import { MERLIN_USER_ID } from "@repo/db/constants"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -55,17 +56,17 @@ import {
   useRegisteredMessageScroller,
 } from "@/components/chat/message-scroller-controls"
 import { RunQueuePill } from "@/components/chat/run-queue-pill"
+import { ThreadSubscriberStack } from "@/components/chat/thread-subscriber-stack"
 import {
   type TaskSourceFile,
-  TaskThreadHeader,
-} from "@/components/chat/task-thread-header"
-import { ThreadSubscriberStack } from "@/components/chat/thread-subscriber-stack"
+  ThreadWorkHeader,
+} from "@/components/chat/thread-work-header"
 import { TypingIndicator } from "@/components/chat/typing-indicator"
 import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-header"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import type { ThreadSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
 import { useSocket } from "@/context/socket-context"
-import { useTaskForCard } from "@/hooks/use-channel-tasks"
+import { useTaskForThread } from "@/hooks/use-channel-tasks"
 import { useFileUpload } from "@/hooks/use-file-upload"
 import { useMarkThreadRead } from "@/hooks/use-mark-thread-read"
 import { useMerlinRunReplay } from "@/hooks/use-merlin-stream"
@@ -278,13 +279,25 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
   )
 
   // Task threads get their own panel identity: header says Task + live
-  // status, and the docked strip below carries plan/files/approval.
-  const isTask = rootMessage?.type === "task_card"
-  const task = useTaskForCard(view.channelId, view.threadRootId)
-  const taskStatusMeta = isTask && task ? TASK_STATUS_META[task.status] : null
-  const { data: taskArtifacts } = useTaskArtifacts(
-    isTask ? (task?.id ?? null) : null
+  // status, and the docked strip below carries plan/files/approval. A thread
+  // is a task thread iff a task row anchors to its root — the root message
+  // type no longer decides (any thread can become a task mid-conversation).
+  const task = useTaskForThread(view.channelId, view.threadRootId)
+  const isTask = !!task
+  const taskStatusMeta = task ? TASK_STATUS_META[task.status] : null
+  const { data: taskArtifacts } = useTaskArtifacts(task?.id ?? null)
+  // Newest Merlin reply with tool calls — the Activity chip's work log. Shown
+  // for any thread where Merlin worked, task or not.
+  const activityMessage = useMemo(
+    () =>
+      messages.find(
+        (message) =>
+          message.authorId === MERLIN_USER_ID &&
+          (message.merlinToolCalls?.length ?? 0) > 0
+      ) ?? null,
+    [messages]
   )
+  const showWorkHeader = isTask || activityMessage !== null
 
   const handleCopyAsMarkdown = useCallback(async () => {
     try {
@@ -694,7 +707,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
             </span>
           ) : undefined
         }
-        className={isTask ? "border-b-0" : undefined}
+        className={showWorkHeader ? "border-b-0" : undefined}
         actions={
           <>
             <ThreadSubscriberStack subscribers={participants} />
@@ -730,11 +743,12 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
         }
       />
 
-      {isTask && (
-        <TaskThreadHeader
+      {showWorkHeader && (
+        <ThreadWorkHeader
           channelId={view.channelId}
-          cardMessageId={view.threadRootId}
+          threadRootId={view.threadRootId}
           sources={taskSources}
+          activityMessage={activityMessage}
         />
       )}
 

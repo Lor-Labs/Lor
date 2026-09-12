@@ -54,6 +54,8 @@ export async function createMerlinTask(
     .values({
       workspaceId: input.workspaceId,
       channelId: input.channelId,
+      // Spawned tasks keep card-as-root: no human root message exists.
+      threadRootId: cardId,
       cardMessageId: cardId,
       creatorId: MERLIN_USER_ID,
       title: input.title,

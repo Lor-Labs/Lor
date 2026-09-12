@@ -31,7 +31,7 @@ import { writeArtifactVersion } from "./service"
 const context = {
   workspaceId: "ws",
   channelId: "ch",
-  task: null,
+  getTask: () => null,
 }
 
 type ExecuteOptions = {

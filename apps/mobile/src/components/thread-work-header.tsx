@@ -2,15 +2,18 @@ import ArrowRight01Icon from "@hugeicons/core-free-icons/ArrowRight01Icon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
 import { useThemeColor } from "heroui-native/hooks"
 import { Popover } from "heroui-native/popover"
-import { type ReactNode, useState } from "react"
+import { type ReactNode, useMemo, useState } from "react"
 import { Text, View } from "react-native"
 import { ApprovalGateCard } from "@/components/approval-card"
+import { MerlinToolTrail } from "@/components/merlin-tool-trail"
 import {
   TaskFileRow,
   TaskPlanList,
   TaskStatusBadge,
 } from "@/components/task-ui"
-import { useTask, useTaskArtifacts, useTaskForCard } from "@/hooks/use-tasks"
+import { useTask, useTaskArtifacts, useTaskForThread } from "@/hooks/use-tasks"
+import type { Message } from "@/lib/api-types"
+import type { MerlinToolCall } from "@/lib/merlin"
 
 export type TaskSourceFile = {
   url: string
@@ -52,41 +55,64 @@ function SectionPopover({
   )
 }
 
-// Docked strip under the thread header when the root is a task card: status,
-// Plan/Files popover chips (Outputs = artifacts, Sources = thread uploads),
-// and the pending approval card, which is always visible.
-export function TaskThreadHeader({
+// Docked strip under the thread header — the thread's work surface (mirrors
+// web's thread-work-header). Status + Plan/Files popover chips when a task
+// anchors to the thread, an Activity chip mirroring the newest run's tool
+// trail whenever Merlin worked here, and the pending approval card, which is
+// always visible.
+export function ThreadWorkHeader({
   channelId,
-  cardMessageId,
+  threadRootId,
   sources,
+  activityMessage,
 }: {
   channelId: string
-  cardMessageId: string
+  threadRootId: string
   sources: TaskSourceFile[]
+  activityMessage: Message | null
 }) {
-  const task = useTaskForCard(channelId, cardMessageId)
+  const task = useTaskForThread(channelId, threadRootId)
   const { data: detail } = useTask(task?.id ?? null)
   const { data: artifacts } = useTaskArtifacts(task?.id ?? null)
 
-  if (!task) return null
+  const { activityCalls, childrenByParent } = useMemo(() => {
+    const topLevel: MerlinToolCall[] = []
+    const children = new Map<string, MerlinToolCall[]>()
+    for (const call of activityMessage?.merlinToolCalls ?? []) {
+      if (call.parentToolCallId) {
+        const siblings = children.get(call.parentToolCallId) ?? []
+        siblings.push(call)
+        children.set(call.parentToolCallId, siblings)
+      } else {
+        topLevel.push(call)
+      }
+    }
+    return { activityCalls: topLevel, childrenByParent: children }
+  }, [activityMessage])
+  const streaming = activityMessage?.status === "pending"
 
   const pendingApproval =
     detail?.pendingApproval?.status === "pending"
       ? detail.pendingApproval
       : null
   const outputs = artifacts ?? []
-  const doneCount = task.plan.filter((item) => item.status === "done").length
+  const doneCount = !task
+    ? 0
+    : task.status === "completed"
+      ? task.plan.length
+      : task.plan.filter((item) => item.status === "done").length
   const fileCount = outputs.length + sources.length
-  const showPlan = task.plan.length > 0
-  const showFiles = fileCount > 0
+  const showPlan = !!task && task.plan.length > 0
+  const showFiles = !!task && fileCount > 0
+  const showActivity = activityCalls.length > 0
 
-  if (!showPlan && !showFiles && !pendingApproval) return null
+  if (!showPlan && !showFiles && !showActivity && !pendingApproval) return null
 
   return (
     <View className="gap-two border-b border-separator px-four pb-three">
-      <View className="flex-row items-center gap-two">
-        <TaskStatusBadge status={task.status} />
-        {showPlan ? (
+      <View className="flex-row flex-wrap items-center gap-two">
+        {task ? <TaskStatusBadge status={task.status} /> : null}
+        {task && showPlan ? (
           <SectionPopover label={`Plan · ${doneCount}/${task.plan.length}`}>
             {() => <TaskPlanList items={task.plan} />}
           </SectionPopover>
@@ -132,6 +158,22 @@ export function TaskThreadHeader({
                   </View>
                 ) : null}
               </View>
+            )}
+          </SectionPopover>
+        ) : null}
+        {showActivity ? (
+          <SectionPopover
+            label={
+              streaming ? "Working…" : `Activity · ${activityCalls.length}`
+            }
+          >
+            {() => (
+              <MerlinToolTrail
+                childrenByParent={childrenByParent}
+                embedded
+                streaming={streaming}
+                toolCalls={activityCalls}
+              />
             )}
           </SectionPopover>
         ) : null}

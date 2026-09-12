@@ -28,6 +28,8 @@ export const SIDE_EFFECT_TOOLS = new Set([
   // message (or opens the same task) twice.
   "post_channel_message",
   "create_task",
+  // Adopts the run's thread as a task; replay must not create a duplicate.
+  "start_task",
   // Loop runs: a retried step must not double-complete the loop.
   "complete_loop",
   // Creates a draft loop row + card message; replay must not duplicate them.

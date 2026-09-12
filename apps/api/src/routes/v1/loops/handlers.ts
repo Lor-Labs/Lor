@@ -534,6 +534,7 @@ export const listLoopRuns: AppRouteHandler<ListLoopRunsRoute> = async (c) => {
               id: schema.task.id,
               title: schema.task.title,
               status: schema.task.status,
+              threadRootId: schema.task.threadRootId,
               cardMessageId: schema.task.cardMessageId,
               originRunId: schema.task.originRunId,
             })

@@ -51,7 +51,6 @@ import { assertUserCanAccessChannel } from "@/services/channel-access"
 import {
   createAgentRun,
   createMerlinPlaceholder,
-  createTaskWithCard,
   isMerlinMentioned,
   isMerlinThread,
   loadRecentChannelMessages,
@@ -805,49 +804,21 @@ io.on("connection", (socket) => {
           }
 
           // Decide where Merlin replies. A mention already in a thread stays
-          // there; a main-channel mention may answer in-channel (broadly useful),
-          // duck into a thread rooted at the triggering message (narrow/noisy),
-          // or become a task (clear delegation with a deliverable) whose
-          // card message roots the task's thread.
+          // there; a main-channel mention answers in-channel (broadly useful)
+          // or ducks into a thread rooted at the triggering message (narrow,
+          // noisy, or delegated work — start_task adopts the thread mid-run
+          // when Merlin commits to a task).
           let merlinThreadRootId = parsed.threadRootId ?? null
           if (merlinThreadRootId === null) {
             const placementStart = performance.now()
             try {
               const recent = await loadRecentChannelMessages(parsed.channelId)
-              const { placement, taskTitle } = await decideReplyPlacement(
-                recent,
-                {
-                  authorName: createdMessage.message.author.name,
-                  content: createdMessage.message.content ?? "",
-                }
-              )
+              const { placement } = await decideReplyPlacement(recent, {
+                authorName: createdMessage.message.author.name,
+                content: createdMessage.message.content ?? "",
+              })
               if (placement === "thread") {
                 merlinThreadRootId = createdMessage.message.id
-              } else if (
-                placement === "task" &&
-                accessibleChannel.workspaceId
-              ) {
-                const created = await createTaskWithCard({
-                  accessibleChannel,
-                  workspaceId: accessibleChannel.workspaceId,
-                  channelId: parsed.channelId,
-                  creatorId: socket.data.user.id,
-                  goal: parsed.content ?? "",
-                  title: taskTitle,
-                })
-                if (created) {
-                  merlinThreadRootId = created.card.id
-                  io.to(channelRoom(parsed.channelId)).emit(
-                    "message:created",
-                    created.card
-                  )
-                  io.to(channelRoom(parsed.channelId)).emit("task:updated", {
-                    task: toRealtimeTask(created.task),
-                  })
-                } else {
-                  // Card/task insert failed — degrade to a plain threaded answer.
-                  merlinThreadRootId = createdMessage.message.id
-                }
               }
             } catch (err) {
               logger.error({ err }, "Merlin placement decision failed")

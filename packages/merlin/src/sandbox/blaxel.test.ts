@@ -23,7 +23,7 @@ import {
   type BlaxelSandbox,
   invalidatePersistentSandbox,
   withPersistentSandbox,
-  withTaskSandbox,
+  withWorkbenchSandbox,
 } from "./blaxel"
 
 const healthyProcess = {
@@ -132,17 +132,17 @@ describe("withPersistentSandbox", () => {
     expect(sandbox.h2Session.close).toHaveBeenCalledOnce()
   })
 
-  it("uses the short task TTL", async () => {
+  it("uses the short workbench TTL", async () => {
     const sandbox = fakeSandbox({ idleTtl: "24h" })
     sdk.createIfNotExists.mockResolvedValue(sandbox)
 
-    await withTaskSandbox("1", async (current) => {
+    await withWorkbenchSandbox("1", async (current) => {
       expect(current).toBe(sandbox)
     })
 
     expect(sdk.createIfNotExists).toHaveBeenCalledWith(
       expect.objectContaining({
-        name: "task-1",
+        name: "wbs-1",
         lifecycle: {
           expirationPolicies: [
             { action: "delete", type: "ttl-idle", value: "24h" },

@@ -285,12 +285,12 @@ function LoopRunRow({ run, view }: { run: LoopRun; view: LoopSidebarView }) {
     run.artifacts.length > 0 ||
     Boolean(run.stopReason && run.stopReason !== "completed")
 
-  const openTaskThread = (cardMessageId: string) => {
+  const openTaskThread = (threadRootId: string) => {
     setView({
       type: "thread",
       workspaceSlug: view.workspaceSlug,
       channelId: view.channelId,
-      threadRootId: cardMessageId,
+      threadRootId,
     })
     if (isCollapsed) toggleCollapsed()
   }
@@ -396,11 +396,7 @@ function LoopRunRow({ run, view }: { run: LoopRun; view: LoopSidebarView }) {
                     <button
                       key={task.id}
                       type="button"
-                      disabled={!task.cardMessageId}
-                      onClick={() => {
-                        if (task.cardMessageId)
-                          openTaskThread(task.cardMessageId)
-                      }}
+                      onClick={() => openTaskThread(task.threadRootId)}
                       className="flex w-full cursor-pointer items-center justify-between gap-3 rounded-lg bg-secondary/60 px-3 py-2 text-left ring-1 ring-border/40 ring-inset transition-colors hover:bg-secondary disabled:cursor-default"
                     >
                       <span className="min-w-0 truncate text-sm">

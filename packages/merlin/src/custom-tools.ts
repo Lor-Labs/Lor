@@ -39,6 +39,7 @@ export const RESERVED_TOOL_NAMES: ReadonlySet<string> = new Set([
   "investigate_code",
   "propose_code_change",
   "create_artifacts",
+  "start_task",
   "set_plan",
   "complete_task",
   "request_approval",

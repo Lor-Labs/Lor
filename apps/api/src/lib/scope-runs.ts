@@ -461,8 +461,8 @@ export async function startScopeContinuationRun(
   }
 }
 
-// Task-thread flavour: the scope is the task's card thread, and an abandoned
-// run puts the task back in the team's court.
+// Task-thread flavour: the scope is the task's anchor thread, and an
+// abandoned run puts the task back in the team's court.
 export async function startTaskContinuationRun(args: {
   task: Task
   triggerMessageId: string
@@ -472,8 +472,8 @@ export async function startTaskContinuationRun(args: {
   await startScopeContinuationRun({
     workspaceId: task.workspaceId,
     channelId: task.channelId,
-    scopeKey: task.cardMessageId,
-    threadRootId: task.cardMessageId,
+    scopeKey: task.threadRootId,
+    threadRootId: task.threadRootId,
     triggerMessageId: args.triggerMessageId,
     senderId: args.senderId,
     onAbandoned: async () => {

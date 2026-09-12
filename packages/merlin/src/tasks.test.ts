@@ -20,23 +20,25 @@ const task: AgentRunContextTask = {
 
 describe("taskRulesSection", () => {
   it("carries no task-specific data, so it stays cacheable across runs", () => {
-    const rules = taskRulesSection(true)
+    const rules = taskRulesSection(true, true)
     expect(rules).not.toContain(task.title)
     expect(rules).not.toContain(task.goal)
     expect(rules).not.toContain("[active]")
     // Identical for any two task runs with the same capability.
-    expect(rules).toBe(taskRulesSection(true))
+    expect(rules).toBe(taskRulesSection(true, true))
     expect(rules).toContain("set_plan")
     expect(rules).toContain("complete_task")
   })
 
   it("points the model at where the live task state actually is", () => {
-    expect(taskRulesSection(true)).toContain("end of the conversation below")
+    expect(taskRulesSection(true, true)).toContain(
+      "end of the conversation below"
+    )
   })
 
   it("only mentions deliverables when artifacts are enabled", () => {
-    expect(taskRulesSection(true)).toContain("create_artifacts")
-    expect(taskRulesSection(false)).not.toContain("create_artifacts")
+    expect(taskRulesSection(true, true)).toContain("create_artifacts")
+    expect(taskRulesSection(false, true)).not.toContain("create_artifacts")
   })
 })
 

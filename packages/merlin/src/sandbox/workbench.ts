@@ -5,7 +5,7 @@ import {
   type BlaxelSandbox,
   runPi,
   withEphemeralSandbox,
-  withTaskSandbox,
+  withWorkbenchSandbox,
   writeText,
 } from "./blaxel"
 import {
@@ -47,11 +47,12 @@ export type WorkbenchResult = {
   failure?: string
 }
 
-// Task continuity is the task's persistent sandbox plus /workspace/out
-// reconciled with the current artifact versions (humans may have edited
-// since the sandbox last ran).
-export type WorkbenchTaskContinuity = {
-  id: string
+// Scope continuity is the conversation's persistent sandbox plus
+// /workspace/out reset to the current artifact versions (humans may have
+// edited since the sandbox last ran). The sandbox key is the run's scope key
+// (a uuid), which doubles as the Pi session id.
+export type WorkbenchContinuity = {
+  sandboxKey: string
   outSeed: { path: string; bytes: Uint8Array }[]
 }
 
@@ -157,7 +158,7 @@ async function walkOutputs(
   return found
 }
 
-// One workbench session: connect the (task-persistent or ephemeral) sandbox,
+// One workbench session: connect the (scope-persistent or ephemeral) sandbox,
 // reconcile seeds, run the Pi coding agent with write tools, harvest the
 // output directory. Files live on only through what the caller persists.
 export async function runWorkbenchSession(
@@ -166,7 +167,7 @@ export async function runWorkbenchSession(
     inputs: WorkbenchInput[]
     timeoutSec: number
     abortSignal?: AbortSignal
-    task?: WorkbenchTaskContinuity
+    continuity?: WorkbenchContinuity
   }
 ): Promise<WorkbenchResult | { error: string }> {
   const {
@@ -176,7 +177,7 @@ export async function runWorkbenchSession(
     abortSignal,
     onStep,
     onAssistantText,
-    task,
+    continuity,
   } = opts
   if (abortSignal?.aborted) return { error: "cancelled" }
 
@@ -184,15 +185,18 @@ export async function runWorkbenchSession(
     sandbox: BlaxelSandbox
   ): Promise<WorkbenchResult | { error: string }> => {
     // Seed subdirectories must exist before writeBinary; one exec covers the
-    // fixed dirs plus every seed parent.
+    // fixed dirs plus every seed parent. Persistent sandboxes reset
+    // /workspace/out to the seed first — artifact rows are the source of
+    // truth, and stale leftovers from a prior session would re-harvest as
+    // duplicate artifact rows (standalone artifacts have no path identity).
     const seedDirs = new Set<string>()
-    for (const seed of task?.outSeed ?? []) {
+    for (const seed of continuity?.outSeed ?? []) {
       if (isUnsafeSeedPath(seed.path)) continue
       const parent = seed.path.split("/").slice(0, -1).join("/")
       if (parent) seedDirs.add(`${OUT_DIR}/${parent}`)
     }
     const mkdir = await sandbox.process.exec({
-      command: `mkdir -p ${IN_DIR} ${OUT_DIR} ${SESSION_DIR} /workspace/tmp /workspace/.cache /workspace/.local /root/.pi/agent ${[...seedDirs].map((d) => `'${d}'`).join(" ")}`,
+      command: `${continuity ? `rm -rf ${OUT_DIR} && ` : ""}mkdir -p ${IN_DIR} ${OUT_DIR} ${SESSION_DIR} /workspace/tmp /workspace/.cache /workspace/.local /root/.pi/agent ${[...seedDirs].map((d) => `'${d}'`).join(" ")}`,
       waitForCompletion: true,
       timeout: 30,
     })
@@ -204,7 +208,7 @@ export async function runWorkbenchSession(
     const digest = (bytes: Uint8Array) =>
       createHash("sha256").update(bytes).digest("hex")
     const seedDigests = new Map<string, string>()
-    for (const seed of task?.outSeed ?? []) {
+    for (const seed of continuity?.outSeed ?? []) {
       if (isUnsafeSeedPath(seed.path)) {
         logger.warn({ path: seed.path }, "Workbench: skipped unsafe seed path")
         continue
@@ -237,7 +241,9 @@ export async function runWorkbenchSession(
         tools: WORKBENCH_PI_TOOLS,
         promptFile: BRIEF_FILE,
         print: true,
-        ...(task ? { session: { dir: SESSION_DIR, id: task.id } } : {}),
+        ...(continuity
+          ? { session: { dir: SESSION_DIR, id: continuity.sandboxKey } }
+          : {}),
       }),
       timeoutSec,
       workingDir: "/workspace",
@@ -303,7 +309,7 @@ export async function runWorkbenchSession(
       logger.warn({ skipped }, "Workbench: output files dropped by caps")
     }
 
-    if (failure && files.length === 0 && !task) {
+    if (failure && files.length === 0 && !continuity) {
       return { error: `workbench session ${failure}` }
     }
 
@@ -321,8 +327,8 @@ export async function runWorkbenchSession(
   }
 
   try {
-    return task
-      ? await withTaskSandbox(task.id, session)
+    return continuity
+      ? await withWorkbenchSandbox(continuity.sandboxKey, session)
       : await withEphemeralSandbox("wb", session)
   } catch (err) {
     logger.error({ err }, "Workbench: session failed")

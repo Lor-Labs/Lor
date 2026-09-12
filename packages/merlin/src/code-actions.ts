@@ -16,6 +16,7 @@ import {
   prepareCodeChange,
   publishCodeChange,
 } from "./sandbox/code-session"
+import { createSessionSerializer } from "./sandbox/serialize"
 import { subagentToolEvents } from "./sandbox/sub-events"
 import { toolExecutionKey } from "./tool-guard"
 import type { OnUsage } from "./usage"
@@ -49,27 +50,7 @@ function authorizePublish(_change: ProposedChange): "publish" | "hold" {
   return "publish"
 }
 
-// Parallel calls in one step must not share the scope's sandbox (or its Pi
-// session) concurrently — serialize per sandbox key. Cross-process overlap
-// can't happen: a scope has at most one active run.
-const scopeSessions = new Map<string, Promise<unknown>>()
-
-function serializeScopeSession<T>(
-  key: string,
-  fn: () => Promise<T>
-): Promise<T> {
-  const prev = scopeSessions.get(key) ?? Promise.resolve()
-  const run = prev.then(fn)
-  const settled = run.then(
-    () => {},
-    () => {}
-  )
-  scopeSessions.set(key, settled)
-  void settled.then(() => {
-    if (scopeSessions.get(key) === settled) scopeSessions.delete(key)
-  })
-  return run
-}
+const serializeScopeSession = createSessionSerializer()
 
 function repoHint(repos: InstallationRepo[]): string {
   return repos.length

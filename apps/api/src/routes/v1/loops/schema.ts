@@ -133,6 +133,7 @@ export const loopRunSchema = z.object({
       id: z.string().uuid(),
       title: z.string(),
       status: z.enum(taskStatusEnum.enumValues),
+      threadRootId: z.string().uuid(),
       cardMessageId: z.string().uuid().nullable(),
     })
   ),

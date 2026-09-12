@@ -4,11 +4,12 @@ import { env } from "@repo/env/server"
 import { tool } from "ai"
 import { z } from "zod"
 import { logger } from "../logger"
+import { createSessionSerializer } from "../sandbox/serialize"
 import { subagentToolEvents } from "../sandbox/sub-events"
 import {
   runWorkbenchSession,
+  type WorkbenchContinuity,
   type WorkbenchInput,
-  type WorkbenchTaskContinuity,
 } from "../sandbox/workbench"
 import { toolExecutionKey } from "../tool-guard"
 import type { OnUsage } from "../usage"
@@ -24,41 +25,25 @@ const FETCH_TIMEOUT_MS = 30_000
 const artifactsContext = z.object({
   workspaceId: z.string(),
   channelId: z.string(),
-  // Task runs get continuity: the task's persistent sandbox, Pi session
-  // resume, artifact reseeding. Null for plain-answer sessions.
-  task: z.custom<{ id: string } | null>(),
+  // Thread-scope runs get continuity: the scope's persistent sandbox + Pi
+  // session resume. Null = ephemeral (channel-scope one-shots).
+  sandboxKey: z.custom<string | null>(),
+  // Task runs additionally reseed /workspace/out from the task's artifact
+  // versions and attribute new versions to the task. A getter because the
+  // task may start mid-run (start_task).
+  getTask: z.custom<() => { id: string } | null>(),
   deadlineAt: z.custom<Date>().optional(),
   onUsage: z.custom<OnUsage>().optional(),
   onToolEvent: z.custom<(e: MerlinToolCallUpdate) => void>().optional(),
 })
 
-// Parallel create_artifacts calls in one step must not share a task's sandbox
-// (or its Pi session) concurrently — serialize per task. Cross-process overlap
-// can't happen: a task has at most one active run.
-const taskSessions = new Map<string, Promise<unknown>>()
-
-function serializeTaskSession<T>(
-  taskId: string,
-  fn: () => Promise<T>
-): Promise<T> {
-  const prev = taskSessions.get(taskId) ?? Promise.resolve()
-  const run = prev.then(fn)
-  const settled = run.then(
-    () => {},
-    () => {}
-  )
-  taskSessions.set(taskId, settled)
-  void settled.then(() => {
-    if (taskSessions.get(taskId) === settled) taskSessions.delete(taskId)
-  })
-  return run
-}
+const serializeWorkbenchSession = createSessionSerializer()
 
 // Current versions of the task's artifacts, reseeded into /workspace/out so
 // the agent always works from artifact truth (humans may have edited).
 async function loadTaskOutSeed(
   taskId: string
-): Promise<WorkbenchTaskContinuity["outSeed"]> {
+): Promise<WorkbenchContinuity["outSeed"]> {
   const rows = await db
     .select({
       path: schema.artifact.path,
@@ -74,7 +59,7 @@ async function loadTaskOutSeed(
       )
     )
     .where(eq(schema.artifact.taskId, taskId))
-  const seeds: WorkbenchTaskContinuity["outSeed"] = []
+  const seeds: WorkbenchContinuity["outSeed"] = []
   let total = 0
   for (const row of rows) {
     if (
@@ -200,17 +185,25 @@ export const artifactTools = {
         inputs.push(input)
       }
 
-      const task = context.task
+      const sandboxKey = context.sandboxKey
       const startSession = async () => {
         const budget = sessionBudget()
         if ("error" in budget) return budget
+        // Resolved after the session-queue wait: a start_task landing while
+        // this call was queued still gets its artifacts reseeded.
+        const task = context.getTask()
         return runWorkbenchSession({
           instructions,
           inputs,
           timeoutSec: budget.timeoutSec,
           abortSignal,
-          ...(task
-            ? { task: { id: task.id, outSeed: await loadTaskOutSeed(task.id) } }
+          ...(sandboxKey
+            ? {
+                continuity: {
+                  sandboxKey,
+                  outSeed: task ? await loadTaskOutSeed(task.id) : [],
+                },
+              }
             : {}),
           ...subagentToolEvents({
             parentToolCallId: toolCallId,
@@ -218,11 +211,11 @@ export const artifactTools = {
           }),
         })
       }
-      const result = await (task
-        ? serializeTaskSession(task.id, startSession)
+      const result = await (sandboxKey
+        ? serializeWorkbenchSession(sandboxKey, startSession)
         : startSession()
       ).catch((err) => {
-        logger.error({ err, taskId: task?.id }, "Workbench: session threw")
+        logger.error({ err, sandboxKey }, "Workbench: session threw")
         return null
       })
       if (!result || "error" in result) {
@@ -250,7 +243,9 @@ export const artifactTools = {
 
       // Per-file persistence: a failure mid-list must not hide the files that
       // WERE stored (their versions are committed and visible), or the model
-      // re-runs the whole session for deliverables it already has.
+      // re-runs the whole session for deliverables it already has. Task
+      // re-read so a start_task that landed mid-session still gets credit.
+      const task = context.getTask()
       const manifest = []
       const unstored: string[] = []
       for (const file of result.files) {
@@ -259,7 +254,7 @@ export const artifactTools = {
             await writeArtifactVersion({
               workspaceId: context.workspaceId,
               channelId: context.channelId,
-              taskId: context.task?.id ?? null,
+              taskId: task?.id ?? null,
               path: file.path,
               contentType: file.contentType,
               bytes: file.bytes,
