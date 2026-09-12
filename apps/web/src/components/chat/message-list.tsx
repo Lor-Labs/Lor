@@ -236,6 +236,7 @@ export function MessageList({
     (message) => message.status === "pending"
   )
   const contentVersion = `${messages.length}:${messages[0]?.id ?? ""}:${messages.at(-1)?.id ?? ""}`
+  const oldestMessageId = orderedMessages[0]?.id
 
   const scrollToLocalMessage = useCallback(
     (messageId: string) => {
@@ -351,7 +352,7 @@ export function MessageList({
 
     observer.observe(sentinel)
     return () => observer.disconnect()
-  }, [hasOlder, onLoadOlder, isFetchingOlder])
+  }, [hasOlder, onLoadOlder, isFetchingOlder, oldestMessageId, isLoading])
 
   // IntersectionObserver for fetching newer (bottom of viewport — only
   // active in anchored mode, where the user is looking at older context)
@@ -436,22 +437,21 @@ export function MessageList({
         >
           <MessageScrollerContent
             aria-busy={Boolean(pendingMerlinMessage)}
-            className="justify-end py-4"
+            className={`relative justify-end pb-4 ${hasOlder ? "pt-16" : "pt-4"}`}
           >
-            {hasOlder && (
-              <MessageScrollerItem>
+            {orderedMessages.map((msg, i) => {
+              // Prepend detection needs the first content child to be a message.
+              // Keep the loader out of row layout so it cannot shift the anchor.
+              const olderLoader = i === 0 && hasOlder && (
                 <div
                   ref={olderSentinelRef}
-                  className="flex justify-center py-3"
+                  className="absolute inset-x-0 top-4 flex h-12 items-center justify-center"
                 >
                   {isFetchingOlder && (
                     <Spinner className="size-5 text-muted-foreground motion-reduce:animate-none" />
                   )}
                 </div>
-              </MessageScrollerItem>
-            )}
-
-            {orderedMessages.map((msg, i) => {
+              )
               const previous = orderedMessages[i - 1]
               const isDateBoundary =
                 !previous || !isSameDay(msg.createdAt, previous.createdAt)
@@ -496,6 +496,7 @@ export function MessageList({
                 }
                 return (
                   <MessageScrollerItem key={msg.id} messageId={msg.id}>
+                    {olderLoader}
                     {isDateBoundary && <DateDivider date={msg.createdAt} />}
                     <ChannelEventRow
                       events={group}
@@ -517,6 +518,7 @@ export function MessageList({
 
               return (
                 <MessageScrollerItem key={msg.id} messageId={msg.id}>
+                  {olderLoader}
                   {isDateBoundary && <DateDivider date={msg.createdAt} />}
                   <MessageItem
                     message={msg}
