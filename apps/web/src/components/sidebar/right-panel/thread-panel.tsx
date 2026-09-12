@@ -5,6 +5,7 @@ import {
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
+import { MERLIN_USER_ID } from "@repo/db/constants"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -55,11 +56,11 @@ import {
   useRegisteredMessageScroller,
 } from "@/components/chat/message-scroller-controls"
 import { RunQueuePill } from "@/components/chat/run-queue-pill"
+import { ThreadSubscriberStack } from "@/components/chat/thread-subscriber-stack"
 import {
   type TaskSourceFile,
-  TaskThreadHeader,
-} from "@/components/chat/task-thread-header"
-import { ThreadSubscriberStack } from "@/components/chat/thread-subscriber-stack"
+  ThreadWorkHeader,
+} from "@/components/chat/thread-work-header"
 import { TypingIndicator } from "@/components/chat/typing-indicator"
 import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-header"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
@@ -285,6 +286,18 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
   const isTask = !!task
   const taskStatusMeta = task ? TASK_STATUS_META[task.status] : null
   const { data: taskArtifacts } = useTaskArtifacts(task?.id ?? null)
+  // Newest Merlin reply with tool calls — the Activity chip's work log. Shown
+  // for any thread where Merlin worked, task or not.
+  const activityMessage = useMemo(
+    () =>
+      messages.find(
+        (message) =>
+          message.authorId === MERLIN_USER_ID &&
+          (message.merlinToolCalls?.length ?? 0) > 0
+      ) ?? null,
+    [messages]
+  )
+  const showWorkHeader = isTask || activityMessage !== null
 
   const handleCopyAsMarkdown = useCallback(async () => {
     try {
@@ -694,7 +707,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
             </span>
           ) : undefined
         }
-        className={isTask ? "border-b-0" : undefined}
+        className={showWorkHeader ? "border-b-0" : undefined}
         actions={
           <>
             <ThreadSubscriberStack subscribers={participants} />
@@ -730,11 +743,12 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
         }
       />
 
-      {isTask && (
-        <TaskThreadHeader
+      {showWorkHeader && (
+        <ThreadWorkHeader
           channelId={view.channelId}
           threadRootId={view.threadRootId}
           sources={taskSources}
+          activityMessage={activityMessage}
         />
       )}
 

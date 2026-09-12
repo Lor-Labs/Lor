@@ -5,11 +5,14 @@ import {
   PopoverPopup,
   PopoverTrigger,
 } from "@repo/ui/components/popover"
+import { useMemo } from "react"
 import { ApprovalGateCard } from "@/components/chat/approval-card"
 import { ArtifactFileCard } from "@/components/chat/artifact-file-card"
+import { MerlinToolTrail } from "@/components/chat/merlin-tool-trail"
 import { TaskPlanList } from "@/components/chat/task-plan-list"
 import { useTaskForThread } from "@/hooks/use-channel-tasks"
 import { useTask, useTaskArtifacts } from "@/hooks/use-task"
+import type { MerlinToolCallView, Message } from "@/lib/api-types"
 import { formatFileSize, getFileKind } from "@/lib/attachments"
 
 export type TaskSourceFile = {
@@ -48,45 +51,67 @@ function SourceRow({ source }: { source: TaskSourceFile }) {
   )
 }
 
-// Docked strip under the task panel header: Plan/Files popovers (the
-// anti-lost-in-scroll anchors) plus the pending approval card, which is
-// always visible. Outputs open the artifact viewer; sources are plain links —
-// only artifacts are editable, and only artifacts open the takeover view.
-export function TaskThreadHeader({
+// Docked strip under the thread panel header — the thread's work surface.
+// Plan/Files popover chips (the anti-lost-in-scroll anchors) when a task
+// anchors to the thread, an Activity chip mirroring the newest run's tool
+// trail whenever Merlin is (or was) working here, and the pending approval
+// card, always visible. Renders a bare border when idle so the panel header's
+// border-b-0 always has an edge under it.
+export function ThreadWorkHeader({
   channelId,
   threadRootId,
   sources,
+  activityMessage,
 }: {
   channelId: string
   threadRootId: string
   sources: TaskSourceFile[]
+  activityMessage: Message | null
 }) {
   const task = useTaskForThread(channelId, threadRootId)
   const { data: detail } = useTask(task?.id ?? null)
   const { data: artifacts } = useTaskArtifacts(task?.id ?? null)
 
-  if (!task) return null
+  const { activityCalls, childrenByParent } = useMemo(() => {
+    const topLevel: MerlinToolCallView[] = []
+    const children = new Map<string, MerlinToolCallView[]>()
+    for (const call of activityMessage?.merlinToolCalls ?? []) {
+      if (call.parentToolCallId) {
+        const siblings = children.get(call.parentToolCallId) ?? []
+        siblings.push(call)
+        children.set(call.parentToolCallId, siblings)
+      } else {
+        topLevel.push(call)
+      }
+    }
+    return { activityCalls: topLevel, childrenByParent: children }
+  }, [activityMessage])
+  const streaming = activityMessage?.status === "pending"
 
   const pendingApproval =
     detail?.pendingApproval?.status === "pending"
       ? detail.pendingApproval
       : null
   const outputs = artifacts ?? []
-  const doneCount =
-    task.status === "completed"
+  const doneCount = !task
+    ? 0
+    : task.status === "completed"
       ? task.plan.length
       : task.plan.filter((item) => item.status === "done").length
   const fileCount = outputs.length + sources.length
-  const showPlan = task.plan.length > 0
-  const showFiles = fileCount > 0
+  const showPlan = !!task && task.plan.length > 0
+  const showFiles = !!task && fileCount > 0
+  const showActivity = activityCalls.length > 0
 
-  if (!showPlan && !showFiles && !pendingApproval) return null
+  if (!showPlan && !showFiles && !showActivity && !pendingApproval) {
+    return <div className="shrink-0 border-b" />
+  }
 
   return (
     <div className="shrink-0 border-b px-3 pb-2">
-      {(showPlan || showFiles) && (
+      {(showPlan || showFiles || showActivity) && (
         <div className="-ml-0.5 flex items-center gap-1">
-          {showPlan && (
+          {task && showPlan && (
             <Popover>
               <PopoverTrigger className={SECTION_TRIGGER_CLASS}>
                 <SectionChevron />
@@ -147,6 +172,33 @@ export function TaskThreadHeader({
                       ))}
                     </div>
                   )}
+                </div>
+              </PopoverPopup>
+            </Popover>
+          )}
+          {showActivity && (
+            <Popover>
+              <PopoverTrigger className={SECTION_TRIGGER_CLASS}>
+                <SectionChevron />
+                {streaming ? (
+                  <span className="shimmer">Working…</span>
+                ) : (
+                  `Activity · ${activityCalls.length}`
+                )}
+              </PopoverTrigger>
+              <PopoverPopup
+                side="bottom"
+                align="start"
+                className="w-96"
+                viewportClassName="p-3"
+              >
+                <div className="max-h-96 overflow-y-auto">
+                  <MerlinToolTrail
+                    toolCalls={activityCalls}
+                    childrenByParent={childrenByParent}
+                    streaming={streaming}
+                    embedded
+                  />
                 </div>
               </PopoverPopup>
             </Popover>
