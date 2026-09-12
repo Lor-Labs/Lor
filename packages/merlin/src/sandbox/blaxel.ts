@@ -253,13 +253,19 @@ export async function withPersistentSandbox<T>(
   }
 }
 
-// A task's sandbox: Pi session, scripts, and scratch survive between runs.
-export async function withTaskSandbox<T>(
-  taskId: string,
+// A conversation scope's workbench sandbox: Pi session, scripts, and scratch
+// survive between runs in the same thread — task or not. Prefix "wbs" keeps
+// persistent scopes distinguishable from ephemeral "wb-{uuid}" sessions.
+export function workbenchSandboxName(sandboxKey: string): string {
+  return `wbs-${sandboxKey}`
+}
+
+export async function withWorkbenchSandbox<T>(
+  sandboxKey: string,
   fn: (sandbox: SandboxInstance) => Promise<T>
 ): Promise<T> {
   return withPersistentSandbox(
-    `task-${taskId}`,
+    workbenchSandboxName(sandboxKey),
     env.MERLIN_WORKBENCH_SANDBOX_TTL,
     fn
   )

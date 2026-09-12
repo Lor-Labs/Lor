@@ -2014,8 +2014,10 @@ export async function respond(
             create_artifacts: {
               workspaceId: ctx.workspaceId,
               channelId: ctx.channelId,
-              // Task runs get workbench continuity (persistent sandbox + pi
-              // session); plain answers produce standalone artifacts ephemerally.
+              // Warm workbench continuity per conversation scope (loop runs
+              // override with loop.id). Channel-scope one-shots stay ephemeral
+              // — no channelId fallback here, unlike code sessions.
+              sandboxKey: ctx.sandboxKey ?? ctx.threadRootId ?? null,
               // Getter, not a value: the task may start mid-run.
               getTask: () =>
                 taskRef.current ? { id: taskRef.current.id } : null,
