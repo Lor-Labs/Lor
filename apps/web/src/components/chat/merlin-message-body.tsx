@@ -210,6 +210,8 @@ export const MerlinMessageBody = memo(function MerlinMessageBody({
 
   // The trailing text is the answer. Earlier text belongs to the work log.
   // Settled legacy replies may have tool entries after their answer text.
+  // A failed run ending in tool activity has no answer — don't promote
+  // pre-tool narration to one.
   let answerIndex = -1
   for (let index = segments.length - 1; index >= 0; index--) {
     const segment = segments[index]
@@ -217,7 +219,7 @@ export const MerlinMessageBody = memo(function MerlinMessageBody({
       answerIndex = index
       break
     }
-    if (streaming) break
+    if (streaming || failed) break
   }
   const answer = segments[answerIndex]
   const activitySegments = segments.filter((_, index) => index !== answerIndex)
@@ -317,7 +319,7 @@ export const MerlinMessageBody = memo(function MerlinMessageBody({
           onCitationJump={onCitationJump}
         />
       )}
-      {failed && !content?.trim() && (
+      {failed && !answer && (
         <p className="text-sm text-muted-foreground italic">
           Merlin couldn't finish this response.
         </p>

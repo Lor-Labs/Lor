@@ -13,7 +13,6 @@ const insightsSchema = z.object({
         prompt: z.string().trim().min(1).max(500),
       })
     )
-    .min(1)
     .max(3),
 })
 

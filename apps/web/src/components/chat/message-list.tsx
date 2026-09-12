@@ -336,13 +336,14 @@ export function MessageList({
   }, [])
 
   useLayoutEffect(() => {
-    // Dates are ordered; only rebuild the index when the message list changes.
+    // Dates are ordered; only rebuild the index when membership changes —
+    // contentVersion skips the per-delta array identity churn while streaming.
     dateDividersRef.current = Array.from(
       scrollRef.current?.querySelectorAll<HTMLElement>("[data-date-divider]") ??
         []
     )
     handleScroll()
-  }, [orderedMessages, isLoading, handleScroll])
+  }, [contentVersion, isLoading, handleScroll])
 
   useEffect(
     () => () => {
