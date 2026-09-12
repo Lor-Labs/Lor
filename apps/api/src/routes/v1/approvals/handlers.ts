@@ -1,5 +1,5 @@
 import { canResolveApproval } from "@repo/auth/permissions"
-import { and, db, eq, inArray, isNotNull, schema } from "@repo/db"
+import { and, db, eq, inArray, isNotNull, isNull, schema } from "@repo/db"
 import { resolveChannelAccess } from "@repo/db/queries/channel-access"
 import type { Approval, Plan } from "@repo/db/schema"
 import { channelRoom } from "@repo/realtime-types/rooms"
@@ -317,7 +317,10 @@ async function resolveApproval(
                 .where(
                   and(
                     eq(schema.plan.id, plan.id),
-                    eq(schema.plan.status, "running")
+                    eq(schema.plan.status, "running"),
+                    // Same guard as startPlanContinuationRun: never park a
+                    // plan a newer continuation already claimed.
+                    isNull(schema.plan.activeRunId)
                   )
                 )
                 .returning()

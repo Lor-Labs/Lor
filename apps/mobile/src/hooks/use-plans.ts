@@ -26,12 +26,18 @@ export function useChannelPlans(channelId: string) {
 
   useEffect(() => {
     if (!socket || !channelId) return
-    const handlePlanUpdated: ServerToClientEvents["plan:updated"] = (
+    const handlePlanUpdated: ServerToClientEvents["plan:updated"] = async (
       payload
     ) => {
       if (payload.plan.channelId !== channelId) return
       if (!queryClient.getQueryData(["channel-plans", channelId])) {
         void queryClient.invalidateQueries({
+          queryKey: ["channel-plans", channelId],
+        })
+      } else {
+        // A background refetch snapshotted before this event would resolve
+        // after the patch and overwrite it with the stale list — cancel first.
+        await queryClient.cancelQueries({
           queryKey: ["channel-plans", channelId],
         })
       }
