@@ -8,8 +8,8 @@ import {
 } from "@/lib/attachments"
 
 // One file surface for artifacts everywhere: a `row` presents a deliverable
-// (Merlin message endings, the task panel's Files list), a `chip` packs into
-// tight spaces (task card footer). Both open the artifact takeover viewer —
+// (Merlin message endings, the plan panel's Files list), a `chip` packs into
+// tight spaces (plan card footer). Both open the artifact takeover viewer —
 // artifacts are the only files that do.
 export function ArtifactFileCard({
   artifactId,

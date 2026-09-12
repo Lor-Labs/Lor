@@ -4,6 +4,6 @@ import * as routes from "@/routes/v1/artifacts/routes"
 
 const artifactsRouter = createRouter()
   .openapi(routes.getArtifact, handlers.getArtifact)
-  .openapi(routes.listTaskArtifacts, handlers.listTaskArtifacts)
+  .openapi(routes.listPlanArtifacts, handlers.listPlanArtifacts)
 
 export default artifactsRouter

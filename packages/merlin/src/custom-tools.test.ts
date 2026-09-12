@@ -191,6 +191,6 @@ describe("name rules", () => {
 
   it("reserves built-in names", () => {
     expect(RESERVED_TOOL_NAMES.has("search")).toBe(true)
-    expect(RESERVED_TOOL_NAMES.has("create_task")).toBe(true)
+    expect(RESERVED_TOOL_NAMES.has("create_plan")).toBe(true)
   })
 })

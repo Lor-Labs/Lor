@@ -12,13 +12,13 @@ import {
 export type ApprovalCardData = {
   id: string
   description: string
-  taskId: string | null
+  planId: string | null
   toolName: string | null
   resolver: ApprovalResolverSpec | null
   resolverUserName: string | null
 }
 
-// One approval gate, wherever it surfaces (task header, channel/thread
+// One approval gate, wherever it surfaces (plan header, channel/thread
 // message). Buttons show only for people the resolver spec allows — the
 // server re-checks on resolve regardless.
 export function ApprovalGateCard({
@@ -39,9 +39,9 @@ export function ApprovalGateCard({
       { approvalId: approval.id, resolution },
       {
         onSettled: () => {
-          if (approval.taskId) {
+          if (approval.planId) {
             void queryClient.invalidateQueries({
-              queryKey: ["task", approval.taskId],
+              queryKey: ["plan", approval.planId],
             })
           }
           onResolved?.()

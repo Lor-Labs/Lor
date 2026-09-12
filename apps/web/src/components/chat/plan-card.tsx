@@ -4,46 +4,46 @@ import { Badge } from "@repo/ui/components/badge"
 import { cn } from "@repo/ui/lib/utils"
 import { ArtifactFileCard } from "@/components/chat/artifact-file-card"
 import {
-  TaskPlanList,
-  TaskPlanProgress,
-} from "@/components/chat/task-plan-list"
+  PlanStepList,
+  PlanStepProgress,
+} from "@/components/chat/plan-step-list"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
-import { useTaskForCard } from "@/hooks/use-channel-tasks"
-import { useTaskArtifacts } from "@/hooks/use-task"
+import { usePlanForCard } from "@/hooks/use-channel-plans"
+import { usePlanArtifacts } from "@/hooks/use-plan"
 import type { Message } from "@/lib/api-types"
+import { PLAN_STATUS_META } from "@/lib/plan-ui"
 import { toSearchPreviewText } from "@/lib/search-preview"
-import { TASK_STATUS_META } from "@/lib/task-ui"
 
-// The card a task_card message renders as: title and outcome in the header, the
+// The card a plan_card message renders as: title and outcome in the header, the
 // live plan in a recessed well, delivered files underneath. Clicking opens the
-// task's thread — a stretched overlay button carries the click, so the step rows
+// plan's thread — a stretched overlay button carries the click, so the step rows
 // and file chips (both z-20) stay interactive.
 const SURFACE_CLASS =
   "relative mt-1.5 w-full max-w-xl overflow-hidden rounded-xl border bg-card transition-colors"
 
-export function TaskCard({
+export function PlanCard({
   message,
   onOpenThread,
 }: {
   message: Message
   onOpenThread?: (rootMessageId: string) => void
 }) {
-  const task = useTaskForCard(message.channelId, message.id)
-  const { data: artifacts } = useTaskArtifacts(task?.id ?? null)
+  const plan = usePlanForCard(message.channelId, message.id)
+  const { data: artifacts } = usePlanArtifacts(plan?.id ?? null)
   const { view, isCollapsed } = useRightSidebar()
-  const threadRootId = task?.threadRootId ?? message.id
+  const threadRootId = plan?.threadRootId ?? message.id
   const isOpenThread =
     !isCollapsed &&
     view?.type === "thread" &&
     view.threadRootId === threadRootId
 
-  if (!task) {
+  if (!plan) {
     return (
-      <div className={cn("group/task", SURFACE_CLASS)}>
+      <div className={cn("group/plan", SURFACE_CLASS)}>
         {onOpenThread && (
           <button
             type="button"
-            aria-label="Open task thread"
+            aria-label="Open plan thread"
             onClick={() => onOpenThread(message.id)}
             className="absolute inset-0 z-10 cursor-pointer rounded-xl"
           />
@@ -57,13 +57,13 @@ export function TaskCard({
     )
   }
 
-  const meta = TASK_STATUS_META[task.status]
-  const isComplete = task.status === "completed"
+  const meta = PLAN_STATUS_META[plan.status]
+  const isComplete = plan.status === "completed"
   // One description slot, showing whatever matters most right now: the outcome
-  // once delivered, otherwise the ask that started the task. Rendered as plain
+  // once delivered, otherwise the ask that started the plan. Rendered as plain
   // text, so mention tokens and markdown are flattened.
   const description = toSearchPreviewText(
-    (isComplete ? task.summary : null) ?? task.goal,
+    (isComplete ? plan.summary : null) ?? plan.goal,
     message.mentions ?? [],
     { dropUnresolvedMentions: true }
   )
@@ -71,7 +71,7 @@ export function TaskCard({
   return (
     <div
       className={cn(
-        "group/task",
+        "group/plan",
         SURFACE_CLASS,
         isOpenThread ? "border-foreground/25" : "hover:bg-muted/30"
       )}
@@ -79,7 +79,7 @@ export function TaskCard({
       {onOpenThread && (
         <button
           type="button"
-          aria-label="Open task thread"
+          aria-label="Open plan thread"
           onClick={() => onOpenThread(threadRootId)}
           className="absolute inset-0 z-10 cursor-pointer rounded-xl"
         />
@@ -88,7 +88,7 @@ export function TaskCard({
       <div className="flex items-start justify-between gap-4 px-4 pt-4">
         <div className="min-w-0 space-y-1">
           <p className="text-pretty font-medium text-sm leading-5">
-            {task.title}
+            {plan.title}
           </p>
           {description && (
             <p className="line-clamp-2 text-pretty text-muted-foreground text-sm leading-5">
@@ -116,17 +116,17 @@ export function TaskCard({
 
       <div className="px-4 pb-4">
         {/* The recessed plan well only exists when there's something to show —
-            a plan-less parked task otherwise renders an empty gray bar. */}
-        {(task.plan.length > 0 || task.status === "running") && (
+            a step-less parked plan otherwise renders an empty gray bar. */}
+        {(plan.steps.length > 0 || plan.status === "running") && (
           <div className="mt-4 min-w-0 rounded-lg bg-secondary/60 px-4 py-3.5 ring-1 ring-border/40 ring-inset">
-            {task.plan.length > 1 && <TaskPlanProgress items={task.plan} />}
-            {task.plan.length > 0 && (
-              <TaskPlanList
-                items={task.plan}
-                className={task.plan.length > 1 ? "mt-4" : undefined}
+            {plan.steps.length > 1 && <PlanStepProgress items={plan.steps} />}
+            {plan.steps.length > 0 && (
+              <PlanStepList
+                items={plan.steps}
+                className={plan.steps.length > 1 ? "mt-4" : undefined}
               />
             )}
-            {task.status === "running" && task.plan.length === 0 && (
+            {plan.status === "running" && plan.steps.length === 0 && (
               <p className="shimmer text-muted-foreground text-sm">
                 Merlin is working…
               </p>

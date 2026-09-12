@@ -54,7 +54,7 @@ export const loop = pgTable(
       onDelete: "set null",
     }),
     // The loop card message (message type `loop_card`) — the card renders
-    // from this row, looked up by cardMessageId like task.cardMessageId.
+    // from this row, looked up by cardMessageId like plan.cardMessageId.
     // Nullable: rows created before the card posts (or via future API paths).
     cardMessageId: uuid("card_message_id").references(() => message.id, {
       onDelete: "set null",

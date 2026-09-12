@@ -16,7 +16,7 @@ export type MerlinLoopDeps = {
 }
 
 // The propose_loop executor: loop_card message + draft loop row, the same
-// card-is-anchor shape as createMerlinTask. Nothing is scheduled here — the
+// card-is-anchor shape as createMerlinPlan. Nothing is scheduled here — the
 // loop stays a draft until a human activates it (L2 activate route). The
 // card content is a plain-text fallback (mobile, search, clients without the
 // loop row); rich rendering reads the row via cardMessageId.

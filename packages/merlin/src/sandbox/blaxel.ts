@@ -237,7 +237,7 @@ export async function invalidatePersistentSandbox(
 
 // A named sandbox persists across sessions: it drops to standby (free)
 // between them and resumes with its filesystem intact. If the idle TTL
-// deletes it, tasks reseed durable artifacts and code sessions re-clone;
+// deletes it, plans reseed durable artifacts and code sessions re-clone;
 // unpublished code changes exist only until the code sandbox TTL expires.
 export async function withPersistentSandbox<T>(
   name: string,
@@ -254,7 +254,7 @@ export async function withPersistentSandbox<T>(
 }
 
 // A conversation scope's workbench sandbox: Pi session, scripts, and scratch
-// survive between runs in the same thread — task or not. Prefix "wbs" keeps
+// survive between runs in the same thread — plan or not. Prefix "wbs" keeps
 // persistent scopes distinguishable from ephemeral "wb-{uuid}" sessions.
 export function workbenchSandboxName(sandboxKey: string): string {
   return `wbs-${sandboxKey}`

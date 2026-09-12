@@ -11,7 +11,7 @@ import {
 } from "drizzle-orm/pg-core"
 import { agentRun } from "./agent-runs"
 import { channel } from "./channels"
-import { task } from "./tasks"
+import { plan } from "./plans"
 import { user } from "./users"
 import { workspace } from "./workspaces"
 
@@ -41,17 +41,17 @@ export const artifact = pgTable(
     channelId: uuid("channel_id")
       .notNull()
       .references(() => channel.id, { onDelete: "cascade" }),
-    // Null for artifacts produced by a plain (non-task) answer.
-    taskId: uuid("task_id").references(() => task.id, {
+    // Null for artifacts produced by a plain (non-plan) answer.
+    planId: uuid("plan_id").references(() => plan.id, {
       onDelete: "set null",
     }),
     // Provenance: the agent run that produced this artifact directly (loop
-    // and Act runs can create artifacts without a task). Null for artifacts
+    // and Act runs can create artifacts without a plan). Null for artifacts
     // predating the column.
     originRunId: uuid("origin_run_id").references(() => agentRun.id, {
       onDelete: "set null",
     }),
-    // Logical filename within the task workspace, e.g. "report.md".
+    // Logical filename within the plan workspace, e.g. "report.md".
     path: text("path").notNull(),
     mime: text("mime").notNull(),
     // 0 = created but no committed version yet; bumped atomically by
@@ -62,12 +62,12 @@ export const artifact = pgTable(
     }),
   },
   (table) => [
-    // Within a task, a path names one artifact — repeated writes version it.
-    // Also serves plain taskId lookups (all of them filter non-null), so no
-    // standalone taskId index.
-    uniqueIndex("artifact_task_path_uidx")
-      .on(table.taskId, table.path)
-      .where(sql`task_id is not null`),
+    // Within a plan, a path names one artifact — repeated writes version it.
+    // Also serves plain planId lookups (all of them filter non-null), so no
+    // standalone planId index.
+    uniqueIndex("artifact_plan_path_uidx")
+      .on(table.planId, table.path)
+      .where(sql`plan_id is not null`),
     index("artifact_channelId_idx").on(table.channelId),
     index("artifact_originRunId_idx").on(table.originRunId),
     index("artifact_workspaceId_createdAt_idx").on(
@@ -115,9 +115,9 @@ export const artifactRelations = relations(artifact, ({ one, many }) => ({
     fields: [artifact.channelId],
     references: [channel.id],
   }),
-  task: one(task, {
-    fields: [artifact.taskId],
-    references: [task.id],
+  plan: one(plan, {
+    fields: [artifact.planId],
+    references: [plan.id],
   }),
   versions: many(artifactVersion),
 }))

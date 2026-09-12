@@ -11,7 +11,7 @@ import {
   sql,
 } from "@repo/db"
 import { env } from "@repo/env/server"
-import { settleAbandonedRunTask } from "@repo/merlin/tasks"
+import { settleAbandonedRunPlan } from "@repo/merlin/plans"
 import { AGENT_RUN_STOP_CHANNEL } from "@repo/realtime-types/queues"
 import { channelRoom, threadRoom } from "@repo/realtime-types/rooms"
 import { getEmitter } from "@/lib/bot-messages"
@@ -19,7 +19,7 @@ import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
 import { userCanAccessChannel } from "@/lib/queries/channel-access"
 import { getRedisClient } from "@/lib/redis"
-import { emitTaskUpdated } from "@/lib/scope-runs"
+import { emitPlanUpdated } from "@/lib/scope-runs"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
   GetRunEventsRoute,
@@ -336,21 +336,21 @@ async function requestRunStop(
           )
         )
         .catch(() => {})
-      // A queued run's task was born "running" and no worker will ever settle
+      // A queued run's plan was born "running" and no worker will ever settle
       // it — the run is stopping before any claim.
-      await settleAbandonedRunTask(
+      await settleAbandonedRunPlan(
         { id: run.id, threadRootId: run.threadRootId },
         "stopped",
-        (task) => {
-          void emitTaskUpdated(task).catch((err) => {
+        (plan) => {
+          void emitPlanUpdated(plan).catch((err) => {
             logger.warn(
-              { err, runId: run.id, taskId: task.id },
-              "Stopped-run task emit failed"
+              { err, runId: run.id, planId: plan.id },
+              "Stopped-run plan emit failed"
             )
           })
         }
       ).catch((err) =>
-        logger.warn({ err, runId: run.id }, "Stopped-run task settle failed")
+        logger.warn({ err, runId: run.id }, "Stopped-run plan settle failed")
       )
       // The stop is already durable — a failed broadcast must not turn it
       // into a 500 (clients would keep a spinning placeholder AND an error).

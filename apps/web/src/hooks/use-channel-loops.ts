@@ -27,7 +27,7 @@ export function channelLoopsQueryOptions(channelId: string) {
 }
 
 // Channel loop list, kept live by loop:updated (channel room) — mirrors
-// useChannelTasks. One query per channel feeds every loop card.
+// useChannelPlans. One query per channel feeds every loop card.
 export function useChannelLoops(channelId: string) {
   const socket = useSocket()
   const queryClient = useQueryClient()

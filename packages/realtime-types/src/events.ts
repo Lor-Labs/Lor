@@ -94,7 +94,7 @@ export type RealtimeMessageType =
   | "default"
   | "reply"
   | "event"
-  | "task_card"
+  | "plan_card"
   | "loop_card"
   | "loop_fire"
   | "proposal_card"
@@ -591,8 +591,8 @@ export interface ServerToClientEvents {
   // queued-messages pill. Additions ride message:routed (outcome "queued").
   "run:queue:updated": (payload: RunQueueUpdatedEvent) => void
 
-  // Task snapshot changed (status, plan, summary). Channel room.
-  "task:updated": (payload: TaskUpdatedEvent) => void
+  // Plan snapshot changed (status, steps, summary). Channel room.
+  "plan:updated": (payload: PlanUpdatedEvent) => void
   // A run parked on an approval gate. Channel room; ids only — the
   // durable card data comes from the channel approvals query this invalidates.
   "approval:created": (payload: ApprovalCreatedEvent) => void
@@ -662,7 +662,7 @@ export type RunQueueUpdatedEvent = {
   state: "consumed" | "rejected" | "cancelled"
 }
 
-export type RealtimeTaskStatus =
+export type RealtimePlanStatus =
   | "running"
   | "waiting_for_input"
   | "waiting_for_approval"
@@ -670,36 +670,36 @@ export type RealtimeTaskStatus =
   | "failed"
   | "stopped"
 
-export type RealtimeTaskPlanItem = {
+export type RealtimePlanStep = {
   text: string
   status: "pending" | "active" | "done"
   description?: string
 }
 
-// Snapshot of a task, emitted to the channel room on every status,
-// plan, or summary change — the task card and header chip render from it.
-export type RealtimeTask = {
+// Snapshot of a plan, emitted to the channel room on every status,
+// steps, or summary change — the plan card and header chip render from it.
+export type RealtimePlan = {
   id: string
   workspaceId: string
   channelId: string
-  // The thread root the task's runs execute under — the task's conversation.
+  // The thread root the plan's runs execute under — the plan's conversation.
   threadRootId: string
   // The projected card message in the channel feed; equals threadRootId for
-  // spawned (card-as-root) tasks, null only if the card was deleted.
+  // spawned (card-as-root) plans, null only if the card was deleted.
   cardMessageId: string | null
   creatorId: string | null
   title: string
   goal: string
-  status: RealtimeTaskStatus
-  plan: RealtimeTaskPlanItem[]
+  status: RealtimePlanStatus
+  steps: RealtimePlanStep[]
   summary: string | null
   activeRunId: string | null
   createdAt: string
   updatedAt: string
 }
 
-export type TaskUpdatedEvent = {
-  task: RealtimeTask
+export type PlanUpdatedEvent = {
+  plan: RealtimePlan
 }
 
 export type RealtimeApprovalStatus =
@@ -749,13 +749,13 @@ export type ApprovalCreatedEvent = {
   channelId: string
   threadRootId: string | null
   messageId: string | null
-  taskId: string | null
+  planId: string | null
 }
 
 export type ApprovalUpdatedEvent = {
   approvalId: string
   channelId: string
-  taskId: string | null
+  planId: string | null
   status: RealtimeApprovalStatus
   resolvedBy: string | null
   resolvedAt: string | null

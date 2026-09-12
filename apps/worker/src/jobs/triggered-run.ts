@@ -12,14 +12,14 @@ import type { Job, Queue } from "bullmq"
 import type { createClient } from "redis"
 import { logger } from "@/lib/logger"
 import { postMerlinMessage as postMerlinChannelMessage } from "@/lib/merlin-messages"
-import { createMerlinTask } from "@/lib/merlin-task"
+import { createMerlinPlan } from "@/lib/merlin-plan"
 import { cancelPendingRun, runUnattended } from "@/lib/unattended-run"
 
 type RedisClient = ReturnType<typeof createClient>
 
 // Headless triggered runs — the Act effect. No placeholder message, no
 // streaming: Merlin gets the trigger's instructions + the event payload and
-// decides the disposition via tools (post_channel_message / create_task /
+// decides the disposition via tools (post_channel_message / create_plan /
 // nothing). The final answer text is discarded; the run row + transcript are
 // the audit trail. Execution body shared with loop runs — see
 // lib/unattended-run.ts and reference/automation-primitives.md §2.
@@ -127,8 +127,8 @@ export function createTriggeredRunProcessor(
               { emitter, redis },
               { channelId: run.channelId, content }
             ),
-          createTask: ({ title, goal }) =>
-            createMerlinTask(
+          createPlan: ({ title, goal }) =>
+            createMerlinPlan(
               { emitter, redis, respondQueue },
               {
                 workspaceId: run.workspaceId,

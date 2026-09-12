@@ -10,12 +10,12 @@ export const artifactParamsSchema = z.object({
     }),
 })
 
-export const taskArtifactsParamsSchema = z.object({
-  taskId: z
+export const planArtifactsParamsSchema = z.object({
+  planId: z
     .string()
     .uuid()
     .openapi({
-      param: { name: "taskId", in: "path", required: true },
+      param: { name: "planId", in: "path", required: true },
     }),
 })
 
@@ -23,7 +23,7 @@ export const artifactSchema = z.object({
   id: z.string().uuid(),
   workspaceId: z.string().uuid(),
   channelId: z.string().uuid(),
-  taskId: z.string().uuid().nullable(),
+  planId: z.string().uuid().nullable(),
   path: z.string(),
   mime: z.string(),
   currentVersion: z.number().int(),
@@ -51,6 +51,6 @@ export const getArtifactResponseSchema = z.object({
   versions: z.array(artifactVersionSchema),
 })
 
-export const listTaskArtifactsResponseSchema = z.object({
+export const listPlanArtifactsResponseSchema = z.object({
   artifacts: z.array(artifactSchema),
 })

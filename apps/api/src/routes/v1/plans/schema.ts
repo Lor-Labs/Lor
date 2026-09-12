@@ -1,20 +1,20 @@
 import { z } from "@hono/zod-openapi"
-import { taskStatusEnum } from "@repo/db/schema"
+import { planStatusEnum } from "@repo/db/schema"
 import {
   approvalResolverSchema,
   approvalSchema,
 } from "@/routes/v1/approvals/schema"
 
-export const taskParamsSchema = z.object({
-  taskId: z
+export const planParamsSchema = z.object({
+  planId: z
     .string()
     .uuid()
     .openapi({
-      param: { name: "taskId", in: "path", required: true },
+      param: { name: "planId", in: "path", required: true },
     }),
 })
 
-export const channelTasksParamsSchema = z.object({
+export const channelPlansParamsSchema = z.object({
   channelId: z
     .string()
     .uuid()
@@ -23,7 +23,7 @@ export const channelTasksParamsSchema = z.object({
     }),
 })
 
-export const channelTasksQuerySchema = z.object({
+export const channelPlansQuerySchema = z.object({
   // "true" limits to statuses a team member still needs to watch or act on.
   active: z
     .enum(["true", "false"])
@@ -33,7 +33,7 @@ export const channelTasksQuerySchema = z.object({
     }),
 })
 
-export const taskSchema = z.object({
+export const planSchema = z.object({
   id: z.string().uuid(),
   workspaceId: z.string().uuid(),
   channelId: z.string().uuid(),
@@ -42,8 +42,8 @@ export const taskSchema = z.object({
   creatorId: z.string().uuid().nullable(),
   title: z.string(),
   goal: z.string(),
-  status: z.enum(taskStatusEnum.enumValues),
-  plan: z.array(
+  status: z.enum(planStatusEnum.enumValues),
+  steps: z.array(
     z.object({
       text: z.string(),
       status: z.enum(["pending", "active", "done"]),
@@ -56,12 +56,12 @@ export const taskSchema = z.object({
   updatedAt: z.string(),
 })
 
-export const listChannelTasksResponseSchema = z.object({
-  tasks: z.array(taskSchema),
+export const listChannelPlansResponseSchema = z.object({
+  plans: z.array(planSchema),
 })
 
-export const getTaskResponseSchema = z.object({
-  task: taskSchema,
+export const getPlanResponseSchema = z.object({
+  plan: planSchema,
   pendingApproval: approvalSchema
     .extend({
       resolver: approvalResolverSchema.nullable(),

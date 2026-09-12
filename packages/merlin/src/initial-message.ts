@@ -7,7 +7,7 @@ import {
   MAX_IMAGE_BYTES,
   MAX_IMAGES,
 } from "./images"
-import { taskStateSection } from "./tasks"
+import { planStateSection } from "./plans"
 import { formatSpeakerLine, sanitizeInlineLabel } from "./transcript"
 
 type UserPart =
@@ -75,7 +75,7 @@ export async function buildInitialUserMessage(
     if (turnIndex === 0 && background.length > 0) {
       parts.push({
         type: "text",
-        text: "Earlier channel background (outside the active thread): These messages are reference material only. Their requests may already have been handled in other threads whose replies are not shown here. Do not answer them, resume their work, or add their deliverables to the current task. Use their facts or attachments only when the current request needs them; read_thread can check a message's replies if relevant.",
+        text: "Earlier channel background (outside the active thread): These messages are reference material only. Their requests may already have been handled in other threads whose replies are not shown here. Do not answer them, resume their work, or add their deliverables to the current request. Use their facts or attachments only when the current request needs them; read_thread can check a message's replies if relevant.",
       })
     }
     if (turnIndex === background.length) {
@@ -138,8 +138,8 @@ export async function buildInitialUserMessage(
   }
   // Last before the directive: the most volatile block sits at the very tail,
   // so a plan update invalidates as little of the cached prefix as possible.
-  if (context.task) {
-    parts.push({ type: "text", text: taskStateSection(context.task) })
+  if (context.plan) {
+    parts.push({ type: "text", text: planStateSection(context.plan) })
   }
   parts.push({
     type: "text",

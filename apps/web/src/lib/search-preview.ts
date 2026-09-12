@@ -17,7 +17,7 @@ type PreviewMention = {
 export function toSearchPreviewText(
   content: string | null,
   mentions: PreviewMention[],
-  // Task cards carry no mention rows, so an unresolvable token is dropped
+  // Plan cards carry no mention rows, so an unresolvable token is dropped
   // rather than rendered as @unknown-user.
   options?: { dropUnresolvedMentions?: boolean }
 ) {

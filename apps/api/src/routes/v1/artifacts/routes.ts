@@ -11,8 +11,8 @@ import { sessionAuthMiddleware } from "@/middleware/session-auth"
 import {
   artifactParamsSchema,
   getArtifactResponseSchema,
-  listTaskArtifactsResponseSchema,
-  taskArtifactsParamsSchema,
+  listPlanArtifactsResponseSchema,
+  planArtifactsParamsSchema,
 } from "@/routes/v1/artifacts/schema"
 
 export const getArtifact = createRoute({
@@ -41,22 +41,22 @@ export const getArtifact = createRoute({
 
 export type GetArtifactRoute = typeof getArtifact
 
-export const listTaskArtifacts = createRoute({
-  path: "/tasks/{taskId}/artifacts",
+export const listPlanArtifacts = createRoute({
+  path: "/plans/{planId}/artifacts",
   method: "get",
-  summary: "List a task's artifacts",
+  summary: "List a plan's artifacts",
   description:
-    "Returns the artifacts belonging to a task, each at its current version with a public blob URL.",
+    "Returns the artifacts belonging to a plan, each at its current version with a public blob URL.",
   tags: ["Artifacts"],
   middleware: [sessionAuthMiddleware] as const,
   request: {
-    params: taskArtifactsParamsSchema,
+    params: planArtifactsParamsSchema,
   },
   hidden: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
-      schema: listTaskArtifactsResponseSchema,
-      description: "Task artifacts",
+      schema: listPlanArtifactsResponseSchema,
+      description: "Plan artifacts",
     }),
     [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
     [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
@@ -65,4 +65,4 @@ export const listTaskArtifacts = createRoute({
   },
 })
 
-export type ListTaskArtifactsRoute = typeof listTaskArtifacts
+export type ListPlanArtifactsRoute = typeof listPlanArtifacts

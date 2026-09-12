@@ -12,9 +12,9 @@ import {
 import { Spinner } from "@repo/ui/components/spinner"
 import { cn } from "@repo/ui/lib/utils"
 import { useEffect, useRef, useState } from "react"
-import type { ChannelTask } from "@/hooks/use-channel-tasks"
+import type { ChannelPlan } from "@/hooks/use-channel-plans"
 
-type PlanItem = ChannelTask["plan"][number]
+type PlanStep = ChannelPlan["steps"][number]
 
 // Long plans collapse behind a "N more" row so a 20-step breakdown doesn't push
 // the delivered files off the card.
@@ -24,7 +24,7 @@ const INITIAL_VISIBLE_STEPS = 4
 // only stable identity we get. The occurrence index is folded in so two steps
 // with the same label stay distinct as React keys and as separate entries in the
 // seen/fresh sets.
-function stepKey(item: PlanItem, index: number) {
+function stepKey(item: PlanStep, index: number) {
   return `${index}:${item.text}`
 }
 
@@ -33,7 +33,7 @@ const MARKER_BASE =
 
 // Rendered with `key={status}` at the call site, so a status flip remounts the
 // marker and its enter animation actually replays.
-function StepMarker({ status }: { status: PlanItem["status"] }) {
+function StepMarker({ status }: { status: PlanStep["status"] }) {
   if (status === "done") {
     return (
       <span
@@ -76,7 +76,7 @@ function StepMarker({ status }: { status: PlanItem["status"] }) {
   )
 }
 
-function StepLabel({ item }: { item: PlanItem }) {
+function StepLabel({ item }: { item: PlanStep }) {
   return (
     <span
       className={cn(
@@ -108,7 +108,7 @@ function Step({
   isFresh,
   index,
 }: {
-  item: PlanItem
+  item: PlanStep
   showConnector: boolean
   isFresh: boolean
   index: number
@@ -196,11 +196,11 @@ function Step({
   )
 }
 
-export function TaskPlanProgress({
+export function PlanStepProgress({
   items,
   className,
 }: {
-  items: PlanItem[]
+  items: PlanStep[]
   className?: string
 }) {
   const total = items.length
@@ -247,11 +247,11 @@ export function TaskPlanProgress({
   )
 }
 
-export function TaskPlanList({
+export function PlanStepList({
   items,
   className,
 }: {
-  items: PlanItem[]
+  items: PlanStep[]
   className?: string
 }) {
   const [expanded, setExpanded] = useState(false)

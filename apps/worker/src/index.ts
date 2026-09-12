@@ -156,7 +156,7 @@ async function bootstrap() {
   })
 
   // Headless triggered runs (the Act effect). Uses the respond queue as a
-  // producer when Merlin's disposition is create_task, and its own queue to
+  // producer when Merlin's disposition is create_plan, and its own queue to
   // re-arm a coalescing window that's waiting on an in-flight run.
   const triggeredRunQueue = new Queue<TriggeredRunJobData | ActFlushJobData>(
     TRIGGERED_RUN_QUEUE,

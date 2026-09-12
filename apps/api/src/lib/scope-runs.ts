@@ -7,9 +7,9 @@ import {
   MERLIN_USER_ID,
   schema,
 } from "@repo/db"
-import type { Task } from "@repo/db/schema"
+import type { Plan } from "@repo/db/schema"
 import { env } from "@repo/env/server"
-import { toRealtimeTask } from "@repo/merlin/tasks"
+import { toRealtimePlan } from "@repo/merlin/plans"
 import { loadThreadSummary } from "@repo/messaging"
 import type { RealtimeMessage } from "@repo/realtime-types"
 import {
@@ -46,14 +46,14 @@ function getRespondQueue(): Queue<MerlinRespondJobData> {
   return respondQueue
 }
 
-// Shared row→wire serializer (drift-guarded in @repo/merlin/tasks);
+// Shared row→wire serializer (drift-guarded in @repo/merlin/plans);
 // re-exported under the name this app's handlers already import.
-export { toRealtimeTask as serializeTask }
+export { toRealtimePlan as serializePlan }
 
-export async function emitTaskUpdated(task: Task): Promise<void> {
+export async function emitPlanUpdated(plan: Plan): Promise<void> {
   const io = await getEmitter()
-  io.to(channelRoom(task.channelId)).emit("task:updated", {
-    task: toRealtimeTask(task),
+  io.to(channelRoom(plan.channelId)).emit("plan:updated", {
+    plan: toRealtimePlan(plan),
   })
 }
 
@@ -72,7 +72,7 @@ async function loadAuthor(userId: string) {
     .then((rows) => rows[0] ?? null)
 }
 
-// Archived channels (archived projects) are write-locked everywhere; task
+// Archived channels (archived projects) are write-locked everywhere; plan
 // rails insert directly, so they check here rather than via a route guard.
 async function channelIsArchived(channelId: string): Promise<boolean> {
   const row = await db
@@ -204,7 +204,7 @@ export type ScopeContinuation = {
 // Start a scope's next run, answering `triggerMessageId`. Mirrors the worker's
 // completion-drain shape: if the scope is busy, the message rides the scope
 // queue (the drain starts it when the active run settles); otherwise
-// placeholder + run + enqueue, with the same race handling. Shared by task
+// placeholder + run + enqueue, with the same race handling. Shared by plan
 // threads, plain channel scopes, and approval resumes.
 export async function startScopeContinuationRun(
   args: ScopeContinuation
@@ -244,7 +244,7 @@ export async function startScopeContinuationRun(
     if (!active?.messageId) return "no_active_run"
     // A failed queue insert means no run will ever answer this trigger —
     // surface it so the caller can abandon instead of resolving into a
-    // running task with nothing behind it.
+    // running plan with nothing behind it.
     let insertedId: string | null = null
     try {
       insertedId = await db
@@ -461,30 +461,30 @@ export async function startScopeContinuationRun(
   }
 }
 
-// Task-thread flavour: the scope is the task's anchor thread, and an
-// abandoned run puts the task back in the team's court.
-export async function startTaskContinuationRun(args: {
-  task: Task
+// Plan-thread flavour: the scope is the plan's anchor thread, and an
+// abandoned run puts the plan back in the team's court.
+export async function startPlanContinuationRun(args: {
+  plan: Plan
   triggerMessageId: string
   senderId: string
 }): Promise<void> {
-  const { task } = args
+  const { plan } = args
   await startScopeContinuationRun({
-    workspaceId: task.workspaceId,
-    channelId: task.channelId,
-    scopeKey: task.threadRootId,
-    threadRootId: task.threadRootId,
+    workspaceId: plan.workspaceId,
+    channelId: plan.channelId,
+    scopeKey: plan.threadRootId,
+    threadRootId: plan.threadRootId,
     triggerMessageId: args.triggerMessageId,
     senderId: args.senderId,
     onAbandoned: async () => {
       await db
-        .update(schema.task)
+        .update(schema.plan)
         .set({ status: "waiting_for_input" })
         .where(
-          and(eq(schema.task.id, task.id), eq(schema.task.status, "running"))
+          and(eq(schema.plan.id, plan.id), eq(schema.plan.status, "running"))
         )
         .returning()
-        .then((rows) => (rows[0] ? emitTaskUpdated(rows[0]) : undefined))
+        .then((rows) => (rows[0] ? emitPlanUpdated(rows[0]) : undefined))
         .catch(() => {})
     },
   })

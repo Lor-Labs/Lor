@@ -4,7 +4,7 @@
 // snapshot type asserts — in @repo/merlin, which sees both sides — that it
 // exactly mirrors its date-serialized DB row. A schema change that would
 // drift the wire shape fails check-types at the guard instead of rotting
-// silently. See toRealtimeLoop (loops.ts) / toRealtimeTask (tasks.ts).
+// silently. See toRealtimeLoop (loops.ts) / toRealtimePlan (plans.ts).
 
 export type SerializedDates<T> = {
   [K in keyof T]: T[K] extends Date

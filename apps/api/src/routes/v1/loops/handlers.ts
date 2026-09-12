@@ -491,7 +491,7 @@ export const deleteLoop: AppRouteHandler<DeleteLoopRoute> = async (c) => {
 const RUN_HISTORY_LIMIT = 20
 
 // Run history: newest scheduled fire first (scheduledFor is when the cron
-// meant it to run; createdAt covers legacy/edge rows). Spawned tasks and
+// meant it to run; createdAt covers legacy/edge rows). Spawned plans and
 // artifacts hang off originRunId; effects are the recorded side-effect tools.
 export const listLoopRuns: AppRouteHandler<ListLoopRunsRoute> = async (c) => {
   const currentUser = c.var.user
@@ -526,20 +526,20 @@ export const listLoopRuns: AppRouteHandler<ListLoopRunsRoute> = async (c) => {
     .limit(RUN_HISTORY_LIMIT)
 
   const runIds = runs.map((r) => r.id)
-  const [tasks, artifacts, effects] =
+  const [plans, artifacts, effects] =
     runIds.length > 0
       ? await Promise.all([
           db
             .select({
-              id: schema.task.id,
-              title: schema.task.title,
-              status: schema.task.status,
-              threadRootId: schema.task.threadRootId,
-              cardMessageId: schema.task.cardMessageId,
-              originRunId: schema.task.originRunId,
+              id: schema.plan.id,
+              title: schema.plan.title,
+              status: schema.plan.status,
+              threadRootId: schema.plan.threadRootId,
+              cardMessageId: schema.plan.cardMessageId,
+              originRunId: schema.plan.originRunId,
             })
-            .from(schema.task)
-            .where(inArray(schema.task.originRunId, runIds)),
+            .from(schema.plan)
+            .where(inArray(schema.plan.originRunId, runIds)),
           db
             .select({
               artifact: schema.artifact,
@@ -586,7 +586,7 @@ export const listLoopRuns: AppRouteHandler<ListLoopRunsRoute> = async (c) => {
         note: run.note,
         creditsSpent: run.creditsSpent,
         effects: (effectsByRun.get(run.id) ?? []).sort(),
-        tasks: tasks
+        plans: plans
           .filter((t) => t.originRunId === run.id)
           .map(({ originRunId: _originRunId, ...t }) => t),
         artifacts: artifacts

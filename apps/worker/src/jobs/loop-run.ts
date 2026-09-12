@@ -14,7 +14,7 @@ import type { Job, Queue } from "bullmq"
 import type { createClient } from "redis"
 import { logger } from "@/lib/logger"
 import { postMerlinMessage } from "@/lib/merlin-messages"
-import { createMerlinTask } from "@/lib/merlin-task"
+import { createMerlinPlan } from "@/lib/merlin-plan"
 import {
   cancelPendingRun,
   runUnattended,
@@ -209,8 +209,8 @@ export function createLoopRunProcessor(
               { emitter, redis },
               { channelId: run.channelId, content }
             ),
-          createTask: ({ title, goal }) =>
-            createMerlinTask(
+          createPlan: ({ title, goal }) =>
+            createMerlinPlan(
               { emitter, redis, respondQueue },
               {
                 workspaceId: run.workspaceId,

@@ -1,9 +1,9 @@
 import { type ApprovalTarget, approvalTargetKey } from "@repo/connectors"
 import { db, eq, schema } from "@repo/db"
-import type { Task } from "@repo/db/schema"
+import type { Plan } from "@repo/db/schema"
 import type { ToolSet } from "ai"
 import { logger } from "./logger"
-import { updateTask } from "./tasks"
+import { updatePlan } from "./plans"
 
 // Which tool targets this workspace gates behind human approval (LOR-81).
 // Computed model: a row exists only where the workspace opted in, so an empty
@@ -25,7 +25,7 @@ export async function loadApprovalGates(
 }
 
 // Maps each bound tool name to the approval target that governs it. Tools with
-// no entry (messaging/reactions, brain, chat search, task/loop bookkeeping)
+// no entry (messaging/reactions, brain, chat search, plan/loop bookkeeping)
 // can never be gated — answering in chat is the core product.
 export class ToolTargetMap {
   private readonly byToolName = new Map<string, string>()
@@ -84,17 +84,17 @@ export function buildToolApproval(
 export async function fileParkedApproval({
   workspaceId,
   runId,
-  taskId,
+  planId,
   parked,
   label,
-  onTaskUpdated,
+  onPlanUpdated,
 }: {
   workspaceId: string
   runId: string
-  taskId: string | null
+  planId: string | null
   parked: ParkedApproval
   label: string
-  onTaskUpdated?: (task: Task) => void
+  onPlanUpdated?: (plan: Plan) => void
 }): Promise<boolean> {
   try {
     const inserted = await db
@@ -102,7 +102,7 @@ export async function fileParkedApproval({
       .values({
         workspaceId,
         runId,
-        taskId,
+        planId,
         action: parked.target,
         description: label,
         payload: parked.input,
@@ -114,11 +114,11 @@ export async function fileParkedApproval({
       .returning({ id: schema.approval.id })
       .then((rows) => rows[0] ?? null)
     if (!inserted) return false
-    if (taskId) {
-      await updateTask(
-        taskId,
+    if (planId) {
+      await updatePlan(
+        planId,
         { status: "waiting_for_approval" },
-        onTaskUpdated
+        onPlanUpdated
       )
     }
     return true

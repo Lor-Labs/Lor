@@ -37,11 +37,11 @@ import { useChannelMessages } from "@/hooks/use-channel-messages"
 import { useChannelPermissions } from "@/hooks/use-channel-permissions"
 import { useMemberModeration } from "@/hooks/use-member-moderation"
 import { useOpenDM } from "@/hooks/use-open-dm"
+import { useChannelPlans } from "@/hooks/use-plans"
 import { useProfileSheet } from "@/hooks/use-profile-sheet"
 import { useProjectUpdates } from "@/hooks/use-project-updates"
 import { useChannelProposals } from "@/hooks/use-proposals"
 import { useRunQueue } from "@/hooks/use-run-queue"
-import { useChannelTasks } from "@/hooks/use-tasks"
 import { useTypingIndicator } from "@/hooks/use-typing-indicator"
 import { useWorkspaceMentionCandidates } from "@/hooks/use-workspace-mention-candidates"
 import { api } from "@/lib/api"
@@ -87,11 +87,11 @@ export default function ChannelScreen() {
     socket,
     currentUser: session?.user,
   })
-  // Screen-level task subscription (mirrors web's route-level one): task
+  // Screen-level plan subscription (mirrors web's route-level one): plan
   // cards mount their own listeners, but virtualized cards unmount — without
-  // this a terminal task:updated lands with no listener and the list goes
+  // this a terminal plan:updated lands with no listener and the list goes
   // stale until a refetch.
-  useChannelTasks(channelId ?? "")
+  useChannelPlans(channelId ?? "")
   useAutoMarkRead(channelId)
   // Live source for every approval card in this channel (message cards read
   // the same cache); the socket handlers live here, once per screen.

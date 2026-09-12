@@ -4,7 +4,7 @@ import { MerlinActivity } from "@/components/merlin-activity"
 import { MerlinReasoning } from "@/components/merlin-reasoning"
 import { MerlinToolTrail } from "@/components/merlin-tool-trail"
 import { MessageContent } from "@/components/message-content"
-import { TaskFileRow } from "@/components/task-ui"
+import { PlanFileRow } from "@/components/plan-ui"
 import type { Message } from "@/lib/api-types"
 import { buildMerlinSegments, type MerlinToolCall } from "@/lib/merlin"
 
@@ -144,7 +144,7 @@ export function MerlinMessageBody({
       {deliverables.length > 0 ? (
         <View className="mt-one max-w-[420px] gap-one">
           {deliverables.map((file) => (
-            <TaskFileRow
+            <PlanFileRow
               key={file.artifactId}
               name={file.path}
               size={file.size}

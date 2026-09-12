@@ -203,7 +203,7 @@ export const CHANGE_OPERATION_KINDS: readonly ChangeOperationKind[] =
 
 // What Merlin sent alongside the ops.
 export const proposalEvidenceSchema = z.object({
-  kind: z.enum(["message", "task", "run", "url"]),
+  kind: z.enum(["message", "plan", "run", "url"]),
   ref: z.string().min(1).max(2048),
 })
 export type ProposalEvidence = z.infer<typeof proposalEvidenceSchema>

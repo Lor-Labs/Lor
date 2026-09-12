@@ -12,7 +12,7 @@ export const approvalParamsSchema = z.object({
 
 export const approvalSchema = z.object({
   id: z.string().uuid(),
-  taskId: z.string().uuid().nullable(),
+  planId: z.string().uuid().nullable(),
   action: z.string(),
   description: z.string(),
   status: z.enum(approvalStatusEnum.enumValues),

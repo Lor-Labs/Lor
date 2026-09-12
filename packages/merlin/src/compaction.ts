@@ -1,8 +1,8 @@
-import type { AgentRunContextTask } from "@repo/db/schema"
+import type { AgentRunContextPlan } from "@repo/db/schema"
 import { generateText, type ModelMessage, pruneMessages } from "ai"
 import { logger } from "./logger"
 import { merlinSmallModel, smallGatewayOptions } from "./models"
-import { taskStateSection } from "./tasks"
+import { planStateSection } from "./plans"
 import type { OnUsage, UsageEvent } from "./usage"
 
 // Compaction is a projection, not a deletion: `agent_run_step` keeps the whole
@@ -12,7 +12,7 @@ import type { OnUsage, UsageEvent } from "./usage"
 //   [original ask] [working notes] [verbatim recent tail] [authoritative state]
 //
 // The notes carry what old tool calls found; the tail keeps the immediate
-// working set intact; state (the task's live plan) is reconstructed from the
+// working set intact; state (the plan's live steps) is reconstructed from the
 // database rather than trusted to prose.
 
 // Verbatim tail target. The split lands on the nearest complete tool round at
@@ -42,7 +42,7 @@ const MAX_SUMMARY_FAILURES = 3
 const BYTES_PER_TOKEN = 3
 const IMAGE_TOKEN_ESTIMATE = 1_500
 
-const SUMMARY_INSTRUCTION = `You are keeping the working notes for an agent midway through a task. Its older tool calls are about to leave its context, so these notes are the ONLY thing it will retain about them.
+const SUMMARY_INSTRUCTION = `You are keeping the working notes for an agent midway through its work. Its older tool calls are about to leave its context, so these notes are the ONLY thing it will retain about them.
 
 Write what it needs to continue without redoing work. Preserve VERBATIM and in full:
 - every identifier it will need again: ids, project/database/table/column names, branch names, urls, file paths, filenames
@@ -51,7 +51,7 @@ Write what it needs to continue without redoing work. Preserve VERBATIM and in f
 - what has been produced so far (files, links, messages sent) and what remains to be done
 
 Rules:
-- Facts only. No preamble, no "the agent then...", no restating the task.
+- Facts only. No preamble, no "the agent then...", no restating the goal.
 - Never generalize away a specific value. "2,553 policies" not "several thousand"; "client_id a37328ef-..." not "the client id".
 - If earlier notes are provided, merge them with the new activity into one current set; keep what still matters, drop what has been superseded.
 - Group under short headings. Be dense.`
@@ -70,7 +70,7 @@ export function newCompactionState(): CompactionState {
 // steps, so the compacted array becomes the new baseline — "what is already
 // summarized" has to be read off the array itself, never from an index
 // remembered against the pre-compaction one.
-const SUMMARY_MARKER = "[Your working notes from earlier in this task."
+const SUMMARY_MARKER = "[Your working notes from earlier in this run."
 
 export function isSummaryMessage(message: ModelMessage): boolean {
   return (
@@ -238,10 +238,10 @@ export function summaryMessage(summary: string): ModelMessage {
   }
 }
 
-// Marks the injected task-state block so a later compaction can drop the stale
+// Marks the injected plan-state block so a later compaction can drop the stale
 // one from the tail before appending the fresh block — same pattern as
 // SUMMARY_MARKER; two "authoritative" blocks would contradict each other.
-const STATE_MARKER = "[Current task state, restored after compaction"
+const STATE_MARKER = "[Current plan state, restored after compaction"
 
 export function isStateMessage(message: ModelMessage): boolean {
   return (
@@ -252,13 +252,13 @@ export function isStateMessage(message: ModelMessage): boolean {
 }
 
 // Authoritative state, rebuilt from the database rather than trusted to prose.
-// A summary can quietly drop a plan item; the task row cannot.
-function stateMessages(task: AgentRunContextTask | undefined): ModelMessage[] {
-  if (!task) return []
+// A summary can quietly drop a step; the plan row cannot.
+function stateMessages(plan: AgentRunContextPlan | undefined): ModelMessage[] {
+  if (!plan) return []
   return [
     {
       role: "user",
-      content: `${STATE_MARKER} — this is authoritative and overrides anything in the notes above.]\n${taskStateSection(task)}`,
+      content: `${STATE_MARKER} — this is authoritative and overrides anything in the notes above.]\n${planStateSection(plan)}`,
     },
   ]
 }
@@ -292,7 +292,7 @@ export function fitMessagesToBudget(
     (m) => m.role === "user" && !isSummaryMessage(m) && !isStateMessage(m)
   )
   const notes = messages.find(isSummaryMessage)
-  const task = newestFirst.find(isStateMessage)
+  const plan = newestFirst.find(isStateMessage)
   const allowance = Math.min(24_000, Math.floor(budgetChars / 8))
   const retainedRequest =
     latestRequest && messageTokens(latestRequest) <= allowance / BYTES_PER_TOKEN
@@ -305,8 +305,8 @@ export function fitMessagesToBudget(
       : "",
     notes ? `Working notes:\n${excerpt(textOf(notes.content), allowance)}` : "",
     `Recent activity excerpts:\n${excerpt(renderForSummary(messages.slice(1)), Math.floor(budgetChars / 2))}`,
-    task
-      ? `Current task state:\n${excerpt(textOf(task.content), allowance)}`
+    plan
+      ? `Current plan state:\n${excerpt(textOf(plan.content), allowance)}`
       : "",
     latestRequest && !retainedRequest
       ? `Latest user message excerpt (continue this request):\n${excerpt(textOf(latestRequest.content), allowance)}`
@@ -347,7 +347,7 @@ export async function compact(args: {
   messages: ModelMessage[]
   state: CompactionState
   workspaceId: string
-  task?: AgentRunContextTask
+  plan?: AgentRunContextPlan
   onUsage?: OnUsage
   tailTargetTokens?: number
   maxMessageTokens?: number
@@ -404,7 +404,7 @@ export async function compact(args: {
     ...messages.slice(0, 1),
     summaryMessage(state.summary),
     ...messages.slice(split).filter((m) => !isStateMessage(m)),
-    ...stateMessages(args.task),
+    ...stateMessages(args.plan),
   ]
   if (!toolPairingHolds(assembled)) {
     logger.warn(

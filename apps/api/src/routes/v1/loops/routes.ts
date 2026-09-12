@@ -259,7 +259,7 @@ export const listLoopRuns = createRoute({
   method: "get",
   summary: "List a loop's run history",
   description:
-    "Returns the loop's scheduled runs (newest first): outcome, closing note, recorded actions, and spawned tasks/artifacts.",
+    "Returns the loop's scheduled runs (newest first): outcome, closing note, recorded actions, and spawned plans/artifacts.",
   tags: ["Loops"],
   middleware: [sessionAuthMiddleware] as const,
   request: {

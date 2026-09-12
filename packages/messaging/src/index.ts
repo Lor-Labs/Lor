@@ -70,7 +70,7 @@ async function resolveThreadNotificationContext(message: FanoutMessage) {
     }
   }
 
-  const [participantRows, taskCreator] = await Promise.all([
+  const [participantRows, planCreator] = await Promise.all([
     db
       .selectDistinct({ userId: schema.message.authorId })
       .from(schema.message)
@@ -81,16 +81,16 @@ async function resolveThreadNotificationContext(message: FanoutMessage) {
         )
       ),
     db
-      .select({ userId: schema.task.creatorId })
-      .from(schema.task)
-      .where(eq(schema.task.threadRootId, threadRootId))
+      .select({ userId: schema.plan.creatorId })
+      .from(schema.plan)
+      .where(eq(schema.plan.threadRootId, threadRootId))
       .limit(1)
       .then((rows) => rows[0]?.userId ?? null),
   ])
   const subscribedUserIds = new Set(
     participantRows.map((participant) => participant.userId)
   )
-  if (taskCreator) subscribedUserIds.add(taskCreator)
+  if (planCreator) subscribedUserIds.add(planCreator)
 
   return {
     threadRootId,

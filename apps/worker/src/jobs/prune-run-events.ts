@@ -13,7 +13,7 @@ import {
 } from "@repo/db"
 import { env } from "@repo/env/server"
 import { openActWindow, releaseActRunDeliveries } from "@repo/merlin/act-runs"
-import { settleAbandonedRunTask, toRealtimeTask } from "@repo/merlin/tasks"
+import { settleAbandonedRunPlan, toRealtimePlan } from "@repo/merlin/plans"
 import { loadThreadSummary } from "@repo/messaging"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
 import {
@@ -184,19 +184,19 @@ export async function sweepDeadRuns(
         )
     }
   }
-  // A dead run's task would otherwise stay "running" forever — every settle
+  // A dead run's plan would otherwise stay "running" forever — every settle
   // path lives in the crashed processor, and this sweep is the only actor
-  // left. Settles the run's own task (claimed or never-claimed first run).
+  // left. Settles the run's own plan (claimed or never-claimed first run).
   for (const run of dead) {
-    await settleAbandonedRunTask(
+    await settleAbandonedRunPlan(
       { id: run.id, threadRootId: run.threadRootId },
       "failed",
-      (task) =>
+      (plan) =>
         emitter
           .to(channelRoom(run.channelId))
-          .emit("task:updated", { task: toRealtimeTask(task) })
+          .emit("plan:updated", { plan: toRealtimePlan(plan) })
     ).catch((err) =>
-      logger.error({ err, runId: run.id }, "Dead-run task settle failed")
+      logger.error({ err, runId: run.id }, "Dead-run plan settle failed")
     )
   }
   // A dead run may have steered/queued messages behind it — drain each scope
@@ -298,13 +298,13 @@ export async function sweepOrphanedPlaceholders(
           status: "failed",
           replace: true,
         })
-      await settleAbandonedRunTask(
+      await settleAbandonedRunPlan(
         { threadRootId: message.threadRootId },
         "failed",
-        (task) => {
+        (plan) => {
           emitter
             .to(channelRoom(message.channelId))
-            .emit("task:updated", { task: toRealtimeTask(task) })
+            .emit("plan:updated", { plan: toRealtimePlan(plan) })
         }
       )
       if (message.threadRootId) {

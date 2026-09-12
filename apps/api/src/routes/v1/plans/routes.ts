@@ -9,30 +9,30 @@ import {
 } from "@/lib/helpers/openapi/schemas"
 import { sessionAuthMiddleware } from "@/middleware/session-auth"
 import {
-  channelTasksParamsSchema,
-  channelTasksQuerySchema,
-  getTaskResponseSchema,
-  listChannelTasksResponseSchema,
-  taskParamsSchema,
-} from "@/routes/v1/tasks/schema"
+  channelPlansParamsSchema,
+  channelPlansQuerySchema,
+  getPlanResponseSchema,
+  listChannelPlansResponseSchema,
+  planParamsSchema,
+} from "@/routes/v1/plans/schema"
 
-export const listChannelTasks = createRoute({
-  path: "/channels/{channelId}/tasks",
+export const listChannelPlans = createRoute({
+  path: "/channels/{channelId}/plans",
   method: "get",
-  summary: "List a channel's tasks",
+  summary: "List a channel's plans",
   description:
-    "Returns the channel's tasks, newest first. Pass active=true for only tasks that are running or waiting on the team.",
-  tags: ["Tasks"],
+    "Returns the channel's plans, newest first. Pass active=true for only plans that are running or waiting on the team.",
+  tags: ["Plans"],
   middleware: [sessionAuthMiddleware] as const,
   request: {
-    params: channelTasksParamsSchema,
-    query: channelTasksQuerySchema,
+    params: channelPlansParamsSchema,
+    query: channelPlansQuerySchema,
   },
   hidden: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
-      schema: listChannelTasksResponseSchema,
-      description: "Channel tasks",
+      schema: listChannelPlansResponseSchema,
+      description: "Channel plans",
     }),
     [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
     [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
@@ -41,24 +41,24 @@ export const listChannelTasks = createRoute({
   },
 })
 
-export type ListChannelTasksRoute = typeof listChannelTasks
+export type ListChannelPlansRoute = typeof listChannelPlans
 
-export const getTask = createRoute({
-  path: "/tasks/{taskId}",
+export const getPlan = createRoute({
+  path: "/plans/{planId}",
   method: "get",
-  summary: "Get a task",
+  summary: "Get a plan",
   description:
-    "Returns the task snapshot plus its pending approval, if one is waiting on the team.",
-  tags: ["Tasks"],
+    "Returns the plan snapshot plus its pending approval, if one is waiting on the team.",
+  tags: ["Plans"],
   middleware: [sessionAuthMiddleware] as const,
   request: {
-    params: taskParamsSchema,
+    params: planParamsSchema,
   },
   hidden: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
-      schema: getTaskResponseSchema,
-      description: "Task and pending approval",
+      schema: getPlanResponseSchema,
+      description: "Plan and pending approval",
     }),
     [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
     [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
@@ -67,4 +67,4 @@ export const getTask = createRoute({
   },
 })
 
-export type GetTaskRoute = typeof getTask
+export type GetPlanRoute = typeof getPlan

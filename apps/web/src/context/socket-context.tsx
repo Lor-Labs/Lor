@@ -20,9 +20,9 @@ const RECONNECT_MAX_DELAY_MS = 30_000
 
 // Message/thread queries reconcile after room joins; these caches use other events.
 const RECONNECT_QUERY_KEYS = new Set<unknown>([
-  "channel-tasks",
-  "task",
-  "task-artifacts",
+  "channel-plans",
+  "plan",
+  "plan-artifacts",
   "channel-approvals",
   "channel-proposals",
   "channel-loops",
