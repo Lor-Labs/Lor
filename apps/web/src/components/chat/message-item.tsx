@@ -75,6 +75,7 @@ interface MessageItemProps {
 }
 
 const PREVIEW_MAX_CHARS = 100
+const MERLIN_USER_ID = "00000000-0000-4000-8000-000000000001"
 
 // Prefer the mentions the API now attaches to the quoted message; fall back to
 // the channel's mentionable users for optimistic sends and older payloads that
@@ -298,6 +299,8 @@ export const MessageItem = memo(function MessageItem({
   }, [message.id])
 
   const isOwnMessage = !!currentUserId && currentUserId === message.authorId
+  const canWrapUnderAvatar =
+    wrapContentAroundAvatar && message.authorId === MERLIN_USER_ID
   const isReply = message.type === "reply"
   const hasToolCalls = (message.merlinToolCalls?.length ?? 0) > 0
   const hasReasoningSegments =
@@ -518,13 +521,13 @@ export const MessageItem = memo(function MessageItem({
           onJumpToMessage={onJumpToMessage}
         />
       )}
-      <div className={cn(wrapContentAroundAvatar ? "flow-root" : "flex gap-3")}>
+      <div className={cn(canWrapUnderAvatar ? "flow-root" : "flex gap-3")}>
         {showHeader ? (
           isApp ? (
             <div
               className={cn(
                 "mt-0.5 self-start",
-                wrapContentAroundAvatar && "float-left mr-3"
+                canWrapUnderAvatar && "float-left mr-3"
               )}
             >
               <Avatar size="lg">
@@ -556,7 +559,7 @@ export const MessageItem = memo(function MessageItem({
                 type="button"
                 className={cn(
                   "mt-0.5 cursor-pointer self-start",
-                  wrapContentAroundAvatar && "float-left mr-3"
+                  canWrapUnderAvatar && "float-left mr-3"
                 )}
               >
                 <Avatar size="lg">
@@ -578,7 +581,7 @@ export const MessageItem = memo(function MessageItem({
           <div
             className={cn(
               "w-10 shrink-0 text-right text-[10px] leading-6 text-muted-foreground opacity-0 transition-opacity duration-100 group-hover:opacity-100",
-              wrapContentAroundAvatar && "float-left mr-3"
+              canWrapUnderAvatar && "float-left mr-3"
             )}
           >
             <span className="whitespace-nowrap">
@@ -586,7 +589,7 @@ export const MessageItem = memo(function MessageItem({
             </span>
           </div>
         )}
-        <div className={cn("min-w-0", !wrapContentAroundAvatar && "flex-1")}>
+        <div className={cn("min-w-0", !canWrapUnderAvatar && "flex-1")}>
           {showHeader && (
             <div className="flex items-baseline gap-2">
               {isApp ? (
