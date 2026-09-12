@@ -433,6 +433,9 @@ importers:
       '@repo/auth':
         specifier: workspace:*
         version: link:../../packages/auth
+      '@repo/db':
+        specifier: workspace:*
+        version: link:../../packages/db
       '@repo/env':
         specifier: workspace:*
         version: link:../../packages/env

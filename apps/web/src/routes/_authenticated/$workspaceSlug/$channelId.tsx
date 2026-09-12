@@ -5,14 +5,18 @@ import { useIsMobile } from "@repo/ui/hooks/use-mobile"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
 import { AnimatePresence } from "framer-motion"
-import { useCallback, useEffect, useMemo, useRef } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react"
 import { useDropzone } from "react-dropzone"
 import { ArtifactOverlay } from "@/components/artifacts/artifact-overlay"
 import { ChatSkeleton } from "@/components/chat/chat-skeleton"
 import { MessageInput } from "@/components/chat/composer/message-input"
 import { DropZoneOverlay } from "@/components/chat/drop-zone-overlay"
 import { ChatHeader } from "@/components/chat/header"
-import { MessageList, scrollToMessage } from "@/components/chat/message-list"
+import {
+  MessageList,
+  pinMessageForPanelReflow,
+  scrollToMessage,
+} from "@/components/chat/message-list"
 import { RunQueuePill } from "@/components/chat/run-queue-pill"
 import { TypingIndicator } from "@/components/chat/typing-indicator"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
@@ -77,7 +81,7 @@ function ChannelView() {
   const isMobile = useIsMobile()
   useAutoMarkRead(channelId)
   const queryClient = useQueryClient()
-  const { view, setView, clearView, isCollapsed, toggleCollapsed } =
+  const { view, setView, clearView, isCollapsed, toggleCollapsed, panelWidth } =
     useRightSidebar()
   const { data: session } = authClient.useSession()
   const currentUserId = session?.user.id
@@ -263,6 +267,28 @@ function ChannelView() {
     },
     [setView, workspaceSlug, channelId, isCollapsed, toggleCollapsed]
   )
+
+  // Opening, closing, or collapsing the thread panel animates the channel
+  // width, re-wrapping every message row. Pin the thread's root message (the
+  // card the user is working with) through that reflow so it stays put on
+  // screen. Gate on the panel's effective width: switching between threads
+  // keeps the panel where it is, so pinning there would only yank the scroller
+  // out of follow-output. Layout effect: the pin must start before the first
+  // animation frame.
+  const openThreadRootRef = useRef<string | null>(null)
+  const panelReflowWidthRef = useRef<number | null>(null)
+  useLayoutEffect(() => {
+    const currentRoot =
+      view?.type === "thread" && !isCollapsed ? view.threadRootId : null
+    const previousRoot = openThreadRootRef.current
+    openThreadRootRef.current = currentRoot
+    const effectiveWidth = view && !isCollapsed ? panelWidth : 0
+    const previousWidth = panelReflowWidthRef.current
+    panelReflowWidthRef.current = effectiveWidth
+    if (previousWidth === null || previousWidth === effectiveWidth) return
+    const anchorRoot = previousRoot ?? currentRoot
+    if (anchorRoot) pinMessageForPanelReflow(anchorRoot)
+  }, [view, isCollapsed, panelWidth])
 
   // MessageItem is memoized — forward a stable callback identity so route
   // re-renders don't re-render every message row.

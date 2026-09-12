@@ -624,7 +624,7 @@ function ServerEditor({
                 <label
                   key={option.value}
                   className={cn(
-                    "cursor-pointer rounded-lg border px-3 py-2.5 text-left transition-colors active:scale-[0.99] has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring",
+                    "cursor-pointer rounded-lg border px-3 py-2.5 text-left transition-colors active:scale-[0.99] focus-within:ring-2 focus-within:ring-ring",
                     selected
                       ? "border-primary bg-primary/5"
                       : "border-border bg-background hover:border-foreground/20"

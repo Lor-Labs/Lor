@@ -40,6 +40,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react"
 import { useDropzone } from "react-dropzone"
 import { MessageInput } from "@/components/chat/composer/message-input"
@@ -61,6 +62,7 @@ import {
 import { ThreadSubscriberStack } from "@/components/chat/thread-subscriber-stack"
 import { TypingIndicator } from "@/components/chat/typing-indicator"
 import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-header"
+import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import type { ThreadSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
 import { useSocket } from "@/context/socket-context"
 import { useTaskForCard } from "@/hooks/use-channel-tasks"
@@ -135,6 +137,7 @@ function messageToMarkdown(message: Message, headingLevel: 2 | 3): string {
 }
 
 export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
+  const { consumeComposerDraft } = useRightSidebar()
   const queryClient = useQueryClient()
   const socket = useSocket()
   const { data: session } = authClient.useSession()
@@ -161,14 +164,29 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
   // Subscribe to the channel cache so the root reflects edits, reactions,
   // and embed unfurls while the thread panel is open. The channel feed hook
   // (in the main view) owns the actual fetch — we just read here.
-  const { data: channelCache } = useQuery<ChannelMessagesCache>({
-    queryKey: ["messages", view.channelId],
-    enabled: false,
-  })
-  // Fallback while the thread loads; its own root remains current off-route.
-  const channelCacheRoot = useMemo(
-    () => findMessageInChannelCache(channelCache, view.threadRootId),
-    [channelCache, view.threadRootId]
+  const subscribeToChannelCache = useCallback(
+    (onChange: () => void) =>
+      queryClient.getQueryCache().subscribe((event) => {
+        const key = event.query.queryKey
+        if (key[0] === "messages" && key[1] === view.channelId) onChange()
+      }),
+    [queryClient, view.channelId]
+  )
+  const getChannelRoot = useCallback(
+    () =>
+      findMessageInChannelCache(
+        queryClient.getQueryData<ChannelMessagesCache>([
+          "messages",
+          view.channelId,
+        ]),
+        view.threadRootId
+      ),
+    [queryClient, view.channelId, view.threadRootId]
+  )
+  const channelCacheRoot = useSyncExternalStore(
+    subscribeToChannelCache,
+    getChannelRoot,
+    getChannelRoot
   )
 
   const fetchThreadPage = useCallback(
@@ -878,6 +896,9 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
             steeringMessageId={queuedMessageSteering.steeringMessageId}
           />
           <MessageInput
+            key={view.threadRootId}
+            composerDraft={view.composerDraft}
+            onComposerDraftConsumed={consumeComposerDraft}
             context={channelContext}
             channelId={view.channelId}
             contextScopeKey={view.threadRootId}

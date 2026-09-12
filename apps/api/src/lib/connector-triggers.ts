@@ -3,9 +3,11 @@ import type { ConnectorEventKey } from "@repo/connectors"
 import { APP_USER_ID, and, db, eq, schema } from "@repo/db"
 import type { Embed, IntegrationProvider } from "@repo/db/schema"
 import { ACT_DELIVERY_PAYLOAD_MAX } from "@repo/merlin/act-runs"
+import { enrichMeetingEmbed } from "@repo/merlin/meeting-insights"
 import { type IngestSourceInput, ingestSource } from "@repo/merlin/sources"
+import { channelRoom, threadRoom } from "@repo/realtime-types"
 import { startActRun } from "@/lib/act-runs"
-import { postBotMessage } from "@/lib/bot-messages"
+import { getEmitter, postBotMessage } from "@/lib/bot-messages"
 import { logger } from "@/lib/logger"
 
 // The Remember payload a webhook handler supplies; the trigger resolves the rest.
@@ -134,6 +136,22 @@ export async function dispatchConnectorEvent(input: {
         excludedFromMemory: target.trigger.remember,
       })
       postedMessageId = message.id
+      // Meeting insights are a model call — too slow to hold the webhook ack
+      // open. Post the base card first, then patch the embeds in place.
+      if (
+        input.provider === "attio" &&
+        input.event === "call_recording_ready" &&
+        input.embeds?.length
+      ) {
+        void enrichPostedMeetingEmbeds({
+          messageId: message.id,
+          channelId: target.channel.id,
+          workspaceId: target.connection.workspaceId,
+          embeds: input.embeds,
+        }).catch((err) =>
+          logger.warn({ err }, "Meeting embed enrichment failed")
+        )
+      }
     } catch (err) {
       logger.error(
         { err, provider: input.provider, event: input.event },
@@ -222,4 +240,32 @@ export async function dispatchConnectorEvent(input: {
     "Dispatched connector event"
   )
   return { posted: postedMessageId, remembered, acted }
+}
+
+// Follow-up to the POST effect: run meeting-insight enrichment after the base
+// card is live, then broadcast the patched embeds (same path as link unfurls).
+async function enrichPostedMeetingEmbeds(input: {
+  messageId: string
+  channelId: string
+  workspaceId: string
+  embeds: Embed[]
+}) {
+  const embeds = await Promise.all(
+    input.embeds.map((embed) =>
+      enrichMeetingEmbed(embed, input.workspaceId, (usage) => {
+        void recordUsage(usage).catch((err) =>
+          logger.warn({ err }, "Meeting insight usage recording failed")
+        )
+      })
+    )
+  )
+  await db
+    .update(schema.message)
+    .set({ embeds })
+    .where(eq(schema.message.id, input.messageId))
+  const io = await getEmitter()
+  io.to([channelRoom(input.channelId), threadRoom(input.messageId)]).emit(
+    "message:embeds:updated",
+    { channelId: input.channelId, messageId: input.messageId, embeds }
+  )
 }

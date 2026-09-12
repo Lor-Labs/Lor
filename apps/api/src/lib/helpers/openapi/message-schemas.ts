@@ -55,6 +55,18 @@ export const messageEmbedSchema = z.object({
   footer: z.string().optional(),
   timestamp: z.string().optional(),
   color: z.string().optional(),
+  meeting: z
+    .object({
+      recordingId: z.string(),
+      meetingId: z.string(),
+      durationMinutes: z.number(),
+      participants: z.array(z.string()),
+      transcript: z.string(),
+      transcriptTruncated: z.boolean(),
+      summary: z.string().optional(),
+      followUps: z.array(z.object({ label: z.string(), prompt: z.string() })),
+    })
+    .optional(),
 })
 
 export const merlinToolCallSchema = z.object({

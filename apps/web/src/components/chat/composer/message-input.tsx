@@ -112,6 +112,8 @@ const SLASH_COMMANDS: SlashCommandItem[] = [
 ]
 
 interface MessageInputProps {
+  composerDraft?: { id: string; text: string }
+  onComposerDraftConsumed?: (id: string) => void
   context: ChatContext
   // Enables connector attachments — omitted in DMs, which have no workspace.
   channelId?: string
@@ -448,6 +450,8 @@ function getActiveCodeBlockPos(editor: {
 }
 
 export function MessageInput({
+  composerDraft,
+  onComposerDraftConsumed,
   context,
   channelId,
   contextScopeKey,
@@ -473,7 +477,6 @@ export function MessageInput({
   onSteerQueued,
   isSteeringQueued = false,
 }: MessageInputProps) {
-  const [plainText, setPlainText] = useState("")
   const [isAttachmentMenuOpen, setIsAttachmentMenuOpen] = useState(false)
   const mentionCandidatesRef = useRef<MentionCandidate[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -622,16 +625,62 @@ export function MessageInput({
           return true
         },
       },
-      onCreate: ({ editor: tiptapEditor }) => {
-        setPlainText(tiptapEditor.getText({ blockSeparator: "\n" }))
-      },
-      onUpdate: ({ editor: tiptapEditor }) => {
-        setPlainText(tiptapEditor.getText({ blockSeparator: "\n" }))
+      onUpdate: () => {
         onTypingRef.current?.()
       },
     },
     []
   )
+
+  const draftState = useEditorState({
+    editor,
+    selector: ({ editor: tiptapEditor }) => ({
+      text: tiptapEditor?.getText({ blockSeparator: "\n" }) ?? "",
+      isEmpty: tiptapEditor?.isEmpty ?? true,
+    }),
+  })
+  const plainText = draftState?.text ?? ""
+  const isEmpty = draftState?.isEmpty ?? true
+
+  const appliedDraftRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (
+      !editor ||
+      !composerDraft ||
+      appliedDraftRef.current === composerDraft.id
+    )
+      return
+    const applyDraft = () => {
+      if (appliedDraftRef.current === composerDraft.id) return
+      appliedDraftRef.current = composerDraft.id
+      // Append to an existing draft; selecting a suggestion must not erase writing.
+      editor
+        .chain()
+        .focus("end")
+        .insertContent({
+          type: "paragraph",
+          content: [
+            {
+              type: "mention",
+              attrs: {
+                id: "00000000-0000-4000-8000-000000000001",
+                label: "Merlin",
+              },
+            },
+            { type: "text", text: ` ${composerDraft.text}` },
+          ],
+        })
+        .run()
+      onComposerDraftConsumed?.(composerDraft.id)
+    }
+    if (editor.isInitialized) applyDraft()
+    editor.on("create", applyDraft)
+    editor.on("mount", applyDraft)
+    return () => {
+      editor.off("create", applyDraft)
+      editor.off("mount", applyDraft)
+    }
+  }, [editor, composerDraft, onComposerDraftConsumed])
 
   const handleSend = useCallback(() => {
     if (!editor || isUploading) return
@@ -681,7 +730,6 @@ export function MessageInput({
     })
     editor.commands.clearContent(true)
     editor.commands.focus("end")
-    setPlainText("")
     clearAttachments()
     onCancelReply?.()
   }, [
@@ -749,9 +797,10 @@ export function MessageInput({
     (trimmedValue.length > 0 || pendingAttachments.length > 0) &&
     !isSending &&
     !isUploading
-  const isEmpty = trimmedValue.length === 0
   const isStopMode =
-    Boolean(onStop) && isEmpty && pendingAttachments.length === 0
+    Boolean(onStop) &&
+    trimmedValue.length === 0 &&
+    pendingAttachments.length === 0
   const markState = useEditorState({
     editor,
     selector: ({ editor: tiptapEditor }) => {

@@ -13,6 +13,7 @@ import {
   sql,
 } from "@repo/db"
 import { userDisplayName } from "@repo/merlin"
+import { meetingThreadContext } from "./meeting-context"
 
 const CONTEXT_LIMIT = 30
 const THREAD_CONTEXT_LIMIT = 1000
@@ -35,6 +36,7 @@ export async function loadConversation(args: {
         authorUsername: schema.user.username,
         authorDisplayUsername: schema.user.displayUsername,
         attachments: schema.message.attachments,
+        embeds: schema.message.embeds,
       })
       .from(schema.message)
       .innerJoin(schema.user, eq(schema.message.authorId, schema.user.id))
@@ -147,7 +149,11 @@ export async function loadConversation(args: {
         username: r.authorUsername,
         displayUsername: r.authorDisplayUsername,
       }),
-      content: r.content ?? "",
+      content:
+        (r.content ?? "") +
+        (r.messageId === args.threadRootId
+          ? meetingThreadContext(r.embeds)
+          : ""),
       ...(images.length > 0 ? { images } : {}),
       ...(files.length > 0 ? { files } : {}),
     }

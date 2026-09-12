@@ -16,6 +16,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
 } from "react"
@@ -32,7 +33,9 @@ import {
   type MessageScrollCommand,
   MessageScrollerCommandBridge,
   MessageScrollerJumpToLatest,
+  MessageScrollerReflowAnchor,
   MessageScrollTarget,
+  pinMessageDuringReflow,
   signalMessageScrollerInteraction,
   useRegisteredMessageScroller,
 } from "@/components/chat/message-scroller-controls"
@@ -147,6 +150,18 @@ const MESSAGE_SKELETON_GROUPS = [
 const MESSAGE_GROUP_WINDOW_MINUTES = 5
 
 let activeMessageScrollCommand: MessageScrollCommand | null = null
+let activeMessageScrollViewport: HTMLElement | null = null
+
+// Pins a visible message through the right panel's open/close width animation
+// so it doesn't drift as rows re-wrap. The channel route calls this with the
+// thread root when the thread panel opens, closes, or collapses.
+export function pinMessageForPanelReflow(messageId: string): void {
+  pinMessageDuringReflow(
+    activeMessageScrollViewport,
+    messageId,
+    activeMessageScrollCommand
+  )
+}
 
 export function scrollToMessage(messageId: string): boolean {
   const didScroll =
@@ -194,6 +209,7 @@ export function MessageList({
   const olderSentinelRef = useRef<HTMLDivElement>(null)
   const newerSentinelRef = useRef<HTMLDivElement>(null)
   const stickyDateRef = useRef<HTMLDivElement>(null)
+  const dateDividersRef = useRef<HTMLElement[]>([])
   const scrollFrameRef = useRef<number | null>(null)
   const {
     commandRef: messageScrollCommandRef,
@@ -221,6 +237,7 @@ export function MessageList({
     (message) => message.status === "pending"
   )
   const contentVersion = `${messages.length}:${messages[0]?.id ?? ""}:${messages.at(-1)?.id ?? ""}`
+  const oldestMessageId = orderedMessages[0]?.id
 
   const scrollToLocalMessage = useCallback(
     (messageId: string) => {
@@ -260,6 +277,17 @@ export function MessageList({
     },
     [onJumpToMessage, scrollToLocalMessage]
   )
+  // Registered every render: the viewport only exists once messages render
+  // (loading/empty states return early without mounting the scroller).
+  useLayoutEffect(() => {
+    const viewport = scrollRef.current
+    if (viewport) activeMessageScrollViewport = viewport
+    return () => {
+      if (activeMessageScrollViewport === viewport) {
+        activeMessageScrollViewport = null
+      }
+    }
+  })
   const handleReaderPointerDown = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
       signalMessageScrollerInteraction(
@@ -280,24 +308,42 @@ export function MessageList({
 
       // Determine which date divider has scrolled past the top
       const containerTop = el.getBoundingClientRect().top
-      const dividers = el.querySelectorAll("[data-date-divider]")
-      let topDate: string | null = null
-
-      for (const divider of dividers) {
-        const rect = divider.getBoundingClientRect()
-        if (rect.top <= containerTop + 8) {
-          topDate = (divider as HTMLElement).dataset.dateDivider ?? null
+      const dividers = dateDividersRef.current
+      let low = 0
+      let high = dividers.length
+      while (low < high) {
+        const mid = (low + high) >>> 1
+        const divider = dividers[mid]
+        if (
+          divider &&
+          divider.getBoundingClientRect().top <= containerTop + 8
+        ) {
+          low = mid + 1
         } else {
-          break
+          high = mid
         }
       }
+      const topDate = dividers[low - 1]?.dataset.dateDivider ?? ""
 
       const stickyDate = stickyDateRef.current
       if (!stickyDate) return
-      stickyDate.textContent = topDate ?? ""
-      stickyDate.dataset.visible = topDate ? "true" : "false"
+      if (stickyDate.textContent !== topDate) stickyDate.textContent = topDate
+      const visible = topDate ? "true" : "false"
+      if (stickyDate.dataset.visible !== visible) {
+        stickyDate.dataset.visible = visible
+      }
     })
   }, [])
+
+  useLayoutEffect(() => {
+    // Dates are ordered; only rebuild the index when membership changes —
+    // contentVersion skips the per-delta array identity churn while streaming.
+    dateDividersRef.current = Array.from(
+      scrollRef.current?.querySelectorAll<HTMLElement>("[data-date-divider]") ??
+        []
+    )
+    handleScroll()
+  }, [contentVersion, isLoading, handleScroll])
 
   useEffect(
     () => () => {
@@ -325,7 +371,7 @@ export function MessageList({
 
     observer.observe(sentinel)
     return () => observer.disconnect()
-  }, [hasOlder, onLoadOlder, isFetchingOlder])
+  }, [hasOlder, onLoadOlder, isFetchingOlder, oldestMessageId, isLoading])
 
   // IntersectionObserver for fetching newer (bottom of viewport — only
   // active in anchored mode, where the user is looking at older context)
@@ -378,6 +424,27 @@ export function MessageList({
   }
 
   if (messages.length === 0) {
+    // An empty loaded window can still have older history (e.g. every loaded
+    // message deleted, or an empty anchored page) — keep the container and
+    // sentinel mounted so pagination stays reachable instead of showing a
+    // false start-of-channel state.
+    if (hasOlder) {
+      return (
+        <div
+          ref={scrollRef}
+          className="flex flex-1 items-center justify-center overflow-y-auto"
+        >
+          <div
+            ref={olderSentinelRef}
+            className="flex h-12 items-center justify-center"
+          >
+            {isFetchingOlder && (
+              <Spinner className="size-5 text-muted-foreground motion-reduce:animate-none" />
+            )}
+          </div>
+        </div>
+      )
+    }
     return <EmptyState context={context} />
   }
 
@@ -410,22 +477,21 @@ export function MessageList({
         >
           <MessageScrollerContent
             aria-busy={Boolean(pendingMerlinMessage)}
-            className="justify-end py-4"
+            className={`relative justify-end pb-4 ${hasOlder ? "pt-16" : "pt-4"}`}
           >
-            {hasOlder && (
-              <MessageScrollerItem>
+            {orderedMessages.map((msg, i) => {
+              // Prepend detection needs the first content child to be a message.
+              // Keep the loader out of row layout so it cannot shift the anchor.
+              const olderLoader = i === 0 && hasOlder && (
                 <div
                   ref={olderSentinelRef}
-                  className="flex justify-center py-3"
+                  className="absolute inset-x-0 top-4 flex h-12 items-center justify-center"
                 >
                   {isFetchingOlder && (
                     <Spinner className="size-5 text-muted-foreground motion-reduce:animate-none" />
                   )}
                 </div>
-              </MessageScrollerItem>
-            )}
-
-            {orderedMessages.map((msg, i) => {
+              )
               const previous = orderedMessages[i - 1]
               const isDateBoundary =
                 !previous || !isSameDay(msg.createdAt, previous.createdAt)
@@ -470,6 +536,7 @@ export function MessageList({
                 }
                 return (
                   <MessageScrollerItem key={msg.id} messageId={msg.id}>
+                    {olderLoader}
                     {isDateBoundary && <DateDivider date={msg.createdAt} />}
                     <ChannelEventRow
                       events={group}
@@ -491,6 +558,7 @@ export function MessageList({
 
               return (
                 <MessageScrollerItem key={msg.id} messageId={msg.id}>
+                  {olderLoader}
                   {isDateBoundary && <DateDivider date={msg.createdAt} />}
                   <MessageItem
                     message={msg}
@@ -527,6 +595,8 @@ export function MessageList({
             )}
           </MessageScrollerContent>
         </MessageScrollerViewport>
+
+        <MessageScrollerReflowAnchor viewportRef={scrollRef} />
 
         <MessageScrollerJumpToLatest
           newestMessageId={messages[0]?.id ?? null}

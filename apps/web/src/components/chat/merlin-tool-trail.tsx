@@ -265,24 +265,26 @@ export function MerlinToolTrail({
   toolCalls,
   childrenByParent,
   streaming,
+  embedded = false,
 }: {
   toolCalls: MerlinToolCallView[]
   childrenByParent?: Map<string, MerlinToolCallView[]>
   streaming?: boolean
+  embedded?: boolean
 }) {
   const [open, setOpen] = useState(false)
   if (toolCalls.length === 0) return null
 
   // Force open while streaming so live progress is visible; collapse to a
   // summary once the answer settles (the user can re-open).
-  const expanded = open || Boolean(streaming)
+  const expanded = embedded || open || Boolean(streaming)
   const summary = streaming
     ? (toolCalls[toolCalls.length - 1]?.label ?? "Working…")
     : `Used ${toolCalls.length} tool${toolCalls.length === 1 ? "" : "s"}`
 
   return (
     <ChainOfThought className="mt-1" open={expanded} onOpenChange={setOpen}>
-      <ChainOfThoughtTrigger>{summary}</ChainOfThoughtTrigger>
+      {!embedded && <ChainOfThoughtTrigger>{summary}</ChainOfThoughtTrigger>}
       <ChainOfThoughtContent className="mt-1.5 space-y-1.5">
         {toolCalls.map((t) => {
           const Icon = toolIcon(t.toolName)

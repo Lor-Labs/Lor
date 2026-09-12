@@ -257,7 +257,7 @@ function RightPanelDock() {
             exit={{
               width: 0,
               opacity: 0,
-              transition: { duration: 0.06, ease: "linear" },
+              transition: { duration: 0.2, ease: [0.4, 0, 0.2, 1] },
             }}
             transition={{
               duration: isResizing ? 0 : 0.2,

@@ -5,6 +5,7 @@ import {
   SquareIcon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
+import { MERLIN_USER_ID } from "@repo/db/constants"
 import {
   AlertDialog,
   AlertDialogClose,
@@ -29,6 +30,10 @@ import { MessageApprovalCard } from "@/components/chat/approval-card"
 import type { MentionCandidate } from "@/components/chat/composer/mention-types"
 import { EmbedCard } from "@/components/chat/embed-card"
 import { LoopCard } from "@/components/chat/loop-card"
+import {
+  isAttioRecording,
+  MeetingRecordingCard,
+} from "@/components/chat/meeting-recording-card"
 import { MerlinMessageBody } from "@/components/chat/merlin-message-body"
 import { MerlinReasoning } from "@/components/chat/merlin-reasoning"
 import { MessageActionBar } from "@/components/chat/message-action-bar"
@@ -294,6 +299,8 @@ export const MessageItem = memo(function MessageItem({
   }, [message.id])
 
   const isOwnMessage = !!currentUserId && currentUserId === message.authorId
+  const canWrapUnderAvatar =
+    wrapContentAroundAvatar && message.authorId === MERLIN_USER_ID
   const isReply = message.type === "reply"
   const hasToolCalls = (message.merlinToolCalls?.length ?? 0) > 0
   const hasReasoningSegments =
@@ -477,7 +484,7 @@ export const MessageItem = memo(function MessageItem({
         "group relative px-4 py-0.5 transition-colors",
         isReplyTarget
           ? "bg-primary/[0.07] before:absolute before:inset-y-0 before:left-0 before:w-[3px] before:bg-primary"
-          : "hover:bg-muted/40"
+          : !canWrapUnderAvatar && "hover:bg-muted/30"
       )}
     >
       <div
@@ -514,13 +521,13 @@ export const MessageItem = memo(function MessageItem({
           onJumpToMessage={onJumpToMessage}
         />
       )}
-      <div className={cn(wrapContentAroundAvatar ? "flow-root" : "flex gap-3")}>
+      <div className={cn(canWrapUnderAvatar ? "flow-root" : "flex gap-3")}>
         {showHeader ? (
           isApp ? (
             <div
               className={cn(
                 "mt-0.5 self-start",
-                wrapContentAroundAvatar && "float-left mr-3"
+                canWrapUnderAvatar && "float-left mr-3"
               )}
             >
               <Avatar size="lg">
@@ -552,7 +559,7 @@ export const MessageItem = memo(function MessageItem({
                 type="button"
                 className={cn(
                   "mt-0.5 cursor-pointer self-start",
-                  wrapContentAroundAvatar && "float-left mr-3"
+                  canWrapUnderAvatar && "float-left mr-3"
                 )}
               >
                 <Avatar size="lg">
@@ -574,7 +581,7 @@ export const MessageItem = memo(function MessageItem({
           <div
             className={cn(
               "w-10 shrink-0 text-right text-[10px] leading-6 text-muted-foreground opacity-0 transition-opacity duration-100 group-hover:opacity-100",
-              wrapContentAroundAvatar && "float-left mr-3"
+              canWrapUnderAvatar && "float-left mr-3"
             )}
           >
             <span className="whitespace-nowrap">
@@ -582,7 +589,7 @@ export const MessageItem = memo(function MessageItem({
             </span>
           </div>
         )}
-        <div className={cn("min-w-0", !wrapContentAroundAvatar && "flex-1")}>
+        <div className={cn("min-w-0", !canWrapUnderAvatar && "flex-1")}>
           {showHeader && (
             <div className="flex items-baseline gap-2">
               {isApp ? (
@@ -614,7 +621,7 @@ export const MessageItem = memo(function MessageItem({
               </span>
             </div>
           )}
-          {message.merlinReasoning && !hasReasoningSegments ? (
+          {message.merlinReasoning && !hasReasoningSegments && !hasToolCalls ? (
             <MerlinReasoning
               text={message.merlinReasoning}
               active={!!message.streaming && !message.content}
@@ -636,7 +643,10 @@ export const MessageItem = memo(function MessageItem({
             // `status === "pending"` survives a reload / late thread join. Once
             // reasoning starts, that block takes over the "thinking" affordance.
             <ThinkingIndicator />
-          ) : message.status === "failed" && !message.content ? (
+          ) : message.status === "failed" &&
+            !message.content &&
+            !hasToolCalls &&
+            !hasReasoningSegments ? (
             <span className="text-sm text-muted-foreground italic">
               Merlin couldn't respond to that.
             </span>
@@ -645,7 +655,11 @@ export const MessageItem = memo(function MessageItem({
               content={message.content}
               toolCalls={message.merlinToolCalls ?? []}
               reasoningSegments={message.merlinReasoningSegments ?? []}
-              streaming={message.streaming}
+              streaming={message.streaming || message.status === "pending"}
+              failed={message.status === "failed"}
+              legacyReasoning={
+                !hasReasoningSegments ? message.merlinReasoning : null
+              }
               mentions={message.mentions}
               onCitationJump={onJumpToMessage}
             />
@@ -713,9 +727,17 @@ export const MessageItem = memo(function MessageItem({
           )}
           {message.embeds.length > 0 && (
             <div className="flex flex-col gap-1">
-              {message.embeds.map((embed, index) => (
-                <EmbedCard key={`${embed.url}-${index}`} embed={embed} />
-              ))}
+              {message.embeds.map((embed, index) =>
+                isAttioRecording(embed) ? (
+                  <MeetingRecordingCard
+                    key={`${embed.url}-${index}`}
+                    embed={embed}
+                    message={message}
+                  />
+                ) : (
+                  <EmbedCard key={`${embed.url}-${index}`} embed={embed} />
+                )
+              )}
             </div>
           )}
           {message.reactions.length > 0 && (
