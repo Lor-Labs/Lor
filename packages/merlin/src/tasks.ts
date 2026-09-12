@@ -64,9 +64,15 @@ export type CreateTaskForThread = (
 
 // Task id resolves through a getter, not a static value: a task created by
 // start_task mid-run must be visible to set_plan/complete_task/request_approval
-// bound in the same respond() call (tool contexts are resolved eagerly).
+// bound in the same respond() call (tool contexts are resolved eagerly). The
+// SDK runs a step's tool calls concurrently, so a sibling batched with
+// start_task errors — the error text + prompt steer the model to call
+// start_task alone and retry (observed to self-correct).
 const taskContext = z.object({
   getTaskId: z.custom<() => string | null>(),
+  // True when the run began on an already-completed task — the only state
+  // where set_plan reopens (a same-run complete_task then set_plan must not).
+  startedCompleted: z.boolean().optional(),
   workspaceId: z.string(),
   runId: z.string().nullable(),
   onTaskUpdated: z.custom<OnTaskUpdated>().optional(),
@@ -75,7 +81,7 @@ const taskContext = z.object({
 })
 
 const NO_TASK_ERROR =
-  "no task exists for this thread yet — call start_task first"
+  "no task exists for this thread yet — call start_task first, wait for its result, then call this tool (never in the same parallel batch as start_task)"
 
 // Settle the task a run leaves behind when it dies outside its processor
 // (crash swept by sweepDeadRuns, stopped while still queued, or a first run
@@ -176,7 +182,7 @@ const startTaskContext = z.object({
 export const taskTools = {
   start_task: tool({
     description:
-      "Turn this thread's request into a tracked task: a live card the team watches while you work. Call it BEFORE starting substantial delegated work with a deliverable outcome — produce or transform files, analyze data and deliver results, write a document or report, complete multi-step work. Never for questions (even hard ones), quick answers, code changes (propose_code_change handles those), or recurring/scheduled work (loop tools handle those). Pass a short imperative title like an issue title, the goal in one or two sentences, and your initial plan.",
+      "Turn this thread's request into a tracked task: a live card the team watches while you work. Call it BEFORE starting substantial delegated work with a deliverable outcome — produce or transform files, analyze data and deliver results, write a document or report, complete multi-step work. Never for questions (even hard ones), quick answers, code changes (propose_code_change handles those), or recurring/scheduled work (loop tools handle those). Pass a short imperative title like an issue title, the goal in one or two sentences, and your initial plan. Call it ALONE and wait for its result before any other task tool — set_plan/complete_task in the same parallel batch will fail.",
     inputSchema: z.object({
       title: z
         .string()
@@ -230,13 +236,17 @@ export const taskTools = {
         .limit(1)
         .then((rows) => rows[0])
       if (!current) return { error: "task not found" }
-      // Replanning a completed task is the explicit reopen — follow-up chatter
-      // in the thread never flips it (the worker claim skips completed tasks).
+      // Replanning a task that was ALREADY completed when this run started is
+      // the explicit reopen — follow-up chatter never flips it (the worker
+      // claim skips completed tasks), and a same-run set_plan racing its own
+      // complete_task must not resurrect what it just settled.
+      const reopen =
+        context.startedCompleted === true && current.status === "completed"
       const row = await updateTask(
         taskId,
         {
           plan: normalizePlanItems(items),
-          ...(current.status === "completed"
+          ...(reopen
             ? { status: "running" as const, activeRunId: context.runId }
             : {}),
         },
@@ -386,7 +396,7 @@ export function taskRulesSection(
       ]
     : [
         "## Tasks",
-        "This thread can host a tracked task. When a request here amounts to delegated multi-step work with a deliverable outcome — produce or transform files, analyze data and deliver results, write a document or report — call start_task with a title, the goal, and your initial plan before diving in; the team then watches the task card live. A question is never a task, even a hard one. Code changes and recurring/scheduled work have their own tools and are never tasks.",
+        "This thread can host a tracked task. When a request here amounts to delegated multi-step work with a deliverable outcome — produce or transform files, analyze data and deliver results, write a document or report — call start_task with a title, the goal, and your initial plan before diving in; the team then watches the task card live. Call start_task alone and wait for its result before any other task tool. A question is never a task, even a hard one. Code changes and recurring/scheduled work have their own tools and are never tasks.",
       ]
   return [
     ...framing,

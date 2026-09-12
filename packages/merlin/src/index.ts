@@ -2032,6 +2032,7 @@ export async function respond(
             const getTaskId = () => taskRef.current?.id ?? null
             const taskToolContext = {
               getTaskId,
+              startedCompleted: ctx.task?.status === "completed",
               workspaceId: ctx.workspaceId,
               runId: ctx.runId ?? null,
               onTaskUpdated: notifyTaskUpdated,
