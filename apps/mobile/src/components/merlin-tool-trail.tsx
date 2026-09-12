@@ -114,10 +114,14 @@ export function MerlinToolTrail({
   toolCalls,
   childrenByParent,
   streaming = false,
+  embedded = false,
 }: {
   toolCalls: MerlinToolCall[]
   childrenByParent?: Map<string, MerlinToolCall[]>
   streaming?: boolean
+  // Host surface (e.g. the thread work header's Activity popover) provides its
+  // own disclosure — skip the trigger row and render expanded.
+  embedded?: boolean
 }) {
   const [muted, foreground, accent] = useThemeColor([
     "muted",
@@ -135,32 +139,40 @@ export function MerlinToolTrail({
       null)
     : null
 
-  const expanded = isOpen || streaming
+  const expanded = embedded || isOpen || streaming
   const summary = streaming
     ? (toolCalls.at(-1)?.label ?? "Working…")
     : `Used ${toolCalls.length} tool${toolCalls.length === 1 ? "" : "s"}`
 
   return (
-    <View className="mt-one">
-      <Pressable
-        accessibilityLabel={summary}
-        accessibilityRole="button"
-        accessibilityState={{ expanded }}
-        className="min-h-8 flex-row items-center gap-one self-start"
-        onPress={() => setIsOpen((current) => !current)}
-      >
-        <HugeiconsIcon
-          color={muted}
-          icon={ArrowRight01Icon}
-          size={13}
-          style={{ transform: [{ rotate: expanded ? "90deg" : "0deg" }] }}
-        />
-        <Text className="max-w-[280px] text-xs text-muted" numberOfLines={1}>
-          {summary}
-        </Text>
-      </Pressable>
+    <View className={embedded ? undefined : "mt-one"}>
+      {!embedded && (
+        <Pressable
+          accessibilityLabel={summary}
+          accessibilityRole="button"
+          accessibilityState={{ expanded }}
+          className="min-h-8 flex-row items-center gap-one self-start"
+          onPress={() => setIsOpen((current) => !current)}
+        >
+          <HugeiconsIcon
+            color={muted}
+            icon={ArrowRight01Icon}
+            size={13}
+            style={{ transform: [{ rotate: expanded ? "90deg" : "0deg" }] }}
+          />
+          <Text className="max-w-[280px] text-xs text-muted" numberOfLines={1}>
+            {summary}
+          </Text>
+        </Pressable>
+      )}
       {expanded ? (
-        <View className="ml-one gap-one border-l border-border pl-three">
+        <View
+          className={
+            embedded
+              ? "gap-one"
+              : "ml-one gap-one border-l border-border pl-three"
+          }
+        >
           {toolCalls.map((toolCall) => {
             const drillable = hasDetail(toolCall)
             const children = childrenByParent?.get(toolCall.toolCallId) ?? []

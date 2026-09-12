@@ -1,3 +1,4 @@
+import { MERLIN_USER_ID } from "@repo/db/constants"
 import { router, useLocalSearchParams } from "expo-router"
 import { SymbolView } from "expo-symbols"
 import { useThemeColor } from "heroui-native/hooks"
@@ -10,14 +11,14 @@ import {
 } from "@/components/message-composer"
 import { RunQueuePill } from "@/components/run-queue-pill"
 import {
-  type TaskSourceFile,
-  TaskThreadHeader,
-} from "@/components/task-thread-header"
-import {
   ThreadMessageList,
   ThreadMessageListSkeleton,
 } from "@/components/thread-message-list"
 import { ThreadParticipantStack } from "@/components/thread-participant-stack"
+import {
+  type TaskSourceFile,
+  ThreadWorkHeader,
+} from "@/components/thread-work-header"
 import { TypingIndicator } from "@/components/typing-indicator"
 import { IconButton } from "@/components/ui/icon-button"
 import { Screen } from "@/components/ui/screen"
@@ -138,6 +139,18 @@ export default function ThreadScreen() {
   // A thread is a task thread iff a task row anchors to its root — the root
   // message type no longer decides.
   const isTaskThread = !!useTaskForThread(channelId, threadRootId)
+  // Newest Merlin reply with tool calls — the work header's Activity chip.
+  // Shown for any thread where Merlin worked, task or not (mirrors web).
+  const activityMessage = useMemo(
+    () =>
+      thread.messages.find(
+        (message) =>
+          message.authorId === MERLIN_USER_ID &&
+          (message.merlinToolCalls?.length ?? 0) > 0
+      ) ?? null,
+    [thread.messages]
+  )
+  const showWorkHeader = isTaskThread || activityMessage !== null
   // Files uploaded into the task thread (from any loaded message) — the
   // "Sources" side of the task header's Files section.
   const taskSources = useMemo<TaskSourceFile[]>(() => {
@@ -285,8 +298,9 @@ export default function ThreadScreen() {
           participants={thread.participants}
         />
       </View>
-      {isTaskThread ? (
-        <TaskThreadHeader
+      {showWorkHeader ? (
+        <ThreadWorkHeader
+          activityMessage={activityMessage}
           channelId={channelId}
           sources={taskSources}
           threadRootId={threadRootId}

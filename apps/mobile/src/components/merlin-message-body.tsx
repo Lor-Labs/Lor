@@ -1,5 +1,6 @@
 import { useMemo } from "react"
-import { View } from "react-native"
+import { Text, View } from "react-native"
+import { MerlinActivity } from "@/components/merlin-activity"
 import { MerlinReasoning } from "@/components/merlin-reasoning"
 import { MerlinToolTrail } from "@/components/merlin-tool-trail"
 import { MessageContent } from "@/components/message-content"
@@ -47,7 +48,36 @@ export function MerlinMessageBody({
     }
   }, [message])
 
-  const rendered = segments.map((segment, index) => {
+  // Work/answer split (mirrors web merlin-message-body): the trailing text is
+  // the answer; everything before it is the work log, collapsed behind the
+  // activity disclosure. While streaming (or after a failure) nothing is
+  // promoted to an answer yet.
+  const failed = message.status === "failed"
+  let answerIndex = -1
+  for (let index = segments.length - 1; index >= 0; index--) {
+    const segment = segments[index]
+    if (segment?.kind === "text" && segment.text.trim()) {
+      answerIndex = index
+      break
+    }
+    if (streaming || failed) break
+  }
+  const answer = answerIndex >= 0 ? segments[answerIndex] : undefined
+  const activitySegments = segments
+    .map((segment, index) => ({ segment, index }))
+    .filter(
+      ({ segment, index }) =>
+        index !== answerIndex &&
+        (segment.kind !== "text" || segment.text.trim())
+    )
+  const topLevelTools = (message.merlinToolCalls ?? []).filter(
+    (toolCall) => !toolCall.parentToolCallId
+  )
+
+  const renderSegment = ({
+    segment,
+    index,
+  }: (typeof activitySegments)[number]) => {
     const isLast = index === segments.length - 1
     if (segment.kind === "text") {
       return (
@@ -81,11 +111,36 @@ export function MerlinMessageBody({
         toolCalls={segment.tools}
       />
     )
-  })
+  }
 
   return (
     <>
-      {rendered}
+      {activitySegments.length > 0 ? (
+        <MerlinActivity
+          active={streaming}
+          errorCount={
+            topLevelTools.filter((toolCall) => toolCall.status === "error")
+              .length
+          }
+          failed={failed}
+          toolCount={topLevelTools.length}
+        >
+          {activitySegments.map(renderSegment)}
+        </MerlinActivity>
+      ) : null}
+      {answer?.kind === "text" ? (
+        <MessageContent
+          content={answer.text}
+          mentions={message.mentions}
+          onCitationJump={onCitationJump}
+          streaming={streaming && answerIndex === segments.length - 1}
+        />
+      ) : null}
+      {failed && !answer ? (
+        <Text className="text-sm italic text-muted">
+          Merlin couldn't finish this response.
+        </Text>
+      ) : null}
       {deliverables.length > 0 ? (
         <View className="mt-one max-w-[420px] gap-one">
           {deliverables.map((file) => (
