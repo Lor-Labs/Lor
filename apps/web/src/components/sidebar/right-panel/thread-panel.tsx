@@ -293,7 +293,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
       messages.find(
         (message) =>
           message.authorId === MERLIN_USER_ID &&
-          (message.merlinToolCalls?.length ?? 0) > 0
+          (message.lorToolCalls?.length ?? 0) > 0
       ) ?? null,
     [messages]
   )
@@ -571,7 +571,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
     openingAnchorsRef.current.messageIds = new Set(
       messages
         .filter((message) => message.status === "pending")
-        .map((message) => message.merlinTriggerMessageId)
+        .map((message) => message.lorTriggerMessageId)
         .filter((id): id is string => Boolean(id))
     )
   }

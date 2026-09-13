@@ -174,8 +174,8 @@ function MessageRowBody({
   const isPending = isOptimisticMessage(message)
   const isStreaming = isMerlin && message.status === "pending"
   const hasTimeline =
-    (message.merlinToolCalls?.length ?? 0) > 0 ||
-    (message.merlinReasoningSegments?.length ?? 0) > 0
+    (message.lorToolCalls?.length ?? 0) > 0 ||
+    (message.lorReasoningSegments?.length ?? 0) > 0
 
   return (
     <>
@@ -196,11 +196,11 @@ function MessageRowBody({
             <ReplyPreview message={message} onJumpToMessage={onJumpToMessage} />
           ) : null}
           {isMerlin &&
-          message.merlinReasoning &&
-          (message.merlinReasoningSegments?.length ?? 0) === 0 ? (
+          message.lorReasoning &&
+          (message.lorReasoningSegments?.length ?? 0) === 0 ? (
             <MerlinReasoning
               active={isStreaming && !message.content}
-              text={message.merlinReasoning}
+              text={message.lorReasoning}
             />
           ) : null}
           {isMerlin && hasTimeline ? (
@@ -228,7 +228,7 @@ function MessageRowBody({
           {showMerlinRunControls && isStreaming ? (
             <MerlinRunControls message={message} />
           ) : null}
-          {isMerlin && message.merlinTriggerMessageId ? (
+          {isMerlin && message.lorTriggerMessageId ? (
             <MessageApprovalCard
               channelId={message.channelId}
               messageId={message.id}

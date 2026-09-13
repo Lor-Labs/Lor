@@ -7,7 +7,7 @@ export type LorThreadNotificationPreference = "all_activity" | "subscribed_only"
 
 export type LorThreadNotificationContext = {
   threadRootId: string | null
-  isMerlinThread: boolean
+  isLorThread: boolean
   isSubscribedToThread: boolean
 }
 
@@ -16,7 +16,7 @@ export function shouldNotifyForLorThread(
   context: LorThreadNotificationContext
 ): boolean {
   return (
-    !context.isMerlinThread ||
+    !context.isLorThread ||
     preference === "all_activity" ||
     context.isSubscribedToThread
   )

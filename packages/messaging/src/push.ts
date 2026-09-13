@@ -135,8 +135,8 @@ export async function sendMessagePushNotifications(input: {
       desktopNotifications:
         schema.userNotificationSettings.desktopNotifications,
       dmNotifications: schema.userNotificationSettings.dmNotifications,
-      merlinThreadNotifications:
-        schema.userNotificationSettings.merlinThreadNotifications,
+      lorThreadNotifications:
+        schema.userNotificationSettings.lorThreadNotifications,
     })
     .from(schema.userNotificationSettings)
     .where(
@@ -190,7 +190,7 @@ export async function sendMessagePushNotifications(input: {
     if (
       !directMentionUserIds.has(recipient.userId) &&
       !shouldNotifyForLorThread(
-        settings?.merlinThreadNotifications ?? "all_activity",
+        settings?.lorThreadNotifications ?? "all_activity",
         recipient.payload
       )
     ) {

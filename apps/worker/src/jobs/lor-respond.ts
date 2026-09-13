@@ -93,7 +93,7 @@ export function createLorRespondProcessor(
       { jobId: job.id, jobName: job.name, channelId: job.data.channelId },
       async () => {
         const {
-          merlinMessageId,
+          lorMessageId,
           channelId,
           threadRootId,
           contextThreadRootId,
@@ -242,7 +242,7 @@ export function createLorRespondProcessor(
             const steerPayload = {
               channelId,
               threadRootId,
-              messageId: merlinMessageId,
+              messageId: lorMessageId,
               steeredMessageId: e.messageId,
               authorName: e.authorName,
               ...(job.data.runId ? { runId: job.data.runId } : {}),
@@ -257,7 +257,7 @@ export function createLorRespondProcessor(
           // queued) has no other terminal transition to start its queued
           // follow-ups, and draining a still-owned scope is a no-op.
           logger.info(
-            { merlinMessageId, runId: job.data.runId },
+            { lorMessageId, runId: job.data.runId },
             "Run already terminal or owned elsewhere; skipping"
           )
           // A retry landing after its crashed predecessor's run went terminal
@@ -341,7 +341,7 @@ export function createLorRespondProcessor(
             emitter.to(room).emit("message:stream", {
               channelId,
               threadRootId,
-              messageId: merlinMessageId,
+              messageId: lorMessageId,
               delta,
               done,
               ...(status ? { status } : {}),
@@ -360,13 +360,13 @@ export function createLorRespondProcessor(
             // Recovery attempts used up — the run can never continue; settle the
             // stuck pending placeholder.
             logger.warn(
-              { merlinMessageId, runId: job.data.runId },
+              { lorMessageId, runId: job.data.runId },
               "Run out of recovery attempts; failing the message"
             )
             await db
               .update(schema.message)
               .set({ content: LOR_ERROR_FALLBACK, status: "failed" })
-              .where(eq(schema.message.id, merlinMessageId))
+              .where(eq(schema.message.id, lorMessageId))
               .catch(() => {})
             emit(LOR_ERROR_FALLBACK, true, "failed", true)
             await settlePlan("failed")
@@ -404,7 +404,7 @@ export function createLorRespondProcessor(
             const reasoningPayload = {
               channelId,
               threadRootId,
-              messageId: merlinMessageId,
+              messageId: lorMessageId,
               delta: pendingReasoning,
               at: activeReasoningSegment.at,
               order: activeReasoningSegment.order,
@@ -443,7 +443,7 @@ export function createLorRespondProcessor(
             const memoryPayload = {
               channelId,
               threadRootId,
-              messageId: merlinMessageId,
+              messageId: lorMessageId,
               path: memory.path,
               action: memory.action,
               ...(memory.nodeId ? { nodeId: memory.nodeId } : {}),
@@ -491,7 +491,7 @@ export function createLorRespondProcessor(
                   ? await buildContinuation({
                       scopeKey: contextThreadRootId,
                       channelId,
-                      merlinMessageId,
+                      lorMessageId,
                       runId: job.data.runId,
                     })
                   : null
@@ -508,7 +508,7 @@ export function createLorRespondProcessor(
                 : await loadConversation({
                     channelId,
                     threadRootId: contextThreadRootId,
-                    merlinMessageId,
+                    lorMessageId,
                     triggerMessageId,
                   })
             const { conversation } = snapshot
@@ -533,13 +533,13 @@ export function createLorRespondProcessor(
             // Lor only answers in workspace channels (it's never in a DM).
             if (!channel?.workspaceId) {
               logger.warn(
-                { channelId, merlinMessageId },
+                { channelId, lorMessageId },
                 "Lor invoked outside a workspace channel; skipping"
               )
               await db
                 .update(schema.message)
                 .set({ content: LOR_ERROR_FALLBACK, status: "failed" })
-                .where(eq(schema.message.id, merlinMessageId))
+                .where(eq(schema.message.id, lorMessageId))
                 .catch(() => {})
               emit(LOR_ERROR_FALLBACK, true, "failed")
               await runWriter.transition("failed", { stopReason: "error" })
@@ -577,13 +577,13 @@ export function createLorRespondProcessor(
             const gate = await checkCredits(workspaceId)
             if (!gate.allowed) {
               logger.info(
-                { workspaceId, merlinMessageId },
+                { workspaceId, lorMessageId },
                 "Lor refused; workspace out of credits"
               )
               await db
                 .update(schema.message)
                 .set({ content: OUT_OF_CREDITS_MESSAGE, status: "failed" })
-                .where(eq(schema.message.id, merlinMessageId))
+                .where(eq(schema.message.id, lorMessageId))
                 .catch(() => {})
               emit(OUT_OF_CREDITS_MESSAGE, true, "failed")
               await runWriter.transition("failed", {
@@ -611,7 +611,7 @@ export function createLorRespondProcessor(
                   .catch(() => null)
               : null
             const usageRefs = {
-              messageId: merlinMessageId,
+              messageId: lorMessageId,
               channelId,
               userId: triggerUserId,
             }
@@ -830,7 +830,7 @@ export function createLorRespondProcessor(
                   const toolPayload = {
                     channelId,
                     threadRootId,
-                    messageId: merlinMessageId,
+                    messageId: lorMessageId,
                     toolCall: nextToolCall,
                     ...runRef(seq),
                   }
@@ -866,17 +866,17 @@ export function createLorRespondProcessor(
             // the message now — exit without touching it or emitting anything.
             if (err instanceof LeaseLostError || execution?.aborted()) {
               logger.warn(
-                { err, merlinMessageId, runId: execution?.runId },
+                { err, lorMessageId, runId: execution?.runId },
                 "Attempt superseded mid-answer; exiting silently"
               )
               execution?.stop()
               return
             }
-            logger.error({ err, merlinMessageId }, "Lor response failed")
+            logger.error({ err, lorMessageId }, "Lor response failed")
             await db
               .update(schema.message)
               .set({ content: LOR_ERROR_FALLBACK, status: "failed" })
-              .where(eq(schema.message.id, merlinMessageId))
+              .where(eq(schema.message.id, lorMessageId))
               .catch(() => {})
             // Replace (not append) so a partial answer streamed before the error
             // is dropped in favor of the fallback, matching the persisted row.
@@ -918,7 +918,7 @@ export function createLorRespondProcessor(
             const grounded = await groundCitations(workspaceId, answer.text)
             if (grounded.invalid > 0) {
               logger.warn(
-                { merlinMessageId, invalid: grounded.invalid },
+                { lorMessageId, invalid: grounded.invalid },
                 "Stripped unresolved Lor citations"
               )
             }
@@ -936,7 +936,7 @@ export function createLorRespondProcessor(
               emptyFallback = true
               if (!stoppedByUser && !awaitingApproval) {
                 logger.warn(
-                  { merlinMessageId },
+                  { lorMessageId },
                   "Lor produced no answer text; using empty fallback"
                 )
               }
@@ -988,17 +988,17 @@ export function createLorRespondProcessor(
               .set({
                 content: finalText,
                 status: "complete",
-                merlinToolCalls: persistedToolCalls,
-                merlinReasoning: reasoning || null,
-                merlinReasoningSegments: persistedReasoningSegments,
+                lorToolCalls: persistedToolCalls,
+                lorReasoning: reasoning || null,
+                lorReasoningSegments: persistedReasoningSegments,
                 // Explicit "remember this" saves so far; write-back may add more
                 // after this and re-persists then.
-                merlinMemories: remembered,
+                lorMemories: remembered,
               })
-              .where(eq(schema.message.id, merlinMessageId))
+              .where(eq(schema.message.id, lorMessageId))
           } catch (err) {
             logger.error(
-              { err, merlinMessageId },
+              { err, lorMessageId },
               "Lor reply persistence failed after streaming"
             )
             // The streamed answer was never saved — replace it with the fallback
@@ -1007,7 +1007,7 @@ export function createLorRespondProcessor(
             await db
               .update(schema.message)
               .set({ content: LOR_ERROR_FALLBACK, status: "failed" })
-              .where(eq(schema.message.id, merlinMessageId))
+              .where(eq(schema.message.id, lorMessageId))
               .catch(() => {})
             emit(LOR_ERROR_FALLBACK, true, "failed", true)
             await runWriter.transition("failed", { stopReason: "error" })
@@ -1049,7 +1049,7 @@ export function createLorRespondProcessor(
                 authorId: LOR_USER_ID,
                 channel: channelRow,
                 message: {
-                  id: merlinMessageId,
+                  id: lorMessageId,
                   content: finalText,
                   author: {
                     name: lorAuthor?.name ?? "Lor",
@@ -1077,14 +1077,14 @@ export function createLorRespondProcessor(
                 redis,
               }).catch((err) => {
                 logger.error(
-                  { err, merlinMessageId },
+                  { err, lorMessageId },
                   "Push notification send failed"
                 )
               })
             }
           } catch (err) {
             logger.error(
-              { err, merlinMessageId },
+              { err, lorMessageId },
               "Lor reply fanout failed after persistence"
             )
           }
@@ -1132,7 +1132,7 @@ export function createLorRespondProcessor(
                 approvalId: parkedApproval.id,
                 channelId,
                 threadRootId,
-                messageId: merlinMessageId,
+                messageId: lorMessageId,
                 planId: parkedApproval.planId,
               })
               // Directed fan-out: requester and/or resolvers, per the rules in
@@ -1154,7 +1154,7 @@ export function createLorRespondProcessor(
             }
           }
           logger.info(
-            { merlinMessageId, length: finalText.length, stoppedByUser },
+            { lorMessageId, length: finalText.length, stoppedByUser },
             "Lor reply complete"
           )
           if (stoppedByUser) {
@@ -1180,7 +1180,7 @@ export function createLorRespondProcessor(
               wallLeftMs < 60_000
             ) {
               logger.info(
-                { merlinMessageId, runId: execution.runId, counters: c },
+                { lorMessageId, runId: execution.runId, counters: c },
                 "Write-back skipped; run finished near a budget ceiling"
               )
               await runWriter.close()
@@ -1198,7 +1198,7 @@ export function createLorRespondProcessor(
             .catch(() => null)
           if (acquired !== "OK") {
             logger.info(
-              { workspaceId, merlinMessageId },
+              { workspaceId, lorMessageId },
               "Write-back skipped; another is in progress"
             )
             return
@@ -1217,7 +1217,7 @@ export function createLorRespondProcessor(
                 // folded into the run counters (all nested usage counts).
                 onUsage: (u) => {
                   execution?.addUsage(u)
-                  void recordUsage(u, { messageId: merlinMessageId, channelId })
+                  void recordUsage(u, { messageId: lorMessageId, channelId })
                 },
                 onInstructionsProposal: notifyInstructionsProposal,
               }
@@ -1227,17 +1227,17 @@ export function createLorRespondProcessor(
             if (remembered.length > 0) {
               await db
                 .update(schema.message)
-                .set({ merlinMemories: remembered })
-                .where(eq(schema.message.id, merlinMessageId))
+                .set({ lorMemories: remembered })
+                .where(eq(schema.message.id, lorMessageId))
                 .catch((err) =>
                   logger.error(
-                    { err, merlinMessageId },
+                    { err, lorMessageId },
                     "Failed to persist Lor memories"
                   )
                 )
             }
           } catch (err) {
-            logger.error({ err, merlinMessageId }, "Lor write-back failed")
+            logger.error({ err, lorMessageId }, "Lor write-back failed")
           } finally {
             // Release only if we still own it: if write-back outran the TTL and a
             // newer worker re-acquired, an unconditional DEL would drop its lock.

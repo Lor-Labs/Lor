@@ -158,7 +158,7 @@ export const threadSummarySchema = z
 export const messageWithAuthorSchema = selectMessageSchema
   // Raw memory column is reshaped into `remembered` below; the memory
   // exclusion flag and send-idempotency key are plumbing the client never needs.
-  .omit({ merlinMemories: true, excludedFromMemory: true, clientKey: true })
+  .omit({ lorMemories: true, excludedFromMemory: true, clientKey: true })
   .extend({
     author: messageAuthorSchema,
     // Typed passthrough — keeps the inferred client type as the payload union
@@ -171,10 +171,10 @@ export const messageWithAuthorSchema = selectMessageSchema
     threadSummary: threadSummarySchema,
     // Only Lor replies carry these; optional so other message endpoints
     // (DMs, pinned, …) need not supply them.
-    merlinToolCalls: z.array(lorToolCallSchema).optional(),
-    merlinReasoningSegments: z.array(lorReasoningSegmentSchema).optional(),
+    lorToolCalls: z.array(lorToolCallSchema).optional(),
+    lorReasoningSegments: z.array(lorReasoningSegmentSchema).optional(),
     remembered: z.array(lorMemorySchema).optional(),
-    merlinTriggerMessageId: z.string().uuid().nullable().optional(),
+    lorTriggerMessageId: z.string().uuid().nullable().optional(),
   })
 
 // Cursor-based query: `around`, `before`, `after` are mutually exclusive

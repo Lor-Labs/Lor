@@ -126,13 +126,13 @@ export function ThreadMessageList({
       if (
         message &&
         message.status !== "pending" &&
-        message.merlinTriggerMessageId
+        message.lorTriggerMessageId
       ) {
         latestCompletedMerlinReply = message
         break
       }
     }
-    const triggerId = latestCompletedMerlinReply?.merlinTriggerMessageId
+    const triggerId = latestCompletedMerlinReply?.lorTriggerMessageId
     const anchorIndex = triggerId
       ? items.findIndex(
           (item) =>

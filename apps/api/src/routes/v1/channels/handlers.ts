@@ -751,8 +751,7 @@ export const listPinnedMessages: AppRouteHandler<
 
   // Same shape as the shared message queries, minus the memory column the
   // client never sees.
-  const { merlinMemories: _merlinMemories, ...pinnedMessageSelect } =
-    messageSelect
+  const { lorMemories: _lorMemories, ...pinnedMessageSelect } = messageSelect
   const messages = await db
     .select(pinnedMessageSelect)
     .from(message)
@@ -898,8 +897,8 @@ export const listPinnedMessages: AppRouteHandler<
       avatarColor: avatarColorByUserId.get(msg.author.id) ?? null,
     },
     embeds: msg.embeds ?? [],
-    merlinToolCalls: msg.merlinToolCalls ?? [],
-    merlinReasoningSegments: msg.merlinReasoningSegments ?? [],
+    lorToolCalls: msg.lorToolCalls ?? [],
+    lorReasoningSegments: msg.lorReasoningSegments ?? [],
     mentions: (mentionsByMessageId.get(msg.id) ?? []).map((m) => ({
       id: m.id,
       name: m.name,

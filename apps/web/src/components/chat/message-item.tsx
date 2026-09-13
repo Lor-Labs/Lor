@@ -302,9 +302,8 @@ export const MessageItem = memo(function MessageItem({
   const canWrapUnderAvatar =
     wrapContentAroundAvatar && message.authorId === MERLIN_USER_ID
   const isReply = message.type === "reply"
-  const hasToolCalls = (message.merlinToolCalls?.length ?? 0) > 0
-  const hasReasoningSegments =
-    (message.merlinReasoningSegments?.length ?? 0) > 0
+  const hasToolCalls = (message.lorToolCalls?.length ?? 0) > 0
+  const hasReasoningSegments = (message.lorReasoningSegments?.length ?? 0) > 0
 
   const handleCopyText = useCallback(() => {
     if (!message.content) return
@@ -621,9 +620,9 @@ export const MessageItem = memo(function MessageItem({
               </span>
             </div>
           )}
-          {message.merlinReasoning && !hasReasoningSegments && !hasToolCalls ? (
+          {message.lorReasoning && !hasReasoningSegments && !hasToolCalls ? (
             <MerlinReasoning
-              text={message.merlinReasoning}
+              text={message.lorReasoning}
               active={!!message.streaming && !message.content}
             />
           ) : null}
@@ -636,7 +635,7 @@ export const MessageItem = memo(function MessageItem({
             />
           ) : (message.streaming || message.status === "pending") &&
             !message.content &&
-            !message.merlinReasoning &&
+            !message.lorReasoning &&
             !hasReasoningSegments &&
             !hasToolCalls ? (
             // In-flight Merlin reply: `streaming` covers the live client, while
@@ -653,12 +652,12 @@ export const MessageItem = memo(function MessageItem({
           ) : hasToolCalls || hasReasoningSegments ? (
             <MerlinMessageBody
               content={message.content}
-              toolCalls={message.merlinToolCalls ?? []}
-              reasoningSegments={message.merlinReasoningSegments ?? []}
+              toolCalls={message.lorToolCalls ?? []}
+              reasoningSegments={message.lorReasoningSegments ?? []}
               streaming={message.streaming || message.status === "pending"}
               failed={message.status === "failed"}
               legacyReasoning={
-                !hasReasoningSegments ? message.merlinReasoning : null
+                !hasReasoningSegments ? message.lorReasoning : null
               }
               mentions={message.mentions}
               onCitationJump={onJumpToMessage}
@@ -686,8 +685,8 @@ export const MessageItem = memo(function MessageItem({
               <MerlinRunControls message={message} />
             )}
           {/* Policy-gated approval parked on this run's reply (LOR-81).
-              merlinTriggerMessageId marks run replies live and on reload. */}
-          {message.merlinTriggerMessageId && !isEditing && (
+              lorTriggerMessageId marks run replies live and on reload. */}
+          {message.lorTriggerMessageId && !isEditing && (
             <MessageApprovalCard
               channelId={message.channelId}
               messageId={message.id}

@@ -684,7 +684,7 @@ io.on("connection", (socket) => {
               "respond",
               {
                 runId: existingRun.id,
-                merlinMessageId: existingRun.messageId,
+                lorMessageId: existingRun.messageId,
                 channelId: existingRun.channelId,
                 threadRootId: existingRun.threadRootId,
                 contextThreadRootId: parsed.threadRootId ?? null,
@@ -789,7 +789,7 @@ io.on("connection", (socket) => {
               messageId: createdMessage.message.id,
               outcome: routed.outcome,
               runId: routed.runId,
-              merlinMessageId: routed.merlinMessageId,
+              lorMessageId: routed.lorMessageId,
             })
           }
           const routed = await routeToActiveRun({
@@ -878,7 +878,7 @@ io.on("connection", (socket) => {
                 const placeholder = {
                   ...lorMessage,
                   streaming: true,
-                  merlinTriggerMessageId: createdMessage.message.id,
+                  lorTriggerMessageId: createdMessage.message.id,
                 }
                 if (placeholder.threadRootId) {
                   io.to(threadRoom(placeholder.threadRootId)).emit(
@@ -918,7 +918,7 @@ io.on("connection", (socket) => {
                 await lorRespondQueue.add(
                   "respond",
                   {
-                    merlinMessageId: lorMessage.id,
+                    lorMessageId: lorMessage.id,
                     channelId: parsed.channelId,
                     threadRootId: lorThreadRootId,
                     contextThreadRootId: parsed.threadRootId ?? null,

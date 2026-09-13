@@ -24,7 +24,7 @@ const PRE_THREAD_CONTEXT_LIMIT = 10
 export async function loadConversation(args: {
   channelId: string
   threadRootId: string | null
-  merlinMessageId: string
+  lorMessageId: string
   triggerMessageId?: string
 }) {
   const selectTurns = (scope: SQL | undefined) =>
@@ -43,7 +43,7 @@ export async function loadConversation(args: {
       .where(
         and(
           scope,
-          ne(schema.message.id, args.merlinMessageId),
+          ne(schema.message.id, args.lorMessageId),
           // Attachment-only messages have null/blank content but are real
           // turns — dropping them made Lor blind to uploaded files. Blank
           // messages with nothing attached stay out (empty turns, placeholders).

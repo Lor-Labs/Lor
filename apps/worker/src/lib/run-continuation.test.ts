@@ -118,7 +118,7 @@ const deltaRow = {
 const args = {
   scopeKey: "thread-1",
   channelId: "chan-1",
-  merlinMessageId: "msg-placeholder",
+  lorMessageId: "msg-placeholder",
   runId: "run-2",
 }
 

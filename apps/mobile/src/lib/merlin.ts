@@ -1,9 +1,9 @@
 import { appendReasoningSegment, upsertToolCall } from "@repo/utils/merlin"
 import type { Message } from "@/lib/api-types"
 
-export type MerlinToolCall = NonNullable<Message["merlinToolCalls"]>[number]
+export type MerlinToolCall = NonNullable<Message["lorToolCalls"]>[number]
 export type MerlinReasoningSegment = NonNullable<
-  Message["merlinReasoningSegments"]
+  Message["lorReasoningSegments"]
 >[number]
 
 export type MerlinBodySegment =
@@ -111,9 +111,9 @@ export function appendMerlinReasoning(
 ) {
   return {
     ...message,
-    merlinReasoning: (message.merlinReasoning ?? "") + payload.delta,
-    merlinReasoningSegments: appendReasoningSegment(
-      message.merlinReasoningSegments,
+    lorReasoning: (message.lorReasoning ?? "") + payload.delta,
+    lorReasoningSegments: appendReasoningSegment(
+      message.lorReasoningSegments,
       payload
     ),
     status: "pending" as const,
@@ -126,6 +126,6 @@ export function upsertMerlinToolCall(
 ) {
   return {
     ...message,
-    merlinToolCalls: upsertToolCall(message.merlinToolCalls, toolCall),
+    lorToolCalls: upsertToolCall(message.lorToolCalls, toolCall),
   }
 }

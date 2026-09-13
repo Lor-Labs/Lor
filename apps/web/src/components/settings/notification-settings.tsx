@@ -23,7 +23,7 @@ import {
 type NotificationSettings = {
   desktopNotifications: "all_messages" | "mentions_only" | "nothing"
   dmNotifications: "all_messages" | "nothing"
-  merlinThreadNotifications: "all_activity" | "subscribed_only"
+  lorThreadNotifications: "all_activity" | "subscribed_only"
 }
 
 const DESKTOP_NOTIFICATION_OPTIONS = [
@@ -166,9 +166,9 @@ export function NotificationSettings() {
           </p>
           <Select
             items={MERLIN_THREAD_NOTIFICATION_OPTIONS}
-            value={settings?.merlinThreadNotifications ?? "all_activity"}
+            value={settings?.lorThreadNotifications ?? "all_activity"}
             onValueChange={(v) =>
-              v && handleChange("merlinThreadNotifications", v)
+              v && handleChange("lorThreadNotifications", v)
             }
           >
             <SelectTrigger id="merlin-thread-notifications" className="w-56">

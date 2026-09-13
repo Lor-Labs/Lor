@@ -146,7 +146,7 @@ export default function ThreadScreen() {
       thread.messages.find(
         (message) =>
           message.authorId === MERLIN_USER_ID &&
-          (message.merlinToolCalls?.length ?? 0) > 0
+          (message.lorToolCalls?.length ?? 0) > 0
       ) ?? null,
     [thread.messages]
   )

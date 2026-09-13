@@ -14,13 +14,13 @@ export const LOR_RESPOND_QUEUE = "lor-respond"
 // stopRequestedAt flag (heartbeat/checkpoint) remains the durable fallback.
 export const AGENT_RUN_STOP_CHANNEL = "agent-run:stop"
 
-// merlinMessageId = the empty placeholder message the worker streams into.
+// lorMessageId = the empty placeholder message the worker streams into.
 // threadRootId = where the reply is posted (Lor's chosen placement).
 // contextThreadRootId = where the trigger lived (null = main channel); the
 // worker reads conversation context from here, which differs from threadRootId
 // when Lor routes a channel mention into a fresh thread.
 export type LorRespondJobData = {
-  merlinMessageId: string
+  lorMessageId: string
   channelId: string
   threadRootId: string | null
   contextThreadRootId: string | null

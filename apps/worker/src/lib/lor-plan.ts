@@ -155,14 +155,14 @@ export async function createLorPlan(
       threadRootId: cardId,
       status: "pending",
       streaming: true,
-      merlinTriggerMessageId: cardId,
+      lorTriggerMessageId: cardId,
     })
   }
   try {
     await deps.respondQueue.add(
       "respond",
       {
-        merlinMessageId: placeholder.id,
+        lorMessageId: placeholder.id,
         channelId: input.channelId,
         threadRootId: cardId,
         contextThreadRootId: cardId,

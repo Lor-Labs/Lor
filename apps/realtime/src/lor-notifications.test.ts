@@ -6,7 +6,7 @@ describe("shouldNotifyForLorThread", () => {
     expect(
       shouldNotifyForLorThread("subscribed_only", {
         threadRootId: null,
-        isMerlinThread: false,
+        isLorThread: false,
         isSubscribedToThread: false,
       })
     ).toBe(true)
@@ -16,7 +16,7 @@ describe("shouldNotifyForLorThread", () => {
     expect(
       shouldNotifyForLorThread("all_activity", {
         threadRootId: "00000000-0000-4000-8000-000000000002",
-        isMerlinThread: true,
+        isLorThread: true,
         isSubscribedToThread: false,
       })
     ).toBe(true)
@@ -25,7 +25,7 @@ describe("shouldNotifyForLorThread", () => {
   it("requires participation when subscribed-only is selected", () => {
     const context = {
       threadRootId: "00000000-0000-4000-8000-000000000002",
-      isMerlinThread: true,
+      isLorThread: true,
       isSubscribedToThread: false,
     }
 

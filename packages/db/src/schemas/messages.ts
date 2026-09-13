@@ -107,17 +107,17 @@ export const message = pgTable(
     // Lor's tool-call trail for this answer — the tools it consulted to
     // produce the reply, kept as a durable, legible record. [{ toolCallId,
     // toolName, label }]
-    merlinToolCalls: jsonb("lor_tool_calls").$type<LorToolCall[]>().default([]),
+    lorToolCalls: jsonb("lor_tool_calls").$type<LorToolCall[]>().default([]),
 
     // Brain pages Lor saved/updated while producing this answer (explicit
     // "remember this" + the autonomous write-back) — a durable record of what it
     // committed to memory, shown under the reply. Serialized as `remembered`.
-    merlinMemories: jsonb("lor_memories").$type<LorMemory[]>().default([]),
+    lorMemories: jsonb("lor_memories").$type<LorMemory[]>().default([]),
 
     // Aggregate reasoning retained for older clients/messages. New replies also
     // store ordered segments so reasoning can be interleaved with tool calls.
-    merlinReasoning: text("lor_reasoning"),
-    merlinReasoningSegments: jsonb("lor_reasoning_segments")
+    lorReasoning: text("lor_reasoning"),
+    lorReasoningSegments: jsonb("lor_reasoning_segments")
       .$type<LorReasoningSegment[]>()
       .default([]),
 

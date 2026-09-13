@@ -300,8 +300,8 @@ describe("Merlin timeline helpers", () => {
       order: 1,
     })
 
-    expect(second.merlinReasoning).toBe("Checking sources")
-    expect(second.merlinReasoningSegments).toEqual([
+    expect(second.lorReasoning).toBe("Checking sources")
+    expect(second.lorReasoningSegments).toEqual([
       { text: "Checking sources", at: 0, order: 1 },
     ])
   })
@@ -321,7 +321,7 @@ describe("Merlin timeline helpers", () => {
       detail: { items: [{ title: "Result", url: "https://github.com/x" }] },
     })
 
-    expect(complete.merlinToolCalls).toHaveLength(1)
-    expect(complete.merlinToolCalls?.[0]?.status).toBe("ok")
+    expect(complete.lorToolCalls).toHaveLength(1)
+    expect(complete.lorToolCalls?.[0]?.status).toBe("ok")
   })
 })

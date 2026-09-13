@@ -18,7 +18,7 @@ export function MerlinMessageBody({
   onCitationJump?: (messageId: string) => void
 }) {
   const { segments, childrenByParent, deliverables } = useMemo(() => {
-    const toolCalls = message.merlinToolCalls ?? []
+    const toolCalls = message.lorToolCalls ?? []
     const children = new Map<string, MerlinToolCall[]>()
     // Deliverables from any top-level tool call (mirrors web) — presented at
     // the end of the message, deduped by artifact (the latest version wins).
@@ -41,7 +41,7 @@ export function MerlinMessageBody({
       segments: buildMerlinSegments(
         message.content ?? "",
         toolCalls.filter((toolCall) => !toolCall.parentToolCallId),
-        message.merlinReasoningSegments ?? []
+        message.lorReasoningSegments ?? []
       ),
       childrenByParent: children,
       deliverables: [...files.values()],
@@ -70,7 +70,7 @@ export function MerlinMessageBody({
         index !== answerIndex &&
         (segment.kind !== "text" || segment.text.trim())
     )
-  const topLevelTools = (message.merlinToolCalls ?? []).filter(
+  const topLevelTools = (message.lorToolCalls ?? []).filter(
     (toolCall) => !toolCall.parentToolCallId
   )
 

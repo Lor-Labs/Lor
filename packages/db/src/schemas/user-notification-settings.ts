@@ -39,9 +39,7 @@ export const userNotificationSettings = pgTable("user_notification_settings", {
   dmNotifications: dmNotificationEnum("dm_notifications")
     .default("all_messages")
     .notNull(),
-  merlinThreadNotifications: lorThreadNotificationEnum(
-    "lor_thread_notifications"
-  )
+  lorThreadNotifications: lorThreadNotificationEnum("lor_thread_notifications")
     .default("all_activity")
     .notNull(),
 })
@@ -61,7 +59,7 @@ export const notificationSettingsResponseSchema =
   selectUserNotificationSettingsSchema.pick({
     desktopNotifications: true,
     dmNotifications: true,
-    merlinThreadNotifications: true,
+    lorThreadNotifications: true,
   })
 
 export const updateNotificationSettingsSchema =
@@ -69,7 +67,7 @@ export const updateNotificationSettingsSchema =
     .pick({
       desktopNotifications: true,
       dmNotifications: true,
-      merlinThreadNotifications: true,
+      lorThreadNotifications: true,
     })
     .partial()
 

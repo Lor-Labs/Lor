@@ -16,7 +16,7 @@ import { approval } from "./approvals"
 import { channel } from "./channels"
 import { connectorTrigger } from "./connector-triggers"
 import { loop } from "./loops"
-import type { MerlinToolCall } from "./messages"
+import type { LorToolCall } from "./messages"
 import { message } from "./messages"
 import type { PlanStatus, PlanStep } from "./plans"
 import { triggerDelivery } from "./trigger-deliveries"
@@ -473,7 +473,7 @@ export type AgentRunEventKind =
 export type AgentRunEventPayload =
   | { kind: "text"; delta: string; replace?: boolean }
   | { kind: "reasoning"; delta: string; at: number; order: number }
-  | { kind: "tool"; toolCall: MerlinToolCall }
+  | { kind: "tool"; toolCall: LorToolCall }
   | {
       kind: "memory"
       path: string

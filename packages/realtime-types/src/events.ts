@@ -216,7 +216,7 @@ export type RealtimeMessage = {
   status?: "complete" | "pending" | "failed"
   // The human message that started this Lor response. Present only on
   // Lor placeholders so chat scrollers can anchor the start of the turn.
-  merlinTriggerMessageId?: string | null
+  lorTriggerMessageId?: string | null
 }
 
 export type RealtimeMessagePinToggled = {
@@ -319,7 +319,7 @@ export type UnreadNotification = {
   workspaceId: string | null
   messageId: string
   threadRootId: string | null
-  isMerlinThread: boolean
+  isLorThread: boolean
   isSubscribedToThread: boolean
   unreadCountDelta: number
   authorUserId: string
@@ -351,7 +351,7 @@ export type MentionNotification = {
   channelId: string
   workspaceId: string | null
   threadRootId: string | null
-  isMerlinThread: boolean
+  isLorThread: boolean
   isSubscribedToThread: boolean
   createdAt: string
 }
@@ -668,7 +668,7 @@ export type MessageRoutedEvent = {
   outcome: "steered" | "queued"
   runId: string
   // The active run's placeholder message — where the run-state chip lives.
-  merlinMessageId: string
+  lorMessageId: string
 }
 
 export type RunQueueUpdatedEvent = {

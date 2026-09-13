@@ -152,12 +152,19 @@ Validate per chunk: `pnpm run check-types` + `pnpm run check`.
   `@repo/realtime-types` alias-import swaps (`LOR_USER_ID`,
   `LOR_RESPOND_QUEUE`, `LorRespondJobData`, `LorCapability`,
   `ALL_LOR_CAPABILITIES`, `Lor{ToolCall,Memory,ReasoningSegment}`).
-- [ ] **C6 cross-cutting property renames** (one commit, all workspaces) —
+- [x] **C6 cross-cutting property renames** (one commit, all workspaces) —
   `merlinToolCalls`/`merlinMemories`/`merlinReasoning`/
   `merlinReasoningSegments`/`merlinTriggerMessageId`/`merlinMessageId`/
   `merlinThreadNotifications`/`isMerlinThread` → `lor*` across db TS props,
-  API zod schemas, realtime-types, messaging, worker, api, web, mobile. The
-  API wire shape changes here → api-client rebuild.
+  API zod schemas, realtime-types, messaging, worker, api, web, mobile.
+  api-client needed no edit (it re-exports the API app type; turbo rebuilds
+  it). Name reuse verified safe: C4's `isLorThread` FUNCTION never collides
+  with the new `isLorThread` property (no object shorthand at any site).
+  Swept up 4 C1 misses — `packages/db` still consumed its own deprecated
+  aliases (`MERLIN_EMBED_DIMENSIONS` in brain/sources, `MerlinMemory` in
+  projects, `MerlinToolCall` in agent-runs); left unfixed they would have
+  broken C9's alias removal. After this chunk apps/api, apps/worker,
+  apps/realtime and packages/lor are 100% merlin-free.
 - [ ] **C7 apps/web** — git mv 8 merlin-named files, identifiers, ~60 copy
   strings, listeners → `lor:*`, `bg-agent` classes, composer raw UUID →
   `LOR_USER_ID` + `label: "Lor"`, settings tab id `"agent"`, DOM ids, demo.

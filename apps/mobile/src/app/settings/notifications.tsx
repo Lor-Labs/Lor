@@ -106,9 +106,9 @@ export default function NotificationSettingsScreen() {
       ...(patch.dmNotifications !== undefined
         ? { dmNotifications: settings.dmNotifications }
         : {}),
-      ...(patch.merlinThreadNotifications !== undefined
+      ...(patch.lorThreadNotifications !== undefined
         ? {
-            merlinThreadNotifications: settings.merlinThreadNotifications,
+            lorThreadNotifications: settings.lorThreadNotifications,
           }
         : {}),
     }
@@ -134,10 +134,10 @@ export default function NotificationSettingsScreen() {
             next.dmNotifications = revert.dmNotifications
           }
           if (
-            revert.merlinThreadNotifications !== undefined &&
-            next.merlinThreadNotifications === patch.merlinThreadNotifications
+            revert.lorThreadNotifications !== undefined &&
+            next.lorThreadNotifications === patch.lorThreadNotifications
           ) {
-            next.merlinThreadNotifications = revert.merlinThreadNotifications
+            next.lorThreadNotifications = revert.lorThreadNotifications
           }
           return next
         })
@@ -200,12 +200,12 @@ export default function NotificationSettingsScreen() {
             />
             <OptionGroup
               detail="Replying in a Merlin thread subscribes you automatically."
-              onChange={(merlinThreadNotifications) =>
-                update({ merlinThreadNotifications })
+              onChange={(lorThreadNotifications) =>
+                update({ lorThreadNotifications })
               }
               options={MERLIN_THREAD_OPTIONS}
               title="Merlin Thread Notifications"
-              value={settings.merlinThreadNotifications}
+              value={settings.lorThreadNotifications}
             />
             <OptionGroup
               detail="Direct messages sent to you."

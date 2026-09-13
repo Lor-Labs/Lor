@@ -121,8 +121,8 @@ type RunEvents = Extract<RunEventsResponse, { events: unknown }>["events"]
 function foldRunEvents(events: RunEvents): Partial<Message> {
   let content = ""
   let reasoning = ""
-  let segments: Message["merlinReasoningSegments"]
-  let toolCalls: Message["merlinToolCalls"]
+  let segments: Message["lorReasoningSegments"]
+  let toolCalls: Message["lorToolCalls"]
   let remembered: NonNullable<Message["remembered"]> = []
   let steeringBy: string | undefined
   for (const event of events) {
@@ -149,9 +149,9 @@ function foldRunEvents(events: RunEvents): Partial<Message> {
   }
   return {
     ...(content ? { content } : {}),
-    ...(reasoning ? { merlinReasoning: reasoning } : {}),
-    ...(segments ? { merlinReasoningSegments: segments } : {}),
-    ...(toolCalls ? { merlinToolCalls: toolCalls } : {}),
+    ...(reasoning ? { lorReasoning: reasoning } : {}),
+    ...(segments ? { lorReasoningSegments: segments } : {}),
+    ...(toolCalls ? { lorToolCalls: toolCalls } : {}),
     ...(remembered.length > 0 ? { remembered } : {}),
     ...(steeringBy ? { steeringBy } : {}),
     status: "pending",

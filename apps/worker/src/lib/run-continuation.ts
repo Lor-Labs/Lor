@@ -219,7 +219,7 @@ async function loadDelta(args: {
   predecessorContext: AgentRunContext
   scopeKey: string
   channelId: string
-  merlinMessageId: string
+  lorMessageId: string
 }) {
   // Queue rows cover guaranteed steers. The checkpointed context IDs cover
   // ambient injections, which have no agentRunQueue row.
@@ -257,7 +257,7 @@ async function loadDelta(args: {
           eq(schema.message.threadRootId, args.scopeKey)
         ),
         gt(schema.message.createdAt, args.predecessorStartedAt),
-        ne(schema.message.id, args.merlinMessageId),
+        ne(schema.message.id, args.lorMessageId),
         // Lor's own answers are already in the transcript as assistant
         // turns; re-adding them as user text would double them.
         ne(schema.message.authorId, LOR_USER_ID),
@@ -584,7 +584,7 @@ export async function buildApprovalContinuation(args: {
 export async function buildContinuation(args: {
   scopeKey: string
   channelId: string
-  merlinMessageId: string
+  lorMessageId: string
   runId: string | undefined
 }): Promise<Continuation | null> {
   try {
@@ -611,7 +611,7 @@ export async function buildContinuation(args: {
       predecessorContext: predecessor.context,
       scopeKey: args.scopeKey,
       channelId: args.channelId,
-      merlinMessageId: args.merlinMessageId,
+      lorMessageId: args.lorMessageId,
     })
     const finishedAt = predecessor.finishedAt ?? since
     const deltaText = formatDelta(

@@ -309,7 +309,7 @@ export async function startScopeContinuationRun(
         messageId: triggerMessageId,
         outcome: "queued",
         runId: active.id,
-        merlinMessageId: active.messageId,
+        lorMessageId: active.messageId,
       })
     } catch (err) {
       logger.warn({ err, scopeKey }, "Queue routing broadcast failed")
@@ -400,7 +400,7 @@ export async function startScopeContinuationRun(
         threadRootId,
         status: "pending",
         streaming: true,
-        merlinTriggerMessageId: triggerMessageId,
+        lorTriggerMessageId: triggerMessageId,
       }
       const io = await getEmitter()
       io.to(room).emit("message:created", message)
@@ -418,7 +418,7 @@ export async function startScopeContinuationRun(
     await getRespondQueue().add(
       "respond",
       {
-        merlinMessageId: placeholder.id,
+        lorMessageId: placeholder.id,
         channelId,
         threadRootId,
         contextThreadRootId: threadRootId,

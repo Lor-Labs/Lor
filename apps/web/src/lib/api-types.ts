@@ -78,9 +78,9 @@ export type Message = ListMessagesResponse["data"][number] & {
 }
 export type MessageAuthor = Message["author"]
 // Entries in Merlin's chronological reasoning/tool trail.
-export type MerlinToolCallView = NonNullable<Message["merlinToolCalls"]>[number]
+export type MerlinToolCallView = NonNullable<Message["lorToolCalls"]>[number]
 export type MerlinReasoningSegmentView = NonNullable<
-  Message["merlinReasoningSegments"]
+  Message["lorReasoningSegments"]
 >[number]
 
 // ── DMs ──────────────────────────────────────────

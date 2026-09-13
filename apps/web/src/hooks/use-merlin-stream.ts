@@ -34,9 +34,9 @@ type StreamMessage = {
   streaming?: boolean
   status?: "pending" | "complete" | "failed"
   remembered?: { path: string; action: "created" | "updated" }[]
-  merlinToolCalls?: ToolCall[]
-  merlinReasoning?: string | null
-  merlinReasoningSegments?: MerlinReasoningSegment[]
+  lorToolCalls?: ToolCall[]
+  lorReasoning?: string | null
+  lorReasoningSegments?: MerlinReasoningSegment[]
   mentions?: RealtimeMessageMention[]
   steeringBy?: string
   routedOutcome?: "steered" | "queued"
@@ -106,7 +106,7 @@ type RoutedPayload = {
   messageId: string
   outcome: "steered" | "queued"
   runId: string
-  merlinMessageId: string
+  lorMessageId: string
 }
 
 type QueueUpdatedPayload = {
@@ -271,9 +271,9 @@ function applyReasoningFrame(
         ? m
         : {
             ...m,
-            merlinReasoning: (m.merlinReasoning ?? "") + payload.delta,
-            merlinReasoningSegments: appendReasoningSegment(
-              m.merlinReasoningSegments,
+            lorReasoning: (m.lorReasoning ?? "") + payload.delta,
+            lorReasoningSegments: appendReasoningSegment(
+              m.lorReasoningSegments,
               payload
             ),
             streaming: true,
@@ -309,7 +309,7 @@ function applyToolFrame(queryClient: QueryClient, payload: ToolPayload) {
       ...m,
       // Upsert into the same trail the server persists, so live and
       // reloaded renders match (start adds the row, completion fills detail).
-      merlinToolCalls: upsertToolCall(m.merlinToolCalls, payload.toolCall),
+      lorToolCalls: upsertToolCall(m.lorToolCalls, payload.toolCall),
     })
   )
 }
@@ -406,9 +406,9 @@ function applyReplayEvents(
     return {
       ...m,
       ...(content !== undefined ? { content } : {}),
-      ...(reasoning !== undefined ? { merlinReasoning: reasoning } : {}),
-      ...(segments ? { merlinReasoningSegments: segments } : {}),
-      ...(toolCalls ? { merlinToolCalls: toolCalls } : {}),
+      ...(reasoning !== undefined ? { lorReasoning: reasoning } : {}),
+      ...(segments ? { lorReasoningSegments: segments } : {}),
+      ...(toolCalls ? { lorToolCalls: toolCalls } : {}),
       ...(remembered.length > 0 ? { remembered } : {}),
       ...(steeringBy ? { steeringBy } : {}),
       streaming: true,

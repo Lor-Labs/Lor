@@ -78,7 +78,7 @@ export function ThreadWorkHeader({
   const { activityCalls, childrenByParent } = useMemo(() => {
     const topLevel: MerlinToolCall[] = []
     const children = new Map<string, MerlinToolCall[]>()
-    for (const call of activityMessage?.merlinToolCalls ?? []) {
+    for (const call of activityMessage?.lorToolCalls ?? []) {
       if (call.parentToolCallId) {
         const siblings = children.get(call.parentToolCallId) ?? []
         siblings.push(call)

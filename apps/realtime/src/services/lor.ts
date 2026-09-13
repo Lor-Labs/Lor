@@ -140,7 +140,7 @@ export async function createAgentRun(args: {
 export type RunRouteOutcome = {
   outcome: "steered" | "queued"
   runId: string
-  merlinMessageId: string
+  lorMessageId: string
 }
 
 // Route a triggering message at the scope's active run instead of starting a
@@ -174,8 +174,8 @@ export async function routeToActiveRun(args: {
   // Conversational scopes always have a placeholder message — message-less
   // runs are headless triggered runs, which live on delivery-id scopes and
   // can never match here. Treat the impossible row as a free scope.
-  const merlinMessageId = run.messageId
-  if (!merlinMessageId) return null
+  const lorMessageId = run.messageId
+  if (!lorMessageId) return null
 
   // queued/working runs absorb the message (a queued run's snapshot hasn't
   // been taken yet; the claim-time sweep consumes rows the snapshot covers).
@@ -206,7 +206,7 @@ export async function routeToActiveRun(args: {
     return {
       outcome: existing.state === "queued" ? "queued" : "steered",
       runId: run.id,
-      merlinMessageId,
+      lorMessageId,
     }
   }
 
@@ -225,7 +225,7 @@ export async function routeToActiveRun(args: {
     return {
       outcome: "queued",
       runId: run.id,
-      merlinMessageId,
+      lorMessageId,
     }
   }
   if (
@@ -250,9 +250,9 @@ export async function routeToActiveRun(args: {
     return {
       outcome: "queued",
       runId: run.id,
-      merlinMessageId,
+      lorMessageId,
     }
   }
 
-  return { outcome: state, runId: run.id, merlinMessageId }
+  return { outcome: state, runId: run.id, lorMessageId }
 }

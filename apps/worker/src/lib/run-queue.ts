@@ -281,7 +281,7 @@ async function runDrain(args: {
     threadRootId,
     status: "pending",
     streaming: true,
-    merlinTriggerMessageId: triggerMessageId,
+    lorTriggerMessageId: triggerMessageId,
   }
   args.emitter
     .to(threadRootId ? threadRoom(threadRootId) : channelRoom(run.channelId))
@@ -290,7 +290,7 @@ async function runDrain(args: {
     await args.respondQueue.add(
       "respond",
       {
-        merlinMessageId: placeholder.id,
+        lorMessageId: placeholder.id,
         channelId: run.channelId,
         threadRootId,
         contextThreadRootId: threadRootId,
