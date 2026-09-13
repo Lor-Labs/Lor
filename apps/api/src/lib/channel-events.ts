@@ -56,7 +56,7 @@ type PostChannelEventInput = ChannelEventInput & {
     name: string | null
     workspaceName?: string | null
   }
-  // The acting user (or MERLIN_USER_ID) — becomes the message author.
+  // The acting user (or LOR_USER_ID) — becomes the message author.
   actorId: string
 }
 

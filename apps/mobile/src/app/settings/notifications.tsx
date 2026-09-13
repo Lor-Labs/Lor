@@ -24,7 +24,7 @@ const DM_OPTIONS = [
   { value: "nothing", label: "Nothing" },
 ] as const
 
-const MERLIN_THREAD_OPTIONS = [
+const LOR_THREAD_OPTIONS = [
   { value: "all_activity", label: "All Activity" },
   { value: "subscribed_only", label: "Subscribed Threads Only" },
 ] as const
@@ -106,9 +106,9 @@ export default function NotificationSettingsScreen() {
       ...(patch.dmNotifications !== undefined
         ? { dmNotifications: settings.dmNotifications }
         : {}),
-      ...(patch.merlinThreadNotifications !== undefined
+      ...(patch.lorThreadNotifications !== undefined
         ? {
-            merlinThreadNotifications: settings.merlinThreadNotifications,
+            lorThreadNotifications: settings.lorThreadNotifications,
           }
         : {}),
     }
@@ -134,10 +134,10 @@ export default function NotificationSettingsScreen() {
             next.dmNotifications = revert.dmNotifications
           }
           if (
-            revert.merlinThreadNotifications !== undefined &&
-            next.merlinThreadNotifications === patch.merlinThreadNotifications
+            revert.lorThreadNotifications !== undefined &&
+            next.lorThreadNotifications === patch.lorThreadNotifications
           ) {
-            next.merlinThreadNotifications = revert.merlinThreadNotifications
+            next.lorThreadNotifications = revert.lorThreadNotifications
           }
           return next
         })
@@ -199,13 +199,13 @@ export default function NotificationSettingsScreen() {
               value={settings.desktopNotifications}
             />
             <OptionGroup
-              detail="Replying in a Merlin thread subscribes you automatically."
-              onChange={(merlinThreadNotifications) =>
-                update({ merlinThreadNotifications })
+              detail="Replying in a Lor thread subscribes you automatically."
+              onChange={(lorThreadNotifications) =>
+                update({ lorThreadNotifications })
               }
-              options={MERLIN_THREAD_OPTIONS}
-              title="Merlin Thread Notifications"
-              value={settings.merlinThreadNotifications}
+              options={LOR_THREAD_OPTIONS}
+              title="Lor Thread Notifications"
+              value={settings.lorThreadNotifications}
             />
             <OptionGroup
               detail="Direct messages sent to you."
@@ -228,7 +228,7 @@ function NotificationSettingsSkeleton() {
     <View className="gap-six">
       {[
         { key: "channels", rows: 3 },
-        { key: "merlin-threads", rows: 2 },
+        { key: "lor-threads", rows: 2 },
         { key: "dms", rows: 2 },
       ].map(({ key, rows }, group) => (
         <View className="gap-two" key={key}>

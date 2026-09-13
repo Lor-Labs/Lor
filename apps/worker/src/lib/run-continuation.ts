@@ -7,7 +7,7 @@ import {
   gt,
   inArray,
   isNotNull,
-  MERLIN_USER_ID,
+  LOR_USER_ID,
   ne,
   notInArray,
   or,
@@ -26,7 +26,7 @@ import {
   isSafeSplit,
   type ModelMessage,
   userDisplayName,
-} from "@repo/merlin"
+} from "@repo/lor"
 import { logger } from "@/lib/logger"
 
 // A thread is one continuous conversation however long the gaps between
@@ -212,14 +212,14 @@ function toTurn(row: DeltaRow): AgentRunContext["conversation"][number] {
 }
 
 // Messages that landed in the scope after the predecessor started, minus every
-// message durably covered by its transcript and minus Merlin's own placeholders.
+// message durably covered by its transcript and minus Lor's own placeholders.
 async function loadDelta(args: {
   predecessorRunId: string
   predecessorStartedAt: Date
   predecessorContext: AgentRunContext
   scopeKey: string
   channelId: string
-  merlinMessageId: string
+  lorMessageId: string
 }) {
   // Queue rows cover guaranteed steers. The checkpointed context IDs cover
   // ambient injections, which have no agentRunQueue row.
@@ -257,10 +257,10 @@ async function loadDelta(args: {
           eq(schema.message.threadRootId, args.scopeKey)
         ),
         gt(schema.message.createdAt, args.predecessorStartedAt),
-        ne(schema.message.id, args.merlinMessageId),
-        // Merlin's own answers are already in the transcript as assistant
+        ne(schema.message.id, args.lorMessageId),
+        // Lor's own answers are already in the transcript as assistant
         // turns; re-adding them as user text would double them.
-        ne(schema.message.authorId, MERLIN_USER_ID),
+        ne(schema.message.authorId, LOR_USER_ID),
         or(
           isNotNull(schema.message.content),
           sql`jsonb_array_length(coalesce(${schema.message.attachments}, '[]'::jsonb)) > 0`
@@ -584,7 +584,7 @@ export async function buildApprovalContinuation(args: {
 export async function buildContinuation(args: {
   scopeKey: string
   channelId: string
-  merlinMessageId: string
+  lorMessageId: string
   runId: string | undefined
 }): Promise<Continuation | null> {
   try {
@@ -611,7 +611,7 @@ export async function buildContinuation(args: {
       predecessorContext: predecessor.context,
       scopeKey: args.scopeKey,
       channelId: args.channelId,
-      merlinMessageId: args.merlinMessageId,
+      lorMessageId: args.lorMessageId,
     })
     const finishedAt = predecessor.finishedAt ?? since
     const deltaText = formatDelta(

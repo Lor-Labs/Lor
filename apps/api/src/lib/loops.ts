@@ -4,14 +4,14 @@ import {
   eq,
   inArray,
   isUniqueViolation,
-  MERLIN_USER_ID,
+  LOR_USER_ID,
   schema,
   sql,
 } from "@repo/db"
 import type { Loop } from "@repo/db/schema"
 import { env } from "@repo/env/server"
-import { nextLoopRunAt, validateLoopSchedule } from "@repo/merlin/loop-schedule"
-import { toRealtimeLoop } from "@repo/merlin/loops"
+import { nextLoopRunAt, validateLoopSchedule } from "@repo/lor/loop-schedule"
+import { toRealtimeLoop } from "@repo/lor/loops"
 import {
   AGENT_RUN_STOP_CHANNEL,
   LOOP_RUN_JOB,
@@ -273,7 +273,7 @@ export async function completeLoopManually(input: {
   await emitLoopUpdated(completed)
   await postLoopChannelEvent({
     loop: completed,
-    actorId: input.requestedBy ?? MERLIN_USER_ID,
+    actorId: input.requestedBy ?? LOR_USER_ID,
     eventType: "loop_completed",
   })
   return completed

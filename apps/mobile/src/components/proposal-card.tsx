@@ -373,7 +373,7 @@ function OperationItem({
               : null}
             {showSecretInputs && secretNames.length > 0 ? (
               <Text className="text-[11px] text-muted">
-                Optional — added encrypted, never shown to Merlin.
+                Optional — added encrypted, never shown to Lor.
               </Text>
             ) : null}
             {op.error ? (
@@ -571,7 +571,7 @@ function ProposalCardBody({ proposal }: { proposal: ChannelProposal }) {
                 className="min-h-16 rounded-lor-sm border border-border bg-surface px-two py-two text-sm text-foreground"
                 multiline
                 onChangeText={setNote}
-                placeholder="Why not? Merlin revises from this note (optional)"
+                placeholder="Why not? Lor revises from this note (optional)"
                 placeholderTextColor={muted}
                 value={note}
               />

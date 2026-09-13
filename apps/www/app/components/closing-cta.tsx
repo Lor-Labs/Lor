@@ -8,7 +8,7 @@ export function ClosingCTA() {
     <section className="relative mx-auto w-full max-w-6xl overflow-hidden px-6 py-32 md:py-44">
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-x-0 bottom-0 h-[420px] bg-[radial-gradient(ellipse_70%_90%_at_50%_110%,--theme(--color-merlin/.12),transparent)]"
+        className="pointer-events-none absolute inset-x-0 bottom-0 h-[420px] bg-[radial-gradient(ellipse_70%_90%_at_50%_110%,--theme(--color-agent/.12),transparent)]"
       />
       <Reveal>
         <div className="relative mx-auto flex max-w-2xl flex-col items-center text-center">

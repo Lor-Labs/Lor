@@ -29,7 +29,7 @@ type MobileMessageScrollerProps<ItemT> = Omit<
   LegendListProps<ItemT>,
   "inverted" | "refScrollView" | "renderScrollComponent" | "sharedValues"
 > & {
-  isMerlinResponding?: boolean
+  isLorResponding?: boolean
   keyboardProps: ChatMessageListKeyboardProps
   newestItemKey?: string | null
   ref?: Ref<LegendListRef>
@@ -41,7 +41,7 @@ const JUMP_TO_LATEST_REVEAL_DISTANCE = 160
 
 export function MobileMessageScroller<ItemT>({
   alignItemsAtEnd = true,
-  isMerlinResponding = false,
+  isLorResponding = false,
   keyboardProps,
   maintainScrollAtEnd = CHAT_MAINTAIN_SCROLL_AT_END,
   maintainScrollAtEndThreshold = 0.08,
@@ -103,7 +103,7 @@ export function MobileMessageScroller<ItemT>({
   )
 
   const showJumpButton =
-    isAwayFromEnd && (isMerlinResponding || isMeaningfullyScrolledUp)
+    isAwayFromEnd && (isLorResponding || isMeaningfullyScrolledUp)
 
   useEffect(() => {
     const previousKey = previousNewestItemKeyRef.current
@@ -140,8 +140,8 @@ export function MobileMessageScroller<ItemT>({
     void internalRef.current?.scrollToEnd({ animated: true })
   }, [])
 
-  const jumpLabel = isMerlinResponding
-    ? "Merlin is responding"
+  const jumpLabel = isLorResponding
+    ? "Lor is responding"
     : hasNewActivity
       ? "New messages"
       : "Jump to latest"
@@ -177,8 +177,8 @@ export function MobileMessageScroller<ItemT>({
           variant="outline"
         >
           <View className="flex-row items-center gap-two">
-            {isMerlinResponding ? (
-              <Spinner accessibilityLabel="Merlin is responding" size="sm" />
+            {isLorResponding ? (
+              <Spinner accessibilityLabel="Lor is responding" size="sm" />
             ) : null}
             <Text className="text-xs font-medium text-foreground">
               {jumpLabel}

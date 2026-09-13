@@ -13,12 +13,12 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core"
-import { MERLIN_EMBED_DIMENSIONS } from "../constants"
+import { LOR_EMBED_DIMENSIONS } from "../constants"
 import { workspace } from "./workspaces"
 
-// Merlin's brain: a filesystem tree (parent_id) and a typed graph (brain_edge)
+// Lor's brain: a filesystem tree (parent_id) and a typed graph (brain_edge)
 // over the same page nodes. Tree = where a page lives; edges = what it relates
-// to. See reference/merlin-mvp-spec.md §5.
+// to. See reference/lor-mvp-spec.md §5.
 
 export const brainNodeKindEnum = pgEnum("brain_node_kind", ["folder", "page"])
 export const brainNodeStatusEnum = pgEnum("brain_node_status", [
@@ -52,7 +52,7 @@ export const brainNode = pgTable(
       .notNull(),
     // Qwen3 Embedding 4B. halfvec keeps the 2560 native dimensions indexable:
     // pgvector HNSW caps float32 vector indexes at 2000 dimensions.
-    embedding: halfvec("embedding", { dimensions: MERLIN_EMBED_DIMENSIONS }),
+    embedding: halfvec("embedding", { dimensions: LOR_EMBED_DIMENSIONS }),
     // decay = archive, never delete; version bumps on body update
     status: brainNodeStatusEnum("status").notNull().default("active"),
     version: integer("version").notNull().default(1),

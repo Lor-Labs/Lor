@@ -12,15 +12,15 @@ import {
 import { createSelectSchema } from "drizzle-zod"
 import { workspace } from "./workspaces"
 
-// What Merlin is allowed to *do* in a channel — gated tools/connectors, not the
+// What Lor is allowed to *do* in a channel — gated tools/connectors, not the
 // brain (the brain is shared institutional memory, never walled). Add a value
 // as each gated ability lands; brain read/write + chat search are always-on
-// core and deliberately NOT capabilities. See reference/merlin-architecture.md §8.1.
-export const merlinCapabilityEnum = pgEnum("merlin_capability", [
+// core and deliberately NOT capabilities. See reference/lor-agent-architecture.md §8.1.
+export const lorCapabilityEnum = pgEnum("lor_capability", [
   "github",
   "code_intelligence",
   // Write side of code intelligence: propose changes as draft pull requests
-  // (and, later, run/test code). Draft-only — Merlin never merges.
+  // (and, later, run/test code). Draft-only — Lor never merges.
   "code_actions",
   "linear",
   "linear_write",
@@ -35,12 +35,12 @@ export const merlinCapabilityEnum = pgEnum("merlin_capability", [
   "custom_tools",
 ])
 
-export type MerlinCapability = (typeof merlinCapabilityEnum.enumValues)[number]
+export type LorCapability = (typeof lorCapabilityEnum.enumValues)[number]
 
 // The full set — what a `grantsAll` profile (the permissive default) resolves to,
 // now and as new capabilities are added.
-export const ALL_MERLIN_CAPABILITIES: MerlinCapability[] = [
-  ...merlinCapabilityEnum.enumValues,
+export const ALL_LOR_CAPABILITIES: LorCapability[] = [
+  ...lorCapabilityEnum.enumValues,
 ]
 
 // A named capability preset assigned to a channel or category. Resolution is
@@ -65,7 +65,7 @@ export const agentProfile = pgTable(
     // default ("everything connected, tune from there"). When false,
     // `capabilities` is the explicit allowlist.
     grantsAll: boolean("grants_all").notNull().default(false),
-    capabilities: merlinCapabilityEnum("capabilities")
+    capabilities: lorCapabilityEnum("capabilities")
       .array()
       .notNull()
       .default([]),

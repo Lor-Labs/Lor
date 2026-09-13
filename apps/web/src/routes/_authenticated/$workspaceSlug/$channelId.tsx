@@ -26,8 +26,8 @@ import { useAutoMarkRead } from "@/hooks/use-auto-mark-read"
 import { useChannelMessages } from "@/hooks/use-channel-messages"
 import { useChannelPlans } from "@/hooks/use-channel-plans"
 import { useFileUpload } from "@/hooks/use-file-upload"
+import { useLorRunReplay } from "@/hooks/use-lor-stream"
 import { useMarkThreadRead } from "@/hooks/use-mark-thread-read"
-import { useMerlinRunReplay } from "@/hooks/use-merlin-stream"
 import { useMessageDeletion } from "@/hooks/use-message-deletion"
 import { useMessageEditing } from "@/hooks/use-message-editing"
 import { useMessagePinning } from "@/hooks/use-message-pinning"
@@ -231,7 +231,7 @@ function ChannelView() {
   const handleJumpToMessage = useCallback(
     (messageId: string) => {
       // Resolve the message's channel (it may live elsewhere — e.g. a
-      // Merlin citation to another channel) and navigate there to anchor on it.
+      // Lor citation to another channel) and navigate there to anchor on it.
       void (async () => {
         try {
           const res = await apiClient.v1.workspaces[":workspaceSlug"].messages[
@@ -330,11 +330,11 @@ function ChannelView() {
     channelId,
   })
 
-  useMerlinRunReplay({ queryClient, channelId, messages })
+  useLorRunReplay({ queryClient, channelId, messages })
 
   // Channel-scope queue (a send can land while a run is finalizing) —
   // surfaced in the same composer pill as thread queues.
-  const pendingMerlinMessageId = useMemo(
+  const pendingLorMessageId = useMemo(
     () => messages.find((m) => m.status === "pending")?.id,
     [messages]
   )
@@ -342,7 +342,7 @@ function ChannelView() {
     socket,
     channelId,
     threadRootId: null,
-    pendingMerlinMessageId,
+    pendingLorMessageId,
   })
   const queuedMessages = useMemo(
     () =>

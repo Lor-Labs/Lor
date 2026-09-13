@@ -24,7 +24,7 @@ export const getThreadContext = createRoute({
   method: "get",
   summary: "Context usage for a conversation scope",
   description:
-    "Returns how much of the model's context window the latest agent run in this scope last used, broken down by instructions, conversation, Merlin's work, and compaction notes, plus what the uncompacted transcript would weigh and the credits the scope has spent. Powers the composer's context meter.",
+    "Returns how much of the model's context window the latest agent run in this scope last used, broken down by instructions, conversation, Lor's work, and compaction notes, plus what the uncompacted transcript would weigh and the credits the scope has spent. Powers the composer's context meter.",
   tags: ["Runs"],
   middleware: [sessionAuthMiddleware] as const,
   request: {

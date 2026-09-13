@@ -82,7 +82,7 @@ export function MeetingRecordingCard({
           </p>
         ) : (
           <p className="text-sm text-muted-foreground">
-            The recording is ready. Explore the discussion with Merlin.
+            The recording is ready. Explore the discussion with Lor.
           </p>
         )}
         {transcript && (
@@ -108,7 +108,7 @@ export function MeetingRecordingCard({
       {canAsk && (
         <div className="space-y-2.5 border-t border-border/60 bg-muted/20 px-4 py-3">
           <p className="text-[11px] font-medium text-muted-foreground">
-            Explore with Merlin
+            Explore with Lor
           </p>
           <div className="flex flex-wrap gap-2">
             {meeting?.followUps?.map((followUp) => (

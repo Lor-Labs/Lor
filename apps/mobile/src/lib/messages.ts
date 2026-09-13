@@ -149,8 +149,8 @@ export function realtimeMessageToMessage(message: RealtimeMessage): Message {
     reactions: message.reactions,
     threadRootId: message.threadRootId ?? null,
     threadSummary: null,
-    merlinReasoning: null,
-    merlinReasoningSegments: [],
+    lorReasoning: null,
+    lorReasoningSegments: [],
     overrideName: message.overrideName ?? null,
     overrideAvatarUrl: message.overrideAvatarUrl ?? null,
   }
@@ -206,8 +206,8 @@ export function createOptimisticMessage({
     reactions: [],
     threadRootId,
     threadSummary: null,
-    merlinReasoning: null,
-    merlinReasoningSegments: [],
+    lorReasoning: null,
+    lorReasoningSegments: [],
     overrideName: null,
     overrideAvatarUrl: null,
   }

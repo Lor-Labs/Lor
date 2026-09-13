@@ -44,7 +44,7 @@ function CopyButton({ text }: { text: string }) {
 // file-wide-center with the conversation still beside it. Addressed by
 // ?artifactId= — the URL is the share link today and the multiplayer room
 // key when live editing lands. Opens by morphing out of the in-chat CSV
-// preview card (shared layoutId). Read-only: edits go through Merlin or
+// preview card (shared layoutId). Read-only: edits go through Lor or
 // Download, by decision.
 export function ArtifactOverlay({
   artifactId,

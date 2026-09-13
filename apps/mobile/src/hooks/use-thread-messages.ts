@@ -21,9 +21,9 @@ import {
   updateMessageContent,
 } from "@/lib/messages"
 import {
-  applyMerlinFrame,
+  applyLorFrame,
   gateRunFrame,
-  type MerlinFrame,
+  type LorFrame,
   releaseRunReplay,
   retainRunReplay,
   startRunReplay,
@@ -120,17 +120,17 @@ export function useThreadMessages({
   )
 
   const applyFrame = useCallback(
-    (frame: MerlinFrame) => {
+    (frame: LorFrame) => {
       if (frame.payload.messageId === threadRootId) {
         updateRoot((current) =>
-          current ? applyMerlinFrame(current, frame) : current
+          current ? applyLorFrame(current, frame) : current
         )
         return
       }
       updateMessages((current) =>
         current.map((message) =>
           message.id === frame.payload.messageId
-            ? applyMerlinFrame(message, frame)
+            ? applyLorFrame(message, frame)
             : message
         )
       )
@@ -493,7 +493,7 @@ export function useThreadMessages({
       ) {
         return
       }
-      const frame: MerlinFrame = { type: "stream", payload }
+      const frame: LorFrame = { type: "stream", payload }
       if (gateRunFrame(frame)) return
       applyFrame(frame)
     }
@@ -511,7 +511,7 @@ export function useThreadMessages({
           : current
       )
     }
-    const updateReasoning: ServerToClientEvents["merlin:reasoning"] = (
+    const updateReasoning: ServerToClientEvents["lor:reasoning"] = (
       payload
     ) => {
       if (payload.channelId !== channelId) return
@@ -521,11 +521,11 @@ export function useThreadMessages({
       ) {
         return
       }
-      const frame: MerlinFrame = { type: "reasoning", payload }
+      const frame: LorFrame = { type: "reasoning", payload }
       if (gateRunFrame(frame)) return
       applyFrame(frame)
     }
-    const updateTool: ServerToClientEvents["merlin:tool"] = (payload) => {
+    const updateTool: ServerToClientEvents["lor:tool"] = (payload) => {
       if (payload.channelId !== channelId) return
       if (
         payload.messageId !== threadRootId &&
@@ -533,7 +533,7 @@ export function useThreadMessages({
       ) {
         return
       }
-      const frame: MerlinFrame = { type: "tool", payload }
+      const frame: LorFrame = { type: "tool", payload }
       if (gateRunFrame(frame)) return
       applyFrame(frame)
     }
@@ -568,7 +568,7 @@ export function useThreadMessages({
       )
     }
     // A steered message was injected — the placeholder shows who's steering.
-    const steerMessage: ServerToClientEvents["merlin:steer"] = (payload) => {
+    const steerMessage: ServerToClientEvents["lor:steer"] = (payload) => {
       if (payload.channelId !== channelId) return
       // Chip clear is ungated: chips aren't replayed state.
       updateMessages((current) =>
@@ -584,11 +584,11 @@ export function useThreadMessages({
       ) {
         return
       }
-      const frame: MerlinFrame = { type: "steer", payload }
+      const frame: LorFrame = { type: "steer", payload }
       if (gateRunFrame(frame)) return
       applyFrame(frame)
     }
-    const updateMemory: ServerToClientEvents["merlin:memory"] = (payload) => {
+    const updateMemory: ServerToClientEvents["lor:memory"] = (payload) => {
       if (payload.channelId !== channelId) return
       if (
         payload.messageId !== threadRootId &&
@@ -596,7 +596,7 @@ export function useThreadMessages({
       ) {
         return
       }
-      const frame: MerlinFrame = { type: "memory", payload }
+      const frame: LorFrame = { type: "memory", payload }
       if (gateRunFrame(frame)) return
       applyFrame(frame)
     }
@@ -656,12 +656,12 @@ export function useThreadMessages({
     socket.on("message:updated", updateMessage)
     socket.on("message:deleted", deleteMessage)
     socket.on("message:stream", streamMessage)
-    socket.on("merlin:reasoning", updateReasoning)
-    socket.on("merlin:tool", updateTool)
-    socket.on("merlin:memory", updateMemory)
+    socket.on("lor:reasoning", updateReasoning)
+    socket.on("lor:tool", updateTool)
+    socket.on("lor:memory", updateMemory)
     socket.on("message:routed", routeMessage)
     socket.on("run:queue:updated", settleQueued)
-    socket.on("merlin:steer", steerMessage)
+    socket.on("lor:steer", steerMessage)
     socket.on("message:embeds:updated", updateEmbeds)
     socket.on("message:reaction:updated", updateReaction)
     socket.on("message:pin:toggled", updatePin)
@@ -674,12 +674,12 @@ export function useThreadMessages({
       socket.off("message:updated", updateMessage)
       socket.off("message:deleted", deleteMessage)
       socket.off("message:stream", streamMessage)
-      socket.off("merlin:reasoning", updateReasoning)
-      socket.off("merlin:tool", updateTool)
-      socket.off("merlin:memory", updateMemory)
+      socket.off("lor:reasoning", updateReasoning)
+      socket.off("lor:tool", updateTool)
+      socket.off("lor:memory", updateMemory)
       socket.off("message:routed", routeMessage)
       socket.off("run:queue:updated", settleQueued)
-      socket.off("merlin:steer", steerMessage)
+      socket.off("lor:steer", steerMessage)
       socket.off("message:embeds:updated", updateEmbeds)
       socket.off("message:reaction:updated", updateReaction)
       socket.off("message:pin:toggled", updatePin)
@@ -697,7 +697,7 @@ export function useThreadMessages({
   ])
 
   // Late-join trace recovery: replay the durable event log of any pending
-  // Merlin placeholder in view — root included (no-ops for already-started
+  // Lor placeholder in view — root included (no-ops for already-started
   // replays). Started replays are released on unmount — this hook's message
   // state dies with it, so a remount mid-run must be able to replay again.
   const startedReplays = useRef(new Set<string>())

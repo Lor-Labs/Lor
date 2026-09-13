@@ -9,7 +9,7 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core"
-import { MERLIN_EMBED_DIMENSIONS } from "../constants"
+import { LOR_EMBED_DIMENSIONS } from "../constants"
 import {
   integrationConnection,
   integrationProviderEnum,
@@ -20,7 +20,7 @@ import { workspace } from "./workspaces"
 // embedding for a meaningful event (PR merged, issue closed, release, …).
 // Embed the summary, not the document; structured details are live-fetched via
 // fetch_source, so the row stays fully typed (no metadata bag).
-// See reference/merlin-mvp-spec.md §6.
+// See reference/lor-mvp-spec.md §6.
 
 export const sourceStatusEnum = pgEnum("source_status", ["active", "archived"])
 
@@ -54,7 +54,7 @@ export const source = pgTable(
     summary: text("summary").notNull(),
     // Qwen3 Embedding 4B at native dimensions; half precision keeps HNSW
     // indexing below pgvector's float32 vector dimension limit.
-    embedding: halfvec("embedding", { dimensions: MERLIN_EMBED_DIMENSIONS }),
+    embedding: halfvec("embedding", { dimensions: LOR_EMBED_DIMENSIONS }),
     occurredAt: timestamp("occurred_at"),
     status: sourceStatusEnum("status").notNull().default("active"),
   },

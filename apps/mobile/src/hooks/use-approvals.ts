@@ -67,7 +67,7 @@ export function useChannelApprovals(channelId: string) {
   return query
 }
 
-// The pending approval anchored to one Merlin message, if any.
+// The pending approval anchored to one Lor message, if any.
 export function useMessageApproval(
   channelId: string,
   messageId: string

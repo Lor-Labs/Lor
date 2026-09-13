@@ -4,8 +4,8 @@ import { auth, type Session } from "@repo/auth"
 import { and, db, eq, notExists, schema } from "@repo/db"
 import { env } from "@repo/env/server"
 import { enterContext } from "@repo/logger"
-import { decideReplyPlacement } from "@repo/merlin/placement"
-import { settleAbandonedRunPlan, toRealtimePlan } from "@repo/merlin/plans"
+import { decideReplyPlacement } from "@repo/lor/placement"
+import { settleAbandonedRunPlan, toRealtimePlan } from "@repo/lor/plans"
 import {
   buildMessageFanout,
   sendMessagePushNotifications,
@@ -35,11 +35,11 @@ import {
 } from "@repo/realtime-types"
 import type {
   LinkUnfurlJobData,
-  MerlinRespondJobData,
+  LorRespondJobData,
 } from "@repo/realtime-types/queues"
 import {
   LINK_UNFURL_QUEUE,
-  MERLIN_RESPOND_QUEUE,
+  LOR_RESPOND_QUEUE,
 } from "@repo/realtime-types/queues"
 import { createAdapter } from "@socket.io/redis-adapter"
 import { Queue } from "bullmq"
@@ -50,23 +50,23 @@ import { logger } from "@/lib/logger"
 import { assertUserCanAccessChannel } from "@/services/channel-access"
 import {
   createAgentRun,
-  createMerlinPlaceholder,
-  isMerlinMentioned,
-  isMerlinThread,
+  createLorPlaceholder,
+  isLorMentioned,
+  isLorThread,
   loadRecentChannelMessages,
   mentionsOtherUser,
   type RunRouteOutcome,
   routeToActiveRun,
-} from "@/services/merlin"
-import { isReplyToMerlin } from "@/services/merlin-routing"
+} from "@/services/lor"
+import { isReplyToLor } from "@/services/lor-routing"
 import {
-  closeMerlinSession,
-  isMerlinSessionOpen,
-  isMerlinThreadMuted,
-  muteMerlinThread,
-  openMerlinSession,
-  unmuteMerlinThread,
-} from "@/services/merlin-session"
+  closeLorSession,
+  isLorSessionOpen,
+  isLorThreadMuted,
+  muteLorThread,
+  openLorSession,
+  unmuteLorThread,
+} from "@/services/lor-session"
 import {
   claimMessageDelivery,
   MESSAGE_DELIVERY_RETRY,
@@ -544,7 +544,7 @@ io.on("connection", (socket) => {
       )
 
       if (delivery.busy) {
-        // A lost ack can be retried while the original is still routing Merlin.
+        // A lost ack can be retried while the original is still routing Lor.
         const original = await loadMessageByClientKey({
           authorId: socket.data.user.id,
           channelId: parsed.channelId,
@@ -667,8 +667,8 @@ io.on("connection", (socket) => {
           })
       }
 
-      const routeMerlin = async () => {
-        // DMs have no workspace context; Merlin only runs in workspace channels.
+      const routeLor = async () => {
+        // DMs have no workspace context; Lor only runs in workspace channels.
         const workspaceId = accessibleChannel.workspaceId
         if (!workspaceId) return
         const [existingRun] = await db
@@ -680,11 +680,11 @@ io.on("connection", (socket) => {
           .limit(1)
         if (existingRun) {
           if (existingRun.state === "queued" && existingRun.messageId) {
-            await merlinRespondQueue.add(
+            await lorRespondQueue.add(
               "respond",
               {
                 runId: existingRun.id,
-                merlinMessageId: existingRun.messageId,
+                lorMessageId: existingRun.messageId,
                 channelId: existingRun.channelId,
                 threadRootId: existingRun.threadRootId,
                 contextThreadRootId: parsed.threadRootId ?? null,
@@ -705,75 +705,75 @@ io.on("connection", (socket) => {
           .where(eq(schema.agentRunQueue.messageId, createdMessage.message.id))
           .limit(1)
         if (queued) return
-        // Merlin responds when explicitly @-mentioned or replied to, or when the
-        // sender has an open session (a recent exchange with Merlin in this
+        // Lor responds when explicitly @-mentioned or replied to, or when the
+        // sender has an open session (a recent exchange with Lor in this
         // scope) and isn't now addressing a teammate. Session is keyed by thread
         // root, else channel, + sender.
-        const merlinScopeId = parsed.threadRootId ?? parsed.channelId
-        const merlinMentioned = isMerlinMentioned(parsed.content)
-        const replyingToMerlin = isReplyToMerlin(
+        const lorScopeId = parsed.threadRootId ?? parsed.channelId
+        const lorMentioned = isLorMentioned(parsed.content)
+        const replyingToLor = isReplyToLor(
           createdMessage.message.referencedMessage
         )
-        const explicitlyAddressesMerlin = merlinMentioned || replyingToMerlin
+        const explicitlyAddressesLor = lorMentioned || replyingToLor
         const addressesTeammate = mentionsOtherUser(parsed.content)
-        let triggerMerlin = explicitlyAddressesMerlin
-        if (!explicitlyAddressesMerlin && !addressesTeammate) {
-          // Inside a thread Merlin is part of, plain replies always go to it (the
+        let triggerLor = explicitlyAddressesLor
+        if (!explicitlyAddressesLor && !addressesTeammate) {
+          // Inside a thread Lor is part of, plain replies always go to it (the
           // thread is the conversation) — no session window — unless the thread
           // was muted by someone addressing a teammate. Elsewhere, fall back to
-          // the timed session opened by a recent exchange with Merlin.
+          // the timed session opened by a recent exchange with Lor.
           if (parsed.threadRootId) {
-            const inMerlinThread = await isMerlinThread(
-              parsed.threadRootId
-            ).catch(() => false)
+            const inLorThread = await isLorThread(parsed.threadRootId).catch(
+              () => false
+            )
             const muted =
-              inMerlinThread &&
-              (await isMerlinThreadMuted(
+              inLorThread &&
+              (await isLorThreadMuted(
                 redisPresenceClient,
                 parsed.threadRootId
               ).catch(() => false))
-            triggerMerlin = inMerlinThread && !muted
+            triggerLor = inLorThread && !muted
           }
-          if (!triggerMerlin) {
-            triggerMerlin = await isMerlinSessionOpen(
+          if (!triggerLor) {
+            triggerLor = await isLorSessionOpen(
               redisPresenceClient,
-              merlinScopeId,
+              lorScopeId,
               socket.data.user.id
             ).catch(() => false)
           }
         }
 
-        if (!triggerMerlin) {
-          // Addressing a teammate ends the sender's open Merlin session, and in a
-          // thread mutes Merlin there until someone explicitly addresses it again.
+        if (!triggerLor) {
+          // Addressing a teammate ends the sender's open Lor session, and in a
+          // thread mutes Lor there until someone explicitly addresses it again.
           if (addressesTeammate) {
-            void closeMerlinSession(
+            void closeLorSession(
               redisPresenceClient,
-              merlinScopeId,
+              lorScopeId,
               socket.data.user.id
             ).catch(() => {})
             if (parsed.threadRootId) {
-              void muteMerlinThread(
+              void muteLorThread(
                 redisPresenceClient,
                 parsed.threadRootId
               ).catch(() => {})
             }
           }
         } else {
-          // An explicit mention/reply in a thread un-mutes it (Merlin is back in).
-          if (explicitlyAddressesMerlin && parsed.threadRootId) {
-            void unmuteMerlinThread(
+          // An explicit mention/reply in a thread un-mutes it (Lor is back in).
+          if (explicitlyAddressesLor && parsed.threadRootId) {
+            void unmuteLorThread(
               redisPresenceClient,
               parsed.threadRootId
             ).catch(() => {})
           }
           // Open/refresh the session so follow-ups continue without re-mentioning.
-          void openMerlinSession(
+          void openLorSession(
             redisPresenceClient,
-            merlinScopeId,
+            lorScopeId,
             socket.data.user.id
           ).catch((err) => {
-            logger.error({ err }, "Failed to open Merlin session")
+            logger.error({ err }, "Failed to open Lor session")
           })
 
           // One active run per scope: a mid-run send is absorbed by the active
@@ -789,11 +789,11 @@ io.on("connection", (socket) => {
               messageId: createdMessage.message.id,
               outcome: routed.outcome,
               runId: routed.runId,
-              merlinMessageId: routed.merlinMessageId,
+              lorMessageId: routed.lorMessageId,
             })
           }
           const routed = await routeToActiveRun({
-            scopeKey: merlinScopeId,
+            scopeKey: lorScopeId,
             threadScope: Boolean(parsed.threadRootId),
             messageId: createdMessage.message.id,
             senderId: socket.data.user.id,
@@ -803,13 +803,13 @@ io.on("connection", (socket) => {
             return
           }
 
-          // Decide where Merlin replies. A mention already in a thread stays
+          // Decide where Lor replies. A mention already in a thread stays
           // there; a main-channel mention answers in-channel (broadly useful)
           // or ducks into a thread rooted at the triggering message (narrow,
           // noisy, or delegated work — start_plan adopts the thread mid-run
-          // when Merlin commits to a plan).
-          let merlinThreadRootId = parsed.threadRootId ?? null
-          if (merlinThreadRootId === null) {
+          // when Lor commits to a plan).
+          let lorThreadRootId = parsed.threadRootId ?? null
+          if (lorThreadRootId === null) {
             const placementStart = performance.now()
             try {
               const recent = await loadRecentChannelMessages(parsed.channelId)
@@ -818,36 +818,35 @@ io.on("connection", (socket) => {
                 content: createdMessage.message.content ?? "",
               })
               if (placement === "thread") {
-                merlinThreadRootId = createdMessage.message.id
+                lorThreadRootId = createdMessage.message.id
               }
             } catch (err) {
-              logger.error({ err }, "Merlin placement decision failed")
+              logger.error({ err }, "Lor placement decision failed")
             }
             logger.info(
               {
                 channelId: parsed.channelId,
                 ms: Math.round(performance.now() - placementStart),
               },
-              "Merlin placement decision timing"
+              "Lor placement decision timing"
             )
           }
 
-          await createMerlinPlaceholder({
+          await createLorPlaceholder({
             accessibleChannel,
             channelId: parsed.channelId,
-            threadRootId: merlinThreadRootId,
+            threadRootId: lorThreadRootId,
           })
-            .then(async (merlinMessage) => {
+            .then(async (lorMessage) => {
               try {
                 const runId = await createAgentRun({
                   workspaceId,
                   channelId: parsed.channelId,
-                  messageId: merlinMessage.id,
-                  threadRootId: merlinThreadRootId,
+                  messageId: lorMessage.id,
+                  threadRootId: lorThreadRootId,
                   triggerMessageId: createdMessage.message.id,
                 })
-                if (!runId)
-                  throw new Error("Merlin requires a durable agent run")
+                if (!runId) throw new Error("Lor requires a durable agent run")
                 if (runId === "conflict") {
                   // Another mention claimed the scope between our check and the
                   // insert: drop the never-emitted placeholder and route at the
@@ -855,31 +854,31 @@ io.on("connection", (socket) => {
                   // row that reads as a stuck "thinking" message on reload.
                   await db
                     .delete(schema.message)
-                    .where(eq(schema.message.id, merlinMessage.id))
+                    .where(eq(schema.message.id, lorMessage.id))
                     .catch((err) =>
                       logger.error(
-                        { err, messageId: merlinMessage.id },
-                        "Failed to delete orphaned Merlin placeholder"
+                        { err, messageId: lorMessage.id },
+                        "Failed to delete orphaned Lor placeholder"
                       )
                     )
                   const lateRouted = await routeToActiveRun({
-                    scopeKey: merlinThreadRootId ?? parsed.channelId,
-                    threadScope: merlinThreadRootId !== null,
+                    scopeKey: lorThreadRootId ?? parsed.channelId,
+                    threadScope: lorThreadRootId !== null,
                     messageId: createdMessage.message.id,
                     senderId: socket.data.user.id,
                   })
                   if (!lateRouted)
-                    throw new Error("Merlin scope changed during routing")
+                    throw new Error("Lor scope changed during routing")
                   emitRouted(lateRouted)
                   return
                 }
-                // Flag the placeholder as streaming so the "Merlin is thinking"
+                // Flag the placeholder as streaming so the "Lor is thinking"
                 // indicator shows the instant it lands (independent of the worker's
                 // first stream event arriving).
                 const placeholder = {
-                  ...merlinMessage,
+                  ...lorMessage,
                   streaming: true,
-                  merlinTriggerMessageId: createdMessage.message.id,
+                  lorTriggerMessageId: createdMessage.message.id,
                 }
                 if (placeholder.threadRootId) {
                   io.to(threadRoom(placeholder.threadRootId)).emit(
@@ -902,7 +901,7 @@ io.on("connection", (socket) => {
                     .catch((err) =>
                       logger.warn(
                         { err, messageId: placeholder.id },
-                        "Merlin startup thread summary failed"
+                        "Lor startup thread summary failed"
                       )
                     )
                 } else {
@@ -916,12 +915,12 @@ io.on("connection", (socket) => {
                 // attempt cap is the authoritative guard). Handled errors don't
                 // retry — the worker catches them and posts a fallback instead of
                 // throwing. jobId = runId dedupes re-enqueues of the same run.
-                await merlinRespondQueue.add(
+                await lorRespondQueue.add(
                   "respond",
                   {
-                    merlinMessageId: merlinMessage.id,
+                    lorMessageId: lorMessage.id,
                     channelId: parsed.channelId,
-                    threadRootId: merlinThreadRootId,
+                    threadRootId: lorThreadRootId,
                     contextThreadRootId: parsed.threadRootId ?? null,
                     triggerMessageId: createdMessage.message.id,
                     runId,
@@ -945,7 +944,7 @@ io.on("connection", (socket) => {
                   })
                   .where(
                     and(
-                      eq(schema.message.id, merlinMessage.id),
+                      eq(schema.message.id, lorMessage.id),
                       eq(schema.message.status, "pending"),
                       notExists(
                         db
@@ -965,7 +964,7 @@ io.on("connection", (socket) => {
                       ? threadRoom(orphan.threadRootId)
                       : channelRoom(orphan.channelId)
                   ).emit("message:created", {
-                    ...merlinMessage,
+                    ...lorMessage,
                     status: "failed",
                     content: orphan.content,
                     streaming: false,
@@ -1008,7 +1007,7 @@ io.on("connection", (socket) => {
               }
             })
             .catch(async (err) => {
-              logger.error({ err }, "Failed to start Merlin response")
+              logger.error({ err }, "Failed to start Lor response")
               const [run] = await db
                 .select({ id: schema.agentRun.id })
                 .from(schema.agentRun)
@@ -1021,7 +1020,7 @@ io.on("connection", (socket) => {
                 .limit(1)
               if (!run) {
                 await settleAbandonedRunPlan(
-                  { threadRootId: merlinThreadRootId },
+                  { threadRootId: lorThreadRootId },
                   "failed",
                   (plan) => {
                     io.to(channelRoom(parsed.channelId)).emit("plan:updated", {
@@ -1034,7 +1033,7 @@ io.on("connection", (socket) => {
             })
         }
       }
-      await routeMerlin()
+      await routeLor()
       await delivery.checkpoint("complete")
     } catch (error) {
       logger.error({ err: error }, "Message delivery failed")
@@ -1290,19 +1289,16 @@ const linkUnfurlQueue = new Queue<LinkUnfurlJobData>(LINK_UNFURL_QUEUE, {
   },
 })
 
-const merlinRespondQueue = new Queue<MerlinRespondJobData>(
-  MERLIN_RESPOND_QUEUE,
-  {
-    connection: {
-      ...parseRedisUrl(env.REDIS_URL),
-      maxRetriesPerRequest: null,
-    },
-    defaultJobOptions: {
-      removeOnComplete: { age: 3600, count: 1000 },
-      removeOnFail: { age: 86400, count: 5000 },
-    },
-  }
-)
+const lorRespondQueue = new Queue<LorRespondJobData>(LOR_RESPOND_QUEUE, {
+  connection: {
+    ...parseRedisUrl(env.REDIS_URL),
+    maxRetriesPerRequest: null,
+  },
+  defaultJobOptions: {
+    removeOnComplete: { age: 3600, count: 1000 },
+    removeOnFail: { age: 86400, count: 5000 },
+  },
+})
 
 async function bootstrap() {
   await Promise.all([

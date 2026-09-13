@@ -3,7 +3,7 @@ import {
   Camera01Icon,
   Cancel01Icon,
   CheckmarkSquare02Icon,
-  CreditCardIcon,
+  // CreditCardIcon,
   Layers01Icon,
   LinkSquare02Icon,
   Plug01Icon,
@@ -57,13 +57,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { AnimatePresence, motion } from "motion/react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
+import { AgentProfilesSection } from "@/components/workspace/agent-profiles-section"
 import { ApprovalsSection } from "@/components/workspace/approvals-section"
 import { BillingSection } from "@/components/workspace/billing-section"
 import { CustomToolsSection } from "@/components/workspace/custom-tools-section"
 import { GithubBaseBranchSettings } from "@/components/workspace/github-base-branch-settings"
 import { InstructionsSection } from "@/components/workspace/instructions-section"
 import { MembersRolesSection } from "@/components/workspace/members-roles-section"
-import { MerlinProfilesSection } from "@/components/workspace/merlin-profiles-section"
 import { TriggerEffects } from "@/components/workspace/trigger-effects"
 import { WorkspaceAvatar } from "@/components/workspace/workspace-avatar"
 import { apiClient } from "@/lib/api-client"
@@ -105,7 +105,7 @@ export type SectionId =
   | "members"
   | "connectors"
   | "custom-tools"
-  | "merlin"
+  | "agent"
   | "approvals"
   | "instructions"
   | "billing"
@@ -115,10 +115,13 @@ const SECTIONS: { id: SectionId; label: string; icon: IconSvgElement }[] = [
   { id: "members", label: "Members & Roles", icon: UserGroupIcon },
   { id: "connectors", label: "Connectors", icon: Plug01Icon },
   { id: "custom-tools", label: "Tools", icon: Wrench01Icon },
-  { id: "merlin", label: "Agent profiles", icon: Layers01Icon },
+  { id: "agent", label: "Agent profiles", icon: Layers01Icon },
   { id: "approvals", label: "Approvals", icon: CheckmarkSquare02Icon },
   { id: "instructions", label: "LOR.md", icon: Scroll01Icon },
-  { id: "billing", label: "Billing", icon: CreditCardIcon },
+  // Billing tab hidden pre-launch (LOR-87 PR). Restoring it = uncomment this
+  // line + the CreditCardIcon import; the "billing" SectionId, its render
+  // branch, and canManageBilling gating are all left intact.
+  // { id: "billing", label: "Billing", icon: CreditCardIcon },
 ]
 
 // Resolves the URL ?tab= value to a section, so openers don't hand-maintain
@@ -329,7 +332,7 @@ export function WorkspaceSettingsDialog({
                   ) : section === "billing" && canManageBilling ? (
                     <BillingSection workspaceSlug={workspace.slug} />
                   ) : (
-                    <MerlinProfilesSection workspaceSlug={workspace.slug} />
+                    <AgentProfilesSection workspaceSlug={workspace.slug} />
                   )}
                 </div>
               </div>
@@ -672,8 +675,8 @@ function ConnectorsSection({ workspaceSlug }: { workspaceSlug: string }) {
     <div className="space-y-3">
       <div className="space-y-1 text-sm text-muted-foreground">
         <p>
-          Connect tools so Merlin can draw on your team's work and act on it
-          when allowed.
+          Connect tools so Lor can draw on your team's work and act on it when
+          allowed.
         </p>
         <p className="text-xs">
           Agent profiles control which channels can use each connector's tools.
@@ -820,7 +823,7 @@ function ConnectorsSection({ workspaceSlug }: { workspaceSlug: string }) {
             {isExpanded && p.capabilities.length > 0 && (
               <div className="mt-3 border-border/60 border-t pt-3">
                 <div className="mb-2 text-xs font-medium text-muted-foreground">
-                  What Merlin can do
+                  What Lor can do
                 </div>
                 <ul className="space-y-1.5">
                   {p.capabilities.map((capability) => (
@@ -938,7 +941,7 @@ function ConnectorsSection({ workspaceSlug }: { workspaceSlug: string }) {
                 <div className="mb-1.5 flex items-center justify-between gap-2">
                   <span className="text-xs font-medium text-muted-foreground">
                     {repoCount > 0
-                      ? `${repoCount} ${repoCount === 1 ? "repository" : "repositories"} Merlin can read`
+                      ? `${repoCount} ${repoCount === 1 ? "repository" : "repositories"} Lor can read`
                       : "No repositories"}
                   </span>
                   {p.manageUrl && (
@@ -1052,7 +1055,7 @@ function ConnectorsSection({ workspaceSlug }: { workspaceSlug: string }) {
               Disconnect {disconnectTarget?.name}?
             </AlertDialogTitle>
             <AlertDialogDescription>
-              Merlin will no longer be able to search{" "}
+              Lor will no longer be able to search{" "}
               {disconnectTarget?.name ?? "this connector"}, and its activity
               posts to channels will stop. You can reconnect at any time.
             </AlertDialogDescription>

@@ -22,7 +22,7 @@ import { api } from "@/lib/api"
 import type {
   AgentProfile,
   AvailableCapability,
-  MerlinCapabilityKey,
+  LorCapabilityKey,
 } from "@/lib/api-types"
 import { confirmDiscard } from "@/lib/confirm-discard"
 
@@ -89,19 +89,19 @@ function ProfileEditor({
 }: {
   available: AvailableCapability[]
   onCancel: () => void
-  onSave: (name: string, capabilities: MerlinCapabilityKey[]) => void
+  onSave: (name: string, capabilities: LorCapabilityKey[]) => void
   profile?: AgentProfile
   saving: boolean
 }) {
   const [foreground, accent] = useThemeColor(["foreground", "accent"])
   const [name, setName] = useState(profile?.name ?? "")
-  const [selected, setSelected] = useState<Set<MerlinCapabilityKey>>(() => {
+  const [selected, setSelected] = useState<Set<LorCapabilityKey>>(() => {
     if (!profile) return new Set()
     if (profile.grantsAll) return new Set(available.map((cap) => cap.key))
     return new Set(profile.capabilities)
   })
 
-  const toggle = (key: MerlinCapabilityKey) => {
+  const toggle = (key: LorCapabilityKey) => {
     setSelected((previous) => {
       const next = new Set(previous)
       if (next.has(key)) next.delete(key)
@@ -234,7 +234,7 @@ export default function AgentProfilesScreen() {
     mutationFn: async (input: {
       id?: string
       name: string
-      capabilities: MerlinCapabilityKey[]
+      capabilities: LorCapabilityKey[]
     }) => {
       const profiles = api.v1.workspaces[":workspaceSlug"]["agent-profiles"]
       const response = input.id
@@ -326,8 +326,8 @@ export default function AgentProfilesScreen() {
         showsVerticalScrollIndicator={false}
       >
         <Text className="text-sm leading-5 text-muted">
-          Profiles control which tools Merlin can use in a channel. A channel
-          inherits its category's profile, then the workspace default. Merlin's
+          Profiles control which tools Lor can use in a channel. A channel
+          inherits its category's profile, then the workspace default. Lor's
           memory and chat search are always available.
         </Text>
 

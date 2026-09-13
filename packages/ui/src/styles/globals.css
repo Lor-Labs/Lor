@@ -43,8 +43,8 @@
   --color-muted-foreground: var(--muted-foreground);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
-  --color-merlin: var(--merlin);
-  --color-merlin-foreground: var(--merlin-foreground);
+  --color-agent: var(--agent);
+  --color-agent-foreground: var(--agent-foreground);
   --color-gold: var(--gold);
   --color-success: var(--success);
   --color-success-foreground: var(--success-foreground);
@@ -276,7 +276,7 @@
 }
 
 /* Message bodies inherit the bubble's colour on purpose, so callers can dim a
-   whole block (e.g. the Merlin tool trail passes muted text down). */
+   whole block (e.g. the Lor tool trail passes muted text down). */
 .message-markdown .prose {
   color: inherit;
   --tw-prose-body: inherit;

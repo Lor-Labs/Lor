@@ -1,4 +1,4 @@
-# Loops — scheduled headless Merlin runs (execution runbook)
+# Loops — scheduled headless Lor runs (execution runbook)
 
 Status legend: `[ ]` todo · `[x]` done. Update checkboxes as phases land, and
 append to the **Decisions & deviations log** at the bottom when reality forces
@@ -6,7 +6,7 @@ a change — this document is the source of truth across agent runs.
 
 ## What a Loop is
 
-> A scheduled, headless Merlin invocation living in a channel, with its own
+> A scheduled, headless Lor invocation living in a channel, with its own
 > card and run history, that can act directly (post messages, call connector
 > tools, do sandbox/file work) or spawn a tracked Task — repeating on a cron
 > schedule until an end condition is met, it's paused, or completed.
@@ -16,8 +16,8 @@ Loops are a first-class automation primitive next to Act triggers
 *event-driven*. They deliberately ride the same rails: `respond()` with the
 `triggered` context, `agent_run` rows, run-event trails, budgets, recovery.
 
-Demo storyboard target (`/demo` route, `LoopScene`): user asks Merlin
-conversationally → Merlin replies with a Loop card (name, "Every weekday at
+Demo storyboard target (`/demo` route, `LoopScene`): user asks Lor
+conversationally → Lor replies with a Loop card (name, "Every weekday at
 9:00 AM · until the mobile app ships", tool badges, **Create Loop** button) →
 card flips Active.
 
@@ -44,7 +44,7 @@ UI reference (ChatGPT scheduled tasks — inspiration, not pixel spec):
 | Sandbox scope | New optional `sandboxKey` on `RespondContext`, resolved `ctx.sandboxKey ?? ctx.threadRootId ?? ctx.channelId`; loop runs pass `loop.id` so co-channel loops/triggers never share a warm checkout. |
 | End condition | Free text on the loop; injected into the prompt; model calls `complete_loop` (new triggered tool, bound only when executor present, listed in `SIDE_EFFECT_TOOLS`). |
 | Failure accounting | At RUN SETTLEMENT, not BullMQ events (the triggered processor catches errors, transitions the run to `failed`, and returns without rethrowing — BullMQ sees success). Terminal `failed` (incl. `out_of_credits`) → increment `consecutiveFailures`; clean finish → reset to 0; `stopped` → no change. Count only terminal settlement, never per recovery attempt. |
-| Auto-pause | At 5 consecutive failures: `status='paused'`, `pausedReason='failures'` (or `out_of_credits`), post a Merlin channel note, emit `loop:updated`. |
+| Auto-pause | At 5 consecutive failures: `status='paused'`, `pausedReason='failures'` (or `out_of_credits`), post a Lor channel note, emit `loop:updated`. |
 | Credits | Loop runs ARE credit-gated (unlike project archive). Out-of-credits counts toward auto-pause. |
 | Pause semantics | Kill-switch re-read at process time (cancels queued runs) AND in-flight stop: set `agent_run.stopRequestedAt` + publish runId on `AGENT_RUN_STOP_CHANNEL` (same as user stop). Look up the active run via `scopeKey = loop.id`. |
 | Cadence | Hard floor 5 min. Validation samples the next ~20 fires via croner and rejects if ANY gap < 5 min (uneven crons like `0,2 * * * *` beat a two-fire check). Any gap < 1 hour → activation requires `confirmHighFrequency: true` (server returns a `requires_confirmation` error otherwise); persist `highFrequencyConfirmedAt/By`. |
@@ -137,10 +137,10 @@ row fresh for kill-switch + prompt inputs anyway.)
 event carrying a full `RealtimeLoop` snapshot (mirrors `task:updated` /
 `RealtimeTask` — the card renders from the event, no refetch).
 
-New `packages/merlin/src/loop-schedule.ts`, exported as
-`@repo/merlin/loop-schedule` (add to merlin package.json exports; api +
-worker + realtime all already depend on @repo/merlin). Add `croner` to
-packages/merlin dependencies (pick the current stable major; it's
+New `packages/lor/src/loop-schedule.ts`, exported as
+`@repo/lor/loop-schedule` (add to lor package.json exports; api +
+worker + realtime all already depend on @repo/lor). Add `croner` to
+packages/lor dependencies (pick the current stable major; it's
 dependency-free). Functions:
 
 - `nextLoopRunAt(schedule: string, timezone: string, from?: Date): Date | null`
@@ -158,18 +158,18 @@ dependency-free). Functions:
   simple: handle the common day/hour/minute shapes, fall back to the raw
   cron string.
 
-Unit tests `loop-schedule.test.ts` (vitest exists in packages/merlin — see
+Unit tests `loop-schedule.test.ts` (vitest exists in packages/lor — see
 `sandbox/code-session.test.ts`): uneven-gap cron rejected, `* * * * *`
 rejected, `0 9 * * 1-5` ok + no confirmation, `*/30 * * * *` ok +
 requiresConfirmation, DST-boundary tz sanity, invalid expr/tz → ok:false.
 
-Validation: `pnpm run validate` (runs merlin tests).
+Validation: `pnpm run validate` (runs lor tests).
 
 ---
 
-### [x] L1.3 — Merlin: complete_loop, loop prompt, sandboxKey
+### [x] L1.3 — Lor: complete_loop, loop prompt, sandboxKey
 
-`packages/merlin/src/triggered.ts`:
+`packages/lor/src/triggered.ts`:
 - `export type TriggeredCompleteLoop = (input: { closingNote: string }) =>
   Promise<void>`
 - `RunTriggeredContext` gains optional `completeLoop?: TriggeredCompleteLoop`
@@ -197,7 +197,7 @@ Validation: `pnpm run validate` (runs merlin tests).
     work again.
   - Same disposition rules + closing-note (handoff) section as triggered —
     successor framing works identically since runs serialize per loop.
-- `packages/merlin/src/index.ts` (`respond`):
+- `packages/lor/src/index.ts` (`respond`):
   - `RespondContext` gains optional `sandboxKey?: string`.
   - `propose_code_change` context: `sandboxKey: ctx.sandboxKey ??
     ctx.threadRootId ?? ctx.channelId`. Check whether `investigate_code` /
@@ -209,7 +209,7 @@ Validation: `pnpm run validate` (runs merlin tests).
   - Bind `complete_loop` tool + context executor when present.
 
 Loop-run briefing: new `loopRunBriefing({ loopId, channelId, runId })` in a
-new `packages/merlin/src/loop-runs.ts` (export `@repo/merlin/loop-runs`),
+new `packages/lor/src/loop-runs.ts` (export `@repo/lor/loop-runs`),
 modeled directly on `actRunBriefing` in `act-runs.ts` (read it first): last
 run's closing note for `scopeKey = loop.id` + channel activity since
 `lastRunAt`. Reuse shared internals from act-runs if extractable without
@@ -248,10 +248,10 @@ The heart. Read `apps/worker/src/jobs/triggered-run.ts` fully first
      Recovery re-attempts (LeaseLost/abort silent exits) must NOT call it.
    - optional `sandboxKey` passed through to respond ctx.
    Act processor (`createTriggeredRunProcessor`) keeps its flush/two-shape
-   job handling and `createMerlinTask`, then delegates to the executor.
+   job handling and `createLorTask`, then delegates to the executor.
    Behavior of Act runs must be byte-for-byte identical — this is a pure
-   refactor plus hooks. `createMerlinTask` moves to a shared lib
-   (`apps/worker/src/lib/merlin-task.ts`) so the loop processor reuses it;
+   refactor plus hooks. `createLorTask` moves to a shared lib
+   (`apps/worker/src/lib/lor-task.ts`) so the loop processor reuses it;
    thread `originRunId` into its `schema.task` insert now that the column
    exists.
 
@@ -272,7 +272,7 @@ The heart. Read `apps/worker/src/jobs/triggered-run.ts` fully first
    - `onSettled`: terminal `failed` → increment `consecutiveFailures`
      (single UPDATE … RETURNING); if it reaches 5 → pause
      (`status='paused'`, `pausedReason= stopReason === "out_of_credits" ?
-     "out_of_credits" : "failures"`, `nextRunAt=null`), post Merlin channel
+     "out_of_credits" : "failures"`, `nextRunAt=null`), post Lor channel
      note ("Paused the loop \"{name}\" after 5 consecutive failed runs —
      resume it when ready."), emit `loop:updated`. Terminal `complete` →
      reset counter to 0 (skip the write when already 0). `stopped` → no-op.
@@ -288,7 +288,7 @@ The heart. Read `apps/worker/src/jobs/triggered-run.ts` fully first
      skip silently.
    - Winner: INSERT `agent_run` (`scopeKey: loop.id`, `loopId`,
      `scheduledFor: <the due nextRunAt>`, `channelId`, `workspaceId`, env
-     budgets — copy the budget block from `createMerlinTask`;
+     budgets — copy the budget block from `createLorTask`;
      `triggerMessageId`/`messageId`: check nullability — triggered runs are
      created without a placeholder message, find how Act dispatch inserts
      its run row and mirror it). Unique-active-scope violation
@@ -297,7 +297,7 @@ The heart. Read `apps/worker/src/jobs/triggered-run.ts` fully first
    - Enqueue `LOOP_RUN_JOB` on `LOOP_RUN_QUEUE`
      (`jobId: runId`, attempts: 2, fixed backoff 5s, removeOnComplete —
      mirror Act's options). Enqueue failure → delete the orphan run row
-     (mirror `createMerlinTask`'s unwind).
+     (mirror `createLorTask`'s unwind).
 
 4. **Bootstrap** `apps/worker/src/index.ts`: new `Queue` + `Worker` for
    `LOOP_RUN_QUEUE` (own modest concurrency, mirror triggered worker's
@@ -334,24 +334,24 @@ verify connector tools bind.
 ### [x] L2 — Conversational creation (propose_loop → card → activate)
 
 Mirror the `task_card` pattern end to end (`createTaskWithCard` in
-apps/realtime `services/merlin.ts`, card rendering in web
+apps/realtime `services/lor.ts`, card rendering in web
 `chat/task-card.tsx` + `message-item.tsx`, row lookup by cardMessageId).
 
-- [x] L2.1 `propose_loop` Merlin tool (conversational runs, NOT triggered
-  runs): Merlin translates natural language → `{ name, instructions,
+- [x] L2.1 `propose_loop` Lor tool (conversational runs, NOT triggered
+  runs): Lor translates natural language → `{ name, instructions,
   schedule (cron), timezone, endCondition? }`. Validates via
   `validateLoopSchedule` at proposal time so the card never carries an
   invalid cron. Executor creates the `loop` row (`status='draft'`) + posts
   a `loop_card` message + sets `cardMessageId`.
-  Shipped: tool + `ProposeLoopExecutor` in `@repo/merlin` `loops.ts`
+  Shipped: tool + `ProposeLoopExecutor` in `@repo/lor` `loops.ts`
   (executor-callback pattern like the triggered disposition tools; in
   `SIDE_EFFECT_TOOLS`); bound in respond() via new
   `RespondContext.proposeLoop` (never set on triggered/loop runs) with
   `LOOPS_PROMPT_LINE`; worker executor `createLoopCard` in
-  `apps/worker/src/lib/merlin-loop.ts` (card content = plain-text
+  `apps/worker/src/lib/lor-loop.ts` (card content = plain-text
   `name — describeLoopSchedule(...)` fallback; compensation-deletes the
   card if the row insert fails; emits `loop:updated`), threaded from
-  `merlin-respond.ts` with `creatorId = trigger message author`.
+  `lor-respond.ts` with `creatorId = trigger message author`.
 - [x] L2.2 API `POST /workspaces/:slug/loops/:id/activate` — guards: channel
   access via `resolveChannelAccess` (deny = `not_found`, fail closed),
   status must be `draft` (or `paused` for resume — separate endpoint in
@@ -390,8 +390,8 @@ apps/realtime `services/merlin.ts`, card rendering in web
   `confirmHighFrequency`), `message-item.tsx` renders `loop_card` in the
   same avatar/header row as task cards. `describeLoopSchedule` MOVED to
   dependency-free `@repo/realtime-types/loops` (re-exported from
-  `@repo/merlin/loop-schedule` so server call sites are unchanged) — web
-  imports realtime-types but must not import the server-side merlin pkg.
+  `@repo/lor/loop-schedule` so server call sites are unchanged) — web
+  imports realtime-types but must not import the server-side lor pkg.
 - [x] L2.4 Mobile: render `loop_card` as a readable card (status + name +
   schedule); activation can be web-only for v0 — note it in
   `reference/mobile-parity-todo.md`.
@@ -499,7 +499,7 @@ apps/realtime `services/merlin.ts`, card rendering in web
 - 2026-08-23 — L1.2: `loop:updated` carries a full `RealtimeLoop` snapshot
   (mirrors `task:updated`; the card renders from the event, no refetch).
   Wire types are drift-guarded against the DB rows at compile time in
-  `@repo/merlin` (`wire-guard.ts`; `toRealtimeLoop` in `loops.ts`,
+  `@repo/lor` (`wire-guard.ts`; `toRealtimeLoop` in `loops.ts`,
   `toRealtimeTask` in `tasks.ts` — the latter also deduped three
   `serializeTask` copies across api/worker/realtime).
 - 2026-08-23 — L1.3: loop briefings have NO 24h age cutoff (a weekly loop's
@@ -515,7 +515,7 @@ apps/realtime `services/merlin.ts`, card rendering in web
   `onSettled` fires after the terminal transition but BEFORE write-back —
   a write-back failure must not distort failure accounting.
 - 2026-08-23 — L2.1 timezone (REVISED): `loop.timezone` is now NULLABLE.
-  Merlin passes a tz on propose_loop only when the conversation explicitly
+  Lor passes a tz on propose_loop only when the conversation explicitly
   establishes one; null = "not pinned yet" — clients render the draft's
   schedule in the viewer's device timezone, and ACTIVATION pins the
   concrete tz (activate body requires it; defaults client-side to device
@@ -562,7 +562,7 @@ apps/realtime `services/merlin.ts`, card rendering in web
   MECHANICALLY by the sweep: a due fire scheduled past endAt completes the
   loop (`completedNote: "Reached its end date"`) instead of running — so
   completion lands at the first tick past the end, no model involved.
-  Merlin proposes it as a RELATIVE `endAfter {amount, unit: days|weeks|
+  Lor proposes it as a RELATIVE `endAfter {amount, unit: days|weeks|
   months}` (respond() has no clock; the tool anchors it to now —
   `endAfterToDate`, tested). Activation/resume refuse a passed end date.
   (3) PROJECT-TIED — an INVARIANT, not a stored mode: archiving a project
@@ -572,7 +572,7 @@ apps/realtime `services/merlin.ts`, card rendering in web
   This also fixed a latent bug: the sweep would have kept firing loops
   into archived channels forever.
   Web: End repeat row is now a Select (Never / On a date / Condition — the
-  last only offered while a Merlin-authored condition exists; switching
+  last only offered while a Lor-authored condition exists; switching
   away clears it) + native date-input row (end-of-day local semantics);
   PATCH accepts `endAt`/`endCondition` with set-one-clears-the-other.
 - 2026-08-24 — L2.3 follow-up: the panel gained a structured schedule
@@ -616,7 +616,7 @@ apps/realtime `services/merlin.ts`, card rendering in web
   resolve the loop row via the existing cardMessageId lookup — no new
   column; loop deletion nulls the reference and the marker falls back to
   its plain content ("<name> — scheduled run"). Markers post `silent`
-  (new flag on `postMerlinMessage` skips unread/mention/push fanout) so
+  (new flag on `postLorMessage` skips unread/mention/push fanout) so
   hourly loops don't bump unreads with decoration on top of the run's real
   messages. Web + mobile render fire markers with the same LoopCard chip
   (web opens the loop panel on click).

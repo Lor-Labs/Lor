@@ -64,7 +64,7 @@ export function ArchiveProjectDialog({
           <AlertDialogDescription>
             Are you sure you want to archive{" "}
             <span className="font-semibold">{projectName}</span>? Its channels
-            become read-only and Merlin will distill the project into workspace
+            become read-only and Lor will distill the project into workspace
             memory with a closing summary. This cannot be undone.
           </AlertDialogDescription>
         </AlertDialogHeader>

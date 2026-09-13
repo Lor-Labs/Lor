@@ -1,9 +1,9 @@
 import { db, eq, schema } from "@repo/db"
-import { actRunBriefing, flushActWindow } from "@repo/merlin/act-runs"
+import { actRunBriefing, flushActWindow } from "@repo/lor/act-runs"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
 import type {
   ActFlushJobData,
-  MerlinRespondJobData,
+  LorRespondJobData,
   TriggeredRunJobData,
 } from "@repo/realtime-types/queues"
 import { ACT_FLUSH_JOB } from "@repo/realtime-types/queues"
@@ -11,14 +11,14 @@ import type { Emitter } from "@socket.io/redis-emitter"
 import type { Job, Queue } from "bullmq"
 import type { createClient } from "redis"
 import { logger } from "@/lib/logger"
-import { postMerlinMessage as postMerlinChannelMessage } from "@/lib/merlin-messages"
-import { createMerlinPlan } from "@/lib/merlin-plan"
+import { postLorMessage as postLorChannelMessage } from "@/lib/lor-messages"
+import { createLorPlan } from "@/lib/lor-plan"
 import { cancelPendingRun, runUnattended } from "@/lib/unattended-run"
 
 type RedisClient = ReturnType<typeof createClient>
 
 // Headless triggered runs — the Act effect. No placeholder message, no
-// streaming: Merlin gets the trigger's instructions + the event payload and
+// streaming: Lor gets the trigger's instructions + the event payload and
 // decides the disposition via tools (post_channel_message / create_plan /
 // nothing). The final answer text is discarded; the run row + transcript are
 // the audit trail. Execution body shared with loop runs — see
@@ -26,7 +26,7 @@ type RedisClient = ReturnType<typeof createClient>
 export function createTriggeredRunProcessor(
   emitter: Emitter<ServerToClientEvents>,
   redis: RedisClient,
-  respondQueue: Queue<MerlinRespondJobData>,
+  respondQueue: Queue<LorRespondJobData>,
   // Own queue: a batch waiting on an in-flight run re-arms its flush.
   triggeredQueue: Queue<TriggeredRunJobData | ActFlushJobData>
 ) {
@@ -123,12 +123,12 @@ export function createTriggeredRunProcessor(
           label,
           instructions: trigger.actInstructions,
           postMessage: (content) =>
-            postMerlinChannelMessage(
+            postLorChannelMessage(
               { emitter, redis },
               { channelId: run.channelId, content }
             ),
           createPlan: ({ title, goal }) =>
-            createMerlinPlan(
+            createLorPlan(
               { emitter, redis, respondQueue },
               {
                 workspaceId: run.workspaceId,

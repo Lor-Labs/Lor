@@ -1,20 +1,20 @@
-import type { MerlinCapability } from "@repo/db/schema"
+import type { LorCapability } from "@repo/db/schema"
 import { CAPABILITIES } from "./registry"
 
 // Approval-target vocabulary (LOR-81). A target is one switch on the approval
 // policy page: coarse per capability (reads included), per custom tool, per
 // MCP server. The string key form is what approval_policy and approval rows
-// store. Merlin's own channel messaging is deliberately NOT targetable —
+// store. Lor's own channel messaging is deliberately NOT targetable —
 // answering in chat is the core product (Jacob, 2026-09-02).
 export type ApprovalTarget =
-  | { kind: "capability"; capability: MerlinCapability }
+  | { kind: "capability"; capability: LorCapability }
   | { kind: "customTool"; customToolId: string }
   | { kind: "mcpServer"; mcpServerId: string }
 
 // The custom_tools capability is agent-profile grant vocabulary, not an
 // approval unit — per custom_tool / mcp_server targets replace it here.
 export const APPROVAL_CAPABILITY_TARGETS = (
-  Object.keys(CAPABILITIES) as MerlinCapability[]
+  Object.keys(CAPABILITIES) as LorCapability[]
 ).filter((capability) => capability !== "custom_tools")
 
 export function approvalTargetKey(target: ApprovalTarget): string {
@@ -40,7 +40,7 @@ export function parseApprovalTargetKey(value: string): ApprovalTarget | null {
       if (rest === "custom_tools" || !Object.hasOwn(CAPABILITIES, rest)) {
         return null
       }
-      return { kind: "capability", capability: rest as MerlinCapability }
+      return { kind: "capability", capability: rest as LorCapability }
     }
     case "custom_tool":
       return { kind: "customTool", customToolId: rest }

@@ -17,7 +17,7 @@ export const threadRoomPayloadSchema = z.object({
 })
 
 // No pre-existing user-message length limit in the repo (webhooks use 2000,
-// Merlin posts 8000); 20000 is a generous cap to bound realtime payloads.
+// Lor posts 8000); 20000 is a generous cap to bound realtime payloads.
 export const MESSAGE_CONTENT_MAX_LENGTH = 20000
 
 export const attachmentPayloadSchema = z.object({
@@ -207,16 +207,16 @@ export type RealtimeMessage = {
   // name/avatar when set (the row is authored by the shared app bot user).
   overrideName?: string | null
   overrideAvatarUrl?: string | null
-  // Set on Merlin's empty placeholder so the client shows the "thinking"
+  // Set on Lor's empty placeholder so the client shows the "thinking"
   // indicator immediately, without waiting for the first stream event.
   streaming?: boolean
-  // Row lifecycle — "pending" on an in-flight Merlin placeholder, so the
+  // Row lifecycle — "pending" on an in-flight Lor placeholder, so the
   // thinking indicator persists across a reload/late thread join (not just the
   // transient `streaming` flag). Absent → treated as "complete".
   status?: "complete" | "pending" | "failed"
-  // The human message that started this Merlin response. Present only on
-  // Merlin placeholders so chat scrollers can anchor the start of the turn.
-  merlinTriggerMessageId?: string | null
+  // The human message that started this Lor response. Present only on
+  // Lor placeholders so chat scrollers can anchor the start of the turn.
+  lorTriggerMessageId?: string | null
 }
 
 export type RealtimeMessagePinToggled = {
@@ -319,7 +319,7 @@ export type UnreadNotification = {
   workspaceId: string | null
   messageId: string
   threadRootId: string | null
-  isMerlinThread: boolean
+  isLorThread: boolean
   isSubscribedToThread: boolean
   unreadCountDelta: number
   authorUserId: string
@@ -351,7 +351,7 @@ export type MentionNotification = {
   channelId: string
   workspaceId: string | null
   threadRootId: string | null
-  isMerlinThread: boolean
+  isLorThread: boolean
   isSubscribedToThread: boolean
   createdAt: string
 }
@@ -373,9 +373,9 @@ export type ChannelMuteUpdated = {
   muted: boolean
 }
 
-// Wire shape of a Merlin tool-trail entry — mirrors MerlinToolCall in
-// @repo/db/schema. Shared by merlin:tool and project:archive:progress.
-export type RealtimeMerlinToolCall = {
+// Wire shape of a Lor tool-trail entry — mirrors LorToolCall in
+// @repo/db/schema. Shared by lor:tool and project:archive:progress.
+export type RealtimeLorToolCall = {
   toolCallId: string
   toolName: string
   label: string
@@ -403,6 +403,38 @@ export type RealtimeMerlinToolCall = {
   status?: "ok" | "error"
 }
 
+// Payloads for the lor:* streaming events.
+export type LorReasoningEventPayload = {
+  channelId: string
+  threadRootId: string | null
+  messageId: string
+  delta: string
+  at: number
+  order: number
+  runId?: string
+  seq?: number
+}
+
+export type LorMemoryEventPayload = {
+  channelId: string
+  threadRootId: string | null
+  messageId: string
+  path: string
+  action: "created" | "updated"
+  nodeId?: string
+  runId?: string
+  seq?: number
+}
+
+export type LorToolEventPayload = {
+  channelId: string
+  threadRootId: string | null
+  messageId: string
+  toolCall: RealtimeLorToolCall
+  runId?: string
+  seq?: number
+}
+
 // Project lifecycle change (archive start/finish). Emitted to the audience's
 // user rooms — never the workspace room — so a private project's existence
 // doesn't leak to non-members. Clients refetch projects/channels on receipt.
@@ -420,7 +452,7 @@ export type ProjectUpdatedEvent = {
 export type ProjectArchiveProgressEvent = {
   projectId: string
   categoryChannelId: string
-  toolCall?: RealtimeMerlinToolCall
+  toolCall?: RealtimeLorToolCall
   memory?: { nodeId?: string; path: string; action: "created" | "updated" }
 }
 
@@ -517,9 +549,9 @@ export interface ServerToClientEvents {
   }) => void
   "message:reaction:updated": (payload: RealtimeMessageReactionUpdated) => void
   "message:embeds:updated": (payload: RealtimeMessageEmbedsUpdated) => void
-  // Merlin streaming its reply into an existing (placeholder) message.
+  // Lor streaming its reply into an existing (placeholder) message.
   // delta = new text chunk; done = final chunk (content now persisted in DB).
-  // threadRootId is set when Merlin's reply lives in a thread (else null), so
+  // threadRootId is set when Lor's reply lives in a thread (else null), so
   // the client patches the right message cache.
   "message:stream": (payload: {
     channelId: string
@@ -539,53 +571,28 @@ export interface ServerToClientEvents {
     // When set, `delta` replaces the message content instead of appending —
     // used on failure to drop a partial answer in favor of the fallback text.
     replace?: boolean
-    // Resolved @mentions Merlin made, sent on the terminal (done) chunk so the
+    // Resolved @mentions Lor made, sent on the terminal (done) chunk so the
     // client highlights them live — mirrors the messageMention rows persisted
     // for reload. Absent while streaming (the users aren't resolved until then).
     mentions?: RealtimeMessageMention[]
   }) => void
-  // Merlin's summarized extended-thinking, streamed before/between the answer.
+  // Lor's summarized extended-thinking, streamed before/between the answer.
   // `at` and `order` place each segment among answer text and tool calls.
-  "merlin:reasoning": (payload: {
-    channelId: string
-    threadRootId: string | null
-    messageId: string
-    delta: string
-    at: number
-    order: number
-    runId?: string
-    seq?: number
-  }) => void
-  // Merlin saved/updated a brain page during write-back (messageId = its reply).
-  "merlin:memory": (payload: {
-    channelId: string
-    threadRootId: string | null
-    messageId: string
-    path: string
-    action: "created" | "updated"
-    nodeId?: string
-    runId?: string
-    seq?: number
-  }) => void
-  // Merlin invoked a tool mid-answer (search, fetch, …). Sent on call (label
+  "lor:reasoning": (payload: LorReasoningEventPayload) => void
+  // Lor saved/updated a brain page during write-back (messageId = its reply).
+  "lor:memory": (payload: LorMemoryEventPayload) => void
+  // Lor invoked a tool mid-answer (search, fetch, …). Sent on call (label
   // only) and again on completion (with detail + status). The client upserts it
   // into the message's tool trail by toolCallId; the same trail is persisted on
-  // the message for reload. Mirrors MerlinToolCall in @repo/db/schema.
-  "merlin:tool": (payload: {
-    channelId: string
-    threadRootId: string | null
-    messageId: string
-    toolCall: RealtimeMerlinToolCall
-    runId?: string
-    seq?: number
-  }) => void
+  // the message for reload. Mirrors LorToolCall in @repo/db/schema.
+  "lor:tool": (payload: LorToolEventPayload) => void
   // A mid-run send was routed at the scope's active run instead of starting a
   // new one: steered (injected at the next step boundary) or queued (answered
   // by the follow-up run when the scope frees up).
   "message:routed": (payload: MessageRoutedEvent) => void
   // A steered message was injected into the running answer — the placeholder
   // shows "applying new direction".
-  "merlin:steer": (payload: MerlinSteerEvent) => void
+  "lor:steer": (payload: LorSteerEvent) => void
   // A queued message left the queue (drained into a follow-up run, rejected at
   // reauthorization, or withdrawn by its sender) — clients drop it from the
   // queued-messages pill. Additions ride message:routed (outcome "queued").
@@ -636,7 +643,7 @@ export type ChannelCreatedEvent = {
   channelId: string
 }
 
-// Emitted to the workspace room when Merlin files a workspace-instructions
+// Emitted to the workspace room when Lor files a workspace-instructions
 // proposal; clients refresh the instructions query so admins see the
 // approval alert immediately.
 export type InstructionsProposalUpdate = {
@@ -651,7 +658,7 @@ export type MessageRoutedEvent = {
   outcome: "steered" | "queued"
   runId: string
   // The active run's placeholder message — where the run-state chip lives.
-  merlinMessageId: string
+  lorMessageId: string
 }
 
 export type RunQueueUpdatedEvent = {
@@ -795,7 +802,7 @@ export type LoopUpdatedEvent = {
   loop: RealtimeLoop
 }
 
-export type MerlinSteerEvent = {
+export type LorSteerEvent = {
   channelId: string
   threadRootId: string | null
   // The placeholder being answered into.

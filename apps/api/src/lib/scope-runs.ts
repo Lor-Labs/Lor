@@ -5,17 +5,17 @@ import {
   inArray,
   isNull,
   isUniqueViolation,
-  MERLIN_USER_ID,
+  LOR_USER_ID,
   schema,
 } from "@repo/db"
 import type { Plan } from "@repo/db/schema"
 import { env } from "@repo/env/server"
-import { toRealtimePlan } from "@repo/merlin/plans"
+import { toRealtimePlan } from "@repo/lor/plans"
 import { loadThreadSummary } from "@repo/messaging"
 import type { RealtimeMessage } from "@repo/realtime-types"
 import {
-  MERLIN_RESPOND_QUEUE,
-  type MerlinRespondJobData,
+  LOR_RESPOND_QUEUE,
+  type LorRespondJobData,
 } from "@repo/realtime-types/queues"
 import { channelRoom, threadRoom } from "@repo/realtime-types/rooms"
 import { Queue } from "bullmq"
@@ -35,9 +35,9 @@ function parseRedisUrl(url: string) {
   }
 }
 
-let respondQueue: Queue<MerlinRespondJobData> | null = null
-function getRespondQueue(): Queue<MerlinRespondJobData> {
-  respondQueue ??= new Queue<MerlinRespondJobData>(MERLIN_RESPOND_QUEUE, {
+let respondQueue: Queue<LorRespondJobData> | null = null
+function getRespondQueue(): Queue<LorRespondJobData> {
+  respondQueue ??= new Queue<LorRespondJobData>(LOR_RESPOND_QUEUE, {
     connection: { ...parseRedisUrl(env.REDIS_URL), maxRetriesPerRequest: null },
     defaultJobOptions: {
       removeOnComplete: { age: 3600, count: 1000 },
@@ -47,7 +47,7 @@ function getRespondQueue(): Queue<MerlinRespondJobData> {
   return respondQueue
 }
 
-// Shared row→wire serializer (drift-guarded in @repo/merlin/plans);
+// Shared row→wire serializer (drift-guarded in @repo/lor/plans);
 // re-exported under the name this app's handlers already import.
 export { toRealtimePlan as serializePlan }
 
@@ -309,7 +309,7 @@ export async function startScopeContinuationRun(
         messageId: triggerMessageId,
         outcome: "queued",
         runId: active.id,
-        merlinMessageId: active.messageId,
+        lorMessageId: active.messageId,
       })
     } catch (err) {
       logger.warn({ err, scopeKey }, "Queue routing broadcast failed")
@@ -328,7 +328,7 @@ export async function startScopeContinuationRun(
     .insert(schema.message)
     .values({
       channelId,
-      authorId: MERLIN_USER_ID,
+      authorId: LOR_USER_ID,
       threadRootId,
       status: "pending",
     })
@@ -382,8 +382,8 @@ export async function startScopeContinuationRun(
   // Best effort: the run row exists, so the enqueue below must happen no
   // matter what — a failed broadcast only costs the live placeholder.
   try {
-    const merlin = await loadAuthor(MERLIN_USER_ID)
-    if (merlin) {
+    const lor = await loadAuthor(LOR_USER_ID)
+    if (lor) {
       const message: RealtimeMessage = {
         id: placeholder.id,
         channelId,
@@ -391,7 +391,7 @@ export async function startScopeContinuationRun(
         type: "default",
         pinned: false,
         createdAt: placeholder.createdAt.toISOString(),
-        author: { ...merlin, avatarColor: null },
+        author: { ...lor, avatarColor: null },
         mentions: [],
         reactions: [],
         attachments: [],
@@ -400,7 +400,7 @@ export async function startScopeContinuationRun(
         threadRootId,
         status: "pending",
         streaming: true,
-        merlinTriggerMessageId: triggerMessageId,
+        lorTriggerMessageId: triggerMessageId,
       }
       const io = await getEmitter()
       io.to(room).emit("message:created", message)
@@ -418,7 +418,7 @@ export async function startScopeContinuationRun(
     await getRespondQueue().add(
       "respond",
       {
-        merlinMessageId: placeholder.id,
+        lorMessageId: placeholder.id,
         channelId,
         threadRootId,
         contextThreadRootId: threadRootId,

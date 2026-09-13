@@ -1,4 +1,4 @@
-import type { IntegrationProvider, MerlinCapability } from "@repo/db/schema"
+import type { IntegrationProvider, LorCapability } from "@repo/db/schema"
 
 export type ConnectorAuthType = "github-app" | "oauth" | "api-key" | "token"
 
@@ -39,7 +39,7 @@ export type ConnectorEventDescriptor = {
 }
 
 export type CapabilityDescriptor = {
-  key: MerlinCapability
+  key: LorCapability
   label: string
   description: string
   // The connector that must be connected to grant this capability, or null for

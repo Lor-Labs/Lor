@@ -25,7 +25,7 @@ describe("mention candidates", () => {
     const candidates = [
       candidate("everyone", "everyone", "everyone all members"),
       candidate("user-1", "avery", "avery stone avery"),
-      candidate("user-2", "merlin", "merlin assistant app"),
+      candidate("user-2", "lor", "lor assistant app"),
     ]
 
     expect(

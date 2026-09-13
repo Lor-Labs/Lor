@@ -47,7 +47,7 @@ import { recordUsage } from "./ledger"
 
 const usage = {
   workspaceId: "workspace-1",
-  tool: "merlin.respond",
+  tool: "lor.respond",
   model: "test-model",
   inputTokens: 100,
 }
@@ -84,7 +84,7 @@ describe("recordUsage debit recovery", () => {
     expect(mocks.insertValues).toHaveBeenCalledWith(
       expect.objectContaining({
         debitStatus: "pending",
-        idempotencyKey: "message-1:merlin.respond",
+        idempotencyKey: "message-1:lor.respond",
       })
     )
     expect(mocks.trackCredits).toHaveBeenCalledWith("workspace-1", 7, "usage-1")

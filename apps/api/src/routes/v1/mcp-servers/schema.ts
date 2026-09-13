@@ -102,7 +102,7 @@ export const mcpServerResponseSchema = z.object({
 export const createMcpServerRequestSchema = z
   .object({
     name: nameSchema,
-    // Workspace context for Merlin ("our production Postgres — use for
+    // Workspace context for Lor ("our production Postgres — use for
     // signup/usage questions"); optional but recommended.
     description: descriptionSchema.default(""),
     url: z.string().trim().min(1).max(2048),

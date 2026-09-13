@@ -78,7 +78,7 @@ export function PlanCard({
             {plan.status === "running" && plan.steps.length === 0 ? (
               <Shimmer>
                 <Text className="text-sm italic text-muted">
-                  Merlin is working…
+                  Lor is working…
                 </Text>
               </Shimmer>
             ) : null}

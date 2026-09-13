@@ -203,7 +203,7 @@ export function MessageList({
           data={orderedMessages}
           estimatedItemSize={88}
           initialScrollAtEnd
-          isMerlinResponding={messages.some(
+          isLorResponding={messages.some(
             (message) => message.status === "pending"
           )}
           keyExtractor={(message) => message.id}

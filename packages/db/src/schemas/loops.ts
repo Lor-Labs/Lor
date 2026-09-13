@@ -14,7 +14,7 @@ import { message } from "./messages"
 import { user } from "./users"
 import { workspace } from "./workspaces"
 
-// A loop: a scheduled headless Merlin run in a channel, repeating on a cron
+// A loop: a scheduled headless Lor run in a channel, repeating on a cron
 // schedule until an end condition is met, it's paused, or completed. Postgres
 // is the only source of truth for scheduling — a 60s worker sweep claims due
 // loops via CAS on nextRunAt; there are no per-loop BullMQ schedulers.
@@ -63,9 +63,9 @@ export const loop = pgTable(
     // The run's brief, injected into every scheduled run's system prompt.
     instructions: text("instructions").notNull(),
     // Cron expression + IANA timezone. Next fires are computed with croner
-    // (@repo/merlin/loop-schedule) only at activate/edit/resume/claim.
+    // (@repo/lor/loop-schedule) only at activate/edit/resume/claim.
     schedule: text("schedule").notNull(),
-    // Null on drafts = "not pinned yet": Merlin only sets it when the
+    // Null on drafts = "not pinned yet": Lor only sets it when the
     // conversation establishes one; otherwise the activating user's device
     // timezone is the default at activation (editable there). Activation
     // always persists a concrete tz — active/paused loops never have null.

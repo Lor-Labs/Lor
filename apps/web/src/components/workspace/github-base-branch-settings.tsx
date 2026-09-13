@@ -20,7 +20,7 @@ type RepoRow = {
   baseBranch: string | null
 }
 
-// Where Merlin's code actions open pull requests. No override = the repo's
+// Where Lor's code actions open pull requests. No override = the repo's
 // default branch; an override makes propose_code_change branch from and target
 // it (e.g. teams that merge into dev instead of main).
 export function GithubBaseBranchSettings({
@@ -93,8 +93,8 @@ export function GithubBaseBranchSettings({
         Pull request base branch
       </div>
       <p className="text-xs text-muted-foreground/80">
-        Merlin opens draft pull requests against each repository's default
-        branch. Pick a repository to target a different branch instead.
+        Lor opens draft pull requests against each repository's default branch.
+        Pick a repository to target a different branch instead.
       </p>
       <div className="flex items-center gap-2">
         <Select

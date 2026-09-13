@@ -1,15 +1,6 @@
 import type { PermissionRequest } from "@repo/auth/permissions"
 import { workspaceAuthorityHasPermissions } from "@repo/auth/permissions"
-import {
-  and,
-  asc,
-  db,
-  desc,
-  eq,
-  inArray,
-  MERLIN_USER_ID,
-  schema,
-} from "@repo/db"
+import { and, asc, db, desc, eq, inArray, LOR_USER_ID, schema } from "@repo/db"
 import { resolveChannelAccess } from "@repo/db/queries/channel-access"
 import type { ChangeProposal, ChangeProposalOperation } from "@repo/db/schema"
 import { proposalPermissions } from "@repo/db/schema"
@@ -319,7 +310,7 @@ export const rejectProposal: AppRouteHandler<RejectProposalRoute> = async (
     )
   }
 
-  // The rejection note is what Merlin revises against — if it can't land in
+  // The rejection note is what Lor revises against — if it can't land in
   // the thread, un-resolve the CAS so the caller can retry.
   if (proposal.cardMessageId) {
     const messageId = await postResolutionAndContinue({
@@ -400,7 +391,7 @@ async function announceCreatedResources(args: {
         name: op.spec.name,
         workspaceName: args.workspace.name,
       },
-      actorId: MERLIN_USER_ID,
+      actorId: LOR_USER_ID,
       eventType: "channel_created",
       payload: {
         via: "proposal",
@@ -427,7 +418,7 @@ async function announceCreatedResources(args: {
     if (!loopChannel) continue
     await postChannelEvent({
       channel: { ...loopChannel, workspaceName: args.workspace.name },
-      actorId: MERLIN_USER_ID,
+      actorId: LOR_USER_ID,
       eventType: "loop_created",
       payload: { loopId, loopName: op.spec.name, via: "proposal" },
     })
@@ -531,7 +522,7 @@ export const approveProposal: AppRouteHandler<ApproveProposalRoute> = async (
   const settledOps = operations.get(proposalId) ?? ops
 
   // Both outcomes post into the card thread as the approver and start the
-  // continuation: on success Merlin gets the apply results (webhook URL and
+  // continuation: on success Lor gets the apply results (webhook URL and
   // friends) to finish integration; on failure it gets the error to revise.
   // Best-effort — the config outcome is already durable.
   const content = outcome.ok

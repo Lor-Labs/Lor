@@ -5,7 +5,7 @@ import {
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
-import { MERLIN_USER_ID } from "@repo/db/constants"
+import { LOR_USER_ID } from "@repo/db/constants"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -68,8 +68,8 @@ import type { ThreadSidebarView } from "@/components/sidebar/right-panel/right-s
 import { useSocket } from "@/context/socket-context"
 import { usePlanForThread } from "@/hooks/use-channel-plans"
 import { useFileUpload } from "@/hooks/use-file-upload"
+import { useLorRunReplay } from "@/hooks/use-lor-stream"
 import { useMarkThreadRead } from "@/hooks/use-mark-thread-read"
-import { useMerlinRunReplay } from "@/hooks/use-merlin-stream"
 import { useMessageDeletion } from "@/hooks/use-message-deletion"
 import { useMessageEditing } from "@/hooks/use-message-editing"
 import { useMessageReactions } from "@/hooks/use-message-reactions"
@@ -78,7 +78,7 @@ import { usePlanArtifacts } from "@/hooks/use-plan"
 import { useQueuedMessageSteering } from "@/hooks/use-queued-message-steering"
 import { useReplyState } from "@/hooks/use-reply-state"
 import { useRunQueue } from "@/hooks/use-run-queue"
-import { useStopMerlinRun } from "@/hooks/use-stop-merlin-run"
+import { useStopLorRun } from "@/hooks/use-stop-lor-run"
 import { useThreadMessages } from "@/hooks/use-thread-messages"
 import { useTypingIndicator } from "@/hooks/use-typing-indicator"
 import { apiClient } from "@/lib/api-client"
@@ -286,14 +286,14 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
   const isPlan = !!plan
   const planStatusMeta = plan ? PLAN_STATUS_META[plan.status] : null
   const { data: planArtifacts } = usePlanArtifacts(plan?.id ?? null)
-  // Newest Merlin reply with tool calls — the Activity chip's work log. Shown
-  // for any thread where Merlin worked, plan or not.
+  // Newest Lor reply with tool calls — the Activity chip's work log. Shown
+  // for any thread where Lor worked, plan or not.
   const activityMessage = useMemo(
     () =>
       messages.find(
         (message) =>
-          message.authorId === MERLIN_USER_ID &&
-          (message.merlinToolCalls?.length ?? 0) > 0
+          message.authorId === LOR_USER_ID &&
+          (message.lorToolCalls?.length ?? 0) > 0
       ) ?? null,
     [messages]
   )
@@ -405,25 +405,25 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
   }, [isPlan, rootMessage, messages])
 
   // Opening a thread mid-run replays the durable trace into the thread cache.
-  useMerlinRunReplay({
+  useLorRunReplay({
     queryClient,
     channelId: view.channelId,
     messages: rootMessage ? [rootMessage, ...messages] : messages,
   })
 
   // Messages queued behind the active run — surfaced above the composer with
-  // steer/remove actions while Merlin is working.
-  const pendingMerlinMessage = useMemo(
+  // steer/remove actions while Lor is working.
+  const pendingLorMessage = useMemo(
     () => messages.find((message) => message.status === "pending"),
     [messages]
   )
-  const pendingMerlinMessageId = pendingMerlinMessage?.id
-  const stopMerlin = useStopMerlinRun()
+  const pendingLorMessageId = pendingLorMessage?.id
+  const stopLor = useStopLorRun()
   const { queuedIds, addOptimistic, removeOptimistic } = useRunQueue({
     socket,
     channelId: view.channelId,
     threadRootId: view.threadRootId,
-    pendingMerlinMessageId,
+    pendingLorMessageId,
   })
   useEffect(() => {
     removeQueuedOptimisticRef.current = removeOptimistic
@@ -571,11 +571,11 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
     openingAnchorsRef.current.messageIds = new Set(
       messages
         .filter((message) => message.status === "pending")
-        .map((message) => message.merlinTriggerMessageId)
+        .map((message) => message.lorTriggerMessageId)
         .filter((id): id is string => Boolean(id))
     )
   }
-  const openingMerlinTriggerMessageIds = openingAnchorsRef.current.messageIds
+  const openingLorTriggerMessageIds = openingAnchorsRef.current.messageIds
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const {
@@ -773,13 +773,13 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
             aria-label="Thread messages"
           >
             <MessageScrollerContent
-              aria-busy={Boolean(pendingMerlinMessage)}
+              aria-busy={Boolean(pendingLorMessage)}
               className="justify-end"
             >
               {rootMessageForRender && (
                 <MessageScrollerItem
                   messageId={rootMessageForRender.id}
-                  scrollAnchor={openingMerlinTriggerMessageIds.has(
+                  scrollAnchor={openingLorTriggerMessageIds.has(
                     rootMessageForRender.id
                   )}
                   className="pt-2"
@@ -796,7 +796,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
                     onEdit={handleEdit}
                     onJumpToMessage={handleJumpWithinThread}
                     mentionCandidates={mentionCandidates}
-                    showMerlinRunControls={false}
+                    showLorRunControls={false}
                   />
                 </MessageScrollerItem>
               )}
@@ -869,7 +869,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
                     <MessageScrollerItem
                       key={msg.id}
                       messageId={msg.id}
-                      scrollAnchor={openingMerlinTriggerMessageIds.has(msg.id)}
+                      scrollAnchor={openingLorTriggerMessageIds.has(msg.id)}
                     >
                       <MessageItem
                         message={msg}
@@ -883,7 +883,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
                         onEdit={handleEdit}
                         onJumpToMessage={handleJumpWithinThread}
                         mentionCandidates={mentionCandidates}
-                        showMerlinRunControls={false}
+                        showLorRunControls={false}
                       />
                     </MessageScrollerItem>
                   )
@@ -896,7 +896,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
               orderedReplies.at(-1)?.id ?? rootMessage?.id ?? null
             }
             viewportRef={scrollRef}
-            isMerlinResponding={Boolean(pendingMerlinMessage)}
+            isLorResponding={Boolean(pendingLorMessage)}
           />
         </MessageScroller>
 
@@ -923,10 +923,10 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
               openingAnchorsRef.current.messageIds.clear()
               scrollToEndRef.current?.({ behavior: "auto" })
               setSendScrollVersion((version) => version + 1)
-              // Merlin is mid-answer in this thread, so the reply will queue —
+              // Lor is mid-answer in this thread, so the reply will queue —
               // show it in the pill immediately instead of waiting for the
               // routed round trip.
-              if (nonce && pendingMerlinMessageId) addOptimistic(nonce)
+              if (nonce && pendingLorMessageId) addOptimistic(nonce)
             }}
             currentUserId={currentUserId}
             replyingTo={replyingTo}
@@ -940,13 +940,12 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
             isUploading={fileUpload.isUploading}
             onTyping={emitTyping}
             onStop={
-              pendingMerlinMessage
-                ? () => stopMerlin.mutate(pendingMerlinMessage)
+              pendingLorMessage
+                ? () => stopLor.mutate(pendingLorMessage)
                 : undefined
             }
             isStopping={
-              stopMerlin.isPending ||
-              Boolean(pendingMerlinMessage?.stopRequested)
+              stopLor.isPending || Boolean(pendingLorMessage?.stopRequested)
             }
             canSteerQueued={queuedMessageSteering.canSteerLatestOwnMessage}
             onSteerQueued={queuedMessageSteering.steerLatestOwnMessage}

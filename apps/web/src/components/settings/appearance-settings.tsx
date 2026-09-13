@@ -74,8 +74,8 @@ function ThemeMockup() {
         <Bar className="w-3/4 bg-foreground/10" />
         <Bar className="w-2/3 bg-foreground/10" />
         <div className="mt-auto flex items-center gap-1">
-          <div className="size-2.5 shrink-0 rounded-full bg-merlin" />
-          <Bar className="w-1/2 bg-merlin/40" />
+          <div className="size-2.5 shrink-0 rounded-full bg-agent" />
+          <Bar className="w-1/2 bg-agent/40" />
         </div>
       </div>
       <div className="flex flex-1 flex-col gap-2 p-2.5">
@@ -93,10 +93,10 @@ function ThemeMockup() {
             <Bar className="w-full bg-foreground/10" />
           </div>
         </div>
-        <div className="mt-auto flex gap-1.5 rounded-md border-accent border-[1px] bg-merlin/[0.08] p-1.5">
-          <div className="size-3 shrink-0 rounded-full bg-merlin" />
+        <div className="mt-auto flex gap-1.5 rounded-md border-accent border-[1px] bg-agent/[0.08] p-1.5">
+          <div className="size-3 shrink-0 rounded-full bg-agent" />
           <div className="flex flex-1 flex-col gap-1">
-            <Bar className="w-1/4 bg-merlin/50" />
+            <Bar className="w-1/4 bg-agent/50" />
             <Bar className="w-full bg-foreground/20" />
             <Bar className="w-3/5 bg-foreground/20" />
           </div>

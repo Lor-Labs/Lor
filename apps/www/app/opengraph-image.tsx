@@ -45,7 +45,7 @@ export default function OpengraphImage() {
           letterSpacing: "-0.01em",
         }}
       >
-        Ask Merlin anything. Get answers with citations. Open source.
+        Ask Lor anything. Get answers with citations. Open source.
       </div>
     </div>,
     size

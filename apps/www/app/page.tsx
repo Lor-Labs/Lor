@@ -16,7 +16,7 @@ import { SiteFooter } from "@/app/components/site-footer"
 import { GITHUB_URL, SIGNUP_URL } from "@/app/lib/urls"
 
 const HERO_POINTS = [
-  { lead: "Ask Merlin anything", rest: ", get answers with citations" },
+  { lead: "Ask Lor anything", rest: ", get answers with citations" },
   { lead: "Connects GitHub, Linear, and Notion", rest: " to your chat" },
   { lead: "Remembers every decision", rest: " your team makes" },
   { lead: "Open source, open models", rest: ", self-host free" },
@@ -31,12 +31,12 @@ function Hero() {
     <section id="product" className="relative overflow-hidden">
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-0 h-[640px] bg-[radial-gradient(ellipse_75%_60%_at_50%_-10%,--theme(--color-merlin/.13),transparent)]"
+        className="pointer-events-none absolute inset-x-0 top-0 h-[640px] bg-[radial-gradient(ellipse_75%_60%_at_50%_-10%,--theme(--color-agent/.13),transparent)]"
       />
       <div className="relative mx-auto w-full max-w-6xl px-6 pt-40 md:pt-48">
         <Reveal>
           <h1 className="max-w-[14ch] text-balance font-semibold text-[clamp(2.75rem,6.5vw,4.75rem)] leading-[1.03] tracking-[-0.035em]">
-            The <span className="text-merlin">multiplayer</span> AI workspace.
+            The <span className="text-agent">multiplayer</span> AI workspace.
           </h1>
         </Reveal>
 
@@ -49,7 +49,7 @@ function Hero() {
                   className="flex items-start gap-2.5 text-[15px] text-foreground/60 leading-snug sm:text-[16px]"
                 >
                   <Check
-                    className="mt-1 size-4 shrink-0 text-merlin"
+                    className="mt-1 size-4 shrink-0 text-agent"
                     strokeWidth={2.5}
                   />
                   <span className="text-balance">

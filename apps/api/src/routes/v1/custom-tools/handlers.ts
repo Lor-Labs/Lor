@@ -15,7 +15,7 @@ import {
   bodyTemplateJsonIssue,
   customToolUrlIssue,
   RESERVED_TOOL_NAMES,
-} from "@repo/merlin/custom-tools"
+} from "@repo/lor/custom-tools"
 import { encryptSecret } from "@repo/utils/crypto"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { assertWorkspaceAuthority } from "@/lib/permissions"
@@ -62,7 +62,7 @@ async function grantCounts(toolIds: string[]): Promise<Map<string, number>> {
 
 // The template must already be a valid https URL to a public host; hosts can
 // never come from args/secrets (placeholders fail hostname validation). The
-// merlin executor re-checks the final URL at call time.
+// lor executor re-checks the final URL at call time.
 function templateIssue(urlTemplate: string): string | null {
   return customToolUrlIssue(urlTemplate)
 }

@@ -139,7 +139,7 @@ export function CsvPreview({
   )
 }
 
-// Deliverable presentation for CSV artifacts in Merlin messages: fetches the
+// Deliverable presentation for CSV artifacts in Lor messages: fetches the
 // content and renders the preview card (falling back to the plain file card
 // while loading or when the file is too big to inline). Expanding navigates
 // to ?artifactId= — the viewer morphs out of this card via the shared

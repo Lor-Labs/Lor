@@ -37,21 +37,21 @@ import { SidebarToggleIcon } from "@repo/ui/components/unlumen-ui/sidebar-toggle
 import { cn } from "@repo/ui/lib/utils"
 import { AnimatePresence, motion } from "framer-motion"
 import { memo, useCallback, useEffect, useState } from "react"
-import { MerlinMessageBody } from "@/components/chat/merlin-message-body"
+import { LorMessageBody } from "@/components/chat/lor-message-body"
 import { MessageMarkdown } from "@/components/chat/message-markdown"
 import {
   DesktopSidebarTitlebar,
   HeaderNavControls,
 } from "@/components/desktop-titlebar"
 import { WorkspaceAvatar } from "@/components/workspace/workspace-avatar"
-import type { MerlinToolCallView, Message } from "@/lib/api-types"
+import type { LorToolCallView, Message } from "@/lib/api-types"
 
 export const LAST_SCENE = 5
-const MERLIN_ID = "00000000-0000-4000-8000-000000000001"
+const LOR_ID = "00000000-0000-4000-8000-000000000001"
 
 const sceneMeta = [
   { id: 1, label: "Project folder", panelTitle: "Mobile launch" },
-  { id: 2, label: "Mention Merlin", panelTitle: "Project members" },
+  { id: 2, label: "Mention Lor", panelTitle: "Project members" },
   { id: 3, label: "Cowork", panelTitle: "Launch room" },
   { id: 4, label: "Loop", panelTitle: "Morning launch check" },
   { id: 5, label: "Archive", panelTitle: "Project memory" },
@@ -82,8 +82,8 @@ const people = {
     image: "/demo/owen.jpg",
     fallback: "OP",
   },
-  merlin: {
-    name: "Merlin",
+  lor: {
+    name: "Lor",
     role: "AI coworker",
     image: "/lor-mark.svg",
     fallback: "M",
@@ -92,12 +92,12 @@ const people = {
 
 type Person = (typeof people)[keyof typeof people]
 
-const merlinMentions: Message["mentions"] = [
+const lorMentions: Message["mentions"] = [
   {
-    id: MERLIN_ID,
-    name: "Merlin",
-    username: "merlin",
-    displayUsername: "merlin",
+    id: LOR_ID,
+    name: "Lor",
+    username: "lor",
+    displayUsername: "lor",
     image: "/lor-mark.svg",
     avatarColor: null,
   },
@@ -128,7 +128,7 @@ const coworkToolCalls = [
     order: 2,
     status: "ok",
   },
-] satisfies MerlinToolCallView[]
+] satisfies LorToolCallView[]
 
 type ProductVisionDemoProps = {
   scene: number
@@ -575,11 +575,11 @@ function CoworkScene({ approved }: { approved: boolean }) {
       <DemoMessage
         person={people.mara}
         time="9:21 AM"
-        content={`<@${MERLIN_ID}> Get the mobile launch ready for Friday. Coordinate engineering and marketing, surface blockers, and ask for approval before changing scope.`}
-        mentions={merlinMentions}
+        content={`<@${LOR_ID}> Get the mobile launch ready for Friday. Coordinate engineering and marketing, surface blockers, and ask for approval before changing scope.`}
+        mentions={lorMentions}
       />
-      <DemoMessage person={people.merlin} time="9:22 AM" merlin>
-        <MerlinMessageBody
+      <DemoMessage person={people.lor} time="9:22 AM" lor>
+        <LorMessageBody
           content="I found two open QA blockers and a conflict between the TestFlight freeze and the fixed campaign handoff. I’m comparing release scope now."
           toolCalls={coworkToolCalls}
           reasoningSegments={[]}
@@ -591,7 +591,7 @@ function CoworkScene({ approved }: { approved: boolean }) {
         person={people.samira}
         time="9:24 AM"
         content="The campaign date cannot move. Reduce first-release scope if QA needs the time."
-        note="Steering Merlin's current answer"
+        note="Steering Lor's current answer"
       />
       <DemoMessage
         person={people.eli}
@@ -623,10 +623,10 @@ function LoopScene({
       <DemoMessage
         person={people.mara}
         time="10:04 AM"
-        content={`<@${MERLIN_ID}> Check launch blockers every weekday morning across Linear, GitHub, and this project. Post here until the mobile app ships.`}
-        mentions={merlinMentions}
+        content={`<@${LOR_ID}> Check launch blockers every weekday morning across Linear, GitHub, and this project. Post here until the mobile app ships.`}
+        mentions={lorMentions}
       />
-      <DemoMessage person={people.merlin} time="10:04 AM" merlin>
+      <DemoMessage person={people.lor} time="10:04 AM" lor>
         <MessageMarkdown
           content="I can keep this channel updated until the launch outcome is reached."
           mentions={[]}
@@ -653,7 +653,7 @@ function ArchiveScene() {
       <SystemEvent>
         <Archive03IconGlyph /> Mobile launch archived · 4 channels locked
       </SystemEvent>
-      <DemoMessage person={people.merlin} time="4:42 PM" merlin>
+      <DemoMessage person={people.lor} time="4:42 PM" lor>
         <MessageMarkdown
           content={
             "**Mobile launch shipped on schedule.**\n\nThe team moved offline mode to v1.1 to protect QA time while keeping the fixed campaign handoff. I saved the decision, its rationale, and the supporting project context to company memory."
@@ -733,7 +733,7 @@ function DemoMessage({
   content,
   mentions = [],
   note,
-  merlin = false,
+  lor = false,
   children,
 }: {
   person: Person
@@ -741,7 +741,7 @@ function DemoMessage({
   content?: string
   mentions?: Message["mentions"]
   note?: string
-  merlin?: boolean
+  lor?: boolean
   children?: React.ReactNode
 }) {
   return (
@@ -749,12 +749,12 @@ function DemoMessage({
       <div className="flex gap-3">
         <Avatar
           size="lg"
-          className={cn(merlin && "border border-merlin/25 bg-merlin/10")}
+          className={cn(lor && "border border-agent/25 bg-agent/10")}
         >
           <AvatarImage
             src={person.image}
             alt={person.name}
-            className={cn(merlin && "object-contain p-2")}
+            className={cn(lor && "object-contain p-2")}
           />
           <AvatarFallback fallbackSeed={person.name} className="font-semibold">
             {person.fallback}
@@ -765,7 +765,7 @@ function DemoMessage({
             <span
               className={cn(
                 "text-sm font-semibold leading-snug",
-                merlin && "text-merlin"
+                lor && "text-agent"
               )}
             >
               {person.name}
@@ -775,7 +775,7 @@ function DemoMessage({
           {content && <MessageMarkdown content={content} mentions={mentions} />}
           {children}
           {note && (
-            <span className="mt-1 inline-flex w-fit items-center gap-1 rounded-md bg-merlin/10 px-1.5 py-0.5 text-[11px] text-merlin">
+            <span className="mt-1 inline-flex w-fit items-center gap-1 rounded-md bg-agent/10 px-1.5 py-0.5 text-[11px] text-agent">
               {note}
             </span>
           )}
@@ -815,7 +815,7 @@ function DemoComposer({
             {draft ? (
               <>
                 <span className="rounded bg-primary/15 px-1 py-0.5 font-medium text-primary">
-                  @merlin
+                  @lor
                 </span>{" "}
                 Get the mobile launch ready for Friday. Coordinate engineering
                 and marketing, surface blockers, and ask for approval before
@@ -969,7 +969,7 @@ function MembersPanel() {
       {[people.mara, people.eli, people.samira, people.owen].map((person) => (
         <MemberRow key={person.name} person={person} status="Online" />
       ))}
-      <MemberRow person={people.merlin} status="Ready" />
+      <MemberRow person={people.lor} status="Ready" />
     </div>
   )
 }
@@ -988,7 +988,7 @@ function VoicePanel({
         <MemberRow person={people.eli} status="Listening" />
         <MemberRow person={people.samira} status="Listening" />
         <MemberRow person={people.owen} status="Listening" />
-        <MemberRow person={people.merlin} status="Working" working />
+        <MemberRow person={people.lor} status="Working" working />
       </div>
       <div className="mt-auto border-t border-border/70 p-4">
         <div className="flex items-center gap-2 text-xs font-semibold">
@@ -1051,7 +1051,7 @@ function LoopPanel({ created }: { created: boolean }) {
         />
       </PanelSection>
       <PanelSection label="Stops when">
-        <p>Merlin confirms the mobile app has shipped.</p>
+        <p>Lor confirms the mobile app has shipped.</p>
       </PanelSection>
     </div>
   )
@@ -1077,7 +1077,7 @@ function MemoryPanel() {
           moved to v1.1 so the launch date could hold.
         </p>
       </PanelSection>
-      <PanelSection label="Available to Merlin">
+      <PanelSection label="Available to Lor">
         <p>
           The project is gone from active chat, but its decisions and context
           remain searchable.
@@ -1154,7 +1154,7 @@ function MemberRow({
           speaking
             ? "text-success"
             : working
-              ? "text-merlin"
+              ? "text-agent"
               : "text-muted-foreground"
         )}
       >
@@ -1240,7 +1240,7 @@ const PersonAvatar = memo(function PersonAvatar({
         <AvatarImage
           src={person.image}
           alt={person.name}
-          className={cn(person === people.merlin && "object-contain p-1.5")}
+          className={cn(person === people.lor && "object-contain p-1.5")}
         />
         <AvatarFallback
           fallbackSeed={person.name}

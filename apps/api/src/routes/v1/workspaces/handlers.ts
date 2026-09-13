@@ -74,7 +74,7 @@ function toWorkspaceMemberPresence(
   ownerId: string,
   onlineUserIds: Set<string>
 ) {
-  // Bots (Merlin) have no socket presence — they're always reachable, so always online.
+  // Bots (Lor) have no socket presence — they're always reachable, so always online.
   const isOnline = member.isBot || onlineUserIds.has(member.userId)
   return {
     userId: member.userId,

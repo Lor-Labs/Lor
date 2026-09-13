@@ -69,7 +69,7 @@ export const messageEmbedSchema = z.object({
     .optional(),
 })
 
-export const merlinToolCallSchema = z.object({
+export const lorToolCallSchema = z.object({
   toolCallId: z.string(),
   toolName: z.string(),
   label: z.string(),
@@ -113,13 +113,13 @@ export const merlinToolCallSchema = z.object({
   status: z.enum(["ok", "error"]).optional(),
 })
 
-export const merlinReasoningSegmentSchema = z.object({
+export const lorReasoningSegmentSchema = z.object({
   text: z.string(),
   at: z.number().int().nonnegative(),
   order: z.number().int().nonnegative(),
 })
 
-export const merlinMemorySchema = z.object({
+export const lorMemorySchema = z.object({
   path: z.string(),
   action: z.enum(["created", "updated"]),
   // Durable brain-node reference; rows persisted before it existed omit it.
@@ -158,7 +158,7 @@ export const threadSummarySchema = z
 export const messageWithAuthorSchema = selectMessageSchema
   // Raw memory column is reshaped into `remembered` below; the memory
   // exclusion flag and send-idempotency key are plumbing the client never needs.
-  .omit({ merlinMemories: true, excludedFromMemory: true, clientKey: true })
+  .omit({ lorMemories: true, excludedFromMemory: true, clientKey: true })
   .extend({
     author: messageAuthorSchema,
     // Typed passthrough — keeps the inferred client type as the payload union
@@ -169,12 +169,12 @@ export const messageWithAuthorSchema = selectMessageSchema
     embeds: z.array(messageEmbedSchema),
     referencedMessage: referencedMessageSchema,
     threadSummary: threadSummarySchema,
-    // Only Merlin replies carry these; optional so other message endpoints
+    // Only Lor replies carry these; optional so other message endpoints
     // (DMs, pinned, …) need not supply them.
-    merlinToolCalls: z.array(merlinToolCallSchema).optional(),
-    merlinReasoningSegments: z.array(merlinReasoningSegmentSchema).optional(),
-    remembered: z.array(merlinMemorySchema).optional(),
-    merlinTriggerMessageId: z.string().uuid().nullable().optional(),
+    lorToolCalls: z.array(lorToolCallSchema).optional(),
+    lorReasoningSegments: z.array(lorReasoningSegmentSchema).optional(),
+    remembered: z.array(lorMemorySchema).optional(),
+    lorTriggerMessageId: z.string().uuid().nullable().optional(),
   })
 
 // Cursor-based query: `around`, `before`, `after` are mutually exclusive

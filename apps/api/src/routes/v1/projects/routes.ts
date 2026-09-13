@@ -121,7 +121,7 @@ export const archiveProject = createRoute({
   method: "post",
   summary: "Archive a project",
   description:
-    "Locks all project channels read-only and starts archive synthesis: Merlin distills the project into workspace memory and posts a closing summary. Irreversible in v1.",
+    "Locks all project channels read-only and starts archive synthesis: Lor distills the project into workspace memory and posts a closing summary. Irreversible in v1.",
   tags: ["Projects"],
   middleware: [workspaceAuthMiddleware] as const,
   request: {

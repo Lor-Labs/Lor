@@ -18,12 +18,12 @@ export function FounderNote() {
             </p>
             <p>
               Lor is the tool I wanted on those teams. The conversation is the
-              input, Merlin is the memory, and nothing your team figures out has
-              to be figured out twice.
+              input, Lor is the memory, and nothing your team figures out has to
+              be figured out twice.
             </p>
           </div>
           <div className="mt-8 flex items-center gap-3.5">
-            <span className="flex size-10 select-none items-center justify-center rounded-full bg-merlin/15 font-medium text-[15px] text-merlin">
+            <span className="flex size-10 select-none items-center justify-center rounded-full bg-agent/15 font-medium text-[15px] text-agent">
               J
             </span>
             <div>

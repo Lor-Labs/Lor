@@ -203,7 +203,7 @@ function hostOf(url: string): string {
 }
 
 // MCP tool descriptions arrive model-facing — XML-ish tags, fenced examples,
-// repeated boilerplate. Strip the markup and clamp in the checklist; Merlin
+// repeated boilerplate. Strip the markup and clamp in the checklist; Lor
 // still gets the raw text at bind time.
 function cleanToolDescription(raw: string): string {
   return raw
@@ -556,7 +556,7 @@ function ServerEditor({
 
       <div className="space-y-1.5">
         <Label className="text-xs">
-          Description — when should Merlin use this?
+          Description — when should Lor use this?
         </Label>
         <Textarea
           value={draft.description}
@@ -809,7 +809,7 @@ function ServerEditor({
       {(!isOAuth || oauthCanReview) && (
         <div className="space-y-1.5 border-border border-t pt-3">
           <div className="flex items-center justify-between gap-2">
-            <Label className="text-xs">Tools Merlin may use</Label>
+            <Label className="text-xs">Tools Lor may use</Label>
             <Button
               type="button"
               variant="secondary"
@@ -837,7 +837,7 @@ function ServerEditor({
             <p className="text-xs text-muted-foreground">
               {isOAuth
                 ? "Review the authorized server's tools, then choose which ones assigned channels may call."
-                : "Connect to list the server's tools, then pick which ones Merlin may call. New tools the server adds later stay off until enabled here."}
+                : "Connect to list the server's tools, then pick which ones Lor may call. New tools the server adds later stay off until enabled here."}
             </p>
           ) : (
             <ul className="space-y-1">
@@ -1527,8 +1527,8 @@ export function McpServersBlock({
               Are you sure you want to delete{" "}
               <span className="font-semibold">{deleteTarget?.name}</span>?{" "}
               {deleteTarget && deleteTarget.usedByProfiles > 0
-                ? `${deleteTarget.usedByProfiles} agent ${deleteTarget.usedByProfiles === 1 ? "profile grants" : "profiles grant"} it — Merlin loses its tools in those channels immediately. `
-                : "Merlin can no longer call its tools. "}
+                ? `${deleteTarget.usedByProfiles} agent ${deleteTarget.usedByProfiles === 1 ? "profile grants" : "profiles grant"} it — Lor loses its tools in those channels immediately. `
+                : "Lor can no longer call its tools. "}
               This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>

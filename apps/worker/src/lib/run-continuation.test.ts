@@ -38,7 +38,7 @@ vi.mock("@repo/db", () => {
     notInArray: op,
     or: op,
     sql: op,
-    MERLIN_USER_ID: "merlin-user",
+    LOR_USER_ID: "lor-user",
     db: { select: () => chain() },
     schema: new Proxy(
       {},
@@ -49,7 +49,7 @@ vi.mock("@repo/db", () => {
   }
 })
 
-vi.mock("@repo/merlin", () => ({
+vi.mock("@repo/lor", () => ({
   buildInitialUserMessage: vi.fn(async (context: { brainContext: string }) => ({
     role: "user",
     content: [{ type: "text", text: `initial:${context.brainContext}` }],
@@ -118,7 +118,7 @@ const deltaRow = {
 const args = {
   scopeKey: "thread-1",
   channelId: "chan-1",
-  merlinMessageId: "msg-placeholder",
+  lorMessageId: "msg-placeholder",
   runId: "run-2",
 }
 

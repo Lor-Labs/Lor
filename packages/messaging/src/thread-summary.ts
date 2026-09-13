@@ -4,7 +4,7 @@ import type { RealtimeMessageThreadUpdated } from "@repo/realtime-types"
 // Recompute a thread's channel-feed summary ("N replies" footer + newest-reply
 // preview). Shared by the realtime gateway (socket-sent replies) and the
 // API/worker paths that post into threads server-side (scope-run resolutions,
-// Merlin placeholders) — every reply path must broadcast the same
+// Lor placeholders) — every reply path must broadcast the same
 // message:thread:updated shape or channel feeds go stale until a reload.
 export async function loadThreadSummary(
   channelId: string,

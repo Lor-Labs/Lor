@@ -164,7 +164,7 @@ export function MessageContent({
 
   // Complete messages render directly through the native renderer. StreamdownText
   // routes through remend on a worklet thread to repair partial markdown — only
-  // needed while a Merlin reply is actively streaming.
+  // needed while a Lor reply is actively streaming.
   if (streaming) {
     return (
       <StreamdownText

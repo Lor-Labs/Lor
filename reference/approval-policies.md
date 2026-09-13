@@ -13,7 +13,7 @@ resolver authority is written in the pillar-1 vocabulary
 ## Current state (verified 2026-08-31)
 
 - **Approval is prompt discipline today.** `taskRulesSection`
-  (`packages/merlin/src/tasks.ts:242`) *instructs* the model to call
+  (`packages/lor/src/tasks.ts:242`) *instructs* the model to call
   `request_approval` before consequential writes. Nothing enforces it — a run
   can call `create_linear_issue` directly and it executes.
 - **`approval` table exists** (`packages/db/src/schemas/approvals.ts`):
@@ -24,7 +24,7 @@ resolver authority is written in the pillar-1 vocabulary
 - **Single producer**: the `request_approval` tool (`tasks.ts:156`) — task
   runs only. It inserts the row, parks the task `waiting_for_approval`, and
   trips a flag so `prepareStep` forces `toolChoice: "none"` (same mechanism as
-  budget ceilings, `packages/merlin/src/index.ts:2261`). **The run ends
+  budget ceilings, `packages/lor/src/index.ts:2261`). **The run ends
   cleanly; no lease waits on a human.**
 - **Resolution** (`POST /v1/approvals/:id/approve|reject`, routes live in
   `apps/api/src/routes/v1/tasks/`): CAS-resolve the row → post "✅ Approved…"
@@ -37,13 +37,13 @@ resolver authority is written in the pillar-1 vocabulary
   member does not; excluded from the roles-UI matrix). Zero enforcement reads
   it. This runbook is where it becomes real.
 - **Tool gating today is capability-only**: `resolveChannelCapabilities` →
-  spread-gated `builtinTools` (`packages/merlin/src/index.ts:1883–1908`),
+  spread-gated `builtinTools` (`packages/lor/src/index.ts:1883–1908`),
   custom tools + MCP bound after. No approval hook anywhere;
   `streamText`'s `toolApproval` is unused in the repo.
-- **`SIDE_EFFECT_TOOLS`** (`packages/merlin/src/tool-guard.ts:12`) is the
+- **`SIDE_EFFECT_TOOLS`** (`packages/lor/src/tool-guard.ts:12`) is the
   existing census of externally-visible tools (replay-dedup, not approval).
 - **Pre-built seam for code publish**: `authorizePublish` in
-  `packages/merlin/src/code-actions.ts:44` hardcodes `"publish"`; the
+  `packages/lor/src/code-actions.ts:44` hardcodes `"publish"`; the
   `prepareCodeChange`/`publishCodeChange` split
   (`sandbox/code-session.ts:317`) exists so an approval can sit between them.
 - **Continuation replay is byte-identical** (`reference/agent-harness.md`):
@@ -75,9 +75,9 @@ resolver authority is written in the pillar-1 vocabulary
 
 | Topic | Decision |
 |---|---|
-| Gate unit | **Coarse: one switch per capability** (`capability:<merlin_capability>` — every capability is targetable, reads included; "Linear writes" is one switch covering all three write tools). Plus **per custom tool** (`custom_tool:<id>`), **per MCP server** (`mcp_server:<id>` — one switch covers everything the server exposes). ~~one core target `core:messaging`~~ REMOVED 2026-09-02: Merlin's own channel messaging is never gateable — answering in chat is the core product (Jacob). The `custom_tools` *capability* is grant vocabulary, not an approval target — individual tool/server rows replace it here. No per-tool granularity inside a capability. |
+| Gate unit | **Coarse: one switch per capability** (`capability:<lor_capability>` — every capability is targetable, reads included; "Linear writes" is one switch covering all three write tools). Plus **per custom tool** (`custom_tool:<id>`), **per MCP server** (`mcp_server:<id>` — one switch covers everything the server exposes). ~~one core target `core:messaging`~~ REMOVED 2026-09-02: Lor's own channel messaging is never gateable — answering in chat is the core product (Jacob). The `custom_tools` *capability* is grant vocabulary, not an approval target — individual tool/server rows replace it here. No per-tool granularity inside a capability. |
 | Policy storage | **Computed, own table.** `approval_policy`: a row exists only where the workspace opted in — row existence = gate ON; delete the row to turn it off. No `required` column, no seeding, no backfill when new connectors land. The settings UI renders the full target list from the registry and overlays existing rows. |
-| Defaults | **Everything off.** Out of the box Merlin behaves exactly as today; every gate is an explicit admin opt-in. No default-on connector writes, no default-on code publish. |
+| Defaults | **Everything off.** Out of the box Lor behaves exactly as today; every gate is an explicit admin opt-in. No default-on connector writes, no default-on code publish. |
 | Resolver spec | Per policy row: `role` (static or custom role name) · `user` (specific person) · `any_member` (channel write access, today's behavior); **teams join as a resolver kind once they exist**. ~~`permission` kind~~ REMOVED 2026-09-02 (Jacob: a blanket approvals permission is hacky — resolvers are named per gate, never granted). Column default `any_member` — pre-filled when a gate is enabled. **Owner always resolves** (escape hatch — a named resolver may have left). Channel write access stays the floor for every kind. |
 | No underlying-permission matching | Resolver authority never fragments across an approval's subject matter (Jacob: no "5 of 6 approvals" splits) — a resolver named on a gate approves that gate, full stop. The `approval` statement now carries only `manage` (the settings page); `resolve` was removed with the permission kind. |
 | `request_approval` stays | The discretionary tool remains (model judgment for un-modeled risks), same row shape + surfaces, target null. Resolver: **any channel member**, not policy-configurable in v1 (the model asked for *a* human, any human answers). |
@@ -89,8 +89,8 @@ resolver authority is written in the pillar-1 vocabulary
 | Surfaces | Generalize the task-thread `ApprovalCard`: render pending approvals on ANY run placeholder (channel, thread, loop, triggered), fed by the durable `GET /channels/{id}/approvals` query; `approval:*` events only invalidate/refresh it. Buttons only for users who pass the resolver spec (server enforces regardless). |
 | Push (LOR-83) | `sendApprovalPush` mirrors `sendInstructionsProposalPush`: data-only deep link to the channel/thread, sent to the resolver set (for `any_member`, cap to the run's channel members), presence-checked at send time — push is the offline complement of the socket notification (P5 as-built). Never resolve from the push. |
 | Policy UI | Settings dialog section (near Agent profiles): full target list computed from the registry — capabilities, this workspace's custom tools and MCP servers — each with an on/off switch + resolver picker. Gate the section like billing (owner/admin). |
-| Env | `MERLIN_TOOL_APPROVAL_SECRET` (≥32 chars, **optional**) in `packages/env` serverSchema — worker + API share it. Optional so deploys don't break; P2 decides unset behavior (gates still enforce, secret hardens the binding). Optional → no `TEST_ENV` mirror needed. |
-| Out of scope | Per-channel/per-profile policy overrides; per-tool granularity inside a capability; resolver customization for discretionary approvals; seeded policy rows; approval expiry/timeouts (enum value exists, unused); Merlin proposing policy changes (pillar 3); LOR.md flow changes; batch/multi-gate approvals; forced sandbox-cost gate (`code_intelligence` is gateable generically if a workspace opts in). |
+| Env | `LOR_TOOL_APPROVAL_SECRET` (≥32 chars, **optional**) in `packages/env` serverSchema — worker + API share it. Optional so deploys don't break; P2 decides unset behavior (gates still enforce, secret hardens the binding). Optional → no `TEST_ENV` mirror needed. |
+| Out of scope | Per-channel/per-profile policy overrides; per-tool granularity inside a capability; resolver customization for discretionary approvals; seeded policy rows; approval expiry/timeouts (enum value exists, unused); Lor proposing policy changes (pillar 3); LOR.md flow changes; batch/multi-gate approvals; forced sandbox-cost gate (`code_intelligence` is gateable generically if a workspace opts in). |
 
 ## Spike results (verified against `ai@7.0.11` dist, 2026-09-01)
 
@@ -135,7 +135,7 @@ findings change the design; they are folded into the steps below.
   re-validates input against the tool schema, and re-runs the policy function;
   only a `denied` result blocks. So turning a gate off while a run is parked
   still executes the approved call, and re-parking never happens.
-  **Operational note:** enabling or rotating `MERLIN_TOOL_APPROVAL_SECRET`
+  **Operational note:** enabling or rotating `LOR_TOOL_APPROVAL_SECRET`
   invalidates in-flight parked approvals (unsigned requests then throw) — do
   it when nothing is pending.
 - **Recovery hazard** ⚠️ (new, for P3) A transcript ending in an unanswered
@@ -170,7 +170,7 @@ checked.
   columns (null for discretionary); partial unique index on
   `(run_id) where status='pending'`.
 - `agent_run` stop reason enum gains `awaiting_approval`.
-- `packages/env`: optional `MERLIN_TOOL_APPROVAL_SECRET` (min 32 chars).
+- `packages/env`: optional `LOR_TOOL_APPROVAL_SECRET` (min 32 chars).
 - `packages/auth/src/lib/permissions.ts`: `ApprovalResolverSpec` +
   `canResolveApproval(authority, spec, userId)` (owner bypass; exact match for
   `role`/`user`; `any_member` true; the `permission` kind was removed
@@ -178,9 +178,9 @@ checked.
 - **db:push owed after this step** (Jacob): `approval_policy` table, three
   `approval` columns + index, `agent_run_stop_reason` enum value.
 
-### [x] P2 — merlin gate wiring (~400 LOC) — built 2026-09-01
+### [x] P2 — lor gate wiring (~400 LOC) — built 2026-09-01
 
-- `packages/merlin/src/approval-policy.ts`: `loadApprovalGates` (one query,
+- `packages/lor/src/approval-policy.ts`: `loadApprovalGates` (one query,
   **deliberately uncaught** — a policy read failure fails the run rather than
   executing gated actions ungated), `ToolTargetMap`, `buildToolApproval`
   (returns `undefined` when the workspace opted into nothing, so zero
@@ -246,7 +246,7 @@ policy row whose named resolver is gone (custom role deleted, resolver user
 removed) resolves to owner-only rather than opening up.
 
 The resume is **explicit, not scope-inferred**: `resumeApprovalId` rides
-`MerlinRespondJobData`, so `buildApprovalContinuation` replays the run named by
+`LorRespondJobData`, so `buildApprovalContinuation` replays the run named by
 the approval row and works in a plain channel scope where the delta path does
 not exist. The SDK's own `approvalId` is read back out of the replayed
 transcript (`findApprovalId`) instead of being stored — it only ever exists
@@ -302,7 +302,7 @@ id-only `approval:created`/`approval:updated` events that just invalidate it.
 the resolve endpoint refuses a run that hasn't finished parking.
 `ApprovalGateCard` (components/chat/approval-card.tsx) is the one card: task
 header keeps it, and `MessageApprovalCard` hangs it under any run reply
-(`merlinTriggerMessageId` marks those live and on reload). Buttons are gated
+(`lorTriggerMessageId` marks those live and on reload). Buttons are gated
 by the shared `canResolveApproval` (authority built client-side from active
 member + ownerId + custom-role grants); non-resolvers see who can resolve.
 `getTask.pendingApproval` was enriched with `resolver`/`resolverUserName` so
@@ -346,7 +346,7 @@ Mobile approval buttons now gate on real custom-role grants.
 ### [ ] P6 — validation sweep + live QA
 
 Manual QA checklist (live, after db:push):
-1. Fresh workspace, no policy rows: Merlin creates a Linear issue with NO
+1. Fresh workspace, no policy rows: Lor creates a Linear issue with NO
    gate (defaults-off regression check).
 2. Enable `Write to Linear` gate → same ask parks the run; approval card
    appears; `approval:created` observed.
@@ -358,7 +358,7 @@ Manual QA checklist (live, after db:push):
    always resolve.
 6. Turn a gate off while its approval is pending → any member can still
    resolve the stale card (gate-off fallback).
-7. Non-task gate: a capability gate tripped by a plain channel @Merlin (no
+7. Non-task gate: a capability gate tripped by a plain channel @Lor (no
    task) → parks and resumes in channel scope.
 8. MCP server gate: one switch parks any tool from that server.
 9. Turn a gate off (delete row) → next run executes ungated.

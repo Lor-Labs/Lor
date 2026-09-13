@@ -3,7 +3,7 @@ import Brain01Icon from "@hugeicons/core-free-icons/Brain01Icon"
 import Pin02Icon from "@hugeicons/core-free-icons/Pin02Icon"
 import StopIcon from "@hugeicons/core-free-icons/StopIcon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
-import { MERLIN_USER_ID } from "@repo/db/constants"
+import { LOR_USER_ID } from "@repo/db/constants"
 import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { formatDateDivider, formatDateTime, timeAgo } from "@repo/utils/date"
 import { useThemeColor } from "heroui-native/hooks"
@@ -12,8 +12,8 @@ import Animated, { FadeIn, FadeOut } from "react-native-reanimated"
 import { MessageApprovalCard } from "@/components/approval-card"
 import { ConnectorIcon, connectorForName } from "@/components/connector-icon"
 import { LoopCard } from "@/components/loop-card"
-import { MerlinMessageBody } from "@/components/merlin-message-body"
-import { MerlinReasoning } from "@/components/merlin-reasoning"
+import { LorMessageBody } from "@/components/lor-message-body"
+import { LorReasoning } from "@/components/lor-reasoning"
 import { MessageAttachments } from "@/components/message-attachments"
 import { MessageContent } from "@/components/message-content"
 import { MessageEmbed } from "@/components/message-embed"
@@ -21,7 +21,7 @@ import { PlanCard } from "@/components/plan-card"
 import { ProposalCard } from "@/components/proposal-card"
 import { ThinkingIndicator } from "@/components/thinking-indicator"
 import { Avatar } from "@/components/ui/avatar"
-import { useStopMerlinRun } from "@/hooks/use-stop-merlin-run"
+import { useStopLorRun } from "@/hooks/use-stop-lor-run"
 import type { Message } from "@/lib/api-types"
 import { toSearchPreviewText } from "@/lib/message-markdown"
 import { isOptimisticMessage } from "@/lib/messages"
@@ -70,7 +70,7 @@ function MessageAvatar({
   size?: "sm" | "md"
 }) {
   const foreground = useThemeColor("foreground")
-  const isMerlin = message.authorId === MERLIN_USER_ID
+  const isLor = message.authorId === LOR_USER_ID
   const connector = message.overrideAvatarUrl
     ? null
     : connectorForName(message.overrideName)
@@ -78,12 +78,10 @@ function MessageAvatar({
   return (
     <Avatar
       avatarColor={avatarColor}
-      color={isMerlin ? "accent" : "default"}
+      color={isLor ? "accent" : "default"}
       fallback={
         connector ? (
           <ConnectorIcon color={foreground} connector={connector} size={18} />
-        ) : isMerlin ? (
-          "M"
         ) : (
           avatarInitial(message)
         )
@@ -113,11 +111,11 @@ function AppBadge() {
   )
 }
 
-// Steer status + explicit Stop for an in-flight Merlin reply. Stop is honored
+// Steer status + explicit Stop for an in-flight Lor reply. Stop is honored
 // by the run at its next safe step boundary; whatever streamed is kept.
-function MerlinRunControls({ message }: { message: Message }) {
+function LorRunControls({ message }: { message: Message }) {
   const muted = useThemeColor("muted")
-  const { requestStop, stoppingMessageId } = useStopMerlinRun()
+  const { requestStop, stoppingMessageId } = useStopLorRun()
   const isStopping = stoppingMessageId === message.id
 
   return (
@@ -131,7 +129,7 @@ function MerlinRunControls({ message }: { message: Message }) {
         <Text className="text-xs italic text-muted">Stopping…</Text>
       ) : (
         <Pressable
-          accessibilityLabel="Stop Merlin's reply"
+          accessibilityLabel="Stop Lor's reply"
           accessibilityRole="button"
           className="min-h-7 flex-row items-center gap-one self-start rounded-lor-sm border border-border px-two py-one"
           onPress={() => void requestStop(message.id)}
@@ -150,7 +148,7 @@ function RoutedChip() {
   return (
     <View className="mt-one self-start rounded-lor-sm bg-accent-soft px-two py-one">
       <Text className="text-[11px] text-accent">
-        Steering Merlin&apos;s current answer
+        Steering Lor&apos;s current answer
       </Text>
     </View>
   )
@@ -161,21 +159,21 @@ function MessageRowBody({
   onOpenThread,
   onJumpToMessage,
   onToggleReaction,
-  showMerlinRunControls = true,
+  showLorRunControls = true,
 }: {
   message: Message
   onOpenThread?: (message: Message) => void
   onJumpToMessage?: (messageId: string) => void
   onToggleReaction?: (message: Message, emoji: string) => void
-  showMerlinRunControls?: boolean
+  showLorRunControls?: boolean
 }) {
   const accent = useThemeColor("accent")
-  const isMerlin = message.authorId === MERLIN_USER_ID
+  const isLor = message.authorId === LOR_USER_ID
   const isPending = isOptimisticMessage(message)
-  const isStreaming = isMerlin && message.status === "pending"
+  const isStreaming = isLor && message.status === "pending"
   const hasTimeline =
-    (message.merlinToolCalls?.length ?? 0) > 0 ||
-    (message.merlinReasoningSegments?.length ?? 0) > 0
+    (message.lorToolCalls?.length ?? 0) > 0 ||
+    (message.lorReasoningSegments?.length ?? 0) > 0
 
   return (
     <>
@@ -195,16 +193,16 @@ function MessageRowBody({
           {message.type === "reply" ? (
             <ReplyPreview message={message} onJumpToMessage={onJumpToMessage} />
           ) : null}
-          {isMerlin &&
-          message.merlinReasoning &&
-          (message.merlinReasoningSegments?.length ?? 0) === 0 ? (
-            <MerlinReasoning
+          {isLor &&
+          message.lorReasoning &&
+          (message.lorReasoningSegments?.length ?? 0) === 0 ? (
+            <LorReasoning
               active={isStreaming && !message.content}
-              text={message.merlinReasoning}
+              text={message.lorReasoning}
             />
           ) : null}
-          {isMerlin && hasTimeline ? (
-            <MerlinMessageBody
+          {isLor && hasTimeline ? (
+            <LorMessageBody
               message={message}
               onCitationJump={onJumpToMessage}
               streaming={isStreaming}
@@ -220,15 +218,15 @@ function MessageRowBody({
           {isStreaming && !message.content && !hasTimeline ? (
             <ThinkingIndicator />
           ) : null}
-          {isMerlin && message.status === "failed" && !message.content ? (
+          {isLor && message.status === "failed" && !message.content ? (
             <Text className="text-sm italic text-muted">
-              Merlin couldn&apos;t respond to that.
+              Lor couldn&apos;t respond to that.
             </Text>
           ) : null}
-          {showMerlinRunControls && isStreaming ? (
-            <MerlinRunControls message={message} />
+          {showLorRunControls && isStreaming ? (
+            <LorRunControls message={message} />
           ) : null}
-          {isMerlin && message.merlinTriggerMessageId ? (
+          {isLor && message.lorTriggerMessageId ? (
             <MessageApprovalCard
               channelId={message.channelId}
               messageId={message.id}
@@ -313,7 +311,7 @@ export function MessageRow({
   isHighlighted = false,
   isActionHighlighted = false,
   onToggleReaction,
-  showMerlinRunControls = true,
+  showLorRunControls = true,
 }: {
   avatarColorByUserId?: ReadonlyMap<string, string>
   message: Message
@@ -324,9 +322,9 @@ export function MessageRow({
   isHighlighted?: boolean
   isActionHighlighted?: boolean
   onToggleReaction?: (message: Message, emoji: string) => void
-  showMerlinRunControls?: boolean
+  showLorRunControls?: boolean
 }) {
-  const isMerlin = message.authorId === MERLIN_USER_ID
+  const isLor = message.authorId === LOR_USER_ID
   const isApp = Boolean(message.overrideName || message.overrideAvatarUrl)
   const authorPress = authorPressHandler(message, onPressAuthor)
   const time = new Date(message.createdAt).toLocaleTimeString([], {
@@ -382,7 +380,7 @@ export function MessageRow({
               }
               accessibilityRole={authorPress ? "button" : undefined}
               className={
-                isMerlin
+                isLor
                   ? "text-[15px] font-bold tracking-[-0.1px] text-accent"
                   : "text-[15px] font-bold tracking-[-0.1px] text-foreground"
               }
@@ -400,7 +398,7 @@ export function MessageRow({
           onJumpToMessage={onJumpToMessage}
           onOpenThread={onOpenThread}
           onToggleReaction={onToggleReaction}
-          showMerlinRunControls={showMerlinRunControls}
+          showLorRunControls={showLorRunControls}
         />
       </View>
     </View>
@@ -415,7 +413,7 @@ export function ThreadRootMessage({
   onJumpToMessage,
   onPressAuthor,
   onToggleReaction,
-  showMerlinRunControls = true,
+  showLorRunControls = true,
 }: {
   avatarColorByUserId?: ReadonlyMap<string, string>
   message: Message
@@ -424,9 +422,9 @@ export function ThreadRootMessage({
   onJumpToMessage?: (messageId: string) => void
   onPressAuthor?: (message: Message) => void
   onToggleReaction?: (message: Message, emoji: string) => void
-  showMerlinRunControls?: boolean
+  showLorRunControls?: boolean
 }) {
-  const isMerlin = message.authorId === MERLIN_USER_ID
+  const isLor = message.authorId === LOR_USER_ID
   const isApp = Boolean(message.overrideName || message.overrideAvatarUrl)
   const authorPress = authorPressHandler(message, onPressAuthor)
 
@@ -474,7 +472,7 @@ export function ThreadRootMessage({
               }
               accessibilityRole={authorPress ? "button" : undefined}
               className={
-                isMerlin
+                isLor
                   ? "text-base font-bold tracking-[-0.2px] text-accent"
                   : "text-base font-bold tracking-[-0.2px] text-foreground"
               }
@@ -497,7 +495,7 @@ export function ThreadRootMessage({
           message={message}
           onJumpToMessage={onJumpToMessage}
           onToggleReaction={onToggleReaction}
-          showMerlinRunControls={showMerlinRunControls}
+          showLorRunControls={showLorRunControls}
         />
       </View>
     </View>

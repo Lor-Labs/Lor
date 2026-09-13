@@ -20,7 +20,7 @@ import type { ReactNode } from "react"
 // Shared effect rows for trigger config (BYO webhooks + connector events).
 // One trigger can fan out to any combination of the three effects.
 
-// The handoff note from the newest Act run on this trigger — what Merlin
+// The handoff note from the newest Act run on this trigger — what Lor
 // concluded last time, shown so the next run's starting point is visible.
 // Read-only: never part of a patch.
 export type TriggerLastAct = {
@@ -34,7 +34,7 @@ export type TriggerEffectsValue = {
   post: boolean
   remember: boolean
   rememberHint: string | null
-  // null = Act off; empty string = Act on, Merlin uses judgment
+  // null = Act off; empty string = Act on, Lor uses judgment
   actInstructions: string | null
   // Act rate shape: 0 = one run per delivery, otherwise deliveries inside the
   // window coalesce into one run; caps are rolling-window run limits.
@@ -102,7 +102,7 @@ function LastActNote({ lastAct }: { lastAct: TriggerLastAct }) {
   return (
     <div className="space-y-1 border-border/60 border-t pt-2.5">
       <p className="text-[11px] text-muted-foreground">
-        Merlin's last run · {formatRunAt(lastAct.at)}
+        Lor's last run · {formatRunAt(lastAct.at)}
         {outcome}
       </p>
       {note && (
@@ -246,7 +246,7 @@ export function TriggerEffects({
         id={`${idPrefix}-remember`}
         icon={BrainIcon}
         title="Remember"
-        description="Merlin summarizes the data into memory so it can recall it later"
+        description="Lor summarizes the data into memory so it can recall it later"
         checked={value.remember}
         disabled={disabled}
         onCheckedChange={(checked) => onPatch({ remember: checked })}
@@ -278,7 +278,7 @@ export function TriggerEffects({
         id={`${idPrefix}-act`}
         icon={MagicWand01Icon}
         title="Act"
-        description="Wake Merlin to take action — it can reply, start plans, and call your tools"
+        description="Wake Lor to take action — it can reply, start plans, and call your tools"
         checked={value.actInstructions !== null}
         disabled={disabled}
         onCheckedChange={(checked) =>
@@ -308,7 +308,7 @@ export function TriggerEffects({
               }}
             />
             <p className="text-[11px] text-muted-foreground">
-              Leave blank to let Merlin decide how to handle each payload.
+              Leave blank to let Lor decide how to handle each payload.
             </p>
             <div className="space-y-2 border-border/60 border-t pt-2.5">
               <div className="space-y-1">
@@ -341,8 +341,8 @@ export function TriggerEffects({
                 </Select>
                 <p className="text-[11px] text-muted-foreground">
                   {value.actWindowSeconds > 0
-                    ? `The first event wakes Merlin right away. Anything else arriving within ${formatWindow(value.actWindowSeconds)} is bundled into one follow-up instead of a run each.`
-                    : "Every delivery wakes Merlin. Deliveries that arrive while a run is going wait their turn and are handled together as soon as it finishes."}
+                    ? `The first event wakes Lor right away. Anything else arriving within ${formatWindow(value.actWindowSeconds)} is bundled into one follow-up instead of a run each.`
+                    : "Every delivery wakes Lor. Deliveries that arrive while a run is going wait their turn and are handled together as soon as it finishes."}
                 </p>
               </div>
               <div className="grid grid-cols-2 gap-2">
@@ -364,8 +364,8 @@ export function TriggerEffects({
                 />
               </div>
               <p className="text-[11px] text-muted-foreground">
-                Caps bound how often Merlin can run — deliveries beyond them
-                wait for the next slot rather than being dropped.
+                Caps bound how often Lor can run — deliveries beyond them wait
+                for the next slot rather than being dropped.
               </p>
             </div>
             {value.lastAct && <LastActNote lastAct={value.lastAct} />}

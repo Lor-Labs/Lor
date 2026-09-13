@@ -100,7 +100,7 @@ export default function ChannelScreen() {
   useChannelProposals(channelId ?? "")
   // Channel-scope queue (a send can land while a run is finalizing) —
   // surfaced in the same composer pill as thread queues.
-  const pendingMerlinMessageId = useMemo(
+  const pendingLorMessageId = useMemo(
     () => chat.messages.find((message) => message.status === "pending")?.id,
     [chat.messages]
   )
@@ -108,7 +108,7 @@ export default function ChannelScreen() {
     socket,
     channelId: channelId ?? "",
     threadRootId: null,
-    pendingMerlinMessageId,
+    pendingLorMessageId,
   })
   const queuedMessages = useMemo(
     () =>

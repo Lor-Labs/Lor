@@ -31,7 +31,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useParams } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
 import { ChannelWebhooksTab } from "@/components/sidebar/channel-panel/channel-webhooks-tab"
-import { hasBlanketTools } from "@/components/workspace/merlin-profiles-section"
+import { hasBlanketTools } from "@/components/workspace/agent-profiles-section"
 import { apiClient } from "@/lib/api-client"
 import type {
   AgentProfile,
@@ -77,7 +77,7 @@ function ProfileCapabilities({
   return (
     <div className="space-y-2 rounded-lg border border-border bg-muted/30 p-3">
       <div className="text-xs font-medium text-muted-foreground">
-        Merlin can use
+        Lor can use
       </div>
       {granted.length === 0 &&
       grantedTools.length === 0 &&
@@ -348,7 +348,7 @@ export function EditChannelDialog({
                   <div className="space-y-3">
                     {customProfiles.length > 0 && (
                       <div className="space-y-2">
-                        <Label htmlFor="channel-merlin-profile">Profile</Label>
+                        <Label htmlFor="channel-agent-profile">Profile</Label>
                         <Select
                           items={[
                             {
@@ -366,7 +366,7 @@ export function EditChannelDialog({
                           onValueChange={(v) => v && setProfileId(v)}
                         >
                           <SelectTrigger
-                            id="channel-merlin-profile"
+                            id="channel-agent-profile"
                             className="w-full"
                           >
                             <SelectValue />

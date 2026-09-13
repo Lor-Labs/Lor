@@ -94,7 +94,7 @@ Extract the portable core so both clients import it.
 - `use-channel-messages`, `use-thread-messages` (query + socket subscription)
 - `use-message-sending/editing/deletion/reactions/pinning` (optimistic mutations)
 - `use-typing-indicator` (debounced emits)
-- `use-merlin-stream` (streaming event assembly)
+- `use-lor-stream` (streaming event assembly)
 - `use-thread-activity`, `use-auto-mark-read` (logic portion)
 
 **Platform-specific → stay per-app, thin wrappers:**
@@ -169,7 +169,7 @@ use tokens, never hardcoded colors).
 | `motion` transitions | Reanimated 3 |
 | `emoji-picker-react` | `@gorhom/bottom-sheet` grid or native keyboard |
 
-Message rendering (`message-markdown`, `merlin-message-body`, tool trail,
+Message rendering (`message-markdown`, `lor-message-body`, tool trail,
 reasoning) rebuilds on `react-native-markdown-display` with custom rules for
 citations (`[[/path]]`, `[[msg:id]]`, `[[src:id|title|url]]`) and streaming.
 
@@ -187,7 +187,7 @@ Socket.IO runs on RN, but mobile app lifecycle needs handling web doesn't:
   backgrounded, hand off to `expo-notifications` for local/push display.
 - Throttle presence updates while backgrounded.
 
-Event set is unchanged from web (channel/thread/message/typing/presence/merlin/
+Event set is unchanged from web (channel/thread/message/typing/presence/lor/
 notification families in `@repo/realtime-types`).
 
 ---
@@ -228,7 +228,7 @@ persistence); authenticated shell + navigation.
 list (`FlashList`) with pagination; send/edit/delete/react/pin; typing; read
 state; realtime wiring. This is the demo-able core loop.
 
-**Phase 3 — Merlin & threads (week 5).** Streaming Merlin responses, reasoning,
+**Phase 3 — Lor & threads (week 5).** Streaming Lor responses, reasoning,
 tool trail, memory; threads (sheet); citation rendering.
 
 **Phase 4 — DMs & settings (week 6).** DM list + conversation; settings screens;

@@ -34,7 +34,7 @@ export const getUserProfile: AppRouteHandler<GetUserProfileRoute> = async (
     )
   }
 
-  // Check online status. Bots (Merlin) have no socket presence — always online.
+  // Check online status. Bots (Lor) have no socket presence — always online.
   let presenceStatus: "online" | "offline" = "offline"
   if (targetUser.isBot) {
     presenceStatus = "online"

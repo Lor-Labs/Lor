@@ -18,13 +18,13 @@ import { workspace } from "./workspaces"
 // per-member/per-channel breakdowns, cost reporting, and future agent-run
 // pricing all come from here. Never mirror the balance into it.
 
-// merlin.* are analytics buckets, not prices — debits come from token math.
-// merlin.agent is reserved for autonomous runs (defined, unpriced, unexposed).
+// lor.* are analytics buckets, not prices — debits come from token math.
+// lor.agent is reserved for autonomous runs (defined, unpriced, unexposed).
 export const operationClassEnum = pgEnum("operation_class", [
-  "merlin.quick",
-  "merlin.standard",
-  "merlin.deep",
-  "merlin.agent",
+  "lor.quick",
+  "lor.standard",
+  "lor.deep",
+  "lor.agent",
   "ingestion",
   "embedding",
   "overhead",

@@ -11,7 +11,7 @@ import {
 import { createInsertSchema, createSelectSchema } from "drizzle-zod"
 import { brainNode } from "./brain"
 import { channel } from "./channels"
-import type { MerlinMemory } from "./messages"
+import type { LorMemory } from "./messages"
 import { user } from "./users"
 import { workspace } from "./workspaces"
 
@@ -46,8 +46,8 @@ export const project = pgTable(
     creatorId: uuid("creator_id")
       .notNull()
       .references(() => user.id, { onDelete: "restrict" }),
-    // Linear-aligned project description; feeds Merlin runs and archive
-    // synthesis. Optional — Merlin infers from channel content if unset.
+    // Linear-aligned project description; feeds Lor runs and archive
+    // synthesis. Optional — Lor infers from channel content if unset.
     // (Project NAME lives on the category channel.)
     description: text("description"),
     targetDate: timestamp("target_date"),
@@ -57,9 +57,7 @@ export const project = pgTable(
     // summary and the brain pages it saved — the archived-project overview
     // renders both. (No channel message: the overview is the surface.)
     summary: text("summary"),
-    archiveMemories: jsonb("archive_memories")
-      .$type<MerlinMemory[]>()
-      .default([]),
+    archiveMemories: jsonb("archive_memories").$type<LorMemory[]>().default([]),
     // Brain folder all project-scoped memory (write-backs + the archive
     // synthesis) lives under. Created lazily on first memory write.
     brainFolderId: uuid("brain_folder_id").references(() => brainNode.id, {

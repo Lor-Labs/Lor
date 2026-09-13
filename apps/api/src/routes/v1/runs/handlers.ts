@@ -11,7 +11,7 @@ import {
   sql,
 } from "@repo/db"
 import { env } from "@repo/env/server"
-import { settleAbandonedRunPlan } from "@repo/merlin/plans"
+import { settleAbandonedRunPlan } from "@repo/lor/plans"
 import { AGENT_RUN_STOP_CHANNEL } from "@repo/realtime-types/queues"
 import { channelRoom, threadRoom } from "@repo/realtime-types/rooms"
 import { getEmitter } from "@/lib/bot-messages"
@@ -129,14 +129,14 @@ export const getRunEvents: AppRouteHandler<GetRunEventsRoute> = async (c) => {
   )
 }
 
-// Same conservative heuristic as packages/merlin/src/compaction.ts — UTF-8
+// Same conservative heuristic as packages/lor/src/compaction.ts — UTF-8
 // bytes over 3. Estimates fill the gap before a provider checkpoint exists.
 const BYTES_PER_TOKEN = 3
 const EMPTY_CONTEXT = {
   available: false as const,
   usedTokens: 0,
-  windowTokens: env.MERLIN_CONTEXT_WINDOW,
-  compactAtTokens: env.MERLIN_COMPACT_INPUT_TOKENS,
+  windowTokens: env.LOR_CONTEXT_WINDOW,
+  compactAtTokens: env.LOR_COMPACT_INPUT_TOKENS,
   segments: { system: 0, tools: 0, messages: 0 },
   compacted: false,
   rawHistoryTokens: 0,
@@ -259,8 +259,8 @@ export const getThreadContext: AppRouteHandler<GetThreadContextRoute> = async (
     {
       available: true,
       usedTokens,
-      windowTokens: env.MERLIN_CONTEXT_WINDOW,
-      compactAtTokens: env.MERLIN_COMPACT_INPUT_TOKENS,
+      windowTokens: env.LOR_CONTEXT_WINDOW,
+      compactAtTokens: env.LOR_COMPACT_INPUT_TOKENS,
       segments: {
         system: systemTokens,
         tools: toolTokens,

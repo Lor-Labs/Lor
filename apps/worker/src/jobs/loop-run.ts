@@ -1,20 +1,20 @@
 import { and, db, eq, schema, sql } from "@repo/db"
-import { loopRunBriefing } from "@repo/merlin/loop-runs"
-import { describeLoopSchedule } from "@repo/merlin/loop-schedule"
-import { toRealtimeLoop } from "@repo/merlin/loops"
+import { loopRunBriefing } from "@repo/lor/loop-runs"
+import { describeLoopSchedule } from "@repo/lor/loop-schedule"
+import { toRealtimeLoop } from "@repo/lor/loops"
 import { channelEventContent } from "@repo/messaging"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
 import type {
   LoopRunJobData,
-  MerlinRespondJobData,
+  LorRespondJobData,
 } from "@repo/realtime-types/queues"
 import { channelRoom } from "@repo/realtime-types/rooms"
 import type { Emitter } from "@socket.io/redis-emitter"
 import type { Job, Queue } from "bullmq"
 import type { createClient } from "redis"
 import { logger } from "@/lib/logger"
-import { postMerlinMessage } from "@/lib/merlin-messages"
-import { createMerlinPlan } from "@/lib/merlin-plan"
+import { postLorMessage } from "@/lib/lor-messages"
+import { createLorPlan } from "@/lib/lor-plan"
 import {
   cancelPendingRun,
   runUnattended,
@@ -102,7 +102,7 @@ export async function settleLoopRun(
   emitLoopUpdated(deps.emitter, paused)
   const reason =
     paused.pausedReason === "out_of_credits" ? "out_of_credits" : "failures"
-  await postMerlinMessage(deps, {
+  await postLorMessage(deps, {
     channelId: paused.channelId,
     content: channelEventContent({
       eventType: "loop_paused",
@@ -125,7 +125,7 @@ export async function settleLoopRun(
 export function createLoopRunProcessor(
   emitter: Emitter<ServerToClientEvents>,
   redis: RedisClient,
-  respondQueue: Queue<MerlinRespondJobData>
+  respondQueue: Queue<LorRespondJobData>
 ) {
   return async (job: Job<LoopRunJobData>) => {
     const { runId, loopId } = job.data
@@ -173,7 +173,7 @@ export function createLoopRunProcessor(
     // for still-queued runs — a job retry after the run started would
     // otherwise post a duplicate chip.
     if (loop.cardMessageId && run.state === "queued") {
-      await postMerlinMessage(
+      await postLorMessage(
         { emitter, redis },
         {
           channelId: run.channelId,
@@ -205,12 +205,12 @@ export function createLoopRunProcessor(
             endCondition: loop.endCondition,
           },
           postMessage: (content) =>
-            postMerlinMessage(
+            postLorMessage(
               { emitter, redis },
               { channelId: run.channelId, content }
             ),
           createPlan: ({ title, goal }) =>
-            createMerlinPlan(
+            createLorPlan(
               { emitter, redis, respondQueue },
               {
                 workspaceId: run.workspaceId,
@@ -246,13 +246,13 @@ export function createLoopRunProcessor(
                   "Loop completed by complete_loop"
                 )
                 emitLoopUpdated(emitter, completed)
-                await postMerlinMessage(
+                await postLorMessage(
                   { emitter, redis },
                   {
                     channelId: completed.channelId,
                     content: channelEventContent({
                       eventType: "loop_completed",
-                      actorName: "Merlin",
+                      actorName: "Lor",
                       loopName: completed.name,
                     }),
                     type: "event",

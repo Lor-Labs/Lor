@@ -1,4 +1,4 @@
-import { and, count, db, eq, MERLIN_USER_ID, ne, schema } from "@repo/db"
+import { and, count, db, eq, LOR_USER_ID, ne, schema } from "@repo/db"
 import { createLogger } from "@repo/logger"
 import { getAutumn } from "./client"
 import { CREDITS_FEATURE_ID, CREDITS_PER_SEAT, PRO_PLAN_ID } from "./constants"
@@ -12,7 +12,7 @@ export async function countSeats(workspaceId: string): Promise<number> {
     .where(
       and(
         eq(schema.workspaceMember.workspaceId, workspaceId),
-        ne(schema.workspaceMember.userId, MERLIN_USER_ID)
+        ne(schema.workspaceMember.userId, LOR_USER_ID)
       )
     )
   return rows[0]?.value ?? 0

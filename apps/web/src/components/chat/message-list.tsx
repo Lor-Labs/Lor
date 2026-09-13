@@ -233,7 +233,7 @@ export function MessageList({
     (userId: string) => userNameById.get(userId),
     [userNameById]
   )
-  const pendingMerlinMessage = messages.find(
+  const pendingLorMessage = messages.find(
     (message) => message.status === "pending"
   )
   const contentVersion = `${messages.length}:${messages[0]?.id ?? ""}:${messages.at(-1)?.id ?? ""}`
@@ -469,14 +469,14 @@ export function MessageList({
         <MessageScrollerViewport
           ref={scrollRef}
           onScroll={handleScroll}
-          reconcileFollowOutput={Boolean(pendingMerlinMessage)}
+          reconcileFollowOutput={Boolean(pendingLorMessage)}
           onPointerDown={handleReaderPointerDown}
           data-message-scroll
           aria-label={`${context.name} messages`}
           className="select-text"
         >
           <MessageScrollerContent
-            aria-busy={Boolean(pendingMerlinMessage)}
+            aria-busy={Boolean(pendingLorMessage)}
             className={`relative justify-end pb-4 ${hasOlder ? "pt-16" : "pt-4"}`}
           >
             {orderedMessages.map((msg, i) => {
@@ -601,7 +601,7 @@ export function MessageList({
         <MessageScrollerJumpToLatest
           newestMessageId={messages[0]?.id ?? null}
           viewportRef={scrollRef}
-          isMerlinResponding={Boolean(pendingMerlinMessage)}
+          isLorResponding={Boolean(pendingLorMessage)}
           pendingCount={pendingCount}
           hasUnloadedNewer={Boolean(hasNewer)}
           onJumpToPresent={onJumpToPresent}

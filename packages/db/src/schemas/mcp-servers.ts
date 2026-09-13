@@ -18,7 +18,7 @@ import { workspace } from "./workspaces"
 // A remote MCP server the workspace connected over Streamable HTTP.
 // Unlike custom_tool rows, the server owns its live tool list
 // and schemas; `enabledTools` is the workspace's allowlist over it so an
-// upstream tool addition can't silently widen Merlin's surface. Sessions are
+// upstream tool addition can't silently widen Lor's surface. Sessions are
 // created per respond() call (the datadogMcpTools pattern, generalized).
 // See reference/automation-primitives.md §4.
 export const mcpServerAuthModeEnum = pgEnum("mcp_server_auth_mode", [
@@ -59,7 +59,7 @@ export const mcpServer = pgTable(
     name: text("name").notNull(),
     // Workspace context the vendor's tool descriptions can't know ("our
     // production Postgres — use for signup/usage questions"); injected into
-    // Merlin's system prompt next to the server name.
+    // Lor's system prompt next to the server name.
     description: text("description").notNull().default(""),
     // https Streamable HTTP endpoint; same SSRF stance as custom tools,
     // checked at create AND connect time.
@@ -79,7 +79,7 @@ export const mcpServer = pgTable(
     headers: jsonb("headers").$type<Record<string, string>>().notNull(),
     // Secret name → AES-256-GCM ciphertext, write-only through the API.
     secrets: jsonb("secrets").$type<Record<string, string>>().notNull(),
-    // Allowlist of server tool names Merlin may bind. Empty = none.
+    // Allowlist of server tool names Lor may bind. Empty = none.
     enabledTools: text("enabled_tools").array().notNull().default([]),
   },
   (table) => [

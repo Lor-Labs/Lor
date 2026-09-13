@@ -5,21 +5,21 @@ import {
   inArray,
   isNotNull,
   isNull,
+  LOR_USER_ID,
   lt,
-  MERLIN_USER_ID,
   notExists,
   or,
   schema,
 } from "@repo/db"
 import { env } from "@repo/env/server"
-import { openActWindow, releaseActRunDeliveries } from "@repo/merlin/act-runs"
-import { settleAbandonedRunPlan, toRealtimePlan } from "@repo/merlin/plans"
+import { openActWindow, releaseActRunDeliveries } from "@repo/lor/act-runs"
+import { settleAbandonedRunPlan, toRealtimePlan } from "@repo/lor/plans"
 import { loadThreadSummary } from "@repo/messaging"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
 import {
   ACT_FLUSH_JOB,
   type ActFlushJobData,
-  type MerlinRespondJobData,
+  type LorRespondJobData,
   type TriggeredRunJobData,
 } from "@repo/realtime-types/queues"
 import { channelRoom, threadRoom } from "@repo/realtime-types/rooms"
@@ -74,9 +74,9 @@ export async function pruneRunEvents(): Promise<void> {
 // its stuck pending placeholder.
 export async function sweepDeadRuns(
   emitter: Emitter<ServerToClientEvents>,
-  // For the loop-settlement channel note (auto-pause posts as Merlin).
+  // For the loop-settlement channel note (auto-pause posts as Lor).
   redis: ReturnType<typeof createClient>,
-  respondQueue: Queue<MerlinRespondJobData>,
+  respondQueue: Queue<LorRespondJobData>,
   // Triggered runs hand their claimed deliveries back through this queue.
   triggeredQueue: Queue<TriggeredRunJobData | ActFlushJobData>
 ): Promise<void> {
@@ -269,7 +269,7 @@ export async function sweepOrphanedPlaceholders(
     .set({ status: "failed", content: DEAD_RUN_MESSAGE })
     .where(
       and(
-        eq(schema.message.authorId, MERLIN_USER_ID),
+        eq(schema.message.authorId, LOR_USER_ID),
         eq(schema.message.status, "pending"),
         lt(schema.message.createdAt, cutoff),
         notExists(
@@ -324,5 +324,5 @@ export async function sweepOrphanedPlaceholders(
     }
   }
   if (orphans.length)
-    logger.warn({ count: orphans.length }, "Swept orphaned Merlin placeholders")
+    logger.warn({ count: orphans.length }, "Swept orphaned Lor placeholders")
 }

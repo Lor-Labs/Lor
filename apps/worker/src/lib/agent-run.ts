@@ -10,8 +10,8 @@ import {
   inArray,
   isNotNull,
   isNull,
+  LOR_USER_ID,
   lt,
-  MERLIN_USER_ID,
   ne,
   notExists,
   notInArray,
@@ -21,9 +21,9 @@ import {
 } from "@repo/db"
 import type {
   AgentRunContext,
-  MerlinMemory,
-  MerlinReasoningSegment,
-  MerlinToolCall,
+  LorMemory,
+  LorReasoningSegment,
+  LorToolCall,
 } from "@repo/db/schema"
 import {
   buildInitialUserMessage,
@@ -37,7 +37,7 @@ import {
   type RunStepRecord,
   type UsageEvent,
   userDisplayName,
-} from "@repo/merlin"
+} from "@repo/lor"
 import { logger } from "@/lib/logger"
 import { replayContinuedPrefix } from "@/lib/run-continuation"
 import { createRunEventWriter, type RunEventWriter } from "@/lib/run-events"
@@ -87,10 +87,10 @@ export class LeaseLostError extends Error {
 // keeps (and keeps persisting) the tool calls/reasoning streamed before the
 // crash, not just its own.
 export type RunTrailSeed = {
-  toolCalls: MerlinToolCall[]
+  toolCalls: LorToolCall[]
   reasoning: string
-  reasoningSegments: MerlinReasoningSegment[]
-  remembered: MerlinMemory[]
+  reasoningSegments: LorReasoningSegment[]
+  remembered: LorMemory[]
   nextOrder: number
 }
 
@@ -643,7 +643,7 @@ export async function claimAgentRun(
         and(
           scopeCond,
           gt(schema.message.createdAt, conversationSeenAt),
-          ne(schema.message.authorId, MERLIN_USER_ID),
+          ne(schema.message.authorId, LOR_USER_ID),
           or(
             isNotNull(schema.message.content),
             sql`jsonb_array_length(coalesce(${schema.message.attachments}, '[]'::jsonb)) > 0`

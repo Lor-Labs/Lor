@@ -6,17 +6,17 @@
 
 ## Thesis
 
-A Playbook is Lor's versioned definition of an outcome Merlin knows how to own
+A Playbook is Lor's versioned definition of an outcome Lor knows how to own
 for the team.
 
 It should be a thin orchestration layer over Lor's existing primitives, not a
 new execution engine or a rigid workflow builder. Its job is to organize
 triggers, tools, permissions, context and execution primitives into one reusable
-capability that Merlin can propose, execute and improve.
+capability that Lor can propose, execute and improve.
 
 The desired product feeling is not "the user built a workflow." It is:
 
-> Merlin noticed how our team works, proposed a way to take some of that work
+> Lor noticed how our team works, proposed a way to take some of that work
 > over, safely configured itself after we approved it, and got better when we
 > corrected it.
 
@@ -25,19 +25,19 @@ The desired product feeling is not "the user built a workflow." It is:
 | Primitive | Responsibility |
 |---|---|
 | Trigger or Loop | When should something begin? |
-| Playbook | What outcome should Merlin own, and under what constraints? |
+| Playbook | What outcome should Lor own, and under what constraints? |
 | Task | One instance of that outcome being pursued |
 | Agent Run | One execution attempt within the Task |
-| Tools | What can Merlin do? |
-| Approval policies | What authority does Merlin have? |
+| Tools | What can Lor do? |
+| Approval policies | What authority does Lor have? |
 | Channel | Where does the team observe and participate? |
 | Artifacts | What did the work produce? |
-| Change proposal | How can Merlin safely update the configuration? |
+| Change proposal | How can Lor safely update the configuration? |
 
 Example:
 
 > A Sentry webhook invokes the Incident Response Playbook. Lor creates an
-> investigation Task in `#health`. Merlin performs Runs using Sentry and GitHub
+> investigation Task in `#health`. Lor performs Runs using Sentry and GitHub
 > tools, stops at configured engineering approval gates, and produces an
 > investigation artifact and possibly a draft pull request.
 
@@ -59,7 +59,7 @@ already has. A small durable model is still required so Lor can:
 - record which version produced a Task, Run and artifact.
 
 Without that identity, the same behavior remains duplicated across Loop
-instructions, webhook instructions, Task goals and tool settings. Merlin could
+instructions, webhook instructions, Task goals and tool settings. Lor could
 suggest edits to those pieces, but it could not coherently say "I can learn,
 run and improve this process."
 
@@ -105,13 +105,13 @@ The structured fields should describe intent and boundaries:
 - where the work should be visible.
 
 The execution instructions can remain flexible and goal-oriented. Do not begin
-with a BPMN/Zapier-style graph of mandatory steps. Merlin should be free to
+with a BPMN/Zapier-style graph of mandatory steps. Lor should be free to
 determine the appropriate steps for a particular execution while staying
 inside the Playbook's contract.
 
 ## Relationship to Loops and event triggers
 
-Today a Loop or event trigger can own both **when** Merlin runs and **what** it
+Today a Loop or event trigger can own both **when** Lor runs and **what** it
 should do. A Playbook creates a useful separation:
 
 - the trigger owns **when**;
@@ -129,19 +129,19 @@ behind Playbook references when the model has proven useful.
 ## The self-evolving loop
 
 1. Lor observes several similar completed Tasks and Runs.
-2. Merlin identifies the common outcome, tools, corrections, decisions and
+2. Lor identifies the common outcome, tools, corrections, decisions and
    human handoffs.
-3. Merlin proposes taking the work over and cites the prior examples as
+3. Lor proposes taking the work over and cites the prior examples as
    evidence.
 4. The proposal shows the Playbook and any workspace changes required to make
    it possible: tool grants, approval rules, triggers, channels, webhooks or
    instructions.
 5. The team edits, tests and approves the proposal.
 6. Future activations execute publicly through the normal Task and Run system.
-7. Merlin compares actual executions with the active version and proposes an
+7. Lor compares actual executions with the active version and proposes an
    update when the team corrects it or a better configuration becomes clear.
 
-Merlin must never silently widen its authority or change active behavior.
+Lor must never silently widen its authority or change active behavior.
 Learning produces a versioned proposal, not an immediate mutation.
 
 ## Intended UX
@@ -157,8 +157,8 @@ builder:
 
 The proposal should answer:
 
-- Why is Merlin suggesting this? Link to the prior work.
-- What outcome will Merlin own?
+- Why is Lor suggesting this? Link to the prior work.
+- What outcome will Lor own?
 - What will happen when it activates?
 - What workspace configuration will be added or changed?
 - What new access is required?
@@ -180,7 +180,7 @@ Self-configuration should be split into two levels.
 
 ### Early: configure existing primitives
 
-Merlin can propose a versioned change set that creates or updates supported
+Lor can propose a versioned change set that creates or updates supported
 resources:
 
 - a Playbook;
@@ -196,7 +196,7 @@ workspace instructions.
 
 ### Later: create new primitives
 
-When the existing workspace cannot accomplish the outcome, Merlin can propose
+When the existing workspace cannot accomplish the outcome, Lor can propose
 new custom tools, MCP integrations, generated connectors, specialist agents or
 other software. These additions still enter the workspace through the same
 versioned proposal, permission and approval system.
@@ -204,7 +204,7 @@ versioned proposal, permission and approval system.
 ## Recommended implementation order
 
 1. Enforce permission and approval policies at the tool/action layer. Approval
-   must be execution physics, not something Merlin remembers to request.
+   must be execution physics, not something Lor remembers to request.
 2. Generalize versioned workspace change proposals enough to safely create or
    update existing configuration primitives.
 3. Define the thin Playbook identity/version contract and link executions to an
@@ -226,12 +226,12 @@ Incident response is a strong test because it exercises the multiplayer and
 authority model rather than merely replaying a personal task:
 
 1. Similar production errors have been investigated several times.
-2. Merlin proposes an Incident Response Playbook and cites those investigations.
+2. Lor proposes an Incident Response Playbook and cites those investigations.
 3. The proposal configures the existing error trigger, `#health`, Sentry and
    GitHub access, the investigation outcome, and the engineering approval rule.
 4. The team runs a test event and watches the resulting Task.
 5. After activation, an error starts the Playbook automatically.
-6. Merlin investigates, creates artifacts or a draft PR, and asks the correct
+6. Lor investigates, creates artifacts or a draft PR, and asks the correct
    person before any approval-gated action.
 7. Corrections made during the Task become evidence for a proposed new version.
 
@@ -248,7 +248,7 @@ authority model rather than merely replaying a personal task:
 - Does activation require a successful test Run?
 - How are tool permissions snapshotted so an in-flight execution cannot gain
   authority from a later configuration edit?
-- What evidence threshold is required before Merlin proactively suggests a
+- What evidence threshold is required before Lor proactively suggests a
   Playbook?
 - How should the team distinguish a correction for one execution from a
   durable correction to the Playbook?

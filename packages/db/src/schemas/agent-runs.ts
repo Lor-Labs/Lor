@@ -16,7 +16,7 @@ import { approval } from "./approvals"
 import { channel } from "./channels"
 import { connectorTrigger } from "./connector-triggers"
 import { loop } from "./loops"
-import type { MerlinToolCall } from "./messages"
+import type { LorToolCall } from "./messages"
 import { message } from "./messages"
 import type { PlanStatus, PlanStep } from "./plans"
 import { triggerDelivery } from "./trigger-deliveries"
@@ -73,7 +73,7 @@ export const agentRun = pgTable(
     // The placeholder message the run streams into — also the client's handle
     // for replay (clients know the message id, not the run id, on load). Null
     // for headless triggered runs (Act effect), which have no channel message
-    // unless Merlin posts one itself. See reference/automation-primitives.md §2.
+    // unless Lor posts one itself. See reference/automation-primitives.md §2.
     messageId: uuid("message_id").references(() => message.id, {
       onDelete: "cascade",
     }),
@@ -284,7 +284,7 @@ export const agentRunQueue = pgTable(
 // Append-only transcript: one row per completed model/tool step, holding the
 // ModelMessages that step added. Recovery rebuilds the request as step-0
 // context + rows 1..agent_run.steps. Typed as unknown[] because @repo/db
-// cannot depend on the ai package; @repo/merlin owns the real ModelMessage
+// cannot depend on the ai package; @repo/lor owns the real ModelMessage
 // shape on both write and read.
 export const agentRunStep = pgTable(
   "agent_run_step",
@@ -377,7 +377,7 @@ export const agentRunEventRelations = relations(agentRunEvent, ({ one }) => ({
   }),
 }))
 
-// Snapshot of the inputs to the initial model request. Mirrors @repo/merlin's
+// Snapshot of the inputs to the initial model request. Mirrors @repo/lor's
 // ConversationTurn structurally; kept here because the column type lives with
 // the table.
 export type AgentRunContextImage = {
@@ -447,7 +447,7 @@ export type AgentRunContext = {
   coveredMessageIds?: string[]
 }
 
-// Written by @repo/merlin at compaction time (see compaction.ts). summary is
+// Written by @repo/lor at compaction time (see compaction.ts). summary is
 // the rolling working notes — the next run in this scope seeds its compactor
 // with it so facts merge forward instead of being rebuilt from a clipped
 // digest. baselineMessages are ModelMessages, typed unknown[] for the same
@@ -473,7 +473,7 @@ export type AgentRunEventKind =
 export type AgentRunEventPayload =
   | { kind: "text"; delta: string; replace?: boolean }
   | { kind: "reasoning"; delta: string; at: number; order: number }
-  | { kind: "tool"; toolCall: MerlinToolCall }
+  | { kind: "tool"; toolCall: LorToolCall }
   | {
       kind: "memory"
       path: string

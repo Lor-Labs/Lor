@@ -4,12 +4,12 @@ Status legend: `[ ]` todo · `[x]` done. Update checkboxes as steps land, and
 append to the **Decisions & deviations log** at the bottom when reality forces
 a change — this document is the source of truth across agent runs.
 
-Product context: pillar 3 of `reference/self-configuration.md`. Merlin can
+Product context: pillar 3 of `reference/self-configuration.md`. Lor can
 already be *gated* (LOR-81 approval policies) and authority is a real object
-(LOR-57/82 custom roles). This pillar gives Merlin the one sanctioned way to
+(LOR-57/82 custom roles). This pillar gives Lor the one sanctioned way to
 change the workspace itself: a **reviewable change set** — typed operations, a
 rationale, evidence — that a human approves and the system applies atomically.
-Merlin never silently widens its own authority; everything applied is
+Lor never silently widens its own authority; everything applied is
 versioned and attributable. Playbooks build on this later
 (`reference/playbooks.md`).
 
@@ -26,8 +26,8 @@ Two proposal patterns already work in production shape:
   gated `instructions: ["approve"]`; activation is just flipping the row —
   injection reads the active row lazily. `ProposalRaceError` rolls back the
   supersede if the pending row was resolved concurrently.
-- **`propose_loop`** (the draft-row pattern, `packages/merlin/src/loops.ts:120`
-  → `apps/worker/src/lib/merlin-loop.ts:23`): the tool validates, the executor
+- **`propose_loop`** (the draft-row pattern, `packages/lor/src/loops.ts:120`
+  → `apps/worker/src/lib/lor-loop.ts:23`): the tool validates, the executor
   posts a `loop_card` message THEN inserts the `draft` loop row (card-message
   FK + compensation delete on failure), human presses **Create Loop** →
   CAS activate (`loops/handlers.ts:143`, `where status = 'draft'`), with a 422
@@ -47,7 +47,7 @@ inline in Hono route handlers; there is no HTTP-free service layer**:
 | Workspace role | **client-side better-auth only** (`roles-section.tsx:106`) | no server-side creation path exists |
 | Approval policy | `approval-policies/handlers.ts:90` | upsert by (workspaceId, target) |
 
-Merlin tools that already mutate Lor config: `propose_instructions`,
+Lor tools that already mutate Lor config: `propose_instructions`,
 `propose_loop`, `create_task`, `set_plan`/`complete_task`, `request_approval`,
 `complete_loop`, brain writes, `react_to_message`, `post_channel_message`
 (full list with lines: tool-guard census `tool-guard.ts:12`).
@@ -62,15 +62,15 @@ web/mobile card renderers; `instructions:proposal` socket event +
 | Topic | Proposal |
 |---|---|
 | Object shape | Two tables. `change_proposal`: workspace, channelId + cardMessageId (the card is the surface, like loops), author (user\|agent + userId), rationale, evidence (message/task/run ids), status `pending\|approved\|rejected\|applied\|failed`, resolvedBy/At, appliedAt. `change_proposal_operation`: proposalId, position, `kind` enum, typed `spec` jsonb (discriminated union in `@repo/proposals` — typed, never a free bag), `result` (created resource id after apply), per-op error text on failure. |
-| Op vocabulary v1 | `create_channel` · `create_webhook` · `set_trigger` (connector event → channel routing incl. effects) · `create_loop` · `update_loop` (edit an existing loop's name/instructions/schedule) · `update_instructions` (full content, like today) · `create_agent_profile` · `assign_channel_profile` · `create_custom_tool` · `create_mcp_server` · `set_approval_policy` (**upsert only, never delete** — Merlin may propose gating a tool/action, especially one it is proposing to create, when the user asks; it never proposes loosening a gate). **Deferred: roles (no server-side creation path), deleting anything, generic updates beyond loops.** |
-| Custom tool / MCP wrinkles | Proposed custom tools are researched first — the prompt directs Merlin to verify the target API (endpoint, method, body shape) via web search before proposing, and the card shows the full template. **Secrets are collected from the approver at approve time, never through Merlin**: the op declares `requiredSecrets` (names its template references), the card renders a password field per name, values ride the approve request and are encrypted into the tool row inside the apply transaction — never stored on the proposal, never echoed, never model-visible. The approver may skip → tool created with empty secrets + a persistent "finish setup in Settings → Tools" chip on the card. MCP servers: apply creates the row in its existing not-yet-authorized state; the applied card pings the approver with a Connect button into the existing OAuth flow; deferring is fine (row sits inactive, chip stays). |
-| Post-apply code integration | Approving a proposal posts a resolution message into the card's thread as the approver (mirrors task-approval resolution), carrying the apply results — incl. values that only exist after apply, like the webhook URL. That reply triggers Merlin's normal thread continuation, where the prompt directs it to finish codebase integration via `investigate_code` / `propose_code_change` (e.g. PR wiring the webhook URL into the user's repo). Existing `code_actions` capability + approval gates apply unchanged. Reused for onboarding later (Jacob). |
+| Op vocabulary v1 | `create_channel` · `create_webhook` · `set_trigger` (connector event → channel routing incl. effects) · `create_loop` · `update_loop` (edit an existing loop's name/instructions/schedule) · `update_instructions` (full content, like today) · `create_agent_profile` · `assign_channel_profile` · `create_custom_tool` · `create_mcp_server` · `set_approval_policy` (**upsert only, never delete** — Lor may propose gating a tool/action, especially one it is proposing to create, when the user asks; it never proposes loosening a gate). **Deferred: roles (no server-side creation path), deleting anything, generic updates beyond loops.** |
+| Custom tool / MCP wrinkles | Proposed custom tools are researched first — the prompt directs Lor to verify the target API (endpoint, method, body shape) via web search before proposing, and the card shows the full template. **Secrets are collected from the approver at approve time, never through Lor**: the op declares `requiredSecrets` (names its template references), the card renders a password field per name, values ride the approve request and are encrypted into the tool row inside the apply transaction — never stored on the proposal, never echoed, never model-visible. The approver may skip → tool created with empty secrets + a persistent "finish setup in Settings → Tools" chip on the card. MCP servers: apply creates the row in its existing not-yet-authorized state; the applied card pings the approver with a Connect button into the existing OAuth flow; deferring is fine (row sits inactive, chip stays). |
+| Post-apply code integration | Approving a proposal posts a resolution message into the card's thread as the approver (mirrors task-approval resolution), carrying the apply results — incl. values that only exist after apply, like the webhook URL. That reply triggers Lor's normal thread continuation, where the prompt directs it to finish codebase integration via `investigate_code` / `propose_code_change` (e.g. PR wiring the webhook URL into the user's repo). Existing `code_actions` capability + approval gates apply unchanged. Reused for onboarding later (Jacob). |
 | Who approves | The approver's authority must cover **every** operation in the set — the union of the per-resource manage permissions the ops touch (channel:create, webhook:manage, connector:manage, agentProfile:manage, instructions:update). All-or-nothing gate on the person, not fragmented partial approval. Owner/admin always qualify. No new permission statement. |
 | Apply semantics | One DB transaction, all ops or none. Every op re-validates at apply time exactly like its handler does today (name collisions, ownership, caps, content rules). On any failure: transaction rolls back, proposal → `failed` with the failing op's error, nothing half-applied. The approve endpoint applies inline (the approver's request context) — no worker hop. |
-| Partial approval / editing | Neither, in v1. Approve all, or reject with a note — Merlin revises and files a new proposal (supersede semantics like instructions: one pending proposal per channel scope). Editing ops in the UI is a later layer. |
+| Partial approval / editing | Neither, in v1. Approve all, or reject with a note — Lor revises and files a new proposal (supersede semantics like instructions: one pending proposal per channel scope). Editing ops in the UI is a later layer. |
 | Rollback v1 | Provenance only: each op records what it created/changed (ids, prior values where cheap). No automated rollback path yet — undo is manual through the normal UI, findable because everything is attributed. First-class rollback arrives with Playbooks. |
 | Instructions overlap | An `update_instructions` op applies directly on proposal approval (one human approval, not two) — it writes the new active version through the same transaction/CAS logic as the human PUT. The standalone instructions flow stays for standalone use. Jacob: LOR.md changes should be rare (it shapes every channel) — the capability exists, the prompt should treat it as a last resort. |
-| Merlin surface | New `propose_workspace_change` tool (conversational runs, like propose_loop): typed op list + rationale + evidence. Executor posts a `proposal_card` message then inserts the rows (loop-card ordering + compensation). Prompt rule: workspace config changes go through a proposal, never piecemeal tools. |
+| Lor surface | New `propose_workspace_change` tool (conversational runs, like propose_loop): typed op list + rationale + evidence. Executor posts a `proposal_card` message then inserts the rows (loop-card ordering + compensation). Prompt rule: workspace config changes go through a proposal, never piecemeal tools. |
 | Apply engine home | `apps/api/src/lib/change-proposals/` — per-op appliers extracted from (or shared with) the existing handlers, so route behavior and proposal behavior can't drift. Extraction is the bulk of P2's work. |
 | Notifications | Reuse the LOR-83 shape: card in channel (ambient), user-targeted socket + offline push to people whose authority covers the proposal (bounded set: owner + admins + qualifying custom roles). Requester-first/escalation NOT needed here — proposals are not blocking a parked run. |
 
@@ -99,7 +99,7 @@ checked and the decisions table above is locked.
 **As built.** Vocabulary lives IN `packages/db/src/schemas/change-proposals.ts`
 alongside the tables (Jacob folded the short-lived `@repo/proposals` package —
 db already carries domain validation per the workspace-instructions precedent,
-and api/merlin already depend on db):
+and api/lor already depend on db):
 `changeOperationSchema` (11 kinds), `resourceRefSchema`
 (existing-id | created-at-op-position), `proposalEvidenceSchema`,
 `OperationResult`, `proposalPermissions()` (statement union; loop ops map to
@@ -127,7 +127,7 @@ tables, `change_proposal_status` + `change_proposal_author` +
   where needed: channel create, webhook create, trigger upsert, profile
   create/assign, instructions activate, loop create/update reusing the
   draft+activate semantics, custom tool create sharing the SSRF/template
-  validators from `packages/merlin/src/custom-tools.ts` with an EMPTY secrets
+  validators from `packages/lor/src/custom-tools.ts` with an EMPTY secrets
   map, MCP server create sharing the mcp-servers route validation, approval
   policy upsert sharing the approval-policies handler validation).
 - POST approve: authority-union check first statement; request body may carry
@@ -136,7 +136,7 @@ tables, `change_proposal_status` + `change_proposal_author` +
   never persisted on the proposal); single transaction over all ops;
   provenance written per op; proposal → `applied`; resolution message posted
   into the card thread as the approver with the apply results (webhook URL,
-  created ids) — this is also what triggers Merlin's follow-up continuation;
+  created ids) — this is also what triggers Lor's follow-up continuation;
   failure path → `failed` + per-op error; socket emit `proposal:updated`.
 
 **As built.** `apps/api/src/lib/change-proposals.ts`: one `applyOperation`
@@ -154,14 +154,14 @@ step, no 422 round-trip). Approver secrets: `approve` body carries
 `secrets[position][name]` (validated against the op's declared names, 400
 otherwise), encrypted in-tx, never persisted elsewhere. Failure path: tx rolls
 back, proposal → `failed` + `resolutionNote`, failing op row gets `error`, and
-the failure is posted into the card thread (which triggers Merlin's revision
+the failure is posted into the card thread (which triggers Lor's revision
 continuation) — success posts "Approved and applied…" with per-op
 `operationSummary` lines incl. the webhook URL and setup notes, then the same
 continuation. `authorizeResolution` shared by approve/reject (floor +
 authority union), CAS pending→approved/rejected, `proposal:updated` emitted to
 the channel room (realtime-types event added).
 
-### [x] P3 — merlin tool + card + notify (~400 LOC) — built 2026-09-03
+### [x] P3 — lor tool + card + notify (~400 LOC) — built 2026-09-03
 
 - `propose_workspace_change` tool (typed ops input mirrored from
   `packages/proposals`), conversational binding, SIDE_EFFECT_TOOLS entry,
@@ -173,7 +173,7 @@ the channel room (realtime-types event added).
   integration via code tools (PR) when the change needs it; LOR.md ops are a
   last resort.
 
-**As built.** `packages/merlin/src/proposals.ts`: `propose_workspace_change`
+**As built.** `packages/lor/src/proposals.ts`: `propose_workspace_change`
 (input = rationale + evidence + the shared `changeOperationSchema` array,
 max 15 ops; `refIssue()` statically rejects forward/wrong-kind `created` refs
 so the model gets a fixable error, not a dead card). Bound conversational-only
@@ -195,8 +195,8 @@ only owner+admins are pinged, the card's normal message fanout covers the
 channel), each gets a user-room `notification:proposal` socket event
 (web OS notification lands in P4) and `sendProposalPush` covers the offline
 complement (packages/messaging; deep-links via the message target).
-Wired in merlin-respond next to proposeLoop; `postMerlinMessage` accepts the
-new card type; merlin gained the `./proposals` export.
+Wired in lor-respond next to proposeLoop; `postLorMessage` accepts the
+new card type; lor gained the `./proposals` export.
 
 ### [x] P4 — web surfaces (built 2026-09-04)
 
@@ -213,7 +213,7 @@ new card type; merlin gained the `./proposals` export.
   the sidebar cache, created-refs labeled "(new)" via the proposal's own
   ops), rationale, url-evidence chips, LOR.md content in a scrollable block,
   password inputs per declared requiredSecrets (optional — skipping leaves a
-  setup chip), Approve / Reject-with-note (the note is what Merlin revises
+  setup chip), Approve / Reject-with-note (the note is what Lor revises
   against), terminal states: applied (per-op provenance — channel link,
   copyable webhook URL, amber setupNote chips incl. MCP OAuth), failed
   (per-op error + resolutionNote), rejected (note, dimmed). Non-resolvers see
@@ -224,7 +224,7 @@ new card type; merlin gained the `./proposals` export.
   contract as approvals).
 - 2026-09-05 — live thread footers for server-posted replies: `loadThreadSummary`
   moved from apps/realtime into `@repo/messaging`; the API's scope-run paths
-  (postScopeMessage resolutions, Merlin placeholder create/retract) now emit
+  (postScopeMessage resolutions, Lor placeholder create/retract) now emit
   `message:thread:updated` to the channel room, so proposal/task card reply
   footers update without a reload. Card polish same day: header checkmark on
   applied removed; sources render as favicon badges (via /v1/favicon proxy,
@@ -243,7 +243,7 @@ new card type; merlin gained the `./proposals` export.
   `channel:created` workspace-room event added (emitted by the regular
   create-channel handler AND `announceCreatedChannels` post-apply) with a
   `useChannelCreated` sidebar listener; each proposal-created channel also
-  gets a Merlin context message via `postBotMessage`, which lights it unread
+  gets a Lor context message via `postBotMessage`, which lights it unread
   through the normal fanout. Mobile channel:created listener deferred to P5.
 
 ### [x] P5 — mobile (built 2026-09-05)
@@ -279,7 +279,7 @@ mid-set failure atomicity, authority-union denial, provenance links.
 - 2026-09-03 — Jacob refinements locked: approver-supplied secrets at approve
   time (assistant never sees them; skip allowed → empty secrets + setup chip);
   MCP OAuth = pause-and-ping via the applied card's Connect button, deferring
-  fine; post-apply resolution message triggers Merlin's continuation so it can
+  fine; post-apply resolution message triggers Lor's continuation so it can
   open integration PRs via the existing code tools (also the onboarding
   pattern later).
 - 2026-09-02 — Decisions LOCKED by Jacob: scope v1 additionally includes

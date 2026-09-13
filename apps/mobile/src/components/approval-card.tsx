@@ -53,7 +53,7 @@ export function ApprovalGateCard({
   return (
     <View className="gap-two rounded-lor-sm bg-warning-soft p-three">
       <Text className="text-sm font-semibold text-foreground">
-        Merlin asks for approval
+        Lor asks for approval
       </Text>
       <Text className="text-sm leading-5 text-muted">
         {approval.description}
@@ -91,7 +91,7 @@ export function ApprovalGateCard({
 }
 
 // The gate card under a parked run's own message (channel or thread scope).
-// Mounted only on Merlin run replies; renders nothing unless this message's
+// Mounted only on Lor run replies; renders nothing unless this message's
 // run parked on a pending approval.
 export function MessageApprovalCard({
   channelId,

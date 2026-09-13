@@ -1,7 +1,7 @@
 import { z } from "@hono/zod-openapi"
 import {
   integrationProviderEnum,
-  merlinCapabilityEnum,
+  lorCapabilityEnum,
   selectAgentProfileSchema,
 } from "@repo/db/schema"
 
@@ -19,7 +19,7 @@ export const agentProfileIdParamsSchema =
       .openapi({ param: { name: "profileId", in: "path", required: true } }),
   })
 
-const capabilitySchema = z.enum(merlinCapabilityEnum.enumValues)
+const capabilitySchema = z.enum(lorCapabilityEnum.enumValues)
 
 export const agentProfileSchema = selectAgentProfileSchema
   .pick({

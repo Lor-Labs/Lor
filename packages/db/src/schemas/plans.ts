@@ -15,7 +15,7 @@ import { message } from "./messages"
 import { user } from "./users"
 import { workspace } from "./workspaces"
 
-// A plan: a delegated outcome Merlin works toward across a chain of
+// A plan: a delegated outcome Lor works toward across a chain of
 // agent runs. The plan anchors to a thread root, so its conversation scope is
 // that thread — steering, queueing, stop, and replay reuse the thread-scope
 // machinery unchanged. Never `waiting_for_*` while a run is active; approval

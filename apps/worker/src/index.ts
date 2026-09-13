@@ -1,6 +1,6 @@
 import { env } from "@repo/env/server"
-import { claimOverdueActWindows } from "@repo/merlin/act-runs"
-import { setRepoCacheStore } from "@repo/merlin/github"
+import { claimOverdueActWindows } from "@repo/lor/act-runs"
+import { setRepoCacheStore } from "@repo/lor/github"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
 import {
   ACT_FLUSH_JOB,
@@ -8,9 +8,9 @@ import {
   AGENT_RUN_STOP_CHANNEL,
   LINK_UNFURL_QUEUE,
   LOOP_RUN_QUEUE,
+  LOR_RESPOND_QUEUE,
   type LoopRunJobData,
-  MERLIN_RESPOND_QUEUE,
-  type MerlinRespondJobData,
+  type LorRespondJobData,
   PROJECT_ARCHIVE_QUEUE,
   type ProjectArchiveJobData,
   TRIGGERED_RUN_QUEUE,
@@ -21,7 +21,7 @@ import { Queue, Worker } from "bullmq"
 import { createClient } from "redis"
 import { createLinkUnfurlProcessor } from "@/jobs/link-unfurl"
 import { createLoopRunProcessor } from "@/jobs/loop-run"
-import { createMerlinRespondProcessor } from "@/jobs/merlin-respond"
+import { createLorRespondProcessor } from "@/jobs/lor-respond"
 import { createProjectArchiveProcessor } from "@/jobs/project-archive"
 import {
   DEAD_RUN_SWEEP_EVERY_MS,
@@ -62,7 +62,7 @@ async function bootstrap() {
   })
   await redisEmitterClient.connect()
 
-  // Back Merlin's GitHub repo-list cache with this Redis client (Merlin has no
+  // Back Lor's GitHub repo-list cache with this Redis client (Lor has no
   // Redis dependency of its own — it just calls this injected store). One GitHub
   // repos call per installation per hour instead of per turn.
   setRepoCacheStore({
@@ -114,23 +114,16 @@ async function bootstrap() {
 
   // Producer handle on the same queue: the completion drain enqueues the
   // follow-up run for messages queued behind an active scope.
-  const merlinRespondQueue = new Queue<MerlinRespondJobData>(
-    MERLIN_RESPOND_QUEUE,
-    {
-      connection: {
-        ...redisOpts,
-        maxRetriesPerRequest: null,
-      },
-    }
-  )
+  const lorRespondQueue = new Queue<LorRespondJobData>(LOR_RESPOND_QUEUE, {
+    connection: {
+      ...redisOpts,
+      maxRetriesPerRequest: null,
+    },
+  })
 
-  const merlinRespondWorker = new Worker(
-    MERLIN_RESPOND_QUEUE,
-    createMerlinRespondProcessor(
-      emitter,
-      redisEmitterClient,
-      merlinRespondQueue
-    ),
+  const lorRespondWorker = new Worker(
+    LOR_RESPOND_QUEUE,
+    createLorRespondProcessor(emitter, redisEmitterClient, lorRespondQueue),
     {
       connection: {
         ...redisOpts,
@@ -140,23 +133,23 @@ async function bootstrap() {
     }
   )
 
-  merlinRespondWorker.on("failed", (job, error) => {
-    logger.error({ jobId: job?.id, err: error }, "Merlin-respond job failed")
+  lorRespondWorker.on("failed", (job, error) => {
+    logger.error({ jobId: job?.id, err: error }, "Lor-respond job failed")
   })
 
-  merlinRespondWorker.on("error", (error) => {
+  lorRespondWorker.on("error", (error) => {
     logger.error(
       {
-        queue: MERLIN_RESPOND_QUEUE,
-        workerId: merlinRespondWorker.id,
+        queue: LOR_RESPOND_QUEUE,
+        workerId: lorRespondWorker.id,
         err: error,
       },
-      "Merlin-respond worker error"
+      "Lor-respond worker error"
     )
   })
 
   // Headless triggered runs (the Act effect). Uses the respond queue as a
-  // producer when Merlin's disposition is create_plan, and its own queue to
+  // producer when Lor's disposition is create_plan, and its own queue to
   // re-arm a coalescing window that's waiting on an in-flight run.
   const triggeredRunQueue = new Queue<TriggeredRunJobData | ActFlushJobData>(
     TRIGGERED_RUN_QUEUE,
@@ -173,7 +166,7 @@ async function bootstrap() {
     createTriggeredRunProcessor(
       emitter,
       redisEmitterClient,
-      merlinRespondQueue,
+      lorRespondQueue,
       triggeredRunQueue
     ),
     {
@@ -212,7 +205,7 @@ async function bootstrap() {
 
   const loopRunWorker = new Worker(
     LOOP_RUN_QUEUE,
-    createLoopRunProcessor(emitter, redisEmitterClient, merlinRespondQueue),
+    createLoopRunProcessor(emitter, redisEmitterClient, lorRespondQueue),
     {
       connection: {
         ...redisOpts,
@@ -279,7 +272,7 @@ async function bootstrap() {
         await sweepDeadRuns(
           emitter,
           redisEmitterClient,
-          merlinRespondQueue,
+          lorRespondQueue,
           triggeredRunQueue
         )
         await sweepOrphanedPlaceholders(emitter)
@@ -343,7 +336,7 @@ async function bootstrap() {
     {
       queues: [
         LINK_UNFURL_QUEUE,
-        MERLIN_RESPOND_QUEUE,
+        LOR_RESPOND_QUEUE,
         TRIGGERED_RUN_QUEUE,
         LOOP_RUN_QUEUE,
         PROJECT_ARCHIVE_QUEUE,
@@ -356,7 +349,7 @@ async function bootstrap() {
   const shutdown = async () => {
     logger.info("Shutting down...")
     await linkUnfurlWorker.close()
-    await merlinRespondWorker.close()
+    await lorRespondWorker.close()
     await triggeredRunWorker.close()
     await loopRunWorker.close()
     await projectArchiveWorker.close()
@@ -366,7 +359,7 @@ async function bootstrap() {
     // Completion drains are fire-and-forget from the processor — finish any
     // in flight before closing the queue they enqueue follow-up runs on.
     await awaitInflightDrains()
-    await merlinRespondQueue.close()
+    await lorRespondQueue.close()
     await triggeredRunQueue.close()
     await loopRunQueue.close()
     await maintenanceQueue.close()

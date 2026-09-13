@@ -31,7 +31,7 @@ type CreateMessageInput = {
   userId: string
   payload: SendMessagePayload
   accessibleChannel: AccessibleChannel
-  // Internal: Merlin's placeholder lands as "pending"; everything else defaults
+  // Internal: Lor's placeholder lands as "pending"; everything else defaults
   // to "complete" via the column default.
   status?: RealtimeMessage["status"]
   // Internal: a plan's card; normal sends derive reply/default.
@@ -496,7 +496,7 @@ export async function createMessage(input: CreateMessageInput) {
 }
 
 // Moved to @repo/messaging so the API/worker's server-side thread posts
-// (scope-run resolutions, Merlin placeholders) emit the same summaries.
+// (scope-run resolutions, Lor placeholders) emit the same summaries.
 export { loadThreadSummary } from "@repo/messaging"
 
 export async function deleteMessage(

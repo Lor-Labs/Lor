@@ -1,4 +1,4 @@
-import { and, db, eq, inArray, MERLIN_USER_ID, or, schema } from "@repo/db"
+import { and, db, eq, inArray, LOR_USER_ID, or, schema } from "@repo/db"
 import {
   type ChannelAudienceInfo,
   resolveChannelAudienceInfo,
@@ -29,7 +29,7 @@ export {
 } from "./mentions"
 export { loadThreadSummary } from "./thread-summary"
 
-// Minimal shapes so both realtime (human send) and worker (Merlin reply) can call this.
+// Minimal shapes so both realtime (human send) and worker (Lor reply) can call this.
 type FanoutChannel = {
   id: string
   workspaceId: string | null
@@ -65,7 +65,7 @@ async function resolveThreadNotificationContext(message: FanoutMessage) {
   if (!threadRootId) {
     return {
       threadRootId: null,
-      isMerlinThread: false,
+      isLorThread: false,
       subscribedUserIds: new Set<string>(),
     }
   }
@@ -94,7 +94,7 @@ async function resolveThreadNotificationContext(message: FanoutMessage) {
 
   return {
     threadRootId,
-    isMerlinThread: subscribedUserIds.has(MERLIN_USER_ID),
+    isLorThread: subscribedUserIds.has(LOR_USER_ID),
     subscribedUserIds,
   }
 }
@@ -489,7 +489,7 @@ export async function buildMessageFanout(input: MessageFanoutInput) {
         workspaceId: input.channel.workspaceId,
         messageId: input.message.id,
         threadRootId: threadContext.threadRootId,
-        isMerlinThread: threadContext.isMerlinThread,
+        isLorThread: threadContext.isLorThread,
         isSubscribedToThread: threadContext.subscribedUserIds.has(userId),
         unreadCountDelta: 1,
         authorUserId: input.authorId,
@@ -636,7 +636,7 @@ export async function buildMessageFanout(input: MessageFanoutInput) {
             channelId: notification.channelId ?? input.channel.id,
             workspaceId: notification.workspaceId ?? input.channel.workspaceId,
             threadRootId: threadContext.threadRootId,
-            isMerlinThread: threadContext.isMerlinThread,
+            isLorThread: threadContext.isLorThread,
             isSubscribedToThread: threadContext.subscribedUserIds.has(
               notification.userId
             ),

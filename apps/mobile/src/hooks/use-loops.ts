@@ -108,7 +108,7 @@ export function useActivateLoop(loop: ChannelLoop | null) {
       if (result.kind === "needs_confirmation") {
         Alert.alert(
           "Frequent schedule",
-          `This loop runs up to ${result.firesPerDay} times a day. Each run uses Merlin credits. Create it anyway?`,
+          `This loop runs up to ${result.firesPerDay} times a day. Each run uses Lor credits. Create it anyway?`,
           [
             { text: "Cancel", style: "cancel" },
             {

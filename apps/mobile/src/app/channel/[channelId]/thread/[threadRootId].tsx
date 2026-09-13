@@ -1,4 +1,4 @@
-import { MERLIN_USER_ID } from "@repo/db/constants"
+import { LOR_USER_ID } from "@repo/db/constants"
 import { router, useLocalSearchParams } from "expo-router"
 import { SymbolView } from "expo-symbols"
 import { useThemeColor } from "heroui-native/hooks"
@@ -35,7 +35,7 @@ import { usePlanForThread } from "@/hooks/use-plans"
 import { useProfileSheet } from "@/hooks/use-profile-sheet"
 import { useChannelProposals } from "@/hooks/use-proposals"
 import { useRunQueue } from "@/hooks/use-run-queue"
-import { useStopMerlinRun } from "@/hooks/use-stop-merlin-run"
+import { useStopLorRun } from "@/hooks/use-stop-lor-run"
 import { useThreadMessages } from "@/hooks/use-thread-messages"
 import { useTypingIndicator } from "@/hooks/use-typing-indicator"
 import { useWorkspaceMentionCandidates } from "@/hooks/use-workspace-mention-candidates"
@@ -47,7 +47,7 @@ export default function ThreadScreen() {
   const [editingMessage, setEditingMessage] = useState<Message | null>(null)
   const [isSavingEdit, setIsSavingEdit] = useState(false)
   const composerMentionRef = useRef<MessageComposerMentionHandle>(null)
-  const { requestStop, stoppingMessageId } = useStopMerlinRun()
+  const { requestStop, stoppingMessageId } = useStopLorRun()
   const foreground = useThemeColor("foreground")
   const socket = useSocket()
   const isSocketConnected = useSocketConnected()
@@ -76,20 +76,20 @@ export default function ThreadScreen() {
   useChannelApprovals(channelId ?? "")
   // A proposal card opened as a thread root reads the same cache.
   useChannelProposals(channelId ?? "")
-  // Messages queued behind the active Merlin run — surfaced above the
+  // Messages queued behind the active Lor run — surfaced above the
   // composer with steer/remove actions while it's working.
-  const pendingMerlinMessage = useMemo(
+  const pendingLorMessage = useMemo(
     () =>
       thread.messages.find((message) => message.status === "pending") ??
       (thread.root?.status === "pending" ? thread.root : undefined),
     [thread.messages, thread.root]
   )
-  const pendingMerlinMessageId = pendingMerlinMessage?.id
+  const pendingLorMessageId = pendingLorMessage?.id
   const { queuedIds, addOptimistic, removeOptimistic } = useRunQueue({
     socket,
     channelId: channelId ?? "",
     threadRootId: threadRootId ?? "",
-    pendingMerlinMessageId,
+    pendingLorMessageId,
   })
   const queuedMessages = useMemo(
     () =>
@@ -139,14 +139,14 @@ export default function ThreadScreen() {
   // A thread is a plan thread iff a plan row anchors to its root — the root
   // message type no longer decides.
   const isPlanThread = !!usePlanForThread(channelId, threadRootId)
-  // Newest Merlin reply with tool calls — the work header's Activity chip.
-  // Shown for any thread where Merlin worked, plan or not (mirrors web).
+  // Newest Lor reply with tool calls — the work header's Activity chip.
+  // Shown for any thread where Lor worked, plan or not (mirrors web).
   const activityMessage = useMemo(
     () =>
       thread.messages.find(
         (message) =>
-          message.authorId === MERLIN_USER_ID &&
-          (message.merlinToolCalls?.length ?? 0) > 0
+          message.authorId === LOR_USER_ID &&
+          (message.lorToolCalls?.length ?? 0) > 0
       ) ?? null,
     [thread.messages]
   )
@@ -168,11 +168,11 @@ export default function ThreadScreen() {
     return [...byUrl.values()]
   }, [isPlanThread, thread.root, thread.messages])
 
-  const stopPendingMerlin = useCallback(async () => {
-    const messageId = pendingMerlinMessage?.id
+  const stopPendingLor = useCallback(async () => {
+    const messageId = pendingLorMessage?.id
     if (!messageId) return
     await requestStop(messageId)
-  }, [pendingMerlinMessage?.id, requestStop])
+  }, [pendingLorMessage?.id, requestStop])
 
   useEffect(() => {
     setReplyingTo(null)
@@ -320,7 +320,7 @@ export default function ThreadScreen() {
               editingMessage={editingMessage}
               inputNativeID={inputNativeID}
               onInputLayout={onInputLayout}
-              isStopping={stoppingMessageId === pendingMerlinMessageId}
+              isStopping={stoppingMessageId === pendingLorMessageId}
               isConnected={isSocketConnected}
               isMentionCandidatesLoading={mentions.isLoading}
               isSending={thread.isSending || isSavingEdit}
@@ -341,7 +341,7 @@ export default function ThreadScreen() {
                 }
               }}
               onSend={async (content, attachments) => {
-                // Merlin is mid-answer in this thread, so the reply will
+                // Lor is mid-answer in this thread, so the reply will
                 // queue — show it in the pill immediately instead of waiting
                 // for the routed round trip. A failed send drops the nonce
                 // again, so a late created echo can't hide the real message.
@@ -351,7 +351,7 @@ export default function ThreadScreen() {
                     content,
                     replyingTo ?? undefined,
                     attachments,
-                    pendingMerlinMessageId
+                    pendingLorMessageId
                       ? (id) => {
                           nonce = id
                           addOptimistic(id)
@@ -364,7 +364,7 @@ export default function ThreadScreen() {
                 }
                 setReplyingTo(null)
               }}
-              onStop={pendingMerlinMessage ? stopPendingMerlin : undefined}
+              onStop={pendingLorMessage ? stopPendingLor : undefined}
               placeholder="Reply in thread"
               replyingTo={replyingTo}
               topAccessory={

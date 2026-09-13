@@ -39,7 +39,7 @@ export async function ensureCustomer(workspaceId: string, name?: string) {
   }
 }
 
-// Fail open: Merlin keeps answering through an Autumn outage; under-billing
+// Fail open: Lor keeps answering through an Autumn outage; under-billing
 // beats downtime. A missing customer (404) is not an outage — it's created
 // and re-checked once, and a workspace with no balance is correctly refused.
 // Other errors fail open immediately rather than doubling the latency hit

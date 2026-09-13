@@ -72,7 +72,7 @@ function PlaceholderChipView({ node, selected }: NodeViewProps) {
         title={
           kind === "secrets"
             ? "Secret — value stored encrypted"
-            : "Argument — Merlin fills this in"
+            : "Argument — Lor fills this in"
         }
       >
         {chipText(kind, name)}

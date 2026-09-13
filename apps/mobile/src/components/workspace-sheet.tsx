@@ -82,7 +82,7 @@ export function WorkspaceSheet({
                 onPress={onInvite}
               />
               <SheetActionRow
-                detail="What your team has taught Merlin"
+                detail="What your team has taught Lor"
                 hint="Opens the workspace instructions"
                 icon={ScrollIcon}
                 label="Instructions"
@@ -91,7 +91,7 @@ export function WorkspaceSheet({
               {canManageWorkspace ? (
                 <>
                   <SheetActionRow
-                    detail="Which tools Merlin can use per channel"
+                    detail="Which tools Lor can use per channel"
                     hint="Opens agent profiles"
                     icon={MagicWand01Icon}
                     label="Agent profiles"

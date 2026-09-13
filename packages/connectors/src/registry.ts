@@ -1,4 +1,4 @@
-import type { IntegrationProvider, MerlinCapability } from "@repo/db/schema"
+import type { IntegrationProvider, LorCapability } from "@repo/db/schema"
 import type {
   CapabilityDescriptor,
   ConnectorDescriptor,
@@ -143,9 +143,9 @@ export const AWS_REGIONS = [
 
 export type AwsRegion = (typeof AWS_REGIONS)[number]
 
-// Exhaustive over merlinCapabilityEnum — adding a capability value without a
+// Exhaustive over lorCapabilityEnum — adding a capability value without a
 // descriptor here is a compile error.
-export const CAPABILITIES: Record<MerlinCapability, CapabilityDescriptor> = {
+export const CAPABILITIES: Record<LorCapability, CapabilityDescriptor> = {
   github: {
     key: "github",
     label: "GitHub",

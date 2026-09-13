@@ -19,8 +19,7 @@ import Image from "next/image"
 import type { ReactNode } from "react"
 import { MockShell } from "@/app/components/mock-shell"
 
-export const MERLIN_AVATAR_URL =
-  "https://cdn.lor.chat/avatars/merlin-profile.png"
+export const LOR_AVATAR_URL = "https://cdn.lor.chat/avatars/lor-profile.png"
 
 function Avatar({
   initial,
@@ -42,10 +41,10 @@ function Avatar({
   )
 }
 
-export function MerlinAvatar({ size = "size-8" }: { size?: string }) {
+export function LorAvatar({ size = "size-8" }: { size?: string }) {
   return (
     <Image
-      src={MERLIN_AVATAR_URL}
+      src={LOR_AVATAR_URL}
       alt=""
       width={64}
       height={64}
@@ -80,7 +79,7 @@ function ChannelRow({
       {icon ?? <Hash className="size-3.5 opacity-60" strokeWidth={1.75} />}
       <span className="flex-1">{name}</span>
       {badge ? (
-        <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-merlin px-1 font-semibold text-[9.5px] text-merlin-foreground">
+        <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-agent px-1 font-semibold text-[9.5px] text-agent-foreground">
           {badge}
         </span>
       ) : null}
@@ -165,7 +164,7 @@ function Reaction({
     <span
       className={`inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[11px] ${
         reacted
-          ? "border-merlin/40 bg-merlin/15 text-lor-text-dark"
+          ? "border-agent/40 bg-agent/15 text-lor-text-dark"
           : "border-lor-border-dark bg-lor-surface-dark text-lor-text-secondary-dark"
       }`}
     >
@@ -287,11 +286,7 @@ export function AppMock() {
             <p className="px-2 pt-4 pb-1 font-medium text-[11px] text-lor-text-tertiary-dark">
               Direct messages
             </p>
-            <DmRow
-              avatar={<MerlinAvatar size="size-5" />}
-              name="Merlin"
-              online
-            />
+            <DmRow avatar={<LorAvatar size="size-5" />} name="Lor" online />
             <DmRow
               avatar={
                 <Avatar
@@ -319,7 +314,7 @@ export function AppMock() {
           <div className="flex items-center gap-2 border-lor-border-dark/60 border-t px-3 py-2.5">
             <Avatar
               initial="J"
-              className="bg-merlin/30 text-merlin"
+              className="bg-agent/30 text-agent"
               size="size-6"
               text="text-[10px]"
             />
@@ -404,18 +399,18 @@ export function AppMock() {
               name="priya"
               time="10:45 AM"
             >
-              <span className="rounded bg-merlin/15 px-1 py-0.5 font-medium text-merlin">
-                @Merlin
+              <span className="rounded bg-agent/15 px-1 py-0.5 font-medium text-agent">
+                @Lor
               </span>{" "}
               when did we decide to move the launch, and why?
             </Message>
             <Message
-              avatar={<MerlinAvatar />}
-              name="Merlin"
-              nameClassName="text-merlin"
+              avatar={<LorAvatar />}
+              name="Lor"
+              nameClassName="text-agent"
               time="10:45 AM"
               badge={
-                <span className="rounded bg-merlin/15 px-1 py-px font-medium text-[9.5px] text-merlin uppercase">
+                <span className="rounded bg-agent/15 px-1 py-px font-medium text-[9.5px] text-agent uppercase">
                   App
                 </span>
               }
@@ -425,7 +420,7 @@ export function AppMock() {
                     <Reaction emoji="✅" count={2} reacted />
                     <Reaction emoji="🙏" count={1} />
                   </div>
-                  <span className="flex items-center gap-1.5 font-medium text-[11.5px] text-merlin">
+                  <span className="flex items-center gap-1.5 font-medium text-[11.5px] text-agent">
                     <span className="-space-x-1 flex">
                       <Avatar
                         initial="M"
@@ -453,7 +448,7 @@ export function AppMock() {
               <span className="font-medium text-lor-text-dark">May 28</span>. QA
               pushed it a week after the checkout regression on staging, and
               Jacob locked the new date in{" "}
-              <span className="text-merlin">#engineering</span>.
+              <span className="text-agent">#engineering</span>.
               <span className="mt-2.5 flex flex-wrap items-center gap-1.5">
                 <SourceChip icon={<LinearChipIcon />} label="DESIGN-204" />
                 <SourceChip icon={<NotionChipIcon />} label="Q2 launch plan" />
@@ -480,7 +475,7 @@ export function AppMock() {
               <Plus className="size-4" strokeWidth={1.75} />
               <span className="flex-1">Message #launch</span>
               <Smile className="size-4" strokeWidth={1.75} />
-              <span className="flex size-6 items-center justify-center rounded-md bg-merlin text-merlin-foreground">
+              <span className="flex size-6 items-center justify-center rounded-md bg-agent text-agent-foreground">
                 <Send className="size-3" strokeWidth={2} />
               </span>
             </div>

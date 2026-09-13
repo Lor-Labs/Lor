@@ -15,7 +15,7 @@ A user should be able to tell Lor an outcome:
 > "I want every Sentry error above threshold X investigated and triaged in
 > #health."
 
-and Merlin should be able to look at the workspace (and, through connectors,
+and Lor should be able to look at the workspace (and, through connectors,
 the team's codebase), figure out what configuration would make that true, and
 propose it as one reviewable change set:
 
@@ -26,7 +26,7 @@ propose it as one reviewable change set:
 - declare the approval rules that gate its consequential actions; and
 - update workspace instructions so future runs know the convention.
 
-The team reads the diff, edits or approves it, and Lor applies it. Merlin
+The team reads the diff, edits or approves it, and Lor applies it. Lor
 installs itself. When the team corrects the behavior later, the correction
 becomes a new proposed version of the same configuration — never a silent
 mutation.
@@ -39,7 +39,7 @@ machinery that does not exist yet.
 
 ## The product feeling
 
-Not "the user built a workflow," and not yet "Merlin noticed and took over"
+Not "the user built a workflow," and not yet "Lor noticed and took over"
 (that is the Playbook phase). The feeling for this phase is:
 
 > I told Lor what I wanted to happen. It showed me exactly what it would
@@ -78,7 +78,7 @@ the same run rails (`reference/agent-harness.md`).
 
 The physical gate mechanism already exists in the stack (LOR-13; verified
 against installed `ai@7.0.11` + current docs 2026-08-31): the `toolApproval`
-option on `streamText` (`packages/merlin/src/index.ts`) forces tool calls to
+option on `streamText` (`packages/lor/src/index.ts`) forces tool calls to
 pause. Per-tool statuses/functions or a generic catch-all; approval functions
 receive input, `toolCallId`, `messages`, `toolContext`, `runtimeContext`
 (the `toolsContext` refactor already landed). Statuses: `not-applicable` /
@@ -124,7 +124,7 @@ Change proposal
 ```
 
 Early scope questions (partial approval, atomicity, rollback depth) are
-implementation-time decisions; the product boundary is: **Merlin can only
+implementation-time decisions; the product boundary is: **Lor can only
 change the workspace through a proposal a human approved, and every applied
 change is attributable to one.**
 
@@ -150,7 +150,7 @@ exists.
 
 ## Principles (carried into every pillar)
 
-- **Merlin never silently widens its own authority.** New access, new
+- **Lor never silently widens its own authority.** New access, new
   triggers, new tools, new roles — all arrive as a pending proposal.
 - **Enforcement lives in the execution layer.** Permission checks and approval
   gates are checked by Lor's API and run harness, never left to the model's
@@ -177,7 +177,7 @@ exists.
 2. **LOR-81** — approval policies enforced at the tool/action layer, resolver
    authority expressed in the pillar-1 vocabulary.
 3. **Change proposals** — the versioned change-set object, applied first to
-   the resources Merlin most often needs (channel, webhook, loop, instructions,
+   the resources Lor most often needs (channel, webhook, loop, instructions,
    tool grant), then roles/approval policies themselves.
 4. One end-to-end vertical slice: "I want X to happen" → proposal → approval →
    applied configuration → triggered run visibly doing the work.

@@ -140,7 +140,7 @@ export default function InstructionsApprovalScreen() {
           />
         </IconButton>
         <Text className="flex-1 text-[17px] font-bold text-foreground">
-          Merlin Instructions
+          Lor Instructions
         </Text>
       </View>
 
@@ -177,7 +177,7 @@ export default function InstructionsApprovalScreen() {
           <>
             <View className="gap-px">
               <Text className="text-[15px] font-semibold text-foreground">
-                Merlin proposed an update
+                Lor proposed an update
               </Text>
               <Text className="text-xs text-muted">
                 v{pending.version} ·{" "}

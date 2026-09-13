@@ -14,7 +14,7 @@ import {
   listConnectorScopes as listScopes,
   searchConnector,
   searchConnectorFiles as searchFiles,
-} from "@repo/merlin/connector-search"
+} from "@repo/lor/connector-search"
 import {
   channelRoom,
   type ServerToClientEvents,
@@ -410,7 +410,7 @@ export const updateChannel: AppRouteHandler<UpdateChannelRoute> = async (c) => {
     )
   }
 
-  // Assigning a Merlin profile: it must belong to this workspace (the FK alone
+  // Assigning an agent profile: it must belong to this workspace (the FK alone
   // doesn't scope it). null clears the assignment (inherit category/default).
   if (body.agentProfileId) {
     const profile = await db
@@ -751,8 +751,7 @@ export const listPinnedMessages: AppRouteHandler<
 
   // Same shape as the shared message queries, minus the memory column the
   // client never sees.
-  const { merlinMemories: _merlinMemories, ...pinnedMessageSelect } =
-    messageSelect
+  const { lorMemories: _lorMemories, ...pinnedMessageSelect } = messageSelect
   const messages = await db
     .select(pinnedMessageSelect)
     .from(message)
@@ -898,8 +897,8 @@ export const listPinnedMessages: AppRouteHandler<
       avatarColor: avatarColorByUserId.get(msg.author.id) ?? null,
     },
     embeds: msg.embeds ?? [],
-    merlinToolCalls: msg.merlinToolCalls ?? [],
-    merlinReasoningSegments: msg.merlinReasoningSegments ?? [],
+    lorToolCalls: msg.lorToolCalls ?? [],
+    lorReasoningSegments: msg.lorReasoningSegments ?? [],
     mentions: (mentionsByMessageId.get(msg.id) ?? []).map((m) => ({
       id: m.id,
       name: m.name,

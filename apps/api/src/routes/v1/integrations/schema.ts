@@ -1,6 +1,6 @@
 import { z } from "@hono/zod-openapi"
 import { AWS_REGIONS, DATADOG_SITES } from "@repo/connectors"
-import { integrationProviderEnum, merlinCapabilityEnum } from "@repo/db/schema"
+import { integrationProviderEnum, lorCapabilityEnum } from "@repo/db/schema"
 
 export const integrationsWorkspaceParamsSchema = z.object({
   workspaceSlug: z.string().openapi({
@@ -34,7 +34,7 @@ export const integrationStatusSchema = z.object({
   description: z.string(),
   capabilities: z.array(
     z.object({
-      key: z.enum(merlinCapabilityEnum.enumValues),
+      key: z.enum(lorCapabilityEnum.enumValues),
       label: z.string(),
       description: z.string(),
     })
@@ -168,7 +168,7 @@ export const updateIntegrationRequestSchema = z.object({
   remember: z.boolean().default(false),
   // Optional steering for Remember's summarize pass.
   rememberHint: z.string().trim().max(2000).nullable().default(null),
-  // The Act effect's instructions for Merlin; null = Act off.
+  // The Act effect's instructions for Lor; null = Act off.
   actInstructions: z.string().trim().max(4000).nullable().default(null),
   // Act rate shape. Optional (not defaulted) so a client that doesn't know
   // about these can't silently reset them on an unrelated toggle.

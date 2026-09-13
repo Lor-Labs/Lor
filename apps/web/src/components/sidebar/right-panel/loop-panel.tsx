@@ -494,7 +494,7 @@ function endOfDayIso(dateValue: string): string {
 }
 
 // End repeat control: Never / On a date (native date input row) / Condition
-// (Merlin-authored text, shown read-only — switching away clears it, and it
+// (Lor-authored text, shown read-only — switching away clears it, and it
 // can only come back via a new proposal). Modes are mutually exclusive;
 // completed loops render static text.
 function EndRepeatRows({
@@ -671,7 +671,7 @@ function ScheduleEditor({
   const shape = parseLoopSchedule(loop.schedule)
 
   if (shape.kind === "custom") {
-    // Merlin proposed something the structured editor can't round-trip
+    // Lor proposed something the structured editor can't round-trip
     // (e.g. "*/20 * * * *") — show it, don't offer edits that would clobber it.
     return (
       <DetailRow label="Repeat">
