@@ -2,17 +2,17 @@ import type { createClient } from "redis"
 
 type RedisClient = ReturnType<typeof createClient>
 
-// How long after a user's last exchange with Merlin they can keep replying in
-// the same channel/thread without re-mentioning @Merlin. Refreshed each turn.
+// How long after a user's last exchange with Lor they can keep replying in
+// the same channel/thread without re-mentioning @Lor. Refreshed each turn.
 const SESSION_TTL_SECONDS = 120
 
 // Keyed by conversation scope (thread root, else channel) + user: a session is
 // the asker's alone, and a thread session never bleeds into the channel.
 function sessionKey(scopeId: string, userId: string) {
-  return `merlin:session:${scopeId}:${userId}`
+  return `lor:session:${scopeId}:${userId}`
 }
 
-export async function openMerlinSession(
+export async function openLorSession(
   redis: RedisClient,
   scopeId: string,
   userId: string
@@ -20,7 +20,7 @@ export async function openMerlinSession(
   await redis.set(sessionKey(scopeId, userId), "1", { EX: SESSION_TTL_SECONDS })
 }
 
-export async function isMerlinSessionOpen(
+export async function isLorSessionOpen(
   redis: RedisClient,
   scopeId: string,
   userId: string
@@ -28,7 +28,7 @@ export async function isMerlinSessionOpen(
   return (await redis.exists(sessionKey(scopeId, userId))) === 1
 }
 
-export async function closeMerlinSession(
+export async function closeLorSession(
   redis: RedisClient,
   scopeId: string,
   userId: string
@@ -36,32 +36,29 @@ export async function closeMerlinSession(
   await redis.del(sessionKey(scopeId, userId))
 }
 
-// Threads default to "Merlin responds" once it's posted there. Mentioning a
-// teammate (not Merlin) mutes that — humans have taken the thread over — until
-// someone @Merlins again. Long TTL just garbage-collects abandoned threads.
+// Threads default to "Lor responds" once it's posted there. Mentioning a
+// teammate (not Lor) mutes that — humans have taken the thread over — until
+// someone @Lors again. Long TTL just garbage-collects abandoned threads.
 const THREAD_MUTE_TTL_SECONDS = 7 * 24 * 60 * 60
 
 function threadMuteKey(threadRootId: string) {
-  return `merlin:thread:muted:${threadRootId}`
+  return `lor:thread:muted:${threadRootId}`
 }
 
-export async function muteMerlinThread(
-  redis: RedisClient,
-  threadRootId: string
-) {
+export async function muteLorThread(redis: RedisClient, threadRootId: string) {
   await redis.set(threadMuteKey(threadRootId), "1", {
     EX: THREAD_MUTE_TTL_SECONDS,
   })
 }
 
-export async function unmuteMerlinThread(
+export async function unmuteLorThread(
   redis: RedisClient,
   threadRootId: string
 ) {
   await redis.del(threadMuteKey(threadRootId))
 }
 
-export async function isMerlinThreadMuted(
+export async function isLorThreadMuted(
   redis: RedisClient,
   threadRootId: string
 ): Promise<boolean> {

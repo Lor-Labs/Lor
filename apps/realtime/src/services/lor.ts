@@ -7,7 +7,7 @@ import {
   isNotNull,
   isNull,
   isUniqueViolation,
-  MERLIN_USER_ID,
+  LOR_USER_ID,
   schema,
 } from "@repo/db"
 import { env } from "@repo/env/server"
@@ -20,30 +20,30 @@ import { createMessage } from "@/services/messages"
 
 const PLACEMENT_CONTEXT_LIMIT = 12
 
-export function isMerlinMentioned(content: string | null | undefined): boolean {
+export function isLorMentioned(content: string | null | undefined): boolean {
   if (!content) return false
-  return extractDirectMentionUserIds(content).has(MERLIN_USER_ID)
+  return extractDirectMentionUserIds(content).has(LOR_USER_ID)
 }
 
-// Whether the message addresses a teammate (any non-Merlin mention). Used to
-// end an open Merlin session — talking to a person isn't talking to Merlin.
+// Whether the message addresses a teammate (any non-Lor mention). Used to
+// end an open Lor session — talking to a person isn't talking to Lor.
 export function mentionsOtherUser(content: string | null | undefined): boolean {
   if (!content) return false
   for (const id of extractDirectMentionUserIds(content)) {
-    if (id !== MERLIN_USER_ID) return true
+    if (id !== LOR_USER_ID) return true
   }
   return false
 }
 
-// Has Merlin posted in this thread? If so the thread is an ongoing Merlin
+// Has Lor posted in this thread? If so the thread is an ongoing Lor
 // conversation, so plain replies go to it without a mention or session window.
-export async function isMerlinThread(threadRootId: string): Promise<boolean> {
+export async function isLorThread(threadRootId: string): Promise<boolean> {
   const row = await db
     .select({ id: schema.message.id })
     .from(schema.message)
     .where(
       and(
-        eq(schema.message.authorId, MERLIN_USER_ID),
+        eq(schema.message.authorId, LOR_USER_ID),
         eq(schema.message.threadRootId, threadRootId)
       )
     )
@@ -78,14 +78,14 @@ export async function loadRecentChannelMessages(
     .map((r) => ({ authorName: r.authorName, content: r.content ?? "" }))
 }
 
-// Empty Merlin placeholder the worker streams into; no fanout (fires on completion).
-export async function createMerlinPlaceholder(args: {
+// Empty Lor placeholder the worker streams into; no fanout (fires on completion).
+export async function createLorPlaceholder(args: {
   accessibleChannel: AccessibleChannel
   channelId: string
   threadRootId: string | null
 }): Promise<RealtimeMessage> {
   const result = await createMessage({
-    userId: MERLIN_USER_ID,
+    userId: LOR_USER_ID,
     payload: {
       channelId: args.channelId,
       threadRootId: args.threadRootId ?? undefined,
@@ -96,7 +96,7 @@ export async function createMerlinPlaceholder(args: {
   return result.message
 }
 
-// Durable agent_run row backing a Merlin response (see
+// Durable agent_run row backing a Lor response (see
 // reference/agent-harness.md). Budgets are snapshotted from env here so
 // an in-flight run keeps its ceilings across retries and config changes.
 // "conflict" = the scope's one-active-run index rejected the insert (another

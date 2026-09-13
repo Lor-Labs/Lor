@@ -1,10 +1,10 @@
-import { shouldNotifyForMerlinThread } from "@repo/realtime-types"
+import { shouldNotifyForLorThread } from "@repo/realtime-types"
 import { describe, expect, it } from "vitest"
 
-describe("shouldNotifyForMerlinThread", () => {
-  it("does not change notifications outside Merlin threads", () => {
+describe("shouldNotifyForLorThread", () => {
+  it("does not change notifications outside Lor threads", () => {
     expect(
-      shouldNotifyForMerlinThread("subscribed_only", {
+      shouldNotifyForLorThread("subscribed_only", {
         threadRootId: null,
         isMerlinThread: false,
         isSubscribedToThread: false,
@@ -14,7 +14,7 @@ describe("shouldNotifyForMerlinThread", () => {
 
   it("keeps the default all-activity behavior", () => {
     expect(
-      shouldNotifyForMerlinThread("all_activity", {
+      shouldNotifyForLorThread("all_activity", {
         threadRootId: "00000000-0000-4000-8000-000000000002",
         isMerlinThread: true,
         isSubscribedToThread: false,
@@ -29,9 +29,9 @@ describe("shouldNotifyForMerlinThread", () => {
       isSubscribedToThread: false,
     }
 
-    expect(shouldNotifyForMerlinThread("subscribed_only", context)).toBe(false)
+    expect(shouldNotifyForLorThread("subscribed_only", context)).toBe(false)
     expect(
-      shouldNotifyForMerlinThread("subscribed_only", {
+      shouldNotifyForLorThread("subscribed_only", {
         ...context,
         isSubscribedToThread: true,
       })

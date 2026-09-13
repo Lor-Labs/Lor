@@ -138,9 +138,13 @@ Validate per chunk: `pnpm run check-types` + `pnpm run check`.
   key (both lock sites), `LOR_ERROR_FALLBACK`, `actorName: "Lor"`, events
   emitted on `lor:*` only (dual emission dropped — nothing deploys
   mid-sequence). C6 props (`merlinMessageId` etc.) deliberately untouched.
-- [ ] **C4 apps/realtime** — git mv `services/merlin*.ts` (+tests) →
-  `lor*`, `lor:session:*`/`lor:thread:muted:*` key prefixes, routing
-  identifiers, logs.
+- [x] **C4 apps/realtime** — git mv `services/merlin*.ts` (+tests) →
+  `lor*` (plus `merlin-notifications.test.ts`), `lor:session:*`/
+  `lor:thread:muted:*` key prefixes, routing identifiers (`isLorMentioned`,
+  `isLorThread`, `isReplyToLor`, `createLorPlaceholder`, session helpers),
+  logs and thrown-error strings. Collision handled: the `isMerlinThread`
+  FUNCTION renamed while the same-named notification-context PROPERTY stayed
+  (C6) — protected by matching the property's trailing colon.
 - [ ] **C5 apps/api** — openapi schema consts + descriptions ("agent
   profiles"), DM copy, scope-runs/proposals/loops identifier renames,
   remaining `@repo/db` alias-import swaps.
