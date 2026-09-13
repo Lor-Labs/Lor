@@ -5,6 +5,7 @@ import {
   AvatarGroupCount,
   AvatarImage,
 } from "@repo/ui/components/avatar"
+import { MentionBadge } from "@repo/ui/components/mention-badge"
 import { cn } from "@repo/ui/lib/utils"
 import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { useQuery } from "@tanstack/react-query"
@@ -150,11 +151,7 @@ function DMItem({
           </div>
         )}
       </div>
-      {mentionCount > 0 && (
-        <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-destructive text-[10px] font-bold text-destructive-foreground">
-          {mentionCount}
-        </span>
-      )}
+      <MentionBadge count={mentionCount} />
     </button>
   )
 }
