@@ -46,8 +46,8 @@ export const project = pgTable(
     creatorId: uuid("creator_id")
       .notNull()
       .references(() => user.id, { onDelete: "restrict" }),
-    // Linear-aligned project description; feeds Merlin runs and archive
-    // synthesis. Optional — Merlin infers from channel content if unset.
+    // Linear-aligned project description; feeds Lor runs and archive
+    // synthesis. Optional — Lor infers from channel content if unset.
     // (Project NAME lives on the category channel.)
     description: text("description"),
     targetDate: timestamp("target_date"),

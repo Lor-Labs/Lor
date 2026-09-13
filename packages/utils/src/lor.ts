@@ -1,15 +1,18 @@
-export type MerlinReasoningSegment = {
+export type LorReasoningSegment = {
   text: string
   at: number
   order: number
 }
 
+// Deprecated Merlin→Lor rename alias — removed in cleanup (LOR-87 C9).
+export type MerlinReasoningSegment = LorReasoningSegment
+
 // Streamed reasoning arrives as order-keyed deltas: append to the segment
 // with the same order, or start a new one.
 export function appendReasoningSegment(
-  segments: MerlinReasoningSegment[] | null | undefined,
+  segments: LorReasoningSegment[] | null | undefined,
   payload: { delta: string; at: number; order: number }
-): MerlinReasoningSegment[] {
+): LorReasoningSegment[] {
   const current = segments ?? []
   const existingIndex = current.findIndex(
     (segment) => segment.order === payload.order

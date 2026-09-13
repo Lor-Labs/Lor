@@ -44,7 +44,7 @@ function describeDayField(dow: string): string | null {
   return null
 }
 
-// Covers the common shapes Merlin proposes, falls back to a labeled cron for
+// Covers the common shapes Lor proposes, falls back to a labeled cron for
 // everything else. Null timezone (unpinned draft) omits the suffix — clients
 // render those in the viewer's device timezone.
 export function describeLoopSchedule(

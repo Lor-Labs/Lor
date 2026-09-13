@@ -53,7 +53,7 @@ export const channelEventTypeEnum = pgEnum("channel_event_type", [
   "loop_completed",
 ])
 
-// Lifecycle of a message row. Everything is "complete" except a Merlin
+// Lifecycle of a message row. Everything is "complete" except a Lor
 // placeholder, which lands as "pending" and flips to "complete"/"failed" when
 // the worker finishes — so the thinking indicator survives a reload/late join.
 export const messageStatusEnum = pgEnum("message_status", [
@@ -104,25 +104,21 @@ export const message = pgTable(
     // [{ type, url, title?, description?, thumbnail? }]
     embeds: jsonb("embeds").$type<Embed[]>().default([]),
 
-    // Merlin's tool-call trail for this answer — the tools it consulted to
+    // Lor's tool-call trail for this answer — the tools it consulted to
     // produce the reply, kept as a durable, legible record. [{ toolCallId,
     // toolName, label }]
-    merlinToolCalls: jsonb("merlin_tool_calls")
-      .$type<MerlinToolCall[]>()
-      .default([]),
+    merlinToolCalls: jsonb("lor_tool_calls").$type<LorToolCall[]>().default([]),
 
-    // Brain pages Merlin saved/updated while producing this answer (explicit
+    // Brain pages Lor saved/updated while producing this answer (explicit
     // "remember this" + the autonomous write-back) — a durable record of what it
     // committed to memory, shown under the reply. Serialized as `remembered`.
-    merlinMemories: jsonb("merlin_memories")
-      .$type<MerlinMemory[]>()
-      .default([]),
+    merlinMemories: jsonb("lor_memories").$type<LorMemory[]>().default([]),
 
     // Aggregate reasoning retained for older clients/messages. New replies also
     // store ordered segments so reasoning can be interleaved with tool calls.
-    merlinReasoning: text("merlin_reasoning"),
-    merlinReasoningSegments: jsonb("merlin_reasoning_segments")
-      .$type<MerlinReasoningSegment[]>()
+    merlinReasoning: text("lor_reasoning"),
+    merlinReasoningSegments: jsonb("lor_reasoning_segments")
+      .$type<LorReasoningSegment[]>()
       .default([]),
 
     // Display identity for webhook/connector messages (Discord-style). The row
@@ -131,7 +127,7 @@ export const message = pgTable(
     overrideAvatarUrl: text("override_avatar_url"),
 
     // Connector notification messages are pointers — their canonical content
-    // lives in `source`. Excluded from Merlin's search so retrieval doesn't
+    // lives in `source`. Excluded from Lor's search so retrieval doesn't
     // surface mirrors of what the sources layer already returns.
     excludedFromMemory: boolean("excluded_from_memory")
       .default(false)
@@ -141,7 +137,7 @@ export const message = pgTable(
 
     // Client-generated send nonce, persisted for idempotency: a resend after
     // an ack was lost matches the unique index below and returns the original
-    // row instead of double-posting (and double-triggering Merlin).
+    // row instead of double-posting (and double-triggering Lor).
     clientKey: text("client_key"),
 
     editedAt: timestamp("edited_at"),
@@ -165,7 +161,7 @@ export const message = pgTable(
       "gin",
       sql`${table.content} gin_trgm_ops`
     ),
-    // FTS backing Merlin's search tool. Expression index (no tsvector column),
+    // FTS backing Lor's search tool. Expression index (no tsvector column),
     // so queries must match: to_tsvector('english', coalesce(content, '')).
     index("message_content_tsv_idx").using(
       "gin",
@@ -297,7 +293,7 @@ export type Embed = {
   }
 }
 
-export type MerlinToolCall = {
+export type LorToolCall = {
   toolCallId: string
   toolName: string
   // Human status line, e.g. "Searching connected sources for …".
@@ -342,11 +338,11 @@ export type MerlinToolCall = {
 // Streamed tool-trail frame: a start/result frame carries the full row, a
 // mid-flight update (sandbox summary text, diffs) may be partial — merged
 // onto the existing row by toolCallId.
-export type MerlinToolCallUpdate = Partial<MerlinToolCall> & {
+export type LorToolCallUpdate = Partial<LorToolCall> & {
   toolCallId: string
 }
 
-export type MerlinReasoningSegment = {
+export type LorReasoningSegment = {
   text: string
   // Character offset into message content when this reasoning was produced.
   at: number
@@ -354,11 +350,17 @@ export type MerlinReasoningSegment = {
   order: number
 }
 
-// A brain page Merlin wrote during an answer. nodeId references the brain
+// A brain page Lor wrote during an answer. nodeId references the brain
 // node durably (paths go stale on move/rename); optional — rows written
 // before it existed carry only the path.
-export type MerlinMemory = {
+export type LorMemory = {
   path: string
   action: "created" | "updated"
   nodeId?: string
 }
+
+// Deprecated Merlin→Lor rename aliases — removed in cleanup (LOR-87 C9).
+export type MerlinToolCall = LorToolCall
+export type MerlinToolCallUpdate = LorToolCallUpdate
+export type MerlinReasoningSegment = LorReasoningSegment
+export type MerlinMemory = LorMemory

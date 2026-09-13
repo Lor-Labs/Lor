@@ -73,7 +73,7 @@ export const agentRun = pgTable(
     // The placeholder message the run streams into — also the client's handle
     // for replay (clients know the message id, not the run id, on load). Null
     // for headless triggered runs (Act effect), which have no channel message
-    // unless Merlin posts one itself. See reference/automation-primitives.md §2.
+    // unless Lor posts one itself. See reference/automation-primitives.md §2.
     messageId: uuid("message_id").references(() => message.id, {
       onDelete: "cascade",
     }),

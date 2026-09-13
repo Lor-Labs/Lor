@@ -30,6 +30,11 @@
   --color-lor-accent-fg-dark: oklch(0.98 0.005 293);
   --color-lor-accent-muted: oklch(0.95 0.005 80);
   --color-lor-accent-muted-dark: oklch(0.25 0.006 80);
+  --color-lor-agent: oklch(0.52 0.22 296);
+  --color-lor-agent-dark: oklch(0.7 0.2 296);
+  --color-lor-agent-muted: oklch(0.95 0.01 296);
+  --color-lor-agent-muted-dark: oklch(0.25 0.03 296);
+  /* Deprecated merlin duals (Merlin→Lor rename) — removed in cleanup (LOR-87 C9). */
   --color-lor-merlin: oklch(0.52 0.22 296);
   --color-lor-merlin-dark: oklch(0.7 0.2 296);
   --color-lor-merlin-muted: oklch(0.95 0.01 296);
@@ -67,6 +72,9 @@
   --muted-foreground: oklch(0.52 0.006 80);
   --accent: oklch(0.95 0.005 80);
   --accent-foreground: oklch(0.27 0.006 80);
+  --agent: oklch(0.52 0.22 296);
+  --agent-foreground: oklch(0.99 0.004 296);
+  /* Deprecated merlin duals — removed in cleanup (LOR-87 C9). */
   --merlin: oklch(0.52 0.22 296);
   --merlin-foreground: oklch(0.99 0.004 296);
   --gold: oklch(0.7 0.13 75);
@@ -113,6 +121,9 @@
   --muted-foreground: oklch(0.67 0.006 80);
   --accent: oklch(0.27 0.007 80);
   --accent-foreground: oklch(0.94 0.004 80);
+  --agent: oklch(0.7 0.2 296);
+  --agent-foreground: oklch(0.17 0.02 296);
+  /* Deprecated merlin duals — removed in cleanup (LOR-87 C9). */
   --merlin: oklch(0.7 0.2 296);
   --merlin-foreground: oklch(0.17 0.02 296);
   --gold: oklch(0.78 0.12 78);

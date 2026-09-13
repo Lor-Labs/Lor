@@ -136,7 +136,7 @@ export const createMcpServerOpSchema = z.object({
   authMode: z.enum(["static", "oauth"]).default("static"),
 })
 
-// Upsert only — Merlin may propose gating an action (often one this same
+// Upsert only — Lor may propose gating an action (often one this same
 // proposal creates), never removing a gate.
 export const setApprovalPolicyOpSchema = z
   .object({
@@ -201,7 +201,7 @@ export const changeOperationKindEnum = pgEnum("change_operation_kind", [
 export const CHANGE_OPERATION_KINDS: readonly ChangeOperationKind[] =
   changeOperationKindEnum.enumValues
 
-// What Merlin sent alongside the ops.
+// What Lor sent alongside the ops.
 export const proposalEvidenceSchema = z.object({
   kind: z.enum(["message", "plan", "run", "url"]),
   ref: z.string().min(1).max(2048),
@@ -268,7 +268,7 @@ export const changeProposalAuthorEnum = pgEnum("change_proposal_author", [
 ])
 
 // A reviewable workspace change set (pillar 3, reference/change-proposals.md):
-// Merlin (or a person, later) proposes typed operations; a human whose
+// Lor (or a person, later) proposes typed operations; a human whose
 // authority covers all of them approves; apply is one atomic transaction.
 // The card message (type `proposal_card`) is the surface, like loop cards.
 export const changeProposal = pgTable(

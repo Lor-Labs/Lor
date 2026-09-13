@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { appendReasoningSegment, upsertToolCall } from "./merlin"
+import { appendReasoningSegment, upsertToolCall } from "./lor"
 
 describe("appendReasoningSegment", () => {
   it("starts a new segment for an unseen order", () => {

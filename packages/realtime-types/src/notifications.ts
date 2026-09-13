@@ -3,19 +3,17 @@ export type NotificationConversationContext = {
   workspaceName: string | null
 }
 
-export type MerlinThreadNotificationPreference =
-  | "all_activity"
-  | "subscribed_only"
+export type LorThreadNotificationPreference = "all_activity" | "subscribed_only"
 
-export type MerlinThreadNotificationContext = {
+export type LorThreadNotificationContext = {
   threadRootId: string | null
   isMerlinThread: boolean
   isSubscribedToThread: boolean
 }
 
-export function shouldNotifyForMerlinThread(
-  preference: MerlinThreadNotificationPreference,
-  context: MerlinThreadNotificationContext
+export function shouldNotifyForLorThread(
+  preference: LorThreadNotificationPreference,
+  context: LorThreadNotificationContext
 ): boolean {
   return (
     !context.isMerlinThread ||
@@ -23,6 +21,11 @@ export function shouldNotifyForMerlinThread(
     context.isSubscribedToThread
   )
 }
+
+// Deprecated Merlin→Lor rename aliases — removed in cleanup (LOR-87 C9).
+export type MerlinThreadNotificationPreference = LorThreadNotificationPreference
+export type MerlinThreadNotificationContext = LorThreadNotificationContext
+export const shouldNotifyForMerlinThread = shouldNotifyForLorThread
 
 export function buildNotificationConversationName(
   context: NotificationConversationContext
@@ -67,7 +70,7 @@ export function buildProposalNotificationContent(input: {
     : input.workspaceName
   const rationale = input.rationale.trim()
   return {
-    title: `Merlin proposed workspace changes in ${where}`,
+    title: `Lor proposed workspace changes in ${where}`,
     body:
       rationale.length > 140
         ? `${rationale.slice(0, 140)}…`
@@ -89,12 +92,12 @@ export function buildApprovalNotificationContent(input: {
     : input.workspaceName
   if (input.flavor === "waiting") {
     return {
-      title: `Merlin is waiting for approval in ${where}`,
+      title: `Lor is waiting for approval in ${where}`,
       body: `Needs ${input.resolverLabel}: ${input.description}`,
     }
   }
   return {
-    title: `Merlin needs your approval in ${where}`,
+    title: `Lor needs your approval in ${where}`,
     body: input.description,
   }
 }

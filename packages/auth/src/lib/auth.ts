@@ -1,7 +1,7 @@
 import { expo } from "@better-auth/expo"
 import { redisStorage } from "@better-auth/redis-storage"
 import { ensureCustomer } from "@repo/billing"
-import { db, eq, MERLIN_USER_ID, schema } from "@repo/db"
+import { db, eq, LOR_USER_ID, schema } from "@repo/db"
 import { env } from "@repo/env/server"
 import { pickWorkspaceAvatarColor } from "@repo/utils/avatar-colors"
 import { drizzleAdapter } from "better-auth/adapters/drizzle"
@@ -99,21 +99,18 @@ async function nextWorkspaceAvatarColor(workspaceId: string, userId: string) {
   )
 }
 
-// Merlin is a member of every workspace so it's mentionable and receives fanout.
-async function addMerlinToWorkspace(workspaceId: string) {
-  const avatarColor = await nextWorkspaceAvatarColor(
-    workspaceId,
-    MERLIN_USER_ID
-  )
+// Lor is a member of every workspace so it's mentionable and receives fanout.
+async function addLorToWorkspace(workspaceId: string) {
+  const avatarColor = await nextWorkspaceAvatarColor(workspaceId, LOR_USER_ID)
   await db.insert(schema.workspaceMember).values({
     workspaceId,
-    userId: MERLIN_USER_ID,
+    userId: LOR_USER_ID,
     role: "member",
     avatarColor,
   })
 }
 
-// A minimal cold-start scaffold for Merlin's brain so it has obvious places to
+// A minimal cold-start scaffold for Lor's brain so it has obvious places to
 // file knowledge. Folders only; pages/structure still emerge from write-back.
 const DEFAULT_BRAIN_FOLDERS = ["people", "projects", "decisions"]
 
@@ -334,11 +331,11 @@ export const auth = betterAuth({
           }
 
           try {
-            await addMerlinToWorkspace(organization.id)
+            await addLorToWorkspace(organization.id)
           } catch (error) {
             logger.error(
               { err: error, workspaceId: organization.id },
-              "Failed to add Merlin to workspace"
+              "Failed to add Lor to workspace"
             )
           }
 

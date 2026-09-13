@@ -1,4 +1,4 @@
-import { and, db, eq, inArray, MERLIN_USER_ID, or, schema } from "@repo/db"
+import { and, db, eq, inArray, LOR_USER_ID, or, schema } from "@repo/db"
 import {
   type ChannelAudienceInfo,
   resolveChannelAudienceInfo,
@@ -29,7 +29,7 @@ export {
 } from "./mentions"
 export { loadThreadSummary } from "./thread-summary"
 
-// Minimal shapes so both realtime (human send) and worker (Merlin reply) can call this.
+// Minimal shapes so both realtime (human send) and worker (Lor reply) can call this.
 type FanoutChannel = {
   id: string
   workspaceId: string | null
@@ -94,7 +94,7 @@ async function resolveThreadNotificationContext(message: FanoutMessage) {
 
   return {
     threadRootId,
-    isMerlinThread: subscribedUserIds.has(MERLIN_USER_ID),
+    isMerlinThread: subscribedUserIds.has(LOR_USER_ID),
     subscribedUserIds,
   }
 }

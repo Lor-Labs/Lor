@@ -14,7 +14,7 @@ import { agentProfile } from "./agent-profiles"
 import { user } from "./users"
 import { workspace } from "./workspaces"
 
-// A workspace-registered tool Merlin can call: an HTTP request template with
+// A workspace-registered tool Lor can call: an HTTP request template with
 // a JSON-Schema args contract. Channels get tools through agent profiles:
 // the blanket `custom_tools` capability grants all (current and future), or
 // a profile grants specific tools via agent_profile_custom_tool rows. Rows

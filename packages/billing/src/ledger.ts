@@ -36,8 +36,8 @@ const OPERATION_CLASS: Record<
   string,
   (typeof schema.operationClassEnum.enumValues)[number]
 > = {
-  "merlin.respond": "merlin.standard",
-  investigate_code: "merlin.deep",
+  "merlin.respond": "lor.standard",
+  investigate_code: "lor.deep",
   "merlin.embed": "embedding",
   "source.summarize": "ingestion",
   "source.embed": "embedding",

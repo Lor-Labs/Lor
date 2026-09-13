@@ -7,7 +7,7 @@ export type LinkUnfurlJobData = {
   urls: string[]
 }
 
-export const MERLIN_RESPOND_QUEUE = "merlin-respond"
+export const LOR_RESPOND_QUEUE = "lor-respond"
 
 // Redis pub/sub channel for immediate run stops: the API publishes the runId,
 // the worker holding the lease aborts the in-flight model request. The
@@ -15,11 +15,11 @@ export const MERLIN_RESPOND_QUEUE = "merlin-respond"
 export const AGENT_RUN_STOP_CHANNEL = "agent-run:stop"
 
 // merlinMessageId = the empty placeholder message the worker streams into.
-// threadRootId = where the reply is posted (Merlin's chosen placement).
+// threadRootId = where the reply is posted (Lor's chosen placement).
 // contextThreadRootId = where the trigger lived (null = main channel); the
 // worker reads conversation context from here, which differs from threadRootId
-// when Merlin routes a channel mention into a fresh thread.
-export type MerlinRespondJobData = {
+// when Lor routes a channel mention into a fresh thread.
+export type LorRespondJobData = {
   merlinMessageId: string
   channelId: string
   threadRootId: string | null
@@ -33,6 +33,10 @@ export type MerlinRespondJobData = {
   // of building a delta. Works in any scope, including plain channel runs.
   resumeApprovalId?: string
 }
+
+// Deprecated Merlin→Lor rename aliases — removed in cleanup (LOR-87 C9).
+export const MERLIN_RESPOND_QUEUE = LOR_RESPOND_QUEUE
+export type MerlinRespondJobData = LorRespondJobData
 
 // Headless triggered runs (the Act effect — reference/automation-primitives.md
 // §2). The run row carries provenance (triggerId/deliveryId); the job carries

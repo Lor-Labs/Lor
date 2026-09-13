@@ -9,7 +9,7 @@ import {
   PRESENCE_ONLINE_USERS_SET_KEY,
   type ProposalNotification,
   type ReactionNotification,
-  shouldNotifyForMerlinThread,
+  shouldNotifyForLorThread,
   type UnreadNotification,
 } from "@repo/realtime-types"
 
@@ -149,7 +149,7 @@ export async function sendMessagePushNotifications(input: {
   const mentionedUserIds = new Set(
     input.fanout.mentionNotifications.map((notification) => notification.userId)
   )
-  // An explicit @-mention outrides the Merlin-thread ambience preference.
+  // An explicit @-mention outrides the Lor-thread ambience preference.
   const directMentionUserIds = new Set(
     input.fanout.mentionNotifications
       .filter((notification) => notification.payload.type === "direct_mention")
@@ -189,7 +189,7 @@ export async function sendMessagePushNotifications(input: {
     }
     if (
       !directMentionUserIds.has(recipient.userId) &&
-      !shouldNotifyForMerlinThread(
+      !shouldNotifyForLorThread(
         settings?.merlinThreadNotifications ?? "all_activity",
         recipient.payload
       )
@@ -427,7 +427,7 @@ export async function sendProposalPush(input: {
   })
 }
 
-// Notifies workspace owner/admins that Merlin filed an instructions proposal.
+// Notifies workspace owner/admins that Lor filed an instructions proposal.
 // Deliberately presence-independent (approvals are rare and important) and
 // carries only deep-link data — approving from the push is never possible.
 export async function sendInstructionsProposalPush(input: {
@@ -475,7 +475,7 @@ export async function sendInstructionsProposalPush(input: {
   await deliverExpoPush(
     tokens.map((row) => ({
       to: row.token,
-      title: `Merlin proposed new instructions for ${workspace.name}`,
+      title: `Lor proposed new instructions for ${workspace.name}`,
       body,
       sound: "default" as const,
       channelId: "default" as const,

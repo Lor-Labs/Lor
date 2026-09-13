@@ -5,7 +5,7 @@ export const workspaceStatements = {
   instructions: ["update", "approve"],
   connector: ["manage"], // third-party integrations (GitHub, Linear, …) — "connectors" in the UI
   webhook: ["manage"], // create/manage channel webhooks, on any channel (no per-channel scoping in v1)
-  agentProfile: ["manage"], // create/edit Merlin capability profiles AND assign channels to them
+  agentProfile: ["manage"], // create/edit Lor capability profiles AND assign channels to them
   customTool: ["manage"], // user-added tools — both custom API tools and MCP servers
   billing: ["manage"],
   // Resolving approvals is NOT a permission — resolvers are named per gate
@@ -60,7 +60,7 @@ export const workspaceStatementMeta: {
   },
   agentProfile: {
     label: "Agent profiles",
-    actions: { manage: "Manage Merlin profiles" },
+    actions: { manage: "Manage agent profiles" },
   },
   customTool: {
     label: "Custom tools",

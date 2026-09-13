@@ -298,9 +298,9 @@ function listWorkspaceMemberUserIds(workspaceId: string) {
     .then((rows) => rows.map((row) => row.userId))
 }
 
-// ── Merlin run scope ────────────────────────────────────────────────
+// ── Lor run scope ───────────────────────────────────────────────────
 
-export type MerlinRunScope = {
+export type LorRunScope = {
   /** Access container whose scoped brain nodes join retrieval and receive writes. */
   memoryScopeChannelId: string | null
   /** Brain folder scoped memory writes are confined under. */
@@ -309,11 +309,16 @@ export type MerlinRunScope = {
   privateContainerChannelId: string | null
 }
 
-export const EMPTY_MERLIN_RUN_SCOPE: MerlinRunScope = {
+export const EMPTY_LOR_RUN_SCOPE: LorRunScope = {
   memoryScopeChannelId: null,
   memoryFolderPath: null,
   privateContainerChannelId: null,
 }
+
+// Deprecated Merlin→Lor rename aliases — removed in cleanup (LOR-87 C9).
+export type MerlinRunScope = LorRunScope
+export const EMPTY_MERLIN_RUN_SCOPE = EMPTY_LOR_RUN_SCOPE
+export const resolveMerlinRunScope = resolveLorRunScope
 
 // Folder segments can't contain the path separator. Shared with archive
 // synthesis (archiveFolderPath) so the naming rule can't drift.
@@ -322,14 +327,14 @@ export function memoryFolderSegment(name: string | null): string {
 }
 
 /**
- * A Merlin run's retrieval/write boundary, from the channel it lives in.
+ * A Lor run's retrieval/write boundary, from the channel it lives in.
  * Channel-scoped on purpose: everyone who can see the channel sees the
  * answer. Projects AND standalone private channels get memory scope — an
  * #admins conversation must never write memory public runs can retrieve.
  */
-export async function resolveMerlinRunScope(
+export async function resolveLorRunScope(
   channelId: string
-): Promise<MerlinRunScope> {
+): Promise<LorRunScope> {
   const row = await db
     .select({
       id: channel.id,
@@ -342,7 +347,7 @@ export async function resolveMerlinRunScope(
     .where(eq(channel.id, channelId))
     .limit(1)
     .then((rows) => rows[0])
-  if (!row?.workspaceId) return EMPTY_MERLIN_RUN_SCOPE
+  if (!row?.workspaceId) return EMPTY_LOR_RUN_SCOPE
 
   let container = { id: row.id, audience: row.audience, name: row.name }
   if (row.parentId) {

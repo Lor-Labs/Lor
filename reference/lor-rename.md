@@ -96,52 +96,67 @@ value stays 2560 — embed dims are locked unless reindexed; only the var name
 changes. Mirror any required renames into TEST_ENV in
 `apps/api/vitest.config.ts` (env-coupling gotcha).
 
-## 5. Execution order (single pass, bottom-up; repo doesn't type-check mid-way)
+## 5. Execution: 9 reviewable chunks (~250–450 LOC each, one commit each)
 
-1. `packages/db` — constants (`LOR_USER_ID`, `LOR_EMBED_DIMENSIONS`), git mv
-   `seeds/merlin.ts` → `seeds/lor.ts` (`seedLorUser`), schemas (columns,
-   enums, `operation_class` values, types `MerlinToolCall`→`LorToolCall`
-   etc.), `queries/channel-access.ts` (`MerlinRunScope`→`LorRunScope`).
-2. `packages/realtime-types` — events, `LOR_RESPOND_QUEUE = "lor-respond"`,
-   `LorRespondJobData`, notification types/copy, wire field names.
-3. `packages/utils` — git mv `merlin.ts`/`merlin.test.ts` → `lor.*`, export
-   path `"./merlin"` → `"./lor"`.
-4. `packages/env` — the 18 var renames.
-5. `packages/merlin` → **`packages/lor`** — git mv dir, package name
-   `@repo/lor` (update dep entries in api/worker/realtime package.json + all
-   import specifiers), models consts `LOR_MODEL` etc., prompt heads
-   (index.ts, placement.ts, project-archive.ts, meeting-insights.ts),
-   `merlin[bot]` → `lor[bot]` commit author, `createLogger("lor")`,
-   blaxel.toml/Dockerfile comments, eval seed identity, transcript.test.ts
-   fixtures ("Lor: wire $100…" — guard itself is structural, name-agnostic).
-6. `packages/{auth,billing,messaging,connectors,ui}` —
-   `addLorToWorkspace`, "Manage agent profiles" label, billing email copy
-   ("Lor credits"), push copy, CSS tokens per §1 exception 1.
-7. `apps/worker` — git mv `jobs/merlin-respond.ts` + 4 `lib/merlin-*.ts` →
-   `lor-*`, identifiers, log strings, `lor:writeback:*` keys,
-   `LOR_ERROR_FALLBACK`, `actorName: "Lor"` (loop-run.ts).
-8. `apps/realtime` — git mv `services/merlin*.ts` (+tests) → `lor*`, session
-   key prefixes, routing/trigger identifiers.
-9. `apps/api` — openapi schema consts + descriptions, wire field names, DM
-   error copy ("You can't DM Lor — @mention it in a channel instead."),
-   `env.LOR_*` refs, scope-runs/proposals/loops constant renames.
-10. `apps/web` — git mv 8 merlin-named files, identifiers, ~60 copy strings,
-    composer mention (replace raw UUID literal with `LOR_USER_ID` import +
-    `label: "Lor"`), settings tab id `"agent"`, DOM ids, `bg-agent` classes,
-    demo file, notification-settings labels.
-11. `apps/mobile` — git mv 6 merlin-named files, identifiers, copy, socket
-    event names, theme keys, **replace hardcoded avatar fallback `"M"` with
-    an initial derived from the author row name** (parity with web; also the
-    last hardcoded client-side identity — custom-agent prep).
-12. `apps/www` — copy sweep, `#merlin` anchor → `#lor`, `MERLIN_AVATAR_URL` →
-    `https://cdn.lor.chat/avatars/lor-profile.png` (Jacob uploads the R2
-    object; old URL keeps working meanwhile).
-13. Docs — git mv `merlin-architecture.md` → `lor-agent-architecture.md`,
-    `merlin-mvp-spec.md` → `lor-mvp-spec.md`; update CLAUDE.md + active-doc
-    cross-references; sweep active docs' prose; leave historical logs.
-14. `.github/workflows/version-guard.yml` path regex (`packages/merlin` →
-    `packages/lor`), `pnpm install` (lockfile), full `pnpm run check-types` +
-    `pnpm run check:fix`.
+Strategy: temporary back-compat aliases at package boundaries keep every
+chunk type-checking green so each is committable alone — deprecated
+re-exports for consts/types, dual `lor:*`/`merlin:*` socket-event keys, dual
+CSS tokens, dual `@repo/utils` export path, dual event emission in the
+worker. All duals/aliases are removed in C9. Object PROPERTY names
+(`merlinToolCalls`, `isMerlinThread`, `merlinMessageId`,
+`merlinTriggerMessageId`, `merlinThreadNotifications` TS props, zod keys)
+cannot be aliased — they move together in C6. Local dev keeps working across
+chunks: the queue name is a shared const (value flip rebuilds everywhere at
+once) and the worker dual-emits events until clients migrate.
+
+Validate per chunk: `pnpm run check-types` + `pnpm run check`.
+
+- [x] **C1 foundations** — packages/db: constants (`LOR_USER_ID` +
+  deprecated aliases), git mv `seeds/merlin.ts`→`seeds/lor.ts` (identity →
+  Lor/lor/lor@lor.chat), pg names (4 message columns, notification column, 2
+  enum names), `operation_class` values `merlin.*`→`lor.*`, type renames +
+  aliases, `queries/channel-access.ts`. packages/realtime-types: queue value
+  `lor-respond` + const/type aliases, dual event keys, notification types +
+  copy. packages/utils: git mv `merlin.ts`→`lor.ts`, dual export path.
+  packages/ui: dual `agent` CSS tokens. packages/billing: enum-value
+  mapping, email copy. packages/messaging: push copy. packages/auth:
+  `addLorToWorkspace`, "Manage agent profiles". packages/connectors: type
+  imports. Local db:push after this chunk (prod push waits for cutover, §6).
+- [ ] **C2 packages/merlin → packages/lor** — git mv dir, `@repo/lor` name +
+  import specifiers in api/worker/realtime (package.json + sources),
+  packages/env `MERLIN_*`→`LOR_*` + the 4 `env.MERLIN_*` refs in apps/api +
+  vitest TEST_ENV mirror, prompts, `LOR_MODEL` consts, logger, `lor[bot]`,
+  eval seed identity, usage tool strings `merlin.*`→`lor.*` + billing
+  `BILLABLE_TOOLS`/ledger keys, transcript.test fixtures.
+- [ ] **C3 apps/worker** — git mv `jobs/merlin-respond.ts` + 4
+  `lib/merlin-*.ts` → `lor-*`, identifiers, log strings, `lor:writeback:*`
+  key, `LOR_ERROR_FALLBACK`, `actorName: "Lor"`, dual-emit `lor:*` alongside
+  `merlin:*` (old side removed in C9).
+- [ ] **C4 apps/realtime** — git mv `services/merlin*.ts` (+tests) →
+  `lor*`, `lor:session:*`/`lor:thread:muted:*` key prefixes, routing
+  identifiers, logs.
+- [ ] **C5 apps/api** — openapi schema consts + descriptions ("agent
+  profiles"), DM copy, scope-runs/proposals/loops identifier renames,
+  remaining `@repo/db` alias-import swaps.
+- [ ] **C6 cross-cutting property renames** (one commit, all workspaces) —
+  `merlinToolCalls`/`merlinMemories`/`merlinReasoning`/
+  `merlinReasoningSegments`/`merlinTriggerMessageId`/`merlinMessageId`/
+  `merlinThreadNotifications`/`isMerlinThread` → `lor*` across db TS props,
+  API zod schemas, realtime-types, messaging, worker, api, web, mobile. The
+  API wire shape changes here → api-client rebuild.
+- [ ] **C7 apps/web** — git mv 8 merlin-named files, identifiers, ~60 copy
+  strings, listeners → `lor:*`, `bg-agent` classes, composer raw UUID →
+  `LOR_USER_ID` + `label: "Lor"`, settings tab id `"agent"`, DOM ids, demo.
+- [ ] **C8 apps/mobile + apps/www** — mobile: git mv 6 files, identifiers,
+  copy, listeners → `lor:*`, theme keys `agent`/`agentMuted`, avatar
+  fallback `"M"` → initial derived from author name. www: copy sweep,
+  `#merlin`→`#lor` anchor, avatar const → `lor-profile.png`.
+- [ ] **C9 cleanup + docs** — remove all aliases, dual event keys, dual
+  emits, dual CSS tokens, dual utils export path; docs git mvs
+  (`merlin-architecture.md`→`lor-agent-architecture.md`,
+  `merlin-mvp-spec.md`→`lor-mvp-spec.md`) + active-doc prose sweep +
+  CLAUDE.md + `.github/workflows/version-guard.yml` regex + lockfile; final
+  full validation.
 
 ## 6. Cutover order (Jacob-side)
 

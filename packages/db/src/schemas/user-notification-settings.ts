@@ -14,10 +14,13 @@ export const dmNotificationEnum = pgEnum("dm_notification", [
   "nothing",
 ])
 
-export const merlinThreadNotificationEnum = pgEnum(
-  "merlin_thread_notification",
-  ["all_activity", "subscribed_only"]
-)
+export const lorThreadNotificationEnum = pgEnum("lor_thread_notification", [
+  "all_activity",
+  "subscribed_only",
+])
+
+// Deprecated Merlin→Lor rename alias — removed in cleanup (LOR-87 C9).
+export const merlinThreadNotificationEnum = lorThreadNotificationEnum
 
 export const userNotificationSettings = pgTable("user_notification_settings", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -36,8 +39,8 @@ export const userNotificationSettings = pgTable("user_notification_settings", {
   dmNotifications: dmNotificationEnum("dm_notifications")
     .default("all_messages")
     .notNull(),
-  merlinThreadNotifications: merlinThreadNotificationEnum(
-    "merlin_thread_notifications"
+  merlinThreadNotifications: lorThreadNotificationEnum(
+    "lor_thread_notifications"
   )
     .default("all_activity")
     .notNull(),

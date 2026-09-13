@@ -16,7 +16,7 @@ import {
 import { MERLIN_EMBED_DIMENSIONS } from "../constants"
 import { workspace } from "./workspaces"
 
-// Merlin's brain: a filesystem tree (parent_id) and a typed graph (brain_edge)
+// Lor's brain: a filesystem tree (parent_id) and a typed graph (brain_edge)
 // over the same page nodes. Tree = where a page lives; edges = what it relates
 // to. See reference/merlin-mvp-spec.md §5.
 
