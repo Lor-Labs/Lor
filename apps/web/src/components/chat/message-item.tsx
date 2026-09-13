@@ -299,6 +299,10 @@ export const MessageItem = memo(function MessageItem({
   }, [message.id])
 
   const isOwnMessage = !!currentUserId && currentUserId === message.authorId
+  // Match the broadcast tokens recognized by messaging fanout, including app posts.
+  const hasBroadcastMention = /(^|\s)@(everyone|channel|here)\b/i.test(
+    message.content ?? ""
+  )
   const canWrapUnderAvatar =
     wrapContentAroundAvatar && message.authorId === LOR_USER_ID
   const isReply = message.type === "reply"
@@ -483,7 +487,9 @@ export const MessageItem = memo(function MessageItem({
         "group relative px-4 py-0.5 transition-colors",
         isReplyTarget
           ? "bg-primary/[0.07] before:absolute before:inset-y-0 before:left-0 before:w-[3px] before:bg-primary"
-          : !canWrapUnderAvatar && "hover:bg-muted/30"
+          : hasBroadcastMention
+            ? "bg-gold/10 hover:bg-gold/15 before:pointer-events-none before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-gold"
+            : !canWrapUnderAvatar && "hover:bg-muted/30"
       )}
     >
       <div
