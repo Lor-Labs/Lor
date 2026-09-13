@@ -1,7 +1,7 @@
 import { db, desc, inArray } from "@repo/db"
 import { agentRun } from "@repo/db/schema"
 
-// "Merlin's last run" for Act-enabled triggers: the newest agent_run per
+// "Lor's last run" for Act-enabled triggers: the newest agent_run per
 // trigger, with the handoff note it left. Shared by the webhook and
 // integration-event surfaces, which both list many triggers at once.
 // See reference/automation-primitives.md §5.

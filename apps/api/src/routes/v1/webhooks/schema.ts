@@ -73,7 +73,7 @@ export const updateChannelWebhookRequestSchema = z
     post: z.boolean().optional(),
     remember: z.boolean().optional(),
     rememberHint: z.string().trim().max(2000).nullable().optional(),
-    // The Act effect's instructions for Merlin; null = Act off.
+    // The Act effect's instructions for Lor; null = Act off.
     actInstructions: z.string().trim().max(4000).nullable().optional(),
     // 0 = one run per delivery; otherwise deliveries inside the window
     // coalesce into a single run.

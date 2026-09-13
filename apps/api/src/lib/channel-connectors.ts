@@ -1,6 +1,6 @@
 import { CONNECTOR_LIST, connectorCapabilities } from "@repo/connectors"
 import { db } from "@repo/db"
-import type { IntegrationProvider, MerlinCapability } from "@repo/db/schema"
+import type { IntegrationProvider, LorCapability } from "@repo/db/schema"
 import { integrationConnection } from "@repo/db/schema"
 import { resolveChannelCapabilities } from "@repo/lor/capabilities"
 import {
@@ -20,7 +20,7 @@ export type ChannelConnector = {
 // A connector is attachable when it's connected, has searchable records, and the
 // channel grants at least one of its capabilities.
 export function attachableConnectors(
-  capabilities: MerlinCapability[],
+  capabilities: LorCapability[],
   connected: Set<IntegrationProvider>
 ): ChannelConnector[] {
   return CONNECTOR_LIST.filter(
@@ -37,7 +37,7 @@ export function attachableConnectors(
   }))
 }
 
-// Attaching is the composer's mirror of what Merlin may read in a channel, so
+// Attaching is the composer's mirror of what Lor may read in a channel, so
 // the same capability resolution gates both.
 export async function allowedChannelConnectors(
   workspaceId: string,

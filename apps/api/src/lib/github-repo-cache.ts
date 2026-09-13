@@ -2,7 +2,7 @@ import { githubReposCacheKey, setRepoCacheStore } from "@repo/lor/github"
 import { logger } from "@/lib/logger"
 import { getRedisClient } from "@/lib/redis"
 
-// Back Merlin's GitHub caches (repo list, repo trees) with Redis in this process
+// Back Lor's GitHub caches (repo list, repo trees) with Redis in this process
 // too — the composer's connector menu resolves them from the API, not just the
 // worker. Without it every keystroke in the file picker refetches the repo tree.
 export function installGithubCaches(): void {

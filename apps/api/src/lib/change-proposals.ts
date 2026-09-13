@@ -11,7 +11,7 @@ import type {
   ChangeOperation,
   ChangeProposal,
   ChangeProposalOperation,
-  MerlinCapability,
+  LorCapability,
   OperationResult,
   ResourceRef,
 } from "@repo/db/schema"
@@ -426,12 +426,12 @@ async function applyOperation(
           .filter((cap) => cap.key !== "web" || Boolean(env.EXA_API_KEY))
           .map((cap) => cap.key)
       )
-      const capabilities: MerlinCapability[] = []
+      const capabilities: LorCapability[] = []
       for (const value of spec.capabilities) {
         if (!Object.hasOwn(CAPABILITIES, value)) {
           fail(position, `Unknown capability "${value}"`)
         }
-        const capability = value as MerlinCapability
+        const capability = value as LorCapability
         if (!grantable.has(capability)) {
           fail(position, `Capability "${value}" needs a connected provider`)
         }
@@ -635,8 +635,8 @@ async function applyOperation(
         resourceId: inserted.id,
         setupNote:
           spec.authMode === "oauth"
-            ? "Connect this MCP server in Settings → Tools (OAuth) before Merlin can use it."
-            : "Review this MCP server in Settings → Tools and enable the tools Merlin may use.",
+            ? "Connect this MCP server in Settings → Tools (OAuth) before Lor can use it."
+            : "Review this MCP server in Settings → Tools and enable the tools Lor may use.",
       }
     }
 

@@ -410,7 +410,7 @@ export const updateChannel: AppRouteHandler<UpdateChannelRoute> = async (c) => {
     )
   }
 
-  // Assigning a Merlin profile: it must belong to this workspace (the FK alone
+  // Assigning an agent profile: it must belong to this workspace (the FK alone
   // doesn't scope it). null clears the assignment (inherit category/default).
   if (body.agentProfileId) {
     const profile = await db

@@ -3,9 +3,9 @@ import type {
   Attachment,
   ChannelEventPayload,
   Embed,
-  MerlinMemory,
-  MerlinReasoningSegment,
-  MerlinToolCall,
+  LorMemory,
+  LorReasoningSegment,
+  LorToolCall,
 } from "@repo/db/schema"
 import {
   agentRun,
@@ -81,10 +81,10 @@ type BareMessageRow = {
   pinned: boolean
   attachments: Attachment[] | null
   embeds: Embed[] | null
-  merlinToolCalls: MerlinToolCall[] | null
-  merlinMemories: MerlinMemory[] | null
+  merlinToolCalls: LorToolCall[] | null
+  merlinMemories: LorMemory[] | null
   merlinReasoning: string | null
-  merlinReasoningSegments: MerlinReasoningSegment[] | null
+  merlinReasoningSegments: LorReasoningSegment[] | null
   overrideName: string | null
   overrideAvatarUrl: string | null
   referencedMessageId: string | null
@@ -387,7 +387,7 @@ export async function fetchMessages({
     mentionRows,
     reactionRows,
     referencedMessageRows,
-    merlinRunRows,
+    lorRunRows,
     threadSummaryRows,
     threadParticipantRows,
   ] = await Promise.all([
@@ -517,8 +517,8 @@ export async function fetchMessages({
     })
   }
 
-  const merlinTriggerByMessageId = new Map(
-    merlinRunRows.map((row) => [row.messageId, row.triggerMessageId])
+  const lorTriggerByMessageId = new Map(
+    lorRunRows.map((row) => [row.messageId, row.triggerMessageId])
   )
 
   const mentionsByMessageId = new Map<
@@ -612,7 +612,7 @@ export async function fetchMessages({
     merlinReasoningSegments: msg.merlinReasoningSegments ?? [],
     // Serialized as `remembered` (the brain pages saved during this answer).
     remembered: merlinMemories ?? [],
-    merlinTriggerMessageId: merlinTriggerByMessageId.get(msg.id) ?? null,
+    merlinTriggerMessageId: lorTriggerByMessageId.get(msg.id) ?? null,
     mentions: mentionsByMessageId.get(msg.id) ?? [],
     reactions: Array.from(reactionsByMessageId.get(msg.id)?.values() ?? []),
     referencedMessage: msg.referencedMessageId

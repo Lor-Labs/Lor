@@ -4,7 +4,7 @@ import {
   eq,
   inArray,
   isUniqueViolation,
-  MERLIN_USER_ID,
+  LOR_USER_ID,
   schema,
   sql,
 } from "@repo/db"
@@ -273,7 +273,7 @@ export async function completeLoopManually(input: {
   await emitLoopUpdated(completed)
   await postLoopChannelEvent({
     loop: completed,
-    actorId: input.requestedBy ?? MERLIN_USER_ID,
+    actorId: input.requestedBy ?? LOR_USER_ID,
     eventType: "loop_completed",
   })
   return completed

@@ -22,7 +22,7 @@ import {
 export const listAgentProfiles = createRoute({
   path: "/workspaces/{workspaceSlug}/agent-profiles",
   method: "get",
-  summary: "List a workspace's Merlin profiles",
+  summary: "List a workspace's agent profiles",
   description:
     "Returns the workspace's capability profiles plus the capabilities it can currently grant.",
   tags: ["Agent Profiles"],
@@ -43,7 +43,7 @@ export const listAgentProfiles = createRoute({
 export const createAgentProfile = createRoute({
   path: "/workspaces/{workspaceSlug}/agent-profiles",
   method: "post",
-  summary: "Create a Merlin profile",
+  summary: "Create an agent profile",
   description: "Creates a capability profile that channels can be assigned to.",
   tags: ["Agent Profiles"],
   middleware: [workspaceAuthMiddleware] as const,
@@ -70,7 +70,7 @@ export const createAgentProfile = createRoute({
 export const updateAgentProfile = createRoute({
   path: "/workspaces/{workspaceSlug}/agent-profiles/{profileId}",
   method: "patch",
-  summary: "Update a Merlin profile",
+  summary: "Update an agent profile",
   description: "Renames a profile or changes the capabilities it grants.",
   tags: ["Agent Profiles"],
   middleware: [workspaceAuthMiddleware] as const,
@@ -97,7 +97,7 @@ export const updateAgentProfile = createRoute({
 export const deleteAgentProfile = createRoute({
   path: "/workspaces/{workspaceSlug}/agent-profiles/{profileId}",
   method: "delete",
-  summary: "Delete a Merlin profile",
+  summary: "Delete an agent profile",
   description:
     "Deletes a profile. The default profile can't be deleted; channels using a deleted profile fall back to the default.",
   tags: ["Agent Profiles"],

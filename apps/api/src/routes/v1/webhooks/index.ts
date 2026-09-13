@@ -256,7 +256,7 @@ webhooksRouter.post(
     }
 
     // Chat: content stays markdown, embeds become structured cards. Remember
-    // still gets the full markdown render (Merlin needs a text form).
+    // still gets the full markdown render (Lor needs a text form).
     const body = parsed.data
     const content = body.content?.trim() ?? ""
     const embeds = discordEmbedsToMessageEmbeds(body)

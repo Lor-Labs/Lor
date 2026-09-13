@@ -1,4 +1,4 @@
-import { ALL_MERLIN_CAPABILITIES } from "@repo/db/schema"
+import { ALL_LOR_CAPABILITIES } from "@repo/db/schema"
 import { describe, expect, it } from "vitest"
 import { attachableConnectors } from "@/lib/channel-connectors"
 
@@ -6,7 +6,7 @@ const ids = (connectors: { id: string }[]) => connectors.map((c) => c.id)
 
 describe("attachableConnectors", () => {
   it("returns nothing when the workspace has no connections", () => {
-    expect(attachableConnectors(ALL_MERLIN_CAPABILITIES, new Set())).toEqual([])
+    expect(attachableConnectors(ALL_LOR_CAPABILITIES, new Set())).toEqual([])
   })
 
   it("excludes connectors the channel's profile doesn't grant", () => {
@@ -24,7 +24,7 @@ describe("attachableConnectors", () => {
   it("flags only connectors whose files can be browsed", () => {
     const connected = new Set(["github", "linear"] as const)
     const byId = new Map(
-      attachableConnectors(ALL_MERLIN_CAPABILITIES, connected).map((c) => [
+      attachableConnectors(ALL_LOR_CAPABILITIES, connected).map((c) => [
         c.id,
         c.supportsFiles,
       ])
@@ -46,8 +46,11 @@ describe("attachableConnectors", () => {
       "attio",
       "datadog",
     ] as const)
-    expect(
-      ids(attachableConnectors(ALL_MERLIN_CAPABILITIES, connected))
-    ).toEqual(["github", "linear", "attio", "notion"])
+    expect(ids(attachableConnectors(ALL_LOR_CAPABILITIES, connected))).toEqual([
+      "github",
+      "linear",
+      "attio",
+      "notion",
+    ])
   })
 })

@@ -10,7 +10,7 @@ import {
   agentProfileMcpServer,
   customTool,
   integrationConnection,
-  type MerlinCapability,
+  type LorCapability,
   mcpServer,
 } from "@repo/db/schema"
 import { env } from "@repo/env/server"
@@ -137,7 +137,7 @@ function configuredCapabilities(
 // providers before they're persisted.
 async function grantableCapabilities(
   workspaceId: string
-): Promise<Set<MerlinCapability>> {
+): Promise<Set<LorCapability>> {
   const connections = await db
     .select({ provider: integrationConnection.provider })
     .from(integrationConnection)

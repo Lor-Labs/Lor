@@ -5,7 +5,7 @@ import {
   inArray,
   isNull,
   isUniqueViolation,
-  MERLIN_USER_ID,
+  LOR_USER_ID,
   schema,
 } from "@repo/db"
 import type { Plan } from "@repo/db/schema"
@@ -14,8 +14,8 @@ import { toRealtimePlan } from "@repo/lor/plans"
 import { loadThreadSummary } from "@repo/messaging"
 import type { RealtimeMessage } from "@repo/realtime-types"
 import {
-  MERLIN_RESPOND_QUEUE,
-  type MerlinRespondJobData,
+  LOR_RESPOND_QUEUE,
+  type LorRespondJobData,
 } from "@repo/realtime-types/queues"
 import { channelRoom, threadRoom } from "@repo/realtime-types/rooms"
 import { Queue } from "bullmq"
@@ -35,9 +35,9 @@ function parseRedisUrl(url: string) {
   }
 }
 
-let respondQueue: Queue<MerlinRespondJobData> | null = null
-function getRespondQueue(): Queue<MerlinRespondJobData> {
-  respondQueue ??= new Queue<MerlinRespondJobData>(MERLIN_RESPOND_QUEUE, {
+let respondQueue: Queue<LorRespondJobData> | null = null
+function getRespondQueue(): Queue<LorRespondJobData> {
+  respondQueue ??= new Queue<LorRespondJobData>(LOR_RESPOND_QUEUE, {
     connection: { ...parseRedisUrl(env.REDIS_URL), maxRetriesPerRequest: null },
     defaultJobOptions: {
       removeOnComplete: { age: 3600, count: 1000 },
@@ -328,7 +328,7 @@ export async function startScopeContinuationRun(
     .insert(schema.message)
     .values({
       channelId,
-      authorId: MERLIN_USER_ID,
+      authorId: LOR_USER_ID,
       threadRootId,
       status: "pending",
     })
@@ -382,8 +382,8 @@ export async function startScopeContinuationRun(
   // Best effort: the run row exists, so the enqueue below must happen no
   // matter what — a failed broadcast only costs the live placeholder.
   try {
-    const merlin = await loadAuthor(MERLIN_USER_ID)
-    if (merlin) {
+    const lor = await loadAuthor(LOR_USER_ID)
+    if (lor) {
       const message: RealtimeMessage = {
         id: placeholder.id,
         channelId,
@@ -391,7 +391,7 @@ export async function startScopeContinuationRun(
         type: "default",
         pinned: false,
         createdAt: placeholder.createdAt.toISOString(),
-        author: { ...merlin, avatarColor: null },
+        author: { ...lor, avatarColor: null },
         mentions: [],
         reactions: [],
         attachments: [],

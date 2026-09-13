@@ -264,7 +264,7 @@ export const updateGithubRepoConfig = createRoute({
   method: "patch",
   summary: "Set a repository's pull request base branch",
   description:
-    "Overrides the branch Merlin's code actions open pull requests against for one repository; null resets to the repository's default branch.",
+    "Overrides the branch Lor's code actions open pull requests against for one repository; null resets to the repository's default branch.",
   tags: ["Integrations"],
   middleware: [workspaceAuthMiddleware] as const,
   request: {

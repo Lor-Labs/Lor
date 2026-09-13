@@ -149,7 +149,7 @@ export const createMcpServer = createRoute({
   method: "post",
   summary: "Connect an MCP server",
   description:
-    "Registers a remote Streamable HTTP MCP server with shared OAuth or header/API-key authentication. `enabledTools` is the allowlist of server tools Merlin may bind.",
+    "Registers a remote Streamable HTTP MCP server with shared OAuth or header/API-key authentication. `enabledTools` is the allowlist of server tools Lor may bind.",
   tags: ["MCP Servers"],
   middleware: [workspaceAuthMiddleware] as const,
   request: {

@@ -63,7 +63,7 @@ const attioWebhookTargetUrl = () =>
 const notionRedirectUri = () =>
   `${env.APP_BASE_URL}/integrations/notion/callback`
 
-// actor=app: actions are attributed to the Merlin app (and its app user costs
+// actor=app: actions are attributed to the Lor app (and its app user costs
 // no Linear seat). Scope is comma-separated per Linear — keep the comma literal.
 function linearConnectUrl(state: string): string | null {
   if (!env.LINEAR_CLIENT_ID) return null

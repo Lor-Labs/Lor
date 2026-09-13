@@ -145,9 +145,13 @@ Validate per chunk: `pnpm run check-types` + `pnpm run check`.
   logs and thrown-error strings. Collision handled: the `isMerlinThread`
   FUNCTION renamed while the same-named notification-context PROPERTY stayed
   (C6) — protected by matching the property's trailing colon.
-- [ ] **C5 apps/api** — openapi schema consts + descriptions ("agent
-  profiles"), DM copy, scope-runs/proposals/loops identifier renames,
-  remaining `@repo/db` alias-import swaps.
+- [x] **C5 apps/api** — openapi schema consts (`lorToolCallSchema` etc. —
+  their zod KEYS stay on the wire names until C6) + route summaries/
+  descriptions ("agent profiles" per §1 exception 2), DM copy ("You can't DM
+  Lor …"), scope-runs/proposals/loops identifier renames, `@repo/db` +
+  `@repo/realtime-types` alias-import swaps (`LOR_USER_ID`,
+  `LOR_RESPOND_QUEUE`, `LorRespondJobData`, `LorCapability`,
+  `ALL_LOR_CAPABILITIES`, `Lor{ToolCall,Memory,ReasoningSegment}`).
 - [ ] **C6 cross-cutting property renames** (one commit, all workspaces) —
   `merlinToolCalls`/`merlinMemories`/`merlinReasoning`/
   `merlinReasoningSegments`/`merlinTriggerMessageId`/`merlinMessageId`/
