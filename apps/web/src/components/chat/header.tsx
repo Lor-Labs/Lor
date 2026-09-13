@@ -1,15 +1,11 @@
-import { HashtagIcon, Pin02Icon } from "@hugeicons/core-free-icons"
+import { HashtagIcon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@repo/ui/components/tooltip"
 import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { useParams } from "@tanstack/react-router"
 import { ChannelMuteMenu } from "@/components/chat/channel-mute-menu"
 import { HeaderSearch } from "@/components/chat/header-search"
+import { PinnedMessagesPopover } from "@/components/chat/pinned-messages-popover"
 import { HeaderNavControls } from "@/components/desktop-titlebar"
 import { RightPanelToggle } from "@/components/sidebar/sidebar-toggle"
 import { PrivateHashIcon } from "@/components/ui/private-hash-icon"
@@ -22,11 +18,9 @@ export type ChatContext =
 export function ChatHeader({
   context,
   channelId,
-  onTogglePinnedMessages,
 }: {
   context: ChatContext
   channelId: string
-  onTogglePinnedMessages?: () => void
 }) {
   const { workspaceSlug } = useParams({ strict: false })
 
@@ -76,22 +70,12 @@ export function ChatHeader({
           channelId={channelId}
         />
         <ChannelMuteMenu channelId={channelId} />
-        {context.type === "channel" && onTogglePinnedMessages && (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <button
-                  type="button"
-                  onClick={onTogglePinnedMessages}
-                  aria-label="Toggle pinned messages"
-                  className="rounded-sm p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-                />
-              }
-            >
-              <HugeiconsIcon icon={Pin02Icon} size={16} aria-hidden="true" />
-            </TooltipTrigger>
-            <TooltipContent>Pinned Messages</TooltipContent>
-          </Tooltip>
+        {context.type === "channel" && workspaceSlug && (
+          <PinnedMessagesPopover
+            key={`${workspaceSlug}:${channelId}`}
+            workspaceSlug={workspaceSlug}
+            channelId={channelId}
+          />
         )}
         {context.type === "channel" && (
           <RightPanelToggle

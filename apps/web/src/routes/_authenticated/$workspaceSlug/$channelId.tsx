@@ -393,17 +393,6 @@ function ChannelView() {
     workspaceSlug,
   })
 
-  const togglePinnedMessages = useCallback(() => {
-    if (view?.type === "pinned-messages" && !isCollapsed) {
-      setView({ type: "workspace-members", workspaceSlug, channelId })
-    } else {
-      setView({ type: "pinned-messages", workspaceSlug, channelId })
-      if (isCollapsed) {
-        toggleCollapsed()
-      }
-    }
-  }, [view, setView, workspaceSlug, channelId, isCollapsed, toggleCollapsed])
-
   const { replyingTo, setReplyingTo, clearReply } = useReplyState()
 
   const { data: threadActivityData } = useQuery({
@@ -564,11 +553,7 @@ function ChannelView() {
       className="relative flex h-full flex-col overflow-hidden"
     >
       <DropZoneOverlay isDragActive={isDragActive} />
-      <ChatHeader
-        context={context}
-        channelId={channelId}
-        onTogglePinnedMessages={togglePinnedMessages}
-      />
+      <ChatHeader context={context} channelId={channelId} />
       <MessageList
         key={channelId}
         context={context}
