@@ -7,7 +7,7 @@ import {
   gt,
   inArray,
   isNotNull,
-  MERLIN_USER_ID,
+  LOR_USER_ID,
   ne,
   notInArray,
   or,
@@ -212,7 +212,7 @@ function toTurn(row: DeltaRow): AgentRunContext["conversation"][number] {
 }
 
 // Messages that landed in the scope after the predecessor started, minus every
-// message durably covered by its transcript and minus Merlin's own placeholders.
+// message durably covered by its transcript and minus Lor's own placeholders.
 async function loadDelta(args: {
   predecessorRunId: string
   predecessorStartedAt: Date
@@ -258,9 +258,9 @@ async function loadDelta(args: {
         ),
         gt(schema.message.createdAt, args.predecessorStartedAt),
         ne(schema.message.id, args.merlinMessageId),
-        // Merlin's own answers are already in the transcript as assistant
+        // Lor's own answers are already in the transcript as assistant
         // turns; re-adding them as user text would double them.
-        ne(schema.message.authorId, MERLIN_USER_ID),
+        ne(schema.message.authorId, LOR_USER_ID),
         or(
           isNotNull(schema.message.content),
           sql`jsonb_array_length(coalesce(${schema.message.attachments}, '[]'::jsonb)) > 0`

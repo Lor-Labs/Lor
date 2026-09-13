@@ -45,7 +45,7 @@ export async function loadConversation(args: {
           scope,
           ne(schema.message.id, args.merlinMessageId),
           // Attachment-only messages have null/blank content but are real
-          // turns — dropping them made Merlin blind to uploaded files. Blank
+          // turns — dropping them made Lor blind to uploaded files. Blank
           // messages with nothing attached stay out (empty turns, placeholders).
           or(
             sql`btrim(coalesce(${schema.message.content}, '')) <> ''`,

@@ -6,15 +6,15 @@ import {
   eq,
   isNull,
   isUniqueViolation,
-  MERLIN_USER_ID,
+  LOR_USER_ID,
   ne,
   or,
   schema,
 } from "@repo/db"
 import type {
-  MerlinMemory,
-  MerlinReasoningSegment,
-  MerlinToolCall,
+  LorMemory,
+  LorReasoningSegment,
+  LorToolCall,
 } from "@repo/db/schema"
 import { withContext } from "@repo/logger"
 import {
@@ -35,7 +35,7 @@ import {
   sendReactionPushNotification,
 } from "@repo/messaging"
 import type {
-  MerlinRespondJobData,
+  LorRespondJobData,
   RealtimeMessageMention,
 } from "@repo/realtime-types"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
@@ -55,9 +55,9 @@ import {
 } from "@/lib/approval-notify"
 import { createProposalCard } from "@/lib/change-proposal"
 import { logger } from "@/lib/logger"
-import { loadConversation } from "@/lib/merlin-conversation"
-import { createLoopCard } from "@/lib/merlin-loop"
-import { postMerlinMessage } from "@/lib/merlin-messages"
+import { loadConversation } from "@/lib/lor-conversation"
+import { createLoopCard } from "@/lib/lor-loop"
+import { postLorMessage } from "@/lib/lor-messages"
 import {
   buildApprovalContinuation,
   buildContinuation,
@@ -77,18 +77,18 @@ const WRITEBACK_LOCK_TTL = 120
 const WRITEBACK_MIN_BUDGET_FRACTION = 0.15
 const WRITEBACK_MIN_CREDITS = 50
 
-const MERLIN_ERROR_FALLBACK =
+const LOR_ERROR_FALLBACK =
   "I ran into an error answering that. Please try again."
 
 const OUT_OF_CREDITS_MESSAGE =
-  "This workspace is out of Merlin credits. An admin can top up in Settings → Billing."
+  "This workspace is out of Lor credits. An admin can top up in Settings → Billing."
 
-export function createMerlinRespondProcessor(
+export function createLorRespondProcessor(
   emitter: Emitter<ServerToClientEvents>,
   redis: RedisClient,
-  respondQueue: Queue<MerlinRespondJobData>
+  respondQueue: Queue<LorRespondJobData>
 ) {
-  return (job: Job<MerlinRespondJobData>) =>
+  return (job: Job<LorRespondJobData>) =>
     withContext(
       { jobId: job.id, jobName: job.name, channelId: job.data.channelId },
       async () => {
@@ -101,7 +101,7 @@ export function createMerlinRespondProcessor(
         } = job.data
         logger.info(
           { queueWaitMs: Date.now() - job.timestamp },
-          "Merlin job picked up"
+          "Lor job picked up"
         )
         const room = threadRootId
           ? threadRoom(threadRootId)
@@ -239,7 +239,7 @@ export function createMerlinRespondProcessor(
           // Live frame for a steer injection — the placeholder chip flips to
           // "applying new direction"; the event log already has the durable copy.
           onSteered: (e) => {
-            emitter.to(room).emit("merlin:steer", {
+            const steerPayload = {
               channelId,
               threadRootId,
               messageId: merlinMessageId,
@@ -247,7 +247,11 @@ export function createMerlinRespondProcessor(
               authorName: e.authorName,
               ...(job.data.runId ? { runId: job.data.runId } : {}),
               seq: e.seq,
-            })
+            }
+            emitter.to(room).emit("lor:steer", steerPayload)
+            // Deprecated merlin:* dual emits keep pre-C7/C8 clients streaming
+            // during the Merlin→Lor rename — removed in cleanup (LOR-87 C9).
+            emitter.to(room).emit("merlin:steer", steerPayload)
           },
         })
         if (claim.kind === "terminal") {
@@ -364,10 +368,10 @@ export function createMerlinRespondProcessor(
             )
             await db
               .update(schema.message)
-              .set({ content: MERLIN_ERROR_FALLBACK, status: "failed" })
+              .set({ content: LOR_ERROR_FALLBACK, status: "failed" })
               .where(eq(schema.message.id, merlinMessageId))
               .catch(() => {})
-            emit(MERLIN_ERROR_FALLBACK, true, "failed", true)
+            emit(LOR_ERROR_FALLBACK, true, "failed", true)
             await settlePlan("failed")
             await emitThreadSummary()
             drainQueue()
@@ -388,8 +392,8 @@ export function createMerlinRespondProcessor(
           let reasoning = trail?.reasoning ?? ""
           let pendingReasoning = ""
           let eventOrder = trail?.nextOrder ?? 0
-          let activeReasoningSegment: MerlinReasoningSegment | null = null
-          const reasoningSegments: MerlinReasoningSegment[] = trail
+          let activeReasoningSegment: LorReasoningSegment | null = null
+          const reasoningSegments: LorReasoningSegment[] = trail
             ? [...trail.reasoningSegments]
             : []
           const flushReasoning = () => {
@@ -400,7 +404,7 @@ export function createMerlinRespondProcessor(
               at: activeReasoningSegment.at,
               order: activeReasoningSegment.order,
             })
-            emitter.to(room).emit("merlin:reasoning", {
+            const reasoningPayload = {
               channelId,
               threadRootId,
               messageId: merlinMessageId,
@@ -408,7 +412,9 @@ export function createMerlinRespondProcessor(
               at: activeReasoningSegment.at,
               order: activeReasoningSegment.order,
               ...runRef(seq),
-            })
+            }
+            emitter.to(room).emit("lor:reasoning", reasoningPayload)
+            emitter.to(room).emit("merlin:reasoning", reasoningPayload)
             pendingReasoning = ""
           }
           const closeReasoningSegment = () => {
@@ -421,14 +427,14 @@ export function createMerlinRespondProcessor(
           let answer: Awaited<ReturnType<typeof respond>>
           let workspaceId: string
           let gateText: string
-          // Tools Merlin consults while answering — accumulated for the durable
-          // trail persisted on the message, and streamed live via merlin:tool.
-          const toolCalls: MerlinToolCall[] = trail ? [...trail.toolCalls] : []
-          // Brain pages Merlin saves (explicit during the answer + autonomous
+          // Tools Lor consults while answering — accumulated for the durable
+          // trail persisted on the message, and streamed live via lor:tool.
+          const toolCalls: LorToolCall[] = trail ? [...trail.toolCalls] : []
+          // Brain pages Lor saves (explicit during the answer + autonomous
           // write-back) — accumulated for the durable record and streamed live
-          // via merlin:memory. Upsert by path (last write wins).
-          const remembered: MerlinMemory[] = trail ? [...trail.remembered] : []
-          const remember = (memory: MerlinMemory) => {
+          // via lor:memory. Upsert by path (last write wins).
+          const remembered: LorMemory[] = trail ? [...trail.remembered] : []
+          const remember = (memory: LorMemory) => {
             const idx = remembered.findIndex((m) => m.path === memory.path)
             if (idx >= 0) remembered[idx] = memory
             else remembered.push(memory)
@@ -438,7 +444,7 @@ export function createMerlinRespondProcessor(
               action: memory.action,
               ...(memory.nodeId ? { nodeId: memory.nodeId } : {}),
             })
-            emitter.to(room).emit("merlin:memory", {
+            const memoryPayload = {
               channelId,
               threadRootId,
               messageId: merlinMessageId,
@@ -446,7 +452,9 @@ export function createMerlinRespondProcessor(
               action: memory.action,
               ...(memory.nodeId ? { nodeId: memory.nodeId } : {}),
               ...runRef(seq),
-            })
+            }
+            emitter.to(room).emit("lor:memory", memoryPayload)
+            emitter.to(room).emit("merlin:memory", memoryPayload)
           }
           // Point owner/admins at the approval screen the moment a proposal is
           // filed: a workspace-room event pops the in-app alert immediately,
@@ -527,18 +535,18 @@ export function createMerlinRespondProcessor(
               .where(eq(schema.channel.id, channelId))
               .then((r) => r[0])
 
-            // Merlin only answers in workspace channels (it's never in a DM).
+            // Lor only answers in workspace channels (it's never in a DM).
             if (!channel?.workspaceId) {
               logger.warn(
                 { channelId, merlinMessageId },
-                "Merlin invoked outside a workspace channel; skipping"
+                "Lor invoked outside a workspace channel; skipping"
               )
               await db
                 .update(schema.message)
-                .set({ content: MERLIN_ERROR_FALLBACK, status: "failed" })
+                .set({ content: LOR_ERROR_FALLBACK, status: "failed" })
                 .where(eq(schema.message.id, merlinMessageId))
                 .catch(() => {})
-              emit(MERLIN_ERROR_FALLBACK, true, "failed")
+              emit(LOR_ERROR_FALLBACK, true, "failed")
               await runWriter.transition("failed", { stopReason: "error" })
               execution?.stop()
               await settlePlan("failed")
@@ -564,7 +572,7 @@ export function createMerlinRespondProcessor(
               .where(
                 and(
                   eq(schema.workspaceMember.workspaceId, workspaceId),
-                  ne(schema.user.id, MERLIN_USER_ID)
+                  ne(schema.user.id, LOR_USER_ID)
                 )
               )
               .catch(() => [])
@@ -575,7 +583,7 @@ export function createMerlinRespondProcessor(
             if (!gate.allowed) {
               logger.info(
                 { workspaceId, merlinMessageId },
-                "Merlin refused; workspace out of credits"
+                "Lor refused; workspace out of credits"
               )
               await db
                 .update(schema.message)
@@ -618,7 +626,7 @@ export function createMerlinRespondProcessor(
             // root, and assigns it to this run so settlePlan owns it.
             const createPlanForThread = async (input: StartPlanInput) => {
               if (!threadRootId) return null
-              const { messageId: cardId } = await postMerlinMessage(
+              const { messageId: cardId } = await postLorMessage(
                 { emitter, redis },
                 {
                   channelId,
@@ -676,7 +684,7 @@ export function createMerlinRespondProcessor(
               emit(pending, false)
               pending = ""
             }
-            // Loop creator = whoever addressed Merlin; null keeps the loop
+            // Loop creator = whoever addressed Lor; null keeps the loop
             // valid when attribution failed (legacy jobs, deleted trigger).
             const proposeLoop: ProposeLoopExecutor = (loopInput) =>
               createLoopCard(
@@ -755,7 +763,7 @@ export function createMerlinRespondProcessor(
                         messageId: update.messageId,
                         userId: notification.authorUserId,
                       },
-                      "Merlin reaction push failed"
+                      "Lor reaction push failed"
                     )
                   })
                 },
@@ -808,7 +816,7 @@ export function createMerlinRespondProcessor(
                   if (!existing && !toolCall.parentToolCallId) {
                     closeReasoningSegment()
                   }
-                  const nextToolCall: MerlinToolCall = {
+                  const nextToolCall: LorToolCall = {
                     ...base,
                     ...toolCall,
                     ...(existing?.at !== undefined ? { at: existing.at } : {}),
@@ -824,13 +832,15 @@ export function createMerlinRespondProcessor(
                     kind: "tool",
                     toolCall: nextToolCall,
                   })
-                  emitter.to(room).emit("merlin:tool", {
+                  const toolPayload = {
                     channelId,
                     threadRootId,
                     messageId: merlinMessageId,
                     toolCall: nextToolCall,
                     ...runRef(seq),
-                  })
+                  }
+                  emitter.to(room).emit("lor:tool", toolPayload)
+                  emitter.to(room).emit("merlin:tool", toolPayload)
                 },
                 // Metered usage: every event lands in the usage_event ledger;
                 // billable responses and code investigations debit credits.
@@ -838,7 +848,7 @@ export function createMerlinRespondProcessor(
                 // billable usage also folds into the run's spend counter at the
                 // next checkpoint (the budget_spend ceiling).
                 onUsage: (u) => {
-                  logger.info({ ...u }, "Merlin usage")
+                  logger.info({ ...u }, "Lor usage")
                   if (
                     u.tool === "investigate_code" ||
                     u.tool === "propose_code_change" ||
@@ -856,7 +866,7 @@ export function createMerlinRespondProcessor(
 
             gateText = `${conversation
               .map((t) => formatSpeakerLine(t.authorName, t.content))
-              .join("\n")}\n\nMerlin: ${answer.text}`
+              .join("\n")}\n\nLor: ${answer.text}`
           } catch (err) {
             // Superseded attempt (lease lost / takeover): another worker owns
             // the message now — exit without touching it or emitting anything.
@@ -868,15 +878,15 @@ export function createMerlinRespondProcessor(
               execution?.stop()
               return
             }
-            logger.error({ err, merlinMessageId }, "Merlin response failed")
+            logger.error({ err, merlinMessageId }, "Lor response failed")
             await db
               .update(schema.message)
-              .set({ content: MERLIN_ERROR_FALLBACK, status: "failed" })
+              .set({ content: LOR_ERROR_FALLBACK, status: "failed" })
               .where(eq(schema.message.id, merlinMessageId))
               .catch(() => {})
             // Replace (not append) so a partial answer streamed before the error
             // is dropped in favor of the fallback, matching the persisted row.
-            emit(MERLIN_ERROR_FALLBACK, true, "failed", true)
+            emit(LOR_ERROR_FALLBACK, true, "failed", true)
             await runWriter.transition("failed", {
               stopReason:
                 execution &&
@@ -915,7 +925,7 @@ export function createMerlinRespondProcessor(
             if (grounded.invalid > 0) {
               logger.warn(
                 { merlinMessageId, invalid: grounded.invalid },
-                "Stripped unresolved Merlin citations"
+                "Stripped unresolved Lor citations"
               )
             }
 
@@ -933,7 +943,7 @@ export function createMerlinRespondProcessor(
               if (!stoppedByUser && !awaitingApproval) {
                 logger.warn(
                   { merlinMessageId },
-                  "Merlin produced no answer text; using empty fallback"
+                  "Lor produced no answer text; using empty fallback"
                 )
               }
             }
@@ -995,17 +1005,17 @@ export function createMerlinRespondProcessor(
           } catch (err) {
             logger.error(
               { err, merlinMessageId },
-              "Merlin reply persistence failed after streaming"
+              "Lor reply persistence failed after streaming"
             )
             // The streamed answer was never saved — replace it with the fallback
             // (live and on reload) and stop, so fanout and write-back are skipped
             // for a reply that didn't persist.
             await db
               .update(schema.message)
-              .set({ content: MERLIN_ERROR_FALLBACK, status: "failed" })
+              .set({ content: LOR_ERROR_FALLBACK, status: "failed" })
               .where(eq(schema.message.id, merlinMessageId))
               .catch(() => {})
-            emit(MERLIN_ERROR_FALLBACK, true, "failed", true)
+            emit(LOR_ERROR_FALLBACK, true, "failed", true)
             await runWriter.transition("failed", { stopReason: "error" })
             execution?.stop()
             await settlePlan("failed")
@@ -1018,7 +1028,7 @@ export function createMerlinRespondProcessor(
           // unread/mention like a normal message. Best-effort: a fanout failure
           // must not downgrade the reply we already saved.
           try {
-            const [channelRow, merlinAuthor] = await Promise.all([
+            const [channelRow, lorAuthor] = await Promise.all([
               db
                 .select({
                   id: schema.channel.id,
@@ -1036,20 +1046,20 @@ export function createMerlinRespondProcessor(
               db
                 .select({ name: schema.user.name, image: schema.user.image })
                 .from(schema.user)
-                .where(eq(schema.user.id, MERLIN_USER_ID))
+                .where(eq(schema.user.id, LOR_USER_ID))
                 .then((r) => r[0]),
             ])
 
             if (channelRow) {
               const fanout = await buildMessageFanout({
-                authorId: MERLIN_USER_ID,
+                authorId: LOR_USER_ID,
                 channel: channelRow,
                 message: {
                   id: merlinMessageId,
                   content: finalText,
                   author: {
-                    name: merlinAuthor?.name ?? "Merlin",
-                    image: merlinAuthor?.image ?? null,
+                    name: lorAuthor?.name ?? "Lor",
+                    image: lorAuthor?.image ?? null,
                   },
                   attachments: [],
                   threadRootId,
@@ -1081,7 +1091,7 @@ export function createMerlinRespondProcessor(
           } catch (err) {
             logger.error(
               { err, merlinMessageId },
-              "Merlin reply fanout failed after persistence"
+              "Lor reply fanout failed after persistence"
             )
           }
 
@@ -1151,7 +1161,7 @@ export function createMerlinRespondProcessor(
           }
           logger.info(
             { merlinMessageId, length: finalText.length, stoppedByUser },
-            "Merlin reply complete"
+            "Lor reply complete"
           )
           if (stoppedByUser) {
             await runWriter.close()
@@ -1187,7 +1197,7 @@ export function createMerlinRespondProcessor(
 
           // Phase 3 — autonomous write-back. Per-workspace lock serializes brain
           // writes; skip if another holds it (resurfaces on a later mention).
-          const lockKey = `merlin:writeback:${workspaceId}`
+          const lockKey = `lor:writeback:${workspaceId}`
           const lockToken = randomUUID()
           const acquired = await redis
             .set(lockKey, lockToken, { NX: true, EX: WRITEBACK_LOCK_TTL })
@@ -1228,12 +1238,12 @@ export function createMerlinRespondProcessor(
                 .catch((err) =>
                   logger.error(
                     { err, merlinMessageId },
-                    "Failed to persist Merlin memories"
+                    "Failed to persist Lor memories"
                   )
                 )
             }
           } catch (err) {
-            logger.error({ err, merlinMessageId }, "Merlin write-back failed")
+            logger.error({ err, merlinMessageId }, "Lor write-back failed")
           } finally {
             // Release only if we still own it: if write-back outran the TTL and a
             // newer worker re-acquired, an unconditional DEL would drop its lock.

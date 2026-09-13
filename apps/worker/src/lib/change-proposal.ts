@@ -3,7 +3,7 @@ import {
   parseRolePermission,
   workspaceAuthorityHasPermissions,
 } from "@repo/auth/permissions"
-import { and, db, eq, MERLIN_USER_ID, schema } from "@repo/db"
+import { and, db, eq, LOR_USER_ID, schema } from "@repo/db"
 import type { ChangeOperation, ProposalEvidence } from "@repo/db/schema"
 import { proposalPermissions } from "@repo/db/schema"
 import { sendProposalPush } from "@repo/messaging"
@@ -15,7 +15,7 @@ import { channelRoom, userRoom } from "@repo/realtime-types/rooms"
 import type { Emitter } from "@socket.io/redis-emitter"
 import type { createClient } from "redis"
 import { logger } from "@/lib/logger"
-import { postMerlinMessage } from "@/lib/merlin-messages"
+import { postLorMessage } from "@/lib/lor-messages"
 
 type RedisClient = ReturnType<typeof createClient>
 
@@ -55,7 +55,7 @@ function proposedLabel(spec: ChangeOperation): string {
 
 // The propose_workspace_change executor: proposal_card message + proposal/op
 // rows, same card-is-anchor shape as createLoopCard. A newer proposal
-// supersedes the channel's previous pending one — Merlin revising after
+// supersedes the channel's previous pending one — Lor revising after
 // feedback must not leave two live cards competing for approval.
 export async function createProposalCard(
   deps: ChangeProposalDeps,
@@ -68,7 +68,7 @@ export async function createProposalCard(
   }
 ): Promise<{ proposalId: string }> {
   const lines = input.operations.map((spec) => `- ${proposedLabel(spec)}`)
-  const { messageId: cardId } = await postMerlinMessage(
+  const { messageId: cardId } = await postLorMessage(
     { emitter: deps.emitter, redis: deps.redis },
     {
       channelId: input.channelId,
@@ -104,7 +104,7 @@ export async function createProposalCard(
           channelId: input.channelId,
           cardMessageId: cardId,
           authorType: "agent",
-          authorUserId: MERLIN_USER_ID,
+          authorUserId: LOR_USER_ID,
           rationale: input.rationale,
           evidence: input.evidence,
         })

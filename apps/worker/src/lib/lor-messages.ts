@@ -1,4 +1,4 @@
-import { db, eq, MERLIN_USER_ID, schema } from "@repo/db"
+import { db, eq, LOR_USER_ID, schema } from "@repo/db"
 import type { ChannelEventPayload, ChannelEventType } from "@repo/db/schema"
 import {
   buildMessageFanout,
@@ -13,12 +13,12 @@ import { logger } from "@/lib/logger"
 
 type RedisClient = ReturnType<typeof createClient>
 
-type MerlinMessageDeps = {
+type LorMessageDeps = {
   emitter: Emitter<ServerToClientEvents>
   redis: RedisClient
 }
 
-export async function loadMerlinAuthor() {
+export async function loadLorAuthor() {
   return db
     .select({
       id: schema.user.id,
@@ -28,7 +28,7 @@ export async function loadMerlinAuthor() {
       image: schema.user.image,
     })
     .from(schema.user)
-    .where(eq(schema.user.id, MERLIN_USER_ID))
+    .where(eq(schema.user.id, LOR_USER_ID))
     .limit(1)
     .then((rows) => rows[0] ?? null)
 }
@@ -50,21 +50,21 @@ async function loadChannel(channelId: string) {
     .then((rows) => rows[0] ?? null)
 }
 
-// Unread/mention/push fanout for an already-persisted Merlin message — used
+// Unread/mention/push fanout for an already-persisted Lor message — used
 // standalone when a placeholder gets its final content (archive synthesis).
 // Best effort: returns resolved mentions, or [] when fanout failed.
-export async function fanoutMerlinMessage(
-  deps: MerlinMessageDeps,
+export async function fanoutLorMessage(
+  deps: LorMessageDeps,
   input: { channelId: string; messageId: string; content: string }
 ): Promise<RealtimeMessage["mentions"]> {
   try {
     const [channel, author] = await Promise.all([
       loadChannel(input.channelId),
-      loadMerlinAuthor(),
+      loadLorAuthor(),
     ])
-    if (!channel || !author) throw new Error("Channel or Merlin user missing")
+    if (!channel || !author) throw new Error("Channel or Lor user missing")
     const fanout = await buildMessageFanout({
-      authorId: MERLIN_USER_ID,
+      authorId: LOR_USER_ID,
       channel,
       message: {
         id: input.messageId,
@@ -86,26 +86,23 @@ export async function fanoutMerlinMessage(
       (err) => {
         logger.error(
           { err, messageId: input.messageId },
-          "Merlin post push failed"
+          "Lor post push failed"
         )
       }
     )
     return fanout.messageMentions
   } catch (err) {
-    logger.error(
-      { err, messageId: input.messageId },
-      "Merlin post fanout failed"
-    )
+    logger.error({ err, messageId: input.messageId }, "Lor post fanout failed")
     return []
   }
 }
 
-// Post a channel message as Merlin, with normal unread/mention/push fanout —
+// Post a channel message as Lor, with normal unread/mention/push fanout —
 // the worker-side counterpart of the API's postBotMessage. `silent` skips the
 // fanout entirely (loop fire markers are decoration — they must not bump
 // unread counts every fire on top of the run's real messages).
-export async function postMerlinMessage(
-  deps: MerlinMessageDeps,
+export async function postLorMessage(
+  deps: LorMessageDeps,
   input: {
     channelId: string
     content: string
@@ -125,14 +122,14 @@ export async function postMerlinMessage(
     silent?: boolean
   }
 ): Promise<{ messageId: string }> {
-  const author = await loadMerlinAuthor()
-  if (!author) throw new Error("Merlin user missing")
+  const author = await loadLorAuthor()
+  if (!author) throw new Error("Lor user missing")
 
   const inserted = await db
     .insert(schema.message)
     .values({
       channelId: input.channelId,
-      authorId: MERLIN_USER_ID,
+      authorId: LOR_USER_ID,
       content: input.content,
       type: input.type ?? "default",
       eventType: input.eventType ?? null,
@@ -146,7 +143,7 @@ export async function postMerlinMessage(
 
   const mentions = input.silent
     ? []
-    : await fanoutMerlinMessage(deps, {
+    : await fanoutLorMessage(deps, {
         channelId: input.channelId,
         messageId: inserted.id,
         content: input.content,

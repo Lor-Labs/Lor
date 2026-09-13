@@ -6,22 +6,22 @@ import { channelRoom } from "@repo/realtime-types/rooms"
 import type { Emitter } from "@socket.io/redis-emitter"
 import type { createClient } from "redis"
 import { logger } from "@/lib/logger"
-import { postMerlinMessage } from "@/lib/merlin-messages"
+import { postLorMessage } from "@/lib/lor-messages"
 
 type RedisClient = ReturnType<typeof createClient>
 
-export type MerlinLoopDeps = {
+export type LorLoopDeps = {
   emitter: Emitter<ServerToClientEvents>
   redis: RedisClient
 }
 
 // The propose_loop executor: loop_card message + draft loop row, the same
-// card-is-anchor shape as createMerlinPlan. Nothing is scheduled here — the
+// card-is-anchor shape as createLorPlan. Nothing is scheduled here — the
 // loop stays a draft until a human activates it (L2 activate route). The
 // card content is a plain-text fallback (mobile, search, clients without the
 // loop row); rich rendering reads the row via cardMessageId.
 export async function createLoopCard(
-  deps: MerlinLoopDeps,
+  deps: LorLoopDeps,
   input: {
     workspaceId: string
     channelId: string
@@ -34,7 +34,7 @@ export async function createLoopCard(
     endAt: Date | null
   }
 ): Promise<{ loopId: string }> {
-  const { messageId: cardId } = await postMerlinMessage(
+  const { messageId: cardId } = await postLorMessage(
     { emitter: deps.emitter, redis: deps.redis },
     {
       channelId: input.channelId,

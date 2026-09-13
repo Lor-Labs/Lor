@@ -1,11 +1,7 @@
 import { recordUsage } from "@repo/billing"
 import { and, asc, db, eq, schema } from "@repo/db"
 import { listChannelAudienceUserIds } from "@repo/db/queries/channel-access"
-import type {
-  MerlinMemory,
-  MerlinToolCall,
-  MerlinToolCallUpdate,
-} from "@repo/db/schema"
+import type { LorMemory, LorToolCall, LorToolCallUpdate } from "@repo/db/schema"
 import { synthesizeProjectArchive } from "@repo/lor/project-archive"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
 import type { ProjectArchiveJobData } from "@repo/realtime-types/queues"
@@ -67,8 +63,8 @@ export function createProjectArchiveProcessor(
     // Tool trail + memory chips: streamed live to whoever is watching the
     // overview; memories are also accumulated for the durable record.
     let eventOrder = 0
-    const toolCalls: MerlinToolCall[] = []
-    const onToolEvent = (toolCall: MerlinToolCallUpdate) => {
+    const toolCalls: LorToolCall[] = []
+    const onToolEvent = (toolCall: LorToolCallUpdate) => {
       const idx = toolCalls.findIndex(
         (t) => t.toolCallId === toolCall.toolCallId
       )
@@ -79,7 +75,7 @@ export function createProjectArchiveProcessor(
           ? { toolName: toolCall.toolName, label: toolCall.label }
           : undefined)
       if (!base) return
-      const next: MerlinToolCall = {
+      const next: LorToolCall = {
         ...base,
         ...toolCall,
         ...(existing?.order !== undefined
@@ -96,8 +92,8 @@ export function createProjectArchiveProcessor(
         toolCall: next,
       })
     }
-    const remembered: MerlinMemory[] = []
-    const onMemoryWritten = (memory: MerlinMemory) => {
+    const remembered: LorMemory[] = []
+    const onMemoryWritten = (memory: LorMemory) => {
       const idx = remembered.findIndex((m) => m.path === memory.path)
       if (idx >= 0) remembered[idx] = memory
       else remembered.push(memory)

@@ -13,7 +13,7 @@ import { logger } from "@/lib/logger"
 
 type RedisClient = ReturnType<typeof createClient>
 
-// Same write-back guardrails as merlin-respond: never endanger the delivered
+// Same write-back guardrails as lor-respond: never endanger the delivered
 // outcome, and serialize brain writes per workspace.
 const WRITEBACK_LOCK_TTL = 120
 const WRITEBACK_MIN_BUDGET_FRACTION = 0.15
@@ -260,7 +260,7 @@ export async function runUnattended(
     }
     await execution.setPhase("writeback")
 
-    const lockKey = `merlin:writeback:${execution.workspaceId}`
+    const lockKey = `lor:writeback:${execution.workspaceId}`
     const lockToken = randomUUID()
     const acquired = await redis
       .set(lockKey, lockToken, { NX: true, EX: WRITEBACK_LOCK_TTL })
@@ -281,7 +281,7 @@ export async function runUnattended(
           priorMessages: answer.messages,
           gateText: `${params.label}: ${conversation
             .map((t) => t.content)
-            .join("\n")}\n\nMerlin: ${answer.text}`,
+            .join("\n")}\n\nLor: ${answer.text}`,
         },
         {
           onMemoryWritten: (e) => {

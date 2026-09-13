@@ -1,34 +1,34 @@
-import { db, eq, isUniqueViolation, MERLIN_USER_ID, schema } from "@repo/db"
+import { db, eq, isUniqueViolation, LOR_USER_ID, schema } from "@repo/db"
 import { env } from "@repo/env/server"
 import { settleAbandonedRunPlan, toRealtimePlan } from "@repo/lor/plans"
 import { loadThreadSummary } from "@repo/messaging"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
-import type { MerlinRespondJobData } from "@repo/realtime-types/queues"
+import type { LorRespondJobData } from "@repo/realtime-types/queues"
 import { channelRoom, threadRoom } from "@repo/realtime-types/rooms"
 import type { Emitter } from "@socket.io/redis-emitter"
 import type { Queue } from "bullmq"
 import type { createClient } from "redis"
 import { logger } from "@/lib/logger"
 import {
-  loadMerlinAuthor,
-  postMerlinMessage as postMerlinChannelMessage,
-} from "@/lib/merlin-messages"
+  loadLorAuthor,
+  postLorMessage as postLorChannelMessage,
+} from "@/lib/lor-messages"
 
 type RedisClient = ReturnType<typeof createClient>
 
-export type MerlinPlanDeps = {
+export type LorPlanDeps = {
   emitter: Emitter<ServerToClientEvents>
   redis: RedisClient
-  respondQueue: Queue<MerlinRespondJobData>
+  respondQueue: Queue<LorRespondJobData>
 }
 
 // Card + plan row + the plan's first run — the same card-is-thread-root
 // shape + the follow-up-run pattern in run-queue.ts,
 // so the created plan lives entirely on existing plan rails. Used by the
-// unattended processors (Act triggers, loops) when Merlin's disposition is
+// unattended processors (Act triggers, loops) when Lor's disposition is
 // create_plan; `originRunId` records which run spawned it.
-export async function createMerlinPlan(
-  deps: MerlinPlanDeps,
+export async function createLorPlan(
+  deps: LorPlanDeps,
   input: {
     workspaceId: string
     channelId: string
@@ -37,14 +37,13 @@ export async function createMerlinPlan(
     originRunId?: string
   }
 ): Promise<{ planId: string }> {
-  const postMerlinMessage = (msg: {
+  const postLorMessage = (msg: {
     channelId: string
     content: string
     type?: "default" | "plan_card"
-  }) =>
-    postMerlinChannelMessage({ emitter: deps.emitter, redis: deps.redis }, msg)
+  }) => postLorChannelMessage({ emitter: deps.emitter, redis: deps.redis }, msg)
 
-  const { messageId: cardId } = await postMerlinMessage({
+  const { messageId: cardId } = await postLorMessage({
     channelId: input.channelId,
     content: input.goal,
     type: "plan_card",
@@ -57,7 +56,7 @@ export async function createMerlinPlan(
       // Spawned plans keep card-as-root: no human root message exists.
       threadRootId: cardId,
       cardMessageId: cardId,
-      creatorId: MERLIN_USER_ID,
+      creatorId: LOR_USER_ID,
       title: input.title,
       goal: input.goal,
       originRunId: input.originRunId ?? null,
@@ -93,7 +92,7 @@ export async function createMerlinPlan(
     .insert(schema.message)
     .values({
       channelId: input.channelId,
-      authorId: MERLIN_USER_ID,
+      authorId: LOR_USER_ID,
       threadRootId: cardId,
       status: "pending",
     })
@@ -138,7 +137,7 @@ export async function createMerlinPlan(
     return { planId: plan.id }
   }
 
-  const author = await loadMerlinAuthor()
+  const author = await loadLorAuthor()
   if (author) {
     deps.emitter.to(threadRoom(cardId)).emit("message:created", {
       id: placeholder.id,

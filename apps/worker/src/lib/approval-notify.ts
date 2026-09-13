@@ -3,7 +3,7 @@ import {
   formatWorkspaceRole,
   isWorkspaceRole,
 } from "@repo/auth/permissions"
-import { and, db, eq, MERLIN_USER_ID, schema } from "@repo/db"
+import { and, db, eq, LOR_USER_ID, schema } from "@repo/db"
 import { env } from "@repo/env/server"
 import { sendApprovalPush } from "@repo/messaging"
 import type {
@@ -229,7 +229,7 @@ async function resolverAudience(
 }
 
 // The person whose message triggered the parked run; null for headless runs
-// (loops, triggered runs) and Merlin-authored triggers.
+// (loops, triggered runs) and Lor-authored triggers.
 async function requesterOf(row: ParkedApprovalRow): Promise<string | null> {
   if (!row.triggerMessageId) return null
   const authorId = await db
@@ -238,7 +238,7 @@ async function requesterOf(row: ParkedApprovalRow): Promise<string | null> {
     .where(eq(schema.message.id, row.triggerMessageId))
     .limit(1)
     .then((rows) => rows[0]?.authorId ?? null)
-  return authorId && authorId !== MERLIN_USER_ID ? authorId : null
+  return authorId && authorId !== LOR_USER_ID ? authorId : null
 }
 
 async function buildNotification(

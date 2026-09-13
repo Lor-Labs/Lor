@@ -132,10 +132,11 @@ Validate per chunk: `pnpm run check-types` + `pnpm run check`.
   regex (`packages/merlin`→`packages/lor`) moved up from C9 — leaving it
   stale would have made every packages/lor change read as unsafe to that CI
   guard. Lockfile regenerated (`pnpm install`).
-- [ ] **C3 apps/worker** — git mv `jobs/merlin-respond.ts` + 4
+- [x] **C3 apps/worker** — git mv `jobs/merlin-respond.ts` + 4
   `lib/merlin-*.ts` → `lor-*`, identifiers, log strings, `lor:writeback:*`
-  key, `LOR_ERROR_FALLBACK`, `actorName: "Lor"`, dual-emit `lor:*` alongside
-  `merlin:*` (old side removed in C9).
+  key (both lock sites), `LOR_ERROR_FALLBACK`, `actorName: "Lor"`, dual-emit
+  `lor:*` alongside `merlin:*` via extracted payload consts (old side
+  removed in C9). C6 props (`merlinMessageId` etc.) deliberately untouched.
 - [ ] **C4 apps/realtime** — git mv `services/merlin*.ts` (+tests) →
   `lor*`, `lor:session:*`/`lor:thread:muted:*` key prefixes, routing
   identifiers, logs.

@@ -5,16 +5,13 @@ import {
   eq,
   inArray,
   isUniqueViolation,
-  MERLIN_USER_ID,
+  LOR_USER_ID,
   schema,
   sql,
 } from "@repo/db"
 import { env } from "@repo/env/server"
 import { loadThreadSummary } from "@repo/messaging"
-import type {
-  MerlinRespondJobData,
-  RealtimeMessage,
-} from "@repo/realtime-types"
+import type { LorRespondJobData, RealtimeMessage } from "@repo/realtime-types"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
 import { channelRoom, threadRoom } from "@repo/realtime-types/rooms"
 import type { Emitter } from "@socket.io/redis-emitter"
@@ -40,7 +37,7 @@ export function awaitInflightDrains(): Promise<void> {
 export function drainScopeQueue(args: {
   runId: string
   emitter: Emitter<ServerToClientEvents>
-  respondQueue: Queue<MerlinRespondJobData>
+  respondQueue: Queue<LorRespondJobData>
 }): Promise<void> {
   const drain = runDrain(args)
   inflightDrains.add(drain)
@@ -51,7 +48,7 @@ export function drainScopeQueue(args: {
 async function runDrain(args: {
   runId: string
   emitter: Emitter<ServerToClientEvents>
-  respondQueue: Queue<MerlinRespondJobData>
+  respondQueue: Queue<LorRespondJobData>
 }): Promise<void> {
   const run = await db
     .select({
@@ -180,7 +177,7 @@ async function runDrain(args: {
 
   const triggerMessageId = winner.messageId
 
-  const merlinUser = await db
+  const lorUser = await db
     .select({
       name: schema.user.name,
       username: schema.user.username,
@@ -188,15 +185,15 @@ async function runDrain(args: {
       image: schema.user.image,
     })
     .from(schema.user)
-    .where(eq(schema.user.id, MERLIN_USER_ID))
+    .where(eq(schema.user.id, LOR_USER_ID))
     .then((r) => r[0])
-  if (!merlinUser) return
+  if (!lorUser) return
 
   const placeholder = await db
     .insert(schema.message)
     .values({
       channelId: run.channelId,
-      authorId: MERLIN_USER_ID,
+      authorId: LOR_USER_ID,
       threadRootId,
       status: "pending",
     })
@@ -269,11 +266,11 @@ async function runDrain(args: {
     pinned: false,
     createdAt: placeholder.createdAt.toISOString(),
     author: {
-      id: MERLIN_USER_ID,
-      name: merlinUser.name,
-      username: merlinUser.username,
-      displayUsername: merlinUser.displayUsername,
-      image: merlinUser.image,
+      id: LOR_USER_ID,
+      name: lorUser.name,
+      username: lorUser.username,
+      displayUsername: lorUser.displayUsername,
+      image: lorUser.image,
       avatarColor: null,
     },
     mentions: [],

@@ -38,7 +38,7 @@ vi.mock("@repo/db", () => {
     notInArray: op,
     or: op,
     sql: op,
-    MERLIN_USER_ID: "merlin-user",
+    LOR_USER_ID: "lor-user",
     db: { select: () => chain() },
     schema: new Proxy(
       {},
