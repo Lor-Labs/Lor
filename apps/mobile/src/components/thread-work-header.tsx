@@ -5,7 +5,7 @@ import { Popover } from "heroui-native/popover"
 import { type ReactNode, useMemo, useState } from "react"
 import { Text, View } from "react-native"
 import { ApprovalGateCard } from "@/components/approval-card"
-import { MerlinToolTrail } from "@/components/merlin-tool-trail"
+import { LorToolTrail } from "@/components/lor-tool-trail"
 import {
   PlanFileRow,
   PlanStatusBadge,
@@ -13,7 +13,7 @@ import {
 } from "@/components/plan-ui"
 import { usePlan, usePlanArtifacts, usePlanForThread } from "@/hooks/use-plans"
 import type { Message } from "@/lib/api-types"
-import type { MerlinToolCall } from "@/lib/merlin"
+import type { LorToolCall } from "@/lib/lor"
 
 export type PlanSourceFile = {
   url: string
@@ -58,7 +58,7 @@ function SectionPopover({
 // Docked strip under the thread header — the thread's work surface (mirrors
 // web's thread-work-header). Status + Plan/Files popover chips when a plan
 // anchors to the thread, an Activity chip mirroring the newest run's tool
-// trail whenever Merlin worked here, and the pending approval card, which is
+// trail whenever Lor worked here, and the pending approval card, which is
 // always visible.
 export function ThreadWorkHeader({
   channelId,
@@ -76,8 +76,8 @@ export function ThreadWorkHeader({
   const { data: artifacts } = usePlanArtifacts(plan?.id ?? null)
 
   const { activityCalls, childrenByParent } = useMemo(() => {
-    const topLevel: MerlinToolCall[] = []
-    const children = new Map<string, MerlinToolCall[]>()
+    const topLevel: LorToolCall[] = []
+    const children = new Map<string, LorToolCall[]>()
     for (const call of activityMessage?.lorToolCalls ?? []) {
       if (call.parentToolCallId) {
         const siblings = children.get(call.parentToolCallId) ?? []
@@ -168,7 +168,7 @@ export function ThreadWorkHeader({
             }
           >
             {() => (
-              <MerlinToolTrail
+              <LorToolTrail
                 childrenByParent={childrenByParent}
                 embedded
                 streaming={streaming}

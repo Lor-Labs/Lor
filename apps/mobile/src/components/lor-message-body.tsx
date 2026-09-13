@@ -1,14 +1,14 @@
 import { useMemo } from "react"
 import { Text, View } from "react-native"
-import { MerlinActivity } from "@/components/merlin-activity"
-import { MerlinReasoning } from "@/components/merlin-reasoning"
-import { MerlinToolTrail } from "@/components/merlin-tool-trail"
+import { LorActivity } from "@/components/lor-activity"
+import { LorReasoning } from "@/components/lor-reasoning"
+import { LorToolTrail } from "@/components/lor-tool-trail"
 import { MessageContent } from "@/components/message-content"
 import { PlanFileRow } from "@/components/plan-ui"
 import type { Message } from "@/lib/api-types"
-import { buildMerlinSegments, type MerlinToolCall } from "@/lib/merlin"
+import { buildLorSegments, type LorToolCall } from "@/lib/lor"
 
-export function MerlinMessageBody({
+export function LorMessageBody({
   message,
   streaming,
   onCitationJump,
@@ -19,13 +19,10 @@ export function MerlinMessageBody({
 }) {
   const { segments, childrenByParent, deliverables } = useMemo(() => {
     const toolCalls = message.lorToolCalls ?? []
-    const children = new Map<string, MerlinToolCall[]>()
+    const children = new Map<string, LorToolCall[]>()
     // Deliverables from any top-level tool call (mirrors web) — presented at
     // the end of the message, deduped by artifact (the latest version wins).
-    const files = new Map<
-      string,
-      NonNullable<MerlinToolCall["files"]>[number]
-    >()
+    const files = new Map<string, NonNullable<LorToolCall["files"]>[number]>()
     for (const toolCall of toolCalls) {
       if (toolCall.parentToolCallId) {
         const existing = children.get(toolCall.parentToolCallId) ?? []
@@ -38,7 +35,7 @@ export function MerlinMessageBody({
       }
     }
     return {
-      segments: buildMerlinSegments(
+      segments: buildLorSegments(
         message.content ?? "",
         toolCalls.filter((toolCall) => !toolCall.parentToolCallId),
         message.lorReasoningSegments ?? []
@@ -48,7 +45,7 @@ export function MerlinMessageBody({
     }
   }, [message])
 
-  // Work/answer split (mirrors web merlin-message-body): the trailing text is
+  // Work/answer split (mirrors web lor-message-body): the trailing text is
   // the answer; everything before it is the work log, collapsed behind the
   // activity disclosure. While streaming (or after a failure) nothing is
   // promoted to an answer yet.
@@ -92,7 +89,7 @@ export function MerlinMessageBody({
     }
     if (segment.kind === "reasoning") {
       return (
-        <MerlinReasoning
+        <LorReasoning
           active={
             streaming &&
             isLast &&
@@ -104,7 +101,7 @@ export function MerlinMessageBody({
       )
     }
     return (
-      <MerlinToolTrail
+      <LorToolTrail
         childrenByParent={childrenByParent}
         key={segment.key}
         streaming={streaming && isLast}
@@ -116,7 +113,7 @@ export function MerlinMessageBody({
   return (
     <>
       {activitySegments.length > 0 ? (
-        <MerlinActivity
+        <LorActivity
           active={streaming}
           errorCount={
             topLevelTools.filter((toolCall) => toolCall.status === "error")
@@ -126,7 +123,7 @@ export function MerlinMessageBody({
           toolCount={topLevelTools.length}
         >
           {activitySegments.map(renderSegment)}
-        </MerlinActivity>
+        </LorActivity>
       ) : null}
       {answer?.kind === "text" ? (
         <MessageContent
@@ -138,7 +135,7 @@ export function MerlinMessageBody({
       ) : null}
       {failed && !answer ? (
         <Text className="text-sm italic text-muted">
-          Merlin couldn't finish this response.
+          Lor couldn't finish this response.
         </Text>
       ) : null}
       {deliverables.length > 0 ? (

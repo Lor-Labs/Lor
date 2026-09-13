@@ -26,7 +26,7 @@ export function ThinkingIndicator() {
 
   return (
     <Text
-      accessibilityLabel="Merlin is thinking"
+      accessibilityLabel="Lor is thinking"
       accessibilityLiveRegion="polite"
       className="text-sm italic text-muted"
     >

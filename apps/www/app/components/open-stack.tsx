@@ -15,7 +15,7 @@ const PILLARS = [
   },
   {
     title: "Auditable memory",
-    body: "Everything Merlin knows lives in your database, in tables you can query, not in someone else's black box.",
+    body: "Everything Lor knows lives in your database, in tables you can query, not in someone else's black box.",
   },
 ]
 
@@ -46,7 +46,7 @@ export function OpenStack() {
             <h3 className="font-medium text-base leading-tight md:text-lg">
               <span>AGPL-3.0, built in the open.</span>{" "}
               <span className="text-muted-foreground">
-                App, server, and Merlin, all in one repo. Fork it, self-host it,
+                App, server, and Lor, all in one repo. Fork it, self-host it,
                 send a PR.
               </span>
             </h3>
@@ -78,7 +78,7 @@ export function OpenStack() {
             <h3 className="font-medium text-base leading-tight md:text-lg">
               <span>Powered entirely by open models.</span>{" "}
               <span className="text-muted-foreground">
-                Merlin never calls a proprietary API. In the cloud we route each
+                Lor never calls a proprietary API. In the cloud we route each
                 task to the best open model; self-hosters bring any endpoint
                 they like.
               </span>

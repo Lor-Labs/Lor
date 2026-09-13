@@ -4,7 +4,7 @@ import { api } from "@/lib/api"
 
 const STOP_REQUEST_TIMEOUT_MS = 10_000
 
-export function useStopMerlinRun() {
+export function useStopLorRun() {
   const { toast } = useToast()
   const [stoppingMessageId, setStoppingMessageId] = useState<string | null>(
     null
@@ -38,11 +38,11 @@ export function useStopMerlinRun() {
           { param: { messageId } },
           { init: { signal: controller.signal } }
         )
-        if (!response.ok) throw new Error("Couldn't stop Merlin")
+        if (!response.ok) throw new Error("Couldn't stop Lor")
         return true
       } catch {
         if (activeRequestRef.current?.reportFailure) {
-          toast.show({ variant: "danger", label: "Couldn't stop Merlin" })
+          toast.show({ variant: "danger", label: "Couldn't stop Lor" })
         }
         return false
       } finally {

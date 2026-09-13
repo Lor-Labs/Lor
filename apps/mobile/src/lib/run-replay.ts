@@ -1,26 +1,26 @@
 import type { ServerToClientEvents } from "@repo/realtime-types"
-import { appendReasoningSegment, upsertToolCall } from "@repo/utils/merlin"
+import { appendReasoningSegment, upsertToolCall } from "@repo/utils/lor"
 import { api } from "@/lib/api"
 import type { Message } from "@/lib/api-types"
-import { appendMerlinReasoning, upsertMerlinToolCall } from "@/lib/merlin"
+import { appendLorReasoning, upsertLorToolCall } from "@/lib/lor"
 
 type FramePayload<E extends keyof ServerToClientEvents> = Parameters<
   ServerToClientEvents[E]
 >[0]
 
-export type MerlinFrame =
+export type LorFrame =
   | { type: "stream"; payload: FramePayload<"message:stream"> }
-  | { type: "reasoning"; payload: FramePayload<"merlin:reasoning"> }
-  | { type: "memory"; payload: FramePayload<"merlin:memory"> }
-  | { type: "tool"; payload: FramePayload<"merlin:tool"> }
-  | { type: "steer"; payload: FramePayload<"merlin:steer"> }
+  | { type: "reasoning"; payload: FramePayload<"lor:reasoning"> }
+  | { type: "memory"; payload: FramePayload<"lor:memory"> }
+  | { type: "tool"; payload: FramePayload<"lor:tool"> }
+  | { type: "steer"; payload: FramePayload<"lor:steer"> }
 
 // Late-join replay gate, keyed by placeholder message id (mirror of web's
-// use-merlin-stream.ts). While the durable event log is being fetched, live
+// use-lor-stream.ts). While the durable event log is being fetched, live
 // frames buffer here; once replay is applied they drain in order, gated by
 // seq so nothing is applied twice. Frames without a seq always apply directly.
 type ReplayGate =
-  | { state: "buffering"; frames: MerlinFrame[] }
+  | { state: "buffering"; frames: LorFrame[] }
   | { state: "live"; maxSeq: number }
 
 const replayGates = new Map<string, ReplayGate>()
@@ -53,7 +53,7 @@ export function releaseRunReplay(messageId: string) {
 
 // Returns true when the frame was consumed (buffered or already covered by
 // replay) and must not be applied now.
-export function gateRunFrame(frame: MerlinFrame): boolean {
+export function gateRunFrame(frame: LorFrame): boolean {
   const gate = replayGates.get(frame.payload.messageId)
   if (!gate) return false
   if (gate.state === "buffering") {
@@ -66,10 +66,7 @@ export function gateRunFrame(frame: MerlinFrame): boolean {
   return false
 }
 
-export function applyMerlinFrame(
-  message: Message,
-  frame: MerlinFrame
-): Message {
+export function applyLorFrame(message: Message, frame: LorFrame): Message {
   if (frame.type === "stream") {
     const { payload } = frame
     // The run is over — the next pending placeholder on this id (if any)
@@ -85,10 +82,10 @@ export function applyMerlinFrame(
     }
   }
   if (frame.type === "reasoning") {
-    return appendMerlinReasoning(message, frame.payload)
+    return appendLorReasoning(message, frame.payload)
   }
   if (frame.type === "tool") {
-    return upsertMerlinToolCall(message, frame.payload.toolCall)
+    return upsertLorToolCall(message, frame.payload.toolCall)
   }
   if (frame.type === "memory") {
     return {
@@ -161,11 +158,11 @@ function foldRunEvents(events: RunEvents): Partial<Message> {
 type ReplayOptions = {
   messageId: string
   applyPatch: (messageId: string, patch: Partial<Message>) => void
-  applyFrame: (frame: MerlinFrame) => void
+  applyFrame: (frame: LorFrame) => void
   onTerminal: () => void
 }
 
-// Late-join trace recovery: replay a pending Merlin placeholder's durable run
+// Late-join trace recovery: replay a pending Lor placeholder's durable run
 // event log into the hook's message state, so opening a channel/thread mid-run
 // shows the tools/reasoning/text streamed so far, not just a spinner. Safe for
 // runs this client watched from the start — replay returns what's already

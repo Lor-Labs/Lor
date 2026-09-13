@@ -610,8 +610,8 @@ export function MessageComposer({
               accessibilityLabel={
                 isStopMode
                   ? isStopping
-                    ? "Stopping Merlin"
-                    : "Stop Merlin"
+                    ? "Stopping Lor"
+                    : "Stop Lor"
                   : isEditing
                     ? "Save message changes"
                     : "Send message"
@@ -643,8 +643,8 @@ export function MessageComposer({
               accessibilityLabel={
                 isStopMode
                   ? isStopping
-                    ? "Stopping Merlin"
-                    : "Stop Merlin"
+                    ? "Stopping Lor"
+                    : "Stop Lor"
                   : "Send message"
               }
               activeColor={isStopMode ? danger : accent}

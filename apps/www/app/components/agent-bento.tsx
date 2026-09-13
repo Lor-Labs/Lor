@@ -75,7 +75,7 @@ function ContextCard() {
             icon={<Volume2 />}
             label="Daily Sync transcript"
             translate="translate-x-1/5"
-            bg="bg-merlin text-merlin-foreground"
+            bg="bg-agent text-agent-foreground"
           />
         </div>
       </div>
@@ -83,7 +83,7 @@ function ContextCard() {
         <h3 className="font-medium text-base leading-tight md:text-lg">
           <span>Always in context.</span>{" "}
           <span className="text-muted-foreground">
-            Merlin reads every channel, ticket, and doc automatically.
+            Lor reads every channel, ticket, and doc automatically.
           </span>
         </h3>
       </div>
@@ -123,8 +123,8 @@ function ActionsCard() {
         <h3 className="font-medium text-base leading-tight md:text-lg">
           <span>Takes action.</span>{" "}
           <span className="text-muted-foreground">
-            Open tickets, draft messages, schedule reminders. Merlin doesn't
-            just answer. It acts.
+            Open tickets, draft messages, schedule reminders. Lor doesn't just
+            answer. It acts.
           </span>
         </h3>
       </div>
@@ -217,7 +217,7 @@ function VoiceCard() {
           {WAVE_HEIGHTS.map((height, index) => (
             <span
               key={`${index}-${height}`}
-              className="w-1 rounded-full bg-merlin/70 transition-all duration-600 ease-in-out group-hover:bg-merlin"
+              className="w-1 rounded-full bg-agent/70 transition-all duration-600 ease-in-out group-hover:bg-agent"
               style={{ height }}
             />
           ))}

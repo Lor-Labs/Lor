@@ -100,7 +100,7 @@ export default function DownloadPage() {
         <section className="relative overflow-hidden">
           <div
             aria-hidden
-            className="pointer-events-none absolute inset-x-0 top-0 h-[420px] bg-[radial-gradient(ellipse_75%_70%_at_50%_-10%,--theme(--color-merlin/.12),transparent)]"
+            className="pointer-events-none absolute inset-x-0 top-0 h-[420px] bg-[radial-gradient(ellipse_75%_70%_at_50%_-10%,--theme(--color-agent/.12),transparent)]"
           />
           <div className="relative mx-auto max-w-6xl px-6 pt-40 pb-16 md:pt-48">
             <Reveal>
@@ -139,7 +139,7 @@ export default function DownloadPage() {
                       <>
                         <a
                           href={platform.href}
-                          className="inline-flex items-center justify-center gap-2 rounded-full bg-gradient-to-b from-merlin to-primary py-2.5 font-medium text-[14px] text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.2),0_4px_10px_-2px_rgba(97,60,214,0.4)] transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:-translate-y-0.5 active:translate-y-0"
+                          className="inline-flex items-center justify-center gap-2 rounded-full bg-gradient-to-b from-agent to-primary py-2.5 font-medium text-[14px] text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.2),0_4px_10px_-2px_rgba(97,60,214,0.4)] transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:-translate-y-0.5 active:translate-y-0"
                         >
                           <Download className="size-4" strokeWidth={1.75} />
                           Download for {platform.name}

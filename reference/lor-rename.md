@@ -176,10 +176,17 @@ Validate per chunk: `pnpm run check-types` + `pnpm run check`.
   `channel-agent-profile`. The marketing demo keeps its own standalone
   `LOR_ID` fixture constant (self-contained mock data, not the real
   identity).
-- [ ] **C8 apps/mobile + apps/www** — mobile: git mv 6 files, identifiers,
-  copy, listeners → `lor:*`, theme keys `agent`/`agentMuted`, avatar
-  fallback `"M"` → initial derived from author name. www: copy sweep,
-  `#merlin`→`#lor` anchor, avatar const → `lor-profile.png`.
+- [x] **C8 apps/mobile + apps/www** — mobile: git mv 6 files, identifiers,
+  copy, listeners → `lor:*`, theme keys `agent`/`agentMuted` (they were
+  already dead — defined in constants/theme.ts, referenced nowhere), avatar
+  fallback `"M"` → `avatarInitial(message)` so the initial derives from the
+  author row (web parity + custom-agent prep); the `isLor` accent COLOR
+  branch stays. www: copy sweep, `#merlin`→`#lor` anchor (section id, header
+  + footer links), `LOR_AVATAR_URL` → `cdn.lor.chat/avatars/lor-profile.png`
+  (Jacob uploads the R2 object — see §6), `LorAvatar`, `bg-agent` classes.
+  After this chunk ALL app + package SOURCE is merlin-free except the
+  deliberate C9 alias/dual-token set and the `reference/merlin-*.md` doc
+  paths C9 renames.
 - [ ] **C9 cleanup + docs** — remove all aliases, dual event keys, dual
   CSS tokens, dual utils export path; docs git mvs
   (`merlin-architecture.md`→`lor-agent-architecture.md`,

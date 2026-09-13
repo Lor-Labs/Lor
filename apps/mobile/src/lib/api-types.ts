@@ -12,7 +12,7 @@ export type ChannelCategory = ChannelList["categories"][number]
 export type ChannelDetail = InferResponseType<ChannelClient["$get"], 200>
 export type MessageList = InferResponseType<MessagesClient["$get"], 200>
 // Client-only transient fields (never on server payloads): steering/stop
-// feedback for in-flight Merlin runs, patched in via socket events.
+// feedback for in-flight Lor runs, patched in via socket events.
 export type Message = MessageList["data"][number] & {
   // Author of the latest mid-run message steered into this in-flight reply.
   steeringBy?: string
@@ -46,7 +46,7 @@ export type AgentProfilesResponse = InferResponseType<
   200
 >
 export type AgentProfile = AgentProfilesResponse["profiles"][number]
-export type MerlinCapabilityKey = AgentProfile["capabilities"][number]
+export type LorCapabilityKey = AgentProfile["capabilities"][number]
 export type AvailableCapability =
   AgentProfilesResponse["availableCapabilities"][number]
 export type NotificationSettings = InferResponseType<

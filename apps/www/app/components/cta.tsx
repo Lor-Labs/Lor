@@ -15,7 +15,7 @@ export function CtaPrimary({
   return (
     <a
       href={href}
-      className={`group inline-flex items-center gap-2 rounded-full bg-gradient-to-b from-merlin to-primary py-3 pl-6 pr-5 font-medium text-[15px] text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.2),0_1px_2px_rgba(0,0,0,0.3),0_4px_10px_-2px_rgba(97,60,214,0.4),0_10px_24px_-6px_rgba(97,60,214,0.3)] transition-all duration-300 ${EASE} hover:-translate-y-0.5 hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.24),0_1px_3px_rgba(0,0,0,0.32),0_6px_14px_-2px_rgba(97,60,214,0.5),0_14px_30px_-6px_rgba(97,60,214,0.38)] active:translate-y-0 active:scale-[0.98] ${className}`}
+      className={`group inline-flex items-center gap-2 rounded-full bg-gradient-to-b from-agent to-primary py-3 pl-6 pr-5 font-medium text-[15px] text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.2),0_1px_2px_rgba(0,0,0,0.3),0_4px_10px_-2px_rgba(97,60,214,0.4),0_10px_24px_-6px_rgba(97,60,214,0.3)] transition-all duration-300 ${EASE} hover:-translate-y-0.5 hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.24),0_1px_3px_rgba(0,0,0,0.32),0_6px_14px_-2px_rgba(97,60,214,0.5),0_14px_30px_-6px_rgba(97,60,214,0.38)] active:translate-y-0 active:scale-[0.98] ${className}`}
     >
       {children}
       <ArrowRight

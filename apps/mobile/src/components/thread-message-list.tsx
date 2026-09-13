@@ -120,7 +120,7 @@ export function ThreadMessageList({
     openingPositionRef.current = { listKey, resolved: false }
   }
   if (!openingPositionRef.current.resolved) {
-    let latestCompletedMerlinReply: Message | undefined
+    let latestCompletedLorReply: Message | undefined
     for (let index = orderedMessages.length - 1; index >= 0; index -= 1) {
       const message = orderedMessages[index]
       if (
@@ -128,11 +128,11 @@ export function ThreadMessageList({
         message.status !== "pending" &&
         message.lorTriggerMessageId
       ) {
-        latestCompletedMerlinReply = message
+        latestCompletedLorReply = message
         break
       }
     }
-    const triggerId = latestCompletedMerlinReply?.lorTriggerMessageId
+    const triggerId = latestCompletedLorReply?.lorTriggerMessageId
     const anchorIndex = triggerId
       ? items.findIndex(
           (item) =>
@@ -211,7 +211,7 @@ export function ThreadMessageList({
           getItemType={(item) => item.kind}
           initialScrollAtEnd={!openingPosition}
           initialScrollIndex={openingPosition}
-          isMerlinResponding={
+          isLorResponding={
             root.status === "pending" ||
             messages.some((message) => message.status === "pending")
           }
@@ -287,7 +287,7 @@ export function ThreadMessageList({
                     onToggleReaction={(message, emoji) =>
                       onToggleReaction?.(message.id, emoji)
                     }
-                    showMerlinRunControls={false}
+                    showLorRunControls={false}
                   />
                 </Pressable>
               )
@@ -401,7 +401,7 @@ export function ThreadMessageList({
                     onToggleReaction={(message, emoji) =>
                       onToggleReaction?.(message.id, emoji)
                     }
-                    showMerlinRunControls={false}
+                    showLorRunControls={false}
                     showHeader={showHeader}
                   />
                 </View>

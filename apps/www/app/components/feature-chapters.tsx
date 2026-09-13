@@ -6,7 +6,7 @@ import { Check, FileText, Github, Hash } from "lucide-react"
 import type { ReactNode } from "react"
 import {
   LinearChipIcon,
-  MerlinAvatar,
+  LorAvatar,
   NotionChipIcon,
   SourceChip,
 } from "@/app/components/app-mock"
@@ -35,8 +35,8 @@ function AskMock() {
               </span>
             </div>
             <p className="mt-0.5 text-[13.5px] text-lor-text-dark/90 leading-relaxed">
-              <span className="rounded bg-merlin/15 px-1 py-0.5 font-medium text-merlin">
-                @Merlin
+              <span className="rounded bg-agent/15 px-1 py-0.5 font-medium text-agent">
+                @Lor
               </span>{" "}
               why did we drop the annual plan experiment?
             </p>
@@ -44,13 +44,11 @@ function AskMock() {
         </div>
 
         <div className="mt-4 flex gap-3">
-          <MerlinAvatar />
+          <LorAvatar />
           <div className="min-w-0">
             <div className="flex items-baseline gap-2">
-              <span className="font-medium text-[13.5px] text-merlin">
-                Merlin
-              </span>
-              <span className="rounded bg-merlin/15 px-1 py-px font-medium text-[9.5px] text-merlin uppercase">
+              <span className="font-medium text-[13.5px] text-agent">Lor</span>
+              <span className="rounded bg-agent/15 px-1 py-px font-medium text-[9.5px] text-agent uppercase">
                 App
               </span>
             </div>
@@ -97,14 +95,14 @@ function AskMock() {
 export function AskChapter() {
   return (
     <Chapter
-      id="merlin"
+      id="lor"
       title="Ask once."
       titleMuted="Get the answer with receipts."
       mock={<AskMock />}
       points={[
         {
           lead: "Every claim carries a citation.",
-          body: "Merlin links each answer to the exact message, ticket, or doc it came from, and verifies the link before it posts.",
+          body: "Lor links each answer to the exact message, ticket, or doc it came from, and verifies the link before it posts.",
         },
         {
           lead: "It reads code, not just chat.",
@@ -112,7 +110,7 @@ export function AskChapter() {
         },
         {
           lead: "Ask where you already are.",
-          body: "Mention @Merlin in any channel or thread and the answer lands right there, visible to everyone.",
+          body: "Mention @Lor in any channel or thread and the answer lands right there, visible to everyone.",
         },
       ]}
     />
@@ -187,7 +185,7 @@ function ConnectMock() {
           Connections
         </p>
         <p className="mt-0.5 text-[12px] text-lor-text-tertiary-dark">
-          Everything Merlin can read from
+          Everything Lor can read from
         </p>
         <div className="mt-4 flex flex-col gap-1.5">
           {CONNECTIONS.map((connection) => (
@@ -241,7 +239,7 @@ export function ConnectChapter() {
         },
         {
           lead: "Scoped by you.",
-          body: "Decide what Merlin can read and do, channel by channel, from full access down to read-only.",
+          body: "Decide what Lor can read and do, channel by channel, from full access down to read-only.",
         },
       ]}
     />
@@ -249,7 +247,7 @@ export function ConnectChapter() {
 }
 
 // ---------------------------------------------------------------------------
-// 03 — Remember: a memory page Merlin maintains
+// 03 — Remember: a memory page Lor maintains
 // ---------------------------------------------------------------------------
 
 function RememberMock() {
@@ -267,13 +265,13 @@ function RememberMock() {
           <p>
             ACME renews at{" "}
             <span className="font-medium text-lor-text-dark">$32k/yr</span>,
-            locked in by Jacob in <span className="text-merlin">#sales</span> on
+            locked in by Jacob in <span className="text-agent">#sales</span> on
             Feb 4. Renewal date is Apr 18.
           </p>
           <p>
             Annual plan experiment sunset on Mar 3. Flat conversion, doubled
             support load.{" "}
-            <span className="text-merlin">[[/decisions/annual-plan]]</span>
+            <span className="text-agent">[[/decisions/annual-plan]]</span>
           </p>
           <p>
             Discounts above 15% need a second sign-off since the March pricing
@@ -282,8 +280,8 @@ function RememberMock() {
         </div>
         <div className="mt-5 flex items-center justify-between border-lor-border-dark/70 border-t pt-3.5">
           <span className="flex items-center gap-2 text-[11.5px] text-lor-text-tertiary-dark">
-            <MerlinAvatar size="size-5" />
-            Updated by Merlin · May 28
+            <LorAvatar size="size-5" />
+            Updated by Lor · May 28
           </span>
           <span className="text-[11.5px] text-lor-text-tertiary-dark">
             12 sources
@@ -304,7 +302,7 @@ export function RememberChapter() {
       points={[
         {
           lead: "Decisions become pages.",
-          body: "When your team settles something, Merlin writes it to a memory page anyone can read, search, and correct.",
+          body: "When your team settles something, Lor writes it to a memory page anyone can read, search, and correct.",
         },
         {
           lead: "Months later, still there.",
@@ -312,7 +310,7 @@ export function RememberChapter() {
         },
         {
           lead: "Auditable, not mystical.",
-          body: "Memory lives in your Postgres, in tables you can query. Nothing about what Merlin knows is hidden.",
+          body: "Memory lives in your Postgres, in tables you can query. Nothing about what Lor knows is hidden.",
         },
       ]}
     />

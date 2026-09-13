@@ -5,11 +5,11 @@ import { type ReactNode, useState } from "react"
 import { Pressable, Text, View } from "react-native"
 import { Shimmer } from "@/components/shimmer"
 
-// Work log ahead of a Merlin message's answer (web merlin-activity.tsx port).
+// Work log ahead of a Lor message's answer (web lor-activity.tsx port).
 // Auto-opens while the run streams, collapses at the run boundary, manual
 // toggles win mid-run. Single-level on mobile — the rows inside carry their
 // own disclosures, so web's inner group tier is skipped.
-export function MerlinActivity({
+export function LorActivity({
   active,
   failed,
   toolCount,

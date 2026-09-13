@@ -111,11 +111,11 @@ export function SiteHeader() {
                       </span>
                     </MotionNavigationMenuLink>
                     <MotionNavigationMenuLink
-                      href="/#merlin"
+                      href="/#lor"
                       className="rounded-lg p-3"
                     >
                       <span className="block text-[13px] font-medium text-foreground">
-                        Merlin
+                        Lor
                       </span>
                       <span className="mt-0.5 block text-[12px] leading-snug text-foreground/55">
                         The keeper. Reads everything, answers with citations.

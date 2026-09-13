@@ -13,12 +13,12 @@ export function useRunQueue({
   socket,
   channelId,
   threadRootId,
-  pendingMerlinMessageId,
+  pendingLorMessageId,
 }: {
   socket: AppSocket | null
   channelId: string
   threadRootId: string | null
-  pendingMerlinMessageId: string | undefined
+  pendingLorMessageId: string | undefined
 }) {
   const [queuedIds, setQueuedIds] = useState<string[]>([])
   const [scope, setScope] = useState(threadRootId)
@@ -112,11 +112,11 @@ export function useRunQueue({
   // the event log itself — only the queue rows are needed here (run-replay
   // owns the trace).
   useEffect(() => {
-    if (!pendingMerlinMessageId) return
+    if (!pendingLorMessageId) return
     let cancelled = false
     void api.v1.runs["by-message"][":messageId"].events
       .$get({
-        param: { messageId: pendingMerlinMessageId },
+        param: { messageId: pendingLorMessageId },
         // Postgres int4 max — seq is an integer column, so a larger sentinel
         // would overflow the parameter. No real run reaches this many events.
         query: { after: "2147483647" },
@@ -135,7 +135,7 @@ export function useRunQueue({
     return () => {
       cancelled = true
     }
-  }, [pendingMerlinMessageId])
+  }, [pendingLorMessageId])
 
   return { queuedIds, addOptimistic, removeOptimistic }
 }

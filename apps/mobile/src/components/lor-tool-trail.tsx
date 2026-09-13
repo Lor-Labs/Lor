@@ -20,7 +20,7 @@ import {
 } from "@/components/connector-icon"
 import { MessageContent } from "@/components/message-content"
 import { API_URL } from "@/lib/auth-client"
-import type { MerlinToolCall } from "@/lib/merlin"
+import type { LorToolCall } from "@/lib/lor"
 import { openExternalUrl } from "@/lib/open-url"
 
 function builtinToolIcon(toolName: string): IconSvgElement {
@@ -104,20 +104,20 @@ function ItemGlyph({
   return <HugeiconsIcon color={color} icon={ExternalLinkIcon} size={16} />
 }
 
-function hasDetail(toolCall: MerlinToolCall) {
+function hasDetail(toolCall: LorToolCall) {
   return Boolean(
     toolCall.detail?.summary || (toolCall.detail?.items?.length ?? 0) > 0
   )
 }
 
-export function MerlinToolTrail({
+export function LorToolTrail({
   toolCalls,
   childrenByParent,
   streaming = false,
   embedded = false,
 }: {
-  toolCalls: MerlinToolCall[]
-  childrenByParent?: Map<string, MerlinToolCall[]>
+  toolCalls: LorToolCall[]
+  childrenByParent?: Map<string, LorToolCall[]>
   streaming?: boolean
   // Host surface (e.g. the thread work header's Activity popover) provides its
   // own disclosure — skip the trigger row and render expanded.

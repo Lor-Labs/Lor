@@ -1,15 +1,15 @@
-import { appendReasoningSegment, upsertToolCall } from "@repo/utils/merlin"
+import { appendReasoningSegment, upsertToolCall } from "@repo/utils/lor"
 import type { Message } from "@/lib/api-types"
 
-export type MerlinToolCall = NonNullable<Message["lorToolCalls"]>[number]
-export type MerlinReasoningSegment = NonNullable<
+export type LorToolCall = NonNullable<Message["lorToolCalls"]>[number]
+export type LorReasoningSegment = NonNullable<
   Message["lorReasoningSegments"]
 >[number]
 
-export type MerlinBodySegment =
+export type LorBodySegment =
   | { kind: "text"; key: string; text: string }
-  | { kind: "reasoning"; key: string; reasoning: MerlinReasoningSegment }
-  | { kind: "tools"; key: string; tools: MerlinToolCall[] }
+  | { kind: "reasoning"; key: string; reasoning: LorReasoningSegment }
+  | { kind: "tools"; key: string; tools: LorToolCall[] }
 
 type TimelineEvent =
   | {
@@ -17,21 +17,21 @@ type TimelineEvent =
       at: number
       order: number
       sequence: number
-      reasoning: MerlinReasoningSegment
+      reasoning: LorReasoningSegment
     }
   | {
       kind: "tool"
       at: number
       order: number
       sequence: number
-      tool: MerlinToolCall
+      tool: LorToolCall
     }
 
-export function buildMerlinSegments(
+export function buildLorSegments(
   content: string,
-  toolCalls: MerlinToolCall[],
-  reasoningSegments: MerlinReasoningSegment[]
-): MerlinBodySegment[] {
+  toolCalls: LorToolCall[],
+  reasoningSegments: LorReasoningSegment[]
+): LorBodySegment[] {
   const clamp = (value: number) => Math.min(Math.max(value, 0), content.length)
   const events: TimelineEvent[] = [
     ...reasoningSegments.map((reasoning, sequence) => ({
@@ -56,7 +56,7 @@ export function buildMerlinSegments(
       : left.at - right.at
   )
 
-  const segments: MerlinBodySegment[] = []
+  const segments: LorBodySegment[] = []
   let cursor = 0
   let index = 0
   while (index < events.length) {
@@ -105,7 +105,7 @@ export function buildMerlinSegments(
   return segments
 }
 
-export function appendMerlinReasoning(
+export function appendLorReasoning(
   message: Message,
   payload: { delta: string; at: number; order: number }
 ) {
@@ -120,10 +120,7 @@ export function appendMerlinReasoning(
   }
 }
 
-export function upsertMerlinToolCall(
-  message: Message,
-  toolCall: MerlinToolCall
-) {
+export function upsertLorToolCall(message: Message, toolCall: LorToolCall) {
   return {
     ...message,
     lorToolCalls: upsertToolCall(message.lorToolCalls, toolCall),

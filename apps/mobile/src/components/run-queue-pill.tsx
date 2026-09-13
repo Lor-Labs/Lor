@@ -12,7 +12,7 @@ import type { Message } from "@/lib/api-types"
 import { isOptimisticMessage } from "@/lib/messages"
 
 // Codex-style queue card tucked behind the composer's input card while
-// Merlin is working: each queued message waits for the current answer unless
+// Lor is working: each queued message waits for the current answer unless
 // steered — which stops the active run immediately and reprompts with the
 // queue. Rendered via the composer's topAccessory slot; the negative bottom
 // margin slides it under the (opaque) input card's rounded top edge.

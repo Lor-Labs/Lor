@@ -4,7 +4,7 @@ import { useThemeColor } from "heroui-native/hooks"
 import { useEffect, useState } from "react"
 import { Pressable, Text, View } from "react-native"
 
-export function MerlinReasoning({
+export function LorReasoning({
   text,
   active,
 }: {

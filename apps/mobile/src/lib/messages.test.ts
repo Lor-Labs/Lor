@@ -1,11 +1,7 @@
 import type { RealtimeMessageThreadUpdated } from "@repo/realtime-types"
 import { describe, expect, it } from "vitest"
 import type { Message } from "./api-types"
-import {
-  appendMerlinReasoning,
-  buildMerlinSegments,
-  upsertMerlinToolCall,
-} from "./merlin"
+import { appendLorReasoning, buildLorSegments, upsertLorToolCall } from "./lor"
 import {
   applyReactionUpdate,
   applyThreadSummaryUpdate,
@@ -135,9 +131,9 @@ describe("message collection helpers", () => {
     expect(optimistic.attachments).toEqual([attachment])
   })
 
-  it("keeps Merlin placeholders pending until the terminal stream arrives", () => {
+  it("keeps Lor placeholders pending until the terminal stream arrives", () => {
     const message = {
-      id: "merlin-1",
+      id: "lor-1",
       channelId: "channel-1",
       content: null,
       type: "default" as const,
@@ -263,9 +259,9 @@ describe("message collection helpers", () => {
   })
 })
 
-describe("Merlin timeline helpers", () => {
+describe("Lor timeline helpers", () => {
   it("interleaves reasoning, tools, and answer text chronologically", () => {
-    const segments = buildMerlinSegments(
+    const segments = buildLorSegments(
       "Answer complete",
       [
         {
@@ -288,13 +284,13 @@ describe("Merlin timeline helpers", () => {
   })
 
   it("appends reasoning deltas to one ordered segment", () => {
-    const message = makeMessage("merlin-1", "2026-07-14T12:00:00.000Z")
-    const first = appendMerlinReasoning(message, {
+    const message = makeMessage("lor-1", "2026-07-14T12:00:00.000Z")
+    const first = appendLorReasoning(message, {
       delta: "Checking ",
       at: 0,
       order: 1,
     })
-    const second = appendMerlinReasoning(first, {
+    const second = appendLorReasoning(first, {
       delta: "sources",
       at: 0,
       order: 1,
@@ -307,13 +303,13 @@ describe("Merlin timeline helpers", () => {
   })
 
   it("upserts a completed tool call over its live placeholder", () => {
-    const message = makeMessage("merlin-1", "2026-07-14T12:00:00.000Z")
-    const pending = upsertMerlinToolCall(message, {
+    const message = makeMessage("lor-1", "2026-07-14T12:00:00.000Z")
+    const pending = upsertLorToolCall(message, {
       toolCallId: "tool-1",
       toolName: "search_github",
       label: "Searching GitHub",
     })
-    const complete = upsertMerlinToolCall(pending, {
+    const complete = upsertLorToolCall(pending, {
       toolCallId: "tool-1",
       toolName: "search_github",
       label: "Searched GitHub",
