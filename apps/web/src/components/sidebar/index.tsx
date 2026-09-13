@@ -12,6 +12,7 @@ import { useParams } from "@tanstack/react-router"
 import { AnimatePresence, motion } from "motion/react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { DesktopSidebarTitlebar } from "@/components/desktop-titlebar"
+import { DesktopZoomRegion } from "@/components/desktop-zoom"
 import { UserBar } from "@/components/sidebar/channel-panel/user-bar"
 import { DMSidebarContent } from "@/components/sidebar/dm-sidebar"
 import {
@@ -270,7 +271,9 @@ function RightPanelDock() {
             )}
           >
             <div className="h-full min-w-0 flex-1 overflow-hidden">
-              <RightSidebarPanel view={view} />
+              <DesktopZoomRegion scope="right">
+                <RightSidebarPanel view={view} />
+              </DesktopZoomRegion>
             </div>
           </motion.aside>
         )}
@@ -283,7 +286,7 @@ function MainArea({ children }: { children: React.ReactNode }) {
   return (
     <SidebarInset className="min-w-0 md:my-2 md:mr-2 md:rounded-xl md:border md:border-border/60 md:shadow-none">
       <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden md:rounded-[inherit]">
-        {children}
+        <DesktopZoomRegion scope="main">{children}</DesktopZoomRegion>
       </div>
     </SidebarInset>
   )
@@ -317,7 +320,11 @@ function MobileRightPanel() {
         showCloseButton={false}
         className="w-[300px] bg-sidebar p-0 sm:max-w-[300px]"
       >
-        {view && <RightSidebarPanel view={view} />}
+        {view && (
+          <DesktopZoomRegion scope="right">
+            <RightSidebarPanel view={view} />
+          </DesktopZoomRegion>
+        )}
       </SheetContent>
     </Sheet>
   )
