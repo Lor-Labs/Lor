@@ -2,12 +2,12 @@
 
 The AI multiplayer workspace for teams.
 
-Lor is a chat-first workspace for software teams. Chat is the interface; **Merlin** — the resident AI agent — is the product. It indexes everything that happens in your workspace (messages, threads, voice transcripts, integrations) and answers questions about your team's history, decisions, and ongoing work. Think "Glean for small teams," open-source and self-hostable.
+Lor is a chat-first workspace for software teams. Chat is the interface; **Lor** — the resident AI agent — is the product. It indexes everything that happens in your workspace (messages, threads, voice transcripts, integrations) and answers questions about your team's history, decisions, and ongoing work. Think "Glean for small teams," open-source and self-hostable.
 
 ## Why Lor?
 
 - **Open source & self-hostable** — AGPL-licensed; run it on your own infra or use the hosted version
-- **Chat-native institutional memory** — Merlin lives where the work happens, not behind a separate search bar
+- **Chat-native institutional memory** — Lor lives where the work happens, not behind a separate search bar
 - **For software teams** — not a community-chat platform; designed around how engineering orgs actually communicate
 
 ## Project Structure

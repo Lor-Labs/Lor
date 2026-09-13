@@ -13,7 +13,7 @@ import { workspace } from "./workspaces"
 
 // Track B: a workspace's link to an external account (e.g. a GitHub App
 // installation). Connectors ingest `source` rows under a connection; the
-// provider enum is shared with `source`. See reference/merlin-mvp-spec.md §6.
+// provider enum is shared with `source`. See reference/lor-mvp-spec.md §6.
 
 // Add providers deliberately as connectors land. `webhook` is the BYO inbound
 // provider: each user-created webhook is one connection row + a channel-anchored

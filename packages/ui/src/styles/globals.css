@@ -45,9 +45,6 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-agent: var(--agent);
   --color-agent-foreground: var(--agent-foreground);
-  /* Deprecated merlin duals — removed in cleanup (LOR-87 C9). */
-  --color-merlin: var(--merlin);
-  --color-merlin-foreground: var(--merlin-foreground);
   --color-gold: var(--gold);
   --color-success: var(--success);
   --color-success-foreground: var(--success-foreground);

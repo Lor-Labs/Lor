@@ -358,9 +358,3 @@ export type LorMemory = {
   action: "created" | "updated"
   nodeId?: string
 }
-
-// Deprecated Merlin→Lor rename aliases — removed in cleanup (LOR-87 C9).
-export type MerlinToolCall = LorToolCall
-export type MerlinToolCallUpdate = LorToolCallUpdate
-export type MerlinReasoningSegment = LorReasoningSegment
-export type MerlinMemory = LorMemory

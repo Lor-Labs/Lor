@@ -18,7 +18,7 @@ import { workspace } from "./workspaces"
 
 // Lor's brain: a filesystem tree (parent_id) and a typed graph (brain_edge)
 // over the same page nodes. Tree = where a page lives; edges = what it relates
-// to. See reference/merlin-mvp-spec.md §5.
+// to. See reference/lor-mvp-spec.md §5.
 
 export const brainNodeKindEnum = pgEnum("brain_node_kind", ["folder", "page"])
 export const brainNodeStatusEnum = pgEnum("brain_node_status", [

@@ -403,11 +403,7 @@ export type RealtimeLorToolCall = {
   status?: "ok" | "error"
 }
 
-// Deprecated Merlin→Lor rename alias — removed in cleanup (LOR-87 C9).
-export type RealtimeMerlinToolCall = RealtimeLorToolCall
-
-// Payloads for the lor:* streaming events (shared with their deprecated
-// merlin:* dual keys until cleanup).
+// Payloads for the lor:* streaming events.
 export type LorReasoningEventPayload = {
   channelId: string
   threadRootId: string | null
@@ -597,12 +593,6 @@ export interface ServerToClientEvents {
   // A steered message was injected into the running answer — the placeholder
   // shows "applying new direction".
   "lor:steer": (payload: LorSteerEvent) => void
-  // Deprecated merlin:* dual keys (Merlin→Lor rename) — the worker dual-emits
-  // both until all clients listen on lor:*; removed in cleanup (LOR-87 C9).
-  "merlin:reasoning": (payload: LorReasoningEventPayload) => void
-  "merlin:memory": (payload: LorMemoryEventPayload) => void
-  "merlin:tool": (payload: LorToolEventPayload) => void
-  "merlin:steer": (payload: LorSteerEvent) => void
   // A queued message left the queue (drained into a follow-up run, rejected at
   // reauthorization, or withdrawn by its sender) — clients drop it from the
   // queued-messages pill. Additions ride message:routed (outcome "queued").
@@ -822,9 +812,6 @@ export type LorSteerEvent = {
   runId?: string
   seq?: number
 }
-
-// Deprecated Merlin→Lor rename alias — removed in cleanup (LOR-87 C9).
-export type MerlinSteerEvent = LorSteerEvent
 
 // Emitted to the workspace room; clients invalidate their billing query and
 // gate any toast presentation to admins client-side.

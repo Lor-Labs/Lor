@@ -315,11 +315,6 @@ export const EMPTY_LOR_RUN_SCOPE: LorRunScope = {
   privateContainerChannelId: null,
 }
 
-// Deprecated Merlin→Lor rename aliases — removed in cleanup (LOR-87 C9).
-export type MerlinRunScope = LorRunScope
-export const EMPTY_MERLIN_RUN_SCOPE = EMPTY_LOR_RUN_SCOPE
-export const resolveMerlinRunScope = resolveLorRunScope
-
 // Folder segments can't contain the path separator. Shared with archive
 // synthesis (archiveFolderPath) so the naming rule can't drift.
 export function memoryFolderSegment(name: string | null): string {

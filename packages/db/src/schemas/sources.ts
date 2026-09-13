@@ -20,7 +20,7 @@ import { workspace } from "./workspaces"
 // embedding for a meaningful event (PR merged, issue closed, release, …).
 // Embed the summary, not the document; structured details are live-fetched via
 // fetch_source, so the row stays fully typed (no metadata bag).
-// See reference/merlin-mvp-spec.md §6.
+// See reference/lor-mvp-spec.md §6.
 
 export const sourceStatusEnum = pgEnum("source_status", ["active", "archived"])
 

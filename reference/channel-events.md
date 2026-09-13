@@ -1,6 +1,6 @@
 # Channel Events (LOR-86)
 
-Inline system messages in the channel timeline: "Jacob created this channel", "Alice was added by Merlin", "Daily digest — scheduled run". They add signal to the channel and replace the prose bot messages we post today.
+Inline system messages in the channel timeline: "Jacob created this channel", "Alice was added by Lor", "Daily digest — scheduled run". They add signal to the channel and replace the prose bot messages we post today.
 
 Status: **decisions locked 2026-09-05, not started**.
 
@@ -22,8 +22,8 @@ Findings from the audit (2026-09-05):
 | Dormant enum cleanup | **Drop** `system_join`, `system_leave`, `system_pin`, `channel_name_change` from `message_type` in the same schema edit | No writers, no renderers, no rows anywhere. drizzle-kit 0.31.x handles enum value removal on push by recreating the type; safe because zero rows use them. Also remove from `RealtimeMessageType`. |
 | Payload | New nullable `message.eventPayload` jsonb, typed `.$type<ChannelEventPayload>()`. Clients narrow the payload shape on `message.eventType` — no `kind` field inside the payload. | Typed union next to the schema, same pattern as `attachments`/`embeds`. Not an untyped bag. |
 | Content fallback | `content` is still ALWAYS written server-side with the plain-English rendering | For search (trigram/FTS on `content`) and graceful degradation on stale app builds. NOT the mobile plan — mobile gets real rendering in the same phase (below). |
-| Author | `authorId` = the acting user (real user id, or `MERLIN_USER_ID` when Merlin acts). Secondary parties go in the payload | `authorId` is `notNull`; the actor is the natural author. Copy derived client-side from type + payload. |
-| Fanout | `silent: true` + `excludedFromMemory: true` for all events **except `channel_created`, which uses normal fanout** so new channels light up unread (preserves today's behavior from `announceCreatedChannels`) | Events are ambient signal, not notifications. Merlin queries membership/config via tools. |
+| Author | `authorId` = the acting user (real user id, or `LOR_USER_ID` when Lor acts). Secondary parties go in the payload | `authorId` is `notNull`; the actor is the natural author. Copy derived client-side from type + payload. |
+| Fanout | `silent: true` + `excludedFromMemory: true` for all events **except `channel_created`, which uses normal fanout** so new channels light up unread (preserves today's behavior from `announceCreatedChannels`) | Events are ambient signal, not notifications. Lor queries membership/config via tools. |
 | `loop_created` moment | Emit on **activation** (draft → active, `apps/api/src/routes/v1/loops/handlers.ts:76`) and on proposal-apply `create_loop` (which inserts directly as active). Never on `propose_loop` — the `loop_card` already announces the draft. | No double-announcing with the card. |
 | Initial roster | `member_added` fires for additions AFTER creation only. The creation roster folds into the `channel_created` copy if wanted; no per-member events at create time. | Avoids a wall of events on channel creation. |
 | Retention | Keep forever, like all messages. No pruning. | They ARE messages. |
@@ -57,7 +57,7 @@ Rules:
 | `member_added` | `addProjectMember` (`projects/handlers.ts:543`) | nothing |
 | `member_removed` / `member_left` | `removeProjectMember` (`projects/handlers.ts:609`) — the kick-vs-leave branch already exists at :628 | nothing |
 | `loop_created` | loop activation (`loops/handlers.ts:76`) + proposal apply `create_loop` op (`apps/api/src/lib/change-proposals.ts:247` — currently announces nothing, not even `loop:updated`) | nothing |
-| `loop_paused` | auto-pause in `settleLoopRun` (`apps/worker/src/jobs/loop-run.ts`) | the prose Merlin auto-pause note |
+| `loop_paused` | auto-pause in `settleLoopRun` (`apps/worker/src/jobs/loop-run.ts`) | the prose Lor auto-pause note |
 | `loop_completed` | `complete_loop` executor + `completeLoopManually` | nothing |
 
 Later candidates (each is just: `channel_event_type` value + db:push + payload shape + emitter + copy): `message_pinned`, `channel_archived`, task lifecycle, connector connected, webhook created. Channel DELETE cannot have an event in the deleted channel (cascade); skip.
@@ -69,7 +69,7 @@ Later candidates (each is just: `channel_event_type` value + db:push + payload s
 1. `packages/db/src/schemas/messages.ts` — add `"event"` to `messageTypeEnum`, drop the 4 dormant values, add pgEnum `channel_event_type` (8 values), add columns `eventType` (nullable enum) + `eventPayload` (nullable jsonb `.$type<ChannelEventPayload>()`). **Needs db:push (Jacob runs it).** If push balks at the message_type recreate, fall back to a hand-run recreate; zero rows use the dropped values so it's mechanical either way.
 2. `packages/realtime-types/src/events.ts` — update `RealtimeMessageType` (add `event`, drop 4), add `eventType` + `eventPayload` to `RealtimeMessage`.
 3. `apps/api/src/lib/bot-messages.ts` — `postBotMessage` gains `type`, `silent`, `eventType`, `eventPayload` params (today it hardcodes `type: "default"` at :63 and :144 and has no silent path). Add `postChannelEvent(channel, actorId, eventType, payload)` wrapper that builds the `content` fallback string — one copy function, used by every API-side emission point.
-4. `apps/worker/src/lib/merlin-messages.ts` — extend `postMerlinMessage`'s type union + `eventType`/`eventPayload` for worker-side emissions (loop pause/complete).
+4. `apps/worker/src/lib/lor-messages.ts` — extend `postLorMessage`'s type union + `eventType`/`eventPayload` for worker-side emissions (loop pause/complete).
 5. `apps/api/src/lib/helpers/openapi/message-schemas.ts` — expose `eventType` + `eventPayload` on `messageWithAuthorSchema` (zod union mirroring the TS type).
 6. `apps/web/src/lib/realtime-adapter.ts` — pass `eventType` + `eventPayload` through.
 7. Broadcast: same `message:created` emit to `channelRoom` — no new socket event type.
@@ -82,7 +82,7 @@ Branch in `apps/web/src/components/chat/message-item.tsx` BEFORE the card branch
 - `apps/web/src/components/chat/message-list.tsx:417` — exclude event rows from the author-grouping window, or an event between two messages by the same author wrongly forces a new header on the second one. Same fix in `thread-panel.tsx:806` if events ever appear in threads (v1: they don't).
 - Event rows still wrap in `MessageScrollerItem` (jump/anchor system needs `messageId`).
 - Copy lives in ONE shared function `renderChannelEvent(message)` → `{ icon, text }` — feeds the web row, collapse summaries, and the mobile row.
-- **Collapsing (the chunkiness cut):** consecutive event rows of the same type inside the 5-minute group window collapse client-side into one row ("Alice, Bob and 2 others were added by Merlin"), expandable on click. No server aggregation.
+- **Collapsing (the chunkiness cut):** consecutive event rows of the same type inside the 5-minute group window collapse client-side into one row ("Alice, Bob and 2 others were added by Lor"), expandable on click. No server aggregation.
 
 ### UI (locked 2026-09-05)
 
@@ -111,8 +111,8 @@ Ships in the same phase as web. `apps/mobile/src/components/message-row.tsx` get
 - 2026-09-05 (build): Event rendering branches in **message-list** (web + mobile), not message-item — the collapse pass needs neighbor visibility. MessageItem never sees event rows.
 - 2026-09-05 (build): Instead of excluding events from the author-group window, a message directly after an event row **forces its header** — a headerless message under an event row looked orphaned.
 - 2026-09-05 (build): Member events post into **every active text child channel** of the project (membership lives on the category, which has no timeline). No-op adds (already a member) and no-op removals emit nothing.
-- 2026-09-05 (build): `loop_completed` also fires from the worker `complete_loop` executor (actor Merlin), and shared copy lives in `packages/messaging/src/channel-events.ts` (`channelEventContent`) since both api and worker build content.
+- 2026-09-05 (build): `loop_completed` also fires from the worker `complete_loop` executor (actor Lor), and shared copy lives in `packages/messaging/src/channel-events.ts` (`channelEventContent`) since both api and worker build content.
 - 2026-09-05 (build): Silent events are excluded from the web "N new" jump-pill count (`use-channel-messages.ts`); they land via the return-to-present refetch.
-- 2026-09-05 (build): `postMerlinMessage` marks `type: "event"` rows `excludedFromMemory` at insert (worker path).
+- 2026-09-05 (build): `postLorMessage` marks `type: "event"` rows `excludedFromMemory` at insert (worker path).
 - 2026-09-05 (build): Web/mobile resolve `member_added` user ids to names via the workspace-members/mention-candidates map; unresolvable ids render "a teammate" with the exact sentence still available in `content`.
 - 2026-09-05 (review hardening, from CodeRabbit): `postLoopChannelEvent` wraps its channel lookup in try/catch (a lookup failure must not fail an already-committed loop transition); `updateChannel` reads the prior name and updates in one transaction with `FOR UPDATE` (concurrent renames can't snapshot a stale "from"); `announceCreatedResources` acquires the emitter per-emit inside try/catch so a Redis outage can't block durable event rows; collapse chaining in both message-lists breaks at the jump/scroll target id so a searched-for event stays individually rendered and centerable.

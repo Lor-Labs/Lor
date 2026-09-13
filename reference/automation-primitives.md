@@ -7,8 +7,8 @@
 > implemented 2026-08-16.
 > Closes the design question in Linear **LOR-49** ("programmatic ways to index data") and
 > subsumes bring-your-own webhooks (the evolved `channel_webhook`) and "webhook-triggered
-> Merlin actions."
-> Read `merlin-mvp-spec.md` §6 (sources) and `adding-a-connector.md` first.
+> Lor actions."
+> Read `lor-mvp-spec.md` §6 (sources) and `adding-a-connector.md` first.
 
 ## 0. Product stance
 
@@ -18,7 +18,7 @@ configurable agent harness (cf. the Pi coding harness), where the harness's beha
 
 Two rules resolve "powerful and flexible" vs. "opinionated":
 
-1. **Unopinionated about what Merlin does.** No workflow builder, no field mappers, no
+1. **Unopinionated about what Lor does.** No workflow builder, no field mappers, no
    hardcoded dispositions. Configuration is prose instructions + declarative rows.
 2. **Rigid about provenance, cost, and consent.** Every unattended run is recorded with
    full provenance; every trigger has budget caps and a kill switch; loops are guarded
@@ -26,12 +26,12 @@ Two rules resolve "powerful and flexible" vs. "opinionated":
 
 The load-bearing mental model: **a channel is an agent environment.** Its configuration =
 enabled connectors + custom tools (via agent profiles) + inbound triggers with their
-instructions. Merlin's long-term job is to edit that configuration itself
+instructions. Lor's long-term job is to edit that configuration itself
 (see `product-direction.md` — self-configuring agents), which imposes one hard
 architectural invariant today:
 
 > **Every primitive below must be a DB row with a CRUD API — never config-file- or
-> code-only.** Merlin self-configuration is just Merlin calling the same endpoints the
+> code-only.** Lor self-configuration is just Lor calling the same endpoints the
 > settings UI uses. Anything that lives only in code kills that story.
 
 ## 1. The primitives
@@ -39,12 +39,12 @@ architectural invariant today:
 | Primitive | What it is | Scope | Status |
 |---|---|---|---|
 | **Connection** | OAuth/API-key link to a provider (`integration_connection`) | workspace | exists |
-| **Custom tool** | user-defined tool descriptor Merlin can call (HTTP template + args schema) | workspace registry, per-channel enablement like connectors | new |
+| **Custom tool** | user-defined tool descriptor Lor can call (HTTP template + args schema) | workspace registry, per-channel enablement like connectors | new |
 | **Webhook** | user-created inbound URL (a `webhook`-provider connection + its trigger) | channel | exists as `channel_webhook`; folds in |
 | **Trigger** | inbound event: a connector event *or* a webhook delivery | belongs to a connection, **anchored to one channel**; fans out to effects | partially exists (`connector_notification_route` is the POST-only ancestor) |
 | **Effect** | what happens on delivery: **POST**, **Remember**, **Act** — any combination | per trigger | POST + Remember exist in pieces |
 | **Instructions** | layered prompt context: workspace → (channel, future) → trigger | trigger instructions enter context *only* when that trigger fires | workspace exists |
-| **Triggered run** | a normal `agent_run` with trigger provenance | logged always; visible in channel only if Merlin posts | machinery exists, composition new |
+| **Triggered run** | a normal `agent_run` with trigger provenance | logged always; visible in channel only if Lor posts | machinery exists, composition new |
 
 Tools and triggers are deliberately **orthogonal**. A custom query API with no inbound
 events is a valid connector; an inbound feed with no tools is a valid connector; trigger
@@ -77,7 +77,7 @@ Zero model calls, instant.
 
 ### Remember — fixed pipeline into `source`
 
-`ingestSource` (`packages/merlin/src/sources.ts`): one bounded summarize call + embed →
+`ingestSource` (`packages/lor/src/sources.ts`): one bounded summarize call + embed →
 `source` row → retrievable via `search_sources`. **Not** an agent loop, no tools. This is
 LOR-49: index data silently, notify no one.
 
@@ -85,35 +85,35 @@ LOR-49: index data silently, notify no one.
   attendees and decisions") is prepended to the summarization prompt. That's the only
   configuration Remember has or needs.
 - **The brain is never written directly.** External data lands in `source`; brain pages
-  stay Merlin-authored (synthesis pulls from sources). Webhook data writing the compiled
+  stay Lor-authored (synthesis pulls from sources). Webhook data writing the compiled
   layer directly would pollute it.
 - **System-of-record exception (webhooks only):** a webhook has no provider to
   live-fetch from, so the "summary + pointer, never store whole" rule
-  (`merlin-architecture.md` §2.2) breaks deliberately: the capped raw payload (64KB)
+  (`lor-agent-architecture.md` §2.2) breaks deliberately: the capped raw payload (64KB)
   is stored on the `trigger_delivery` row. First-party connectors keep true
   pointers (e.g. Attio transcripts are live-fetched). Known gap: the webhook
-  provider's `fetchContent` returns null for now, so Merlin retrieves the summary
+  provider's `fetchContent` returns null for now, so Lor retrieves the summary
   but can't yet pull the stored raw payload — wiring `fetch_source` to the delivery
   log is a follow-up.
 - Upsert: honor a top-level `external_id` (or `id`) field in a webhook delivery for
   in-place re-ingest (the `source` unique index already supports this); otherwise each
   delivery is a new row keyed by delivery id.
 
-### Act — hand data + instructions to Merlin, let it decide
+### Act — hand data + instructions to Lor, let it decide
 
 An **agent run** composed as: the channel's normal toolset (connectors granted by the
 channel's agent profile, **including custom tools**) + the trigger's instructions + the
 normalized payload as the user turn. Trigger instructions are *not* in the system prompt
 at any other time.
 
-Merlin decides the disposition:
+Lor decides the disposition:
 
 - **post** to the channel,
 - **create a Task** (escalation it chooses — e.g. multi-step work), or
 - **do nothing** — the run's final output is discarded; the only trace is the run/delivery
   log on the connection page. No channel whisper.
 
-A Task is an *outcome Merlin can choose*, never a mandated shape. Auditability is an
+A Task is an *outcome Lor can choose*, never a mandated shape. Auditability is an
 infrastructure property (every triggered run is an `agent_run` row with provenance:
 trigger id, delivery id, instructions snapshot), not a UX artifact.
 
@@ -136,7 +136,7 @@ upgrades on the same URL.
   encrypted at rest) + one `connector_trigger` row anchored to the channel, created
   together in one flow. The connection row buys: `source` rows with a valid
   `connectionId`/provider discriminator (→ `search_sources` works), the trigger
-  machinery, and the registry compile cascade — exactly what `merlin-mvp-spec.md` §6.2
+  machinery, and the registry compile cascade — exactly what `lor-mvp-spec.md` §6.2
   designed for. Not listed on the connect-a-provider page.
 - Inbound endpoint keeps the current shape: `POST /v1/webhooks/:id/:token` — timing-safe
   token compare, ack fast, process async, URL treated as a secret.
@@ -169,9 +169,9 @@ upgrades on the same URL.
 
 ## 4. Custom tools
 
-A workspace registry of user-defined tools Merlin can call. **Shipped 2026-08-15.**
+A workspace registry of user-defined tools Lor can call. **Shipped 2026-08-15.**
 
-**Descriptor (a row, authorable by humans in a form and by Merlin via API):**
+**Descriptor (a row, authorable by humans in a form and by Lor via API):**
 
 - `name` (snake_case, unique among active, rejected if it matches a built-in tool
   name — and built-ins always win at bind time regardless), `description` (when to
@@ -196,7 +196,7 @@ A workspace registry of user-defined tools Merlin can call. **Shipped 2026-08-15
   fail hostname validation). Redirects refused; 15s timeout; 256KB response cap.
   DNS-pinning is a hosted-hardening follow-up.
 - Implementation: `packages/db/src/schemas/custom-tools.ts`,
-  `packages/merlin/src/custom-tools.ts` (binding + execution, unit-tested),
+  `packages/lor/src/custom-tools.ts` (binding + execution, unit-tested),
   CRUD at `/v1/workspaces/:slug/custom-tools`, settings UI
   `apps/web/src/components/workspace/custom-tools-section.tsx`.
 
@@ -210,7 +210,7 @@ registry, granted per channel through agent profiles at two levels:
   "which profiles use this tool" is indexed, and per-grant metadata — e.g.
   approvals — has a home later).
 
-Resolution lives in `packages/merlin/src/capabilities.ts`
+Resolution lives in `packages/lor/src/capabilities.ts`
 (`resolveChannelCapabilities` → `ChannelToolGrants { capabilities, customTools:
 "all" | string[] }`); binding filters by the grant in `workspaceCustomTools`.
 The profile editor shows the blanket tile plus one tile per tool (tiles render
@@ -233,7 +233,7 @@ separate **`mcp_server`** primitive — URL (Streamable HTTP, same SSRF stance
 as custom tools, checked at create AND connect) + static auth headers with
 `{{secrets.KEY}}` references + **`enabledTools` allowlist** (generalizing the
 `datadogMcpTools` pattern; exists so an upstream tool addition can't silently
-widen Merlin's surface — new tools stay off until enabled). Sessions per
+widen Lor's surface — new tools stay off until enabled). Sessions per
 respond() call like Datadog: granted servers handshake in parallel under one
 8s cap, unreachable servers drop out, tool results cap at 256KB, sessions
 close in respond()'s finally. Collisions skip-and-log (built-ins → custom
@@ -246,7 +246,7 @@ is now "Tools" with a kind picker (API Tool / MCP Server); the MCP form's
 "Connect & discover" step
 lists the server's tools for allowlisting (all pre-checked on first connect;
 refresh keeps the current selection). CRUD + discover endpoints at
-`/v1/workspaces/:slug/mcp-servers` (`packages/merlin/src/mcp-servers.ts`,
+`/v1/workspaces/:slug/mcp-servers` (`packages/lor/src/mcp-servers.ts`,
 `apps/web/src/components/workspace/mcp-servers-section.tsx`).
 
 ## 5. Guardrails on triggered runs (physics, not opinions)
@@ -259,8 +259,8 @@ refresh keeps the current selection). CRUD + discover endpoints at
   and the old single daily cap turned that into 100 agent runs followed by a blind spot
   for the rest of the day (a fuse, not a throttle). The governing rule (jacob): **a
   delivery is never dropped for being blocked — it queues.** Being blocked only ever
-  changes *when* and *with what company* Merlin looks, never *whether*. Three layers, in
-  `packages/merlin/src/act-runs.ts` (shared: the API arms windows on ingest, the worker
+  changes *when* and *with what company* Lor looks, never *whether*. Three layers, in
+  `packages/lor/src/act-runs.ts` (shared: the API arms windows on ingest, the worker
   flushes them minutes later):
   1. **One run per trigger at a time.** Act runs use `scopeKey = triggerId`, so the
      existing partial unique index on active `agent_run` rows makes this a database
@@ -279,7 +279,7 @@ refresh keeps the current selection). CRUD + discover endpoints at
      ONE follow-up run: all unclaimed deliveries claimed onto it
      (`trigger_delivery.run_id`) and quoted as a single user turn — oldest 3 + newest 3,
      with the true count and time span, framed as "N further deliveries … after an earlier
-     run already handled the first one" so Merlin checks for escalation instead of
+     run already handled the first one" so Lor checks for escalation instead of
      repeating work. This is the layer that makes investigations *better*, not just
      cheaper: "482 errors in 5 minutes, here's the first and the latest" beats one
      arbitrary stack trace.
@@ -350,7 +350,7 @@ refresh keeps the current selection). CRUD + discover endpoints at
   indefinitely — the note-poisoning risk is real and deliberately capped.
   This only works because runs on a trigger are **serialized** (§5.1): a chain of notes is
   coherent where interleaved siblings' notes would be noise. Notes are surfaced to humans
-  too, on the trigger's Act row ("Merlin's last run · 14:07 — …").
+  too, on the trigger's Act row ("Lor's last run · 14:07 — …").
   Deliberately **not** built (jacob, 2026-08-17): a note cannot suppress its own trigger.
   Volume is the caps' job; suppression stays a human decision, and handing the model a
   kill switch over its own wake-ups is a different (larger) trust conversation.
@@ -370,7 +370,7 @@ refresh keeps the current selection). CRUD + discover endpoints at
 3. **Silent Act runs leave no channel trace** — run/delivery log only. ✓
 4. **Remember lands in `source`, not the brain.** ✓
 5. **Write tools execute freely in unattended runs.** Offering a tool to the AI *is* the
-   consent — if it's registered and granted to the channel, Merlin may call it without
+   consent — if it's registered and granted to the channel, Lor may call it without
    supervision. **Approval requests are deferred** — jacob has a Linear ticket for
    approval routing on unattended runs; the existing approvals machinery (`approvals`
    schema, `tool-guard.ts`, tasks' waiting_for_approval) is the integration point,
@@ -380,7 +380,7 @@ refresh keeps the current selection). CRUD + discover endpoints at
    read-vs-write classification neither predicts nor configures. Approval/approver
    config arrives WITH the approvals design, per tool or per channel, not pre-staged as
    a data bit.)*
-6. **Task is an escalation Merlin chooses, not a mandate.** The earlier "every act is a
+6. **Task is an escalation Lor chooses, not a mandate.** The earlier "every act is a
    task card" stance was rejected as a hardcoded behavior; the preserved invariant is
    "every unattended run is an auditable `agent_run` row."
 7. **`channel_webhook` folds into Webhooks** (supersedes the earlier "stays separate"
@@ -398,7 +398,7 @@ refresh keeps the current selection). CRUD + discover endpoints at
 - No workflow builder, no trigger/condition/action blocks, no jq/templates/field mapping.
 - No direct brain writes from any inbound path.
 - No message-triggered rules yet ("when someone posts in #x, do y") — same effect system,
-  different trigger class, real loop/cost hazards. @-mentioning Merlin covers the
+  different trigger class, real loop/cost hazards. @-mentioning Lor covers the
   interactive case. Architecture accommodates it later precisely because triggers and
   effects are separate.
 - No approval gates on unattended write tools (deferred, see §6.5).
@@ -410,7 +410,7 @@ refresh keeps the current selection). CRUD + discover endpoints at
   `SEARCHERS`/`FILE_BROWSERS` (both `null`), `CONNECTOR_UI` — the
   `adding-a-connector.md` walk, minus the connect page (webhooks are created from
   channel settings).
-- `merlinCapabilityEnum` += `"custom_tools"` → cascades through `CAPABILITIES`.
+- `lorCapabilityEnum` += `"custom_tools"` → cascades through `CAPABILITIES`.
 - **`connector_notification_route` → generalize into `connector_trigger`** (rename +
   widen; dev-stage `db:push`, existing rows become POST-only triggers):
   - `connectionId`, `event` (unchanged; validated against `CONNECTOR_EVENTS`)
@@ -474,11 +474,11 @@ Ship in this order; each phase is independently useful and de-risks the next.
    - Kill switch is process-time: the processor re-reads `enabled` + `actInstructions`
      before claiming; clearing either cancels queued runs (settled `stopped`).
    - Instructions enter the system prompt via `triggeredPromptSection`
-     (`packages/merlin/src/triggered.ts`) only on triggered runs; `saveContext`
+     (`packages/lor/src/triggered.ts`) only on triggered runs; `saveContext`
      snapshots them on the run row (the audit copy). Disposition tools:
-     `post_channel_message` (worker-side fanout, NOT `excludedFromMemory` — Merlin-
+     `post_channel_message` (worker-side fanout, NOT `excludedFromMemory` — Lor-
      authored canonical content, unlike POST-effect pointers) and `create_task`
-     (card + task + first run on normal task rails, creator = Merlin).
+     (card + task + first run on normal task rails, creator = Lor).
    - Triggered runs KEEP the write-back memory pass (jacob, revising the earlier
      skip-it call: webhook payloads can carry durable facts) — same gate, budget
      floors, and per-workspace lock as conversational runs.
@@ -494,11 +494,11 @@ Ship in this order; each phase is independently useful and de-risks the next.
 6. **Later:** message-triggered rules, provider-native subscription filters (Attio
    `$and`/`$or`), **Postgres querying** (next on the horizon — see §4),
    approval routing for unattended writes (jacob's ticket), multi-channel fan-out per
-   event, Merlin self-configuration (reads a codebase, calls the same CRUD APIs to wire
+   event, Lor self-configuration (reads a codebase, calls the same CRUD APIs to wire
    tools + triggers), and **message UI blocks** — Lor's native rich-message shape:
    markdown-first with typed blocks (not a Slack-style block tree; LLMs stream markdown
    naturally), display blocks for webhook senders vs. action blocks (reserved for
-   Merlin/in-app authors) whose buttons trigger Lor primitives — send-to-Merlin, create
+   Lor/in-app authors) whose buttons trigger Lor primitives — send-to-Lor, create
    task, approve — with no sender-side callback server. Design deliberately deferred;
    the webhook dialect endpoints were structured so the native base URL gains a field
    additively when this lands.
@@ -526,7 +526,7 @@ Verified against Attio's live OpenAPI specs (`https://api.attio.com/openapi/api`
   pattern. That endpoint
   returns `transcript.segments[]` (`speaker.name`, `start_time`, `end_time`); the
   `…/transcript` endpoint our tools currently use is **deprecated** in its favor —
-  migrate `fetchTranscript` in `packages/merlin/src/attio.ts` while here.
+  migrate `fetchTranscript` in `packages/lor/src/attio.ts` while here.
 - **Delivery payload**: `{ webhook_id, events: [{ event_type, id: { workspace_id,
   …type-specific ids }, actor }] }`. Exactly one event per delivery today; the spec
   reserves batching — iterate `events`. Payloads carry **ids only** (e.g.
@@ -539,7 +539,7 @@ Verified against Attio's live OpenAPI specs (`https://api.attio.com/openapi/api`
   over ~3 days, then the webhook is marked degraded.
 - **Scope:** creating webhooks requires `webhook:read-write`. Our provider currently
   rejects any `:read-write` scope (`validateAttioReadScopes`,
-  `packages/merlin/src/providers/attio.ts`). Decision: relax to allow **exactly**
+  `packages/lor/src/providers/attio.ts`). Decision: relax to allow **exactly**
   `webhook:read-write` (it grants no CRM data writes) and create the webhook
   programmatically at connect time. Existing connections lack the scope and must be
   reconnected.

@@ -15,7 +15,7 @@ import { workspace } from "./workspaces"
 // What Lor is allowed to *do* in a channel — gated tools/connectors, not the
 // brain (the brain is shared institutional memory, never walled). Add a value
 // as each gated ability lands; brain read/write + chat search are always-on
-// core and deliberately NOT capabilities. See reference/merlin-architecture.md §8.1.
+// core and deliberately NOT capabilities. See reference/lor-agent-architecture.md §8.1.
 export const lorCapabilityEnum = pgEnum("lor_capability", [
   "github",
   "code_intelligence",
@@ -42,11 +42,6 @@ export type LorCapability = (typeof lorCapabilityEnum.enumValues)[number]
 export const ALL_LOR_CAPABILITIES: LorCapability[] = [
   ...lorCapabilityEnum.enumValues,
 ]
-
-// Deprecated Merlin→Lor rename aliases — removed in cleanup (LOR-87 C9).
-export const merlinCapabilityEnum = lorCapabilityEnum
-export type MerlinCapability = LorCapability
-export const ALL_MERLIN_CAPABILITIES = ALL_LOR_CAPABILITIES
 
 // A named capability preset assigned to a channel or category. Resolution is
 // channel profile → parent category's profile → the workspace default.

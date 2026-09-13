@@ -7,7 +7,7 @@
 ## 1. Product contract
 
 An OAuth MCP server is a shared workspace connection. One member with permission
-to manage workspace tools authorizes the remote account. Merlin may then use that
+to manage workspace tools authorizes the remote account. Lor may then use that
 account in every channel whose assigned agent profile grants the MCP server.
 
 The person who completes OAuth is recorded for audit only. The credential does not
@@ -18,8 +18,8 @@ Before opening the provider's authorization page, show this blocking disclosure:
 
 > **Shared channel connection**
 >
-> Anyone who can use Merlin in a channel whose assigned profile includes this MCP
-> server can cause Merlin to use the connected account. Automated runs in those
+> Anyone who can use Lor in a channel whose assigned profile includes this MCP
+> server can cause Lor to use the connected account. Automated runs in those
 > channels can use it too. Only continue if this is an account you are comfortable
 > sharing with that team scope.
 
@@ -141,12 +141,12 @@ OAuth servers may still have ordinary non-secret headers. Reject a user-supplied
 
 ## 5. MCP OAuth provider
 
-Implement a durable `OAuthClientProvider` adapter in `packages/merlin` with two modes:
+Implement a durable `OAuthClientProvider` adapter in `packages/lor` with two modes:
 
 - **Interactive:** used by start/callback/discovery routes. It persists PKCE/state,
   DCR client information, authorization-server information, and token updates, and
   captures the authorization URL for the API response.
-- **Runtime:** used by Merlin responses and triggered runs. It loads the workspace
+- **Runtime:** used by Lor responses and triggered runs. It loads the workspace
   credential and persists refreshed tokens. If interaction is required, it marks the
   server `reauthorization_required` and fails closed; a background tool call can never
   start or complete an interactive login.

@@ -1,8 +1,11 @@
 # Merlin → Lor rename (LOR-87)
 
-Status: PLANNED, not executed. Full repo-wide rename of the agent from Merlin
-to Lor — code identifiers, DB names, wire protocol, env vars, prompts, copy,
-docs. ~1,400 occurrences across ~170 code files + 19 reference docs.
+Status: CODE COMPLETE (C1–C9 landed 2026-09-12). Full repo-wide rename of the
+agent from Merlin to Lor — code identifiers, DB names, wire protocol, env
+vars, prompts, copy, docs. Remaining work is Jacob-side cutover only (§6).
+Every app and package is merlin-free; `PIVOT.md` is the one deliberate
+holdout (historical branding doc that reasons about the name itself — a
+mechanical sweep would produce nonsense sentences; hand-edit if wanted).
 
 Related future work (not in this rename): per-workspace agent rename/avatar
 and workspace-added custom agents. See §8.
@@ -187,12 +190,32 @@ Validate per chunk: `pnpm run check-types` + `pnpm run check`.
   After this chunk ALL app + package SOURCE is merlin-free except the
   deliberate C9 alias/dual-token set and the `reference/merlin-*.md` doc
   paths C9 renames.
-- [ ] **C9 cleanup + docs** — remove all aliases, dual event keys, dual
-  CSS tokens, dual utils export path; docs git mvs
+- [x] **C9 cleanup + docs** — removed every deprecated alias (db constants,
+  channel-access, messages, agent-profiles, notification enum;
+  realtime-types notifications/queues/events; utils), the `merlin:*` dual
+  event keys, the dual CSS tokens (ui globals + lor-tokens), and the
+  `"./merlin"` utils export path — type-check stayed green, proving nothing
+  depended on them. Docs git mv'd
   (`merlin-architecture.md`→`lor-agent-architecture.md`,
-  `merlin-mvp-spec.md`→`lor-mvp-spec.md`) + active-doc prose sweep +
-  CLAUDE.md + `.github/workflows/version-guard.yml` regex + lockfile; final
-  full validation.
+  `merlin-mvp-spec.md`→`lor-mvp-spec.md`) with all cross-references
+  rewritten (incl. packages/db schema comments). Root-level fixes found in
+  the final census: **`package.json` `db:reembed` still filtered the
+  now-nonexistent `@repo/merlin` (broken script)**, `autumn.config.ts`
+  product display name → "Lor credits" (id `credits` untouched; needs
+  `npx atmn push` to reach Autumn), `.env.example` `MERLIN_*`→`LOR_*`,
+  README/ROADMAP/MOBILE_ARCHITECTURE swept.
+
+  DEVIATION from §1 exception 3: ALL `reference/*.md` prose was swept, not
+  just active docs. Reason — these are living runbooks Claude reads before
+  working; a doc saying "Merlin does X" describes an entity that no longer
+  exists under that name, and a future session grepping `merlin` would find
+  nothing. Only this file (which must carry both names) and `PIVOT.md` (see
+  status header) keep Merlin.
+
+  Validation: `pnpm run check` clean, `pnpm run check-types` 20/20,
+  `pnpm run build` 4/4 (desktop's build fails on a missing
+  `TAURI_SIGNING_PRIVATE_KEY` — a local-env condition supplied only by CI
+  secrets in release-desktop.yml, unrelated to this rename).
 
 ## 6. Cutover order (Jacob-side)
 

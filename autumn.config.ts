@@ -5,7 +5,7 @@ import { feature, item, plan } from "atmn"
 // so `credits` is a single metered feature, not an Autumn credit_system.
 export const credits = feature({
   id: "credits",
-  name: "Merlin credits",
+  name: "Lor credits",
   type: "metered",
   consumable: true,
 })

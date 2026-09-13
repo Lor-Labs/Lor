@@ -8,7 +8,7 @@ Let people query their company's authorized Slack history from inside Lor.
 
 - Search Slack messages, threads, channels, people, links, and accessible files.
 - Fetch full thread context when a search result is relevant.
-- Use Slack as grounded source material for Merlin's answers and workspace memory.
+- Use Slack as grounded source material for Lor's answers and workspace memory.
 - Map the querying Lor user to a verified member of the connected Slack workspace and use that identity as the authorization principal.
 - Check current Slack permissions for every request. Installation scopes and stored ACL metadata are constraints, not proof of access; deny when identity mapping or current authorization state is unavailable.
 - Clearly identify and link back to Slack as the source.
@@ -19,7 +19,7 @@ Information can flow from Slack into Lor's context, but the Lor agent does not o
 
 Lor will not:
 
-- expose Merlin through Slack mentions, DMs, slash commands, or shortcuts;
+- expose Lor through Slack mentions, DMs, slash commands, or shortcuts;
 - answer questions about Lor from inside Slack;
 - post agent responses, messages, reactions, summaries, or notifications into Slack;
 - turn Slack channels into a second interface for Lor;
@@ -36,7 +36,7 @@ Slack data → Lor search, grounding, and memory
 Lor agent/actions ✕→ Slack
 ```
 
-This keeps Lor as the primary multiplayer AI workspace instead of reducing it to another Slack bot. Slack is an important source of company context; it is not where users operate Merlin.
+This keeps Lor as the primary multiplayer AI workspace instead of reducing it to another Slack bot. Slack is an important source of company context; it is not where users operate Lor.
 
 ## MVP definition
 
@@ -54,7 +54,7 @@ This keeps Lor as the primary multiplayer AI workspace instead of reducing it to
 - Replacing Slack
 - Mirroring Lor conversations into Slack
 - Cross-posting between the products
-- Running Merlin as a Slack bot
+- Running Lor as a Slack bot
 - Letting Slack users query Lor memory, artifacts, agents, or generated apps
 - Taking actions in Slack on a user's behalf
 

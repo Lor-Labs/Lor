@@ -69,7 +69,7 @@ change proposals will be written in.
 | UI surface | Workspace settings dialog gains **Members** and **Roles** tabs (Discord pattern). No new route. |
 | Web permission mirror | Web fetches the workspace's custom roles once (React Query over better-auth `listOrgRoles`) and resolves grants locally with the same `@repo/auth/permissions` helpers the API uses. |
 | DB hygiene riding along | Delete dead `WORKSPACE_MEMBER_ROLES` const; add unique index on `workspace_member (workspaceId, userId)`. Both in S1 (db:push owed — Jacob runs it). |
-| Out of scope | Ownership transfer, per-channel permission overrides, invite-with-role, multi-role members, Merlin proposing roles (change-proposal phase). |
+| Out of scope | Ownership transfer, per-channel permission overrides, invite-with-role, multi-role members, Lor proposing roles (change-proposal phase). |
 
 ## Steps
 
@@ -231,7 +231,7 @@ Manual QA checklist (live, after db:push):
   into one `tool` statement (both add tools to the workspace). Confirmed:
   `webhook`/`agentProfile` grants are workspace-wide and include per-channel
   attachment; single role per member; flat custom-role hierarchy (position 15,
-  no day-1 ordering); owner model as proposed; Merlin's own authority is NOT
+  no day-1 ordering); owner model as proposed; Lor's own authority is NOT
   modeled through roles (LOR-81 approval policies handle it).
 - 2026-08-31 — Post-S6 (Jacob): Members and Roles consolidated into ONE
   settings section, "Members & Roles", with an underline tab bar

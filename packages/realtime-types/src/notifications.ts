@@ -22,11 +22,6 @@ export function shouldNotifyForLorThread(
   )
 }
 
-// Deprecated Merlin→Lor rename aliases — removed in cleanup (LOR-87 C9).
-export type MerlinThreadNotificationPreference = LorThreadNotificationPreference
-export type MerlinThreadNotificationContext = LorThreadNotificationContext
-export const shouldNotifyForMerlinThread = shouldNotifyForLorThread
-
 export function buildNotificationConversationName(
   context: NotificationConversationContext
 ): string | null {

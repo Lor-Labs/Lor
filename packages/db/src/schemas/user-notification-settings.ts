@@ -19,9 +19,6 @@ export const lorThreadNotificationEnum = pgEnum("lor_thread_notification", [
   "subscribed_only",
 ])
 
-// Deprecated Merlin→Lor rename alias — removed in cleanup (LOR-87 C9).
-export const merlinThreadNotificationEnum = lorThreadNotificationEnum
-
 export const userNotificationSettings = pgTable("user_notification_settings", {
   id: uuid("id").defaultRandom().primaryKey(),
   createdAt: timestamp("created_at").defaultNow().notNull(),

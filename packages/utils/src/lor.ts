@@ -4,9 +4,6 @@ export type LorReasoningSegment = {
   order: number
 }
 
-// Deprecated Merlin→Lor rename alias — removed in cleanup (LOR-87 C9).
-export type MerlinReasoningSegment = LorReasoningSegment
-
 // Streamed reasoning arrives as order-keyed deltas: append to the segment
 // with the same order, or start a new one.
 export function appendReasoningSegment(

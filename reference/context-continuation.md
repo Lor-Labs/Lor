@@ -59,7 +59,7 @@ Ship first: independent of Track B, immediate win for export-style tasks.
 
 ### A1 — tool module (~450 LOC) — [x] built 2026-08-28, awaiting review/commit
 
-- `packages/merlin/src/artifacts/export-tool.ts` (new):
+- `packages/lor/src/artifacts/export-tool.ts` (new):
   - Input schema: `{ tool, args, filename, format?: "csv" | "json" }`.
   - Factory takes the run's assembled tool map + toolsContext; executes the
     named tool with the same context; result never enters model context.
@@ -73,12 +73,12 @@ Ship first: independent of Track B, immediate win for export-style tasks.
   - Upload via `artifactBlobKey` + `putArtifactObject`; return receipt only:
     `{ url, filename, bytes, rowCount?, columns?, preview }` (preview = first
     5 rows).
-- `packages/merlin/src/artifacts/export-tool.test.ts`: CSV encoding (quotes,
+- `packages/lor/src/artifacts/export-tool.test.ts`: CSV encoding (quotes,
   commas, newlines, unicode), shape detection, deny-list, receipt shape.
 
 ### A2 — wiring + prompt (~250 LOC) — [x] built 2026-08-28, awaiting review/commit; live Neon check owed
 
-- `packages/merlin/src/index.ts`: add to the tool map (assembled ~L1640) after
+- `packages/lor/src/index.ts`: add to the tool map (assembled ~L1640) after
   the base tools exist (factory closes over the map), before `guardTools`
   (~L1841) so the receipt rides the normal byte caps. Gate on the same
   capability flag as `create_artifacts`.
@@ -99,13 +99,13 @@ Ship first: independent of Track B, immediate win for export-style tasks.
   optional `task` snapshot `{ title, goal, status, plan, summary }` (jsonb
   type only — no new column; rides the existing `context` snapshot so resume
   stays byte-stable).
-- `packages/merlin/src/index.ts`:
+- `packages/lor/src/index.ts`:
   - Split `taskPromptSection`: static rules remain in instructions; volatile
     status/plan/summary render at the tail of the initial user message in
     `buildInitialUserMessage` (after brain/roster, before the final directive).
   - `respond()` reads task state from ctx as today; context builder copies it
     into the snapshot.
-- `apps/worker/src/jobs/merlin-respond.ts`: pass task into the context
+- `apps/worker/src/jobs/lor-respond.ts`: pass task into the context
   snapshot at `saveContext`.
 - Result: system prompt is stable per channel; plan updates no longer
   invalidate the whole prompt cache.
@@ -121,7 +121,7 @@ Ship first: independent of Track B, immediate win for export-style tasks.
   - `loadPredecessorTranscript(run)`: rebuild
     `[buildInitialUserMessage(run.context), ...step messages]` — same pattern
     as the crash-recovery resume in `claimAgentRun`.
-  - `buildDelta({ predecessor, scope, merlinMessageId })`: scope messages after
+  - `buildDelta({ predecessor, scope, lorMessageId })`: scope messages after
     the predecessor's start, minus steered-consumed rows, minus placeholders;
     render as one user message using the `withAttachmentLines` format
     (images as `[file: …]` lines in v1 — vision parts for deltas are a
@@ -131,7 +131,7 @@ Ship first: independent of Track B, immediate win for export-style tasks.
 
 ### B2 — processor integration (~300 LOC) — [x] built 2026-08-28, awaiting review/commit. Live tests still owed
 
-- `apps/worker/src/jobs/merlin-respond.ts`: for thread-scoped runs
+- `apps/worker/src/jobs/lor-respond.ts`: for thread-scoped runs
   (`contextThreadRootId` set) with no crash-resume state, attempt continuation
   before `loadConversation`. On success: feed the assembled messages through
   the same pathway `execution.resume` uses (fresh counters/budgets — this is a
@@ -148,7 +148,7 @@ Ship first: independent of Track B, immediate win for export-style tasks.
 ### C1 — summarizing compaction (~400 LOC) — [x] built + rewritten 2026-08-28, awaiting review/commit
 
 Shape (after the rewrite): one exported `compact({ messages, state, ... })` in
-`packages/merlin/src/compaction.ts`, called once from `prepareStep`. Returns the
+`packages/lor/src/compaction.ts`, called once from `prepareStep`. Returns the
 messages untouched below the trigger or if the reduced version fails validation.
 
     [original ask] [working notes] [verbatim tail] [authoritative task state]
@@ -160,8 +160,8 @@ the cached prefix survives. Still open from the Claude Code design: microcompact
 summarizer itself, and restoring non-task state (recent artifacts, sandbox key).
 
 Replaces the current blunt prune (`pruneMessages` with
-`toolCalls: "before-last-4-messages"` at `MERLIN_COMPACT_INPUT_TOKENS`, default
-60k) — the mechanism behind "Merlin forgot what it just did" mid-run.
+`toolCalls: "before-last-4-messages"` at `LOR_COMPACT_INPUT_TOKENS`, default
+60k) — the mechanism behind "Lor forgot what it just did" mid-run.
 
 - **Summarize, don't delete.** Before dropping old tool calls, have the small
   model write a dense working-state note (IDs, confirmed schema/facts, exact
@@ -171,7 +171,7 @@ Replaces the current blunt prune (`pruneMessages` with
 - **Raise the trigger far above 60k.** ⚠️ Must be derived from the configured
   model's real context window, NOT a guessed constant: setting it above the
   window converts a graceful compaction into a hard context-length failure.
-  Verify `MERLIN_MODEL`'s window on the AI Gateway first, then set the trigger
+  Verify `LOR_MODEL`'s window on the AI Gateway first, then set the trigger
   to ~70–80% of it. Env-configurable, since the model is.
 - Cost note: GLM 5.3 Flash is $0.15/Mtok input, $0.03 cached — a large window
   is affordable here in a way it would not have been on Kimi K3 ($3/$0.3).
@@ -212,8 +212,8 @@ per-request computation). Three fixes, one UI feature:
   event, API schema, or message column; replay/recovery/terminal persistence
   all come free. Keyed `compaction-${steps}` so a recovered attempt upserts
   rather than stacking dividers. Web renders it as a hairline divider with a
-  centered "Compaction" badge (`merlin-compaction-divider.tsx`), split out of
-  tool groups in `merlin-message-body.tsx`. Mobile renders it as a plain trail
+  centered "Compaction" badge (`lor-compaction-divider.tsx`), split out of
+  tool groups in `lor-message-body.tsx`. Mobile renders it as a plain trail
   row (acceptable default, no changes).
 
 ### B3 — docs + hardening (~150 LOC) — [x] built 2026-08-28, awaiting review/commit
@@ -230,7 +230,7 @@ path. Neither blocks B or C.
 
 ### D1 — read_thread window + honest placeholders (~300 LOC) — [x] built 2026-08-29, awaiting review/commit
 
-- `packages/merlin/src/index.ts` `readThread` (~L490): today it is
+- `packages/lor/src/index.ts` `readThread` (~L490): today it is
   `orderBy(asc).limit(THREAD_MAX=100)` — the **oldest** 100. A 340-message
   thread silently drops the 240 most recent, the same defect fixed in B1's
   delta. And "oldest N" is the wrong window regardless: the tool takes a
@@ -252,7 +252,7 @@ path. Neither blocks B or C.
 ### D2 — image access (~350 LOC) — [x] built 2026-08-29, awaiting review/commit. ⚠️ view_image needs the FIRST live test
 
 - **HEIC/HEIF viewable**: image constants + fetching moved to
-  `packages/merlin/src/images.ts`; HEIC/HEIF transcode to JPEG at fetch time
+  `packages/lor/src/images.ts`; HEIC/HEIF transcode to JPEG at fetch time
   via `heic-convert` (wasm libheif, lazy-imported). NOT sharp — verified that
   sharp's prebuilt binaries exclude HEVC decoding (patent pools), so the
   runbook's original "transcode with sharp" was wrong.
@@ -275,7 +275,7 @@ message (`buildInitialUserMessage`, and `formatDelta` copies the pattern). The
 label is only a text convention, so a message body containing a newline plus
 `Someone: …` renders as an additional apparent speaker. No special access is
 needed — anyone can type a newline — and with all channels public to the
-workspace, any member can appear to speak as any other (or as Merlin).
+workspace, any member can appear to speak as any other (or as Lor).
 
 - `sanitizeRosterLabel` (strips `\r\n<>`, clips to 80) already exists but is
   applied **only** to the mentionable-people roster. Apply it to `authorName`
@@ -299,7 +299,7 @@ security flavor, so it may deserve to jump the queue.
 
 - **C1:** context windows verified rather than guessed — GLM 5.3 Flash
   1,310,720 and Kimi K3 1,048,576. The **fallback** binds, not the primary, so
-  `MERLIN_COMPACT_INPUT_TOKENS` went 60k → **700k**, not ~1M. Any future model
+  `LOR_COMPACT_INPUT_TOKENS` went 60k → **700k**, not ~1M. Any future model
   change must re-check the smallest window in the chain.
 - **C1:** the rolling notes were deliberately NOT persisted at first — a
   recovered attempt rebuilt them from its own transcript. **Superseded by C2**
@@ -388,11 +388,11 @@ security flavor, so it may deserve to jump the queue.
   cached prefix is identical for every task run in a channel.
 
 - **C2 (UI rides the tool trail):** first cut added a `compaction` event kind
-  to `agent_run_event` + a `merlin:compaction` socket event + a persisted
+  to `agent_run_event` + a `lor:compaction` socket event + a persisted
   message column — reverted. The trail already gives any tool-shaped entry
   event-log persistence, live frames, late-join replay, recovery seeding
   (`loadTrailSeed`), and terminal persistence on the message row, so a
-  synthetic `compact_context` MerlinToolCall gets all of it for one web render
+  synthetic `compact_context` LorToolCall gets all of it for one web render
   branch. The DB event-kind enum already carries two reserved-unused values
   (`queued`, `truncate`); didn't add a third.
 - **C2 (`summaryFailures` resets across runs):** the circuit breaker counts one
@@ -428,7 +428,7 @@ security flavor, so it may deserve to jump the queue.
 
 - **D3 (indent, don't pattern-match):** body neutralization indents *every*
   continuation line by two spaces (`formatSpeakerLine` in
-  `packages/merlin/src/transcript.ts`) rather than escaping `word:`-shaped
+  `packages/lor/src/transcript.ts`) rather than escaping `word:`-shaped
   lines — no pattern to match means no pattern to evade, and only real
   speaker lines ever start at column 0. Two spaces, not four (four is a
   markdown code block). Applied at render time in all five speaker-line

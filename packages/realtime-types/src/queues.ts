@@ -34,10 +34,6 @@ export type LorRespondJobData = {
   resumeApprovalId?: string
 }
 
-// Deprecated Merlin→Lor rename aliases — removed in cleanup (LOR-87 C9).
-export const MERLIN_RESPOND_QUEUE = LOR_RESPOND_QUEUE
-export type MerlinRespondJobData = LorRespondJobData
-
 // Headless triggered runs (the Act effect — reference/automation-primitives.md
 // §2). The run row carries provenance (triggerId/deliveryId); the job carries
 // the normalized inbound payload since first-party event content isn't stored.
