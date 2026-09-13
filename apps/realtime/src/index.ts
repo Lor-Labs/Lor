@@ -4,8 +4,8 @@ import { auth, type Session } from "@repo/auth"
 import { and, db, eq, notExists, schema } from "@repo/db"
 import { env } from "@repo/env/server"
 import { enterContext } from "@repo/logger"
-import { decideReplyPlacement } from "@repo/merlin/placement"
-import { settleAbandonedRunPlan, toRealtimePlan } from "@repo/merlin/plans"
+import { decideReplyPlacement } from "@repo/lor/placement"
+import { settleAbandonedRunPlan, toRealtimePlan } from "@repo/lor/plans"
 import {
   buildMessageFanout,
   sendMessagePushNotifications,

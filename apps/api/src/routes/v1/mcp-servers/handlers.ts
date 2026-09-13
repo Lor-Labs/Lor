@@ -10,12 +10,12 @@ import {
 } from "@repo/db"
 import type { McpServer } from "@repo/db/schema"
 import { env } from "@repo/env/server"
-import { customToolUrlIssue, renderTemplate } from "@repo/merlin/custom-tools"
-import { initialMcpServerOAuthStatus } from "@repo/merlin/mcp-server-oauth"
+import { customToolUrlIssue, renderTemplate } from "@repo/lor/custom-tools"
+import { initialMcpServerOAuthStatus } from "@repo/lor/mcp-server-oauth"
 import {
   discoverMcpServer as discoverMcp,
   discoverSavedOAuthMcpServer,
-} from "@repo/merlin/mcp-servers"
+} from "@repo/lor/mcp-servers"
 import { decryptSecret, encryptSecret } from "@repo/utils/crypto"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"

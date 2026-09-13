@@ -1,7 +1,7 @@
 import { and, db, eq, schema, sql } from "@repo/db"
-import { loopRunBriefing } from "@repo/merlin/loop-runs"
-import { describeLoopSchedule } from "@repo/merlin/loop-schedule"
-import { toRealtimeLoop } from "@repo/merlin/loops"
+import { loopRunBriefing } from "@repo/lor/loop-runs"
+import { describeLoopSchedule } from "@repo/lor/loop-schedule"
+import { toRealtimeLoop } from "@repo/lor/loops"
 import { channelEventContent } from "@repo/messaging"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
 import type {

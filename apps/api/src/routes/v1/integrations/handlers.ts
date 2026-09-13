@@ -26,7 +26,7 @@ import {
   listInstallationRepos,
   connectCloudwatch as verifyCloudwatchKeys,
   connectDatadog as verifyDatadogKeys,
-} from "@repo/merlin/providers"
+} from "@repo/lor/providers"
 import { and, eq, inArray, ne, sql } from "drizzle-orm"
 import { invalidateGithubRepoCache } from "@/lib/github-repo-cache"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
@@ -85,7 +85,7 @@ function attioConnectUrl(state: string): string | null {
   // ATTIO_REQUIRED_READ_SCOPES plus webhook:read-write (the only permitted
   // write scope — event webhook management), and nothing else; connectAttio
   // enforces that exact policy after exchange
-  // (packages/merlin/src/providers/attio.ts).
+  // (packages/lor/src/providers/attio.ts).
   const params = new URLSearchParams({
     response_type: "code",
     client_id: env.ATTIO_CLIENT_ID,

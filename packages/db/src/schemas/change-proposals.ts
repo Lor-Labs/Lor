@@ -19,7 +19,7 @@ import { workspace } from "./workspaces"
 // Workspace change-proposal vocabulary (pillar 3, reference/change-proposals.md).
 // A proposal is an ordered list of typed operations a human approves as one
 // unit. These schemas are the shared contract between the propose tool
-// (packages/merlin), the proposal rows (@repo/db $type), and the apply engine
+// (packages/lor), the proposal rows (@repo/db $type), and the apply engine
 // (apps/api) — shape validation lives here, deep validation (ownership, name
 // collisions, SSRF, cron) happens at apply time exactly like the real handlers.
 

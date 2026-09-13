@@ -1,7 +1,0 @@
-name = "workbench"
-type = "sandbox"
-description = "Merlin workbench: Pi coding agent + Python data toolchain (pandas, matplotlib, openpyxl, pdfplumber)"
-
-[runtime]
-generation = "mk3"
-memory = 4096

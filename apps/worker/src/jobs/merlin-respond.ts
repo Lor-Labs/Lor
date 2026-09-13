@@ -22,11 +22,11 @@ import {
   groundCitations,
   respond,
   writeBack,
-} from "@repo/merlin"
-import type { ProposeLoopExecutor } from "@repo/merlin/loops"
-import type { StartPlanInput } from "@repo/merlin/plans"
-import { toRealtimePlan } from "@repo/merlin/plans"
-import type { ProposeChangeExecutor } from "@repo/merlin/proposals"
+} from "@repo/lor"
+import type { ProposeLoopExecutor } from "@repo/lor/loops"
+import type { StartPlanInput } from "@repo/lor/plans"
+import { toRealtimePlan } from "@repo/lor/plans"
+import type { ProposeChangeExecutor } from "@repo/lor/proposals"
 import {
   buildMessageFanout,
   loadThreadSummary,

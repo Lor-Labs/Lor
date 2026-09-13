@@ -20,7 +20,7 @@ import { workspace } from "./workspaces"
 // session changes how the current content is produced, while identity,
 // permissions, history, and attribution stay here. All writes — sandbox
 // harvest, human edits, future CRDT session flushes — go through
-// @repo/merlin's writeArtifactVersion, never straight to these tables.
+// @repo/lor's writeArtifactVersion, never straight to these tables.
 export const artifactAuthorTypeEnum = pgEnum("artifact_author_type", [
   "agent",
   "user",

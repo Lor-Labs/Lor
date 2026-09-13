@@ -2,12 +2,12 @@ import { createHmac, timingSafeEqual } from "node:crypto"
 import type { ConnectorEventKey } from "@repo/connectors"
 import { and, db, eq, schema } from "@repo/db"
 import { env } from "@repo/env/server"
-import { attioSearchResult } from "@repo/merlin/attio"
+import { attioSearchResult } from "@repo/lor/attio"
 import {
   attioRequest,
   fetchAttioCallRecording,
   formatAttioTranscript,
-} from "@repo/merlin/providers"
+} from "@repo/lor/providers"
 import { decryptSecret } from "@repo/utils/crypto"
 import { attioNotificationEmbed } from "@/lib/connector-notification-embeds"
 import {

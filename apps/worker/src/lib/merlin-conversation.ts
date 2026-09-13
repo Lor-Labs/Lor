@@ -12,7 +12,7 @@ import {
   schema,
   sql,
 } from "@repo/db"
-import { userDisplayName } from "@repo/merlin"
+import { userDisplayName } from "@repo/lor"
 import { meetingThreadContext } from "./meeting-context"
 
 const CONTEXT_LIMIT = 30

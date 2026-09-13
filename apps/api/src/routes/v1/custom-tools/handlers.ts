@@ -15,7 +15,7 @@ import {
   bodyTemplateJsonIssue,
   customToolUrlIssue,
   RESERVED_TOOL_NAMES,
-} from "@repo/merlin/custom-tools"
+} from "@repo/lor/custom-tools"
 import { encryptSecret } from "@repo/utils/crypto"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { assertWorkspaceAuthority } from "@/lib/permissions"

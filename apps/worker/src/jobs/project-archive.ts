@@ -6,7 +6,7 @@ import type {
   MerlinToolCall,
   MerlinToolCallUpdate,
 } from "@repo/db/schema"
-import { synthesizeProjectArchive } from "@repo/merlin/project-archive"
+import { synthesizeProjectArchive } from "@repo/lor/project-archive"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
 import type { ProjectArchiveJobData } from "@repo/realtime-types/queues"
 import { channelRoom, userRoom } from "@repo/realtime-types/rooms"

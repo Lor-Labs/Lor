@@ -37,7 +37,7 @@ import {
   type RunStepRecord,
   type UsageEvent,
   userDisplayName,
-} from "@repo/merlin"
+} from "@repo/lor"
 import { logger } from "@/lib/logger"
 import { replayContinuedPrefix } from "@/lib/run-continuation"
 import { createRunEventWriter, type RunEventWriter } from "@/lib/run-events"

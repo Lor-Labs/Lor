@@ -37,7 +37,7 @@ const serverSchema = z.object({
     .enum(["development", "staging", "production", "test"])
     .default("production"),
   DATABASE_URL: z.string().url(),
-  // Throwaway database for the Merlin eval harness (`pnpm --filter @repo/merlin
+  // Throwaway database for the Lor eval harness (`pnpm --filter @repo/lor
   // eval`). When unset, the eval is skipped. Read by the eval bootstrap before
   // @repo/db loads, so it can point the shared client here instead of prod.
   EVAL_DB_URL: z.string().url().optional(),
@@ -46,37 +46,33 @@ const serverSchema = z.object({
   REALTIME_CORS_ORIGIN: z.string().default(DEFAULT_REALTIME_CORS_ORIGIN),
   REDIS_URL: z.string().url(),
   BETTER_AUTH_SECRET: z.string().min(1),
-  // Vercel AI Gateway is Merlin's explicit transport. Model-role selection
-  // remains provider-neutral through the MERLIN_* model ids below.
+  // Vercel AI Gateway is Lor's explicit transport. Model-role selection
+  // remains provider-neutral through the LOR_* model ids below.
   AI_GATEWAY_API_KEY: z.string().min(1),
   AI_GATEWAY_BASE_URL: z.preprocess(
     blankToUndefined,
     z.string().url().optional()
   ),
-  MERLIN_MODEL: defaultedString("zai/glm-5.3-flash"),
-  MERLIN_MODEL_FALLBACKS: defaultedString("moonshotai/kimi-k3"),
-  MERLIN_SMALL_MODEL: defaultedString("zai/glm-5.3-flash"),
-  MERLIN_SMALL_MODEL_FALLBACKS: defaultedString("moonshotai/kimi-k3"),
+  LOR_MODEL: defaultedString("zai/glm-5.3-flash"),
+  LOR_MODEL_FALLBACKS: defaultedString("moonshotai/kimi-k3"),
+  LOR_SMALL_MODEL: defaultedString("zai/glm-5.3-flash"),
+  LOR_SMALL_MODEL_FALLBACKS: defaultedString("moonshotai/kimi-k3"),
   // Per-request input size above which older tool calls are compacted into
-  // rolling working notes (packages/merlin/src/compaction.ts). MUST stay well
+  // rolling working notes (packages/lor/src/compaction.ts). MUST stay well
   // under the real context window of EVERY model in the chain — primary and
   // gateway fallbacks — or compaction stops being graceful and the request
   // hard-fails on length.
-  MERLIN_COMPACT_INPUT_TOKENS: z.coerce
-    .number()
-    .int()
-    .positive()
-    .default(700_000),
-  // Smallest real context window across MERLIN_MODEL and its fallbacks — the
+  LOR_COMPACT_INPUT_TOKENS: z.coerce.number().int().positive().default(700_000),
+  // Smallest real context window across LOR_MODEL and its fallbacks — the
   // one that actually binds, since the gateway may route to any of them
   // mid-run. Verified: zai/glm-5.3-flash 1,310,720; moonshotai/kimi-k3
   // 1,048,576. Also bounds request preparation, with headroom reserved for
   // instructions, tools, and output even if the compaction threshold is higher.
-  MERLIN_CONTEXT_WINDOW: z.coerce.number().int().positive().default(1_048_576),
+  LOR_CONTEXT_WINDOW: z.coerce.number().int().positive().default(1_048_576),
   // HMAC secret binding a tool approval to the exact call/input (AI SDK
   // experimental_toolApprovalSecret). Must match across worker + API.
   // Optional: approval gates enforce without it; setting it hardens resume.
-  MERLIN_TOOL_APPROVAL_SECRET: z.preprocess(
+  LOR_TOOL_APPROVAL_SECRET: z.preprocess(
     blankToUndefined,
     z.string().min(32).optional()
   ),
@@ -111,47 +107,43 @@ const serverSchema = z.object({
   // Workbench sandbox sessions (create_artifacts): a coding agent produces
   // deliverable files. The timeout bounds one session; the byte/file caps
   // bound what gets harvested out of the sandbox into artifact storage.
-  MERLIN_WORKBENCH_TIMEOUT_SEC: z.coerce
-    .number()
-    .int()
-    .positive()
-    .default(1200),
-  MERLIN_WORKBENCH_MAX_FILE_BYTES: z.coerce
+  LOR_WORKBENCH_TIMEOUT_SEC: z.coerce.number().int().positive().default(1200),
+  LOR_WORKBENCH_MAX_FILE_BYTES: z.coerce
     .number()
     .int()
     .positive()
     .default(104_857_600),
-  MERLIN_WORKBENCH_MAX_TOTAL_BYTES: z.coerce
+  LOR_WORKBENCH_MAX_TOTAL_BYTES: z.coerce
     .number()
     .int()
     .positive()
     .default(524_288_000),
-  MERLIN_WORKBENCH_MAX_FILES: z.coerce.number().int().positive().default(20),
+  LOR_WORKBENCH_MAX_FILES: z.coerce.number().int().positive().default(20),
   // Blaxel sandbox provider — the only one. When both are set, the workbench
   // runs on Blaxel (per-task persistent sandboxes with standby); when unset,
   // sandbox tools (create_artifacts, investigate_code) are not bound. The BL_*
   // names are fixed — @blaxel/core reads them from process.env directly.
   BL_API_KEY: z.string().min(1).optional(),
   BL_WORKSPACE: z.string().min(1).optional(),
-  // Custom sandbox image (pushed via `bl push` from packages/merlin/sandbox-image).
-  MERLIN_WORKBENCH_IMAGE: defaultedString("sandbox/workbench:latest"),
+  // Custom sandbox image (pushed via `bl push` from packages/lor/sandbox-image).
+  LOR_WORKBENCH_IMAGE: defaultedString("sandbox/workbench:latest"),
   // Idle lifetimes for persistent Blaxel sandboxes. Task contents are durable
   // in R2, while code sandboxes retain unpublished diffs awaiting approval.
   // Blaxel expiration policies accept hours, days, or weeks only.
-  MERLIN_WORKBENCH_SANDBOX_TTL: z
+  LOR_WORKBENCH_SANDBOX_TTL: z
     .string()
     .regex(/^\d+[hdw]$/, "must be a duration like 24h, 7d, or 2w")
     .default("24h"),
-  MERLIN_CODE_SANDBOX_TTL: z
+  LOR_CODE_SANDBOX_TTL: z
     .string()
     .regex(/^\d+[hdw]$/, "must be a duration like 24h, 7d, or 2w")
     .default("7d"),
-  MERLIN_WORKBENCH_MEMORY_MB: z.coerce.number().int().positive().default(4096),
+  LOR_WORKBENCH_MEMORY_MB: z.coerce.number().int().positive().default(4096),
   // Disk-backed /workspace volume for clones, dependencies, caches, and outputs.
-  MERLIN_WORKBENCH_DISK_MB: z.coerce.number().int().positive().default(8192),
-  MERLIN_EMBED_MODEL: defaultedString("alibaba/qwen3-embedding-4b"),
-  MERLIN_EMBED_DIMENSIONS: z.coerce.number().int().positive().default(2560),
-  // Exa, backing Merlin's search_web/fetch_web tools. Optional: the tools are
+  LOR_WORKBENCH_DISK_MB: z.coerce.number().int().positive().default(8192),
+  LOR_EMBED_MODEL: defaultedString("alibaba/qwen3-embedding-4b"),
+  LOR_EMBED_DIMENSIONS: z.coerce.number().int().positive().default(2560),
+  // Exa, backing Lor's search_web/fetch_web tools. Optional: the tools are
   // omitted when unset.
   EXA_API_KEY: z.string().min(1).optional(),
   GITHUB_WEBHOOK_SECRET: z.string().min(1).optional(),

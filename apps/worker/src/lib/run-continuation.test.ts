@@ -49,7 +49,7 @@ vi.mock("@repo/db", () => {
   }
 })
 
-vi.mock("@repo/merlin", () => ({
+vi.mock("@repo/lor", () => ({
   buildInitialUserMessage: vi.fn(async (context: { brainContext: string }) => ({
     role: "user",
     content: [{ type: "text", text: `initial:${context.brainContext}` }],

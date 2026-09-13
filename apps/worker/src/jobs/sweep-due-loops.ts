@@ -8,8 +8,8 @@ import {
   schema,
 } from "@repo/db"
 import { env } from "@repo/env/server"
-import { nextLoopRunAt } from "@repo/merlin/loop-schedule"
-import { toRealtimeLoop } from "@repo/merlin/loops"
+import { nextLoopRunAt } from "@repo/lor/loop-schedule"
+import { toRealtimeLoop } from "@repo/lor/loops"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
 import { LOOP_RUN_JOB, type LoopRunJobData } from "@repo/realtime-types/queues"
 import { channelRoom } from "@repo/realtime-types/rooms"

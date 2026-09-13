@@ -7,8 +7,8 @@ import { getRate } from "./rates"
 
 const logger = createLogger("billing")
 
-// Structural mirror of @repo/merlin's UsageEvent — billing must not depend on
-// the merlin package (auth → billing would drag it in).
+// Structural mirror of @repo/lor's UsageEvent — billing must not depend on
+// the lor package (auth → billing would drag it in).
 export type UsageLike = {
   workspaceId: string
   tool: string
@@ -36,9 +36,9 @@ const OPERATION_CLASS: Record<
   string,
   (typeof schema.operationClassEnum.enumValues)[number]
 > = {
-  "merlin.respond": "lor.standard",
+  "lor.respond": "lor.standard",
   investigate_code: "lor.deep",
-  "merlin.embed": "embedding",
+  "lor.embed": "embedding",
   "source.summarize": "ingestion",
   "source.embed": "embedding",
 }

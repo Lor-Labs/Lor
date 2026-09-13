@@ -63,7 +63,7 @@ export const loop = pgTable(
     // The run's brief, injected into every scheduled run's system prompt.
     instructions: text("instructions").notNull(),
     // Cron expression + IANA timezone. Next fires are computed with croner
-    // (@repo/merlin/loop-schedule) only at activate/edit/resume/claim.
+    // (@repo/lor/loop-schedule) only at activate/edit/resume/claim.
     schedule: text("schedule").notNull(),
     // Null on drafts = "not pinned yet": Lor only sets it when the
     // conversation establishes one; otherwise the activating user's device

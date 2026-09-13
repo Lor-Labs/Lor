@@ -1,6 +1,6 @@
 import { env } from "@repo/env/server"
-import { claimOverdueActWindows } from "@repo/merlin/act-runs"
-import { setRepoCacheStore } from "@repo/merlin/github"
+import { claimOverdueActWindows } from "@repo/lor/act-runs"
+import { setRepoCacheStore } from "@repo/lor/github"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
 import {
   ACT_FLUSH_JOB,

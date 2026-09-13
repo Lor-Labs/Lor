@@ -1,5 +1,5 @@
 import { db, eq, schema } from "@repo/db"
-import { actRunBriefing, flushActWindow } from "@repo/merlin/act-runs"
+import { actRunBriefing, flushActWindow } from "@repo/lor/act-runs"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
 import type {
   ActFlushJobData,

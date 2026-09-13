@@ -10,7 +10,7 @@ import {
 } from "@repo/db"
 import type { Plan } from "@repo/db/schema"
 import { env } from "@repo/env/server"
-import { toRealtimePlan } from "@repo/merlin/plans"
+import { toRealtimePlan } from "@repo/lor/plans"
 import { loadThreadSummary } from "@repo/messaging"
 import type { RealtimeMessage } from "@repo/realtime-types"
 import {
@@ -47,7 +47,7 @@ function getRespondQueue(): Queue<MerlinRespondJobData> {
   return respondQueue
 }
 
-// Shared row→wire serializer (drift-guarded in @repo/merlin/plans);
+// Shared row→wire serializer (drift-guarded in @repo/lor/plans);
 // re-exported under the name this app's handlers already import.
 export { toRealtimePlan as serializePlan }
 

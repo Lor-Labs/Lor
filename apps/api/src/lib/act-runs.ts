@@ -5,7 +5,7 @@ import {
   closeActWindow,
   createActRun,
   openActWindow,
-} from "@repo/merlin/act-runs"
+} from "@repo/lor/act-runs"
 import {
   ACT_FLUSH_JOB,
   ACT_RUN_JOB,

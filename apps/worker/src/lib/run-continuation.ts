@@ -26,7 +26,7 @@ import {
   isSafeSplit,
   type ModelMessage,
   userDisplayName,
-} from "@repo/merlin"
+} from "@repo/lor"
 import { logger } from "@/lib/logger"
 
 // A thread is one continuous conversation however long the gaps between

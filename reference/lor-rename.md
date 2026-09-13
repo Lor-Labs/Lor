@@ -122,12 +122,16 @@ Validate per chunk: `pnpm run check-types` + `pnpm run check`.
   mapping, email copy. packages/messaging: push copy. packages/auth:
   `addLorToWorkspace`, "Manage agent profiles". packages/connectors: type
   imports. Local db:push after this chunk (prod push waits for cutover, §6).
-- [ ] **C2 packages/merlin → packages/lor** — git mv dir, `@repo/lor` name +
+- [x] **C2 packages/merlin → packages/lor** — git mv dir, `@repo/lor` name +
   import specifiers in api/worker/realtime (package.json + sources),
   packages/env `MERLIN_*`→`LOR_*` + the 4 `env.MERLIN_*` refs in apps/api +
-  vitest TEST_ENV mirror, prompts, `LOR_MODEL` consts, logger, `lor[bot]`,
-  eval seed identity, usage tool strings `merlin.*`→`lor.*` + billing
-  `BILLABLE_TOOLS`/ledger keys, transcript.test fixtures.
+  vitest TEST_ENV mirror (no MERLIN_ keys existed there), prompts,
+  `LOR_MODEL` consts, logger, `lor[bot]`, eval seed identity, usage tool
+  strings `merlin.*`→`lor.*` + billing `BILLABLE_TOOLS`/ledger keys,
+  transcript.test fixtures. Deviation: the version-guard workflow safe-path
+  regex (`packages/merlin`→`packages/lor`) moved up from C9 — leaving it
+  stale would have made every packages/lor change read as unsafe to that CI
+  guard. Lockfile regenerated (`pnpm install`).
 - [ ] **C3 apps/worker** — git mv `jobs/merlin-respond.ts` + 4
   `lib/merlin-*.ts` → `lor-*`, identifiers, log strings, `lor:writeback:*`
   key, `LOR_ERROR_FALLBACK`, `actorName: "Lor"`, dual-emit `lor:*` alongside

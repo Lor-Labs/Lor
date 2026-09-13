@@ -1,6 +1,6 @@
 import { z } from "@hono/zod-openapi"
 import { customToolMethodEnum } from "@repo/db/schema"
-import { CUSTOM_TOOL_NAME_REGEX } from "@repo/merlin/custom-tools"
+import { CUSTOM_TOOL_NAME_REGEX } from "@repo/lor/custom-tools"
 
 export const customToolsWorkspaceParamsSchema = z.object({
   workspaceSlug: z.string().openapi({

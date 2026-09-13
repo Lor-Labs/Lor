@@ -1,4 +1,4 @@
-import { githubReposCacheKey, setRepoCacheStore } from "@repo/merlin/github"
+import { githubReposCacheKey, setRepoCacheStore } from "@repo/lor/github"
 import { logger } from "@/lib/logger"
 import { getRedisClient } from "@/lib/redis"
 

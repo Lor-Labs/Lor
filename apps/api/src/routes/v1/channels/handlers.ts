@@ -14,7 +14,7 @@ import {
   listConnectorScopes as listScopes,
   searchConnector,
   searchConnectorFiles as searchFiles,
-} from "@repo/merlin/connector-search"
+} from "@repo/lor/connector-search"
 import {
   channelRoom,
   type ServerToClientEvents,

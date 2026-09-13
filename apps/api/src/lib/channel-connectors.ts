@@ -2,11 +2,11 @@ import { CONNECTOR_LIST, connectorCapabilities } from "@repo/connectors"
 import { db } from "@repo/db"
 import type { IntegrationProvider, MerlinCapability } from "@repo/db/schema"
 import { integrationConnection } from "@repo/db/schema"
-import { resolveChannelCapabilities } from "@repo/merlin/capabilities"
+import { resolveChannelCapabilities } from "@repo/lor/capabilities"
 import {
   connectorSupportsFiles,
   isSearchableConnector,
-} from "@repo/merlin/connector-search"
+} from "@repo/lor/connector-search"
 import { and, eq } from "drizzle-orm"
 
 export type ChannelConnector = {

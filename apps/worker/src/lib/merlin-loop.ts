@@ -1,6 +1,6 @@
 import { db, eq, schema } from "@repo/db"
-import { describeLoopSchedule } from "@repo/merlin/loop-schedule"
-import { toRealtimeLoop } from "@repo/merlin/loops"
+import { describeLoopSchedule } from "@repo/lor/loop-schedule"
+import { toRealtimeLoop } from "@repo/lor/loops"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
 import { channelRoom } from "@repo/realtime-types/rooms"
 import type { Emitter } from "@socket.io/redis-emitter"

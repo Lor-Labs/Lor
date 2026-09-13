@@ -11,7 +11,7 @@ import {
   schema,
 } from "@repo/db"
 import { env } from "@repo/env/server"
-import type { PlacementTurn } from "@repo/merlin/placement"
+import type { PlacementTurn } from "@repo/lor/placement"
 import { extractDirectMentionUserIds } from "@repo/messaging"
 import type { RealtimeMessage } from "@repo/realtime-types"
 import { logger } from "@/lib/logger"

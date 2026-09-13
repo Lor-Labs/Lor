@@ -25,10 +25,10 @@ import {
   bodyTemplateJsonIssue,
   customToolUrlIssue,
   RESERVED_TOOL_NAMES,
-} from "@repo/merlin/custom-tools"
-import { nextLoopRunAt, validateLoopSchedule } from "@repo/merlin/loop-schedule"
-import { endAfterToDate } from "@repo/merlin/loops"
-import { initialMcpServerOAuthStatus } from "@repo/merlin/mcp-server-oauth"
+} from "@repo/lor/custom-tools"
+import { nextLoopRunAt, validateLoopSchedule } from "@repo/lor/loop-schedule"
+import { endAfterToDate } from "@repo/lor/loops"
+import { initialMcpServerOAuthStatus } from "@repo/lor/mcp-server-oauth"
 import { encryptSecret } from "@repo/utils/crypto"
 
 // Apply engine for workspace change proposals (pillar 3,

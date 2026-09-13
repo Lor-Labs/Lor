@@ -1,6 +1,6 @@
 import { db, eq, isUniqueViolation, MERLIN_USER_ID, schema } from "@repo/db"
 import { env } from "@repo/env/server"
-import { settleAbandonedRunPlan, toRealtimePlan } from "@repo/merlin/plans"
+import { settleAbandonedRunPlan, toRealtimePlan } from "@repo/lor/plans"
 import { loadThreadSummary } from "@repo/messaging"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
 import type { MerlinRespondJobData } from "@repo/realtime-types/queues"

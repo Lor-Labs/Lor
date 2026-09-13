@@ -12,8 +12,8 @@ import {
   schema,
 } from "@repo/db"
 import { env } from "@repo/env/server"
-import { openActWindow, releaseActRunDeliveries } from "@repo/merlin/act-runs"
-import { settleAbandonedRunPlan, toRealtimePlan } from "@repo/merlin/plans"
+import { openActWindow, releaseActRunDeliveries } from "@repo/lor/act-runs"
+import { settleAbandonedRunPlan, toRealtimePlan } from "@repo/lor/plans"
 import { loadThreadSummary } from "@repo/messaging"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
 import {

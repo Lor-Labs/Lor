@@ -1,15 +1,15 @@
 import { and, db, eq, exists, isNull, schema, sql } from "@repo/db"
 import type { McpServer, McpServerOAuthAttempt } from "@repo/db/schema"
 import { env } from "@repo/env/server"
-import { renderTemplate } from "@repo/merlin/custom-tools"
-import { createGuardedMcpFetch } from "@repo/merlin/mcp-guarded-fetch"
+import { renderTemplate } from "@repo/lor/custom-tools"
+import { createGuardedMcpFetch } from "@repo/lor/mcp-guarded-fetch"
 import {
   DurableMcpOAuthProvider,
   discoverAuthorizedMcpTools,
   exchangeMcpOAuthAuthorization,
   startMcpOAuthAuthorization,
-} from "@repo/merlin/mcp-oauth-provider"
-import { createRuntimeMcpOAuthProvider } from "@repo/merlin/mcp-runtime-oauth"
+} from "@repo/lor/mcp-oauth-provider"
+import { createRuntimeMcpOAuthProvider } from "@repo/lor/mcp-runtime-oauth"
 import {
   createMcpOAuthState,
   decryptMcpOAuthCredentials,
@@ -17,7 +17,7 @@ import {
   hashMcpOAuthState,
   mcpOAuthAttemptExpiresAt,
   validateMcpOAuthAttempt,
-} from "@repo/merlin/mcp-server-oauth"
+} from "@repo/lor/mcp-server-oauth"
 import { decryptSecret, encryptSecret } from "@repo/utils/crypto"
 
 export class McpOAuthServiceError extends Error {

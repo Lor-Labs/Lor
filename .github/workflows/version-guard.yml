@@ -42,7 +42,7 @@ jobs:
           # packages, docs, CI). A PR touching only these needs no desktop release.
           # Everything else — apps/web, apps/desktop, packages/ui, shared frontend
           # packages, root config — requires a version bump. Edit as the repo grows.
-          safe_re='^(apps/(api|realtime|worker|www)|packages/(merlin|db|auth)|reference|\.github)/|\.md$'
+          safe_re='^(apps/(api|realtime|worker|www)|packages/(lor|db|auth)|reference|\.github)/|\.md$'
 
           changed="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")"
           remaining="$(printf '%s\n' "$changed" | grep -Ev "$safe_re" || true)"

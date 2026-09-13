@@ -1,6 +1,6 @@
 // Human-readable cron schedule descriptions, shared by the server (cards,
 // channel notes, run prompts) and clients (loop card). Lives here rather than
-// @repo/merlin because it's pure string parsing (no croner) and web imports
+// @repo/lor because it's pure string parsing (no croner) and web imports
 // this package but not the server-side merlin package.
 
 const DAY_NAMES = [
