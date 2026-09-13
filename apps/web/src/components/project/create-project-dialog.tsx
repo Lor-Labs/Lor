@@ -162,7 +162,7 @@ export function CreateProjectDialog({
           </DialogTitle>
           <DialogDescription>
             A group of channels scoped to one unit of work. Archive it when the
-            work ships — Merlin consolidates what happened into memory.
+            work ships — Lor consolidates what happened into memory.
           </DialogDescription>
         </DialogHeader>
         <DialogPanel>

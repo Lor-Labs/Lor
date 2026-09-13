@@ -3,10 +3,7 @@ import { isTauri } from "@repo/auth/tauri-fetch"
 import { useQueryClient } from "@tanstack/react-query"
 import type { ReactNode } from "react"
 import { createContext, useContext, useEffect, useState } from "react"
-import {
-  resetMerlinReplayState,
-  useMerlinStream,
-} from "@/hooks/use-merlin-stream"
+import { resetLorReplayState, useLorStream } from "@/hooks/use-lor-stream"
 import { type AppSocket, getSocket } from "@/lib/socket"
 
 const SocketContext = createContext<AppSocket | null>(null)
@@ -48,7 +45,7 @@ export function SocketProvider({
 }) {
   const [socket, setSocket] = useState<AppSocket | null>(null)
   const queryClient = useQueryClient()
-  useMerlinStream({ socket, queryClient })
+  useLorStream({ socket, queryClient })
 
   useEffect(() => {
     if (!enabled) return
@@ -105,7 +102,7 @@ export function SocketProvider({
       if (retryTimer) clearTimeout(retryTimer)
       retryTimer = null
       console.log("[socket] connected:", s.id)
-      resetMerlinReplayState()
+      resetLorReplayState()
       if (needsRecovery) {
         void queryClient.invalidateQueries()
       } else {

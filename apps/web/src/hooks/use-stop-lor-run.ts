@@ -1,18 +1,18 @@
 import { toast } from "@repo/ui/components/toast"
 import type { InfiniteData } from "@tanstack/react-query"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { messagesCacheKey } from "@/hooks/use-merlin-stream"
+import { messagesCacheKey } from "@/hooks/use-lor-stream"
 import { apiClient } from "@/lib/api-client"
 import type { Message } from "@/lib/api-types"
 import { updateMessagesAcrossPages } from "@/lib/message-cache-utils"
 
-type StopMerlinTarget = Pick<Message, "id" | "channelId" | "threadRootId">
+type StopLorTarget = Pick<Message, "id" | "channelId" | "threadRootId">
 
-export function useStopMerlinRun() {
+export function useStopLorRun() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async (target: StopMerlinTarget) => {
+    mutationFn: async (target: StopLorTarget) => {
       const res = await apiClient.v1.runs["by-message"][
         ":messageId"
       ].stop.$post({ param: { messageId: target.id } })
@@ -20,7 +20,7 @@ export function useStopMerlinRun() {
         const body = (await res.json().catch(() => null)) as {
           message?: string
         } | null
-        throw new Error(body?.message ?? "Couldn't stop Merlin")
+        throw new Error(body?.message ?? "Couldn't stop Lor")
       }
     },
     onSuccess: (_data, target) => {

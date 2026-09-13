@@ -12,14 +12,14 @@ import { Badge } from "@repo/ui/components/badge"
 import { useQuery } from "@tanstack/react-query"
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
-import { MerlinToolTrail } from "@/components/chat/merlin-tool-trail"
+import { LorToolTrail } from "@/components/chat/lor-tool-trail"
 import { MessageMarkdown } from "@/components/chat/message-markdown"
 import { UserAvatar } from "@/components/ui/user-avatar"
 import { useSocket } from "@/context/socket-context"
 import { useProjectUpdates } from "@/hooks/use-project-updates"
 import { useRealtimeRoom } from "@/hooks/use-realtime-room"
 import { apiClient } from "@/lib/api-client"
-import type { MerlinToolCallView } from "@/lib/api-types"
+import type { LorToolCallView } from "@/lib/api-types"
 
 export const Route = createFileRoute(
   "/_authenticated/$workspaceSlug/project/$projectId"
@@ -78,7 +78,7 @@ function ProjectOverview() {
 
   // Live synthesis progress: join the category channel room (normal access
   // check applies) and collect tool/memory frames while the archivist works.
-  const [liveTools, setLiveTools] = useState<MerlinToolCallView[]>([])
+  const [liveTools, setLiveTools] = useState<LorToolCallView[]>([])
   const [liveMemories, setLiveMemories] = useState<LiveMemory[]>([])
   const archiving = data?.status === "archiving"
   const categoryChannelId = data?.categoryChannelId
@@ -151,7 +151,7 @@ function ProjectOverview() {
   const archivedDate = formatDate(data.archivedAt)
   const memories = data.status === "archived" ? data.memories : liveMemories
   const topLevelTools = liveTools.filter((t) => !t.parentToolCallId)
-  const childrenByParent = new Map<string, MerlinToolCallView[]>()
+  const childrenByParent = new Map<string, LorToolCallView[]>()
   for (const t of liveTools) {
     if (!t.parentToolCallId) continue
     const list = childrenByParent.get(t.parentToolCallId) ?? []
@@ -238,11 +238,11 @@ function ProjectOverview() {
                     className="size-4 animate-spin"
                     strokeWidth={2}
                   />
-                  Merlin is reviewing this project — reading the channels,
-                  checking what shipped, and saving what matters.
+                  Lor is reviewing this project — reading the channels, checking
+                  what shipped, and saving what matters.
                 </div>
                 {topLevelTools.length > 0 && (
-                  <MerlinToolTrail
+                  <LorToolTrail
                     toolCalls={topLevelTools}
                     childrenByParent={childrenByParent}
                     streaming

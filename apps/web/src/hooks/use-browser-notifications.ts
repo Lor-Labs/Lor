@@ -7,7 +7,7 @@ import {
   type MentionNotification,
   type ProposalNotification,
   type ReactionNotification,
-  shouldNotifyForMerlinThread,
+  shouldNotifyForLorThread,
   type UnreadNotification,
 } from "@repo/realtime-types"
 import { useQuery } from "@tanstack/react-query"
@@ -60,11 +60,11 @@ export function useBrowserNotifications() {
       if (!(settings && mutes)) return
       if (findActiveMute(mutes, payload.channelId)) return
       if (settings.desktopNotifications === "nothing") return
-      // An explicit @-mention outrides the Merlin-thread ambience preference;
+      // An explicit @-mention outrides the Lor-thread ambience preference;
       // only broadcast mentions stay subject to it.
       if (
         payload.type === "everyone_mention" &&
-        !shouldNotifyForMerlinThread(settings.lorThreadNotifications, payload)
+        !shouldNotifyForLorThread(settings.lorThreadNotifications, payload)
       ) {
         return
       }
@@ -89,9 +89,7 @@ export function useBrowserNotifications() {
       if (isAlreadyVisible(payload.channelId)) return
       if (!(settings && mutes)) return
       if (findActiveMute(mutes, payload.channelId)) return
-      if (
-        !shouldNotifyForMerlinThread(settings.lorThreadNotifications, payload)
-      ) {
+      if (!shouldNotifyForLorThread(settings.lorThreadNotifications, payload)) {
         return
       }
       const enabled =

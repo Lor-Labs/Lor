@@ -489,7 +489,7 @@ function ArgumentRows({
           </Select>
           <Input
             value={row.description}
-            placeholder="What goes here? (hint for Merlin)"
+            placeholder="What goes here? (hint for Lor)"
             className="h-8 flex-1 text-xs"
             onChange={(e) => update(i, { description: e.target.value })}
           />
@@ -802,7 +802,7 @@ function ToolEditor({
 
       <div className="space-y-1.5">
         <Label className="text-xs">
-          Description — when should Merlin use this?
+          Description — when should Lor use this?
         </Label>
         <Textarea
           value={draft.description}
@@ -852,9 +852,7 @@ function ToolEditor({
 
       <div className="space-y-1.5">
         <div className="flex items-center justify-between">
-          <Label className="text-xs">
-            Arguments — the inputs Merlin fills in
-          </Label>
+          <Label className="text-xs">Arguments — the inputs Lor fills in</Label>
           {draft.argsMode === "simple" ? (
             <button
               type="button"
@@ -949,8 +947,8 @@ function ToolEditor({
             />
             <p className="text-[11px] text-muted-foreground">
               This replaces the automatic body — write the exact JSON your API
-              expects, with <code>{"{{args.…}}"}</code> where Merlin's values
-              go. Arguments not referenced here won't be sent.
+              expects, with <code>{"{{args.…}}"}</code> where Lor's values go.
+              Arguments not referenced here won't be sent.
             </p>
           </div>
         ) : (
@@ -977,7 +975,7 @@ function ToolEditor({
             <BodyPreview template={defaultBodyTemplate(argNames)} />
             <p className="text-[11px] text-muted-foreground">
               Built automatically from the arguments above — sent as the
-              request's JSON when Merlin calls the tool.
+              request's JSON when Lor calls the tool.
             </p>
           </div>
         ))}
@@ -1223,7 +1221,7 @@ export function CustomToolsSection({
         <div className="min-w-0">
           <div className="text-sm font-medium">Tools</div>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            API tools and MCP servers Merlin can call. Grant them per channel
+            API tools and MCP servers Lor can call. Grant them per channel
             through agent profiles.
           </p>
         </div>
@@ -1316,8 +1314,8 @@ export function CustomToolsSection({
             </EmptyMedia>
             <EmptyTitle className="text-sm">No tools yet</EmptyTitle>
             <EmptyDescription className="text-xs">
-              Give Merlin your internal APIs — paste a cURL command — or connect
-              an MCP server.
+              Give Lor your internal APIs — paste a cURL command — or connect an
+              MCP server.
             </EmptyDescription>
           </EmptyHeader>
         </Empty>
@@ -1422,8 +1420,8 @@ export function CustomToolsSection({
               </span>
               ?{" "}
               {deleteTarget && deleteTarget.usedByProfiles > 0
-                ? `${deleteTarget.usedByProfiles} agent ${deleteTarget.usedByProfiles === 1 ? "profile grants" : "profiles grant"} it — Merlin loses it in those channels immediately. `
-                : "Merlin can no longer call it. "}
+                ? `${deleteTarget.usedByProfiles} agent ${deleteTarget.usedByProfiles === 1 ? "profile grants" : "profiles grant"} it — Lor loses it in those channels immediately. `
+                : "Lor can no longer call it. "}
               This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>

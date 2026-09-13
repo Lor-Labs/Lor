@@ -414,14 +414,14 @@ export function MessageScrollTarget({
 export function MessageScrollerJumpToLatest({
   newestMessageId,
   viewportRef,
-  isMerlinResponding = false,
+  isLorResponding = false,
   pendingCount = 0,
   hasUnloadedNewer = false,
   onJumpToPresent,
 }: {
   newestMessageId: string | null
   viewportRef: RefObject<HTMLDivElement | null>
-  isMerlinResponding?: boolean
+  isLorResponding?: boolean
   pendingCount?: number
   hasUnloadedNewer?: boolean
   onJumpToPresent?: () => void
@@ -496,8 +496,8 @@ export function MessageScrollerJumpToLatest({
 
   if (!shouldShow) return null
 
-  const label = isMerlinResponding
-    ? "Merlin is responding"
+  const label = isLorResponding
+    ? "Lor is responding"
     : pendingCount > 0
       ? `${pendingCount} new message${pendingCount === 1 ? "" : "s"}`
       : hasUnloadedNewer || hasNewActivity
@@ -506,7 +506,7 @@ export function MessageScrollerJumpToLatest({
 
   const content = (
     <>
-      {isMerlinResponding && (
+      {isLorResponding && (
         <Spinner className="size-3.5 motion-reduce:animate-none" />
       )}
       <span>{label}</span>

@@ -30,7 +30,7 @@ import type {
   AgentProfile,
   AgentProfilesResponse,
   AvailableCapability,
-  MerlinCapabilityKey,
+  LorCapabilityKey,
 } from "@/lib/api-types"
 import { connectorLogo } from "@/lib/connector-ui"
 
@@ -41,7 +41,7 @@ type AvailableMcpServer = AgentProfilesResponse["availableMcpServers"][number]
 // including future tools) or an explicit per-tool list.
 export function hasBlanketTools(profile: {
   grantsAll: boolean
-  capabilities: MerlinCapabilityKey[]
+  capabilities: LorCapabilityKey[]
 }): boolean {
   return profile.grantsAll || profile.capabilities.includes("custom_tools")
 }
@@ -250,7 +250,7 @@ function ProfileRow({
   // the wrong tools.
   onSave: (values: {
     name: string
-    capabilities: MerlinCapabilityKey[]
+    capabilities: LorCapabilityKey[]
     customToolIds: string[]
     mcpServerIds: string[]
   }) => void
@@ -260,7 +260,7 @@ function ProfileRow({
 }) {
   const isNew = !profile
   const initialSelected = () => {
-    if (!profile) return new Set<MerlinCapabilityKey>()
+    if (!profile) return new Set<LorCapabilityKey>()
     if (profile.grantsAll) return new Set(available.map((c) => c.key))
     return new Set(profile.capabilities)
   }
@@ -270,12 +270,12 @@ function ProfileRow({
   const [editing, setEditing] = useState(isNew)
   const [name, setName] = useState(profile?.name ?? "")
   const [selected, setSelected] =
-    useState<Set<MerlinCapabilityKey>>(initialSelected)
+    useState<Set<LorCapabilityKey>>(initialSelected)
   const [selectedTools, setSelectedTools] = useState<Set<string>>(initialTools)
   const [selectedServers, setSelectedServers] =
     useState<Set<string>>(initialServers)
 
-  const toggle = (key: MerlinCapabilityKey) => {
+  const toggle = (key: LorCapabilityKey) => {
     setSelected((prev) => {
       const next = new Set(prev)
       if (next.has(key)) next.delete(key)
@@ -504,7 +504,7 @@ function ProfileRow({
   )
 }
 
-export function MerlinProfilesSection({
+export function AgentProfilesSection({
   workspaceSlug,
 }: {
   workspaceSlug: string
@@ -536,7 +536,7 @@ export function MerlinProfilesSection({
     mutationFn: async (input: {
       id?: string
       name: string
-      capabilities: MerlinCapabilityKey[]
+      capabilities: LorCapabilityKey[]
       customToolIds: string[]
       mcpServerIds: string[]
     }) => {
@@ -609,8 +609,8 @@ export function MerlinProfilesSection({
   return (
     <div className="space-y-3">
       <p className="text-sm text-muted-foreground">
-        Profiles control which tools Merlin can use in a channel. A channel
-        inherits its category's profile, then the workspace default. Merlin's
+        Profiles control which tools Lor can use in a channel. A channel
+        inherits its category's profile, then the workspace default. Lor's
         memory and chat search are always available.
       </p>
       {data.profiles.map((p) => (

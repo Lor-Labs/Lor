@@ -30,7 +30,7 @@ export type AgentProfilesResponse = InferResponseType<
   200
 >
 export type AgentProfile = AgentProfilesResponse["profiles"][number]
-export type MerlinCapabilityKey = AgentProfile["capabilities"][number]
+export type LorCapabilityKey = AgentProfile["capabilities"][number]
 export type AvailableCapability =
   AgentProfilesResponse["availableCapabilities"][number]
 // The set of connector ids (the integration provider enum), shared by the
@@ -61,11 +61,11 @@ export type ListMessagesResponse = InferResponseType<
   200
 >
 // Client-only transient fields (never on server payloads): `streaming` while
-// Merlin streams its reply. (`remembered` is now a real server field, also
-// upserted live via the merlin:memory socket event.)
+// Lor streams its reply. (`remembered` is now a real server field, also
+// upserted live via the lor:memory socket event.)
 export type Message = ListMessagesResponse["data"][number] & {
   streaming?: boolean
-  // Tool calls in flight while Merlin streams, for a live "searching…" status.
+  // Tool calls in flight while Lor streams, for a live "searching…" status.
   toolActivity?: { toolCallId: string; label: string }[]
   // Author of the latest mid-run message steered into this in-flight reply.
   steeringBy?: string
@@ -77,9 +77,9 @@ export type Message = ListMessagesResponse["data"][number] & {
   stopRequested?: boolean
 }
 export type MessageAuthor = Message["author"]
-// Entries in Merlin's chronological reasoning/tool trail.
-export type MerlinToolCallView = NonNullable<Message["lorToolCalls"]>[number]
-export type MerlinReasoningSegmentView = NonNullable<
+// Entries in Lor's chronological reasoning/tool trail.
+export type LorToolCallView = NonNullable<Message["lorToolCalls"]>[number]
+export type LorReasoningSegmentView = NonNullable<
   Message["lorReasoningSegments"]
 >[number]
 

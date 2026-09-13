@@ -165,9 +165,17 @@ Validate per chunk: `pnpm run check-types` + `pnpm run check`.
   projects, `MerlinToolCall` in agent-runs); left unfixed they would have
   broken C9's alias removal. After this chunk apps/api, apps/worker,
   apps/realtime and packages/lor are 100% merlin-free.
-- [ ] **C7 apps/web** — git mv 8 merlin-named files, identifiers, ~60 copy
-  strings, listeners → `lor:*`, `bg-agent` classes, composer raw UUID →
-  `LOR_USER_ID` + `label: "Lor"`, settings tab id `"agent"`, DOM ids, demo.
+- [x] **C7 apps/web** — git mv 8 merlin-named files (7 → `lor-*`, plus
+  `merlin-profiles-section.tsx` → `agent-profiles-section.tsx` with its
+  component `MerlinProfilesSection` → `AgentProfilesSection` per §1
+  exception 2), identifiers, copy strings, listeners → `lor:*`, CSS
+  utilities → `bg-agent`/`text-agent`/`border-agent`, composer raw UUID →
+  `LOR_USER_ID` import + `label: "Lor"`, settings section id
+  `"merlin"`→`"agent"` (no legacy `?tab=` alias — pre-launch; the section
+  render is an else-fallthrough so no id comparison needed updating), DOM id
+  `channel-agent-profile`. The marketing demo keeps its own standalone
+  `LOR_ID` fixture constant (self-contained mock data, not the real
+  identity).
 - [ ] **C8 apps/mobile + apps/www** — mobile: git mv 6 files, identifiers,
   copy, listeners → `lor:*`, theme keys `agent`/`agentMuted`, avatar
   fallback `"M"` → initial derived from author name. www: copy sweep,

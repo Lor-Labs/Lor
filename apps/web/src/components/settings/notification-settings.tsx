@@ -37,7 +37,7 @@ const DM_NOTIFICATION_OPTIONS = [
   { value: "nothing", label: "Nothing" },
 ] as const
 
-const MERLIN_THREAD_NOTIFICATION_OPTIONS = [
+const LOR_THREAD_NOTIFICATION_OPTIONS = [
   { value: "all_activity", label: "All Activity" },
   { value: "subscribed_only", label: "Subscribed Threads Only" },
 ] as const
@@ -158,24 +158,24 @@ export function NotificationSettings() {
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="merlin-thread-notifications">
-            Merlin Thread Notifications
+          <Label htmlFor="lor-thread-notifications">
+            Lor Thread Notifications
           </Label>
           <p className="text-xs text-muted-foreground">
-            Replying in a Merlin thread subscribes you automatically.
+            Replying in a Lor thread subscribes you automatically.
           </p>
           <Select
-            items={MERLIN_THREAD_NOTIFICATION_OPTIONS}
+            items={LOR_THREAD_NOTIFICATION_OPTIONS}
             value={settings?.lorThreadNotifications ?? "all_activity"}
             onValueChange={(v) =>
               v && handleChange("lorThreadNotifications", v)
             }
           >
-            <SelectTrigger id="merlin-thread-notifications" className="w-56">
+            <SelectTrigger id="lor-thread-notifications" className="w-56">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {MERLIN_THREAD_NOTIFICATION_OPTIONS.map((opt) => (
+              {LOR_THREAD_NOTIFICATION_OPTIONS.map((opt) => (
                 <SelectItem key={opt.value} value={opt.value}>
                   {opt.label}
                 </SelectItem>

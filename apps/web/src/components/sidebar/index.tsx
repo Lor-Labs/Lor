@@ -77,7 +77,7 @@ function LeftSidebar() {
  * the SidebarProvider canvas, mirroring the left sidebar's floating look:
  * `bg-sidebar` with rounded corners, a small margin gap, and a soft
  * shadow. This is a deliberate visual choice — the right panel hosts
- * Merlin threads (and members / pinned / threads), so it needs its own
+ * Lor threads (and members / pinned / threads), so it needs its own
  * visual identity rather than blending into the main chat surface.
  */
 // While dragging the right panel, if the center (chat) gets narrower than

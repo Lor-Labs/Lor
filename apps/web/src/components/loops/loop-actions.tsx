@@ -388,8 +388,8 @@ export function LoopFrequencyDialog({
             <span className="font-semibold text-foreground">
               {scheduleText.toLowerCase()}
             </span>{" "}
-            — up to {firesPerDay} times a day. Each run uses Merlin credits.
-            Create it anyway?
+            — up to {firesPerDay} times a day. Each run uses Lor credits. Create
+            it anyway?
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

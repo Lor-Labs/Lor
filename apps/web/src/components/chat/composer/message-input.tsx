@@ -9,6 +9,7 @@ import {
   TextStrikethroughIcon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
+import { LOR_USER_ID } from "@repo/db/constants"
 import { Button } from "@repo/ui/components/button"
 import {
   Popover,
@@ -118,7 +119,7 @@ interface MessageInputProps {
   // Enables connector attachments — omitted in DMs, which have no workspace.
   channelId?: string
   // Thread root id whose context usage the meter reports. Thread scope only:
-  // channel runs always rebuild a fresh snapshot (see merlin-respond.ts), so
+  // channel runs always rebuild a fresh snapshot (see lor-respond.ts), so
   // context never accumulates there and a meter would imply a budget that
   // doesn't exist. Omit to hide the meter.
   contextScopeKey?: string
@@ -663,8 +664,8 @@ export function MessageInput({
             {
               type: "mention",
               attrs: {
-                id: "00000000-0000-4000-8000-000000000001",
-                label: "Merlin",
+                id: LOR_USER_ID,
+                label: "Lor",
               },
             },
             { type: "text", text: ` ${composerDraft.text}` },
@@ -1143,7 +1144,7 @@ export function MessageInput({
           </div>
           <div className="flex shrink-0 items-center gap-1">
             {/* onStop is only supplied while a run is stoppable, so it doubles
-                as "Merlin is working here right now". */}
+                as "Lor is working here right now". */}
             <ContextMeter
               scopeKey={contextScopeKey}
               isRunning={Boolean(onStop)}
@@ -1163,8 +1164,8 @@ export function MessageInput({
               aria-label={
                 isStopMode
                   ? isStopping
-                    ? "Stopping Merlin"
-                    : "Stop Merlin"
+                    ? "Stopping Lor"
+                    : "Stop Lor"
                   : "Send message"
               }
             >

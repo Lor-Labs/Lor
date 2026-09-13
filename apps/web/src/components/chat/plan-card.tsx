@@ -128,7 +128,7 @@ export function PlanCard({
             )}
             {plan.status === "running" && plan.steps.length === 0 && (
               <p className="shimmer text-muted-foreground text-sm">
-                Merlin is working…
+                Lor is working…
               </p>
             )}
           </div>

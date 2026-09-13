@@ -32,7 +32,7 @@ export function InstructionsApprovalAlert({
   })
   const canApprove = data?.canApprove ?? false
 
-  // Live feedback the moment Merlin files a proposal: refresh the shared
+  // Live feedback the moment Lor files a proposal: refresh the shared
   // query (pops this banner) and toast the admins who can act on it.
   useEffect(() => {
     if (!socket) return
@@ -41,7 +41,7 @@ export function InstructionsApprovalAlert({
         queryKey: ["workspace-instructions"],
       })
       if (canApprove) {
-        toast("Merlin proposed new workspace instructions", {
+        toast("Lor proposed new workspace instructions", {
           description: "Review and approve them in settings.",
           action: { label: "Review", onClick: onReview },
         })
@@ -59,15 +59,15 @@ export function InstructionsApprovalAlert({
     <button
       type="button"
       onClick={onReview}
-      className="flex w-full cursor-pointer items-start gap-2 rounded-md border border-merlin/30 bg-merlin/10 px-2 py-1.5 text-left transition-colors hover:bg-merlin/15"
+      className="flex w-full cursor-pointer items-start gap-2 rounded-md border border-agent/30 bg-agent/10 px-2 py-1.5 text-left transition-colors hover:bg-agent/15"
     >
       <HugeiconsIcon
         icon={Scroll01Icon}
-        className="mt-0.5 size-3.5 shrink-0 text-merlin"
+        className="mt-0.5 size-3.5 shrink-0 text-agent"
         strokeWidth={2}
       />
       <span className="min-w-0 text-xs leading-snug">
-        <span className="font-medium">Merlin proposed new instructions</span>
+        <span className="font-medium">Lor proposed new instructions</span>
         <span className="block text-muted-foreground">
           Review and approve in settings
         </span>

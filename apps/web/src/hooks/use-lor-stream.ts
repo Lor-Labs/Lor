@@ -1,9 +1,9 @@
 import type { RealtimeMessageMention } from "@repo/realtime-types"
 import {
   appendReasoningSegment,
-  type MerlinReasoningSegment,
+  type LorReasoningSegment,
   upsertToolCall,
-} from "@repo/utils/merlin"
+} from "@repo/utils/lor"
 import type { InfiniteData, QueryClient } from "@tanstack/react-query"
 import { useEffect, useSyncExternalStore } from "react"
 import { apiClient } from "@/lib/api-client"
@@ -36,7 +36,7 @@ type StreamMessage = {
   remembered?: { path: string; action: "created" | "updated" }[]
   lorToolCalls?: ToolCall[]
   lorReasoning?: string | null
-  lorReasoningSegments?: MerlinReasoningSegment[]
+  lorReasoningSegments?: LorReasoningSegment[]
   mentions?: RealtimeMessageMention[]
   steeringBy?: string
   routedOutcome?: "steered" | "queued"
@@ -178,7 +178,7 @@ function scheduleReplayRetry(messageId: string) {
 }
 
 // A reconnect may have missed terminal frames; mounted views must replay again.
-export function resetMerlinReplayState() {
+export function resetLorReplayState() {
   for (const timer of replayRetryTimers.values()) clearTimeout(timer)
   replayRetryTimers.clear()
   replayGates.clear()
@@ -369,7 +369,7 @@ function applyReplayEvents(
   // stale cached text.
   let content: string | undefined
   let reasoning: string | undefined
-  let segments: MerlinReasoningSegment[] | undefined
+  let segments: LorReasoningSegment[] | undefined
   let toolCalls: ToolCall[] | undefined
   let remembered: {
     path: string
@@ -515,17 +515,14 @@ async function replayRun(
   }
 }
 
-interface UseMerlinStreamOptions {
+interface UseLorStreamOptions {
   socket: AppSocket | null
   queryClient: QueryClient
 }
 
-// Appends Merlin's streamed reply deltas into its placeholder message and
+// Appends Lor's streamed reply deltas into its placeholder message and
 // toggles a transient `streaming` flag (for the thinking/typing indicator).
-export function useMerlinStream({
-  socket,
-  queryClient,
-}: UseMerlinStreamOptions) {
+export function useLorStream({ socket, queryClient }: UseLorStreamOptions) {
   useEffect(() => {
     if (!socket) return
 
@@ -548,9 +545,9 @@ export function useMerlinStream({
       applyReasoningFrame(queryClient, payload)
     }
 
-    socket.on("merlin:reasoning", handleReasoning)
+    socket.on("lor:reasoning", handleReasoning)
     return () => {
-      socket.off("merlin:reasoning", handleReasoning)
+      socket.off("lor:reasoning", handleReasoning)
     }
   }, [socket, queryClient])
 
@@ -562,9 +559,9 @@ export function useMerlinStream({
       applyMemoryFrame(queryClient, payload)
     }
 
-    socket.on("merlin:memory", handleMemory)
+    socket.on("lor:memory", handleMemory)
     return () => {
-      socket.off("merlin:memory", handleMemory)
+      socket.off("lor:memory", handleMemory)
     }
   }, [socket, queryClient])
 
@@ -576,9 +573,9 @@ export function useMerlinStream({
       applyToolFrame(queryClient, payload)
     }
 
-    socket.on("merlin:tool", handleTool)
+    socket.on("lor:tool", handleTool)
     return () => {
-      socket.off("merlin:tool", handleTool)
+      socket.off("lor:tool", handleTool)
     }
   }, [socket, queryClient])
 
@@ -619,18 +616,18 @@ export function useMerlinStream({
       )
     }
 
-    socket.on("merlin:steer", handleSteer)
+    socket.on("lor:steer", handleSteer)
     socket.on("message:routed", handleRouted)
     socket.on("run:queue:updated", handleQueueUpdated)
     return () => {
-      socket.off("merlin:steer", handleSteer)
+      socket.off("lor:steer", handleSteer)
       socket.off("message:routed", handleRouted)
       socket.off("run:queue:updated", handleQueueUpdated)
     }
   }, [socket, queryClient])
 }
 
-interface UseMerlinRunReplayOptions {
+interface UseLorRunReplayOptions {
   queryClient: QueryClient
   channelId: string
   // The currently loaded messages of one cache (channel feed or open thread).
@@ -641,16 +638,16 @@ interface UseMerlinRunReplayOptions {
   }>
 }
 
-// Late-join trace recovery: any pending Merlin placeholder in view gets its
+// Late-join trace recovery: any pending Lor placeholder in view gets its
 // durable run event log replayed into the cache, so someone opening a thread
 // mid-run sees the tools/reasoning/text streamed so far, not just a spinner.
 // Safe for runs this client watched from the start — replay returns what's
 // already rendered and live frames buffer/drain by seq in the meantime.
-export function useMerlinRunReplay({
+export function useLorRunReplay({
   queryClient,
   channelId,
   messages,
-}: UseMerlinRunReplayOptions) {
+}: UseLorRunReplayOptions) {
   const retryRevision = useSyncExternalStore(
     subscribeReplayRetry,
     getReplayRetryRevision

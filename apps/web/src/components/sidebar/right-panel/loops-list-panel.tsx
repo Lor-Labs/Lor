@@ -38,7 +38,7 @@ export function LoopsListPanel({ view }: { view: LoopsListSidebarView }) {
               No loops in this channel yet
             </p>
             <p className="text-muted-foreground/70 text-xs">
-              Ask Merlin to do something on a schedule to set one up.
+              Ask Lor to do something on a schedule to set one up.
             </p>
           </div>
         )}

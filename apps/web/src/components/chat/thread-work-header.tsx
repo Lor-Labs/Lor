@@ -8,11 +8,11 @@ import {
 import { useMemo } from "react"
 import { ApprovalGateCard } from "@/components/chat/approval-card"
 import { ArtifactFileCard } from "@/components/chat/artifact-file-card"
-import { MerlinToolTrail } from "@/components/chat/merlin-tool-trail"
+import { LorToolTrail } from "@/components/chat/lor-tool-trail"
 import { PlanStepList } from "@/components/chat/plan-step-list"
 import { usePlanForThread } from "@/hooks/use-channel-plans"
 import { usePlan, usePlanArtifacts } from "@/hooks/use-plan"
-import type { MerlinToolCallView, Message } from "@/lib/api-types"
+import type { LorToolCallView, Message } from "@/lib/api-types"
 import { formatFileSize, getFileKind } from "@/lib/attachments"
 
 export type PlanSourceFile = {
@@ -54,7 +54,7 @@ function SourceRow({ source }: { source: PlanSourceFile }) {
 // Docked strip under the thread panel header — the thread's work surface.
 // Plan/Files popover chips (the anti-lost-in-scroll anchors) when a plan
 // anchors to the thread, an Activity chip mirroring the newest run's tool
-// trail whenever Merlin is (or was) working here, and the pending approval
+// trail whenever Lor is (or was) working here, and the pending approval
 // card, always visible. Renders a bare border when idle so the panel header's
 // border-b-0 always has an edge under it.
 export function ThreadWorkHeader({
@@ -73,8 +73,8 @@ export function ThreadWorkHeader({
   const { data: artifacts } = usePlanArtifacts(plan?.id ?? null)
 
   const { activityCalls, childrenByParent } = useMemo(() => {
-    const topLevel: MerlinToolCallView[] = []
-    const children = new Map<string, MerlinToolCallView[]>()
+    const topLevel: LorToolCallView[] = []
+    const children = new Map<string, LorToolCallView[]>()
     for (const call of activityMessage?.lorToolCalls ?? []) {
       if (call.parentToolCallId) {
         const siblings = children.get(call.parentToolCallId) ?? []
@@ -193,7 +193,7 @@ export function ThreadWorkHeader({
                 viewportClassName="p-3"
               >
                 <div className="max-h-96 overflow-y-auto">
-                  <MerlinToolTrail
+                  <LorToolTrail
                     toolCalls={activityCalls}
                     childrenByParent={childrenByParent}
                     streaming={streaming}

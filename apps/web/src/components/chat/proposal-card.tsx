@@ -52,7 +52,7 @@ import type {
 import { toSearchPreviewText } from "@/lib/search-preview"
 
 // The change-proposal surface (pillar 3, reference/change-proposals.md):
-// Merlin's proposed workspace configuration as a timeline — one indicator per
+// Lor's proposed workspace configuration as a timeline — one indicator per
 // operation on a connecting rail, applied in this order. Deliberately NOT a
 // card: no border or fill of its own, it renders straight into the channel
 // like the reui timeline references; only the per-step panels are framed.
@@ -359,8 +359,8 @@ function OperationItem({
             </div>
           ))}
           <p className="text-[11px] text-muted-foreground">
-            Optional — added encrypted, never shown to Merlin. Skipping leaves
-            the tool waiting for its secrets.
+            Optional — added encrypted, never shown to Lor. Skipping leaves the
+            tool waiting for its secrets.
           </p>
         </div>
       )}
@@ -475,7 +475,7 @@ function OperationItem({
   )
 }
 
-// One research link Merlin filed with the proposal, as a branded badge: the
+// One research link Lor filed with the proposal, as a branded badge: the
 // site's favicon (through our /v1/favicon proxy, never the third-party url
 // directly) on a rounded plate + the hostname. A failed favicon falls back to
 // the generic link glyph rather than an empty square.
@@ -708,7 +708,7 @@ function ProposalCardBody({
                   <Textarea
                     value={note}
                     onChange={(e) => setNote(e.target.value)}
-                    placeholder="Why not? Merlin revises from this note (optional)"
+                    placeholder="Why not? Lor revises from this note (optional)"
                     className="min-h-16 text-sm"
                     maxLength={2000}
                   />

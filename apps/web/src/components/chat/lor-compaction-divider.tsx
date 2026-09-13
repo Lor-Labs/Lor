@@ -1,10 +1,10 @@
 import { ArrowShrink02Icon, Loading03Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 
-// Marks where Merlin compacted its context mid-run: everything above the line
+// Marks where Lor compacted its context mid-run: everything above the line
 // was folded into working notes; everything below ran with the reduced
 // context. Spinner while the summarizer is still running.
-export function MerlinCompactionDivider({ active }: { active?: boolean }) {
+export function LorCompactionDivider({ active }: { active?: boolean }) {
   return (
     <div className="py-3" data-compaction-divider>
       <div className="relative flex items-center">

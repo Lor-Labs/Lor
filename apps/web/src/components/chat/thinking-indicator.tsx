@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 
-// Claude-Code-style nonsense gerunds Merlin cycles through while it works — a
+// Claude-Code-style nonsense gerunds Lor cycles through while it works — a
 // mix of made-up words and wizardly flavor. Purely cosmetic.
 const WORDS = [
   "Mandibulating",

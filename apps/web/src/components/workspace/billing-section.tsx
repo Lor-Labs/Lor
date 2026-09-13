@@ -130,8 +130,8 @@ export function BillingSection({ workspaceSlug }: { workspaceSlug: string }) {
   if (!billing.available) {
     return (
       <p className="text-sm text-muted-foreground">
-        Billing is temporarily unavailable. Merlin keeps working — try again in
-        a moment.
+        Billing is temporarily unavailable. Lor keeps working — try again in a
+        moment.
       </p>
     )
   }
@@ -142,8 +142,8 @@ export function BillingSection({ workspaceSlug }: { workspaceSlug: string }) {
         <div className="rounded-lg border border-border p-5">
           <div className="text-base font-semibold">Lor Pro</div>
           <p className="mt-1 text-sm text-muted-foreground">
-            ${billing.seatPriceUsd} per member per month. Includes Merlin in
-            your channels, with usage pooled across the whole team.
+            ${billing.seatPriceUsd} per member per month. Includes Lor in your
+            channels, with usage pooled across the whole team.
           </p>
           <div className="mt-3 text-sm text-muted-foreground">
             {billing.seats} {billing.seats === 1 ? "member" : "members"} · $
@@ -161,7 +161,7 @@ export function BillingSection({ workspaceSlug }: { workspaceSlug: string }) {
         {billing.balance && billing.balance.total > 0 && (
           <p className="text-sm text-muted-foreground">
             {billing.balance.total.toLocaleString()} free credits remaining —
-            subscribe to keep Merlin available once they run out.
+            subscribe to keep Lor available once they run out.
           </p>
         )}
       </div>

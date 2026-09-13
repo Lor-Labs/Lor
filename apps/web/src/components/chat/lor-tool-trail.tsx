@@ -28,7 +28,7 @@ import {
 } from "@repo/ui/components/nexus-ui/chain-of-thought"
 import { type ComponentType, useState } from "react"
 import { MessageMarkdown } from "@/components/chat/message-markdown"
-import type { MerlinToolCallView } from "@/lib/api-types"
+import type { LorToolCallView } from "@/lib/api-types"
 import {
   connectorForTool,
   connectorForUrl,
@@ -36,7 +36,7 @@ import {
   GlobeMark,
 } from "@/lib/connector-ui"
 
-// Codex/Cursor-style tool trail: a collapsible summary of the tools Merlin used
+// Codex/Cursor-style tool trail: a collapsible summary of the tools Lor used
 // to answer, each row drillable into its result. Built on Nexus's Chain of
 // Thought, which supplies the timeline rail, per-step status, shimmer while a
 // step runs, and auto-open/close as steps change state. Expanded live while
@@ -131,7 +131,7 @@ function ItemGlyph({ item }: { item: { url?: string; favicon?: string } }) {
   )
 }
 
-function hasDetail(t: MerlinToolCallView): boolean {
+function hasDetail(t: LorToolCallView): boolean {
   return Boolean(t.detail?.summary || (t.detail?.items?.length ?? 0) > 0)
 }
 
@@ -178,11 +178,7 @@ function diffLineClass(line: string): string {
   return "text-muted-foreground/80"
 }
 
-function DiffCounts({
-  diff,
-}: {
-  diff: NonNullable<MerlinToolCallView["diff"]>
-}) {
+function DiffCounts({ diff }: { diff: NonNullable<LorToolCallView["diff"]> }) {
   return (
     <span className="shrink-0 tabular-nums">
       <span className="text-success">+{diff.additions}</span>
@@ -194,7 +190,7 @@ function DiffCounts({
 }
 
 // Keep the full label in the disclosure; only the single-line preview clips.
-function SubStepRow({ toolCall }: { toolCall: MerlinToolCallView }) {
+function SubStepRow({ toolCall }: { toolCall: LorToolCallView }) {
   const Icon = toolIcon(toolCall.toolName)
   const diff = toolCall.diff
 
@@ -253,7 +249,7 @@ function SubStepRow({ toolCall }: { toolCall: MerlinToolCallView }) {
 // "running"; on a settled message it's a legacy row from before status was
 // recorded, so it must not sit forever as pending.
 function stepStatus(
-  t: MerlinToolCallView,
+  t: LorToolCallView,
   streaming?: boolean
 ): ChainOfThoughtStepStatus {
   if (t.status === "error") return "error"
@@ -261,14 +257,14 @@ function stepStatus(
   return streaming ? "active" : "completed"
 }
 
-export function MerlinToolTrail({
+export function LorToolTrail({
   toolCalls,
   childrenByParent,
   streaming,
   embedded = false,
 }: {
-  toolCalls: MerlinToolCallView[]
-  childrenByParent?: Map<string, MerlinToolCallView[]>
+  toolCalls: LorToolCallView[]
+  childrenByParent?: Map<string, LorToolCallView[]>
   streaming?: boolean
   embedded?: boolean
 }) {

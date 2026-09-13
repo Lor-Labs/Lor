@@ -5,7 +5,7 @@ import {
   SquareIcon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
-import { MERLIN_USER_ID } from "@repo/db/constants"
+import { LOR_USER_ID } from "@repo/db/constants"
 import {
   AlertDialog,
   AlertDialogClose,
@@ -30,12 +30,12 @@ import { MessageApprovalCard } from "@/components/chat/approval-card"
 import type { MentionCandidate } from "@/components/chat/composer/mention-types"
 import { EmbedCard } from "@/components/chat/embed-card"
 import { LoopCard } from "@/components/chat/loop-card"
+import { LorMessageBody } from "@/components/chat/lor-message-body"
+import { LorReasoning } from "@/components/chat/lor-reasoning"
 import {
   isAttioRecording,
   MeetingRecordingCard,
 } from "@/components/chat/meeting-recording-card"
-import { MerlinMessageBody } from "@/components/chat/merlin-message-body"
-import { MerlinReasoning } from "@/components/chat/merlin-reasoning"
 import { MessageActionBar } from "@/components/chat/message-action-bar"
 import { AttachmentGrid } from "@/components/chat/message-attachment"
 import { MessageEditInput } from "@/components/chat/message-edit-input"
@@ -44,7 +44,7 @@ import { PlanCard } from "@/components/chat/plan-card"
 import { ProposalCard } from "@/components/chat/proposal-card"
 import { ThinkingIndicator } from "@/components/chat/thinking-indicator"
 import { UserProfilePopover } from "@/components/ui/user-profile-card"
-import { useStopMerlinRun } from "@/hooks/use-stop-merlin-run"
+import { useStopLorRun } from "@/hooks/use-stop-lor-run"
 import type { Message } from "@/lib/api-types"
 import { connectorMessageEmbed } from "@/lib/connector-message-embed"
 import {
@@ -72,7 +72,7 @@ interface MessageItemProps {
   canPin?: boolean
   mentionCandidates?: MentionCandidate[]
   onJumpToMessage?: (messageId: string) => void
-  showMerlinRunControls?: boolean
+  showLorRunControls?: boolean
 }
 
 const PREVIEW_MAX_CHARS = 100
@@ -170,15 +170,15 @@ function ReplyPreview({
   )
 }
 
-// Steer status + explicit Stop for an in-flight Merlin reply. Stop is honored
+// Steer status + explicit Stop for an in-flight Lor reply. Stop is honored
 // by the run at its next safe step boundary; whatever streamed is kept.
-function MerlinRunControls({ message }: { message: Message }) {
-  const stop = useStopMerlinRun()
+function LorRunControls({ message }: { message: Message }) {
+  const stop = useStopLorRun()
 
   return (
     <div className="mt-1.5 flex items-center gap-3">
       {message.steeringBy && (
-        <span className="text-xs italic text-merlin">
+        <span className="text-xs italic text-agent">
           Applying {message.steeringBy}'s new direction…
         </span>
       )}
@@ -274,7 +274,7 @@ export const MessageItem = memo(function MessageItem({
   canPin = false,
   mentionCandidates,
   onJumpToMessage,
-  showMerlinRunControls = true,
+  showLorRunControls = true,
 }: MessageItemProps) {
   const author = message.author
   // Webhook/connector messages render an overridden identity and aren't a
@@ -300,7 +300,7 @@ export const MessageItem = memo(function MessageItem({
 
   const isOwnMessage = !!currentUserId && currentUserId === message.authorId
   const canWrapUnderAvatar =
-    wrapContentAroundAvatar && message.authorId === MERLIN_USER_ID
+    wrapContentAroundAvatar && message.authorId === LOR_USER_ID
   const isReply = message.type === "reply"
   const hasToolCalls = (message.lorToolCalls?.length ?? 0) > 0
   const hasReasoningSegments = (message.lorReasoningSegments?.length ?? 0) > 0
@@ -380,7 +380,7 @@ export const MessageItem = memo(function MessageItem({
   }
 
   // Plan, loop and proposal cards (and per-fire loop chips) render as their
-  // own surface, but inside the normal message row — so they keep Merlin's
+  // own surface, but inside the normal message row — so they keep Lor's
   // avatar, name and timestamp, and line up with every other message.
   if (
     message.type === "plan_card" ||
@@ -458,7 +458,7 @@ export const MessageItem = memo(function MessageItem({
             ) : (
               <LoopCard message={message} />
             )}
-            {/* Proposal resolutions and Merlin's follow-up land in the card's
+            {/* Proposal resolutions and Lor's follow-up land in the card's
                 thread; the standard reply footer is the way in (the card
                 itself is deliberately not clickable, unlike plan cards). */}
             {message.type === "proposal_card" &&
@@ -621,7 +621,7 @@ export const MessageItem = memo(function MessageItem({
             </div>
           )}
           {message.lorReasoning && !hasReasoningSegments && !hasToolCalls ? (
-            <MerlinReasoning
+            <LorReasoning
               text={message.lorReasoning}
               active={!!message.streaming && !message.content}
             />
@@ -638,7 +638,7 @@ export const MessageItem = memo(function MessageItem({
             !message.lorReasoning &&
             !hasReasoningSegments &&
             !hasToolCalls ? (
-            // In-flight Merlin reply: `streaming` covers the live client, while
+            // In-flight Lor reply: `streaming` covers the live client, while
             // `status === "pending"` survives a reload / late thread join. Once
             // reasoning starts, that block takes over the "thinking" affordance.
             <ThinkingIndicator />
@@ -647,10 +647,10 @@ export const MessageItem = memo(function MessageItem({
             !hasToolCalls &&
             !hasReasoningSegments ? (
             <span className="text-sm text-muted-foreground italic">
-              Merlin couldn't respond to that.
+              Lor couldn't respond to that.
             </span>
           ) : hasToolCalls || hasReasoningSegments ? (
-            <MerlinMessageBody
+            <LorMessageBody
               content={message.content}
               toolCalls={message.lorToolCalls ?? []}
               reasoningSegments={message.lorReasoningSegments ?? []}
@@ -679,10 +679,10 @@ export const MessageItem = memo(function MessageItem({
               onCitationJump={onJumpToMessage}
             />
           )}
-          {showMerlinRunControls &&
+          {showLorRunControls &&
             !isEditing &&
             (message.streaming || message.status === "pending") && (
-              <MerlinRunControls message={message} />
+              <LorRunControls message={message} />
             )}
           {/* Policy-gated approval parked on this run's reply (LOR-81).
               lorTriggerMessageId marks run replies live and on reload. */}
@@ -693,8 +693,8 @@ export const MessageItem = memo(function MessageItem({
             />
           )}
           {message.routedOutcome === "steered" && (
-            <span className="mt-1 inline-flex w-fit items-center gap-1 rounded-md bg-merlin/10 px-1.5 py-0.5 text-[11px] text-merlin">
-              Steering Merlin's current answer
+            <span className="mt-1 inline-flex w-fit items-center gap-1 rounded-md bg-agent/10 px-1.5 py-0.5 text-[11px] text-agent">
+              Steering Lor's current answer
             </span>
           )}
           {message.remembered && message.remembered.length > 0 && (

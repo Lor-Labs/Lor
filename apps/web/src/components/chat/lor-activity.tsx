@@ -12,7 +12,7 @@ import {
 } from "@repo/ui/components/collapsible"
 import { type ReactNode, useRef, useState } from "react"
 
-export function MerlinActivity({
+export function LorActivity({
   active,
   failed,
   toolCount,
@@ -103,7 +103,7 @@ export function MerlinActivity({
   )
 }
 
-export function MerlinActivityGroup({
+export function LorActivityGroup({
   active,
   toolCount,
   errorCount,

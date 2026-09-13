@@ -7,7 +7,7 @@ import { apiClient } from "@/lib/api-client"
 import type { Message } from "@/lib/api-types"
 
 // Codex-style queue card tucked into the top of the thread composer while
-// Merlin is working: each queued message waits for the current answer unless
+// Lor is working: each queued message waits for the current answer unless
 // steered — which stops the active run immediately and reprompts with the
 // queue. Inset + rounded-t only so it reads as a card sliding out from
 // behind the composer.

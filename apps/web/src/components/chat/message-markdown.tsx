@@ -21,7 +21,7 @@ const EVERYONE_MENTION_REGEX = /(^|\s)@everyone\b/gi
 const CHANNEL_MENTION_REGEX = /(^|\s)@channel\b/gi
 const HERE_MENTION_REGEX = /(^|\s)@here\b/gi
 const BROADCAST_MENTION_IDS = new Set(["everyone", "channel", "here"])
-// Merlin cites grounded sources, all verified server-side: [[/path]] (brain
+// Lor cites grounded sources, all verified server-side: [[/path]] (brain
 // page), [[msg:<id>]] (message), or [[src:<id>|<title>|<url>]] (connected-tool
 // source, enriched with its verified title + url at grounding time).
 const CITATION_REGEX = /\[\[([^\]]+)\]\]/g

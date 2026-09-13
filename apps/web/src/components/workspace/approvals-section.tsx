@@ -190,7 +190,7 @@ export function ApprovalsSection({
     <div className="space-y-6">
       <div className="space-y-1 text-sm text-muted-foreground">
         <p>
-          By default, Merlin acts on its own. Turn something on here and it will
+          By default, Lor acts on its own. Turn something on here and it will
           ask first — the action waits until someone approves it.
         </p>
         <p className="text-xs">

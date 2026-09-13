@@ -298,7 +298,7 @@ export function InstructionsSection({
     },
     onSuccess: () => {
       toast.success(
-        "Instructions updated — Merlin follows them from its next answer"
+        "Instructions updated — Lor follows them from its next answer"
       )
       void invalidate()
     },
@@ -371,16 +371,16 @@ export function InstructionsSection({
   return (
     <div className="space-y-6">
       <p className="text-sm text-muted-foreground">
-        Your workspace's LOR.md — standing instructions Merlin follows in every
-        answer: tone, priorities, team conventions. Merlin can propose changes,
-        but they only take effect after an admin approves them here.
+        Your workspace's LOR.md — standing instructions Lor follows in every
+        answer: tone, priorities, team conventions. Lor can propose changes, but
+        they only take effect after an admin approves them here.
       </p>
 
       {pending && (
         <div className="space-y-3 rounded-lg border border-border p-4">
           <div className="flex items-center justify-between gap-2">
             <div className="text-sm font-medium">
-              Merlin proposed an update
+              Lor proposed an update
               <span className="ml-2 text-xs font-normal text-muted-foreground">
                 v{pending.version} ·{" "}
                 {new Date(pending.createdAt).toLocaleString()}
@@ -480,7 +480,7 @@ export function InstructionsSection({
                   <span>
                     v{v.version} ·{" "}
                     {v.authorType === "agent"
-                      ? "Merlin"
+                      ? "Lor"
                       : (v.authorName ?? "Unknown")}{" "}
                     · {new Date(v.createdAt).toLocaleString()}
                   </span>

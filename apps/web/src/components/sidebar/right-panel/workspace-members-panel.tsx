@@ -413,7 +413,7 @@ export function WorkspaceMembersPanel({
             ...current,
             members: current.members.map((member) => ({
               ...member,
-              // Bots (Merlin) have no socket presence — keep them always online.
+              // Bots (Lor) have no socket presence — keep them always online.
               status:
                 member.isBot || onlineSet.has(member.userId)
                   ? "online"

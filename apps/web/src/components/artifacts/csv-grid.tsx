@@ -17,7 +17,7 @@ const GRID_STYLE = {
 } as CSSProperties
 
 // Read-only virtualized spreadsheet. Editing is deliberately absent for now —
-// edits go through Merlin or export; the editing layer (editor context,
+// edits go through Lor or export; the editing layer (editor context,
 // undo/redo, version-guarded save) lands here later without touching callers.
 export function CsvGrid({
   columns,

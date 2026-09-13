@@ -1,17 +1,14 @@
 import { memo, useMemo } from "react"
 import { ArtifactCsvPreviewCard } from "@/components/artifacts/csv-preview"
 import { ArtifactFileCard } from "@/components/chat/artifact-file-card"
-import {
-  MerlinActivity,
-  MerlinActivityGroup,
-} from "@/components/chat/merlin-activity"
-import { MerlinCompactionDivider } from "@/components/chat/merlin-compaction-divider"
-import { MerlinReasoning } from "@/components/chat/merlin-reasoning"
-import { MerlinToolTrail } from "@/components/chat/merlin-tool-trail"
+import { LorActivity, LorActivityGroup } from "@/components/chat/lor-activity"
+import { LorCompactionDivider } from "@/components/chat/lor-compaction-divider"
+import { LorReasoning } from "@/components/chat/lor-reasoning"
+import { LorToolTrail } from "@/components/chat/lor-tool-trail"
 import { MessageMarkdown } from "@/components/chat/message-markdown"
 import type {
-  MerlinReasoningSegmentView,
-  MerlinToolCallView,
+  LorReasoningSegmentView,
+  LorToolCallView,
   Message,
 } from "@/lib/api-types"
 import { isCsvMime } from "@/lib/csv"
@@ -21,12 +18,12 @@ type Segment =
   | {
       kind: "reasoning"
       key: string
-      reasoning: MerlinReasoningSegmentView
+      reasoning: LorReasoningSegmentView
     }
-  | { kind: "tools"; key: string; tools: MerlinToolCallView[] }
+  | { kind: "tools"; key: string; tools: LorToolCallView[] }
   // Context compaction marker (synthetic compact_context trail entry) —
   // rendered as a divider across the message, not a tool step.
-  | { kind: "compaction"; key: string; tool: MerlinToolCallView }
+  | { kind: "compaction"; key: string; tool: LorToolCallView }
 
 const COMPACTION_TOOL_NAME = "compact_context"
 
@@ -61,20 +58,20 @@ type TimelineEvent =
       at: number
       order: number
       sequence: number
-      reasoning: MerlinReasoningSegmentView
+      reasoning: LorReasoningSegmentView
     }
   | {
       kind: "tool"
       at: number
       order: number
       sequence: number
-      tool: MerlinToolCallView
+      tool: LorToolCallView
     }
 
 function buildSegments(
   content: string,
-  toolCalls: MerlinToolCallView[],
-  reasoningSegments: MerlinReasoningSegmentView[]
+  toolCalls: LorToolCallView[],
+  reasoningSegments: LorReasoningSegmentView[]
 ): Segment[] {
   const clamp = (n: number) => Math.min(Math.max(n, 0), content.length)
   const events: TimelineEvent[] = [
@@ -130,7 +127,7 @@ function buildSegments(
       continue
     }
 
-    const tools: MerlinToolCallView[] = [event.tool]
+    const tools: LorToolCallView[] = [event.tool]
     index += 1
     let next = events[index]
     while (
@@ -160,7 +157,7 @@ function buildSegments(
   return segments
 }
 
-export const MerlinMessageBody = memo(function MerlinMessageBody({
+export const LorMessageBody = memo(function LorMessageBody({
   content,
   toolCalls,
   reasoningSegments,
@@ -171,8 +168,8 @@ export const MerlinMessageBody = memo(function MerlinMessageBody({
   onCitationJump,
 }: {
   content: string | null
-  toolCalls: MerlinToolCallView[]
-  reasoningSegments: MerlinReasoningSegmentView[]
+  toolCalls: LorToolCallView[]
+  reasoningSegments: LorReasoningSegmentView[]
   streaming?: boolean
   failed?: boolean
   legacyReasoning?: string | null
@@ -182,7 +179,7 @@ export const MerlinMessageBody = memo(function MerlinMessageBody({
   // Only top-level calls drive timeline segmentation; nested sub-steps render
   // inside their parent tool's trail.
   const { segments, childrenByParent, deliverables } = useMemo(() => {
-    const children = new Map<string, MerlinToolCallView[]>()
+    const children = new Map<string, LorToolCallView[]>()
     for (const toolCall of toolCalls) {
       if (!toolCall.parentToolCallId) continue
       const childCalls = children.get(toolCall.parentToolCallId) ?? []
@@ -194,7 +191,7 @@ export const MerlinMessageBody = memo(function MerlinMessageBody({
     // message — deduped by artifact so a re-run keeps the latest version.
     const files = new Map<
       string,
-      NonNullable<MerlinToolCallView["files"]>[number]
+      NonNullable<LorToolCallView["files"]>[number]
     >()
     for (const toolCall of topLevel) {
       for (const file of toolCall.files ?? []) {
@@ -238,7 +235,7 @@ export const MerlinMessageBody = memo(function MerlinMessageBody({
   return (
     <>
       {activityBlocks.length > 0 && (
-        <MerlinActivity
+        <LorActivity
           active={Boolean(streaming)}
           failed={failed}
           toolCount={visibleTools.length}
@@ -266,7 +263,7 @@ export const MerlinMessageBody = memo(function MerlinMessageBody({
               ...(childrenByParent.get(tool.toolCallId) ?? []),
             ])
             return (
-              <MerlinActivityGroup
+              <LorActivityGroup
                 key={block.key}
                 active={
                   Boolean(streaming) &&
@@ -280,7 +277,7 @@ export const MerlinMessageBody = memo(function MerlinMessageBody({
                 {block.segments.map((segment) => {
                   if (segment.kind === "reasoning") {
                     return (
-                      <MerlinReasoning
+                      <LorReasoning
                         key={segment.key}
                         text={segment.reasoning.text}
                         active={
@@ -291,14 +288,14 @@ export const MerlinMessageBody = memo(function MerlinMessageBody({
                   }
                   if (segment.kind === "compaction") {
                     return (
-                      <MerlinCompactionDivider
+                      <LorCompactionDivider
                         key={segment.key}
                         active={!!streaming && !segment.tool.status}
                       />
                     )
                   }
                   return (
-                    <MerlinToolTrail
+                    <LorToolTrail
                       key={segment.key}
                       toolCalls={segment.tools}
                       childrenByParent={childrenByParent}
@@ -307,10 +304,10 @@ export const MerlinMessageBody = memo(function MerlinMessageBody({
                     />
                   )
                 })}
-              </MerlinActivityGroup>
+              </LorActivityGroup>
             )
           })}
-        </MerlinActivity>
+        </LorActivity>
       )}
       {answer?.kind === "text" && (
         <MessageMarkdown
@@ -321,7 +318,7 @@ export const MerlinMessageBody = memo(function MerlinMessageBody({
       )}
       {failed && !answer && (
         <p className="text-sm text-muted-foreground italic">
-          Merlin couldn't finish this response.
+          Lor couldn't finish this response.
         </p>
       )}
       {deliverables.length > 0 && (

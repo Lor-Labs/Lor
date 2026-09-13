@@ -54,7 +54,7 @@ function Ring({ fraction }: { fraction: number }) {
 }
 
 // Ring in the composer showing how full the model's context window is for this
-// conversation, with the breakdown on hover. Hidden until Merlin has actually
+// conversation, with the breakdown on hover. Hidden until Lor has actually
 // run here — there is no context to report before that.
 export function ContextMeter({
   scopeKey,

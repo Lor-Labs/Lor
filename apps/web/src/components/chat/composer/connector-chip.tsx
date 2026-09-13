@@ -21,7 +21,7 @@ export interface ConnectorChipAttrs {
   label: string
 }
 
-// Chips serialize to an ordinary Markdown link — what Merlin and every other
+// Chips serialize to an ordinary Markdown link — what Lor and every other
 // surface already understand. Brackets in the label would break the link, and
 // spaces/parens in the url would break its target.
 function chipMarkdown(attrs: Partial<ConnectorChipAttrs>): string {

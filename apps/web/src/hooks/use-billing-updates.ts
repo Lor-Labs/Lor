@@ -21,7 +21,7 @@ export function useBillingUpdates(
       if (!isAdmin || !workspaceId || payload.workspaceId !== workspaceId)
         return
       if (payload.reason === "out_of_credits") {
-        toast.error("Merlin is out of credits", {
+        toast.error("Lor is out of credits", {
           description: "Top up in Settings → Billing to keep it answering.",
         })
       } else if (payload.reason === "auto_topup_failed") {
