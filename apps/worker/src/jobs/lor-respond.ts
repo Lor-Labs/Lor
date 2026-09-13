@@ -249,9 +249,6 @@ export function createLorRespondProcessor(
               seq: e.seq,
             }
             emitter.to(room).emit("lor:steer", steerPayload)
-            // Deprecated merlin:* dual emits keep pre-C7/C8 clients streaming
-            // during the Merlin→Lor rename — removed in cleanup (LOR-87 C9).
-            emitter.to(room).emit("merlin:steer", steerPayload)
           },
         })
         if (claim.kind === "terminal") {
@@ -414,7 +411,6 @@ export function createLorRespondProcessor(
               ...runRef(seq),
             }
             emitter.to(room).emit("lor:reasoning", reasoningPayload)
-            emitter.to(room).emit("merlin:reasoning", reasoningPayload)
             pendingReasoning = ""
           }
           const closeReasoningSegment = () => {
@@ -454,7 +450,6 @@ export function createLorRespondProcessor(
               ...runRef(seq),
             }
             emitter.to(room).emit("lor:memory", memoryPayload)
-            emitter.to(room).emit("merlin:memory", memoryPayload)
           }
           // Point owner/admins at the approval screen the moment a proposal is
           // filed: a workspace-room event pops the in-app alert immediately,
@@ -840,7 +835,6 @@ export function createLorRespondProcessor(
                     ...runRef(seq),
                   }
                   emitter.to(room).emit("lor:tool", toolPayload)
-                  emitter.to(room).emit("merlin:tool", toolPayload)
                 },
                 // Metered usage: every event lands in the usage_event ledger;
                 // billable responses and code investigations debit credits.

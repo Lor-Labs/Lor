@@ -100,14 +100,15 @@ changes. Mirror any required renames into TEST_ENV in
 
 Strategy: temporary back-compat aliases at package boundaries keep every
 chunk type-checking green so each is committable alone — deprecated
-re-exports for consts/types, dual `lor:*`/`merlin:*` socket-event keys, dual
-CSS tokens, dual `@repo/utils` export path, dual event emission in the
-worker. All duals/aliases are removed in C9. Object PROPERTY names
+re-exports for consts/types, dual `lor:*`/`merlin:*` socket-event keys (type
+level only — nothing deploys mid-sequence, so no runtime dual emission),
+dual CSS tokens, dual `@repo/utils` export path. All duals/aliases are
+removed in C9. Object PROPERTY names
 (`merlinToolCalls`, `isMerlinThread`, `merlinMessageId`,
 `merlinTriggerMessageId`, `merlinThreadNotifications` TS props, zod keys)
-cannot be aliased — they move together in C6. Local dev keeps working across
-chunks: the queue name is a shared const (value flip rebuilds everywhere at
-once) and the worker dual-emits events until clients migrate.
+cannot be aliased — they move together in C6. Local live-streaming goes dark
+between the C3 commit (worker emits `lor:*` only) and C7/C8 (clients listen
+on `lor:*`) — accepted, nothing is deployed mid-sequence.
 
 Validate per chunk: `pnpm run check-types` + `pnpm run check`.
 
@@ -134,9 +135,9 @@ Validate per chunk: `pnpm run check-types` + `pnpm run check`.
   guard. Lockfile regenerated (`pnpm install`).
 - [x] **C3 apps/worker** — git mv `jobs/merlin-respond.ts` + 4
   `lib/merlin-*.ts` → `lor-*`, identifiers, log strings, `lor:writeback:*`
-  key (both lock sites), `LOR_ERROR_FALLBACK`, `actorName: "Lor"`, dual-emit
-  `lor:*` alongside `merlin:*` via extracted payload consts (old side
-  removed in C9). C6 props (`merlinMessageId` etc.) deliberately untouched.
+  key (both lock sites), `LOR_ERROR_FALLBACK`, `actorName: "Lor"`, events
+  emitted on `lor:*` only (dual emission dropped — nothing deploys
+  mid-sequence). C6 props (`merlinMessageId` etc.) deliberately untouched.
 - [ ] **C4 apps/realtime** — git mv `services/merlin*.ts` (+tests) →
   `lor*`, `lor:session:*`/`lor:thread:muted:*` key prefixes, routing
   identifiers, logs.
@@ -157,7 +158,7 @@ Validate per chunk: `pnpm run check-types` + `pnpm run check`.
   fallback `"M"` → initial derived from author name. www: copy sweep,
   `#merlin`→`#lor` anchor, avatar const → `lor-profile.png`.
 - [ ] **C9 cleanup + docs** — remove all aliases, dual event keys, dual
-  emits, dual CSS tokens, dual utils export path; docs git mvs
+  CSS tokens, dual utils export path; docs git mvs
   (`merlin-architecture.md`→`lor-agent-architecture.md`,
   `merlin-mvp-spec.md`→`lor-mvp-spec.md`) + active-doc prose sweep +
   CLAUDE.md + `.github/workflows/version-guard.yml` regex + lockfile; final
