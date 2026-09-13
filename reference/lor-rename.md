@@ -64,24 +64,31 @@ Schema renames drizzle will prompt for (answer as renames):
 
 **Known trap — `operation_class` enum VALUES change** (`merlin.quick`,
 `merlin.standard`, `merlin.deep`, `merlin.agent` → `lor.*`): drizzle rebuilds
-the enum via text conversion and the cast back fails if `usage_event` rows
-hold old values (same failure as `task_card` in LOR-61). Expected recovery:
+the enum by converting the column to text, dropping the old type, creating the
+new one, then casting back — the cast fails while any `usage_event` row still
+holds a `merlin.*` value, stranding the column as `text`. HIT ON DEV
+2026-09-12 exactly as predicted (104 `merlin.standard` rows). Repair:
 
-```sql
-UPDATE usage_event SET operation_class = replace(operation_class, 'merlin.', 'lor.')
-WHERE operation_class LIKE 'merlin.%';
 ```
-then re-run `pnpm db:push`.
+pnpm --filter @repo/db exec tsx src/scripts/migrate-operation-class-values.ts
+pnpm db:push   # then re-run; answer brain_node "No, don't truncate"
+```
 
-Manual data UPDATEs (after push):
-```sql
--- confirm no collision first: SELECT id FROM "user" WHERE username = 'lor';
-UPDATE "user" SET name = 'Lor', username = 'lor', display_username = 'Lor',
-  email = 'lor@lor.chat' WHERE id = '00000000-0000-4000-8000-000000000001';
--- optional, analytics consistency (tool is plain text, not the enum):
-UPDATE usage_event SET tool = replace(tool, 'merlin.', 'lor.')
-WHERE tool LIKE 'merlin.%';
+Run the script BEFORE `db:push` on prod and the failure never happens. It is
+idempotent, has `--dry-run`, and refuses to act unless the column is in the
+expected mid-rebuild `text` state.
+
+Bot-user rename (independent of push; run on dev AND prod):
 ```
+pnpm --filter @repo/db exec tsx src/scripts/rename-agent-user.ts --dry-run
+pnpm --filter @repo/db exec tsx src/scripts/rename-agent-user.ts
+```
+Guards the `is_bot` flag and the UNIQUE username/email collision. NOTE: the
+bot row already carries `image = cdn.lor.chat/avatars/merlin-profile.png` (set
+by hand, not by the seed) — pass `--avatar=<url>` once the Lor asset exists,
+or it keeps serving the Merlin-named object. There is NO `usage_event.tool`
+column (earlier drafts claimed one; `tool` is the TS field that maps to
+`operation_class`).
 Old `message.content` rows containing "Merlin" (error fallbacks, event lines)
 stay as-is — historical.
 
