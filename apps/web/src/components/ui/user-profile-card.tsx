@@ -1,4 +1,4 @@
-import { Message01Icon } from "@hugeicons/core-free-icons"
+import { Calendar03Icon, Message01Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
 import { Badge } from "@repo/ui/components/badge"
@@ -16,6 +16,7 @@ import {
 import { Skeleton } from "@repo/ui/components/skeleton"
 import { toast } from "@repo/ui/components/toast"
 import { cn } from "@repo/ui/lib/utils"
+import { getAvatarColorStyle } from "@repo/utils/avatar-colors"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { useState } from "react"
@@ -69,15 +70,14 @@ function ProfileCardContent({
 
   if (isPending) {
     return (
-      <div className="space-y-3">
-        <div className="flex items-center gap-3">
-          <Skeleton className="size-14 rounded-full" />
-          <div className="space-y-1.5">
-            <Skeleton className="h-4 w-24 rounded" />
-            <Skeleton className="h-3 w-16 rounded" />
-          </div>
+      <div className="flex flex-col">
+        <Skeleton className="-mx-4 -mt-4 h-14 rounded-none rounded-t-[calc(var(--radius-lg)-1px)]" />
+        <Skeleton className="-mt-7 mb-3 size-16 rounded-full ring-4 ring-popover" />
+        <div className="space-y-1.5">
+          <Skeleton className="h-4 w-24 rounded" />
+          <Skeleton className="h-3 w-16 rounded" />
         </div>
-        <Skeleton className="h-8 w-full rounded" />
+        <Skeleton className="mt-4 h-8 w-full rounded" />
       </div>
     )
   }
@@ -94,48 +94,71 @@ function ProfileCardContent({
   const isCurrentUser = session?.user?.id === userId
   const isMutating = createDM.isPending
   const isOnline = user.presenceStatus === "online"
+  const banner = getAvatarColorStyle(avatarColor, user.name)
+  const joined = new Date(user.createdAt).toLocaleDateString(undefined, {
+    month: "long",
+    year: "numeric",
+  })
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex items-start gap-3">
-        <div className="relative shrink-0">
-          <UserAvatar
-            avatarColor={avatarColor}
-            className="size-14"
-            name={user.name}
-            src={user.image}
-          />
-          <span
-            className={cn(
-              "absolute -bottom-0.5 -right-0.5 size-3.5 rounded-full border-[3px] border-popover",
-              isOnline ? "bg-emerald-500" : "bg-muted-foreground/40"
-            )}
-          />
-        </div>
-        <div className="min-w-0 flex-1 pt-0.5">
-          <div className="flex items-center gap-1.5">
-            <span className="truncate text-[15px] font-semibold leading-tight">
-              {user.name}
-            </span>
-            {isCurrentUser && (
-              <Badge variant="secondary" className="shrink-0 text-[10px]">
-                You
-              </Badge>
-            )}
-          </div>
-        </div>
+    <div className="flex flex-col">
+      <div
+        className="-mx-4 -mt-4 h-14 rounded-t-[calc(var(--radius-lg)-1px)]"
+        style={{ backgroundColor: banner.backgroundColor }}
+      />
+      <div className="relative -mt-7 mb-3 w-fit">
+        <UserAvatar
+          avatarColor={avatarColor}
+          className="size-16 ring-4 ring-popover"
+          name={user.name}
+          src={user.image}
+        />
+        <span
+          className={cn(
+            "absolute bottom-0 right-0 size-4 rounded-full border-[3px] border-popover",
+            isOnline ? "bg-emerald-500" : "bg-muted-foreground/40"
+          )}
+        />
       </div>
 
+      <div className="flex items-center gap-1.5">
+        <span className="truncate text-base font-semibold leading-tight">
+          {user.name}
+        </span>
+        {isCurrentUser && (
+          <Badge variant="secondary" className="shrink-0 text-[10px]">
+            You
+          </Badge>
+        )}
+        {user.isBot && (
+          <Badge variant="secondary" className="shrink-0 text-[10px]">
+            Agent
+          </Badge>
+        )}
+      </div>
+      <p className="mt-0.5 text-xs text-muted-foreground">
+        {isOnline ? "Online" : "Offline"}
+      </p>
+
       {user.status && (
-        <div className="rounded-lg bg-muted/50 px-3 py-2">
+        <div className="mt-3 rounded-lg bg-muted/50 px-3 py-2">
           <p className="line-clamp-2 text-[13px] font-medium text-foreground/90">
             {user.status}
           </p>
         </div>
       )}
 
+      <div className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground">
+        <HugeiconsIcon
+          icon={Calendar03Icon}
+          className="size-3.5"
+          strokeWidth={2}
+        />
+        {user.isBot ? "Workspace agent" : `Joined ${joined}`}
+      </div>
+
       {!isCurrentUser && (
-        <div className="flex flex-col gap-3 border-t border-border/60 pt-3">
+        <div className="mt-4 flex flex-col gap-3 border-t border-border/60 pt-3">
           <Button
             size="sm"
             variant="secondary"

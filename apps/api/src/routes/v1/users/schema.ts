@@ -18,6 +18,7 @@ export const userProfileResponseSchema = z.object({
   status: z.string().nullable(),
   createdAt: z.string().datetime(),
   presenceStatus: z.enum(["online", "offline"]),
+  isBot: z.boolean(),
 })
 
 export const getUserProfileResponseSchema = z.object({

@@ -59,6 +59,7 @@ export const getUserProfile: AppRouteHandler<GetUserProfileRoute> = async (
         status: targetUser.status ?? null,
         createdAt: targetUser.createdAt.toISOString(),
         presenceStatus,
+        isBot: targetUser.isBot,
       },
     },
     HttpStatusCodes.OK
