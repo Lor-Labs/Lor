@@ -15,8 +15,9 @@ and workspace-added custom agents. See §8.
 - `Merlin` → `Lor`, `merlin` → `lor`, `MERLIN_` → `LOR_` — identifiers, file
   names, the `@repo/merlin` package, env vars, socket events, queue and Redis
   prefixes, DB column/enum names, seed identity, UI copy, marketing copy.
-- Seed identity becomes: name `Lor`, username `lor`, displayUsername `Lor`,
-  email `lor@lor.chat`. Same UUID (`LOR_USER_ID`, value unchanged).
+- Seed identity becomes: name `Lor`, email `lor@lor.chat`. Same UUID
+  (`LOR_USER_ID`, value unchanged). (username/displayUsername existed here
+  until LOR-89 removed them product-wide.)
 - Prompt identity: "You are Lor, the knowledge keeper for this team's
   workspace." (drop the now-redundant "Lor workspace" phrasing everywhere).
 
@@ -83,7 +84,7 @@ Bot-user rename (independent of push; run on dev AND prod):
 pnpm --filter @repo/db exec tsx src/scripts/rename-agent-user.ts --dry-run
 pnpm --filter @repo/db exec tsx src/scripts/rename-agent-user.ts
 ```
-Guards the `is_bot` flag and the UNIQUE username/email collision. NOTE: the
+Guards the `is_bot` flag and the UNIQUE email collision. NOTE: the
 bot row already carries `image = cdn.lor.chat/avatars/merlin-profile.png` (set
 by hand, not by the seed) — pass `--avatar=<url>` once the Lor asset exists,
 or it keeps serving the Merlin-named object. There is NO `usage_event.tool`
