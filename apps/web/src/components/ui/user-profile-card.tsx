@@ -1,4 +1,4 @@
-import { Calendar03Icon, Message01Icon } from "@hugeicons/core-free-icons"
+import { Message01Icon, SparklesIcon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
 import { Badge } from "@repo/ui/components/badge"
@@ -95,16 +95,17 @@ function ProfileCardContent({
   const isMutating = createDM.isPending
   const isOnline = user.presenceStatus === "online"
   const banner = getAvatarColorStyle(avatarColor, user.name)
-  const joined = new Date(user.createdAt).toLocaleDateString(undefined, {
-    month: "long",
-    year: "numeric",
-  })
 
   return (
     <div className="flex flex-col">
       <div
-        className="-mx-4 -mt-4 h-14 rounded-t-[calc(var(--radius-lg)-1px)]"
-        style={{ backgroundColor: banner.backgroundColor }}
+        className={cn(
+          "-mx-4 -mt-4 h-14 rounded-t-[calc(var(--radius-lg)-1px)]",
+          user.isBot && "bg-primary"
+        )}
+        style={
+          user.isBot ? undefined : { backgroundColor: banner.backgroundColor }
+        }
       />
       <div className="relative -mt-7 mb-3 w-fit">
         <UserAvatar
@@ -148,14 +149,16 @@ function ProfileCardContent({
         </div>
       )}
 
-      <div className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground">
-        <HugeiconsIcon
-          icon={Calendar03Icon}
-          className="size-3.5"
-          strokeWidth={2}
-        />
-        {user.isBot ? "Workspace agent" : `Joined ${joined}`}
-      </div>
+      {user.isBot && (
+        <div className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground">
+          <HugeiconsIcon
+            icon={SparklesIcon}
+            className="size-3.5"
+            strokeWidth={2}
+          />
+          Workspace agent
+        </div>
+      )}
 
       {!isCurrentUser && (
         <div className="mt-4 flex flex-col gap-3 border-t border-border/60 pt-3">
