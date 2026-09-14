@@ -1,4 +1,3 @@
-import { useQueryClient } from "@tanstack/react-query"
 import { useCallback, useEffect, useState } from "react"
 import { apiClient } from "@/lib/api-client"
 
@@ -9,7 +8,6 @@ type ChannelEntry = {
 }
 
 export function useChannelEntry(workspaceSlug: string, channelId: string) {
-  const queryClient = useQueryClient()
   const [entry, setEntry] = useState<ChannelEntry>()
 
   useEffect(() => {
@@ -38,18 +36,12 @@ export function useChannelEntry(workspaceSlug: string, channelId: string) {
         // If the read position is unavailable, open at the latest messages.
       }
       if (controller.signal.aborted) return
-      // A previous visit may have cached a different window of history.
-      await queryClient.resetQueries({
-        queryKey: ["messages", channelId],
-        exact: true,
-      })
-      if (controller.signal.aborted) return
       setEntry({ channelId, firstUnreadMessageId, resume: true })
     }
 
     void captureEntry()
     return () => controller.abort()
-  }, [workspaceSlug, channelId, queryClient])
+  }, [workspaceSlug, channelId])
 
   const jumpToPresent = useCallback(() => {
     setEntry((current) =>

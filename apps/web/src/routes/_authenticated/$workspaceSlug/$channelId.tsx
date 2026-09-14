@@ -207,6 +207,7 @@ function ChannelView() {
   const {
     messages,
     isLoading: messagesLoading,
+    isAnchorMissing,
     fetchOlder,
     fetchNewer,
     hasOlder,
@@ -219,24 +220,19 @@ function ChannelView() {
   } = useChannelMessages({
     channelId,
     anchor: msgId ?? entry.anchor,
+    anchorReady: Boolean(msgId) || entry.ready,
     fetchPage: fetchMessagesPage,
-    enabled: !!data && entry.ready,
+    enabled: !!data,
     socket,
     pendingNoncesRef: pendingNonces,
   })
 
   useEffect(() => {
     // The entry message can be deleted between resolving it and loading history.
-    if (entry.anchor && !msgId && !messagesLoading && messages.length === 0) {
+    if (entry.anchor && !msgId && isAnchorMissing) {
       entry.jumpToPresent()
     }
-  }, [
-    entry.anchor,
-    entry.jumpToPresent,
-    msgId,
-    messagesLoading,
-    messages.length,
-  ])
+  }, [entry.anchor, entry.jumpToPresent, msgId, isAnchorMissing])
 
   const handleJumpToPresent = useCallback(() => {
     entry.jumpToPresent()
@@ -600,7 +596,7 @@ function ChannelView() {
         onTogglePin={handleTogglePin}
         canPin={canPin}
         mentionCandidates={mentionCandidates}
-        isLoading={messagesLoading || !entry.ready}
+        isLoading={messagesLoading}
       />
       <TypingIndicator users={typingUsers} />
       <RunQueuePill
