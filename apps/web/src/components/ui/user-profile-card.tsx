@@ -1,4 +1,4 @@
-import { Message01Icon, SparklesIcon } from "@hugeicons/core-free-icons"
+import { BotIcon, Message01Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
 import { Badge } from "@repo/ui/components/badge"
@@ -149,16 +149,12 @@ function ProfileCardContent({
         </div>
       )}
 
-      {user.isBot && (
+      {/*{user.isBot && (
         <div className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground">
-          <HugeiconsIcon
-            icon={SparklesIcon}
-            className="size-3.5"
-            strokeWidth={2}
-          />
+          <HugeiconsIcon icon={BotIcon} className="size-3.5" strokeWidth={2} />
           Workspace agent
         </div>
-      )}
+      )}*/}
 
       {!isCurrentUser && (
         <div className="mt-4 flex flex-col gap-3 border-t border-border/60 pt-3">
