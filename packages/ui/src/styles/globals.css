@@ -561,16 +561,18 @@
 }
 
 /* The scroller combines viewport rectangles with scrollTop. Keep its viewport
-   at app scale and zoom individual rows so jumps and prepend anchors agree. */
+   at app scale and zoom individual rows so jumps and prepend anchors agree.
+   Percentage sizes already account for CSS zoom; scaling them again leaves
+   empty space beside and below the viewport. */
 [data-desktop-zoom-region] [data-slot="message-scroller-viewport"] {
   zoom: calc(1 / var(--desktop-region-zoom));
-  width: calc(100% * var(--desktop-region-zoom));
-  height: calc(100% * var(--desktop-region-zoom));
+  width: 100%;
+  height: 100%;
 }
 
 [data-desktop-zoom-region] [data-slot="message-scroller-item"] {
   zoom: var(--desktop-region-zoom);
-  width: calc(100% / var(--desktop-region-zoom));
+  width: 100%;
 }
 
 /* Native traffic lights keep their physical size when the webview zooms. */
