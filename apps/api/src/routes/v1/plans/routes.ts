@@ -21,7 +21,7 @@ export const listChannelPlans = createRoute({
   method: "get",
   summary: "List a channel's plans",
   description:
-    "Returns the channel's plans, newest first. Pass active=true for only plans that are running or waiting on the team.",
+    "Returns the channel's plans, newest first. Pass active=true for running or waiting plans, or messageId to resolve a specific card or thread regardless of age.",
   tags: ["Plans"],
   middleware: [sessionAuthMiddleware] as const,
   request: {

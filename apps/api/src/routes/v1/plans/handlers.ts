@@ -1,4 +1,4 @@
-import { and, db, desc, eq, inArray, schema } from "@repo/db"
+import { and, db, desc, eq, inArray, or, schema } from "@repo/db"
 import { loadApprovalResolvers, serializeApproval } from "@/lib/approvals"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { userCanAccessChannel } from "@/lib/queries/channel-access"
@@ -20,7 +20,7 @@ export const listChannelPlans: AppRouteHandler<ListChannelPlansRoute> = async (
 ) => {
   const currentUser = c.var.user
   const { channelId } = c.req.valid("param")
-  const { active } = c.req.valid("query")
+  const { active, messageId } = c.req.valid("query")
 
   const canAccess = await userCanAccessChannel(channelId, currentUser.id)
   if (!canAccess) {
@@ -36,6 +36,14 @@ export const listChannelPlans: AppRouteHandler<ListChannelPlansRoute> = async (
     .where(
       and(
         eq(schema.plan.channelId, channelId),
+        ...(messageId
+          ? [
+              or(
+                eq(schema.plan.cardMessageId, messageId),
+                eq(schema.plan.threadRootId, messageId)
+              ),
+            ]
+          : []),
         ...(active === "true"
           ? [inArray(schema.plan.status, [...ACTIVE_STATUSES])]
           : [])
