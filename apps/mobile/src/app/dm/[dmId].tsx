@@ -146,13 +146,10 @@ export default function DMScreen() {
   }
   const dm = dmState.dm
   const name = dmDisplayName(dm)
-  const soleMember = dm.type === "dm" ? dm.members[0] : undefined
   const subtitle =
     dm.type === "group_dm"
       ? `${dm.members.length + 1} members`
-      : soleMember?.username
-        ? `@${soleMember.username}`
-        : "Direct message"
+      : "Direct message"
   const startReply = (message: Message) => {
     setEditingMessage(null)
     setReplyingTo(message)

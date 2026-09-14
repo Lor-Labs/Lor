@@ -74,8 +74,6 @@ export const projectSchema = z.object({
 export const projectMemberSchema = z.object({
   id: z.string().uuid(),
   name: z.string(),
-  username: z.string().nullable(),
-  displayUsername: z.string().nullable(),
   image: z.string().nullable(),
 })
 

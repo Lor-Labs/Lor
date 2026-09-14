@@ -35,14 +35,11 @@ type SearchResult = {
   channelName: string
   threadRootId: string | null
   author: {
-    displayUsername: string | null
     name: string
   }
   mentions: Array<{
     id: string
     name: string
-    username: string | null
-    displayUsername: string | null
     image: string | null
   }>
 }
@@ -187,7 +184,7 @@ export function WorkspaceCommand() {
                             </span>
                             <span className="text-muted-foreground">·</span>
                             <span className="truncate text-muted-foreground">
-                              {msg.author.displayUsername ?? msg.author.name}
+                              {msg.author.name}
                             </span>
                           </div>
                           <div className="truncate text-xs text-muted-foreground">

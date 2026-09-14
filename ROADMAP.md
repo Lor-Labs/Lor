@@ -62,7 +62,7 @@
 - [x] User profile popover (bio, status, online indicator)
 - [x] Remember last visited channel per guild (localStorage)
 - [ ] Error handling & loading state improvements
-- [x] Username editing in account settings (with availability check)
+- [x] ~~Username editing in account settings (with availability check)~~ removed in LOR-89 — real names only
 - [ ] Other settings pages
 
 ## Phase 6 — Infrastructure

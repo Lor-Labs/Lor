@@ -29,11 +29,7 @@ import { isOptimisticMessage } from "@/lib/messages"
 export const MESSAGE_GROUP_WINDOW_MS = 5 * 60 * 1000
 
 export function messageDisplayName(message: Message) {
-  return (
-    message.overrideName ??
-    message.author.displayUsername ??
-    message.author.name
-  )
+  return message.overrideName ?? message.author.name
 }
 
 function avatarInitial(message: Message) {
@@ -511,9 +507,7 @@ function ReplyPreview({
 }) {
   const referenced = message.referencedMessage
   const referencedName = referenced
-    ? (referenced.overrideName ??
-      referenced.author.displayUsername ??
-      referenced.author.name)
+    ? (referenced.overrideName ?? referenced.author.name)
     : null
   const canJump = !!referenced && !!onJumpToMessage
 
@@ -587,7 +581,7 @@ function ThreadFooter({
             fallback={getAvatarInitials(participant.name)}
             image={participant.image}
             key={participant.id}
-            name={participant.displayUsername ?? participant.name}
+            name={participant.name}
             size="xs"
             style={{ borderColor: background, borderWidth: 2 }}
           />

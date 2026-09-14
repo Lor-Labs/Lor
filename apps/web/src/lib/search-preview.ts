@@ -10,8 +10,6 @@ const CITATION_REGEX = /\[\[([^\]]+)\]\]/g
 type PreviewMention = {
   id: string
   name: string
-  username: string | null
-  displayUsername: string | null
 }
 
 export function toSearchPreviewText(
@@ -26,7 +24,7 @@ export function toSearchPreviewText(
   const mentionLabel = (id: string) => {
     const mention = mentionById.get(id)
     if (!mention && options?.dropUnresolvedMentions) return ""
-    return `@${mention ? (mention.displayUsername ?? mention.username ?? mention.name) : "unknown-user"}`
+    return `@${mention ? mention.name : "unknown-user"}`
   }
 
   return content

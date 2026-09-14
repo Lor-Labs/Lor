@@ -30,6 +30,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
 import { Button } from "@repo/ui/components/button"
+import { MentionBadge } from "@repo/ui/components/mention-badge"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -1072,11 +1073,7 @@ function SortableChannelItem({
         />
         <span className="truncate">{ch.name}</span>
         <div className="ml-auto flex items-center gap-1">
-          {mentionCount > 0 && (
-            <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-destructive text-[10px] font-bold text-destructive-foreground">
-              {mentionCount}
-            </span>
-          )}
+          <MentionBadge count={mentionCount} />
           <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
             <DropdownMenuTrigger
               render={

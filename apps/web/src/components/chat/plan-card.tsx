@@ -1,6 +1,8 @@
 import { CheckmarkCircle02Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { Badge } from "@repo/ui/components/badge"
+import { Button } from "@repo/ui/components/button"
+import { Skeleton } from "@repo/ui/components/skeleton"
 import { cn } from "@repo/ui/lib/utils"
 import { ArtifactFileCard } from "@/components/chat/artifact-file-card"
 import {
@@ -28,7 +30,10 @@ export function PlanCard({
   message: Message
   onOpenThread?: (rootMessageId: string) => void
 }) {
-  const plan = usePlanForCard(message.channelId, message.id)
+  const { plan, isPending, isError, refetch } = usePlanForCard(
+    message.channelId,
+    message.id
+  )
   const { data: artifacts } = usePlanArtifacts(plan?.id ?? null)
   const { view, isCollapsed } = useRightSidebar()
   const threadRootId = plan?.threadRootId ?? message.id
@@ -39,20 +44,45 @@ export function PlanCard({
 
   if (!plan) {
     return (
-      <div className={cn("group/plan", SURFACE_CLASS)}>
-        {onOpenThread && (
-          <button
-            type="button"
-            aria-label="Open plan thread"
-            onClick={() => onOpenThread(message.id)}
-            className="absolute inset-0 z-10 cursor-pointer rounded-xl"
-          />
-        )}
-        <p className="line-clamp-2 px-4 py-3.5 text-muted-foreground text-sm leading-5">
-          {toSearchPreviewText(message.content, message.mentions ?? [], {
-            dropUnresolvedMentions: true,
-          })}
-        </p>
+      <div className={SURFACE_CLASS}>
+        <div className="space-y-2 px-4 py-3.5" aria-busy={isPending}>
+          {isPending ? (
+            <>
+              <span className="sr-only">Loading task details</span>
+              <Skeleton className="h-4 w-40 max-w-full" />
+              <Skeleton className="h-3 w-3/4" />
+            </>
+          ) : (
+            <>
+              <p className="text-sm font-medium">Task thread</p>
+              <p className="text-sm leading-5 text-muted-foreground">
+                {isError
+                  ? "Couldn’t load task details."
+                  : "Task details are unavailable. The conversation is still in this thread."}
+              </p>
+              <div className="flex flex-wrap gap-2 pt-1">
+                {isError && (
+                  <Button
+                    variant="outline"
+                    size="xs"
+                    onClick={() => void refetch()}
+                  >
+                    Try again
+                  </Button>
+                )}
+                {onOpenThread && (
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    onClick={() => onOpenThread(message.id)}
+                  >
+                    View conversation
+                  </Button>
+                )}
+              </div>
+            </>
+          )}
+        </div>
       </div>
     )
   }

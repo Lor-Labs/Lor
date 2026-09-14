@@ -554,8 +554,6 @@ export function createLorRespondProcessor(
               .select({
                 id: schema.user.id,
                 name: schema.user.name,
-                username: schema.user.username,
-                displayUsername: schema.user.displayUsername,
                 image: schema.user.image,
                 avatarColor: schema.workspaceMember.avatarColor,
               })

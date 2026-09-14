@@ -15,7 +15,7 @@ import type { ThreadParticipant } from "@/hooks/use-thread-messages"
 const VISIBLE_SUBSCRIBERS = 4
 
 function displayName(participant: ThreadParticipant) {
-  return participant.displayUsername ?? participant.name
+  return participant.name
 }
 
 export function ThreadSubscriberStack({

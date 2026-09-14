@@ -1239,7 +1239,6 @@ io.on("connection", (socket) => {
           workspaceId: parsed.workspaceId,
           userId: socket.data.user.id,
           name: socket.data.user.name,
-          username: socket.data.user.username ?? null,
           image: socket.data.user.image ?? null,
         })
 

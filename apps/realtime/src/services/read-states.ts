@@ -1,11 +1,13 @@
 import {
   and,
+  asc,
   count,
   db,
   desc,
   eq,
   gt,
   inArray,
+  isNull,
   ne,
   schema,
   sql,
@@ -21,6 +23,29 @@ type MarkChannelReadInput = {
   userId: string
   channelId: string
   lastReadMessageId?: string
+}
+
+function firstUnreadMessageIdQuery(channelId: string, userId: string) {
+  // Resolve the feed boundary in Postgres: the read message itself may be a
+  // deleted row or a thread reply, and JS timestamps lose database precision.
+  return sql<string | null>`(${db
+    .select({ id: schema.message.id })
+    .from(schema.message)
+    .where(
+      and(
+        eq(schema.message.channelId, channelId),
+        isNull(schema.message.threadRootId),
+        ne(schema.message.authorId, userId),
+        ne(schema.message.type, "event"),
+        sql`${schema.message.createdAt} > coalesce((
+        select ${schema.channelReadState.lastReadAt} from ${schema.channelReadState}
+        where ${schema.channelReadState.channelId} = ${channelId}
+          and ${schema.channelReadState.userId} = ${userId}
+      ), 'epoch'::timestamp)`
+      )
+    )
+    .orderBy(asc(schema.message.createdAt), asc(schema.message.id))
+    .limit(1)})`
 }
 
 export async function markChannelRead(
@@ -116,6 +141,10 @@ export async function markChannelRead(
     db
       .select({
         count: count(),
+        firstUnreadMessageId: firstUnreadMessageIdQuery(
+          input.channelId,
+          input.userId
+        ),
       })
       .from(schema.message)
       .where(
@@ -147,6 +176,7 @@ export async function markChannelRead(
     channelId: input.channelId,
     lastReadMessageId: persistedState.lastReadMessageId,
     lastReadAt: persistedState.lastReadAt.toISOString(),
+    firstUnreadMessageId: unreadCountRow?.firstUnreadMessageId ?? null,
     unreadCount: Number(unreadCountRow?.count ?? 0),
     mentionCount: Number(mentionCountRow?.count ?? 0),
   }
@@ -229,7 +259,10 @@ export async function getUnreadStatesForUser(
 
       const [unreadRow, mentionRow] = await Promise.all([
         db
-          .select({ count: count() })
+          .select({
+            count: count(),
+            firstUnreadMessageId: firstUnreadMessageIdQuery(channelId, userId),
+          })
           .from(schema.message)
           .where(
             and(
@@ -264,6 +297,7 @@ export async function getUnreadStatesForUser(
         unreadCount,
         mentionCount,
         lastReadMessageId: readState?.lastReadMessageId ?? null,
+        firstUnreadMessageId: unreadRow?.firstUnreadMessageId ?? null,
       }
     })
   )

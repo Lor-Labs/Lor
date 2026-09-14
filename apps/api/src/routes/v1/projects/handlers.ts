@@ -104,8 +104,6 @@ async function loadProjectDetail(projectId: string) {
       .select({
         id: schema.user.id,
         name: schema.user.name,
-        username: schema.user.username,
-        displayUsername: schema.user.displayUsername,
         image: schema.user.image,
       })
       .from(schema.channelMember)

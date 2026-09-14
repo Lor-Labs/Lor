@@ -585,8 +585,6 @@ export async function claimAgentRun(
           content: schema.message.content,
           attachments: schema.message.attachments,
           name: schema.user.name,
-          username: schema.user.username,
-          displayUsername: schema.user.displayUsername,
         })
         .from(schema.message)
         .innerJoin(schema.user, eq(schema.message.authorId, schema.user.id))
@@ -634,8 +632,6 @@ export async function claimAgentRun(
         attachments: schema.message.attachments,
         createdAt: schema.message.createdAt,
         name: schema.user.name,
-        username: schema.user.username,
-        displayUsername: schema.user.displayUsername,
       })
       .from(schema.message)
       .innerJoin(schema.user, eq(schema.message.authorId, schema.user.id))

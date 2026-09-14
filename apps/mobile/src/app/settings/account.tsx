@@ -9,7 +9,7 @@ import { Input } from "heroui-native/input"
 import { Label } from "heroui-native/label"
 import { TextField } from "heroui-native/text-field"
 import { useToast } from "heroui-native/toast"
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { Pressable, Text, View } from "react-native"
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller"
 import { Avatar } from "@/components/ui/avatar"
@@ -22,9 +22,6 @@ import { authClient } from "@/lib/auth-client"
 
 const MAX_NAME_LENGTH = 50
 const MAX_STATUS_LENGTH = 128
-const MIN_USERNAME_LENGTH = 3
-const MAX_USERNAME_LENGTH = 30
-const USERNAME_REGEX = /^[a-zA-Z0-9_.]+$/
 const MAX_AVATAR_BYTES = 2 * 1024 * 1024
 const AVATAR_MIME_TYPES = new Set([
   "image/jpeg",
@@ -32,8 +29,6 @@ const AVATAR_MIME_TYPES = new Set([
   "image/gif",
   "image/webp",
 ])
-
-type UsernameCheck = "idle" | "checking" | "available" | "taken" | "invalid"
 
 type PickedAvatar = {
   uri: string
@@ -83,65 +78,18 @@ function AccountForm({ user }: { user: SessionUser }) {
   const { toast } = useToast()
 
   const [name, setName] = useState(user.name)
-  const [username, setUsername] = useState(
-    user.displayUsername ?? user.username ?? ""
-  )
   const [status, setStatus] = useState(user.status ?? "")
   const [pickedAvatar, setPickedAvatar] = useState<PickedAvatar | null>(null)
   const [avatarError, setAvatarError] = useState<string | null>(null)
-  const [usernameCheck, setUsernameCheck] = useState<UsernameCheck>("idle")
   const [isSaving, setIsSaving] = useState(false)
 
-  const currentUsername = user.displayUsername ?? user.username ?? ""
-  const usernameChanged = username.trim() !== currentUsername
   const nameValid = name.trim().length > 0
   const dirty =
     pickedAvatar !== null ||
     name.trim() !== user.name ||
-    status.trim() !== (user.status ?? "") ||
-    (usernameChanged && username.trim().length > 0)
+    status.trim() !== (user.status ?? "")
 
-  useEffect(() => {
-    if (!usernameChanged || username.trim().length === 0) {
-      setUsernameCheck("idle")
-      return
-    }
-    const trimmed = username.trim()
-    if (
-      trimmed.length < MIN_USERNAME_LENGTH ||
-      trimmed.length > MAX_USERNAME_LENGTH ||
-      !USERNAME_REGEX.test(trimmed)
-    ) {
-      setUsernameCheck("invalid")
-      return
-    }
-
-    setUsernameCheck("checking")
-    let cancelled = false
-    const timeout = setTimeout(() => {
-      authClient
-        .isUsernameAvailable({ username: trimmed })
-        .then(({ data }) => {
-          if (!cancelled) {
-            setUsernameCheck(data?.available ? "available" : "taken")
-          }
-        })
-        .catch(() => {
-          if (!cancelled) setUsernameCheck("idle")
-        })
-    }, 500)
-
-    return () => {
-      cancelled = true
-      clearTimeout(timeout)
-    }
-  }, [username, usernameChanged])
-
-  const usernameBlocked =
-    usernameChanged &&
-    username.trim().length > 0 &&
-    usernameCheck !== "available"
-  const canSave = dirty && nameValid && !usernameBlocked && !isSaving
+  const canSave = dirty && nameValid && !isSaving
 
   const pickAvatar = async () => {
     setAvatarError(null)
@@ -187,9 +135,6 @@ function AccountForm({ user }: { user: SessionUser }) {
         name: name.trim(),
         ...(imageUrl ? { image: imageUrl } : {}),
         status: status.trim(),
-        ...(usernameChanged && username.trim().length > 0
-          ? { username: username.trim() }
-          : {}),
       })
       if (error) {
         throw new Error(error.message ?? "Could not save your profile")
@@ -293,33 +238,6 @@ function AccountForm({ user }: { user: SessionUser }) {
           />
           {nameValid ? null : (
             <FieldError>Display name can’t be empty.</FieldError>
-          )}
-        </TextField>
-
-        <TextField
-          isInvalid={usernameCheck === "invalid" || usernameCheck === "taken"}
-        >
-          <Label>Username</Label>
-          <Input
-            autoCapitalize="none"
-            autoCorrect={false}
-            maxLength={MAX_USERNAME_LENGTH}
-            onChangeText={setUsername}
-            placeholder="username"
-            value={username}
-          />
-          {usernameCheck === "invalid" ? (
-            <FieldError>
-              3–30 characters: letters, numbers, underscores, and periods.
-            </FieldError>
-          ) : usernameCheck === "taken" ? (
-            <FieldError>That username is taken.</FieldError>
-          ) : usernameCheck === "checking" ? (
-            <Description>Checking availability…</Description>
-          ) : usernameCheck === "available" ? (
-            <Description>That username is available.</Description>
-          ) : (
-            <Description>How people @mention you.</Description>
           )}
         </TextField>
 

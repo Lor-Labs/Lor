@@ -31,6 +31,7 @@ export type MessagesPage = {
   afterCursor: string | null
   reachedOldest: boolean
   reachedNewest: boolean
+  missingAnchor?: string
 }
 
 type FetchPageParams = {
@@ -44,6 +45,8 @@ interface UseChannelMessagesOptions {
   channelId: string
   /** Anchor message id; when set, initial fetch uses `?around=<id>`. */
   anchor: string | null | undefined
+  /** Resolve the entry position in parallel without blocking message loading. */
+  anchorReady?: boolean
   fetchPage: (params: FetchPageParams) => Promise<MessagesPage>
   enabled?: boolean
   socket: AppSocket | null
@@ -55,6 +58,7 @@ interface UseChannelMessagesOptions {
 export function useChannelMessages({
   channelId,
   anchor,
+  anchorReady = true,
   fetchPage,
   enabled = true,
   socket,
@@ -89,6 +93,7 @@ export function useChannelMessages({
       )
       return {
         ...page,
+        missingAnchor: page.data.length === 0 ? params.around : undefined,
         data: page.data.map((message) =>
           preserveMessageStream(message, byId.get(message.id))
         ),
@@ -106,16 +111,70 @@ export function useChannelMessages({
     enabled,
   })
 
-  // Anchor change → drop cache so the next fetch uses the new initialPageParam.
-  const prevAnchorRef = useRef(normalizedAnchor)
+  const previousWindowRef = useRef<{
+    channelId: string
+    anchor: string | null
+  } | null>(null)
   useEffect(() => {
-    if (prevAnchorRef.current !== normalizedAnchor) {
-      prevAnchorRef.current = normalizedAnchor
-      void queryClient.resetQueries({
-        queryKey: ["messages", channelId],
-      })
+    if (!enabled) return
+    const previous = previousWindowRef.current
+    previousWindowRef.current = { channelId, anchor: normalizedAnchor }
+    if (!anchorReady) return
+    const queryKey = ["messages", channelId] as const
+    const cached =
+      queryClient.getQueryData<InfiniteData<MessagesPage, MessagesPageParam>>(
+        queryKey
+      )
+    const hasTarget = normalizedAnchor
+      ? cached?.pages.some((page) =>
+          page.data.some((message) => message.id === normalizedAnchor)
+        )
+      : cached?.pages[0]?.reachedNewest
+    if (hasTarget) return
+    // A cold channel is already fetching its initial window. Only redirect
+    // that request if the unread boundary arrives after fetching has started.
+    if (
+      !cached &&
+      (!previous ||
+        previous.channelId !== channelId ||
+        previous.anchor === normalizedAnchor)
+    )
+      return
+
+    let cancelled = false
+    async function loadWindow() {
+      await queryClient.cancelQueries({ queryKey, exact: true })
+      if (cancelled) return
+      // Keep cached messages visible while fetching a different window. If
+      // the target is already cached, scrolling needs no history request.
+      queryClient.setQueryData<InfiniteData<MessagesPage, MessagesPageParam>>(
+        queryKey,
+        (old) => {
+          const newest = old?.pages[0]
+          const oldest = old?.pages.at(-1)
+          if (!old || !newest || !oldest) return old
+          return {
+            pages: [
+              {
+                ...newest,
+                data: old.pages.flatMap((page) => page.data),
+                beforeCursor: oldest.beforeCursor,
+                reachedOldest: oldest.reachedOldest,
+              },
+            ],
+            pageParams: [
+              normalizedAnchor ? { around: normalizedAnchor } : null,
+            ],
+          }
+        }
+      )
+      await queryClient.invalidateQueries({ queryKey, exact: true })
     }
-  }, [normalizedAnchor, channelId, queryClient])
+    void loadWindow()
+    return () => {
+      cancelled = true
+    }
+  }, [normalizedAnchor, channelId, queryClient, enabled, anchorReady])
 
   // Dedupe by id: an anchored (`around`) refetch can race with in-flight
   // before/after pagination fetches and briefly leave the same message in two
@@ -297,11 +356,17 @@ export function useChannelMessages({
 
   return {
     messages,
+    isAnchorMissing: Boolean(
+      normalizedAnchor &&
+        query.data?.pages.some(
+          (page) => page.missingAnchor === normalizedAnchor
+        )
+    ),
     isLoading: query.isPending,
     isError: query.isError,
     error: query.error,
-    fetchOlder: query.fetchNextPage,
-    fetchNewer: query.fetchPreviousPage,
+    fetchOlder: () => query.fetchNextPage({ cancelRefetch: false }),
+    fetchNewer: () => query.fetchPreviousPage({ cancelRefetch: false }),
     hasOlder: query.hasNextPage,
     hasNewer: query.hasPreviousPage,
     isFetchingOlder: query.isFetchingNextPage,

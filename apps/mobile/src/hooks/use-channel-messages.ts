@@ -64,8 +64,6 @@ export function useChannelMessages({
   currentUser?: {
     id: string
     name: string
-    username?: string | null
-    displayUsername?: string | null
     image?: string | null
   }
 }) {

@@ -127,8 +127,6 @@ export type RealtimeChannelEventPayload =
 export type RealtimeAuthor = {
   id: string
   name: string
-  username: string | null
-  displayUsername: string | null
   image: string | null
   avatarColor?: string | null
 }
@@ -253,7 +251,6 @@ export type RealtimeMessageThreadUpdated = {
   participants: Array<{
     id: string
     name: string
-    displayUsername: string | null
     image: string | null
     avatarColor?: string | null
   }>
@@ -291,6 +288,7 @@ export type ChannelReadState = {
   channelId: string
   lastReadMessageId: string | null
   lastReadAt: string
+  firstUnreadMessageId?: string | null
   unreadCount: number
   mentionCount: number
 }
@@ -318,6 +316,7 @@ export type UnreadNotification = {
   channelId: string
   workspaceId: string | null
   messageId: string
+  messageType?: RealtimeMessageType
   threadRootId: string | null
   isLorThread: boolean
   isSubscribedToThread: boolean
@@ -462,6 +461,7 @@ export type NotificationBootstrap = {
     unreadCount: number
     mentionCount: number
     lastReadMessageId: string | null
+    firstUnreadMessageId?: string | null
   }>
 }
 
@@ -477,7 +477,6 @@ export type WorkspaceMemberJoinedEvent = {
   workspaceId: string
   userId: string
   name: string
-  username: string | null
   image: string | null
 }
 

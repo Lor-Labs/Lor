@@ -14,8 +14,6 @@ export const getUserProfile: AppRouteHandler<GetUserProfileRoute> = async (
     .select({
       id: schema.user.id,
       name: schema.user.name,
-      username: schema.user.username,
-      displayUsername: schema.user.displayUsername,
       image: schema.user.image,
       bio: schema.user.bio,
       status: schema.user.status,
@@ -56,13 +54,12 @@ export const getUserProfile: AppRouteHandler<GetUserProfileRoute> = async (
       user: {
         id: targetUser.id,
         name: targetUser.name,
-        username: targetUser.username,
-        displayUsername: targetUser.displayUsername,
         image: targetUser.image,
         bio: targetUser.bio ?? null,
         status: targetUser.status ?? null,
         createdAt: targetUser.createdAt.toISOString(),
         presenceStatus,
+        isBot: targetUser.isBot,
       },
     },
     HttpStatusCodes.OK

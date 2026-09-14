@@ -33,8 +33,6 @@ export async function loadConversation(args: {
         messageId: schema.message.id,
         content: schema.message.content,
         authorName: schema.user.name,
-        authorUsername: schema.user.username,
-        authorDisplayUsername: schema.user.displayUsername,
         attachments: schema.message.attachments,
         embeds: schema.message.embeds,
       })
@@ -144,11 +142,7 @@ export async function loadConversation(args: {
       .map(toRef)
     return {
       messageId: r.messageId,
-      authorName: userDisplayName({
-        name: r.authorName,
-        username: r.authorUsername,
-        displayUsername: r.authorDisplayUsername,
-      }),
+      authorName: userDisplayName({ name: r.authorName }),
       content:
         (r.content ?? "") +
         (r.messageId === args.threadRootId

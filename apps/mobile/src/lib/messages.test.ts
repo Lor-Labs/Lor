@@ -16,8 +16,6 @@ import {
 const author = {
   id: "user-1",
   name: "Avery Stone",
-  username: "avery",
-  displayUsername: "Avery",
   image: null,
 }
 
@@ -46,7 +44,6 @@ function makeThreadUpdate(
       {
         id: author.id,
         name: author.name,
-        displayUsername: author.displayUsername,
         image: author.image,
       },
     ],

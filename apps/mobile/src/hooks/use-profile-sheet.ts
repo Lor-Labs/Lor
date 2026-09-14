@@ -12,7 +12,6 @@ type AuthorSource = {
   author: {
     id: string
     name: string
-    displayUsername: string | null
     image: string | null
     avatarColor?: string | null
   }
@@ -55,10 +54,7 @@ export function useProfileSheet({
     const member = members.find(
       (candidate) => candidate.userId === message.author.id
     )
-    const displayName =
-      message.overrideName ??
-      message.author.displayUsername ??
-      message.author.name
+    const displayName = message.overrideName ?? message.author.name
     setProfileUser({
       id: message.author.id,
       name: displayName,

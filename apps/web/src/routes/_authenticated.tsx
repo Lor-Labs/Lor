@@ -17,8 +17,6 @@ import { UnreadProvider } from "@/context/unread-context"
 import { useBrowserNotifications } from "@/hooks/use-browser-notifications"
 import { useConnectivity } from "@/hooks/use-connectivity"
 import { useUpdateCheck } from "@/hooks/use-update-check"
-import { clearPendingInvite, readPendingInvite } from "@/lib/pending-invite"
-import { hasValidUsername } from "@/lib/username"
 
 // v0.1.2
 function BrowserNotifications() {
@@ -85,20 +83,6 @@ function AuthenticatedLayout() {
   const { status: connectivity } = useConnectivity()
   const isOffline = connectivity === "offline"
   const connectivityUnknown = connectivity === "unknown"
-  // Consume any invite stashed by /invite/$code exactly once, so onboarding
-  // can pre-fill the join step. Cleared immediately — it only needs to survive
-  // the redirect, and lives in state for the dialog's lifetime after that.
-  // Done in an effect (not a useState initializer) so StrictMode's double
-  // render can't clear the code on the discarded invocation and lose it.
-  const [pendingInvite, setPendingInvite] = useState<string | null>(null)
-  useEffect(() => {
-    const code = readPendingInvite()
-    if (code) {
-      clearPendingInvite()
-      setPendingInvite(code)
-    }
-  }, [])
-  const [onboardingDone, setOnboardingDone] = useState(false)
 
   // better-auth refetches the session on the window's own `online` event; this
   // covers the case where the probe recovers without one firing. Declared above
@@ -178,17 +162,14 @@ function AuthenticatedLayout() {
     return isOffline ? <OfflineScreen /> : null
   }
 
-  // Show onboarding when the account isn't set up yet: either no workspace, or
-  // no username (invited users join a workspace without ever being prompted for
-  // one). The onboardingCompleted flag guards existing users whose flag
-  // defaulted to false. The username step closes the dialog via onComplete once
-  // an already-in-a-workspace user picks one.
-  const hasUsername = hasValidUsername(session.user.username)
-  const hasWorkspace = (workspaces?.length ?? 0) > 0
+  // Onboarding is workspace setup only — both signup paths already collect the
+  // user's name — so it shows until the user creates or joins a workspace. The
+  // onboardingCompleted flag guards existing users whose flag defaulted to
+  // false.
   const showOnboarding =
     session.user.onboardingCompleted === false &&
     workspaces != null &&
-    (workspaces.length === 0 || !hasUsername)
+    workspaces.length === 0
 
   return (
     <SocketProvider enabled={!!session}>
@@ -200,12 +181,7 @@ function AuthenticatedLayout() {
             <Sidebar>
               <Outlet />
             </Sidebar>
-            <OnboardingDialog
-              open={showOnboarding && !onboardingDone}
-              inviteCode={pendingInvite}
-              hasWorkspace={hasWorkspace}
-              onComplete={() => setOnboardingDone(true)}
-            />
+            <OnboardingDialog open={showOnboarding} />
             <SettingsDialog />
           </div>
         </MobileSidebarProvider>

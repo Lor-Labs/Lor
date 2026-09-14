@@ -23,6 +23,7 @@ import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-
 import { useSocket } from "@/context/socket-context"
 import { useChannelApprovals } from "@/hooks/use-approvals"
 import { useAutoMarkRead } from "@/hooks/use-auto-mark-read"
+import { useChannelEntry } from "@/hooks/use-channel-entry"
 import { useChannelMessages } from "@/hooks/use-channel-messages"
 import { useChannelPlans } from "@/hooks/use-channel-plans"
 import { useFileUpload } from "@/hooks/use-file-upload"
@@ -79,7 +80,8 @@ function ChannelView() {
   const navigate = Route.useNavigate()
   const socket = useSocket()
   const isMobile = useIsMobile()
-  useAutoMarkRead(channelId)
+  const entry = useChannelEntry(workspaceSlug, channelId)
+  useAutoMarkRead(entry.ready ? channelId : undefined)
   const queryClient = useQueryClient()
   const { view, setView, clearView, isCollapsed, toggleCollapsed, panelWidth } =
     useRightSidebar()
@@ -205,6 +207,7 @@ function ChannelView() {
   const {
     messages,
     isLoading: messagesLoading,
+    isAnchorMissing,
     fetchOlder,
     fetchNewer,
     hasOlder,
@@ -216,17 +219,26 @@ function ChannelView() {
     clearPending,
   } = useChannelMessages({
     channelId,
-    anchor: msgId,
+    anchor: msgId ?? entry.anchor,
+    anchorReady: Boolean(msgId) || entry.ready,
     fetchPage: fetchMessagesPage,
     enabled: !!data,
     socket,
     pendingNoncesRef: pendingNonces,
   })
 
+  useEffect(() => {
+    // The entry message can be deleted between resolving it and loading history.
+    if (entry.anchor && !msgId && isAnchorMissing) {
+      entry.jumpToPresent()
+    }
+  }, [entry.anchor, entry.jumpToPresent, msgId, isAnchorMissing])
+
   const handleJumpToPresent = useCallback(() => {
+    entry.jumpToPresent()
     clearPending()
     void navigate({ search: {}, replace: true })
-  }, [clearPending, navigate])
+  }, [clearPending, navigate, entry.jumpToPresent])
 
   const handleJumpToMessage = useCallback(
     (messageId: string) => {
@@ -393,17 +405,6 @@ function ChannelView() {
     workspaceSlug,
   })
 
-  const togglePinnedMessages = useCallback(() => {
-    if (view?.type === "pinned-messages" && !isCollapsed) {
-      setView({ type: "workspace-members", workspaceSlug, channelId })
-    } else {
-      setView({ type: "pinned-messages", workspaceSlug, channelId })
-      if (isCollapsed) {
-        toggleCollapsed()
-      }
-    }
-  }, [view, setView, workspaceSlug, channelId, isCollapsed, toggleCollapsed])
-
   const { replyingTo, setReplyingTo, clearReply } = useReplyState()
 
   const { data: threadActivityData } = useQuery({
@@ -440,8 +441,7 @@ function ChannelView() {
         participants: item.participants,
         lastReply: {
           content: item.lastReply.content,
-          authorName:
-            item.lastReply.author.displayUsername ?? item.lastReply.author.name,
+          authorName: item.lastReply.author.name,
           hasAttachments: item.lastReply.hasAttachments,
           mentions: item.lastReply.mentions,
         },
@@ -517,10 +517,8 @@ function ChannelView() {
       ...broadcastMentionCandidates(data?.audience),
       ...(workspaceMembersData?.members.map((member) => ({
         id: member.userId,
-        label: member.displayUsername ?? member.username ?? member.name,
+        label: member.name,
         name: member.name,
-        username: member.username,
-        displayUsername: member.displayUsername,
         image: member.image,
       })) ?? []),
     ],
@@ -564,11 +562,7 @@ function ChannelView() {
       className="relative flex h-full flex-col overflow-hidden"
     >
       <DropZoneOverlay isDragActive={isDragActive} />
-      <ChatHeader
-        context={context}
-        channelId={channelId}
-        onTogglePinnedMessages={togglePinnedMessages}
-      />
+      <ChatHeader context={context} channelId={channelId} />
       <MessageList
         key={channelId}
         context={context}
@@ -581,7 +575,9 @@ function ChannelView() {
         isFetchingNewer={isFetchingNewer}
         pendingCount={pendingCount}
         onJumpToPresent={isAtPresent ? undefined : handleJumpToPresent}
-        scrollTargetId={msgId}
+        scrollTargetId={msgId ?? entry.anchor}
+        firstUnreadMessageId={entry.firstUnreadMessageId}
+        highlightScrollTarget={Boolean(msgId)}
         onJumpToMessage={handleJumpToMessage}
         onReplyInThread={handleReplyInThread}
         onOpenThread={handleOpenThread}

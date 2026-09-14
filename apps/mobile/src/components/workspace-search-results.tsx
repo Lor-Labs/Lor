@@ -20,8 +20,7 @@ function MessageResultRow({
   onPress: (message: ChannelSearchResult) => void
   onPressAuthor?: (message: ChannelSearchResult) => void
 }) {
-  const displayName =
-    message.author.displayUsername ?? message.author.name ?? "Unknown member"
+  const displayName = message.author.name ?? "Unknown member"
   const preview = toSearchPreviewText(message.content, message.mentions)
 
   return (

@@ -180,8 +180,6 @@ async function runDrain(args: {
   const lorUser = await db
     .select({
       name: schema.user.name,
-      username: schema.user.username,
-      displayUsername: schema.user.displayUsername,
       image: schema.user.image,
     })
     .from(schema.user)
@@ -268,8 +266,6 @@ async function runDrain(args: {
     author: {
       id: LOR_USER_ID,
       name: lorUser.name,
-      username: lorUser.username,
-      displayUsername: lorUser.displayUsername,
       image: lorUser.image,
       avatarColor: null,
     },

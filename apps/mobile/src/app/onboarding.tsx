@@ -4,7 +4,7 @@ import { HugeiconsIcon } from "@hugeicons/react-native"
 import { sluggify } from "@repo/utils/slug"
 import { Redirect, router } from "expo-router"
 import { Spinner } from "heroui-native/spinner"
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useState } from "react"
 import {
   KeyboardAvoidingView,
   Platform,
@@ -20,20 +20,8 @@ import { useWorkspace } from "@/context/workspace-context"
 import { useTheme } from "@/hooks/use-theme"
 import { authClient } from "@/lib/auth-client"
 import { parseInviteCode } from "@/lib/invites"
-import {
-  hasValidUsername,
-  MAX_USERNAME_LENGTH,
-  MIN_USERNAME_LENGTH,
-  USERNAME_REGEX,
-} from "@/lib/username"
 
-type Step = "username" | "welcome" | "create" | "join"
-type UsernameAvailability =
-  | "idle"
-  | "checking"
-  | "available"
-  | "taken"
-  | "invalid"
+type Step = "welcome" | "create" | "join"
 
 function normalizeSlugInput(value: string) {
   return value
@@ -50,18 +38,11 @@ export default function OnboardingScreen() {
     isLoading: isWorkspaceLoading,
     reloadWorkspaces,
   } = useWorkspace()
-  const hasUsername = hasValidUsername(session?.user.username)
   const hasWorkspace = workspaces.length > 0
 
-  const [step, setStep] = useState<Step>("username")
+  const [step, setStep] = useState<Step>("welcome")
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
-
-  const [username, setUsername] = useState("")
-  const [availability, setAvailability] = useState<UsernameAvailability>("idle")
-  const availabilityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null
-  )
 
   const [workspaceName, setWorkspaceName] = useState("")
   const [slug, setSlug] = useState("")
@@ -69,20 +50,8 @@ export default function OnboardingScreen() {
   const [inviteLink, setInviteLink] = useState("")
 
   useEffect(() => {
-    if (hasUsername && step === "username") setStep("welcome")
-  }, [hasUsername, step])
-
-  useEffect(() => {
     if (!slugEdited) setSlug(sluggify(workspaceName))
   }, [workspaceName, slugEdited])
-
-  useEffect(
-    () => () => {
-      if (availabilityTimerRef.current)
-        clearTimeout(availabilityTimerRef.current)
-    },
-    []
-  )
 
   if (isSessionPending || isWorkspaceLoading) {
     return (
@@ -94,71 +63,6 @@ export default function OnboardingScreen() {
     )
   }
   if (!session) return <Redirect href="/sign-in" />
-
-  const changeUsername = (value: string) => {
-    setUsername(value)
-    if (availabilityTimerRef.current) clearTimeout(availabilityTimerRef.current)
-
-    const trimmed = value.trim()
-    if (!trimmed) {
-      setAvailability("idle")
-      return
-    }
-    if (
-      trimmed.length < MIN_USERNAME_LENGTH ||
-      trimmed.length > MAX_USERNAME_LENGTH ||
-      !USERNAME_REGEX.test(trimmed)
-    ) {
-      setAvailability("invalid")
-      return
-    }
-
-    setAvailability("checking")
-    availabilityTimerRef.current = setTimeout(async () => {
-      try {
-        const { data } = await authClient.isUsernameAvailable({
-          username: trimmed,
-        })
-        setAvailability((current) =>
-          current === "checking"
-            ? data?.available
-              ? "available"
-              : "taken"
-            : current
-        )
-      } catch {
-        setAvailability((current) =>
-          current === "checking" ? "idle" : current
-        )
-      }
-    }, 500)
-  }
-
-  const submitUsername = async () => {
-    const trimmed = username.trim()
-    if (!trimmed || availability !== "available" || isSubmitting) return
-    setError(null)
-    setIsSubmitting(true)
-    try {
-      const result = await authClient.updateUser({
-        username: trimmed,
-        displayUsername: trimmed,
-      })
-      if (result.error) {
-        setError(result.error.message ?? "Could not set your username")
-        return
-      }
-      if (hasWorkspace) {
-        router.replace("/")
-        return
-      }
-      setStep("welcome")
-    } catch {
-      setError("Something went wrong. Please try again.")
-    } finally {
-      setIsSubmitting(false)
-    }
-  }
 
   const createWorkspace = async () => {
     const normalizedSlug = sluggify(slug)
@@ -217,60 +121,6 @@ export default function OnboardingScreen() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          {step === "username" ? (
-            <View className="gap-six">
-              <View className="gap-two">
-                <Text className="text-[28px] font-bold tracking-[-0.6px] text-foreground">
-                  Choose a username
-                </Text>
-                <Text className="text-base leading-[22px] text-muted">
-                  Pick a unique username for your Lor identity.
-                </Text>
-              </View>
-              <View className="gap-two">
-                <TextInput
-                  accessibilityLabel="Username"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  className={inputClassName}
-                  maxLength={MAX_USERNAME_LENGTH}
-                  onChangeText={changeUsername}
-                  placeholder="coolname"
-                  placeholderTextColor={theme.textTertiary}
-                  value={username}
-                />
-                <Text className="text-xs text-muted">
-                  3–30 characters. Letters, numbers, underscores, and periods
-                  only.
-                </Text>
-                {availability === "taken" ? (
-                  <Text className="text-xs font-medium text-danger">
-                    That username is already taken.
-                  </Text>
-                ) : null}
-                {availability === "invalid" && username.trim().length > 0 ? (
-                  <Text className="text-xs font-medium text-danger">
-                    Username must be 3–30 characters using only letters,
-                    numbers, underscores, and periods.
-                  </Text>
-                ) : null}
-              </View>
-              {error ? (
-                <Text className="text-sm font-medium text-danger">{error}</Text>
-              ) : null}
-              <Button
-                isDisabled={isSubmitting || availability !== "available"}
-                onPress={() => void submitUsername()}
-              >
-                {isSubmitting
-                  ? "Saving…"
-                  : availability === "checking"
-                    ? "Checking…"
-                    : "Continue"}
-              </Button>
-            </View>
-          ) : null}
-
           {step === "welcome" ? (
             <View className="gap-six">
               {router.canGoBack() ? (

@@ -1,15 +1,9 @@
 import { env } from "@repo/env/client"
-import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar"
 import { MessageMarkdown as NexusMessageMarkdown } from "@repo/ui/components/nexus-ui/message"
-import {
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger,
-} from "@repo/ui/components/preview-card"
 import { cn } from "@repo/ui/lib/utils"
-import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { memo, type ReactNode, useMemo, useState } from "react"
 import type { Components } from "streamdown"
+import { UserHoverCard } from "@/components/ui/user-profile-card"
 import type { Message } from "@/lib/api-types"
 import { connectorForUrl, connectorLogo } from "@/lib/connector-ui"
 
@@ -45,7 +39,7 @@ function isHttpUrl(value: string): boolean {
 }
 
 function getMentionLabel(mention: Message["mentions"][number]) {
-  return mention.displayUsername ?? mention.username ?? mention.name
+  return mention.name
 }
 
 // Codex-style link icon, a renderer concern only (the markdown stays a plain
@@ -265,46 +259,18 @@ export const MessageMarkdown = memo(function MessageMarkdown({
           )
         }
 
+        const pill = (
+          <span className="inline-flex cursor-pointer rounded bg-primary/15 px-1 py-0.5 font-medium text-primary">
+            {children}
+          </span>
+        )
         const mention = id ? mentionById.get(id) : undefined
-        const displayName = mention ? getMentionLabel(mention) : "Unknown user"
-        const username = mention?.username
+        if (!(id && mention)) return pill
 
         return (
-          <HoverCard>
-            <HoverCardTrigger
-              delay={500}
-              closeDelay={80}
-              render={
-                <span className="inline-flex cursor-pointer rounded bg-primary/15 px-1 py-0.5 font-medium text-primary" />
-              }
-            >
-              {children}
-            </HoverCardTrigger>
-            <HoverCardContent side="top" align="start" className="w-72 p-3">
-              <div className="flex items-start gap-3">
-                <Avatar size="lg">
-                  {mention?.image && (
-                    <AvatarImage src={mention.image} alt={displayName} />
-                  )}
-                  <AvatarFallback
-                    avatarColor={mention?.avatarColor}
-                    className="text-xs font-semibold"
-                    fallbackSeed={mention?.name ?? displayName}
-                  >
-                    {getAvatarInitials(mention?.name ?? displayName)}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-semibold">
-                    {displayName}
-                  </div>
-                  <div className="truncate text-xs text-muted-foreground">
-                    {username ? `@${username}` : (id ?? "")}
-                  </div>
-                </div>
-              </div>
-            </HoverCardContent>
-          </HoverCard>
+          <UserHoverCard avatarColor={mention.avatarColor} userId={id}>
+            {pill}
+          </UserHoverCard>
         )
       },
     }),

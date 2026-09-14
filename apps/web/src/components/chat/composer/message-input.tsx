@@ -530,8 +530,6 @@ export function MessageInput({
         label,
         search: candidate.search,
         name: candidate.name,
-        username: candidate.username,
-        displayUsername: candidate.displayUsername,
         image: candidate.image,
       })
     }
@@ -708,8 +706,6 @@ export function MessageInput({
           {
             id: mentionCandidate.id,
             name: mentionCandidate.name ?? mentionCandidate.label,
-            username: mentionCandidate.username ?? null,
-            displayUsername: mentionCandidate.displayUsername ?? null,
             image: mentionCandidate.image ?? null,
           },
         ]
@@ -934,7 +930,7 @@ export function MessageInput({
           <span className="truncate text-muted-foreground">
             Replying to{" "}
             <span className="font-semibold text-foreground">
-              {replyingTo.author.displayUsername ?? replyingTo.author.name}
+              {replyingTo.author.name}
             </span>
           </span>
           <button

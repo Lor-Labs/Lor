@@ -91,7 +91,6 @@ export default function YouScreen() {
   const user = session?.user
   if (!user) return null
 
-  const username = user.displayUsername ?? user.username
   const version = Constants.expoConfig?.version ?? "0.1.0"
 
   const confirmSignOut = () => {
@@ -145,14 +144,6 @@ export default function YouScreen() {
             >
               {user.name}
             </Text>
-            {username ? (
-              <Text
-                className="text-sm font-medium text-muted"
-                numberOfLines={1}
-              >
-                @{username}
-              </Text>
-            ) : null}
             <Text className="text-xs text-muted" numberOfLines={1}>
               {user.email}
             </Text>
@@ -167,7 +158,7 @@ export default function YouScreen() {
 
         <SettingsCard>
           <SettingsRow
-            detail="Profile, username, and status"
+            detail="Profile and status"
             icon={{
               ios: "person.crop.circle",
               android: "account_circle",

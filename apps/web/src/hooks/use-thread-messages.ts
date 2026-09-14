@@ -30,7 +30,7 @@ export type ThreadPage = {
 
 export type ThreadParticipant = Pick<
   Message["author"],
-  "id" | "name" | "displayUsername" | "image" | "avatarColor"
+  "id" | "name" | "image" | "avatarColor"
 >
 
 type FetchPageParams = {

@@ -69,8 +69,7 @@ export function ChannelSearchOverlay({
   }
 
   const renderResult = ({ item }: { item: ChannelSearchResult }) => {
-    const displayName =
-      item.author.displayUsername ?? item.author.name ?? "Unknown member"
+    const displayName = item.author.name ?? "Unknown member"
     const preview = toSearchPreviewText(item.content, item.mentions)
 
     return (

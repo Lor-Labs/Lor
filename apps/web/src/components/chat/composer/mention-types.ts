@@ -3,7 +3,5 @@ export interface MentionCandidate {
   label: string
   search?: string
   name?: string
-  username?: string | null
-  displayUsername?: string | null
   image?: string | null
 }

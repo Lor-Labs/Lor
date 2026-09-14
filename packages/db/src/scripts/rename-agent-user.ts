@@ -1,9 +1,9 @@
-import { and, eq, ne, or } from "drizzle-orm"
+import { and, eq, ne } from "drizzle-orm"
 import { LOR_USER_ID } from "../constants"
 import { db, schema } from "../index"
 
 // LOR-87: renames the agent's bot user row to Lor. Every name the product
-// renders comes from this row (clients read displayUsername ?? name), so the
+// renders comes from this row (clients read name), so the
 // UI keeps saying "Merlin" until this runs. The user id never changes, so
 // message/plan/reaction/artifact/proposal authorship is untouched.
 // Idempotent. Independent of db:push — run order does not matter.
@@ -19,8 +19,6 @@ const avatarUrl = args
 
 const TARGET = {
   name: "Lor",
-  username: "lor",
-  displayUsername: "Lor",
   email: "lor@lor.chat",
 } as const
 
@@ -28,8 +26,6 @@ const current = await db
   .select({
     id: schema.user.id,
     name: schema.user.name,
-    username: schema.user.username,
-    displayUsername: schema.user.displayUsername,
     email: schema.user.email,
     image: schema.user.image,
     isBot: schema.user.isBot,
@@ -47,35 +43,28 @@ if (!current) {
 // Refuse to rewrite a human account if the id was ever reused.
 if (!current.isBot) {
   console.error(
-    `User ${LOR_USER_ID} is not a bot (name=${current.name}, username=${current.username}). Inspect before renaming.`
+    `User ${LOR_USER_ID} is not a bot (name=${current.name}). Inspect before renaming.`
   )
   process.exit(1)
 }
 
-// username and email are UNIQUE — a different row holding either target value
-// would fail the update, so report the culprit instead of a constraint error.
+// email is UNIQUE — a different row holding the target value would fail the
+// update, so report the culprit instead of a constraint error.
 const conflict = await db
   .select({
     id: schema.user.id,
-    username: schema.user.username,
     email: schema.user.email,
   })
   .from(schema.user)
   .where(
-    and(
-      ne(schema.user.id, LOR_USER_ID),
-      or(
-        eq(schema.user.username, TARGET.username),
-        eq(schema.user.email, TARGET.email)
-      )
-    )
+    and(ne(schema.user.id, LOR_USER_ID), eq(schema.user.email, TARGET.email))
   )
   .limit(1)
   .then((rows) => rows[0])
 
 if (conflict) {
   console.error(
-    `User ${conflict.id} already holds username="${conflict.username}" / email="${conflict.email}". Resolve the collision before renaming the agent.`
+    `User ${conflict.id} already holds email="${conflict.email}". Resolve the collision before renaming the agent.`
   )
   process.exit(1)
 }
@@ -108,8 +97,6 @@ const updated = await db
   .returning({
     id: schema.user.id,
     name: schema.user.name,
-    username: schema.user.username,
-    displayUsername: schema.user.displayUsername,
     email: schema.user.email,
     image: schema.user.image,
   })

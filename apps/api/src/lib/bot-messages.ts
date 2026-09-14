@@ -114,8 +114,6 @@ export async function postBotMessage(
     .select({
       id: schema.user.id,
       name: schema.user.name,
-      username: schema.user.username,
-      displayUsername: schema.user.displayUsername,
       image: schema.user.image,
     })
     .from(schema.user)
@@ -146,6 +144,7 @@ export async function postBotMessage(
         channel: { ...input.channel, workspaceName },
         message: {
           id: inserted.id,
+          type: input.type ?? "default",
           content: input.content,
           author: {
             name: input.overrideName ?? author.name,

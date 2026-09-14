@@ -30,13 +30,11 @@ describe("message Markdown storage", () => {
           {
             id: userId,
             name: "Avery Stone",
-            username: "avery",
-            displayUsername: "Avery",
             image: null,
           },
         ]
       )
-    ).toBe("@Avery created a ticket")
+    ).toBe("@Avery Stone created a ticket")
   })
 
   it("preserves literal delimiter characters in ordinary text", () => {

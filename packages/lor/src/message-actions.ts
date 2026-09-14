@@ -84,8 +84,6 @@ async function buildTargetedNotification(input: {
     .select({
       id: schema.user.id,
       name: schema.user.name,
-      username: schema.user.username,
-      displayUsername: schema.user.displayUsername,
     })
     .from(schema.messageMention)
     .innerJoin(

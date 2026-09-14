@@ -380,10 +380,14 @@ export function MessageScrollTarget({
   messageId,
   contentVersion,
   containerRef,
+  highlight = true,
+  align = "center",
 }: {
   messageId: string | null | undefined
   contentVersion: string
   containerRef?: RefObject<HTMLElement | null>
+  highlight?: boolean
+  align?: "start" | "center"
 }) {
   const { scrollToMessage } = useMessageScroller()
   const handledMessageIdRef = useRef<string | null>(null)
@@ -396,17 +400,26 @@ export function MessageScrollTarget({
     if (handledMessageIdRef.current === messageId) return
     if (
       !scrollToMessage(messageId, {
-        align: "center",
+        align,
         behavior: "auto",
       })
     ) {
       return
     }
     handledMessageIdRef.current = messageId
-    window.requestAnimationFrame(() =>
-      highlightMessage(messageId, containerRef?.current ?? document)
-    )
-  }, [messageId, contentVersion, containerRef, scrollToMessage])
+    if (highlight) {
+      window.requestAnimationFrame(() =>
+        highlightMessage(messageId, containerRef?.current ?? document)
+      )
+    }
+  }, [
+    messageId,
+    contentVersion,
+    containerRef,
+    scrollToMessage,
+    highlight,
+    align,
+  ])
 
   return null
 }

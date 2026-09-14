@@ -4,7 +4,6 @@ import { AnimatePresence, motion } from "motion/react"
 import type { ReactNode } from "react"
 import { LoopPanel } from "@/components/sidebar/right-panel/loop-panel"
 import { LoopsListPanel } from "@/components/sidebar/right-panel/loops-list-panel"
-import { PinnedMessagesPanel } from "@/components/sidebar/right-panel/pinned-messages-panel"
 import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-header"
 import type { RightSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
 import { ThreadPanel } from "@/components/sidebar/right-panel/thread-panel"
@@ -81,9 +80,6 @@ export function RightSidebarPanel({ view }: { view: RightSidebarView }) {
         >
           {view.type === "workspace-members" && (
             <WorkspaceMembersPanel view={view} />
-          )}
-          {view.type === "pinned-messages" && (
-            <PinnedMessagesPanel view={view} />
           )}
           {view.type === "thread" && <ThreadPanel view={view} />}
           {view.type === "loop" && <LoopPanel view={view} />}

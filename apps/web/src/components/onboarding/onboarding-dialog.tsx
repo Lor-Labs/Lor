@@ -1,8 +1,6 @@
 import {
   ArrowLeft01Icon,
-  Cancel01Icon,
   PlusSignIcon,
-  Tick02Icon,
   UserGroupIcon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
@@ -18,19 +16,13 @@ import {
 import { Input } from "@repo/ui/components/input"
 import { Label } from "@repo/ui/components/label"
 import { Spinner } from "@repo/ui/components/spinner"
-import { cn } from "@repo/ui/lib/utils"
 import { sluggify } from "@repo/utils/slug"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { useCallback, useEffect, useRef, useState } from "react"
-import { WorkspaceAvatar } from "@/components/workspace/workspace-avatar"
+import { useEffect, useState } from "react"
 import { apiClient } from "@/lib/api-client"
-import { hasValidUsername, MIN_USERNAME_LENGTH } from "@/lib/username"
 
-type Step = "username" | "welcome" | "create" | "join" | "invite"
-
-const MAX_USERNAME_LENGTH = 30
-const USERNAME_REGEX = /^[a-zA-Z0-9_.]+$/
+type Step = "welcome" | "create" | "join"
 
 function normalizeSlugInput(value: string) {
   return value
@@ -54,31 +46,8 @@ function parseInviteCode(value: string) {
   return inviteMatch?.[1] ?? null
 }
 
-export function OnboardingDialog({
-  open,
-  inviteCode = null,
-  hasWorkspace = false,
-  onComplete,
-}: {
-  open: boolean
-  inviteCode?: string | null
-  hasWorkspace?: boolean
-  onComplete?: () => void
-}) {
-  const { data: session } = authClient.useSession()
-  const hasUsername = hasValidUsername(session?.user?.username)
-  // The step after the username gate: a pre-filled invite confirmation if we
-  // arrived from an invite link, otherwise the create/join welcome.
-  const stepAfterUsername: Step = inviteCode ? "invite" : "welcome"
-  const [step, setStep] = useState<Step>(
-    hasUsername ? stepAfterUsername : "username"
-  )
-  // Sync step with session hydration — session may be null on first render
-  useEffect(() => {
-    if (hasUsername && step === "username") {
-      setStep(stepAfterUsername)
-    }
-  }, [hasUsername, step, stepAfterUsername])
+export function OnboardingDialog({ open }: { open: boolean }) {
+  const [step, setStep] = useState<Step>("welcome")
   const [name, setName] = useState("")
   const [slug, setSlug] = useState("")
   const [slugEdited, setSlugEdited] = useState(false)
@@ -87,126 +56,6 @@ export function OnboardingDialog({
   const [loading, setLoading] = useState(false)
   const queryClient = useQueryClient()
   const navigate = useNavigate()
-
-  // Username step state
-  const [username, setUsername] = useState("")
-  const [usernameAvailability, setUsernameAvailability] = useState<
-    "idle" | "checking" | "available" | "taken" | "invalid"
-  >("idle")
-  const usernameCheckTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  useEffect(() => {
-    return () => {
-      if (usernameCheckTimer.current) clearTimeout(usernameCheckTimer.current)
-    }
-  }, [])
-
-  const handleUsernameChange = useCallback((value: string) => {
-    setUsername(value)
-    if (usernameCheckTimer.current) clearTimeout(usernameCheckTimer.current)
-
-    const trimmed = value.trim()
-    if (!trimmed) {
-      setUsernameAvailability("idle")
-      return
-    }
-    if (
-      trimmed.length < MIN_USERNAME_LENGTH ||
-      trimmed.length > MAX_USERNAME_LENGTH ||
-      !USERNAME_REGEX.test(trimmed)
-    ) {
-      setUsernameAvailability("invalid")
-      return
-    }
-
-    setUsernameAvailability("checking")
-    usernameCheckTimer.current = setTimeout(async () => {
-      try {
-        const { data } = await authClient.isUsernameAvailable({
-          username: trimmed,
-        })
-        setUsernameAvailability((prev) =>
-          prev === "checking" ? (data?.available ? "available" : "taken") : prev
-        )
-      } catch {
-        setUsernameAvailability((prev) => (prev === "checking" ? "idle" : prev))
-      }
-    }, 500)
-  }, [])
-
-  const handleSetUsername = async (e: React.FormEvent) => {
-    e.preventDefault()
-    const trimmed = username.trim()
-    if (!trimmed || usernameAvailability !== "available") return
-    setError(null)
-    setLoading(true)
-    try {
-      const { error } = await authClient.updateUser({
-        username: trimmed,
-        displayUsername: trimmed,
-      })
-      if (error) {
-        setError(error.message ?? "Failed to set username")
-        return
-      }
-      // Invited users go to the pre-filled join; users already in a workspace
-      // (backfilling a missing username) are done and the dialog closes;
-      // everyone else picks create/join.
-      if (inviteCode) {
-        setStep("invite")
-      } else if (hasWorkspace) {
-        onComplete?.()
-      } else {
-        setStep("welcome")
-      }
-    } catch {
-      setError("Something went wrong. Please try again.")
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const { data: invitePreview, isPending: invitePreviewPending } = useQuery({
-    queryKey: ["invite-preview", inviteCode],
-    queryFn: async () => {
-      if (!inviteCode) throw new Error("No invite code")
-      const res = await apiClient.v1.invites[":code"].$get({
-        param: { code: inviteCode },
-      })
-      if (!res.ok) throw new Error("Invite not found")
-      return res.json()
-    },
-    enabled: !!inviteCode,
-  })
-
-  const inviteUnavailable =
-    !invitePreviewPending && (!invitePreview || invitePreview.invite.isExpired)
-
-  const handleAcceptInvite = async () => {
-    if (!inviteCode) return
-    setError(null)
-    setLoading(true)
-    try {
-      const res = await apiClient.v1.invites[":code"].accept.$post({
-        param: { code: inviteCode },
-      })
-      if (!res.ok) {
-        const body = await res.json()
-        setError("message" in body ? body.message : "Failed to join workspace")
-        return
-      }
-      const data = await res.json()
-      await queryClient.invalidateQueries({ queryKey: ["workspaces"] })
-      navigate({
-        to: "/$workspaceSlug",
-        params: { workspaceSlug: data.workspace.slug },
-      })
-    } catch {
-      setError("Something went wrong. Please try again.")
-    } finally {
-      setLoading(false)
-    }
-  }
 
   useEffect(() => {
     if (!slugEdited) {
@@ -325,180 +174,6 @@ export function OnboardingDialog({
 
           {/* Right content panel */}
           <div className="flex flex-1 flex-col justify-center p-8">
-            {step === "username" && (
-              <>
-                <DialogHeader className="mb-6 text-left">
-                  <DialogTitle className="text-2xl">
-                    Choose a username
-                  </DialogTitle>
-                  <DialogDescription className="text-sm">
-                    Pick a unique username for your Lor identity.
-                  </DialogDescription>
-                </DialogHeader>
-
-                <form onSubmit={handleSetUsername} className="space-y-4">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="onboard-username">Username</Label>
-                    <div className="relative">
-                      <Input
-                        id="onboard-username"
-                        placeholder="coolname"
-                        value={username}
-                        onChange={(e) => handleUsernameChange(e.target.value)}
-                        disabled={loading}
-                        autoFocus
-                        className={cn(
-                          "pr-9",
-                          usernameAvailability === "available" &&
-                            "border-green-500 focus-visible:ring-green-500/50",
-                          (usernameAvailability === "taken" ||
-                            usernameAvailability === "invalid") &&
-                            "border-destructive focus-visible:ring-destructive/50"
-                        )}
-                      />
-                      <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                        {usernameAvailability === "checking" && (
-                          <Spinner className="size-4 text-muted-foreground" />
-                        )}
-                        {usernameAvailability === "available" && (
-                          <HugeiconsIcon
-                            icon={Tick02Icon}
-                            className="size-4 text-green-500"
-                            strokeWidth={2}
-                          />
-                        )}
-                        {usernameAvailability === "taken" && (
-                          <HugeiconsIcon
-                            icon={Cancel01Icon}
-                            className="size-4 text-destructive"
-                            strokeWidth={2}
-                          />
-                        )}
-                        {usernameAvailability === "invalid" && (
-                          <HugeiconsIcon
-                            icon={Cancel01Icon}
-                            className="size-4 text-destructive"
-                            strokeWidth={2}
-                          />
-                        )}
-                      </div>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      3–30 characters. Letters, numbers, underscores, and
-                      periods only.
-                    </p>
-                    {usernameAvailability === "taken" && (
-                      <p className="text-xs text-destructive">
-                        That username is already taken.
-                      </p>
-                    )}
-                    {usernameAvailability === "invalid" &&
-                      username.trim().length > 0 && (
-                        <p className="text-xs text-destructive">
-                          Username must be 3–30 characters using only letters,
-                          numbers, underscores, and periods.
-                        </p>
-                      )}
-                  </div>
-
-                  {error && <p className="text-sm text-destructive">{error}</p>}
-
-                  <Button
-                    type="submit"
-                    className="w-full"
-                    disabled={loading || usernameAvailability !== "available"}
-                  >
-                    {loading && <Spinner className="mr-2 size-4" />}
-                    Continue
-                  </Button>
-                </form>
-              </>
-            )}
-
-            {step === "invite" && (
-              <>
-                <DialogHeader className="mb-6 text-left">
-                  <DialogTitle className="text-2xl">
-                    You've been invited
-                  </DialogTitle>
-                  <DialogDescription className="text-sm">
-                    Join the workspace you were invited to, or create your own
-                    instead.
-                  </DialogDescription>
-                </DialogHeader>
-
-                {invitePreviewPending ? (
-                  <div className="flex items-center justify-center py-8 text-sm text-muted-foreground">
-                    <Spinner className="mr-2 size-4" />
-                    Loading invite…
-                  </div>
-                ) : inviteUnavailable || !invitePreview ? (
-                  <div className="space-y-4">
-                    <p className="text-sm text-destructive">
-                      This invite link is invalid or has expired.
-                    </p>
-                    <Button
-                      variant="outline"
-                      className="w-full"
-                      onClick={() => setStep("welcome")}
-                    >
-                      Continue without it
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    <div className="flex items-center gap-3 rounded-lg border border-border bg-card p-4">
-                      <WorkspaceAvatar
-                        name={invitePreview.invite.workspace.name}
-                        logo={invitePreview.invite.workspace.logo}
-                        className="size-12 rounded-lg text-lg"
-                        imgClassName="rounded-md"
-                      />
-                      <div className="min-w-0">
-                        <p className="truncate font-medium">
-                          {invitePreview.invite.workspace.name}
-                        </p>
-                        <p className="flex items-center gap-1 text-sm text-muted-foreground">
-                          <HugeiconsIcon
-                            icon={UserGroupIcon}
-                            className="size-3.5"
-                            strokeWidth={2}
-                          />
-                          {invitePreview.invite.workspace.memberCount}{" "}
-                          {invitePreview.invite.workspace.memberCount === 1
-                            ? "member"
-                            : "members"}
-                        </p>
-                      </div>
-                    </div>
-
-                    {error && (
-                      <p className="text-sm text-destructive">{error}</p>
-                    )}
-
-                    <Button
-                      className="w-full"
-                      disabled={loading}
-                      onClick={handleAcceptInvite}
-                    >
-                      {loading && <Spinner className="mr-2 size-4" />}
-                      Join {invitePreview.invite.workspace.name}
-                    </Button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setStep("welcome")
-                        setError(null)
-                      }}
-                      className="w-full text-center text-sm text-muted-foreground hover:text-foreground"
-                    >
-                      Create my own workspace instead
-                    </button>
-                  </div>
-                )}
-              </>
-            )}
-
             {step === "welcome" && (
               <>
                 <DialogHeader className="mb-8 text-left">

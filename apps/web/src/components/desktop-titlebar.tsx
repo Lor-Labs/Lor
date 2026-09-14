@@ -11,6 +11,7 @@ import { cn } from "@repo/ui/lib/utils"
 import { useCanGoBack, useRouter, useRouterState } from "@tanstack/react-router"
 import { useDesktopChrome } from "@/components/desktop-window-frame"
 import { LeftSidebarToggle } from "@/components/sidebar/sidebar-toggle"
+import { useDesktopZoom } from "@/context/desktop-zoom-context"
 
 function HistoryNavButtons() {
   const router = useRouter()
@@ -76,11 +77,16 @@ function HistoryNavButtons() {
 export function DesktopSidebarTitlebar() {
   const { isMacDesktop } = useDesktopChrome()
   const { isMobile } = useSidebar()
+  const zoom = useDesktopZoom()
+  const appScale = (zoom?.levels.app ?? 100) / 100
 
   if (!isMacDesktop || isMobile) return null
 
   return (
-    <div className="flex h-12 shrink-0 items-center justify-end pr-1">
+    <div
+      className="flex h-12 shrink-0 items-center justify-end pr-1"
+      style={{ minHeight: 48 / appScale, paddingLeft: 80 / appScale }}
+    >
       <HistoryNavButtons />
     </div>
   )
@@ -102,16 +108,20 @@ export function HeaderNavControls({
 }) {
   const { isMacDesktop, isFullscreen } = useDesktopChrome()
   const { open, isMobile } = useSidebar()
+  const zoom = useDesktopZoom()
+  const chromeScale = zoom ? (zoom.levels.app * zoom.levels.main) / 10000 : 1
   const collapsedDesktop = isMacDesktop && !isMobile && !open
 
   return (
     <>
       <div
-        className={cn(
-          "flex items-center gap-1",
-          className,
-          collapsedDesktop && !isFullscreen && "ml-16"
-        )}
+        data-desktop-header-nav=""
+        className={cn("flex items-center gap-1", className)}
+        style={
+          collapsedDesktop && !isFullscreen
+            ? { marginLeft: 64 / chromeScale }
+            : undefined
+        }
       >
         {collapsedDesktop && <HistoryNavButtons />}
         <LeftSidebarToggle />

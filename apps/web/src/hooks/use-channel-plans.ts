@@ -61,6 +61,9 @@ export function useChannelPlans(channelId: string) {
           [payload.plan, ...existing.filter((t) => t.id !== payload.plan.id)]
         )
       }
+      void queryClient.invalidateQueries({
+        queryKey: ["channel-plan", channelId],
+      })
       // Status flips change what the detail view shows (pending approval,
       // fresh artifacts) — refetch those lazily.
       queryClient.invalidateQueries({ queryKey: ["plan", payload.plan.id] })
@@ -77,20 +80,51 @@ export function useChannelPlans(channelId: string) {
   return query
 }
 
-export function usePlanForCard(
+function usePlanForMessage(
   channelId: string,
-  cardMessageId: string
-): ChannelPlan | null {
-  const { data } = useChannelPlans(channelId)
-  return data?.find((t) => t.cardMessageId === cardMessageId) ?? null
+  messageId: string,
+  field: "cardMessageId" | "threadRootId"
+) {
+  const channelPlans = useChannelPlans(channelId)
+  const recentPlan = channelPlans.data?.find(
+    (plan) => plan[field] === messageId
+  )
+  // The channel list is capped at 50; old cards and threads need a direct lookup.
+  const lookup = useQuery({
+    queryKey: ["channel-plan", channelId, messageId],
+    queryFn: async (): Promise<ChannelPlan | null> => {
+      const res = await apiClient.v1.channels[":channelId"].plans.$get({
+        param: { channelId },
+        query: { messageId },
+      })
+      if (!res.ok) throw new Error("Failed to fetch plan details")
+      const payload = await res.json()
+      return (
+        payload.plans.find(
+          (plan) =>
+            plan.cardMessageId === messageId || plan.threadRootId === messageId
+        ) ?? null
+      )
+    },
+    enabled: !recentPlan && !channelPlans.isPending,
+  })
+  const plan = recentPlan ?? lookup.data ?? null
+  return {
+    plan,
+    isPending: !plan && (channelPlans.isPending || lookup.isPending),
+    isError: !plan && lookup.isError,
+    refetch: lookup.refetch,
+  }
 }
 
-// Plan anchored to a thread — the panel re-skin predicate: a thread is a plan
-// thread iff a plan row exists for its root.
+export function usePlanForCard(channelId: string, cardMessageId: string) {
+  return usePlanForMessage(channelId, cardMessageId, "cardMessageId")
+}
+
+// Plan anchored to a thread — including threads older than the channel list.
 export function usePlanForThread(
   channelId: string,
   threadRootId: string
 ): ChannelPlan | null {
-  const { data } = useChannelPlans(channelId)
-  return data?.find((t) => t.threadRootId === threadRootId) ?? null
+  return usePlanForMessage(channelId, threadRootId, "threadRootId").plan
 }

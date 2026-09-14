@@ -135,9 +135,7 @@ export function useThreadActivity({
         const lastReply: ThreadActivityReplyPreview | null = payload.lastReply
           ? {
               content: payload.lastReply.content,
-              authorName:
-                payload.lastReply.author.displayUsername ??
-                payload.lastReply.author.name,
+              authorName: payload.lastReply.author.name,
               hasAttachments: payload.lastReply.hasAttachments,
               mentions: payload.lastReply.mentions,
             }

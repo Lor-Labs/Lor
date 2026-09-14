@@ -18,14 +18,14 @@ if (!userId) {
 }
 
 const fakeUsers = [
-  { name: "Alice Chen", username: "alice", email: "alice@fake.local" },
-  { name: "Bob Martinez", username: "bobm", email: "bob@fake.local" },
-  { name: "Charlie Kim", username: "charliek", email: "charlie@fake.local" },
-  { name: "Dana Patel", username: "danap", email: "dana@fake.local" },
-  { name: "Eli Thompson", username: "elit", email: "eli@fake.local" },
-  { name: "Fay Nakamura", username: "fayn", email: "fay@fake.local" },
-  { name: "Gus Rivera", username: "gusr", email: "gus@fake.local" },
-  { name: "Hana Okonkwo", username: "hanao", email: "hana@fake.local" },
+  { name: "Alice Chen", handle: "alice", email: "alice@fake.local" },
+  { name: "Bob Martinez", handle: "bobm", email: "bob@fake.local" },
+  { name: "Charlie Kim", handle: "charliek", email: "charlie@fake.local" },
+  { name: "Dana Patel", handle: "danap", email: "dana@fake.local" },
+  { name: "Eli Thompson", handle: "elit", email: "eli@fake.local" },
+  { name: "Fay Nakamura", handle: "fayn", email: "fay@fake.local" },
+  { name: "Gus Rivera", handle: "gusr", email: "gus@fake.local" },
+  { name: "Hana Okonkwo", handle: "hanao", email: "hana@fake.local" },
 ]
 
 const lastMessages = [
@@ -130,8 +130,6 @@ async function seed() {
       .values({
         name: fake.name,
         email: fake.email,
-        username: fake.username,
-        displayUsername: fake.username,
         emailVerified: true,
       })
       .returning()
@@ -169,23 +167,24 @@ async function seed() {
       .set({ updatedAt: createdAt })
       .where(eq(channel.id, dmChannel.id))
 
-    console.log(`  ${fake.name} (@${fake.username}): "${lastMessages[i]}"`)
+    console.log(`  ${fake.name} (${fake.handle}): "${lastMessages[i]}"`)
   }
 
   console.log(`\nCreated ${fakeUsers.length} DM conversations`)
 
-  // Build a map of username → user id for group DM membership
+  // Build a map of handle → user id for group DM membership
   const seededUsers = await db
-    .select({ id: user.id, username: user.username })
+    .select({ id: user.id, email: user.email })
     .from(user)
     .where(
       inArray(
-        user.username,
-        fakeUsers.map((u) => u.username)
+        user.email,
+        fakeUsers.map((u) => u.email)
       )
     )
-  const usernameToId = Object.fromEntries(
-    seededUsers.map((u) => [u.username, u.id])
+  const idByEmail = Object.fromEntries(seededUsers.map((u) => [u.email, u.id]))
+  const handleToId = Object.fromEntries(
+    fakeUsers.map((u) => [u.handle, idByEmail[u.email]])
   )
 
   // Create group DMs
@@ -207,9 +206,7 @@ async function seed() {
     // Add the target user + all named members
     const memberIds = [
       userId,
-      ...group.members
-        .map((username) => usernameToId[username])
-        .filter(Boolean),
+      ...group.members.map((handle) => handleToId[handle]).filter(Boolean),
     ]
     await db.insert(channelMember).values(
       memberIds.map((memberId) => ({
@@ -221,7 +218,7 @@ async function seed() {
     // Insert messages with staggered timestamps
     for (let j = 0; j < group.messages.length; j++) {
       const msg = group.messages[j]
-      const authorId = usernameToId[msg.from]
+      const authorId = handleToId[msg.from]
       if (!authorId) continue
       const msgTime = new Date(
         Date.now() - minutesAgo * 60 * 1000 + j * 2 * 60 * 1000

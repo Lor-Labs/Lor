@@ -90,8 +90,6 @@ function replyPreviewText(
     : (mentionCandidates ?? []).map((candidate) => ({
         id: candidate.id,
         name: candidate.name ?? candidate.label,
-        username: candidate.username ?? null,
-        displayUsername: candidate.displayUsername ?? null,
       }))
   const text = toSearchPreviewText(referencedMessage.content, mentions)
   return text.length > PREVIEW_MAX_CHARS
@@ -118,8 +116,7 @@ function ReplyPreview({
   }
 
   const author = referencedMessage.author
-  const referencedName =
-    referencedMessage.overrideName ?? author.displayUsername ?? author.name
+  const referencedName = referencedMessage.overrideName ?? author.name
   const referencedAvatar = referencedMessage.overrideAvatarUrl ?? author.image
   const referencedConnector = referencedMessage.overrideAvatarUrl
     ? null
@@ -280,8 +277,7 @@ export const MessageItem = memo(function MessageItem({
   // Webhook/connector messages render an overridden identity and aren't a
   // real user — no profile popover.
   const isApp = !!message.overrideName || !!message.overrideAvatarUrl
-  const displayName =
-    message.overrideName ?? author.displayUsername ?? author.name
+  const displayName = message.overrideName ?? author.name
   const avatarUrl = message.overrideAvatarUrl ?? author.image
   // Connector-named bot posts ("GitHub", "Linear") wear the provider mark
   // when no uploaded avatar is set.
@@ -299,6 +295,10 @@ export const MessageItem = memo(function MessageItem({
   }, [message.id])
 
   const isOwnMessage = !!currentUserId && currentUserId === message.authorId
+  // Match the broadcast tokens recognized by messaging fanout, including app posts.
+  const hasBroadcastMention = /(^|\s)@(everyone|channel|here)\b/i.test(
+    message.content ?? ""
+  )
   const canWrapUnderAvatar =
     wrapContentAroundAvatar && message.authorId === LOR_USER_ID
   const isReply = message.type === "reply"
@@ -483,7 +483,9 @@ export const MessageItem = memo(function MessageItem({
         "group relative px-4 py-0.5 transition-colors",
         isReplyTarget
           ? "bg-primary/[0.07] before:absolute before:inset-y-0 before:left-0 before:w-[3px] before:bg-primary"
-          : !canWrapUnderAvatar && "hover:bg-muted/30"
+          : hasBroadcastMention
+            ? "bg-gold/10 hover:bg-gold/15 before:pointer-events-none before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-gold"
+            : !canWrapUnderAvatar && "hover:bg-muted/30"
       )}
     >
       <div

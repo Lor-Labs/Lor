@@ -24,6 +24,15 @@ export const channelPlansParamsSchema = z.object({
 })
 
 export const channelPlansQuerySchema = z.object({
+  messageId: z
+    .string()
+    .uuid()
+    .optional()
+    .openapi({
+      param: { name: "messageId", in: "query", required: false },
+      description:
+        "Find the plan for a card message or thread root, including older plans.",
+    }),
   // "true" limits to statuses a team member still needs to watch or act on.
   active: z
     .enum(["true", "false"])
