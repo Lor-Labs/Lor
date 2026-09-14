@@ -1,92 +1,53 @@
 import type { RealtimeMessage } from "@repo/realtime-types"
-import { useCallback, useEffect, useRef } from "react"
+import { useEffect } from "react"
 import { useSocket } from "@/context/socket-context"
 import { useUnread } from "@/context/unread-context"
+import { isAppFocused, subscribeAppFocus } from "@/lib/app-focus"
 
 const DEBOUNCE_MS = 1000
 
 export function useAutoMarkRead(channelId: string | undefined) {
   const { markChannelRead } = useUnread()
   const socket = useSocket()
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const channelIdRef = useRef(channelId)
-  channelIdRef.current = channelId
 
-  const debouncedMarkRead = useCallback(() => {
-    if (!channelIdRef.current) return
-    if (timerRef.current) clearTimeout(timerRef.current)
-    timerRef.current = setTimeout(() => {
-      if (channelIdRef.current) {
-        markChannelRead(channelIdRef.current)
-      }
-    }, DEBOUNCE_MS)
-  }, [markChannelRead])
-
-  // Mark read on mount
   useEffect(() => {
     if (!channelId) return
-    if (document.visibilityState !== "visible") return
-    debouncedMarkRead()
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current)
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const cancelMarkRead = () => {
+      clearTimeout(timer)
+      timer = undefined
     }
-  }, [channelId, debouncedMarkRead])
-
-  // Mark read when tab becomes visible
-  useEffect(() => {
-    if (!channelId) return
-
-    const onVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
-        debouncedMarkRead()
-      }
+    const scheduleMarkRead = () => {
+      cancelMarkRead()
+      if (!isAppFocused()) return
+      timer = setTimeout(() => {
+        // Losing focus during the debounce must not consume unseen messages.
+        if (isAppFocused()) markChannelRead(channelId)
+      }, DEBOUNCE_MS)
     }
-
-    document.addEventListener("visibilitychange", onVisibilityChange)
-    return () => {
-      document.removeEventListener("visibilitychange", onVisibilityChange)
-    }
-  }, [channelId, debouncedMarkRead])
-
-  // Mark read when new messages arrive while focused
-  useEffect(() => {
-    if (!socket || !channelId) return
-
+    const unsubscribeFocus = subscribeAppFocus((focused) => {
+      if (focused) scheduleMarkRead()
+      else cancelMarkRead()
+    })
     const onMessageCreated = (message: RealtimeMessage) => {
-      if (
-        message.channelId === channelIdRef.current &&
-        document.visibilityState === "visible"
-      ) {
-        debouncedMarkRead()
-      }
+      if (message.channelId === channelId) scheduleMarkRead()
     }
-
-    socket.on("message:created", onMessageCreated)
-    return () => {
-      socket.off("message:created", onMessageCreated)
-    }
-  }, [socket, channelId, debouncedMarkRead])
-
-  // Thread replies broadcast to the thread room only, so they never hit
-  // `message:created` here. Advance the channel read state on the lightweight
-  // `message:thread:updated` too so the sidebar unread badge doesn't light up
-  // for a reply you watched land. (Thread-activity freshness is separate —
-  // it's per-thread via thread_read_state, not channel read state.)
-  useEffect(() => {
-    if (!socket || !channelId) return
-
+    // Thread replies only broadcast to their own room; the channel receives
+    // the summary event instead. Per-thread read state remains separate.
     const onThreadUpdated = (payload: { channelId: string }) => {
-      if (
-        payload.channelId === channelIdRef.current &&
-        document.visibilityState === "visible"
-      ) {
-        debouncedMarkRead()
-      }
+      if (payload.channelId === channelId) scheduleMarkRead()
     }
 
-    socket.on("message:thread:updated", onThreadUpdated)
+    scheduleMarkRead()
+    socket?.on("message:created", onMessageCreated)
+    socket?.on("message:thread:updated", onThreadUpdated)
+    socket?.on("notification:bootstrap", scheduleMarkRead)
     return () => {
-      socket.off("message:thread:updated", onThreadUpdated)
+      cancelMarkRead()
+      unsubscribeFocus()
+      socket?.off("message:created", onMessageCreated)
+      socket?.off("message:thread:updated", onThreadUpdated)
+      socket?.off("notification:bootstrap", scheduleMarkRead)
     }
-  }, [socket, channelId, debouncedMarkRead])
+  }, [channelId, socket, markChannelRead])
 }
