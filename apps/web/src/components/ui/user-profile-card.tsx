@@ -70,7 +70,7 @@ function ProfileCardContent({
 
   if (isPending) {
     return (
-      <div className="flex flex-col">
+      <div className="flex w-full flex-col">
         <Skeleton className="-mx-4 -mt-4 h-14 rounded-none rounded-t-[calc(var(--radius-lg)-1px)]" />
         <Skeleton className="-mt-7 mb-3 size-16 rounded-full ring-4 ring-popover" />
         <div className="space-y-1.5">
@@ -97,7 +97,7 @@ function ProfileCardContent({
   const banner = getAvatarColorStyle(avatarColor, user.name)
 
   return (
-    <div className="flex flex-col">
+    <div className="flex w-full flex-col">
       <div
         className={cn(
           "-mx-4 -mt-4 h-14 rounded-t-[calc(var(--radius-lg)-1px)]",
