@@ -12,6 +12,7 @@ import { workspaceAuthMiddleware } from "@/middleware/workspace-auth"
 import {
   channelConnectorParamsSchema,
   channelParamsSchema,
+  channelReadPositionResponseSchema,
   channelResponseSchema,
   connectorFilesQuerySchema,
   connectorSearchQuerySchema,
@@ -176,6 +177,26 @@ export const updateChannel = createRoute({
     [HttpStatusCodes.OK]: jsonContent({
       schema: updateChannelResponseSchema,
       description: "Updated channel",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export const getChannelReadPosition = createRoute({
+  path: "/workspaces/{workspaceSlug}/channels/{channelId}/read-position",
+  method: "get",
+  summary: "Get the first unread channel message",
+  tags: ["Channels"],
+  middleware: [workspaceAuthMiddleware] as const,
+  request: { params: channelParamsSchema },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: channelReadPositionResponseSchema,
+      description: "Unread boundary before marking the channel read",
     }),
     [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
     [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
@@ -439,6 +460,7 @@ export type ListChannelsRoute = typeof listChannels
 export type CreateChannelRoute = typeof createChannel
 export type ReorderChannelsRoute = typeof reorderChannels
 export type GetChannelRoute = typeof getChannel
+export type GetChannelReadPositionRoute = typeof getChannelReadPosition
 export type UpdateChannelRoute = typeof updateChannel
 export type DeleteChannelRoute = typeof deleteChannel
 export type ListChannelMessagesRoute = typeof listChannelMessages

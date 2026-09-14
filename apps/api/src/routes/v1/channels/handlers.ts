@@ -4,6 +4,7 @@ import type { IntegrationProvider } from "@repo/db/schema"
 import {
   agentProfile,
   channel,
+  channelReadState,
   message,
   messageMention,
   messageReaction,
@@ -22,7 +23,7 @@ import {
   userRoom,
 } from "@repo/realtime-types"
 import { Emitter } from "@socket.io/redis-emitter"
-import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm"
+import { and, asc, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm"
 import { getEmitter } from "@/lib/bot-messages"
 import { allowedChannelConnectors } from "@/lib/channel-connectors"
 import { emitChannelCreated, postChannelEvent } from "@/lib/channel-events"
@@ -43,6 +44,7 @@ import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
   CreateChannelRoute,
   DeleteChannelRoute,
+  GetChannelReadPositionRoute,
   GetChannelRoute,
   GetMessageLocationRoute,
   ListChannelConnectorsRoute,
@@ -513,6 +515,53 @@ export const deleteChannel: AppRouteHandler<DeleteChannelRoute> = async (c) => {
   }
 
   return c.json({ success: true }, HttpStatusCodes.OK)
+}
+
+export const getChannelReadPosition: AppRouteHandler<
+  GetChannelReadPositionRoute
+> = async (c) => {
+  const { channelId } = c.req.valid("param")
+  const userId = c.var.user.id
+  const ch = await db.query.channel.findFirst({
+    columns: { id: true },
+    where: and(
+      eq(channel.id, channelId),
+      eq(channel.workspaceId, c.var.workspace.id)
+    ),
+  })
+  if (!ch || !(await userCanAccessChannel(channelId, userId))) {
+    return c.json(
+      { success: false, message: "Channel not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+
+  // Compare in Postgres to preserve timestamp precision. The read cursor may
+  // reference a deleted message or a reply that isn't in the channel feed.
+  const [firstUnread] = await db
+    .select({ id: message.id })
+    .from(message)
+    .where(
+      and(
+        eq(message.channelId, channelId),
+        isNull(message.threadRootId),
+        ne(message.authorId, userId),
+        ne(message.type, "event"),
+        sql`${message.createdAt} > coalesce((
+        select ${channelReadState.lastReadAt} from ${channelReadState}
+        where ${channelReadState.channelId} = ${channelId}
+          and ${channelReadState.userId} = ${userId}
+      ), 'epoch'::timestamp)`
+      )
+    )
+    .orderBy(asc(message.createdAt), asc(message.id))
+    .limit(1)
+
+  c.header("Cache-Control", "no-store")
+  return c.json(
+    { firstUnreadMessageId: firstUnread?.id ?? null },
+    HttpStatusCodes.OK
+  )
 }
 
 export const listChannelMessages: AppRouteHandler<

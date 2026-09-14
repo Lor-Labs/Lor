@@ -75,6 +75,8 @@ interface MessageListProps {
   onJumpToPresent?: () => void
   /** Message to center after an anchored/permalink page has mounted. */
   scrollTargetId?: string | null
+  firstUnreadMessageId?: string | null
+  highlightScrollTarget?: boolean
   /**
    * Clicking a reply preview / citation jumps to the referenced message id.
    * The route translates this into URL-anchor navigation; MessageList just
@@ -199,6 +201,8 @@ export function MessageList({
   pendingCount = 0,
   onJumpToPresent,
   scrollTargetId,
+  firstUnreadMessageId,
+  highlightScrollTarget = true,
   onJumpToMessage,
   replyingToId,
   threadActivities,
@@ -457,6 +461,8 @@ export function MessageList({
       <MessageScrollerCommandBridge register={registerActiveScrollCommand} />
       <MessageScrollTarget
         messageId={scrollTargetId}
+        highlight={highlightScrollTarget}
+        align={highlightScrollTarget ? "center" : "start"}
         contentVersion={contentVersion}
         containerRef={scrollRef}
       />
@@ -547,6 +553,7 @@ export function MessageList({
               }
 
               const showHeader =
+                msg.id === firstUnreadMessageId ||
                 isDateBoundary ||
                 !previous ||
                 previous.authorId !== msg.authorId ||
@@ -560,6 +567,20 @@ export function MessageList({
                 <MessageScrollerItem key={msg.id} messageId={msg.id}>
                   {olderLoader}
                   {isDateBoundary && <DateDivider date={msg.createdAt} />}
+                  {msg.id === firstUnreadMessageId && (
+                    <div className="mx-4 my-3 flex items-center gap-2 text-red-500">
+                      <hr
+                        aria-label="New messages"
+                        className="flex-1 border-current"
+                      />
+                      <span
+                        aria-hidden="true"
+                        className="text-[10px] font-bold leading-none"
+                      >
+                        NEW
+                      </span>
+                    </div>
+                  )}
                   <MessageItem
                     message={msg}
                     showHeader={showHeader}

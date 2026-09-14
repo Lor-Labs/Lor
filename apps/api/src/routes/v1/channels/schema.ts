@@ -37,6 +37,10 @@ export const channelParamsSchema = workspaceSlugParamsSchema.extend({
 
 export const channelResponseSchema = selectChannelSchema
 
+export const channelReadPositionResponseSchema = z.object({
+  firstUnreadMessageId: z.string().uuid().nullable(),
+})
+
 export const categoryWithChannelsSchema = selectChannelSchema.extend({
   channels: z.array(selectChannelSchema),
 })

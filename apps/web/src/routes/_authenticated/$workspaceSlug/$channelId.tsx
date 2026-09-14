@@ -23,6 +23,7 @@ import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-
 import { useSocket } from "@/context/socket-context"
 import { useChannelApprovals } from "@/hooks/use-approvals"
 import { useAutoMarkRead } from "@/hooks/use-auto-mark-read"
+import { useChannelEntry } from "@/hooks/use-channel-entry"
 import { useChannelMessages } from "@/hooks/use-channel-messages"
 import { useChannelPlans } from "@/hooks/use-channel-plans"
 import { useFileUpload } from "@/hooks/use-file-upload"
@@ -79,7 +80,8 @@ function ChannelView() {
   const navigate = Route.useNavigate()
   const socket = useSocket()
   const isMobile = useIsMobile()
-  useAutoMarkRead(channelId)
+  const entry = useChannelEntry(workspaceSlug, channelId)
+  useAutoMarkRead(entry.ready ? channelId : undefined)
   const queryClient = useQueryClient()
   const { view, setView, clearView, isCollapsed, toggleCollapsed, panelWidth } =
     useRightSidebar()
@@ -216,17 +218,31 @@ function ChannelView() {
     clearPending,
   } = useChannelMessages({
     channelId,
-    anchor: msgId,
+    anchor: msgId ?? entry.anchor,
     fetchPage: fetchMessagesPage,
-    enabled: !!data,
+    enabled: !!data && entry.ready,
     socket,
     pendingNoncesRef: pendingNonces,
   })
 
+  useEffect(() => {
+    // The entry message can be deleted between resolving it and loading history.
+    if (entry.anchor && !msgId && !messagesLoading && messages.length === 0) {
+      entry.jumpToPresent()
+    }
+  }, [
+    entry.anchor,
+    entry.jumpToPresent,
+    msgId,
+    messagesLoading,
+    messages.length,
+  ])
+
   const handleJumpToPresent = useCallback(() => {
+    entry.jumpToPresent()
     clearPending()
     void navigate({ search: {}, replace: true })
-  }, [clearPending, navigate])
+  }, [clearPending, navigate, entry.jumpToPresent])
 
   const handleJumpToMessage = useCallback(
     (messageId: string) => {
@@ -566,7 +582,9 @@ function ChannelView() {
         isFetchingNewer={isFetchingNewer}
         pendingCount={pendingCount}
         onJumpToPresent={isAtPresent ? undefined : handleJumpToPresent}
-        scrollTargetId={msgId}
+        scrollTargetId={msgId ?? entry.anchor}
+        firstUnreadMessageId={entry.firstUnreadMessageId}
+        highlightScrollTarget={Boolean(msgId)}
         onJumpToMessage={handleJumpToMessage}
         onReplyInThread={handleReplyInThread}
         onOpenThread={handleOpenThread}
@@ -582,7 +600,7 @@ function ChannelView() {
         onTogglePin={handleTogglePin}
         canPin={canPin}
         mentionCandidates={mentionCandidates}
-        isLoading={messagesLoading}
+        isLoading={messagesLoading || !entry.ready}
       />
       <TypingIndicator users={typingUsers} />
       <RunQueuePill

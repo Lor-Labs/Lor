@@ -1,5 +1,5 @@
 import type { RealtimeMessage } from "@repo/realtime-types"
-import { useEffect, useRef } from "react"
+import { useCallback, useEffect, useRef } from "react"
 import { useSocket } from "@/context/socket-context"
 import { useUnread } from "@/context/unread-context"
 
@@ -12,7 +12,7 @@ export function useAutoMarkRead(channelId: string | undefined) {
   const channelIdRef = useRef(channelId)
   channelIdRef.current = channelId
 
-  const debouncedMarkRead = () => {
+  const debouncedMarkRead = useCallback(() => {
     if (!channelIdRef.current) return
     if (timerRef.current) clearTimeout(timerRef.current)
     timerRef.current = setTimeout(() => {
@@ -20,7 +20,7 @@ export function useAutoMarkRead(channelId: string | undefined) {
         markChannelRead(channelIdRef.current)
       }
     }, DEBOUNCE_MS)
-  }
+  }, [markChannelRead])
 
   // Mark read on mount
   useEffect(() => {
@@ -30,7 +30,7 @@ export function useAutoMarkRead(channelId: string | undefined) {
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current)
     }
-  }, [channelId])
+  }, [channelId, debouncedMarkRead])
 
   // Mark read when tab becomes visible
   useEffect(() => {
@@ -46,7 +46,7 @@ export function useAutoMarkRead(channelId: string | undefined) {
     return () => {
       document.removeEventListener("visibilitychange", onVisibilityChange)
     }
-  }, [channelId])
+  }, [channelId, debouncedMarkRead])
 
   // Mark read when new messages arrive while focused
   useEffect(() => {
@@ -65,7 +65,7 @@ export function useAutoMarkRead(channelId: string | undefined) {
     return () => {
       socket.off("message:created", onMessageCreated)
     }
-  }, [socket, channelId])
+  }, [socket, channelId, debouncedMarkRead])
 
   // Thread replies broadcast to the thread room only, so they never hit
   // `message:created` here. Advance the channel read state on the lightweight
@@ -88,5 +88,5 @@ export function useAutoMarkRead(channelId: string | undefined) {
     return () => {
       socket.off("message:thread:updated", onThreadUpdated)
     }
-  }, [socket, channelId])
+  }, [socket, channelId, debouncedMarkRead])
 }
