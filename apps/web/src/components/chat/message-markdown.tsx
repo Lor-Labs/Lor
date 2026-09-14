@@ -264,11 +264,11 @@ export const MessageMarkdown = memo(function MessageMarkdown({
             {children}
           </span>
         )
-        if (!id) return pill
+        const mention = id ? mentionById.get(id) : undefined
+        if (!(id && mention)) return pill
 
-        const mention = mentionById.get(id)
         return (
-          <UserHoverCard avatarColor={mention?.avatarColor} userId={id}>
+          <UserHoverCard avatarColor={mention.avatarColor} userId={id}>
             {pill}
           </UserHoverCard>
         )
