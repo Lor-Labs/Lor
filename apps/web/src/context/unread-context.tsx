@@ -1,3 +1,8 @@
+import type {
+  ChannelReadState,
+  NotificationBootstrap,
+  UnreadNotification,
+} from "@repo/realtime-types"
 import type { ReactNode } from "react"
 import {
   createContext,
@@ -11,150 +16,202 @@ import { useSocket } from "@/context/socket-context"
 type UnreadState = {
   unreadCount: number
   mentionCount: number
+  lastReadMessageId?: string | null
+  lastReadAt?: string
+  // undefined = unknown; null = no unread feed message.
+  firstUnreadMessageId?: string | null
 }
 
-type UnreadContextValue = {
+type UnreadSnapshot = {
   stateMap: Map<string, UnreadState>
+  initialized: boolean
+}
+
+type UnreadContextValue = UnreadSnapshot & {
   markChannelRead: (channelId: string, lastReadMessageId?: string) => void
 }
 
 const UnreadContext = createContext<UnreadContextValue>({
   stateMap: new Map(),
+  initialized: false,
   markChannelRead: () => {},
 })
 
 export function useUnread() {
-  const { stateMap, markChannelRead } = useContext(UnreadContext)
+  const { stateMap, initialized, markChannelRead } = useContext(UnreadContext)
 
   const getUnreadCount = useCallback(
     (channelId: string) => stateMap.get(channelId)?.unreadCount ?? 0,
     [stateMap]
   )
-
   const getMentionCount = useCallback(
     (channelId: string) => stateMap.get(channelId)?.mentionCount ?? 0,
     [stateMap]
   )
+  const getFirstUnreadMessageId = useCallback(
+    (channelId: string) => {
+      const state = stateMap.get(channelId)
+      return state ? state.firstUnreadMessageId : initialized ? null : undefined
+    },
+    [stateMap, initialized]
+  )
 
-  return { getUnreadCount, getMentionCount, markChannelRead }
+  return {
+    getUnreadCount,
+    getMentionCount,
+    getFirstUnreadMessageId,
+    markChannelRead,
+  }
+}
+
+function emptyState(initialized: boolean): UnreadState {
+  return {
+    unreadCount: 0,
+    mentionCount: 0,
+    firstUnreadMessageId: initialized ? null : undefined,
+  }
 }
 
 export function UnreadProvider({ children }: { children: ReactNode }) {
   const socket = useSocket()
-  const [stateMap, setStateMap] = useState<Map<string, UnreadState>>(
-    () => new Map()
-  )
+  const [snapshot, setSnapshot] = useState<UnreadSnapshot>(() => ({
+    stateMap: new Map(),
+    initialized: false,
+  }))
 
   useEffect(() => {
     if (!socket) return
 
-    const onBootstrap = (payload: {
-      readStates: Array<{
-        channelId: string
-        unreadCount: number
-        mentionCount: number
-        lastReadMessageId: string | null
-      }>
-    }) => {
-      const newMap = new Map<string, UnreadState>()
+    const onBootstrap = (payload: NotificationBootstrap) => {
+      const stateMap = new Map<string, UnreadState>()
       for (const rs of payload.readStates) {
-        newMap.set(rs.channelId, {
+        stateMap.set(rs.channelId, {
           unreadCount: rs.unreadCount,
           mentionCount: rs.mentionCount,
+          lastReadMessageId: rs.lastReadMessageId,
+          firstUnreadMessageId: rs.firstUnreadMessageId,
         })
       }
-      setStateMap(newMap)
+      setSnapshot({ stateMap, initialized: true })
     }
 
-    const onUnread = (payload: {
-      channelId: string
-      unreadCountDelta: number
-    }) => {
-      setStateMap((prev) => {
-        const next = new Map(prev)
-        const current = next.get(payload.channelId) ?? {
-          unreadCount: 0,
-          mentionCount: 0,
-        }
-        next.set(payload.channelId, {
+    const onUnread = (payload: UnreadNotification) => {
+      setSnapshot((prev) => {
+        const stateMap = new Map(prev.stateMap)
+        const current =
+          stateMap.get(payload.channelId) ?? emptyState(prev.initialized)
+        const isFeedMessage =
+          !payload.threadRootId && payload.messageType !== "event"
+        stateMap.set(payload.channelId, {
           ...current,
           unreadCount: current.unreadCount + payload.unreadCountDelta,
+          // Keep the earliest boundary while away, even after more messages arrive.
+          firstUnreadMessageId:
+            current.firstUnreadMessageId === null && isFeedMessage
+              ? payload.messageId
+              : current.firstUnreadMessageId,
         })
-        return next
+        return { ...prev, stateMap }
       })
     }
 
     const onMention = (payload: { channelId: string }) => {
-      setStateMap((prev) => {
-        const next = new Map(prev)
-        const current = next.get(payload.channelId) ?? {
-          unreadCount: 0,
-          mentionCount: 0,
-        }
-        next.set(payload.channelId, {
+      setSnapshot((prev) => {
+        const stateMap = new Map(prev.stateMap)
+        const current =
+          stateMap.get(payload.channelId) ?? emptyState(prev.initialized)
+        stateMap.set(payload.channelId, {
           ...current,
           mentionCount: current.mentionCount + 1,
         })
-        return next
+        return { ...prev, stateMap }
       })
     }
 
-    const onReadState = (payload: {
-      channelId: string
-      unreadCount: number
-      mentionCount: number
-    }) => {
-      setStateMap((prev) => {
-        const next = new Map(prev)
-        if (payload.unreadCount === 0 && payload.mentionCount === 0) {
-          next.delete(payload.channelId)
-        } else {
-          next.set(payload.channelId, {
-            unreadCount: payload.unreadCount,
-            mentionCount: payload.mentionCount,
-          })
-        }
-        return next
+    const onReadState = (payload: ChannelReadState) => {
+      setSnapshot((prev) => {
+        const current = prev.stateMap.get(payload.channelId)
+        if (current?.lastReadAt && current.lastReadAt > payload.lastReadAt)
+          return prev
+        const stateMap = new Map(prev.stateMap)
+        stateMap.set(payload.channelId, {
+          unreadCount: payload.unreadCount,
+          mentionCount: payload.mentionCount,
+          lastReadMessageId: payload.lastReadMessageId,
+          lastReadAt: payload.lastReadAt,
+          firstUnreadMessageId:
+            payload.unreadCount === 0 ? null : payload.firstUnreadMessageId,
+        })
+        return { ...prev, stateMap }
       })
+    }
+
+    const onDisconnect = () => {
+      setSnapshot((prev) => ({
+        initialized: false,
+        stateMap: new Map(
+          [...prev.stateMap].map(([channelId, state]) => [
+            channelId,
+            { ...state, firstUnreadMessageId: undefined },
+          ])
+        ),
+      }))
     }
 
     socket.on("notification:bootstrap", onBootstrap)
     socket.on("notification:unread", onUnread)
     socket.on("notification:mention", onMention)
     socket.on("channel:read-state", onReadState)
-
+    socket.on("disconnect", onDisconnect)
     return () => {
       socket.off("notification:bootstrap", onBootstrap)
       socket.off("notification:unread", onUnread)
       socket.off("notification:mention", onMention)
       socket.off("channel:read-state", onReadState)
+      socket.off("disconnect", onDisconnect)
     }
   }, [socket])
 
   const markChannelRead = useCallback(
     (channelId: string, lastReadMessageId?: string) => {
-      if (!socket) return
+      if (!socket?.connected) return
 
-      let snapshot: UnreadState | undefined
-      setStateMap((prev) => {
-        const next = new Map(prev)
-        snapshot = prev.get(channelId)
-        next.delete(channelId)
-        return next
+      let previous: UnreadState | undefined
+      setSnapshot((prev) => {
+        const stateMap = new Map(prev.stateMap)
+        previous = stateMap.get(channelId)
+        // Retain the known read baseline for the next realtime notification.
+        stateMap.set(channelId, {
+          ...previous,
+          unreadCount: 0,
+          mentionCount: 0,
+          firstUnreadMessageId: lastReadMessageId ? undefined : null,
+        })
+        return { ...prev, stateMap }
       })
 
       socket.emit(
         "channel:mark-read",
         { channelId, lastReadMessageId },
-        (res: { ok: boolean }) => {
-          if (!res.ok && snapshot) {
-            const restore = snapshot
-            setStateMap((prev) => {
-              const next = new Map(prev)
-              next.set(channelId, restore)
-              return next
+        (res) => {
+          if (res.ok || !previous) return
+          const restore = previous
+          setSnapshot((prev) => {
+            const current = prev.stateMap.get(channelId)
+            // A later read from another tab/device supersedes this failed attempt.
+            if (current?.lastReadAt !== restore.lastReadAt) return prev
+            const stateMap = new Map(prev.stateMap)
+            stateMap.set(channelId, {
+              ...restore,
+              unreadCount: restore.unreadCount + (current?.unreadCount ?? 0),
+              mentionCount: restore.mentionCount + (current?.mentionCount ?? 0),
+              firstUnreadMessageId:
+                restore.firstUnreadMessageId === null
+                  ? current?.firstUnreadMessageId
+                  : restore.firstUnreadMessageId,
             })
-          }
+            return { ...prev, stateMap }
+          })
         }
       )
     },
@@ -162,7 +219,7 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
   )
 
   return (
-    <UnreadContext.Provider value={{ stateMap, markChannelRead }}>
+    <UnreadContext.Provider value={{ ...snapshot, markChannelRead }}>
       {children}
     </UnreadContext.Provider>
   )

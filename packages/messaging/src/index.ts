@@ -39,6 +39,7 @@ type FanoutChannel = {
 
 type FanoutMessage = {
   id: string
+  type?: UnreadNotification["messageType"]
   content: string | null
   author: { name: string; image?: string | null }
   attachments: readonly unknown[]
@@ -488,6 +489,7 @@ export async function buildMessageFanout(input: MessageFanoutInput) {
         channelId: input.channel.id,
         workspaceId: input.channel.workspaceId,
         messageId: input.message.id,
+        messageType: input.message.type,
         threadRootId: threadContext.threadRootId,
         isLorThread: threadContext.isLorThread,
         isSubscribedToThread: threadContext.subscribedUserIds.has(userId),

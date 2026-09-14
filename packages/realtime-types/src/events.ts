@@ -291,6 +291,7 @@ export type ChannelReadState = {
   channelId: string
   lastReadMessageId: string | null
   lastReadAt: string
+  firstUnreadMessageId?: string | null
   unreadCount: number
   mentionCount: number
 }
@@ -318,6 +319,7 @@ export type UnreadNotification = {
   channelId: string
   workspaceId: string | null
   messageId: string
+  messageType?: RealtimeMessageType
   threadRootId: string | null
   isLorThread: boolean
   isSubscribedToThread: boolean
@@ -462,6 +464,7 @@ export type NotificationBootstrap = {
     unreadCount: number
     mentionCount: number
     lastReadMessageId: string | null
+    firstUnreadMessageId?: string | null
   }>
 }
 
