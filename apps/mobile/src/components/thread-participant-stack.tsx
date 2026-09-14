@@ -130,5 +130,5 @@ function PresenceAvatar({
 }
 
 function participantName(participant: ThreadParticipant) {
-  return participant.displayUsername ?? participant.name
+  return participant.name
 }

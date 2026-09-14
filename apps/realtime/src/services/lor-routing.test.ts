@@ -7,8 +7,6 @@ function referencedMessage(authorId: string) {
     author: {
       id: authorId,
       name: "Author",
-      username: null,
-      displayUsername: null,
       image: null,
     },
   }

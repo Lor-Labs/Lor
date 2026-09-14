@@ -64,8 +64,6 @@ function toWorkspaceMemberPresence(
   member: {
     userId: string
     name: string
-    username: string | null
-    displayUsername: string | null
     image: string | null
     avatarColor: string
     role: string
@@ -79,8 +77,6 @@ function toWorkspaceMemberPresence(
   return {
     userId: member.userId,
     name: member.name,
-    username: member.username,
-    displayUsername: member.displayUsername,
     image: member.image,
     avatarColor: member.avatarColor,
     role: member.role,
@@ -96,8 +92,6 @@ async function getWorkspaceMemberRow(workspaceId: string, userId: string) {
       userId: schema.workspaceMember.userId,
       role: schema.workspaceMember.role,
       name: schema.user.name,
-      username: schema.user.username,
-      displayUsername: schema.user.displayUsername,
       image: schema.user.image,
       avatarColor: schema.workspaceMember.avatarColor,
       isBot: schema.user.isBot,
@@ -124,8 +118,6 @@ export const listWorkspaceMembers: AppRouteHandler<
       userId: schema.workspaceMember.userId,
       role: schema.workspaceMember.role,
       name: schema.user.name,
-      username: schema.user.username,
-      displayUsername: schema.user.displayUsername,
       image: schema.user.image,
       avatarColor: schema.workspaceMember.avatarColor,
       isBot: schema.user.isBot,
@@ -487,8 +479,6 @@ export const searchMessages: AppRouteHandler<SearchMessagesRoute> = async (
         author: {
           id: schema.user.id,
           name: schema.user.name,
-          username: schema.user.username,
-          displayUsername: schema.user.displayUsername,
           image: schema.user.image,
         },
       })
@@ -510,8 +500,6 @@ export const searchMessages: AppRouteHandler<SearchMessagesRoute> = async (
             messageId: schema.messageMention.messageId,
             id: schema.user.id,
             name: schema.user.name,
-            username: schema.user.username,
-            displayUsername: schema.user.displayUsername,
             image: schema.user.image,
           })
           .from(schema.messageMention)
@@ -557,16 +545,12 @@ export const searchMessages: AppRouteHandler<SearchMessagesRoute> = async (
         author: {
           id: msg.author.id,
           name: msg.author.name,
-          username: msg.author.username,
-          displayUsername: msg.author.displayUsername,
           image: msg.author.image,
           avatarColor: avatarColorByUserId.get(msg.author.id) ?? null,
         },
         mentions: (mentionsByMessageId.get(msg.id) ?? []).map((mention) => ({
           id: mention.id,
           name: mention.name,
-          username: mention.username,
-          displayUsername: mention.displayUsername,
           image: mention.image,
           avatarColor: avatarColorByUserId.get(mention.id) ?? null,
         })),

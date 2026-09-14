@@ -171,8 +171,6 @@ export function createOptimisticMessage({
   author: {
     id: string
     name: string
-    username?: string | null
-    displayUsername?: string | null
     image?: string | null
   }
   threadRootId?: string | null
@@ -192,8 +190,6 @@ export function createOptimisticMessage({
     author: {
       id: author.id,
       name: author.name,
-      username: author.username ?? null,
-      displayUsername: author.displayUsername ?? null,
       image: author.image ?? null,
     },
     referencedMessageId: referencedMessage?.id ?? null,

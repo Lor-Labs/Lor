@@ -77,8 +77,6 @@ async function loadReferencedMessage(
       content: schema.message.content,
       authorId: schema.user.id,
       authorName: schema.user.name,
-      authorUsername: schema.user.username,
-      authorDisplayUsername: schema.user.displayUsername,
       authorImage: schema.user.image,
       overrideName: schema.message.overrideName,
       overrideAvatarUrl: schema.message.overrideAvatarUrl,
@@ -96,8 +94,6 @@ async function loadReferencedMessage(
     .select({
       id: schema.user.id,
       name: schema.user.name,
-      username: schema.user.username,
-      displayUsername: schema.user.displayUsername,
       image: schema.user.image,
     })
     .from(schema.messageMention)
@@ -142,8 +138,6 @@ async function loadReferencedMessage(
     author: {
       id: refMsg.authorId,
       name: refMsg.authorName,
-      username: refMsg.authorUsername,
-      displayUsername: refMsg.authorDisplayUsername,
       image: refMsg.authorImage,
       avatarColor: await workspaceAvatarColor(workspaceId, refMsg.authorId),
     },
@@ -178,8 +172,6 @@ export async function loadMessageByClientKey(args: {
       pinned: schema.message.pinned,
       authorId: schema.user.id,
       authorName: schema.user.name,
-      authorUsername: schema.user.username,
-      authorDisplayUsername: schema.user.displayUsername,
       authorImage: schema.user.image,
     })
     .from(schema.message)
@@ -199,8 +191,6 @@ export async function loadMessageByClientKey(args: {
     .select({
       id: schema.user.id,
       name: schema.user.name,
-      username: schema.user.username,
-      displayUsername: schema.user.displayUsername,
       image: schema.user.image,
     })
     .from(schema.messageMention)
@@ -227,8 +217,6 @@ export async function loadMessageByClientKey(args: {
     author: {
       id: row.authorId,
       name: row.authorName,
-      username: row.authorUsername,
-      displayUsername: row.authorDisplayUsername,
       image: row.authorImage,
       avatarColor: await workspaceAvatarColor(args.workspaceId, row.authorId),
     },
@@ -412,8 +400,6 @@ export async function createMessage(input: CreateMessageInput) {
           createdAt: schema.message.createdAt,
           authorId: schema.user.id,
           authorName: schema.user.name,
-          authorUsername: schema.user.username,
-          authorDisplayUsername: schema.user.displayUsername,
           authorImage: schema.user.image,
         })
         .from(schema.message)
@@ -472,8 +458,6 @@ export async function createMessage(input: CreateMessageInput) {
     author: {
       id: messageWithAuthor.authorId,
       name: messageWithAuthor.authorName,
-      username: messageWithAuthor.authorUsername,
-      displayUsername: messageWithAuthor.authorDisplayUsername,
       image: messageWithAuthor.authorImage,
       avatarColor: authorAvatarColor,
     },
@@ -692,8 +676,6 @@ export async function toggleMessageReaction(input: ToggleMessageReactionInput) {
         .select({
           id: schema.user.id,
           name: schema.user.name,
-          username: schema.user.username,
-          displayUsername: schema.user.displayUsername,
         })
         .from(schema.messageMention)
         .innerJoin(

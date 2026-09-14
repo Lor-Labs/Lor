@@ -18,8 +18,6 @@ import {
 export type ThreadActivityMention = {
   id: string
   name: string
-  username: string | null
-  displayUsername: string | null
   image: string | null
 }
 
@@ -33,7 +31,6 @@ export type ThreadActivityItem = {
   participants: Array<{
     id: string
     name: string
-    displayUsername: string | null
     image: string | null
   }>
   lastReply: {
@@ -41,8 +38,6 @@ export type ThreadActivityItem = {
     author: {
       id: string
       name: string
-      username: string | null
-      displayUsername: string | null
       image: string | null
     }
     hasAttachments: boolean
@@ -205,8 +200,6 @@ export async function fetchChannelThreadActivity({
         attachments: message.attachments,
         authorId: user.id,
         authorName: user.name,
-        authorUsername: user.username,
-        authorDisplayUsername: user.displayUsername,
         authorImage: user.image,
       })
       .from(message)
@@ -239,7 +232,6 @@ export async function fetchChannelThreadActivity({
     list.push({
       id: row.authorId,
       name: row.authorName,
-      displayUsername: row.authorDisplayUsername,
       image: row.authorImage,
     })
     participantsByRoot.set(row.threadRootId, list)
@@ -267,8 +259,6 @@ export async function fetchChannelThreadActivity({
           messageId: messageMention.messageId,
           id: user.id,
           name: user.name,
-          username: user.username,
-          displayUsername: user.displayUsername,
           image: user.image,
         })
         .from(messageMention)
@@ -286,8 +276,6 @@ export async function fetchChannelThreadActivity({
     list.push({
       id: row.id,
       name: row.name,
-      username: row.username,
-      displayUsername: row.displayUsername,
       image: row.image,
     })
     mentionsByMessageId.set(row.messageId, list)
@@ -310,8 +298,6 @@ export async function fetchChannelThreadActivity({
         author: {
           id: latest.authorId,
           name: latest.authorName,
-          username: latest.authorUsername,
-          displayUsername: latest.authorDisplayUsername,
           image: latest.authorImage,
         },
         hasAttachments: attachments.length > 0,

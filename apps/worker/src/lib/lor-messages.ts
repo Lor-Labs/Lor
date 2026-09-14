@@ -23,8 +23,6 @@ export async function loadLorAuthor() {
     .select({
       id: schema.user.id,
       name: schema.user.name,
-      username: schema.user.username,
-      displayUsername: schema.user.displayUsername,
       image: schema.user.image,
     })
     .from(schema.user)

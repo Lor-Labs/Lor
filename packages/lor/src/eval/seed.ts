@@ -25,8 +25,6 @@ async function ensureLorUser(): Promise<void> {
       id: LOR_USER_ID,
       name: "Lor",
       email: "lor@lor.chat",
-      username: "lor",
-      displayUsername: "Lor",
       emailVerified: true,
       onboardingCompleted: true,
       isBot: true,
@@ -45,7 +43,6 @@ export async function seedEvalWorkspace(): Promise<SeededWorkspace> {
       .values({
         name: userName,
         email: `eval+${stamp}@lor.chat`,
-        username: `eval_${stamp}`,
         emailVerified: true,
       })
       .returning({ id: schema.user.id }),

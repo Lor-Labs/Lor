@@ -33,8 +33,6 @@ import type { AppSocket } from "@/lib/socket"
 type CurrentUser = {
   id: string
   name: string
-  username?: string | null
-  displayUsername?: string | null
   image?: string | null
 }
 

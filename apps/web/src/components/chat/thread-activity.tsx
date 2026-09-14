@@ -20,11 +20,7 @@ function renderMentions(content: string, mentions: Message["mentions"]) {
   const byId = new Map(mentions.map((m) => [m.id, m]))
   return content.replace(STORED_MENTION_REGEX, (_match, id: string) => {
     const mention = byId.get(id)
-    const label =
-      mention?.displayUsername ??
-      mention?.username ??
-      mention?.name ??
-      "unknown"
+    const label = mention?.name ?? "unknown"
     return `@${label}`
   })
 }

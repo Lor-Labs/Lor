@@ -19,8 +19,6 @@ interface MessagePage {
 interface MessageSenderUser {
   id: string
   name: string
-  username?: string | null
-  displayUsername?: string | null
   image?: string | null
 }
 
@@ -163,8 +161,6 @@ export function useMessageSending({
       const author = {
         id: currentUser.id,
         name: currentUser.name,
-        username: currentUser.username ?? null,
-        displayUsername: currentUser.displayUsername ?? null,
         image: currentUser.image ?? null,
       }
 

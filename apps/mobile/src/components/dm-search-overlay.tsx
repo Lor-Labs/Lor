@@ -60,8 +60,7 @@ export function DMSearchOverlay({
   }
 
   const renderResult = ({ item }: { item: DMSearchResult }) => {
-    const displayName =
-      item.author.displayUsername ?? item.author.name ?? "Unknown member"
+    const displayName = item.author.name ?? "Unknown member"
     const preview = toSearchPreviewText(item.content, [])
 
     return (

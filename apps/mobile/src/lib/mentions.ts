@@ -2,13 +2,7 @@ import type { WorkspaceMember } from "@/lib/api-types"
 
 export type MentionCandidate = Pick<
   WorkspaceMember,
-  | "userId"
-  | "name"
-  | "username"
-  | "displayUsername"
-  | "image"
-  | "isBot"
-  | "status"
+  "userId" | "name" | "image" | "isBot" | "status"
 > & {
   avatarColor?: string | null
   id: string
@@ -20,8 +14,6 @@ export const everyoneMentionCandidate: MentionCandidate = {
   id: "everyone",
   userId: "everyone",
   name: "Everyone",
-  username: "everyone",
-  displayUsername: "everyone",
   image: null,
   isBot: false,
   status: "online",
@@ -33,8 +25,6 @@ export const channelMentionCandidate: MentionCandidate = {
   id: "channel",
   userId: "channel",
   name: "Channel",
-  username: "channel",
-  displayUsername: "channel",
   image: null,
   isBot: false,
   status: "online",
@@ -46,8 +36,6 @@ export const hereMentionCandidate: MentionCandidate = {
   id: "here",
   userId: "here",
   name: "Here",
-  username: "here",
-  displayUsername: "here",
   image: null,
   isBot: false,
   status: "online",
@@ -72,25 +60,18 @@ export function broadcastMentionCandidates(
 export function workspaceMemberToMentionCandidate(
   member: WorkspaceMember
 ): MentionCandidate {
-  const label =
-    (member.displayUsername ?? member.username ?? member.name).trim() ||
-    "member"
+  const label = member.name.trim() || "member"
 
   return {
     id: member.userId,
     userId: member.userId,
     name: member.name,
-    username: member.username,
-    displayUsername: member.displayUsername,
     image: member.image,
     avatarColor: member.avatarColor,
     isBot: member.isBot,
     status: member.status,
     label,
-    search: [label, member.name, member.username, member.displayUsername]
-      .filter(Boolean)
-      .join(" ")
-      .toLocaleLowerCase(),
+    search: label.toLocaleLowerCase(),
   }
 }
 

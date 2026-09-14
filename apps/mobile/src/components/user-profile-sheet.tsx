@@ -1,15 +1,11 @@
 import { BottomSheetScrollView } from "@gorhom/bottom-sheet"
 import AtSignIcon from "@hugeicons/core-free-icons/AtSignIcon"
-import Copy01Icon from "@hugeicons/core-free-icons/Copy01Icon"
 import Message01Icon from "@hugeicons/core-free-icons/Message01Icon"
-import Tick02Icon from "@hugeicons/core-free-icons/Tick02Icon"
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react-native"
 import { formatDate } from "@repo/utils/date"
 import { useQuery } from "@tanstack/react-query"
-import * as Clipboard from "expo-clipboard"
 import { BottomSheet } from "heroui-native/bottom-sheet"
 import { useThemeColor } from "heroui-native/hooks"
-import { useEffect, useState } from "react"
 import { Pressable, Text, View } from "react-native"
 import { Avatar } from "@/components/ui/avatar"
 import { triggerHaptic } from "@/components/ui/haptics"
@@ -39,12 +35,7 @@ export function UserProfileSheet({
   onOpenChange: (isOpen: boolean) => void
   user: UserProfileTarget | null
 }) {
-  const [copied, setCopied] = useState(false)
-  const [accent, background, foreground] = useThemeColor([
-    "accent",
-    "background",
-    "foreground",
-  ])
+  const [accent, background] = useThemeColor(["accent", "background"])
   const userId = user?.id ?? null
 
   const query = useQuery({
@@ -65,38 +56,11 @@ export function UserProfileSheet({
   const error = query.error?.message ?? null
   const { refetch } = query
 
-  useEffect(() => {
-    setCopied(false)
-  }, [userId])
-
-  useEffect(() => {
-    if (!copied) return
-    const timeout = setTimeout(() => setCopied(false), 1500)
-    return () => clearTimeout(timeout)
-  }, [copied])
-
-  const displayName = profile
-    ? (profile.displayUsername ?? profile.name)
-    : (user?.name ?? "")
-  const username = profile?.username ?? null
+  const displayName = profile?.name ?? user?.name ?? ""
   const isSelf = Boolean(user && currentUserId === user.id)
   const presence = profile?.presenceStatus ?? null
-  const subtitle =
-    [username ? `@${username}` : null, user?.detail]
-      .filter(Boolean)
-      .join(" · ") || "Member"
-  const mentionLabel =
-    (profile
-      ? (profile.displayUsername ?? profile.username ?? profile.name)
-      : (user?.name ?? "")
-    ).trim() || "member"
-
-  const copyUsername = () => {
-    const value = username ? `@${username}` : displayName
-    void Clipboard.setStringAsync(value)
-    triggerHaptic("success")
-    setCopied(true)
-  }
+  const subtitle = user?.detail || "Member"
+  const mentionLabel = displayName.trim() || "member"
 
   const mention = () => {
     if (!(user && onMention)) return
@@ -181,12 +145,6 @@ export function UserProfileSheet({
                       tint={accent}
                     />
                   ) : null}
-                  <ActionTile
-                    icon={copied ? Tick02Icon : Copy01Icon}
-                    label={copied ? "Copied" : "Copy username"}
-                    onPress={copyUsername}
-                    tint={foreground}
-                  />
                 </View>
 
                 {isLoading && !profile ? (

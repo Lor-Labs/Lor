@@ -5,8 +5,6 @@ import { selectMessageSchema } from "@repo/db/schema"
 export const messageAuthorSchema = z.object({
   id: z.string().uuid(),
   name: z.string(),
-  username: z.string().nullable(),
-  displayUsername: z.string().nullable(),
   image: z.string().nullable(),
   avatarColor: z.string().nullable().optional(),
 })
@@ -142,7 +140,6 @@ export const referencedMessageSchema = z
 export const threadParticipantSchema = z.object({
   id: z.string().uuid(),
   name: z.string(),
-  displayUsername: z.string().nullable(),
   image: z.string().nullable(),
   avatarColor: z.string().nullable().optional(),
 })

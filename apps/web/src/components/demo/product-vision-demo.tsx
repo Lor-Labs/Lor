@@ -96,8 +96,6 @@ const lorMentions: Message["mentions"] = [
   {
     id: LOR_ID,
     name: "Lor",
-    username: "lor",
-    displayUsername: "lor",
     image: "/lor-mark.svg",
     avatarColor: null,
   },

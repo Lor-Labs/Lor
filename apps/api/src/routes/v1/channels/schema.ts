@@ -147,8 +147,6 @@ export const listPinnedMessagesResponseSchema = z.object({
 const threadActivityMentionSchema = z.object({
   id: z.string(),
   name: z.string(),
-  username: z.string().nullable(),
-  displayUsername: z.string().nullable(),
   image: z.string().nullable(),
 })
 
@@ -161,7 +159,6 @@ export const threadActivityItemSchema = z.object({
     z.object({
       id: z.string(),
       name: z.string(),
-      displayUsername: z.string().nullable(),
       image: z.string().nullable(),
     })
   ),
@@ -170,8 +167,6 @@ export const threadActivityItemSchema = z.object({
     author: z.object({
       id: z.string(),
       name: z.string(),
-      username: z.string().nullable(),
-      displayUsername: z.string().nullable(),
       image: z.string().nullable(),
     }),
     hasAttachments: z.boolean(),

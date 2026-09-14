@@ -33,8 +33,6 @@ export const dmMessageIdParamsSchema = dmParamsSchema.extend({
 export const lastMessageAuthorSchema = z.object({
   id: z.string().uuid(),
   name: z.string(),
-  username: z.string().nullable(),
-  displayUsername: z.string().nullable(),
   image: z.string().nullable(),
 })
 
@@ -48,8 +46,6 @@ export const lastMessageSchema = z.object({
 export const dmMemberSchema = z.object({
   id: z.string().uuid(),
   name: z.string(),
-  username: z.string().nullable(),
-  displayUsername: z.string().nullable(),
   image: z.string().nullable(),
 })
 

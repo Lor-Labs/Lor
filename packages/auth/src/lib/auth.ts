@@ -6,7 +6,7 @@ import { env } from "@repo/env/server"
 import { pickWorkspaceAvatarColor } from "@repo/utils/avatar-colors"
 import { drizzleAdapter } from "better-auth/adapters/drizzle"
 import { betterAuth } from "better-auth/minimal"
-import { admin, organization, twoFactor, username } from "better-auth/plugins"
+import { admin, organization, twoFactor } from "better-auth/plugins"
 import Redis from "ioredis"
 import { Resend } from "resend"
 import { logger } from "./logger"
@@ -371,7 +371,6 @@ export const auth = betterAuth({
       },
     }),
     admin(),
-    username(),
     twoFactor(),
     expo(),
   ],

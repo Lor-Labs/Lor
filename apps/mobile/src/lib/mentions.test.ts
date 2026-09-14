@@ -12,8 +12,6 @@ function candidate(
     label,
     search: search.toLocaleLowerCase(),
     name: label,
-    username: label,
-    displayUsername: label,
     image: null,
     isBot: false,
     status: "online",

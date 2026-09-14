@@ -5,12 +5,9 @@ import { Button } from "@repo/ui/components/button"
 import { toast } from "@repo/ui/components/toast"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
-import { useEffect } from "react"
 import { WorkspaceAvatar } from "@/components/workspace/workspace-avatar"
 import { SocketProvider, useSocket } from "@/context/socket-context"
 import { apiClient } from "@/lib/api-client"
-import { writePendingInvite } from "@/lib/pending-invite"
-import { hasValidUsername } from "@/lib/username"
 
 export const Route = createFileRoute("/invite/$code")({
   component: InvitePage,
@@ -18,14 +15,12 @@ export const Route = createFileRoute("/invite/$code")({
 
 function InvitePage() {
   const { data: session, isPending: sessionPending } = authClient.useSession()
-  const hasUsername = hasValidUsername(session?.user?.username)
 
   return (
     <SocketProvider enabled={!!session}>
       <InviteCard
         userId={session?.user.id ?? null}
         sessionPending={sessionPending}
-        hasUsername={hasUsername}
       />
     </SocketProvider>
   )
@@ -34,11 +29,9 @@ function InvitePage() {
 function InviteCard({
   userId,
   sessionPending,
-  hasUsername,
 }: {
   userId: string | null
   sessionPending: boolean
-  hasUsername: boolean
 }) {
   const isAuthenticated = userId !== null
   const { code } = Route.useParams()
@@ -63,23 +56,6 @@ function InviteCard({
       return res.json()
     },
   })
-
-  // A signed-in user who hasn't chosen a username yet is sent through
-  // onboarding first (username → pre-filled join), so stash the code and hand
-  // off to the dialog under _authenticated. Users who already have an identity
-  // keep the inline accept card below.
-  useEffect(() => {
-    if (
-      isAuthenticated &&
-      !hasUsername &&
-      preview &&
-      !preview.invite.isMember &&
-      !preview.invite.isExpired
-    ) {
-      writePendingInvite(code)
-      navigate({ to: "/" })
-    }
-  }, [isAuthenticated, hasUsername, preview, code, navigate])
 
   const acceptMutation = useMutation({
     mutationFn: async () => {

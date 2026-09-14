@@ -12,8 +12,6 @@ export { workspaceSlugParamsSchema }
 export const workspaceMemberPresenceSchema = z.object({
   userId: z.string().uuid(),
   name: z.string(),
-  username: z.string().nullable(),
-  displayUsername: z.string().nullable(),
   image: z.string().nullable(),
   avatarColor: z.string(),
   role: z.string(),

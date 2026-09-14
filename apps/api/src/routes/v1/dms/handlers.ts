@@ -237,8 +237,6 @@ async function returnDMResponse(
       .select({
         id: user.id,
         name: user.name,
-        username: user.username,
-        displayUsername: user.displayUsername,
         image: user.image,
       })
       .from(channelMember)
@@ -327,8 +325,6 @@ export const listDMs: AppRouteHandler<ListDMsRoute> = async (c) => {
       createdAt: message.createdAt,
       authorId: user.id,
       authorName: user.name,
-      authorUsername: user.username,
-      authorDisplayUsername: user.displayUsername,
       authorImage: user.image,
     })
     .from(message)
@@ -355,8 +351,6 @@ export const listDMs: AppRouteHandler<ListDMsRoute> = async (c) => {
         author: {
           id: msg.authorId,
           name: msg.authorName,
-          username: msg.authorUsername,
-          displayUsername: msg.authorDisplayUsername,
           image: msg.authorImage,
         },
       },
@@ -369,8 +363,6 @@ export const listDMs: AppRouteHandler<ListDMsRoute> = async (c) => {
       channelId: channelMember.channelId,
       id: user.id,
       name: user.name,
-      username: user.username,
-      displayUsername: user.displayUsername,
       image: user.image,
     })
     .from(channelMember)
@@ -387,8 +379,6 @@ export const listDMs: AppRouteHandler<ListDMsRoute> = async (c) => {
     {
       id: string
       name: string
-      username: string | null
-      displayUsername: string | null
       image: string | null
     }[]
   >()
@@ -397,8 +387,6 @@ export const listDMs: AppRouteHandler<ListDMsRoute> = async (c) => {
     list.push({
       id: m.id,
       name: m.name,
-      username: m.username,
-      displayUsername: m.displayUsername,
       image: m.image,
     })
     membersByChannel.set(m.channelId, list)
@@ -443,8 +431,6 @@ export const getDM: AppRouteHandler<GetDMRoute> = async (c) => {
       .select({
         id: user.id,
         name: user.name,
-        username: user.username,
-        displayUsername: user.displayUsername,
         image: user.image,
       })
       .from(channelMember)
@@ -463,8 +449,6 @@ export const getDM: AppRouteHandler<GetDMRoute> = async (c) => {
         createdAt: message.createdAt,
         authorId: user.id,
         authorName: user.name,
-        authorUsername: user.username,
-        authorDisplayUsername: user.displayUsername,
         authorImage: user.image,
       })
       .from(message)
@@ -483,8 +467,6 @@ export const getDM: AppRouteHandler<GetDMRoute> = async (c) => {
         author: {
           id: lastMessageRow.authorId,
           name: lastMessageRow.authorName,
-          username: lastMessageRow.authorUsername,
-          displayUsername: lastMessageRow.authorDisplayUsername,
           image: lastMessageRow.authorImage,
         },
       }
@@ -654,8 +636,6 @@ export const searchDMMessages: AppRouteHandler<SearchDMMessagesRoute> = async (
         author: {
           id: user.id,
           name: user.name,
-          username: user.username,
-          displayUsername: user.displayUsername,
           image: user.image,
         },
       })
@@ -685,8 +665,6 @@ export const searchDMMessages: AppRouteHandler<SearchDMMessagesRoute> = async (
         author: {
           id: msg.author.id,
           name: msg.author.name,
-          username: msg.author.username,
-          displayUsername: msg.author.displayUsername,
           image: msg.author.image,
         },
       })),

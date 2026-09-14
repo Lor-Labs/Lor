@@ -5,7 +5,6 @@ import {
   inferOrgAdditionalFields,
   organizationClient,
   twoFactorClient,
-  usernameClient,
 } from "better-auth/client/plugins"
 import { createAuthClient } from "better-auth/react"
 import type { auth } from "./auth.js"
@@ -27,7 +26,6 @@ export const authClient = createAuthClient({
       dynamicAccessControl: { enabled: true },
     }),
     adminClient(),
-    usernameClient(),
     twoFactorClient(),
     inferAdditionalFields<typeof auth>(), //for inferring user and session additional fields
   ],

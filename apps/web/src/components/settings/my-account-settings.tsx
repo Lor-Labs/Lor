@@ -1,9 +1,4 @@
-import {
-  Camera01Icon,
-  Cancel01Icon,
-  Tick02Icon,
-  Upload01Icon,
-} from "@hugeicons/core-free-icons"
+import { Camera01Icon, Upload01Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
 import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar"
@@ -17,11 +12,8 @@ import { cn } from "@repo/ui/lib/utils"
 import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { apiClient } from "@/lib/api-client"
-import { MIN_USERNAME_LENGTH } from "@/lib/username"
 
 const MAX_STATUS_LENGTH = 128
-const MAX_USERNAME_LENGTH = 30
-const USERNAME_REGEX = /^[a-zA-Z0-9_.]+$/
 const MAX_AVATAR_BYTES = 2 * 1024 * 1024
 const ACCEPTED_IMAGE_TYPES = [
   "image/jpeg",
@@ -45,24 +37,18 @@ export function MyAccountSettings() {
   const user = session?.user
 
   const [name, setName] = useState("")
-  const [displayUsername, setDisplayUsername] = useState("")
   const [status, setStatus] = useState("")
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null)
   const [avatarFile, setAvatarFile] = useState<File | null>(null)
   const [isSaving, setIsSaving] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
-  const [usernameAvailability, setUsernameAvailability] = useState<
-    "idle" | "checking" | "available" | "taken" | "invalid"
-  >("idle")
   const fileInputRef = useRef<HTMLInputElement>(null)
   const dragCountRef = useRef(0)
   const avatarPreviewRef = useRef<string | null>(null)
-  const usernameCheckTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     if (!user) return
     setName(user.name ?? "")
-    setDisplayUsername(user.displayUsername ?? user.username ?? "")
     setStatus((user.status as string) ?? "")
   }, [user])
 
@@ -70,62 +56,8 @@ export function MyAccountSettings() {
     return () => {
       if (avatarPreviewRef.current)
         URL.revokeObjectURL(avatarPreviewRef.current)
-      if (usernameCheckTimer.current) clearTimeout(usernameCheckTimer.current)
     }
   }, [])
-
-  const originalUsername = user?.displayUsername ?? user?.username ?? ""
-  const usernameChanged = displayUsername.trim() !== originalUsername
-
-  const handleUsernameChange = useCallback(
-    (value: string) => {
-      setDisplayUsername(value)
-
-      if (usernameCheckTimer.current) clearTimeout(usernameCheckTimer.current)
-
-      const trimmed = value.trim()
-      const currentOriginal =
-        session?.user?.displayUsername ?? session?.user?.username ?? ""
-
-      if (!trimmed || trimmed === currentOriginal) {
-        setUsernameAvailability("idle")
-        return
-      }
-
-      if (trimmed.length < MIN_USERNAME_LENGTH) {
-        setUsernameAvailability("invalid")
-        return
-      }
-
-      if (!USERNAME_REGEX.test(trimmed)) {
-        setUsernameAvailability("invalid")
-        return
-      }
-
-      setUsernameAvailability("checking")
-      const checked = trimmed
-      usernameCheckTimer.current = setTimeout(async () => {
-        try {
-          const { data } = await authClient.isUsernameAvailable({
-            username: checked,
-          })
-          // Only update if input hasn't changed since we started checking
-          setUsernameAvailability((prev) =>
-            prev === "checking"
-              ? data?.available
-                ? "available"
-                : "taken"
-              : prev
-          )
-        } catch {
-          setUsernameAvailability((prev) =>
-            prev === "checking" ? "idle" : prev
-          )
-        }
-      }, 500)
-    },
-    [session?.user?.displayUsername, session?.user?.username]
-  )
 
   const setAvatarFromFile = useCallback((file: File) => {
     const error = validateAvatarFile(file)
@@ -225,9 +157,6 @@ export function MyAccountSettings() {
         name: name.trim(),
         image: imageUrl ?? undefined,
         status: status.trim() || undefined,
-        ...(usernameChanged && displayUsername.trim()
-          ? { username: displayUsername.trim() }
-          : {}),
       })
 
       setAvatarFile(null)
@@ -243,28 +172,15 @@ export function MyAccountSettings() {
     } finally {
       setIsSaving(false)
     }
-  }, [
-    user,
-    name,
-    displayUsername,
-    usernameChanged,
-    status,
-    avatarFile,
-    avatarPreview,
-    uploadAvatar,
-  ])
+  }, [user, name, status, avatarFile, avatarPreview, uploadAvatar])
 
   const hasChanges =
     user &&
     (name.trim() !== (user.name ?? "") ||
-      usernameChanged ||
       status.trim() !== ((user.status as string) ?? "") ||
       avatarFile !== null)
 
-  const isUsernameValid =
-    !usernameChanged || usernameAvailability === "available"
-
-  const isValid = name.trim().length > 0 && isUsernameValid
+  const isValid = name.trim().length > 0
 
   if (!user) return null
 
@@ -316,11 +232,6 @@ export function MyAccountSettings() {
         </button>
         <div className="min-w-0">
           <p className="text-sm font-semibold">{user.name}</p>
-          <p className="text-xs text-muted-foreground">
-            {(user.displayUsername ?? user.username)
-              ? `@${user.displayUsername ?? user.username}`
-              : user.email}
-          </p>
           <div className="mt-2 flex items-center gap-2">
             <Button
               type="button"
@@ -353,59 +264,6 @@ export function MyAccountSettings() {
             onChange={(e) => setName(e.target.value)}
             maxLength={50}
           />
-        </div>
-
-        <div className="space-y-1.5">
-          <Label htmlFor="username">Username</Label>
-          <div className="relative">
-            <Input
-              id="username"
-              value={displayUsername}
-              onChange={(e) => handleUsernameChange(e.target.value)}
-              maxLength={MAX_USERNAME_LENGTH}
-              placeholder="your_username"
-            />
-            {usernameChanged && (
-              <div className="absolute top-1/2 right-3 -translate-y-1/2">
-                {usernameAvailability === "checking" && (
-                  <Spinner className="size-4 text-muted-foreground" />
-                )}
-                {usernameAvailability === "available" && (
-                  <HugeiconsIcon
-                    icon={Tick02Icon}
-                    className="size-4 text-emerald-500"
-                    strokeWidth={2}
-                  />
-                )}
-                {usernameAvailability === "taken" && (
-                  <HugeiconsIcon
-                    icon={Cancel01Icon}
-                    className="size-4 text-destructive"
-                    strokeWidth={2}
-                  />
-                )}
-                {usernameAvailability === "invalid" && (
-                  <HugeiconsIcon
-                    icon={Cancel01Icon}
-                    className="size-4 text-destructive"
-                    strokeWidth={2}
-                  />
-                )}
-              </div>
-            )}
-          </div>
-          {usernameChanged && usernameAvailability === "taken" && (
-            <p className="text-xs text-destructive">
-              Username is already taken
-            </p>
-          )}
-          {usernameChanged && usernameAvailability === "invalid" && (
-            <p className="text-xs text-destructive">
-              {displayUsername.trim().length < MIN_USERNAME_LENGTH
-                ? `Username must be at least ${MIN_USERNAME_LENGTH} characters`
-                : "Only letters, numbers, underscores, and dots allowed"}
-            </p>
-          )}
         </div>
 
         <div className="space-y-1.5">

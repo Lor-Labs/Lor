@@ -90,8 +90,6 @@ function replyPreviewText(
     : (mentionCandidates ?? []).map((candidate) => ({
         id: candidate.id,
         name: candidate.name ?? candidate.label,
-        username: candidate.username ?? null,
-        displayUsername: candidate.displayUsername ?? null,
       }))
   const text = toSearchPreviewText(referencedMessage.content, mentions)
   return text.length > PREVIEW_MAX_CHARS
@@ -118,8 +116,7 @@ function ReplyPreview({
   }
 
   const author = referencedMessage.author
-  const referencedName =
-    referencedMessage.overrideName ?? author.displayUsername ?? author.name
+  const referencedName = referencedMessage.overrideName ?? author.name
   const referencedAvatar = referencedMessage.overrideAvatarUrl ?? author.image
   const referencedConnector = referencedMessage.overrideAvatarUrl
     ? null
@@ -280,8 +277,7 @@ export const MessageItem = memo(function MessageItem({
   // Webhook/connector messages render an overridden identity and aren't a
   // real user — no profile popover.
   const isApp = !!message.overrideName || !!message.overrideAvatarUrl
-  const displayName =
-    message.overrideName ?? author.displayUsername ?? author.name
+  const displayName = message.overrideName ?? author.name
   const avatarUrl = message.overrideAvatarUrl ?? author.image
   // Connector-named bot posts ("GitHub", "Linear") wear the provider mark
   // when no uploaded avatar is set.

@@ -441,8 +441,7 @@ function ChannelView() {
         participants: item.participants,
         lastReply: {
           content: item.lastReply.content,
-          authorName:
-            item.lastReply.author.displayUsername ?? item.lastReply.author.name,
+          authorName: item.lastReply.author.name,
           hasAttachments: item.lastReply.hasAttachments,
           mentions: item.lastReply.mentions,
         },
@@ -518,10 +517,8 @@ function ChannelView() {
       ...broadcastMentionCandidates(data?.audience),
       ...(workspaceMembersData?.members.map((member) => ({
         id: member.userId,
-        label: member.displayUsername ?? member.username ?? member.name,
+        label: member.name,
         name: member.name,
-        username: member.username,
-        displayUsername: member.displayUsername,
         image: member.image,
       })) ?? []),
     ],

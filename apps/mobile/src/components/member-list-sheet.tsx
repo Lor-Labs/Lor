@@ -304,7 +304,7 @@ export function workspaceMemberToListItem(
 }
 
 export function memberDisplayName(member: WorkspaceMember) {
-  return member.displayUsername ?? member.username ?? member.name
+  return member.name
 }
 
 export function workspaceMemberDetail(member: WorkspaceMember) {

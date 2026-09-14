@@ -50,8 +50,6 @@ export async function loadThreadSummary(
       attachments: schema.message.attachments,
       authorId: schema.message.authorId,
       userName: schema.user.name,
-      userUsername: schema.user.username,
-      userDisplayUsername: schema.user.displayUsername,
       userImage: schema.user.image,
     })
     .from(schema.message)
@@ -67,8 +65,6 @@ export async function loadThreadSummary(
         .select({
           id: schema.user.id,
           name: schema.user.name,
-          username: schema.user.username,
-          displayUsername: schema.user.displayUsername,
           image: schema.user.image,
         })
         .from(schema.messageMention)
@@ -118,7 +114,6 @@ export async function loadThreadSummary(
     participants.push({
       id: row.authorId,
       name: row.userName,
-      displayUsername: row.userDisplayUsername,
       image: row.userImage,
       avatarColor: avatarColorByUserId.get(row.authorId) ?? null,
     })
@@ -132,8 +127,6 @@ export async function loadThreadSummary(
       author: {
         id: newest.authorId,
         name: newest.userName,
-        username: newest.userUsername,
-        displayUsername: newest.userDisplayUsername,
         image: newest.userImage,
         avatarColor: avatarColorByUserId.get(newest.authorId) ?? null,
       },

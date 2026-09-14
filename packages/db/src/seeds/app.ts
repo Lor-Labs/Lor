@@ -10,8 +10,6 @@ export async function seedAppUser() {
       id: APP_USER_ID,
       name: "App",
       email: "app@lor.chat",
-      username: "app",
-      displayUsername: "App",
       emailVerified: true,
       onboardingCompleted: true,
       isBot: true,

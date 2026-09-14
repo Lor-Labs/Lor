@@ -95,8 +95,6 @@ type BareMessageRow = {
   author: {
     id: string
     name: string
-    username: string | null
-    displayUsername: string | null
     image: string | null
   }
 }
@@ -126,8 +124,6 @@ export const messageSelect = {
   author: {
     id: user.id,
     name: user.name,
-    username: user.username,
-    displayUsername: user.displayUsername,
     image: user.image,
   },
 } as const
@@ -137,8 +133,6 @@ export const referencedMessageSelect = {
   content: message.content,
   authorId: user.id,
   authorName: user.name,
-  authorUsername: user.username,
-  authorDisplayUsername: user.displayUsername,
   authorImage: user.image,
   overrideName: message.overrideName,
   overrideAvatarUrl: message.overrideAvatarUrl,
@@ -149,8 +143,6 @@ export function toReferencedMessage(row: {
   content: string | null
   authorId: string
   authorName: string
-  authorUsername: string | null
-  authorDisplayUsername: string | null
   authorImage: string | null
   overrideName: string | null
   overrideAvatarUrl: string | null
@@ -161,8 +153,6 @@ export function toReferencedMessage(row: {
     author: {
       id: row.authorId,
       name: row.authorName,
-      username: row.authorUsername,
-      displayUsername: row.authorDisplayUsername,
       image: row.authorImage,
     },
     overrideName: row.overrideName,
@@ -397,8 +387,6 @@ export async function fetchMessages({
             messageId: messageMention.messageId,
             id: user.id,
             name: user.name,
-            username: user.username,
-            displayUsername: user.displayUsername,
             image: user.image,
           })
           .from(messageMention)
@@ -460,7 +448,6 @@ export async function fetchMessages({
             userId: user.id,
             userName: user.name,
             userImage: user.image,
-            userDisplayUsername: user.displayUsername,
           })
           .from(message)
           .innerJoin(user, eq(message.authorId, user.id))
@@ -481,7 +468,6 @@ export async function fetchMessages({
     participants: Array<{
       id: string
       name: string
-      displayUsername: string | null
       image: string | null
       avatarColor?: string | null
     }>
@@ -511,7 +497,6 @@ export async function fetchMessages({
     summary.participants.push({
       id: row.userId,
       name: row.userName,
-      displayUsername: row.userDisplayUsername,
       image: row.userImage,
       avatarColor: avatarColorByUserId.get(row.userId) ?? null,
     })
@@ -526,8 +511,6 @@ export async function fetchMessages({
     Array<{
       id: string
       name: string
-      username: string | null
-      displayUsername: string | null
       image: string | null
       avatarColor?: string | null
     }>
@@ -550,8 +533,6 @@ export async function fetchMessages({
     existingMentions.push({
       id: mentionRow.id,
       name: mentionRow.name,
-      username: mentionRow.username,
-      displayUsername: mentionRow.displayUsername,
       image: mentionRow.image,
       avatarColor: avatarColorByUserId.get(mentionRow.id) ?? null,
     })

@@ -111,8 +111,6 @@ const deltaRow = {
   content: "go ahead",
   attachments: [],
   name: "Jacob",
-  username: "jacob",
-  displayUsername: "jacob",
 }
 
 const args = {

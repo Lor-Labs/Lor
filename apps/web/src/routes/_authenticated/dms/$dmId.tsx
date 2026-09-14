@@ -171,14 +171,10 @@ function DMConversation() {
     () =>
       (dm?.members ?? []).map((member) => ({
         id: member.id,
-        label: member.displayUsername ?? member.username ?? member.name,
+        label: member.name,
         name: member.name,
-        username: member.username,
-        displayUsername: member.displayUsername,
         image: member.image,
-        search: [member.name, member.username, member.displayUsername]
-          .filter((value): value is string => Boolean(value))
-          .join(" "),
+        search: member.name,
       })),
     [dm?.members]
   )

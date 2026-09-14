@@ -13,8 +13,6 @@ export const userIdParamsSchema = z.object({
 export const userProfileResponseSchema = z.object({
   id: z.string().uuid(),
   name: z.string(),
-  username: z.string().nullable(),
-  displayUsername: z.string().nullable(),
   image: z.string().nullable(),
   bio: z.string().nullable(),
   status: z.string().nullable(),

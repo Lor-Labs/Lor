@@ -45,7 +45,7 @@ function isHttpUrl(value: string): boolean {
 }
 
 function getMentionLabel(mention: Message["mentions"][number]) {
-  return mention.displayUsername ?? mention.username ?? mention.name
+  return mention.name
 }
 
 // Codex-style link icon, a renderer concern only (the markdown stays a plain
@@ -267,7 +267,6 @@ export const MessageMarkdown = memo(function MessageMarkdown({
 
         const mention = id ? mentionById.get(id) : undefined
         const displayName = mention ? getMentionLabel(mention) : "Unknown user"
-        const username = mention?.username
 
         return (
           <HoverCard>
@@ -297,9 +296,6 @@ export const MessageMarkdown = memo(function MessageMarkdown({
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-semibold">
                     {displayName}
-                  </div>
-                  <div className="truncate text-xs text-muted-foreground">
-                    {username ? `@${username}` : (id ?? "")}
                   </div>
                 </div>
               </div>

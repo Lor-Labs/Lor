@@ -123,11 +123,6 @@ function ProfileCardContent({
               </Badge>
             )}
           </div>
-          {user.username && (
-            <div className="truncate text-[13px] text-muted-foreground">
-              @{user.displayUsername ?? user.username}
-            </div>
-          )}
         </div>
       </div>
 

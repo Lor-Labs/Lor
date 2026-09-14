@@ -450,14 +450,11 @@ export type WriteBackCallbacks = {
 }
 
 // How a person appears everywhere in the app (message author header, mention
-// pill, composer): prefer the handle, fall back to the real name. Lor reads
-// and mentions people by this same label so its prose and pills stay consistent.
-export function userDisplayName(u: {
-  name: string
-  username?: string | null
-  displayUsername?: string | null
-}): string {
-  return u.displayUsername ?? u.username ?? u.name
+// pill, composer): their real name. Lor reads and mentions people by this same
+// label so its prose and pills stay consistent — and it matches the identity
+// external apps (Linear, GitHub) know them by.
+export function userDisplayName(u: { name: string }): string {
+  return u.name
 }
 
 async function searchMessages(
@@ -482,8 +479,6 @@ async function searchMessages(
       content: schema.message.content,
       createdAt: schema.message.createdAt,
       authorName: schema.user.name,
-      authorUsername: schema.user.username,
-      authorDisplayUsername: schema.user.displayUsername,
     })
     .from(schema.message)
     .innerJoin(schema.channel, eq(schema.message.channelId, schema.channel.id))
@@ -506,11 +501,7 @@ async function searchMessages(
   return rows.map((r) => ({
     messageId: r.messageId,
     channelId: r.channelId,
-    author: userDisplayName({
-      name: r.authorName,
-      username: r.authorUsername,
-      displayUsername: r.authorDisplayUsername,
-    }),
+    author: userDisplayName({ name: r.authorName }),
     when: r.createdAt.toISOString(),
     text: (r.content ?? "").slice(0, SNIPPET_MAX),
   }))
@@ -595,8 +586,6 @@ async function readThread(
           content: schema.message.content,
           createdAt: schema.message.createdAt,
           authorName: schema.user.name,
-          authorUsername: schema.user.username,
-          authorDisplayUsername: schema.user.displayUsername,
           attachments: schema.message.attachments,
         })
         .from(schema.message)
@@ -608,11 +597,7 @@ async function readThread(
   return {
     messages: rows.map((r) => ({
       messageId: r.id,
-      author: userDisplayName({
-        name: r.authorName,
-        username: r.authorUsername,
-        displayUsername: r.authorDisplayUsername,
-      }),
+      author: userDisplayName({ name: r.authorName }),
       when: r.createdAt.toISOString(),
       text: r.content ?? "",
       ...(r.attachments?.length
@@ -1655,8 +1640,6 @@ async function buildRunContext(
     .select({
       id: schema.user.id,
       name: schema.user.name,
-      username: schema.user.username,
-      displayUsername: schema.user.displayUsername,
     })
     .from(schema.workspaceMember)
     .innerJoin(schema.user, eq(schema.workspaceMember.userId, schema.user.id))
@@ -1664,9 +1647,8 @@ async function buildRunContext(
       and(
         eq(schema.workspaceMember.workspaceId, ctx.workspaceId),
         ne(schema.user.id, LOR_USER_ID),
-        // Keep anyone with a usable label, matching userDisplayName's fallback
-        // (displayUsername → username → name) so username-only profiles survive.
-        sql`btrim(coalesce(${schema.user.displayUsername}, ${schema.user.username}, ${schema.user.name})) <> ''`
+        // Keep anyone with a usable label.
+        sql`btrim(${schema.user.name}) <> ''`
       )
     )
     .orderBy(asc(schema.user.name))

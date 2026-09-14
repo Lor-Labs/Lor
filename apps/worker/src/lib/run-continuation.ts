@@ -83,8 +83,6 @@ type DeltaRow = {
     | { url: string; filename: string; size: number; contentType: string }[]
     | null
   name: string
-  username: string | null
-  displayUsername: string | null
 }
 
 // Newest finished run in this scope worth continuing. `failed` qualifies on
@@ -244,8 +242,6 @@ async function loadDelta(args: {
       content: schema.message.content,
       attachments: schema.message.attachments,
       name: schema.user.name,
-      username: schema.user.username,
-      displayUsername: schema.user.displayUsername,
     })
     .from(schema.message)
     .innerJoin(schema.user, eq(schema.message.authorId, schema.user.id))

@@ -110,12 +110,7 @@ function findMessageInChannelCache(
 }
 
 function messageAuthor(message: Message): string {
-  return (
-    message.overrideName ??
-    message.author.displayUsername ??
-    message.author.username ??
-    message.author.name
-  )
+  return message.overrideName ?? message.author.name
 }
 
 function messageToMarkdown(message: Message, headingLevel: 2 | 3): string {
@@ -527,10 +522,8 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
       ...broadcastMentionCandidates(channelData?.audience),
       ...(workspaceMembersData?.members.map((member) => ({
         id: member.userId,
-        label: member.displayUsername ?? member.username ?? member.name,
+        label: member.name,
         name: member.name,
-        username: member.username,
-        displayUsername: member.displayUsername,
         image: member.image,
       })) ?? []),
     ],

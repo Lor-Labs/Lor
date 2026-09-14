@@ -12,8 +12,6 @@ export async function seedLorUser() {
       id: LOR_USER_ID,
       name: "Lor",
       email: "lor@lor.chat",
-      username: "lor",
-      displayUsername: "Lor",
       emailVerified: true,
       onboardingCompleted: true,
       isBot: true,

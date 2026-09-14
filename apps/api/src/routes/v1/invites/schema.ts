@@ -65,7 +65,6 @@ export const workspaceInviteSchema = z.object({
   createdAt: z.string().datetime(),
   inviter: z.object({
     name: z.string(),
-    username: z.string().nullable(),
     image: z.string().nullable(),
   }),
 })
@@ -100,7 +99,6 @@ export const invitePreviewSchema = z.object({
     .nullable(),
   inviter: z.object({
     name: z.string(),
-    username: z.string().nullable(),
     image: z.string().nullable(),
   }),
   isExpired: z.boolean(),

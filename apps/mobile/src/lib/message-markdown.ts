@@ -21,7 +21,7 @@ const BROADCAST_MENTION_TOKENS = new Set(["everyone", "channel", "here"])
 const CITATION_REGEX = /\[\[([^\]]+)\]\]/g
 
 function getMentionLabel(mention: Message["mentions"][number]) {
-  return mention.displayUsername ?? mention.username ?? mention.name
+  return mention.name
 }
 
 // Escapes characters that would break markdown link text.

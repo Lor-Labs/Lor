@@ -141,10 +141,7 @@ export function PinnedMessagesPopover({
           ) : (
             <div className="space-y-2">
               {data?.data.map((msg) => {
-                const name =
-                  msg.overrideName ??
-                  msg.author.displayUsername ??
-                  msg.author.name
+                const name = msg.overrideName ?? msg.author.name
                 const image = msg.overrideAvatarUrl ?? msg.author.image
                 return (
                   <article

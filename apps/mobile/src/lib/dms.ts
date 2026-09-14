@@ -2,10 +2,7 @@ import type { DM, DMMember } from "@/lib/api-types"
 import type { MentionCandidate } from "@/lib/mentions"
 
 export function dmMemberName(member: DMMember) {
-  return (
-    (member.displayUsername ?? member.username ?? member.name).trim() ||
-    member.name
-  )
+  return member.name
 }
 
 export function dmDisplayName(dm: Pick<DM, "name" | "type" | "members">) {
@@ -19,15 +16,10 @@ export function dmMemberToMentionCandidate(member: DMMember): MentionCandidate {
     id: member.id,
     userId: member.id,
     name: member.name,
-    username: member.username,
-    displayUsername: member.displayUsername,
     image: member.image,
     isBot: false,
     status: "offline",
     label,
-    search: [label, member.name, member.username, member.displayUsername]
-      .filter(Boolean)
-      .join(" ")
-      .toLocaleLowerCase(),
+    search: label.toLocaleLowerCase(),
   }
 }

@@ -5,8 +5,6 @@ import { updateStreamMentionState } from "@/lib/stream-mentions"
 const jacob: RealtimeMessageMention = {
   id: "71b458e8-169f-4d3b-a9ad-f371f5917f4a",
   name: "Jacob Owens",
-  username: "jacob",
-  displayUsername: "jacob",
   image: null,
   avatarColor: "rose",
 }
@@ -14,8 +12,6 @@ const jacob: RealtimeMessageMention = {
 const avery: RealtimeMessageMention = {
   id: "18495657-4a0e-4cbd-a52a-917ea2934f42",
   name: "Avery Lin",
-  username: "avery",
-  displayUsername: null,
   image: null,
   avatarColor: "blue",
 }

@@ -220,9 +220,6 @@ export function MembersSection({ workspaceSlug }: { workspaceSlug: string }) {
                       </span>
                     )}
                   </div>
-                  <div className="truncate text-xs text-muted-foreground">
-                    {member.username ? `@${member.username}` : ""}
-                  </div>
                 </div>
                 {member.isOwner ? (
                   <span className="text-xs font-medium text-muted-foreground">

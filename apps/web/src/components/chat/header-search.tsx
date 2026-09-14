@@ -20,15 +20,11 @@ type SearchResult = {
   author: {
     id: string
     name: string
-    username: string | null
-    displayUsername: string | null
     image: string | null
   }
   mentions?: Array<{
     id: string
     name: string
-    username: string | null
-    displayUsername: string | null
     image: string | null
   }>
 }
@@ -176,7 +172,7 @@ export function HeaderSearch({
                   </AvatarFallback>
                 </Avatar>
                 <span className="text-[11px] font-semibold">
-                  {msg.author.displayUsername ?? msg.author.name}
+                  {msg.author.name}
                 </span>
                 <span className="ml-auto text-[10px] text-muted-foreground">
                   {formatTime(msg.createdAt)}

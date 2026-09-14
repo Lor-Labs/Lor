@@ -106,8 +106,6 @@ export const MentionSuggestionList = forwardRef<
     <div className="max-h-64 overflow-y-auto p-1">
       {ordered.all.map((item, index) => {
         const description = BROADCAST_DESCRIPTIONS[item.id]
-        const username = item.displayUsername ?? item.username ?? item.label
-        const showFullName = Boolean(item.name && item.name !== username)
         return (
           <div key={item.id}>
             {index === ordered.broadcastCount && ordered.broadcastCount > 0 && (
@@ -140,12 +138,7 @@ export const MentionSuggestionList = forwardRef<
                     name={item.name ?? item.label}
                     size="sm"
                   />
-                  <span className="truncate">@{username}</span>
-                  {showFullName && (
-                    <span className="ml-auto truncate pl-2 text-xs text-muted-foreground">
-                      {item.name}
-                    </span>
-                  )}
+                  <span className="truncate">@{item.name ?? item.label}</span>
                 </>
               )}
             </button>

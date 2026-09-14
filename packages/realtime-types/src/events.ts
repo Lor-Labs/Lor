@@ -127,8 +127,6 @@ export type RealtimeChannelEventPayload =
 export type RealtimeAuthor = {
   id: string
   name: string
-  username: string | null
-  displayUsername: string | null
   image: string | null
   avatarColor?: string | null
 }
@@ -253,7 +251,6 @@ export type RealtimeMessageThreadUpdated = {
   participants: Array<{
     id: string
     name: string
-    displayUsername: string | null
     image: string | null
     avatarColor?: string | null
   }>
@@ -480,7 +477,6 @@ export type WorkspaceMemberJoinedEvent = {
   workspaceId: string
   userId: string
   name: string
-  username: string | null
   image: string | null
 }
 

@@ -825,8 +825,6 @@ export const listPinnedMessages: AppRouteHandler<
             messageId: messageMention.messageId,
             id: user.id,
             name: user.name,
-            username: user.username,
-            displayUsername: user.displayUsername,
             image: user.image,
           })
           .from(messageMention)
@@ -951,8 +949,6 @@ export const listPinnedMessages: AppRouteHandler<
     mentions: (mentionsByMessageId.get(msg.id) ?? []).map((m) => ({
       id: m.id,
       name: m.name,
-      username: m.username,
-      displayUsername: m.displayUsername,
       image: m.image,
       avatarColor: avatarColorByUserId.get(m.id) ?? null,
     })),
@@ -1036,7 +1032,6 @@ export const listThreadReplies: AppRouteHandler<
             .selectDistinct({
               id: user.id,
               name: user.name,
-              displayUsername: user.displayUsername,
               image: user.image,
               avatarColor: schema.workspaceMember.avatarColor,
             })
@@ -1064,7 +1059,6 @@ export const listThreadReplies: AppRouteHandler<
             .select({
               id: user.id,
               name: user.name,
-              displayUsername: user.displayUsername,
               image: user.image,
               avatarColor: schema.workspaceMember.avatarColor,
             })

@@ -240,8 +240,6 @@ async function listMentionUsers(
     .select({
       id: schema.user.id,
       name: schema.user.name,
-      username: schema.user.username,
-      displayUsername: schema.user.displayUsername,
       image: schema.user.image,
     })
     .from(schema.user)
@@ -327,8 +325,6 @@ export async function syncMessageMentions(input: {
 export type NotificationPreviewMention = {
   id: string
   name: string
-  username?: string | null
-  displayUsername?: string | null
 }
 
 const NOTIFICATION_PREVIEW_MAX_LENGTH = 100
@@ -345,7 +341,7 @@ export function buildNotificationContentPreview(input: {
   )
   const mentionLabel = (id: string) => {
     const user = userById.get(id)
-    return `@${user ? (user.displayUsername ?? user.username ?? user.name) : "unknown-user"}`
+    return `@${user ? user.name : "unknown-user"}`
   }
 
   const normalized = input.content
@@ -386,8 +382,6 @@ async function buildResolvedNotificationContentPreview(content: string) {
           .select({
             id: schema.user.id,
             name: schema.user.name,
-            username: schema.user.username,
-            displayUsername: schema.user.displayUsername,
           })
           .from(schema.user)
           .where(inArray(schema.user.id, mentionIds))

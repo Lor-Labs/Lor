@@ -53,7 +53,6 @@ function toInviteResponse(
   },
   inviter: {
     name: string
-    username: string | null
     image: string | null
   }
 ) {
@@ -69,7 +68,6 @@ function toInviteResponse(
     createdAt: invite.createdAt.toISOString(),
     inviter: {
       name: inviter.name,
-      username: inviter.username,
       image: inviter.image,
     },
   }
@@ -126,7 +124,6 @@ export const createInvite: AppRouteHandler<CreateInviteRoute> = async (c) => {
       success: true as const,
       invite: toInviteResponse(invite, {
         name: user.name,
-        username: user.username ?? null,
         image: user.image ?? null,
       }),
     },
@@ -153,7 +150,6 @@ export const listInvites: AppRouteHandler<ListInvitesRoute> = async (c) => {
       expiresAt: schema.workspaceInvite.expiresAt,
       createdAt: schema.workspaceInvite.createdAt,
       inviterName: schema.user.name,
-      inviterUsername: schema.user.username,
       inviterImage: schema.user.image,
     })
     .from(schema.workspaceInvite)
@@ -172,7 +168,6 @@ export const listInvites: AppRouteHandler<ListInvitesRoute> = async (c) => {
   const invites = rows.map((row) =>
     toInviteResponse(row, {
       name: row.inviterName,
-      username: row.inviterUsername,
       image: row.inviterImage,
     })
   )
@@ -236,7 +231,6 @@ export const previewInvite: AppRouteHandler<PreviewInviteRoute> = async (c) => {
       workspaceSlug: schema.workspace.slug,
       workspaceLogo: schema.workspace.logo,
       inviterName: schema.user.name,
-      inviterUsername: schema.user.username,
       inviterImage: schema.user.image,
     })
     .from(schema.workspaceInvite)
@@ -310,7 +304,6 @@ export const previewInvite: AppRouteHandler<PreviewInviteRoute> = async (c) => {
         channel: channelInfo,
         inviter: {
           name: invite.inviterName,
-          username: invite.inviterUsername,
           image: invite.inviterImage,
         },
         isExpired,
