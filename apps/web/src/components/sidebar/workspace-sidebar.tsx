@@ -52,6 +52,14 @@ import {
 } from "@/components/sidebar/channel-panel/create-channel-context"
 import { WorkspaceCommand } from "@/components/sidebar/channel-panel/workspace-command"
 import { CreateWorkspaceDialog } from "@/components/sidebar/create-workspace-dialog"
+import {
+  sidebarMenuHeader,
+  sidebarMenuIcon,
+  sidebarMenuRow,
+  sidebarMenuSeparator,
+  sidebarMenuSubTrigger,
+  sidebarMenuSurface,
+} from "@/components/sidebar/sidebar-menu-styles"
 import { InstructionsApprovalAlert } from "@/components/workspace/instructions-approval-alert"
 import { WorkspaceAvatar } from "@/components/workspace/workspace-avatar"
 import {
@@ -63,12 +71,6 @@ import { useSettings } from "@/hooks/use-settings"
 import { apiClient } from "@/lib/api-client"
 import { writeLastWorkspaceSlug } from "@/lib/last-location"
 import { canCreateChannels, isAdminOrOwner } from "@/lib/permissions"
-
-const workspaceMenuSurface =
-  "rounded-xl border-foreground/8 shadow-[0_8px_32px_-8px_rgb(0_0_0/0.16),0_2px_8px_-2px_rgb(0_0_0/0.08)] motion-safe:transition-[opacity,translate] motion-safe:duration-150 motion-safe:ease-[cubic-bezier(0.16,1,0.3,1)] motion-safe:data-starting-style:translate-y-1 data-starting-style:opacity-0 data-ending-style:opacity-0 [&>div]:p-1.5"
-const workspaceMenuRow =
-  "min-h-9 gap-2.5 rounded-md px-2.5 py-1 text-[13px] sm:min-h-8 sm:text-[13px]"
-const workspaceMenuIcon = "size-4 text-muted-foreground opacity-100"
 
 /**
  * Full standalone workspace sidebar (Sidebar shell + content). Kept for
@@ -217,14 +219,14 @@ function WorkspaceSidebarInner() {
               <DropdownMenuContent
                 align="start"
                 sideOffset={6}
-                className={`w-[max(18rem,var(--anchor-width))] max-w-(--available-width) ${workspaceMenuSurface}`}
+                className={sidebarMenuSurface}
               >
                 <DropdownMenuGroup>
-                  <DropdownMenuLabel className="flex items-center gap-2.5 px-2.5 py-1.5">
+                  <DropdownMenuLabel className={sidebarMenuHeader}>
                     <WorkspaceAvatar
                       name={activeWorkspace?.name ?? "Lor"}
                       logo={activeWorkspace?.logo}
-                      className="size-8 rounded-lg bg-foreground/4 text-xs ring-1 ring-foreground/5"
+                      className="size-7 rounded-lg text-xs"
                       imgClassName="rounded-md"
                     />
                     <div className="min-w-0 flex-1">
@@ -236,53 +238,52 @@ function WorkspaceSidebarInner() {
                       </div>
                     </div>
                   </DropdownMenuLabel>
+                  <DropdownMenuSeparator className={sidebarMenuSeparator} />
                   <DropdownMenuItem
-                    className={workspaceMenuRow}
+                    className={sidebarMenuRow}
                     onClick={() => openSettings("workspace")}
                     disabled={!activeWorkspace}
                   >
                     <HugeiconsIcon
                       icon={Settings05Icon}
-                      className={workspaceMenuIcon}
+                      className={sidebarMenuIcon}
                       strokeWidth={1.5}
                     />
                     Workspace settings
                   </DropdownMenuItem>
                   <DropdownMenuItem
-                    className={workspaceMenuRow}
+                    className={sidebarMenuRow}
                     onClick={() => setInviteOpen(true)}
                     disabled={!activeWorkspace}
                   >
                     <HugeiconsIcon
                       icon={UserAdd02Icon}
-                      className={workspaceMenuIcon}
+                      className={sidebarMenuIcon}
                       strokeWidth={1.5}
                     />
                     Invite people
                   </DropdownMenuItem>
                 </DropdownMenuGroup>
-                <DropdownMenuSeparator className="mx-2.5 my-1 bg-foreground/6" />
+                <DropdownMenuSeparator className={sidebarMenuSeparator} />
                 <DropdownMenuSub>
-                  <DropdownMenuSubTrigger
-                    className={`${workspaceMenuRow} [&>svg:last-child]:size-3.5 [&>svg:last-child]:text-muted-foreground/60 [&>svg:last-child]:[stroke-width:1.5]`}
-                  >
+                  <DropdownMenuSubTrigger className={sidebarMenuSubTrigger}>
                     <HugeiconsIcon
                       icon={GridViewIcon}
-                      className={workspaceMenuIcon}
+                      className={sidebarMenuIcon}
                       strokeWidth={1.5}
                     />
                     Switch workspace
                   </DropdownMenuSubTrigger>
                   <DropdownMenuSubContent
                     sideOffset={6}
-                    className={`w-64 max-w-(--available-width) ${workspaceMenuSurface}`}
+                    className={sidebarMenuSurface}
                   >
                     {workspaces?.map((ws) => {
                       const isActive = ws.slug === activeWorkspace?.slug
                       return (
                         <DropdownMenuItem
                           key={ws.id}
-                          className={workspaceMenuRow}
+                          className={sidebarMenuRow}
                           onClick={() => {
                             if (isActive) return
                             void navigate({
@@ -310,14 +311,14 @@ function WorkspaceSidebarInner() {
                         </DropdownMenuItem>
                       )
                     })}
-                    <DropdownMenuSeparator className="mx-2.5 my-1 bg-foreground/6" />
+                    <DropdownMenuSeparator className={sidebarMenuSeparator} />
                     <DropdownMenuItem
-                      className={workspaceMenuRow}
+                      className={sidebarMenuRow}
                       onClick={() => setCreateWorkspaceOpen(true)}
                     >
                       <HugeiconsIcon
                         icon={PlusSignIcon}
-                        className={workspaceMenuIcon}
+                        className={sidebarMenuIcon}
                         strokeWidth={1.5}
                       />
                       Create workspace
