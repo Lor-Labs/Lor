@@ -87,6 +87,7 @@ export async function fileParkedApproval({
   parked,
   label,
   onPlanUpdated,
+  notifyWorkspaceActivity,
 }: {
   workspaceId: string
   runId: string
@@ -94,6 +95,9 @@ export async function fileParkedApproval({
   parked: ParkedApproval
   label: string
   onPlanUpdated?: OnPlanUpdated
+  // Host-supplied sidebar invalidation for plan-less parks — with a plan, the
+  // waiting_for_approval status write below already notifies via onPlanUpdated.
+  notifyWorkspaceActivity?: (workspaceId: string) => void
 }): Promise<boolean> {
   try {
     const inserted = await db
@@ -119,6 +123,8 @@ export async function fileParkedApproval({
         { status: "waiting_for_approval" },
         onPlanUpdated
       )
+    } else {
+      notifyWorkspaceActivity?.(workspaceId)
     }
     return true
   } catch (err) {

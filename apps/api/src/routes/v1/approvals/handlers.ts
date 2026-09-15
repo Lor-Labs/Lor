@@ -19,6 +19,7 @@ import {
   startScopeContinuationRun,
 } from "@/lib/scope-runs"
 import type { AppRouteHandler } from "@/lib/types/app-types"
+import { notifyWorkspaceActivity } from "@/lib/workspace-activity"
 import type {
   ApproveApprovalRoute,
   ListChannelApprovalsRoute,
@@ -246,6 +247,10 @@ async function resolveApproval(
       .catch(() => {})
     return { kind: "post_failed" }
   }
+
+  // Pending approvals feed the sidebar aggregate directly, so any durable
+  // resolution (approve or reject, plan or plan-less) changes it.
+  notifyWorkspaceActivity(resolved.workspaceId)
 
   // Remaining side effects are best-effort: the continuation path self-heals
   // (an enqueue failure parks the plan back in waiting_for_input). Broadcasts

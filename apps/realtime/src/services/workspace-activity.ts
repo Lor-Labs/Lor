@@ -23,7 +23,7 @@ export async function getWorkspaceActivity(
   const accessible = await listAccessibleChannelIds(userId, workspaceId)
   if (accessible.size === 0) return []
   const channelIds = [...accessible]
-  const [runs, plans] = await Promise.all([
+  const [runs, plans, approvals] = await Promise.all([
     db
       .select({
         channelId: schema.agentRun.channelId,
@@ -48,6 +48,24 @@ export async function getWorkspaceActivity(
             "waiting_for_input",
             "waiting_for_approval",
           ])
+        )
+      ),
+    // Pending approvals directly: a policy-parked approval on a plan-less run
+    // has no waiting plan and its run has already ended its turn, so neither
+    // query above sees it. The approval row has no channel — resolve it
+    // through the plan or run it anchors to.
+    db
+      .select({
+        planChannelId: schema.plan.channelId,
+        runChannelId: schema.agentRun.channelId,
+      })
+      .from(schema.approval)
+      .leftJoin(schema.plan, eq(schema.approval.planId, schema.plan.id))
+      .leftJoin(schema.agentRun, eq(schema.approval.runId, schema.agentRun.id))
+      .where(
+        and(
+          eq(schema.approval.workspaceId, workspaceId),
+          eq(schema.approval.status, "pending")
         )
       ),
   ])
@@ -77,6 +95,12 @@ export async function getWorkspaceActivity(
       plan.channelId,
       plan.status === "waiting_for_approval" ? "needs_approval" : "needs_input"
     )
+  }
+  for (const approval of approvals) {
+    const channelId = approval.planChannelId ?? approval.runChannelId
+    if (channelId && accessible.has(channelId)) {
+      bump(channelId, "needs_approval")
+    }
   }
   return [...channels.values()].sort((a, b) =>
     a.channelId.localeCompare(b.channelId)

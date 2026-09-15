@@ -748,6 +748,7 @@ export function createLorRespondProcessor(
               },
               {
                 onPlanUpdated: emitPlanUpdated,
+                notifyWorkspaceActivity,
                 onMessageReaction: ({ update, notification }) => {
                   emitter
                     .to(channelRoom(update.channelId))

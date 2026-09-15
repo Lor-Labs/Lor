@@ -394,6 +394,9 @@ export type RespondCallbacks = {
   // the snapshot to the channel room (and invalidates workspace activity on
   // status moves).
   onPlanUpdated?: OnPlanUpdated
+  // Sidebar invalidation for state changes with no plan to carry them (e.g. a
+  // policy-parked approval on a plan-less run).
+  notifyWorkspaceActivity?: (workspaceId: string) => void
 }
 
 export { estimateMessagesTokens, isSafeSplit } from "./compaction"
@@ -1727,6 +1730,7 @@ export async function respond(
     onInstructionsProposal,
     onMessageReaction,
     onPlanUpdated,
+    notifyWorkspaceActivity,
   }: RespondCallbacks,
   run?: RunHandle
 ): Promise<RespondResult> {
@@ -2544,6 +2548,7 @@ export async function respond(
         parked,
         label: toolLabel(parked.toolName, parked.input),
         onPlanUpdated: notifyPlanUpdated,
+        notifyWorkspaceActivity,
       })
       // Only claim the park when a row exists to resolve — otherwise the run
       // would advertise a gate nobody can clear.

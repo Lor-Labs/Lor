@@ -172,6 +172,7 @@ documents), not in core channels. Sections 1 and the presence half of section
 - [x] worker settlePlan + plan claim + emitPlanUpdated meta — `apps/worker/src/jobs/lor-respond.ts`
 - [x] API `emitPlanUpdated(plan, meta)` + approval resolve/park paths — `apps/api/src/lib/scope-runs.ts`, `apps/api/src/routes/v1/approvals/handlers.ts`, `apps/api/src/routes/v1/runs/handlers.ts`
 - [x] realtime abandoned-plan settles — `apps/realtime/src/index.ts`
+- [x] **Plan-less policy-parked approvals** (found in live QA 2026-09-14: gated tool on a quick ask has no plan and its run ends the turn, so neither run nor plan queries saw it). Pending `approval` rows are now a third snapshot source (channel via plan/run join, `needs_approval`); `fileParkedApproval` notifies via a new `RespondCallbacks.notifyWorkspaceActivity` when planId is null; approval resolution notifies unconditionally once durable (after the trigger message posts, past the un-resolve rollback) — `apps/api/src/routes/v1/approvals/handlers.ts`.
 - Plan inserts (born `running`) deliberately don't invalidate: running plans aren't in the sidebar aggregate and the run claim covers the spinner.
 
 ### Client (done; presence parts removed per the decision above)
