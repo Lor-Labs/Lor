@@ -6,15 +6,61 @@ import HashtagIcon from "@hugeicons/core-free-icons/HashtagIcon"
 import SquareLock02Icon from "@hugeicons/core-free-icons/SquareLock02Icon"
 import VolumeHighIcon from "@hugeicons/core-free-icons/VolumeHighIcon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
+import type { ChannelActivity } from "@repo/realtime-types"
 import * as Haptics from "expo-haptics"
 import { useThemeColor } from "heroui-native/hooks"
-import { type ReactNode, useState } from "react"
+import { type ReactNode, useMemo, useState } from "react"
 import { ActivityIndicator, Pressable, Text, View } from "react-native"
 import { PrivateHashIcon } from "@/components/ui/private-hash-icon"
 import { SectionLabel } from "@/components/ui/section-label"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useUnread } from "@/context/unread-context"
+import { useWorkspace } from "@/context/workspace-context"
+import { useWorkspaceActivity } from "@/hooks/use-workspace-activity"
 import type { Channel, ChannelCategory } from "@/lib/api-types"
+
+type LorState = NonNullable<ChannelActivity["lor"]>
+
+const lorLabels: Record<LorState, string> = {
+  working: "Lor is working",
+  queued: "Lor is queued",
+  needs_input: "Lor needs input",
+  needs_approval: "Awaiting approval",
+}
+
+// Compact per-channel Lor state, mirroring web's LorChannelStatus: accent
+// spinner (working), accent dot (queued), warning "!" badge (waiting states).
+function LorChannelStatus({ state }: { state: LorState }) {
+  const accent = useThemeColor("accent")
+  if (state === "working") {
+    return (
+      <ActivityIndicator
+        accessibilityLabel={lorLabels.working}
+        color={accent}
+        size="small"
+        style={{ transform: [{ scale: 0.7 }] }}
+      />
+    )
+  }
+  if (state === "queued") {
+    return (
+      <View
+        accessibilityLabel={lorLabels.queued}
+        className="size-1.5 rounded-full bg-accent opacity-60"
+      />
+    )
+  }
+  return (
+    <View
+      accessibilityLabel={lorLabels[state]}
+      className="size-4 items-center justify-center rounded-full bg-warning-soft"
+    >
+      <Text className="text-[10px] font-bold leading-[12px] text-warning-soft-foreground">
+        !
+      </Text>
+    </View>
+  )
+}
 
 function MentionBadge({ count }: { count: number }) {
   return (
@@ -28,12 +74,14 @@ function MentionBadge({ count }: { count: number }) {
 
 export function ChannelRow({
   channel,
+  lorState,
   mentionCount,
   onLongPress,
   onPress,
   unread,
 }: {
   channel: Channel
+  lorState?: LorState
   mentionCount: number
   onLongPress?: (channel: Channel) => void
   onPress: (channel: Channel) => void
@@ -57,7 +105,7 @@ export function ChannelRow({
           : unread
             ? ", unread messages"
             : ""
-      }`}
+      }${lorState ? `, ${lorLabels[lorState]}` : ""}`}
       accessibilityActions={
         onLongPress
           ? [{ label: "Channel options", name: "channel-options" }]
@@ -122,6 +170,7 @@ export function ChannelRow({
         {channel.name ?? "untitled"}
       </Text>
       {mentionCount > 0 ? <MentionBadge count={mentionCount} /> : null}
+      {lorState ? <LorChannelStatus state={lorState} /> : null}
     </Pressable>
   )
 }
@@ -283,6 +332,15 @@ export function ChannelList({
     () => new Set()
   )
   const { getUnreadCount, getMentionCount } = useUnread()
+  const { workspace } = useWorkspace()
+  const activity = useWorkspaceActivity(workspace?.id)
+  const lorStates = useMemo(() => {
+    const map = new Map<string, LorState>()
+    for (const channel of activity ?? []) {
+      if (channel.lor) map.set(channel.channelId, channel.lor)
+    }
+    return map
+  }, [activity])
 
   if (isLoading && !data) return <ChannelListSkeleton />
   if (!data) return null
@@ -324,6 +382,7 @@ export function ChannelList({
     <ChannelRow
       channel={channel}
       key={channel.id}
+      lorState={lorStates.get(channel.id)}
       mentionCount={getMentionCount(channel.id)}
       onLongPress={onLongPress}
       onPress={onPress}
