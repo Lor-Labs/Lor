@@ -565,10 +565,15 @@ function ThreadFooter({
   const replyLabel = `${summary.replyCount} ${
     summary.replyCount === 1 ? "reply" : "replies"
   }`
+  const waitingLabel = summary.lorWaiting
+    ? summary.lorWaiting === "needs_approval"
+      ? "Needs approval"
+      : "Needs input"
+    : null
 
   return (
     <Pressable
-      accessibilityLabel={`${replyLabel}. Last reply ${timeAgo(summary.lastReplyAt)}`}
+      accessibilityLabel={`${replyLabel}. ${waitingLabel ?? `Last reply ${timeAgo(summary.lastReplyAt)}`}`}
       accessibilityRole="button"
       className="mt-two min-h-9 flex-row items-center gap-two rounded-lor-sm py-one pr-two"
       onPress={() => onOpenThread(message)}
@@ -590,9 +595,28 @@ function ThreadFooter({
       <Text className="text-[13px] font-semibold text-accent">
         {replyLabel}
       </Text>
-      <Text className="min-w-0 flex-1 text-[13px] text-muted" numberOfLines={1}>
-        Last reply {timeAgo(summary.lastReplyAt)}
-      </Text>
+      {waitingLabel ? (
+        <View className="min-w-0 flex-1 flex-row items-center gap-one">
+          <View className="size-4 items-center justify-center rounded-full bg-warning-soft">
+            <Text className="text-[10px] font-bold leading-[12px] text-warning-soft-foreground">
+              !
+            </Text>
+          </View>
+          <Text
+            className="text-[13px] font-medium text-warning-soft-foreground"
+            numberOfLines={1}
+          >
+            {waitingLabel}
+          </Text>
+        </View>
+      ) : (
+        <Text
+          className="min-w-0 flex-1 text-[13px] text-muted"
+          numberOfLines={1}
+        >
+          Last reply {timeAgo(summary.lastReplyAt)}
+        </Text>
+      )}
       <HugeiconsIcon color={muted} icon={ArrowRight01Icon} size={15} />
     </Pressable>
   )

@@ -206,6 +206,7 @@ export async function runUnattended(
           void recordUsage(u, usageRefs)
         },
         onInstructionsProposal: notifyInstructionsProposal,
+        notifyWorkspaceActivity,
       },
       // No steering surface exists for headless runs — drop the drain so
       // unrelated channel chatter is never injected mid-run.

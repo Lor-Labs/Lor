@@ -242,9 +242,23 @@ function ThreadFooter({
       <span className="shrink-0 font-semibold text-primary group-hover/thread:underline">
         {replyLabel}
       </span>
-      <span className="truncate text-muted-foreground">
-        Last reply {timeAgo(summary.lastReplyAt)}
-      </span>
+      {summary.lorWaiting ? (
+        <span className="flex min-w-0 shrink-0 items-center gap-1.5 font-medium text-warning-foreground">
+          <span
+            aria-hidden="true"
+            className="flex size-3.5 shrink-0 items-center justify-center rounded-full bg-warning/12 text-[10px]"
+          >
+            !
+          </span>
+          {summary.lorWaiting === "needs_approval"
+            ? "Needs approval"
+            : "Needs input"}
+        </span>
+      ) : (
+        <span className="truncate text-muted-foreground">
+          Last reply {timeAgo(summary.lastReplyAt)}
+        </span>
+      )}
       <HugeiconsIcon
         icon={ArrowRight01Icon}
         className="-mr-0.5 ml-auto size-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover/thread:opacity-100"

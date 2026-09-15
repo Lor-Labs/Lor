@@ -40,6 +40,7 @@ function makeThreadUpdate(
     threadRootId: "root-1",
     replyCount: 2,
     lastReplyAt: "2026-07-14T12:03:00.000Z",
+    lorWaiting: null,
     participants: [
       {
         id: author.id,
