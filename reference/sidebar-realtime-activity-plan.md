@@ -175,6 +175,10 @@ documents), not in core channels. Sections 1 and the presence half of section
 - [x] **Plan-less policy-parked approvals** (found in live QA 2026-09-14: gated tool on a quick ask has no plan and its run ends the turn, so neither run nor plan queries saw it). Pending `approval` rows are now a third snapshot source (channel via plan/run join, `needs_approval`); `fileParkedApproval` notifies via a new `RespondCallbacks.notifyWorkspaceActivity` when planId is null; approval resolution notifies unconditionally once durable (after the trigger message posts, past the un-resolve rollback) — `apps/api/src/routes/v1/approvals/handlers.ts`.
 - Plan inserts (born `running`) deliberately don't invalidate: running plans aren't in the sidebar aggregate and the run claim covers the spinner.
 
+### Channel-feed thread footer chip (added 2026-09-14, Jacob's pick over a channel banner)
+
+Thread summaries carry `lorWaiting: "needs_approval" | "needs_input" | null` — the thread is blocked on a human (pending approval via plan/run join, else waiting plan). Live path: `loadThreadSummary` in `packages/messaging/src/thread-summary.ts` (existing `message:thread:updated` emits at park/settle/continuation already fire at the right moments). Initial-load path: `apps/api/src/lib/queries/messages.ts` + `threadSummarySchema`. Renderers: web `message-item.tsx` ThreadFooter and mobile `message-row.tsx` swap "Last reply …" for an amber `!` "Needs approval"/"Needs input". Working/queued deliberately NOT in the footer — the streaming placeholder is that signal.
+
 ### Client (done; presence parts removed per the decision above)
 
 - `useWorkspaceActivity`: 100 ms fixed-deadline coalescing for invalidation bursts, one request in flight + one queued, healthy snapshot kept through transient failures (cleared after 3 consecutive), 15s poll + connect/focus refresh retained as recovery.

@@ -261,6 +261,9 @@ export type RealtimeMessageThreadUpdated = {
   threadRootId: string
   replyCount: number
   lastReplyAt: string | null
+  // The thread is blocked on a human — a pending approval or an open plan
+  // waiting for input. Drives the amber chip on channel-feed thread footers.
+  lorWaiting: "needs_approval" | "needs_input" | null
   participants: Array<{
     id: string
     name: string
