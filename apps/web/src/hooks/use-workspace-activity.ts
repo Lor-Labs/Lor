@@ -53,6 +53,9 @@ export function useWorkspaceActivity(workspaceId?: string) {
       const attempt = ++generation
       const fail = () => {
         if (disposed || attempt !== generation) return
+        // Invalidate the attempt: an ack landing after the timeout must not
+        // fail the same attempt twice or clobber the scheduled retry.
+        generation += 1
         pending = false
         failures += 1
         // Keep the last healthy snapshot through a transient failure; only

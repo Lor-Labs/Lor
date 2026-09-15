@@ -28,8 +28,6 @@ const lorLabels: Record<LorState, string> = {
   needs_approval: "Awaiting approval",
 }
 
-// Compact per-channel Lor state, mirroring web's LorChannelStatus: accent
-// spinner (working), accent dot (queued), warning "!" badge (waiting states).
 function LorChannelStatus({ state }: { state: LorState }) {
   const accent = useThemeColor("accent")
   if (state === "working") {
