@@ -1,12 +1,18 @@
 import { Button } from "@repo/ui/components/button"
 import { Label } from "@repo/ui/components/label"
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@repo/ui/components/select"
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@repo/ui/components/menu"
+import { SelectButton } from "@repo/ui/components/select"
 import { Spinner } from "@repo/ui/components/spinner"
 import { Switch } from "@repo/ui/components/switch"
 import { toast } from "@repo/ui/components/toast"
@@ -28,8 +34,7 @@ const GROUP_ORDER: ApprovalTarget["group"][] = [
   "mcp_server",
 ]
 
-// Resolver select values: any member, plus prefixed role/person entries so
-// one select covers the whole spec (teams join later).
+// Prefixes distinguish roles and people while sharing the saved resolver value.
 const KIND_ANY_MEMBER = "any_member"
 const rolePrefix = "role:"
 const userPrefix = "user:"
@@ -169,20 +174,11 @@ export function ApprovalsSection({
       value: `${rolePrefix}${role.role}`,
       label: `Role: ${formatWorkspaceRole(role.role)}`,
     })),
-    ...members.map((m) => ({
-      value: `${userPrefix}${m.userId}`,
-      label: m.name,
-    })),
   ]
-  // A policy can point at a resolver the list no longer offers (deleted role,
-  // departed member, bot); keep the select renderable instead of blank.
-  const resolverItemsFor = (policy: ApprovalPolicy) => {
-    const value = resolverValue(policy)
-    if (resolverItems.some((item) => item.value === value)) {
-      return resolverItems
-    }
-    return [...resolverItems, { value, label: "Unavailable resolver" }]
-  }
+  const personItems = members.map((m) => ({
+    value: `${userPrefix}${m.userId}`,
+    label: m.name,
+  }))
 
   const busy = upsert.isPending || remove.isPending
 
@@ -209,7 +205,18 @@ export function ApprovalsSection({
               {targets.map((target) => {
                 const policy = policyByTarget.get(target.key)
                 const switchId = `approval-gate-${target.key}`
-                const items = policy ? resolverItemsFor(policy) : resolverItems
+                const value = policy ? resolverValue(policy) : KIND_ANY_MEMBER
+                // Keep departed members and deleted roles visible in the trigger.
+                const resolverLabel =
+                  [...resolverItems, ...personItems].find(
+                    (item) => item.value === value
+                  )?.label ?? "Unavailable resolver"
+                const setResolver = (nextValue: string) => {
+                  upsert.mutate({
+                    target: target.key,
+                    ...valueToResolver(nextValue),
+                  })
+                }
                 return (
                   <div
                     key={target.key}
@@ -225,29 +232,59 @@ export function ApprovalsSection({
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
                       {policy && (
-                        <Select
-                          items={items}
-                          value={resolverValue(policy)}
-                          disabled={busy}
-                          onValueChange={(value) => {
-                            if (typeof value !== "string") return
-                            upsert.mutate({
-                              target: target.key,
-                              ...valueToResolver(value),
-                            })
-                          }}
-                        >
-                          <SelectTrigger className="w-56" size="sm">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {items.map((item) => (
-                              <SelectItem key={item.value} value={item.value}>
-                                {item.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger
+                            disabled={busy}
+                            aria-label={`Who can approve ${target.label}: ${resolverLabel}`}
+                            render={<SelectButton className="w-56" size="sm" />}
+                          >
+                            {resolverLabel}
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-56">
+                            <DropdownMenuRadioGroup
+                              value={value}
+                              onValueChange={setResolver}
+                            >
+                              {resolverItems.map((item) => (
+                                <DropdownMenuRadioItem
+                                  key={item.value}
+                                  value={item.value}
+                                  disabled={busy}
+                                >
+                                  {item.label}
+                                </DropdownMenuRadioItem>
+                              ))}
+                            </DropdownMenuRadioGroup>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuSub>
+                              <DropdownMenuSubTrigger inset>
+                                Specific person
+                              </DropdownMenuSubTrigger>
+                              <DropdownMenuSubContent className="w-56 max-w-(--available-width)">
+                                <DropdownMenuRadioGroup
+                                  value={value}
+                                  onValueChange={setResolver}
+                                >
+                                  {personItems.map((item) => (
+                                    <DropdownMenuRadioItem
+                                      key={item.value}
+                                      value={item.value}
+                                      disabled={busy}
+                                      className="grid-cols-[.75rem_minmax(0,1fr)] [&>span:last-child]:truncate"
+                                    >
+                                      {item.label}
+                                    </DropdownMenuRadioItem>
+                                  ))}
+                                </DropdownMenuRadioGroup>
+                                {personItems.length === 0 && (
+                                  <DropdownMenuItem disabled>
+                                    No members available
+                                  </DropdownMenuItem>
+                                )}
+                              </DropdownMenuSubContent>
+                            </DropdownMenuSub>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       )}
                       <Switch
                         id={switchId}

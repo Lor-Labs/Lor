@@ -504,9 +504,12 @@ export type ActFlushResult =
   | { kind: "skip"; reason: string }
 
 // Close an open window and turn everything it collected into one run. Called
-// by the worker when the delayed flush job fires.
+// by the worker when the delayed flush job fires. `notifyWorkspaceActivity`
+// (host-supplied, best-effort) fires after the queued run row commits and
+// after an unwind delete, so sidebar activity tracks both.
 export async function flushActWindow(
-  triggerId: string
+  triggerId: string,
+  notifyWorkspaceActivity?: (workspaceId: string) => void
 ): Promise<ActFlushResult> {
   const trigger = await db
     .select({
@@ -616,6 +619,7 @@ export async function flushActWindow(
     await closeActWindow(triggerId)
     return { kind: "skip", reason: "run_insert_failed" }
   }
+  notifyWorkspaceActivity?.(workspaceId)
 
   // Claiming is what makes the batch exact: these rows now point at the run,
   // and anything arriving after this arms the next window.
@@ -629,6 +633,7 @@ export async function flushActWindow(
       .delete(schema.agentRun)
       .where(eq(schema.agentRun.id, run.id))
       .catch(() => {})
+    notifyWorkspaceActivity?.(workspaceId)
     await closeActWindow(triggerId)
     return { kind: "skip", reason: "nothing_claimed" }
   }
@@ -675,6 +680,7 @@ export async function flushActWindow(
       .delete(schema.agentRun)
       .where(eq(schema.agentRun.id, run.id))
       .catch(() => {})
+    notifyWorkspaceActivity?.(workspaceId)
     await closeActWindow(triggerId)
     return { kind: "skip", reason: "no_payloads" }
   }

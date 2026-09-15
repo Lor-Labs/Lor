@@ -17,6 +17,7 @@ import { channelRoom, threadRoom } from "@repo/realtime-types/rooms"
 import type { Emitter } from "@socket.io/redis-emitter"
 import type { Queue } from "bullmq"
 import { logger } from "@/lib/logger"
+import { notifyWorkspaceActivity } from "@/lib/workspace-activity"
 
 const TERMINAL_RUN_STATES = ["complete", "failed", "stopped"] as const
 
@@ -245,6 +246,8 @@ async function runDrain(args: {
     return
   }
 
+  notifyWorkspaceActivity(run.workspaceId)
+
   // Release exactly this message: it leaves the pill, materializes in the
   // transcript, and the new run's snapshot picks it up as the question.
   // Deliberately BEFORE the enqueue — loadConversation excludes still-queued
@@ -331,6 +334,8 @@ async function runDrain(args: {
       channelId: run.channelId,
       messageId: placeholder.id,
     })
+    // The queued run's indicator must clear now that the row is gone.
+    notifyWorkspaceActivity(run.workspaceId)
     return
   }
   // Channel feeds only learn about threaded activity via

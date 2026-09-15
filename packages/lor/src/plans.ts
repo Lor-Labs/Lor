@@ -49,7 +49,13 @@ const MAX_DESCRIPTION_CHARS = 120
 // message, where the team can actually read it.
 const MAX_SUMMARY_CHARS = 300
 
-export type OnPlanUpdated = (plan: Plan) => void
+// meta.statusChanged marks writes that moved plan.status — hosts use it to
+// additionally invalidate workspace sidebar activity (step-only updates are
+// frequent and never change the sidebar aggregate).
+export type OnPlanUpdated = (
+  plan: Plan,
+  meta?: { statusChanged?: boolean }
+) => void
 
 // start_plan creation is delegated to the host (the worker posts the card
 // message and inserts the row — message fanout machinery lives there).
@@ -130,7 +136,7 @@ export async function settleAbandonedRunPlan(
     .then((rows) => rows[0] ?? null)
   if (row && onPlanUpdated) {
     try {
-      onPlanUpdated(row)
+      onPlanUpdated(row, { statusChanged: true })
     } catch (err) {
       logger.error({ err }, "onPlanUpdated listener failed")
     }
@@ -157,9 +163,14 @@ export async function updatePlan(
     )
     .returning()
     .then((rows) => rows[0] ?? null)
+  // Callers only set `status` when transitioning, so a defined status without
+  // a matching CAS value is a real move (the CAS guarantees the prior value).
+  const statusChanged =
+    values.status !== undefined &&
+    (observedStatus === undefined || values.status !== observedStatus)
   if (row && onPlanUpdated) {
     try {
-      onPlanUpdated(row)
+      onPlanUpdated(row, { statusChanged })
     } catch (err) {
       logger.error({ err }, "onPlanUpdated listener failed")
     }

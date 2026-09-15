@@ -57,6 +57,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { AnimatePresence, motion } from "motion/react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
+import { useDesktopChrome } from "@/components/desktop-window-frame"
 import { AgentProfilesSection } from "@/components/workspace/agent-profiles-section"
 import { ApprovalsSection } from "@/components/workspace/approvals-section"
 import { BillingSection } from "@/components/workspace/billing-section"
@@ -66,6 +67,7 @@ import { InstructionsSection } from "@/components/workspace/instructions-section
 import { MembersRolesSection } from "@/components/workspace/members-roles-section"
 import { TriggerEffects } from "@/components/workspace/trigger-effects"
 import { WorkspaceAvatar } from "@/components/workspace/workspace-avatar"
+import { useDesktopZoom } from "@/context/desktop-zoom-context"
 import { apiClient } from "@/lib/api-client"
 import type {
   ConnectCloudwatchRequest,
@@ -145,6 +147,10 @@ export function WorkspaceSettingsDialog({
   section: SectionId
   onSectionChange: (section: SectionId) => void
 }) {
+  const { isMacDesktop, isFullscreen } = useDesktopChrome()
+  const zoom = useDesktopZoom()
+  const appScale = (zoom?.levels.app ?? 100) / 100
+
   // Billing is admin-only; same queries the sidebar runs, deduped by
   // react-query. Non-admins never see the nav item (server enforces too).
   const { data: activeMember } = useQuery({
@@ -250,6 +256,11 @@ export function WorkspaceSettingsDialog({
             aria-modal="true"
             aria-label="Workspace settings"
             className="fixed inset-x-3 inset-y-3 z-50 flex overflow-hidden rounded-2xl border border-border bg-background shadow-2xl sm:inset-x-8 sm:inset-y-8"
+            style={
+              isMacDesktop && !isFullscreen
+                ? { top: `max(2rem, ${56 / appScale}px)` }
+                : undefined
+            }
             initial={{ opacity: 0, scale: 0.96, y: 16 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.97, y: 8 }}

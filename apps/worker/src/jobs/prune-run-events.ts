@@ -29,6 +29,7 @@ import type { createClient } from "redis"
 import { settleLoopRun } from "@/jobs/loop-run"
 import { logger } from "@/lib/logger"
 import { drainScopeQueue } from "@/lib/run-queue"
+import { notifyWorkspaceActivity } from "@/lib/workspace-activity"
 
 export const RUN_EVENT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000 // 7 days
 export const RUN_EVENT_PRUNE_EVERY_MS = 6 * 60 * 60 * 1000 // q 6 hrs
@@ -109,6 +110,7 @@ export async function sweepDeadRuns(
   const dead: {
     id: string
     messageId: string | null
+    workspaceId: string
     channelId: string
     threadRootId: string | null
     triggerId: string | null
@@ -125,6 +127,7 @@ export async function sweepDeadRuns(
           .returning({
             id: schema.agentRun.id,
             messageId: schema.agentRun.messageId,
+            workspaceId: schema.agentRun.workspaceId,
             channelId: schema.agentRun.channelId,
             threadRootId: schema.agentRun.threadRootId,
             triggerId: schema.agentRun.triggerId,
@@ -152,7 +155,10 @@ export async function sweepDeadRuns(
         )
         return null
       })
-    if (result) dead.push(result)
+    if (result) {
+      dead.push(result)
+      notifyWorkspaceActivity(result.workspaceId)
+    }
   }
   for (const run of dead) {
     if (!run.settled || !run.messageId) continue
@@ -191,10 +197,12 @@ export async function sweepDeadRuns(
     await settleAbandonedRunPlan(
       { id: run.id, threadRootId: run.threadRootId },
       "failed",
-      (plan) =>
+      (plan) => {
         emitter
           .to(channelRoom(run.channelId))
           .emit("plan:updated", { plan: toRealtimePlan(plan) })
+        notifyWorkspaceActivity(plan.workspaceId)
+      }
     ).catch((err) =>
       logger.error({ err, runId: run.id }, "Dead-run plan settle failed")
     )
@@ -305,6 +313,7 @@ export async function sweepOrphanedPlaceholders(
           emitter
             .to(channelRoom(message.channelId))
             .emit("plan:updated", { plan: toRealtimePlan(plan) })
+          notifyWorkspaceActivity(plan.workspaceId)
         }
       )
       if (message.threadRootId) {

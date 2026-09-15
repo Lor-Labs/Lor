@@ -21,6 +21,7 @@ import { channelRoom, threadRoom } from "@repo/realtime-types/rooms"
 import { Queue } from "bullmq"
 import { getEmitter } from "@/lib/bot-messages"
 import { logger } from "@/lib/logger"
+import { notifyWorkspaceActivity } from "@/lib/workspace-activity"
 
 function parseRedisUrl(url: string) {
   const parsed = new URL(url)
@@ -51,11 +52,16 @@ function getRespondQueue(): Queue<LorRespondJobData> {
 // re-exported under the name this app's handlers already import.
 export { toRealtimePlan as serializePlan }
 
-export async function emitPlanUpdated(plan: Plan): Promise<void> {
+export async function emitPlanUpdated(
+  plan: Plan,
+  meta?: { statusChanged?: boolean }
+): Promise<void> {
   const io = await getEmitter()
   io.to(channelRoom(plan.channelId)).emit("plan:updated", {
     plan: toRealtimePlan(plan),
   })
+  // Status moves change the sidebar aggregate; step-only updates don't.
+  if (meta?.statusChanged) notifyWorkspaceActivity(plan.workspaceId)
 }
 
 async function loadAuthor(userId: string) {
@@ -377,6 +383,8 @@ export async function startScopeContinuationRun(
     return
   }
 
+  notifyWorkspaceActivity(workspaceId)
+
   // Best effort: the run row exists, so the enqueue below must happen no
   // matter what — a failed broadcast only costs the live placeholder.
   try {
@@ -446,6 +454,8 @@ export async function startScopeContinuationRun(
       .catch(() => {})
     // Clients already saw the placeholder via message:created — retract it,
     // then hand the workflow back to the caller since no run is coming.
+    // The deleted queued run's indicator must clear too.
+    notifyWorkspaceActivity(workspaceId)
     try {
       const io = await getEmitter()
       io.to(room).emit("message:deleted", {
@@ -489,7 +499,11 @@ export async function startPlanContinuationRun(args: {
           )
         )
         .returning()
-        .then((rows) => (rows[0] ? emitPlanUpdated(rows[0]) : undefined))
+        .then((rows) =>
+          rows[0]
+            ? emitPlanUpdated(rows[0], { statusChanged: true })
+            : undefined
+        )
         .catch(() => {})
     },
   })

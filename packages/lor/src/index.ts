@@ -21,7 +21,6 @@ import {
   ALL_LOR_CAPABILITIES,
   type LorToolCall,
   type LorToolCallUpdate,
-  type Plan,
 } from "@repo/db/schema"
 import { env } from "@repo/env/server"
 import {
@@ -101,6 +100,7 @@ import { LOR_MODEL, lorModel, mainGatewayOptions } from "./models"
 import { notionTools, resolveWorkspaceNotion } from "./notion"
 import {
   type CreatePlanForThread,
+  type OnPlanUpdated,
   planContextSnapshot,
   planRulesSection,
   planTools,
@@ -391,8 +391,9 @@ export type RespondCallbacks = {
   ) => void | Promise<void>
   onMessageReaction?: OnMessageReaction
   // Fired whenever a plan tool changes the plan row — the worker broadcasts
-  // the snapshot to the channel room.
-  onPlanUpdated?: (plan: Plan) => void
+  // the snapshot to the channel room (and invalidates workspace activity on
+  // status moves).
+  onPlanUpdated?: OnPlanUpdated
 }
 
 export { estimateMessagesTokens, isSafeSplit } from "./compaction"
@@ -1740,9 +1741,9 @@ export async function respond(
   const planRef: { current: RunPlanContext | null } = {
     current: ctx.plan ?? null,
   }
-  const notifyPlanUpdated = (row: Plan) => {
+  const notifyPlanUpdated: OnPlanUpdated = (row, meta) => {
     planRef.current = toRunPlanContext(row)
-    onPlanUpdated?.(row)
+    onPlanUpdated?.(row, meta)
   }
 
   // The run's retrieval/write boundary — fails closed to workspace-public.

@@ -5,6 +5,7 @@ import type {
   AgentRunStopReason,
 } from "@repo/db/schema"
 import { logger } from "@/lib/logger"
+import { notifyWorkspaceActivity } from "@/lib/workspace-activity"
 
 const FLUSH_MS = 1000
 const FLUSH_MAX_BUFFERED = 50
@@ -165,7 +166,9 @@ export function createRunEventWriter(args: {
     await enqueueFlush()
     const terminal =
       state === "complete" || state === "failed" || state === "stopped"
-    await db
+    // Sidebar invalidation keys off the successful guarded row update (the
+    // returned workspaceId), never off the appended event.
+    const row = await db
       .update(schema.agentRun)
       .set({
         state,
@@ -181,9 +184,13 @@ export function createRunEventWriter(args: {
           inArray(schema.agentRun.state, ["queued", "working", "finalizing"])
         )
       )
-      .catch((err) =>
+      .returning({ workspaceId: schema.agentRun.workspaceId })
+      .then((r) => r[0] ?? null)
+      .catch((err) => {
         logger.warn({ err, runId, state }, "Agent run transition failed")
-      )
+        return null
+      })
+    if (row) notifyWorkspaceActivity(row.workspaceId)
   }
 
   return {

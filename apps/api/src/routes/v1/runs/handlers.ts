@@ -21,6 +21,7 @@ import { userCanAccessChannel } from "@/lib/queries/channel-access"
 import { getRedisClient } from "@/lib/redis"
 import { emitPlanUpdated } from "@/lib/scope-runs"
 import type { AppRouteHandler } from "@/lib/types/app-types"
+import { notifyWorkspaceActivity } from "@/lib/workspace-activity"
 import type {
   GetRunEventsRoute,
   GetThreadContextRoute,
@@ -323,9 +324,13 @@ async function requestRunStop(
       .where(
         and(eq(schema.agentRun.id, run.id), eq(schema.agentRun.state, "queued"))
       )
-      .returning({ id: schema.agentRun.id })
+      .returning({
+        id: schema.agentRun.id,
+        workspaceId: schema.agentRun.workspaceId,
+      })
       .then((rows) => rows[0])
     if (settled) {
+      notifyWorkspaceActivity(settled.workspaceId)
       await db
         .update(schema.message)
         .set({ content: STOPPED_MESSAGE, status: "complete" })
@@ -342,7 +347,7 @@ async function requestRunStop(
         { id: run.id, threadRootId: run.threadRootId },
         "stopped",
         (plan) => {
-          void emitPlanUpdated(plan).catch((err) => {
+          void emitPlanUpdated(plan, { statusChanged: true }).catch((err) => {
             logger.warn(
               { err, runId: run.id, planId: plan.id },
               "Stopped-run plan emit failed"

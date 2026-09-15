@@ -91,6 +91,7 @@ import {
   enforceWorkspaceMessageRateLimit,
 } from "@/services/rate-limit"
 import { getUnreadStatesForUser, markChannelRead } from "@/services/read-states"
+import { getWorkspaceActivity } from "@/services/workspace-activity"
 
 type SocketData = {
   user: Session["user"]
@@ -404,6 +405,27 @@ async function initializeConnection(socket: RealtimeSocket) {
 }
 
 io.on("connection", (socket) => {
+  let activityPending = false
+  socket.on("workspace:activity", async (payload, ack) => {
+    if (typeof ack !== "function") return
+    if (activityPending) {
+      ack({ ok: false, error: "Activity refresh already requested" })
+      return
+    }
+    activityPending = true
+    try {
+      const { workspaceId } = presenceSubscribePayloadSchema.parse(payload)
+      const channels = await getWorkspaceActivity(
+        socket.data.user.id,
+        workspaceId
+      )
+      ack({ ok: true, channels })
+    } catch (error) {
+      ack({ ok: false, error: toErrorMessage(error) })
+    } finally {
+      activityPending = false
+    }
+  })
   void socket.join(userConnectionRoom(socket.data.user.id))
   socket.data.isAlive = true
   socket.data.initialized = false
@@ -872,6 +894,11 @@ io.on("connection", (socket) => {
                   emitRouted(lateRouted)
                   return
                 }
+                // The queued run row committed — sidebar activity shows it.
+                io.to(workspaceRoom(workspaceId)).emit(
+                  "workspace:activity:updated",
+                  { workspaceId }
+                )
                 // Flag the placeholder as streaming so the "Lor is thinking"
                 // indicator shows the instant it lands (independent of the worker's
                 // first stream event arriving).
@@ -990,6 +1017,10 @@ io.on("connection", (socket) => {
                         "plan:updated",
                         { plan: toRealtimePlan(plan) }
                       )
+                      io.to(workspaceRoom(plan.workspaceId)).emit(
+                        "workspace:activity:updated",
+                        { workspaceId: plan.workspaceId }
+                      )
                     }
                   )
                   if (orphan.threadRootId) {
@@ -1026,6 +1057,10 @@ io.on("connection", (socket) => {
                     io.to(channelRoom(parsed.channelId)).emit("plan:updated", {
                       plan: toRealtimePlan(plan),
                     })
+                    io.to(workspaceRoom(plan.workspaceId)).emit(
+                      "workspace:activity:updated",
+                      { workspaceId: plan.workspaceId }
+                    )
                   }
                 )
               }

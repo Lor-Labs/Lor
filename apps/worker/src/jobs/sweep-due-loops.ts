@@ -16,6 +16,7 @@ import { channelRoom } from "@repo/realtime-types/rooms"
 import type { Emitter } from "@socket.io/redis-emitter"
 import type { Queue } from "bullmq"
 import { logger } from "@/lib/logger"
+import { notifyWorkspaceActivity } from "@/lib/workspace-activity"
 
 export const LOOP_SWEEP_EVERY_MS = 60_000
 // Per-tick ceiling; anything beyond it is still due next minute. Keeps one
@@ -166,6 +167,7 @@ export async function sweepDueLoops(
       })
     if (!run) continue
 
+    notifyWorkspaceActivity(loop.workspaceId)
     try {
       await loopRunQueue.add(
         LOOP_RUN_JOB,
@@ -199,6 +201,8 @@ export async function sweepDueLoops(
           )
         )
         .catch(() => {})
+      // The deleted queued run's indicator must clear.
+      notifyWorkspaceActivity(loop.workspaceId)
     }
   }
 }

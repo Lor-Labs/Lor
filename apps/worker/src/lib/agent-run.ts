@@ -41,6 +41,7 @@ import {
 import { logger } from "@/lib/logger"
 import { replayContinuedPrefix } from "@/lib/run-continuation"
 import { createRunEventWriter, type RunEventWriter } from "@/lib/run-events"
+import { notifyWorkspaceActivity } from "@/lib/workspace-activity"
 
 const LEASE_TTL_MS = 60_000
 const HEARTBEAT_MS = 20_000
@@ -320,12 +321,20 @@ export async function claimAgentRun(
             inArray(schema.agentRun.state, ["queued", "working", "finalizing"])
           )
         )
+        .returning({ workspaceId: schema.agentRun.workspaceId })
+        .then((r) => {
+          if (r[0]) notifyWorkspaceActivity(r[0].workspaceId)
+        })
         .catch(() => {})
       return { kind: "exhausted" }
     }
     // A live lease elsewhere — that worker owns the answer.
     return { kind: "terminal" }
   }
+
+  // queued → working changes the channel's sidebar aggregate (a takeover
+  // re-emit is harmless — the snapshot recomputes and clients dedupe).
+  notifyWorkspaceActivity(claimed.workspaceId)
 
   const writer = createRunEventWriter({
     runId,

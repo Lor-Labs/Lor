@@ -291,9 +291,11 @@ async function resolveApproval(
           .then((rows) => rows[0] ?? null)
       : null
     if (updatedPlan) {
-      await emitPlanUpdated(updatedPlan).catch((err) => {
-        logger.warn({ err, approvalId }, "Plan update broadcast failed")
-      })
+      await emitPlanUpdated(updatedPlan, { statusChanged: true }).catch(
+        (err) => {
+          logger.warn({ err, approvalId }, "Plan update broadcast failed")
+        }
+      )
     }
 
     await startScopeContinuationRun({
@@ -325,7 +327,9 @@ async function resolveApproval(
                 )
                 .returning()
                 .then((rows) =>
-                  rows[0] ? emitPlanUpdated(rows[0]) : undefined
+                  rows[0]
+                    ? emitPlanUpdated(rows[0], { statusChanged: true })
+                    : undefined
                 )
                 .catch(() => {})
             },

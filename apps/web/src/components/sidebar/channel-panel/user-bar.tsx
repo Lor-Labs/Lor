@@ -79,9 +79,9 @@ export function UserBar() {
             />
           </DropdownMenuTrigger>
           <DropdownMenuContent
-            className="w-(--anchor-width) min-w-56 rounded-lg"
+            className="w-[max(18rem,var(--anchor-width))] max-w-(--available-width) rounded-lg"
             side={isMobile ? "bottom" : "top"}
-            align="end"
+            align="start"
             sideOffset={4}
           >
             <DropdownMenuGroup>
