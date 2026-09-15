@@ -52,11 +52,13 @@ export default function ThreadScreen() {
   const socket = useSocket()
   const isSocketConnected = useSocketConnected()
   const { workspace } = useWorkspace()
-  const { channelId, focusMessageId, threadRootId } = useLocalSearchParams<{
-    channelId: string
-    focusMessageId?: string
-    threadRootId: string
-  }>()
+  const { channelId, composerDraft, focusMessageId, threadRootId } =
+    useLocalSearchParams<{
+      channelId: string
+      composerDraft?: string
+      focusMessageId?: string
+      threadRootId: string
+    }>()
   const { data: session } = authClient.useSession()
   const canPinMessages = useCanPinMessages(workspace?.id)
   const channelState = useChannelDetail({
@@ -315,6 +317,7 @@ export default function ThreadScreen() {
           thread.root && !thread.isMissing && !thread.error ? (
             <MessageComposer
               accessibilityLabel="Reply in thread"
+              initialDraft={composerDraft}
               channelId={channelId}
               channelName={channelName}
               editingMessage={editingMessage}
