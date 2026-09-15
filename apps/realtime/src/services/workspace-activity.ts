@@ -4,7 +4,9 @@ import type { ChannelActivity } from "@repo/realtime-types"
 
 // Per-channel Lor state for the sidebar, aggregated across every thread in
 // the channel and filtered to what the requesting user can access. Precedence:
-// working/finalizing > queued > needs_approval > needs_input.
+// needs_approval > working/finalizing > queued > needs_input — an approval
+// gate outranks active work; it's the state that needs a human and a
+// concurrent run in another thread must not mask it.
 export async function getWorkspaceActivity(
   userId: string,
   workspaceId: string
@@ -50,31 +52,31 @@ export async function getWorkspaceActivity(
       ),
   ])
 
+  const rank = {
+    needs_input: 1,
+    queued: 2,
+    working: 3,
+    needs_approval: 4,
+  } as const
   const channels = new Map<string, ChannelActivity>()
-  const getChannel = (channelId: string) => {
-    let activity = channels.get(channelId)
+  const bump = (channelId: string, state: keyof typeof rank) => {
+    const activity = channels.get(channelId)
     if (!activity) {
-      activity = { channelId, lor: null }
-      channels.set(channelId, activity)
+      channels.set(channelId, { channelId, lor: state })
+      return
     }
-    return activity
+    if (!activity.lor || rank[state] > rank[activity.lor]) {
+      activity.lor = state
+    }
   }
   for (const run of runs) {
-    const activity = getChannel(run.channelId)
-    if (activity.lor !== "working") {
-      activity.lor = run.state === "queued" ? "queued" : "working"
-    }
+    bump(run.channelId, run.state === "queued" ? "queued" : "working")
   }
   for (const plan of plans) {
-    const activity = getChannel(plan.channelId)
-    // Active work takes precedence when other threads in the channel are waiting.
-    if (activity.lor === "working" || activity.lor === "queued") continue
-    if (activity.lor !== "needs_approval") {
-      activity.lor =
-        plan.status === "waiting_for_approval"
-          ? "needs_approval"
-          : "needs_input"
-    }
+    bump(
+      plan.channelId,
+      plan.status === "waiting_for_approval" ? "needs_approval" : "needs_input"
+    )
   }
   return [...channels.values()].sort((a, b) =>
     a.channelId.localeCompare(b.channelId)

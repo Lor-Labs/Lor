@@ -96,7 +96,7 @@ Preserve existing channel-scoped `plan:updated` events. Add workspace invalidati
 
 ## 3. Keep snapshot aggregation and client recovery correct
 
-- Preserve current aggregate precedence: any working/finalizing run wins; otherwise any queued run wins; then any waiting approval; then waiting input; otherwise null. Completing one of several concurrent runs must not clear another run's spinner. Re-read current state instead of assigning the last event's state to a whole channel.
+- Aggregate precedence (CHANGED 2026-09-14, Jacob): any waiting approval wins; otherwise any working/finalizing run; then any queued run; then waiting input; otherwise null. An approval gate needs a human, so a concurrent run in another thread must not mask it. Completing one of several concurrent runs must not clear another run's spinner. Re-read current state instead of assigning the last event's state to a whole channel.
 - In `useWorkspaceActivity`, add a short bounded coalescing window (about 75–150 ms) for bursts. Keep at most one request in flight and one queued refresh. A constant stream of events must not postpone refresh indefinitely.
 - Refresh immediately on connect/ready and return to focus. Preserve the 15-second fallback initially for missed events, expiry, and best-effort publisher failures. This is recovery, not the normal Lor update mechanism.
 - Audit generation/timer/queued-refresh handling around timeout, disconnect, workspace switch, and focus clearing. A queued old-workspace response must never overwrite the new workspace. Do not accidentally cancel a timeout and leave the hook permanently pending.
