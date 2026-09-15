@@ -24,6 +24,7 @@ import { getEmitter } from "@/lib/bot-messages"
 import { postLoopChannelEvent } from "@/lib/channel-events"
 import { logger } from "@/lib/logger"
 import { getRedisClient } from "@/lib/redis"
+import { notifyWorkspaceActivity } from "@/lib/workspace-activity"
 
 // Loop lifecycle transitions shared by the L2 activate flow and L3
 // management routes. All emits go to the channel room (channel membership
@@ -103,6 +104,7 @@ export async function runLoopNow(input: {
     })
   if (!run) return { ok: false, reason: "already_running" }
 
+  notifyWorkspaceActivity(loop.workspaceId)
   try {
     await getLoopRunQueue().add(
       LOOP_RUN_JOB,
@@ -122,6 +124,8 @@ export async function runLoopNow(input: {
       .delete(schema.agentRun)
       .where(eq(schema.agentRun.id, run.id))
       .catch(() => {})
+    // The deleted queued run's indicator must clear.
+    notifyWorkspaceActivity(loop.workspaceId)
     return { ok: false, reason: "enqueue_failed" }
   }
 

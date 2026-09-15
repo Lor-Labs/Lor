@@ -48,6 +48,10 @@ import { useNavigate, useParams } from "@tanstack/react-router"
 import { AnimatePresence, motion } from "motion/react"
 import { useCallback, useMemo, useState } from "react"
 import { ArchiveProjectDialog } from "@/components/project/archive-project-dialog"
+import {
+  LorChannelStatus,
+  useChannelActivity,
+} from "@/components/sidebar/channel-panel/channel-activity"
 import { useCreateChannel } from "@/components/sidebar/channel-panel/create-channel-context"
 import { DeleteChannelDialog } from "@/components/sidebar/channel-panel/delete-channel-dialog"
 import { EditChannelDialog } from "@/components/sidebar/channel-panel/edit-channel-dialog"
@@ -516,7 +520,7 @@ export function ChannelList() {
       onDragOver={handleDragOver}
       onDragEnd={handleDragEnd}
     >
-      <nav className="space-y-3">
+      <nav aria-label="Channels" className="space-y-3">
         {/* Uncategorized channels */}
         {data.uncategorized.length > 0 && (
           <SortableContext
@@ -1038,6 +1042,8 @@ function SortableChannelItem({
   const unreadCount = active ? 0 : getUnreadCount(ch.id)
   const mentionCount = active ? 0 : getMentionCount(ch.id)
   const hasUnread = unreadCount > 0
+  const activity = useChannelActivity(ch.id)
+  const hasChannelActivity = Boolean(activity?.lor)
 
   const style = {
     transform: CSS.Translate.toString(transform),
@@ -1047,12 +1053,9 @@ function SortableChannelItem({
 
   return (
     <>
-      {/* biome-ignore lint/a11y/useKeyWithClickEvents: dnd-kit handles keyboard interactions */}
       <div
         ref={setNodeRef}
         style={style}
-        onClick={onClick}
-        {...(canManage ? { ...attributes, ...listeners } : {})}
         className={cn(
           "group/channel relative flex w-full items-center gap-2 rounded-lg px-2 py-[6px] text-[14px] hover:bg-foreground/[0.06] cursor-pointer",
           active && "bg-foreground/[0.06] font-medium text-foreground",
@@ -1065,15 +1068,24 @@ function SortableChannelItem({
           <div className="absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-r-full bg-primary" />
         )}
         {!active && hasUnread && (
-          <div className="absolute left-0 top-1/2 h-2 w-[3px] -translate-y-1/2 rounded-r-full bg-foreground" />
+          <div className="absolute left-0 top-1/2 size-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-foreground" />
         )}
         <ChannelIcon
           type={ch.type}
           isPrivate={ch.audience === "members" && ch.parentId === null}
         />
-        <span className="truncate">{ch.name}</span>
-        <div className="ml-auto flex items-center gap-1">
+        <button
+          type="button"
+          onClick={onClick}
+          {...(canManage ? { ...attributes, ...listeners } : {})}
+          aria-current={active ? "page" : undefined}
+          className="min-w-0 flex-1 cursor-pointer truncate text-left outline-none after:absolute after:inset-0 after:rounded-lg focus-visible:after:ring-2 focus-visible:after:ring-ring/50"
+        >
+          {ch.name}
+        </button>
+        <div className="ml-auto flex shrink-0 items-center gap-1.5">
           <MentionBadge count={mentionCount} />
+          {activity?.lor && <LorChannelStatus state={activity.lor} compact />}
           <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
             <DropdownMenuTrigger
               render={
@@ -1085,6 +1097,11 @@ function SortableChannelItem({
                   onPointerDown={(e) => e.stopPropagation()}
                   className={cn(
                     "text-muted-foreground opacity-0 transition-opacity duration-150 hover:text-foreground group-hover/channel:opacity-100 focus-visible:opacity-100",
+                    hasChannelActivity &&
+                      "absolute right-1 top-1/2 z-[1] -translate-y-1/2 rounded-md border-foreground/10 bg-sidebar/60 shadow-none hover:bg-sidebar/60 data-pressed:bg-sidebar/60",
+                    hasChannelActivity &&
+                      menuOpen &&
+                      "border-transparent bg-accent hover:bg-accent data-pressed:bg-accent",
                     menuOpen && "opacity-100"
                   )}
                 />

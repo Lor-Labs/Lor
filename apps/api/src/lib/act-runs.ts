@@ -15,6 +15,7 @@ import {
 } from "@repo/realtime-types/queues"
 import { Queue } from "bullmq"
 import { logger } from "@/lib/logger"
+import { notifyWorkspaceActivity } from "@/lib/workspace-activity"
 
 // Act payloads ride the BullMQ job in immediate mode (first-party event
 // content isn't stored anywhere Lor can re-read); keep them well under Redis
@@ -183,6 +184,7 @@ async function runActNow(input: {
     return { kind: "skipped", reason: "in_flight", blocked: true }
   }
   if (!run) return { kind: "skipped", reason: "run_insert_failed" }
+  notifyWorkspaceActivity(input.workspaceId)
 
   // Claiming the delivery is what stops a later flush from re-batching it, so
   // an unclaimed delivery must not also get a run now — drop this attempt and
@@ -210,6 +212,7 @@ async function runActNow(input: {
       .delete(schema.agentRun)
       .where(eq(schema.agentRun.id, run.id))
       .catch(() => {})
+    notifyWorkspaceActivity(input.workspaceId)
     return { kind: "skipped", reason: "delivery_link_failed", blocked: true }
   }
 
@@ -244,6 +247,7 @@ async function runActNow(input: {
       .delete(schema.agentRun)
       .where(eq(schema.agentRun.id, run.id))
       .catch(() => {})
+    notifyWorkspaceActivity(input.workspaceId)
     return { kind: "skipped", reason: "enqueue_failed" }
   }
   return { kind: "started", runId: run.id }

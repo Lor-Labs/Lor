@@ -1,9 +1,8 @@
 import { type ApprovalTarget, approvalTargetKey } from "@repo/connectors"
 import { db, eq, schema } from "@repo/db"
-import type { Plan } from "@repo/db/schema"
 import type { ToolSet } from "ai"
 import { logger } from "./logger"
-import { updatePlan } from "./plans"
+import { type OnPlanUpdated, updatePlan } from "./plans"
 
 // Which tool targets this workspace gates behind human approval (LOR-81).
 // Computed model: a row exists only where the workspace opted in, so an empty
@@ -94,7 +93,7 @@ export async function fileParkedApproval({
   planId: string | null
   parked: ParkedApproval
   label: string
-  onPlanUpdated?: (plan: Plan) => void
+  onPlanUpdated?: OnPlanUpdated
 }): Promise<boolean> {
   try {
     const inserted = await db

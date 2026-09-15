@@ -14,6 +14,7 @@ import { logger } from "@/lib/logger"
 import { postLorMessage as postLorChannelMessage } from "@/lib/lor-messages"
 import { createLorPlan } from "@/lib/lor-plan"
 import { cancelPendingRun, runUnattended } from "@/lib/unattended-run"
+import { notifyWorkspaceActivity } from "@/lib/workspace-activity"
 
 type RedisClient = ReturnType<typeof createClient>
 
@@ -38,7 +39,7 @@ export function createTriggeredRunProcessor(
     let label: string
     if (job.name === ACT_FLUSH_JOB) {
       const { triggerId } = job.data as ActFlushJobData
-      const flushed = await flushActWindow(triggerId)
+      const flushed = await flushActWindow(triggerId, notifyWorkspaceActivity)
       if (flushed.kind === "retry") {
         await triggeredQueue.add(
           ACT_FLUSH_JOB,

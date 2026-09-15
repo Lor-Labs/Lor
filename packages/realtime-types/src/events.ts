@@ -8,6 +8,19 @@ export const presenceSubscribePayloadSchema = z.object({
   workspaceId: z.string().uuid(),
 })
 
+export type ChannelActivity = {
+  channelId: string
+  lor: "working" | "queued" | "needs_input" | "needs_approval" | null
+}
+
+export type WorkspaceActivityAck = (
+  result: { ok: true; channels: ChannelActivity[] } | ErrorResult
+) => void
+
+export type WorkspaceActivityUpdated = {
+  workspaceId: string
+}
+
 export const channelRoomPayloadSchema = z.object({
   channelId: z.string().uuid(),
 })
@@ -499,6 +512,10 @@ export type TypingIndicatorEvent = {
 }
 
 export interface ClientToServerEvents {
+  "workspace:activity": (
+    payload: PresenceSubscribePayload,
+    ack: WorkspaceActivityAck
+  ) => void
   "presence:subscribe": (
     payload: PresenceSubscribePayload,
     ack?: PresenceSubscribeAck
@@ -537,6 +554,7 @@ export interface ServerToClientEvents {
     }
   }) => void
   "presence:user:update": (payload: PresenceUserUpdate) => void
+  "workspace:activity:updated": (payload: WorkspaceActivityUpdated) => void
   "message:created": (payload: RealtimeMessage) => void
   "message:deleted": (payload: { channelId: string; messageId: string }) => void
   "message:updated": (payload: {

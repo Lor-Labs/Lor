@@ -10,6 +10,7 @@ import type { Emitter } from "@socket.io/redis-emitter"
 import type { createClient } from "redis"
 import { claimAgentRun, LeaseLostError } from "@/lib/agent-run"
 import { logger } from "@/lib/logger"
+import { notifyWorkspaceActivity } from "@/lib/workspace-activity"
 
 type RedisClient = ReturnType<typeof createClient>
 
@@ -69,6 +70,10 @@ export async function cancelPendingRun(runId: string): Promise<void> {
         inArray(schema.agentRun.state, ["queued", "working", "finalizing"])
       )
     )
+    .returning({ workspaceId: schema.agentRun.workspaceId })
+    .then((r) => {
+      if (r[0]) notifyWorkspaceActivity(r[0].workspaceId)
+    })
     .catch(() => {})
 }
 

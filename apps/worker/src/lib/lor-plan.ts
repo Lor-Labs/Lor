@@ -13,6 +13,7 @@ import {
   loadLorAuthor,
   postLorMessage as postLorChannelMessage,
 } from "@/lib/lor-messages"
+import { notifyWorkspaceActivity } from "@/lib/workspace-activity"
 
 type RedisClient = ReturnType<typeof createClient>
 
@@ -80,11 +81,12 @@ export async function createLorPlan(
   // A plan stranded at its born-"running" default with no run behind it can
   // never settle — fail it on every path that bails before the enqueue.
   const failPlan = () =>
-    settleAbandonedRunPlan({ threadRootId: cardId }, "failed", (row) =>
+    settleAbandonedRunPlan({ threadRootId: cardId }, "failed", (row) => {
       deps.emitter
         .to(channelRoom(input.channelId))
         .emit("plan:updated", { plan: toRealtimePlan(row) })
-    ).catch((err) =>
+      notifyWorkspaceActivity(row.workspaceId)
+    }).catch((err) =>
       logger.error({ err, planId: plan.id }, "Plan fail-settle failed")
     )
 
@@ -136,6 +138,8 @@ export async function createLorPlan(
     await failPlan()
     return { planId: plan.id }
   }
+
+  notifyWorkspaceActivity(input.workspaceId)
 
   const author = await loadLorAuthor()
   if (author) {
@@ -202,6 +206,8 @@ export async function createLorPlan(
       channelId: input.channelId,
       messageId: placeholder.id,
     })
+    // The deleted queued run's indicator must clear.
+    notifyWorkspaceActivity(input.workspaceId)
     await failPlan()
   }
   return { planId: plan.id }

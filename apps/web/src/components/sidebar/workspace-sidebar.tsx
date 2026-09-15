@@ -44,6 +44,7 @@ import { useQuery } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { CreateInviteDialog } from "@/components/invite/create-invite-dialog"
+import { ChannelActivityProvider } from "@/components/sidebar/channel-panel/channel-activity"
 import { ChannelList } from "@/components/sidebar/channel-panel/channel-list"
 import {
   CreateChannelProvider,
@@ -414,7 +415,9 @@ function WorkspaceSidebarInner() {
       <SidebarContent>
         <SidebarGroup className="min-h-0 flex-1 pt-1">
           <div className="-mx-2 min-h-0 flex-1 overflow-hidden">
-            <ChannelList />
+            <ChannelActivityProvider workspaceId={activeWorkspace?.id}>
+              <ChannelList />
+            </ChannelActivityProvider>
           </div>
         </SidebarGroup>
       </SidebarContent>

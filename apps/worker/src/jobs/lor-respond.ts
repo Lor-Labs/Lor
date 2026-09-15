@@ -65,6 +65,7 @@ import {
 import { noopRunEventWriter } from "@/lib/run-events"
 import { drainScopeQueue } from "@/lib/run-queue"
 import { updateStreamMentionState } from "@/lib/stream-mentions"
+import { notifyWorkspaceActivity } from "@/lib/workspace-activity"
 
 // Matches the worker's createClient (bare RedisClientType mismatches its generics).
 type RedisClient = ReturnType<typeof createClient>
@@ -129,10 +130,16 @@ export function createLorRespondProcessor(
               .limit(1)
               .then((rows) => rows[0] ?? null)
           : null
-        const emitPlanUpdated = (row: typeof schema.plan.$inferSelect) => {
+        const emitPlanUpdated = (
+          row: typeof schema.plan.$inferSelect,
+          meta?: { statusChanged?: boolean }
+        ) => {
           emitter
             .to(channelRoom(channelId))
             .emit("plan:updated", { plan: toRealtimePlan(row) })
+          // Status moves (waiting/running/terminal) change the sidebar
+          // aggregate; step-only updates don't.
+          if (meta?.statusChanged) notifyWorkspaceActivity(row.workspaceId)
         }
         // Park the plan when its run ends. `waiting_for_input` only from
         // `running` — completed/waiting_for_approval set by tools stand.
@@ -203,7 +210,10 @@ export function createLorRespondProcessor(
               .returning()
               .then((rows) => rows[0])
             planSettled = true
-            if (updated) emitPlanUpdated(updated)
+            if (updated)
+              emitPlanUpdated(updated, {
+                statusChanged: status !== fresh.status,
+              })
             else
               logger.warn(
                 { planId: plan.id, outcome, observed: fresh.status },
@@ -294,7 +304,10 @@ export function createLorRespondProcessor(
             .returning()
             .then((rows) => {
               const row = rows[0]
-              if (row) emitPlanUpdated(row)
+              if (row)
+                emitPlanUpdated(row, {
+                  statusChanged: claimedPlan.status !== "running",
+                })
             })
             .catch((err) =>
               logger.warn(
