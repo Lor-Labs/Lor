@@ -56,6 +56,7 @@ import {
   type ConnectorRecord,
 } from "@/components/chat/composer/connector-attach-menu"
 import { ConnectorChip } from "@/components/chat/composer/connector-chip"
+import { DesktopCaret } from "@/components/chat/composer/desktop-caret"
 import {
   MentionSuggestionList,
   type MentionSuggestionListProps,
@@ -598,7 +599,7 @@ export function MessageInput({
       editorProps: {
         attributes: {
           class:
-            "min-h-[24px] max-h-[200px] overflow-y-auto whitespace-pre-wrap break-words text-sm leading-6 text-foreground/90 outline-none [&_code]:rounded-[4px] [&_code]:border [&_code]:border-border/70 [&_code]:bg-primary/10 [&_code]:px-0.75 [&_code]:py-0.25 [&_code]:font-mono [&_code]:text-[0.92em] [&_code]:text-foreground [&_pre]:mt-1 [&_pre]:mb-0 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:border-border/70 [&_pre]:bg-muted/50 [&_pre]:px-2 [&_pre]:py-1.5 [&_pre]:font-mono [&_pre]:text-[0.92em] [&_pre]:leading-6 [&_pre_code]:rounded-none [&_pre_code]:border-0 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-foreground",
+            "min-h-5 whitespace-pre-wrap break-words text-sm leading-5 text-foreground/90 caret-foreground/80 outline-none [&_p]:m-0 [&_p]:leading-5 [&_code]:rounded-[4px] [&_code]:border [&_code]:border-border/70 [&_code]:bg-primary/10 [&_code]:px-0.75 [&_code]:py-0.25 [&_code]:font-mono [&_code]:text-[0.92em] [&_code]:text-foreground [&_pre]:mt-1 [&_pre]:mb-0 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:border-border/70 [&_pre]:bg-muted/50 [&_pre]:px-2 [&_pre]:py-1.5 [&_pre]:font-mono [&_pre]:text-[0.92em] [&_pre]:leading-6 [&_pre_code]:rounded-none [&_pre_code]:border-0 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-foreground",
         },
         handleKeyDown: (_view, event) => {
           if (event.key !== "Enter" || event.shiftKey) return false
@@ -949,7 +950,7 @@ export function MessageInput({
       )}
       <div
         className={cn(
-          "border border-input bg-muted/40",
+          "border border-input bg-muted/40 transition-colors duration-150 focus-within:border-muted-foreground/40",
           replyingTo ? "rounded-b-lg" : "rounded-lg"
         )}
         onPaste={handlePaste}
@@ -958,7 +959,7 @@ export function MessageInput({
           attachments={pendingAttachments}
           onRemove={removeAttachment}
         />
-        <div className="flex items-center gap-2 px-3 py-2">
+        <div className="flex items-end gap-2 px-3 py-2">
           <Popover
             open={isAttachmentMenuOpen}
             onOpenChange={setIsAttachmentMenuOpen}
@@ -968,8 +969,8 @@ export function MessageInput({
                 <Button
                   type="button"
                   size="icon-sm"
-                  variant="outline"
-                  className="shrink-0 text-muted-foreground hover:text-foreground"
+                  variant="ghost"
+                  className="size-7 shrink-0 text-muted-foreground hover:text-foreground"
                   aria-label="Open attachment menu"
                 />
               }
@@ -1002,14 +1003,9 @@ export function MessageInput({
               />
             </PopoverContent>
           </Popover>
-          <div
-            className={cn(
-              "relative min-w-0 flex-1",
-              "[&_.ProseMirror_p]:m-0 [&_.ProseMirror_p]:leading-6"
-            )}
-          >
+          <div className="relative min-w-0 flex-1 py-1 text-sm leading-5">
             {isEmpty && (
-              <span className="pointer-events-none absolute left-0 top-0 text-sm text-muted-foreground">
+              <span className="pointer-events-none absolute left-0 right-0 top-1 truncate text-sm leading-5 text-muted-foreground">
                 {placeholder}
               </span>
             )}
@@ -1136,7 +1132,11 @@ export function MessageInput({
                 </Button>
               </BubbleMenu>
             )}
-            <EditorContent editor={editor} className="flex-1" />
+            <EditorContent
+              editor={editor}
+              className="relative max-h-[200px] overflow-y-auto overscroll-contain"
+            />
+            <DesktopCaret editor={editor} />
           </div>
           <div className="flex shrink-0 items-center gap-1">
             {/* onStop is only supplied while a run is stoppable, so it doubles
@@ -1153,7 +1153,9 @@ export function MessageInput({
                 isStopMode
                   ? "text-destructive hover:text-destructive"
                   : "text-muted-foreground",
-                canSend && !isStopMode && "text-primary hover:text-primary"
+                canSend &&
+                  !isStopMode &&
+                  "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary"
               )}
               onClick={isStopMode ? onStop : handleSend}
               disabled={isStopMode ? isStopping : !canSend}

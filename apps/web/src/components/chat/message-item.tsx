@@ -745,7 +745,10 @@ export const MessageItem = memo(function MessageItem({
               {message.embeds.map((embed, index) =>
                 isAttioRecording(embed) ? (
                   <MeetingRecordingCard
-                    key={`${embed.url}-${index}`}
+                    // recordingId keeps card state (transcript expand) pinned
+                    // to the recording if embeds reorder; eventLabel-matched
+                    // embeds lack it.
+                    key={embed.meeting?.recordingId ?? `${embed.url}-${index}`}
                     embed={embed}
                     message={message}
                   />

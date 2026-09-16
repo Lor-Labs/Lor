@@ -69,6 +69,7 @@ export function MessageComposer({
   isStopping = false,
   placeholder,
   accessibilityLabel,
+  initialDraft = "",
   replyingTo,
   onCancelReply,
   editingMessage,
@@ -96,6 +97,7 @@ export function MessageComposer({
   isStopping?: boolean
   placeholder?: string
   accessibilityLabel?: string
+  initialDraft?: string
   replyingTo?: Message | null
   onCancelReply?: () => void
   editingMessage?: Message | null
@@ -133,8 +135,8 @@ export function MessageComposer({
   } | null>(null)
   const attachmentUpload = useMessageAttachments(channelId)
   const mentionMenuOpenRef = useRef(false)
-  const [content, setContent] = useState("")
-  const [plainText, setPlainText] = useState("")
+  const [content, setContent] = useState(initialDraft)
+  const [plainText, setPlainText] = useState(initialDraft)
   const contentRef = useRef(content)
   const plainTextRef = useRef(plainText)
   const [submitError, setSubmitError] = useState<string | null>(null)
@@ -576,6 +578,7 @@ export function MessageComposer({
           }
           placeholderTextColor={placeholderColor}
           ref={inputRef}
+          defaultValue={initialDraft}
           scrollEnabled
           selectionColor={accent}
           style={inputStyle}

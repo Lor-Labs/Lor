@@ -560,6 +560,13 @@
   @apply flex size-7 shrink-0 items-center justify-center rounded-full bg-foreground/5 text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-35 disabled:hover:bg-foreground/5;
 }
 
+/* The desktop composer paints one selection-driven caret instead of the
+   WKWebView native caret, which can leave stale marks when its layout moves. */
+.tauri-macos-window [data-desktop-caret],
+.tauri-macos-window [data-desktop-caret] * {
+  caret-color: transparent;
+}
+
 /* The scroller combines viewport rectangles with scrollTop. Keep its viewport
    at app scale and zoom individual rows so jumps and prepend anchors agree.
    Percentage sizes already account for CSS zoom; scaling them again leaves

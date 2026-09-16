@@ -14,6 +14,10 @@ import { ConnectorIcon, connectorForName } from "@/components/connector-icon"
 import { LoopCard } from "@/components/loop-card"
 import { LorMessageBody } from "@/components/lor-message-body"
 import { LorReasoning } from "@/components/lor-reasoning"
+import {
+  isAttioRecording,
+  MeetingRecordingCard,
+} from "@/components/meeting-recording-card"
 import { MessageAttachments } from "@/components/message-attachments"
 import { MessageContent } from "@/components/message-content"
 import { MessageEmbed } from "@/components/message-embed"
@@ -167,6 +171,9 @@ function MessageRowBody({
   const isLor = message.authorId === LOR_USER_ID
   const isPending = isOptimisticMessage(message)
   const isStreaming = isLor && message.status === "pending"
+  const isMeetingPost =
+    connectorForName(message.overrideName) === "attio" &&
+    message.embeds.some(isAttioRecording)
   const hasTimeline =
     (message.lorToolCalls?.length ?? 0) > 0 ||
     (message.lorReasoningSegments?.length ?? 0) > 0
@@ -203,7 +210,7 @@ function MessageRowBody({
               onCitationJump={onJumpToMessage}
               streaming={isStreaming}
             />
-          ) : message.content ? (
+          ) : message.content && !isMeetingPost ? (
             <MessageContent
               content={message.content}
               mentions={message.mentions}
@@ -257,9 +264,20 @@ function MessageRowBody({
       {message.attachments?.length ? (
         <MessageAttachments attachments={message.attachments} />
       ) : null}
-      {message.embeds.map((embed, index) => (
-        <MessageEmbed embed={embed} key={`${embed.url}-${index}`} />
-      ))}
+      {message.embeds.map((embed, index) =>
+        isAttioRecording(embed) ? (
+          <MeetingRecordingCard
+            embed={embed}
+            // recordingId keeps card state (transcript expand) pinned to the
+            // recording if embeds reorder; eventLabel-matched embeds lack it.
+            key={embed.meeting?.recordingId ?? `${embed.url}-${index}`}
+            message={message}
+            onOpenThread={onOpenThread}
+          />
+        ) : (
+          <MessageEmbed embed={embed} key={`${embed.url}-${index}`} />
+        )
+      )}
       {message.reactions.length > 0 ? (
         <View className="mt-one flex-row flex-wrap gap-one">
           {message.reactions.map((reaction) => (

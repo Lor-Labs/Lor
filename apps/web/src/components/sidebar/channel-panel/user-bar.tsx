@@ -66,7 +66,7 @@ export function UserBar() {
               />
               <div className="absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full border-[2px] border-sidebar bg-emerald-500" />
             </div>
-            <div className="grid flex-1 text-left text-sm leading-tight">
+            <div className="grid min-w-0 flex-1 text-left text-sm leading-tight">
               <span className="truncate font-medium">{name}</span>
               <span className="truncate text-xs text-muted-foreground">
                 {email}
@@ -79,7 +79,7 @@ export function UserBar() {
             />
           </DropdownMenuTrigger>
           <DropdownMenuContent
-            className="w-[max(18rem,var(--anchor-width))] max-w-(--available-width) rounded-lg"
+            className="w-60 min-w-0 max-w-(--available-width) rounded-lg"
             side={isMobile ? "bottom" : "top"}
             align="start"
             sideOffset={4}
@@ -93,7 +93,7 @@ export function UserBar() {
                     size="sm"
                     className="rounded-lg"
                   />
-                  <div className="grid flex-1 text-left text-sm leading-tight">
+                  <div className="grid min-w-0 flex-1 text-left text-sm leading-tight">
                     <span className="truncate font-medium">{name}</span>
                     <span className="truncate text-xs text-muted-foreground">
                       {email}
