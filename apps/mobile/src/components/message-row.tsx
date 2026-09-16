@@ -268,7 +268,9 @@ function MessageRowBody({
         isAttioRecording(embed) ? (
           <MeetingRecordingCard
             embed={embed}
-            key={`${embed.url}-${index}`}
+            // recordingId keeps card state (transcript expand) pinned to the
+            // recording if embeds reorder; eventLabel-matched embeds lack it.
+            key={embed.meeting?.recordingId ?? `${embed.url}-${index}`}
             message={message}
             onOpenThread={onOpenThread}
           />
