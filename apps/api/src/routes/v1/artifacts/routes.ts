@@ -2,6 +2,7 @@ import { createRoute } from "@hono/zod-openapi"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import jsonContent from "@/lib/helpers/openapi/json-content"
 import {
+  badRequestSchema,
   forbiddenSchema,
   internalServerErrorSchema,
   notFoundSchema,
@@ -10,6 +11,9 @@ import {
 import { sessionAuthMiddleware } from "@/middleware/session-auth"
 import {
   artifactParamsSchema,
+  channelFilesParamsSchema,
+  channelFilesQuerySchema,
+  channelFilesResponseSchema,
   getArtifactResponseSchema,
   listPlanArtifactsResponseSchema,
   planArtifactsParamsSchema,
@@ -66,3 +70,25 @@ export const listPlanArtifacts = createRoute({
 })
 
 export type ListPlanArtifactsRoute = typeof listPlanArtifacts
+
+export const listChannelFiles = createRoute({
+  path: "/channels/{channelId}/files",
+  method: "get",
+  summary: "List channel files",
+  tags: ["Artifacts"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: { params: channelFilesParamsSchema, query: channelFilesQuerySchema },
+  hidden: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: channelFilesResponseSchema,
+      description: "Latest artifacts and uploaded files, newest first",
+    }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type ListChannelFilesRoute = typeof listChannelFiles

@@ -35,6 +35,7 @@ import { useIsMobile } from "@repo/ui/hooks/use-mobile"
 import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect, useMemo, useState } from "react"
+import { FilesOverviewSection } from "@/components/sidebar/right-panel/channel-files-panel"
 import { LoopsOverviewSection } from "@/components/sidebar/right-panel/loops-overview-section"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import type { WorkspaceMembersSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
@@ -515,8 +516,9 @@ export function WorkspaceMembersPanel({
   return (
     <>
       <div className="flex h-full w-full flex-col">
-        {/* No title — the section labels (Loops / Online / Offline) say it;
-            the bar just carries the collapse control. */}
+        {/* No title — the section labels (Online / Offline / Artifacts /
+            Attachments / Loops) say it; the bar just carries the collapse
+            control. */}
         <div className="flex h-12 shrink-0 items-center justify-end px-4">
           <button
             type="button"
@@ -541,77 +543,93 @@ export function WorkspaceMembersPanel({
           </div>
         )}
 
-        {/* Loops render regardless of the members query — a members
-            fetch hiccup must not hide the channel's automations. */}
         <ScrollArea className="min-w-0 flex-1 overflow-x-hidden px-2 py-2">
-          <div className="min-w-0 space-y-4 px-1 pb-3">
+          <div className="min-w-0 space-y-3 px-1 pb-3">
+            <section aria-label="Members">
+              <div className="space-y-3">
+                {isPending ? (
+                  <MembersSkeleton />
+                ) : isError ? (
+                  <div className="px-1 py-3 text-sm text-muted-foreground">
+                    Failed to load members.
+                  </div>
+                ) : members.length === 0 ? (
+                  <div className="px-1 py-4 text-sm text-muted-foreground">
+                    No members found for this workspace.
+                  </div>
+                ) : (
+                  <>
+                    {onlineMembers.length > 0 && (
+                      <section>
+                        <div className="px-1 pb-1 text-[11px] text-muted-foreground">
+                          Online · {onlineMembers.length}
+                        </div>
+                        <div className="space-y-0.5">
+                          {onlineMembers.map((member) => (
+                            <MemberRow
+                              key={member.userId}
+                              member={member}
+                              currentUserId={currentUserId}
+                              currentMember={currentMember}
+                              ownerId={ownerId}
+                              roleOptions={roleOptions}
+                              canUpdateRolesPermission={
+                                canUpdateRolesPermission
+                              }
+                              canKickPermission={canKickPermission}
+                              onRoleChange={handleRoleChange}
+                              onKick={handleKick}
+                              isBusy={isMutating}
+                            />
+                          ))}
+                        </div>
+                      </section>
+                    )}
+
+                    {offlineMembers.length > 0 && (
+                      <section>
+                        <div className="px-1 pb-1 text-[11px] text-muted-foreground">
+                          Offline · {offlineMembers.length}
+                        </div>
+                        <div className="space-y-0.5">
+                          {offlineMembers.map((member) => (
+                            <MemberRow
+                              key={member.userId}
+                              member={member}
+                              currentUserId={currentUserId}
+                              currentMember={currentMember}
+                              ownerId={ownerId}
+                              roleOptions={roleOptions}
+                              canUpdateRolesPermission={
+                                canUpdateRolesPermission
+                              }
+                              canKickPermission={canKickPermission}
+                              onRoleChange={handleRoleChange}
+                              onKick={handleKick}
+                              isBusy={isMutating}
+                            />
+                          ))}
+                        </div>
+                      </section>
+                    )}
+                  </>
+                )}
+              </div>
+            </section>
+            <FilesOverviewSection
+              workspaceSlug={view.workspaceSlug}
+              channelId={view.channelId}
+              kind="artifact"
+            />
+            <FilesOverviewSection
+              workspaceSlug={view.workspaceSlug}
+              channelId={view.channelId}
+              kind="upload"
+            />
             <LoopsOverviewSection
               workspaceSlug={view.workspaceSlug}
               channelId={view.channelId}
             />
-            {isPending ? (
-              <MembersSkeleton />
-            ) : isError ? (
-              <div className="px-1 py-3 text-sm text-muted-foreground">
-                Failed to load members.
-              </div>
-            ) : members.length === 0 ? (
-              <div className="px-1 py-4 text-sm text-muted-foreground">
-                No members found for this workspace.
-              </div>
-            ) : (
-              <>
-                {onlineMembers.length > 0 && (
-                  <section>
-                    <div className="px-1 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      Online - {onlineMembers.length}
-                    </div>
-                    <div className="space-y-0.5">
-                      {onlineMembers.map((member) => (
-                        <MemberRow
-                          key={member.userId}
-                          member={member}
-                          currentUserId={currentUserId}
-                          currentMember={currentMember}
-                          ownerId={ownerId}
-                          roleOptions={roleOptions}
-                          canUpdateRolesPermission={canUpdateRolesPermission}
-                          canKickPermission={canKickPermission}
-                          onRoleChange={handleRoleChange}
-                          onKick={handleKick}
-                          isBusy={isMutating}
-                        />
-                      ))}
-                    </div>
-                  </section>
-                )}
-
-                {offlineMembers.length > 0 && (
-                  <section>
-                    <div className="px-1 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      Offline - {offlineMembers.length}
-                    </div>
-                    <div className="space-y-0.5">
-                      {offlineMembers.map((member) => (
-                        <MemberRow
-                          key={member.userId}
-                          member={member}
-                          currentUserId={currentUserId}
-                          currentMember={currentMember}
-                          ownerId={ownerId}
-                          roleOptions={roleOptions}
-                          canUpdateRolesPermission={canUpdateRolesPermission}
-                          canKickPermission={canKickPermission}
-                          onRoleChange={handleRoleChange}
-                          onKick={handleKick}
-                          isBusy={isMutating}
-                        />
-                      ))}
-                    </div>
-                  </section>
-                )}
-              </>
-            )}
           </div>
         </ScrollArea>
       </div>

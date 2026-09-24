@@ -36,6 +36,7 @@ const PANEL_WIDTH_KEYS = {
 type PanelSizeClass = keyof typeof PANEL_WIDTH_KEYS
 
 const COMPACT_DEFAULT_WIDTH = 280
+const COMPACT_MAX_WIDTH = 320
 const WIDE_DEFAULT_RATIO = 0.5
 
 export const MIN_PANEL_WIDTH = 240
@@ -49,8 +50,18 @@ export const MAX_PANEL_WIDTH_RATIO = 0.75
 export const CENTER_MIN_WIDTH = 400
 const ASSUMED_LEFT_SIDEBAR_WIDTH = 240
 
-export function clampPanelWidth(width: number, viewportWidth: number): number {
-  const max = Math.max(viewportWidth * MAX_PANEL_WIDTH_RATIO, MIN_PANEL_WIDTH)
+export function clampPanelWidth(
+  width: number,
+  viewportWidth: number,
+  compact = false
+): number {
+  const max = Math.max(
+    Math.min(
+      viewportWidth * MAX_PANEL_WIDTH_RATIO,
+      compact ? COMPACT_MAX_WIDTH : Number.POSITIVE_INFINITY
+    ),
+    MIN_PANEL_WIDTH
+  )
   return Math.min(Math.max(width, MIN_PANEL_WIDTH), max)
 }
 
@@ -88,7 +99,11 @@ function getStoredWidth(sizeClass: PanelSizeClass): number {
     if (stored) {
       const parsed = Number.parseInt(stored, 10)
       if (Number.isFinite(parsed)) {
-        return clampPanelWidth(parsed, window.innerWidth)
+        return clampPanelWidth(
+          parsed,
+          window.innerWidth,
+          sizeClass === "compact"
+        )
       }
     }
   } catch {}
@@ -117,7 +132,10 @@ export function RightSidebarProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const sizeClass = sizeClassForView(view)
-  const panelWidth = widths[sizeClass]
+  const panelWidth =
+    sizeClass === "compact"
+      ? Math.min(widths.compact, COMPACT_MAX_WIDTH)
+      : widths.wide
 
   const clearView = useCallback(() => {
     setView(null)
@@ -143,9 +161,14 @@ export function RightSidebarProvider({ children }: { children: ReactNode }) {
 
   const setPanelWidth = useCallback(
     (width: number) => {
-      setWidths((prev) => ({ ...prev, [sizeClass]: width }))
+      const nextWidth = clampPanelWidth(
+        width,
+        window.innerWidth,
+        sizeClass === "compact"
+      )
+      setWidths((prev) => ({ ...prev, [sizeClass]: nextWidth }))
       try {
-        localStorage.setItem(PANEL_WIDTH_KEYS[sizeClass], String(width))
+        localStorage.setItem(PANEL_WIDTH_KEYS[sizeClass], String(nextWidth))
       } catch {}
     },
     [sizeClass]

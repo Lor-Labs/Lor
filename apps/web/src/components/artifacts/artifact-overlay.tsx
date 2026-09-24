@@ -1,7 +1,9 @@
 import {
+  ArrowLeft01Icon,
   Cancel01Icon,
   Copy01Icon,
   Download01Icon,
+  Message01Icon,
   Tick02Icon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
@@ -14,6 +16,7 @@ import {
   useArtifact,
   useArtifactContent,
 } from "@/hooks/use-artifact"
+import { useArtifactConversation } from "@/hooks/use-artifact-conversation"
 import { formatFileSize } from "@/lib/attachments"
 import { csvDelimiterForMime, isCsvMime, parseCsvData } from "@/lib/csv"
 
@@ -49,12 +52,35 @@ function CopyButton({ text }: { text: string }) {
 export function ArtifactOverlay({
   artifactId,
   onClose,
+  closeLabel,
 }: {
   artifactId: string
   onClose: () => void
+  closeLabel?: string
 }) {
-  const { data, isPending, isError } = useArtifact(artifactId)
-  const artifact = data?.artifact ?? null
+  const { data, isPending, isError, refetch } = useArtifact(artifactId)
+  const openConversation = useArtifactConversation()
+  const [selection, setSelection] = useState<{
+    artifactId: string
+    version: number
+  } | null>(null)
+  const selectedVersion =
+    selection?.artifactId === artifactId
+      ? data?.versions.find((version) => version.version === selection.version)
+      : undefined
+  const artifact = data
+    ? {
+        ...data.artifact,
+        ...(selectedVersion
+          ? {
+              url: selectedVersion.url,
+              mime: selectedVersion.contentType,
+              size: selectedVersion.size,
+              currentVersion: selectedVersion.version,
+            }
+          : {}),
+      }
+    : null
   const csv = artifact !== null && isCsvMime(artifact.mime)
   // Mirrors useArtifactContent's enabled guard — a CSV it refuses to fetch
   // must show the fallback, not wait on a query that never runs.
@@ -99,11 +125,15 @@ export function ArtifactOverlay({
         <div className="flex h-12 shrink-0 items-center gap-2 border-b px-3">
           <button
             type="button"
-            aria-label="Close"
+            aria-label={closeLabel ?? "Close file"}
+            title={closeLabel ?? "Close file"}
             onClick={onClose}
             className={toolbarButton}
           >
-            <HugeiconsIcon icon={Cancel01Icon} size={16} />
+            <HugeiconsIcon
+              icon={closeLabel ? ArrowLeft01Icon : Cancel01Icon}
+              size={16}
+            />
           </button>
           <div className="flex min-w-0 flex-col">
             <span className="min-w-0 truncate font-medium text-sm leading-4">
@@ -122,6 +152,47 @@ export function ArtifactOverlay({
             )}
           </div>
           <div className="ml-auto flex shrink-0 items-center gap-1">
+            {data && data.versions.length > 1 && (
+              <select
+                aria-label="File version"
+                value={artifact?.currentVersion}
+                onChange={(event) =>
+                  setSelection(
+                    Number(event.target.value) === data.artifact.currentVersion
+                      ? null
+                      : { artifactId, version: Number(event.target.value) }
+                  )
+                }
+                className="h-8 max-w-28 rounded-md border bg-background px-1 text-xs"
+              >
+                {data.versions.map((version) => (
+                  <option key={version.version} value={version.version}>
+                    v{version.version}
+                    {version.version === data.artifact.currentVersion
+                      ? " · Latest"
+                      : ""}
+                  </option>
+                ))}
+              </select>
+            )}
+            {data?.conversation && (
+              <button
+                type="button"
+                title="Open conversation"
+                aria-label="Open file conversation"
+                className={toolbarButton}
+                onClick={() =>
+                  openConversation({
+                    artifactId,
+                    channelId: data.artifact.channelId,
+                    conversation: data.conversation,
+                    showConversation: true,
+                  })
+                }
+              >
+                <HugeiconsIcon icon={Message01Icon} size={16} />
+              </button>
+            )}
             {content.data !== undefined && <CopyButton text={content.data} />}
             {artifact?.url && (
               <a
@@ -147,9 +218,21 @@ export function ArtifactOverlay({
                 <p className="text-muted-foreground text-sm">Loading…</p>
               )}
               {(isError || (csvPreviewable && content.isError)) && (
-                <p className="text-muted-foreground text-sm">
-                  Couldn't load this artifact.
-                </p>
+                <div
+                  className="space-y-2 text-muted-foreground text-sm"
+                  role="alert"
+                >
+                  <p>Couldn't load this file.</p>
+                  <button
+                    type="button"
+                    className="cursor-pointer underline underline-offset-4 hover:text-foreground"
+                    onClick={() =>
+                      void (isError ? refetch() : content.refetch())
+                    }
+                  >
+                    Try again
+                  </button>
+                </div>
               )}
               {csv && !csvPreviewable && (
                 <p className="text-muted-foreground text-sm">

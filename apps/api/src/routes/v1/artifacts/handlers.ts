@@ -1,11 +1,18 @@
 import type { z } from "@hono/zod-openapi"
 import { and, db, desc, eq, schema } from "@repo/db"
+import { resolveChannelAccess } from "@repo/db/queries/channel-access"
 import { env } from "@repo/env/server"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { userCanAccessChannel } from "@/lib/queries/channel-access"
+import {
+  artifactConversations,
+  fetchChannelFiles,
+  fileCursorSchema,
+} from "@/lib/queries/channel-files"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
   GetArtifactRoute,
+  ListChannelFilesRoute,
   ListPlanArtifactsRoute,
 } from "@/routes/v1/artifacts/routes"
 import type { getArtifactResponseSchema } from "@/routes/v1/artifacts/schema"
@@ -65,6 +72,10 @@ export const getArtifact: AppRouteHandler<GetArtifactRoute> = async (c) => {
 
   const payload: z.infer<typeof getArtifactResponseSchema> = {
     artifact: serializeArtifact(row.artifact, current ?? null),
+    conversation:
+      (await artifactConversations(row.artifact.channelId, [artifactId])).get(
+        artifactId
+      ) ?? null,
     versions: versions.map((v) => ({
       version: v.version,
       baseVersion: v.baseVersion,
@@ -76,6 +87,40 @@ export const getArtifact: AppRouteHandler<GetArtifactRoute> = async (c) => {
       createdAt: v.createdAt.toISOString(),
     })),
   }
+  return c.json(payload, HttpStatusCodes.OK)
+}
+
+export const listChannelFiles: AppRouteHandler<ListChannelFilesRoute> = async (
+  c
+) => {
+  const { channelId } = c.req.valid("param")
+  const query = c.req.valid("query")
+  const access = await resolveChannelAccess(c.var.user.id, channelId)
+  if (!access.ok) {
+    return c.json(
+      { success: false as const, message: "Channel not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  let cursor: z.infer<typeof fileCursorSchema> | null = null
+  if (query.cursor) {
+    try {
+      cursor = fileCursorSchema.parse(
+        JSON.parse(Buffer.from(query.cursor, "base64url").toString())
+      )
+    } catch {
+      return c.json(
+        { success: false as const, message: "Invalid file cursor" },
+        HttpStatusCodes.BAD_REQUEST
+      )
+    }
+  }
+  const payload = await fetchChannelFiles({
+    ...query,
+    channelId,
+    workspaceId: access.access.channel.workspaceId,
+    cursor,
+  })
   return c.json(payload, HttpStatusCodes.OK)
 }
 

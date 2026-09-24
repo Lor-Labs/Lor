@@ -1,3 +1,4 @@
+import { useIsMobile } from "@repo/ui/hooks/use-mobile"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import { useCallback } from "react"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
@@ -12,7 +13,9 @@ export type MessageSearchTarget = {
 export function useMessageSearchNavigation() {
   const { workspaceSlug } = useParams({ strict: false })
   const navigate = useNavigate()
-  const { view, setView, isCollapsed, toggleCollapsed } = useRightSidebar()
+  const { view, setView, clearView, isCollapsed, toggleCollapsed } =
+    useRightSidebar()
+  const isMobile = useIsMobile()
 
   return useCallback(
     (target: MessageSearchTarget) => {
@@ -42,7 +45,9 @@ export function useMessageSearchNavigation() {
 
       // A channel-level result should leave any currently open thread so the
       // main timeline owns the focused message again.
-      if (view?.type === "thread") {
+      if (isMobile) {
+        clearView()
+      } else if (view?.type === "thread") {
         setView({
           type: "workspace-members",
           workspaceSlug,
@@ -55,6 +60,15 @@ export function useMessageSearchNavigation() {
         search: { msgId: target.id },
       })
     },
-    [workspaceSlug, view?.type, setView, isCollapsed, toggleCollapsed, navigate]
+    [
+      workspaceSlug,
+      view?.type,
+      setView,
+      clearView,
+      isMobile,
+      isCollapsed,
+      toggleCollapsed,
+      navigate,
+    ]
   )
 }

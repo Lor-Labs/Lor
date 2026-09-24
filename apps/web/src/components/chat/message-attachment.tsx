@@ -83,7 +83,7 @@ function FileAttachment({ attachment }: { attachment: Attachment }) {
   )
 }
 
-function AttachmentLightbox({
+export function AttachmentLightbox({
   images,
   initialIndex,
   open,

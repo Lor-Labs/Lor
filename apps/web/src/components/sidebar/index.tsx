@@ -169,7 +169,11 @@ function RightPanelDock() {
       // write is rAF-throttled to at most once per frame.
       const applyWidth = (clientX: number) => {
         const delta = startX - clientX
-        const newWidth = clampPanelWidth(startWidth + delta, viewportWidth)
+        const newWidth = clampPanelWidth(
+          startWidth + delta,
+          viewportWidth,
+          view?.type !== "thread" && view?.type !== "loop"
+        )
         if (panelRef.current) {
           panelRef.current.style.width = `${newWidth}px`
         }
@@ -227,7 +231,7 @@ function RightPanelDock() {
         document.removeEventListener("mouseup", handleMouseUp)
       }
     },
-    [panelWidth, setPanelWidth, leftOpen, setLeftOpen]
+    [panelWidth, setPanelWidth, leftOpen, setLeftOpen, view?.type]
   )
 
   const showRightPanel = !!view && !!workspaceSlug

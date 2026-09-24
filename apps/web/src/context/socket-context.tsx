@@ -27,6 +27,8 @@ const RECONNECT_QUERY_KEYS = new Set<unknown>([
   "thread-context",
   "thread-activity",
   "pinned-messages",
+  "channel-files",
+  "artifact",
   "workspace-instructions",
   "channels",
   "channel",
