@@ -1,4 +1,8 @@
-import { MoreHorizontalIcon } from "@hugeicons/core-free-icons"
+import {
+  Attachment01Icon,
+  File01Icon,
+  MoreHorizontalIcon,
+} from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
 import { formatWorkspaceRole } from "@repo/auth/permissions"
@@ -30,12 +34,16 @@ import {
 import { ScrollArea } from "@repo/ui/components/scroll-area"
 import { Skeleton } from "@repo/ui/components/skeleton"
 import { toast } from "@repo/ui/components/toast"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@repo/ui/components/tooltip"
 import { SidebarToggleIcon } from "@repo/ui/components/unlumen-ui/sidebar-toggle-icon"
 import { useIsMobile } from "@repo/ui/hooks/use-mobile"
 import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect, useMemo, useState } from "react"
-import { FilesOverviewSection } from "@/components/sidebar/right-panel/channel-files-panel"
 import { LoopsOverviewSection } from "@/components/sidebar/right-panel/loops-overview-section"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import type { WorkspaceMembersSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
@@ -251,7 +259,7 @@ export function WorkspaceMembersPanel({
   const socket = useSocket()
   const queryClient = useQueryClient()
   const { data: session } = authClient.useSession()
-  const { toggleCollapsed, clearView } = useRightSidebar()
+  const { setView, toggleCollapsed, clearView } = useRightSidebar()
   const isMobile = useIsMobile()
   const [moderationDialog, setModerationDialog] =
     useState<ModerationDialogState>(null)
@@ -516,10 +524,54 @@ export function WorkspaceMembersPanel({
   return (
     <>
       <div className="flex h-full w-full flex-col">
-        {/* No title — the section labels (Online / Offline / Artifacts /
-            Attachments / Loops) say it; the bar just carries the collapse
-            control. */}
-        <div className="flex h-12 shrink-0 items-center justify-end px-4">
+        {/* No title — the section labels (Loops / Online / Offline) say it;
+            the bar carries the artifact/attachment shortcuts and the
+            collapse control. */}
+        <div className="flex h-12 shrink-0 items-center justify-end gap-1 px-4">
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  aria-label="Browse artifacts"
+                  onClick={() =>
+                    setView({
+                      type: "attachments",
+                      kind: "artifact",
+                      workspaceSlug: view.workspaceSlug,
+                      channelId: view.channelId,
+                    })
+                  }
+                  className="flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+                />
+              }
+            >
+              <HugeiconsIcon icon={File01Icon} size={15} />
+            </TooltipTrigger>
+            <TooltipContent>Artifacts</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  aria-label="Browse attachments"
+                  onClick={() =>
+                    setView({
+                      type: "attachments",
+                      kind: "upload",
+                      workspaceSlug: view.workspaceSlug,
+                      channelId: view.channelId,
+                    })
+                  }
+                  className="flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+                />
+              }
+            >
+              <HugeiconsIcon icon={Attachment01Icon} size={15} />
+            </TooltipTrigger>
+            <TooltipContent>Attachments</TooltipContent>
+          </Tooltip>
           <button
             type="button"
             onClick={isMobile ? clearView : toggleCollapsed}
@@ -616,16 +668,6 @@ export function WorkspaceMembersPanel({
                 )}
               </div>
             </section>
-            <FilesOverviewSection
-              workspaceSlug={view.workspaceSlug}
-              channelId={view.channelId}
-              kind="artifact"
-            />
-            <FilesOverviewSection
-              workspaceSlug={view.workspaceSlug}
-              channelId={view.channelId}
-              kind="upload"
-            />
             <LoopsOverviewSection
               workspaceSlug={view.workspaceSlug}
               channelId={view.channelId}

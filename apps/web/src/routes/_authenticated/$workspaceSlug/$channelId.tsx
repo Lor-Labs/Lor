@@ -57,7 +57,7 @@ type ChannelSearchParams = {
   // Opens the artifact viewer; shareable — everyone opening the same URL
   // lands on the same artifact (and, later, in the same live session).
   artifactId?: string
-  artifactFrom?: "files" | "overview"
+  artifactFrom?: "files"
   fileSearch?: string
 }
 
@@ -74,10 +74,7 @@ export const Route = createFileRoute(
         : undefined,
     artifactId:
       typeof search.artifactId === "string" ? search.artifactId : undefined,
-    artifactFrom:
-      search.artifactFrom === "files" || search.artifactFrom === "overview"
-        ? search.artifactFrom
-        : undefined,
+    artifactFrom: search.artifactFrom === "files" ? "files" : undefined,
     fileSearch:
       typeof search.fileSearch === "string"
         ? search.fileSearch.slice(0, 200)
@@ -669,25 +666,17 @@ function ChannelView() {
             key={artifactId}
             artifactId={artifactId}
             closeLabel={
-              artifactFrom === "files"
-                ? "Back to artifacts"
-                : artifactFrom === "overview"
-                  ? "Back to channel overview"
-                  : undefined
+              artifactFrom === "files" ? "Back to artifacts" : undefined
             }
             onClose={() => {
               if (artifactFrom) {
-                setView(
-                  artifactFrom === "files"
-                    ? {
-                        type: "attachments",
-                        kind: "artifact",
-                        workspaceSlug,
-                        channelId,
-                        search: fileSearch,
-                      }
-                    : { type: "workspace-members", workspaceSlug, channelId }
-                )
+                setView({
+                  type: "attachments",
+                  kind: "artifact",
+                  workspaceSlug,
+                  channelId,
+                  search: fileSearch,
+                })
                 if (isCollapsed) toggleCollapsed()
               }
               void navigate({

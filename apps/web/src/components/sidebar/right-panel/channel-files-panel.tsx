@@ -1,8 +1,4 @@
-import {
-  ArrowRight01Icon,
-  Message01Icon,
-  Search01Icon,
-} from "@hugeicons/core-free-icons"
+import { Message01Icon, Search01Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { Button } from "@repo/ui/components/button"
 import { Skeleton } from "@repo/ui/components/skeleton"
@@ -89,7 +85,7 @@ function FileRow({
                 artifactId: file.artifactId,
                 channelId,
                 conversation: source,
-                from: view?.type === "attachments" ? "files" : "overview",
+                from: "files",
                 fileSearch:
                   view?.type === "attachments" ? (view.search ?? "") : "",
               })
@@ -154,13 +150,11 @@ function FileRow({
 function FileList({
   channelId,
   search = "",
-  preview = false,
   query,
   label = "files",
 }: {
   channelId: string
   search?: string
-  preview?: boolean
   query: ReturnType<typeof useChannelFiles>
   label?: string
 }) {
@@ -201,11 +195,11 @@ function FileList({
   return (
     <>
       <div className="space-y-0.5">
-        {(preview ? files.slice(0, 3) : files).map((file) => (
+        {files.map((file) => (
           <FileRow key={file.id} file={file} channelId={channelId} />
         ))}
       </div>
-      {!preview && query.hasNextPage && (
+      {query.hasNextPage && (
         <Button
           variant="ghost"
           size="sm"
@@ -221,40 +215,6 @@ function FileList({
         </Button>
       )}
     </>
-  )
-}
-
-export function FilesOverviewSection({
-  workspaceSlug,
-  channelId,
-  kind,
-}: {
-  workspaceSlug: string
-  channelId: string
-  kind: "artifact" | "upload"
-}) {
-  const { setView } = useRightSidebar()
-  const query = useChannelFiles(channelId, "", kind)
-  const label = kind === "artifact" ? "artifacts" : "attachments"
-  // Optional sections appear only after real content is available.
-  if (!query.data?.pages.some((page) => page.files.length)) return null
-  return (
-    <section className="border-t border-border/60 pt-3">
-      <button
-        type="button"
-        onClick={() =>
-          setView({ type: "attachments", workspaceSlug, channelId, kind })
-        }
-        className="flex w-full cursor-pointer items-center justify-between rounded px-1 py-1 text-muted-foreground hover:text-foreground"
-        aria-label={`View all ${label}`}
-      >
-        <span className="text-xs font-medium">
-          {kind === "artifact" ? "Artifacts" : "Attachments"}
-        </span>
-        <HugeiconsIcon icon={ArrowRight01Icon} size={14} />
-      </button>
-      <FileList channelId={channelId} query={query} label={label} preview />
-    </section>
   )
 }
 

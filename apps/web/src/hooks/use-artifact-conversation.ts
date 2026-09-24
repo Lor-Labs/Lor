@@ -13,7 +13,7 @@ export function useArtifactConversation() {
     channelId: string
     conversation?: { messageId: string; threadRootId: string | null } | null
     showConversation?: boolean
-    from?: "files" | "overview"
+    from?: "files"
     fileSearch?: string
   }) => {
     if (!workspaceSlug) return
