@@ -525,53 +525,55 @@ export function WorkspaceMembersPanel({
     <>
       <div className="flex h-full w-full flex-col">
         {/* No title — the section labels (Loops / Online / Offline) say it;
-            the bar carries the artifact/attachment shortcuts and the
-            collapse control. */}
-        <div className="flex h-12 shrink-0 items-center justify-end gap-1 px-4">
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <button
-                  type="button"
-                  aria-label="Browse artifacts"
-                  onClick={() =>
-                    setView({
-                      type: "attachments",
-                      kind: "artifact",
-                      workspaceSlug: view.workspaceSlug,
-                      channelId: view.channelId,
-                    })
-                  }
-                  className="flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
-                />
-              }
-            >
-              <HugeiconsIcon icon={DashboardSquare03Icon} size={15} />
-            </TooltipTrigger>
-            <TooltipContent>Artifacts</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <button
-                  type="button"
-                  aria-label="Browse attachments"
-                  onClick={() =>
-                    setView({
-                      type: "attachments",
-                      kind: "upload",
-                      workspaceSlug: view.workspaceSlug,
-                      channelId: view.channelId,
-                    })
-                  }
-                  className="flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
-                />
-              }
-            >
-              <HugeiconsIcon icon={DocumentAttachmentIcon} size={15} />
-            </TooltipTrigger>
-            <TooltipContent>Attachments</TooltipContent>
-          </Tooltip>
+            artifact/attachment shortcuts sit left, the collapse control
+            keeps the right corner. */}
+        <div className="flex h-12 shrink-0 items-center justify-between px-4">
+          <div className="-ml-1.5 flex items-center gap-1">
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    aria-label="Browse artifacts"
+                    onClick={() =>
+                      setView({
+                        type: "attachments",
+                        kind: "artifact",
+                        workspaceSlug: view.workspaceSlug,
+                        channelId: view.channelId,
+                      })
+                    }
+                    className="flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+                  />
+                }
+              >
+                <HugeiconsIcon icon={DashboardSquare03Icon} size={15} />
+              </TooltipTrigger>
+              <TooltipContent>Artifacts</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    aria-label="Browse attachments"
+                    onClick={() =>
+                      setView({
+                        type: "attachments",
+                        kind: "upload",
+                        workspaceSlug: view.workspaceSlug,
+                        channelId: view.channelId,
+                      })
+                    }
+                    className="flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+                  />
+                }
+              >
+                <HugeiconsIcon icon={DocumentAttachmentIcon} size={15} />
+              </TooltipTrigger>
+              <TooltipContent>Attachments</TooltipContent>
+            </Tooltip>
+          </div>
           <button
             type="button"
             onClick={isMobile ? clearView : toggleCollapsed}
