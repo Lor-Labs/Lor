@@ -8,7 +8,12 @@ import type * as React from "react"
 export const MenuCreateHandle: typeof MenuPrimitive.createHandle =
   MenuPrimitive.createHandle
 
-export const Menu: typeof MenuPrimitive.Root = MenuPrimitive.Root
+// modal=false skips Base UI's scroll lock: its html/body style writes +
+// scrollHeight/getComputedStyle reads force a full-document reflow on every
+// open/close, which WebKit turns into ~250ms click lag on large channel DOMs.
+export const Menu: typeof MenuPrimitive.Root = (props) => (
+  <MenuPrimitive.Root modal={false} {...props} />
+)
 
 export const MenuPortal: typeof MenuPrimitive.Portal = MenuPrimitive.Portal
 
