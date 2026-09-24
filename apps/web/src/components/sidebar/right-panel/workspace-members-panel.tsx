@@ -1,6 +1,6 @@
 import {
-  Attachment01Icon,
-  File01Icon,
+  DashboardSquare03Icon,
+  DocumentAttachmentIcon,
   MoreHorizontalIcon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
@@ -546,7 +546,7 @@ export function WorkspaceMembersPanel({
                 />
               }
             >
-              <HugeiconsIcon icon={File01Icon} size={15} />
+              <HugeiconsIcon icon={DashboardSquare03Icon} size={15} />
             </TooltipTrigger>
             <TooltipContent>Artifacts</TooltipContent>
           </Tooltip>
@@ -568,7 +568,7 @@ export function WorkspaceMembersPanel({
                 />
               }
             >
-              <HugeiconsIcon icon={Attachment01Icon} size={15} />
+              <HugeiconsIcon icon={DocumentAttachmentIcon} size={15} />
             </TooltipTrigger>
             <TooltipContent>Attachments</TooltipContent>
           </Tooltip>
