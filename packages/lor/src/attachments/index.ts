@@ -1,5 +1,4 @@
-import { createHash } from "node:crypto"
-import { and, db, eq, schema } from "@repo/db"
+import { db, eq, schema } from "@repo/db"
 import type { Attachment, NewAttachmentChunk } from "@repo/db/schema"
 import sharp from "sharp"
 import { embedDocumentWithUsage } from "../embeddings"
@@ -57,29 +56,14 @@ async function indexImage(
 ): Promise<void> {
   const fetched = await fetchImageBytes(attachment.url, attachment.contentType)
   const image = fetched ? await fitImage(fetched) : null
-  if (!fetched || !image) throw new Error("image could not be loaded")
+  if (!image) throw new Error("image could not be loaded")
 
-  const contentHash = createHash("sha256").update(fetched.bytes).digest("hex")
-  // A repost reuses the earlier transcription instead of paying for another.
-  const prior = await db
-    .select({ text: schema.attachmentChunk.text })
-    .from(schema.attachmentChunk)
-    .where(
-      and(
-        eq(schema.attachmentChunk.workspaceId, target.workspaceId),
-        eq(schema.attachmentChunk.contentHash, contentHash)
-      )
-    )
-    .limit(1)
-    .then((r) => r[0])
-  const text =
-    prior?.text ??
-    (await transcribeImage(
-      target.workspaceId,
-      image,
-      attachment.filename,
-      onUsage
-    ))
+  const text = await transcribeImage(
+    target.workspaceId,
+    image,
+    attachment.filename,
+    onUsage
+  )
 
   const embedInput = [attachment.filename, target.content, text]
     .filter(Boolean)
@@ -108,7 +92,6 @@ async function indexImage(
     position: 0,
     text,
     embedding,
-    contentHash,
   }
   await db
     .insert(schema.attachmentChunk)
@@ -119,7 +102,7 @@ async function indexImage(
         schema.attachmentChunk.url,
         schema.attachmentChunk.position,
       ],
-      set: { text, contentHash, ...(embedding ? { embedding } : {}) },
+      set: { text, ...(embedding ? { embedding } : {}) },
     })
 }
 

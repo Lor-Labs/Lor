@@ -39,7 +39,6 @@ export const attachmentChunk = pgTable(
     position: integer("position").notNull().default(0),
     text: text("text").notNull(),
     embedding: halfvec("embedding", { dimensions: LOR_EMBED_DIMENSIONS }),
-    contentHash: text("content_hash"),
     truncated: boolean("truncated").notNull().default(false),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
@@ -57,10 +56,6 @@ export const attachmentChunk = pgTable(
     index("attachment_chunk_text_tsv_idx").using(
       "gin",
       sql`to_tsvector('english', ${table.text})`
-    ),
-    index("attachment_chunk_workspace_hash_idx").on(
-      table.workspaceId,
-      table.contentHash
     ),
   ]
 )

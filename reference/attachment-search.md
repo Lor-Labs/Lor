@@ -86,7 +86,6 @@ New file: `packages/db/src/schemas/attachments.ts`.
 | `position` | integer, default 0 | 0 = whole file; otherwise a 1-based page, slide, section, or sheet |
 | `text` | text | what we search and what Lor reads |
 | `embedding` | `halfvec(LOR_EMBED_DIMENSIONS)`, nullable | null until embedded, like `brain_node` |
-| `contentHash` | text, nullable | sha256 of the file bytes, for dedupe |
 | `truncated` | boolean, default false | the file had more content than the caps allow |
 | `createdAt` | timestamp | |
 
@@ -94,14 +93,13 @@ Indexes:
 - unique `(messageId, url, position)`, for idempotent upserts
 - HNSW on `embedding` (`halfvec_cosine_ops`)
 - GIN on `to_tsvector('english', text)`
-- `(workspaceId, contentHash)`
 
 File-level columns repeat on each chunk of a document. We accept that so we
 can keep one table.
 
 ## Steps
 
-### Step 1 — table + image indexing job (~370 LOC) — [x] built 2026-09-25, awaiting review. **db:push owed** (`attachment_chunk`); live QA owed
+### Step 1 — table + image indexing job (~370 LOC) — [x] built 2026-09-25, committed (`a5dccf4b`; filename hint `e736ed29`). Repost-shortcut removal uncommitted. **db:push owed** (drop `content_hash` + its index); live QA owed (logo retest, DM, delete)
 
 Goal: every image posted in a workspace channel gets one row with a
 transcription, a description, and a Qwen3 vector. Nothing reads the rows yet.
@@ -128,12 +126,10 @@ Files:
   3. Fetch with `fetchImageBytes`. Downscale images over `MAX_IMAGE_BYTES`
      with `sharp` (3072 px long edge, JPEG). Confirm that `sharp` installs in
      the worker image.
-  4. Hash the bytes. If the workspace already has a row with that hash, reuse
-     its text instead of transcribing again.
-  5. Otherwise, transcribe. Then embed `filename + message text +
-     transcription` with `embedDocumentWithUsage`. If the embed call fails,
-     save the row with a null embedding.
-  6. Upsert on `(messageId, url, position)`.
+  4. Transcribe. Then embed `filename + message text + transcription` with
+     `embedDocumentWithUsage`. If the embed call fails, save the row with a
+     null embedding.
+  5. Upsert on `(messageId, url, position)`.
 - `packages/lor/package.json` — add `sharp`. Add the new module to the
   package exports if they need it.
 - `apps/worker/src/jobs/attachment-index.ts` (new) — the processor, with
@@ -467,3 +463,9 @@ These notes are here so that later agents do not repeat the research.
   use the filename only when it names something and the image does not show
   otherwise. Reposts reuse the stored transcription by content hash, so a
   bad transcription stays until its row is deleted.
+- 2026-09-25, Step 1 follow-up: removed the repost shortcut, the
+  `content_hash` column, and its index. The shortcut kept a bad transcription
+  after prompt or model changes (the reposted logo still said "Atlassian").
+  Reposts of identical bytes are rare and cost about $0.0005 each, so every
+  image now gets its own transcription. This supersedes the repost entries
+  above.
