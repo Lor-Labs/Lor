@@ -14,7 +14,7 @@ import type * as React from "react"
 
 // modal=false skips Base UI's scroll lock — see menu.tsx (perf, WebKit reflow)
 export const Select: typeof SelectPrimitive.Root = (props) => (
-  <SelectPrimitive.Root modal={false} {...props} />
+  <SelectPrimitive.Root {...props} modal={props.modal ?? false} />
 )
 
 export const selectTriggerVariants = cva(

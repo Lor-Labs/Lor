@@ -1,5 +1,5 @@
 import { z } from "@hono/zod-openapi"
-import { db, sql } from "@repo/db"
+import { db, type SQL, sql } from "@repo/db"
 import { env } from "@repo/env/server"
 
 export const fileCursorSchema = z.object({
@@ -75,9 +75,18 @@ export async function fetchChannelFiles(args: {
 }) {
   const { channelId, workspaceId, q, kind, limit, cursor } = args
   const pattern = `%${q.replace(/[\\%_]/g, "\\$&")}%`
+  // Filter, order, and limit each branch so the message branch stops early on
+  // message_channelId_createdAt_idx instead of expanding every channel attachment.
+  const branchPage = (name: SQL, sortAt: SQL, id: SQL) => sql`
+    and ${q ? sql`${name} ilike ${pattern}` : sql`true`}
+    and ${cursor ? sql`(${sortAt}, ${id}) < (${cursor.at}::timestamp, ${cursor.id})` : sql`true`}
+    order by ${sortAt} desc, ${id} desc
+    limit ${limit + 1}`
+  const artifactFileId = sql`'artifact:' || a.id::text`
+  const uploadFileId = sql`'upload:' || m.id::text || ':' || f.ordinality::text`
   const rows = await db.execute<FileRow>(sql`
     with files as (
-      select 'artifact:' || a.id::text as id, 'artifact' as kind,
+      (select ${artifactFileId} as id, 'artifact' as kind,
         a.id as "artifactId", a.path as name, v.content_type as "contentType",
         v.size, ${`${env.S3_PUBLIC_URL}/`} || v.blob_key as url,
         v.version, case when v.author_type = 'agent' then 'Lor'
@@ -88,8 +97,9 @@ export async function fetchChannelFiles(args: {
       left join "user" u on u.id = v.author_id
       where a.channel_id = ${channelId}::uuid and a.workspace_id = ${workspaceId}::uuid
         and ${kind !== "upload"}
+        ${branchPage(sql`a.path`, sql`a.updated_at`, artifactFileId)})
       union all
-      select 'upload:' || m.id::text || ':' || f.ordinality::text, 'upload',
+      (select ${uploadFileId}, 'upload',
         null::uuid, f.value->>'filename', coalesce(f.value->>'contentType', 'application/octet-stream'),
         (f.value->>'size')::integer, f.value->>'url', null::integer,
         coalesce(m.override_name, u.name), m.created_at, m.id, m.thread_root_id
@@ -98,13 +108,12 @@ export async function fetchChannelFiles(args: {
       cross join lateral jsonb_array_elements(coalesce(m.attachments, '[]'::jsonb)) with ordinality f
       where m.channel_id = ${channelId}::uuid
         and ${kind !== "artifact"}
+        ${branchPage(sql`f.value->>'filename'`, sql`m.created_at`, uploadFileId)})
     )
     select id, kind, "artifactId", name, "contentType", size, url, version,
       "authorName", "messageId", "threadRootId",
       to_char(sort_at, 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as "updatedAt"
     from files
-    where ${q ? sql`name ilike ${pattern}` : sql`true`}
-      and ${cursor ? sql`(sort_at, id) < (${cursor.at}::timestamp, ${cursor.id})` : sql`true`}
     order by sort_at desc, id desc
     limit ${limit + 1}
   `)

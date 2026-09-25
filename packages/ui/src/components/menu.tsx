@@ -12,7 +12,7 @@ export const MenuCreateHandle: typeof MenuPrimitive.createHandle =
 // scrollHeight/getComputedStyle reads force a full-document reflow on every
 // open/close, which WebKit turns into ~250ms click lag on large channel DOMs.
 export const Menu: typeof MenuPrimitive.Root = (props) => (
-  <MenuPrimitive.Root modal={false} {...props} />
+  <MenuPrimitive.Root {...props} modal={props.modal ?? false} />
 )
 
 export const MenuPortal: typeof MenuPrimitive.Portal = MenuPrimitive.Portal
