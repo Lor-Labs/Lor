@@ -34,10 +34,12 @@ import {
   workspaceRoom,
 } from "@repo/realtime-types"
 import type {
+  AttachmentIndexJobData,
   LinkUnfurlJobData,
   LorRespondJobData,
 } from "@repo/realtime-types/queues"
 import {
+  ATTACHMENT_INDEX_QUEUE,
   LINK_UNFURL_QUEUE,
   LOR_RESPOND_QUEUE,
 } from "@repo/realtime-types/queues"
@@ -689,6 +691,29 @@ io.on("connection", (socket) => {
           })
       }
 
+      // DMs (no workspace) are never indexed: they will be E2E encrypted.
+      if (
+        createdMessage.channel.workspaceId &&
+        createdMessage.message.attachments.length > 0
+      ) {
+        void attachmentIndexQueue
+          .add(
+            "index",
+            {
+              messageId: createdMessage.message.id,
+              channelId: parsed.channelId,
+            },
+            {
+              jobId: createdMessage.message.id,
+              attempts: 3,
+              backoff: { type: "exponential", delay: 10_000 },
+            }
+          )
+          .catch((err) => {
+            logger.error({ err }, "Failed to enqueue attachment-index")
+          })
+      }
+
       const routeLor = async () => {
         // DMs have no workspace context; Lor only runs in workspace channels.
         const workspaceId = accessibleChannel.workspaceId
@@ -1322,6 +1347,20 @@ const linkUnfurlQueue = new Queue<LinkUnfurlJobData>(LINK_UNFURL_QUEUE, {
     removeOnFail: { age: 86400, count: 5000 },
   },
 })
+
+const attachmentIndexQueue = new Queue<AttachmentIndexJobData>(
+  ATTACHMENT_INDEX_QUEUE,
+  {
+    connection: {
+      ...parseRedisUrl(env.REDIS_URL),
+      maxRetriesPerRequest: null,
+    },
+    defaultJobOptions: {
+      removeOnComplete: { age: 3600, count: 1000 },
+      removeOnFail: { age: 86400, count: 5000 },
+    },
+  }
+)
 
 const lorRespondQueue = new Queue<LorRespondJobData>(LOR_RESPOND_QUEUE, {
   connection: {

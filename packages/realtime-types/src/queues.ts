@@ -76,3 +76,9 @@ export type LoopRunJobData = {
 export const PROJECT_ARCHIVE_QUEUE = "project-archive"
 
 export type ProjectArchiveJobData = { projectId: string }
+
+// Attachment indexing (reference/attachment-search.md): transcribes and
+// embeds a message's attachments after send. Never enqueued for DMs.
+export const ATTACHMENT_INDEX_QUEUE = "attachment-index"
+
+export type AttachmentIndexJobData = { messageId: string; channelId: string }

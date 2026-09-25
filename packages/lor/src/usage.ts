@@ -18,3 +18,12 @@ export type UsageEvent = {
 }
 
 export type OnUsage = (event: UsageEvent) => void
+
+// A metering callback failure must never change ingestion outcomes.
+export function emitUsage(onUsage: OnUsage | undefined, event: UsageEvent) {
+  try {
+    onUsage?.(event)
+  } catch {
+    // metering is best-effort
+  }
+}

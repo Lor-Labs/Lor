@@ -45,7 +45,7 @@ brain prefetch, and the connector search tools.
 | Image vectors | Deferred to Step 7. Start it only when its trigger fires. |
 | Transcription model | `lorSmallModel` (default `zai/glm-5.3-flash`; the gateway catalog lists image input for it). Called through the gateway. |
 | Source of truth | `message.attachments` plus the R2 objects. `attachment_chunk` is a derived index. We can drop it and rebuild it. |
-| Scope | Workspace channels only. Skip DMs (`channel.workspaceId` is null) and `excludedFromMemory` messages. Apply `privateAudienceFilter` at query time, the same as for messages. |
+| Scope | Workspace channels only. DMs (`channel.workspaceId` is null) are never enqueued, indexed, or searched, because they will be E2E encrypted. Also skip `excludedFromMemory` messages. Apply `privateAudienceFilter` at query time, the same as for messages. |
 | Deletion | `messageId` FK with `ON DELETE CASCADE`. |
 | Trigger | Realtime `message:send` enqueues an `attachment-index` job after the ack, like link-unfurl. `jobId = messageId`. Own queue and worker, concurrency 2. |
 | Cost | Ingestion usage is recorded, never debited, the same as `ingestSource`. Tools: `attachment.transcribe` and `attachment.embed`. |
@@ -101,7 +101,7 @@ can keep one table.
 
 ## Steps
 
-### Step 1 — table + image indexing job (~370 LOC) — [ ]
+### Step 1 — table + image indexing job (~370 LOC) — [x] built 2026-09-25, awaiting review. **db:push owed** (`attachment_chunk`); live QA owed
 
 Goal: every image posted in a workspace channel gets one row with a
 transcription, a description, and a Qwen3 vector. Nothing reads the rows yet.
@@ -110,7 +110,8 @@ Files:
 - `packages/db/src/schemas/attachments.ts` (new), plus the export in
   `packages/db/src/schemas/index.ts`.
 - `packages/realtime-types/src/queues.ts` — `ATTACHMENT_INDEX_QUEUE` and
-  `AttachmentIndexJobData = { messageId: string }`.
+  `AttachmentIndexJobData = { messageId: string; channelId: string }`.
+- `packages/lor/src/usage.ts` — export `emitUsage` (best-effort metering).
 - `packages/lor/src/attachments/transcribe.ts` (new) — `transcribeImage`.
   `generateText` with `lorSmallModel`, `smallGatewayOptions`,
   `reasoning: "low"`, and a capped output. Prompt: transcribe all visible text
@@ -126,10 +127,11 @@ Files:
   3. Fetch with `fetchImageBytes`. Downscale images over `MAX_IMAGE_BYTES`
      with `sharp` (3072 px long edge, JPEG). Confirm that `sharp` installs in
      the worker image.
-  4. Hash the bytes. If the workspace already has a row with that hash, copy
-     its text and embedding.
+  4. Hash the bytes. If the workspace already has a row with that hash, reuse
+     its text instead of transcribing again.
   5. Otherwise, transcribe. Then embed `filename + message text +
-     transcription` with `embedDocumentWithUsage`.
+     transcription` with `embedDocumentWithUsage`. If the embed call fails,
+     save the row with a null embedding.
   6. Upsert on `(messageId, url, position)`.
 - `packages/lor/package.json` — add `sharp`. Add the new module to the
   package exports if they need it.
@@ -189,6 +191,8 @@ Files:
 - `apps/worker/src/scripts/index-attachments.ts` (new) — the backfill:
   - It pages through messages with attachments in workspace channels, newest
     first, and skips messages that already have rows.
+  - It also embeds rows whose `embedding` is null (Step 1 saves those when the
+    embed call fails).
   - It runs with bounded concurrency (default 4, with an env override) and
     takes an optional `--workspace <id>`.
   - It records usage and prints totals.
@@ -442,4 +446,14 @@ These notes are here so that later agents do not repeat the research.
 
 ## Deviations log
 
-(empty)
+- 2026-09-25, Step 1: the job data carries `channelId` as well as
+  `messageId`, so ledger rows get both refs.
+- 2026-09-25, Step 1: a reposted image reuses only the earlier
+  transcription. The embedding is always recomputed, because it includes the
+  new message's text.
+- 2026-09-25, Step 1: `emitUsage` is now exported from `usage.ts`.
+  `sources.ts` and `compaction.ts` still keep their own local copies.
+- 2026-09-25, Step 1: the production worker runs under Bun
+  (`oven/bun:1-slim`), with dependencies installed on `node:22-slim`.
+  `sharp` 0.34.5 was checked under Bun locally. Confirm it loads on the first
+  deploy.

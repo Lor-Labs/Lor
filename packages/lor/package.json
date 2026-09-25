@@ -7,6 +7,7 @@
     ".": "./src/index.ts",
     "./act-runs": "./src/act-runs.ts",
     "./artifacts": "./src/artifacts/service.ts",
+    "./attachments": "./src/attachments/index.ts",
     "./attio": "./src/attio.ts",
     "./meeting-insights": "./src/meeting-insights.ts",
     "./capabilities": "./src/capabilities.ts",
@@ -58,6 +59,7 @@
     "exa-js": "^2.16.3",
     "heic-convert": "^2.1.0",
     "octokit": "^5.0.5",
+    "sharp": "^0.34.5",
     "zod": "^4.3.6"
   },
   "devDependencies": {
