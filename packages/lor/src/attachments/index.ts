@@ -73,7 +73,13 @@ async function indexImage(
     .limit(1)
     .then((r) => r[0])
   const text =
-    prior?.text ?? (await transcribeImage(target.workspaceId, image, onUsage))
+    prior?.text ??
+    (await transcribeImage(
+      target.workspaceId,
+      image,
+      attachment.filename,
+      onUsage
+    ))
 
   const embedInput = [attachment.filename, target.content, text]
     .filter(Boolean)
