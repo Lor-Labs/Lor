@@ -99,7 +99,7 @@ can keep one table.
 
 ## Steps
 
-### Step 1 — table + image indexing job (~370 LOC) — [x] built 2026-09-25, committed (`a5dccf4b`; filename hint `e736ed29`). Repost-shortcut removal uncommitted. **db:push owed** (drop `content_hash` + its index); live QA owed (logo retest, DM, delete)
+### Step 1 — table + image indexing job (~370 LOC) — [x] built 2026-09-25, committed (`a5dccf4b`; filename hint `e736ed29`). Repost-shortcut removal uncommitted (db:push done). Live QA passed: screenshot transcription, logo named from its filename, message delete cascades the row. DM skip trusted from code, not live-tested.
 
 Goal: every image posted in a workspace channel gets one row with a
 transcription, a description, and a Qwen3 vector. Nothing reads the rows yet.
