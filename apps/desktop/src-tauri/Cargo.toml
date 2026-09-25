@@ -28,3 +28,7 @@ tauri-plugin-notification = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-process = "2"
 tauri-plugin-updater = "2"
+
+# Vendored 2.5.9 + shared pooled client (upstream opens a new connection per request).
+[patch.crates-io]
+tauri-plugin-http = { path = "patches/tauri-plugin-http" }
