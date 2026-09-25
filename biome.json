@@ -8,7 +8,12 @@
   },
   "files": {
     "ignoreUnknown": true,
-    "includes": ["**", "!**/routeTree.gen.ts", "!**/uniwind-types.d.ts"]
+    "includes": [
+      "**",
+      "!**/routeTree.gen.ts",
+      "!**/uniwind-types.d.ts",
+      "!apps/desktop/src-tauri/patches"
+    ]
   },
   "formatter": {
     "enabled": true,
