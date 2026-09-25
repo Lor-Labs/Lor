@@ -1,44 +1,10 @@
-import { Image01Icon } from "@hugeicons/core-free-icons"
-import { HugeiconsIcon } from "@hugeicons/react"
 import { AnimatePresence, motion } from "motion/react"
-import type { ReactNode } from "react"
+import { ChannelFilesPanel } from "@/components/sidebar/right-panel/channel-files-panel"
 import { LoopPanel } from "@/components/sidebar/right-panel/loop-panel"
 import { LoopsListPanel } from "@/components/sidebar/right-panel/loops-list-panel"
-import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-header"
 import type { RightSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
 import { ThreadPanel } from "@/components/sidebar/right-panel/thread-panel"
 import { WorkspaceMembersPanel } from "@/components/sidebar/right-panel/workspace-members-panel"
-
-function PlaceholderSidebar({
-  title,
-  description,
-  icon,
-  workspaceSlug,
-  channelId,
-}: {
-  title: string
-  description: string
-  icon: ReactNode
-  workspaceSlug: string
-  channelId: string
-}) {
-  return (
-    <div className="flex h-full w-full flex-col">
-      <RightPanelHeader
-        title={title}
-        workspaceSlug={workspaceSlug}
-        channelId={channelId}
-      />
-      <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-6 text-center">
-        <div className="mb-3 rounded-full bg-foreground/5 p-3 text-muted-foreground">
-          {icon}
-        </div>
-        <h3 className="text-sm font-semibold">{title}</h3>
-        <p className="mt-1 text-xs text-muted-foreground">{description}</p>
-      </div>
-    </div>
-  )
-}
 
 const viewTransition = {
   duration: 0.28,
@@ -60,7 +26,7 @@ export function RightSidebarPanel({ view }: { view: RightSidebarView }) {
       ? `thread:${view.threadRootId}`
       : view.type === "loop"
         ? `loop:${view.loopId}`
-        : view.type
+        : `${view.type}:${view.channelId}`
 
   return (
     <div className="relative h-full w-full overflow-hidden">
@@ -84,21 +50,7 @@ export function RightSidebarPanel({ view }: { view: RightSidebarView }) {
           {view.type === "thread" && <ThreadPanel view={view} />}
           {view.type === "loop" && <LoopPanel view={view} />}
           {view.type === "loops" && <LoopsListPanel view={view} />}
-          {view.type === "attachments" && (
-            <PlaceholderSidebar
-              title="Attachments"
-              description="This mode can show channel attachments and media history."
-              icon={
-                <HugeiconsIcon
-                  icon={Image01Icon}
-                  className="size-5"
-                  strokeWidth={2}
-                />
-              }
-              workspaceSlug={view.workspaceSlug}
-              channelId={view.channelId}
-            />
-          )}
+          {view.type === "attachments" && <ChannelFilesPanel view={view} />}
         </motion.div>
       </AnimatePresence>
     </div>

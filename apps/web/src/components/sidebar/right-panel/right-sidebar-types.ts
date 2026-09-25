@@ -18,6 +18,8 @@ export type AttachmentsSidebarView = {
   type: "attachments"
   workspaceSlug: string
   channelId: string
+  search?: string
+  kind?: "artifact" | "upload"
 }
 
 export type LoopSidebarView = {

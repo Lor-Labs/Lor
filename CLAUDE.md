@@ -103,6 +103,13 @@ there; update them as steps land.
 
 Loops work is executed phase-by-phase from the runbook at `reference/loops.md` — locked architecture decisions, per-phase file lists, and status checkboxes live there. Update its checkboxes and deviations log as phases land.
 
+### Voice channels and memory
+
+The guiding feature spec lives in `reference/voice-channels.md`: voice channels
+and conversation memory first, live voice interaction with Lor later. It records
+product direction and open decisions, not an as-built implementation. Broader
+priorities live in `reference/product-direction.md`.
+
 ### Conventions
 
 - DO NOT make extremely verbose comments for every tiny detail or every line of code changed. this bloats the codebase and makes it harder to read and maintain. THIS IS VERY IMPORTANT.

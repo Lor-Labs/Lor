@@ -6,11 +6,22 @@ Prove that humans and agents can work together inside one persistent, shared env
 
 - Company memory with grounded answers
 - Pi-powered codebase investigation
-- Realtime collaborative documents and artifacts
-- Human-and-agent editing, presence, cursors, and comments
+- Persistent artifacts and shared agent work
+- Voice channels with captured conversation context and grounded memory
 - Channels, threads, notifications, and mobile access
 - High-value native integrations
 - Approval flows for consequential agent actions
+
+### Current feature priority — 2026-09-24
+
+Build voice channels and conversation memory first; add live voice interaction
+with Lor afterward. The guiding scope, phases, and open decisions live in
+[`voice-channels.md`](./voice-channels.md).
+
+Code channels remain a future direction with an unresolved interaction design.
+Direct multiplayer document editing, including shared cursors and comments,
+also remains part of the broader vision but is not a prerequisite for this phase.
+These priorities do not set a public launch date or imply native voice is built.
 
 ## V2 — Self-evolving workspace
 

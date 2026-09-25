@@ -1,4 +1,8 @@
-import { MoreHorizontalIcon } from "@hugeicons/core-free-icons"
+import {
+  DashboardSquare03Icon,
+  DocumentAttachmentIcon,
+  MoreHorizontalIcon,
+} from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
 import { formatWorkspaceRole } from "@repo/auth/permissions"
@@ -30,6 +34,11 @@ import {
 import { ScrollArea } from "@repo/ui/components/scroll-area"
 import { Skeleton } from "@repo/ui/components/skeleton"
 import { toast } from "@repo/ui/components/toast"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@repo/ui/components/tooltip"
 import { SidebarToggleIcon } from "@repo/ui/components/unlumen-ui/sidebar-toggle-icon"
 import { useIsMobile } from "@repo/ui/hooks/use-mobile"
 import { cn } from "@repo/ui/lib/utils"
@@ -250,7 +259,7 @@ export function WorkspaceMembersPanel({
   const socket = useSocket()
   const queryClient = useQueryClient()
   const { data: session } = authClient.useSession()
-  const { toggleCollapsed, clearView } = useRightSidebar()
+  const { setView, toggleCollapsed, clearView } = useRightSidebar()
   const isMobile = useIsMobile()
   const [moderationDialog, setModerationDialog] =
     useState<ModerationDialogState>(null)
@@ -516,8 +525,55 @@ export function WorkspaceMembersPanel({
     <>
       <div className="flex h-full w-full flex-col">
         {/* No title — the section labels (Loops / Online / Offline) say it;
-            the bar just carries the collapse control. */}
-        <div className="flex h-12 shrink-0 items-center justify-end px-4">
+            artifact/attachment shortcuts sit left, the collapse control
+            keeps the right corner. */}
+        <div className="flex h-12 shrink-0 items-center justify-between px-4">
+          <div className="-ml-1.5 flex items-center gap-1">
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    aria-label="Browse artifacts"
+                    onClick={() =>
+                      setView({
+                        type: "attachments",
+                        kind: "artifact",
+                        workspaceSlug: view.workspaceSlug,
+                        channelId: view.channelId,
+                      })
+                    }
+                    className="flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+                  />
+                }
+              >
+                <HugeiconsIcon icon={DashboardSquare03Icon} size={15} />
+              </TooltipTrigger>
+              <TooltipContent>Artifacts</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    aria-label="Browse attachments"
+                    onClick={() =>
+                      setView({
+                        type: "attachments",
+                        kind: "upload",
+                        workspaceSlug: view.workspaceSlug,
+                        channelId: view.channelId,
+                      })
+                    }
+                    className="flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+                  />
+                }
+              >
+                <HugeiconsIcon icon={DocumentAttachmentIcon} size={15} />
+              </TooltipTrigger>
+              <TooltipContent>Attachments</TooltipContent>
+            </Tooltip>
+          </div>
           <button
             type="button"
             onClick={isMobile ? clearView : toggleCollapsed}
@@ -541,77 +597,83 @@ export function WorkspaceMembersPanel({
           </div>
         )}
 
-        {/* Loops render regardless of the members query — a members
-            fetch hiccup must not hide the channel's automations. */}
         <ScrollArea className="min-w-0 flex-1 overflow-x-hidden px-2 py-2">
-          <div className="min-w-0 space-y-4 px-1 pb-3">
+          <div className="min-w-0 space-y-3 px-1 pb-3">
+            <section aria-label="Members">
+              <div className="space-y-3">
+                {isPending ? (
+                  <MembersSkeleton />
+                ) : isError ? (
+                  <div className="px-1 py-3 text-sm text-muted-foreground">
+                    Failed to load members.
+                  </div>
+                ) : members.length === 0 ? (
+                  <div className="px-1 py-4 text-sm text-muted-foreground">
+                    No members found for this workspace.
+                  </div>
+                ) : (
+                  <>
+                    {onlineMembers.length > 0 && (
+                      <section>
+                        <div className="px-1 pb-1 text-[11px] text-muted-foreground">
+                          Online · {onlineMembers.length}
+                        </div>
+                        <div className="space-y-0.5">
+                          {onlineMembers.map((member) => (
+                            <MemberRow
+                              key={member.userId}
+                              member={member}
+                              currentUserId={currentUserId}
+                              currentMember={currentMember}
+                              ownerId={ownerId}
+                              roleOptions={roleOptions}
+                              canUpdateRolesPermission={
+                                canUpdateRolesPermission
+                              }
+                              canKickPermission={canKickPermission}
+                              onRoleChange={handleRoleChange}
+                              onKick={handleKick}
+                              isBusy={isMutating}
+                            />
+                          ))}
+                        </div>
+                      </section>
+                    )}
+
+                    {offlineMembers.length > 0 && (
+                      <section>
+                        <div className="px-1 pb-1 text-[11px] text-muted-foreground">
+                          Offline · {offlineMembers.length}
+                        </div>
+                        <div className="space-y-0.5">
+                          {offlineMembers.map((member) => (
+                            <MemberRow
+                              key={member.userId}
+                              member={member}
+                              currentUserId={currentUserId}
+                              currentMember={currentMember}
+                              ownerId={ownerId}
+                              roleOptions={roleOptions}
+                              canUpdateRolesPermission={
+                                canUpdateRolesPermission
+                              }
+                              canKickPermission={canKickPermission}
+                              onRoleChange={handleRoleChange}
+                              onKick={handleKick}
+                              isBusy={isMutating}
+                            />
+                          ))}
+                        </div>
+                      </section>
+                    )}
+                  </>
+                )}
+              </div>
+            </section>
             <LoopsOverviewSection
               workspaceSlug={view.workspaceSlug}
               channelId={view.channelId}
             />
-            {isPending ? (
-              <MembersSkeleton />
-            ) : isError ? (
-              <div className="px-1 py-3 text-sm text-muted-foreground">
-                Failed to load members.
-              </div>
-            ) : members.length === 0 ? (
-              <div className="px-1 py-4 text-sm text-muted-foreground">
-                No members found for this workspace.
-              </div>
-            ) : (
-              <>
-                {onlineMembers.length > 0 && (
-                  <section>
-                    <div className="px-1 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      Online - {onlineMembers.length}
-                    </div>
-                    <div className="space-y-0.5">
-                      {onlineMembers.map((member) => (
-                        <MemberRow
-                          key={member.userId}
-                          member={member}
-                          currentUserId={currentUserId}
-                          currentMember={currentMember}
-                          ownerId={ownerId}
-                          roleOptions={roleOptions}
-                          canUpdateRolesPermission={canUpdateRolesPermission}
-                          canKickPermission={canKickPermission}
-                          onRoleChange={handleRoleChange}
-                          onKick={handleKick}
-                          isBusy={isMutating}
-                        />
-                      ))}
-                    </div>
-                  </section>
-                )}
-
-                {offlineMembers.length > 0 && (
-                  <section>
-                    <div className="px-1 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      Offline - {offlineMembers.length}
-                    </div>
-                    <div className="space-y-0.5">
-                      {offlineMembers.map((member) => (
-                        <MemberRow
-                          key={member.userId}
-                          member={member}
-                          currentUserId={currentUserId}
-                          currentMember={currentMember}
-                          ownerId={ownerId}
-                          roleOptions={roleOptions}
-                          canUpdateRolesPermission={canUpdateRolesPermission}
-                          canKickPermission={canKickPermission}
-                          onRoleChange={handleRoleChange}
-                          onKick={handleKick}
-                          isBusy={isMutating}
-                        />
-                      ))}
-                    </div>
-                  </section>
-                )}
-              </>
-            )}
           </div>
         </ScrollArea>
       </div>

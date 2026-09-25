@@ -24,6 +24,7 @@ import { useSocket } from "@/context/socket-context"
 import { useChannelApprovals } from "@/hooks/use-approvals"
 import { useAutoMarkRead } from "@/hooks/use-auto-mark-read"
 import { useChannelEntry } from "@/hooks/use-channel-entry"
+import { useChannelFilesRealtime } from "@/hooks/use-channel-files"
 import { useChannelMessages } from "@/hooks/use-channel-messages"
 import { useChannelPlans } from "@/hooks/use-channel-plans"
 import { useFileUpload } from "@/hooks/use-file-upload"
@@ -56,6 +57,8 @@ type ChannelSearchParams = {
   // Opens the artifact viewer; shareable — everyone opening the same URL
   // lands on the same artifact (and, later, in the same live session).
   artifactId?: string
+  artifactFrom?: "files"
+  fileSearch?: string
 }
 
 export const Route = createFileRoute(
@@ -71,12 +74,24 @@ export const Route = createFileRoute(
         : undefined,
     artifactId:
       typeof search.artifactId === "string" ? search.artifactId : undefined,
+    artifactFrom: search.artifactFrom === "files" ? "files" : undefined,
+    fileSearch:
+      typeof search.fileSearch === "string"
+        ? search.fileSearch.slice(0, 200)
+        : undefined,
   }),
 })
 
 function ChannelView() {
   const { workspaceSlug, channelId } = Route.useParams()
-  const { msgId, threadId, threadMessageId, artifactId } = Route.useSearch()
+  const {
+    msgId,
+    threadId,
+    threadMessageId,
+    artifactId,
+    artifactFrom,
+    fileSearch,
+  } = Route.useSearch()
   const navigate = Route.useNavigate()
   const socket = useSocket()
   const isMobile = useIsMobile()
@@ -96,6 +111,7 @@ function ChannelView() {
   // subscription a terminal plan:updated can arrive with no listener and the
   // card spins on "running" until a refetch.
   useChannelPlans(channelId)
+  useChannelFilesRealtime(channelId)
 
   useEffect(() => {
     if (!workspaceSlug || !channelId) return
@@ -649,12 +665,33 @@ function ChannelView() {
           <ArtifactOverlay
             key={artifactId}
             artifactId={artifactId}
-            onClose={() =>
+            closeLabel={
+              artifactFrom === "files" ? "Back to artifacts" : undefined
+            }
+            onClose={() => {
+              if (artifactFrom) {
+                setView({
+                  type: "attachments",
+                  kind: "artifact",
+                  workspaceSlug,
+                  channelId,
+                  search: fileSearch,
+                })
+                if (isCollapsed) toggleCollapsed()
+              }
               void navigate({
-                search: (prev) => ({ ...prev, artifactId: undefined }),
+                search: (prev) => ({
+                  ...prev,
+                  artifactId: undefined,
+                  artifactFrom: undefined,
+                  fileSearch: undefined,
+                  ...(artifactFrom
+                    ? { threadId: undefined, threadMessageId: undefined }
+                    : {}),
+                }),
                 replace: true,
               })
-            }
+            }}
           />
         )}
       </AnimatePresence>

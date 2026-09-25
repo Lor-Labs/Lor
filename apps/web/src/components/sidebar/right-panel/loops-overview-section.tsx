@@ -4,10 +4,7 @@ import { LoopRow, sortLoops } from "@/components/loops/loop-row"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import { useChannelLoops } from "@/hooks/use-channel-loops"
 
-// Discord-style section at the top of the channel overview (members) panel.
-// Completed loops are hidden here — the arrow beside the title opens the full
-// loops list panel, which has everything. Hidden entirely when the channel
-// has no live loops.
+// Completed loops remain available through the full list.
 const OVERVIEW_LOOP_COUNT = 3
 
 export function LoopsOverviewSection({
@@ -22,18 +19,18 @@ export function LoopsOverviewSection({
   const loops = sortLoops(
     (data ?? []).filter((loop) => loop.status !== "completed")
   )
-  if (loops.length === 0) return null
 
   const visible = loops.slice(0, OVERVIEW_LOOP_COUNT)
   const hiddenCount = loops.length - visible.length
 
   const openAll = () => setView({ type: "loops", workspaceSlug, channelId })
+  if (!loops.length) return null
 
   return (
-    <section>
+    <section className="border-t border-border/60 pt-3">
       <div className="flex items-center justify-between pb-1 pl-1">
-        <span className="font-semibold text-[11px] text-muted-foreground uppercase tracking-wider">
-          Loops - {loops.length}
+        <span className="font-medium text-xs text-muted-foreground">
+          Loops{loops.length ? ` · ${loops.length}` : ""}
         </span>
         <button
           type="button"
