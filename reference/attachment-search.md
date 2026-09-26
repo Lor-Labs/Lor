@@ -210,37 +210,60 @@ Done when:
     citation jumps there.
   - A private-channel screenshot never appears in a run in a public channel.
 
-### Step 3 — documents: text extraction (~340 LOC) — [ ]
+### Step 3 — documents: text extraction (~380 LOC) — [ ]
 
 Goal: PDF, DOCX, PPTX, XLSX/CSV, and plain-text files get one row per page,
-slide, section, or sheet, with no LLM. Other types get one filename-only row.
+slide, section, or row group, with no LLM. Other types get one filename-only
+row.
+
+Chunking (from the 2026-09-26 research notes below):
+- Natural units first: a PDF page and a slide are one piece each.
+- Flowing text (DOCX, TXT, MD, JSON) is split at headings, then packed by a
+  recursive splitter: paragraph → line → sentence → word. Target about 2,000
+  chars (about 500 tokens) per piece. Merge sections shorter than 500 chars
+  with the next section under the same parent heading. No overlap.
+- Every piece starts with a context header, stored in `text`, so both the
+  vector and the FTS side see it:
+  - DOCX/MD: `<heading path, e.g. Pricing > Enterprise>`
+  - PPTX: `Slide N: <slide title>`
+  - XLSX/CSV: `Sheet: <name>, rows A–B`, then the header row
+  The filename and the message text are already in the embedding input.
+- Do not add semantic chunking, overlap, or late chunking. Late chunking
+  cannot work through the gateway.
 
 Files:
 - `packages/lor/package.json` — add `unpdf` (MIT), `mammoth` (BSD-2-Clause),
   `fflate` (MIT), `fast-xml-parser` (MIT), and `exceljs` (MIT). Confirm the
-  versions and licenses at install.
+  versions and licenses at install. Do not add `@langchain/textsplitters`,
+  because it needs `@langchain/core` and `js-tiktoken`.
+- `packages/lor/src/attachments/split.ts` (new, ~50 LOC) — a hand-written
+  recursive splitter: `splitText(text, target)` returns pieces of at most
+  `target` chars. It breaks on `\n\n`, then `\n`, then `. `, then ` `.
 - `packages/lor/src/attachments/extract.ts` (new) —
   `extractDocument(bytes, contentType)` returns
   `{ pieces: { position, text }[], truncated }`:
   - PDF: `extractText(bytes, { mergePages: false })`, one piece per page.
-  - DOCX: `mammoth.extractRawText`, split at paragraph breaks into pieces of
-    about 3,000 chars.
+    Keep the whole page up to the embed cap (16k chars); do not split it.
+  - DOCX: `mammoth.convertToHtml` (Word heading styles become h1–h6). Walk
+    the headings to build sections with a heading path, then use `splitText`.
   - PPTX: `unzipSync` with a `filter` that keeps only `ppt/presentation.xml`,
     the rels files, `ppt/slides/slide*.xml`, and `ppt/notesSlides/*.xml`, so
     the media is never decompressed. Order the slides by `sldIdLst`. Collect
-    the `a:t` text runs and the speaker notes for each slide.
-  - XLSX: `exceljs`. For each sheet: its name plus the first 20 rows as
-    tab-separated text.
-  - CSV, TSV, TXT, MD, and JSON: UTF-8 text, in pieces of about 3,000 chars.
-  - Caps: 200 pieces per file, 4,000 chars per piece, 300 PDF pages. Past a
-    cap, keep the first part and set `truncated`.
+    the `a:t` text runs, the title placeholder, and the speaker notes for each
+    slide (`Notes: …`).
+  - XLSX: `exceljs`. For each sheet, pack rows into groups of about 2,000
+    chars as tab-separated text. Repeat the header row in each group.
+  - CSV and TSV: the same row groups as XLSX, one "sheet".
+  - MD: split at `#` headings, then `splitText`. TXT and JSON: `splitText`.
+  - Caps: 200 pieces per file, 300 PDF pages, 20,000 spreadsheet rows. Past
+    a cap, keep the first part and set `truncated`.
 - `packages/lor/src/attachments/index.ts` — send non-image types to
   `extractDocument`. Other types (video, audio, archives, binaries) get one
   row: `File: <name> (<type>, <size>)` plus the message text.
 - `packages/lor/src/embeddings.ts` — `embedDocumentsWithUsage(texts)` with
   `embedMany`, one call per file.
-- `packages/lor/src/attachments/search.ts` — label each hit `page N`,
-  `slide N`, `section N`, or `sheet N`, based on the content type.
+- `packages/lor/src/attachments/search.ts` — label each hit `page N` (PDF),
+  `slide N` (PPTX), or `part N` (everything else).
 
 Done when:
 - check and check-types pass.
@@ -410,6 +433,10 @@ becomes the bigger problem.
   gate the stored transcriptions of the images in the conversation.
 - A per-workspace daily cap on transcriptions, if the ledger shows abuse.
 - Audio and video: transcription, together with the voice-channel work.
+- LLM contextual retrieval (Anthropic, Sept 2024): a small model writes 50–100
+  tokens of document context per chunk. Add only if document recall is poor
+  after the reranker lands. Measured −35% to −49% retrieval failures, at about
+  $1 per million document tokens.
 
 ## Research notes (2026-09-25)
 
@@ -444,6 +471,41 @@ These notes are here so that later agents do not repeat the research.
   - OpenAI vector stores allow 512 MB and 5M tokens per file, with 800-token
     chunks and 400 overlap by default.
 - Cohere Embed v4 downsamples images above 2,458,624 px.
+
+## Research notes: chunking (2026-09-26)
+
+- Chroma (trychroma.com/research/evaluating-chunking), recall@5:
+  - recursive, 400 tokens, no overlap: 89.5;
+  - recursive, 400 tokens, 200 overlap: 88.1;
+  - OpenAI default (800 tokens, 400 overlap): 85.4;
+  - cluster semantic: 91.3;
+  - GPT-4o LLM chunker: 91.9;
+  - Kamradt semantic: 83.6.
+- NVIDIA chunking blog: page-level had the best average (0.648) and the
+  lowest spread across 5 PDF sets. Chunks of 512–1,024 tokens won on some sets.
+- Vectara (arXiv 2410.13070): on real documents, fixed-size ties or beats
+  semantic chunking. Semantic wins only on artificially stitched documents.
+- arXiv 2606.00881 (BGE-M3, 9 sets), acc@5: recursive 89.4, fixed 87.7,
+  LumberChunker 85.4 (about 8 h per set).
+- Overlap: no gain in Chroma or arXiv 2601.14123. It lowered precision in
+  arXiv 2506.17277.
+- Late chunking (arXiv 2409.04701): +1.8 nDCG@10. It needs token-level
+  output. `embedMany` returns one vector per input, and Qwen3 uses last-token
+  pooling, so we cannot use it.
+- Chunk headers: dsRAG (title + LLM summary) scored 4.72 → 6.04 on a small
+  50-question set. There is no rigorous benchmark for a non-LLM header, but
+  Azure, Vertex (`include_ancestor_headings`), and Docling (`contextualize`)
+  all prepend headings.
+- Product defaults:
+  - Unstructured `by_title`: 500 chars, merges small sections, repeats table
+    headers.
+  - LlamaIndex: 1,024 tokens, 20 overlap.
+  - OpenAI: 800 tokens, 400 overlap.
+  - Azure: recommends 2,000 chars, 500 overlap.
+  - Bedrock: about 300 tokens.
+  - Vertex layout: at most 500 tokens.
+- Qwen3-Embedding-4B: 32k context. Instruction on queries only. No published
+  data on the best input length.
 
 ## Deviations log
 
