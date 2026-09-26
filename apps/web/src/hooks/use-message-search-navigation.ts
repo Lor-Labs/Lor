@@ -2,6 +2,7 @@ import { useIsMobile } from "@repo/ui/hooks/use-mobile"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import { useCallback } from "react"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
+import { apiClient } from "@/lib/api-client"
 
 export type MessageSearchTarget = {
   id: string
@@ -70,5 +71,30 @@ export function useMessageSearchNavigation() {
       toggleCollapsed,
       navigate,
     ]
+  )
+}
+
+/** Jump to a message known only by id (a Lor [[msg:]] citation): resolve its
+ * channel and thread, then navigate like a search result. False = not found. */
+export function useMessageIdNavigation() {
+  const { workspaceSlug } = useParams({ strict: false })
+  const navigateToMessage = useMessageSearchNavigation()
+
+  return useCallback(
+    async (messageId: string): Promise<boolean> => {
+      if (!workspaceSlug) return false
+      const res = await apiClient.v1.workspaces[":workspaceSlug"].messages[
+        ":messageId"
+      ].$get({ param: { workspaceSlug, messageId } })
+      if (!res.ok) return false
+      const loc = await res.json()
+      navigateToMessage({
+        id: loc.messageId,
+        channelId: loc.channelId,
+        threadRootId: loc.threadRootId,
+      })
+      return true
+    },
+    [workspaceSlug, navigateToMessage]
   )
 }

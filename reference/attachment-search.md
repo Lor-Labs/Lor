@@ -153,7 +153,7 @@ Done when:
   - Deleting the message deletes the row.
   - The ledger shows both tools with `debitStatus = free`.
 
-### Step 2 — search + backfill (~400 LOC) — [x] built 2026-09-25, awaiting review. **db:push owed** (the FTS index expression now covers the filename); live QA owed
+### Step 2 — search + backfill (~400 LOC) — [x] built 2026-09-25, committed (`9385c2a3`). Live QA passed 2026-09-26: Lor found a screenshot by its contents. Citation-jump fix uncommitted.
 
 Goal: Lor finds attachments through `search`, reads their text, views the
 image when it needs to, and cites the message.
@@ -469,6 +469,16 @@ These notes are here so that later agents do not repeat the research.
   search. `index.ts` re-exports `userDisplayName`, because the worker imports
   it from `@repo/lor`. `embedPendingChunks` lives in
   `packages/lor/src/attachments/index.ts` for the backfill script.
+- 2026-09-26, Step 2 live QA: a `[[msg:]]` citation in a Lor reply inside
+  a thread panel did nothing on click. The thread panel only searched its own
+  thread and stopped silently when the message was elsewhere. Fix (web):
+  `useMessageIdNavigation` in `use-message-search-navigation.ts` resolves a
+  message id to its channel and thread, then navigates like a search result.
+  The thread panel falls back to it, and the channel route uses it too, so
+  citations to thread replies now open the thread. A second bug made the jump land
+  back on an empty current channel: the channel route's thread-URL sync
+  effect mirrored the target channel's panel view onto the current route.
+  That effect now skips views whose `channelId` is not the route's channel.
 - 2026-09-25, Step 1 follow-up: removed the repost shortcut, the
   `content_hash` column, and its index. The shortcut kept a bad transcription
   after prompt or model changes (the reposted logo still said "Atlassian").
