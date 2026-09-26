@@ -705,8 +705,9 @@ io.on("connection", (socket) => {
             },
             {
               jobId: createdMessage.message.id,
-              attempts: 3,
-              backoff: { type: "exponential", delay: 10_000 },
+              // Rides out transient CDN 503s: retries at 30s, 1m, 2m, 4m.
+              attempts: 5,
+              backoff: { type: "exponential", delay: 30_000 },
             }
           )
           .catch((err) => {

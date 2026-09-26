@@ -210,7 +210,7 @@ Done when:
     citation jumps there.
   - A private-channel screenshot never appears in a run in a public channel.
 
-### Step 3 — documents: text extraction (~380 LOC) — [x] built 2026-09-26, uncommitted. check + check-types pass. Live QA 2026-09-26: PDF (9 and 52 pages), PPTX (18 MB, 8 slides), XLSX, and MD all indexed and embedded. DOCX, truncation caps, and a large media deck are not yet tested.
+### Step 3 — documents: text extraction (~380 LOC) — [x] built 2026-09-26, uncommitted. check + check-types pass. Live QA 2026-09-26: PDF (9 and 52 pages), PPTX (18 MB, 8 slides), XLSX (5 sheets), MD, DOCX (64 KB, 47 heading-pathed pieces), and CSV (8.3 MB, 15,058 rows × 65 columns → 1 row) all indexed and embedded. Truncation caps and a deck with embedded video are not yet tested.
 
 Goal: PDF, DOCX, PPTX, XLSX/CSV, and plain-text files get one row per page,
 slide, section, or row group, with no LLM. Other types get one filename-only
@@ -269,7 +269,9 @@ Files:
     across at least 60% of the widest row's cells (and at least 2 cells).
     Title or date rows above it become a caption under the sheet title.
     Sample rows are the first 5 data rows. They only show the row format;
-    the facts come from all rows. A mostly-unique column is listed only when it
+    the facts come from all rows. Profile lines show the top 3 values with
+    counts. A column with 3 or fewer distinct values gets no separate value
+    list, because the profile line already holds all of them. A mostly-unique column is listed only when it
     has at most 500 values averaging 40 chars or less (names, emails). Long
     free text is never listed. Dates are formatted `YYYY-MM-DD` in UTC.
     All rows are read (up to 500,000), so the profile covers the whole file.
@@ -628,5 +630,9 @@ These notes are here so that later agents do not repeat the research.
     became 9 pieces covering every row. Then, after user review, it became
     one piece per sheet (5 rows). Splitting a sheet's value lists into their
     own pieces added nothing for keyword search, gave date-only fragments,
-    and let one file crowd the results. The CSV path is not yet live-tested.
+    and let one file crowd the results. CSV live QA: a 15,058-row, 65-column
+    file became one 59k-char row (8k-char profile plus 13 value lists).
   - `searchAttachments` caps results at 2 hits per file (messageId + url).
+  - Attachment-index jobs now retry 5 times with 30 s exponential backoff
+    (30 s, 1 m, 2 m, 4 m), up from 3 attempts at 10 s. A retry skips files
+    that already have rows, so images are not transcribed twice.

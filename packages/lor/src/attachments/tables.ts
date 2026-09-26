@@ -169,10 +169,9 @@ function createTable(name: string | null) {
   }
 
   const describe = (c: Column): string => {
+    const pct = (c.filled / Math.max(rowCount, 1)) * 100
     const fill =
-      c.filled < rowCount
-        ? `, ${Math.round((c.filled / Math.max(rowCount, 1)) * 100)}% filled`
-        : ""
+      pct >= 99.5 ? "" : `, ${pct < 1 ? "<1" : Math.round(pct)}% filled`
     if (c.filled === 0) return `- ${c.name}: empty`
     if (c.dates === c.filled) {
       return `- ${c.name} (date${fill}): ${formatDate(new Date(c.min))} to ${formatDate(new Date(c.max))}`
@@ -186,7 +185,7 @@ function createTable(name: string | null) {
     const top = [...c.counts.entries()]
       .sort((a, b) => b[1] - a[1])
       .slice(0, EXAMPLE_VALUES)
-      .map(([v]) => v)
+      .map(([v, n]) => `${v} (${n})`)
     return `- ${c.name} (text${fill}, ${c.counts.size} distinct): ${top.join(", ")}`
   }
 
@@ -196,6 +195,8 @@ function createTable(name: string | null) {
   const listable = (c: Column): boolean => {
     if (!c.counts || c.dates === c.filled || c.numbers === c.filled)
       return false
+    // The profile line already shows up to 3 values with counts.
+    if (c.counts.size <= EXAMPLE_VALUES) return false
     if (c.counts.size <= c.filled / 2) return true
     return (
       c.counts.size <= MAX_LISTED_VALUES &&
