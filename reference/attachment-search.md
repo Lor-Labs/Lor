@@ -229,7 +229,8 @@ Chunking (from the 2026-09-26 research notes below):
   vector and the FTS side see it:
   - DOCX/MD: `<heading path, e.g. Pricing > Enterprise>`
   - PPTX: `Slide N: <slide title>`
-  - XLSX/CSV: `Sheet: <name>, rows A–B`, then the header row
+  - XLSX/CSV: `Sheet: <name>, N rows × M columns` (tables are profiled; see
+    below)
   The filename and the message text are already in the embedding input.
 - Do not add semantic chunking, overlap, or late chunking. Late chunking
   cannot work through the gateway.
@@ -254,12 +255,20 @@ Files:
     the media is never decompressed. Order the slides by `sldIdLst`. Collect
     the `a:t` text runs, the title placeholder, and the speaker notes for each
     slide (`Notes: …`).
-  - XLSX: `exceljs`. For each sheet, pack rows into groups of about 2,000
-    chars as tab-separated text. Repeat the header row in each group.
-  - CSV and TSV: the same row groups as XLSX, one "sheet".
+  - XLSX, CSV, TSV (`attachments/tables.ts`): TableRAG-style profile, not
+    row groups. A sheet under 4,000 chars is stored whole. A larger sheet
+    gets one profile piece: each column's type, with min/max for numbers and
+    dates, distinct count plus top 3 values for text, and fill rate; plus 5
+    sample rows. Then value pieces: the distinct values of each column that
+    repeats (at most half as many distinct values as filled cells), top 500
+    by frequency with counts. A mostly-unique column is listed only when it
+    has at most 500 values averaging 40 chars or less (names, emails). Long
+    free text is never listed. Dates are formatted `YYYY-MM-DD` in UTC.
+    All rows are read (up to 500,000), so the profile covers the whole file.
+    CSV uses an RFC 4180 parser and detects tab or comma from the first line.
   - MD: split at `#` headings, then `splitText`. TXT and JSON: `splitText`.
-  - Caps: 200 pieces per file, 300 PDF pages, 20,000 spreadsheet rows. Past
-    a cap, keep the first part and set `truncated`.
+  - Caps: 200 pieces per file, 300 PDF pages, 500,000 table rows. Past a
+    cap, keep the first part and set `truncated`.
 - `packages/lor/src/attachments/index.ts` — send non-image types to
   `extractDocument`. Other types (video, audio, archives, binaries) get one
   row: `File: <name> (<type>, <size>)` plus the message text.
@@ -277,6 +286,12 @@ Done when:
   - A 500-page PDF gives 300 rows with `truncated` set.
 
 ### Step 4 — reading documents + image-only pages (~300 LOC) — [ ]
+
+Note from Step 3: table search finds the file and describes it (schema,
+values). It cannot answer exact questions such as sums or filtered rows.
+`create_artifacts` accepts attachment URLs, but it is slow and scoped to
+deliverables. Step 4 should give Lor a fast way to query a table file.
+Options: a filtered read in `read_attachment`, or SQL over the file.
 
 Goal: Lor can read more of a document than the search snippet. Scanned PDF
 pages and image-only slides get text.
@@ -509,6 +524,14 @@ These notes are here so that later agents do not repeat the research.
   - Vertex layout: at most 500 tokens.
 - Qwen3-Embedding-4B: 32k context. Instruction on queries only. No published
   data on the best input length.
+- Tables: TableRAG (arXiv 2410.04739, NeurIPS 2024) indexes the schema
+  (column names, types, min/max or top-3 examples) and distinct column-value
+  pairs (top 10,000 by frequency), not rows. GPT-3.5 accuracy:
+  - ArcadeQA: TableRAG 49.2, schema only 43.1, row/column retrieval 37.7;
+  - BirdQA: 45.5, 40.3, and 39.6.
+  The paper: embedding rows "can obscure semantic meaning, particularly when
+  the table contains... numerical values". Unstructured and Docling
+  row-splitting with repeated headers is for tables inside documents.
 
 ## Deviations log
 
@@ -582,3 +605,10 @@ These notes are here so that later agents do not repeat the research.
     `cdn.lor.chat` 503 on another file. The likely cause is a transient
     CDN 503 that outlasted the short retry window. Not verified: the worker
     log for that job was not checked.
+  - Tables: replaced row groups with a TableRAG-style profile (user review).
+    Row groups hit the 200-piece cap at about 2,000 rows, so the rest of a
+    big file was invisible. The rows themselves embedded poorly, and exceljs
+    `cell.text` wrote dates as local `Date.toString()`, one day early in US
+    timezones. On the 4-sheet, 356-transaction workbook: 40 row-group pieces
+    became 9 pieces (7.6k chars) covering every row. The CSV path is not yet
+    live-tested.

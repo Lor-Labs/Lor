@@ -1,10 +1,10 @@
 import { posix } from "node:path"
-import ExcelJS from "exceljs"
 import { strFromU8, unzipSync } from "fflate"
 import mammoth from "mammoth"
 import { getDocumentProxy } from "unpdf"
 import type { DocumentKind } from "./kinds"
 import { splitText } from "./split"
+import { extractCsv, extractXlsx } from "./tables"
 
 export type Piece = { position: number; text: string }
 export type Extracted = { pieces: Piece[]; truncated: boolean }
@@ -16,12 +16,9 @@ const MIN_SECTION_CHARS = 500
 const MAX_PIECE_CHARS = 16_000
 const MAX_PIECES = 200
 const MAX_PDF_PAGES = 300
-const MAX_SHEET_ROWS = 20_000
 
 type Section = { path: string[]; body: string }
 type Heading = { level: number; text: string }
-type Row = { n: number; text: string }
-type Sheet = { name: string | null; rows: Row[] }
 
 const NAMED_ENTITIES: Record<string, string> = {
   amp: "&",
@@ -154,39 +151,6 @@ function markdownSections(md: string): Section[] {
   return sections
 }
 
-// Rows are packed into groups with the header row repeated in each group.
-function sheetPieces(sheets: Sheet[]): Piece[] {
-  const pieces: Piece[] = []
-  for (const sheet of sheets) {
-    const [header, ...data] = sheet.rows
-    if (!header) continue
-    const prefix = sheet.name ? `Sheet: ${sheet.name}, ` : ""
-    let group: Row[] = []
-    let size = 0
-    const emit = () => {
-      const first = group[0]?.n ?? header.n
-      const last = group.at(-1)?.n ?? header.n
-      pieces.push({
-        position: pieces.length + 1,
-        text: [
-          `${prefix}rows ${first}–${last}`,
-          header.text,
-          ...group.map((r) => r.text),
-        ].join("\n"),
-      })
-      group = []
-      size = 0
-    }
-    for (const row of data) {
-      if (group.length > 0 && size + row.text.length > TARGET_CHARS) emit()
-      group.push(row)
-      size += row.text.length + 1
-    }
-    if (group.length > 0 || data.length === 0) emit()
-  }
-  return pieces
-}
-
 async function extractPdf(bytes: Uint8Array): Promise<Extracted> {
   const pdf = await getDocumentProxy(bytes)
   try {
@@ -311,41 +275,6 @@ function extractPptx(bytes: Uint8Array): Extracted {
     })
   })
   return { pieces, truncated: false }
-}
-
-async function extractXlsx(bytes: Uint8Array): Promise<Extracted> {
-  const workbook = new ExcelJS.Workbook()
-  await workbook.xlsx.load(bytes.slice().buffer)
-  let total = 0
-  const sheets: Sheet[] = workbook.worksheets.map((worksheet) => {
-    const rows: Row[] = []
-    worksheet.eachRow((row) => {
-      if (total >= MAX_SHEET_ROWS) return
-      const cells: string[] = []
-      row.eachCell({ includeEmpty: true }, (cell) => {
-        cells.push(cell.text.replace(/\s+/g, " ").trim())
-      })
-      const text = cells.join("\t").trimEnd()
-      if (!text) return
-      rows.push({ n: row.number, text })
-      total++
-    })
-    return { name: worksheet.name, rows }
-  })
-  const rowCount = workbook.worksheets.reduce((n, w) => n + w.actualRowCount, 0)
-  return { pieces: sheetPieces(sheets), truncated: rowCount > total }
-}
-
-function extractCsv(text: string): Extracted {
-  const lines = text.split(/\r?\n/)
-  const rows = lines
-    .slice(0, MAX_SHEET_ROWS)
-    .map((line, i) => ({ n: i + 1, text: line.trimEnd() }))
-    .filter((r) => r.text)
-  return {
-    pieces: sheetPieces([{ name: null, rows }]),
-    truncated: lines.length > MAX_SHEET_ROWS,
-  }
 }
 
 async function extractByKind(
