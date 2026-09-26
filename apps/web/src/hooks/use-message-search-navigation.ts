@@ -1,4 +1,5 @@
 import { useIsMobile } from "@repo/ui/hooks/use-mobile"
+import { useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import { useCallback } from "react"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
@@ -74,20 +75,61 @@ export function useMessageSearchNavigation() {
   )
 }
 
-/** Jump to a message known only by id (a Lor [[msg:]] citation): resolve its
- * channel and thread, then navigate like a search result. False = not found. */
-export function useMessageIdNavigation() {
+export type MessageLocation = {
+  messageId: string
+  channelId: string
+  threadRootId: string | null
+}
+
+// A message never moves, so its location caches for the session. null = not
+// found or not accessible.
+function locationQuery(workspaceSlug: string, messageId: string) {
+  return {
+    queryKey: ["message-location", workspaceSlug, messageId],
+    queryFn: async (): Promise<MessageLocation | null> => {
+      const res = await apiClient.v1.workspaces[":workspaceSlug"].messages[
+        ":messageId"
+      ].$get({ param: { workspaceSlug, messageId } })
+      return res.ok ? await res.json() : null
+    },
+    staleTime: Number.POSITIVE_INFINITY,
+  }
+}
+
+/** Resolve a message id to its channel and thread. Citations prefetch on hover
+ * so the click navigates without waiting on the lookup. */
+export function useMessageLocation() {
   const { workspaceSlug } = useParams({ strict: false })
+  const queryClient = useQueryClient()
+
+  const resolve = useCallback(
+    (messageId: string): Promise<MessageLocation | null> =>
+      workspaceSlug
+        ? queryClient.fetchQuery(locationQuery(workspaceSlug, messageId))
+        : Promise.resolve(null),
+    [workspaceSlug, queryClient]
+  )
+  const prefetch = useCallback(
+    (messageId: string) => {
+      if (workspaceSlug) {
+        void queryClient.prefetchQuery(locationQuery(workspaceSlug, messageId))
+      }
+    },
+    [workspaceSlug, queryClient]
+  )
+  return { resolve, prefetch }
+}
+
+/** Jump to a message known only by id (a Lor [[msg:]] citation) like a search
+ * result. False = not found. */
+export function useMessageIdNavigation() {
+  const { resolve } = useMessageLocation()
   const navigateToMessage = useMessageSearchNavigation()
 
   return useCallback(
     async (messageId: string): Promise<boolean> => {
-      if (!workspaceSlug) return false
-      const res = await apiClient.v1.workspaces[":workspaceSlug"].messages[
-        ":messageId"
-      ].$get({ param: { workspaceSlug, messageId } })
-      if (!res.ok) return false
-      const loc = await res.json()
+      const loc = await resolve(messageId)
+      if (!loc) return false
       navigateToMessage({
         id: loc.messageId,
         channelId: loc.channelId,
@@ -95,6 +137,6 @@ export function useMessageIdNavigation() {
       })
       return true
     },
-    [workspaceSlug, navigateToMessage]
+    [resolve, navigateToMessage]
   )
 }

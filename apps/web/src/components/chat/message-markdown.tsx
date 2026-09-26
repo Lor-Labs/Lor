@@ -4,6 +4,7 @@ import { cn } from "@repo/ui/lib/utils"
 import { memo, type ReactNode, useMemo, useState } from "react"
 import type { Components } from "streamdown"
 import { UserHoverCard } from "@/components/ui/user-profile-card"
+import { useMessageLocation } from "@/hooks/use-message-search-navigation"
 import type { Message } from "@/lib/api-types"
 import { connectorForUrl, connectorLogo } from "@/lib/connector-ui"
 
@@ -180,6 +181,7 @@ export const MessageMarkdown = memo(function MessageMarkdown({
   editedAt,
   onCitationJump,
 }: MessageMarkdownProps) {
+  const { prefetch: prefetchLocation } = useMessageLocation()
   const mentionById = useMemo(
     () => new Map(mentions.map((mention) => [mention.id, mention])),
     [mentions]
@@ -242,6 +244,8 @@ export const MessageMarkdown = memo(function MessageMarkdown({
             type="button"
             disabled={!(id && onCitationJump)}
             onClick={() => id && onCitationJump?.(id)}
+            onPointerEnter={() => id && onCitationJump && prefetchLocation(id)}
+            onFocus={() => id && onCitationJump && prefetchLocation(id)}
             className="inline-flex items-center rounded bg-primary/10 px-1 py-0.5 text-[0.82em] text-primary hover:bg-primary/20 disabled:cursor-default disabled:opacity-70"
           >
             {props.children}
@@ -274,7 +278,7 @@ export const MessageMarkdown = memo(function MessageMarkdown({
         )
       },
     }),
-    [mentionById, onCitationJump]
+    [mentionById, onCitationJump, prefetchLocation]
   )
 
   if (markdown.trim().length === 0) {

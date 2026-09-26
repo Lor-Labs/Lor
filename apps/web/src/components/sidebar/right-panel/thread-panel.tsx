@@ -73,7 +73,10 @@ import { useMarkThreadRead } from "@/hooks/use-mark-thread-read"
 import { useMessageDeletion } from "@/hooks/use-message-deletion"
 import { useMessageEditing } from "@/hooks/use-message-editing"
 import { useMessageReactions } from "@/hooks/use-message-reactions"
-import { useMessageIdNavigation } from "@/hooks/use-message-search-navigation"
+import {
+  useMessageLocation,
+  useMessageSearchNavigation,
+} from "@/hooks/use-message-search-navigation"
 import { useMessageSending } from "@/hooks/use-message-sending"
 import { usePlanArtifacts } from "@/hooks/use-plan"
 import { useQueuedMessageSteering } from "@/hooks/use-queued-message-steering"
@@ -141,7 +144,8 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
   const currentUserId = session?.user.id
 
   const navigate = useNavigate()
-  const navigateToMessageId = useMessageIdNavigation()
+  const { resolve: resolveMessageLocation } = useMessageLocation()
+  const navigateToMessage = useMessageSearchNavigation()
   const actionsMenuTriggerRef = useRef<HTMLButtonElement>(null)
 
   // Jump the main channel feed to the thread root. Scroll in place if it's
@@ -612,20 +616,32 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
       }
 
       if (scrollToTarget()) return
-      void ensureMessage(messageId)
-        .then(async (loaded) => {
-          if (loaded) {
-            window.requestAnimationFrame(scrollToTarget)
-            return
-          }
-          // Not in this thread (e.g. a Lor citation to another channel).
-          if (!(await navigateToMessageId(messageId))) {
-            toast.error("Couldn't find that message")
-          }
-        })
-        .catch(() => toast.error("Couldn't load that message"))
+      // Resolve the location first (cached; citations prefetch it on hover) so
+      // a message outside this thread navigates without a wasted thread fetch.
+      void (async () => {
+        const loc = await resolveMessageLocation(messageId)
+        if (loc && (loc.threadRootId ?? loc.messageId) !== view.threadRootId) {
+          navigateToMessage({
+            id: loc.messageId,
+            channelId: loc.channelId,
+            threadRootId: loc.threadRootId,
+          })
+          return
+        }
+        if (!(await ensureMessage(messageId))) {
+          toast.error("Couldn't find that message")
+          return
+        }
+        window.requestAnimationFrame(scrollToTarget)
+      })().catch(() => toast.error("Couldn't load that message"))
     },
-    [ensureMessage, messageScrollCommandRef, navigateToMessageId]
+    [
+      ensureMessage,
+      messageScrollCommandRef,
+      resolveMessageLocation,
+      navigateToMessage,
+      view.threadRootId,
+    ]
   )
 
   // Search results can deep-link to an older reply that is outside the

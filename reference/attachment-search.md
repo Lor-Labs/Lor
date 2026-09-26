@@ -478,7 +478,10 @@ These notes are here so that later agents do not repeat the research.
   citations to thread replies now open the thread. A second bug made the jump land
   back on an empty current channel: the channel route's thread-URL sync
   effect mirrored the target channel's panel view onto the current route.
-  That effect now skips views whose `channelId` is not the route's channel.
+  That effect now skips views whose `channelId` is not the route's channel. Click latency: the
+  message location lookup is cached (`useMessageLocation`, prefetched when a
+  citation is hovered), and the thread panel resolves the location before it
+  fetches thread pages.
 - 2026-09-25, Step 1 follow-up: removed the repost shortcut, the
   `content_hash` column, and its index. The shortcut kept a bad transcription
   after prompt or model changes (the reposted logo still said "Atlassian").
