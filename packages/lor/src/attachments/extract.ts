@@ -62,15 +62,20 @@ function mergeSections(a: Section, b: Section): Section {
 }
 
 // Small neighbouring sections merge; big ones split. Each piece starts with
-// its heading path so vector and keyword search both see the context.
+// its heading path so vector and keyword search both see the context. Only
+// siblings or parent/child sections merge, and a heading with no body never
+// merges backward (it introduces the next section).
 function sectionPieces(sections: Section[]): Piece[] {
   const merged: Section[] = []
   for (const section of sections) {
     const prev = merged.at(-1)
     if (
       prev &&
+      section.body &&
       prev.body.length < MIN_SECTION_CHARS &&
-      prev.body.length + section.body.length <= TARGET_CHARS
+      prev.body.length + section.body.length <= TARGET_CHARS &&
+      commonPath(prev.path, section.path).length >=
+        Math.max(prev.path.length, section.path.length) - 1
     ) {
       merged[merged.length - 1] = mergeSections(prev, section)
     } else {

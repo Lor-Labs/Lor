@@ -23,6 +23,7 @@ export const attachmentChunk = pgTable(
   "attachment_chunk",
   {
     id: uuid("id").defaultRandom().primaryKey(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
     workspaceId: uuid("workspace_id")
       .notNull()
       .references(() => workspace.id, { onDelete: "cascade" }),
@@ -40,7 +41,6 @@ export const attachmentChunk = pgTable(
     text: text("text").notNull(),
     embedding: halfvec("embedding", { dimensions: LOR_EMBED_DIMENSIONS }),
     truncated: boolean("truncated").notNull().default(false),
-    createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [
     uniqueIndex("attachment_chunk_message_url_position_uidx").on(

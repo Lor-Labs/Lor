@@ -210,7 +210,7 @@ Done when:
     citation jumps there.
   - A private-channel screenshot never appears in a run in a public channel.
 
-### Step 3 — documents: text extraction (~380 LOC) — [x] built 2026-09-26, uncommitted. check + check-types pass. Live QA owed.
+### Step 3 — documents: text extraction (~380 LOC) — [x] built 2026-09-26, uncommitted. check + check-types pass. Live QA 2026-09-26: PDF (9 and 52 pages), PPTX (18 MB, 8 slides), XLSX, and MD all indexed and embedded. DOCX, truncation caps, and a large media deck are not yet tested.
 
 Goal: PDF, DOCX, PPTX, XLSX/CSV, and plain-text files get one row per page,
 slide, section, or row group, with no LLM. Other types get one filename-only
@@ -221,8 +221,10 @@ Chunking (from the 2026-09-26 research notes below):
 - Flowing text (DOCX, TXT, MD, JSON) is split at headings, then packed by a
   recursive splitter: paragraph → line → sentence → word. Target about 2,000
   chars (about 500 tokens) per piece. Merge a section shorter than 500 chars
-  with the next section when both fit in 2,000 chars. The merged piece keeps
-  the shared heading path, and each part's own heading goes inline. No overlap.
+  with the next section when both fit in 2,000 chars, and only when they are
+  siblings or parent and child. A heading with no body never merges backward.
+  The merged piece keeps the shared heading path, and each part's own heading
+  goes inline. No overlap.
 - Every piece starts with a context header, stored in `text`, so both the
   vector and the FTS side see it:
   - DOCX/MD: `<heading path, e.g. Pricing > Enterprise>`
@@ -571,3 +573,12 @@ These notes are here so that later agents do not repeat the research.
     model cannot read (SVG, TIFF) now get a filename-only row.
   - Search hits return `location` (`page N`, `slide N`, `part N`, or null)
     instead of `position`.
+  - Live QA: the first merge rule let a section merge into the next top-level
+    section, and let a body-less heading attach to the section before it.
+    The rule is now siblings or parent/child only, and an empty section never
+    merges backward.
+  - Live QA: a fresh PDF job failed all 3 attempts (10 s / 20 s backoff).
+    The backfill then indexed it (52 pages), and the same run saw a transient
+    `cdn.lor.chat` 503 on another file. The likely cause is a transient
+    CDN 503 that outlasted the short retry window. Not verified: the worker
+    log for that job was not checked.
