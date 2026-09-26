@@ -32,7 +32,11 @@ export async function transcribeImage(
         role: "user",
         content: [
           { type: "text", text: transcriptionPrompt(filename) },
-          { type: "image", image: image.bytes, mediaType: image.mediaType },
+          {
+            type: "file",
+            data: { type: "data", data: image.bytes },
+            mediaType: image.mediaType,
+          },
         ],
       },
     ],

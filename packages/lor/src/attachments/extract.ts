@@ -1,13 +1,18 @@
 import { posix } from "node:path"
 import { strFromU8, unzipSync } from "fflate"
 import mammoth from "mammoth"
-import { getDocumentProxy } from "unpdf"
+import { getDocumentProxy, renderPageAsImage } from "unpdf"
 import type { DocumentKind } from "./kinds"
 import { splitText } from "./split"
 import { extractCsv, extractXlsx } from "./tables"
 
 export type Piece = { position: number; text: string }
 export type Extracted = { pieces: Piece[]; truncated: boolean }
+// Reads an image-only page or slide; null when it could not be read.
+export type Transcriber = (image: {
+  bytes: Uint8Array
+  mediaType: string
+}) => Promise<string | null>
 
 // Chunk sizes and caps: see Step 3 and the chunking research notes in
 // reference/attachment-search.md.
@@ -18,6 +23,20 @@ const MAX_PIECE_CHARS = 16_000
 const MAX_TABLE_PIECE_CHARS = 64_000
 const MAX_PIECES = 200
 const MAX_PDF_PAGES = 300
+// Image-only pages and slides (scans, screenshot slides) go through the
+// vision model; the cap bounds cost and job time per file.
+const MAX_TRANSCRIBED_PAGES = 30
+const TRANSCRIBE_CONCURRENCY = 4
+const SCANNED_PAGE_MAX_CHARS = 20
+const PDF_RENDER_SCALE = 2
+const MAX_SLIDE_IMAGE_BYTES = 20 * 1024 * 1024
+const SLIDE_IMAGE_TYPES: Record<string, string> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+}
 
 type Section = { path: string[]; body: string }
 type Heading = { level: number; text: string }
@@ -39,6 +58,37 @@ function decodeEntities(s: string): string {
       return String.fromCodePoint(Number.parseInt(lower.slice(1), 10))
     return NAMED_ENTITIES[lower] ?? ""
   })
+}
+
+type PendingImage = {
+  position: number
+  image: { bytes: Uint8Array; mediaType: string }
+  prefix?: string
+}
+
+async function transcribePages(
+  pending: PendingImage[],
+  transcribe: Transcriber
+): Promise<Piece[]> {
+  const pieces: Piece[] = []
+  let next = 0
+  const worker = async () => {
+    while (next < pending.length) {
+      const item = pending[next++]
+      if (!item) continue
+      const text = await transcribe(item.image)
+      if (text) {
+        pieces.push({
+          position: item.position,
+          text: item.prefix ? `${item.prefix}\n${text}` : text,
+        })
+      }
+    }
+  }
+  await Promise.all(
+    Array.from({ length: TRANSCRIBE_CONCURRENCY }, () => worker())
+  )
+  return pieces
 }
 
 function descend(headings: Heading[], level: number, text: string) {
@@ -153,11 +203,16 @@ function markdownSections(md: string): Section[] {
   return sections
 }
 
-async function extractPdf(bytes: Uint8Array): Promise<Extracted> {
+async function extractPdf(
+  bytes: Uint8Array,
+  transcribe?: Transcriber
+): Promise<Extracted> {
   const pdf = await getDocumentProxy(bytes)
+  const pieces: Piece[] = []
+  const scanned: PendingImage[] = []
+  let truncated = pdf.numPages > MAX_PDF_PAGES
   try {
     const pageCount = Math.min(pdf.numPages, MAX_PDF_PAGES)
-    const pieces: Piece[] = []
     for (let n = 1; n <= pageCount; n++) {
       const content = await (await pdf.getPage(n)).getTextContent()
       const text = content.items
@@ -168,12 +223,32 @@ async function extractPdf(bytes: Uint8Array): Promise<Extracted> {
         .replace(/[^\S\n]+/g, " ")
         .replace(/\n{3,}/g, "\n\n")
         .trim()
-      if (text) pieces.push({ position: n, text })
+      if (text.length >= SCANNED_PAGE_MAX_CHARS || !transcribe) {
+        if (text) pieces.push({ position: n, text })
+        continue
+      }
+      if (scanned.length >= MAX_TRANSCRIBED_PAGES) {
+        truncated = true
+        if (text) pieces.push({ position: n, text })
+        continue
+      }
+      const png = await renderPageAsImage(pdf, n, {
+        canvasImport: () => import("@napi-rs/canvas"),
+        scale: PDF_RENDER_SCALE,
+      })
+      scanned.push({
+        position: n,
+        image: { bytes: new Uint8Array(png), mediaType: "image/png" },
+      })
     }
-    return { pieces, truncated: pdf.numPages > MAX_PDF_PAGES }
   } finally {
     await pdf.loadingTask.destroy()
   }
+  if (transcribe && scanned.length > 0) {
+    pieces.push(...(await transcribePages(scanned, transcribe)))
+    pieces.sort((a, b) => a.position - b.position)
+  }
+  return { pieces, truncated }
 }
 
 async function extractDocx(bytes: Uint8Array): Promise<Extracted> {
@@ -220,7 +295,10 @@ function relationships(xml: string, baseDir: string) {
 
 // Only the presentation, slide, and notes XML is decompressed, so embedded
 // video and images are never read.
-function extractPptx(bytes: Uint8Array): Extracted {
+async function extractPptx(
+  bytes: Uint8Array,
+  transcribe?: Transcriber
+): Promise<Extracted> {
   const files = unzipSync(bytes, {
     filter: (f) =>
       /^ppt\/(slides|notesSlides)\/[^/]+\.xml$/.test(f.name) ||
@@ -244,6 +322,7 @@ function extractPptx(bytes: Uint8Array): Extracted {
   ].map((m) => m[1] ?? "")
 
   const pieces: Piece[] = []
+  const imageSlides: { position: number; images: string[] }[] = []
   slideIds.forEach((relId, i) => {
     const path = presentationRels.get(relId)?.target
     if (!path) return
@@ -263,8 +342,17 @@ function extractPptx(bytes: Uint8Array): Extracted {
       : null
     const notes = notesShape ? xmlParagraphs(notesShape).join("\n") : ""
     const body = xmlParagraphs(xml).join("\n")
-    if (!title && !body && !notes) return
     const position = i + 1
+    if (!title && !body && !notes) {
+      const images = [...slideRels.values()]
+        .filter((r) => r.type.endsWith("/image"))
+        .map((r) => r.target)
+        .filter(
+          (t) => SLIDE_IMAGE_TYPES[posix.extname(t).slice(1).toLowerCase()]
+        )
+      if (images.length > 0) imageSlides.push({ position, images })
+      return
+    }
     pieces.push({
       position,
       text: [
@@ -276,21 +364,59 @@ function extractPptx(bytes: Uint8Array): Extracted {
         .join("\n"),
     })
   })
-  return { pieces, truncated: false }
+  if (!transcribe || imageSlides.length === 0) {
+    return { pieces, truncated: false }
+  }
+
+  // A text-free slide is usually one screenshot or scan: read its largest
+  // image. Only those media files are decompressed.
+  const wanted = new Set(
+    imageSlides.slice(0, MAX_TRANSCRIBED_PAGES).flatMap((s) => s.images)
+  )
+  const media = unzipSync(bytes, {
+    filter: (f) =>
+      wanted.has(f.name) && f.originalSize <= MAX_SLIDE_IMAGE_BYTES,
+  })
+  const pending: PendingImage[] = []
+  for (const slide of imageSlides.slice(0, MAX_TRANSCRIBED_PAGES)) {
+    let largest: { name: string; bytes: Uint8Array } | null = null
+    for (const name of slide.images) {
+      const file = media[name]
+      if (file && file.byteLength > (largest?.bytes.byteLength ?? 0)) {
+        largest = { name, bytes: file }
+      }
+    }
+    const mediaType =
+      largest &&
+      SLIDE_IMAGE_TYPES[posix.extname(largest.name).slice(1).toLowerCase()]
+    if (!largest || !mediaType) continue
+    pending.push({
+      position: slide.position,
+      image: { bytes: largest.bytes, mediaType },
+      prefix: `Slide ${slide.position}`,
+    })
+  }
+  pieces.push(...(await transcribePages(pending, transcribe)))
+  pieces.sort((a, b) => a.position - b.position)
+  return {
+    pieces,
+    truncated: imageSlides.length > MAX_TRANSCRIBED_PAGES,
+  }
 }
 
 async function extractByKind(
   bytes: Uint8Array,
-  kind: DocumentKind
+  kind: DocumentKind,
+  transcribe?: Transcriber
 ): Promise<Extracted> {
   const text = () => new TextDecoder().decode(bytes)
   switch (kind) {
     case "pdf":
-      return extractPdf(bytes)
+      return extractPdf(bytes, transcribe)
     case "docx":
       return extractDocx(bytes)
     case "pptx":
-      return extractPptx(bytes)
+      return extractPptx(bytes, transcribe)
     case "xlsx":
       return extractXlsx(bytes)
     case "csv":
@@ -310,9 +436,10 @@ async function extractByKind(
 
 export async function extractDocument(
   bytes: Uint8Array,
-  kind: DocumentKind
+  kind: DocumentKind,
+  transcribe?: Transcriber
 ): Promise<Extracted> {
-  const extracted = await extractByKind(bytes, kind)
+  const extracted = await extractByKind(bytes, kind, transcribe)
   const max = kind === "pdf" ? MAX_PDF_PAGES : MAX_PIECES
   const maxChars =
     kind === "xlsx" || kind === "csv" ? MAX_TABLE_PIECE_CHARS : MAX_PIECE_CHARS

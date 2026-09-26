@@ -297,51 +297,65 @@ Done when:
   - A deck over 50 MB with video is indexed without its media being read.
   - A 500-page PDF gives 300 rows with `truncated` set.
 
-### Step 4 — reading documents + image-only pages (~300 LOC) — [ ]
-
-Note from Step 3: table search finds the file and describes it (schema,
-values). It cannot answer exact questions such as sums or filtered rows.
-`create_artifacts` accepts attachment URLs, but it is slow and scoped to
-deliverables. Step 4 should give Lor a fast way to query a table file.
-Options: a filtered read in `read_attachment`, or SQL over the file.
+### Step 4a — reading documents + image-only pages (~330 LOC) — [x] built 2026-09-26, uncommitted. check + check-types pass. Live: range read of pages 12–14 returned `nextFrom: 15`; the `--reindex-documents` backfill transcribed the scanned disclosure page of each of 12 bank statements (no failures, 85 s). A Lor chat run using `read_attachment` is not yet tested.
 
 Goal: Lor can read more of a document than the search snippet. Scanned PDF
 pages and image-only slides get text.
 
-Files:
+As built:
+- `packages/lor/src/attachments/read.ts` (new) — `readAttachmentPieces`:
+  the stored pieces for a position range, at most 10 pieces or 20k chars,
+  with `nextFrom`. It filters by workspace, `excludedFromMemory`, and
+  `privateAudienceFilter`. Notes: spreadsheets hold sheet profiles, not
+  rows (use `create_artifacts` for exact work); truncated files point to
+  `create_artifacts`.
 - `packages/lor/src/index.ts` — `read_attachment(url, from?, to?)` in
-  `chatTools`:
-  - Same guard as `view_image` (`findWorkspaceAttachment`).
-  - Returns the stored pieces for a position range (up to 10 pieces or about
-    20k chars), `truncated`, and the number of indexed pieces.
-  - When the file is truncated, the result points to `create_artifacts` for
-    full-file work.
-  - Add `toolLabel`, `toolDetail`, the `coreToolsContext` binding, and a
-    system prompt line.
-- `packages/lor/src/custom-tools.ts` — add `read_attachment` to
-  `RESERVED_TOOL_NAMES`.
-- `packages/lor/src/attachments/extract.ts` — image-only pages:
-  - A PDF page with under 20 chars of text: call `renderPageAsImage(bytes,
-    page, { canvasImport: () => import("@napi-rs/canvas") })`, then
-    `transcribeImage`.
-  - A slide with no text but with image rels: unzip its largest `ppt/media`
-    image, then `transcribeImage`.
-  - Cap: 30 transcribed pages or slides per file. Past the cap, set
-    `truncated`.
-- `packages/lor/package.json` — add `@napi-rs/canvas` (MIT, prebuilt native
-  binaries).
+  `chatTools`, behind the `findWorkspaceAttachment` guard. An image gets
+  "call view_image"; a file with no rows gets "not indexed yet". Also added:
+  `toolLabel`, `toolDetail`, the `coreToolsContext` binding, the
+  `project-archive.ts` binding, a line in the system prompt and the `search`
+  description, and `RESERVED_TOOL_NAMES`.
+- `packages/lor/src/attachments/extract.ts` — `extractDocument(bytes, kind,
+  transcribe?)`:
+  - PDF: a page with under 20 chars of text is rendered at scale 2 with
+    `renderPageAsImage` + `@napi-rs/canvas`, then transcribed.
+  - PPTX: a slide with no title, body, or notes, but with image rels, gets
+    its largest png/jpeg/gif/webp transcribed. Only those media files are
+    decompressed.
+  - Cap: 30 transcribed pages or slides per file, 4 at a time. Past the cap,
+    set `truncated`. A page the model fails to read is skipped (logged), not
+    retried.
+- `packages/lor/src/attachments/index.ts` — the transcriber passes each image
+  through `fitImage`, then `transcribeImage` with the filename hint.
+- `apps/worker/src/scripts/index-attachments.ts` — `--reindex-documents`
+  deletes the rows of every non-image attachment before the backfill, so
+  documents are rebuilt with the current extraction. Image rows are kept.
+- `packages/lor/package.json` — `@napi-rs/canvas` 1.0.9 (MIT). Page render
+  verified locally (about 0.9 s per page). Not yet verified under Bun in the
+  worker image. The fallback, if it fails there, is the PDF-capable model
+  noted below.
 
-Decision to log when you start: if `@napi-rs/canvas` fails in the worker
-image, send single-page PDFs (split with `pdf-lib`, MIT) to a PDF-capable
-gateway model instead. The cheap PDF-capable models in the catalog are
-proprietary (for example `google/gemini-3.1-flash-lite`). That conflicts with
-the open-models positioning, so log it as a deviation.
+Fallback if `@napi-rs/canvas` fails in the worker image: send single-page
+PDFs (split with `pdf-lib`, MIT) to a PDF-capable gateway model. The cheap
+ones are proprietary (for example `google/gemini-3.1-flash-lite`), which
+conflicts with the open-models positioning. Log a deviation if used.
 
 Done when:
-- check and check-types pass.
+- check and check-types pass. [x]
 - Live QA:
-  - A scanned PDF becomes searchable.
+  - A scanned PDF becomes searchable. [x] (statement disclosure pages)
   - Lor answers a question about slide 12 of a deck by reading slides 11–13.
+    [ ]
+
+### Step 4b — fast table queries — [ ]
+
+Table search finds the file and describes it (schema, values). It cannot
+answer exact questions such as sums or filtered rows. `create_artifacts`
+accepts attachment URLs, but it is slow and scoped to deliverables. Give Lor
+a fast way to query a table file. Options to research when starting:
+- JS filters and aggregates over the parsed rows;
+- an embedded SQL engine (DuckDB native binaries under Bun are unverified);
+- a faster sandbox path.
 
 ### Step 5 — reranker core + `search` (~260 LOC) — [ ]
 
@@ -450,7 +464,7 @@ Done when:
 
 ## Step order
 
-1 → 2 → 3 → 4 → 5 → 6. Step 7 runs only when its trigger fires.
+1 → 2 → 3 → 4a → 4b → 5 → 6. Step 7 runs only when its trigger fires.
 
 Steps 5–6 do not depend on Steps 3–4. They can move ahead if search quality
 becomes the bigger problem.
@@ -636,3 +650,12 @@ These notes are here so that later agents do not repeat the research.
   - Attachment-index jobs now retry 5 times with 30 s exponential backoff
     (30 s, 1 m, 2 m, 4 m), up from 3 attempts at 10 s. A retry skips files
     that already have rows, so images are not transcribed twice.
+- 2026-09-26, Step 4:
+  - Split into 4a (reading + image-only pages) and 4b (table queries). The
+    Step 3 table profiles made a table query tool a separate job.
+  - `transcribe.ts` now sends the image as a `file` part (`{ type: "data" }`),
+    because the AI SDK warns that the `image` part is deprecated.
+    `initial-message.ts` still builds `image` parts for the main run; that
+    is out of scope here.
+  - Slides with a title plus a screenshot are not transcribed: only fully
+    text-free slides are.

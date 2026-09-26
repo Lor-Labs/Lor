@@ -46,6 +46,7 @@ import {
   EXPORT_TOOL_NAME,
 } from "./artifacts/export-tool"
 import { artifactTools } from "./artifacts/tool"
+import { readAttachmentPieces } from "./attachments/read"
 import { searchAttachments } from "./attachments/search"
 import { attioTools, resolveWorkspaceAttio } from "./attio"
 import {
@@ -197,7 +198,7 @@ const SYSTEM_PROMPT_TAIL = `You can also see images people share in the channel 
 
 How to answer:
 - Work on the current request in the active conversation only. Earlier requests from other threads or channel background are reference material, not unfinished assignments, even if you cannot see their replies or resolution. Use them only when relevant to the current request; do not add their deliverables to the current request or resume them unless the user asks. The same applies to requests found in brain notes and search results.
-- For questions about THIS team/workspace, check your brain first, then use search for anything it doesn't cover — it also finds screenshots and files people shared by what they contain. Ground your answer in what you find; note who said it and roughly when. Cite your sources inline in double brackets: a brain page by its exact path, e.g. [[/decisions/auth]]; a specific message by its id, e.g. [[msg:0b9c…]]; or a connected-tool source by its id, e.g. [[src:0b9c…]]. If nothing turns up, say you don't have it in memory yet — never invent specifics or cite pages, messages, or sources you didn't read.
+- For questions about THIS team/workspace, check your brain first, then use search for anything it doesn't cover — it also finds screenshots and files people shared by what they contain, and read_attachment reads more of a shared file than the search snippet. Ground your answer in what you find; note who said it and roughly when. Cite your sources inline in double brackets: a brain page by its exact path, e.g. [[/decisions/auth]]; a specific message by its id, e.g. [[msg:0b9c…]]; or a connected-tool source by its id, e.g. [[src:0b9c…]]. If nothing turns up, say you don't have it in memory yet — never invent specifics or cite pages, messages, or sources you didn't read.
 - For general questions (how-to, definitions, quick help), just answer directly; no lookup needed.
 
 Use reactions naturally and sparingly to complement your response. Always still answer in text, and don't narrate the reaction or mention the tool use.
@@ -669,7 +670,7 @@ async function searchSourceSummaries(
 export const searchTools = {
   search: tool({
     description:
-      "Search the team's knowledge in one place: its chat message history (exact/keyword match), screenshots and files shared in chat (keyword + semantic match on their contents), and the summarized activity of connected integrations like GitHub and Linear (semantic match). Pass a short natural-language query or phrase. Results are tagged with `type`: a `message` comes back with its full text — cite it as [[msg:<id>]]; an `attachment` comes back with `text`, a machine transcription of the image or the file's extracted text, which can contain misreads, and for documents a `location` (page, slide, or part) — call view_image with its url before quoting exact values from an image, and cite the message that shared it as [[msg:<messageId>]]; a `source` comes back as a summary with `hasMore: true` — call fetch_source with its id for the full body, and cite it as [[src:<id>]] (don't paste its url). Pass `types` to search only some kinds. Call repeatedly with different queries to investigate.",
+      "Search the team's knowledge in one place: its chat message history (exact/keyword match), screenshots and files shared in chat (keyword + semantic match on their contents), and the summarized activity of connected integrations like GitHub and Linear (semantic match). Pass a short natural-language query or phrase. Results are tagged with `type`: a `message` comes back with its full text — cite it as [[msg:<id>]]; an `attachment` comes back with `text`, a machine transcription of the image or the file's extracted text, which can contain misreads, and for documents a `location` (page, slide, sheet, or part) — call read_attachment with its url to read more of a document around that location, call view_image with its url before quoting exact values from an image, and cite the message that shared it as [[msg:<messageId>]]; a `source` comes back as a summary with `hasMore: true` — call fetch_source with its id for the full body, and cite it as [[src:<id>]] (don't paste its url). Pass `types` to search only some kinds. Call repeatedly with different queries to investigate.",
     inputSchema: z.object({
       query: z.string().describe("a short natural-language query or phrase"),
       types: z
@@ -758,6 +759,51 @@ export const chatTools = {
         )
       } catch {
         return { error: "read failed" }
+      }
+    },
+    strict: true,
+  }),
+  read_attachment: tool({
+    description:
+      "Read the indexed text of a file someone shared in chat (PDF, Word, PowerPoint, spreadsheet, text), by its url from an attachment search result, a read_thread attachment, or a [file: …] line. Pieces are numbered like search locations: page N for PDFs, slide N for decks, sheet N for workbooks, part N otherwise. Pass from/to to read a range (e.g. the pages around a search hit); omit them to start at the beginning. Returns up to 10 pieces; nextFrom continues. Cite the message that shared the file as [[msg:<messageId>]].",
+    inputSchema: z.object({
+      url: z.string().describe("the attachment url exactly as it appears"),
+      from: z
+        .number()
+        .optional()
+        .describe("first piece number to read (page, slide, sheet, or part)"),
+      to: z.number().optional().describe("last piece number to read"),
+    }),
+    contextSchema: workspaceContext,
+    execute: async ({ url, from, to }, { context }) => {
+      try {
+        const privateContainer = context.privateContainerChannelId ?? null
+        const attachment = await findWorkspaceAttachment(
+          context.workspaceId,
+          url,
+          privateContainer
+        )
+        if (!attachment) {
+          return {
+            error:
+              "no attachment with that exact url exists in this workspace's chat",
+          }
+        }
+        const read = await readAttachmentPieces(
+          context.workspaceId,
+          url,
+          privateContainer,
+          from,
+          to
+        )
+        if (read) return read
+        return {
+          error: isViewableImage(attachment.contentType)
+            ? "this is an image; call view_image to see it"
+            : "this file has no indexed text yet: it may still be indexing, or it has no readable text",
+        }
+      } catch {
+        return { error: "attachment read failed" }
       }
     },
     strict: true,
@@ -865,6 +911,7 @@ function coreToolsContext(
     search: retrieval,
     read_thread: retrieval,
     view_image: retrieval,
+    read_attachment: retrieval,
     fetch_source: { workspaceId },
     ls: workspace,
     read: workspace,
@@ -991,6 +1038,13 @@ export function toolLabel(toolName: string, input: unknown): string {
       const basename = url?.split("/").at(-1)?.split("?")[0]
       return basename ? `Viewing ${basename}` : "Viewing an image"
     }
+    case "read_attachment": {
+      const url = field("url")
+      const basename = url?.split("/").at(-1)?.split("?")[0]
+      return basename
+        ? `Reading ${decodeURIComponent(basename)}`
+        : "Reading a file"
+    }
     case "fetch_source":
       return "Fetching a source"
     case "ls":
@@ -1109,6 +1163,21 @@ export function toolDetail(
       return {
         status: "ok",
         detail: { summary: filename ? `Viewed ${filename}` : "Viewed" },
+      }
+    }
+    case "read_attachment": {
+      const filename = asString(rec?.filename)
+      const pieces = Array.isArray(rec?.pieces) ? rec.pieces : []
+      const first = asString(asRecord(pieces[0])?.location)
+      const last = asString(asRecord(pieces.at(-1))?.location)
+      const range = first && last && first !== last ? `${first}–${last}` : first
+      return {
+        status: "ok",
+        detail: {
+          summary: [filename ? `Read ${filename}` : "Read a file", range]
+            .filter(Boolean)
+            .join(", "),
+        },
       }
     }
     case "fetch_source": {

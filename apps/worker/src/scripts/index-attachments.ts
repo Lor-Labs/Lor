@@ -1,12 +1,26 @@
 // Backfill the attachment index (reference/attachment-search.md, Step 2):
-// indexes images posted before indexing existed, then embeds any chunk saved
-// without a vector. Idempotent — already-indexed attachments are skipped.
+// indexes attachments posted before indexing existed, then embeds any chunk
+// saved without a vector. Idempotent — already-indexed attachments are skipped.
+// --reindex-documents first deletes the rows of every non-image attachment so
+// documents are rebuilt with the current extraction; image rows (costly
+// transcriptions) are kept.
 //
-//   pnpm --filter @repo/worker exec tsx src/scripts/index-attachments.ts [--workspace <id>]
+//   pnpm --filter @repo/worker exec tsx src/scripts/index-attachments.ts [--workspace <id>] [--reindex-documents]
 //
 // ATTACHMENT_INDEX_CONCURRENCY (default 4, max 16) bounds parallel messages.
 import { recordUsage } from "@repo/billing"
-import { and, db, desc, eq, isNotNull, lt, or, schema, sql } from "@repo/db"
+import {
+  and,
+  db,
+  desc,
+  eq,
+  isNotNull,
+  lt,
+  notLike,
+  or,
+  schema,
+  sql,
+} from "@repo/db"
 import {
   embedPendingChunks,
   indexMessageAttachments,
@@ -27,6 +41,21 @@ if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 16) {
 const workspaceFlag = process.argv.indexOf("--workspace")
 const workspaceId =
   workspaceFlag >= 0 ? (process.argv[workspaceFlag + 1] ?? null) : null
+
+if (process.argv.includes("--reindex-documents")) {
+  const deleted = await db
+    .delete(schema.attachmentChunk)
+    .where(
+      and(
+        notLike(schema.attachmentChunk.contentType, "image/%"),
+        workspaceId
+          ? eq(schema.attachmentChunk.workspaceId, workspaceId)
+          : undefined
+      )
+    )
+    .returning({ id: schema.attachmentChunk.id })
+  console.log(`deleted ${deleted.length} document rows for reindexing`)
+}
 
 const totals = { inputTokens: 0, outputTokens: 0, costEvents: 0 }
 const usageFor =

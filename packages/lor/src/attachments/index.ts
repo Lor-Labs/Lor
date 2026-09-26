@@ -10,7 +10,7 @@ import {
 } from "../images"
 import { logger } from "../logger"
 import { emitUsage, type OnUsage } from "../usage"
-import { type Extracted, extractDocument } from "./extract"
+import { type Extracted, extractDocument, type Transcriber } from "./extract"
 import { documentKind } from "./kinds"
 import { transcribeImage } from "./transcribe"
 
@@ -176,9 +176,24 @@ async function indexFile(
   let extracted: Extracted | null = null
   if (kind && !tooBig) {
     const bytes = await fetchFileBytes(attachment.url)
+    // A page the model fails to read is skipped, not retried: the rest of
+    // the document is still indexed.
+    const transcribe: Transcriber = async (image) => {
+      const fitted = await fitImage(image)
+      if (!fitted) return null
+      return transcribeImage(
+        target.workspaceId,
+        fitted,
+        attachment.filename,
+        onUsage
+      ).catch((err) => {
+        logger.warn({ err, url: attachment.url }, "Page transcription failed")
+        return null
+      })
+    }
     // Parse failures (encrypted or corrupt files) are permanent; retrying
     // would not help.
-    extracted = await extractDocument(bytes, kind).catch((err) => {
+    extracted = await extractDocument(bytes, kind, transcribe).catch((err) => {
       logger.warn({ err, url: attachment.url }, "Document extraction failed")
       return null
     })
