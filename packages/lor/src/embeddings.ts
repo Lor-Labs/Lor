@@ -1,4 +1,4 @@
-import { embed } from "ai"
+import { embed, embedMany } from "ai"
 import { LOR_EMBED_DIM, LOR_EMBED_MODEL, lorEmbeddingModel } from "./models"
 
 export type EmbedResult = {
@@ -33,6 +33,21 @@ async function embedValue(value: string): Promise<EmbedResult> {
 
 export function embedDocumentWithUsage(text: string): Promise<EmbedResult> {
   return embedValue(text)
+}
+
+export async function embedDocumentsWithUsage(
+  texts: string[]
+): Promise<{ embeddings: number[][]; tokens: number; model: string }> {
+  const { embeddings, usage } = await embedMany({
+    model: lorEmbeddingModel,
+    values: texts,
+  })
+  if (embeddings.some((e) => e.length !== LOR_EMBED_DIM)) {
+    throw new Error(
+      `embedding model "${LOR_EMBED_MODEL}" returned the wrong dims; expected ${LOR_EMBED_DIM}`
+    )
+  }
+  return { embeddings, tokens: usage.tokens, model: LOR_EMBED_MODEL }
 }
 
 export function embedBrainQueryWithUsage(text: string): Promise<EmbedResult> {

@@ -83,7 +83,7 @@ New file: `packages/db/src/schemas/attachments.ts`.
 | `url` | text | same value as `message.attachments[].url` (the `view_image` key) |
 | `filename` | text | |
 | `contentType` | text | |
-| `position` | integer, default 0 | 0 = whole file; otherwise a 1-based page, slide, section, or sheet |
+| `position` | integer, default 0 | 0 = whole file; otherwise a 1-based PDF page, slide, or part (a section or row group) |
 | `text` | text | what we search and what Lor reads |
 | `embedding` | `halfvec(LOR_EMBED_DIMENSIONS)`, nullable | null until embedded, like `brain_node` |
 | `truncated` | boolean, default false | the file had more content than the caps allow |
@@ -210,7 +210,7 @@ Done when:
     citation jumps there.
   - A private-channel screenshot never appears in a run in a public channel.
 
-### Step 3 — documents: text extraction (~380 LOC) — [ ]
+### Step 3 — documents: text extraction (~380 LOC) — [x] built 2026-09-26, uncommitted. check + check-types pass. Live QA owed.
 
 Goal: PDF, DOCX, PPTX, XLSX/CSV, and plain-text files get one row per page,
 slide, section, or row group, with no LLM. Other types get one filename-only
@@ -220,8 +220,9 @@ Chunking (from the 2026-09-26 research notes below):
 - Natural units first: a PDF page and a slide are one piece each.
 - Flowing text (DOCX, TXT, MD, JSON) is split at headings, then packed by a
   recursive splitter: paragraph → line → sentence → word. Target about 2,000
-  chars (about 500 tokens) per piece. Merge sections shorter than 500 chars
-  with the next section under the same parent heading. No overlap.
+  chars (about 500 tokens) per piece. Merge a section shorter than 500 chars
+  with the next section when both fit in 2,000 chars. The merged piece keeps
+  the shared heading path, and each part's own heading goes inline. No overlap.
 - Every piece starts with a context header, stored in `text`, so both the
   vector and the FTS side see it:
   - DOCX/MD: `<heading path, e.g. Pricing > Enterprise>`
@@ -550,3 +551,23 @@ These notes are here so that later agents do not repeat the research.
   Reposts of identical bytes are rare and cost about $0.0005 each, so every
   image now gets its own transcription. This supersedes the repost entries
   above.
+- 2026-09-26, Step 3:
+  - `fast-xml-parser` was not added. PPTX slides, notes, and rels are read
+    with regexes over the OOXML, which is simpler for collecting `a:t` runs.
+  - `documentKind` and `pieceLabel` live in `attachments/kinds.ts`. That
+    keeps `search.ts` (loaded wherever `@repo/lor` is) from importing
+    exceljs, mammoth, and unpdf.
+  - `embedChunks` embeds in batches of 32 with `embedMany`, not one call
+    per file. A 300-page PDF in one request could be several MB. A failed
+    batch saves null vectors, which `embedPendingChunks` fills later.
+  - XLSX over 25 MB gets a filename-only row with `truncated` set, because
+    exceljs loads the whole workbook into memory.
+  - Extraction errors (encrypted or corrupt files) fall back to a
+    filename-only row instead of retrying. Fetch errors still throw and retry.
+    A document with no extractable text (a scanned PDF) also gets a
+    filename-only row. Step 4 must re-index these rows, because the indexer
+    skips any url that already has rows.
+  - GIFs and images under 128 px are still skipped. Other images the vision
+    model cannot read (SVG, TIFF) now get a filename-only row.
+  - Search hits return `location` (`page N`, `slide N`, `part N`, or null)
+    instead of `position`.

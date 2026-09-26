@@ -1,6 +1,7 @@
 import { and, cosineDistance, db, eq, isNotNull, schema, sql } from "@repo/db"
 import { embedAttachmentQuery } from "../embeddings"
 import { orTsQuery, privateAudienceFilter, userDisplayName } from "../retrieval"
+import { pieceLabel } from "./kinds"
 
 const POOL_FACTOR = 3
 const RRF_K = 60
@@ -89,7 +90,7 @@ export async function searchAttachments(
       url: row.url,
       filename: row.filename,
       contentType: row.contentType,
-      position: row.position,
+      location: pieceLabel(row.contentType, row.filename, row.position),
       truncated: row.truncated,
       author: userDisplayName({ name: row.authorName }),
       when: row.createdAt.toISOString(),

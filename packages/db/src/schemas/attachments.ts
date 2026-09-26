@@ -16,7 +16,7 @@ import { message } from "./messages"
 import { workspace } from "./workspaces"
 
 // One searchable piece of a chat attachment: a whole image, or one page,
-// slide, section, or sheet of a document. A rebuildable index derived from
+// slide, or part of a document. A rebuildable index derived from
 // message.attachments + R2. DMs are never indexed (they will be E2E
 // encrypted). See reference/attachment-search.md.
 export const attachmentChunk = pgTable(
@@ -35,7 +35,7 @@ export const attachmentChunk = pgTable(
     url: text("url").notNull(),
     filename: text("filename").notNull(),
     contentType: text("content_type").notNull(),
-    // 0 = the whole file; otherwise the 1-based page, slide, section, or sheet.
+    // 0 = the whole file; otherwise the 1-based PDF page, slide, or part.
     position: integer("position").notNull().default(0),
     text: text("text").notNull(),
     embedding: halfvec("embedding", { dimensions: LOR_EMBED_DIMENSIONS }),
