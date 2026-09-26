@@ -52,10 +52,11 @@ export const attachmentChunk = pgTable(
       "hnsw",
       table.embedding.op("halfvec_cosine_ops")
     ),
-    // Expression index: queries must match to_tsvector('english', text).
+    // Expression index over filename + text; queries must use the identical
+    // expression. translate() splits names like attio-logo.png into words.
     index("attachment_chunk_text_tsv_idx").using(
       "gin",
-      sql`to_tsvector('english', ${table.text})`
+      sql`to_tsvector('english', translate(${table.filename}, '._-', '   ') || ' ' || ${table.text})`
     ),
   ]
 )

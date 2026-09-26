@@ -29,6 +29,7 @@
 |---|---|---|---|
 | Chat | high | none (stream) | live Postgres **FTS** (`to_tsvector` expression index); no embeddings |
 | Brain pages | low | the page | Qwen-embedded (2560-d halfvec); written **lazily** during write-back |
+| Chat attachments | low | image / page / slide | **eager** at send: vision transcription (images) or extracted text → Qwen embedding + FTS in `attachment_chunk`; never DMs — see `attachment-search.md` |
 | Integrations (PR/issue/page) | low | the item | **eager** summarize + embed — *Track B, not yet built* |
 | Code | huge | file@sha | anchored live-fetch — *deferred* |
 

@@ -11,6 +11,8 @@ const BRAIN_QUERY_INSTRUCTION =
   "Given a question from a team workspace, retrieve the institutional-memory pages that answer or contextualize it."
 const SOURCE_QUERY_INSTRUCTION =
   "Given a question from a team workspace, retrieve external work-event summaries that answer or contextualize it."
+const ATTACHMENT_QUERY_INSTRUCTION =
+  "Given a question from a team workspace, retrieve screenshots, images, and files shared in chat whose contents answer or contextualize it."
 
 function instructedQuery(instruction: string, text: string): string {
   return `Instruct: ${instruction}\nQuery: ${text}`
@@ -53,5 +55,12 @@ export async function embedBrainQuery(text: string): Promise<number[]> {
 
 export async function embedSourceQuery(text: string): Promise<number[]> {
   const { embedding } = await embedSourceQueryWithUsage(text)
+  return embedding
+}
+
+export async function embedAttachmentQuery(text: string): Promise<number[]> {
+  const { embedding } = await embedValue(
+    instructedQuery(ATTACHMENT_QUERY_INSTRUCTION, text)
+  )
   return embedding
 }

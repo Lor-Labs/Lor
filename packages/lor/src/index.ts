@@ -46,6 +46,7 @@ import {
   EXPORT_TOOL_NAME,
 } from "./artifacts/export-tool"
 import { artifactTools } from "./artifacts/tool"
+import { searchAttachments } from "./attachments/search"
 import { attioTools, resolveWorkspaceAttio } from "./attio"
 import {
   type BrainWriteEvent,
@@ -113,6 +114,7 @@ import {
   type ProposeChangeExecutor,
   proposeChangeTool,
 } from "./proposals"
+import { orTsQuery, privateAudienceFilter, userDisplayName } from "./retrieval"
 import {
   addStepToCounters,
   budgetViolation,
@@ -195,7 +197,7 @@ const SYSTEM_PROMPT_TAIL = `You can also see images people share in the channel 
 
 How to answer:
 - Work on the current request in the active conversation only. Earlier requests from other threads or channel background are reference material, not unfinished assignments, even if you cannot see their replies or resolution. Use them only when relevant to the current request; do not add their deliverables to the current request or resume them unless the user asks. The same applies to requests found in brain notes and search results.
-- For questions about THIS team/workspace, check your brain first, then use search for anything it doesn't cover. Ground your answer in what you find; note who said it and roughly when. Cite your sources inline in double brackets: a brain page by its exact path, e.g. [[/decisions/auth]]; a specific message by its id, e.g. [[msg:0b9c…]]; or a connected-tool source by its id, e.g. [[src:0b9c…]]. If nothing turns up, say you don't have it in memory yet — never invent specifics or cite pages, messages, or sources you didn't read.
+- For questions about THIS team/workspace, check your brain first, then use search for anything it doesn't cover — it also finds screenshots and files people shared by what they contain. Ground your answer in what you find; note who said it and roughly when. Cite your sources inline in double brackets: a brain page by its exact path, e.g. [[/decisions/auth]]; a specific message by its id, e.g. [[msg:0b9c…]]; or a connected-tool source by its id, e.g. [[src:0b9c…]]. If nothing turns up, say you don't have it in memory yet — never invent specifics or cite pages, messages, or sources you didn't read.
 - For general questions (how-to, definitions, quick help), just answer directly; no lookup needed.
 
 Use reactions naturally and sparingly to complement your response. Always still answer in text, and don't narrate the reaction or mention the tool use.
@@ -403,6 +405,7 @@ export { estimateMessagesTokens, isSafeSplit } from "./compaction"
 export { buildInitialUserMessage } from "./initial-message"
 export type { InstructionsProposalEvent } from "./instructions"
 export { LOR_MODEL } from "./models"
+export { userDisplayName } from "./retrieval"
 export {
   type BudgetStopReason,
   type ConversationUpdate,
@@ -453,14 +456,6 @@ export type WriteBackCallbacks = {
   ) => void | Promise<void>
 }
 
-// How a person appears everywhere in the app (message author header, mention
-// pill, composer): their real name. Lor reads and mentions people by this same
-// label so its prose and pills stay consistent — and it matches the identity
-// external apps (Linear, GitHub) know them by.
-export function userDisplayName(u: { name: string }): string {
-  return u.name
-}
-
 async function searchMessages(
   workspaceId: string,
   query: string,
@@ -468,13 +463,7 @@ async function searchMessages(
   privateContainerChannelId: string | null = null
 ) {
   const tsv = sql`to_tsvector('english', coalesce(${schema.message.content}, ''))`
-  // websearch_to_tsquery ANDs its terms, so a natural-language query returns
-  // nothing unless a single message contains every content word. Rewrite the
-  // AND (&) operators to OR (|) so it degrades gracefully — a message matching
-  // some terms still surfaces, ranked below fuller matches by ts_rank. The
-  // websearch parser still handles stopword removal, stemming, and sanitizing
-  // the raw user text for us.
-  const tsq = sql`replace(websearch_to_tsquery('english', ${query})::text, '&', '|')::tsquery`
+  const tsq = orTsQuery(query)
 
   const rows = await db
     .select({
@@ -509,17 +498,6 @@ async function searchMessages(
     when: r.createdAt.toISOString(),
     text: (r.content ?? "").slice(0, SNIPPET_MAX),
   }))
-}
-
-// Effective audience lives on the access container (parent category or the
-// channel itself); mirror of the shared resolver's rule, in SQL. A scalar
-// subquery keeps drizzle happy where a self-alias join breaks its typing.
-function privateAudienceFilter(privateContainerChannelId: string | null) {
-  const effectiveAudience = sql`coalesce((select p."audience" from "channel" p where p."id" = ${schema.channel.parentId}), ${schema.channel.audience})`
-  const containerId = sql`coalesce(${schema.channel.parentId}, ${schema.channel.id})`
-  return privateContainerChannelId
-    ? sql`(${effectiveAudience} = 'workspace' or ${containerId} = ${privateContainerChannelId}::uuid)`
-    : sql`${effectiveAudience} = 'workspace'`
 }
 
 async function readThread(
@@ -691,13 +669,13 @@ async function searchSourceSummaries(
 export const searchTools = {
   search: tool({
     description:
-      "Search the team's knowledge in one place: its chat message history (exact/keyword match) and the summarized activity of connected integrations like GitHub and Linear (semantic match). Pass a short natural-language query or phrase. Results are tagged with `type`: a `message` comes back with its full text — cite it as [[msg:<id>]]; a `source` comes back as a summary with `hasMore: true` — call fetch_source with its id for the full body, and cite it as [[src:<id>]] (don't paste its url). Pass `types` to search only one kind. Call repeatedly with different queries to investigate.",
+      "Search the team's knowledge in one place: its chat message history (exact/keyword match), screenshots and files shared in chat (keyword + semantic match on their contents), and the summarized activity of connected integrations like GitHub and Linear (semantic match). Pass a short natural-language query or phrase. Results are tagged with `type`: a `message` comes back with its full text — cite it as [[msg:<id>]]; an `attachment` comes back with `text`, a machine transcription of the image or the file's extracted text, which can contain misreads — call view_image with its url before quoting exact values from an image, and cite the message that shared it as [[msg:<messageId>]]; a `source` comes back as a summary with `hasMore: true` — call fetch_source with its id for the full body, and cite it as [[src:<id>]] (don't paste its url). Pass `types` to search only some kinds. Call repeatedly with different queries to investigate.",
     inputSchema: z.object({
       query: z.string().describe("a short natural-language query or phrase"),
       types: z
-        .array(z.enum(["messages", "sources"]))
+        .array(z.enum(["messages", "attachments", "sources"]))
         .optional()
-        .describe("limit to these kinds of result (default: both)"),
+        .describe("limit to these kinds of result (default: all)"),
       limit: z
         .number()
         .optional()
@@ -711,14 +689,22 @@ export const searchTools = {
           SEARCH_PER_KIND_MAX
         )
       )
-      // An empty/absent types array means both kinds; a non-empty one filters.
-      const want = (t: "messages" | "sources") =>
+      // An empty/absent types array means all kinds; a non-empty one filters.
+      const want = (t: "messages" | "attachments" | "sources") =>
         !types || types.length === 0 || types.includes(t)
       // Each backend is isolated: one failing (e.g. the embedding call) still
-      // returns the other half rather than failing the whole search.
-      const [messages, sources] = await Promise.all([
+      // returns the rest rather than failing the whole search.
+      const [messages, attachments, sources] = await Promise.all([
         want("messages")
           ? searchMessages(
+              context.workspaceId,
+              query,
+              n,
+              context.privateContainerChannelId ?? null
+            ).catch(() => [])
+          : [],
+        want("attachments")
+          ? searchAttachments(
               context.workspaceId,
               query,
               n,
@@ -731,6 +717,7 @@ export const searchTools = {
       ])
       return [
         ...messages.map((m) => ({ type: "message" as const, ...m })),
+        ...attachments.map((a) => ({ type: "attachment" as const, ...a })),
         ...sources.map((s) => ({
           type: "source" as const,
           hasMore: true,
@@ -782,7 +769,7 @@ export const chatTools = {
   // through the fetchImageForView cache.
   view_image: tool({
     description:
-      "Look at an image someone posted in chat, by the url from its [image: …] placeholder line or a read_thread attachment. Use it whenever you need to actually see an image that isn't already shown to you.",
+      "Look at an image someone posted in chat, by the url from its [image: …] placeholder line, a read_thread attachment, or an attachment search result. Use it whenever you need to actually see an image that isn't already shown to you.",
     inputSchema: z.object({
       url: z
         .string()
@@ -1054,7 +1041,10 @@ export function toolDetail(
       const r = asRecord(it)
       return {
         title:
-          asString(r?.title) ?? asString(r?.text)?.slice(0, 80) ?? "untitled",
+          asString(r?.title) ??
+          asString(r?.filename) ??
+          asString(r?.text)?.slice(0, 80) ??
+          "untitled",
         url: asString(r?.url),
       }
     })
@@ -1080,12 +1070,17 @@ export function toolDetail(
     }
     case "search": {
       const items = Array.isArray(output) ? output : []
-      const msgs = items.filter((it) => asRecord(it)?.type === "message").length
-      const srcs = items.length - msgs
-      const groups = [
-        msgs > 0 ? plural(msgs, "message") : null,
-        srcs > 0 ? plural(srcs, "source") : null,
-      ].filter((g): g is string => g !== null)
+      const count = (type: string) =>
+        items.filter((it) => asRecord(it)?.type === type).length
+      const groups = (
+        [
+          ["message", count("message")],
+          ["attachment", count("attachment")],
+          ["source", count("source")],
+        ] as const
+      )
+        .filter(([, n]) => n > 0)
+        .map(([word, n]) => plural(n, word))
       return {
         status: "ok",
         detail: {

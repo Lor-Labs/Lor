@@ -1,4 +1,4 @@
-import { db, eq, schema } from "@repo/db"
+import { and, db, eq, isNull, schema } from "@repo/db"
 import type { Attachment, NewAttachmentChunk } from "@repo/db/schema"
 import sharp from "sharp"
 import { embedDocumentWithUsage } from "../embeddings"
@@ -49,6 +49,25 @@ async function fitImage(image: FetchedImage): Promise<FetchedImage | null> {
     : null
 }
 
+// The filename and the sharing message's text ride along with the chunk text,
+// so context like "here's staging" is part of what the vector matches.
+async function embedChunk(
+  workspaceId: string,
+  parts: (string | null)[],
+  onUsage?: OnUsage
+): Promise<number[]> {
+  const r = await embedDocumentWithUsage(
+    parts.filter(Boolean).join("\n\n").slice(0, EMBED_INPUT_MAX_CHARS)
+  )
+  emitUsage(onUsage, {
+    workspaceId,
+    tool: "attachment.embed",
+    model: r.model,
+    inputTokens: r.tokens,
+  })
+  return r.embedding
+}
+
 async function indexImage(
   target: IndexTarget,
   attachment: Attachment,
@@ -65,24 +84,14 @@ async function indexImage(
     onUsage
   )
 
-  const embedInput = [attachment.filename, target.content, text]
-    .filter(Boolean)
-    .join("\n\n")
-    .slice(0, EMBED_INPUT_MAX_CHARS)
-  const embedding = await embedDocumentWithUsage(embedInput)
-    .then((r) => {
-      emitUsage(onUsage, {
-        workspaceId: target.workspaceId,
-        tool: "attachment.embed",
-        model: r.model,
-        inputTokens: r.tokens,
-      })
-      return r.embedding
-    })
-    .catch((err) => {
-      logger.warn({ err, url: attachment.url }, "Attachment embed failed")
-      return null
-    })
+  const embedding = await embedChunk(
+    target.workspaceId,
+    [attachment.filename, target.content, text],
+    onUsage
+  ).catch((err) => {
+    logger.warn({ err, url: attachment.url }, "Attachment embed failed")
+    return null
+  })
 
   const row: NewAttachmentChunk = {
     ...target,
@@ -155,4 +164,52 @@ export async function indexMessageAttachments(
   // Throw so the queue retries; attachments indexed on this attempt are
   // skipped on the next one.
   if (failed > 0) throw new Error(`${failed} attachment(s) failed to index`)
+}
+
+// Rows saved without a vector (the embed call failed at index time).
+export async function embedPendingChunks(
+  workspaceId: string | null,
+  onUsage?: OnUsage
+): Promise<{ embedded: number; failed: number }> {
+  const rows = await db
+    .select({
+      id: schema.attachmentChunk.id,
+      workspaceId: schema.attachmentChunk.workspaceId,
+      filename: schema.attachmentChunk.filename,
+      text: schema.attachmentChunk.text,
+      content: schema.message.content,
+    })
+    .from(schema.attachmentChunk)
+    .innerJoin(
+      schema.message,
+      eq(schema.attachmentChunk.messageId, schema.message.id)
+    )
+    .where(
+      and(
+        isNull(schema.attachmentChunk.embedding),
+        workspaceId
+          ? eq(schema.attachmentChunk.workspaceId, workspaceId)
+          : undefined
+      )
+    )
+  let embedded = 0
+  let failed = 0
+  for (const row of rows) {
+    try {
+      const embedding = await embedChunk(
+        row.workspaceId,
+        [row.filename, row.content, row.text],
+        onUsage
+      )
+      await db
+        .update(schema.attachmentChunk)
+        .set({ embedding })
+        .where(eq(schema.attachmentChunk.id, row.id))
+      embedded++
+    } catch (err) {
+      failed++
+      logger.warn({ err, chunkId: row.id }, "Attachment chunk embed failed")
+    }
+  }
+  return { embedded, failed }
 }

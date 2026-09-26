@@ -92,7 +92,7 @@ New file: `packages/db/src/schemas/attachments.ts`.
 Indexes:
 - unique `(messageId, url, position)`, for idempotent upserts
 - HNSW on `embedding` (`halfvec_cosine_ops`)
-- GIN on `to_tsvector('english', text)`
+- GIN on `to_tsvector('english', translate(filename, '._-', '   ') || ' ' || text)` (filename words + text)
 
 File-level columns repeat on each chunk of a document. We accept that so we
 can keep one table.
@@ -153,7 +153,7 @@ Done when:
   - Deleting the message deletes the row.
   - The ledger shows both tools with `debitStatus = free`.
 
-### Step 2 — search + backfill (~400 LOC) — [ ]
+### Step 2 — search + backfill (~400 LOC) — [x] built 2026-09-25, awaiting review. **db:push owed** (the FTS index expression now covers the filename); live QA owed
 
 Goal: Lor finds attachments through `search`, reads their text, views the
 image when it needs to, and cites the message.
@@ -173,7 +173,8 @@ Files:
     `excludedFromMemory`), and `user` (author).
   - Keyword search also matches the filename. Postgres reads
     `attio-logo.png` as one token, so turn `.`, `-`, and `_` into spaces
-    first.
+    first. Built as the index expression itself:
+    `to_tsvector('english', translate(filename, '._-', '   ') || ' ' || text)`.
   - Merge the lists with RRF (score = Σ 1 / (60 + rank)) and return the top
     `limit`.
   - Hit shape: `{ messageId, channelId, url, filename, contentType, position,
@@ -463,6 +464,11 @@ These notes are here so that later agents do not repeat the research.
   use the filename only when it names something and the image does not show
   otherwise. Reposts reuse the stored transcription by content hash, so a
   bad transcription stays until its row is deleted.
+- 2026-09-25, Step 2: `retrieval.ts` also holds `orTsQuery` (the
+  OR-rewritten `websearch_to_tsquery`), shared by message and attachment
+  search. `index.ts` re-exports `userDisplayName`, because the worker imports
+  it from `@repo/lor`. `embedPendingChunks` lives in
+  `packages/lor/src/attachments/index.ts` for the backfill script.
 - 2026-09-25, Step 1 follow-up: removed the repost shortcut, the
   `content_hash` column, and its index. The shortcut kept a bad transcription
   after prompt or model changes (the reposted logo still said "Atlassian").
