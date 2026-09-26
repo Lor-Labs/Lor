@@ -347,15 +347,35 @@ Done when:
   - Lor answers a question about slide 12 of a deck by reading slides 11–13.
     [ ]
 
-### Step 4b — fast table queries — [ ]
+### Step 4b — fast table queries — [ ] parked 2026-09-26 (trigger-based, like Step 7)
 
-Table search finds the file and describes it (schema, values). It cannot
-answer exact questions such as sums or filtered rows. `create_artifacts`
-accepts attachment URLs, but it is slow and scoped to deliverables. Give Lor
-a fast way to query a table file. Options to research when starting:
-- JS filters and aggregates over the parsed rows;
-- an embedded SQL engine (DuckDB native binaries under Bun are unverified);
-- a faster sandbox path.
+Problem: table search finds the file and describes it (schema, values), but
+Lor cannot answer exact questions from the rows ("how much did we pay Twilio
+in March", "how many Silver members in Broward"). Sheets under 4,000 chars
+are stored whole, so their written totals already work. Today Lor can only
+say it can't compute that, or fall back to `create_artifacts`. That tool is
+slow (it runs a sub-agent), needs 4+ minutes of run time, bills separately,
+and its prompt says it is not for ordinary answers.
+
+Why parked: demand is unproven. Nobody has yet asked Lor a numeric question
+about a shared spreadsheet, and the `create_artifacts` fallback may be good
+enough.
+
+Trigger: people regularly ask numeric questions about shared spreadsheets,
+or the `create_artifacts` fallback proves too slow or unreliable. First
+check: ask Lor a numeric question about the transactions workbook or the FHA
+CSV and watch what it does.
+
+Chosen direction if triggered: a light tool on the existing Blaxel sandbox.
+Lor writes a short pandas snippet. The tool writes the attachment into the
+sandbox and runs the snippet with `execToCompletion`, with no sub-agent, and
+returns capped stdout. It reuses `withEphemeralSandbox` or
+`withPersistentSandbox`, `writeText`, and `execToCompletion` from
+`packages/lor/src/sandbox/blaxel.ts`. It adds no native dependency to the
+worker, gives VM isolation for model-written code, and pandas and openpyxl
+already cover CSV and XLSX. Measure sandbox start or resume latency first:
+it decides whether answers come in seconds. The option comparison is in
+"Research notes: table query engines" below.
 
 ### Step 5 — reranker core + `search` (~260 LOC) — [ ]
 
@@ -464,7 +484,7 @@ Done when:
 
 ## Step order
 
-1 → 2 → 3 → 4a → 4b → 5 → 6. Step 7 runs only when its trigger fires.
+1 → 2 → 3 → 4a → 5 → 6. Steps 4b and 7 run only when their triggers fire.
 
 Steps 5–6 do not depend on Steps 3–4. They can move ahead if search quality
 becomes the bigger problem.
@@ -520,6 +540,32 @@ These notes are here so that later agents do not repeat the research.
   - OpenAI vector stores allow 512 MB and 5M tokens per file, with 800-token
     chunks and 400 overlap by default.
 - Cohere Embed v4 downsamples images above 2,458,624 px.
+
+## Research notes: table query engines (2026-09-26, for Step 4b)
+
+- **DuckDB native** (`@duckdb/node-api`, MIT):
+  - Runs under Bun. Past N-API crashes were fixed in Bun 1.1.40 and 1.2.2,
+    in node-api 1.5.1-r.2, and after Bun 1.3.12; pin Bun ≥ 1.3.13.
+  - The linux-x64 binary is about 71 MB.
+  - Lock-down settings: `enable_external_access=false`,
+    `lock_configuration`, `memory_limit`; cancel with `interrupt()`. The
+    docs say these are "not a substitute for proper sandboxing".
+  - The `excel` extension is not bundled; it downloads at runtime.
+  - A native crash kills the whole worker unless the engine runs in a child
+    process.
+- **DuckDB-WASM**: 149 MB, single-threaded, 4 GB cap, and an offline
+  extension-loading deadlock (duckdb-wasm#2252).
+- **PGlite**: Bun is supported, but `statement_timeout` is reported to be
+  ignored, and it allows one connection per process.
+- **alasql**: rejected. `REQUIRE` loads and runs code through
+  `new Function`, and there is no switch to disable it (CVE-2026-33660).
+- **Structured filter/sum tool**:
+  - Safe and needs no dependency. It cannot express ratios, running totals,
+    or computed columns.
+  - Chain-of-Table (arXiv 2401.04398) beat text-to-SQL with fixed table
+    operations: WikiTQ 59.9 vs 52.9 on GPT-3.5. These are 2023-era models
+    on small tables.
+- **Blaxel sandbox + pandas** (chosen direction): see Step 4b.
 
 ## Research notes: chunking (2026-09-26)
 
