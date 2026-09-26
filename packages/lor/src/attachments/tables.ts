@@ -3,9 +3,8 @@ import type { Extracted, Piece } from "./extract"
 
 // Spreadsheets and CSVs are indexed as a profile, not as row groups
 // (TableRAG, arXiv 2410.04739): per sheet, the schema with example values and
-// sample rows, plus the distinct values of each column that repeats. A table
-// of any length yields a handful of pieces. Small tables are stored whole.
-const TARGET_CHARS = 2000
+// sample rows, plus the distinct values of each column that repeats. One
+// piece per sheet, whatever its length. Small sheets are stored whole.
 const SMALL_TABLE_CHARS = 4000
 const MAX_TABLE_ROWS = 500_000
 const MAX_TRACKED_DISTINCT = 5000
@@ -14,6 +13,7 @@ const MAX_CELL_CHARS = 200
 const SAMPLE_ROWS = 5
 const EXAMPLE_VALUES = 3
 const MAX_UNIQUE_VALUE_CHARS = 40
+const HEADER_SCAN_ROWS = 10
 
 type Cell = string | number | Date | null
 
@@ -85,22 +85,16 @@ function newColumn(name: string): Column {
 function createTable(name: string | null) {
   let columns: Column[] | null = null
   let header = ""
+  let caption: string[] = []
+  let pending: { cells: Cell[]; texts: string[] }[] | null = []
   let rowCount = 0
   let capped = false
   const samples: string[] = []
   let allRows: string[] | null = []
   let allRowsChars = 0
 
-  const add = (cells: Cell[]): void => {
-    if (capped) return
-    const texts = cells.map(formatCell)
+  const addRow = (cells: Cell[], texts: string[]): void => {
     const line = texts.join("\t").trimEnd()
-    if (!line) return
-    if (!columns) {
-      columns = texts.map((t, i) => newColumn(t || `Column ${i + 1}`))
-      header = columns.map((c) => c.name).join("\t")
-      return
-    }
     if (rowCount >= MAX_TABLE_ROWS) {
       capped = true
       return
@@ -141,6 +135,39 @@ function createTable(name: string | null) {
     })
   }
 
+  // Exports often put a title or date line above the real header. The header
+  // is the first of the opening rows filled across most columns; rows above
+  // it become the caption.
+  const resolveHeader = (): void => {
+    if (!pending) return
+    const rows = pending
+    pending = null
+    const filled = rows.map((r) => r.texts.filter(Boolean).length)
+    const widest = Math.max(0, ...filled)
+    const at = Math.max(
+      0,
+      filled.findIndex((n) => n >= Math.max(2, widest * 0.6))
+    )
+    const headerRow = rows[at]
+    if (!headerRow) return
+    caption = rows.slice(0, at).map((r) => r.texts.filter(Boolean).join(" "))
+    columns = headerRow.texts.map((t, i) => newColumn(t || `Column ${i + 1}`))
+    header = columns.map((c) => c.name).join("\t")
+    for (const row of rows.slice(at + 1)) addRow(row.cells, row.texts)
+  }
+
+  const add = (cells: Cell[]): void => {
+    if (capped) return
+    const texts = cells.map(formatCell)
+    if (!texts.some(Boolean)) return
+    if (pending) {
+      pending.push({ cells, texts })
+      if (pending.length >= HEADER_SCAN_ROWS) resolveHeader()
+      return
+    }
+    addRow(cells, texts)
+  }
+
   const describe = (c: Column): string => {
     const fill =
       c.filled < rowCount
@@ -176,9 +203,8 @@ function createTable(name: string | null) {
     )
   }
 
-  // One run of pieces per column, each piece restating the table and column.
-  const valuePieces = (title: string, c: Column): string[] => {
-    if (!c.counts || !listable(c)) return []
+  const valueList = (c: Column): string | null => {
+    if (!c.counts || !listable(c)) return null
     const values = [...c.counts.entries()]
       .sort((a, b) => b[1] - a[1])
       .slice(0, MAX_LISTED_VALUES)
@@ -187,55 +213,31 @@ function createTable(name: string | null) {
       c.counts.size > MAX_LISTED_VALUES
         ? `top ${MAX_LISTED_VALUES} of ${c.counts.size}`
         : `${c.counts.size}`
-    const label = `${title}\n${c.name} values (${shown} distinct, by frequency):`
-    const out: string[] = []
-    let current: string[] = []
-    let size = 0
-    for (const value of values) {
-      if (current.length > 0 && size + value.length > TARGET_CHARS) {
-        out.push(`${label}\n${current.join(", ")}`)
-        current = []
-        size = 0
-      }
-      current.push(value)
-      size += value.length + 2
-    }
-    if (current.length > 0) out.push(`${label}\n${current.join(", ")}`)
-    return out
+    return `${c.name} values (${shown} distinct, by frequency): ${values.join(", ")}`
   }
 
-  const pieces = (): string[] => {
-    if (!columns) return []
+  // The profile comes first, so the embedding (which reads only the start)
+  // covers the summary; the value lists after it still feed keyword search.
+  const text = (): string | null => {
+    resolveHeader()
+    if (!columns) return null
     const cols: Column[] = columns
     const title = `${name ? `Sheet: ${name}` : "Table"}, ${capped ? "over " : ""}${rowCount.toLocaleString("en-US")} rows × ${cols.length} columns`
-    if (allRows) return [[title, header, ...allRows].join("\n")]
-
-    const profile: string[] = []
-    let current = `${title}\nColumns:`
-    for (const line of [
+    if (allRows) return [title, ...caption, header, ...allRows].join("\n")
+    const profile = [
+      title,
+      ...caption,
+      "Columns:",
       ...cols.map(describe),
       "Sample rows:",
       header,
       ...samples,
-    ]) {
-      if (current.length + line.length > TARGET_CHARS) {
-        profile.push(current)
-        current = `${title} (continued)`
-      }
-      current += `\n${line}`
-    }
-    profile.push(current)
-    return [...profile, ...cols.flatMap((c) => valuePieces(title, c))]
+    ].join("\n")
+    const values = cols.map(valueList).filter((v): v is string => v !== null)
+    return [profile, ...values].join("\n\n")
   }
 
-  return { add, pieces, capped: () => capped }
-}
-
-function toExtracted(tables: ReturnType<typeof createTable>[]): Extracted {
-  const pieces: Piece[] = tables
-    .flatMap((t) => t.pieces())
-    .map((text, i) => ({ position: i + 1, text }))
-  return { pieces, truncated: tables.some((t) => t.capped()) }
+  return { add, text, capped: () => capped }
 }
 
 function excelCell(value: ExcelJS.CellValue): Cell {
@@ -249,10 +251,13 @@ function excelCell(value: ExcelJS.CellValue): Cell {
   return null
 }
 
+// One piece per sheet; position is the sheet's number in the workbook.
 export async function extractXlsx(bytes: Uint8Array): Promise<Extracted> {
   const workbook = new ExcelJS.Workbook()
   await workbook.xlsx.load(bytes.slice().buffer)
-  const tables = workbook.worksheets.map((worksheet) => {
+  const pieces: Piece[] = []
+  let truncated = false
+  workbook.worksheets.forEach((worksheet, i) => {
     const table = createTable(worksheet.name)
     worksheet.eachRow((row) => {
       const cells: Cell[] = []
@@ -261,9 +266,11 @@ export async function extractXlsx(bytes: Uint8Array): Promise<Extracted> {
       })
       table.add(cells)
     })
-    return table
+    const text = table.text()
+    if (text) pieces.push({ position: i + 1, text })
+    truncated ||= table.capped()
   })
-  return toExtracted(tables)
+  return { pieces, truncated }
 }
 
 // RFC 4180 fields: quoted fields may hold the delimiter, newlines, and "".
@@ -315,5 +322,9 @@ export function extractCsv(text: string): Extracted {
       : ","
   const table = createTable(null)
   parseDelimited(text, delimiter, (cells) => table.add(cells.map(typeCell)))
-  return toExtracted([table])
+  const tableText = table.text()
+  return {
+    pieces: tableText ? [{ position: 0, text: tableText }] : [],
+    truncated: table.capped(),
+  }
 }

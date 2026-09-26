@@ -14,6 +14,8 @@ export type Extracted = { pieces: Piece[]; truncated: boolean }
 const TARGET_CHARS = 2000
 const MIN_SECTION_CHARS = 500
 const MAX_PIECE_CHARS = 16_000
+// A sheet is one piece; its value lists past the embed cap still feed FTS.
+const MAX_TABLE_PIECE_CHARS = 64_000
 const MAX_PIECES = 200
 const MAX_PDF_PAGES = 300
 
@@ -312,11 +314,13 @@ export async function extractDocument(
 ): Promise<Extracted> {
   const extracted = await extractByKind(bytes, kind)
   const max = kind === "pdf" ? MAX_PDF_PAGES : MAX_PIECES
+  const maxChars =
+    kind === "xlsx" || kind === "csv" ? MAX_TABLE_PIECE_CHARS : MAX_PIECE_CHARS
   let truncated = extracted.truncated || extracted.pieces.length > max
   const pieces = extracted.pieces.slice(0, max).map((piece) => {
-    if (piece.text.length <= MAX_PIECE_CHARS) return piece
+    if (piece.text.length <= maxChars) return piece
     truncated = true
-    return { ...piece, text: piece.text.slice(0, MAX_PIECE_CHARS) }
+    return { ...piece, text: piece.text.slice(0, maxChars) }
   })
   return { pieces, truncated }
 }

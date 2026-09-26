@@ -6,6 +6,8 @@ import { pieceLabel } from "./kinds"
 const POOL_FACTOR = 3
 const RRF_K = 60
 const SNIPPET_MAX = 1000
+// A long PDF or a big workbook would otherwise fill every result slot.
+const MAX_HITS_PER_FILE = 2
 
 // Must match the attachment_chunk_text_tsv_idx expression exactly.
 const chunkTsv = sql`to_tsvector('english', translate(${schema.attachmentChunk.filename}, '._-', '   ') || ' ' || ${schema.attachmentChunk.text})`
@@ -81,8 +83,15 @@ export async function searchAttachments(
     })
   }
 
+  const perFile = new Map<string, number>()
   return [...scored.values()]
     .sort((a, b) => b.score - a.score)
+    .filter(({ row }) => {
+      const key = `${row.messageId}:${row.url}`
+      const hits = perFile.get(key) ?? 0
+      perFile.set(key, hits + 1)
+      return hits < MAX_HITS_PER_FILE
+    })
     .slice(0, limit)
     .map(({ row }) => ({
       messageId: row.messageId,

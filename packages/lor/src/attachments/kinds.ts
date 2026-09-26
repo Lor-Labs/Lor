@@ -58,5 +58,6 @@ export function pieceLabel(
   const kind = documentKind(contentType, filename)
   if (kind === "pdf") return `page ${position}`
   if (kind === "pptx") return `slide ${position}`
+  if (kind === "xlsx") return `sheet ${position}`
   return `part ${position}`
 }

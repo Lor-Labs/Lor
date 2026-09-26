@@ -229,7 +229,7 @@ Chunking (from the 2026-09-26 research notes below):
   vector and the FTS side see it:
   - DOCX/MD: `<heading path, e.g. Pricing > Enterprise>`
   - PPTX: `Slide N: <slide title>`
-  - XLSX/CSV: `Sheet: <name>, N rows × M columns` (tables are profiled; see
+  - XLSX/CSV: `Sheet: <name>, N rows × M columns` (one piece per sheet; see
     below)
   The filename and the message text are already in the embedding input.
 - Do not add semantic chunking, overlap, or late chunking. Late chunking
@@ -256,12 +256,20 @@ Files:
     the `a:t` text runs, the title placeholder, and the speaker notes for each
     slide (`Notes: …`).
   - XLSX, CSV, TSV (`attachments/tables.ts`): TableRAG-style profile, not
-    row groups. A sheet under 4,000 chars is stored whole. A larger sheet
-    gets one profile piece: each column's type, with min/max for numbers and
-    dates, distinct count plus top 3 values for text, and fill rate; plus 5
-    sample rows. Then value pieces: the distinct values of each column that
-    repeats (at most half as many distinct values as filled cells), top 500
-    by frequency with counts. A mostly-unique column is listed only when it
+    row groups, with one piece per sheet (XLSX `position` = sheet number;
+    a CSV is one piece at `position` 0). A sheet under 4,000 chars is stored
+    whole. A larger sheet's piece starts with the profile: each column's
+    type, with min/max for numbers and dates, distinct count plus top 3
+    values for text, and fill rate; plus 5 sample rows. After it come the
+    value lists: the distinct values of each column that repeats (at most
+    half as many distinct values as filled cells), top 500 by frequency with
+    counts. The embedding reads only the first 16k chars, which hold the
+    profile. The value lists after it still feed FTS. Table pieces are capped
+    at 64k chars. Header detection: the first of the opening 10 rows filled
+    across at least 60% of the widest row's cells (and at least 2 cells).
+    Title or date rows above it become a caption under the sheet title.
+    Sample rows are the first 5 data rows. They only show the row format;
+    the facts come from all rows. A mostly-unique column is listed only when it
     has at most 500 values averaging 40 chars or less (names, emails). Long
     free text is never listed. Dates are formatted `YYYY-MM-DD` in UTC.
     All rows are read (up to 500,000), so the profile covers the whole file.
@@ -275,7 +283,9 @@ Files:
 - `packages/lor/src/embeddings.ts` — `embedDocumentsWithUsage(texts)` with
   `embedMany`, one call per file.
 - `packages/lor/src/attachments/search.ts` — label each hit `page N` (PDF),
-  `slide N` (PPTX), or `part N` (everything else).
+  `slide N` (PPTX), `sheet N` (XLSX), or `part N` (everything else). Keep
+  at most 2 hits per file, so one long PDF or workbook cannot fill every
+  result slot.
 
 Done when:
 - check and check-types pass.
@@ -451,6 +461,11 @@ becomes the bigger problem.
   gate the stored transcriptions of the images in the conversation.
 - A per-workspace daily cap on transcriptions, if the ledger shows abuse.
 - Audio and video: transcription, together with the voice-channel work.
+- LLM sheet summary: have `lorSmallModel` write 1–2 sentences on what each
+  sheet is for (e.g. "2025 business bank ledger, categorized for the CPA"),
+  placed above the code-generated profile. Helps conceptual queries and
+  sheets with cryptic column names. About $0.0003 per sheet. Add it if the
+  reranker (Step 5) shows spreadsheets missed on conceptual searches.
 - LLM contextual retrieval (Anthropic, Sept 2024): a small model writes 50–100
   tokens of document context per chunk. Add only if document recall is poor
   after the reranker lands. Measured −35% to −49% retrieval failures, at about
@@ -609,6 +624,9 @@ These notes are here so that later agents do not repeat the research.
     Row groups hit the 200-piece cap at about 2,000 rows, so the rest of a
     big file was invisible. The rows themselves embedded poorly, and exceljs
     `cell.text` wrote dates as local `Date.toString()`, one day early in US
-    timezones. On the 4-sheet, 356-transaction workbook: 40 row-group pieces
-    became 9 pieces (7.6k chars) covering every row. The CSV path is not yet
-    live-tested.
+    timezones. On the 5-sheet, 356-transaction workbook: 40 row-group pieces
+    became 9 pieces covering every row. Then, after user review, it became
+    one piece per sheet (5 rows). Splitting a sheet's value lists into their
+    own pieces added nothing for keyword search, gave date-only fragments,
+    and let one file crowd the results. The CSV path is not yet live-tested.
+  - `searchAttachments` caps results at 2 hits per file (messageId + url).
