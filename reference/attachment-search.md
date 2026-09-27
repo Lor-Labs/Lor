@@ -377,7 +377,7 @@ already cover CSV and XLSX. Measure sandbox start or resume latency first:
 it decides whether answers come in seconds. The option comparison is in
 "Research notes: table query engines" below.
 
-### Step 5 — reranker core + `search` (~260 LOC) — [ ]
+### Step 5 — reranker core + `search` (~260 LOC) — [x] built 2026-09-26, uncommitted. check + check-types pass. Live QA via direct `search` calls: reranked vs. off comparison, cutoff calibration, and fail-open with a bad model id all done. Ledger `lor.rerank` rows from a real chat run not yet checked.
 
 Goal: `search` fetches more candidates from each backend and orders them with
 a reranker. The per-kind caps and the output shape stay the same.
@@ -406,6 +406,12 @@ Files:
   - One rerank call over the union. Document text: the message text, the
     source title plus summary, or the attachment filename plus text.
   - Take the top n of each kind by score.
+  - Relevance cutoff: drop results scoring below a minimum relevance, so
+    Lor gets nothing instead of weak guesses when nothing answers the
+    question. No published threshold exists for `rerank-2.5`. Pick it from
+    real scores in live QA (relevant vs. unrelated queries), make it an env
+    setting, and record the observed scores in the Deviations log. When the
+    reranker fails open, apply no cutoff.
   - Pass `onUsage` into the retrieval tool context, the way `investigate_code`
     gets it. Keep `project-archive.ts` compiling (it builds its own contexts).
 - Attachment search keeps RRF to build its pool. The reranker sets the final
@@ -705,3 +711,32 @@ These notes are here so that later agents do not repeat the research.
     is out of scope here.
   - Slides with a title plus a screenshot are not transcribed: only fully
     text-free slides are.
+- 2026-09-26, Step 5:
+  - First gateway `rerank()` call:
+    - `RerankResult` has no usage, and the raw body has no token count.
+    - `providerMetadata.gateway.cost` carries the exact USD cost ($0.00023
+      for 9 documents).
+    - `lor.rerank` events send it as `costUsd`, so the `model-rates.ts` seed
+      was not added; the ledger stores the gateway's cost directly.
+    - Latency is 250–600 ms per call; a whole `search` adds about 0.5 s.
+  - Relevance cutoff (`LOR_RERANK_MIN_SCORE`, default 0.45), from real
+    scores across 7 queries:
+    - Right answers scored 0.52–0.93 (Aetna attestation script 0.926,
+      FHA book for Broward 0.688, bank statements for Twilio 0.62–0.67).
+    - Unrelated candidates scored 0.19–0.40. The top unrelated score was a
+      Lor message about Neon for a Kubernetes query, at 0.400.
+    - Queries with no answer in the workspace (Kubernetes, pricing
+      redesign) now return 0 results; with the reranker off, both returned
+      12.
+  - `rerankTexts` also scores a single candidate (the runbook said to skip
+    ≤ 1), so the cutoff still applies to a lone weak result.
+  - Reranked results come back ordered by score across kinds, no longer
+    grouped messages → attachments → sources. With the reranker off or on
+    failure, the old grouped order and per-kind caps apply.
+  - `onUsage` reaches `search` through a new optional argument on
+    `coreToolsContext`, passed from `respond()` and the write-back pass.
+    `project-archive.ts` binds `search` without it, so archive-synthesis
+    reranks are not metered.
+  - Observed: for "how much did we pay Twilio", the 12 monthly bank
+    statements (0.62–0.67) fill the attachment slots ahead of the
+    Transactions and P&L sheets. That ranking is defensible; watch it in use.

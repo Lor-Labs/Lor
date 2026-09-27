@@ -115,6 +115,7 @@ import {
   type ProposeChangeExecutor,
   proposeChangeTool,
 } from "./proposals"
+import { RERANK_MIN_SCORE, rerankTexts } from "./rerank"
 import { orTsQuery, privateAudienceFilter, userDisplayName } from "./retrieval"
 import {
   addStepToCounters,
@@ -154,6 +155,9 @@ const WRITEBACK_TIMEOUT_MS = 5 * 60_000
 // (messages vs. sources), not shared — one corpus can't starve the other.
 const SEARCH_PER_KIND_DEFAULT = 6
 const SEARCH_PER_KIND_MAX = 15
+// Each backend returns a wider pool for the reranker to choose from.
+const SEARCH_POOL_FACTOR = 3
+const SEARCH_POOL_MAX = 30
 const PREFETCH_LIMIT = 3
 const SNIPPET_MAX = 500
 // read_thread window size — a page, not a cap: omitted counts + before/after
@@ -682,7 +686,9 @@ export const searchTools = {
         .optional()
         .describe("max results of each kind, 1–15 (default 6)"),
     }),
-    contextSchema: workspaceContext,
+    contextSchema: workspaceContext.extend({
+      onUsage: z.custom<OnUsage>().optional(),
+    }),
     execute: async ({ query, types, limit }, { context }) => {
       const n = Math.floor(
         Math.min(
@@ -690,6 +696,7 @@ export const searchTools = {
           SEARCH_PER_KIND_MAX
         )
       )
+      const pool = Math.min(n * SEARCH_POOL_FACTOR, SEARCH_POOL_MAX)
       // An empty/absent types array means all kinds; a non-empty one filters.
       const want = (t: "messages" | "attachments" | "sources") =>
         !types || types.length === 0 || types.includes(t)
@@ -700,7 +707,7 @@ export const searchTools = {
           ? searchMessages(
               context.workspaceId,
               query,
-              n,
+              pool,
               context.privateContainerChannelId ?? null
             ).catch(() => [])
           : [],
@@ -708,23 +715,54 @@ export const searchTools = {
           ? searchAttachments(
               context.workspaceId,
               query,
-              n,
+              pool,
               context.privateContainerChannelId ?? null
             ).catch(() => [])
           : [],
         want("sources")
-          ? searchSourceSummaries(context.workspaceId, query, n).catch(() => [])
+          ? searchSourceSummaries(context.workspaceId, query, pool).catch(
+              () => []
+            )
           : [],
       ])
-      return [
-        ...messages.map((m) => ({ type: "message" as const, ...m })),
-        ...attachments.map((a) => ({ type: "attachment" as const, ...a })),
+      const candidates = [
+        ...messages.map((m) => ({
+          result: { type: "message" as const, ...m },
+          document: m.text,
+        })),
+        ...attachments.map((a) => ({
+          result: { type: "attachment" as const, ...a },
+          document: `${a.filename}\n${a.text}`,
+        })),
         ...sources.map((s) => ({
-          type: "source" as const,
-          hasMore: true,
-          ...s,
+          result: { type: "source" as const, hasMore: true, ...s },
+          document: `${s.title}\n${s.summary}`,
         })),
       ]
+      // One rerank over every kind orders results by relevance and drops
+      // weak matches, so a search with no real answer returns nothing. On
+      // failure, each kind keeps its own order and nothing is dropped.
+      const ranking = await rerankTexts({
+        workspaceId: context.workspaceId,
+        query,
+        documents: candidates.map((c) => c.document),
+        onUsage: context.onUsage,
+      })
+      const ordered = ranking
+        ? ranking
+            .filter((r) => r.score >= RERANK_MIN_SCORE)
+            .map((r) => candidates[r.index])
+        : candidates
+      const perKind = new Map<string, number>()
+      const results = []
+      for (const candidate of ordered) {
+        if (!candidate) continue
+        const kept = perKind.get(candidate.result.type) ?? 0
+        if (kept >= n) continue
+        perKind.set(candidate.result.type, kept + 1)
+        results.push(candidate.result)
+      }
+      return results
     },
     strict: true,
   }),
@@ -898,7 +936,8 @@ function coreToolsContext(
   workspaceId: string,
   scope: LorRunScope,
   onWrite?: (e: BrainWriteEvent) => void,
-  onProposal?: (e: InstructionsProposalEvent) => void | Promise<void>
+  onProposal?: (e: InstructionsProposalEvent) => void | Promise<void>,
+  onUsage?: OnUsage
 ) {
   // Brain reads/search admit the run's scoped nodes; message retrieval may
   // reach the run's own private container. See resolveLorRunScope.
@@ -908,7 +947,7 @@ function coreToolsContext(
     privateContainerChannelId: scope.privateContainerChannelId,
   }
   return {
-    search: retrieval,
+    search: { ...retrieval, onUsage },
     read_thread: retrieval,
     view_image: retrieval,
     read_attachment: retrieval,
@@ -2016,7 +2055,8 @@ export async function respond(
         ctx.workspaceId,
         runScope,
         onMemoryWritten,
-        onInstructionsProposal
+        onInstructionsProposal,
+        onUsage
       ),
       ...(ctx.channelId
         ? {
@@ -2699,7 +2739,8 @@ export async function writeBack(
       ctx.workspaceId,
       writeBackScope,
       onMemoryWritten,
-      onInstructionsProposal
+      onInstructionsProposal,
+      onUsage
     ),
     stopWhen: isStepCount(WRITEBACK_MAX_STEPS),
     timeout: { totalMs: WRITEBACK_TIMEOUT_MS },

@@ -42,6 +42,11 @@ const modelConfig = {
     id: env.LOR_EMBED_MODEL,
     dimensions: LOR_EMBED_DIMENSIONS,
   },
+  rerank: {
+    id: env.LOR_RERANK_MODEL,
+    enabled: env.LOR_RERANK_ENABLED,
+    minScore: env.LOR_RERANK_MIN_SCORE,
+  },
 } as const
 
 const gatewayTransport = createTransport(modelConfig.gateway)
@@ -59,6 +64,11 @@ export const lorModel = gatewayTransport.languageModel(LOR_MODEL)
 export const lorSmallModel = gatewayTransport.languageModel(LOR_SMALL_MODEL)
 export const lorEmbeddingModel =
   gatewayTransport.textEmbeddingModel(LOR_EMBED_MODEL)
+
+export const LOR_RERANK_MODEL = modelConfig.rerank.id
+export const LOR_RERANK_ENABLED = modelConfig.rerank.enabled
+export const LOR_RERANK_MIN_SCORE = modelConfig.rerank.minScore
+export const lorRerankModel = gatewayTransport.rerankingModel(LOR_RERANK_MODEL)
 
 export const mainGatewayOptions = {
   caching: "auto" as const,
