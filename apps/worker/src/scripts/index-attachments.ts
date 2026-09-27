@@ -58,8 +58,10 @@ if (process.argv.includes("--reindex-documents")) {
 }
 
 const totals = { inputTokens: 0, outputTokens: 0, costEvents: 0 }
-// Awaited before exit so the last usage rows are not lost.
+// Drained after each page and before exit, so usage rows are not lost and
+// settled promises are not kept for the whole scan.
 const recorded: Promise<void>[] = []
+const drainUsage = () => Promise.allSettled(recorded.splice(0))
 const usageFor =
   (messageId: string | null, channelId: string | null): OnUsage =>
   (u) => {
@@ -121,12 +123,13 @@ for (;;) {
       })
     )
   }
+  await drainUsage()
   console.log(`messages checked: ${processed} (failed: ${failed})`)
   cursor = batch[batch.length - 1] ?? null
 }
 
 const pending = await embedPendingChunks(workspaceId, usageFor(null, null))
-await Promise.allSettled(recorded)
+await drainUsage()
 console.log(
   `done: ${processed} messages checked, ${failed} failed; ${pending.embedded} pending chunks embedded, ${pending.failed} failed; ${totals.costEvents} model calls, ${totals.inputTokens} input / ${totals.outputTokens} output tokens`
 )

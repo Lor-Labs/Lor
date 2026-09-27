@@ -82,7 +82,8 @@ export type MessageLocation = {
 }
 
 // A message never moves, so its location caches for the session. null = not
-// found or not accessible; other failures throw so they are not cached.
+// found. Other failures throw so they are not cached, including 403: access
+// can be granted later in the session.
 function locationQuery(workspaceSlug: string, messageId: string) {
   return {
     queryKey: ["message-location", workspaceSlug, messageId],
@@ -90,7 +91,7 @@ function locationQuery(workspaceSlug: string, messageId: string) {
       const res = await apiClient.v1.workspaces[":workspaceSlug"].messages[
         ":messageId"
       ].$get({ param: { workspaceSlug, messageId } })
-      if (res.status === 404 || res.status === 403) return null
+      if (res.status === 404) return null
       if (!res.ok) throw new Error(`message lookup failed: ${res.status}`)
       return await res.json()
     },
