@@ -3,9 +3,13 @@ import { and, db, eq, schema } from "@repo/db"
 import { tool } from "ai"
 import { z } from "zod"
 import { notionCall } from "./providers/notion"
+import { rerankItems } from "./rerank"
+import type { OnUsage } from "./usage"
 
 const SEARCH_DEFAULT = 10
 const SEARCH_MAX = 25
+// Notion's search API caps page_size at 100.
+const SEARCH_PAGE_MAX = 100
 const QUERY_DEFAULT = 20
 const QUERY_MAX = 50
 const COMMENT_MAX = 50
@@ -141,7 +145,10 @@ export const notionTools = {
       kind: z.enum(["all", "page", "data_source"]).default("all"),
       limit: z.number().int().min(1).max(SEARCH_MAX).default(SEARCH_DEFAULT),
     }),
-    contextSchema: notionContext,
+    contextSchema: notionContext.extend({
+      workspaceId: z.string().optional(),
+      onUsage: z.custom<OnUsage>().optional(),
+    }),
     execute: async ({ query, kind, limit }, { context }) => {
       const response = await notionCall(context.externalId, (client) =>
         client.search({
@@ -161,11 +168,23 @@ export const notionTools = {
                 timestamp: "last_edited_time" as const,
                 direction: "descending" as const,
               },
-          page_size: limit,
+          // A keyword search fetches extra hits for the reranker.
+          page_size: query ? Math.min(limit * 2, SEARCH_PAGE_MAX) : limit,
         })
       )
       if (!response) return { error: "Notion search failed" }
-      return { results: response.results.map(notionSearchHit) }
+      const hits = response.results.map(notionSearchHit)
+      if (!query) return { results: hits }
+      return {
+        results: await rerankItems({
+          workspaceId: context.workspaceId,
+          query,
+          items: hits,
+          toText: (h) => `${h.kind ?? ""}: ${h.title ?? ""}`,
+          limit,
+          onUsage: context.onUsage,
+        }),
+      }
     },
   }),
 

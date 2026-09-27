@@ -6,6 +6,8 @@ import {
   fetchAttioCallRecording,
   formatAttioTranscript,
 } from "./providers/attio"
+import { rerankItems } from "./rerank"
+import type { OnUsage } from "./usage"
 
 const SEARCH_DEFAULT = 10
 const SEARCH_MAX = 25
@@ -174,7 +176,10 @@ export const attioTools = {
         .describe("optional object slugs/ids; omit to search every object"),
       limit: z.number().optional().describe("max results, 1–25 (default 10)"),
     }),
-    contextSchema: attioContext,
+    contextSchema: attioContext.extend({
+      workspaceId: z.string().optional(),
+      onUsage: z.custom<OnUsage>().optional(),
+    }),
     execute: async ({ query, objects, limit }, { context }) => {
       let targets = objects?.filter(Boolean) ?? []
       if (targets.length === 0) {
@@ -202,13 +207,21 @@ export const attioTools = {
             query,
             objects: targets,
             request_as: { type: "workspace" },
-            limit: n,
+            limit: Math.min(n * 2, SEARCH_MAX),
           }),
         }
       )
       if (!response) return { error: "Attio search failed" }
       return {
-        results: asArray(response.data).map((item) => attioSearchResult(item)),
+        results: await rerankItems({
+          workspaceId: context.workspaceId,
+          query,
+          items: asArray(response.data).map((item) => attioSearchResult(item)),
+          toText: (r) =>
+            `${r.object ?? ""}: ${r.title ?? ""}\n${JSON.stringify(r.data).slice(0, 800)}`,
+          limit: n,
+          onUsage: context.onUsage,
+        }),
       }
     },
   }),

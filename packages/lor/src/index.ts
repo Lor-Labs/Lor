@@ -1717,7 +1717,8 @@ async function buildRunContext(
         ctx.workspaceId,
         embedded.embedding,
         PREFETCH_LIMIT,
-        runScope.memoryScopeChannelId
+        runScope.memoryScopeChannelId,
+        { query: question, onUsage }
       )
       if (hits.length > 0) {
         brainContext = `\n\nRelevant notes from your brain:\n\n${hits
@@ -2070,7 +2071,7 @@ export async function respond(
         : {}),
       ...(github
         ? {
-            search_github: github,
+            search_github: { ...github, workspaceId: ctx.workspaceId, onUsage },
             fetch_github: github,
             investigate_code: {
               workspaceId: ctx.workspaceId,
@@ -2178,7 +2179,7 @@ export async function respond(
         : {}),
       ...(linear
         ? {
-            search_linear: linear,
+            search_linear: { ...linear, workspaceId: ctx.workspaceId, onUsage },
             list_linear_issues: linear,
             fetch_linear: linear,
             create_linear_issue: linear,
@@ -2188,7 +2189,7 @@ export async function respond(
         : {}),
       ...(attio
         ? {
-            search_attio: attio,
+            search_attio: { ...attio, workspaceId: ctx.workspaceId, onUsage },
             fetch_attio_record: attio,
             query_attio: attio,
             fetch_attio_activity: attio,
@@ -2196,7 +2197,7 @@ export async function respond(
         : {}),
       ...(notion
         ? {
-            search_notion: notion,
+            search_notion: { ...notion, workspaceId: ctx.workspaceId, onUsage },
             fetch_notion_page: notion,
             query_notion_data_source: notion,
             list_notion_users: notion,

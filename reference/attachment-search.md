@@ -425,7 +425,7 @@ Done when:
   - A bad model id still returns results (fail open).
   - The ledger shows `lor.rerank` rows with `debitStatus = free`.
 
-### Step 6 — reranker for brain prefetch + connector searches (~250 LOC) — [ ]
+### Step 6 — reranker for brain prefetch + connector searches (~250 LOC) — [x] built 2026-09-26, uncommitted. check + check-types pass. Brain prefetch live-tested on the dev workspace. The connector searches are not live-tested: the dev database's connector tokens cannot be decrypted locally.
 
 Goal: the automatic brain context and the connector search tools also return
 reranked results.
@@ -740,3 +740,33 @@ These notes are here so that later agents do not repeat the research.
   - Observed: for "how much did we pay Twilio", the 12 monthly bank
     statements (0.62–0.67) fill the attachment slots ahead of the
     Transactions and P&L sheets. That ranking is defensible; watch it in use.
+- 2026-09-26, Step 6:
+  - Brain prefetch applies the relevance cutoff (0.45), not just a reorder.
+    On the dev workspace, before the change, every run injected the 3
+    nearest pages even when unrelated. Now:
+    - Unrelated questions inject none (top scores 0.21–0.43).
+    - Related questions keep exactly their page (campaign → /glossary/
+      campaign, PostHog signups → /integrations/posthog-signups, mobile
+      launch → its overview).
+    - The rerank adds about 0.5–0.6 s to the prefetch. The existing prefetch
+      timing log covers it.
+  - Connector `search_*` tools only reorder, with no cutoff. The model asked
+    for these results, and the text can be thin (Notion search matches
+    titles only), so a cutoff could drop real hits. Details:
+    - `search_notion` reranks only when a query is given. With no query it
+      lists pages by edit time. It fetches up to 2 × limit (page_size cap
+      100).
+    - `search_github` fetches 2 × limit: GitHub orders keyword matches by
+      last update, not relevance.
+    - `search_linear` reranks the first 2 × limit hits on title plus
+      description.
+    - `search_attio` fetches min(2 × limit, 25) and reranks on object, title,
+      and the record JSON (first 800 chars). Attio's own search limit cap is
+      not verified, so the tool's existing 25 max is kept.
+  - The connector search contexts take an optional `workspaceId` and
+    `onUsage`. Without `workspaceId`, `rerankItems` keeps the provider order.
+    That keeps the existing `attio.test.ts` and `notion.test.ts` compiling
+    without test edits. `respond()` and `project-archive.ts` both bind
+    `workspaceId` and `onUsage`.
+  - `eval/harness.ts` still calls `searchBrain` without rerank, so the eval
+    measures vector-only retrieval.
