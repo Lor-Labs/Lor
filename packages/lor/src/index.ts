@@ -51,10 +51,11 @@ import { searchAttachments } from "./attachments/search"
 import { attioTools, resolveWorkspaceAttio } from "./attio"
 import {
   type BrainWriteEvent,
+  brainCandidates,
+  brainPageDetails,
   brainReadTools,
   brainWriteTools,
   pageExists,
-  searchBrain,
 } from "./brain"
 import {
   type ChannelToolGrants,
@@ -158,7 +159,8 @@ const SEARCH_PER_KIND_MAX = 15
 // Each backend returns a wider pool for the reranker to choose from.
 const SEARCH_POOL_FACTOR = 3
 const SEARCH_POOL_MAX = 30
-const PREFETCH_LIMIT = 3
+// Memory hits carry most of their page; `read` returns the rest.
+const MEMORY_BODY_MAX = 3000
 const SNIPPET_MAX = 500
 // read_thread window size — a page, not a cap: omitted counts + before/after
 // cursors expose the rest of the thread instead of silently dropping it.
@@ -202,7 +204,7 @@ const SYSTEM_PROMPT_TAIL = `You can also see images people share in the channel 
 
 How to answer:
 - Work on the current request in the active conversation only. Earlier requests from other threads or channel background are reference material, not unfinished assignments, even if you cannot see their replies or resolution. Use them only when relevant to the current request; do not add their deliverables to the current request or resume them unless the user asks. The same applies to requests found in brain notes and search results.
-- For questions about THIS team/workspace, check your brain first, then use search for anything it doesn't cover — it also finds screenshots and files people shared by what they contain, and read_attachment reads more of a shared file than the search snippet. Ground your answer in what you find; note who said it and roughly when. Cite your sources inline in double brackets: a brain page by its exact path, e.g. [[/decisions/auth]]; a specific message by its id, e.g. [[msg:0b9c…]]; or a connected-tool source by its id, e.g. [[src:0b9c…]]. If nothing turns up, say you don't have it in memory yet — never invent specifics or cite pages, messages, or sources you didn't read.
+- For questions about THIS team/workspace, use search: it covers your memory pages (your brain) as well as chat history, screenshots and files people shared (by what they contain), and connected-tool activity. Nothing from your brain is preloaded, so search whenever the team's own context could matter. read opens a full memory page, and read_attachment reads more of a shared file than the search snippet. Ground your answer in what you find; note who said it and roughly when. Cite your sources inline in double brackets: a brain page by its exact path, e.g. [[/decisions/auth]]; a specific message by its id, e.g. [[msg:0b9c…]]; or a connected-tool source by its id, e.g. [[src:0b9c…]]. If nothing turns up, say you don't have it in memory yet — never invent specifics or cite pages, messages, or sources you didn't read.
 - For general questions (how-to, definitions, quick help), just answer directly; no lookup needed.
 
 Use reactions naturally and sparingly to complement your response. Always still answer in text, and don't narrate the reaction or mention the tool use.
@@ -669,16 +671,35 @@ async function searchSourceSummaries(
   return searchSources(workspaceId, await embedSourceQuery(query), limit)
 }
 
+// Memory (brain) pages by meaning, admitting the run's scoped pages the same
+// way brain reads do.
+async function searchMemoryPages(
+  workspaceId: string,
+  query: string,
+  limit: number,
+  scopeChannelId: string | null,
+  onUsage?: OnUsage
+) {
+  const embedded = await embedBrainQueryWithUsage(query)
+  onUsage?.({
+    workspaceId,
+    tool: "lor.embed",
+    model: embedded.model,
+    inputTokens: embedded.tokens,
+  })
+  return brainCandidates(workspaceId, embedded.embedding, limit, scopeChannelId)
+}
+
 // Shared with the archive-synthesis path (project-archive.ts), which builds
 // its own bounded toolset instead of going through respond().
 export const searchTools = {
   search: tool({
     description:
-      "Search the team's knowledge in one place: its chat message history (exact/keyword match), screenshots and files shared in chat (keyword + semantic match on their contents), and the summarized activity of connected integrations like GitHub and Linear (semantic match). Pass a short natural-language query or phrase. Results are tagged with `type`: a `message` comes back with its full text — cite it as [[msg:<id>]]; an `attachment` comes back with `text`, a machine transcription of the image or the file's extracted text, which can contain misreads, and for documents a `location` (page, slide, sheet, or part) — call read_attachment with its url to read more of a document around that location, call view_image with its url before quoting exact values from an image, and cite the message that shared it as [[msg:<messageId>]]; a `source` comes back as a summary with `hasMore: true` — call fetch_source with its id for the full body, and cite it as [[src:<id>]] (don't paste its url). Pass `types` to search only some kinds. Call repeatedly with different queries to investigate.",
+      "Search the team's knowledge in one place: your memory pages (your brain), its chat message history (exact/keyword match), screenshots and files shared in chat (keyword + semantic match on their contents), and the summarized activity of connected integrations like GitHub and Linear (semantic match). Results are ranked by relevance, and weak matches are dropped, so an empty result means nothing relevant was found. Pass a short natural-language query or phrase. Results are tagged with `type`: a `memory` result is one of your memory pages with its `path` and `text` — cite it as [[<path>]], and call read with the path when `truncated` is true; a `message` comes back with its full text — cite it as [[msg:<id>]]; an `attachment` comes back with `text`, a machine transcription of the image or the file's extracted text, which can contain misreads, and for documents a `location` (page, slide, sheet, or part) — call read_attachment with its url to read more of a document around that location, call view_image with its url before quoting exact values from an image, and cite the message that shared it as [[msg:<messageId>]]; a `source` comes back as a summary with `hasMore: true` — call fetch_source with its id for the full body, and cite it as [[src:<id>]] (don't paste its url). Pass `types` to search only some kinds. Call repeatedly with different queries to investigate.",
     inputSchema: z.object({
       query: z.string().describe("a short natural-language query or phrase"),
       types: z
-        .array(z.enum(["messages", "attachments", "sources"]))
+        .array(z.enum(["memory", "messages", "attachments", "sources"]))
         .optional()
         .describe("limit to these kinds of result (default: all)"),
       limit: z
@@ -687,6 +708,8 @@ export const searchTools = {
         .describe("max results of each kind, 1–15 (default 6)"),
     }),
     contextSchema: workspaceContext.extend({
+      // Brain scope (see resolveLorRunScope); null = workspace-wide pages only.
+      memoryScopeChannelId: z.string().nullable().optional(),
       onUsage: z.custom<OnUsage>().optional(),
     }),
     execute: async ({ query, types, limit }, { context }) => {
@@ -698,11 +721,20 @@ export const searchTools = {
       )
       const pool = Math.min(n * SEARCH_POOL_FACTOR, SEARCH_POOL_MAX)
       // An empty/absent types array means all kinds; a non-empty one filters.
-      const want = (t: "messages" | "attachments" | "sources") =>
+      const want = (t: "memory" | "messages" | "attachments" | "sources") =>
         !types || types.length === 0 || types.includes(t)
       // Each backend is isolated: one failing (e.g. the embedding call) still
       // returns the rest rather than failing the whole search.
-      const [messages, attachments, sources] = await Promise.all([
+      const [memory, messages, attachments, sources] = await Promise.all([
+        want("memory")
+          ? searchMemoryPages(
+              context.workspaceId,
+              query,
+              pool,
+              context.memoryScopeChannelId ?? null,
+              context.onUsage
+            ).catch(() => [])
+          : [],
         want("messages")
           ? searchMessages(
               context.workspaceId,
@@ -726,6 +758,10 @@ export const searchTools = {
           : [],
       ])
       const candidates = [
+        ...memory.map((p) => ({
+          result: { type: "memory" as const, nodeId: p.id, body: p.body },
+          document: `${p.name}\n${p.body}`,
+        })),
         ...messages.map((m) => ({
           result: { type: "message" as const, ...m },
           document: m.text,
@@ -762,7 +798,23 @@ export const searchTools = {
         perKind.set(candidate.result.type, kept + 1)
         results.push(candidate.result)
       }
-      return results
+      // Page paths and links are resolved only for the memory pages kept.
+      return Promise.all(
+        results.map(async (r) => {
+          if (r.type !== "memory") return r
+          const { path, links } = await brainPageDetails(
+            context.workspaceId,
+            r.nodeId
+          )
+          return {
+            type: "memory" as const,
+            path,
+            text: r.body.slice(0, MEMORY_BODY_MAX),
+            truncated: r.body.length > MEMORY_BODY_MAX,
+            ...(links.length > 0 ? { links } : {}),
+          }
+        })
+      )
     },
     strict: true,
   }),
@@ -947,7 +999,11 @@ function coreToolsContext(
     privateContainerChannelId: scope.privateContainerChannelId,
   }
   return {
-    search: { ...retrieval, onUsage },
+    search: {
+      ...retrieval,
+      memoryScopeChannelId: scope.memoryScopeChannelId,
+      onUsage,
+    },
     read_thread: retrieval,
     view_image: retrieval,
     read_attachment: retrieval,
@@ -1136,6 +1192,7 @@ export function toolDetail(
         title:
           asString(r?.title) ??
           asString(r?.filename) ??
+          asString(r?.path) ??
           asString(r?.text)?.slice(0, 80) ??
           "untitled",
         url: asString(r?.url),
@@ -1167,6 +1224,7 @@ export function toolDetail(
         items.filter((it) => asRecord(it)?.type === type).length
       const groups = (
         [
+          ["memory page", count("memory")],
           ["message", count("message")],
           ["attachment", count("attachment")],
           ["source", count("source")],
@@ -1689,59 +1747,11 @@ export function toolDetail(
   }
 }
 
-// Brain prefetch + mention roster, captured (with the conversation snapshot)
+// Mention roster and channel name, captured (with the conversation snapshot)
 // as the durable step-0 context, so a recovered run replays the exact same
-// initial request — no re-query drift, no double embed billing.
-async function buildRunContext(
-  ctx: RespondContext,
-  runScope: LorRunScope,
-  onUsage?: OnUsage
-): Promise<AgentRunContext> {
-  const trigger = ctx.triggerMessageId
-    ? ctx.conversation.find((turn) => turn.messageId === ctx.triggerMessageId)
-    : undefined
-  const question =
-    (trigger ?? ctx.conversation[ctx.conversation.length - 1])?.content ?? ""
-  let brainContext = ""
-  if (question.trim()) {
-    const prefetchStart = performance.now()
-    try {
-      const embedded = await embedBrainQueryWithUsage(question)
-      onUsage?.({
-        workspaceId: ctx.workspaceId,
-        tool: "lor.embed",
-        model: embedded.model,
-        inputTokens: embedded.tokens,
-      })
-      const hits = await searchBrain(
-        ctx.workspaceId,
-        embedded.embedding,
-        PREFETCH_LIMIT,
-        runScope.memoryScopeChannelId,
-        { query: question, onUsage }
-      )
-      if (hits.length > 0) {
-        brainContext = `\n\nRelevant notes from your brain:\n\n${hits
-          .map((h) => {
-            const links = h.links.length
-              ? `\nLinked: ${h.links
-                  .map(
-                    (l) =>
-                      `${l.type} ${l.direction === "out" ? "→" : "←"} ${l.path}`
-                  )
-                  .join("; ")}`
-              : ""
-            return `## ${h.path}\n${h.body}${links}`
-          })
-          .join("\n\n")}`
-      }
-    } catch {}
-    logger.info(
-      { ms: Math.round(performance.now() - prefetchStart) },
-      "Lor brain prefetch timing"
-    )
-  }
-
+// initial request. Brain pages are not injected: Lor retrieves them through
+// `search` when a question needs them.
+async function buildRunContext(ctx: RespondContext): Promise<AgentRunContext> {
   // Roster of teammates Lor can @-mention. Rendered with their exact
   // <@id> token so Lor's mentions fan out and highlight like a person's.
   const roster = await db
@@ -1788,7 +1798,6 @@ async function buildRunContext(
       : {}),
     ...(ctx.threadRootId ? { threadRootId: ctx.threadRootId } : {}),
     ...(ctx.triggerMessageId ? { triggerMessageId: ctx.triggerMessageId } : {}),
-    brainContext,
     rosterText,
     ...(channelName ? { channelName } : {}),
     ...(ctx.plan ? { plan: planContextSnapshot(ctx.plan) } : {}),
@@ -2295,7 +2304,7 @@ export async function respond(
       resumeLastInputTokens = run.resume.lastInputTokens
     } else {
       const [context, workspaceInstructions] = await Promise.all([
-        buildRunContext(ctx, runScope, onUsage),
+        buildRunContext(ctx),
         loadWorkspaceInstructions(ctx.workspaceId),
       ])
       instructions = `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}${context.rosterText ? `\n\n${MENTION_GUIDANCE}` : ""}${workspaceInstructions ? `\n\n${formatInstructionsBlock(workspaceInstructions)}` : ""}${ctx.plan || ctx.threadRootId ? `\n\n${planRulesSection(artifactsEnabled, !!ctx.plan)}` : ""}${ctx.triggered ? `\n\n${ctx.triggered.loop ? loopPromptSection({ ...ctx.triggered, loop: ctx.triggered.loop }) : triggeredPromptSection(ctx.triggered)}` : ""}`

@@ -425,7 +425,7 @@ Done when:
   - A bad model id still returns results (fail open).
   - The ledger shows `lor.rerank` rows with `debitStatus = free`.
 
-### Step 6 — reranker for brain prefetch + connector searches (~250 LOC) — [x] built 2026-09-26, uncommitted. check + check-types pass. Brain prefetch live-tested on the dev workspace. The connector searches are not live-tested: the dev database's connector tokens cannot be decrypted locally.
+### Step 6 — reranker for brain prefetch + connector searches (~250 LOC) — [x] built 2026-09-26, uncommitted. check + check-types pass. Brain prefetch live-tested on the dev workspace; the prefetch was then removed in Step 6b. The connector searches are not live-tested: the dev database's connector tokens cannot be decrypted locally.
 
 Goal: the automatic brain context and the connector search tools also return
 reranked results.
@@ -450,6 +450,53 @@ Done when:
   - The prefetch picks the right page when several pages share keywords.
   - Loosely worded Notion and Linear searches return the relevant item first.
   - The prefetch log shows that the added rerank time stays small.
+
+### Step 6b — memory in `search`, brain prefetch removed (~150 LOC) — [x] built 2026-09-27, uncommitted. check + check-types pass. Live QA via direct `search` calls on the dev workspace.
+
+Why (user review, 2026-09-27): every Lor run used to inject up to 3 brain
+pages into its opening message before the model decided anything. Each run
+replaced them, so they never stacked up. But even with the Step 6 cutoff, it
+put unrequested notes in front of the model as if they were established
+context, and it cost tokens on every run. Agentic retrieval — the model
+searches when the question calls for it — is the stronger pattern. But the
+prefetch was the only way to search the brain by meaning (`ls`, `tree`, and
+`read` browse by path), so memory had to move into `search` first.
+
+As built:
+- `packages/lor/src/brain.ts`:
+  - `searchBrain` is split into `brainCandidates` (vector pool: id, name,
+    body) and `brainPageDetails` (path and links for one page).
+  - `searchBrain` stays as a thin wrapper for `eval/harness.ts`.
+  - The Step 6 rerank option on `searchBrain` is removed.
+- `packages/lor/src/index.ts`:
+  - `search` gains the kind `memory`. It embeds the query with the brain
+    query instruction, records `lor.embed` usage, and pools pages admitted
+    by the run's memory scope (`memoryScopeChannelId` in the search
+    context).
+  - Memory pages join the one rerank and cutoff with the other kinds.
+  - Paths and links are resolved only for kept pages. Each result is
+    `{ type: "memory", path, text (≤ 3,000 chars), truncated, links? }`.
+  - `buildRunContext` no longer prefetches. The tool description, the
+    system prompt line, and the initial-message directive say memory is
+    reached through `search` and nothing is preloaded.
+  - `toolDetail` counts memory pages, and `toItems` shows their path.
+- `packages/lor/src/project-archive.ts` — `search` gets the memory scope
+  and `onUsage`.
+- `packages/db/src/schemas/agent-runs.ts` — `AgentRunContext.brainContext`
+  is now optional. It is a TypeScript type over jsonb, so no db:push. Runs
+  saved before this change still replay their injected notes.
+- `packages/lor/src/rerank.ts` — `rerankItems` loses its `minScore` option,
+  now unused (only connector searches call it, and they only reorder).
+
+Live QA (dev workspace, 4 pages):
+- "what does a campaign mean in our product" → `/glossary/campaign` first,
+  then 4 messages and the original screenshot.
+- "how are posthog signups tracked" → `/integrations/posthog-signups`
+  first, then 6 related messages.
+- "what's our favorite pizza topping" → no results.
+- Not yet checked: whether Lor searches on its own for questions that need
+  team memory but do not sound team-specific. Watch real chats for answers
+  that miss a memory page.
 
 ### Step 7 — image vectors (deferred, ~350 LOC) — [ ]
 
@@ -490,7 +537,7 @@ Done when:
 
 ## Step order
 
-1 → 2 → 3 → 4a → 5 → 6. Steps 4b and 7 run only when their triggers fire.
+1 → 2 → 3 → 4a → 5 → 6 → 6b. Steps 4b and 7 run only when their triggers fire.
 
 Steps 5–6 do not depend on Steps 3–4. They can move ahead if search quality
 becomes the bigger problem.

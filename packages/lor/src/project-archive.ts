@@ -229,7 +229,11 @@ export async function synthesizeProjectArchive(
       privateContainerChannelId: runScope.privateContainerChannelId,
     }
     const toolsContext = {
-      search: retrieval,
+      search: {
+        ...retrieval,
+        memoryScopeChannelId: runScope.memoryScopeChannelId,
+        onUsage,
+      },
       read_thread: retrieval,
       view_image: retrieval,
       read_attachment: retrieval,

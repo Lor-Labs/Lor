@@ -56,17 +56,16 @@ export async function rerankTexts({
   }
 }
 
-// The best `limit` items, reranked. With minScore, weak items are dropped;
-// without it (connector searches the model asked for, where titles can be
-// thin), items are only reordered. With no workspace to meter against, or on
-// fail-open, the first `limit` items in their original order.
+// The best `limit` items, reordered by relevance with no cutoff: connector
+// searches the model asked for, where titles can be too thin to score well.
+// With no workspace to meter against, or on fail-open, the first `limit`
+// items in their original order.
 export async function rerankItems<T>({
   workspaceId,
   query,
   items,
   toText,
   limit,
-  minScore,
   onUsage,
 }: {
   workspaceId: string | undefined
@@ -74,7 +73,6 @@ export async function rerankItems<T>({
   items: T[]
   toText: (item: T) => string
   limit: number
-  minScore?: number
   onUsage?: OnUsage
 }): Promise<T[]> {
   if (!workspaceId) return items.slice(0, limit)
@@ -85,11 +83,8 @@ export async function rerankItems<T>({
     onUsage,
   })
   if (!ranking) return items.slice(0, limit)
-  return ranking
-    .filter((r) => minScore === undefined || r.score >= minScore)
-    .slice(0, limit)
-    .flatMap((r) => {
-      const item = items[r.index]
-      return item === undefined ? [] : [item]
-    })
+  return ranking.slice(0, limit).flatMap((r) => {
+    const item = items[r.index]
+    return item === undefined ? [] : [item]
+  })
 }

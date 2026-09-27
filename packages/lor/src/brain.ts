@@ -14,13 +14,8 @@ import { tool } from "ai"
 import { z } from "zod"
 import { embedDocument } from "./embeddings"
 import { logger } from "./logger"
-import { RERANK_MIN_SCORE, rerankItems } from "./rerank"
-import type { OnUsage } from "./usage"
 
 const TREE_DEFAULT_DEPTH = 2
-// With a rerank query, this many nearest pages are reranked down to `limit`.
-const RERANK_POOL = 12
-const RERANK_BODY_CHARS = 1800
 const TREE_MAX_DEPTH = 4
 
 type NodeKind = "folder" | "page"
@@ -306,19 +301,16 @@ async function pageLinks(
   return links
 }
 
-// With `rerank`, a wider vector pool is reranked against the question and
-// pages below the relevance cutoff are dropped, so an unrelated page is not
-// injected just for being the nearest vector. Paths and links are computed
-// only for the kept pages.
-export async function searchBrain(
+// Nearest active pages by vector. `search` reranks these with every other
+// kind of result, then resolves paths only for the pages it keeps.
+export async function brainCandidates(
   workspaceId: string,
   queryEmbedding: number[],
   limit: number,
-  scopeChannelId: MemoryScope = null,
-  rerank?: { query: string; onUsage?: OnUsage }
-): Promise<{ path: string; body: string; links: BrainLink[] }[]> {
+  scopeChannelId: MemoryScope = null
+): Promise<{ id: string; name: string; body: string }[]> {
   const distance = cosineDistance(schema.brainNode.embedding, queryEmbedding)
-  const pool = await db
+  const rows = await db
     .select({
       id: schema.brainNode.id,
       name: schema.brainNode.name,
@@ -335,26 +327,37 @@ export async function searchBrain(
       )
     )
     .orderBy(distance)
-    .limit(rerank ? Math.max(RERANK_POOL, limit) : limit)
-  const rows = rerank
-    ? await rerankItems({
-        workspaceId,
-        query: rerank.query,
-        items: pool,
-        toText: (r) =>
-          `${r.name}\n${(r.body ?? "").slice(0, RERANK_BODY_CHARS)}`,
-        limit,
-        minScore: RERANK_MIN_SCORE,
-        onUsage: rerank.onUsage,
-      })
-    : pool
+    .limit(limit)
+  return rows.map((r) => ({ ...r, body: r.body ?? "" }))
+}
 
+export async function brainPageDetails(
+  workspaceId: string,
+  nodeId: string
+): Promise<{ path: string; links: BrainLink[] }> {
+  return {
+    path: await pagePath(nodeId),
+    links: await pageLinks(workspaceId, nodeId),
+  }
+}
+
+export async function searchBrain(
+  workspaceId: string,
+  queryEmbedding: number[],
+  limit: number,
+  scopeChannelId: MemoryScope = null
+): Promise<{ path: string; body: string; links: BrainLink[] }[]> {
+  const rows = await brainCandidates(
+    workspaceId,
+    queryEmbedding,
+    limit,
+    scopeChannelId
+  )
   const results: { path: string; body: string; links: BrainLink[] }[] = []
   for (const r of rows) {
     results.push({
-      path: await pagePath(r.id),
-      body: r.body ?? "",
-      links: await pageLinks(workspaceId, r.id),
+      body: r.body,
+      ...(await brainPageDetails(workspaceId, r.id)),
     })
   }
   return results
