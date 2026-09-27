@@ -5,6 +5,8 @@ use tauri::{
     AppHandle, Emitter,
 };
 
+mod restart;
+
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 use tauri::menu::PredefinedMenuItem;
 #[cfg(target_os = "linux")]
@@ -74,6 +76,7 @@ fn desktop_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .invoke_handler(tauri::generate_handler![restart::restart_app])
         .menu(desktop_menu)
         .on_menu_event(|app, event| {
             if event.id() == SETTINGS_MENU_ID {
