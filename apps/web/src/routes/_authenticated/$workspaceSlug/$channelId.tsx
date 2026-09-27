@@ -1,6 +1,7 @@
 import { Archive02Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
+import { toast } from "@repo/ui/components/toast"
 import { useIsMobile } from "@repo/ui/hooks/use-mobile"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
@@ -266,11 +267,12 @@ function ChannelView() {
   const navigateToMessageId = useMessageIdNavigation()
   const handleJumpToMessage = useCallback(
     (messageId: string) => {
-      void navigateToMessageId(messageId)
-        .catch(() => false)
-        .then((found) => {
+      void navigateToMessageId(messageId).then(
+        (found) => {
           if (!found) void navigate({ search: { msgId: messageId } })
-        })
+        },
+        () => toast.error("Couldn't load that message")
+      )
     },
     [navigate, navigateToMessageId]
   )

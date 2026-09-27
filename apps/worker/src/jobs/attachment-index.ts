@@ -8,12 +8,18 @@ export function createAttachmentIndexProcessor() {
   return (job: Job<AttachmentIndexJobData>) =>
     withContext(
       { jobId: job.id, jobName: job.name, channelId: job.data.channelId },
-      () => {
+      async () => {
         const { messageId, channelId } = job.data
-        // Metered at true cost, never debited, like connector ingestion.
-        return indexMessageAttachments(messageId, (u) => {
-          void recordUsage(u, { messageId, channelId })
-        })
+        // Metered at true cost, never debited, like connector ingestion. The
+        // job settles only after its usage rows are written, even on failure.
+        const recorded: Promise<void>[] = []
+        try {
+          await indexMessageAttachments(messageId, (u) => {
+            recorded.push(recordUsage(u, { messageId, channelId }))
+          })
+        } finally {
+          await Promise.allSettled(recorded)
+        }
       }
     )
 }

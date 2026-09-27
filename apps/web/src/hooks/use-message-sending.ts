@@ -47,6 +47,9 @@ export function useMessageSending({
   onSendFailed,
 }: UseMessageSendingOptions) {
   const pendingNonces = useRef(new Set<string>())
+  // A cancelled refetch is owed until every send has settled: running it while
+  // another send is unacknowledged could commit a snapshot without that send.
+  const refetchOwed = useRef(false)
 
   // Memoize so it's a stable reference across renders — otherwise the
   // useCallback deps below would invalidate every render.
@@ -175,7 +178,7 @@ export function useMessageSending({
         image: currentUser.image ?? null,
       }
 
-      let refetchAfterSend = cancelInFlightRefetch()
+      if (cancelInFlightRefetch()) refetchOwed.current = true
       prependToFirstPage(
         createOptimisticMessage(
           nonce,
@@ -201,7 +204,7 @@ export function useMessageSending({
           attachments,
         },
         (result) => {
-          if (cancelInFlightRefetch()) refetchAfterSend = true
+          if (cancelInFlightRefetch()) refetchOwed.current = true
           pendingNonces.current.delete(nonce)
           if (result.ok) {
             updateMessagesInCache((messages) =>
@@ -218,7 +221,8 @@ export function useMessageSending({
             )
             onSendFailed?.(nonce)
           }
-          if (refetchAfterSend) {
+          if (refetchOwed.current && pendingNonces.current.size === 0) {
+            refetchOwed.current = false
             void queryClient.invalidateQueries({
               queryKey: cacheKey,
               exact: true,

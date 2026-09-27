@@ -1137,9 +1137,13 @@ export function toolLabel(toolName: string, input: unknown): string {
     case "read_attachment": {
       const url = field("url")
       const basename = url?.split("/").at(-1)?.split("?")[0]
-      return basename
-        ? `Reading ${decodeURIComponent(basename)}`
-        : "Reading a file"
+      if (!basename) return "Reading a file"
+      // A malformed %-sequence must not throw out of label rendering.
+      try {
+        return `Reading ${decodeURIComponent(basename)}`
+      } catch {
+        return `Reading ${basename}`
+      }
     }
     case "fetch_source":
       return "Fetching a source"

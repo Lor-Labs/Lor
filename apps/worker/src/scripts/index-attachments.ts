@@ -58,13 +58,15 @@ if (process.argv.includes("--reindex-documents")) {
 }
 
 const totals = { inputTokens: 0, outputTokens: 0, costEvents: 0 }
+// Awaited before exit so the last usage rows are not lost.
+const recorded: Promise<void>[] = []
 const usageFor =
   (messageId: string | null, channelId: string | null): OnUsage =>
   (u) => {
     totals.inputTokens += u.inputTokens ?? 0
     totals.outputTokens += u.outputTokens ?? 0
     totals.costEvents++
-    void recordUsage(u, { messageId, channelId })
+    recorded.push(recordUsage(u, { messageId, channelId }))
   }
 
 type Candidate = { id: string; channelId: string; createdAt: Date }
@@ -124,6 +126,7 @@ for (;;) {
 }
 
 const pending = await embedPendingChunks(workspaceId, usageFor(null, null))
+await Promise.allSettled(recorded)
 console.log(
   `done: ${processed} messages checked, ${failed} failed; ${pending.embedded} pending chunks embedded, ${pending.failed} failed; ${totals.costEvents} model calls, ${totals.inputTokens} input / ${totals.outputTokens} output tokens`
 )
