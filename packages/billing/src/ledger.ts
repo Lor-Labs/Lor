@@ -41,6 +41,8 @@ const OPERATION_CLASS: Record<
   "lor.embed": "embedding",
   "source.summarize": "ingestion",
   "source.embed": "embedding",
+  "attachment.transcribe": "ingestion",
+  "attachment.embed": "embedding",
 }
 
 // Persist a ledger row and, for billable tools only, debit Autumn. A billable

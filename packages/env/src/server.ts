@@ -143,6 +143,16 @@ const serverSchema = z.object({
   LOR_WORKBENCH_DISK_MB: z.coerce.number().int().positive().default(8192),
   LOR_EMBED_MODEL: defaultedString("alibaba/qwen3-embedding-4b"),
   LOR_EMBED_DIMENSIONS: z.coerce.number().int().positive().default(2560),
+  // Reranks retrieval candidates; on by default, "false" turns it off.
+  LOR_RERANK_MODEL: defaultedString("voyage/rerank-2.5"),
+  LOR_RERANK_ENABLED: z.preprocess(
+    (v) => v !== "false" && v !== "0",
+    z.boolean()
+  ),
+  // Results scoring below this are dropped. rerank-2.5 scored real answers
+  // 0.52+ and unrelated ones 0.40 or less (Step 5 live QA,
+  // reference/attachment-search.md).
+  LOR_RERANK_MIN_SCORE: z.coerce.number().min(0).max(1).default(0.45),
   // Exa, backing Lor's search_web/fetch_web tools. Optional: the tools are
   // omitted when unset.
   EXA_API_KEY: z.string().min(1).optional(),

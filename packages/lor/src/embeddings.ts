@@ -1,4 +1,4 @@
-import { embed } from "ai"
+import { embed, embedMany } from "ai"
 import { LOR_EMBED_DIM, LOR_EMBED_MODEL, lorEmbeddingModel } from "./models"
 
 export type EmbedResult = {
@@ -11,6 +11,8 @@ const BRAIN_QUERY_INSTRUCTION =
   "Given a question from a team workspace, retrieve the institutional-memory pages that answer or contextualize it."
 const SOURCE_QUERY_INSTRUCTION =
   "Given a question from a team workspace, retrieve external work-event summaries that answer or contextualize it."
+const ATTACHMENT_QUERY_INSTRUCTION =
+  "Given a question from a team workspace, retrieve screenshots, images, and files shared in chat whose contents answer or contextualize it."
 
 function instructedQuery(instruction: string, text: string): string {
   return `Instruct: ${instruction}\nQuery: ${text}`
@@ -33,6 +35,21 @@ export function embedDocumentWithUsage(text: string): Promise<EmbedResult> {
   return embedValue(text)
 }
 
+export async function embedDocumentsWithUsage(
+  texts: string[]
+): Promise<{ embeddings: number[][]; tokens: number; model: string }> {
+  const { embeddings, usage } = await embedMany({
+    model: lorEmbeddingModel,
+    values: texts,
+  })
+  if (embeddings.some((e) => e.length !== LOR_EMBED_DIM)) {
+    throw new Error(
+      `embedding model "${LOR_EMBED_MODEL}" returned the wrong dims; expected ${LOR_EMBED_DIM}`
+    )
+  }
+  return { embeddings, tokens: usage.tokens, model: LOR_EMBED_MODEL }
+}
+
 export function embedBrainQueryWithUsage(text: string): Promise<EmbedResult> {
   return embedValue(instructedQuery(BRAIN_QUERY_INSTRUCTION, text))
 }
@@ -53,5 +70,12 @@ export async function embedBrainQuery(text: string): Promise<number[]> {
 
 export async function embedSourceQuery(text: string): Promise<number[]> {
   const { embedding } = await embedSourceQueryWithUsage(text)
+  return embedding
+}
+
+export async function embedAttachmentQuery(text: string): Promise<number[]> {
+  const { embedding } = await embedValue(
+    instructedQuery(ATTACHMENT_QUERY_INSTRUCTION, text)
+  )
   return embedding
 }

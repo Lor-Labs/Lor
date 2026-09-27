@@ -229,9 +229,14 @@ export async function synthesizeProjectArchive(
       privateContainerChannelId: runScope.privateContainerChannelId,
     }
     const toolsContext = {
-      search: retrieval,
+      search: {
+        ...retrieval,
+        memoryScopeChannelId: runScope.memoryScopeChannelId,
+        onUsage,
+      },
       read_thread: retrieval,
       view_image: retrieval,
+      read_attachment: retrieval,
       fetch_source: { workspaceId: args.workspaceId },
       ls: readContext,
       read: readContext,
@@ -242,7 +247,11 @@ export async function synthesizeProjectArchive(
       link: { workspaceId: args.workspaceId },
       ...(github
         ? {
-            search_github: github,
+            search_github: {
+              ...github,
+              workspaceId: args.workspaceId,
+              onUsage,
+            },
             fetch_github: github,
             investigate_code: {
               workspaceId: args.workspaceId,
@@ -255,14 +264,22 @@ export async function synthesizeProjectArchive(
         : {}),
       ...(linear
         ? {
-            search_linear: linear,
+            search_linear: {
+              ...linear,
+              workspaceId: args.workspaceId,
+              onUsage,
+            },
             list_linear_issues: linear,
             fetch_linear: linear,
           }
         : {}),
       ...(attio
         ? {
-            search_attio: attio,
+            search_attio: {
+              ...attio,
+              workspaceId: args.workspaceId,
+              onUsage,
+            },
             fetch_attio_record: attio,
             query_attio: attio,
             fetch_attio_activity: attio,
@@ -270,7 +287,11 @@ export async function synthesizeProjectArchive(
         : {}),
       ...(notion
         ? {
-            search_notion: notion,
+            search_notion: {
+              ...notion,
+              workspaceId: args.workspaceId,
+              onUsage,
+            },
             fetch_notion_page: notion,
             query_notion_data_source: notion,
             list_notion_users: notion,

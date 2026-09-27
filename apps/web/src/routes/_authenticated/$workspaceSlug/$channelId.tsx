@@ -1,6 +1,7 @@
 import { Archive02Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
+import { toast } from "@repo/ui/components/toast"
 import { useIsMobile } from "@repo/ui/hooks/use-mobile"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
@@ -34,6 +35,7 @@ import { useMessageDeletion } from "@/hooks/use-message-deletion"
 import { useMessageEditing } from "@/hooks/use-message-editing"
 import { useMessagePinning } from "@/hooks/use-message-pinning"
 import { useMessageReactions } from "@/hooks/use-message-reactions"
+import { useMessageIdNavigation } from "@/hooks/use-message-search-navigation"
 import { useMessageSending } from "@/hooks/use-message-sending"
 import { useChannelProposals } from "@/hooks/use-proposals"
 import { useQueuedMessageSteering } from "@/hooks/use-queued-message-steering"
@@ -147,8 +149,12 @@ function ChannelView() {
 
   // Keep ?threadId in step with the panel so a refresh restores it and closing
   // the thread drops it. Mirrors view → URL (the mount effect does URL → view).
+  // Skip views for another channel: a cross-channel jump (search result, Lor
+  // citation) sets the target's view before navigation lands, and mirroring it
+  // here would pull the URL back to this channel.
   useEffect(() => {
     if (isMobile !== false) return
+    if (view && view.channelId !== channelId) return
     if (view?.type === "thread") {
       if (
         view.threadRootId !== threadId ||
@@ -175,7 +181,7 @@ function ChannelView() {
         replace: true,
       })
     }
-  }, [view, threadId, threadMessageId, isMobile, navigate])
+  }, [view, channelId, threadId, threadMessageId, isMobile, navigate])
 
   const { data, isPending, isError, error } = useQuery({
     queryKey: ["channel", workspaceSlug, channelId],
@@ -256,31 +262,19 @@ function ChannelView() {
     void navigate({ search: {}, replace: true })
   }, [clearPending, navigate, entry.jumpToPresent])
 
+  // Resolve the message's channel and thread (it may live elsewhere — e.g. a
+  // Lor citation to another channel or a thread reply) and navigate there.
+  const navigateToMessageId = useMessageIdNavigation()
   const handleJumpToMessage = useCallback(
     (messageId: string) => {
-      // Resolve the message's channel (it may live elsewhere — e.g. a
-      // Lor citation to another channel) and navigate there to anchor on it.
-      void (async () => {
-        try {
-          const res = await apiClient.v1.workspaces[":workspaceSlug"].messages[
-            ":messageId"
-          ].$get({ param: { workspaceSlug, messageId } })
-          if (res.ok) {
-            const loc = await res.json()
-            await navigate({
-              to: "/$workspaceSlug/$channelId",
-              params: { workspaceSlug, channelId: loc.channelId },
-              search: { msgId: messageId },
-            })
-            return
-          }
-        } catch {
-          // fall through to a best-effort anchor in the current channel
-        }
-        void navigate({ search: { msgId: messageId } })
-      })()
+      void navigateToMessageId(messageId).then(
+        (found) => {
+          if (!found) void navigate({ search: { msgId: messageId } })
+        },
+        () => toast.error("Couldn't load that message")
+      )
     },
-    [navigate, workspaceSlug]
+    [navigate, navigateToMessageId]
   )
 
   const handleOpenThread = useCallback(

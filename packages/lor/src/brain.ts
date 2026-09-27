@@ -4,6 +4,7 @@ import {
   cosineDistance,
   db,
   eq,
+  inArray,
   isNotNull,
   isNull,
   or,
@@ -198,7 +199,7 @@ export async function readPage(
     path,
     body: page?.body ?? "",
     metadata: page?.metadata ?? {},
-    links: await pageLinks(workspaceId, resolved.id),
+    links: await pageLinks(workspaceId, resolved.id, scopeChannelId),
   }
 }
 
@@ -268,9 +269,12 @@ async function pagePath(nodeId: string): Promise<string> {
 
 export type BrainLink = { type: string; direction: "out" | "in"; path: string }
 
+// Links are filtered by the reader's scope: a link to a page the reader
+// cannot open would still leak that page's path, even though read refuses it.
 async function pageLinks(
   workspaceId: string,
-  nodeId: string
+  nodeId: string,
+  scopeChannelId: MemoryScope
 ): Promise<BrainLink[]> {
   const rows = await db
     .select({
@@ -288,10 +292,29 @@ async function pageLinks(
         )
       )
     )
+  const otherIds = rows.map((e) =>
+    e.fromNodeId === nodeId ? e.toNodeId : e.fromNodeId
+  )
+  const visible =
+    otherIds.length === 0
+      ? new Set<string>()
+      : new Set(
+          await db
+            .select({ id: schema.brainNode.id })
+            .from(schema.brainNode)
+            .where(
+              and(
+                inArray(schema.brainNode.id, otherIds),
+                scopeFilter(scopeChannelId)
+              )
+            )
+            .then((r) => r.map((n) => n.id))
+        )
 
   const links: BrainLink[] = []
   for (const e of rows) {
     const outgoing = e.fromNodeId === nodeId
+    if (!visible.has(outgoing ? e.toNodeId : e.fromNodeId)) continue
     links.push({
       type: e.type,
       direction: outgoing ? "out" : "in",
@@ -301,15 +324,21 @@ async function pageLinks(
   return links
 }
 
-export async function searchBrain(
+// Nearest active pages by vector. `search` reranks these with every other
+// kind of result, then resolves paths only for the pages it keeps.
+export async function brainCandidates(
   workspaceId: string,
   queryEmbedding: number[],
   limit: number,
   scopeChannelId: MemoryScope = null
-): Promise<{ path: string; body: string; links: BrainLink[] }[]> {
+): Promise<{ id: string; name: string; body: string }[]> {
   const distance = cosineDistance(schema.brainNode.embedding, queryEmbedding)
   const rows = await db
-    .select({ id: schema.brainNode.id, body: schema.brainNode.body })
+    .select({
+      id: schema.brainNode.id,
+      name: schema.brainNode.name,
+      body: schema.brainNode.body,
+    })
     .from(schema.brainNode)
     .where(
       and(
@@ -322,13 +351,37 @@ export async function searchBrain(
     )
     .orderBy(distance)
     .limit(limit)
+  return rows.map((r) => ({ ...r, body: r.body ?? "" }))
+}
 
+export async function brainPageDetails(
+  workspaceId: string,
+  nodeId: string,
+  scopeChannelId: MemoryScope
+): Promise<{ path: string; links: BrainLink[] }> {
+  return {
+    path: await pagePath(nodeId),
+    links: await pageLinks(workspaceId, nodeId, scopeChannelId),
+  }
+}
+
+export async function searchBrain(
+  workspaceId: string,
+  queryEmbedding: number[],
+  limit: number,
+  scopeChannelId: MemoryScope = null
+): Promise<{ path: string; body: string; links: BrainLink[] }[]> {
+  const rows = await brainCandidates(
+    workspaceId,
+    queryEmbedding,
+    limit,
+    scopeChannelId
+  )
   const results: { path: string; body: string; links: BrainLink[] }[] = []
   for (const r of rows) {
     results.push({
-      path: await pagePath(r.id),
-      body: r.body ?? "",
-      links: await pageLinks(workspaceId, r.id),
+      body: r.body,
+      ...(await brainPageDetails(workspaceId, r.id, scopeChannelId)),
     })
   }
   return results

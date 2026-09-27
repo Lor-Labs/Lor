@@ -3,6 +3,8 @@ import { and, db, eq, schema } from "@repo/db"
 import { tool } from "ai"
 import { z } from "zod"
 import { linearClientFor } from "./providers/linear"
+import { rerankItems } from "./rerank"
+import type { OnUsage } from "./usage"
 
 const SEARCH_DEFAULT = 8
 const SEARCH_MAX = 20
@@ -168,7 +170,10 @@ export const linearTools = {
       query: z.string().describe("keywords to search for"),
       limit: z.number().optional().describe("max results, 1–20 (default 8)"),
     }),
-    contextSchema: linearContext,
+    contextSchema: linearContext.extend({
+      workspaceId: z.string().optional(),
+      onUsage: z.custom<OnUsage>().optional(),
+    }),
     execute: async ({ query, limit }, { context }) => {
       const client = await linearClientFor(context.externalId)
       if (!client) return { error: "couldn't authenticate with Linear" }
@@ -177,8 +182,16 @@ export const linearTools = {
       )
       const payload = await client.searchIssues(query).catch(() => null)
       if (!payload) return { error: "Linear search failed" }
+      const ranked = await rerankItems({
+        workspaceId: context.workspaceId,
+        query,
+        items: payload.nodes.slice(0, n * 2),
+        toText: (i) => `${i.title}\n${(i.description ?? "").slice(0, 1500)}`,
+        limit: n,
+        onUsage: context.onUsage,
+      })
       return {
-        results: payload.nodes.slice(0, n).map((i) => ({
+        results: ranked.map((i) => ({
           id: i.id,
           identifier: i.identifier,
           title: i.title,

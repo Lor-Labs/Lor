@@ -422,7 +422,9 @@ export type AgentRunContext = {
   backgroundConversation?: AgentRunContextTurn[]
   threadRootId?: string
   triggerMessageId?: string
-  brainContext: string
+  // Injected brain pages; only snapshots from before memory moved into
+  // `search` carry it, and their replays must keep it.
+  brainContext?: string
   rosterText: string
   // Optional so pre-existing snapshots (and DM channels, which have no name)
   // keep parsing.

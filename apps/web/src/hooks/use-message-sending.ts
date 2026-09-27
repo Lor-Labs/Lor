@@ -47,6 +47,9 @@ export function useMessageSending({
   onSendFailed,
 }: UseMessageSendingOptions) {
   const pendingNonces = useRef(new Set<string>())
+  // A cancelled refetch is owed until every send has settled: running it while
+  // another send is unacknowledged could commit a snapshot without that send.
+  const refetchOwed = useRef(false)
 
   // Memoize so it's a stable reference across renders — otherwise the
   // useCallback deps below would invalidate every render.
@@ -83,6 +86,17 @@ export function useMessageSending({
     },
     [queryClient, cacheKey]
   )
+
+  // A list refetch already in flight would commit a snapshot taken before this
+  // send and wipe it from the cache (it reappears only on reload). Cancel it —
+  // the rollback is synchronous — and refetch once the send settles.
+  const cancelInFlightRefetch = useCallback(() => {
+    if (queryClient.isFetching({ queryKey: cacheKey, exact: true }) === 0) {
+      return false
+    }
+    void queryClient.cancelQueries({ queryKey: cacheKey, exact: true })
+    return true
+  }, [queryClient, cacheKey])
 
   // Own-nonce reconciliation only; live messages from others live in useChannelMessages.
   useEffect(() => {
@@ -164,6 +178,7 @@ export function useMessageSending({
         image: currentUser.image ?? null,
       }
 
+      if (cancelInFlightRefetch()) refetchOwed.current = true
       prependToFirstPage(
         createOptimisticMessage(
           nonce,
@@ -189,24 +204,30 @@ export function useMessageSending({
           attachments,
         },
         (result) => {
-          if (!result.ok) {
+          if (cancelInFlightRefetch()) refetchOwed.current = true
+          pendingNonces.current.delete(nonce)
+          if (result.ok) {
+            updateMessagesInCache((messages) =>
+              messages.map((message) =>
+                message.id === nonce
+                  ? realtimeMessageToMessage(result.message)
+                  : message
+              )
+            )
+          } else {
             console.error("[chat] send failed:", result.error)
-            pendingNonces.current.delete(nonce)
             updateMessagesInCache((messages) =>
               messages.filter((message) => message.id !== nonce)
             )
             onSendFailed?.(nonce)
-            return
           }
-
-          pendingNonces.current.delete(nonce)
-          updateMessagesInCache((messages) =>
-            messages.map((message) =>
-              message.id === nonce
-                ? realtimeMessageToMessage(result.message)
-                : message
-            )
-          )
+          if (refetchOwed.current && pendingNonces.current.size === 0) {
+            refetchOwed.current = false
+            void queryClient.invalidateQueries({
+              queryKey: cacheKey,
+              exact: true,
+            })
+          }
         }
       )
       // The optimistic message's id until the created echo — callers use it
@@ -218,6 +239,9 @@ export function useMessageSending({
       currentUser,
       channelId,
       threadRootId,
+      queryClient,
+      cacheKey,
+      cancelInFlightRefetch,
       prependToFirstPage,
       updateMessagesInCache,
       onSendFailed,

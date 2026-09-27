@@ -11,6 +11,8 @@ import {
   type RepoTreeEntry,
   searchIssues,
 } from "./providers/github"
+import { rerankItems } from "./rerank"
+import type { OnUsage } from "./usage"
 
 const SEARCH_DEFAULT = 8
 const SEARCH_MAX = 20
@@ -275,7 +277,10 @@ export const githubTools = {
         .describe("limit to pull requests or issues"),
       limit: z.number().optional().describe("max results, 1–20 (default 8)"),
     }),
-    contextSchema: githubContext,
+    contextSchema: githubContext.extend({
+      workspaceId: z.string().optional(),
+      onUsage: z.custom<OnUsage>().optional(),
+    }),
     execute: async ({ query, repo, type, limit }, { context }) => {
       const repoNames = context.repos.map((r) => r.fullName)
       const n = Math.floor(
@@ -308,11 +313,21 @@ export const githubTools = {
         return { error: "no connected repositories to search" }
       }
 
-      const results = await searchIssues(context.installationId, {
+      // GitHub orders keyword matches by last update, not relevance: fetch
+      // extra and let the reranker pick.
+      const hits = await searchIssues(context.installationId, {
         query,
         repos: scope,
         type,
+        limit: n * 2,
+      })
+      const results = await rerankItems({
+        workspaceId: context.workspaceId,
+        query,
+        items: hits,
+        toText: (h) => `${h.title}\n${h.snippet}`,
         limit: n,
+        onUsage: context.onUsage,
       })
       return note ? { note, results } : { results }
     },

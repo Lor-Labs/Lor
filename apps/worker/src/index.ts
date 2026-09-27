@@ -6,6 +6,7 @@ import {
   ACT_FLUSH_JOB,
   type ActFlushJobData,
   AGENT_RUN_STOP_CHANNEL,
+  ATTACHMENT_INDEX_QUEUE,
   LINK_UNFURL_QUEUE,
   LOOP_RUN_QUEUE,
   LOR_RESPOND_QUEUE,
@@ -19,6 +20,7 @@ import {
 import { Emitter } from "@socket.io/redis-emitter"
 import { Queue, Worker } from "bullmq"
 import { createClient } from "redis"
+import { createAttachmentIndexProcessor } from "@/jobs/attachment-index"
 import { createLinkUnfurlProcessor } from "@/jobs/link-unfurl"
 import { createLoopRunProcessor } from "@/jobs/loop-run"
 import { createLorRespondProcessor } from "@/jobs/lor-respond"
@@ -111,6 +113,33 @@ async function bootstrap() {
     logger.error(
       { queue: LINK_UNFURL_QUEUE, workerId: linkUnfurlWorker.id, err: error },
       "Link-unfurl worker error"
+    )
+  })
+
+  const attachmentIndexWorker = new Worker(
+    ATTACHMENT_INDEX_QUEUE,
+    createAttachmentIndexProcessor(),
+    {
+      connection: {
+        ...redisOpts,
+        maxRetriesPerRequest: null,
+      },
+      concurrency: 2,
+    }
+  )
+
+  attachmentIndexWorker.on("failed", (job, error) => {
+    logger.error({ jobId: job?.id, err: error }, "Attachment-index job failed")
+  })
+
+  attachmentIndexWorker.on("error", (error) => {
+    logger.error(
+      {
+        queue: ATTACHMENT_INDEX_QUEUE,
+        workerId: attachmentIndexWorker.id,
+        err: error,
+      },
+      "Attachment-index worker error"
     )
   })
 
@@ -338,6 +367,7 @@ async function bootstrap() {
     {
       queues: [
         LINK_UNFURL_QUEUE,
+        ATTACHMENT_INDEX_QUEUE,
         LOR_RESPOND_QUEUE,
         TRIGGERED_RUN_QUEUE,
         LOOP_RUN_QUEUE,
@@ -351,6 +381,7 @@ async function bootstrap() {
   const shutdown = async () => {
     logger.info("Shutting down...")
     await linkUnfurlWorker.close()
+    await attachmentIndexWorker.close()
     await lorRespondWorker.close()
     await triggeredRunWorker.close()
     await loopRunWorker.close()
