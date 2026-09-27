@@ -4,6 +4,7 @@ import {
   cosineDistance,
   db,
   eq,
+  inArray,
   isNotNull,
   isNull,
   or,
@@ -198,7 +199,7 @@ export async function readPage(
     path,
     body: page?.body ?? "",
     metadata: page?.metadata ?? {},
-    links: await pageLinks(workspaceId, resolved.id),
+    links: await pageLinks(workspaceId, resolved.id, scopeChannelId),
   }
 }
 
@@ -268,9 +269,12 @@ async function pagePath(nodeId: string): Promise<string> {
 
 export type BrainLink = { type: string; direction: "out" | "in"; path: string }
 
+// Links are filtered by the reader's scope: a link to a page the reader
+// cannot open would still leak that page's path, even though read refuses it.
 async function pageLinks(
   workspaceId: string,
-  nodeId: string
+  nodeId: string,
+  scopeChannelId: MemoryScope
 ): Promise<BrainLink[]> {
   const rows = await db
     .select({
@@ -288,10 +292,29 @@ async function pageLinks(
         )
       )
     )
+  const otherIds = rows.map((e) =>
+    e.fromNodeId === nodeId ? e.toNodeId : e.fromNodeId
+  )
+  const visible =
+    otherIds.length === 0
+      ? new Set<string>()
+      : new Set(
+          await db
+            .select({ id: schema.brainNode.id })
+            .from(schema.brainNode)
+            .where(
+              and(
+                inArray(schema.brainNode.id, otherIds),
+                scopeFilter(scopeChannelId)
+              )
+            )
+            .then((r) => r.map((n) => n.id))
+        )
 
   const links: BrainLink[] = []
   for (const e of rows) {
     const outgoing = e.fromNodeId === nodeId
+    if (!visible.has(outgoing ? e.toNodeId : e.fromNodeId)) continue
     links.push({
       type: e.type,
       direction: outgoing ? "out" : "in",
@@ -333,11 +356,12 @@ export async function brainCandidates(
 
 export async function brainPageDetails(
   workspaceId: string,
-  nodeId: string
+  nodeId: string,
+  scopeChannelId: MemoryScope
 ): Promise<{ path: string; links: BrainLink[] }> {
   return {
     path: await pagePath(nodeId),
-    links: await pageLinks(workspaceId, nodeId),
+    links: await pageLinks(workspaceId, nodeId, scopeChannelId),
   }
 }
 
@@ -357,7 +381,7 @@ export async function searchBrain(
   for (const r of rows) {
     results.push({
       body: r.body,
-      ...(await brainPageDetails(workspaceId, r.id)),
+      ...(await brainPageDetails(workspaceId, r.id, scopeChannelId)),
     })
   }
   return results

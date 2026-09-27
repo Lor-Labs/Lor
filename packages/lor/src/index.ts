@@ -804,7 +804,8 @@ export const searchTools = {
           if (r.type !== "memory") return r
           const { path, links } = await brainPageDetails(
             context.workspaceId,
-            r.nodeId
+            r.nodeId,
+            context.memoryScopeChannelId ?? null
           )
           return {
             type: "memory" as const,

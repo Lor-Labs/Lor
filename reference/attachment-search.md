@@ -487,6 +487,14 @@ As built:
   saved before this change still replay their injected notes.
 - `packages/lor/src/rerank.ts` — `rerankItems` loses its `minScore` option,
   now unused (only connector searches call it, and they only reorder).
+- Link leak fix (found in review, older than this step): `pageLinks` did not
+  filter by the reader's memory scope. A link from a workspace-wide page to
+  a private-scoped page showed the private page's path to runs outside that
+  scope. `read` refused the content, but the path leaked. `pageLinks` and
+  `brainPageDetails` now take the reader's `scopeChannelId` (required) and
+  drop links whose other end fails `scopeFilter`. This covers `read`,
+  `search` memory results, and `searchBrain`. Not live-tested: the dev
+  database has no brain edges.
 
 Live QA (dev workspace, 4 pages):
 - "what does a campaign mean in our product" → `/glossary/campaign` first,
