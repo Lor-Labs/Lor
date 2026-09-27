@@ -567,6 +567,50 @@ becomes the bigger problem.
   tokens of document context per chunk. Add only if document recall is poor
   after the reranker lands. Measured −35% to −49% retrieval failures, at about
   $1 per million document tokens.
+- Slides with a title plus a screenshot: only fully text-free slides are
+  transcribed today (Step 4a). Also transcribe the largest image on a slide
+  whose text is only a short title, if decks of screenshot slides get missed.
+- Deprecated image parts in the main run: `initial-message.ts` still builds
+  AI SDK `image` content parts, which the SDK warns are deprecated. Switch
+  them to `file` parts (`{ type: "data", data }`), as `transcribe.ts` already
+  does.
+- Eval harness: `eval/harness.ts` measures brain retrieval with vector-only
+  `searchBrain`. Point it at the reranked `search` path so evals match what
+  Lor actually sees.
+
+## Launch checks (owed as of 2026-09-27)
+
+Every step is committed. These have not been run for real:
+
+1. A real Lor chat run in a workspace channel:
+   - Lor calls `search` and cites memory pages (`[[/path]]`).
+   - Lor uses `read_attachment` for a question like "what does slide 5 of
+     the Active Analytics deck say".
+   - The usage ledger shows `lor.rerank` rows with `debitStatus = free`, and
+     `costUsd` set.
+2. The first production deploy: `sharp` and `@napi-rs/canvas` load under Bun
+   in the worker image. If canvas fails, use the Step 4a fallback: split
+   single-page PDFs with `pdf-lib` and send them to a PDF-capable gateway
+   model. Log it as a deviation.
+3. Connector search reranking (Notion, Linear, GitHub, Attio) through a run
+   where the connections work. The dev database's tokens cannot be decrypted
+   locally.
+4. After deploy, run the backfill once so older files get indexed:
+   `pnpm --filter @repo/worker exec tsx src/scripts/index-attachments.ts`.
+   Add `--reindex-documents` to rebuild document rows after an extraction
+   change.
+
+## Watch in use
+
+- Relevance cutoff: `LOR_RERANK_MIN_SCORE` is 0.45, set from about a dozen
+  queries on one small workspace. If Lor says it has nothing when the answer
+  exists, lower it. It is an env setting, not code.
+- Memory on demand (Step 6b): if Lor answers from general knowledge when a
+  memory page would have helped, adjust the prompt. Do not bring back the
+  prefetch.
+- Twilio-style ranking: when many near-identical files (monthly statements)
+  fill the attachment slots, a summary sheet can rank below them. Revisit if
+  it hides the better answer in practice.
 
 ## Research notes (2026-09-25)
 
