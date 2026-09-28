@@ -1,10 +1,8 @@
 import {
   ApiIcon,
-  ArrowDown01Icon,
-  CloudServerIcon,
+  ArrowRight01Icon,
   Delete02Icon,
   PlusSignIcon,
-  Wrench01Icon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
@@ -19,21 +17,8 @@ import {
 import { Badge } from "@repo/ui/components/badge"
 import { Button } from "@repo/ui/components/button"
 import { Checkbox } from "@repo/ui/components/checkbox"
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@repo/ui/components/empty"
 import { Input } from "@repo/ui/components/input"
 import { Label } from "@repo/ui/components/label"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@repo/ui/components/menu"
 import {
   Select,
   SelectContent,
@@ -46,12 +31,22 @@ import { Textarea } from "@repo/ui/components/textarea"
 import { toast } from "@repo/ui/components/toast"
 import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useState } from "react"
+import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import { PasswordInput } from "@/components/auth/password-input"
 import {
   McpServersBlock,
   useMcpServers,
 } from "@/components/workspace/mcp-servers-section"
+import {
+  IconTile,
+  PILL_BUTTON,
+  SettingsAction,
+  SettingsBackButton,
+  SettingsCard,
+  SettingsCardButton,
+  SettingsLink,
+  SettingsSection,
+} from "@/components/workspace/settings-group"
 import {
   type PlaceholderItem,
   TemplateInput,
@@ -554,7 +549,7 @@ function defaultBodyTemplate(argNames: string[]): string {
 function BodyPreview({ template }: { template: string }) {
   const parts = template.split(/(\{\{\s*args\.[A-Za-z0-9_]+\s*\}\})/g)
   return (
-    <div className="rounded-md border border-border/60 bg-muted/30 px-2.5 py-1.5 font-mono text-xs text-muted-foreground">
+    <div className="rounded-lg border border-border bg-background px-2.5 py-1.5 font-mono text-xs text-muted-foreground">
       {parts.map((part, i) =>
         /^\{\{\s*args\./.test(part) ? (
           <span
@@ -614,6 +609,8 @@ function ToolEditor({
   busy,
   onSave,
   onCancel,
+  onDelete,
+  deleting,
   saveLabel,
   isNew,
 }: {
@@ -622,6 +619,8 @@ function ToolEditor({
   busy: boolean
   onSave: () => void
   onCancel: () => void
+  onDelete?: () => void
+  deleting?: boolean
   saveLabel: string
   // The cURL import is a bootstrap for new tools; editing works on the
   // already-structured fields.
@@ -653,6 +652,10 @@ function ToolEditor({
   const unusedNames: ReadonlySet<string> = new Set(
     bodyImplicit ? [] : argNames.filter((n) => !refs.args.includes(n))
   )
+  const formattedBody =
+    templateJsonIssue(draft.bodyTemplate) === null
+      ? formatTemplateJson(draft.bodyTemplate)
+      : null
 
   // Shared "create new" handler for every {{ popup: new args materialize via
   // the template sync; new secrets get an empty value row to fill in below.
@@ -736,228 +739,229 @@ function ToolEditor({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-8">
       {isNew && (
-        <div className="space-y-1.5 rounded-lg border border-border bg-muted/30 p-3">
-          <div className="text-xs font-medium text-muted-foreground">
-            Import from cURL
-          </div>
-          <Textarea
-            value={curlText}
-            onChange={(e) => setCurlText(e.target.value)}
-            placeholder="Paste a curl command to prefill the method, URL, headers, and body"
-            className="min-h-14 font-mono text-xs"
-            rows={2}
-          />
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            disabled={!curlText.trim()}
-            onClick={importCurl}
-          >
-            Import
-          </Button>
-        </div>
+        <SettingsSection title="Import from cURL">
+          <SettingsCard className="space-y-3">
+            <Textarea
+              value={curlText}
+              onChange={(e) => setCurlText(e.target.value)}
+              placeholder="Paste a curl command to prefill the method, URL, headers, and body"
+              className="min-h-14 font-mono text-xs"
+              rows={2}
+            />
+            <div className="flex justify-end">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className={cn(PILL_BUTTON, "px-3")}
+                disabled={!curlText.trim()}
+                onClick={importCurl}
+              >
+                Import
+              </Button>
+            </div>
+          </SettingsCard>
+        </SettingsSection>
       )}
 
-      <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-1.5">
-          <Label className="text-xs">Name</Label>
-          <Input
-            value={draft.name}
-            placeholder="query_orders"
-            className="h-8 font-mono text-xs"
-            maxLength={64}
-            onChange={(e) =>
-              setDraft((d) => ({
-                ...d,
-                name: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "_"),
-              }))
-            }
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label className="text-xs">Method</Label>
-          <Select
-            items={METHODS.map((m) => ({ value: m, label: m }))}
-            value={draft.method}
-            onValueChange={(value) =>
-              setDraft((d) => ({ ...d, method: value as Method }))
-            }
-          >
-            <SelectTrigger size="sm" className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {METHODS.map((m) => (
-                <SelectItem key={m} value={m}>
-                  {m}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-
-      <div className="space-y-1.5">
-        <Label className="text-xs">
-          Description — when should Lor use this?
-        </Label>
-        <Textarea
-          value={draft.description}
-          placeholder="Look up an order by id in our billing system. Use when someone asks about an order's status or amount."
-          className="min-h-14 text-xs"
-          rows={2}
-          maxLength={1000}
-          onChange={(e) =>
-            setDraft((d) => ({ ...d, description: e.target.value }))
-          }
-        />
-      </div>
-
-      <div className="space-y-1.5">
-        <Label className="text-xs">URL</Label>
-        <TemplateInput
-          value={draft.urlTemplate}
-          onChange={(urlTemplate) =>
-            updateDraft((d) => ({ ...d, urlTemplate }))
-          }
-          argNames={argNames}
-          secretNames={definedSecretNames}
-          onCreatePlaceholder={handleCreatePlaceholder}
-          placeholder="https://api.acme.com/orders/{{args.orderId}}"
-        />
-        <p className="text-[11px] text-muted-foreground">
-          Type <code>{"{{"}</code> to insert an argument or secret — the parts
-          of the request that vary. New ones appear below automatically.
-        </p>
-      </div>
-
-      <div className="space-y-1.5">
-        <Label className="text-xs">Headers</Label>
-        <PairRows
-          pairs={draft.headers}
-          onChange={(headers) => updateDraft((d) => ({ ...d, headers }))}
-          namePlaceholder="Authorization"
-          valuePlaceholder="Bearer {{secrets.API_KEY}}"
-          addLabel="Add header"
-          template={{
-            argNames,
-            secretNames: definedSecretNames,
-            onCreatePlaceholder: handleCreatePlaceholder,
-          }}
-        />
-      </div>
-
-      <div className="space-y-1.5">
-        <div className="flex items-center justify-between">
-          <Label className="text-xs">Arguments — the inputs Lor fills in</Label>
-          {draft.argsMode === "simple" ? (
-            <button
-              type="button"
-              className="cursor-pointer text-[11px] text-muted-foreground underline-offset-2 hover:underline"
-              onClick={switchToJson}
-            >
-              Edit as JSON
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="cursor-pointer text-[11px] text-muted-foreground underline-offset-2 hover:underline"
-              onClick={switchToSimple}
-            >
-              Use simple editor
-            </button>
-          )}
-        </div>
-        {draft.argsMode === "simple" ? (
-          <ArgumentRows
-            rows={draft.argRows}
-            onChange={(argRows) => setDraft((d) => ({ ...d, argRows }))}
-            unusedNames={unusedNames}
-          />
-        ) : (
-          <>
+      <SettingsSection title="API tool">
+        <SettingsCard>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Name</Label>
+              <Input
+                value={draft.name}
+                placeholder="query_orders"
+                className="h-8 font-mono text-xs"
+                maxLength={64}
+                onChange={(e) =>
+                  setDraft((d) => ({
+                    ...d,
+                    name: e.target.value
+                      .toLowerCase()
+                      .replace(/[^a-z0-9_]/g, "_"),
+                  }))
+                }
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Method</Label>
+              <Select
+                items={METHODS.map((m) => ({ value: m, label: m }))}
+                value={draft.method}
+                onValueChange={(value) =>
+                  setDraft((d) => ({ ...d, method: value as Method }))
+                }
+              >
+                <SelectTrigger size="sm" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {METHODS.map((m) => (
+                    <SelectItem key={m} value={m}>
+                      {m}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">
+              Description — when should Lor use this?
+            </Label>
             <Textarea
-              value={draft.argsText}
-              className="min-h-24 font-mono text-xs"
-              rows={5}
+              value={draft.description}
+              placeholder="Look up an order by id in our billing system. Use when someone asks about an order's status or amount."
+              className="min-h-14 text-xs"
+              rows={2}
+              maxLength={1000}
               onChange={(e) =>
-                setDraft((d) => ({ ...d, argsText: e.target.value }))
+                setDraft((d) => ({ ...d, description: e.target.value }))
               }
             />
-            <JsonStatusRow
-              value={draft.argsText}
-              issue={templateJsonIssue(draft.argsText)}
-              onFormat={(argsText) => setDraft((d) => ({ ...d, argsText }))}
+          </div>
+        </SettingsCard>
+      </SettingsSection>
+
+      <SettingsSection title="Request">
+        <SettingsCard>
+          <div className="space-y-1.5">
+            <Label className="text-xs">URL</Label>
+            <TemplateInput
+              value={draft.urlTemplate}
+              onChange={(urlTemplate) =>
+                updateDraft((d) => ({ ...d, urlTemplate }))
+              }
+              argNames={argNames}
+              secretNames={definedSecretNames}
+              onCreatePlaceholder={handleCreatePlaceholder}
+              placeholder="https://api.acme.com/orders/{{args.orderId}}"
             />
-          </>
-        )}
-      </div>
+            <p className="text-[11px] text-muted-foreground">
+              Type <code>{"{{"}</code> to insert an argument or secret — the
+              parts of the request that vary. New ones appear below
+              automatically.
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Headers</Label>
+            <PairRows
+              pairs={draft.headers}
+              onChange={(headers) => updateDraft((d) => ({ ...d, headers }))}
+              namePlaceholder="Authorization"
+              valuePlaceholder="Bearer {{secrets.API_KEY}}"
+              addLabel="Add header"
+              template={{
+                argNames,
+                secretNames: definedSecretNames,
+                onCreatePlaceholder: handleCreatePlaceholder,
+              }}
+            />
+          </div>
+        </SettingsCard>
+      </SettingsSection>
+
+      <SettingsSection
+        title="Arguments"
+        action={
+          draft.argsMode === "simple" ? (
+            <SettingsAction onClick={switchToJson}>Edit as JSON</SettingsAction>
+          ) : (
+            <SettingsAction onClick={switchToSimple}>
+              Use simple editor
+            </SettingsAction>
+          )
+        }
+        caption="The inputs Lor fills in when it calls this tool."
+      >
+        <SettingsCard className="space-y-2">
+          {draft.argsMode === "simple" ? (
+            <ArgumentRows
+              rows={draft.argRows}
+              onChange={(argRows) => setDraft((d) => ({ ...d, argRows }))}
+              unusedNames={unusedNames}
+            />
+          ) : (
+            <>
+              <Textarea
+                value={draft.argsText}
+                className="min-h-24 font-mono text-xs"
+                rows={5}
+                onChange={(e) =>
+                  setDraft((d) => ({ ...d, argsText: e.target.value }))
+                }
+              />
+              <JsonStatusRow
+                value={draft.argsText}
+                issue={templateJsonIssue(draft.argsText)}
+                onFormat={(argsText) => setDraft((d) => ({ ...d, argsText }))}
+              />
+            </>
+          )}
+        </SettingsCard>
+      </SettingsSection>
 
       {hasBody &&
         (showBody ? (
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <Label className="text-xs">Request body — custom shape</Label>
+          <SettingsSection
+            title="Request body"
+            action={
               <div className="flex items-center gap-3">
-                {(() => {
-                  const formatted =
-                    templateJsonIssue(draft.bodyTemplate) === null
-                      ? formatTemplateJson(draft.bodyTemplate)
-                      : null
-                  return formatted !== null &&
-                    formatted !== draft.bodyTemplate ? (
-                    <button
-                      type="button"
-                      className="cursor-pointer text-[11px] text-muted-foreground underline-offset-2 hover:underline"
+                {formattedBody !== null &&
+                  formattedBody !== draft.bodyTemplate && (
+                    <SettingsAction
                       onClick={() =>
-                        updateDraft((d) => ({ ...d, bodyTemplate: formatted }))
+                        updateDraft((d) => ({
+                          ...d,
+                          bodyTemplate: formattedBody,
+                        }))
                       }
                     >
                       Format
-                    </button>
-                  ) : null
-                })()}
-                <button
-                  type="button"
-                  className="cursor-pointer text-[11px] text-muted-foreground underline-offset-2 hover:underline"
+                    </SettingsAction>
+                  )}
+                <SettingsAction
                   onClick={() => {
                     updateDraft((d) => ({ ...d, bodyTemplate: "" }))
                     setShowBody(false)
                   }}
                 >
                   Use the automatic body instead
-                </button>
+                </SettingsAction>
               </div>
-            </div>
-            <TemplateInput
-              value={draft.bodyTemplate}
-              onChange={(bodyTemplate) =>
-                updateDraft((d) => ({ ...d, bodyTemplate }))
-              }
-              argNames={argNames}
-              secretNames={definedSecretNames}
-              onCreatePlaceholder={handleCreatePlaceholder}
-              placeholder={'{"query": {{args.query}}, "source": "lor"}'}
-              multiline
-              className="min-h-24 bg-muted/30"
-              lint={templateJsonLint}
-            />
-            <p className="text-[11px] text-muted-foreground">
-              This replaces the automatic body — write the exact JSON your API
-              expects, with <code>{"{{args.…}}"}</code> where Lor's values go.
-              Arguments not referenced here won't be sent.
-            </p>
-          </div>
+            }
+            caption={
+              <>
+                This replaces the automatic body — write the exact JSON your API
+                expects, with <code>{"{{args.…}}"}</code> where Lor's values go.
+                Arguments not referenced here won't be sent.
+              </>
+            }
+          >
+            <SettingsCard>
+              <TemplateInput
+                value={draft.bodyTemplate}
+                onChange={(bodyTemplate) =>
+                  updateDraft((d) => ({ ...d, bodyTemplate }))
+                }
+                argNames={argNames}
+                secretNames={definedSecretNames}
+                onCreatePlaceholder={handleCreatePlaceholder}
+                placeholder={'{"query": {{args.query}}, "source": "lor"}'}
+                multiline
+                className="min-h-24"
+                lint={templateJsonLint}
+              />
+            </SettingsCard>
+          </SettingsSection>
         ) : (
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <Label className="text-xs">Request body</Label>
-              <button
-                type="button"
-                className="cursor-pointer text-[11px] text-muted-foreground underline-offset-2 hover:underline"
+          <SettingsSection
+            title="Request body"
+            action={
+              <SettingsAction
                 onClick={() => {
                   // Start from the automatic body, not a blank box —
                   // customizing means editing the default, not authoring JSON
@@ -970,153 +974,185 @@ function ToolEditor({
                 }}
               >
                 My API needs a different JSON shape
-              </button>
-            </div>
-            <BodyPreview template={defaultBodyTemplate(argNames)} />
-            <p className="text-[11px] text-muted-foreground">
-              Built automatically from the arguments above — sent as the
-              request's JSON when Lor calls the tool.
-            </p>
-          </div>
+              </SettingsAction>
+            }
+            caption="Built automatically from the arguments above — sent as the request's JSON when Lor calls the tool."
+          >
+            <SettingsCard>
+              <BodyPreview template={defaultBodyTemplate(argNames)} />
+            </SettingsCard>
+          </SettingsSection>
         ))}
 
-      <div className="space-y-1.5">
-        <Label className="text-xs">Secrets</Label>
-        {undefinedSecrets.length > 0 && (
-          <p className="text-[11px] text-destructive-foreground">
-            The request references{" "}
-            {undefinedSecrets.map((n) => `{{secrets.${n}}}`).join(", ")} — add{" "}
-            {undefinedSecrets.length === 1 ? "its value" : "their values"} here.
-          </p>
-        )}
-        {draft.keptSecretNames.map((name) => {
-          const update = draft.updatedSecrets.find((u) => u.name === name)
-          return (
-            <div key={name} className="flex items-center gap-1.5">
-              <Input
-                value={name}
-                disabled
-                className="h-8 w-44 shrink-0 font-mono text-xs"
-              />
-              {update ? (
-                <>
-                  <div className="min-w-0 flex-1">
-                    <PasswordInput
-                      autoFocus
-                      value={update.value}
-                      placeholder="New value — replaces the stored one on save"
-                      className="h-8 text-xs"
-                      onChange={(e) =>
+      <SettingsSection title="Secrets">
+        <SettingsCard className="space-y-1.5">
+          {undefinedSecrets.length > 0 && (
+            <p className="text-[11px] text-destructive-foreground">
+              The request references{" "}
+              {undefinedSecrets.map((n) => `{{secrets.${n}}}`).join(", ")} — add{" "}
+              {undefinedSecrets.length === 1 ? "its value" : "their values"}{" "}
+              here.
+            </p>
+          )}
+          {draft.keptSecretNames.map((name) => {
+            const update = draft.updatedSecrets.find((u) => u.name === name)
+            return (
+              <div key={name} className="flex items-center gap-1.5">
+                <Input
+                  value={name}
+                  disabled
+                  className="h-8 w-44 shrink-0 font-mono text-xs"
+                />
+                {update ? (
+                  <>
+                    <div className="min-w-0 flex-1">
+                      <PasswordInput
+                        autoFocus
+                        value={update.value}
+                        placeholder="New value — replaces the stored one on save"
+                        className="h-8 text-xs"
+                        onChange={(e) =>
+                          setDraft((d) => ({
+                            ...d,
+                            updatedSecrets: d.updatedSecrets.map((u) =>
+                              u.name === name
+                                ? { ...u, value: e.target.value }
+                                : u
+                            ),
+                          }))
+                        }
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 shrink-0 px-2 text-xs text-muted-foreground"
+                      onClick={() =>
                         setDraft((d) => ({
                           ...d,
-                          updatedSecrets: d.updatedSecrets.map((u) =>
-                            u.name === name
-                              ? { ...u, value: e.target.value }
-                              : u
+                          updatedSecrets: d.updatedSecrets.filter(
+                            (u) => u.name !== name
                           ),
                         }))
                       }
+                    >
+                      Cancel
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Input
+                      value="••••••••••••••"
+                      disabled
+                      readOnly
+                      className="h-8 min-w-0 flex-1 text-xs"
                     />
-                  </div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 shrink-0 px-2 text-xs text-muted-foreground"
-                    onClick={() =>
-                      setDraft((d) => ({
-                        ...d,
-                        updatedSecrets: d.updatedSecrets.filter(
-                          (u) => u.name !== name
-                        ),
-                      }))
-                    }
-                  >
-                    Cancel
-                  </Button>
-                </>
-              ) : (
-                <>
-                  <Input
-                    value="••••••••••••••"
-                    disabled
-                    readOnly
-                    className="h-8 min-w-0 flex-1 text-xs"
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 shrink-0 px-2 text-xs text-muted-foreground"
-                    onClick={() =>
-                      setDraft((d) => ({
-                        ...d,
-                        updatedSecrets: [
-                          ...d.updatedSecrets,
-                          { name, value: "" },
-                        ],
-                      }))
-                    }
-                  >
-                    Update
-                  </Button>
-                </>
-              )}
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-xs"
-                aria-label={`Delete secret ${name}`}
-                onClick={() =>
-                  setDraft((d) => ({
-                    ...d,
-                    keptSecretNames: d.keptSecretNames.filter(
-                      (n) => n !== name
-                    ),
-                    updatedSecrets: d.updatedSecrets.filter(
-                      (u) => u.name !== name
-                    ),
-                  }))
-                }
-              >
-                <HugeiconsIcon icon={Delete02Icon} strokeWidth={2} />
-              </Button>
-            </div>
-          )
-        })}
-        <PairRows
-          pairs={draft.newSecrets}
-          onChange={(newSecrets) => setDraft((d) => ({ ...d, newSecrets }))}
-          namePlaceholder="API_KEY"
-          valuePlaceholder="Value (stored encrypted, never shown again)"
-          addLabel="Add secret"
-          secret
-        />
-      </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 shrink-0 px-2 text-xs text-muted-foreground"
+                      onClick={() =>
+                        setDraft((d) => ({
+                          ...d,
+                          updatedSecrets: [
+                            ...d.updatedSecrets,
+                            { name, value: "" },
+                          ],
+                        }))
+                      }
+                    >
+                      Update
+                    </Button>
+                  </>
+                )}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  aria-label={`Delete secret ${name}`}
+                  onClick={() =>
+                    setDraft((d) => ({
+                      ...d,
+                      keptSecretNames: d.keptSecretNames.filter(
+                        (n) => n !== name
+                      ),
+                      updatedSecrets: d.updatedSecrets.filter(
+                        (u) => u.name !== name
+                      ),
+                    }))
+                  }
+                >
+                  <HugeiconsIcon icon={Delete02Icon} strokeWidth={2} />
+                </Button>
+              </div>
+            )
+          })}
+          <PairRows
+            pairs={draft.newSecrets}
+            onChange={(newSecrets) => setDraft((d) => ({ ...d, newSecrets }))}
+            namePlaceholder="API_KEY"
+            valuePlaceholder="Value (stored encrypted, never shown again)"
+            addLabel="Add secret"
+            secret
+          />
+        </SettingsCard>
+      </SettingsSection>
 
-      <div className="flex items-center gap-2 border-border border-t pt-3">
-        <Button type="button" size="sm" disabled={busy} onClick={onSave}>
-          {busy ? "Saving..." : saveLabel}
-        </Button>
-        <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
-          Cancel
-        </Button>
+      <div className="flex items-center gap-2">
+        {onDelete && (
+          <Button
+            type="button"
+            variant="destructive-outline"
+            className={PILL_BUTTON}
+            disabled={deleting}
+            onClick={onDelete}
+          >
+            Delete tool
+          </Button>
+        )}
+        <div className="ml-auto flex items-center gap-2">
+          <Button
+            type="button"
+            variant="ghost"
+            className={PILL_BUTTON}
+            onClick={onCancel}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            className={PILL_BUTTON}
+            loading={busy}
+            onClick={onSave}
+          >
+            {saveLabel}
+          </Button>
+        </div>
       </div>
     </div>
   )
 }
 
+// What the Tools tab shows: the list, or one editor (id null = a new one).
+type ToolsView = { kind: "list" } | { kind: "api" | "mcp"; id: string | null }
+
 export function CustomToolsSection({
   workspaceSlug,
+  onOpenAgentProfiles,
 }: {
   workspaceSlug: string
+  onOpenAgentProfiles: () => void
 }) {
   const queryClient = useQueryClient()
-  const [creating, setCreating] = useState(false)
-  const [creatingServer, setCreatingServer] = useState(false)
+  const [view, setView] = useState<ToolsView>({ kind: "list" })
+  const [returnFocus, setReturnFocus] = useState<string | null>(null)
   const [draft, setDraft] = useState<Draft>(emptyDraft())
-  const [editingId, setEditingId] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<CustomToolRow | null>(null)
+  const topRef = useRef<HTMLDivElement>(null)
+
+  const closeEditor = () => setView({ kind: "list" })
 
   const queryKey = ["custom-tools", workspaceSlug]
   const { data, isPending } = useQuery({
@@ -1150,7 +1186,7 @@ export function CustomToolsSection({
     },
     onSuccess: () => {
       invalidate()
-      setCreating(false)
+      closeEditor()
       setDraft(emptyDraft())
     },
     onError: (err) => toast.error(err.message),
@@ -1191,7 +1227,7 @@ export function CustomToolsSection({
       // Refetch before closing so an immediate re-open builds its draft from
       // the persisted row (secretNames especially), not the stale cache.
       await invalidate()
-      setEditingId(null)
+      closeEditor()
     },
     onError: (err) => toast.error(err.message),
   })
@@ -1205,7 +1241,7 @@ export function CustomToolsSection({
     },
     onSuccess: () => {
       invalidate()
-      setEditingId(null)
+      closeEditor()
       setDeleteTarget(null)
     },
     onError: () => toast.error("Failed to delete tool"),
@@ -1214,145 +1250,116 @@ export function CustomToolsSection({
   const tools = (data?.tools ?? []) as CustomToolRow[]
   const serversQuery = useMcpServers(workspaceSlug)
   const servers = serversQuery.data?.servers ?? []
+  const loading = isPending || serversQuery.isPending
+
+  // An id that no longer resolves (deleted elsewhere) falls back to the list.
+  const apiTool =
+    view.kind === "api" && view.id
+      ? tools.find((tool) => tool.id === view.id)
+      : undefined
+  const apiOpen = view.kind === "api" && (view.id === null || !!apiTool)
+  const mcpEditingId =
+    view.kind === "mcp" && servers.some((s) => s.id === view.id)
+      ? view.id
+      : null
+  const mcpCreating = view.kind === "mcp" && view.id === null
+  const listShown = !apiOpen && !mcpCreating && mcpEditingId === null
+  const viewKey =
+    view.kind === "list" ? "list" : `${view.kind}:${view.id ?? "new"}`
+
+  // The list and each editor share one scroll area; each opens at the top.
+  useLayoutEffect(() => {
+    topRef.current?.scrollIntoView({ block: "start" })
+  }, [viewKey])
+
+  // Back from an editor: return focus to the card that opened it.
+  useEffect(() => {
+    if (!listShown || !returnFocus) return
+    topRef.current
+      ?.querySelector<HTMLElement>(`[data-tool="${returnFocus}"]`)
+      ?.focus({ preventScroll: true })
+  }, [listShown])
+
+  const open = (kind: "api" | "mcp", id: string | null) => {
+    setReturnFocus(`${kind}:${id ?? "new"}`)
+    setView({ kind, id })
+  }
+
+  const openApiTool = (tool: CustomToolRow | null) => {
+    setDraft(tool ? draftFromTool(tool) : emptyDraft())
+    open("api", tool?.id ?? null)
+  }
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <div className="text-sm font-medium">Tools</div>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            API tools and MCP servers Lor can call. Grant them per channel
-            through agent profiles.
-          </p>
-        </div>
-        {!(creating || creatingServer) && (
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={<Button type="button" size="sm" className="shrink-0" />}
-            >
-              <HugeiconsIcon
-                icon={PlusSignIcon}
-                className="size-3.5"
-                strokeWidth={2}
-              />
-              New Tool
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem
-                onClick={() => {
-                  setDraft(emptyDraft())
-                  setEditingId(null)
-                  setCreatingServer(false)
-                  setCreating(true)
-                }}
-              >
-                <HugeiconsIcon
-                  icon={ApiIcon}
-                  className="size-4"
-                  strokeWidth={2}
-                />
-                API Tool
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => {
-                  setCreating(false)
-                  setEditingId(null)
-                  setCreatingServer(true)
-                }}
-              >
-                <HugeiconsIcon
-                  icon={CloudServerIcon}
-                  className="size-4"
-                  strokeWidth={2}
-                />
-                MCP Server
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
-      </div>
-
-      {creating && (
-        <div className="rounded-lg border border-border bg-muted/20 p-4">
+    <div ref={topRef} className="scroll-mt-6 space-y-8">
+      {apiOpen && (
+        <div className="space-y-5">
+          <SettingsBackButton label="All tools" onClick={closeEditor} />
           <ToolEditor
+            key={viewKey}
             draft={draft}
             setDraft={(update) => setDraft(update)}
-            busy={createMutation.isPending}
-            saveLabel="Create Tool"
-            onSave={() => createMutation.mutate()}
-            onCancel={() => setCreating(false)}
-            isNew
+            busy={apiTool ? updateMutation.isPending : createMutation.isPending}
+            saveLabel={apiTool ? "Save" : "Create tool"}
+            onSave={() =>
+              apiTool ? updateMutation.mutate(apiTool) : createMutation.mutate()
+            }
+            onCancel={closeEditor}
+            onDelete={apiTool ? () => setDeleteTarget(apiTool) : undefined}
+            deleting={deleteMutation.isPending}
+            isNew={!apiTool}
           />
         </div>
       )}
 
-      <McpServersBlock
-        workspaceSlug={workspaceSlug}
-        servers={servers}
-        creating={creatingServer}
-        onCloseCreate={() => setCreatingServer(false)}
-      />
-
-      {serversQuery.isError && (
-        <p className="text-xs text-destructive-foreground">
-          Couldn't load MCP servers — refresh to try again. API tools below are
-          unaffected.
-        </p>
+      {listShown && loading && (
+        <div className="flex justify-center py-10">
+          <Spinner className="size-5 text-muted-foreground" />
+        </div>
       )}
 
-      {isPending || serversQuery.isPending ? (
-        <div className="flex justify-center py-6">
-          <Spinner className="size-4 text-muted-foreground" />
-        </div>
-      ) : tools.length === 0 &&
-        servers.length === 0 &&
-        !(creating || creatingServer) ? (
-        <Empty className="py-8 md:py-8">
-          <EmptyHeader>
-            <EmptyMedia variant="icon" className="mb-3">
-              <HugeiconsIcon icon={Wrench01Icon} strokeWidth={2} />
-            </EmptyMedia>
-            <EmptyTitle className="text-sm">No tools yet</EmptyTitle>
-            <EmptyDescription className="text-xs">
-              Give Lor your internal APIs — paste a cURL command — or connect an
-              MCP server.
-            </EmptyDescription>
-          </EmptyHeader>
-        </Empty>
-      ) : (
-        <ul className="space-y-2">
-          {tools.map((tool) => {
-            const isEditing = editingId === tool.id
-            return (
-              <li
-                key={tool.id}
-                className="rounded-lg border border-border bg-muted/20"
-              >
-                <button
-                  type="button"
-                  className="flex w-full cursor-pointer items-center gap-3 p-3 text-left"
-                  onClick={() => {
-                    if (isEditing) {
-                      setEditingId(null)
-                      return
-                    }
-                    setCreating(false)
-                    setDraft(draftFromTool(tool))
-                    setEditingId(tool.id)
-                  }}
+      {listShown && !loading && (
+        <SettingsSection
+          title="API tools"
+          count={tools.length}
+          action={
+            <Button
+              variant="secondary"
+              size="sm"
+              className={cn(PILL_BUTTON, "px-3")}
+              data-tool="api:new"
+              onClick={() => openApiTool(null)}
+            >
+              <HugeiconsIcon icon={PlusSignIcon} strokeWidth={2} />
+              New API tool
+            </Button>
+          }
+        >
+          {tools.length === 0 ? (
+            <SettingsCard>
+              <p className="text-sm text-muted-foreground">
+                Turn any HTTP API into a tool Lor can call. Paste a cURL command
+                to start.
+              </p>
+            </SettingsCard>
+          ) : (
+            <div className="space-y-2">
+              {tools.map((tool) => (
+                <SettingsCardButton
+                  key={tool.id}
+                  data-tool={`api:${tool.id}`}
+                  onClick={() => openApiTool(tool)}
                 >
-                  {/* Kind marker — MCP servers and databases will share this
-                      list, each with their own glyph. */}
-                  <span className="flex size-9 shrink-0 items-center justify-center rounded-md border border-border bg-background">
+                  <IconTile>
                     <HugeiconsIcon
                       icon={ApiIcon}
-                      className="size-4.5 text-muted-foreground"
+                      className="size-5"
                       strokeWidth={2}
                     />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="truncate font-mono text-sm">
+                  </IconTile>
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center gap-2">
+                      <span className="truncate font-mono text-sm font-medium">
                         {tool.name}
                       </span>
                       <Badge
@@ -1362,47 +1369,50 @@ export function CustomToolsSection({
                       >
                         {tool.method}
                       </Badge>
-                    </div>
-                    <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                    </span>
+                    <span className="block truncate text-sm text-muted-foreground">
                       {tool.description}
-                    </div>
-                  </div>
+                    </span>
+                  </span>
                   <HugeiconsIcon
-                    icon={ArrowDown01Icon}
-                    className={cn(
-                      "size-4 shrink-0 text-muted-foreground transition-transform",
-                      isEditing && "rotate-180"
-                    )}
+                    icon={ArrowRight01Icon}
+                    className="size-4 shrink-0 text-muted-foreground"
                     strokeWidth={2}
                   />
-                </button>
-                {isEditing && (
-                  <div className="border-border border-t p-4">
-                    <ToolEditor
-                      draft={draft}
-                      setDraft={(update) => setDraft(update)}
-                      busy={updateMutation.isPending}
-                      saveLabel="Save Changes"
-                      onSave={() => updateMutation.mutate(tool)}
-                      onCancel={() => setEditingId(null)}
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="mt-2 text-destructive hover:text-destructive"
-                      disabled={deleteMutation.isPending}
-                      onClick={() => setDeleteTarget(tool)}
-                    >
-                      Delete Tool
-                    </Button>
-                  </div>
-                )}
-              </li>
-            )
-          })}
-        </ul>
+                </SettingsCardButton>
+              ))}
+            </div>
+          )}
+        </SettingsSection>
       )}
+
+      {listShown && serversQuery.isError && (
+        <p className="px-4 text-xs text-destructive-foreground">
+          Couldn't load MCP servers — refresh to try again. API tools above are
+          unaffected.
+        </p>
+      )}
+
+      <McpServersBlock
+        workspaceSlug={workspaceSlug}
+        servers={servers}
+        editingId={mcpEditingId}
+        creating={mcpCreating}
+        listHidden={!listShown || loading || serversQuery.isError}
+        caption={
+          <>
+            Lor can call a tool only in channels whose agent profile grants it.
+            Grant tools in{" "}
+            <SettingsLink onClick={onOpenAgentProfiles}>
+              Agent profiles
+            </SettingsLink>
+            .
+          </>
+        }
+        onCreate={() => open("mcp", null)}
+        onOpen={(id) => open("mcp", id)}
+        onClose={closeEditor}
+      />
 
       <AlertDialog
         open={deleteTarget !== null}

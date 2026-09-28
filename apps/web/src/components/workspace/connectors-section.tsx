@@ -1,6 +1,5 @@
 import {
   ArrowDown01Icon,
-  ArrowLeft01Icon,
   ArrowRight01Icon,
   LinkSquare02Icon,
   Search01Icon,
@@ -56,6 +55,7 @@ import { GithubBaseBranchSettings } from "@/components/workspace/github-base-bra
 import {
   IconTile,
   PILL_BUTTON,
+  SettingsBackButton,
   SettingsGroup,
   SettingsLink,
   SettingsSection,
@@ -544,11 +544,6 @@ function ConnectorDetail({
   onDisconnect: () => void
   onOpenAgentProfiles: () => void
 }) {
-  const backRef = useRef<HTMLButtonElement>(null)
-  useEffect(() => {
-    backRef.current?.focus({ preventScroll: true })
-  }, [])
-
   const blocker = connectBlocker(p)
   const status = p.connected
     ? ["Connected", p.accountLogin].filter(Boolean).join(" · ")
@@ -581,16 +576,7 @@ function ConnectorDetail({
   return (
     <div className="space-y-8">
       <div className="space-y-5">
-        <Button
-          ref={backRef}
-          variant="ghost"
-          size="sm"
-          className="-ml-2 text-muted-foreground"
-          onClick={onBack}
-        >
-          <HugeiconsIcon icon={ArrowLeft01Icon} strokeWidth={2} />
-          All connectors
-        </Button>
+        <SettingsBackButton label="All connectors" onClick={onBack} />
         <div className="flex items-center gap-4">
           <ConnectorTile id={p.id} size="lg" />
           <div className="min-w-0 flex-1">

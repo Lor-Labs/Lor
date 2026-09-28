@@ -1,6 +1,5 @@
 import {
   ApiIcon,
-  ArrowLeft01Icon,
   ArrowRight01Icon,
   CloudServerIcon,
   PlusSignIcon,
@@ -35,7 +34,8 @@ import {
 import {
   IconTile,
   PILL_BUTTON,
-  SETTINGS_SURFACE,
+  SettingsBackButton,
+  SettingsCardButton,
   SettingsGroup,
   SettingsLink,
   SettingsSection,
@@ -301,15 +301,11 @@ function ProfileList({
       >
         <div className="space-y-3">
           {profiles.map((p) => (
-            <button
+            <SettingsCardButton
               key={p.id}
-              type="button"
               data-profile={p.id}
               onClick={() => onOpen(p.id)}
-              className={cn(
-                SETTINGS_SURFACE,
-                "flex w-full cursor-pointer items-center gap-4 p-4 text-left outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring dark:hover:bg-muted"
-              )}
+              className="gap-4 p-4"
             >
               <span className="block min-w-0 flex-1 space-y-3">
                 <span className="flex items-center gap-2">
@@ -328,7 +324,7 @@ function ProfileList({
                 className="size-4 shrink-0 text-muted-foreground"
                 strokeWidth={2}
               />
-            </button>
+            </SettingsCardButton>
           ))}
         </div>
       </SettingsSection>
@@ -362,11 +358,6 @@ function ProfileEditor({
   onOpenConnectors: () => void
   onOpenTools: () => void
 }) {
-  const backRef = useRef<HTMLButtonElement>(null)
-  useEffect(() => {
-    backRef.current?.focus({ preventScroll: true })
-  }, [])
-
   const [name, setName] = useState(profile?.name ?? "")
   const [selected, setSelected] = useState<Set<LorCapabilityKey>>(() => {
     if (!profile) return new Set()
@@ -402,16 +393,7 @@ function ProfileEditor({
   return (
     <div className="space-y-8">
       <div className="space-y-5">
-        <Button
-          ref={backRef}
-          variant="ghost"
-          size="sm"
-          className="-ml-2 text-muted-foreground"
-          onClick={onCancel}
-        >
-          <HugeiconsIcon icon={ArrowLeft01Icon} strokeWidth={2} />
-          All profiles
-        </Button>
+        <SettingsBackButton label="All profiles" onClick={onCancel} />
         <div className="space-y-2">
           <Input
             size="lg"

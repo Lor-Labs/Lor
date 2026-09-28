@@ -294,7 +294,10 @@ export function WorkspaceSettingsDialog({
                       onOpenAgentProfiles={() => onSectionChange("agent")}
                     />
                   ) : section === "custom-tools" ? (
-                    <CustomToolsSection workspaceSlug={workspace.slug} />
+                    <CustomToolsSection
+                      workspaceSlug={workspace.slug}
+                      onOpenAgentProfiles={() => onSectionChange("agent")}
+                    />
                   ) : section === "approvals" && canManageBilling ? (
                     <ApprovalsSection
                       workspaceId={workspace.id}
