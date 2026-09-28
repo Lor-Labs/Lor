@@ -1,9 +1,11 @@
-#[cfg(debug_assertions)]
+#[cfg(any(debug_assertions, target_os = "macos"))]
 use tauri::Manager;
 use tauri::{
     menu::{Menu, MenuItem},
     AppHandle, Emitter,
 };
+
+mod restart;
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 use tauri::menu::PredefinedMenuItem;
@@ -74,6 +76,7 @@ fn desktop_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .invoke_handler(tauri::generate_handler![restart::restart_app])
         .menu(desktop_menu)
         .on_menu_event(|app, event| {
             if event.id() == SETTINGS_MENU_ID {
@@ -99,6 +102,36 @@ pub fn run() {
             let _ = app;
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app, _event| {
+            #[cfg(target_os = "macos")]
+            match _event {
+                tauri::RunEvent::WindowEvent {
+                    label,
+                    event: tauri::WindowEvent::CloseRequested { api, .. },
+                    ..
+                } if label == "main" => {
+                    // Keep the webview alive on window close; explicit Quit still exits.
+                    api.prevent_close();
+                    if let Some(window) = _app.get_webview_window("main") {
+                        if let Err(error) = window.hide() {
+                            log::error!("failed to hide main window: {error}");
+                        }
+                    }
+                }
+                tauri::RunEvent::Reopen { .. } => {
+                    if let Some(window) = _app.get_webview_window("main") {
+                        let result = window
+                            .show()
+                            .and_then(|_| window.unminimize())
+                            .and_then(|_| window.set_focus());
+                        if let Err(error) = result {
+                            log::error!("failed to reopen main window: {error}");
+                        }
+                    }
+                }
+                _ => {}
+            }
+        });
 }

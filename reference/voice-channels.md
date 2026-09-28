@@ -4,6 +4,10 @@
 **Updated:** 2026-09-24
 **Direction:** Build voice channels with conversation memory first. Add live voice interaction with Lor afterward.
 
+**Implementation research:** [LiveKit Cloud research — 2026-09-27](./voice-channels-livekit-research.md).
+The newer research separates the immediate call foundation and transcript capture
+from later Q&A and spoken Lor; the phases below retain the broader product vision.
+
 ## Product goal
 
 Give teams a place to talk and work together where useful context remains

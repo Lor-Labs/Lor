@@ -1,3 +1,5 @@
+import { toast } from "@repo/ui/components/toast"
+import { invoke } from "@tauri-apps/api/core"
 import { useCallback, useEffect, useRef, useState } from "react"
 
 declare const __BUILD_ID__: string
@@ -8,6 +10,8 @@ const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window
 export function useUpdateCheck() {
   const [updateAvailable, setUpdateAvailable] = useState(false)
   const [isInstalling, setIsInstalling] = useState(false)
+  const installingRef = useRef(false)
+  const installedRef = useRef(false)
   const tauriUpdateRef = useRef<Awaited<
     ReturnType<typeof import("@tauri-apps/plugin-updater").check>
   > | null>(null)
@@ -34,11 +38,11 @@ export function useUpdateCheck() {
 
     // Tauri native binary update check
     const checkTauri = async () => {
-      if (!isTauri) return
+      if (!isTauri || installingRef.current || installedRef.current) return
       try {
         const { check } = await import("@tauri-apps/plugin-updater")
         const update = await check()
-        if (update) {
+        if (update && !installingRef.current && !installedRef.current) {
           tauriUpdateRef.current = update
           setUpdateAvailable(true)
         }
@@ -59,16 +63,26 @@ export function useUpdateCheck() {
   }, [])
 
   const refresh = useCallback(async () => {
+    if (installingRef.current) return
     // If there's a Tauri native update, download + install + relaunch
     if (isTauri && tauriUpdateRef.current) {
+      installingRef.current = true
+      setIsInstalling(true)
       try {
-        setIsInstalling(true)
-        await tauriUpdateRef.current.downloadAndInstall()
-        const { relaunch } = await import("@tauri-apps/plugin-process")
-        await relaunch()
-      } catch {
-        // Fall back to page reload if native update fails
-        window.location.reload()
+        if (!installedRef.current) {
+          await tauriUpdateRef.current.downloadAndInstall()
+          installedRef.current = true
+        }
+        await invoke("restart_app")
+      } catch (error) {
+        console.error("[updater] update or restart failed:", error)
+        toast.error(
+          installedRef.current
+            ? "Update installed, but Lor could not restart. Try again or reopen Lor manually."
+            : "Could not install the update. Please try again."
+        )
+        installingRef.current = false
+        setIsInstalling(false)
       }
       return
     }
