@@ -4,6 +4,15 @@
 **Tracking:** LOR-79 — Voice Channels/ voice AI (issue details supplied by Jacob)  
 **Status:** Research and proposed implementation direction; no voice implementation added.
 
+**Superseded in part — 2026-09-28:** later product decisions live in
+[voice-channels.md](./voice-channels.md) ("Voice channel model") and are executed
+from the [runbook](./voice-channels-runbook.md); where they differ from this
+research, they win. Main changes: camera video is in the MVP; phones never
+publish screen shares; transcription is always on, with a per-device captions
+toggle and no stop control; each session has its own chat and lives in the
+voice channel's history instead of a chat card; a session ends two minutes
+after the last person leaves.
+
 **Initial provider decision — 2026-09-27:** Use LiveKit Cloud for calls and
 LiveKit Inference for transcription, with Deepgram Nova-3 as the initial model
 candidate. Keep one room transcriber with separate participant STT streams.

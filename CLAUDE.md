@@ -106,8 +106,12 @@ Loops work is executed phase-by-phase from the runbook at `reference/loops.md` â
 ### Voice channels and memory
 
 The guiding feature spec lives in `reference/voice-channels.md`: voice channels
-and conversation memory first, live voice interaction with Lor later. It records
-product direction and open decisions, not an as-built implementation. Broader
+and conversation memory first, live voice interaction with Lor later. Its
+"Voice channel model" section holds the locked product decisions. Voice work is
+executed phase-by-phase from the runbook at `reference/voice-channels-runbook.md`
+â€” locked implementation decisions, per-phase file lists, and status checkboxes
+live there. Update its checkboxes and deviations log as phases land. Private
+questions to Lor are deferred (`reference/private-lor-questions.md`). Broader
 priorities live in `reference/product-direction.md`.
 
 ### Attachment search + reranking
