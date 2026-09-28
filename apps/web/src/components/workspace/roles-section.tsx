@@ -1,5 +1,12 @@
-import { ArrowRight01Icon, PlusSignIcon } from "@hugeicons/core-free-icons"
-import { HugeiconsIcon } from "@hugeicons/react"
+import {
+  ArrowRight01Icon,
+  CrownIcon,
+  PlusSignIcon,
+  UserIcon,
+  UserSettings01Icon,
+  UserShield01Icon,
+} from "@hugeicons/core-free-icons"
+import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
 import {
   formatWorkspaceRole,
@@ -32,6 +39,7 @@ import {
   useState,
 } from "react"
 import {
+  IconTile,
   PILL_BUTTON,
   SETTINGS_SURFACE,
   SettingsBackButton,
@@ -53,11 +61,24 @@ const MATRIX_RESOURCES = Object.keys(
 
 const STATIC_ROLE_SUMMARIES: {
   role: keyof typeof staticRoles
+  icon: IconSvgElement
   blurb: string
 }[] = [
-  { role: "owner", blurb: "Full access to everything, cannot be assigned" },
-  { role: "admin", blurb: "Every permission, can manage roles" },
-  { role: "member", blurb: "Base access: read, post, and react" },
+  {
+    role: "owner",
+    icon: CrownIcon,
+    blurb: "Full access to everything, cannot be assigned",
+  },
+  {
+    role: "admin",
+    icon: UserShield01Icon,
+    blurb: "Every permission, can manage roles",
+  },
+  {
+    role: "member",
+    icon: UserIcon,
+    blurb: "Base access: read, post, and react",
+  },
 ]
 
 type EditorState =
@@ -376,6 +397,13 @@ export function RolesSection({
             data-role={role.id}
             onClick={() => openEditor({ mode: "edit", role })}
           >
+            <IconTile>
+              <HugeiconsIcon
+                icon={UserSettings01Icon}
+                className="size-5"
+                strokeWidth={2}
+              />
+            </IconTile>
             <span className="min-w-0 flex-1">
               <span className="block truncate text-sm font-medium">
                 {formatWorkspaceRole(role.role)}
@@ -417,7 +445,7 @@ export function RolesSection({
             count={STATIC_ROLE_SUMMARIES.length}
           >
             <div className="space-y-2">
-              {STATIC_ROLE_SUMMARIES.map(({ role, blurb }) => (
+              {STATIC_ROLE_SUMMARIES.map(({ role, icon, blurb }) => (
                 <div
                   key={role}
                   className={cn(
@@ -425,6 +453,13 @@ export function RolesSection({
                     "flex items-center gap-3 p-3"
                   )}
                 >
+                  <IconTile>
+                    <HugeiconsIcon
+                      icon={icon}
+                      className="size-5"
+                      strokeWidth={2}
+                    />
+                  </IconTile>
                   <div className="min-w-0 flex-1">
                     <div className="text-sm font-medium">
                       {formatWorkspaceRole(role)}
