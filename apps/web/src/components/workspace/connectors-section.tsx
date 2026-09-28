@@ -67,11 +67,15 @@ import type {
   ConnectorKey,
   IntegrationStatus,
 } from "@/lib/api-types"
+import { isAppFocused, subscribeAppFocus } from "@/lib/app-focus"
 import { connectorLogo } from "@/lib/connector-ui"
 import { openExternal } from "@/lib/open-external"
 
 // How many repositories to list before collapsing the rest into a "+N more".
 const REPO_DISPLAY_LIMIT = 8
+
+// The browser callback may still be saving the connection on switch-back.
+const CONNECT_RECHECK_MS = 5000
 
 const NOTIFY_OFF = "__off__"
 
@@ -112,6 +116,9 @@ export function ConnectorsSection({
   const [query, setQuery] = useState("")
   const [returnFocusId, setReturnFocusId] = useState<ConnectorKey | null>(null)
   const [keyConnect, setKeyConnect] = useState<ConnectorKey | null>(null)
+  const [pendingConnect, setPendingConnect] = useState<ConnectorKey | null>(
+    null
+  )
   const [notionConnect, setNotionConnect] = useState<{
     url: string
     replacing: boolean
@@ -131,6 +138,8 @@ export function ConnectorsSection({
       if (!res.ok) throw new Error("Failed to load connectors")
       return res.json()
     },
+    // Connections change outside this window (OAuth runs in the browser).
+    staleTime: 0,
   })
 
   const disconnect = useMutation({
@@ -174,7 +183,42 @@ export function ConnectorsSection({
       return
     }
     openExternal(p.connectUrl)
+    setPendingConnect(p.id)
   }
+
+  // The desktop app connects in the system browser and gets no redirect back,
+  // so re-check the connectors whenever its window regains focus.
+  useEffect(() => {
+    let wasFocused = isAppFocused()
+    let recheck: ReturnType<typeof setTimeout> | undefined
+    const unsubscribe = subscribeAppFocus((focused) => {
+      if (focused && !wasFocused) {
+        void refetch({ cancelRefetch: false })
+        clearTimeout(recheck)
+        if (pendingConnect) {
+          recheck = setTimeout(
+            () => void refetch({ cancelRefetch: false }),
+            CONNECT_RECHECK_MS
+          )
+        }
+      }
+      wasFocused = focused
+    })
+    return () => {
+      clearTimeout(recheck)
+      unsubscribe()
+    }
+  }, [refetch, pendingConnect])
+
+  useEffect(() => {
+    if (!pendingConnect) return
+    const landed = data?.providers.some(
+      (p) => p.id === pendingConnect && p.connected
+    )
+    if (!landed) return
+    setPendingConnect(null)
+    if (selectedId !== pendingConnect) openConnector(pendingConnect)
+  }, [data, pendingConnect])
 
   if (isPending) {
     return (
@@ -278,7 +322,10 @@ export function ConnectorsSection({
             </AlertDialogClose>
             <Button
               onClick={() => {
-                if (notionConnect) openExternal(notionConnect.url)
+                if (notionConnect) {
+                  openExternal(notionConnect.url)
+                  if (!notionConnect.replacing) setPendingConnect("notion")
+                }
                 setNotionConnect(null)
               }}
             >
