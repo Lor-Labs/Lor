@@ -43,6 +43,12 @@ export type ConnectorKey = NonNullable<AvailableCapability["connector"]>
 type IntegrationsClient =
   Client["v1"]["workspaces"][":workspaceSlug"]["integrations"]
 
+export type ListIntegrationsResponse = InferResponseType<
+  IntegrationsClient["$get"],
+  200
+>
+export type IntegrationStatus = ListIntegrationsResponse["providers"][number]
+
 export type ConnectDatadogRequest = InferRequestType<
   IntegrationsClient["datadog"]["connect"]["$post"]
 >["json"]
