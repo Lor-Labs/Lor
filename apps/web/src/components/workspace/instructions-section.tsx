@@ -1,10 +1,4 @@
 import {
-  ArrowDown01Icon,
-  Cancel01Icon,
-  Tick02Icon,
-} from "@hugeicons/core-free-icons"
-import { HugeiconsIcon } from "@hugeicons/react"
-import {
   DEFAULT_THEMES,
   getFiletypeFromFileName,
   getHighlighterOptions,
@@ -13,7 +7,6 @@ import {
   preloadHighlighter,
 } from "@pierre/diffs"
 import { FileDiff } from "@pierre/diffs/react"
-import { Badge } from "@repo/ui/components/badge"
 import { Button } from "@repo/ui/components/button"
 import { Spinner } from "@repo/ui/components/spinner"
 import { toast } from "@repo/ui/components/toast"
@@ -25,13 +18,44 @@ import { EditorContent, useEditor } from "@tiptap/react"
 import StarterKit from "@tiptap/starter-kit"
 import { useTheme } from "next-themes"
 import { useEffect, useMemo, useRef, useState } from "react"
+import {
+  PILL_BUTTON,
+  SETTINGS_SURFACE,
+  SettingsGroup,
+  SettingsSection,
+} from "@/components/workspace/settings-group"
 import { apiClient } from "@/lib/api-client"
-import type { InstructionsResponse as InstructionsData } from "@/lib/api-types"
+import type {
+  InstructionsResponse as InstructionsData,
+  InstructionsVersion,
+} from "@/lib/api-types"
 
 // Mirrors WORKSPACE_INSTRUCTIONS_MAX_TOKENS in packages/db (web can't import
 // the db package); ~4 chars/token estimate, same as the server validator.
 const MAX_TOKENS = 2000
 const estimateTokens = (content: string) => Math.ceil(content.length / 4)
+
+// Newest versions shown before "View all".
+const HISTORY_PREVIEW = 5
+
+const STATE_LABELS: Record<InstructionsVersion["state"], string> = {
+  active: "Active",
+  pending: "Pending",
+  rejected: "Rejected",
+  superseded: "Replaced",
+}
+
+// "Sep 28, 2:14 PM" — the year only when it isn't this year.
+function formatWhen(iso: string) {
+  const at = new Date(iso)
+  return at.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: at.getFullYear() === new Date().getFullYear() ? undefined : "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  })
+}
 
 // FileDiff paints nothing if it mounts before the shared Shiki highlighter
 // has ever loaded (its lazy init doesn't repaint this instance), so gate the
@@ -75,13 +99,13 @@ function DiffView({ before, after }: { before: string; after: string }) {
   )
   if (!highlighterReady) {
     return (
-      <div className="flex h-16 items-center justify-center rounded-md border border-border">
+      <div className="flex h-16 items-center justify-center rounded-lg bg-background">
         <Spinner className="size-4 text-muted-foreground" />
       </div>
     )
   }
   return (
-    <div className="max-h-72 overflow-auto rounded-md border border-border text-xs">
+    <div className="max-h-72 overflow-auto rounded-lg border border-border text-xs">
       <FileDiff
         fileDiff={fileDiff}
         options={{
@@ -136,7 +160,7 @@ function InstructionsEditor({
       editorProps: {
         attributes: {
           class:
-            "min-h-56 max-h-96 overflow-y-auto rounded-md border border-input bg-muted/40 px-3 py-2 text-sm leading-6 text-foreground/90 outline-none [&_h1]:mt-3 [&_h1]:mb-1 [&_h1]:text-lg [&_h1]:font-semibold [&_h2]:mt-3 [&_h2]:mb-1 [&_h2]:text-base [&_h2]:font-semibold [&_h3]:mt-2 [&_h3]:mb-1 [&_h3]:text-sm [&_h3]:font-semibold [&_p]:my-1 [&_ul]:my-1 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-1 [&_ol]:list-decimal [&_ol]:pl-5 [&_blockquote]:my-1 [&_blockquote]:border-l-2 [&_blockquote]:border-border [&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground [&_hr]:my-2 [&_code]:rounded-[4px] [&_code]:border [&_code]:border-border/70 [&_code]:bg-primary/10 [&_code]:px-0.75 [&_code]:py-0.25 [&_code]:font-mono [&_code]:text-[0.92em] [&_code]:text-foreground [&_pre]:my-1 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:border-border/70 [&_pre]:bg-muted/50 [&_pre]:px-2 [&_pre]:py-1.5 [&_pre]:font-mono [&_pre]:text-[0.92em] [&_pre_code]:rounded-none [&_pre_code]:border-0 [&_pre_code]:bg-transparent [&_pre_code]:p-0",
+            "min-h-56 max-h-96 overflow-y-auto px-4 py-3 text-sm leading-6 text-foreground/90 outline-none [&_h1]:mt-3 [&_h1]:mb-1 [&_h1]:text-lg [&_h1]:font-semibold [&_h2]:mt-3 [&_h2]:mb-1 [&_h2]:text-base [&_h2]:font-semibold [&_h3]:mt-2 [&_h3]:mb-1 [&_h3]:text-sm [&_h3]:font-semibold [&_p]:my-1 [&_ul]:my-1 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-1 [&_ol]:list-decimal [&_ol]:pl-5 [&_blockquote]:my-1 [&_blockquote]:border-l-2 [&_blockquote]:border-border [&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground [&_hr]:my-2 [&_code]:rounded-[4px] [&_code]:border [&_code]:border-border/70 [&_code]:bg-primary/10 [&_code]:px-0.75 [&_code]:py-0.25 [&_code]:font-mono [&_code]:text-[0.92em] [&_code]:text-foreground [&_pre]:my-1 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:border-border/70 [&_pre]:bg-background [&_pre]:px-2 [&_pre]:py-1.5 [&_pre]:font-mono [&_pre]:text-[0.92em] [&_pre_code]:rounded-none [&_pre_code]:border-0 [&_pre_code]:bg-transparent [&_pre_code]:p-0",
         },
       },
       onUpdate: ({ editor: tiptapEditor }) => {
@@ -197,21 +221,27 @@ function InstructionsEditor({
     setDraft(null)
   }
 
+  // The transparent border turns ring-colored on focus, like an Input.
   return (
-    <div className="space-y-2">
+    <div
+      className={cn(
+        SETTINGS_SURFACE,
+        "border border-transparent transition-shadow focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/24"
+      )}
+    >
       <div className="relative">
         {isEmpty && (
-          <span className="pointer-events-none absolute left-3 top-2 text-sm text-muted-foreground">
+          <span className="pointer-events-none absolute top-3 left-4 text-sm text-muted-foreground">
             e.g. Answer in English. Prefer linking Linear issues over quoting
             them. In #engineering, always link the PR.
           </span>
         )}
         <EditorContent editor={editor} />
       </div>
-      <div className="flex items-center justify-between gap-2">
+      <div className="mx-4 flex items-center justify-between gap-2 border-border border-t py-2.5">
         <span
           className={cn(
-            "text-xs",
+            "text-xs tabular-nums",
             overLimit ? "text-destructive" : "text-muted-foreground"
           )}
         >
@@ -223,6 +253,7 @@ function InstructionsEditor({
             <Button
               variant="ghost"
               size="sm"
+              className={cn(PILL_BUTTON, "px-3")}
               onClick={discard}
               disabled={isSaving}
             >
@@ -231,10 +262,11 @@ function InstructionsEditor({
           )}
           <Button
             size="sm"
-            disabled={!hasChanges || overLimit || isSaving}
+            className={cn(PILL_BUTTON, "px-3")}
+            disabled={!hasChanges || overLimit}
+            loading={isSaving}
             onClick={() => onSave(editorValue, lastAppliedVersion.current)}
           >
-            {isSaving && <Spinner className="size-4" />}
             Save
           </Button>
         </div>
@@ -367,133 +399,143 @@ export function InstructionsSection({
   const pendingIsStale =
     pending !== null && pending.baseVersion !== activeVersion
   const history = data.versions.filter((v) => v.state !== "pending")
+  const shownHistory = historyOpen ? history : history.slice(0, HISTORY_PREVIEW)
 
   return (
-    <div className="space-y-6">
-      <p className="text-sm text-muted-foreground">
-        Your workspace's LOR.md — standing instructions Lor follows in every
-        answer: tone, priorities, team conventions. Lor can propose changes, but
-        they only take effect after an admin approves them here.
-      </p>
-
+    <div className="space-y-8">
       {pending && (
-        <div className="space-y-3 rounded-lg border border-border p-4">
-          <div className="flex items-center justify-between gap-2">
-            <div className="text-sm font-medium">
-              Lor proposed an update
-              <span className="ml-2 text-xs font-normal text-muted-foreground">
-                v{pending.version} ·{" "}
-                {new Date(pending.createdAt).toLocaleString()}
-              </span>
-            </div>
-            <Badge variant="secondary">Pending approval</Badge>
+        <SettingsSection
+          title="Lor proposed a change"
+          action={
+            <span className="text-xs text-muted-foreground">
+              v{pending.version} · {formatWhen(pending.createdAt)}
+            </span>
+          }
+          caption={
+            data.canApprove
+              ? undefined
+              : "An admin needs to approve it before Lor follows it."
+          }
+        >
+          <div className={cn(SETTINGS_SURFACE, "space-y-3 p-4")}>
+            {pending.rationale && (
+              <p className="text-sm">{pending.rationale}</p>
+            )}
+            {pendingIsStale && (
+              <p className="text-xs text-destructive">
+                The active instructions changed after this was proposed —
+                approving is blocked. Review the proposal and re-apply what's
+                still wanted as a direct edit, or reject it.
+              </p>
+            )}
+            <DiffView before={activeContent} after={pending.content} />
+            {data.canApprove && (
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className={cn(PILL_BUTTON, "px-3")}
+                  disabled={reject.isPending || approve.isPending}
+                  onClick={() => reject.mutate(pending.version)}
+                >
+                  Reject
+                </Button>
+                <Button
+                  size="sm"
+                  className={cn(PILL_BUTTON, "px-3")}
+                  disabled={
+                    approve.isPending || reject.isPending || pendingIsStale
+                  }
+                  onClick={() => approve.mutate(pending.version)}
+                >
+                  Approve
+                </Button>
+              </div>
+            )}
           </div>
-          {pending.rationale && (
-            <p className="text-sm text-muted-foreground">{pending.rationale}</p>
-          )}
-          {pendingIsStale && (
-            <p className="text-xs text-destructive">
-              The active instructions changed after this was proposed —
-              approving is blocked. Review the proposal and re-apply what's
-              still wanted as a direct edit, or reject it.
-            </p>
-          )}
-          <DiffView before={activeContent} after={pending.content} />
-          {data.canApprove && (
-            <div className="flex justify-end gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={reject.isPending || approve.isPending}
-                onClick={() => reject.mutate(pending.version)}
-              >
-                <HugeiconsIcon
-                  icon={Cancel01Icon}
-                  className="size-4"
-                  strokeWidth={2}
-                />
-                Reject
-              </Button>
-              <Button
-                size="sm"
-                disabled={
-                  approve.isPending || reject.isPending || pendingIsStale
-                }
-                onClick={() => approve.mutate(pending.version)}
-              >
-                <HugeiconsIcon
-                  icon={Tick02Icon}
-                  className="size-4"
-                  strokeWidth={2}
-                />
-                Approve
-              </Button>
-            </div>
-          )}
-        </div>
+        </SettingsSection>
       )}
 
-      {data.canManage ? (
-        <InstructionsEditor
-          key={workspaceSlug}
-          activeContent={activeContent}
-          activeVersion={activeVersion}
-          onSave={(content, baseVersion) =>
-            save.mutate({ content, baseVersion })
-          }
-          isSaving={save.isPending}
-        />
-      ) : activeContent ? (
-        <pre className="rounded-md border border-border bg-muted/40 p-3 font-mono text-xs whitespace-pre-wrap">
-          {activeContent}
-        </pre>
-      ) : (
-        <p className="text-sm text-muted-foreground">
-          No instructions set yet.
-        </p>
-      )}
+      <SettingsSection
+        title="Instructions"
+        caption="Lor follows these in every answer: tone, priorities, team conventions. Lor can propose changes, and they only take effect after an admin approves them."
+      >
+        {data.canManage ? (
+          <InstructionsEditor
+            key={workspaceSlug}
+            activeContent={activeContent}
+            activeVersion={activeVersion}
+            onSave={(content, baseVersion) =>
+              save.mutate({ content, baseVersion })
+            }
+            isSaving={save.isPending}
+          />
+        ) : activeContent ? (
+          <pre
+            className={cn(
+              SETTINGS_SURFACE,
+              "px-4 py-3 font-mono text-xs whitespace-pre-wrap"
+            )}
+          >
+            {activeContent}
+          </pre>
+        ) : (
+          <div
+            className={cn(
+              SETTINGS_SURFACE,
+              "px-4 py-3 text-sm text-muted-foreground"
+            )}
+          >
+            No instructions set yet.
+          </div>
+        )}
+      </SettingsSection>
 
       {history.length > 0 && (
-        <div className="space-y-2">
-          <button
-            type="button"
-            onClick={() => setHistoryOpen((open) => !open)}
-            className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
-          >
-            <HugeiconsIcon
-              icon={ArrowDown01Icon}
-              className={cn(
-                "size-3.5 transition-transform",
-                historyOpen && "rotate-180"
-              )}
-              strokeWidth={2}
-            />
-            Version history
-          </button>
-          {historyOpen && (
-            <div className="space-y-1">
-              {history.map((v) => (
-                <div
-                  key={v.version}
-                  className="flex items-center justify-between gap-2 rounded-md px-2 py-1 text-xs text-muted-foreground"
-                >
-                  <span>
-                    v{v.version} ·{" "}
-                    {v.authorType === "agent"
-                      ? "Lor"
-                      : (v.authorName ?? "Unknown")}{" "}
-                    · {new Date(v.createdAt).toLocaleString()}
+        <SettingsSection
+          title="Version history"
+          count={history.length}
+          action={
+            history.length > HISTORY_PREVIEW && (
+              <button
+                type="button"
+                onClick={() => setHistoryOpen((open) => !open)}
+                className="cursor-pointer text-xs text-muted-foreground hover:text-foreground"
+              >
+                {historyOpen ? "Show less" : "View all"}
+              </button>
+            )
+          }
+        >
+          <SettingsGroup>
+            {shownHistory.map((v) => (
+              <div key={v.version} className="flex items-center gap-3 py-3">
+                <span className="w-8 shrink-0 text-sm font-medium tabular-nums">
+                  v{v.version}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
+                  {v.authorType === "agent"
+                    ? "Lor"
+                    : (v.authorName ?? "Unknown")}{" "}
+                  · {formatWhen(v.createdAt)}
+                </span>
+                {v.state === "active" ? (
+                  <span className="flex shrink-0 items-center gap-1.5 text-xs">
+                    <span
+                      aria-hidden="true"
+                      className="size-1.5 rounded-full bg-success"
+                    />
+                    {STATE_LABELS.active}
                   </span>
-                  <Badge
-                    variant={v.state === "active" ? "default" : "secondary"}
-                  >
-                    {v.state}
-                  </Badge>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+                ) : (
+                  <span className="shrink-0 text-xs text-muted-foreground">
+                    {STATE_LABELS[v.state]}
+                  </span>
+                )}
+              </div>
+            ))}
+          </SettingsGroup>
+        </SettingsSection>
       )}
     </div>
   )

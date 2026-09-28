@@ -35,6 +35,7 @@ import {
 import {
   IconTile,
   PILL_BUTTON,
+  SETTINGS_SURFACE,
   SettingsGroup,
   SettingsLink,
   SettingsSection,
@@ -305,7 +306,10 @@ function ProfileList({
               type="button"
               data-profile={p.id}
               onClick={() => onOpen(p.id)}
-              className="flex w-full cursor-pointer items-center gap-4 rounded-xl bg-muted p-4 text-left outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring dark:bg-muted/60 dark:hover:bg-muted"
+              className={cn(
+                SETTINGS_SURFACE,
+                "flex w-full cursor-pointer items-center gap-4 p-4 text-left outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring dark:hover:bg-muted"
+              )}
             >
               <span className="block min-w-0 flex-1 space-y-3">
                 <span className="flex items-center gap-2">

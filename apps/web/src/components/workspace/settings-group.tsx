@@ -6,6 +6,9 @@ import type { ReactNode } from "react"
 
 export const PILL_BUTTON = "rounded-full px-4 before:rounded-full"
 
+// The filled surface behind every settings group and standalone card.
+export const SETTINGS_SURFACE = "rounded-xl bg-muted dark:bg-muted/60"
+
 export function SettingsSection({
   title,
   count,
@@ -61,7 +64,7 @@ export function SettingsLink({
 
 export function SettingsGroup({ children }: { children: ReactNode }) {
   return (
-    <div className="divide-y divide-border rounded-xl bg-muted px-4 dark:bg-muted/60">
+    <div className={cn(SETTINGS_SURFACE, "divide-y divide-border px-4")}>
       {children}
     </div>
   )
