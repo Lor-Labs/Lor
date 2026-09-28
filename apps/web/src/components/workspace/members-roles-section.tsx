@@ -1,4 +1,5 @@
 import { Tabs, TabsList, TabsPanel, TabsTab } from "@repo/ui/components/tabs"
+import { useRef } from "react"
 import { MembersSection } from "@/components/workspace/members-section"
 import { RolesSection } from "@/components/workspace/roles-section"
 
@@ -11,32 +12,38 @@ export function MembersRolesSection({
   workspaceSlug: string
   canManageRoles: boolean
 }) {
+  const topRef = useRef<HTMLDivElement>(null)
   return (
-    <Tabs defaultValue="members">
-      <TabsList
-        variant="underline"
-        className="w-full justify-start border-b border-border/60"
-      >
-        <TabsTab value="members" className="grow-0">
-          Members
-        </TabsTab>
-        {canManageRoles && (
-          <TabsTab value="roles" className="grow-0">
-            Roles
+    <div ref={topRef} className="scroll-mt-6">
+      <Tabs defaultValue="members">
+        <TabsList
+          variant="underline"
+          className="w-full justify-start border-b border-border/60"
+        >
+          <TabsTab value="members" className="grow-0">
+            Members
           </TabsTab>
-        )}
-      </TabsList>
-      <TabsPanel value="members" className="pt-2">
-        <MembersSection workspaceSlug={workspaceSlug} />
-      </TabsPanel>
-      {canManageRoles && (
-        <TabsPanel value="roles" className="pt-2">
-          <RolesSection
-            workspaceId={workspaceId}
-            workspaceSlug={workspaceSlug}
-          />
+          {canManageRoles && (
+            <TabsTab value="roles" className="grow-0">
+              Roles
+            </TabsTab>
+          )}
+        </TabsList>
+        <TabsPanel value="members" className="pt-6">
+          <MembersSection workspaceSlug={workspaceSlug} />
         </TabsPanel>
-      )}
-    </Tabs>
+        {canManageRoles && (
+          <TabsPanel value="roles" className="pt-6">
+            <RolesSection
+              workspaceId={workspaceId}
+              workspaceSlug={workspaceSlug}
+              onViewChange={() =>
+                topRef.current?.scrollIntoView({ block: "start" })
+              }
+            />
+          </TabsPanel>
+        )}
+      </Tabs>
+    </div>
   )
 }
