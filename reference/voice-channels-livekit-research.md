@@ -4,6 +4,17 @@
 **Tracking:** LOR-79 — Voice Channels/ voice AI (issue details supplied by Jacob)  
 **Status:** Research and proposed implementation direction; no voice implementation added.
 
+**Initial provider decision — 2026-09-27:** Use LiveKit Cloud for calls and
+LiveKit Inference for transcription, with Deepgram Nova-3 as the initial model
+candidate. Keep one room transcriber with separate participant STT streams.
+Defer direct Deepgram/BYOK and custom silence filtering until real usage justifies
+the additional complexity. Prioritize reliable capture over reducing billed
+silence in the first version; budget for per-participant connection time.
+
+Participant attribution comes from each user's track. The deferred optimization
+is voice activity detection for deciding which audio to send, not identifying
+which participant owns a track. A shared voice package can include transcription.
+
 Recommendation: use LiveKit Cloud for human calls, build Lor's UI around its SDKs,
 and add a silent transcription service with durable storage in Lor. Resolve Tauri
 screen capture and native mobile call lifecycle first. Spoken Lor, summaries,
@@ -78,6 +89,11 @@ flowchart LR
 
 These boundaries are recommendations for Lor:
 
+- **Shared voice package:** Jacob supports a package for the broader voice
+  capability. Transcription belongs within that design; it does not need its own
+  package merely because it is a separate runtime. Keep server credentials and
+  agent dependencies out of client entry points. Exact package/deployment layout
+  remains an implementation decision.
 - **`apps/api`:** authorize joins, allocate sessions, mint tokens, manage capture,
   verify webhooks, receive transcript segments, and serve history.
 - **`apps/web`:** one call provider above channel routes; custom room UI built
@@ -88,9 +104,12 @@ These boundaries are recommendations for Lor:
   capture integration; share API types and domain state, not DOM components.
 - **`apps/realtime`:** continue Socket.IO for Lor channel activity and session
   updates. Do not route call media through it or replace persistent text chat.
-- **New transcription service:** deploy separately from the existing Lor worker.
-  Prefer LiveKit Cloud hosting initially. Cloud supports managed agent deployment,
-  scaling, and secrets. We still write the transcriber code.
+- **Transcription agent:** use LiveKit's Agents SDK and multi-user example, with
+  Lor-specific capture controls and persistence. Prefer LiveKit Cloud hosting
+  initially. Cloud supports managed agent deployment, scaling, and secrets.
+  A new monorepo package is not required by LiveKit; source placement is an
+  implementation choice. A separate deployment is a recommendation to isolate
+  call processing from Lor's existing jobs, not a new speech-recognition engine.
   [Agent deployment](https://docs.livekit.io/deploy/agents/)
 
 Prefer a TypeScript transcriber if the pinned Node SDK supports the required
@@ -206,6 +225,20 @@ uses Deepgram Nova-3, publishes text, and disables audio responses. One room job
 can therefore transcribe several humans without an LLM or TTS response pipeline.
 The sample is a starting point, not a durable recording system.
 
+Distinguish the room job from its STT connections: the proposed four-person call
+has one transcriber agent connected to the room, managing four independent STT
+streams inside that job. Users do not each run their own bot or need provider
+credentials. This per-participant arrangement follows the official example;
+it is not a requirement of every possible transcription architecture.
+
+An alternative is to mix all microphone audio into one mono stream and transcribe
+that. This reduces the number of STT connections, but discards the original track
+identity in the audio sent to STT. Diarization can assign numbered speakers; it
+does not by itself map those numbers to authenticated Lor users. Speaker mapping
+and overlapping speech then need additional handling. Recommend separate streams
+initially because preserving attribution is valuable for future meeting memory.
+[Deepgram diarization](https://developers.deepgram.com/docs/diarization)
+
 Our proposed service should subscribe only to human microphone tracks, attach
 server-verified Lor identities, and persist final segments as they arrive. Track
 attribution is stronger than guessing names from mixed room audio, but it
@@ -308,13 +341,70 @@ metered by connection time, not only spoken words. Agent runtime is metered whil
 the agent is connected. Close idle work deliberately when the session ends.
 [Billing units](https://docs.livekit.io/deploy/admin/billing/)
 
-Illustration: four people for 60 minutes create 240 human connection-minutes.
-Four continuously open STT streams also create 240 STT minutes: approximately
-$1.15 of Nova-3 usage before credits, plus transport, agent hosting, and any
-storage. A 1 Mbps share received by three people for an hour is approximately
+Illustration for per-participant LiveKit Inference: four people for 60 minutes
+create 240 human connection-minutes. One room transcriber manages four STT
+connections; if all four stay open for the hour, that is 240 STT minutes, or
+approximately $1.15 of Nova-3 usage before credits. It does not mean four
+separately deployed bots. A single mixed mono stream would instead represent
+60 STT connection-minutes, with the attribution tradeoffs described above.
+Transport, agent hosting, and storage are separate charges.
+A 1 Mbps share received by three people for an hour is approximately
 1.35 GB downstream before protocol overhead. These are arithmetic illustrations,
 not a measured call quote. Confirm room size, concurrent STT limits, and the
 selected plan in Cloud before rollout.
+
+### Direct Deepgram versus LiveKit Inference
+
+Deferred optimization research, retained for future cost review. The initial
+decision is LiveKit Inference; evaluating direct Deepgram is not a launch
+prerequisite. Base streaming prices currently match, but their documented
+metering differs.
+
+| Nova-3 streaming | LiveKit Inference, Build/Ship | Deepgram direct, pay as you go |
+| --- | --- | --- |
+| Monolingual base rate | $0.0048/min | $0.0048/min |
+| Multilingual base rate | $0.0058/min | $0.0058/min |
+| Metering | STT connection time | Duration of audio sent |
+
+Deepgram labels its current streaming rates promotional. Its direct account also
+advertises $200 in initial credit. A cheaper committed plan is not automatically
+worthwhile for an early rollout. Feature add-ons can change the effective price.
+[Deepgram pricing](https://deepgram.com/pricing),
+[LiveKit pricing](https://livekit.com/pricing)
+
+Deepgram staff explicitly states that direct STT charges for submitted audio,
+with no charge for an idle WebSocket or KeepAlive messages. This is STT billing,
+not Deepgram's separate Voice Agent product. Silence transmitted as audio still
+contributes to submitted audio duration; merely changing API keys does not stop
+that traffic. LiveKit Inference's published basis is connection time, so do not
+assume its idle billing matches the direct provider.
+[Deepgram billing clarification](https://github.com/orgs/deepgram/discussions/1423),
+[LiveKit billing](https://docs.livekit.io/deploy/admin/billing/)
+
+The potential optimization is per-participant voice activity detection before
+upload, with buffered speech onset, enough trailing audio for finalization, and
+KeepAlive during idle gaps. This retains attribution and concurrent speakers.
+It must preserve soft/brief speech and map provider audio offsets back onto the
+room timeline when silence is omitted. Deepgram documents KeepAlive for this
+purpose; LiveKit's Python plugin includes keep-alives but forwards the audio
+frames supplied to it. Enabling VAD events alone does not establish that silence
+is filtered before upload.
+[KeepAlive](https://developers.deepgram.com/docs/audio-keep-alive),
+[plugin implementation](https://docs.livekit.io/reference/python/livekit/plugins/deepgram/index.html)
+
+Conditional example: if four participants' streams contain 60 minutes of total
+submitted audio after speech padding in a one-hour call, direct base STT costs
+$0.288, compared with $1.152 for 240 continuously connected Inference minutes.
+That is an illustration of metering, not a forecast of speech ratio or verified
+savings. Continuous upload of all four feeds would still cost about $1.15 direct.
+
+Decision: start with LiveKit Inference and retain this comparison for later.
+Revisit direct Deepgram and silence filtering if measured transcription spend
+becomes material. Any future comparison should reconcile submitted audio and
+provider usage from ordinary manual team calls, including muted and idle
+participants, while checking capture quality. BYOK changes who bills for STT;
+it does not remove LiveKit transport or Cloud agent hosting charges. No provider
+account, paid plan, or runtime implementation was created here.
 
 ## Recommended delivery order
 
@@ -326,7 +416,8 @@ selected plan in Cloud before rollout.
 2. **Ship the human call foundation.** Authorized joins, session lifecycle,
    persistent call state, devices/mute/deafen, screen stage, native lifecycle,
    clear failures, and consistent desktop/mobile UI. Calls cannot depend on STT.
-3. **Add durable capture.** Silent multi-user transcription, visible controls,
+3. **Add durable capture.** Silent multi-user transcription through LiveKit
+   Inference with separate participant streams, visible controls,
    incremental storage, gap reporting, late-join history, and one final session
    card. Capture failure remains independent of the call.
 4. **Add useful memory.** Summaries, source-backed text Q&A, corrections, and

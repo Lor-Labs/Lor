@@ -1,7 +1,7 @@
 # Voice channels and shared memory
 
 **Status:** Guiding product spec; not an as-built reference or implementation plan.
-**Updated:** 2026-09-24
+**Updated:** 2026-09-27
 **Direction:** Build voice channels with conversation memory first. Add live voice interaction with Lor afterward.
 
 **Implementation research:** [LiveKit Cloud research — 2026-09-27](./voice-channels-livekit-research.md).
@@ -26,6 +26,9 @@ real working conversations and find the resulting memory useful afterward.
 ## Decisions from the product discussion
 
 - Voice channels are the next feature direction to develop.
+- Start with LiveKit Cloud for calls and LiveKit Inference for transcription.
+  Use separate participant streams for attribution. Defer direct Deepgram/BYOK
+  and custom silence filtering; the initial priority is reliable capture.
 - The first release focuses on human conversation and memory. Live spoken AI
   responses, wake words, and voice-triggered tasks are a later phase.
 - Code channels remain a future direction. Their interaction design is still
@@ -33,8 +36,8 @@ real working conversations and find the resulting memory useful afterward.
 - Direct multiplayer document editing is not a prerequisite for this work.
 - Keep the experience within the existing channel structure. Avoid a separate
   meetings dashboard or inbox unless usage demonstrates a concrete need.
-- This document guides scope and design. It does not select infrastructure,
-  model providers, a database schema, or a public launch date.
+- This document guides scope and design and records the initial LiveKit choice.
+  Detailed model selection, database schema, and public launch date remain open.
 
 ## The experience we want
 
@@ -177,8 +180,8 @@ collaborative document editing, or a code-channel workbench.
 
 Resolve these before implementation depends on them:
 
-- Voice transport/provider and the first supported clients; desktop/web/mobile
-  capability expectations, including background audio.
+- The first supported clients and desktop/web/mobile capability expectations,
+  including background audio. LiveKit Cloud is the initial transport choice.
 - Relationship between a voice channel and its text history in navigation.
 - Capture defaults, who can enable/stop it, and participant notification behavior.
 - Whether raw audio is retained; retention/deletion rules for audio, transcripts,
