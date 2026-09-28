@@ -1272,12 +1272,16 @@ export function CustomToolsSection({
     topRef.current?.scrollIntoView({ block: "start" })
   }, [viewKey])
 
-  // Back from an editor: return focus to the card that opened it.
+  // Back from an editor: return focus to the card that opened it, or to its
+  // section's add button when that tool was just deleted.
   useEffect(() => {
     if (!listShown || !returnFocus) return
-    topRef.current
-      ?.querySelector<HTMLElement>(`[data-tool="${returnFocus}"]`)
-      ?.focus({ preventScroll: true })
+    const root = topRef.current
+    const [kind] = returnFocus.split(":")
+    const target =
+      root?.querySelector<HTMLElement>(`[data-tool="${returnFocus}"]`) ??
+      root?.querySelector<HTMLElement>(`[data-tool="${kind}:new"]`)
+    target?.focus({ preventScroll: true })
   }, [listShown])
 
   const open = (kind: "api" | "mcp", id: string | null) => {

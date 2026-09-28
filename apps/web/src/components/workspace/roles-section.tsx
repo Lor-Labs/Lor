@@ -361,12 +361,15 @@ export function RolesSection({
     onViewChange()
   }, [editorKey])
 
-  // Back from the editor: return focus to the card that opened it.
+  // Back from the editor: return focus to the card that opened it, or to
+  // "New role" when that role was just deleted.
   useEffect(() => {
     if (editor || !returnFocusId) return
-    listRef.current
-      ?.querySelector<HTMLElement>(`[data-role="${returnFocusId}"]`)
-      ?.focus({ preventScroll: true })
+    const list = listRef.current
+    const target =
+      list?.querySelector<HTMLElement>(`[data-role="${returnFocusId}"]`) ??
+      list?.querySelector<HTMLElement>('[data-role="new"]')
+    target?.focus({ preventScroll: true })
   }, [editor])
 
   const openEditor = (next: NonNullable<EditorState>) => {

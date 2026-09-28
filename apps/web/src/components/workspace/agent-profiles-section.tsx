@@ -272,12 +272,15 @@ function ProfileList({
   onOpen: (id: string) => void
 }) {
   const listRef = useRef<HTMLDivElement>(null)
-  // Back from the editor: return focus to what opened it.
+  // Back from the editor: return focus to what opened it, or to "New profile"
+  // when that profile was just deleted.
   useEffect(() => {
     if (!focusId) return
-    listRef.current
-      ?.querySelector<HTMLElement>(`[data-profile="${focusId}"]`)
-      ?.focus({ preventScroll: true })
+    const list = listRef.current
+    const target =
+      list?.querySelector<HTMLElement>(`[data-profile="${focusId}"]`) ??
+      list?.querySelector<HTMLElement>(`[data-profile="${NEW_PROFILE}"]`)
+    target?.focus({ preventScroll: true })
   }, [])
 
   return (
