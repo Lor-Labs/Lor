@@ -305,7 +305,11 @@ export function WorkspaceSettingsDialog({
                   ) : section === "billing" && canManageBilling ? (
                     <BillingSection workspaceSlug={workspace.slug} />
                   ) : (
-                    <AgentProfilesSection workspaceSlug={workspace.slug} />
+                    <AgentProfilesSection
+                      workspaceSlug={workspace.slug}
+                      onOpenConnectors={() => onSectionChange("connectors")}
+                      onOpenTools={() => onSectionChange("custom-tools")}
+                    />
                   )}
                 </div>
               </div>

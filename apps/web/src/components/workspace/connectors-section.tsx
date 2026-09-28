@@ -51,14 +51,15 @@ import { CodeBlock } from "@repo/ui/components/tool-ui/code-block"
 import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useSearch } from "@tanstack/react-router"
-import {
-  type ReactNode,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react"
+import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import { GithubBaseBranchSettings } from "@/components/workspace/github-base-branch-settings"
+import {
+  IconTile,
+  PILL_BUTTON,
+  SettingsGroup,
+  SettingsLink,
+  SettingsSection,
+} from "@/components/workspace/settings-group"
 import { TriggerEffects } from "@/components/workspace/trigger-effects"
 import { apiClient } from "@/lib/api-client"
 import type {
@@ -78,8 +79,6 @@ const REPO_DISPLAY_LIMIT = 8
 const CONNECT_RECHECK_MS = 5000
 
 const NOTIFY_OFF = "__off__"
-
-const PILL_BUTTON = "rounded-full px-4 before:rounded-full"
 
 type TriggerConfig = {
   channelId: string | null
@@ -381,14 +380,9 @@ function ConnectorTile({
 }) {
   const Logo = connectorLogo(id)
   return (
-    <span
-      className={cn(
-        "flex shrink-0 items-center justify-center border border-border bg-card text-foreground",
-        size === "lg" ? "size-14 rounded-xl" : "size-10 rounded-lg"
-      )}
-    >
+    <IconTile size={size}>
       <Logo className={size === "lg" ? "size-7" : "size-5"} />
-    </span>
+    </IconTile>
   )
 }
 
@@ -531,48 +525,6 @@ function ConnectorRow({
   )
 }
 
-function DetailSection({
-  title,
-  count,
-  action,
-  caption,
-  children,
-}: {
-  title: string
-  count?: number
-  action?: ReactNode
-  caption?: ReactNode
-  children: ReactNode
-}) {
-  return (
-    <section className="space-y-2">
-      <div className="flex items-center justify-between gap-3 px-4">
-        <h3 className="text-sm font-medium">
-          {title}
-          {count !== undefined && (
-            <span className="ml-1.5 font-normal text-muted-foreground">
-              {count}
-            </span>
-          )}
-        </h3>
-        {action}
-      </div>
-      {children}
-      {caption && (
-        <p className="px-4 text-xs text-muted-foreground">{caption}</p>
-      )}
-    </section>
-  )
-}
-
-function GroupCard({ children }: { children: ReactNode }) {
-  return (
-    <div className="divide-y divide-border rounded-xl bg-muted px-4 dark:bg-muted/60">
-      {children}
-    </div>
-  )
-}
-
 function ConnectorDetail({
   workspaceSlug,
   provider: p,
@@ -671,23 +623,19 @@ function ConnectorDetail({
       </div>
 
       {p.capabilities.length > 0 && (
-        <DetailSection
+        <SettingsSection
           title="Capabilities"
           count={p.capabilities.length}
           caption={
             <>
-              <button
-                type="button"
-                onClick={onOpenAgentProfiles}
-                className="cursor-pointer font-medium text-foreground hover:underline"
-              >
+              <SettingsLink onClick={onOpenAgentProfiles}>
                 Agent profiles
-              </button>{" "}
+              </SettingsLink>{" "}
               control which channels can use these.
             </>
           }
         >
-          <GroupCard>
+          <SettingsGroup>
             {p.capabilities.map((capability) => (
               <div key={capability.key} className="py-3">
                 <div className="text-sm">{capability.label}</div>
@@ -696,8 +644,8 @@ function ConnectorDetail({
                 </div>
               </div>
             ))}
-          </GroupCard>
-        </DetailSection>
+          </SettingsGroup>
+        </SettingsSection>
       )}
 
       {p.events.length > 0 &&
@@ -709,19 +657,19 @@ function ConnectorDetail({
             events={p.events}
           />
         ) : (
-          <DetailSection
+          <SettingsSection
             title="Events"
             count={p.events.length}
             caption={`Connect ${p.name} to send these events to a channel.`}
           >
-            <GroupCard>
+            <SettingsGroup>
               {p.events.map((ev) => (
                 <div key={ev.key} className="py-3 text-sm">
                   {ev.label}
                 </div>
               ))}
-            </GroupCard>
-          </DetailSection>
+            </SettingsGroup>
+          </SettingsSection>
         ))}
 
       {p.connected && (
@@ -789,7 +737,7 @@ function EventRoutes({
   const activeEvents = events.filter((ev) => ev.channelId).length
 
   return (
-    <DetailSection
+    <SettingsSection
       title="Events"
       count={events.length}
       action={
@@ -800,7 +748,7 @@ function EventRoutes({
         )
       }
     >
-      <GroupCard>
+      <SettingsGroup>
         {events.map((ev) => {
           const busy = pendingEvent === ev.key
           // Each change re-sends the full trigger config so one PATCH shape
@@ -869,8 +817,8 @@ function EventRoutes({
             </div>
           )
         })}
-      </GroupCard>
-    </DetailSection>
+      </SettingsGroup>
+    </SettingsSection>
   )
 }
 
@@ -904,8 +852,12 @@ function Repositories({
 
   return (
     <>
-      <DetailSection title="Repositories" count={repoCount} action={manageLink}>
-        <GroupCard>
+      <SettingsSection
+        title="Repositories"
+        count={repoCount}
+        action={manageLink}
+      >
+        <SettingsGroup>
           {repos.length === 0 && (
             <div className="py-3 text-sm text-muted-foreground">
               No repositories yet.
@@ -930,11 +882,11 @@ function Repositories({
               +{repoCount - REPO_DISPLAY_LIMIT} more
             </div>
           )}
-        </GroupCard>
-      </DetailSection>
+        </SettingsGroup>
+      </SettingsSection>
       {p.id === "github" && p.connectionId && repos.length > 0 && (
-        <DetailSection title="Pull request base branch">
-          <GroupCard>
+        <SettingsSection title="Pull request base branch">
+          <SettingsGroup>
             <div className="py-3">
               <GithubBaseBranchSettings
                 workspaceSlug={workspaceSlug}
@@ -942,8 +894,8 @@ function Repositories({
                 repos={repos}
               />
             </div>
-          </GroupCard>
-        </DetailSection>
+          </SettingsGroup>
+        </SettingsSection>
       )}
     </>
   )
