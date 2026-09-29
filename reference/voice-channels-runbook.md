@@ -325,3 +325,9 @@ See Phase 2 of the spec.
     `@livekit/react-native-webrtc` 144.2, `@livekit/react-native-expo-plugin`
     1.0, `@config-plugins/react-native-webrtc` 15.0 (peer `expo >= 56`).
     Pin after the manual calls pass.
+- 2026-09-29 — Jacob's manual calls: audio, camera, and screen share work on
+  web, the packaged macOS app, and a physical iPhone. Desktop media path =
+  the Tauri webview; no native bridge or browser handoff needed. Still to
+  confirm before closing V0: device changes, iPhone lock/background audio,
+  permission denial recovery, Wi-Fi to cellular reconnect, the
+  duplicate-identity transfer, and the CallKit decision.
