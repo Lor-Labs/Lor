@@ -1,3 +1,4 @@
+import { registerGlobals } from "@livekit/react-native"
 import { QueryClientProvider } from "@tanstack/react-query"
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from "expo-router"
 import * as SplashScreen from "expo-splash-screen"
@@ -18,6 +19,7 @@ import { queryClient, subscribeQueryFocus } from "@/lib/query-client"
 import { restoreThemePreference } from "@/lib/theme-preference"
 
 SplashScreen.preventAutoHideAsync()
+registerGlobals()
 
 export default function RootLayout() {
   const colorScheme = useColorScheme()

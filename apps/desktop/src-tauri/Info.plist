@@ -4,5 +4,9 @@
 <dict>
 	<key>CFBundleIconName</key>
 	<string>AppIcon</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Lor uses your camera for video in voice channels.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Lor uses your microphone so you can talk in voice channels.</string>
 </dict>
 </plist>

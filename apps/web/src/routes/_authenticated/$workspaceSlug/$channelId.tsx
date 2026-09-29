@@ -3,7 +3,7 @@ import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
 import { toast } from "@repo/ui/components/toast"
 import { useIsMobile } from "@repo/ui/hooks/use-mobile"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { queryOptions, useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
 import { AnimatePresence } from "framer-motion"
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react"
@@ -21,6 +21,7 @@ import {
 import { RunQueuePill } from "@/components/chat/run-queue-pill"
 import { TypingIndicator } from "@/components/chat/typing-indicator"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
+import { VoiceChannelView } from "@/components/voice/voice-channel-view"
 import { useSocket } from "@/context/socket-context"
 import { useChannelApprovals } from "@/hooks/use-approvals"
 import { useAutoMarkRead } from "@/hooks/use-auto-mark-read"
@@ -66,7 +67,7 @@ type ChannelSearchParams = {
 export const Route = createFileRoute(
   "/_authenticated/$workspaceSlug/$channelId"
 )({
-  component: ChannelView,
+  component: ChannelRoute,
   validateSearch: (search: Record<string, unknown>): ChannelSearchParams => ({
     msgId: typeof search.msgId === "string" ? search.msgId : undefined,
     threadId: typeof search.threadId === "string" ? search.threadId : undefined,
@@ -83,6 +84,41 @@ export const Route = createFileRoute(
         : undefined,
   }),
 })
+
+function channelQueryOptions(workspaceSlug: string, channelId: string) {
+  return queryOptions({
+    queryKey: ["channel", workspaceSlug, channelId],
+    queryFn: async () => {
+      const res = await apiClient.v1.workspaces[":workspaceSlug"].channels[
+        ":channelId"
+      ].$get({
+        param: { workspaceSlug, channelId },
+      })
+      if (!res.ok) throw new Error("Failed to fetch channel")
+      return res.json()
+    },
+  })
+}
+
+// Text channels render immediately so messages load in parallel with the
+// channel fetch; voice channels swap in once the type is known.
+function ChannelRoute() {
+  const { workspaceSlug, channelId } = Route.useParams()
+  const { data } = useQuery(channelQueryOptions(workspaceSlug, channelId))
+
+  if (data?.type === "voice") {
+    return (
+      <VoiceChannelView
+        key={channelId}
+        workspaceSlug={workspaceSlug}
+        channelId={channelId}
+        channelName={data.name ?? "Voice"}
+        archived={Boolean(data.archivedAt)}
+      />
+    )
+  }
+  return <ChannelView />
+}
 
 function ChannelView() {
   const { workspaceSlug, channelId } = Route.useParams()
@@ -183,18 +219,9 @@ function ChannelView() {
     }
   }, [view, channelId, threadId, threadMessageId, isMobile, navigate])
 
-  const { data, isPending, isError, error } = useQuery({
-    queryKey: ["channel", workspaceSlug, channelId],
-    queryFn: async () => {
-      const res = await apiClient.v1.workspaces[":workspaceSlug"].channels[
-        ":channelId"
-      ].$get({
-        param: { workspaceSlug, channelId },
-      })
-      if (!res.ok) throw new Error("Failed to fetch channel")
-      return res.json()
-    },
-  })
+  const { data, isPending, isError, error } = useQuery(
+    channelQueryOptions(workspaceSlug, channelId)
+  )
 
   const fetchMessagesPage = useCallback(
     async (params: {

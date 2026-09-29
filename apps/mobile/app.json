@@ -21,7 +21,8 @@
       },
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "NSUserActivityTypes": ["INSendMessageIntent"]
+        "NSUserActivityTypes": ["INSendMessageIntent"],
+        "UIBackgroundModes": ["audio"]
       }
     },
     "android": {
@@ -60,8 +61,16 @@
         "expo-image-picker",
         {
           "photosPermission": "Allow Lor to access your photos and videos so you can share them in messages.",
-          "cameraPermission": "Allow Lor to use your camera so you can take photos and videos to share in messages.",
-          "microphonePermission": "Allow Lor to use your microphone so videos you record can include audio."
+          "cameraPermission": "Allow Lor to use your camera for video calls and to take photos and videos to share in messages.",
+          "microphonePermission": "Allow Lor to use your microphone for calls and for videos you record."
+        }
+      ],
+      "@livekit/react-native-expo-plugin",
+      [
+        "@config-plugins/react-native-webrtc",
+        {
+          "cameraPermission": "Allow Lor to use your camera for video calls and to take photos and videos to share in messages.",
+          "microphonePermission": "Allow Lor to use your microphone for calls and for videos you record."
         }
       ],
       [

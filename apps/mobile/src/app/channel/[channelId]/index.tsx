@@ -28,6 +28,7 @@ import { IconButton } from "@/components/ui/icon-button"
 import { Screen } from "@/components/ui/screen"
 import { StatePanel } from "@/components/ui/state-panel"
 import { UserProfileSheet } from "@/components/user-profile-sheet"
+import { VoiceCallScreen } from "@/components/voice/voice-call-screen"
 import { useSocket, useSocketConnected } from "@/context/socket-context"
 import { useWorkspace } from "@/context/workspace-context"
 import { useChannelApprovals } from "@/hooks/use-approvals"
@@ -48,7 +49,27 @@ import { api } from "@/lib/api"
 import type { ChannelSearchResult, Message } from "@/lib/api-types"
 import { authClient } from "@/lib/auth-client"
 
-export default function ChannelScreen() {
+export default function ChannelRoute() {
+  const { workspace } = useWorkspace()
+  const { channelId } = useLocalSearchParams<{ channelId: string }>()
+  const { channel } = useChannelDetail({
+    workspaceSlug: workspace?.slug ?? "",
+    channelId: channelId ?? "",
+  })
+
+  if (channel?.type === "voice" && channelId) {
+    return (
+      <VoiceCallScreen
+        key={channelId}
+        channelId={channelId}
+        channelName={channel.name ?? "Voice"}
+      />
+    )
+  }
+  return <ChannelScreen />
+}
+
+function ChannelScreen() {
   const [replyingTo, setReplyingTo] = useState<Message | null>(null)
   const [editingMessage, setEditingMessage] = useState<Message | null>(null)
   const [isSavingEdit, setIsSavingEdit] = useState(false)

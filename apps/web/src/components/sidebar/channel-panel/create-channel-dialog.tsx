@@ -46,8 +46,8 @@ const channelTypes = [
     value: "voice",
     label: "Voice",
     icon: VolumeHighIcon,
-    description: "Voice channels are coming soon",
-    disabled: true,
+    description: "A voice channel your team can drop into",
+    disabled: false,
   },
 ] as const
 

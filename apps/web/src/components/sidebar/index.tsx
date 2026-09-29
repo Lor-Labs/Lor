@@ -23,6 +23,7 @@ import {
 } from "@/components/sidebar/right-panel/right-sidebar-context"
 import { RightSidebarPanel } from "@/components/sidebar/right-panel/right-sidebar-panel"
 import { WorkspaceSidebarContent } from "@/components/sidebar/workspace-sidebar"
+import { CallBar } from "@/components/voice/call-bar"
 
 /**
  * URL-driven left sidebar with a book-page-turn transition:
@@ -67,6 +68,7 @@ function LeftSidebar() {
         </AnimatePresence>
       </div>
       <SidebarFooter>
+        <CallBar />
         <UserBar />
       </SidebarFooter>
     </ShadcnSidebar>

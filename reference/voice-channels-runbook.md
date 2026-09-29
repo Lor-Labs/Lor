@@ -83,11 +83,11 @@ start a phase until its predecessor is checked.
 Prove media on every supported client before building product UI. Keep the
 code that works; V1 and V2 harden it.
 
-- [ ] Add the optional `LIVEKIT_*` vars to `packages/env/src/server.ts`.
-- [ ] Smallest real slice: a token source (a one-off script, or the start of
+- [x] Add the optional `LIVEKIT_*` vars to `packages/env/src/server.ts`.
+- [x] Smallest real slice: a token source (a one-off script, or the start of
       the V1 join route) and a bare room screen on web and iPhone (the mobile
       `playground.tsx` route can host it).
-- [ ] Desktop (`apps/desktop/src-tauri`):
+- [x] Desktop (`apps/desktop/src-tauri`):
   - `tauri.conf.json` CSP: add LiveKit Cloud to `connect-src` (HTTPS and WSS)
     and any media sources the SDK needs.
   - `Info.plist`: add `NSMicrophoneUsageDescription` and
@@ -96,7 +96,7 @@ code that works; V1 and V2 harden it.
     needs them; no entitlements file exists today.
   - Confirm the minimum macOS version for webview media capture;
     `minimumSystemVersion` is 11.0.
-- [ ] Mobile (`apps/mobile`): the LiveKit React Native SDK and its Expo config
+- [x] Mobile (`apps/mobile`): the LiveKit React Native SDK and its Expo config
       plugin (per LiveKit's Expo quickstart); call-specific microphone and
       camera permission text (today's `app.json` text is for attachments);
       `UIBackgroundModes` audio; decide whether CallKit is needed. New dev
@@ -303,3 +303,25 @@ See Phase 2 of the spec.
 
 - 2026-09-28 — Runbook created from the voice channel model Jacob decided the
   same day. Nothing is built yet; V0 waits on the LiveKit Cloud project and keys.
+- 2026-09-28 — V0 code landed; manual calls pending. Spike shape, all replaced
+  or hardened later:
+  - Token source is the start of the V1 route:
+    `POST /v1/channels/{channelId}/voice/join`
+    (`apps/api/src/routes/v1/voice/`, `apps/api/src/lib/voice/livekit.ts`).
+    Room = channel ID and identity = user ID until V1 introduces sessions and
+    participants. So the same account on two devices already exercises the
+    duplicate-identity transfer; two-person tests need two accounts.
+  - Web builds minimal V2 pieces early: `VoiceCallProvider`
+    (`apps/web/src/context/voice-call-context.tsx`, mounted in
+    `_authenticated.tsx`), the voice channel page (`apps/web/src/components/voice/`,
+    branched in `$channelId.tsx`), and a call bar above `UserBar`. Voice channel
+    creation is enabled now so test channels can be made.
+  - iPhone: `VoiceCallScreen` (`apps/mobile/src/components/voice/`) replaces
+    the chat screen for voice channels. The call lives with that screen; V4
+    moves it to an app-level provider. `@livekit/react-native` v3's
+    `registerGlobals()` configures the iOS audio session itself.
+  - Versions installed: `livekit-server-sdk` 2.19, `livekit-client` 2.22,
+    `@livekit/components-react` 2.9, `@livekit/react-native` 3.0,
+    `@livekit/react-native-webrtc` 144.2, `@livekit/react-native-expo-plugin`
+    1.0, `@config-plugins/react-native-webrtc` 15.0 (peer `expo >= 56`).
+    Pin after the manual calls pass.

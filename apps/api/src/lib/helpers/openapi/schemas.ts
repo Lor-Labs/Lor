@@ -65,6 +65,13 @@ export const conflictSchema = jsonContent({
   description: "Conflict",
 })
 
+export const serviceUnavailableSchema = jsonContent({
+  schema: errorSchema.openapi({
+    example: { success: false, message: "Service unavailable" },
+  }),
+  description: "Service unavailable",
+})
+
 export const internalServerErrorSchema = jsonContent({
   schema: z
     .object({

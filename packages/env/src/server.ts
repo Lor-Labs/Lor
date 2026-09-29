@@ -138,6 +138,14 @@ const serverSchema = z.object({
     .string()
     .regex(/^\d+[hdw]$/, "must be a duration like 24h, 7d, or 2w")
     .default("7d"),
+  // LiveKit Cloud carries voice channel media. When unset, voice join returns
+  // 503 instead of failing at boot.
+  LIVEKIT_URL: z.preprocess(blankToUndefined, z.string().url().optional()),
+  LIVEKIT_API_KEY: z.preprocess(blankToUndefined, z.string().min(1).optional()),
+  LIVEKIT_API_SECRET: z.preprocess(
+    blankToUndefined,
+    z.string().min(1).optional()
+  ),
   LOR_WORKBENCH_MEMORY_MB: z.coerce.number().int().positive().default(4096),
   // Disk-backed /workspace volume for clones, dependencies, caches, and outputs.
   LOR_WORKBENCH_DISK_MB: z.coerce.number().int().positive().default(8192),
