@@ -111,6 +111,7 @@ function ChannelRoute() {
       <VoiceChannelView
         key={channelId}
         workspaceSlug={workspaceSlug}
+        workspaceId={data.workspaceId ?? undefined}
         channelId={channelId}
         channelName={data.name ?? "Voice"}
         archived={Boolean(data.archivedAt)}

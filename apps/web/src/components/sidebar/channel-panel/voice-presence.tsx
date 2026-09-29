@@ -1,6 +1,5 @@
-import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar"
-import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { createContext, type ReactNode, useContext, useMemo } from "react"
+import { ParticipantAvatar } from "@/components/voice/participant-avatar"
 import {
   useVoicePresence,
   type VoicePresenceChannel,
@@ -42,18 +41,7 @@ export function VoiceParticipantRows({ channelId }: { channelId: string }) {
           key={participant.userId}
           className="flex items-center gap-2 rounded-md px-2 py-[3px] text-[13px] text-muted-foreground"
         >
-          <Avatar className="size-5 shrink-0">
-            {participant.image && (
-              <AvatarImage src={participant.image} alt={participant.name} />
-            )}
-            <AvatarFallback
-              avatarColor={participant.avatarColor}
-              fallbackSeed={participant.name}
-              className="text-[9px] font-semibold"
-            >
-              {getAvatarInitials(participant.name)}
-            </AvatarFallback>
-          </Avatar>
+          <ParticipantAvatar participant={participant} size="xs" />
           <span className="truncate">{participant.name}</span>
         </li>
       ))}

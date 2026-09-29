@@ -11,35 +11,21 @@ export function voicePresenceQueryKey(workspaceSlug: string | undefined) {
   return ["voice-presence", workspaceSlug] as const
 }
 
-// Who is connected to each voice channel's live call, for the sidebar. Never
-// includes people who only view a channel.
-export function useVoicePresence(
-  workspaceSlug: string | undefined,
+// Voice pushes carry no data (restricted channels must not leak through the
+// workspace room), so each push refetches an access-checked query.
+export function useInvalidateOnVoiceUpdate(
+  queryName: "voice-presence" | "voice-sessions",
+  queryParam: string | undefined,
   workspaceId: string | undefined
 ) {
   const socket = useSocket()
   const queryClient = useQueryClient()
-  const query = useQuery({
-    queryKey: voicePresenceQueryKey(workspaceSlug),
-    enabled: Boolean(workspaceSlug),
-    refetchInterval: POLL_MS,
-    queryFn: async () => {
-      if (!workspaceSlug) return []
-      const res = await apiClient.v1.workspaces[
-        ":workspaceSlug"
-      ].voice.presence.$get({ param: { workspaceSlug } })
-      if (!res.ok) throw new Error("Failed to load voice presence")
-      return (await res.json()).channels
-    },
-  })
 
   useEffect(() => {
-    if (!socket || !workspaceSlug) return
+    if (!socket || !queryParam) return
     let timer: ReturnType<typeof setTimeout> | undefined
     const refresh = () => {
-      void queryClient.invalidateQueries({
-        queryKey: voicePresenceQueryKey(workspaceSlug),
-      })
+      void queryClient.invalidateQueries({ queryKey: [queryName, queryParam] })
     }
     const onUpdated = (payload: { workspaceId: string }) => {
       if (timer || (workspaceId && payload.workspaceId !== workspaceId)) return
@@ -55,11 +41,34 @@ export function useVoicePresence(
       socket.off("workspace:voice:updated", onUpdated)
       socket.off("connect", refresh)
     }
-  }, [socket, workspaceSlug, workspaceId, queryClient])
+  }, [socket, queryName, queryParam, workspaceId, queryClient])
+}
 
+// Who is connected to each voice channel's live call, for the sidebar. Never
+// includes people who only view a channel.
+export function useVoicePresence(
+  workspaceSlug: string | undefined,
+  workspaceId: string | undefined
+) {
+  useInvalidateOnVoiceUpdate("voice-presence", workspaceSlug, workspaceId)
+  const query = useQuery({
+    queryKey: voicePresenceQueryKey(workspaceSlug),
+    enabled: Boolean(workspaceSlug),
+    refetchInterval: POLL_MS,
+    queryFn: async () => {
+      if (!workspaceSlug) return []
+      const res = await apiClient.v1.workspaces[
+        ":workspaceSlug"
+      ].voice.presence.$get({ param: { workspaceSlug } })
+      if (!res.ok) throw new Error("Failed to load voice presence")
+      return (await res.json()).channels
+    },
+  })
   return query.data
 }
 
 export type VoicePresenceChannel = NonNullable<
   ReturnType<typeof useVoicePresence>
 >[number]
+
+export type VoiceParticipant = VoicePresenceChannel["participants"][number]

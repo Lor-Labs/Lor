@@ -1,18 +1,20 @@
 import { VolumeHighIcon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
-import { Button } from "@repo/ui/components/button"
 import { toast } from "@repo/ui/components/toast"
 import { HeaderNavControls } from "@/components/desktop-titlebar"
 import { CallStage } from "@/components/voice/call-stage"
+import { VoiceLobby } from "@/components/voice/voice-lobby"
 import { useVoiceCall } from "@/context/voice-call-context"
 
 export function VoiceChannelView({
   workspaceSlug,
+  workspaceId,
   channelId,
   channelName,
   archived,
 }: {
   workspaceSlug: string
+  workspaceId: string | undefined
   channelId: string
   channelName: string
   archived: boolean
@@ -44,19 +46,14 @@ export function VoiceChannelView({
       {inThisCall ? (
         <CallStage />
       ) : (
-        <div className="flex flex-1 flex-col items-center justify-center gap-3">
-          {call && (
-            <span className="text-sm text-muted-foreground">
-              You're in a call in {call.channelName}.
-            </span>
-          )}
-          <Button
-            onClick={() => void handleJoin()}
-            disabled={joining || archived}
-          >
-            {joining ? "Joining…" : call ? "Switch to this call" : "Join"}
-          </Button>
-        </div>
+        <VoiceLobby
+          channelId={channelId}
+          workspaceId={workspaceId}
+          otherCallName={call?.channelName}
+          joining={joining}
+          archived={archived}
+          onJoin={() => void handleJoin()}
+        />
       )}
     </div>
   )

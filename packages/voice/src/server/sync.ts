@@ -2,6 +2,7 @@ import { and, db, eq, isNotNull, isNull, lte, schema } from "@repo/db"
 import { TwirpError } from "livekit-server-sdk"
 import { VOICE_SESSION_GRACE_MS } from "../index"
 import { getRoomService, type LiveKitConfig } from "./livekit"
+import { notifyVoicePresence } from "./notify"
 import { markParticipantConnected, markParticipantLeft } from "./participants"
 
 const { voiceSession, voiceSessionParticipant } = schema
@@ -93,8 +94,15 @@ export async function endExpiredSessions(config: LiveKitConfig) {
             eq(voiceSession.emptySince, emptySince)
           )
         )
-        .returning({ id: voiceSession.id })
-      if (row) ended.push(row.id)
+        .returning({
+          id: voiceSession.id,
+          workspaceId: voiceSession.workspaceId,
+        })
+      if (row) {
+        ended.push(row.id)
+        // Lets open voice channel pages move the session into history.
+        notifyVoicePresence(row.workspaceId)
+      }
     } catch (err) {
       failed.push({ sessionId: id, err })
     }
