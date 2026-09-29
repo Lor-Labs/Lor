@@ -331,3 +331,8 @@ See Phase 2 of the spec.
   confirm before closing V0: device changes, iPhone lock/background audio,
   permission denial recovery, Wi-Fi to cellular reconnect, the
   duplicate-identity transfer, and the CallKit decision.
+- 2026-09-29 — iPhone audio continues with the app in the background (the
+  `UIBackgroundModes` audio entry is enough). Siri silences call audio while
+  active, and audio returns afterward. CallKit decision: not needed for V4;
+  revisit only if incoming-call UI or lock-screen controls are wanted. Other
+  checks look fine so far, per Jacob.
