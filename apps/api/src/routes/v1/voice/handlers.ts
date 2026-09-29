@@ -5,6 +5,7 @@ import {
 import {
   countConnectedParticipants,
   createJoinToken,
+  getCurrentCall,
   getLiveKitConfig,
   markParticipantLeft,
 } from "@repo/voice/server"
@@ -22,12 +23,18 @@ import {
   upsertParticipant,
 } from "@/lib/voice/sessions"
 import type {
+  GetVoiceCallRoute,
   GetVoicePresenceRoute,
   GetVoiceSessionRoute,
   JoinVoiceChannelRoute,
   LeaveVoiceSessionRoute,
   ListVoiceSessionsRoute,
 } from "@/routes/v1/voice/routes"
+
+export const getVoiceCall: AppRouteHandler<GetVoiceCallRoute> = async (c) => {
+  const call = await getCurrentCall(c.var.user.id)
+  return c.json({ call }, HttpStatusCodes.OK)
+}
 
 export const listVoiceSessions: AppRouteHandler<
   ListVoiceSessionsRoute

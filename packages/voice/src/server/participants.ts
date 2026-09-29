@@ -6,13 +6,14 @@ import {
   eq,
   isNotNull,
   isNull,
+  lte,
   ne,
   schema,
 } from "@repo/db"
 import type { VoiceCallState } from "@repo/realtime-types/events"
 import { notifyVoiceCall, notifyVoicePresence } from "./notify"
 
-const { voiceSession, voiceSessionParticipant } = schema
+const { channel, voiceSession, voiceSessionParticipant, workspace } = schema
 
 export async function countConnectedParticipants(
   sessionId: string,
@@ -48,18 +49,25 @@ async function startGraceIfEmpty(sessionId: string, at: Date) {
     )
 }
 
-async function currentCall(userId: string): Promise<VoiceCallState | null> {
+// The live call the user is connected to on any device.
+export async function getCurrentCall(
+  userId: string
+): Promise<VoiceCallState | null> {
   const [row] = await db
     .select({
       sessionId: voiceSession.id,
       channelId: voiceSession.channelId,
+      channelName: channel.name,
       workspaceId: voiceSession.workspaceId,
+      workspaceSlug: workspace.slug,
     })
     .from(voiceSessionParticipant)
     .innerJoin(
       voiceSession,
       eq(voiceSession.id, voiceSessionParticipant.sessionId)
     )
+    .innerJoin(channel, eq(channel.id, voiceSession.channelId))
+    .innerJoin(workspace, eq(workspace.id, voiceSession.workspaceId))
     .where(
       and(
         eq(voiceSessionParticipant.userId, userId),
@@ -84,7 +92,7 @@ async function announce(sessionId: string, userIds: string[]) {
     .limit(1)
   if (session) notifyVoicePresence(session.workspaceId)
   for (const userId of userIds) {
-    notifyVoiceCall(userId, await currentCall(userId))
+    notifyVoiceCall(userId, await getCurrentCall(userId))
   }
 }
 
@@ -131,8 +139,9 @@ type ParticipantMatch = { userId: string } | { participantId: string }
 export async function markParticipantLeft(
   sessionId: string,
   match: ParticipantMatch,
-  at = new Date()
+  options: { at?: Date; connectionJoinedAt?: Date } = {}
 ) {
+  const at = options.at ?? new Date()
   const who =
     "userId" in match
       ? eq(voiceSessionParticipant.userId, match.userId)
@@ -144,7 +153,12 @@ export async function markParticipantLeft(
       and(
         eq(voiceSessionParticipant.sessionId, sessionId),
         who,
-        isNotNull(voiceSessionParticipant.connectedAt)
+        isNotNull(voiceSessionParticipant.connectedAt),
+        // "Transfer here" replaces a connection under the same identity; the
+        // old connection's leave must not clear the new connection.
+        options.connectionJoinedAt
+          ? lte(voiceSessionParticipant.connectedAt, options.connectionJoinedAt)
+          : undefined
       )
     )
     .returning({ userId: voiceSessionParticipant.userId })

@@ -373,3 +373,17 @@ See Phase 2 of the spec.
   current call read from the database, not a delta, so reordered webhooks
   still converge. V1 code is complete; check V1 off after a tunnel test
   (join, leave, a session ending, presence refetch).
+- 2026-09-29 — V2 chunks 1–2: sidebar participant rows
+  (`VoicePresenceProvider`, push-invalidated refetch of the presence API) and
+  the voice lobby (live session card + paged history). Mobile tiles are sized
+  explicitly from the window width: `aspectRatio` produced no height for
+  percentage-width tiles inside the ScrollView on device.
+- 2026-09-29 — V2 chunk 3: `GET /v1/voice/call` + `voice:call:updated` now
+  carry `channelName`/`workspaceSlug`; the provider derives `remoteCall` (call
+  on another device) from them, and "Transfer here" is a plain join of the same
+  session. Webhook `participant_left` carries the connection's `joinedAt`, so a
+  replaced device's late leave can't clear the new device's connection. Leave
+  button posts the leave hint. Workspace switch is blocked by
+  `useBlocker` with a Leave/Stay dialog (`enableBeforeUnload` off, so reloads
+  don't prompt). Tauri emits `main-window-hidden` on close; the provider leaves
+  the call. Phone browsers see "Open the Lor app to join".

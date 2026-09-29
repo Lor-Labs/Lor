@@ -31,7 +31,9 @@ export type WorkspaceVoiceUpdated = {
 export type VoiceCallState = {
   sessionId: string
   channelId: string
+  channelName: string | null
   workspaceId: string
+  workspaceSlug: string
 }
 
 export const channelRoomPayloadSchema = z.object({

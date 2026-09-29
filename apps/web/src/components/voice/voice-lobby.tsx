@@ -47,13 +47,13 @@ function LiveSessionCard({
   session,
   joinLabel,
   joinDisabled,
-  otherCallName,
+  note,
   onJoin,
 }: {
   session: VoiceSessionSummary | undefined
   joinLabel: string
   joinDisabled: boolean
-  otherCallName: string | undefined
+  note: string | undefined
   onJoin: () => void
 }) {
   const connected = session?.participants.filter((p) => p.connected) ?? []
@@ -76,11 +76,7 @@ function LiveSessionCard({
             No one is here yet.
           </span>
         )}
-        {otherCallName && (
-          <span className="text-xs text-muted-foreground">
-            You're in a call in {otherCallName}.
-          </span>
-        )}
+        {note && <span className="text-xs text-muted-foreground">{note}</span>}
       </div>
       <Button onClick={onJoin} disabled={joinDisabled}>
         {joinLabel}
@@ -119,16 +115,16 @@ function SessionRow({ session }: { session: VoiceSessionSummary }) {
 export function VoiceLobby({
   channelId,
   workspaceId,
-  otherCallName,
-  joining,
-  archived,
+  joinLabel,
+  joinDisabled,
+  note,
   onJoin,
 }: {
   channelId: string
   workspaceId: string | undefined
-  otherCallName: string | undefined
-  joining: boolean
-  archived: boolean
+  joinLabel: string
+  joinDisabled: boolean
+  note: string | undefined
   onJoin: () => void
 }) {
   const {
@@ -142,11 +138,6 @@ export function VoiceLobby({
   const sessions = data?.pages.flatMap((page) => page.sessions) ?? []
   const live = sessions.find((session) => session.live)
   const past = sessions.filter((session) => !session.live)
-  const joinLabel = joining
-    ? "Joining…"
-    : otherCallName
-      ? "Switch to this call"
-      : "Join"
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
@@ -154,8 +145,8 @@ export function VoiceLobby({
         <LiveSessionCard
           session={live}
           joinLabel={joinLabel}
-          joinDisabled={joining || archived}
-          otherCallName={otherCallName}
+          joinDisabled={joinDisabled}
+          note={note}
           onJoin={onJoin}
         />
         <section className="flex flex-col gap-2">

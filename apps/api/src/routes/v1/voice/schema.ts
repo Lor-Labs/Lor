@@ -29,6 +29,18 @@ export const joinVoiceChannelResponseSchema = z.object({
   participantId: z.string().uuid(),
 })
 
+export const voiceCallResponseSchema = z.object({
+  call: z
+    .object({
+      sessionId: z.string().uuid(),
+      channelId: z.string().uuid(),
+      channelName: z.string().nullable(),
+      workspaceId: z.string().uuid(),
+      workspaceSlug: z.string(),
+    })
+    .nullable(),
+})
+
 export const workspaceSlugParamsSchema = z.object({
   workspaceSlug: z.string().openapi({
     param: { name: "workspaceSlug", in: "path", required: true },

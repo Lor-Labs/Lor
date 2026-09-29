@@ -6,6 +6,9 @@ import { CallStage } from "@/components/voice/call-stage"
 import { VoiceLobby } from "@/components/voice/voice-lobby"
 import { useVoiceCall } from "@/context/voice-call-context"
 
+// Phone browsers are out of scope; the iPhone app handles calls.
+const isPhoneBrowser = /iPhone|iPod|Android.+Mobile/i.test(navigator.userAgent)
+
 export function VoiceChannelView({
   workspaceSlug,
   workspaceId,
@@ -19,8 +22,28 @@ export function VoiceChannelView({
   channelName: string
   archived: boolean
 }) {
-  const { call, joining, join } = useVoiceCall()
+  const { call, remoteCall, joining, join } = useVoiceCall()
   const inThisCall = call?.channelId === channelId
+  const onAnotherDevice = remoteCall?.channelId === channelId
+  const otherCall = call ?? remoteCall
+  const otherCallName =
+    otherCall && otherCall.channelId !== channelId
+      ? (otherCall.channelName ?? "another channel")
+      : undefined
+  const joinLabel = isPhoneBrowser
+    ? "Open the Lor app to join"
+    : joining
+      ? "Joining…"
+      : onAnotherDevice
+        ? "Transfer here"
+        : otherCallName
+          ? "Switch to this call"
+          : "Join"
+  const note = onAnotherDevice
+    ? "You're in this call on another device."
+    : otherCallName
+      ? `You're in a call in ${otherCallName}.`
+      : undefined
 
   const handleJoin = async () => {
     try {
@@ -49,9 +72,9 @@ export function VoiceChannelView({
         <VoiceLobby
           channelId={channelId}
           workspaceId={workspaceId}
-          otherCallName={call?.channelName}
-          joining={joining}
-          archived={archived}
+          joinLabel={joinLabel}
+          joinDisabled={joining || archived || isPhoneBrowser}
+          note={note}
           onJoin={() => void handleJoin()}
         />
       )}

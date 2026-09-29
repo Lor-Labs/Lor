@@ -29,10 +29,18 @@ export async function applyLiveKitEvent(event: WebhookEvent) {
       )
       return
     }
-    case "participant_left":
+    case "participant_left": {
       if (!participantId) return
-      await markParticipantLeft(sessionId, { participantId })
+      const joinedAtMs = Number(event.participant?.joinedAtMs ?? 0)
+      await markParticipantLeft(
+        sessionId,
+        { participantId },
+        {
+          connectionJoinedAt: joinedAtMs > 0 ? new Date(joinedAtMs) : undefined,
+        }
+      )
       return
+    }
     case "room_finished":
       await markSessionEmpty(sessionId)
       return

@@ -15,6 +15,7 @@ import { workspaceAuthMiddleware } from "@/middleware/workspace-auth"
 import {
   joinVoiceChannelResponseSchema,
   leaveVoiceSessionResponseSchema,
+  voiceCallResponseSchema,
   voiceChannelParamsSchema,
   voicePresenceResponseSchema,
   voiceSessionDetailResponseSchema,
@@ -75,6 +76,27 @@ export const leaveVoiceSession = createRoute({
 })
 
 export type LeaveVoiceSessionRoute = typeof leaveVoiceSession
+
+export const getVoiceCall = createRoute({
+  path: "/voice/call",
+  method: "get",
+  summary: "Current voice call",
+  description:
+    "The live call the current user is connected to on any device, so other devices can offer to take it over.",
+  tags: ["Voice"],
+  middleware: [sessionAuthMiddleware] as const,
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: voiceCallResponseSchema,
+      description: "Current call, or null",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type GetVoiceCallRoute = typeof getVoiceCall
 
 export const listVoiceSessions = createRoute({
   path: "/channels/{channelId}/voice/sessions",
