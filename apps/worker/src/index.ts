@@ -34,6 +34,12 @@ import {
 } from "@/jobs/prune-run-events"
 import { LOOP_SWEEP_EVERY_MS, sweepDueLoops } from "@/jobs/sweep-due-loops"
 import { createTriggeredRunProcessor } from "@/jobs/triggered-run"
+import {
+  auditVoiceSessions,
+  sweepVoiceSessions,
+  VOICE_SESSION_AUDIT_EVERY_MS,
+  VOICE_SESSION_SWEEP_EVERY_MS,
+} from "@/jobs/voice-sessions"
 import { signalRunStop } from "@/lib/agent-run"
 import {
   escalateApproval,
@@ -309,6 +315,8 @@ async function bootstrap() {
         await sweepOrphanedPlaceholders(emitter)
       } else if (job.name === "sweep-due-loops")
         await sweepDueLoops(emitter, loopRunQueue)
+      else if (job.name === "sweep-voice-sessions") await sweepVoiceSessions()
+      else if (job.name === "audit-voice-sessions") await auditVoiceSessions()
       else if (job.name === NOTIFY_APPROVAL_JOB) {
         const { approvalId } = job.data as { approvalId: string }
         await escalateApproval(
@@ -361,6 +369,12 @@ async function bootstrap() {
   })
   await maintenanceQueue.upsertJobScheduler("sweep-due-loops", {
     every: LOOP_SWEEP_EVERY_MS,
+  })
+  await maintenanceQueue.upsertJobScheduler("sweep-voice-sessions", {
+    every: VOICE_SESSION_SWEEP_EVERY_MS,
+  })
+  await maintenanceQueue.upsertJobScheduler("audit-voice-sessions", {
+    every: VOICE_SESSION_AUDIT_EVERY_MS,
   })
 
   logger.info(

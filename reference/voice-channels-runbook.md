@@ -57,7 +57,7 @@ Before real team use:
 | Source of truth | Postgres owns sessions and participants. LiveKit webhooks and room APIs are reconciled into Postgres. A client leave request is a hint, never the authority. |
 | Session identity | The `voice_session` ID. The LiveKit room name is that ID; the room SID is transport detail. A rejoin inside the grace period reuses the room name, so LiveKit recreates the room if it already closed. |
 | One live session per channel | Partial unique index on `voice_session(channel_id) WHERE ended_at IS NULL`; get-or-create in one transaction. |
-| Session end | A new session starts empty (`emptySince = startedAt`) with its end job queued; the first connection clears `emptySince`. When the last human disconnects, set `emptySince` and enqueue a job delayed by `VOICE_SESSION_GRACE_MS` (120,000). The job ends the session only if `emptySince` still matches (compare-and-set) and sets `endedAt = emptySince`. A periodic sweep catches missed webhooks. |
+| Session end | A new session starts empty (`emptySince = startedAt`); the first connection clears `emptySince`, and the last human out sets it. Webhooks drive these changes. A 30s maintenance sweep (`sweep-voice-sessions`) finds sessions empty longer than `VOICE_SESSION_GRACE_MS` (120,000), confirms with LiveKit once that the room is empty, then ends them by compare-and-set on `emptySince` (`endedAt = emptySince`). A 10-minute audit (`audit-voice-sessions`) reconciles occupied sessions. No per-session delayed jobs. LiveKit's server API allows 1,000 requests/minute per project, so only these two paths call it. |
 | Participant identity | One `voice_session_participant` row per person per session. Its ID is the LiveKit identity, reused for reconnects and transfers. Display names are never used to map speech to people. |
 | Transfer | "Transfer here" joins with the same identity; LiveKit disconnects the older connection, and that device shows where the call went. Verify the disconnect reason in V0. |
 | One call per person | Joining a different session removes the person's participant from the old one through the LiveKit room API before the new token is issued. |
@@ -158,12 +158,12 @@ code in `apps/api/src/lib/voice/`.
   Linear, and GitHub webhooks do), LiveKit signature check, idempotent by event
   ID; handles participant joined/left and room finished.
 
-Worker (`apps/worker/src/jobs/`), queue and job names in
-`packages/realtime-types/src/queues.ts`; the API enqueues through a queue
-singleton like `apps/api/src/lib/project-archive-queue.ts`:
+Worker: `apps/worker/src/jobs/voice-sessions.ts`, two maintenance-queue
+schedulers over logic in `packages/voice/src/server/sync.ts`:
 
-- `end-voice-session.ts`: the delayed compare-and-set end job.
-- `sweep-voice-sessions.ts`: periodic reconcile of live sessions against the
+- `sweep-voice-sessions` (30s): confirms and ends sessions past the grace
+  period.
+- `audit-voice-sessions` (10 min): reconciles occupied sessions against the
   LiveKit room API (missed webhooks, backend restarts).
 
 Realtime, emitted from the API with the existing emitter
@@ -359,3 +359,10 @@ See Phase 2 of the spec.
   room finished. Deviation from "idempotent by event ID": updates are guarded
   by current state instead (duplicate events are no-ops), applied in arrival
   order, and the sync job corrects rare reordering. No event-ID store.
+- 2026-09-29 — V1 chunk 5: session end moved from per-session delayed jobs to
+  a 30s sweep plus a 10-minute audit (Jacob approved; the rate limit drove
+  it). Sessions end 2:00–2:30 after the last person leaves. Local testing
+  needs a webhook tunnel; without one, presence only updates when a sweep or
+  audit reaches LiveKit. Unverified: that `listParticipants` on a closed
+  room returns a 404 `TwirpError`. If it doesn't, sessions won't end and the
+  worker logs "could not confirm session is empty".

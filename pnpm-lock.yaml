@@ -641,6 +641,9 @@ importers:
       '@repo/realtime-types':
         specifier: workspace:*
         version: link:../../packages/realtime-types
+      '@repo/voice':
+        specifier: workspace:*
+        version: link:../../packages/voice
       '@socket.io/redis-emitter':
         specifier: ^5.1.0
         version: 5.1.0
