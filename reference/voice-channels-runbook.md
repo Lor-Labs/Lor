@@ -346,3 +346,8 @@ See Phase 2 of the spec.
   and the identity is the participant id. Until chunk 4 adds the webhook and
   end job, `connectedAt` is never set and sessions never end, so every join
   reuses the channel's one live session.
+- 2026-09-29 — V1 chunk 3: history (`GET /channels/{channelId}/voice/sessions`,
+  `before` cursor), detail (`GET /voice/sessions/{sessionId}`), and presence
+  (`GET /workspaces/{workspaceSlug}/voice/presence`), read queries in
+  `apps/api/src/lib/voice/queries.ts`. Participants carry the workspace
+  `avatarColor`. Voice read routes are `hide: true`, matching the leave route.

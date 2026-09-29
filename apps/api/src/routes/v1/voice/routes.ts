@@ -11,11 +11,17 @@ import {
   unauthorizedSchema,
 } from "@/lib/helpers/openapi/schemas"
 import { sessionAuthMiddleware } from "@/middleware/session-auth"
+import { workspaceAuthMiddleware } from "@/middleware/workspace-auth"
 import {
   joinVoiceChannelResponseSchema,
   leaveVoiceSessionResponseSchema,
   voiceChannelParamsSchema,
+  voicePresenceResponseSchema,
+  voiceSessionDetailResponseSchema,
+  voiceSessionHistoryQuerySchema,
+  voiceSessionHistoryResponseSchema,
   voiceSessionParamsSchema,
+  workspaceSlugParamsSchema,
 } from "@/routes/v1/voice/schema"
 
 export const joinVoiceChannel = createRoute({
@@ -69,3 +75,80 @@ export const leaveVoiceSession = createRoute({
 })
 
 export type LeaveVoiceSessionRoute = typeof leaveVoiceSession
+
+export const listVoiceSessions = createRoute({
+  path: "/channels/{channelId}/voice/sessions",
+  method: "get",
+  summary: "List a voice channel's sessions",
+  description:
+    "Session history, newest first, including the live session. One-person sessions with nothing posted are hidden.",
+  tags: ["Voice"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: {
+    params: voiceChannelParamsSchema,
+    query: voiceSessionHistoryQuerySchema,
+  },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: voiceSessionHistoryResponseSchema,
+      description: "Session history page",
+    }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type ListVoiceSessionsRoute = typeof listVoiceSessions
+
+export const getVoiceSession = createRoute({
+  path: "/voice/sessions/{sessionId}",
+  method: "get",
+  summary: "Get a voice session",
+  description: "One session with its participants. Requires channel access.",
+  tags: ["Voice"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: {
+    params: voiceSessionParamsSchema,
+  },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: voiceSessionDetailResponseSchema,
+      description: "Voice session",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type GetVoiceSessionRoute = typeof getVoiceSession
+
+export const getVoicePresence = createRoute({
+  path: "/workspaces/{workspaceSlug}/voice/presence",
+  method: "get",
+  summary: "Voice presence",
+  description:
+    "People connected to each live voice session the user can access, for the sidebar.",
+  tags: ["Voice"],
+  middleware: [workspaceAuthMiddleware] as const,
+  request: {
+    params: workspaceSlugParamsSchema,
+  },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: voicePresenceResponseSchema,
+      description: "Connected participants per voice channel",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type GetVoicePresenceRoute = typeof getVoicePresence

@@ -1,7 +1,15 @@
-import { resolveChannelAccess } from "@repo/db/queries/channel-access"
+import {
+  listAccessibleChannelIds,
+  resolveChannelAccess,
+} from "@repo/db/queries/channel-access"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import { createJoinToken, getLiveKitConfig } from "@/lib/voice/livekit"
+import {
+  getSessionSummary,
+  listSessionHistory,
+  listWorkspacePresence,
+} from "@/lib/voice/queries"
 import {
   countConnectedParticipants,
   getOrCreateLiveSession,
@@ -11,9 +19,70 @@ import {
   upsertParticipant,
 } from "@/lib/voice/sessions"
 import type {
+  GetVoicePresenceRoute,
+  GetVoiceSessionRoute,
   JoinVoiceChannelRoute,
   LeaveVoiceSessionRoute,
+  ListVoiceSessionsRoute,
 } from "@/routes/v1/voice/routes"
+
+export const listVoiceSessions: AppRouteHandler<
+  ListVoiceSessionsRoute
+> = async (c) => {
+  const { channelId } = c.req.valid("param")
+  const { before, limit } = c.req.valid("query")
+
+  const result = await resolveChannelAccess(c.var.user.id, channelId)
+  if (!result.ok) {
+    return c.json(
+      { success: false as const, message: "Channel not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  const { type, workspaceId } = result.access.channel
+  if (type !== "voice" || !workspaceId) {
+    return c.json(
+      { success: false as const, message: "Not a voice channel" },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+
+  const history = await listSessionHistory({
+    channelId,
+    workspaceId,
+    before: before ? new Date(before) : undefined,
+    limit,
+  })
+  return c.json(history, HttpStatusCodes.OK)
+}
+
+// "Not found" covers missing and inaccessible, so a restricted channel's
+// sessions never leak.
+export const getVoiceSession: AppRouteHandler<GetVoiceSessionRoute> = async (
+  c
+) => {
+  const { sessionId } = c.req.valid("param")
+  const summary = await getSessionSummary(sessionId)
+  const access = summary
+    ? await resolveChannelAccess(c.var.user.id, summary.channelId)
+    : null
+  if (!summary || !access?.ok) {
+    return c.json(
+      { success: false as const, message: "Session not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  return c.json(summary, HttpStatusCodes.OK)
+}
+
+export const getVoicePresence: AppRouteHandler<GetVoicePresenceRoute> = async (
+  c
+) => {
+  const { user, workspace } = c.var
+  const accessible = await listAccessibleChannelIds(user.id, workspace.id)
+  const channels = await listWorkspacePresence(workspace.id, accessible)
+  return c.json({ channels }, HttpStatusCodes.OK)
+}
 
 // Only touches the caller's own participant row, so no channel check is
 // needed: a stranger's sessionId matches nothing.
