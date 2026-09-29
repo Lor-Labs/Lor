@@ -1,5 +1,9 @@
 import { env } from "@repo/env/server"
-import { AccessToken, RoomServiceClient } from "livekit-server-sdk"
+import {
+  AccessToken,
+  RoomServiceClient,
+  WebhookReceiver,
+} from "livekit-server-sdk"
 
 export type LiveKitConfig = {
   url: string
@@ -37,4 +41,16 @@ export function createJoinToken(
     canSubscribe: true,
   })
   return token.toJwt()
+}
+
+// Throws when the Authorization signature doesn't match the raw body.
+export function receiveWebhook(
+  config: LiveKitConfig,
+  body: string,
+  authHeader: string | undefined
+) {
+  return new WebhookReceiver(config.apiKey, config.apiSecret).receive(
+    body,
+    authHeader
+  )
 }

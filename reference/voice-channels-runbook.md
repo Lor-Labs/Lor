@@ -351,3 +351,11 @@ See Phase 2 of the spec.
   (`GET /workspaces/{workspaceSlug}/voice/presence`), read queries in
   `apps/api/src/lib/voice/queries.ts`. Participants carry the workspace
   `avatarColor`. Voice read routes are `hide: true`, matching the leave route.
+- 2026-09-29 — V1 chunk 4: LiveKit helpers and participant state moved to
+  `@repo/voice/server` (`packages/voice/src/server/`) so the worker's sync job
+  can share them; the API no longer depends on `livekit-server-sdk` directly.
+  Webhook: plain route `POST /v1/voice/livekit/webhook` (raw body, signed
+  Authorization header, 1 MB cap) handling participant joined/left and
+  room finished. Deviation from "idempotent by event ID": updates are guarded
+  by current state instead (duplicate events are no-ops), applied in arrival
+  order, and the sync job corrects rare reordering. No event-ID store.

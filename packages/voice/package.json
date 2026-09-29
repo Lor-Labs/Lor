@@ -4,10 +4,16 @@
   "type": "module",
   "private": true,
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./server": "./src/server/index.ts"
   },
   "scripts": {
     "check-types": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@repo/db": "workspace:*",
+    "@repo/env": "workspace:*",
+    "livekit-server-sdk": "^2.19.1"
   },
   "devDependencies": {
     "@repo/typescript-config": "workspace:*",

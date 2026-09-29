@@ -2,20 +2,23 @@ import {
   listAccessibleChannelIds,
   resolveChannelAccess,
 } from "@repo/db/queries/channel-access"
+import {
+  countConnectedParticipants,
+  createJoinToken,
+  getLiveKitConfig,
+  markParticipantLeft,
+} from "@repo/voice/server"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import type { AppRouteHandler } from "@/lib/types/app-types"
-import { createJoinToken, getLiveKitConfig } from "@/lib/voice/livekit"
 import {
   getSessionSummary,
   listSessionHistory,
   listWorkspacePresence,
 } from "@/lib/voice/queries"
 import {
-  countConnectedParticipants,
   getOrCreateLiveSession,
   isSessionFull,
   leaveOtherCalls,
-  markParticipantLeft,
   upsertParticipant,
 } from "@/lib/voice/sessions"
 import type {
@@ -90,7 +93,7 @@ export const leaveVoiceSession: AppRouteHandler<
   LeaveVoiceSessionRoute
 > = async (c) => {
   const { sessionId } = c.req.valid("param")
-  await markParticipantLeft(sessionId, c.var.user.id)
+  await markParticipantLeft(sessionId, { userId: c.var.user.id })
   return c.json({ success: true as const }, HttpStatusCodes.OK)
 }
 

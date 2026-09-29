@@ -1,6 +1,5 @@
 import {
   and,
-  count,
   db,
   eq,
   isNotNull,
@@ -10,8 +9,8 @@ import {
   schema,
 } from "@repo/db"
 import { MAX_CALL_PARTICIPANTS } from "@repo/voice"
+import { getRoomService, type LiveKitConfig } from "@repo/voice/server"
 import { logger } from "@/lib/logger"
-import { getRoomService, type LiveKitConfig } from "@/lib/voice/livekit"
 
 const { message, voiceSession, voiceSessionParticipant } = schema
 
@@ -73,53 +72,6 @@ export async function getOrCreateLiveSession(
     if (!winner) throw err
     return winner
   }
-}
-
-export async function countConnectedParticipants(
-  sessionId: string,
-  excludeUserId?: string
-) {
-  const [row] = await db
-    .select({ value: count() })
-    .from(voiceSessionParticipant)
-    .where(
-      and(
-        eq(voiceSessionParticipant.sessionId, sessionId),
-        isNotNull(voiceSessionParticipant.connectedAt),
-        excludeUserId
-          ? ne(voiceSessionParticipant.userId, excludeUserId)
-          : undefined
-      )
-    )
-  return row?.value ?? 0
-}
-
-// Shared by the leave route (a client hint) and the LiveKit webhook (the
-// authority). The last person out starts the session's grace period.
-export async function markParticipantLeft(sessionId: string, userId: string) {
-  const now = new Date()
-  await db
-    .update(voiceSessionParticipant)
-    .set({ connectedAt: null, lastLeftAt: now })
-    .where(
-      and(
-        eq(voiceSessionParticipant.sessionId, sessionId),
-        eq(voiceSessionParticipant.userId, userId),
-        isNotNull(voiceSessionParticipant.connectedAt)
-      )
-    )
-
-  if ((await countConnectedParticipants(sessionId)) > 0) return
-  await db
-    .update(voiceSession)
-    .set({ emptySince: now })
-    .where(
-      and(
-        eq(voiceSession.id, sessionId),
-        isNull(voiceSession.endedAt),
-        isNull(voiceSession.emptySince)
-      )
-    )
 }
 
 export function isSessionFull(connectedOthers: number) {
