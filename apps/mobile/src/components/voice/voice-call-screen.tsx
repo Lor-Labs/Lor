@@ -19,12 +19,23 @@ import { useThemeColor } from "heroui-native/hooks"
 import { cn } from "heroui-native/utils"
 import { DisconnectReason, Room, RoomEvent, Track } from "livekit-client"
 import { useEffect, useState } from "react"
-import { Alert, ScrollView, StyleSheet, Text, View } from "react-native"
+import {
+  Alert,
+  ScrollView,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from "react-native"
 import { Avatar } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { IconButton } from "@/components/ui/icon-button"
 import { Screen } from "@/components/ui/screen"
 import { api, responseMessage } from "@/lib/api"
+
+// The `three` spacing token (12pt), used for the grid's padding and gap.
+// aspectRatio gave these tiles no height on device, so they're sized here.
+const TILE_GAP = 12
 
 function disconnectMessage(reason: DisconnectReason) {
   switch (reason) {
@@ -39,8 +50,10 @@ function disconnectMessage(reason: DisconnectReason) {
 
 function ParticipantTile({
   trackRef,
+  width,
 }: {
   trackRef: TrackReferenceOrPlaceholder
+  width: number
 }) {
   const { participant } = trackRef
   const isSpeaking = useIsSpeaking(participant)
@@ -50,10 +63,10 @@ function ParticipantTile({
   return (
     <View
       className={cn(
-        "w-[48%] items-center justify-center overflow-hidden rounded-lor-sm border-2 bg-surface-secondary",
+        "overflow-hidden rounded-lor-sm border-2 bg-surface-secondary",
         isSpeaking ? "border-accent" : "border-transparent"
       )}
-      style={{ aspectRatio: 3 / 4 }}
+      style={{ width, height: (width * 4) / 3 }}
     >
       {showVideo ? (
         <VideoTrack
@@ -63,7 +76,12 @@ function ParticipantTile({
           trackRef={trackRef}
         />
       ) : (
-        <Avatar name={name} size="md" />
+        <View
+          className="items-center justify-center"
+          style={StyleSheet.absoluteFill}
+        >
+          <Avatar name={name} size="md" />
+        </View>
       )}
       <View className="absolute bottom-two left-two max-w-[85%] rounded-lor-sm bg-background/80 px-one">
         <Text
@@ -85,6 +103,8 @@ function CallStage({ onLeave }: { onLeave: () => void }) {
   const [screenShare] = useTracks([Track.Source.ScreenShare])
   const { localParticipant, isMicrophoneEnabled, isCameraEnabled } =
     useLocalParticipant()
+  const { width: windowWidth } = useWindowDimensions()
+  const tileWidth = (windowWidth - TILE_GAP * 3) / 2
 
   const toggleMicrophone = async () => {
     try {
@@ -105,8 +125,8 @@ function CallStage({ onLeave }: { onLeave: () => void }) {
     <View className="flex-1">
       {screenShare && (
         <View
-          className="w-full bg-surface-secondary"
-          style={{ aspectRatio: 16 / 9 }}
+          className="bg-surface-secondary"
+          style={{ width: windowWidth, height: (windowWidth * 9) / 16 }}
         >
           <VideoTrack
             objectFit="contain"
@@ -115,11 +135,12 @@ function CallStage({ onLeave }: { onLeave: () => void }) {
           />
         </View>
       )}
-      <ScrollView contentContainerClassName="flex-row flex-wrap justify-between gap-y-three p-three">
+      <ScrollView contentContainerClassName="flex-row flex-wrap gap-three p-three">
         {cameraTracks.map((trackRef) => (
           <ParticipantTile
             key={`${trackRef.participant.identity}:${trackRef.source}`}
             trackRef={trackRef}
+            width={tileWidth}
           />
         ))}
       </ScrollView>
