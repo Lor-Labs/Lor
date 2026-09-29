@@ -14,7 +14,9 @@ Rules for every phase:
 - No tests. Verify with focused review, `pnpm run check`, `pnpm run check-types`,
   builds, and manual calls. Never run `pnpm run validate`.
 - Never run `pnpm db:push`. Make the schema edit and flag that a push is owed.
-- Never commit; Jacob owns git.
+- Never commit; Jacob owns git. Deliver code in chunks of about 300-400
+  changed lines. Stop after each chunk so Jacob can review and commit it.
+  Nothing is pushed until the whole feature is done.
 - New API routes need `apps/api` and `packages/api-client` rebuilds before
   mobile sees the types.
 - Native mobile dependencies need a new dev client build (`pod install`), not an
