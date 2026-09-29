@@ -22,12 +22,30 @@ Rules for every phase:
 
 ## Prerequisites (Jacob)
 
-- [ ] Create a LiveKit Cloud project. Put `LIVEKIT_URL`, `LIVEKIT_API_KEY`, and
-      `LIVEKIT_API_SECRET` in local `.env` and on Railway.
+Before V0:
+
+- [ ] Create a LiveKit Cloud project. The free Build plan is enough for V0 (5
+      concurrent connections). Put `LIVEKIT_URL`, `LIVEKIT_API_KEY`, and
+      `LIVEKIT_API_SECRET` in the root `.env`, which the API loads.
+- [ ] iPhone dev build (microphone publishing needs a real device): with the
+      phone plugged in, run `APP_VARIANT=development npx expo run:ios --device`
+      from `apps/mobile`. An EAS development build also works, but it needs the
+      device registered and the changes committed first.
+- [ ] Packaged macOS build: `pnpm --filter desktop build`. Sign it with the
+      Developer ID identity (`APPLE_SIGNING_IDENTITY`) if the certificate is in
+      the keychain, so it matches release builds. Never push a `v*` tag for
+      V0: `release-desktop.yml` publishes to the updater for every user.
+
+Before V1:
+
+- [ ] Put the same three vars on Railway.
 - [ ] Point the project's webhook at `POST /v1/voice/livekit/webhook` (local
       development needs a tunnel).
-- [ ] Keep a physical iPhone available; microphone publishing needs hardware.
-- [ ] Choose the LiveKit plan before real team use (see the research cost model).
+
+Before real team use:
+
+- [ ] Move to the Ship plan. Build's 5 concurrent connections can't hold a
+      30-person call.
 
 ## Locked decisions (do not relitigate without logging a deviation)
 
