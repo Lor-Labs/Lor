@@ -78,7 +78,7 @@ start a phase until its predecessor is checked.
 
 ---
 
-### [ ] V0 — Platform spike
+### [x] V0 — Platform spike
 
 Prove media on every supported client before building product UI. Keep the
 code that works; V1 and V2 harden it.
@@ -101,7 +101,7 @@ code that works; V1 and V2 harden it.
       camera permission text (today's `app.json` text is for attachments);
       `UIBackgroundModes` audio; decide whether CallKit is needed. New dev
       client build.
-- [ ] Manual two-person calls on web (Chrome and Safari), the packaged macOS
+- [x] Manual two-person calls on web (Chrome and Safari), the packaged macOS
       app, and a physical iPhone:
   - microphone, camera, output device, and device changes
   - screen share from a computer, viewed on every client
@@ -111,7 +111,7 @@ code that works; V1 and V2 harden it.
   - Wi-Fi to cellular reconnect
   - a second join with the same identity disconnects the first, with a
     readable reason
-- [ ] Log the outcome below: desktop media path (webview works, native bridge,
+- [x] Log the outcome below: desktop media path (webview works, native bridge,
       or browser handoff), pinned SDK versions, CallKit decision, and client
       limits.
 
@@ -324,7 +324,8 @@ See Phase 2 of the spec.
     `@livekit/components-react` 2.9, `@livekit/react-native` 3.0,
     `@livekit/react-native-webrtc` 144.2, `@livekit/react-native-expo-plugin`
     1.0, `@config-plugins/react-native-webrtc` 15.0 (peer `expo >= 56`).
-    Pin after the manual calls pass.
+    `pnpm-lock.yaml` pins the exact versions; upgrade them deliberately and
+    re-run the V0 calls on all three clients after any LiveKit upgrade.
 - 2026-09-29 — Jacob's manual calls: audio, camera, and screen share work on
   web, the packaged macOS app, and a physical iPhone. Desktop media path =
   the Tauri webview; no native bridge or browser handoff needed. Still to
