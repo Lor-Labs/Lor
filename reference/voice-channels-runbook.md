@@ -64,7 +64,7 @@ Before real team use:
 | Room cap | 30 people, enforced in the join handler by counting connected humans. The transcriber also joins the room, and LiveKit's docs don't say whether agents count toward its own room limit, so never set that limit to exactly 30. |
 | Join response | `{ url, token, sessionId, participantId }`. Clients need no LiveKit env. Tokens are short-lived and grant only that room. |
 | Access | Every voice handler starts with `resolveChannelAccess` (`packages/db/src/queries/channel-access.ts`), then requires `channel.type = "voice"` and a non-archived channel. |
-| Session chat | Plan-card pattern: a `voice_session_card` message is the thread root, `voice_session.cardMessageId` is unique, and the session chat is that thread. Voice channels accept no other top-level messages. Cards post silent. |
+| Session chat | Plan pattern: a `voice_session` message is the thread root, `voice_session.threadRootId` is unique, and the session chat is that thread. Voice channels accept no other top-level messages. Root messages post silent. |
 | Live-only visibility | While a session is live, its thread room, thread reads, search, Lor retrieval, thread activity, and notification previews exclude everyone not connected to the call. Once it ends, normal channel access applies. |
 | Sidebar presence | Push-invalidated snapshot, the sidebar Lor activity pattern (`reference/sidebar-realtime-activity-plan.md`): an invalidation event to the workspace room, then an auth-filtered fetch. Connected people only. |
 | Transcription | Always on. One silent transcriber job per room with one Deepgram Nova-3 stream per human microphone through LiveKit Inference. Final segments persist through the API as they arrive. No Egress; LiveKit agent observability audio recording off. |
@@ -125,17 +125,17 @@ Schema: new `packages/db/src/schemas/voice.ts` (relative imports only),
 exported from `packages/db/src/schemas/index.ts`. Derive types with
 `$inferSelect`/`$inferInsert`.
 
-- `voice_session`: `id`, `workspaceId`, `channelId` (cascade), `cardMessageId`
+- `voice_session`: `id`, `workspaceId`, `channelId` (cascade), `threadRootId`
   (set-null, unique), `createdById` (set-null), `startedAt`, `emptySince`,
   `endedAt`. Partial unique index for one live session per channel;
   `(channelId, startedAt)` for history.
 - `voice_session_participant`: `id` (the LiveKit identity), `sessionId`
   (cascade), `userId`, `firstJoinedAt`, `connectedAt` (null when not
   connected), `lastLeftAt`. Unique `(sessionId, userId)`.
-- `messages.ts`: `message_type` += `voice_session_card`, commented like
-  `plan_card`.
+- `messages.ts`: `message_type` += `voice_session` (the session chat's root
+  message; not rendered as a card).
 - `packages/realtime-types/src/events.ts`: `RealtimeMessageType` +=
-  `voice_session_card`; voice event payload schemas.
+  `voice_session`; voice event payload schemas.
 - **db:push owed:** two tables and one enum value.
 
 `packages/voice` (new): constants, identity helpers, shared types.
@@ -214,13 +214,13 @@ Realtime, emitted from the API with the existing emitter
 - The session page shows the chat, reusing the thread list and composer from
   `apps/web/src/components/sidebar/right-panel/thread-panel.tsx`: beside the
   stage during a call, from the call bar through the right panel, and from the
-  history for past sessions. `message-item.tsx` renders the card wherever a
-  root appears.
-- Voice channels reject top-level messages other than session cards, in both
-  the API and the realtime send path.
+  history for past sessions. `message-item.tsx` renders the root message
+  wherever it appears.
+- Voice channels reject top-level messages other than session root messages,
+  in both the API and the realtime send path.
 - Live-only enforcement:
   - `thread:join` in `apps/realtime/src/index.ts` checks channel access only
-    today; for a live session card it must also require a connected
+    today; for a live session's root it must also require a connected
     participant.
   - Reply fanout in `apps/realtime/src/index.ts` sends `message:thread:updated`
     with the full reply to the channel room; skip that while the session is live.

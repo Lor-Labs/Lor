@@ -111,7 +111,7 @@ export type RealtimeMessageType =
   | "loop_card"
   | "loop_fire"
   | "proposal_card"
-  | "voice_session_card"
+  | "voice_session"
 
 // Mirrors channel_event_type / ChannelEventPayload in @repo/db (messages.ts) —
 // hand-copied like RealtimeMessageType so clients don't pull in drizzle.

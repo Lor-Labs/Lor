@@ -12,8 +12,8 @@ import { user } from "./users"
 import { workspace } from "./workspaces"
 
 // A voice session: one bounded conversation in a persistent voice channel,
-// live while endedAt is null. Its card message is the thread root of the
-// session chat, and its id is the LiveKit room name.
+// live while endedAt is null. Its root message anchors the session chat
+// thread, and its id is the LiveKit room name.
 export const voiceSession = pgTable(
   "voice_session",
   {
@@ -29,7 +29,7 @@ export const voiceSession = pgTable(
     channelId: uuid("channel_id")
       .notNull()
       .references(() => channel.id, { onDelete: "cascade" }),
-    cardMessageId: uuid("card_message_id").references(() => message.id, {
+    threadRootId: uuid("thread_root_id").references(() => message.id, {
       onDelete: "set null",
     }),
     createdById: uuid("created_by_id").references(() => user.id, {
@@ -45,9 +45,9 @@ export const voiceSession = pgTable(
     uniqueIndex("voice_session_channelId_live_uidx")
       .on(table.channelId)
       .where(sql`ended_at is null`),
-    uniqueIndex("voice_session_cardMessageId_uidx")
-      .on(table.cardMessageId)
-      .where(sql`card_message_id is not null`),
+    uniqueIndex("voice_session_threadRootId_uidx")
+      .on(table.threadRootId)
+      .where(sql`thread_root_id is not null`),
     index("voice_session_channelId_startedAt_idx").on(
       table.channelId,
       table.startedAt
@@ -95,8 +95,8 @@ export const voiceSessionRelations = relations(
       fields: [voiceSession.channelId],
       references: [channel.id],
     }),
-    cardMessage: one(message, {
-      fields: [voiceSession.cardMessageId],
+    threadRoot: one(message, {
+      fields: [voiceSession.threadRootId],
       references: [message.id],
     }),
     participants: many(voiceSessionParticipant),

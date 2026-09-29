@@ -38,9 +38,9 @@ export const messageTypeEnum = pgEnum("message_type", [
   // card message so clients resolve the loop row through cardMessageId
   // (falls back to plain content once the loop/card is gone).
   "loop_fire",
-  // A voice session's card — the thread root of the session chat. The session
-  // row (see voice.ts) is looked up by cardMessageId.
-  "voice_session_card",
+  // A voice session's anchor — the thread root of the session chat. The
+  // session row (see voice.ts) is looked up by threadRootId.
+  "voice_session",
 ])
 
 // Kinds of channel events (message.type = "event"). Adding a kind means a new
