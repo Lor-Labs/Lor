@@ -63,7 +63,9 @@ function LinearCallback() {
       await navigate({
         to: "/$workspaceSlug",
         params: { workspaceSlug: slug },
-        search: connected ? { settings: "workspace", tab: "connectors" } : {},
+        search: connected
+          ? { settings: "workspace", tab: "connectors", connector: "linear" }
+          : {},
         replace: true,
       })
     })()

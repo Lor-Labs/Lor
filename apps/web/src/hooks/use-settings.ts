@@ -28,6 +28,7 @@ export function useSettings() {
           settings: undefined,
           tab: undefined,
           mcpServerId: undefined,
+          connector: undefined,
         }),
       }),
     [navigate]
@@ -37,7 +38,7 @@ export function useSettings() {
     (nextTab: string) =>
       void navigate({
         to: ".",
-        search: (prev) => ({ ...prev, tab: nextTab }),
+        search: (prev) => ({ ...prev, tab: nextTab, connector: undefined }),
         replace: true,
       }),
     [navigate]

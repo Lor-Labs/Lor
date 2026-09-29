@@ -10,6 +10,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@repo/ui/components/alert-dialog"
+import { Badge } from "@repo/ui/components/badge"
 import { Button } from "@repo/ui/components/button"
 import {
   Select,
@@ -20,10 +21,16 @@ import {
 } from "@repo/ui/components/select"
 import { Skeleton } from "@repo/ui/components/skeleton"
 import { toast } from "@repo/ui/components/toast"
+import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useMemo, useState } from "react"
 import { CreateInviteDialog } from "@/components/invite/create-invite-dialog"
 import { UserAvatar } from "@/components/ui/user-avatar"
+import {
+  PILL_BUTTON,
+  SETTINGS_SURFACE,
+  SettingsSection,
+} from "@/components/workspace/settings-group"
 import {
   toCustomRoleMap,
   useAssignableRoleOptions,
@@ -145,32 +152,31 @@ export function MembersSection({ workspaceSlug }: { workspaceSlug: string }) {
   const members = data?.members ?? []
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-sm font-medium">Members</h3>
-          <p className="text-xs text-muted-foreground">
-            {members.length} {members.length === 1 ? "member" : "members"} in
-            this workspace
-          </p>
-        </div>
-        <Button size="sm" onClick={() => setInviteOpen(true)}>
-          <HugeiconsIcon
-            icon={UserAdd01Icon}
-            className="size-4"
-            strokeWidth={2}
-          />
+    <SettingsSection
+      title="Members"
+      count={isPending ? undefined : members.length}
+      action={
+        <Button
+          variant="secondary"
+          size="sm"
+          className={cn(PILL_BUTTON, "px-3")}
+          onClick={() => setInviteOpen(true)}
+        >
+          <HugeiconsIcon icon={UserAdd01Icon} strokeWidth={2} />
           Invite
         </Button>
-      </div>
-
+      }
+    >
       {isPending ? (
         <div className="space-y-2">
           {Array.from({ length: 4 }).map((_, index) => (
             <div
               // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton
               key={index}
-              className="flex items-center gap-3 rounded-lg border border-border/60 px-3 py-2.5"
+              className={cn(
+                SETTINGS_SURFACE,
+                "flex items-center gap-3 px-3 py-2.5"
+              )}
             >
               <Skeleton className="size-8 rounded-full" />
               <div className="flex-1 space-y-1">
@@ -203,7 +209,10 @@ export function MembersSection({ workspaceSlug }: { workspaceSlug: string }) {
             return (
               <div
                 key={member.userId}
-                className="flex items-center gap-3 rounded-lg border border-border/60 px-3 py-2.5"
+                className={cn(
+                  SETTINGS_SURFACE,
+                  "flex items-center gap-3 px-3 py-2.5"
+                )}
               >
                 <UserAvatar
                   avatarColor={member.avatarColor}
@@ -211,15 +220,15 @@ export function MembersSection({ workspaceSlug }: { workspaceSlug: string }) {
                   src={member.image}
                   size="sm"
                 />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-medium">
+                <div className="flex min-w-0 flex-1 items-center gap-1.5">
+                  <span className="truncate text-sm font-medium">
                     {member.name}
-                    {member.isBot && (
-                      <span className="ml-1.5 rounded bg-accent px-1 py-0.5 text-[10px] font-medium text-muted-foreground">
-                        BOT
-                      </span>
-                    )}
-                  </div>
+                  </span>
+                  {member.isBot && (
+                    <Badge variant="outline" size="sm" className="shrink-0">
+                      Bot
+                    </Badge>
+                  )}
                 </div>
                 {member.isOwner ? (
                   <span className="text-xs font-medium text-muted-foreground">
@@ -262,7 +271,10 @@ export function MembersSection({ workspaceSlug }: { workspaceSlug: string }) {
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="text-destructive hover:text-destructive"
+                    className={cn(
+                      PILL_BUTTON,
+                      "px-3 text-destructive hover:text-destructive"
+                    )}
                     disabled={isBusy}
                     onClick={() => setKickTarget(member)}
                   >
@@ -311,6 +323,6 @@ export function MembersSection({ workspaceSlug }: { workspaceSlug: string }) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </SettingsSection>
   )
 }

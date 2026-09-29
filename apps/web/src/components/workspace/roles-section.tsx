@@ -1,5 +1,12 @@
-import { Add01Icon } from "@hugeicons/core-free-icons"
-import { HugeiconsIcon } from "@hugeicons/react"
+import {
+  ArrowRight01Icon,
+  CrownIcon,
+  PlusSignIcon,
+  UserIcon,
+  UserSettings01Icon,
+  UserShield01Icon,
+} from "@hugeicons/core-free-icons"
+import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
 import {
   formatWorkspaceRole,
@@ -16,14 +23,31 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@repo/ui/components/alert-dialog"
-import { Badge } from "@repo/ui/components/badge"
 import { Button } from "@repo/ui/components/button"
 import { Checkbox } from "@repo/ui/components/checkbox"
 import { Input } from "@repo/ui/components/input"
 import { Label } from "@repo/ui/components/label"
 import { toast } from "@repo/ui/components/toast"
+import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useMemo, useState } from "react"
+import {
+  type ReactNode,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react"
+import {
+  IconTile,
+  PILL_BUTTON,
+  SETTINGS_SURFACE,
+  SettingsBackButton,
+  SettingsCard,
+  SettingsCardButton,
+  SettingsGroup,
+  SettingsSection,
+} from "@/components/workspace/settings-group"
 import {
   useWorkspaceRoles,
   type WorkspaceCustomRole,
@@ -37,11 +61,24 @@ const MATRIX_RESOURCES = Object.keys(
 
 const STATIC_ROLE_SUMMARIES: {
   role: keyof typeof staticRoles
+  icon: IconSvgElement
   blurb: string
 }[] = [
-  { role: "owner", blurb: "Full access to everything, cannot be assigned" },
-  { role: "admin", blurb: "Every permission, can manage roles" },
-  { role: "member", blurb: "Base access: read, post, and react" },
+  {
+    role: "owner",
+    icon: CrownIcon,
+    blurb: "Full access to everything, cannot be assigned",
+  },
+  {
+    role: "admin",
+    icon: UserShield01Icon,
+    blurb: "Every permission, can manage roles",
+  },
+  {
+    role: "member",
+    icon: UserIcon,
+    blurb: "Base access: read, post, and react",
+  },
 ]
 
 type EditorState =
@@ -72,14 +109,20 @@ function keysToPermission(keys: Set<string>): Record<string, string[]> {
   return permission
 }
 
+function plural(count: number, noun: string) {
+  return `${count} ${count === 1 ? noun : `${noun}s`}`
+}
+
 function RoleEditor({
   editor,
   workspaceId,
   onClose,
+  onDelete,
 }: {
   editor: NonNullable<EditorState>
   workspaceId: string
   onClose: () => void
+  onDelete?: () => void
 }) {
   const queryClient = useQueryClient()
   const [name, setName] = useState(
@@ -138,79 +181,106 @@ function RoleEditor({
     editor.mode === "edit" ? true : name.trim().length > 0 && selected.size > 0
 
   return (
-    <div className="space-y-4 rounded-lg border border-border/60 p-4">
-      <div className="flex items-center justify-between">
-        <h4 className="text-sm font-medium">
-          {editor.mode === "create"
-            ? "New role"
-            : `Edit ${formatWorkspaceRole(editor.role.role)}`}
-        </h4>
-      </div>
-
-      {editor.mode === "create" && (
-        <div className="space-y-1.5">
-          <Label htmlFor="role-name">Role name</Label>
-          <Input
-            id="role-name"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            placeholder="e.g. support"
-            maxLength={64}
-          />
+    <div className="space-y-8">
+      <div className="space-y-5">
+        <SettingsBackButton label="All roles" onClick={onClose} />
+        <div className="space-y-2">
+          {editor.mode === "create" ? (
+            <Input
+              size="lg"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="Role name, e.g. support"
+              aria-label="Role name"
+              maxLength={64}
+            />
+          ) : (
+            <h2 className="text-lg font-semibold">
+              {formatWorkspaceRole(editor.role.role)}
+            </h2>
+          )}
+          <p className="text-sm text-muted-foreground">
+            People with this role get member access, plus the permissions you
+            pick here.
+          </p>
         </div>
-      )}
-
-      <div className="space-y-4">
-        {MATRIX_RESOURCES.map((resource) => {
-          const meta = workspaceStatementMeta[resource]
-          return (
-            <fieldset key={resource} className="space-y-1.5">
-              <legend className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                {meta.label}
-              </legend>
-              {workspaceStatements[resource].map((action) => {
-                const key = grantKey(resource, action)
-                return (
-                  <div key={key} className="flex items-center gap-2">
-                    <Checkbox
-                      id={`grant-${key}`}
-                      checked={selected.has(key)}
-                      onCheckedChange={(checked) =>
-                        toggle(key, checked === true)
-                      }
-                    />
-                    <Label
-                      htmlFor={`grant-${key}`}
-                      className="text-sm font-normal"
-                    >
-                      {(meta.actions as Record<string, string>)[action] ??
-                        action}
-                    </Label>
-                  </div>
-                )
-              })}
-            </fieldset>
-          )
-        })}
       </div>
 
-      <div className="flex justify-end gap-2">
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={saveMutation.isPending}
-          onClick={onClose}
-        >
-          Cancel
-        </Button>
-        <Button
-          size="sm"
-          loading={saveMutation.isPending}
-          disabled={!canSave}
-          onClick={() => saveMutation.mutate()}
-        >
-          {editor.mode === "create" ? "Create role" : "Save changes"}
-        </Button>
+      <SettingsSection
+        title="Permissions"
+        action={
+          <span className="text-xs text-muted-foreground">
+            {selected.size} selected
+          </span>
+        }
+      >
+        <SettingsGroup>
+          {MATRIX_RESOURCES.map((resource) => {
+            const meta = workspaceStatementMeta[resource]
+            return (
+              <div
+                key={resource}
+                className="grid grid-cols-[9rem_minmax(0,1fr)] gap-x-4 py-3"
+              >
+                <span className="text-sm font-medium">{meta.label}</span>
+                <div className="flex flex-wrap gap-x-5 gap-y-2">
+                  {workspaceStatements[resource].map((action) => {
+                    const key = grantKey(resource, action)
+                    return (
+                      <div key={key} className="flex items-center gap-2">
+                        <Checkbox
+                          id={`grant-${key}`}
+                          checked={selected.has(key)}
+                          onCheckedChange={(checked) =>
+                            toggle(key, checked === true)
+                          }
+                        />
+                        <Label
+                          htmlFor={`grant-${key}`}
+                          className="cursor-pointer text-sm font-normal"
+                        >
+                          {(meta.actions as Record<string, string>)[action] ??
+                            action}
+                        </Label>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )
+          })}
+        </SettingsGroup>
+      </SettingsSection>
+
+      <div className="flex items-center gap-2">
+        {onDelete && (
+          <Button
+            variant="destructive-outline"
+            className={PILL_BUTTON}
+            disabled={saveMutation.isPending}
+            onClick={onDelete}
+          >
+            Delete role
+          </Button>
+        )}
+        <div className="ml-auto flex items-center gap-2">
+          <Button
+            variant="ghost"
+            className={PILL_BUTTON}
+            disabled={saveMutation.isPending}
+            onClick={onClose}
+          >
+            Cancel
+          </Button>
+          <Button
+            className={PILL_BUTTON}
+            loading={saveMutation.isPending}
+            disabled={!canSave}
+            onClick={() => saveMutation.mutate()}
+          >
+            {editor.mode === "create" ? "Create role" : "Save"}
+          </Button>
+        </div>
       </div>
     </div>
   )
@@ -219,15 +289,21 @@ function RoleEditor({
 export function RolesSection({
   workspaceId,
   workspaceSlug,
+  onViewChange,
 }: {
   workspaceId: string
   workspaceSlug: string
+  // Scrolls the Members & Roles tab back to its top when the list and the
+  // editor swap.
+  onViewChange: () => void
 }) {
   const queryClient = useQueryClient()
   const [editor, setEditor] = useState<EditorState>(null)
+  const [returnFocusId, setReturnFocusId] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<WorkspaceCustomRole | null>(
     null
   )
+  const listRef = useRef<HTMLDivElement>(null)
 
   const { data: customRoles, isPending } = useWorkspaceRoles(workspaceId)
 
@@ -270,6 +346,7 @@ export function RolesSection({
         }),
       ])
       setDeleteTarget(null)
+      setEditor(null)
       toast.success("Role deleted")
     },
     onError: () => {
@@ -277,100 +354,149 @@ export function RolesSection({
     },
   })
 
+  let editorKey = "list"
+  if (editor) editorKey = editor.mode === "edit" ? editor.role.id : "create"
+
+  useLayoutEffect(() => {
+    onViewChange()
+  }, [editorKey])
+
+  // Back from the editor: return focus to the card that opened it, or to
+  // "New role" when that role was just deleted.
+  useEffect(() => {
+    if (editor || !returnFocusId) return
+    const list = listRef.current
+    const target =
+      list?.querySelector<HTMLElement>(`[data-role="${returnFocusId}"]`) ??
+      list?.querySelector<HTMLElement>('[data-role="new"]')
+    target?.focus({ preventScroll: true })
+  }, [editor])
+
+  const openEditor = (next: NonNullable<EditorState>) => {
+    setReturnFocusId(next.mode === "edit" ? next.role.id : "new")
+    setEditor(next)
+  }
+
   const deleteTargetMemberCount = deleteTarget
     ? (memberCountByRole.get(deleteTarget.role) ?? 0)
     : 0
 
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-sm font-medium">Roles</h3>
-          <p className="text-xs text-muted-foreground">
-            Custom roles grant specific permissions to members
-          </p>
-        </div>
-        {!editor && (
-          <Button size="sm" onClick={() => setEditor({ mode: "create" })}>
+  const roles = customRoles ?? []
+  let customRolesBody: ReactNode = null
+  if (!isPending && roles.length === 0) {
+    customRolesBody = (
+      <SettingsCard>
+        <p className="text-sm text-muted-foreground">
+          No custom roles yet. Create one to grant specific permissions.
+        </p>
+      </SettingsCard>
+    )
+  } else if (!isPending) {
+    customRolesBody = (
+      <div className="space-y-2">
+        {roles.map((role) => (
+          <SettingsCardButton
+            key={role.id}
+            data-role={role.id}
+            onClick={() => openEditor({ mode: "edit", role })}
+          >
+            <IconTile>
+              <HugeiconsIcon
+                icon={UserSettings01Icon}
+                className="size-5"
+                strokeWidth={2}
+              />
+            </IconTile>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-sm font-medium">
+                {formatWorkspaceRole(role.role)}
+              </span>
+              <span className="block text-sm text-muted-foreground">
+                {plural(grantsToKeys(role.grants).size, "permission")} ·{" "}
+                {plural(memberCountByRole.get(role.role) ?? 0, "member")}
+              </span>
+            </span>
             <HugeiconsIcon
-              icon={Add01Icon}
-              className="size-4"
+              icon={ArrowRight01Icon}
+              className="size-4 shrink-0 text-muted-foreground"
               strokeWidth={2}
             />
-            New role
-          </Button>
-        )}
-      </div>
-
-      <div className="space-y-2">
-        {STATIC_ROLE_SUMMARIES.map(({ role, blurb }) => (
-          <div
-            key={role}
-            className="flex items-center gap-3 rounded-lg border border-border/60 px-3 py-2.5"
-          >
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-1.5 text-sm font-medium">
-                {formatWorkspaceRole(role)}
-                <Badge variant="secondary" className="text-[10px]">
-                  Built-in
-                </Badge>
-              </div>
-              <div className="text-xs text-muted-foreground">{blurb}</div>
-            </div>
-            <span className="text-xs text-muted-foreground">
-              {memberCountByRole.get(role) ?? 0} members
-            </span>
-          </div>
+          </SettingsCardButton>
         ))}
-
-        {isPending
-          ? null
-          : (customRoles ?? []).map((role) => {
-              const grantCount = grantsToKeys(role.grants).size
-              return (
-                <div
-                  key={role.id}
-                  className="flex items-center gap-3 rounded-lg border border-border/60 px-3 py-2.5"
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-medium">
-                      {formatWorkspaceRole(role.role)}
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      {grantCount}{" "}
-                      {grantCount === 1 ? "permission" : "permissions"}
-                      {" · "}
-                      {memberCountByRole.get(role.role) ?? 0} members
-                    </div>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setEditor({ mode: "edit", role })}
-                  >
-                    Edit
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="text-destructive hover:text-destructive"
-                    onClick={() => setDeleteTarget(role)}
-                  >
-                    Delete
-                  </Button>
-                </div>
-              )
-            })}
       </div>
+    )
+  }
 
-      {editor && (
+  return (
+    <div ref={listRef}>
+      {editor ? (
         <RoleEditor
-          // Reset the form when switching between roles / create
-          key={editor.mode === "edit" ? editor.role.id : "create"}
+          key={editorKey}
           editor={editor}
           workspaceId={workspaceId}
           onClose={() => setEditor(null)}
+          onDelete={
+            editor.mode === "edit"
+              ? () => setDeleteTarget(editor.role)
+              : undefined
+          }
         />
+      ) : (
+        <div className="space-y-8">
+          <SettingsSection
+            title="Built-in roles"
+            count={STATIC_ROLE_SUMMARIES.length}
+          >
+            <div className="space-y-2">
+              {STATIC_ROLE_SUMMARIES.map(({ role, icon, blurb }) => (
+                <div
+                  key={role}
+                  className={cn(
+                    SETTINGS_SURFACE,
+                    "flex items-center gap-3 p-3"
+                  )}
+                >
+                  <IconTile>
+                    <HugeiconsIcon
+                      icon={icon}
+                      className="size-5"
+                      strokeWidth={2}
+                    />
+                  </IconTile>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium">
+                      {formatWorkspaceRole(role)}
+                    </div>
+                    <div className="text-sm text-muted-foreground">{blurb}</div>
+                  </div>
+                  <span className="shrink-0 text-xs text-muted-foreground">
+                    {plural(memberCountByRole.get(role) ?? 0, "member")}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </SettingsSection>
+
+          <SettingsSection
+            title="Custom roles"
+            count={isPending ? undefined : roles.length}
+            action={
+              <Button
+                variant="secondary"
+                size="sm"
+                className={cn(PILL_BUTTON, "px-3")}
+                data-role="new"
+                onClick={() => openEditor({ mode: "create" })}
+              >
+                <HugeiconsIcon icon={PlusSignIcon} strokeWidth={2} />
+                New role
+              </Button>
+            }
+            caption="Assign roles to people in the Members tab."
+          >
+            {customRolesBody}
+          </SettingsSection>
+        </div>
       )}
 
       <AlertDialog
