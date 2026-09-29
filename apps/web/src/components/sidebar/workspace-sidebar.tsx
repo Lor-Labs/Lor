@@ -50,6 +50,7 @@ import {
   CreateChannelProvider,
   useCreateChannel,
 } from "@/components/sidebar/channel-panel/create-channel-context"
+import { VoicePresenceProvider } from "@/components/sidebar/channel-panel/voice-presence"
 import { WorkspaceCommand } from "@/components/sidebar/channel-panel/workspace-command"
 import { CreateWorkspaceDialog } from "@/components/sidebar/create-workspace-dialog"
 import {
@@ -417,7 +418,12 @@ function WorkspaceSidebarInner() {
         <SidebarGroup className="min-h-0 flex-1 pt-1">
           <div className="-mx-2 min-h-0 flex-1 overflow-hidden">
             <ChannelActivityProvider workspaceId={activeWorkspace?.id}>
-              <ChannelList />
+              <VoicePresenceProvider
+                workspaceSlug={activeWorkspace?.slug}
+                workspaceId={activeWorkspace?.id}
+              >
+                <ChannelList />
+              </VoicePresenceProvider>
             </ChannelActivityProvider>
           </div>
         </SidebarGroup>
