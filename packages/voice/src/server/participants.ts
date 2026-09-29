@@ -1,4 +1,16 @@
-import { and, count, db, eq, isNotNull, isNull, ne, schema } from "@repo/db"
+import {
+  and,
+  count,
+  db,
+  desc,
+  eq,
+  isNotNull,
+  isNull,
+  ne,
+  schema,
+} from "@repo/db"
+import type { VoiceCallState } from "@repo/realtime-types/events"
+import { notifyVoiceCall, notifyVoicePresence } from "./notify"
 
 const { voiceSession, voiceSessionParticipant } = schema
 
@@ -36,6 +48,46 @@ async function startGraceIfEmpty(sessionId: string, at: Date) {
     )
 }
 
+async function currentCall(userId: string): Promise<VoiceCallState | null> {
+  const [row] = await db
+    .select({
+      sessionId: voiceSession.id,
+      channelId: voiceSession.channelId,
+      workspaceId: voiceSession.workspaceId,
+    })
+    .from(voiceSessionParticipant)
+    .innerJoin(
+      voiceSession,
+      eq(voiceSession.id, voiceSessionParticipant.sessionId)
+    )
+    .where(
+      and(
+        eq(voiceSessionParticipant.userId, userId),
+        isNotNull(voiceSessionParticipant.connectedAt),
+        isNull(voiceSession.endedAt)
+      )
+    )
+    .orderBy(desc(voiceSessionParticipant.connectedAt))
+    .limit(1)
+  return row ?? null
+}
+
+// Announces committed changes. Each user gets their current call read back
+// from the database rather than a delta, so reordered joins and leaves still
+// leave every device with the right final state.
+async function announce(sessionId: string, userIds: string[]) {
+  if (userIds.length === 0) return
+  const [session] = await db
+    .select({ workspaceId: voiceSession.workspaceId })
+    .from(voiceSession)
+    .where(eq(voiceSession.id, sessionId))
+    .limit(1)
+  if (session) notifyVoicePresence(session.workspaceId)
+  for (const userId of userIds) {
+    notifyVoiceCall(userId, await currentCall(userId))
+  }
+}
+
 // Ended sessions stay ended: a late connect never revives one.
 export async function markParticipantConnected(
   sessionId: string,
@@ -59,13 +111,17 @@ export async function markParticipantConnected(
         isNull(voiceSessionParticipant.connectedAt)
       )
     )
-    .returning({ id: voiceSessionParticipant.id })
+    .returning({ userId: voiceSessionParticipant.userId })
   if (updated.length === 0) return
 
   await db
     .update(voiceSession)
     .set({ emptySince: null })
     .where(eq(voiceSession.id, sessionId))
+  await announce(
+    sessionId,
+    updated.map((row) => row.userId)
+  )
 }
 
 type ParticipantMatch = { userId: string } | { participantId: string }
@@ -81,7 +137,7 @@ export async function markParticipantLeft(
     "userId" in match
       ? eq(voiceSessionParticipant.userId, match.userId)
       : eq(voiceSessionParticipant.id, match.participantId)
-  await db
+  const left = await db
     .update(voiceSessionParticipant)
     .set({ connectedAt: null, lastLeftAt: at })
     .where(
@@ -91,12 +147,17 @@ export async function markParticipantLeft(
         isNotNull(voiceSessionParticipant.connectedAt)
       )
     )
+    .returning({ userId: voiceSessionParticipant.userId })
   await startGraceIfEmpty(sessionId, at)
+  await announce(
+    sessionId,
+    left.map((row) => row.userId)
+  )
 }
 
 // LiveKit closed the room, so nobody is connected.
 export async function markSessionEmpty(sessionId: string, at = new Date()) {
-  await db
+  const left = await db
     .update(voiceSessionParticipant)
     .set({ connectedAt: null, lastLeftAt: at })
     .where(
@@ -105,5 +166,10 @@ export async function markSessionEmpty(sessionId: string, at = new Date()) {
         isNotNull(voiceSessionParticipant.connectedAt)
       )
     )
+    .returning({ userId: voiceSessionParticipant.userId })
   await startGraceIfEmpty(sessionId, at)
+  await announce(
+    sessionId,
+    left.map((row) => row.userId)
+  )
 }

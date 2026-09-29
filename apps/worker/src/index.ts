@@ -49,6 +49,7 @@ import {
 } from "@/lib/approval-notify"
 import { logger } from "@/lib/logger"
 import { awaitInflightDrains } from "@/lib/run-queue"
+import { installVoiceNotifier } from "@/lib/voice-notify"
 import { setWorkspaceActivityEmitter } from "@/lib/workspace-activity"
 
 process.on("unhandledRejection", (reason) => {
@@ -83,6 +84,7 @@ async function bootstrap() {
 
   const emitter = new Emitter<ServerToClientEvents>(redisEmitterClient)
   setWorkspaceActivityEmitter(emitter)
+  installVoiceNotifier(emitter)
 
   // Immediate-stop fast path: abort the in-flight model request for runs this
   // process holds a lease on. The stopRequestedAt flag stays the durable

@@ -366,3 +366,10 @@ See Phase 2 of the spec.
   audit reaches LiveKit. Unverified: that `listParticipants` on a closed
   room returns a 404 `TwirpError`. If it doesn't, sessions won't end and the
   worker logs "could not confirm session is empty".
+- 2026-09-29 — V1 chunk 6: `workspace:voice:updated` (workspace room,
+  invalidation only) and `voice:call:updated` (user room, the user's current
+  call). `@repo/voice/server` stays transport-free: the API and worker install
+  a notifier at startup (`setVoiceNotifier`). Each change sends the user's
+  current call read from the database, not a delta, so reordered webhooks
+  still converge. V1 code is complete; check V1 off after a tunnel test
+  (join, leave, a session ending, presence refetch).

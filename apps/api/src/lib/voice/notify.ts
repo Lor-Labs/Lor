@@ -1,0 +1,27 @@
+import { userRoom, workspaceRoom } from "@repo/realtime-types/rooms"
+import { setVoiceNotifier } from "@repo/voice/server"
+import { getEmitter } from "@/lib/bot-messages"
+import { logger } from "@/lib/logger"
+
+type Emitter = Awaited<ReturnType<typeof getEmitter>>
+
+function publish(send: (io: Emitter) => void) {
+  void getEmitter()
+    .then(send)
+    .catch((err) => logger.warn({ err }, "voice: realtime notify failed"))
+}
+
+export function installVoiceNotifier() {
+  setVoiceNotifier({
+    presenceChanged: (workspaceId) =>
+      publish((io) =>
+        io
+          .to(workspaceRoom(workspaceId))
+          .emit("workspace:voice:updated", { workspaceId })
+      ),
+    callChanged: (userId, call) =>
+      publish((io) =>
+        io.to(userRoom(userId)).emit("voice:call:updated", { call })
+      ),
+  })
+}

@@ -21,6 +21,19 @@ export type WorkspaceActivityUpdated = {
   workspaceId: string
 }
 
+// Invalidation only: clients refetch the authorized presence snapshot.
+export type WorkspaceVoiceUpdated = {
+  workspaceId: string
+}
+
+// The call a user is connected to on any device, or null. Sent to the user's
+// room so their other devices can offer "Transfer here".
+export type VoiceCallState = {
+  sessionId: string
+  channelId: string
+  workspaceId: string
+}
+
 export const channelRoomPayloadSchema = z.object({
   channelId: z.string().uuid(),
 })
@@ -559,6 +572,8 @@ export interface ServerToClientEvents {
   }) => void
   "presence:user:update": (payload: PresenceUserUpdate) => void
   "workspace:activity:updated": (payload: WorkspaceActivityUpdated) => void
+  "workspace:voice:updated": (payload: WorkspaceVoiceUpdated) => void
+  "voice:call:updated": (payload: { call: VoiceCallState | null }) => void
   "message:created": (payload: RealtimeMessage) => void
   "message:deleted": (payload: { channelId: string; messageId: string }) => void
   "message:updated": (payload: {

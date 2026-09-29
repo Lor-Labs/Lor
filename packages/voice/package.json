@@ -13,6 +13,7 @@
   "dependencies": {
     "@repo/db": "workspace:*",
     "@repo/env": "workspace:*",
+    "@repo/realtime-types": "workspace:*",
     "livekit-server-sdk": "^2.19.1"
   },
   "devDependencies": {
