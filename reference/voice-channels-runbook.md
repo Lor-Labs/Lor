@@ -339,3 +339,10 @@ See Phase 2 of the spec.
   active, and audio returns afterward. CallKit decision: not needed for V4;
   revisit only if incoming-call UI or lock-screen controls are wanted. Other
   checks look fine so far, per Jacob.
+- 2026-09-29 — V1 chunk 1 (schema, `packages/voice`) and chunk 2 (join on
+  sessions, leave) landed. The session's root message type is `voice_session`
+  and the column is `voice_session.thread_root_id` (renamed from the card
+  naming: nothing renders as a card). The LiveKit room is now the session id
+  and the identity is the participant id. Until chunk 4 adds the webhook and
+  end job, `connectedAt` is never set and sessions never end, so every join
+  reuses the channel's one live session.

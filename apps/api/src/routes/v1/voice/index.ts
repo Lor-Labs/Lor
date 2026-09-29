@@ -2,9 +2,8 @@ import { createRouter } from "@/lib/helpers/app/create-app"
 import * as handlers from "@/routes/v1/voice/handlers"
 import * as routes from "@/routes/v1/voice/routes"
 
-const voiceRouter = createRouter().openapi(
-  routes.joinVoiceChannel,
-  handlers.joinVoiceChannel
-)
+const voiceRouter = createRouter()
+  .openapi(routes.joinVoiceChannel, handlers.joinVoiceChannel)
+  .openapi(routes.leaveVoiceSession, handlers.leaveVoiceSession)
 
 export default voiceRouter

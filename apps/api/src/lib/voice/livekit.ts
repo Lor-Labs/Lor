@@ -1,5 +1,5 @@
 import { env } from "@repo/env/server"
-import { AccessToken } from "livekit-server-sdk"
+import { AccessToken, RoomServiceClient } from "livekit-server-sdk"
 
 export type LiveKitConfig = {
   url: string
@@ -15,6 +15,10 @@ export function getLiveKitConfig(): LiveKitConfig | null {
     apiKey: LIVEKIT_API_KEY,
     apiSecret: LIVEKIT_API_SECRET,
   }
+}
+
+export function getRoomService(config: LiveKitConfig) {
+  return new RoomServiceClient(config.url, config.apiKey, config.apiSecret)
 }
 
 export function createJoinToken(

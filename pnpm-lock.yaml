@@ -91,6 +91,9 @@ importers:
       '@repo/utils':
         specifier: workspace:*
         version: link:../../packages/utils
+      '@repo/voice':
+        specifier: workspace:*
+        version: link:../../packages/voice
       '@socket.io/redis-emitter':
         specifier: ^5.1.0
         version: 5.1.0

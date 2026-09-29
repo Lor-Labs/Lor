@@ -28,6 +28,7 @@
     "@repo/messaging": "workspace:^",
     "@repo/realtime-types": "workspace:*",
     "@repo/utils": "workspace:*",
+    "@repo/voice": "workspace:*",
     "@socket.io/redis-emitter": "^5.1.0",
     "bullmq": "^5.52.2",
     "dotenv": "^17.2.4",
