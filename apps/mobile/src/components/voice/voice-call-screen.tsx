@@ -188,7 +188,7 @@ function CallStage({ onLeave }: { onLeave: () => void }) {
   )
 }
 
-// V0 spike: the call lives with this screen. V4 moves it to an app-level
+// V0 spike: the call lives with this screen. V6 moves it to an app-level
 // provider with a persistent call pill.
 export function VoiceCallScreen({
   channelId,

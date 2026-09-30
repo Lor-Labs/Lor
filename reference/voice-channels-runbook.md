@@ -64,7 +64,9 @@ Before real team use:
 | Room cap | 30 people, enforced in the join handler by counting connected humans. The transcriber also joins the room, and LiveKit's docs don't say whether agents count toward its own room limit, so never set that limit to exactly 30. |
 | Join response | `{ url, token, sessionId, participantId }`. Clients need no LiveKit env. Tokens are short-lived and grant only that room. |
 | Access | Every voice handler starts with `resolveChannelAccess` (`packages/db/src/queries/channel-access.ts`), then requires `channel.type = "voice"` and a non-archived channel. |
-| Session chat | Plan pattern: a `voice_session` message is the thread root, `voice_session.threadRootId` is unique, and the session chat is that thread. Voice channels accept no other top-level messages. Root messages post silent. |
+| Session chat | Plan pattern: a `voice_session` message is the thread root, `voice_session.threadRootId` is unique, and the session chat is that thread. Voice channels accept no other top-level messages. Root messages post silent. The chat is human-only: Lor mention routing ignores session threads on the server, and the composer doesn't offer Lor. Lor reads the thread as passive context for voice requests. |
+| Lor requests | Voice only, triggered from the live transcript when someone addresses Lor directly, then confirmed by an intent check. A request is its own record (session, requester, heard text, run, status, what it showed), not a chat message. It runs as a run with no chat message attached (the automation-run shape), scoped to the session thread, as the speaker, with normal approvals. |
+| Lor's window | Mounted only while a request is thinking, working, or showing a result; it animates in and out of the screen-share slot. Shared state for everyone in the call; anyone can clear it or step through the session's earlier results. Content is a typed union from day one: `cards` (Linear issues, GitHub PRs), `answer`, and a reserved `liveView`. A future Lor browser joins the LiveKit room as its own participant and publishes a video track into this slot; non-UUID identities are already ignored by presence and sync. |
 | Live-only visibility | While a session is live, its thread room, thread reads, search, Lor retrieval, thread activity, and notification previews exclude everyone not connected to the call. Once it ends, normal channel access applies. |
 | Sidebar presence | Push-invalidated snapshot, the sidebar Lor activity pattern (`reference/sidebar-realtime-activity-plan.md`): an invalidation event to the workspace room, then an auth-filtered fetch. Connected people only. |
 | Transcription | Always on. One silent transcriber job per room with one Deepgram Nova-3 stream per human microphone through LiveKit Inference. Final segments persist through the API as they arrive. No Egress; LiveKit agent observability audio recording off. |
@@ -212,10 +214,14 @@ Realtime, emitted from the API with the existing emitter
 ### [ ] V3 — Session chat
 
 - The session page shows the chat, reusing the thread list and composer from
-  `apps/web/src/components/sidebar/right-panel/thread-panel.tsx`: beside the
-  stage during a call, from the call bar through the right panel, and from the
-  history for past sessions. `message-item.tsx` renders the root message
-  wherever it appears.
+  `apps/web/src/components/sidebar/right-panel/thread-panel.tsx`: in a
+  collapsible panel beside the stage during a call (closed by default, with an
+  unread badge; the panel gets a Lor tab in V5), from the call bar through the
+  right panel, and from the history for past sessions. Same look as chat
+  elsewhere. `message-item.tsx` renders the root message wherever it appears.
+- Human-only: Lor mention routing (`apps/realtime/src/services/lor-routing.ts`)
+  ignores messages in threads whose root is a `voice_session` message, and the
+  composer's mention list leaves Lor out there.
 - Voice channels reject top-level messages other than session root messages,
   in both the API and the realtime send path.
 - Live-only enforcement:
@@ -237,28 +243,10 @@ Realtime, emitted from the API with the existing emitter
     (web `threadId` + `threadMessageId`; mobile push `threadRootId` +
     `messageId`).
 - History rows show unread replies and mentions from `thread_read_state`.
-- `@Lor` in the session chat works like any thread; runs scope by
-  `threadRootId`.
 
 ---
 
-### [ ] V4 — iPhone app
-
-- Voice channel screen (history, live session, Join or "Transfer here") from
-  `apps/mobile/src/app/channel/[channelId]/index.tsx` for voice channels.
-- Call screen: camera grid, share viewer with landscape and full screen (the app
-  is portrait-only in `app.json`), mute, camera, and leave; no share button.
-- A persistent call pill across the navigation stack.
-- Background audio and interruptions; CallKit per the V0 decision.
-- Session chat through the thread screen
-  (`apps/mobile/src/app/channel/[channelId]/thread/[threadRootId].tsx`).
-- Participant rows in `apps/mobile/src/components/channel-list.tsx`.
-- Push deep links into sessions (`apps/mobile/src/lib/push-target.ts`).
-- Update `reference/mobile-parity-todo.md`.
-
----
-
-### [ ] V5 — Transcription
+### [ ] V4 — Transcription
 
 - Language gate: TypeScript (`@livekit/agents`) if the pinned Node SDK handles
   several participant streams cleanly; otherwise a small Python service based
@@ -281,10 +269,59 @@ Realtime, emitted from the API with the existing emitter
   finalize once.
 - Turn off LiveKit agent observability audio recording; no Egress.
 - Record STT minutes per call to compare with the research cost model.
+- Segments are the input V5 listens to for "Lor, …", so ingestion latency
+  matters: persist and publish final segments as they arrive, not in batches.
 
 ---
 
-### [ ] V6 — Memory and Q&A
+### [ ] V5 — Lor in the call
+
+Design: the spec's "Lor in the call" section.
+
+- Address detection on final transcript segments: a cheap text match for
+  direct address ("Lor, …", "Hey Lor, …") at the start of an utterance, then a
+  fast model check that it's a request to Lor, not discussion about Lor. Log
+  every trigger and every rejection so false triggers can be tuned.
+- Schema: a request record in `voice.ts` (session, requester participant and
+  user, heard text, agent run, status, stage payload, timestamps).
+  **db:push owed.**
+- Runs: a run with no chat message attached (the automation-run shape; see
+  `reference/automation-primitives.md`), scoped to the session thread, as the
+  speaker, with the full toolset and approval policies. Context: the recent
+  transcript, the session chat as passive background, and the request text.
+- Output: tools return typed results; the stage payload is the typed union
+  (`cards` | `answer` | reserved `liveView`). Cards: Linear issues and GitHub
+  pull requests first, with actions routed through the normal tools and
+  approvals.
+- Realtime: request and stage events to the session's thread room only
+  (live-only rule), so late joiners and every device see the same window.
+- Web: Lor's window in the screen-share slot, mounted only while a request is
+  active or its result is showing: enter animation, thinking state with "Lor
+  heard: …" and Cancel, result, exit animation. Shared clear and step-back
+  ("2 of 3"). A Lor tab beside Chat lists the session's requests, with
+  "Show on stage".
+- Past sessions: Chat, Lor, and Transcript tabs.
+
+---
+
+### [ ] V6 — iPhone app
+
+- Voice channel screen (history, live session, Join or "Transfer here") from
+  `apps/mobile/src/app/channel/[channelId]/index.tsx` for voice channels.
+- Call screen: camera grid, share viewer with landscape and full screen (the app
+  is portrait-only in `app.json`), mute, camera, and leave; no share button.
+  Lor's window in the share slot, and Chat and Lor tabs as a sheet.
+- A persistent call pill across the navigation stack.
+- Background audio and interruptions. No CallKit (V0 decision).
+- Session chat through the thread screen
+  (`apps/mobile/src/app/channel/[channelId]/thread/[threadRootId].tsx`).
+- Participant rows in `apps/mobile/src/components/channel-list.tsx`.
+- Push deep links into sessions (`apps/mobile/src/lib/push-target.ts`).
+- Update `reference/mobile-parity-todo.md`.
+
+---
+
+### [ ] V7 — Memory and Q&A
 
 - A summary per ended session (extend `packages/lor/src/meeting-insights.ts`)
   with decisions, open questions, and follow-ups; people can correct it.
@@ -297,9 +334,11 @@ Realtime, emitted from the API with the existing emitter
 
 ---
 
-### Later — spoken Lor
+### Later
 
-See Phase 2 of the spec.
+- Lor browser and computer use, shown live in Lor's window (`liveView`).
+- Spoken answers.
+- A generic component kit for results no purpose-built card fits.
 
 ## Decisions & deviations log
 
@@ -395,3 +434,13 @@ See Phase 2 of the spec.
   (removes from the LiveKit room, then marks left), tile menu "Remove from
   call" for people with the permission. V2 code is complete; live QA owed
   on all of it.
+- 2026-09-30 — Product direction change (Jacob): the goal is much better than a
+  huddle, not a copy. Lor joins the call by being addressed by voice (ambient,
+  no push-to-talk) and shows results in Lor's window, which appears in the
+  screen-share slot only while it's working or showing something. Lor doesn't
+  speak for now. First cards: Linear issues and GitHub pull requests. The
+  session chat stays human-only with the normal look; Lor reads it passively
+  and never takes commands from it. A Lor tab lists every request. Browser use
+  is prepared for (a reserved `liveView` type, arriving as a LiveKit video
+  track), not built. Phases reordered: V4 transcription (was V5), new V5 Lor in
+  the call, V6 iPhone app (was V4), V7 memory and Q&A (was V6).
