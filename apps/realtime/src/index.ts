@@ -670,7 +670,6 @@ io.on("connection", (socket) => {
         }
         void sendMessagePushNotifications({
           fanout,
-          threadRootId: messageWithMentions.threadRootId,
           redis: redisPresenceClient,
         }).catch((err) =>
           logger.error({ err }, "Push notification send failed")

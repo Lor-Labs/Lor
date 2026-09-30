@@ -113,11 +113,14 @@ export async function sendMessagePushNotifications(input: {
       userId: string
       payload: { type: "direct_mention" | "everyone_mention" }
     }>
+    callMentionPushes: Array<{ userId: string; payload: UnreadNotification }>
   }
-  threadRootId?: string | null
   redis: PresenceRedisClient
 }) {
-  const recipients = input.fanout.unreadNotifications
+  const recipients = [
+    ...input.fanout.unreadNotifications,
+    ...input.fanout.callMentionPushes,
+  ]
   if (recipients.length === 0) return
 
   const membership = await input.redis.smIsMember(
@@ -245,7 +248,7 @@ export async function sendMessagePushNotifications(input: {
           communication: true,
           channelId: payload.channelId,
           workspaceId: payload.workspaceId,
-          threadRootId: input.threadRootId ?? null,
+          threadRootId: payload.threadRootId,
           messageId: payload.messageId,
           senderId: payload.authorUserId,
           senderName: payload.authorName,

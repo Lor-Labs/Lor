@@ -52,6 +52,31 @@ export async function canSeeSessionChat(userId: string, threadRootId: string) {
   return !row || row.participantId !== null
 }
 
+// People connected to the call when the thread is a live session chat, else
+// null. Message fanout uses it to keep live chat previews inside the call.
+export async function liveSessionChatMembers(
+  threadRootId: string
+): Promise<Set<string> | null> {
+  const rows = await db
+    .select({ userId: voiceSessionParticipant.userId })
+    .from(voiceSession)
+    .leftJoin(
+      voiceSessionParticipant,
+      and(
+        eq(voiceSessionParticipant.sessionId, voiceSession.id),
+        isNotNull(voiceSessionParticipant.connectedAt)
+      )
+    )
+    .where(
+      and(
+        eq(voiceSession.threadRootId, threadRootId),
+        isNull(voiceSession.endedAt)
+      )
+    )
+  if (rows.length === 0) return null
+  return new Set(rows.flatMap((row) => (row.userId ? [row.userId] : [])))
+}
+
 // Lor retrieval: a live session's chat stays out of reach until the call ends.
 export function outsideLiveSessionChatFilter(threadRootId: AnyColumn | SQL) {
   return notExists(

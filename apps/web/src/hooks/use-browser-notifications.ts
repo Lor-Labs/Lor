@@ -77,6 +77,16 @@ export function useBrowserNotifications() {
         return
       }
 
+      if (payload.callMention) {
+        const { authorName, channelName } = payload.callMention
+        showNotification(
+          `${authorName} mentioned you in a call`,
+          channelName ? `In #${channelName}` : "Join from the voice channel",
+          { tag: `mention-${payload.messageId}` }
+        )
+        return
+      }
+
       const mentionType =
         payload.type === "everyone_mention" ? "@everyone" : "a mention"
 

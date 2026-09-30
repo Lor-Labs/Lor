@@ -87,14 +87,23 @@ async function loadParticipants(sessionIds: string[], workspaceId: string) {
   return bySession
 }
 
-function toSummary(row: SessionRow, participants: VoiceParticipantSummary[]) {
+function toSummary(
+  row: SessionRow,
+  participants: VoiceParticipantSummary[],
+  viewerId: string
+) {
+  const live = row.endedAt === null
+  // Live-only rule: a live session's chat activity shows only to the call.
+  const inCall = participants.some(
+    (participant) => participant.userId === viewerId && participant.connected
+  )
   return {
     id: row.id,
     threadRootId: row.threadRootId,
     startedAt: row.startedAt.toISOString(),
     endedAt: row.endedAt?.toISOString() ?? null,
-    live: row.endedAt === null,
-    replyCount: row.replyCount,
+    live,
+    replyCount: live && !inCall ? 0 : row.replyCount,
     participants,
   }
 }
@@ -102,6 +111,7 @@ function toSummary(row: SessionRow, participants: VoiceParticipantSummary[]) {
 export async function listSessionHistory(input: {
   channelId: string
   workspaceId: string
+  viewerId: string
   before?: Date
   limit: number
 }) {
@@ -130,13 +140,15 @@ export async function listSessionHistory(input: {
   )
   const last = page.at(-1)
   return {
-    sessions: page.map((row) => toSummary(row, participants.get(row.id) ?? [])),
+    sessions: page.map((row) =>
+      toSummary(row, participants.get(row.id) ?? [], input.viewerId)
+    ),
     nextBefore:
       rows.length > input.limit && last ? last.startedAt.toISOString() : null,
   }
 }
 
-export async function getSessionSummary(sessionId: string) {
+export async function getSessionSummary(sessionId: string, viewerId: string) {
   const [row] = await db
     .select({
       ...sessionColumns,
@@ -151,7 +163,7 @@ export async function getSessionSummary(sessionId: string) {
   const participants = await loadParticipants([row.id], row.workspaceId)
   return {
     channelId: row.channelId,
-    session: toSummary(row, participants.get(row.id) ?? []),
+    session: toSummary(row, participants.get(row.id) ?? [], viewerId),
   }
 }
 

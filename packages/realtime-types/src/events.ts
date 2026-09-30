@@ -385,6 +385,9 @@ export type MentionNotification = {
   isLorThread: boolean
   isSubscribedToThread: boolean
   createdAt: string
+  // Set when the mention is in a live call's chat the person isn't in: they
+  // get who and where, never the message, and threadRootId is null.
+  callMention?: { authorName: string; channelName: string | null }
 }
 
 // Sent to the user room when the user reads a thread on any device (opened

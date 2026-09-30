@@ -13,11 +13,21 @@ import {
   sql,
 } from "@repo/db"
 import { listAccessibleChannelIds } from "@repo/db/queries/channel-access"
+import { visibleToSessionChatFilter } from "@repo/db/queries/session-chat-access"
 import type {
   ChannelReadState,
   NotificationBootstrap,
 } from "@repo/realtime-types"
 import { assertUserCanAccessChannel } from "@/services/channel-access"
+
+// Session roots post silently, and a live session's chat counts only for
+// people in the call.
+function countsAsUnread(userId: string) {
+  return and(
+    ne(schema.message.type, "voice_session"),
+    visibleToSessionChatFilter(userId, schema.message.threadRootId)
+  )
+}
 
 type MarkChannelReadInput = {
   userId: string
@@ -151,7 +161,8 @@ export async function markChannelRead(
         and(
           eq(schema.message.channelId, input.channelId),
           gt(schema.message.createdAt, persistedState.lastReadAt),
-          ne(schema.message.authorId, input.userId)
+          ne(schema.message.authorId, input.userId),
+          countsAsUnread(input.userId)
         )
       )
       .then((rows) => rows[0]),
@@ -268,7 +279,8 @@ export async function getUnreadStatesForUser(
             and(
               eq(schema.message.channelId, channelId),
               gt(schema.message.createdAt, lastReadAt),
-              ne(schema.message.authorId, userId)
+              ne(schema.message.authorId, userId),
+              countsAsUnread(userId)
             )
           )
           .then((rows) => rows[0]),

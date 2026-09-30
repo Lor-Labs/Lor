@@ -95,6 +95,7 @@ export const listVoiceSessions: AppRouteHandler<
   const history = await listSessionHistory({
     channelId,
     workspaceId,
+    viewerId: c.var.user.id,
     before: before ? new Date(before) : undefined,
     limit,
   })
@@ -107,7 +108,7 @@ export const getVoiceSession: AppRouteHandler<GetVoiceSessionRoute> = async (
   c
 ) => {
   const { sessionId } = c.req.valid("param")
-  const summary = await getSessionSummary(sessionId)
+  const summary = await getSessionSummary(sessionId, c.var.user.id)
   const access = summary
     ? await resolveChannelAccess(c.var.user.id, summary.channelId)
     : null
