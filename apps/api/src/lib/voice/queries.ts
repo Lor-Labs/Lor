@@ -15,6 +15,8 @@ import {
 
 const {
   message,
+  messageMention,
+  threadReadState,
   user,
   voiceSession,
   voiceSessionParticipant,
@@ -35,6 +37,8 @@ type SessionRow = {
   startedAt: Date
   endedAt: Date | null
   replyCount: number
+  unreadCount: number
+  mentionCount: number
 }
 
 const replyCount = sql<number>`(select count(*) from ${message} where ${message.threadRootId} = ${voiceSession.threadRootId})::int`
@@ -46,6 +50,41 @@ const sessionColumns = {
   startedAt: voiceSession.startedAt,
   endedAt: voiceSession.endedAt,
   replyCount,
+}
+
+// History badges. The read cursor is the later of the viewer's thread read
+// state and their own last reply. New replies count only in chats the viewer
+// followed (read, posted in, or was in the call); mentions always count.
+function viewerColumns(viewerId: string) {
+  const readAt = sql`greatest(
+    (select ${threadReadState.lastReadAt} from ${threadReadState}
+      where ${threadReadState.threadRootId} = ${voiceSession.threadRootId}
+        and ${threadReadState.userId} = ${viewerId}),
+    (select max(${message.createdAt}) from ${message}
+      where ${message.threadRootId} = ${voiceSession.threadRootId}
+        and ${message.authorId} = ${viewerId})
+  )`
+  const since = sql`coalesce(${readAt}, 'epoch'::timestamp)`
+  const followed = sql`(${readAt} is not null or exists (
+    select 1 from ${voiceSessionParticipant}
+      where ${voiceSessionParticipant.sessionId} = ${voiceSession.id}
+        and ${voiceSessionParticipant.userId} = ${viewerId}))`
+  return {
+    unreadCount: sql<number>`(case when ${followed} then (
+      select count(*) from ${message}
+        where ${message.threadRootId} = ${voiceSession.threadRootId}
+          and ${message.authorId} <> ${viewerId}
+          and ${message.createdAt} > ${since}
+    ) else 0 end)::int`,
+    mentionCount: sql<number>`(
+      select count(*) from ${messageMention}
+        join ${message} on ${message.id} = ${messageMention.messageId}
+        where ${message.threadRootId} = ${voiceSession.threadRootId}
+          and ${messageMention.mentionedUserId} = ${viewerId}
+          and ${messageMention.mentionType} = 'direct'
+          and ${message.createdAt} > ${since}
+    )::int`,
+  }
 }
 
 async function loadParticipants(sessionIds: string[], workspaceId: string) {
@@ -97,13 +136,16 @@ function toSummary(
   const inCall = participants.some(
     (participant) => participant.userId === viewerId && participant.connected
   )
+  const hidden = live && !inCall
   return {
     id: row.id,
     threadRootId: row.threadRootId,
     startedAt: row.startedAt.toISOString(),
     endedAt: row.endedAt?.toISOString() ?? null,
     live,
-    replyCount: live && !inCall ? 0 : row.replyCount,
+    replyCount: hidden ? 0 : row.replyCount,
+    unreadCount: hidden ? 0 : row.unreadCount,
+    mentionCount: hidden ? 0 : row.mentionCount,
     participants,
   }
 }
@@ -116,7 +158,7 @@ export async function listSessionHistory(input: {
   limit: number
 }) {
   const rows = await db
-    .select(sessionColumns)
+    .select({ ...sessionColumns, ...viewerColumns(input.viewerId) })
     .from(voiceSession)
     .where(
       and(
@@ -152,6 +194,7 @@ export async function getSessionSummary(sessionId: string, viewerId: string) {
   const [row] = await db
     .select({
       ...sessionColumns,
+      ...viewerColumns(viewerId),
       channelId: voiceSession.channelId,
       workspaceId: voiceSession.workspaceId,
     })

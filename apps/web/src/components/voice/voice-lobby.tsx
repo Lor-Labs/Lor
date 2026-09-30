@@ -1,5 +1,6 @@
 import { AvatarGroup, AvatarGroupCount } from "@repo/ui/components/avatar"
 import { Button } from "@repo/ui/components/button"
+import { MentionBadge } from "@repo/ui/components/mention-badge"
 import { Skeleton } from "@repo/ui/components/skeleton"
 import { cn } from "@repo/ui/lib/utils"
 import { differenceInMinutes, formatTime, getDayLabel } from "@repo/utils/date"
@@ -105,17 +106,35 @@ function SessionRow({
       ? plural(session.replyCount, "message", "messages")
       : null,
   ].filter(Boolean)
+  // The open chat marks itself read; don't flash a badge on it meanwhile.
+  const mentions = active ? 0 : session.mentionCount
+  const unread = active ? 0 : session.unreadCount
   const body = (
     <>
       <ParticipantStack participants={session.participants} />
       <div className="min-w-0 flex-1">
-        <div className="truncate text-sm font-medium">
+        <div
+          className={cn(
+            "truncate text-sm",
+            unread > 0 || mentions > 0 ? "font-semibold" : "font-medium"
+          )}
+        >
           {getDayLabel(session.startedAt)} · {formatTime(session.startedAt)}
         </div>
         <div className="truncate text-xs text-muted-foreground">
           {details.join(" · ")}
         </div>
       </div>
+      {mentions > 0 ? (
+        <MentionBadge count={mentions} />
+      ) : (
+        unread > 0 && (
+          <span className="shrink-0 rounded-md bg-primary/15 px-1.5 font-semibold text-[11px] text-primary tabular-nums">
+            {unread > 99 ? "99+" : unread}
+            <span className="sr-only"> unread messages</span>
+          </span>
+        )
+      )}
     </>
   )
 

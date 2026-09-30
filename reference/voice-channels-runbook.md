@@ -482,3 +482,23 @@ Design: the spec's "Lor in the call" section.
   Per-request gateway ZDR is plan-gated (Hobby returns 403), so it waits for
   Pro; on Pro, recheck the catalog, which flags jev `zdr=none` while Vercel's
   ZDR table lists both providers.
+- 2026-09-30 — V3 code complete on web in five chunks; live QA with the
+  webhook tunnel owed (the chat only opens once LiveKit's webhook marks the
+  person connected). As built:
+  - The live-only rule lives in `packages/db/src/queries/session-chat-access.ts`
+    and is applied to sends, `thread:join`, channel-room summaries, thread
+    reads, message links, the activity dock, search, unread counts, message
+    fanout, and Lor retrieval.
+  - Joining or leaving a call moves the person's sockets into or out of the
+    live chat's thread room (`sessionChatChanged` on the voice notifier), so
+    there's no race with the webhook.
+  - A mention from a live chat reaches someone outside the call as "mentioned
+    you in a call" with no preview; its push opens the voice channel.
+  - The call chat is the existing right panel (thread view titled "Call
+    chat"), opened from the call controls, the sidebar call bar, and history
+    rows. A live chat never goes into `?threadId`; past chats do.
+  - Composer @ suggestions everywhere now follow the channel audience
+    (`GET /workspaces/{slug}/channels/{channelId}/audience`); voice chats
+    offer no bots.
+  - Workspace search now covers voice channels. History rows show new-reply
+    and mention counts from `thread_read_state`.

@@ -91,6 +91,9 @@ const voiceSessionSummarySchema = z.object({
   endedAt: z.string().datetime().nullable(),
   live: z.boolean(),
   replyCount: z.number().int(),
+  // Chat replies from others and direct mentions since the viewer last read.
+  unreadCount: z.number().int(),
+  mentionCount: z.number().int(),
   participants: z.array(voiceParticipantSchema),
 })
 
