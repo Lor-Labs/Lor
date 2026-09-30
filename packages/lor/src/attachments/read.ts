@@ -1,4 +1,5 @@
 import { and, asc, db, eq, gte, lte, schema, sql } from "@repo/db"
+import { outsideLiveSessionChatFilter } from "@repo/db/queries/session-chat-access"
 import { privateAudienceFilter } from "../retrieval"
 import { documentKind, pieceLabel } from "./kinds"
 
@@ -18,7 +19,8 @@ export async function readAttachmentPieces(
     eq(schema.attachmentChunk.workspaceId, workspaceId),
     eq(schema.attachmentChunk.url, url),
     eq(schema.message.excludedFromMemory, false),
-    privateAudienceFilter(privateContainerChannelId)
+    privateAudienceFilter(privateContainerChannelId),
+    outsideLiveSessionChatFilter(schema.message.threadRootId)
   )
   const [summary] = await db
     .select({

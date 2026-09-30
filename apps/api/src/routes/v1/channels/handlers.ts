@@ -1,5 +1,6 @@
 import { db, schema } from "@repo/db"
 import { listAccessibleChannelIds } from "@repo/db/queries/channel-access"
+import { canSeeSessionChat } from "@repo/db/queries/session-chat-access"
 import type { IntegrationProvider } from "@repo/db/schema"
 import {
   agentProfile,
@@ -990,13 +991,22 @@ export const listThreadReplies: AppRouteHandler<
   // Verify the root message exists, belongs to this channel, and is itself a
   // channel-level message (not a thread reply — threads are flat).
   const root = await db
-    .select({ id: message.id, threadRootId: message.threadRootId })
+    .select({
+      id: message.id,
+      threadRootId: message.threadRootId,
+      type: message.type,
+    })
     .from(message)
     .where(and(eq(message.id, messageId), eq(message.channelId, channelId)))
     .limit(1)
     .then((rows) => rows[0])
 
-  if (!root || root.threadRootId !== null) {
+  if (
+    !root ||
+    root.threadRootId !== null ||
+    (root.type === "voice_session" &&
+      !(await canSeeSessionChat(currentUser.id, messageId)))
+  ) {
     return c.json(
       { success: false, message: "Thread root not found" },
       HttpStatusCodes.NOT_FOUND
@@ -1115,7 +1125,12 @@ export const getMessageLocation: AppRouteHandler<
 
   // Same 404 for "doesn't exist" and "not allowed" — message ids must not
   // probe private channels.
-  if (!row || !(await userCanAccessChannel(row.channelId, currentUser.id))) {
+  if (
+    !row ||
+    !(await userCanAccessChannel(row.channelId, currentUser.id)) ||
+    (row.threadRootId &&
+      !(await canSeeSessionChat(currentUser.id, row.threadRootId)))
+  ) {
     return c.json(
       { success: false, message: "Message not found" },
       HttpStatusCodes.NOT_FOUND

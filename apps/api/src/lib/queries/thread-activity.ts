@@ -1,4 +1,5 @@
 import { db } from "@repo/db"
+import { visibleToSessionChatFilter } from "@repo/db/queries/session-chat-access"
 import type { Attachment } from "@repo/db/schema"
 import { message, messageMention, threadReadState, user } from "@repo/db/schema"
 import {
@@ -104,7 +105,8 @@ export async function fetchChannelThreadActivity({
           eq(message.channelId, channelId),
           isNotNull(message.threadRootId),
           ne(message.authorId, currentUserId),
-          gt(message.createdAt, windowStart)
+          gt(message.createdAt, windowStart),
+          visibleToSessionChatFilter(currentUserId, message.threadRootId)
         )
       )
       .groupBy(message.threadRootId)

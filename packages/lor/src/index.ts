@@ -15,6 +15,7 @@ import {
   type LorRunScope,
   resolveLorRunScope,
 } from "@repo/db/queries/channel-access"
+import { outsideLiveSessionChatFilter } from "@repo/db/queries/session-chat-access"
 import {
   type AgentRunApprovalResume,
   type AgentRunContext,
@@ -492,6 +493,7 @@ async function searchMessages(
         // Audience boundary: workspace-audience containers plus the run's
         // own private container.
         privateAudienceFilter(privateContainerChannelId),
+        outsideLiveSessionChatFilter(schema.message.threadRootId),
         sql`${tsv} @@ ${tsq}`
       )
     )
@@ -525,7 +527,10 @@ async function readThread(
       and(
         eq(schema.message.id, messageId),
         eq(schema.channel.workspaceId, workspaceId),
-        privateAudienceFilter(privateContainerChannelId)
+        privateAudienceFilter(privateContainerChannelId),
+        outsideLiveSessionChatFilter(
+          sql`coalesce(${schema.message.threadRootId}, ${schema.message.id})`
+        )
       )
     )
     .limit(1)
@@ -622,6 +627,7 @@ async function findWorkspaceAttachment(
       and(
         eq(schema.channel.workspaceId, workspaceId),
         privateAudienceFilter(privateContainerChannelId),
+        outsideLiveSessionChatFilter(schema.message.threadRootId),
         sql`${schema.message.attachments} @> ${JSON.stringify([{ url }])}::jsonb`
       )
     )

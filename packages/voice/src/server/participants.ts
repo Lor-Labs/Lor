@@ -11,7 +11,11 @@ import {
   schema,
 } from "@repo/db"
 import type { VoiceCallState } from "@repo/realtime-types/events"
-import { notifyVoiceCall, notifyVoicePresence } from "./notify"
+import {
+  notifySessionChat,
+  notifyVoiceCall,
+  notifyVoicePresence,
+} from "./notify"
 
 const { channel, voiceSession, voiceSessionParticipant, workspace } = schema
 
@@ -86,13 +90,25 @@ export async function getCurrentCall(
 async function announce(sessionId: string, userIds: string[]) {
   if (userIds.length === 0) return
   const [session] = await db
-    .select({ workspaceId: voiceSession.workspaceId })
+    .select({
+      workspaceId: voiceSession.workspaceId,
+      threadRootId: voiceSession.threadRootId,
+      endedAt: voiceSession.endedAt,
+    })
     .from(voiceSession)
     .where(eq(voiceSession.id, sessionId))
     .limit(1)
   if (session) notifyVoicePresence(session.workspaceId)
   for (const userId of userIds) {
-    notifyVoiceCall(userId, await getCurrentCall(userId))
+    const call = await getCurrentCall(userId)
+    notifyVoiceCall(userId, call)
+    if (session?.threadRootId && !session.endedAt) {
+      notifySessionChat(
+        userId,
+        session.threadRootId,
+        call?.sessionId === sessionId
+      )
+    }
   }
 }
 

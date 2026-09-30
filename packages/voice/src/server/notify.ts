@@ -3,6 +3,13 @@ import type { VoiceCallState } from "@repo/realtime-types/events"
 export type VoiceNotifier = {
   presenceChanged: (workspaceId: string) => void
   callChanged: (userId: string, call: VoiceCallState | null) => void
+  // Moves the person's sockets into or out of a live session chat's thread
+  // room as they join or leave the call.
+  sessionChatChanged: (
+    userId: string,
+    threadRootId: string,
+    inCall: boolean
+  ) => void
 }
 
 // Hosts (API, worker) install their Socket.IO emitter at startup so this
@@ -26,6 +33,18 @@ export function notifyVoicePresence(workspaceId: string) {
 export function notifyVoiceCall(userId: string, call: VoiceCallState | null) {
   try {
     notifier?.callChanged(userId, call)
+  } catch {
+    // swallow: delivery is best-effort by design
+  }
+}
+
+export function notifySessionChat(
+  userId: string,
+  threadRootId: string,
+  inCall: boolean
+) {
+  try {
+    notifier?.sessionChatChanged(userId, threadRootId, inCall)
   } catch {
     // swallow: delivery is best-effort by design
   }

@@ -7,6 +7,7 @@ import {
   isUniqueViolation,
   schema,
 } from "@repo/db"
+import { canSeeSessionChat } from "@repo/db/queries/session-chat-access"
 import {
   buildReactionNotification,
   type PresenceRedisClient,
@@ -302,6 +303,20 @@ export async function createMessage(input: CreateMessageInput) {
   let hasReply = !!input.payload.referencedMessageId
   const threadRootId: string | null = input.payload.threadRootId ?? null
 
+  // Voice channels hold only session roots; people write in a session's chat,
+  // and a live session's chat only while they're in the call.
+  const isVoice = channelRecord.type === "voice"
+  if (isVoice && !threadRootId) {
+    throw new Error("Voice channels only take messages in a call's chat")
+  }
+  if (
+    isVoice &&
+    threadRootId &&
+    !(await canSeeSessionChat(input.userId, threadRootId))
+  ) {
+    throw new Error("Invalid thread root")
+  }
+
   const runInsertTransaction = () =>
     db.transaction(async (tx) => {
       // Verify the referenced message exists in the same channel AND in the
@@ -345,6 +360,7 @@ export async function createMessage(input: CreateMessageInput) {
           .select({
             id: schema.message.id,
             threadRootId: schema.message.threadRootId,
+            type: schema.message.type,
           })
           .from(schema.message)
           .where(
@@ -356,7 +372,11 @@ export async function createMessage(input: CreateMessageInput) {
           .limit(1)
           .then((rows) => rows[0])
 
-        if (!root || root.threadRootId !== null) {
+        if (
+          !root ||
+          root.threadRootId !== null ||
+          (isVoice && root.type !== "voice_session")
+        ) {
           throw new Error("Invalid thread root")
         }
       }

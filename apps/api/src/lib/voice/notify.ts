@@ -1,4 +1,4 @@
-import { userRoom, workspaceRoom } from "@repo/realtime-types/rooms"
+import { threadRoom, userRoom, workspaceRoom } from "@repo/realtime-types/rooms"
 import { setVoiceNotifier } from "@repo/voice/server"
 import { getEmitter } from "@/lib/bot-messages"
 import { logger } from "@/lib/logger"
@@ -23,5 +23,11 @@ export function installVoiceNotifier() {
       publish((io) =>
         io.to(userRoom(userId)).emit("voice:call:updated", { call })
       ),
+    sessionChatChanged: (userId, threadRootId, inCall) =>
+      publish((io) => {
+        const sockets = io.in(userRoom(userId))
+        if (inCall) sockets.socketsJoin(threadRoom(threadRootId))
+        else sockets.socketsLeave(threadRoom(threadRootId))
+      }),
   })
 }

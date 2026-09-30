@@ -1,4 +1,5 @@
 import { and, cosineDistance, db, eq, isNotNull, schema, sql } from "@repo/db"
+import { outsideLiveSessionChatFilter } from "@repo/db/queries/session-chat-access"
 import { embedAttachmentQuery } from "../embeddings"
 import { orTsQuery, privateAudienceFilter, userDisplayName } from "../retrieval"
 import { pieceLabel } from "./kinds"
@@ -55,7 +56,8 @@ export async function searchAttachments(
   const scope = and(
     eq(schema.attachmentChunk.workspaceId, workspaceId),
     eq(schema.message.excludedFromMemory, false),
-    privateAudienceFilter(privateContainerChannelId)
+    privateAudienceFilter(privateContainerChannelId),
+    outsideLiveSessionChatFilter(schema.message.threadRootId)
   )
   const tsq = orTsQuery(query)
 
