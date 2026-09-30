@@ -178,6 +178,11 @@ export const listThreadActivityResponseSchema = z.object({
   data: z.array(threadActivityItemSchema),
 })
 
+export const channelAudienceResponseSchema = z.object({
+  audience: z.enum(["workspace", "members"]),
+  userIds: z.array(z.string()),
+})
+
 export const threadReadParamsSchema = channelParamsSchema.extend({
   threadRootId: z
     .string()

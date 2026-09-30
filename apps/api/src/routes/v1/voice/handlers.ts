@@ -207,7 +207,13 @@ export const joinVoiceChannel: AppRouteHandler<JoinVoiceChannelRoute> = async (
     name: currentUser.name,
   })
   return c.json(
-    { url: livekit.url, token, sessionId: session.id, participantId },
+    {
+      url: livekit.url,
+      token,
+      sessionId: session.id,
+      participantId,
+      threadRootId: session.threadRootId,
+    },
     HttpStatusCodes.OK
   )
 }

@@ -3,7 +3,7 @@ import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
 import { toast } from "@repo/ui/components/toast"
 import { useIsMobile } from "@repo/ui/hooks/use-mobile"
-import { queryOptions, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
 import { AnimatePresence } from "framer-motion"
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react"
@@ -32,6 +32,7 @@ import { useChannelPlans } from "@/hooks/use-channel-plans"
 import { useFileUpload } from "@/hooks/use-file-upload"
 import { useLorRunReplay } from "@/hooks/use-lor-stream"
 import { useMarkThreadRead } from "@/hooks/use-mark-thread-read"
+import { useMentionCandidates } from "@/hooks/use-mention-candidates"
 import { useMessageDeletion } from "@/hooks/use-message-deletion"
 import { useMessageEditing } from "@/hooks/use-message-editing"
 import { useMessagePinning } from "@/hooks/use-message-pinning"
@@ -47,7 +48,7 @@ import { useThreadActivity } from "@/hooks/use-thread-activity"
 import { useTypingIndicator } from "@/hooks/use-typing-indicator"
 import { apiClient } from "@/lib/api-client"
 import type { Message } from "@/lib/api-types"
-import { broadcastMentionCandidates } from "@/lib/broadcast-mentions"
+import { channelQueryOptions } from "@/lib/channel-query"
 import { writeLastChannelId } from "@/lib/last-location"
 import { canPinMessages } from "@/lib/permissions"
 
@@ -84,21 +85,6 @@ export const Route = createFileRoute(
         : undefined,
   }),
 })
-
-function channelQueryOptions(workspaceSlug: string, channelId: string) {
-  return queryOptions({
-    queryKey: ["channel", workspaceSlug, channelId],
-    queryFn: async () => {
-      const res = await apiClient.v1.workspaces[":workspaceSlug"].channels[
-        ":channelId"
-      ].$get({
-        param: { workspaceSlug, channelId },
-      })
-      if (!res.ok) throw new Error("Failed to fetch channel")
-      return res.json()
-    },
-  })
-}
 
 // Text channels render immediately so messages load in parallel with the
 // channel fetch; voice channels swap in once the type is known.
@@ -550,18 +536,7 @@ function ChannelView() {
     noKeyboard: true,
   })
 
-  const mentionCandidates = useMemo(
-    () => [
-      ...broadcastMentionCandidates(data?.audience),
-      ...(workspaceMembersData?.members.map((member) => ({
-        id: member.userId,
-        label: member.name,
-        name: member.name,
-        image: member.image,
-      })) ?? []),
-    ],
-    [workspaceMembersData?.members, data?.audience]
-  )
+  const mentionCandidates = useMentionCandidates(workspaceSlug, channelId)
 
   if (isPending) {
     return <ChatSkeleton />

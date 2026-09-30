@@ -1,5 +1,8 @@
 import { db, schema } from "@repo/db"
-import { listAccessibleChannelIds } from "@repo/db/queries/channel-access"
+import {
+  listAccessibleChannelIds,
+  resolveChannelAudienceInfo,
+} from "@repo/db/queries/channel-access"
 import { canSeeSessionChat } from "@repo/db/queries/session-chat-access"
 import type { IntegrationProvider } from "@repo/db/schema"
 import {
@@ -45,6 +48,7 @@ import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
   CreateChannelRoute,
   DeleteChannelRoute,
+  GetChannelAudienceRoute,
   GetChannelReadPositionRoute,
   GetChannelRoute,
   GetMessageLocationRoute,
@@ -599,6 +603,40 @@ export const listChannelMessages: AppRouteHandler<
       before,
       after,
     }),
+    HttpStatusCodes.OK
+  )
+}
+
+// The same audience the message fanout notifies, so a composer never offers
+// someone a mention can't reach.
+export const getChannelAudience: AppRouteHandler<
+  GetChannelAudienceRoute
+> = async (c) => {
+  const workspace = c.var.workspace
+  const currentUser = c.var.user
+  const { channelId } = c.req.valid("param")
+
+  const ch = await db
+    .select({ id: channel.id })
+    .from(channel)
+    .where(
+      and(eq(channel.id, channelId), eq(channel.workspaceId, workspace.id))
+    )
+    .limit(1)
+    .then((rows) => rows[0])
+  const info =
+    ch && (await userCanAccessChannel(channelId, currentUser.id))
+      ? await resolveChannelAudienceInfo(channelId)
+      : null
+  if (!info || (info.audience !== "workspace" && info.audience !== "members")) {
+    return c.json(
+      { success: false, message: "Channel not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+
+  return c.json(
+    { audience: info.audience, userIds: info.userIds },
     HttpStatusCodes.OK
   )
 }

@@ -1,4 +1,6 @@
 import { RoomAudioRenderer, RoomContext } from "@livekit/components-react"
+import { authClient } from "@repo/auth/client"
+import type { RealtimeMessage } from "@repo/realtime-types"
 import type { VoiceCallState } from "@repo/realtime-types/events"
 import {
   AlertDialog,
@@ -31,18 +33,21 @@ import {
   useState,
 } from "react"
 import { useSocket } from "@/context/socket-context"
+import { useRealtimeRoom } from "@/hooks/use-realtime-room"
 import { apiClient } from "@/lib/api-client"
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window
 
 export type ActiveVoiceCall = {
   sessionId: string
+  // The session chat's thread root.
+  threadRootId: string | null
   workspaceSlug: string
   channelId: string
   channelName: string
 }
 
-export type JoinTarget = Omit<ActiveVoiceCall, "sessionId">
+export type JoinTarget = Omit<ActiveVoiceCall, "sessionId" | "threadRootId">
 
 type VoiceCallContextValue = {
   // The call this device is connected to.
@@ -50,6 +55,9 @@ type VoiceCallContextValue = {
   // The call this user is connected to on another device ("Transfer here").
   remoteCall: VoiceCallState | null
   joining: boolean
+  // Call chat messages from others since the chat was last on screen.
+  chatUnread: number
+  clearChatUnread: () => void
   // Deafen mutes everyone else and the microphone; undeafen restores the
   // microphone to how it was.
   deafened: boolean
@@ -110,6 +118,27 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
   const remoteCall =
     serverCall && serverCall.sessionId !== call?.sessionId ? serverCall : null
 
+  // The server adds this user's sockets to the call chat room when LiveKit
+  // reports the join; this keeps the room across socket reconnects.
+  const threadRootId = call?.threadRootId ?? undefined
+  useRealtimeRoom(socket, "thread", threadRootId)
+  const { data: authSession } = authClient.useSession()
+  const userId = authSession?.user.id
+  const [chatUnread, setChatUnread] = useState(0)
+  useEffect(() => {
+    setChatUnread(0)
+    if (!socket || !threadRootId) return
+    const onMessageCreated = (message: RealtimeMessage) => {
+      if (message.threadRootId === threadRootId && message.author.id !== userId)
+        setChatUnread((count) => count + 1)
+    }
+    socket.on("message:created", onMessageCreated)
+    return () => {
+      socket.off("message:created", onMessageCreated)
+    }
+  }, [socket, threadRootId, userId])
+  const clearChatUnread = useCallback(() => setChatUnread(0), [])
+
   useEffect(() => {
     const handleDisconnected = (reason?: DisconnectReason) => {
       setCall(null)
@@ -142,9 +171,9 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
           const body = await res.json().catch(() => null)
           throw new Error(body?.message ?? "Could not join the call")
         }
-        const { url, token, sessionId } = await res.json()
+        const { url, token, sessionId, threadRootId } = await res.json()
         await room.connect(url, token)
-        setCall({ ...target, sessionId })
+        setCall({ ...target, sessionId, threadRootId })
         setDeafened(false)
         try {
           await room.localParticipant.setMicrophoneEnabled(true)
@@ -218,8 +247,28 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
   })
 
   const value = useMemo(
-    () => ({ call, remoteCall, joining, deafened, toggleDeafen, join, leave }),
-    [call, remoteCall, joining, deafened, toggleDeafen, join, leave]
+    () => ({
+      call,
+      remoteCall,
+      joining,
+      chatUnread,
+      clearChatUnread,
+      deafened,
+      toggleDeafen,
+      join,
+      leave,
+    }),
+    [
+      call,
+      remoteCall,
+      joining,
+      chatUnread,
+      clearChatUnread,
+      deafened,
+      toggleDeafen,
+      join,
+      leave,
+    ]
   )
 
   return (

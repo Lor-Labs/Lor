@@ -27,6 +27,7 @@ export const joinVoiceChannelResponseSchema = z.object({
   token: z.string(),
   sessionId: z.string().uuid(),
   participantId: z.string().uuid(),
+  threadRootId: z.string().uuid().nullable(),
 })
 
 export const removeVoiceParticipantParamsSchema = z.object({

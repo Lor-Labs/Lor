@@ -3,6 +3,7 @@ import {
   ComputerScreenShareIcon,
   HeadphoneMuteIcon,
   HeadphonesIcon,
+  Message01Icon,
   Mic01Icon,
   MicOff01Icon,
   Settings02Icon,
@@ -27,6 +28,8 @@ import {
 } from "@repo/ui/components/menu"
 import { toast } from "@repo/ui/components/toast"
 import { ConnectionState, Track } from "livekit-client"
+import { useEffect } from "react"
+import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import { useVoiceCall } from "@/context/voice-call-context"
 
 const canShareScreen =
@@ -63,6 +66,57 @@ function DeviceGroup({
         ))}
       </DropdownMenuRadioGroup>
     </>
+  )
+}
+
+// The call chat opens in the right panel, closed by default.
+function CallChatButton() {
+  const { call, chatUnread, clearChatUnread } = useVoiceCall()
+  const { view, setView, isCollapsed, toggleCollapsed } = useRightSidebar()
+  const threadRootId = call?.threadRootId
+  const open =
+    Boolean(threadRootId) &&
+    view?.type === "thread" &&
+    view.threadRootId === threadRootId &&
+    !isCollapsed
+
+  useEffect(() => {
+    if (open && chatUnread > 0) clearChatUnread()
+  }, [open, chatUnread, clearChatUnread])
+
+  if (!call || !threadRootId) return null
+
+  const toggle = () => {
+    if (open) {
+      toggleCollapsed()
+      return
+    }
+    setView({
+      type: "thread",
+      workspaceSlug: call.workspaceSlug,
+      channelId: call.channelId,
+      threadRootId,
+    })
+    if (isCollapsed) toggleCollapsed()
+  }
+
+  return (
+    <div className="relative">
+      <Button
+        size="icon"
+        variant={open ? "secondary" : "outline"}
+        aria-label={open ? "Hide chat" : "Show chat"}
+        onClick={toggle}
+      >
+        <HugeiconsIcon icon={Message01Icon} strokeWidth={2} />
+      </Button>
+      {chatUnread > 0 && !open && (
+        <span className="pointer-events-none absolute -top-1.5 -right-1.5 flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-primary px-1 font-semibold text-[11px] text-primary-foreground tabular-nums">
+          {chatUnread > 99 ? "99+" : chatUnread}
+          <span className="sr-only"> unread messages</span>
+        </span>
+      )}
+    </div>
   )
 }
 
@@ -167,6 +221,7 @@ export function CallControls() {
             <DeviceGroup kind="audiooutput" label="Speaker" />
           </DropdownMenuContent>
         </DropdownMenu>
+        <CallChatButton />
         <Button
           size="icon"
           variant="destructive"

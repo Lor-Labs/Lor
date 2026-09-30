@@ -70,6 +70,7 @@ import { usePlanForThread } from "@/hooks/use-channel-plans"
 import { useFileUpload } from "@/hooks/use-file-upload"
 import { useLorRunReplay } from "@/hooks/use-lor-stream"
 import { useMarkThreadRead } from "@/hooks/use-mark-thread-read"
+import { useMentionCandidates } from "@/hooks/use-mention-candidates"
 import { useMessageDeletion } from "@/hooks/use-message-deletion"
 import { useMessageEditing } from "@/hooks/use-message-editing"
 import { useMessageReactions } from "@/hooks/use-message-reactions"
@@ -87,7 +88,7 @@ import { useThreadMessages } from "@/hooks/use-thread-messages"
 import { useTypingIndicator } from "@/hooks/use-typing-indicator"
 import { apiClient } from "@/lib/api-client"
 import type { Message } from "@/lib/api-types"
-import { broadcastMentionCandidates } from "@/lib/broadcast-mentions"
+import { channelQueryOptions } from "@/lib/channel-query"
 import { PLAN_STATUS_META } from "@/lib/plan-ui"
 
 const MESSAGE_GROUP_WINDOW_MINUTES = 5
@@ -494,47 +495,15 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
     clearReply()
   }, [view.threadRootId, clearReply])
 
-  const { data: workspaceMembersData } = useQuery({
-    queryKey: ["workspace-members", view.workspaceSlug],
-    queryFn: async () => {
-      const res = await apiClient.v1.workspaces[":workspaceSlug"].members.$get({
-        param: { workspaceSlug: view.workspaceSlug },
-      })
-      if (!res.ok) throw new Error("Failed to fetch workspace members")
-      return res.json()
-    },
-  })
-
-  // Same key as the channel route — usually a cache hit; the audience gates
-  // which broadcast mentions the composer offers.
-  const { data: channelData } = useQuery({
-    queryKey: ["channel", view.workspaceSlug, view.channelId],
-    queryFn: async () => {
-      const res = await apiClient.v1.workspaces[":workspaceSlug"].channels[
-        ":channelId"
-      ].$get({
-        param: {
-          workspaceSlug: view.workspaceSlug,
-          channelId: view.channelId,
-        },
-      })
-      if (!res.ok) throw new Error("Failed to fetch channel")
-      return res.json()
-    },
-  })
-
-  const mentionCandidates = useMemo(
-    () => [
-      ...broadcastMentionCandidates(channelData?.audience),
-      ...(workspaceMembersData?.members.map((member) => ({
-        id: member.userId,
-        label: member.name,
-        name: member.name,
-        image: member.image,
-      })) ?? []),
-    ],
-    [workspaceMembersData?.members, channelData?.audience]
+  const mentionCandidates = useMentionCandidates(
+    view.workspaceSlug,
+    view.channelId
   )
+  // Voice channel threads are call chats; their root is a silent placeholder.
+  const { data: channel } = useQuery(
+    channelQueryOptions(view.workspaceSlug, view.channelId)
+  )
+  const isCallChat = channel?.type === "voice"
 
   // Threads render top-down (oldest → newest). The API + cache hold
   // newest-first, so reverse for display.
@@ -693,6 +662,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
   const summaryTotal = rootMessage?.threadSummary?.replyCount
   const dividerCount = hasOlder ? summaryTotal : orderedReplies.length
   const showDivider =
+    !isCallChat &&
     !isLoading &&
     orderedReplies.length > 0 &&
     dividerCount !== undefined &&
@@ -705,7 +675,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
     >
       <DropZoneOverlay isDragActive={isDragActive} />
       <RightPanelHeader
-        title={isPlan ? "Plan" : "Thread"}
+        title={isPlan ? "Plan" : isCallChat ? "Call chat" : "Thread"}
         workspaceSlug={view.workspaceSlug}
         channelId={view.channelId}
         titleAdornment={
@@ -746,10 +716,12 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
                 />
               </DropdownMenuTrigger>
               <DropdownMenuContent side="bottom" align="end" className="w-60">
-                <DropdownMenuItem onClick={handleViewInChannel}>
-                  <HugeiconsIcon icon={CornerUpRightIcon} strokeWidth={2} />
-                  Go to message
-                </DropdownMenuItem>
+                {!isCallChat && (
+                  <DropdownMenuItem onClick={handleViewInChannel}>
+                    <HugeiconsIcon icon={CornerUpRightIcon} strokeWidth={2} />
+                    Go to message
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuItem onClick={() => void handleCopyAsMarkdown()}>
                   <HugeiconsIcon icon={Copy01Icon} strokeWidth={2} />
                   {`Copy ${isPlan ? "plan" : "thread"} as Markdown`}
@@ -793,7 +765,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
               aria-busy={Boolean(pendingLorMessage)}
               className="justify-end"
             >
-              {rootMessageForRender && (
+              {rootMessageForRender && !isCallChat && (
                 <MessageScrollerItem
                   messageId={rootMessageForRender.id}
                   scrollAnchor={openingLorTriggerMessageIds.has(
@@ -933,7 +905,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
             context={channelContext}
             channelId={view.channelId}
             contextScopeKey={view.threadRootId}
-            placeholder="Reply…"
+            placeholder={isCallChat ? "Message the call…" : "Reply…"}
             onSend={(content, options) => {
               const nonce = handleSend(content, options)
               // Retire opening anchors so a later resize cannot recapture them.

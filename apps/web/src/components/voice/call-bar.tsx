@@ -9,11 +9,29 @@ import { Button } from "@repo/ui/components/button"
 import { toast } from "@repo/ui/components/toast"
 import { Link } from "@tanstack/react-router"
 import { Track } from "livekit-client"
+import { useEffect, useRef } from "react"
+import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import { useVoiceCall } from "@/context/voice-call-context"
 
 export function CallBar() {
   const { call, remoteCall, joining, join, leave } = useVoiceCall()
   const microphone = useTrackToggle({ source: Track.Source.Microphone })
+
+  // Leaving a live call ends access to its chat, so an open chat closes.
+  const { view, clearView } = useRightSidebar()
+  const openThreadRootId = view?.type === "thread" ? view.threadRootId : null
+  const callChatRef = useRef<string | null>(null)
+  useEffect(() => {
+    const previous = callChatRef.current
+    callChatRef.current = call?.threadRootId ?? null
+    if (
+      previous &&
+      previous !== callChatRef.current &&
+      openThreadRootId === previous
+    ) {
+      clearView()
+    }
+  }, [call?.threadRootId, openThreadRootId, clearView])
 
   if (call) {
     return (

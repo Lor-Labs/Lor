@@ -10,6 +10,7 @@ import {
 import { connectorLookupRateLimit } from "@/middleware/rate-limit"
 import { workspaceAuthMiddleware } from "@/middleware/workspace-auth"
 import {
+  channelAudienceResponseSchema,
   channelConnectorParamsSchema,
   channelParamsSchema,
   channelReadPositionResponseSchema,
@@ -297,6 +298,30 @@ export const listThreadReplies = createRoute({
   },
 })
 
+export const getChannelAudience = createRoute({
+  path: "/workspaces/{workspaceSlug}/channels/{channelId}/audience",
+  method: "get",
+  summary: "Get channel audience",
+  description:
+    "Returns the channel's effective audience (inherited from its private project when it has one) and the IDs of everyone who can see it. Composers use it to offer only people who can be mentioned.",
+  tags: ["Channels"],
+  middleware: [workspaceAuthMiddleware] as const,
+  request: {
+    params: channelParamsSchema,
+  },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: channelAudienceResponseSchema,
+      description: "Channel audience",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
 export const listThreadActivity = createRoute({
   path: "/workspaces/{workspaceSlug}/channels/{channelId}/thread-activity",
   method: "get",
@@ -467,6 +492,7 @@ export type ListChannelMessagesRoute = typeof listChannelMessages
 export type ToggleMessagePinRoute = typeof toggleMessagePin
 export type ListPinnedMessagesRoute = typeof listPinnedMessages
 export type ListThreadRepliesRoute = typeof listThreadReplies
+export type GetChannelAudienceRoute = typeof getChannelAudience
 export type ListThreadActivityRoute = typeof listThreadActivity
 export type MarkThreadReadRoute = typeof markThreadRead
 export type GetMessageLocationRoute = typeof getMessageLocation

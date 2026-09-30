@@ -7,6 +7,7 @@ import { HeaderNavControls } from "@/components/desktop-titlebar"
 import { CallStage } from "@/components/voice/call-stage"
 import { VoiceLobby } from "@/components/voice/voice-lobby"
 import { useVoiceCall } from "@/context/voice-call-context"
+import { useAutoMarkRead } from "@/hooks/use-auto-mark-read"
 import { apiClient } from "@/lib/api-client"
 import { canModerateVoice } from "@/lib/permissions"
 
@@ -28,6 +29,7 @@ export function VoiceChannelView({
 }) {
   const { call, remoteCall, joining, join } = useVoiceCall()
   const inThisCall = call?.channelId === channelId
+  useAutoMarkRead(channelId)
 
   // Same queries the sidebar runs; react-query dedupes them.
   const { data: activeMember } = useQuery({
