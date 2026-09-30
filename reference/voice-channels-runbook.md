@@ -65,8 +65,9 @@ Before real team use:
 | Join response | `{ url, token, sessionId, participantId }`. Clients need no LiveKit env. Tokens are short-lived and grant only that room. |
 | Access | Every voice handler starts with `resolveChannelAccess` (`packages/db/src/queries/channel-access.ts`), then requires `channel.type = "voice"` and a non-archived channel. |
 | Session chat | Plan pattern: a `voice_session` message is the thread root, `voice_session.threadRootId` is unique, and the session chat is that thread. Voice channels accept no other top-level messages. Root messages post silent. The chat is human-only: Lor mention routing ignores session threads on the server, and the composer doesn't offer Lor. Lor reads the thread as passive context for voice requests. |
-| Lor requests | Voice only, triggered from the live transcript when someone addresses Lor directly, then confirmed by an intent check. A request is its own record (session, requester, heard text, run, status, what it showed), not a chat message. It runs as a run with no chat message attached (the automation-run shape), scoped to the session thread, as the speaker, with normal approvals. |
-| Lor's window | Mounted only while a request is thinking, working, or showing a result; it animates in and out of the screen-share slot. Shared state for everyone in the call; anyone can clear it or step through the session's earlier results. Content is a typed union from day one: `cards` (Linear issues, GitHub PRs), `answer`, and a reserved `liveView`. A future Lor browser joins the LiveKit room as its own participant and publishes a video track into this slot; non-UUID identities are already ignored by presence and sync. |
+| Lor requests | Voice only, triggered from the live transcript when someone addresses Lor directly: a local name gate on every final segment, then Jev (`typesafe-ai/jev` on the Vercel AI Gateway) on segments that pass it. A request is its own record (session, requester, heard text, run, status, what it showed), not a chat message. It runs as a run with no chat message attached (the automation-run shape), scoped to the session thread, as the speaker, with normal approvals. |
+| Lor's window | Mounted only while a request is listening, thinking, working, or showing a result; it animates in and out of the screen-share slot. Shared state for everyone in the call; anyone can clear it or step through the session's earlier results. Content is a typed union from day one: `cards` (Linear issues, GitHub PRs), `answer`, and a reserved `liveView`. A future Lor browser joins the LiveKit room as its own participant and publishes a video track into this slot; non-UUID identities are already ignored by presence and sync. |
+| Gateway ZDR | Voice-path gateway requests set `providerOptions.gateway.zeroDataRetention: true` per request. Pending: the gateway plan is Hobby, which returns 403 for the flag; turn it on once the plan is Pro. |
 | Live-only visibility | While a session is live, its thread room, thread reads, search, Lor retrieval, thread activity, and notification previews exclude everyone not connected to the call. Once it ends, normal channel access applies. |
 | Sidebar presence | Push-invalidated snapshot, the sidebar Lor activity pattern (`reference/sidebar-realtime-activity-plan.md`): an invalidation event to the workspace room, then an auth-filtered fetch. Connected people only. |
 | Transcription | Always on. One silent transcriber job per room with one Deepgram Nova-3 stream per human microphone through LiveKit Inference. Final segments persist through the API as they arrive. No Egress; LiveKit agent observability audio recording off. |
@@ -263,6 +264,9 @@ Realtime, emitted from the API with the existing emitter
 - Dispatch one transcriber per session when it starts. Subscribe to human
   microphone tracks only. Handle late joins, departures, republishing, and
   worker restarts.
+- Add "Lor" as a Deepgram keyterm on every participant stream, through
+  LiveKit's per-session keyterm option, so V5's name gate sees the name
+  spelled right.
 - Captions over the `lk.transcription` text stream; interim updates replace the
   same segment. The CC toggle is per device and starts on.
 - At session end: drain pending output, flush final segments, record gaps,
@@ -271,6 +275,7 @@ Realtime, emitted from the API with the existing emitter
 - Record STT minutes per call to compare with the research cost model.
 - Segments are the input V5 listens to for "Lor, …", so ingestion latency
   matters: persist and publish final segments as they arrive, not in batches.
+- Measure final-segment latency on the first real call.
 
 ---
 
@@ -278,10 +283,26 @@ Realtime, emitted from the API with the existing emitter
 
 Design: the spec's "Lor in the call" section.
 
-- Address detection on final transcript segments: a cheap text match for
-  direct address ("Lor, …", "Hey Lor, …") at the start of an utterance, then a
-  fast model check that it's a request to Lor, not discussion about Lor. Log
-  every trigger and every rejection so false triggers can be tuned.
+- Address detection on final transcript segments, in two stages:
+  1. Name gate, local, on every final segment: match "Lor" anywhere in the
+     segment, plus the homophones "lore", "law", "lower", and "Laura".
+  2. Jev (`typesafe-ai/jev` on the Vercel AI Gateway), only on segments that
+     pass the gate. One call, three questions: `addressed` (boolean), `kind`
+     (`request` | `mention` | `continuation`), and `complete` (boolean). Fail
+     closed on an error or timeout.
+
+  Log every trigger and every rejection so false triggers can be tuned.
+- Lor's window opens on the gate in a listening state that shows the heard
+  text. The run starts only on Jev's answer; a rejection closes the window
+  quietly.
+- Follow-ups must also be addressed ("Lor, open the second one") in the first
+  release. A bounded continuation window is deferred.
+- Jev transport: bump `ai` in `packages/lor` from 7.0.11 to >= 7.0.105 for
+  `experimental_evaluate`, or call
+  `POST https://ai-gateway.vercel.sh/typesafe/v1/systemone` over HTTP with the
+  existing `AI_GATEWAY_API_KEY`. Set gateway ZDR per request once the plan is
+  Pro (locked decisions); on the HTTP path, confirm how the request carries
+  that option.
 - Schema: a request record in `voice.ts` (session, requester participant and
   user, heard text, agent run, status, stage payload, timestamps).
   **db:push owed.**
@@ -296,8 +317,8 @@ Design: the spec's "Lor in the call" section.
 - Realtime: request and stage events to the session's thread room only
   (live-only rule), so late joiners and every device see the same window.
 - Web: Lor's window in the screen-share slot, mounted only while a request is
-  active or its result is showing: enter animation, thinking state with "Lor
-  heard: …" and Cancel, result, exit animation. Shared clear and step-back
+  active or its result is showing: enter animation, listening state with "Lor
+  heard: …" and Cancel, thinking state, result, exit animation. Shared clear and step-back
   ("2 of 3"). A Lor tab beside Chat lists the session's requests, with
   "Show on stage".
 - Past sessions: Chat, Lor, and Transcript tabs.
@@ -444,3 +465,20 @@ Design: the spec's "Lor in the call" section.
   is prepared for (a reserved `liveView` type, arriving as a LiveKit video
   track), not built. Phases reordered: V4 transcription (was V5), new V5 Lor in
   the call, V6 iPhone app (was V4), V7 memory and Q&A (was V6).
+- 2026-09-30 — Address detection decided (Jacob): two stages, so only
+  segments that contain Lor's name reach a language model. A local name gate
+  matches "Lor" anywhere in a final segment, plus the homophones lore, law,
+  lower, and Laura; V4 adds "Lor" as a Deepgram keyterm on every participant
+  stream. Jev (`typesafe-ai/jev`) then answers `addressed`, `kind` (`request` |
+  `mention` | `continuation`), and `complete` in one call, and fails closed on
+  an error or timeout. Every trigger and rejection is logged. Lor's window
+  opens listening on the gate; the run starts only on Jev's answer, and a
+  rejection closes the window quietly. Follow-ups must be addressed in the
+  first release; a bounded continuation window is deferred. Verified live the
+  same day: `POST https://ai-gateway.vercel.sh/typesafe/v1/systemone` works
+  with the existing `AI_GATEWAY_API_KEY` in about 250 ms, routed to
+  DigitalOcean with typesafe-ai as fallback. The AI SDK path
+  (`experimental_evaluate`) needs `ai` >= 7.0.105; `packages/lor` is on 7.0.11.
+  Per-request gateway ZDR is plan-gated (Hobby returns 403), so it waits for
+  Pro; on Pro, recheck the catalog, which flags jev `zdr=none` while Vercel's
+  ZDR table lists both providers.

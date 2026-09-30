@@ -154,6 +154,8 @@ it shows becomes part of the session record.
   Lor") never starts anything.
 - A second check confirms the sentence is a request to Lor before anything
   runs (see the Jev section below).
+- Follow-ups are addressed too: "Lor, open the second one." For now, the next
+  sentence is never treated as a follow-up on its own.
 - Lor doesn't speak, for now. It answers on screen.
 - A request runs as the person who spoke it, with Lor's full toolset and the
   workspace's approval policies. Hearing speech grants no extra authority.
@@ -299,19 +301,23 @@ Initial examples: pull up Linear issues or GitHub pull requests, draft issues
 from the discussion, retrieve a prior decision, or investigate a reported
 issue. Expand based on the team's actual use of connected tools.
 
-### Jev: candidate decision component
+### Jev: the address check
 
-Jev is a candidate for focused decisions such as whether a transcribed utterance
-addresses Lor or continues an active request. TypeSafe documents structured
-decisions with probabilities/confidence; see the [official introduction](https://docs.typesafe.ai/introduction).
+Decided 2026-09-30. Jev, TypeSafe's decision model (see the
+[official introduction](https://docs.typesafe.ai/introduction)), decides whether
+a transcribed segment addresses Lor. It is the second stage, and it sees only
+segments that contain Lor's name:
 
-The proposed role is an intent filter after transcription. Speech capture,
-transcription, response generation, speech output, and execution remain separate
-parts of the system. Assess behavior with overlapping speakers, ambiguous
-references, and background discussion before selecting it. Model confidence
-does not replace application permissions or user authorization.
+1. A local name gate checks every final transcript segment for "Lor" and a few
+   words it is misheard as. Segments without the name never reach a model.
+2. Jev reads the segments that pass and answers in one call: is Lor addressed,
+   is this a request, a mention, or a continuation, and is it complete. An
+   error or timeout counts as not addressed.
 
-No Jev dependency or provider commitment is required for Phase 1.
+Lor's window opens in a listening state when the gate matches, and closes
+quietly if Jev rejects the segment. Speech capture, transcription, execution,
+and speech output remain separate parts of the system. Jev decides whether
+Lor starts; it never replaces application permissions or user authorization.
 
 ## Longer-term possibilities
 
@@ -348,6 +354,8 @@ Still open:
 - Correction controls and source/citation integration with existing search and brain.
 - Latency and operating-cost targets based on typical team sessions.
 - Privacy policy wording for always-on transcription, if needed.
+- Zero data retention for Lor's voice requests to the AI Gateway, pending the
+  gateway's Pro plan (see the runbook).
 - Private questions to Lor (deferred).
 
 ## Existing foundations to inspect and reuse
