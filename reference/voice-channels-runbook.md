@@ -387,3 +387,11 @@ See Phase 2 of the spec.
   `useBlocker` with a Leave/Stay dialog (`enableBeforeUnload` off, so reloads
   don't prompt). Tauri emits `main-window-hidden` on close; the provider leaves
   the call. Phone browsers see "Open the Lor app to join".
+- 2026-09-29 — V2 chunk 4: deafen (`RoomAudioRenderer muted`, mic muted and
+  restored on undeafen; unmuting while deafened undeafens), grid paging
+  (`useVisualStableUpdate` + `usePagination`, 12 tiles per page), and
+  moderation: new `voice: ["moderate"]` statement (owner/admin by default),
+  `DELETE /workspaces/{slug}/voice/sessions/{id}/participants/{participantId}`
+  (removes from the LiveKit room, then marks left), tile menu "Remove from
+  call" for people with the permission. V2 code is complete; live QA owed
+  on all of it.

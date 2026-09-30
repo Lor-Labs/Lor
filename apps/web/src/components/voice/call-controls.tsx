@@ -1,6 +1,8 @@
 import {
   CallEnd01Icon,
   ComputerScreenShareIcon,
+  HeadphoneMuteIcon,
+  HeadphonesIcon,
   Mic01Icon,
   MicOff01Icon,
   Settings02Icon,
@@ -65,11 +67,20 @@ function DeviceGroup({
 }
 
 export function CallControls() {
-  const { leave } = useVoiceCall()
+  const { leave, deafened, toggleDeafen } = useVoiceCall()
   const microphone = useTrackToggle({
     source: Track.Source.Microphone,
     onDeviceError: reportDeviceError,
   })
+  // Unmuting while deafened undeafens too, so the person can be heard back.
+  const toggleMicrophone = async () => {
+    if (deafened) {
+      await toggleDeafen()
+      await microphone.toggle(true)
+      return
+    }
+    await microphone.toggle()
+  }
   const camera = useTrackToggle({
     source: Track.Source.Camera,
     onDeviceError: reportDeviceError,
@@ -97,10 +108,21 @@ export function CallControls() {
           variant={microphone.enabled ? "secondary" : "outline"}
           aria-label={microphone.enabled ? "Mute" : "Unmute"}
           disabled={microphone.pending}
-          onClick={() => void microphone.toggle()}
+          onClick={() => void toggleMicrophone()}
         >
           <HugeiconsIcon
             icon={microphone.enabled ? Mic01Icon : MicOff01Icon}
+            strokeWidth={2}
+          />
+        </Button>
+        <Button
+          size="icon"
+          variant={deafened ? "outline" : "secondary"}
+          aria-label={deafened ? "Undeafen" : "Deafen"}
+          onClick={() => void toggleDeafen()}
+        >
+          <HugeiconsIcon
+            icon={deafened ? HeadphoneMuteIcon : HeadphonesIcon}
             strokeWidth={2}
           />
         </Button>

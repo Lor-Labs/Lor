@@ -16,6 +16,19 @@ const { message, voiceSession, voiceSessionParticipant } = schema
 
 type SessionChannel = { id: string; workspaceId: string }
 
+export async function findSessionScope(sessionId: string) {
+  const [row] = await db
+    .select({
+      workspaceId: voiceSession.workspaceId,
+      channelId: voiceSession.channelId,
+      endedAt: voiceSession.endedAt,
+    })
+    .from(voiceSession)
+    .where(eq(voiceSession.id, sessionId))
+    .limit(1)
+  return row ?? null
+}
+
 async function findLiveSession(channelId: string) {
   const [row] = await db
     .select()

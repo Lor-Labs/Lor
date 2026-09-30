@@ -29,6 +29,28 @@ export const joinVoiceChannelResponseSchema = z.object({
   participantId: z.string().uuid(),
 })
 
+export const removeVoiceParticipantParamsSchema = z.object({
+  workspaceSlug: z.string().openapi({
+    param: { name: "workspaceSlug", in: "path", required: true },
+  }),
+  sessionId: z
+    .string()
+    .uuid()
+    .openapi({
+      param: { name: "sessionId", in: "path", required: true },
+    }),
+  participantId: z
+    .string()
+    .uuid()
+    .openapi({
+      param: { name: "participantId", in: "path", required: true },
+    }),
+})
+
+export const removeVoiceParticipantResponseSchema = z.object({
+  success: z.literal(true),
+})
+
 export const voiceCallResponseSchema = z.object({
   call: z
     .object({

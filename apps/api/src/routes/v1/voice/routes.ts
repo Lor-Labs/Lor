@@ -15,6 +15,8 @@ import { workspaceAuthMiddleware } from "@/middleware/workspace-auth"
 import {
   joinVoiceChannelResponseSchema,
   leaveVoiceSessionResponseSchema,
+  removeVoiceParticipantParamsSchema,
+  removeVoiceParticipantResponseSchema,
   voiceCallResponseSchema,
   voiceChannelParamsSchema,
   voicePresenceResponseSchema,
@@ -97,6 +99,33 @@ export const getVoiceCall = createRoute({
 })
 
 export type GetVoiceCallRoute = typeof getVoiceCall
+
+export const removeVoiceParticipant = createRoute({
+  path: "/workspaces/{workspaceSlug}/voice/sessions/{sessionId}/participants/{participantId}",
+  method: "delete",
+  summary: "Remove someone from a call",
+  description:
+    "Disconnects a participant from a live session. Requires the voice moderation permission and access to the channel.",
+  tags: ["Voice"],
+  middleware: [workspaceAuthMiddleware] as const,
+  request: {
+    params: removeVoiceParticipantParamsSchema,
+  },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: removeVoiceParticipantResponseSchema,
+      description: "Participant removed",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.SERVICE_UNAVAILABLE]: serviceUnavailableSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type RemoveVoiceParticipantRoute = typeof removeVoiceParticipant
 
 export const listVoiceSessions = createRoute({
   path: "/channels/{channelId}/voice/sessions",

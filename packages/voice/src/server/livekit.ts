@@ -2,6 +2,7 @@ import { env } from "@repo/env/server"
 import {
   AccessToken,
   RoomServiceClient,
+  TwirpError,
   WebhookReceiver,
 } from "livekit-server-sdk"
 
@@ -23,6 +24,21 @@ export function getLiveKitConfig(): LiveKitConfig | null {
 
 export function getRoomService(config: LiveKitConfig) {
   return new RoomServiceClient(config.url, config.apiKey, config.apiSecret)
+}
+
+// Resolves once the participant is out of the room, including when LiveKit
+// already dropped them or closed the room.
+export async function removeFromRoom(
+  config: LiveKitConfig,
+  room: string,
+  identity: string
+) {
+  try {
+    await getRoomService(config).removeParticipant(room, identity)
+  } catch (err) {
+    if (err instanceof TwirpError && err.status === 404) return
+    throw err
+  }
 }
 
 export function createJoinToken(

@@ -8,8 +8,10 @@ import {
   getCurrentCall,
   getLiveKitConfig,
   markParticipantLeft,
+  removeFromRoom,
 } from "@repo/voice/server"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
+import { assertWorkspaceAuthority } from "@/lib/permissions"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import {
   getSessionSummary,
@@ -17,6 +19,7 @@ import {
   listWorkspacePresence,
 } from "@/lib/voice/queries"
 import {
+  findSessionScope,
   getOrCreateLiveSession,
   isSessionFull,
   leaveOtherCalls,
@@ -29,7 +32,39 @@ import type {
   JoinVoiceChannelRoute,
   LeaveVoiceSessionRoute,
   ListVoiceSessionsRoute,
+  RemoveVoiceParticipantRoute,
 } from "@/routes/v1/voice/routes"
+
+export const removeVoiceParticipant: AppRouteHandler<
+  RemoveVoiceParticipantRoute
+> = async (c) => {
+  assertWorkspaceAuthority(c.var.authority, { voice: ["moderate"] })
+  const { sessionId, participantId } = c.req.valid("param")
+
+  const scope = await findSessionScope(sessionId)
+  const access =
+    scope && scope.workspaceId === c.var.workspace.id && !scope.endedAt
+      ? await resolveChannelAccess(c.var.user.id, scope.channelId)
+      : null
+  if (!access?.ok) {
+    return c.json(
+      { success: false as const, message: "Session not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+
+  const livekit = getLiveKitConfig()
+  if (!livekit) {
+    return c.json(
+      { success: false as const, message: "Voice is not configured" },
+      HttpStatusCodes.SERVICE_UNAVAILABLE
+    )
+  }
+
+  await removeFromRoom(livekit, sessionId, participantId)
+  await markParticipantLeft(sessionId, { participantId })
+  return c.json({ success: true as const }, HttpStatusCodes.OK)
+}
 
 export const getVoiceCall: AppRouteHandler<GetVoiceCallRoute> = async (c) => {
   const call = await getCurrentCall(c.var.user.id)

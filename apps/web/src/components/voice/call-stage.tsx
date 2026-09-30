@@ -1,19 +1,41 @@
 import {
+  ArrowLeft01Icon,
+  ArrowRight01Icon,
+  MoreHorizontalIcon,
+} from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
+import {
   isTrackReference,
   type TrackReferenceOrPlaceholder,
   useIsSpeaking,
+  usePagination,
   useTracks,
+  useVisualStableUpdate,
   VideoTrack,
 } from "@livekit/components-react"
+import { Button } from "@repo/ui/components/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@repo/ui/components/menu"
+import { toast } from "@repo/ui/components/toast"
 import { cn } from "@repo/ui/lib/utils"
 import { Track } from "livekit-client"
 import { UserAvatar } from "@/components/ui/user-avatar"
 import { CallControls } from "@/components/voice/call-controls"
+import { useVoiceCall } from "@/context/voice-call-context"
+import { apiClient } from "@/lib/api-client"
+
+const PAGE_SIZE = 12
 
 function ParticipantTile({
   trackRef,
+  onRemove,
 }: {
   trackRef: TrackReferenceOrPlaceholder
+  onRemove?: (participantId: string) => void
 }) {
   const { participant } = trackRef
   const isSpeaking = useIsSpeaking(participant)
@@ -23,7 +45,7 @@ function ParticipantTile({
   return (
     <div
       className={cn(
-        "relative flex aspect-video items-center justify-center overflow-hidden rounded-lg bg-muted ring-2 ring-transparent transition-shadow",
+        "group/tile relative flex aspect-video items-center justify-center overflow-hidden rounded-lg bg-muted ring-2 ring-transparent transition-shadow",
         isSpeaking && "ring-primary"
       )}
     >
@@ -41,15 +63,61 @@ function ParticipantTile({
       <span className="absolute bottom-2 left-2 max-w-[calc(100%-1rem)] truncate rounded-md bg-background/80 px-1.5 py-0.5 text-xs font-medium">
         {name}
       </span>
+      {onRemove && !participant.isLocal && (
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <Button
+                size="icon-xs"
+                variant="ghost"
+                aria-label={`Options for ${name}`}
+                className="absolute top-2 right-2 bg-background/80 opacity-0 transition-opacity group-hover/tile:opacity-100 focus-visible:opacity-100 data-popup-open:opacity-100"
+              />
+            }
+          >
+            <HugeiconsIcon icon={MoreHorizontalIcon} strokeWidth={2} />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem
+              className="text-destructive focus:text-destructive"
+              onClick={() => onRemove(participant.identity)}
+            >
+              Remove from call
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
     </div>
   )
 }
 
-export function CallStage() {
+export function CallStage({ canModerate }: { canModerate: boolean }) {
+  const { call } = useVoiceCall()
   const cameraTracks = useTracks([
     { source: Track.Source.Camera, withPlaceholder: true },
   ])
+  // Active speakers move onto the current page without reshuffling tiles
+  // that are already visible.
+  const stableTracks = useVisualStableUpdate(cameraTracks, PAGE_SIZE)
+  const page = usePagination(PAGE_SIZE, stableTracks)
   const [screenShare] = useTracks([Track.Source.ScreenShare])
+
+  const removeParticipant = async (participantId: string) => {
+    if (!call) return
+    const res = await apiClient.v1.workspaces[":workspaceSlug"].voice.sessions[
+      ":sessionId"
+    ].participants[":participantId"].$delete({
+      param: {
+        workspaceSlug: call.workspaceSlug,
+        sessionId: call.sessionId,
+        participantId,
+      },
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => null)
+      toast.error(body?.message ?? "Could not remove them from the call")
+    }
+  }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 p-4">
@@ -69,13 +137,41 @@ export function CallStage() {
             : "min-h-0 flex-1 grid-cols-[repeat(auto-fit,minmax(14rem,1fr))] content-center overflow-y-auto"
         )}
       >
-        {cameraTracks.map((trackRef) => (
+        {page.tracks.map((trackRef) => (
           <ParticipantTile
             key={`${trackRef.participant.identity}:${trackRef.source}`}
             trackRef={trackRef}
+            onRemove={
+              canModerate ? (id) => void removeParticipant(id) : undefined
+            }
           />
         ))}
       </div>
+      {page.totalPageCount > 1 && (
+        <div className="flex shrink-0 items-center justify-center gap-2 text-xs text-muted-foreground">
+          <Button
+            size="icon-xs"
+            variant="ghost"
+            aria-label="Previous page"
+            disabled={page.currentPage <= 1}
+            onClick={page.prevPage}
+          >
+            <HugeiconsIcon icon={ArrowLeft01Icon} strokeWidth={2} />
+          </Button>
+          <span>
+            {page.currentPage} / {page.totalPageCount}
+          </span>
+          <Button
+            size="icon-xs"
+            variant="ghost"
+            aria-label="Next page"
+            disabled={page.currentPage >= page.totalPageCount}
+            onClick={page.nextPage}
+          >
+            <HugeiconsIcon icon={ArrowRight01Icon} strokeWidth={2} />
+          </Button>
+        </div>
+      )}
       <CallControls />
     </div>
   )

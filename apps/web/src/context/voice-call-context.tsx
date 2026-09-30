@@ -50,6 +50,10 @@ type VoiceCallContextValue = {
   // The call this user is connected to on another device ("Transfer here").
   remoteCall: VoiceCallState | null
   joining: boolean
+  // Deafen mutes everyone else and the microphone; undeafen restores the
+  // microphone to how it was.
+  deafened: boolean
+  toggleDeafen: () => Promise<void>
   join: (target: JoinTarget) => Promise<void>
   leave: () => Promise<void>
 }
@@ -77,6 +81,8 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
   )
   const [call, setCall] = useState<ActiveVoiceCall | null>(null)
   const [joining, setJoining] = useState(false)
+  const [deafened, setDeafened] = useState(false)
+  const microphoneBeforeDeafen = useRef(true)
   const callRef = useRef(call)
   callRef.current = call
   const socket = useSocket()
@@ -107,6 +113,7 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const handleDisconnected = (reason?: DisconnectReason) => {
       setCall(null)
+      setDeafened(false)
       if (
         reason !== undefined &&
         reason !== DisconnectReason.CLIENT_INITIATED
@@ -138,6 +145,7 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
         const { url, token, sessionId } = await res.json()
         await room.connect(url, token)
         setCall({ ...target, sessionId })
+        setDeafened(false)
         try {
           await room.localParticipant.setMicrophoneEnabled(true)
         } catch {
@@ -149,6 +157,20 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
     },
     [room]
   )
+
+  const toggleDeafen = useCallback(async () => {
+    const { localParticipant } = room
+    if (deafened) {
+      setDeafened(false)
+      if (microphoneBeforeDeafen.current) {
+        await localParticipant.setMicrophoneEnabled(true)
+      }
+      return
+    }
+    microphoneBeforeDeafen.current = localParticipant.isMicrophoneEnabled
+    setDeafened(true)
+    await localParticipant.setMicrophoneEnabled(false)
+  }, [room, deafened])
 
   // The leave request is a hint; LiveKit's webhook is the authority.
   const leave = useCallback(async () => {
@@ -196,15 +218,15 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
   })
 
   const value = useMemo(
-    () => ({ call, remoteCall, joining, join, leave }),
-    [call, remoteCall, joining, join, leave]
+    () => ({ call, remoteCall, joining, deafened, toggleDeafen, join, leave }),
+    [call, remoteCall, joining, deafened, toggleDeafen, join, leave]
   )
 
   return (
     <VoiceCallContext.Provider value={value}>
       <RoomContext.Provider value={room}>
         {children}
-        {call && <RoomAudioRenderer />}
+        {call && <RoomAudioRenderer muted={deafened} />}
       </RoomContext.Provider>
       <AlertDialog
         open={blocker.status === "blocked"}

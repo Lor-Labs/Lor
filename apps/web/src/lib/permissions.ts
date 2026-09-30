@@ -95,6 +95,14 @@ export function canPinMessages(
   return hasPermissions(member, workspace, { message: ["pin"] }, customRoles)
 }
 
+export function canModerateVoice(
+  member: { userId: string; role: string },
+  workspace: { ownerId: string },
+  customRoles?: CustomRoleMap
+): boolean {
+  return hasPermissions(member, workspace, { voice: ["moderate"] }, customRoles)
+}
+
 export function canKickWorkspaceMembers(
   member: { userId: string; role: string },
   workspace: { ownerId: string },
