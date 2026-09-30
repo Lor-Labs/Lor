@@ -2,7 +2,7 @@ import { env } from "@repo/env/server"
 import {
   AccessToken,
   RoomServiceClient,
-  TwirpError,
+  ServerError,
   WebhookReceiver,
 } from "livekit-server-sdk"
 
@@ -36,7 +36,7 @@ export async function removeFromRoom(
   try {
     await getRoomService(config).removeParticipant(room, identity)
   } catch (err) {
-    if (err instanceof TwirpError && err.status === 404) return
+    if (err instanceof ServerError && err.status === 404) return
     throw err
   }
 }

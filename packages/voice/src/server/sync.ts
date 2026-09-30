@@ -1,5 +1,5 @@
 import { and, db, eq, isNotNull, isNull, lte, schema } from "@repo/db"
-import { TwirpError } from "livekit-server-sdk"
+import { ServerError } from "livekit-server-sdk"
 import { VOICE_SESSION_GRACE_MS } from "../index"
 import { getRoomService, type LiveKitConfig } from "./livekit"
 import { notifyVoicePresence } from "./notify"
@@ -21,7 +21,7 @@ async function listRoomIdentities(config: LiveKitConfig, sessionId: string) {
     )
   } catch (err) {
     // LiveKit already closed the room, so nobody is in it.
-    if (err instanceof TwirpError && err.status === 404) return new Map()
+    if (err instanceof ServerError && err.status === 404) return new Map()
     throw err
   }
 }
