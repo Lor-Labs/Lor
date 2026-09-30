@@ -2,7 +2,6 @@ import { Archive02Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
 import { toast } from "@repo/ui/components/toast"
-import { useIsMobile } from "@repo/ui/hooks/use-mobile"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
 import { AnimatePresence } from "framer-motion"
@@ -45,6 +44,7 @@ import { useRealtimeRoom } from "@/hooks/use-realtime-room"
 import { useReplyState } from "@/hooks/use-reply-state"
 import { useRunQueue } from "@/hooks/use-run-queue"
 import { useThreadActivity } from "@/hooks/use-thread-activity"
+import { useThreadPanelUrlSync } from "@/hooks/use-thread-panel-url-sync"
 import { useTypingIndicator } from "@/hooks/use-typing-indicator"
 import { apiClient } from "@/lib/api-client"
 import type { Message } from "@/lib/api-types"
@@ -90,6 +90,7 @@ export const Route = createFileRoute(
 // channel fetch; voice channels swap in once the type is known.
 function ChannelRoute() {
   const { workspaceSlug, channelId } = Route.useParams()
+  const { threadId, threadMessageId } = Route.useSearch()
   const { data } = useQuery(channelQueryOptions(workspaceSlug, channelId))
 
   if (data?.type === "voice") {
@@ -101,6 +102,8 @@ function ChannelRoute() {
         channelId={channelId}
         channelName={data.name ?? "Voice"}
         archived={Boolean(data.archivedAt)}
+        threadId={threadId}
+        threadMessageId={threadMessageId}
       />
     )
   }
@@ -119,11 +122,10 @@ function ChannelView() {
   } = Route.useSearch()
   const navigate = Route.useNavigate()
   const socket = useSocket()
-  const isMobile = useIsMobile()
   const entry = useChannelEntry(workspaceSlug, channelId)
   useAutoMarkRead(entry.ready ? channelId : undefined)
   const queryClient = useQueryClient()
-  const { view, setView, clearView, isCollapsed, toggleCollapsed, panelWidth } =
+  const { view, setView, isCollapsed, toggleCollapsed, panelWidth } =
     useRightSidebar()
   const { data: session } = authClient.useSession()
   const currentUserId = session?.user.id
@@ -143,68 +145,7 @@ function ChannelView() {
     writeLastChannelId(workspaceSlug, channelId)
   }, [workspaceSlug, channelId])
 
-  // Read the current threadId without re-running the mount effect on its
-  // changes (runtime open/close is driven by the URL-sync effect below).
-  const threadIdRef = useRef(threadId)
-  threadIdRef.current = threadId
-  const threadMessageIdRef = useRef(threadMessageId)
-  threadMessageIdRef.current = threadMessageId
-
-  // Set the initial right-panel view when entering a channel: reopen the
-  // thread from the URL (refresh / deep link) or fall back to members.
-  useEffect(() => {
-    const initialThreadId = threadIdRef.current
-    if (initialThreadId) {
-      setView({
-        type: "thread",
-        workspaceSlug,
-        channelId,
-        threadRootId: initialThreadId,
-        targetMessageId: threadMessageIdRef.current,
-      })
-    } else if (isMobile === false) {
-      setView({ type: "workspace-members", workspaceSlug, channelId })
-    }
-    return () => {
-      clearView()
-    }
-  }, [setView, clearView, workspaceSlug, channelId, isMobile])
-
-  // Keep ?threadId in step with the panel so a refresh restores it and closing
-  // the thread drops it. Mirrors view → URL (the mount effect does URL → view).
-  // Skip views for another channel: a cross-channel jump (search result, Lor
-  // citation) sets the target's view before navigation lands, and mirroring it
-  // here would pull the URL back to this channel.
-  useEffect(() => {
-    if (isMobile !== false) return
-    if (view && view.channelId !== channelId) return
-    if (view?.type === "thread") {
-      if (
-        view.threadRootId !== threadId ||
-        view.targetMessageId !== threadMessageId
-      ) {
-        void navigate({
-          search: (prev) => ({
-            ...prev,
-            threadId: view.threadRootId,
-            threadMessageId: view.targetMessageId,
-          }),
-          replace: true,
-        })
-      }
-    } else if (view && (threadId || threadMessageId)) {
-      // Only clear once a real non-thread view is set — `view === null` is the
-      // pre-hydration state on refresh and must not wipe the URL's threadId.
-      void navigate({
-        search: (prev) => ({
-          ...prev,
-          threadId: undefined,
-          threadMessageId: undefined,
-        }),
-        replace: true,
-      })
-    }
-  }, [view, channelId, threadId, threadMessageId, isMobile, navigate])
+  useThreadPanelUrlSync({ workspaceSlug, channelId, threadId, threadMessageId })
 
   const { data, isPending, isError, error } = useQuery(
     channelQueryOptions(workspaceSlug, channelId)

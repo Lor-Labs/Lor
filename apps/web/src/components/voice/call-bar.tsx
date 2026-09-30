@@ -1,5 +1,6 @@
 import {
   CallEnd01Icon,
+  Message01Icon,
   Mic01Icon,
   MicOff01Icon,
 } from "@hugeicons/core-free-icons"
@@ -11,11 +12,14 @@ import { Link } from "@tanstack/react-router"
 import { Track } from "livekit-client"
 import { useEffect, useRef } from "react"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
+import { CallChatUnreadBadge } from "@/components/voice/call-chat-unread-badge"
 import { useVoiceCall } from "@/context/voice-call-context"
+import { useCallChatPanel } from "@/hooks/use-call-chat-panel"
 
 export function CallBar() {
   const { call, remoteCall, joining, join, leave } = useVoiceCall()
   const microphone = useTrackToggle({ source: Track.Source.Microphone })
+  const chat = useCallChatPanel()
 
   // Leaving a live call ends access to its chat, so an open chat closes.
   const { view, clearView } = useRightSidebar()
@@ -64,6 +68,20 @@ export function CallBar() {
             strokeWidth={2}
           />
         </Button>
+        {chat.available && (
+          <div className="relative">
+            <Button
+              size="icon"
+              variant="ghost"
+              className="size-7"
+              aria-label={chat.open ? "Hide chat" : "Show chat"}
+              onClick={chat.toggle}
+            >
+              <HugeiconsIcon icon={Message01Icon} strokeWidth={2} />
+            </Button>
+            {!chat.open && <CallChatUnreadBadge count={chat.unread} />}
+          </div>
+        )}
         <Button
           size="icon"
           variant="ghost"

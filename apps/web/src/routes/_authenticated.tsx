@@ -175,12 +175,14 @@ function AuthenticatedLayout() {
   return (
     <SocketProvider enabled={!!session}>
       <UnreadProvider>
-        <BrowserNotifications />
         <MobileSidebarProvider>
           <div className="flex h-screen overflow-hidden bg-background text-foreground">
             <UpdateBanner />
             <VoiceCallProvider>
               <Sidebar>
+                {/* Inside the sidebar tree so notification clicks can open
+                    the right panel. */}
+                <BrowserNotifications />
                 <Outlet />
               </Sidebar>
             </VoiceCallProvider>

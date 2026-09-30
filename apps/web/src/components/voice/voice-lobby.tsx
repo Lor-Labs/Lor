@@ -1,6 +1,7 @@
 import { AvatarGroup, AvatarGroupCount } from "@repo/ui/components/avatar"
 import { Button } from "@repo/ui/components/button"
 import { Skeleton } from "@repo/ui/components/skeleton"
+import { cn } from "@repo/ui/lib/utils"
 import { differenceInMinutes, formatTime, getDayLabel } from "@repo/utils/date"
 import { ParticipantAvatar } from "@/components/voice/participant-avatar"
 import type { VoiceParticipant } from "@/hooks/use-voice-presence"
@@ -85,7 +86,15 @@ function LiveSessionCard({
   )
 }
 
-function SessionRow({ session }: { session: VoiceSessionSummary }) {
+function SessionRow({
+  session,
+  active,
+  onOpen,
+}: {
+  session: VoiceSessionSummary
+  active: boolean
+  onOpen: (() => void) | null
+}) {
   const minutes = session.endedAt
     ? differenceInMinutes(session.startedAt, session.endedAt)
     : 0
@@ -96,9 +105,8 @@ function SessionRow({ session }: { session: VoiceSessionSummary }) {
       ? plural(session.replyCount, "message", "messages")
       : null,
   ].filter(Boolean)
-
-  return (
-    <li className="flex items-center gap-3 rounded-lg px-3 py-2.5">
+  const body = (
+    <>
       <ParticipantStack participants={session.participants} />
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm font-medium">
@@ -108,6 +116,27 @@ function SessionRow({ session }: { session: VoiceSessionSummary }) {
           {details.join(" · ")}
         </div>
       </div>
+    </>
+  )
+
+  return (
+    <li>
+      {onOpen ? (
+        <button
+          type="button"
+          onClick={onOpen}
+          className={cn(
+            "flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-accent",
+            active && "bg-accent"
+          )}
+        >
+          {body}
+        </button>
+      ) : (
+        <div className="flex items-center gap-3 rounded-lg px-3 py-2.5">
+          {body}
+        </div>
+      )}
     </li>
   )
 }
@@ -119,6 +148,8 @@ export function VoiceLobby({
   joinDisabled,
   note,
   onJoin,
+  openThreadRootId,
+  onOpenSession,
 }: {
   channelId: string
   workspaceId: string | undefined
@@ -126,6 +157,8 @@ export function VoiceLobby({
   joinDisabled: boolean
   note: string | undefined
   onJoin: () => void
+  openThreadRootId: string | null
+  onOpenSession: (threadRootId: string) => void
 }) {
   const {
     data,
@@ -169,9 +202,21 @@ export function VoiceLobby({
           )}
           {past.length > 0 && (
             <ul className="flex flex-col">
-              {past.map((session) => (
-                <SessionRow key={session.id} session={session} />
-              ))}
+              {past.map((session) => {
+                const threadRootId = session.threadRootId
+                return (
+                  <SessionRow
+                    key={session.id}
+                    session={session}
+                    active={
+                      threadRootId !== null && threadRootId === openThreadRootId
+                    }
+                    onOpen={
+                      threadRootId ? () => onOpenSession(threadRootId) : null
+                    }
+                  />
+                )
+              })}
             </ul>
           )}
           {hasNextPage && (

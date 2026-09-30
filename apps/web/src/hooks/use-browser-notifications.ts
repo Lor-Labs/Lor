@@ -10,14 +10,15 @@ import {
   shouldNotifyForLorThread,
   type UnreadNotification,
 } from "@repo/realtime-types"
-import { useQuery } from "@tanstack/react-query"
-import { useParams } from "@tanstack/react-router"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useNavigate, useParams } from "@tanstack/react-router"
 import { useEffect } from "react"
 import { useSocket } from "@/context/socket-context"
 import {
   channelMutesQueryOptions,
   findActiveMute,
 } from "@/hooks/use-channel-mutes"
+import { useMessageSearchNavigation } from "@/hooks/use-message-search-navigation"
 import { apiClient } from "@/lib/api-client"
 import { showNotification } from "@/lib/notification-dispatcher"
 
@@ -45,9 +46,18 @@ export function useBrowserNotifications() {
     },
   })
   const { data: mutes } = useQuery(channelMutesQueryOptions)
+  const queryClient = useQueryClient()
+  const navigate = useNavigate()
+  const navigateToMessage = useMessageSearchNavigation()
 
   useEffect(() => {
     if (!socket) return
+
+    // The sidebar keeps the workspace list loaded; notifications carry ids.
+    const workspaceSlugFor = (workspaceId: string) =>
+      queryClient
+        .getQueryData<Array<{ id: string; slug: string }>>(["workspaces"])
+        ?.find((workspace) => workspace.id === workspaceId)?.slug
 
     // A focused window is not enough to assume the user saw it: sitting in
     // #general while a message lands in #test leaves only a sidebar badge,
@@ -77,12 +87,26 @@ export function useBrowserNotifications() {
         return
       }
 
+      const workspaceSlug = payload.workspaceId
+        ? workspaceSlugFor(payload.workspaceId)
+        : undefined
+
       if (payload.callMention) {
         const { authorName, channelName } = payload.callMention
         showNotification(
           `${authorName} mentioned you in a call`,
           channelName ? `In #${channelName}` : "Join from the voice channel",
-          { tag: `mention-${payload.messageId}` }
+          {
+            tag: `mention-${payload.messageId}`,
+            // The call's chat is closed to them; land on Join.
+            onClick: workspaceSlug
+              ? () =>
+                  void navigate({
+                    to: "/$workspaceSlug/$channelId",
+                    params: { workspaceSlug, channelId: payload.channelId },
+                  })
+              : undefined,
+          }
         )
         return
       }
@@ -92,6 +116,15 @@ export function useBrowserNotifications() {
 
       showNotification("New Mention", `You received ${mentionType}`, {
         tag: `mention-${payload.messageId}`,
+        onClick: workspaceSlug
+          ? () =>
+              navigateToMessage({
+                id: payload.messageId,
+                channelId: payload.channelId,
+                threadRootId: payload.threadRootId,
+                workspaceSlug,
+              })
+          : undefined,
       })
     }
 
@@ -178,5 +211,13 @@ export function useBrowserNotifications() {
       socket.off("notification:approval", onApproval)
       socket.off("notification:proposal", onProposal)
     }
-  }, [socket, settings, mutes, viewedChannelId])
+  }, [
+    socket,
+    settings,
+    mutes,
+    viewedChannelId,
+    queryClient,
+    navigate,
+    navigateToMessage,
+  ])
 }

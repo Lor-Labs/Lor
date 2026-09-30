@@ -9,11 +9,13 @@ export type MessageSearchTarget = {
   id: string
   channelId: string
   threadRootId: string | null
+  // Defaults to the current route's workspace; notifications set it.
+  workspaceSlug?: string
 }
 
 /** Navigate a workspace search result to its channel or containing thread. */
 export function useMessageSearchNavigation() {
-  const { workspaceSlug } = useParams({ strict: false })
+  const { workspaceSlug: routeWorkspaceSlug } = useParams({ strict: false })
   const navigate = useNavigate()
   const { view, setView, clearView, isCollapsed, toggleCollapsed } =
     useRightSidebar()
@@ -21,6 +23,7 @@ export function useMessageSearchNavigation() {
 
   return useCallback(
     (target: MessageSearchTarget) => {
+      const workspaceSlug = target.workspaceSlug ?? routeWorkspaceSlug
       if (!workspaceSlug) return
 
       if (target.threadRootId) {
@@ -63,7 +66,7 @@ export function useMessageSearchNavigation() {
       })
     },
     [
-      workspaceSlug,
+      routeWorkspaceSlug,
       view?.type,
       setView,
       clearView,

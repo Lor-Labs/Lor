@@ -4,10 +4,12 @@ import { authClient } from "@repo/auth/client"
 import { toast } from "@repo/ui/components/toast"
 import { useQuery } from "@tanstack/react-query"
 import { HeaderNavControls } from "@/components/desktop-titlebar"
+import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import { CallStage } from "@/components/voice/call-stage"
 import { VoiceLobby } from "@/components/voice/voice-lobby"
 import { useVoiceCall } from "@/context/voice-call-context"
 import { useAutoMarkRead } from "@/hooks/use-auto-mark-read"
+import { useThreadPanelUrlSync } from "@/hooks/use-thread-panel-url-sync"
 import { apiClient } from "@/lib/api-client"
 import { canModerateVoice } from "@/lib/permissions"
 
@@ -20,16 +22,34 @@ export function VoiceChannelView({
   channelId,
   channelName,
   archived,
+  threadId,
+  threadMessageId,
 }: {
   workspaceSlug: string
   workspaceId: string | undefined
   channelId: string
   channelName: string
   archived: boolean
+  threadId: string | undefined
+  threadMessageId: string | undefined
 }) {
   const { call, remoteCall, joining, join } = useVoiceCall()
   const inThisCall = call?.channelId === channelId
   useAutoMarkRead(channelId)
+  useThreadPanelUrlSync({
+    workspaceSlug,
+    channelId,
+    threadId,
+    threadMessageId,
+    transientThreadRootId: inThisCall ? call.threadRootId : null,
+  })
+  const { view, setView, isCollapsed, toggleCollapsed } = useRightSidebar()
+  const openThreadRootId =
+    view?.type === "thread" && !isCollapsed ? view.threadRootId : null
+  const openSessionChat = (threadRootId: string) => {
+    setView({ type: "thread", workspaceSlug, channelId, threadRootId })
+    if (isCollapsed) toggleCollapsed()
+  }
 
   // Same queries the sidebar runs; react-query dedupes them.
   const { data: activeMember } = useQuery({
@@ -112,6 +132,8 @@ export function VoiceChannelView({
           joinDisabled={joining || archived || isPhoneBrowser}
           note={note}
           onJoin={() => void handleJoin()}
+          openThreadRootId={openThreadRootId}
+          onOpenSession={openSessionChat}
         />
       )}
     </div>
