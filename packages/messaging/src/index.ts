@@ -17,6 +17,7 @@ import {
   MARKDOWN_USER_MENTION_REGEX,
   USER_MENTION_REGEX,
 } from "./mentions"
+import type { CallMentionPush } from "./push"
 
 export {
   type ChannelEventContentInput,
@@ -533,24 +534,27 @@ export async function buildMessageFanout(input: MessageFanoutInput) {
       mentionNotifications: [] as Array<
         UserTargetedPayload<MentionNotification>
       >,
-      callMentionPushes: [] as Array<UserTargetedPayload<UnreadNotification>>,
+      callMentionPushes: [] as Array<UserTargetedPayload<CallMentionPush>>,
     }
   }
 
   // Push-only entries for people mentioned from a call they aren't in; they
-  // never count as unread.
-  const callMentionPushes: Array<UserTargetedPayload<UnreadNotification>> = [
+  // never count as unread, and never point at the message or its chat.
+  const callMentionPushes: Array<UserTargetedPayload<CallMentionPush>> = [
     ...mentionTypeByUserId.keys(),
   ]
     .filter(outsideCall)
-    .map((userId) => ({
-      userId,
-      payload: {
-        ...unreadPayload(userId),
-        threadRootId: null,
-        contentPreview: "Mentioned you in a call",
-      },
-    }))
+    .map((userId) => {
+      const { messageId: _messageId, ...payload } = unreadPayload(userId)
+      return {
+        userId,
+        payload: {
+          ...payload,
+          threadRootId: null,
+          contentPreview: "Mentioned you in a call",
+        },
+      }
+    })
 
   const mentionRows = Array.from(mentionTypeByUserId.entries()).map(
     ([userId, mentionType]) => ({

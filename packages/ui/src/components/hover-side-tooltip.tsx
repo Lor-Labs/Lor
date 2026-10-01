@@ -48,8 +48,8 @@ function anchorPoint(rect: DOMRect, side: HoverSideTooltipSide) {
   }
 }
 
-// Hover-only side tooltip for select/menu items. Portaled to body so it can
-// sit beside the popup instead of being clipped by its overflow.
+// Side tooltip for select/menu items, on hover or keyboard focus. Portaled to
+// body so it can sit beside the popup instead of being clipped by its overflow.
 export function HoverSideTooltip({
   tooltip,
   side = "right",
@@ -65,13 +65,16 @@ export function HoverSideTooltip({
 
   if (!tooltip) return <>{children}</>
 
+  const show = (target: HTMLElement) =>
+    setAnchor(anchorPoint(target.getBoundingClientRect(), side))
+
   return (
     <>
       <div
-        onMouseEnter={(e) =>
-          setAnchor(anchorPoint(e.currentTarget.getBoundingClientRect(), side))
-        }
+        onMouseEnter={(e) => show(e.currentTarget)}
         onMouseLeave={() => setAnchor(null)}
+        onFocus={(e) => show(e.currentTarget)}
+        onBlur={() => setAnchor(null)}
       >
         {children}
       </div>

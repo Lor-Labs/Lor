@@ -47,6 +47,8 @@ export async function reconcileSession(
   config: LiveKitConfig,
   sessionId: string
 ) {
+  // A connection newer than LiveKit's snapshot isn't in it but is real.
+  const snapshotAt = new Date()
   const inRoom = await listRoomIdentities(config, sessionId)
   const [session] = await db
     .select({ transcriberSeenAt: voiceSession.transcriberSeenAt })
@@ -83,7 +85,7 @@ export async function reconcileSession(
       await markParticipantLeft(
         sessionId,
         { participantId: row.id },
-        { at: emptiedAt }
+        { at: emptiedAt, connectionJoinedAt: snapshotAt }
       )
     }
   }

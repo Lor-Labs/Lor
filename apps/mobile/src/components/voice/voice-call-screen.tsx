@@ -18,7 +18,7 @@ import { SymbolView } from "expo-symbols"
 import { useThemeColor } from "heroui-native/hooks"
 import { cn } from "heroui-native/utils"
 import { DisconnectReason, Room, RoomEvent, Track } from "livekit-client"
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import {
   Alert,
   ScrollView,
@@ -208,8 +208,12 @@ export function VoiceCallScreen({
   )
   const [connected, setConnected] = useState(false)
   const [joining, setJoining] = useState(false)
+  // Set when the screen closes, so a join still in flight can't leave a call
+  // and microphone running without it.
+  const closedRef = useRef(false)
 
   useEffect(() => {
+    closedRef.current = false
     const handleDisconnected = (reason?: DisconnectReason) => {
       setConnected(false)
       if (
@@ -221,6 +225,7 @@ export function VoiceCallScreen({
     }
     room.on(RoomEvent.Disconnected, handleDisconnected)
     return () => {
+      closedRef.current = true
       room.off(RoomEvent.Disconnected, handleDisconnected)
       void room.disconnect()
     }
@@ -238,7 +243,12 @@ export function VoiceCallScreen({
         )
       }
       const { url, token } = await response.json()
+      if (closedRef.current) return
       await room.connect(url, token)
+      if (closedRef.current) {
+        void room.disconnect()
+        return
+      }
       setConnected(true)
       try {
         await room.localParticipant.setMicrophoneEnabled(true)
@@ -246,6 +256,7 @@ export function VoiceCallScreen({
         Alert.alert("Microphone unavailable", "You can still listen.")
       }
     } catch (error) {
+      if (closedRef.current) return
       Alert.alert(
         "Could not join the call",
         error instanceof Error ? error.message : "Try again."

@@ -5,20 +5,19 @@ import {
   MicOff01Icon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
-import { useTrackToggle } from "@livekit/components-react"
 import { Button } from "@repo/ui/components/button"
 import { toast } from "@repo/ui/components/toast"
 import { Link } from "@tanstack/react-router"
-import { Track } from "livekit-client"
 import { useEffect, useRef } from "react"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import { CallChatUnreadBadge } from "@/components/voice/call-chat-unread-badge"
 import { useVoiceCall } from "@/context/voice-call-context"
 import { useCallChatPanel } from "@/hooks/use-call-chat-panel"
+import { useMicrophoneToggle } from "@/hooks/use-microphone-toggle"
 
 export function CallBar() {
   const { call, remoteCall, joining, join, leave } = useVoiceCall()
-  const microphone = useTrackToggle({ source: Track.Source.Microphone })
+  const microphone = useMicrophoneToggle()
   const chat = useCallChatPanel()
 
   // Leaving a live call ends access to its chat, so an open chat closes.

@@ -227,12 +227,20 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
   const leave = useCallback(async () => {
     const current = callRef.current
     setCall(null)
+    // Until the server's push lands, the cached call would read as "in a call
+    // on another device".
+    if (current) {
+      queryClient.setQueryData<VoiceCallState | null>(
+        VOICE_CALL_QUERY_KEY,
+        (cached) => (cached?.sessionId === current.sessionId ? null : cached)
+      )
+    }
     await room.disconnect()
     if (!current) return
     void apiClient.v1.voice.sessions[":sessionId"].leave
       .$post({ param: { sessionId: current.sessionId } })
       .catch(() => undefined)
-  }, [room])
+  }, [room, queryClient])
 
   // Closing the macOS window hides it; a hidden window must not keep the
   // microphone live.

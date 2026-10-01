@@ -33,6 +33,7 @@ import { ConnectionState, Track } from "livekit-client"
 import { CallChatUnreadBadge } from "@/components/voice/call-chat-unread-badge"
 import { useVoiceCall } from "@/context/voice-call-context"
 import { useCallChatPanel } from "@/hooks/use-call-chat-panel"
+import { useMicrophoneToggle } from "@/hooks/use-microphone-toggle"
 
 const canShareScreen =
   typeof navigator.mediaDevices?.getDisplayMedia === "function"
@@ -93,19 +94,7 @@ function CallChatButton() {
 export function CallControls() {
   const { leave, deafened, toggleDeafen, captionsOn, toggleCaptions } =
     useVoiceCall()
-  const microphone = useTrackToggle({
-    source: Track.Source.Microphone,
-    onDeviceError: reportDeviceError,
-  })
-  // Unmuting while deafened undeafens too, so the person can be heard back.
-  const toggleMicrophone = async () => {
-    if (deafened) {
-      await toggleDeafen()
-      await microphone.toggle(true)
-      return
-    }
-    await microphone.toggle()
-  }
+  const microphone = useMicrophoneToggle(reportDeviceError)
   const camera = useTrackToggle({
     source: Track.Source.Camera,
     onDeviceError: reportDeviceError,
@@ -133,7 +122,7 @@ export function CallControls() {
           variant={microphone.enabled ? "secondary" : "outline"}
           aria-label={microphone.enabled ? "Mute" : "Unmute"}
           disabled={microphone.pending}
-          onClick={() => void toggleMicrophone()}
+          onClick={() => void microphone.toggle()}
         >
           <HugeiconsIcon
             icon={microphone.enabled ? Mic01Icon : MicOff01Icon}

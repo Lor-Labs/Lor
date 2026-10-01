@@ -624,6 +624,19 @@ Design: the spec's "Lor in the call" section.
     falls back to the latest connection or leave and may end the session
     early.
   - The sweep and the join share one compare-and-set end (`endSession`).
+- 2026-10-01 — Review fixes (CodeRabbit, verified by hand):
+  - `reconcileSession` only clears connections older than its LiveKit
+    snapshot, so a join during the check isn't marked left.
+  - Call-mention pushes carry no `messageId`.
+  - Leaving clears the cached server call, so "In a call on another device"
+    doesn't flash.
+  - The sidebar call bar's mute button undeafens like the call controls (one
+    `useMicrophoneToggle` hook).
+  - The V0 mobile call screen drops a join that finishes after the screen
+    closes.
+  - Menu side tooltips also show on keyboard focus.
+  - Not changed: every transcript page returns all gaps by design; the client
+    reads them from the first page.
 
 ## Production setup (do once at launch)
 
