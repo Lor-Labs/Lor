@@ -211,6 +211,7 @@ export const joinVoiceChannel: AppRouteHandler<JoinVoiceChannelRoute> = async (
   }
 
   const session = await getOrCreateLiveSession(
+    livekit,
     { id: channel.id, workspaceId },
     currentUser.id
   )

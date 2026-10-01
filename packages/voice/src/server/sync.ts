@@ -34,6 +34,13 @@ async function listRoomIdentities(config: LiveKitConfig, sessionId: string) {
   }
 }
 
+// The last time anyone was known to be in the call: a connection, a leave,
+// or a transcriber renewal (it renews only while people are in the call).
+function lastPresence(times: (Date | null)[]) {
+  const known = times.flatMap((at) => (at ? [at.getTime()] : []))
+  return known.length > 0 ? new Date(Math.max(...known)) : undefined
+}
+
 // Makes the database match who LiveKit says is in the room, and returns how
 // many of the session's participants are connected.
 export async function reconcileSession(
@@ -41,13 +48,28 @@ export async function reconcileSession(
   sessionId: string
 ) {
   const inRoom = await listRoomIdentities(config, sessionId)
+  const [session] = await db
+    .select({ transcriberSeenAt: voiceSession.transcriberSeenAt })
+    .from(voiceSession)
+    .where(eq(voiceSession.id, sessionId))
+    .limit(1)
   const rows = await db
     .select({
       id: voiceSessionParticipant.id,
       connectedAt: voiceSessionParticipant.connectedAt,
+      lastLeftAt: voiceSessionParticipant.lastLeftAt,
     })
     .from(voiceSessionParticipant)
     .where(eq(voiceSessionParticipant.sessionId, sessionId))
+
+  // With nobody left in the room, the missed leaves happened at the last sign
+  // of presence, not now, so a long-abandoned session ends when it emptied.
+  const emptiedAt = rows.some((row) => inRoom.has(row.id))
+    ? undefined
+    : lastPresence([
+        session?.transcriberSeenAt ?? null,
+        ...rows.flatMap((row) => [row.connectedAt, row.lastLeftAt]),
+      ])
 
   let connected = 0
   for (const row of rows) {
@@ -58,10 +80,67 @@ export async function reconcileSession(
         await markParticipantConnected(sessionId, row.id, joinedAt)
       }
     } else if (row.connectedAt) {
-      await markParticipantLeft(sessionId, { participantId: row.id })
+      await markParticipantLeft(
+        sessionId,
+        { participantId: row.id },
+        { at: emptiedAt }
+      )
     }
   }
   return connected
+}
+
+// Compare-and-set: a rejoin since the read resets emptySince and wins.
+async function endSession(sessionId: string, emptySince: Date) {
+  const [row] = await db
+    .update(voiceSession)
+    .set({ endedAt: emptySince })
+    .where(
+      and(
+        eq(voiceSession.id, sessionId),
+        isNull(voiceSession.endedAt),
+        eq(voiceSession.emptySince, emptySince)
+      )
+    )
+    .returning({
+      workspaceId: voiceSession.workspaceId,
+      startedAt: voiceSession.startedAt,
+      transcriberJobId: voiceSession.transcriberJobId,
+      transcriberSeenAt: voiceSession.transcriberSeenAt,
+    })
+  if (!row) return false
+  // Lets open voice channel pages move the session into history.
+  notifyVoicePresence(row.workspaceId)
+  await recordMissedTranscriberAtEnd({
+    ...row,
+    id: sessionId,
+    endedAt: emptySince,
+  })
+  return true
+}
+
+// Before a join reuses a live session: catch leaves the webhook and audit
+// missed, and end the session if it has been empty past the grace period.
+// False means it ended, so the join starts a new session.
+export async function confirmLiveSession(
+  config: LiveKitConfig,
+  sessionId: string
+) {
+  if ((await reconcileSession(config, sessionId)) > 0) return true
+  const [row] = await db
+    .select({ emptySince: voiceSession.emptySince })
+    .from(voiceSession)
+    .where(and(eq(voiceSession.id, sessionId), isNull(voiceSession.endedAt)))
+    .limit(1)
+  if (!row) return false
+  const { emptySince } = row
+  if (
+    !emptySince ||
+    emptySince.getTime() > Date.now() - VOICE_SESSION_GRACE_MS
+  ) {
+    return true
+  }
+  return !(await endSession(sessionId, emptySince))
 }
 
 // Every 30s. Only sessions past the grace period reach LiveKit, once each, to
@@ -91,30 +170,7 @@ export async function endExpiredSessions(config: LiveKitConfig) {
           .where(eq(voiceSession.id, id))
         continue
       }
-      // Compare-and-set: a rejoin since the read resets emptySince and wins.
-      const [row] = await db
-        .update(voiceSession)
-        .set({ endedAt: emptySince })
-        .where(
-          and(
-            eq(voiceSession.id, id),
-            isNull(voiceSession.endedAt),
-            eq(voiceSession.emptySince, emptySince)
-          )
-        )
-        .returning({
-          id: voiceSession.id,
-          workspaceId: voiceSession.workspaceId,
-          startedAt: voiceSession.startedAt,
-          transcriberJobId: voiceSession.transcriberJobId,
-          transcriberSeenAt: voiceSession.transcriberSeenAt,
-        })
-      if (row) {
-        ended.push(row.id)
-        // Lets open voice channel pages move the session into history.
-        notifyVoicePresence(row.workspaceId)
-        await recordMissedTranscriberAtEnd({ ...row, endedAt: emptySince })
-      }
+      if (await endSession(id, emptySince)) ended.push(id)
     } catch (err) {
       failed.push({ sessionId: id, err })
     }

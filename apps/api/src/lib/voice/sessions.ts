@@ -9,7 +9,11 @@ import {
   schema,
 } from "@repo/db"
 import { MAX_CALL_PARTICIPANTS } from "@repo/voice"
-import { getRoomService, type LiveKitConfig } from "@repo/voice/server"
+import {
+  confirmLiveSession,
+  getRoomService,
+  type LiveKitConfig,
+} from "@repo/voice/server"
 import { logger } from "@/lib/logger"
 
 const { message, voiceSession, voiceSessionParticipant } = schema
@@ -40,15 +44,26 @@ async function findLiveSession(channelId: string) {
   return row ?? null
 }
 
+// A failed check keeps the session: a LiveKit hiccup shouldn't block joins.
+async function stillLive(livekit: LiveKitConfig, sessionId: string) {
+  try {
+    return await confirmLiveSession(livekit, sessionId)
+  } catch (err) {
+    logger.warn({ err, sessionId }, "voice: could not confirm live session")
+    return true
+  }
+}
+
 // One live session per channel (partial unique index). A new session starts
 // empty; the first LiveKit connection clears emptySince. The loser of a
 // concurrent first join adopts the winner's session.
 export async function getOrCreateLiveSession(
+  livekit: LiveKitConfig,
   channel: SessionChannel,
   userId: string
 ) {
   const existing = await findLiveSession(channel.id)
-  if (existing) return existing
+  if (existing && (await stillLive(livekit, existing.id))) return existing
 
   const now = new Date()
   try {

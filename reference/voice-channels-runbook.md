@@ -64,7 +64,7 @@ Before real team use:
 | Source of truth | Postgres owns sessions and participants. LiveKit webhooks and room APIs are reconciled into Postgres. A client leave request is a hint, never the authority. |
 | Session identity | The `voice_session` ID. The LiveKit room name is that ID; the room SID is transport detail. A rejoin inside the grace period reuses the room name, so LiveKit recreates the room if it already closed. |
 | One live session per channel | Partial unique index on `voice_session(channel_id) WHERE ended_at IS NULL`; get-or-create in one transaction. |
-| Session end | A new session starts empty (`emptySince = startedAt`); the first connection clears `emptySince`, and the last human out sets it. Webhooks drive these changes. A 30s maintenance sweep (`sweep-voice-sessions`) finds sessions empty longer than `VOICE_SESSION_GRACE_MS` (120,000), confirms with LiveKit once that the room is empty, then ends them by compare-and-set on `emptySince` (`endedAt = emptySince`). A 10-minute audit (`audit-voice-sessions`) reconciles occupied sessions. No per-session delayed jobs. LiveKit's server API allows 1,000 requests/minute per project, so only these two paths call it. |
+| Session end | A new session starts empty (`emptySince = startedAt`); the first connection clears `emptySince`, and the last human out sets it. Webhooks drive these changes. A 30s maintenance sweep (`sweep-voice-sessions`) finds sessions empty longer than `VOICE_SESSION_GRACE_MS` (120,000), confirms with LiveKit once that the room is empty, then ends them by compare-and-set on `emptySince` (`endedAt = emptySince`). A 10-minute audit (`audit-voice-sessions`) reconciles occupied sessions. A join also reconciles a live session before reusing it, and ends it if it has been empty past the grace period. When nobody is left in the room, missed leaves are dated to the last sign of presence (a connection, a leave, or a transcriber renewal), not to now. No per-session delayed jobs. LiveKit's server API allows 1,000 requests/minute per project, so only these paths and joins call it. |
 | Participant identity | One `voice_session_participant` row per person per session. Its ID is the LiveKit identity, reused for reconnects and transfers. Display names are never used to map speech to people. |
 | Transfer | "Transfer here" joins with the same identity; LiveKit disconnects the older connection, and that device shows where the call went. Verify the disconnect reason in V0. |
 | One call per person | Joining a different session removes the person's participant from the old one through the LiveKit room API before the new token is issued. |
@@ -609,6 +609,21 @@ Design: the spec's "Lor in the call" section.
     the transcript can both listen.
   - The Chat button in the call controls counts unread while the panel shows
     the transcript, and switches the panel to Chat.
+- 2026-10-01 — Stale sessions fixed (found in Jacob's testing). A call left
+  while the API and worker were stopped kept its session live overnight. The
+  next morning's join reused it, and the transcriber recorded a 15.5-hour
+  `no_transcriber` gap: the session predated the lease columns, and nobody
+  had been in the room. Fixes:
+  - A join reconciles a live session with LiveKit before reusing it
+    (`confirmLiveSession`). A session empty past the grace period ends there,
+    and the join starts a new one. A failed check keeps the session, so a
+    LiveKit error doesn't block joins.
+  - `reconcileSession` dates missed leaves to the last sign of presence when
+    nobody is left in the room, instead of to now. The transcriber's renewal
+    makes this accurate to about 30s; without a transcriber, the estimate
+    falls back to the latest connection or leave and may end the session
+    early.
+  - The sweep and the join share one compare-and-set end (`endSession`).
 
 ## Production setup (do once at launch)
 
