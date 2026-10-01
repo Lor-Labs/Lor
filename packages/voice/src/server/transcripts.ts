@@ -45,12 +45,48 @@ export async function recordCaptureGap(input: CaptureGapInput) {
   await db.insert(voiceCaptureGap).values(input)
 }
 
+// Everyone who joined the session, keyed by participant id, so live captions
+// from people who haven't spoken yet still get a name and avatar.
+async function listTranscriptParticipants(
+  sessionId: string,
+  workspaceId: string
+) {
+  return db
+    .select({
+      id: voiceSessionParticipant.id,
+      userId: voiceSessionParticipant.userId,
+      name: user.name,
+      image: user.image,
+      avatarColor: workspaceMember.avatarColor,
+    })
+    .from(voiceSessionParticipant)
+    .innerJoin(user, eq(user.id, voiceSessionParticipant.userId))
+    .leftJoin(
+      workspaceMember,
+      and(
+        eq(workspaceMember.userId, voiceSessionParticipant.userId),
+        eq(workspaceMember.workspaceId, workspaceId)
+      )
+    )
+    .where(eq(voiceSessionParticipant.sessionId, sessionId))
+}
+
 // Keyset pages in timeline order; `after` is the last segment id of the
 // previous page.
 export async function listTranscript(
   sessionId: string,
   options: { after?: string; limit: number }
 ) {
+  const [session] = await db
+    .select({
+      startedAt: voiceSession.startedAt,
+      workspaceId: voiceSession.workspaceId,
+    })
+    .from(voiceSession)
+    .where(eq(voiceSession.id, sessionId))
+    .limit(1)
+  if (!session) return null
+
   const [cursor] = options.after
     ? await db
         .select({
@@ -66,38 +102,30 @@ export async function listTranscript(
         )
         .limit(1)
     : []
-  if (options.after && !cursor)
-    return { segments: [], gaps: [], nextAfter: null }
+  const participants = await listTranscriptParticipants(
+    sessionId,
+    session.workspaceId
+  )
+  if (options.after && !cursor) {
+    return {
+      startedAt: session.startedAt.toISOString(),
+      participants,
+      segments: [],
+      gaps: [],
+      nextAfter: null,
+    }
+  }
 
   const rows = await db
     .select({
       id: voiceTranscriptSegment.id,
+      segmentId: voiceTranscriptSegment.segmentId,
       participantId: voiceTranscriptSegment.participantId,
       startMs: voiceTranscriptSegment.startMs,
       endMs: voiceTranscriptSegment.endMs,
       text: voiceTranscriptSegment.text,
-      userId: voiceSessionParticipant.userId,
-      name: user.name,
-      image: user.image,
-      avatarColor: workspaceMember.avatarColor,
     })
     .from(voiceTranscriptSegment)
-    .innerJoin(
-      voiceSessionParticipant,
-      eq(voiceSessionParticipant.id, voiceTranscriptSegment.participantId)
-    )
-    .innerJoin(user, eq(user.id, voiceSessionParticipant.userId))
-    .innerJoin(
-      voiceSession,
-      eq(voiceSession.id, voiceTranscriptSegment.sessionId)
-    )
-    .leftJoin(
-      workspaceMember,
-      and(
-        eq(workspaceMember.userId, voiceSessionParticipant.userId),
-        eq(workspaceMember.workspaceId, voiceSession.workspaceId)
-      )
-    )
     .where(
       and(
         eq(voiceTranscriptSegment.sessionId, sessionId),
@@ -125,19 +153,9 @@ export async function listTranscript(
     .orderBy(asc(voiceCaptureGap.startMs))
 
   return {
-    segments: page.map((row) => ({
-      id: row.id,
-      participantId: row.participantId,
-      speaker: {
-        userId: row.userId,
-        name: row.name,
-        image: row.image,
-        avatarColor: row.avatarColor,
-      },
-      startMs: row.startMs,
-      endMs: row.endMs,
-      text: row.text,
-    })),
+    startedAt: session.startedAt.toISOString(),
+    participants,
+    segments: page,
     gaps,
     nextAfter: rows.length > options.limit ? (page.at(-1)?.id ?? null) : null,
   }

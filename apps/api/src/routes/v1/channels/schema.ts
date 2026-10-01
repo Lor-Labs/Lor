@@ -101,6 +101,8 @@ export const listThreadRepliesResponseSchema =
   listMessagesResponseSchema.extend({
     root: messageWithAuthorSchema.nullable(),
     participants: z.array(threadParticipantSchema),
+    // Set on a call chat's first page, for its transcript.
+    voiceSessionId: z.string().uuid().nullable(),
   })
 
 // ── Pins ──────────────────────────────────────────

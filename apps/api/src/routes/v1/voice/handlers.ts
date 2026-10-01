@@ -134,20 +134,17 @@ export const getVoiceTranscript: AppRouteHandler<
   const access = scope
     ? await resolveChannelAccess(c.var.user.id, scope.channelId)
     : null
-  if (
-    !scope ||
-    !access?.ok ||
-    !(await canSeeSession(c.var.user.id, sessionId))
-  ) {
+  const transcript =
+    scope && access?.ok && (await canSeeSession(c.var.user.id, sessionId))
+      ? await listTranscript(sessionId, { after, limit })
+      : null
+  if (!transcript) {
     return c.json(
       { success: false as const, message: "Session not found" },
       HttpStatusCodes.NOT_FOUND
     )
   }
-  return c.json(
-    await listTranscript(sessionId, { after, limit }),
-    HttpStatusCodes.OK
-  )
+  return c.json(transcript, HttpStatusCodes.OK)
 }
 
 export const getVoicePresence: AppRouteHandler<GetVoicePresenceRoute> = async (

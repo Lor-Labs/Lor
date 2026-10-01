@@ -13,7 +13,7 @@ import {
 
 const STACK_LIMIT = 4
 
-function formatDuration(minutes: number) {
+export function formatDuration(minutes: number) {
   const rounded = Math.round(minutes)
   if (rounded < 1) return "Under a minute"
   if (rounded < 60) return `${rounded} min`
@@ -177,7 +177,7 @@ export function VoiceLobby({
   note: string | undefined
   onJoin: () => void
   openThreadRootId: string | null
-  onOpenSession: (threadRootId: string) => void
+  onOpenSession: (threadRootId: string, tab: "chat" | "transcript") => void
 }) {
   const {
     data,
@@ -223,6 +223,12 @@ export function VoiceLobby({
             <ul className="flex flex-col">
               {past.map((session) => {
                 const threadRootId = session.threadRootId
+                // The transcript is a call's main record; unread chat wins so
+                // the badge leads where it points.
+                const tab =
+                  session.unreadCount > 0 || session.mentionCount > 0
+                    ? "chat"
+                    : "transcript"
                 return (
                   <SessionRow
                     key={session.id}
@@ -231,7 +237,9 @@ export function VoiceLobby({
                       threadRootId !== null && threadRootId === openThreadRootId
                     }
                     onOpen={
-                      threadRootId ? () => onOpenSession(threadRootId) : null
+                      threadRootId
+                        ? () => onOpenSession(threadRootId, tab)
+                        : null
                     }
                   />
                 )

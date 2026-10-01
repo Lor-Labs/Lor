@@ -83,16 +83,22 @@ export const voiceTranscriptQuerySchema = z.object({
 })
 
 export const voiceTranscriptResponseSchema = z.object({
+  startedAt: z.string().datetime(),
+  participants: z.array(
+    z.object({
+      id: z.string().uuid(),
+      userId: z.string().uuid(),
+      name: z.string(),
+      image: z.string().nullable(),
+      avatarColor: z.string().nullable(),
+    })
+  ),
   segments: z.array(
     z.object({
       id: z.string().uuid(),
+      // Shared with the segment's live captions (`lk.segment_id`).
+      segmentId: z.string(),
       participantId: z.string().uuid(),
-      speaker: z.object({
-        userId: z.string().uuid(),
-        name: z.string(),
-        image: z.string().nullable(),
-        avatarColor: z.string().nullable(),
-      }),
       // Milliseconds from the session's start.
       startMs: z.number().int(),
       endMs: z.number().int(),

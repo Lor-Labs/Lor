@@ -274,6 +274,11 @@ Realtime, emitted from the API with the existing emitter
   segment ID and revision, record a gap, list a session's transcript.
 - API: a transcript read endpoint for late joiners and past sessions that
   follows the live-only rule.
+- Web transcript view: the call panel (right panel, titled "Call") has Chat
+  and Transcript tabs. Speaker blocks with avatar, name, and clock time; gaps
+  as "Not captured" dividers; live lines in the interim-to-final style after
+  the saved transcript. A past session opens on Transcript unless its chat
+  has unread messages or mentions.
 - Dispatch from the join token (`roomConfig.agents`), which fires when LiveKit
   creates the room. The 10-minute audit re-dispatches with `createDispatch`
   when a live room has no transcriber. Subscribe to human microphone tracks
@@ -587,6 +592,23 @@ Design: the spec's "Lor in the call" section.
     disconnects, and a client-side disconnect fires no participant-left
     events, so a drained or crashed job keeps its lease and the gap is
     recorded.
+- 2026-10-01 — V4 chunk 5 (web transcript view) built, as described in V4.
+  Details:
+  - The transcript response carries the session start, every participant
+    (so a live caption from someone who hasn't spoken yet still gets a name
+    and avatar), and each segment's `segmentId`, which matches its captions'
+    `lk.segment_id`. Live lines and saved segments merge on that ID.
+  - Thread replies return `voiceSessionId` on a call chat's first page, so
+    the panel finds the session from any entry point (lobby, URL, search,
+    notification).
+  - Deviation: the view loads every transcript page in the background
+    instead of on scroll, so a live transcript's newest lines are always
+    reachable. Live lines show only once all saved pages are in.
+  - LiveKit's `useTranscriptions` shares one text-stream handler per room and
+    topic (`setupTextStream` in components-core), so the captions overlay and
+    the transcript can both listen.
+  - The Chat button in the call controls counts unread while the panel shows
+    the transcript, and switches the panel to Chat.
 
 ## Production setup (do once at launch)
 

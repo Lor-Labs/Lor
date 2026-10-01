@@ -21,6 +21,7 @@ import {
 } from "@repo/ui/components/message-scroller"
 import { Skeleton } from "@repo/ui/components/skeleton"
 import { Spinner } from "@repo/ui/components/spinner"
+import { Tabs, TabsList, TabsTab } from "@repo/ui/components/tabs"
 import { anchoredToastManager, toast } from "@repo/ui/components/toast"
 import {
   differenceInMinutes,
@@ -65,7 +66,9 @@ import { TypingIndicator } from "@/components/chat/typing-indicator"
 import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-header"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import type { ThreadSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
+import { CallTranscript } from "@/components/voice/call-transcript"
 import { useSocket } from "@/context/socket-context"
+import { useVoiceCall } from "@/context/voice-call-context"
 import { usePlanForThread } from "@/hooks/use-channel-plans"
 import { useFileUpload } from "@/hooks/use-file-upload"
 import { useLorRunReplay } from "@/hooks/use-lor-stream"
@@ -138,7 +141,8 @@ function messageToMarkdown(message: Message, headingLevel: 2 | 3): string {
 }
 
 export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
-  const { consumeComposerDraft } = useRightSidebar()
+  const { consumeComposerDraft, setView } = useRightSidebar()
+  const { call } = useVoiceCall()
   const queryClient = useQueryClient()
   const socket = useSocket()
   const { data: session } = authClient.useSession()
@@ -235,6 +239,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
     messages,
     root: threadApiRoot,
     participants,
+    voiceSessionId,
     isLoading,
     fetchOlder,
     hasOlder,
@@ -249,6 +254,9 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
   })
 
   const rootMessage = threadApiRoot ?? channelCacheRoot
+  // A call chat's panel also holds the session transcript.
+  const showTranscript =
+    view.callTab === "transcript" && voiceSessionId !== null
 
   // An open panel means the thread is being read — advance the per-thread
   // read cursor on open and on every reply that lands while it's visible, so
@@ -256,11 +264,12 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
   const markThreadRead = useMarkThreadRead(view.workspaceSlug, view.channelId)
   const newestReplyId = messages[0]?.id ?? null
   useEffect(() => {
-    if (document.visibilityState !== "visible") return
+    if (document.visibilityState !== "visible" || showTranscript) return
     const timer = setTimeout(() => markThreadRead(view.threadRootId), 500)
     return () => clearTimeout(timer)
-  }, [view.threadRootId, newestReplyId, markThreadRead])
+  }, [view.threadRootId, newestReplyId, markThreadRead, showTranscript])
   useEffect(() => {
+    if (showTranscript) return
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible") {
         markThreadRead(view.threadRootId)
@@ -270,7 +279,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
     return () => {
       document.removeEventListener("visibilitychange", onVisibilityChange)
     }
-  }, [view.threadRootId, markThreadRead])
+  }, [view.threadRootId, markThreadRead, showTranscript])
 
   // MessageItem is memoized — keep the root message prop referentially
   // stable. A fresh `{ ...rootMessage, threadSummary: null }` spread on every
@@ -668,6 +677,49 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
     dividerCount !== undefined &&
     dividerCount > 0
 
+  const callTabs = voiceSessionId ? (
+    <Tabs
+      value={showTranscript ? "transcript" : "chat"}
+      onValueChange={(value) =>
+        setView({
+          ...view,
+          composerDraft: undefined,
+          callTab: value === "transcript" ? "transcript" : "chat",
+        })
+      }
+    >
+      <TabsList
+        variant="underline"
+        className="w-full justify-start border-b border-border/60 px-1.5"
+      >
+        <TabsTab value="chat" className="grow-0">
+          Chat
+        </TabsTab>
+        <TabsTab value="transcript" className="grow-0">
+          Transcript
+        </TabsTab>
+      </TabsList>
+    </Tabs>
+  ) : null
+
+  if (showTranscript && voiceSessionId) {
+    return (
+      <div className="@container relative flex h-full w-full flex-col">
+        <RightPanelHeader
+          title="Call"
+          workspaceSlug={view.workspaceSlug}
+          channelId={view.channelId}
+          className="border-b-0"
+        />
+        {callTabs}
+        <CallTranscript
+          sessionId={voiceSessionId}
+          live={call?.sessionId === voiceSessionId}
+        />
+      </div>
+    )
+  }
+
   return (
     <div
       {...getRootProps()}
@@ -675,7 +727,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
     >
       <DropZoneOverlay isDragActive={isDragActive} />
       <RightPanelHeader
-        title={isPlan ? "Plan" : isCallChat ? "Call chat" : "Thread"}
+        title={isPlan ? "Plan" : isCallChat ? "Call" : "Thread"}
         workspaceSlug={view.workspaceSlug}
         channelId={view.channelId}
         titleAdornment={
@@ -694,7 +746,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
             </span>
           ) : undefined
         }
-        className={showWorkHeader ? "border-b-0" : undefined}
+        className={showWorkHeader || callTabs ? "border-b-0" : undefined}
         actions={
           <>
             <ThreadSubscriberStack subscribers={participants} />
@@ -731,6 +783,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
           </>
         }
       />
+      {callTabs}
 
       {showWorkHeader && (
         <ThreadWorkHeader

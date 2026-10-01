@@ -1056,7 +1056,7 @@ export const listThreadReplies: AppRouteHandler<
   // The root is fetched as a single channel-level message (around + limit 1)
   // so the panel can show it even when it's scrolled out of the channel feed.
   const isInitialPage = !before && !after
-  const [replies, rootResult, participantRows, planCreatorRow] =
+  const [replies, rootResult, participantRows, planCreatorRow, voiceSessionId] =
     await Promise.all([
       fetchMessages({
         channelId,
@@ -1123,6 +1123,14 @@ export const listThreadReplies: AppRouteHandler<
             .limit(1)
             .then((rows) => rows[0] ?? null)
         : Promise.resolve(null),
+      isInitialPage && root.type === "voice_session"
+        ? db
+            .select({ id: schema.voiceSession.id })
+            .from(schema.voiceSession)
+            .where(eq(schema.voiceSession.threadRootId, messageId))
+            .limit(1)
+            .then((rows) => rows[0]?.id ?? null)
+        : Promise.resolve(null),
     ])
 
   const participants = new Map(
@@ -1135,6 +1143,7 @@ export const listThreadReplies: AppRouteHandler<
       ...replies,
       root: rootResult?.data[0] ?? null,
       participants: [...participants.values()],
+      voiceSessionId,
     },
     HttpStatusCodes.OK
   )

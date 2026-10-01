@@ -1,7 +1,25 @@
-import { useParticipants, useTranscriptions } from "@livekit/components-react"
+import {
+  type TextStreamData,
+  useParticipants,
+  useTranscriptions,
+} from "@livekit/components-react"
 import { cn } from "@repo/ui/lib/utils"
 import { CAPTION_ATTRIBUTES } from "@repo/voice"
 import { useEffect, useState } from "react"
+
+// Each update is a new stream; the segment id keeps the line stable and
+// matches the saved transcript segment.
+export function captionLine(transcription: TextStreamData) {
+  const attributes = transcription.streamInfo.attributes
+  return {
+    id:
+      attributes?.[CAPTION_ATTRIBUTES.segmentId] ?? transcription.streamInfo.id,
+    participantId: transcription.participantInfo.identity,
+    text: transcription.text,
+    final: attributes?.[CAPTION_ATTRIBUTES.final] === "true",
+    updatedAt: transcription.streamInfo.timestamp,
+  }
+}
 
 const MAX_LINES = 3
 // A finished line stays up briefly; an interim line whose final never came
@@ -28,18 +46,10 @@ export function CallCaptions() {
     ])
   )
   const lines = transcriptions
-    .map((transcription) => ({
-      // Each update is a new stream; the segment id keeps the line stable.
-      id:
-        transcription.streamInfo.attributes?.[CAPTION_ATTRIBUTES.segmentId] ??
-        transcription.streamInfo.id,
-      name: names.get(transcription.participantInfo.identity) ?? "Someone",
-      text: transcription.text,
-      final:
-        transcription.streamInfo.attributes?.[CAPTION_ATTRIBUTES.final] ===
-        "true",
-      updatedAt: transcription.streamInfo.timestamp,
-    }))
+    .map((transcription) => {
+      const line = captionLine(transcription)
+      return { ...line, name: names.get(line.participantId) ?? "Someone" }
+    })
     .filter(
       (line) =>
         now - line.updatedAt <

@@ -26,6 +26,7 @@ export type ThreadPage = {
   // even when it's scrolled out of the channel feed.
   root?: Message | null
   participants?: ThreadParticipant[]
+  voiceSessionId?: string | null
 }
 
 export type ThreadParticipant = Pick<
@@ -249,6 +250,7 @@ export function useThreadMessages({
     messages,
     root,
     participants,
+    voiceSessionId: query.data?.pages[0]?.voiceSessionId ?? null,
     isLoading: query.isPending,
     isError: query.isError,
     error: query.error,

@@ -12,6 +12,8 @@ export type ThreadSidebarView = {
   /** Message to reveal when the thread was opened from search or a citation. */
   targetMessageId?: string
   composerDraft?: { id: string; text: string }
+  /** A voice session's panel: its chat (the default) or its transcript. */
+  callTab?: "chat" | "transcript"
 }
 
 export type AttachmentsSidebarView = {

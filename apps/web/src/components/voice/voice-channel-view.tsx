@@ -46,8 +46,11 @@ export function VoiceChannelView({
   const { view, setView, isCollapsed, toggleCollapsed } = useRightSidebar()
   const openThreadRootId =
     view?.type === "thread" && !isCollapsed ? view.threadRootId : null
-  const openSessionChat = (threadRootId: string) => {
-    setView({ type: "thread", workspaceSlug, channelId, threadRootId })
+  const openSession = (
+    threadRootId: string,
+    callTab: "chat" | "transcript"
+  ) => {
+    setView({ type: "thread", workspaceSlug, channelId, threadRootId, callTab })
     if (isCollapsed) toggleCollapsed()
   }
 
@@ -133,7 +136,7 @@ export function VoiceChannelView({
           note={note}
           onJoin={() => void handleJoin()}
           openThreadRootId={openThreadRootId}
-          onOpenSession={openSessionChat}
+          onOpenSession={openSession}
         />
       )}
     </div>
