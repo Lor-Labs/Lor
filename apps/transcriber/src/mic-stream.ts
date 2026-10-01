@@ -19,6 +19,12 @@ const FINISH_TIMEOUT_MS = 3_000
 const SAMPLE_RATE = 16_000
 
 export type Caption = { segmentId: string; text: string; final: boolean }
+export type HeardLine = {
+  text: string
+  final: boolean
+  startMs: number
+  endMs: number
+}
 
 type MicStreamInput = {
   sessionId: string
@@ -28,6 +34,8 @@ type MicStreamInput = {
   speech: deepgram.STT
   sessionStartedAt: Date
   publishCaption: (caption: Caption) => Promise<void>
+  // Every interim and final line, for address detection.
+  onHeard: (line: HeardLine) => void
   // Seconds of audio sent to Deepgram, reported every few seconds.
   onAudioSent: (seconds: number) => void
 }
@@ -120,7 +128,10 @@ export class MicStream {
         if (!alternative || !text) continue
         this.#segmentId ??= randomUUID()
         const segmentId = this.#segmentId
+        const startMs = Math.round(alternative.startTime * 1000)
+        const endMs = Math.round(alternative.endTime * 1000)
         this.#caption({ segmentId, text, final })
+        this.#input.onHeard({ text, final, startMs, endMs })
         if (!final) continue
         this.#segmentId = null
         await this.#save({
@@ -128,8 +139,8 @@ export class MicStream {
           participantId: this.#input.participantId,
           trackId: this.#input.trackId,
           segmentId,
-          startMs: Math.round(alternative.startTime * 1000),
-          endMs: Math.round(alternative.endTime * 1000),
+          startMs,
+          endMs,
           text,
           provider: STT_PROVIDER,
           model: STT_MODEL,

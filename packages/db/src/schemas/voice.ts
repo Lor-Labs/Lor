@@ -3,6 +3,7 @@ import {
   foreignKey,
   index,
   integer,
+  jsonb,
   pgEnum,
   pgTable,
   text,
@@ -10,6 +11,7 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core"
+import { agentRun } from "./agent-runs"
 import { channel } from "./channels"
 import { message } from "./messages"
 import { user } from "./users"
@@ -175,6 +177,97 @@ export const voiceCaptureGap = pgTable(
   ]
 )
 
+export const voiceRequestStatusEnum = pgEnum("voice_request_status", [
+  // The name gate matched; waiting for the speaker to finish and for Jev.
+  "listening",
+  // Not a request to Lor, or the address check failed closed.
+  "rejected",
+  // Accepted; waiting for its run.
+  "queued",
+  "working",
+  "done",
+  "failed",
+  "cancelled",
+])
+
+// One answer from Jev, the address check. Kept on the request for tuning.
+export type VoiceRequestCheck = {
+  model: string
+  latencyMs: number
+} & (
+  | {
+      addressed: number
+      kind: "request" | "mention" | "continuation"
+      kindConfidence: number
+      complete: number
+    }
+  | { error: string }
+)
+
+// Something said to Lor in a call: who said it, what was heard, and how
+// address detection decided. Rejected rows stay, so false triggers can be
+// tuned.
+export const voiceRequest = pgTable(
+  "voice_request",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at")
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => voiceSession.id, { onDelete: "cascade" }),
+    participantId: uuid("participant_id").notNull(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    heardText: text("heard_text").notNull(),
+    // Span of the heard text on the session timeline.
+    startMs: integer("start_ms").notNull(),
+    endMs: integer("end_ms").notNull(),
+    // Whether the gate matched "Lor" itself or a word it's misheard as.
+    gate: text("gate").$type<"name" | "homophone">().notNull(),
+    status: voiceRequestStatusEnum("status").default("listening").notNull(),
+    checks: jsonb("checks").$type<VoiceRequestCheck[]>().notNull().default([]),
+    runId: uuid("run_id").references(() => agentRun.id, {
+      onDelete: "set null",
+    }),
+    cancelledById: uuid("cancelled_by_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    finishedAt: timestamp("finished_at"),
+  },
+  (table) => [
+    // Explicit name: the auto-generated one exceeds Postgres's 63-byte limit.
+    foreignKey({
+      columns: [table.participantId],
+      foreignColumns: [voiceSessionParticipant.id],
+      name: "voice_request_participant_fk",
+    }).onDelete("cascade"),
+    index("voice_request_sessionId_createdAt_idx").on(
+      table.sessionId,
+      table.createdAt
+    ),
+  ]
+)
+
+export const voiceRequestRelations = relations(voiceRequest, ({ one }) => ({
+  session: one(voiceSession, {
+    fields: [voiceRequest.sessionId],
+    references: [voiceSession.id],
+  }),
+  participant: one(voiceSessionParticipant, {
+    fields: [voiceRequest.participantId],
+    references: [voiceSessionParticipant.id],
+  }),
+  run: one(agentRun, {
+    fields: [voiceRequest.runId],
+    references: [agentRun.id],
+  }),
+}))
+
 export const voiceSessionRelations = relations(
   voiceSession,
   ({ one, many }) => ({
@@ -193,6 +286,7 @@ export const voiceSessionRelations = relations(
     participants: many(voiceSessionParticipant),
     transcriptSegments: many(voiceTranscriptSegment),
     captureGaps: many(voiceCaptureGap),
+    requests: many(voiceRequest),
   })
 )
 
@@ -249,3 +343,5 @@ export type NewVoiceTranscriptSegment =
   typeof voiceTranscriptSegment.$inferInsert
 export type VoiceCaptureGap = typeof voiceCaptureGap.$inferSelect
 export type NewVoiceCaptureGap = typeof voiceCaptureGap.$inferInsert
+export type VoiceRequest = typeof voiceRequest.$inferSelect
+export type NewVoiceRequest = typeof voiceRequest.$inferInsert

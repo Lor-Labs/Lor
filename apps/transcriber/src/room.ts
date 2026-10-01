@@ -24,6 +24,7 @@ import {
   TRANSCRIBER_HEARTBEAT_MS,
 } from "@repo/voice/server"
 import { logger } from "./logger"
+import { LorListener } from "./lor-listener"
 import { type Caption, MicStream, STT_MODEL } from "./mic-stream"
 
 const UUID_PATTERN =
@@ -98,6 +99,7 @@ export async function transcribeRoom(ctx: JobContext, deepgramApiKey: string) {
   })
   const streams = new Map<string, MicStream>()
   const finishing = new Set<Promise<void>>()
+  const listener = new LorListener(sessionId)
   let audioSeconds = 0
   const sessionMs = () => Date.now() - session.startedAt.getTime()
 
@@ -124,6 +126,12 @@ export async function transcribeRoom(ctx: JobContext, deepgramApiKey: string) {
       sessionStartedAt: session.startedAt,
       publishCaption: (caption) =>
         publishCaption(ctx.room, participant.identity, trackId, caption),
+      onHeard: (line) =>
+        listener.hear(
+          participant.identity,
+          participant.name || "Someone",
+          line
+        ),
       onAudioSent: (seconds) => {
         audioSeconds += seconds
       },
@@ -217,6 +225,7 @@ export async function transcribeRoom(ctx: JobContext, deepgramApiKey: string) {
     clearTimeout(leaveTimer)
     for (const trackId of [...streams.keys()]) close(trackId)
     await Promise.all(finishing)
+    await listener.close()
     await speech.close()
     // Compare with Deepgram's billed minutes for the call.
     logger.info(

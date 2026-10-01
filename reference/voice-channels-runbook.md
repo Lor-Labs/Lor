@@ -362,6 +362,39 @@ Design: the spec's "Lor in the call" section.
   "Show on stage".
 - Past sessions: Chat, Lor, and Transcript tabs.
 
+Chunks (planned 2026-10-01):
+
+1. [x] Address detection: the `voice_request` table, the name gate, the Jev
+   check, and the transcriber's listener. **db:push owed.**
+2. [ ] Lor's window on web, listening and rejected states: realtime request
+   events to the session thread room, a request list endpoint for late
+   joiners, Cancel.
+3. [ ] Runs: the worker runs an accepted request as the speaker, with its
+   context and a stage tool that sets the typed result (`answer` | `cards`).
+   Thinking and answer states in the window.
+4. [ ] Cards: Linear issues and GitHub pull requests.
+5. [ ] The Lor tab and "Show on stage"; past sessions get Chat, Lor, and
+   Transcript tabs.
+6. [ ] Approvals inside a voice request.
+
+As built, chunk 1:
+
+- Jev over HTTP (`packages/voice/src/server/address.ts`): `POST
+  https://ai-gateway.vercel.sh/typesafe/v1/systemone`, model
+  `typesafe-ai/jev`, Bearer `AI_GATEWAY_API_KEY`, 3s timeout. Verified live
+  2026-10-01 (270–400ms). No `ai` bump.
+- Thresholds from sampled lines: accept when addressed ≥ 0.5, the kind is
+  `request` or `continuation`, and complete ≥ 0.5. Addressed but incomplete
+  waits up to 4s for the speaker to go on, at most 3 checks.
+- The transcriber's `LorListener` (`apps/transcriber/src/lor-listener.ts`)
+  gates final lines, keeps one pending request per speaker, and asks Jev once
+  nothing new is heard from the speaker for 900ms (interim lines count as
+  speech). Deepgram's own end of speech fires after 25ms of silence, which is
+  too short. Jev gets the last 12 lines as context.
+- `voice_request` keeps every check (probabilities, latency, model) and
+  whether the gate matched "Lor" or a homophone. Logs carry the request ID and
+  the check, never the heard text.
+
 ---
 
 ### [ ] V6 — iPhone app
