@@ -146,6 +146,11 @@ const serverSchema = z.object({
     blankToUndefined,
     z.string().min(1).optional()
   ),
+  // Voice transcription (apps/transcriber only).
+  DEEPGRAM_API_KEY: z.preprocess(
+    blankToUndefined,
+    z.string().min(1).optional()
+  ),
   LOR_WORKBENCH_MEMORY_MB: z.coerce.number().int().positive().default(4096),
   // Disk-backed /workspace volume for clones, dependencies, caches, and outputs.
   LOR_WORKBENCH_DISK_MB: z.coerce.number().int().positive().default(8192),

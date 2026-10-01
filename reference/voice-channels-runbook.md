@@ -47,8 +47,9 @@ Before V1:
 Before V4 live testing:
 
 - [ ] Create a Deepgram account and put `DEEPGRAM_API_KEY` in the root `.env`.
-- [ ] Add a Railway service for `apps/transcriber` with the `LIVEKIT_*` vars,
-      `DEEPGRAM_API_KEY`, `DATABASE_URL`, and `REDIS_URL`.
+- [ ] Add a Railway service built from `apps/transcriber/Dockerfile` (repo root
+      as the build context). Give it the worker's variables, because
+      `@repo/env` validates the full server schema, plus `DEEPGRAM_API_KEY`.
 
 Before real team use:
 
@@ -259,9 +260,12 @@ Realtime, emitted from the API with the existing emitter
   `@livekit/agents` worker, self-hosted on Railway, Node runtime (the native
   `@livekit/rtc-node` module rules out Bun). No `AgentSession`: each job
   manages its own speech-to-text streams.
-- New `apps/transcriber` with agent name `lor-transcriber`; shared code from
-  `packages/voice`. It writes to Postgres and the Socket.IO emitter directly,
-  like the worker, so there's no ingestion API.
+- New `apps/transcriber` with agent name `lor-transcriber` (`lor-transcriber-dev`
+  outside production, so a laptop sharing production's LiveKit project never
+  takes production calls); shared code from `packages/voice`. It writes to
+  Postgres and the Socket.IO emitter directly, like the worker, so there's no
+  ingestion API. It runs TypeScript through `node --import tsx`; the agents
+  SDK passes that loader to each call's child process.
 - Schema in `voice.ts`: `voice_transcript_segment` (session, participant,
   track, start/end offsets on the session timeline, final text, segment ID and
   revision, provider and model) and `voice_capture_gap` (session, participant,

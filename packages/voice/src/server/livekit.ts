@@ -1,10 +1,13 @@
 import { env } from "@repo/env/server"
 import {
   AccessToken,
+  RoomAgentDispatch,
+  RoomConfiguration,
   RoomServiceClient,
   ServerError,
   WebhookReceiver,
 } from "livekit-server-sdk"
+import { TRANSCRIBER_AGENT_NAME } from "../index"
 
 export type LiveKitConfig = {
   url: string
@@ -20,6 +23,14 @@ export function getLiveKitConfig(): LiveKitConfig | null {
     apiKey: LIVEKIT_API_KEY,
     apiSecret: LIVEKIT_API_SECRET,
   }
+}
+
+// Laptops may share production's LiveKit project, so a local transcriber
+// registers, and local tokens dispatch, under a separate agent name.
+export function transcriberAgentName() {
+  return env.NODE_ENV === "production"
+    ? TRANSCRIBER_AGENT_NAME
+    : `${TRANSCRIBER_AGENT_NAME}-dev`
 }
 
 export function getRoomService(config: LiveKitConfig) {
@@ -55,6 +66,10 @@ export function createJoinToken(
     roomJoin: true,
     canPublish: true,
     canSubscribe: true,
+  })
+  // LiveKit applies this only when the token's join creates the room.
+  token.roomConfig = new RoomConfiguration({
+    agents: [new RoomAgentDispatch({ agentName: transcriberAgentName() })],
   })
   return token.toJwt()
 }
