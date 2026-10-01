@@ -17,6 +17,10 @@ import { Spinner } from "@repo/ui/components/spinner"
 import { Switch } from "@repo/ui/components/switch"
 import { toast } from "@repo/ui/components/toast"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  SettingsGroup,
+  SettingsSection,
+} from "@/components/workspace/settings-group"
 import { useWorkspaceRoles } from "@/hooks/use-workspace-roles"
 import { apiClient } from "@/lib/api-client"
 import type { ApprovalPolicy, ApprovalTarget } from "@/lib/api-types"
@@ -181,27 +185,33 @@ export function ApprovalsSection({
   }))
 
   const busy = upsert.isPending || remove.isPending
+  const groups = GROUP_ORDER.map((group) => ({
+    group,
+    targets: data.targets.filter((t) => t.group === group),
+  })).filter(({ targets }) => targets.length > 0)
 
   return (
-    <div className="space-y-6">
-      <div className="space-y-1 text-sm text-muted-foreground">
-        <p>
-          By default, Lor acts on its own. Turn something on here and it will
-          ask first — the action waits until someone approves it.
-        </p>
-        <p className="text-xs">
-          You choose who can approve: anyone, a role, or a specific person.
-        </p>
-      </div>
-      {GROUP_ORDER.map((group) => {
-        const targets = data.targets.filter((t) => t.group === group)
-        if (targets.length === 0) return null
+    <div className="space-y-8">
+      <p className="px-4 text-sm text-muted-foreground">
+        By default, Lor acts on its own. Turn an action on here and Lor asks
+        first. The action waits until someone approves it.
+      </p>
+      {groups.map(({ group, targets }) => {
+        const gated = targets.filter((t) => policyByTarget.has(t.key)).length
         return (
-          <div key={group} className="space-y-2">
-            <h3 className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
-              {GROUP_TITLES[group]}
-            </h3>
-            <div className="divide-y divide-border/60 rounded-lg border border-border">
+          <SettingsSection
+            key={group}
+            title={GROUP_TITLES[group]}
+            count={targets.length}
+            action={
+              gated > 0 && (
+                <span className="text-xs text-muted-foreground">
+                  {gated} on
+                </span>
+              )
+            }
+          >
+            <SettingsGroup>
               {targets.map((target) => {
                 const policy = policyByTarget.get(target.key)
                 const switchId = `approval-gate-${target.key}`
@@ -218,20 +228,40 @@ export function ApprovalsSection({
                   })
                 }
                 return (
-                  <div
-                    key={target.key}
-                    className="flex items-center justify-between gap-4 p-3"
-                  >
-                    <div className="min-w-0">
-                      <Label htmlFor={switchId} className="text-sm">
-                        {target.label}
-                      </Label>
-                      <p className="text-muted-foreground text-xs">
-                        {target.description}
-                      </p>
+                  <div key={target.key} className="space-y-2.5 py-3">
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="min-w-0">
+                        <Label htmlFor={switchId} className="text-sm">
+                          {target.label}
+                        </Label>
+                        <p
+                          className="line-clamp-2 text-sm text-muted-foreground"
+                          title={target.description}
+                        >
+                          {target.description}
+                        </p>
+                      </div>
+                      <Switch
+                        id={switchId}
+                        checked={!!policy}
+                        disabled={busy}
+                        onCheckedChange={(checked) => {
+                          if (checked) {
+                            upsert.mutate({
+                              target: target.key,
+                              resolverKind: "any_member",
+                            })
+                          } else if (policy) {
+                            remove.mutate(policy.id)
+                          }
+                        }}
+                      />
                     </div>
-                    <div className="flex shrink-0 items-center gap-2">
-                      {policy && (
+                    {policy && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground">
+                          Who can approve
+                        </span>
                         <DropdownMenu>
                           <DropdownMenuTrigger
                             disabled={busy}
@@ -240,7 +270,7 @@ export function ApprovalsSection({
                           >
                             {resolverLabel}
                           </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="w-56">
+                          <DropdownMenuContent align="start" className="w-56">
                             <DropdownMenuRadioGroup
                               value={value}
                               onValueChange={setResolver}
@@ -285,28 +315,13 @@ export function ApprovalsSection({
                             </DropdownMenuSub>
                           </DropdownMenuContent>
                         </DropdownMenu>
-                      )}
-                      <Switch
-                        id={switchId}
-                        checked={!!policy}
-                        disabled={busy}
-                        onCheckedChange={(checked) => {
-                          if (checked) {
-                            upsert.mutate({
-                              target: target.key,
-                              resolverKind: "any_member",
-                            })
-                          } else if (policy) {
-                            remove.mutate(policy.id)
-                          }
-                        }}
-                      />
-                    </div>
+                      </div>
+                    )}
                   </div>
                 )
               })}
-            </div>
-          </div>
+            </SettingsGroup>
+          </SettingsSection>
         )
       })}
     </div>

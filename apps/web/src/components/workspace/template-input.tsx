@@ -596,7 +596,7 @@ export function TemplateInput({
   return (
     <div
       className={cn(
-        "relative w-full min-w-0 cursor-text rounded-md border border-input bg-transparent px-2.5 py-1.5 font-mono text-xs shadow-xs transition-shadow focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/30",
+        "relative w-full min-w-0 cursor-text rounded-lg border border-input bg-background px-2.5 py-1.5 font-mono text-xs shadow-xs transition-shadow focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/30 dark:bg-input/32",
         className
       )}
     >

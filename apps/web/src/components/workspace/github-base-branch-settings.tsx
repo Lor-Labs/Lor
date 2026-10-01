@@ -88,11 +88,8 @@ export function GithubBaseBranchSettings({
   }
 
   return (
-    <div className="mt-3 space-y-2 border-border/60 border-t pt-3">
-      <div className="text-xs font-medium text-muted-foreground">
-        Pull request base branch
-      </div>
-      <p className="text-xs text-muted-foreground/80">
+    <div className="space-y-2">
+      <p className="text-xs text-muted-foreground">
         Lor opens draft pull requests against each repository's default branch.
         Pick a repository to target a different branch instead.
       </p>

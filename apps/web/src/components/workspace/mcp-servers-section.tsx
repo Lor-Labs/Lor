@@ -1,6 +1,7 @@
 import {
-  ArrowDown01Icon,
+  ArrowRight01Icon,
   CloudServerIcon,
+  Delete02Icon,
   PlusSignIcon,
   RotateClockwiseIcon,
 } from "@hugeicons/core-free-icons"
@@ -31,8 +32,17 @@ import { toast } from "@repo/ui/components/toast"
 import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useSearch } from "@tanstack/react-router"
-import { useEffect, useRef, useState } from "react"
+import { type ReactNode, useEffect, useRef, useState } from "react"
 import { PasswordInput } from "@/components/auth/password-input"
+import {
+  IconTile,
+  PILL_BUTTON,
+  SettingsBackButton,
+  SettingsCard,
+  SettingsCardButton,
+  SettingsGroup,
+  SettingsSection,
+} from "@/components/workspace/settings-group"
 import {
   type PlaceholderItem,
   TemplateInput,
@@ -290,18 +300,19 @@ function PairRows({
           <Button
             type="button"
             variant="ghost"
-            size="sm"
-            className="shrink-0 text-muted-foreground"
+            size="icon-xs"
+            aria-label="Remove row"
             onClick={() => onChange(pairs.filter((_, j) => j !== i))}
           >
-            Remove
+            <HugeiconsIcon icon={Delete02Icon} strokeWidth={2} />
           </Button>
         </div>
       ))}
       <Button
         type="button"
-        variant="outline"
+        variant="ghost"
         size="sm"
+        className="h-7 px-2 text-xs text-muted-foreground"
         onClick={() => onChange([...pairs, { name: "", value: "" }])}
       >
         <HugeiconsIcon
@@ -458,6 +469,8 @@ function ServerEditor({
   onDisconnectOAuth,
   onSave,
   onCancel,
+  onDelete,
+  deleting,
 }: {
   draft: ServerDraft
   setDraft: (update: (d: ServerDraft) => ServerDraft) => void
@@ -475,6 +488,8 @@ function ServerEditor({
   onDisconnectOAuth: () => void
   onSave: () => void
   onCancel: () => void
+  onDelete?: () => void
+  deleting?: boolean
 }) {
   const invalidSecretNames = draft.newSecrets
     .map((s) => s.name.trim())
@@ -542,206 +557,254 @@ function ServerEditor({
     !discovering &&
     !oauthBusy
 
+  const discoverLabel = draft.discovered
+    ? "Refresh tools"
+    : isOAuth
+      ? "Review tools"
+      : "Connect & discover"
+  const completeLabel =
+    server?.oauthStatus === "connected"
+      ? "Save tool access"
+      : "Enable selected tools"
+  let footerHint: string | null = null
+  if (!isOAuth && draft.enabled.size === 0) {
+    footerHint = "Connect and enable at least one tool to save."
+  } else if (isOAuth && !server) {
+    footerHint = "Saving continues to the shared-account confirmation."
+  }
+
   return (
-    <div className="space-y-4">
-      <div className="space-y-1.5">
-        <Label className="text-xs">Name</Label>
-        <Input
-          value={draft.name}
-          maxLength={80}
-          placeholder="Sentry MCP"
-          onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
-        />
-      </div>
-
-      <div className="space-y-1.5">
-        <Label className="text-xs">
-          Description — when should Lor use this?
-        </Label>
-        <Textarea
-          value={draft.description}
-          maxLength={500}
-          placeholder="Our production Postgres — use for questions about signups, usage, and billing data. The server describes its own tools; this says what the connection is for."
-          className="min-h-14 text-xs"
-          rows={2}
-          onChange={(e) =>
-            setDraft((d) => ({ ...d, description: e.target.value }))
-          }
-        />
-      </div>
-
-      <div className="space-y-1.5">
-        <Label className="text-xs">Server URL</Label>
-        <Input
-          value={draft.url}
-          maxLength={2048}
-          placeholder="https://mcp.example.com/mcp"
-          className="font-mono text-xs"
-          onChange={(e) => setDraft((d) => ({ ...d, url: e.target.value }))}
-        />
-      </div>
-
-      <div className="space-y-2">
-        <Label className="text-xs">Authentication</Label>
-        {server ? (
-          <div className="flex items-center justify-between rounded-lg border border-border bg-background px-3 py-2.5">
-            <div>
-              <div className="text-xs font-medium">
-                {isOAuth ? "OAuth" : "Headers / API key"}
-              </div>
-              <div className="mt-0.5 text-[11px] text-muted-foreground">
-                Authentication type is fixed after the server is created.
-              </div>
-            </div>
-            {isOAuth && (
-              <Badge variant={oauthStatusVariant(server.oauthStatus)} size="sm">
-                {oauthStatusLabel(server.oauthStatus)}
-              </Badge>
-            )}
-          </div>
-        ) : (
-          <div
-            role="radiogroup"
-            aria-label="Authentication method"
-            className="grid grid-cols-1 gap-2 sm:grid-cols-2"
-          >
-            {(
-              [
-                {
-                  value: "static" as const,
-                  title: "Headers / API key",
-                  description: "No sign-in, or credentials sent as headers.",
-                },
-                {
-                  value: "oauth" as const,
-                  title: "OAuth",
-                  description: "One shared account for assigned channels.",
-                },
-              ] as const
-            ).map((option) => {
-              const selected = draft.authMode === option.value
-              return (
-                <label
-                  key={option.value}
-                  className={cn(
-                    "cursor-pointer rounded-lg border px-3 py-2.5 text-left transition-colors active:scale-[0.99] focus-within:ring-2 focus-within:ring-ring",
-                    selected
-                      ? "border-primary bg-primary/5"
-                      : "border-border bg-background hover:border-foreground/20"
-                  )}
-                >
-                  <input
-                    type="radio"
-                    name="mcp-auth-mode"
-                    value={option.value}
-                    checked={selected}
-                    className="sr-only"
-                    onChange={() =>
-                      setDraft((d) => ({
-                        ...d,
-                        authMode: option.value,
-                        discovered: null,
-                        enabled: new Set(),
-                        headers:
-                          option.value === "oauth"
-                            ? d.headers.filter(
-                                (header) =>
-                                  header.name.trim().toLowerCase() !==
-                                  "authorization"
-                              )
-                            : d.headers,
-                      }))
-                    }
-                  />
-                  <span className="block text-xs font-medium">
-                    {option.title}
-                  </span>
-                  <span className="mt-0.5 block text-[11px] leading-snug text-muted-foreground">
-                    {option.description}
-                  </span>
-                </label>
-              )
-            })}
-          </div>
-        )}
-      </div>
-
-      {isOAuth && (
-        <OAuthConnectionPanel
-          server={server}
-          authorizationOpened={authorizationOpened}
-          busy={busy || oauthBusy}
-          onAuthorize={onAuthorize}
-          onFinishAuthorization={onFinishAuthorization}
-          onDisconnect={onDisconnectOAuth}
-        />
-      )}
-
-      <div className="space-y-1.5">
-        <Label className="text-xs">Headers</Label>
-        <p className="text-[11px] text-muted-foreground">
-          {isOAuth
-            ? "Optional request headers. Lor adds OAuth authorization automatically — reference other secrets as "
-            : "Sent on every request — reference secrets as "}
-          <code className="text-foreground">{"{{secrets.NAME}}"}</code> instead
-          of pasting values.
-        </p>
-        <PairRows
-          pairs={draft.headers}
-          onChange={(headers) => setDraft((d) => ({ ...d, headers }))}
-          namePlaceholder={isOAuth ? "X-Workspace" : "Authorization"}
-          valuePlaceholder={
-            isOAuth ? "{{secrets.WORKSPACE_ID}}" : "Bearer {{secrets.API_KEY}}"
-          }
-          addLabel="Add header"
-          template={{
-            secretNames: definedSecretNames,
-            onCreatePlaceholder: handleCreatePlaceholder,
-          }}
-        />
-      </div>
-
-      <div className="space-y-1.5">
-        <Label className="text-xs">Secrets</Label>
-        {savedSecretNames.length > 0 && (
+    <div className="space-y-8">
+      <SettingsSection title="MCP server">
+        <SettingsCard>
           <div className="space-y-1.5">
-            {savedSecretNames.map((name) => {
-              const kept = draft.keptSecretNames.includes(name)
-              const update = draft.updatedSecrets.find((u) => u.name === name)
-              return (
-                <div key={name} className="flex items-center gap-1.5">
-                  <Input
-                    value={name}
-                    disabled
-                    className="h-8 w-44 shrink-0 font-mono text-xs"
-                  />
-                  <div className="min-w-0 flex-1">
-                    {update ? (
-                      <PasswordInput
-                        autoFocus
-                        value={update.value}
-                        placeholder="New value — replaces the stored one on save"
-                        className="h-8 text-xs"
-                        onChange={(e) =>
+            <Label className="text-xs">Name</Label>
+            <Input
+              value={draft.name}
+              maxLength={80}
+              placeholder="Sentry MCP"
+              onChange={(e) =>
+                setDraft((d) => ({ ...d, name: e.target.value }))
+              }
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">
+              Description — when should Lor use this?
+            </Label>
+            <Textarea
+              value={draft.description}
+              maxLength={500}
+              placeholder="Our production Postgres — use for questions about signups, usage, and billing data. The server describes its own tools; this says what the connection is for."
+              className="min-h-14 text-xs"
+              rows={2}
+              onChange={(e) =>
+                setDraft((d) => ({ ...d, description: e.target.value }))
+              }
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Server URL</Label>
+            <Input
+              value={draft.url}
+              maxLength={2048}
+              placeholder="https://mcp.example.com/mcp"
+              className="font-mono text-xs"
+              onChange={(e) => setDraft((d) => ({ ...d, url: e.target.value }))}
+            />
+          </div>
+        </SettingsCard>
+      </SettingsSection>
+
+      <SettingsSection title="Authentication">
+        <SettingsCard>
+          {server ? (
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-medium">
+                  {isOAuth ? "OAuth" : "Headers / API key"}
+                </div>
+                <div className="mt-0.5 text-xs text-muted-foreground">
+                  Authentication type is fixed after the server is created.
+                </div>
+              </div>
+              {isOAuth && (
+                <Badge
+                  variant={oauthStatusVariant(server.oauthStatus)}
+                  size="sm"
+                >
+                  {oauthStatusLabel(server.oauthStatus)}
+                </Badge>
+              )}
+            </div>
+          ) : (
+            <div
+              role="radiogroup"
+              aria-label="Authentication method"
+              className="grid grid-cols-1 gap-2 sm:grid-cols-2"
+            >
+              {(
+                [
+                  {
+                    value: "static" as const,
+                    title: "Headers / API key",
+                    description: "No sign-in, or credentials sent as headers.",
+                  },
+                  {
+                    value: "oauth" as const,
+                    title: "OAuth",
+                    description: "One shared account for assigned channels.",
+                  },
+                ] as const
+              ).map((option) => {
+                const selected = draft.authMode === option.value
+                return (
+                  <label
+                    key={option.value}
+                    className={cn(
+                      "cursor-pointer rounded-lg border px-3 py-2.5 text-left transition-colors active:scale-[0.99] focus-within:ring-2 focus-within:ring-ring",
+                      selected
+                        ? "border-primary bg-primary/5"
+                        : "border-border bg-background hover:border-foreground/20"
+                    )}
+                  >
+                    <input
+                      type="radio"
+                      name="mcp-auth-mode"
+                      value={option.value}
+                      checked={selected}
+                      className="sr-only"
+                      onChange={() =>
+                        setDraft((d) => ({
+                          ...d,
+                          authMode: option.value,
+                          discovered: null,
+                          enabled: new Set(),
+                          headers:
+                            option.value === "oauth"
+                              ? d.headers.filter(
+                                  (header) =>
+                                    header.name.trim().toLowerCase() !==
+                                    "authorization"
+                                )
+                              : d.headers,
+                        }))
+                      }
+                    />
+                    <span className="block text-sm font-medium">
+                      {option.title}
+                    </span>
+                    <span className="mt-0.5 block text-xs leading-snug text-muted-foreground">
+                      {option.description}
+                    </span>
+                  </label>
+                )
+              })}
+            </div>
+          )}
+          {isOAuth && (
+            <OAuthConnectionPanel
+              server={server}
+              authorizationOpened={authorizationOpened}
+              busy={busy || oauthBusy}
+              onAuthorize={onAuthorize}
+              onFinishAuthorization={onFinishAuthorization}
+              onDisconnect={onDisconnectOAuth}
+            />
+          )}
+        </SettingsCard>
+      </SettingsSection>
+
+      <SettingsSection
+        title="Headers"
+        caption={
+          <>
+            {isOAuth
+              ? "Optional request headers. Lor adds OAuth authorization automatically — reference other secrets as "
+              : "Sent on every request — reference secrets as "}
+            <code className="text-foreground">{"{{secrets.NAME}}"}</code>{" "}
+            instead of pasting values.
+          </>
+        }
+      >
+        <SettingsCard>
+          <PairRows
+            pairs={draft.headers}
+            onChange={(headers) => setDraft((d) => ({ ...d, headers }))}
+            namePlaceholder={isOAuth ? "X-Workspace" : "Authorization"}
+            valuePlaceholder={
+              isOAuth
+                ? "{{secrets.WORKSPACE_ID}}"
+                : "Bearer {{secrets.API_KEY}}"
+            }
+            addLabel="Add header"
+            template={{
+              secretNames: definedSecretNames,
+              onCreatePlaceholder: handleCreatePlaceholder,
+            }}
+          />
+        </SettingsCard>
+      </SettingsSection>
+
+      <SettingsSection title="Secrets">
+        <SettingsCard className="space-y-3">
+          {savedSecretNames.length > 0 && (
+            <div className="space-y-1.5">
+              {savedSecretNames.map((name) => {
+                const kept = draft.keptSecretNames.includes(name)
+                const update = draft.updatedSecrets.find((u) => u.name === name)
+                return (
+                  <div key={name} className="flex items-center gap-1.5">
+                    <Input
+                      value={name}
+                      disabled
+                      className="h-8 w-44 shrink-0 font-mono text-xs"
+                    />
+                    <div className="min-w-0 flex-1">
+                      {update ? (
+                        <PasswordInput
+                          autoFocus
+                          value={update.value}
+                          placeholder="New value — replaces the stored one on save"
+                          className="h-8 text-xs"
+                          onChange={(e) =>
+                            setDraft((d) => ({
+                              ...d,
+                              updatedSecrets: d.updatedSecrets.map((u) =>
+                                u.name === name
+                                  ? { ...u, value: e.target.value }
+                                  : u
+                              ),
+                            }))
+                          }
+                        />
+                      ) : (
+                        <Input
+                          value={kept ? "••••••••" : "removed on save"}
+                          disabled
+                          className="h-8 text-xs"
+                        />
+                      )}
+                    </div>
+                    {kept && !update && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="shrink-0 text-muted-foreground"
+                        onClick={() =>
                           setDraft((d) => ({
                             ...d,
-                            updatedSecrets: d.updatedSecrets.map((u) =>
-                              u.name === name
-                                ? { ...u, value: e.target.value }
-                                : u
-                            ),
+                            updatedSecrets: [
+                              ...d.updatedSecrets,
+                              { name, value: "" },
+                            ],
                           }))
                         }
-                      />
-                    ) : (
-                      <Input
-                        value={kept ? "••••••••" : "removed on save"}
-                        disabled
-                        className="h-8 text-xs"
-                      />
+                      >
+                        Update
+                      </Button>
                     )}
-                  </div>
-                  {kept && !update && (
                     <Button
                       type="button"
                       variant="ghost"
@@ -750,70 +813,55 @@ function ServerEditor({
                       onClick={() =>
                         setDraft((d) => ({
                           ...d,
-                          updatedSecrets: [
-                            ...d.updatedSecrets,
-                            { name, value: "" },
-                          ],
+                          keptSecretNames: kept
+                            ? d.keptSecretNames.filter((n) => n !== name)
+                            : [...d.keptSecretNames, name],
+                          updatedSecrets: d.updatedSecrets.filter(
+                            (u) => u.name !== name
+                          ),
                         }))
                       }
                     >
-                      Update
+                      {kept ? "Delete" : "Keep"}
                     </Button>
-                  )}
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="shrink-0 text-muted-foreground"
-                    onClick={() =>
-                      setDraft((d) => ({
-                        ...d,
-                        keptSecretNames: kept
-                          ? d.keptSecretNames.filter((n) => n !== name)
-                          : [...d.keptSecretNames, name],
-                        updatedSecrets: d.updatedSecrets.filter(
-                          (u) => u.name !== name
-                        ),
-                      }))
-                    }
-                  >
-                    {kept ? "Delete" : "Keep"}
-                  </Button>
-                </div>
-              )
-            })}
-          </div>
-        )}
-        <PairRows
-          pairs={draft.newSecrets}
-          onChange={(newSecrets) => setDraft((d) => ({ ...d, newSecrets }))}
-          namePlaceholder="API_KEY"
-          valuePlaceholder="Value (stored encrypted)"
-          secret
-          addLabel="Add secret"
-        />
-        {invalidSecretNames.length > 0 && (
-          <p className="text-[11px] text-destructive-foreground">
-            {invalidSecretNames.join(", ")} — secret names must start with a
-            letter and use only letters, numbers, and underscores.
-          </p>
-        )}
-        {duplicateSecretNames.length > 0 && (
-          <p className="text-[11px] text-destructive-foreground">
-            {duplicateSecretNames.join(", ")} — duplicate secret name; each name
-            can only be defined once (stored secrets included).
-          </p>
-        )}
-      </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+          <PairRows
+            pairs={draft.newSecrets}
+            onChange={(newSecrets) => setDraft((d) => ({ ...d, newSecrets }))}
+            namePlaceholder="API_KEY"
+            valuePlaceholder="Value (stored encrypted)"
+            secret
+            addLabel="Add secret"
+          />
+          {invalidSecretNames.length > 0 && (
+            <p className="text-[11px] text-destructive-foreground">
+              {invalidSecretNames.join(", ")} — secret names must start with a
+              letter and use only letters, numbers, and underscores.
+            </p>
+          )}
+          {duplicateSecretNames.length > 0 && (
+            <p className="text-[11px] text-destructive-foreground">
+              {duplicateSecretNames.join(", ")} — duplicate secret name; each
+              name can only be defined once (stored secrets included).
+            </p>
+          )}
+        </SettingsCard>
+      </SettingsSection>
 
       {(!isOAuth || oauthCanReview) && (
-        <div className="space-y-1.5 border-border border-t pt-3">
-          <div className="flex items-center justify-between gap-2">
-            <Label className="text-xs">Tools Lor may use</Label>
+        <SettingsSection
+          title="Tools Lor may use"
+          count={toolList.length > 0 ? toolList.length : undefined}
+          action={
             <Button
               type="button"
               variant="secondary"
               size="sm"
+              className={cn(PILL_BUTTON, "px-3")}
               disabled={!canDiscover}
               onClick={onDiscover}
             >
@@ -826,28 +874,24 @@ function ServerEditor({
                   strokeWidth={2}
                 />
               )}
-              {draft.discovered
-                ? "Refresh tools"
-                : isOAuth
-                  ? "Review tools"
-                  : "Connect & discover"}
+              {discoverLabel}
             </Button>
-          </div>
+          }
+        >
           {toolList.length === 0 ? (
-            <p className="text-xs text-muted-foreground">
-              {isOAuth
-                ? "Review the authorized server's tools, then choose which ones assigned channels may call."
-                : "Connect to list the server's tools, then pick which ones Lor may call. New tools the server adds later stay off until enabled here."}
-            </p>
+            <SettingsCard>
+              <p className="text-sm text-muted-foreground">
+                {isOAuth
+                  ? "Review the authorized server's tools, then choose which ones assigned channels may call."
+                  : "Connect to list the server's tools, then pick which ones Lor may call. New tools the server adds later stay off until enabled here."}
+              </p>
+            </SettingsCard>
           ) : (
-            <ul className="space-y-1">
+            <SettingsGroup>
               {toolList.map((tool) => {
                 const description = cleanToolDescription(tool.description)
                 return (
-                  <li
-                    key={tool.name}
-                    className="flex items-start gap-2.5 rounded-md border border-border/60 bg-muted/20 px-2.5 py-2"
-                  >
+                  <div key={tool.name} className="flex items-start gap-3 py-3">
                     <Checkbox
                       id={`mcp-tool-${tool.name}`}
                       className="mt-0.5"
@@ -866,26 +910,26 @@ function ServerEditor({
                       htmlFor={`mcp-tool-${tool.name}`}
                       className="min-w-0 flex-1 cursor-pointer"
                     >
-                      <span className="block font-mono text-xs">
+                      <span className="block font-mono text-sm">
                         {tool.name}
                       </span>
                       {description && (
                         <span
-                          className="mt-0.5 line-clamp-2 block text-[11px] leading-snug text-muted-foreground"
+                          className="mt-0.5 line-clamp-2 block text-xs leading-snug text-muted-foreground"
                           title={description}
                         >
                           {description}
                         </span>
                       )}
                     </label>
-                  </li>
+                  </div>
                 )
               })}
-            </ul>
+            </SettingsGroup>
           )}
           {isOAuth && (
-            <div className="flex items-center justify-between gap-3 pt-2">
-              <div className="space-y-1 text-[11px] text-muted-foreground">
+            <div className="flex items-center justify-between gap-3 px-4">
+              <div className="space-y-1 text-xs text-muted-foreground">
                 <p>
                   This list comes directly from the MCP server. OAuth
                   permissions may unlock products or operations inside a general
@@ -899,52 +943,81 @@ function ServerEditor({
               <Button
                 type="button"
                 size="sm"
+                className={cn(PILL_BUTTON, "px-3")}
                 disabled={!canCompleteOAuth}
+                loading={oauthBusy}
                 onClick={onCompleteOAuth}
               >
-                {oauthBusy
-                  ? "Saving…"
-                  : server?.oauthStatus === "connected"
-                    ? "Save tool access"
-                    : "Enable selected tools"}
+                {completeLabel}
               </Button>
             </div>
           )}
-        </div>
+        </SettingsSection>
       )}
 
-      <div className="flex items-center justify-end gap-2 border-border border-t pt-3">
-        {!isOAuth && draft.enabled.size === 0 && (
-          <span className="mr-auto text-[11px] text-muted-foreground">
-            Connect and enable at least one tool to save.
-          </span>
+      <div className="flex flex-wrap items-center gap-2">
+        {onDelete && (
+          <Button
+            type="button"
+            variant="destructive-outline"
+            className={PILL_BUTTON}
+            disabled={deleting}
+            onClick={onDelete}
+          >
+            Delete server
+          </Button>
         )}
-        {isOAuth && !server && (
-          <span className="mr-auto text-[11px] text-muted-foreground">
-            Saving continues to the shared-account confirmation.
-          </span>
+        {footerHint && (
+          <span className="text-xs text-muted-foreground">{footerHint}</span>
         )}
-        <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
-          Cancel
-        </Button>
-        <Button type="button" size="sm" disabled={!canSave} onClick={onSave}>
-          {busy ? "Saving…" : saveLabel}
-        </Button>
+        <div className="ml-auto flex items-center gap-2">
+          <Button
+            type="button"
+            variant="ghost"
+            className={PILL_BUTTON}
+            onClick={onCancel}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            className={PILL_BUTTON}
+            disabled={!canSave}
+            loading={busy}
+            onClick={onSave}
+          >
+            {saveLabel}
+          </Button>
+        </div>
       </div>
     </div>
   )
 }
 
+// The Tools tab owns which view is open (list, or one editor); this block owns
+// the MCP drafts, OAuth flow, and dialogs, and stays mounted across views so a
+// pending authorization keeps polling.
 export function McpServersBlock({
   workspaceSlug,
   servers,
+  editingId,
   creating,
-  onCloseCreate,
+  listHidden,
+  caption,
+  onCreate,
+  onOpen,
+  onClose,
 }: {
   workspaceSlug: string
   servers: McpServerRow[]
+  // The server whose editor is open; null in the list or while creating.
+  editingId: string | null
   creating: boolean
-  onCloseCreate: () => void
+  listHidden: boolean
+  caption?: ReactNode
+  onCreate: () => void
+  onOpen: (serverId: string) => void
+  onClose: () => void
 }) {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
@@ -952,7 +1025,6 @@ export function McpServersBlock({
   const requestedServerId =
     typeof search.mcpServerId === "string" ? search.mcpServerId : null
   const handledRequestedServerId = useRef<string | null>(null)
-  const [editingId, setEditingId] = useState<string | null>(null)
   const [draft, setDraft] = useState<ServerDraft>(emptyDraft())
   const [deleteTarget, setDeleteTarget] = useState<McpServerRow | null>(null)
   const [disconnectTarget, setDisconnectTarget] = useState<McpServerRow | null>(
@@ -965,13 +1037,10 @@ export function McpServersBlock({
     string | null
   >(null)
 
-  // Opening the create card always starts from a blank draft (the draft is
-  // shared with row editing).
+  // Opening the create editor always starts from a blank draft (the draft is
+  // shared with server editing).
   useEffect(() => {
-    if (creating) {
-      setDraft(emptyDraft())
-      setEditingId(null)
-    }
+    if (creating) setDraft(emptyDraft())
   }, [creating])
 
   // OAuth returns to the Tools settings URL with the relevant server id. Open
@@ -988,15 +1057,14 @@ export function McpServersBlock({
     )
     if (!requestedServer) return
     handledRequestedServerId.current = requestedServerId
-    onCloseCreate()
     setDraft(draftFromServer(requestedServer))
-    setEditingId(requestedServer.id)
+    onOpen(requestedServer.id)
     void navigate({
       to: ".",
       replace: true,
       search: (previous) => ({ ...previous, mcpServerId: undefined }),
     })
-  }, [navigate, onCloseCreate, requestedServerId, servers])
+  }, [navigate, onOpen, requestedServerId, servers])
 
   const invalidate = () =>
     queryClient.invalidateQueries({
@@ -1012,10 +1080,7 @@ export function McpServersBlock({
     )
     if (current && current.oauthStatus !== "pending") {
       setAuthorizationOpenedId(null)
-      if (editingId === current.id) {
-        setDraft(draftFromServer(current))
-        setEditingId(current.id)
-      }
+      if (editingId === current.id) setDraft(draftFromServer(current))
     }
   }, [authorizationOpenedId, editingId, servers])
 
@@ -1120,13 +1185,14 @@ export function McpServersBlock({
     },
     onSuccess: async (server) => {
       await invalidate()
-      onCloseCreate()
-      if (server.authMode === "oauth") {
-        setDraft(draftFromServer(server))
-        setEditingId(server.id)
-        setDisclosureConfirmed(false)
-        setOauthDisclosureTarget(server)
+      if (server.authMode !== "oauth") {
+        onClose()
+        return
       }
+      setDraft(draftFromServer(server))
+      onOpen(server.id)
+      setDisclosureConfirmed(false)
+      setOauthDisclosureTarget(server)
     },
     onError: (err) => toast.error(err.message),
   })
@@ -1169,7 +1235,7 @@ export function McpServersBlock({
     },
     onSuccess: async () => {
       await invalidate()
-      setEditingId(null)
+      onClose()
     },
     onError: (err) => toast.error(err.message),
   })
@@ -1183,7 +1249,7 @@ export function McpServersBlock({
     },
     onSuccess: () => {
       invalidate()
-      setEditingId(null)
+      onClose()
       setDeleteTarget(null)
     },
     onError: () => toast.error("Failed to delete server"),
@@ -1265,18 +1331,15 @@ export function McpServersBlock({
     completeOAuthMutation.isPending ||
     disconnectOAuthMutation.isPending
 
+  const editingServer = editingId
+    ? servers.find((server) => server.id === editingId)
+    : undefined
+
   return (
     <>
       {creating && (
-        <div className="rounded-lg border border-border bg-muted/20 p-4">
-          <div className="mb-3 flex items-center gap-2 text-sm font-medium">
-            <HugeiconsIcon
-              icon={CloudServerIcon}
-              className="size-4"
-              strokeWidth={2}
-            />
-            Connect an MCP server
-          </div>
+        <div className="space-y-5">
+          <SettingsBackButton label="All tools" onClick={onClose} />
           <ServerEditor
             draft={draft}
             setDraft={(update) => setDraft(update)}
@@ -1287,7 +1350,9 @@ export function McpServersBlock({
             oauthBusy={oauthBusy}
             authorizationOpened={false}
             saveLabel={
-              draft.authMode === "oauth" ? "Save & Authorize" : "Connect Server"
+              draft.authMode === "oauth"
+                ? "Save and authorize"
+                : "Connect server"
             }
             onDiscover={() => discoverMutation.mutate(null)}
             onAuthorize={noop}
@@ -1295,52 +1360,93 @@ export function McpServersBlock({
             onCompleteOAuth={noop}
             onDisconnectOAuth={noop}
             onSave={() => createMutation.mutate()}
-            onCancel={onCloseCreate}
+            onCancel={onClose}
           />
         </div>
       )}
 
-      {servers.length > 0 && (
-        <ul className="space-y-2">
-          {servers.map((server) => {
-            const isEditing = editingId === server.id
-            return (
-              <li
-                key={server.id}
-                className="rounded-lg border border-border bg-muted/20"
-              >
-                <button
-                  type="button"
-                  className="flex w-full cursor-pointer items-center gap-3 p-3 text-left"
+      {editingServer && (
+        <div className="space-y-5">
+          <SettingsBackButton label="All tools" onClick={onClose} />
+          <ServerEditor
+            draft={draft}
+            setDraft={(update) => setDraft(update)}
+            server={editingServer}
+            savedSecretNames={editingServer.secretNames}
+            busy={busy}
+            discovering={discoverMutation.isPending}
+            oauthBusy={oauthBusy}
+            authorizationOpened={authorizationOpenedId === editingServer.id}
+            saveLabel="Save"
+            onDiscover={() => discoverMutation.mutate(editingServer.id)}
+            onAuthorize={() => {
+              setDisclosureConfirmed(false)
+              setOauthDisclosureTarget(editingServer)
+            }}
+            onFinishAuthorization={() => {
+              void invalidate().then(() =>
+                toast.info(
+                  "If sign-in is complete, tool review will appear here shortly"
+                )
+              )
+            }}
+            onCompleteOAuth={() => completeOAuthMutation.mutate(editingServer)}
+            onDisconnectOAuth={() => setDisconnectTarget(editingServer)}
+            onSave={() => updateMutation.mutate(editingServer)}
+            onCancel={onClose}
+            onDelete={() => setDeleteTarget(editingServer)}
+            deleting={deleteMutation.isPending}
+          />
+        </div>
+      )}
+
+      {!listHidden && (
+        <SettingsSection
+          title="MCP servers"
+          count={servers.length}
+          action={
+            <Button
+              variant="secondary"
+              size="sm"
+              className={cn(PILL_BUTTON, "px-3")}
+              data-tool="mcp:new"
+              onClick={onCreate}
+            >
+              <HugeiconsIcon icon={PlusSignIcon} strokeWidth={2} />
+              Add server
+            </Button>
+          }
+          caption={caption}
+        >
+          {servers.length === 0 ? (
+            <SettingsCard>
+              <p className="text-sm text-muted-foreground">
+                Connect an MCP server to give Lor the tools it offers.
+              </p>
+            </SettingsCard>
+          ) : (
+            <div className="space-y-2">
+              {servers.map((server) => (
+                <SettingsCardButton
+                  key={server.id}
+                  data-tool={`mcp:${server.id}`}
                   onClick={() => {
-                    if (isEditing) {
-                      setEditingId(null)
-                      return
-                    }
-                    onCloseCreate()
                     setDraft(draftFromServer(server))
-                    setEditingId(server.id)
+                    onOpen(server.id)
                   }}
                 >
-                  <span className="flex size-9 shrink-0 items-center justify-center rounded-md border border-border bg-background">
+                  <IconTile>
                     <HugeiconsIcon
                       icon={CloudServerIcon}
-                      className="size-4.5 text-muted-foreground"
+                      className="size-5"
                       strokeWidth={2}
                     />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
+                  </IconTile>
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center gap-2">
                       <span className="truncate text-sm font-medium">
                         {server.name}
                       </span>
-                      <Badge
-                        variant="outline"
-                        size="sm"
-                        className="shrink-0 px-1.5 font-mono font-normal"
-                      >
-                        MCP
-                      </Badge>
                       {server.authMode === "oauth" && (
                         <Badge
                           variant={oauthStatusVariant(server.oauthStatus)}
@@ -1350,72 +1456,26 @@ export function McpServersBlock({
                           {oauthStatusLabel(server.oauthStatus)}
                         </Badge>
                       )}
-                    </div>
-                    <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                    </span>
+                    <span className="block truncate text-sm text-muted-foreground">
                       {hostOf(server.url)} · {server.enabledTools.length}{" "}
                       {server.enabledTools.length === 1 ? "tool" : "tools"}{" "}
                       {server.authMode === "oauth" &&
                       server.oauthStatus !== "connected"
                         ? "configured · inactive"
                         : "enabled"}
-                    </div>
-                  </div>
+                    </span>
+                  </span>
                   <HugeiconsIcon
-                    icon={ArrowDown01Icon}
-                    className={cn(
-                      "size-4 shrink-0 text-muted-foreground transition-transform",
-                      isEditing && "rotate-180"
-                    )}
+                    icon={ArrowRight01Icon}
+                    className="size-4 shrink-0 text-muted-foreground"
                     strokeWidth={2}
                   />
-                </button>
-                {isEditing && (
-                  <div className="border-border border-t p-4">
-                    <ServerEditor
-                      draft={draft}
-                      setDraft={(update) => setDraft(update)}
-                      server={server}
-                      savedSecretNames={server.secretNames}
-                      busy={busy}
-                      discovering={discoverMutation.isPending}
-                      oauthBusy={oauthBusy}
-                      authorizationOpened={authorizationOpenedId === server.id}
-                      saveLabel="Save Changes"
-                      onDiscover={() => discoverMutation.mutate(server.id)}
-                      onAuthorize={() => {
-                        setDisclosureConfirmed(false)
-                        setOauthDisclosureTarget(server)
-                      }}
-                      onFinishAuthorization={() => {
-                        void invalidate().then(() =>
-                          toast.info(
-                            "If sign-in is complete, tool review will appear here shortly"
-                          )
-                        )
-                      }}
-                      onCompleteOAuth={() =>
-                        completeOAuthMutation.mutate(server)
-                      }
-                      onDisconnectOAuth={() => setDisconnectTarget(server)}
-                      onSave={() => updateMutation.mutate(server)}
-                      onCancel={() => setEditingId(null)}
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="mt-2 text-destructive hover:text-destructive"
-                      disabled={deleteMutation.isPending}
-                      onClick={() => setDeleteTarget(server)}
-                    >
-                      Delete Server
-                    </Button>
-                  </div>
-                )}
-              </li>
-            )
-          })}
-        </ul>
+                </SettingsCardButton>
+              ))}
+            </div>
+          )}
+        </SettingsSection>
       )}
 
       <AlertDialog
