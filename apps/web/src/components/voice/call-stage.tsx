@@ -23,7 +23,9 @@ import {
 import { toast } from "@repo/ui/components/toast"
 import { cn } from "@repo/ui/lib/utils"
 import { Track } from "livekit-client"
+import { useMemo } from "react"
 import { UserAvatar } from "@/components/ui/user-avatar"
+import { CallCaptions } from "@/components/voice/call-captions"
 import { CallControls } from "@/components/voice/call-controls"
 import { useVoiceCall } from "@/context/voice-call-context"
 import { apiClient } from "@/lib/api-client"
@@ -92,10 +94,15 @@ function ParticipantTile({
 }
 
 export function CallStage({ canModerate }: { canModerate: boolean }) {
-  const { call } = useVoiceCall()
-  const cameraTracks = useTracks([
+  const { call, captionsOn } = useVoiceCall()
+  const allCameraTracks = useTracks([
     { source: Track.Source.Camera, withPlaceholder: true },
   ])
+  // The transcriber joins as an agent participant; it never gets a tile.
+  const cameraTracks = useMemo(
+    () => allCameraTracks.filter((trackRef) => !trackRef.participant.isAgent),
+    [allCameraTracks]
+  )
   // Active speakers move onto the current page without reshuffling tiles
   // that are already visible.
   const stableTracks = useVisualStableUpdate(cameraTracks, PAGE_SIZE)
@@ -121,57 +128,60 @@ export function CallStage({ canModerate }: { canModerate: boolean }) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 p-4">
-      {screenShare && (
-        <div className="min-h-0 flex-1 overflow-hidden rounded-lg bg-muted">
-          <VideoTrack
-            trackRef={screenShare}
-            className="size-full object-contain"
-          />
-        </div>
-      )}
-      <div
-        className={cn(
-          "grid gap-3",
-          screenShare
-            ? "shrink-0 auto-cols-[12rem] grid-flow-col overflow-x-auto"
-            : "min-h-0 flex-1 grid-cols-[repeat(auto-fit,minmax(14rem,1fr))] content-center overflow-y-auto"
+      <div className="relative flex min-h-0 flex-1 flex-col gap-3">
+        {screenShare && (
+          <div className="min-h-0 flex-1 overflow-hidden rounded-lg bg-muted">
+            <VideoTrack
+              trackRef={screenShare}
+              className="size-full object-contain"
+            />
+          </div>
         )}
-      >
-        {page.tracks.map((trackRef) => (
-          <ParticipantTile
-            key={`${trackRef.participant.identity}:${trackRef.source}`}
-            trackRef={trackRef}
-            onRemove={
-              canModerate ? (id) => void removeParticipant(id) : undefined
-            }
-          />
-        ))}
-      </div>
-      {page.totalPageCount > 1 && (
-        <div className="flex shrink-0 items-center justify-center gap-2 text-xs text-muted-foreground">
-          <Button
-            size="icon-xs"
-            variant="ghost"
-            aria-label="Previous page"
-            disabled={page.currentPage <= 1}
-            onClick={page.prevPage}
-          >
-            <HugeiconsIcon icon={ArrowLeft01Icon} strokeWidth={2} />
-          </Button>
-          <span>
-            {page.currentPage} / {page.totalPageCount}
-          </span>
-          <Button
-            size="icon-xs"
-            variant="ghost"
-            aria-label="Next page"
-            disabled={page.currentPage >= page.totalPageCount}
-            onClick={page.nextPage}
-          >
-            <HugeiconsIcon icon={ArrowRight01Icon} strokeWidth={2} />
-          </Button>
+        <div
+          className={cn(
+            "grid gap-3",
+            screenShare
+              ? "shrink-0 auto-cols-[12rem] grid-flow-col overflow-x-auto"
+              : "min-h-0 flex-1 grid-cols-[repeat(auto-fit,minmax(14rem,1fr))] content-center overflow-y-auto"
+          )}
+        >
+          {page.tracks.map((trackRef) => (
+            <ParticipantTile
+              key={`${trackRef.participant.identity}:${trackRef.source}`}
+              trackRef={trackRef}
+              onRemove={
+                canModerate ? (id) => void removeParticipant(id) : undefined
+              }
+            />
+          ))}
         </div>
-      )}
+        {page.totalPageCount > 1 && (
+          <div className="flex shrink-0 items-center justify-center gap-2 text-xs text-muted-foreground">
+            <Button
+              size="icon-xs"
+              variant="ghost"
+              aria-label="Previous page"
+              disabled={page.currentPage <= 1}
+              onClick={page.prevPage}
+            >
+              <HugeiconsIcon icon={ArrowLeft01Icon} strokeWidth={2} />
+            </Button>
+            <span>
+              {page.currentPage} / {page.totalPageCount}
+            </span>
+            <Button
+              size="icon-xs"
+              variant="ghost"
+              aria-label="Next page"
+              disabled={page.currentPage >= page.totalPageCount}
+              onClick={page.nextPage}
+            >
+              <HugeiconsIcon icon={ArrowRight01Icon} strokeWidth={2} />
+            </Button>
+          </div>
+        )}
+        {captionsOn && <CallCaptions />}
+      </div>
       <CallControls />
     </div>
   )

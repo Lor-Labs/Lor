@@ -549,3 +549,14 @@ Design: the spec's "Lor in the call" section.
     (`roomConfig.agents`) and `AgentDispatchClient.createDispatch`. Token
     dispatch fires only when LiveKit creates the room. Unverified: whether
     Deepgram bills an open stream that receives no audio.
+- 2026-09-30 — V4 chunks 1–3 (storage, transcriber, captions) confirmed
+  working locally by Jacob: speech to Deepgram, segments saved, live captions
+  with the interim-to-final color change. Fixes found on the way:
+  - The transcript foreign keys have explicit names; the generated ones passed
+    Postgres's 63-byte limit and got truncated.
+  - History counts use query-builder subqueries. drizzle strips table names
+    from columns placed directly in a single-table select list, so the V1
+    reply count had rendered as `thread_root_id = thread_root_id` and counted
+    every thread reply in the database.
+  - `pnpm dev` now offers the transcriber. A room created before the
+    transcriber was running never gets one until it closes and reopens.

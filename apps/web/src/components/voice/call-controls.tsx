@@ -1,5 +1,7 @@
 import {
   CallEnd01Icon,
+  CaptionsIcon,
+  CaptionsOffIcon,
   ComputerScreenShareIcon,
   HeadphoneMuteIcon,
   HeadphonesIcon,
@@ -89,7 +91,8 @@ function CallChatButton() {
 }
 
 export function CallControls() {
-  const { leave, deafened, toggleDeafen } = useVoiceCall()
+  const { leave, deafened, toggleDeafen, captionsOn, toggleCaptions } =
+    useVoiceCall()
   const microphone = useTrackToggle({
     source: Track.Source.Microphone,
     onDeviceError: reportDeviceError,
@@ -189,6 +192,17 @@ export function CallControls() {
             <DeviceGroup kind="audiooutput" label="Speaker" />
           </DropdownMenuContent>
         </DropdownMenu>
+        <Button
+          size="icon"
+          variant={captionsOn ? "secondary" : "outline"}
+          aria-label={captionsOn ? "Hide captions" : "Show captions"}
+          onClick={toggleCaptions}
+        >
+          <HugeiconsIcon
+            icon={captionsOn ? CaptionsIcon : CaptionsOffIcon}
+            strokeWidth={2}
+          />
+        </Button>
         <CallChatButton />
         <Button
           size="icon"

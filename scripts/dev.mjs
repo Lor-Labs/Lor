@@ -30,6 +30,11 @@ const APPS = [
   { pkg: "www", short: "www", hint: "Next.js marketing site (3001)" },
   { pkg: "@repo/realtime", short: "realtime", hint: "Socket.IO server (8000)" },
   { pkg: "@repo/worker", short: "worker", hint: "BullMQ background workers" },
+  {
+    pkg: "@repo/transcriber",
+    short: "transcriber",
+    hint: "Voice call transcriber (needs Deepgram key)",
+  },
   { pkg: "desktop", short: "desktop", hint: "Tauri desktop app" },
   { pkg: "mobile", short: "mobile", hint: "Expo dev server (8081)" },
 ]
@@ -42,7 +47,13 @@ const EXCLUDED_FROM_ALL = ["desktop", "mobile"]
 // routes change.
 const ALWAYS = ["@repo/api-client"]
 
-const DEFAULT_SELECTION = ["@repo/api", "web", "@repo/realtime", "@repo/worker"]
+const DEFAULT_SELECTION = [
+  "@repo/api",
+  "web",
+  "@repo/realtime",
+  "@repo/worker",
+  "@repo/transcriber",
+]
 
 function loadLastSelection() {
   try {

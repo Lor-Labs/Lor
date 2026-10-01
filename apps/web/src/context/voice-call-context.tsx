@@ -58,6 +58,9 @@ type VoiceCallContextValue = {
   // Call chat messages from others since the chat was last on screen.
   chatUnread: number
   clearChatUnread: () => void
+  // Per-device CC toggle: only hides captions; transcription is always on.
+  captionsOn: boolean
+  toggleCaptions: () => void
   // Deafen mutes everyone else and the microphone; undeafen restores the
   // microphone to how it was.
   deafened: boolean
@@ -69,6 +72,15 @@ type VoiceCallContextValue = {
 const VoiceCallContext = createContext<VoiceCallContextValue | null>(null)
 
 const VOICE_CALL_QUERY_KEY = ["voice-call"] as const
+const CAPTIONS_STORAGE_KEY = "lor-voice-captions"
+
+function readCaptionsOn() {
+  try {
+    return localStorage.getItem(CAPTIONS_STORAGE_KEY) !== "off"
+  } catch {
+    return true
+  }
+}
 
 function disconnectMessage(reason: DisconnectReason) {
   switch (reason) {
@@ -138,6 +150,16 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
     }
   }, [socket, threadRootId, userId])
   const clearChatUnread = useCallback(() => setChatUnread(0), [])
+
+  const [captionsOn, setCaptionsOn] = useState(readCaptionsOn)
+  const toggleCaptions = useCallback(() => {
+    setCaptionsOn((on) => {
+      try {
+        localStorage.setItem(CAPTIONS_STORAGE_KEY, on ? "off" : "on")
+      } catch {}
+      return !on
+    })
+  }, [])
 
   useEffect(() => {
     const handleDisconnected = (reason?: DisconnectReason) => {
@@ -253,6 +275,8 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
       joining,
       chatUnread,
       clearChatUnread,
+      captionsOn,
+      toggleCaptions,
       deafened,
       toggleDeafen,
       join,
@@ -264,6 +288,8 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
       joining,
       chatUnread,
       clearChatUnread,
+      captionsOn,
+      toggleCaptions,
       deafened,
       toggleDeafen,
       join,

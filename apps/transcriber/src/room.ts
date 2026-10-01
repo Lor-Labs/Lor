@@ -6,14 +6,16 @@ import {
   RemoteParticipant,
   type RemoteTrack,
   type RemoteTrackPublication,
+  type Room,
   RoomEvent,
   type TrackPublication,
   TrackSource,
 } from "@livekit/rtc-node"
 import { and, db, eq, isNull, schema } from "@repo/db"
+import { CAPTION_ATTRIBUTES, CAPTION_TOPIC } from "@repo/voice"
 import { recordCaptureGap } from "@repo/voice/server"
 import { logger } from "./logger"
-import { MicStream, STT_MODEL } from "./mic-stream"
+import { type Caption, MicStream, STT_MODEL } from "./mic-stream"
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -43,6 +45,27 @@ function isHumanMicrophone(
     UUID_PATTERN.test(participant.identity) &&
     publication.source === TrackSource.SOURCE_MICROPHONE
   )
+}
+
+// Sent on the speaker's behalf, so clients attribute the caption to them.
+async function publishCaption(
+  room: Room,
+  identity: string,
+  trackId: string,
+  caption: Caption
+) {
+  if (!room.isConnected || !room.localParticipant) return
+  const writer = await room.localParticipant.streamText({
+    topic: CAPTION_TOPIC,
+    senderIdentity: identity,
+    attributes: {
+      [CAPTION_ATTRIBUTES.trackId]: trackId,
+      [CAPTION_ATTRIBUTES.segmentId]: caption.segmentId,
+      [CAPTION_ATTRIBUTES.final]: String(caption.final),
+    },
+  })
+  await writer.write(caption.text)
+  await writer.close()
 }
 
 // One job per room: a Deepgram stream for each unmuted human microphone.
@@ -90,6 +113,8 @@ export async function transcribeRoom(ctx: JobContext, deepgramApiKey: string) {
       track,
       speech,
       sessionStartedAt: session.startedAt,
+      publishCaption: (caption) =>
+        publishCaption(ctx.room, participant.identity, trackId, caption),
     })
     streams.set(trackId, stream)
     stream.start()

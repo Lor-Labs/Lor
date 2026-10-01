@@ -1,13 +1,17 @@
 import {
   and,
+  count,
   db,
   desc,
   eq,
+  exists,
   gt,
   gte,
   inArray,
   isNull,
   lt,
+  max,
+  ne,
   or,
   schema,
   sql,
@@ -41,8 +45,18 @@ type SessionRow = {
   mentionCount: number
 }
 
-const replyCount = sql<number>`(select count(*) from ${message} where ${message.threadRootId} = ${voiceSession.threadRootId})::int`
-const participantCount = sql<number>`(select count(*) from ${voiceSessionParticipant} where ${voiceSessionParticipant.sessionId} = ${voiceSession.id})::int`
+// Correlated subqueries are built with the query builder, not raw sql:
+// drizzle strips table names from columns placed directly in a single-table
+// select list, which made `message.thread_root_id = voice_session.thread_root_id`
+// render as `thread_root_id = thread_root_id`.
+const replyCount = sql<number>`(${db
+  .select({ value: count() })
+  .from(message)
+  .where(eq(message.threadRootId, voiceSession.threadRootId))})::int`
+const participantCount = sql<number>`(${db
+  .select({ value: count() })
+  .from(voiceSessionParticipant)
+  .where(eq(voiceSessionParticipant.sessionId, voiceSession.id))})::int`
 
 const sessionColumns = {
   id: voiceSession.id,
@@ -56,34 +70,62 @@ const sessionColumns = {
 // state and their own last reply. New replies count only in chats the viewer
 // followed (read, posted in, or was in the call); mentions always count.
 function viewerColumns(viewerId: string) {
-  const readAt = sql`greatest(
-    (select ${threadReadState.lastReadAt} from ${threadReadState}
-      where ${threadReadState.threadRootId} = ${voiceSession.threadRootId}
-        and ${threadReadState.userId} = ${viewerId}),
-    (select max(${message.createdAt}) from ${message}
-      where ${message.threadRootId} = ${voiceSession.threadRootId}
-        and ${message.authorId} = ${viewerId})
-  )`
+  const readStateAt = db
+    .select({ value: threadReadState.lastReadAt })
+    .from(threadReadState)
+    .where(
+      and(
+        eq(threadReadState.threadRootId, voiceSession.threadRootId),
+        eq(threadReadState.userId, viewerId)
+      )
+    )
+  const ownLastReplyAt = db
+    .select({ value: max(message.createdAt) })
+    .from(message)
+    .where(
+      and(
+        eq(message.threadRootId, voiceSession.threadRootId),
+        eq(message.authorId, viewerId)
+      )
+    )
+  const readAt = sql`greatest((${readStateAt}), (${ownLastReplyAt}))`
   const since = sql`coalesce(${readAt}, 'epoch'::timestamp)`
-  const followed = sql`(${readAt} is not null or exists (
-    select 1 from ${voiceSessionParticipant}
-      where ${voiceSessionParticipant.sessionId} = ${voiceSession.id}
-        and ${voiceSessionParticipant.userId} = ${viewerId}))`
+  const wasInCall = exists(
+    db
+      .select({ value: sql`1` })
+      .from(voiceSessionParticipant)
+      .where(
+        and(
+          eq(voiceSessionParticipant.sessionId, voiceSession.id),
+          eq(voiceSessionParticipant.userId, viewerId)
+        )
+      )
+  )
+  const newReplies = db
+    .select({ value: count() })
+    .from(message)
+    .where(
+      and(
+        eq(message.threadRootId, voiceSession.threadRootId),
+        ne(message.authorId, viewerId),
+        gt(message.createdAt, since)
+      )
+    )
+  const newMentions = db
+    .select({ value: count() })
+    .from(messageMention)
+    .innerJoin(message, eq(message.id, messageMention.messageId))
+    .where(
+      and(
+        eq(message.threadRootId, voiceSession.threadRootId),
+        eq(messageMention.mentionedUserId, viewerId),
+        eq(messageMention.mentionType, "direct"),
+        gt(message.createdAt, since)
+      )
+    )
   return {
-    unreadCount: sql<number>`(case when ${followed} then (
-      select count(*) from ${message}
-        where ${message.threadRootId} = ${voiceSession.threadRootId}
-          and ${message.authorId} <> ${viewerId}
-          and ${message.createdAt} > ${since}
-    ) else 0 end)::int`,
-    mentionCount: sql<number>`(
-      select count(*) from ${messageMention}
-        join ${message} on ${message.id} = ${messageMention.messageId}
-        where ${message.threadRootId} = ${voiceSession.threadRootId}
-          and ${messageMention.mentionedUserId} = ${viewerId}
-          and ${messageMention.mentionType} = 'direct'
-          and ${message.createdAt} > ${since}
-    )::int`,
+    unreadCount: sql<number>`(case when ${readAt} is not null or ${wasInCall} then (${newReplies}) else 0 end)::int`,
+    mentionCount: sql<number>`(${newMentions})::int`,
   }
 }
 

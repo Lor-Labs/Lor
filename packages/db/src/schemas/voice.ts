@@ -1,5 +1,6 @@
 import { relations, sql } from "drizzle-orm"
 import {
+  foreignKey,
   index,
   integer,
   pgEnum,
@@ -101,9 +102,7 @@ export const voiceTranscriptSegment = pgTable(
     sessionId: uuid("session_id")
       .notNull()
       .references(() => voiceSession.id, { onDelete: "cascade" }),
-    participantId: uuid("participant_id")
-      .notNull()
-      .references(() => voiceSessionParticipant.id, { onDelete: "cascade" }),
+    participantId: uuid("participant_id").notNull(),
     // LiveKit track SID of the microphone.
     trackId: text("track_id").notNull(),
     // Assigned by the transcriber; stable across revisions of one segment.
@@ -116,6 +115,12 @@ export const voiceTranscriptSegment = pgTable(
     model: text("model").notNull(),
   },
   (table) => [
+    // Explicit name: the auto-generated one exceeds Postgres's 63-byte limit.
+    foreignKey({
+      columns: [table.participantId],
+      foreignColumns: [voiceSessionParticipant.id],
+      name: "voice_transcript_segment_participant_fk",
+    }).onDelete("cascade"),
     uniqueIndex("voice_transcript_segment_sessionId_segmentId_uidx").on(
       table.sessionId,
       table.segmentId
@@ -146,15 +151,18 @@ export const voiceCaptureGap = pgTable(
     sessionId: uuid("session_id")
       .notNull()
       .references(() => voiceSession.id, { onDelete: "cascade" }),
-    participantId: uuid("participant_id").references(
-      () => voiceSessionParticipant.id,
-      { onDelete: "cascade" }
-    ),
+    participantId: uuid("participant_id"),
     startMs: integer("start_ms").notNull(),
     endMs: integer("end_ms").notNull(),
     reason: voiceCaptureGapReasonEnum("reason").notNull(),
   },
   (table) => [
+    // Explicit name: the auto-generated one exceeds Postgres's 63-byte limit.
+    foreignKey({
+      columns: [table.participantId],
+      foreignColumns: [voiceSessionParticipant.id],
+      name: "voice_capture_gap_participant_fk",
+    }).onDelete("cascade"),
     index("voice_capture_gap_sessionId_startMs_idx").on(
       table.sessionId,
       table.startMs

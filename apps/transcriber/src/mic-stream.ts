@@ -15,6 +15,8 @@ export const STT_MODEL = "nova-3"
 const RESTART_DELAY_MS = 5_000
 const SAMPLE_RATE = 16_000
 
+export type Caption = { segmentId: string; text: string; final: boolean }
+
 type MicStreamInput = {
   sessionId: string
   participantId: string
@@ -22,17 +24,23 @@ type MicStreamInput = {
   track: RemoteTrack
   speech: deepgram.STT
   sessionStartedAt: Date
+  publishCaption: (caption: Caption) => Promise<void>
 }
 
-// One unmuted microphone's Deepgram stream. Final transcripts become
-// segments on the session timeline. A stream that fails for good records a
-// provider_error gap until it restarts or the microphone goes away.
+// One unmuted microphone's Deepgram stream. Interim and final text go out as
+// live captions; final text becomes segments on the session timeline. A
+// stream that fails for good records a provider_error gap until it restarts
+// or the microphone goes away.
 export class MicStream {
   readonly #input: MicStreamInput
   #stream: stt.SpeechStream | null = null
   #closed = false
   #failedAtMs: number | null = null
   #restartTimer: ReturnType<typeof setTimeout> | undefined
+  // The phrase being spoken; its id is shared by its captions and segment.
+  #segmentId: string | null = null
+  // Captions publish in order, so a late interim can't overwrite a final.
+  #captions: Promise<void> = Promise.resolve()
 
   constructor(input: MicStreamInput) {
     this.#input = input
@@ -59,6 +67,7 @@ export class MicStream {
     const { track, speech } = this.#input
     const stream = speech.stream()
     this.#stream = stream
+    this.#segmentId = null
     // Deepgram's times are relative to the stream; this puts them on the
     // session timeline.
     stream.startTimeOffset = this.#sessionMs() / 1000
@@ -68,15 +77,23 @@ export class MicStream {
 
     try {
       for await (const event of stream) {
-        if (event.type !== stt.SpeechEventType.FINAL_TRANSCRIPT) continue
+        const final = event.type === stt.SpeechEventType.FINAL_TRANSCRIPT
+        if (!final && event.type !== stt.SpeechEventType.INTERIM_TRANSCRIPT) {
+          continue
+        }
         const alternative = event.alternatives?.[0]
         const text = alternative?.text.trim()
         if (!alternative || !text) continue
+        this.#segmentId ??= randomUUID()
+        const segmentId = this.#segmentId
+        this.#caption({ segmentId, text, final })
+        if (!final) continue
+        this.#segmentId = null
         await this.#save({
           sessionId: this.#input.sessionId,
           participantId: this.#input.participantId,
           trackId: this.#input.trackId,
-          segmentId: randomUUID(),
+          segmentId,
           startMs: Math.round(alternative.startTime * 1000),
           endMs: Math.round(alternative.endTime * 1000),
           text,
@@ -107,6 +124,14 @@ export class MicStream {
       this.#endGap()
       void this.#run()
     }, RESTART_DELAY_MS)
+  }
+
+  #caption(caption: Caption) {
+    this.#captions = this.#captions
+      .then(() => this.#input.publishCaption(caption))
+      .catch((err: unknown) =>
+        logger.warn({ err }, "transcriber: caption publish failed")
+      )
   }
 
   async #save(segment: TranscriptSegmentInput) {

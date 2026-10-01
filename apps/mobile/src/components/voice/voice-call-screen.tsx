@@ -18,7 +18,7 @@ import { SymbolView } from "expo-symbols"
 import { useThemeColor } from "heroui-native/hooks"
 import { cn } from "heroui-native/utils"
 import { DisconnectReason, Room, RoomEvent, Track } from "livekit-client"
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import {
   Alert,
   ScrollView,
@@ -97,9 +97,14 @@ function ParticipantTile({
 
 function CallStage({ onLeave }: { onLeave: () => void }) {
   const [foreground, danger] = useThemeColor(["foreground", "danger"])
-  const cameraTracks = useTracks([
+  const allCameraTracks = useTracks([
     { source: Track.Source.Camera, withPlaceholder: true },
   ])
+  // The transcriber joins as an agent participant; it never gets a tile.
+  const cameraTracks = useMemo(
+    () => allCameraTracks.filter((trackRef) => !trackRef.participant.isAgent),
+    [allCameraTracks]
+  )
   const [screenShare] = useTracks([Track.Source.ScreenShare])
   const { localParticipant, isMicrophoneEnabled, isCameraEnabled } =
     useLocalParticipant()
