@@ -206,7 +206,7 @@ function SubStepRow({ toolCall }: { toolCall: LorToolCallView }) {
           strokeWidth={2}
         />
       </CollapsibleTrigger>
-      <CollapsibleContent className="transition-none">
+      <CollapsibleContent>
         <div className="mt-1 mb-1 max-h-64 overflow-auto rounded-md border border-border/50 bg-muted/30 p-2 text-[11px] leading-4">
           <pre className="whitespace-pre-wrap font-mono [overflow-wrap:anywhere]">
             {toolCall.label}
