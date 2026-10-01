@@ -1,9 +1,17 @@
 import { and, db, eq, isNotNull, isNull, lte, schema } from "@repo/db"
 import { ServerError } from "livekit-server-sdk"
 import { VOICE_SESSION_GRACE_MS } from "../index"
-import { getRoomService, type LiveKitConfig } from "./livekit"
+import {
+  dispatchTranscriber,
+  getRoomService,
+  type LiveKitConfig,
+} from "./livekit"
 import { notifyVoicePresence } from "./notify"
 import { markParticipantConnected, markParticipantLeft } from "./participants"
+import {
+  recordMissedTranscriberAtEnd,
+  transcriberMissing,
+} from "./transcriber-lease"
 
 const { voiceSession, voiceSessionParticipant } = schema
 
@@ -97,11 +105,15 @@ export async function endExpiredSessions(config: LiveKitConfig) {
         .returning({
           id: voiceSession.id,
           workspaceId: voiceSession.workspaceId,
+          startedAt: voiceSession.startedAt,
+          transcriberJobId: voiceSession.transcriberJobId,
+          transcriberSeenAt: voiceSession.transcriberSeenAt,
         })
       if (row) {
         ended.push(row.id)
         // Lets open voice channel pages move the session into history.
         notifyVoicePresence(row.workspaceId)
+        await recordMissedTranscriberAtEnd({ ...row, endedAt: emptySince })
       }
     } catch (err) {
       failed.push({ sessionId: id, err })
@@ -111,20 +123,31 @@ export async function endExpiredSessions(config: LiveKitConfig) {
 }
 
 // Every 10 minutes. Catches missed "left" webhooks on sessions the database
-// still thinks are occupied.
+// still thinks are occupied, and sends a transcriber to occupied rooms
+// without one. The new transcriber records the stretch it missed.
 export async function auditLiveSessions(config: LiveKitConfig) {
   const live = await db
-    .select({ id: voiceSession.id })
+    .select({
+      id: voiceSession.id,
+      startedAt: voiceSession.startedAt,
+      transcriberJobId: voiceSession.transcriberJobId,
+      transcriberSeenAt: voiceSession.transcriberSeenAt,
+    })
     .from(voiceSession)
     .where(and(isNull(voiceSession.endedAt), isNull(voiceSession.emptySince)))
 
+  const dispatched: string[] = []
   const failed: SyncFailure[] = []
-  for (const { id } of live) {
+  for (const session of live) {
     try {
-      await reconcileSession(config, id)
+      const connected = await reconcileSession(config, session.id)
+      if (connected > 0 && transcriberMissing(session)) {
+        await dispatchTranscriber(config, session.id)
+        dispatched.push(session.id)
+      }
     } catch (err) {
-      failed.push({ sessionId: id, err })
+      failed.push({ sessionId: session.id, err })
     }
   }
-  return { checked: live.length, failed }
+  return { checked: live.length, dispatched, failed }
 }

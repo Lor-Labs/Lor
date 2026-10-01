@@ -11,29 +11,34 @@ import {
   type TrackPublication,
   TrackSource,
 } from "@livekit/rtc-node"
-import { and, db, eq, isNull, schema } from "@repo/db"
-import { CAPTION_ATTRIBUTES, CAPTION_TOPIC } from "@repo/voice"
-import { recordCaptureGap } from "@repo/voice/server"
+import {
+  CAPTION_ATTRIBUTES,
+  CAPTION_TOPIC,
+  VOICE_SESSION_GRACE_MS,
+} from "@repo/voice"
+import {
+  claimTranscriber,
+  recordCaptureGap,
+  releaseTranscriber,
+  renewTranscriber,
+  TRANSCRIBER_HEARTBEAT_MS,
+} from "@repo/voice/server"
 import { logger } from "./logger"
 import { type Caption, MicStream, STT_MODEL } from "./mic-stream"
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+// Past the grace period plus the 30s end sweep, so the session has ended
+// and a rejoin starts a new room, which gets its own transcriber.
+const LEAVE_EMPTY_ROOM_MS = VOICE_SESSION_GRACE_MS + 60_000
 
 // The room name is the voice_session id; human identities are
 // voice_session_participant ids.
-async function findLiveSession(sessionId: string) {
-  const [row] = await db
-    .select({ startedAt: schema.voiceSession.startedAt })
-    .from(schema.voiceSession)
-    .where(
-      and(
-        eq(schema.voiceSession.id, sessionId),
-        isNull(schema.voiceSession.endedAt)
-      )
-    )
-    .limit(1)
-  return row ?? null
+function isHuman(participant: Participant) {
+  return (
+    participant.kind === ParticipantKind.STANDARD &&
+    UUID_PATTERN.test(participant.identity)
+  )
 }
 
 function isHumanMicrophone(
@@ -41,9 +46,7 @@ function isHumanMicrophone(
   participant: Participant
 ) {
   return (
-    participant.kind === ParticipantKind.STANDARD &&
-    UUID_PATTERN.test(participant.identity) &&
-    publication.source === TrackSource.SOURCE_MICROPHONE
+    isHuman(participant) && publication.source === TrackSource.SOURCE_MICROPHONE
   )
 }
 
@@ -71,12 +74,16 @@ async function publishCaption(
 // One job per room: a Deepgram stream for each unmuted human microphone.
 export async function transcribeRoom(ctx: JobContext, deepgramApiKey: string) {
   const sessionId = ctx.job.room?.name ?? ""
+  const jobId = ctx.job.id
   const session = UUID_PATTERN.test(sessionId)
-    ? await findLiveSession(sessionId)
+    ? await claimTranscriber(sessionId, jobId)
     : null
   if (!session) {
-    logger.warn({ room: sessionId }, "transcriber: no live session for room")
-    ctx.shutdown("no live session")
+    logger.warn(
+      { room: sessionId },
+      "transcriber: session ended or already has a transcriber"
+    )
+    ctx.shutdown("not needed")
     return
   }
 
@@ -90,6 +97,8 @@ export async function transcribeRoom(ctx: JobContext, deepgramApiKey: string) {
     smartFormat: true,
   })
   const streams = new Map<string, MicStream>()
+  const finishing = new Set<Promise<void>>()
+  let audioSeconds = 0
   const sessionMs = () => Date.now() - session.startedAt.getTime()
 
   const open = (
@@ -115,24 +124,66 @@ export async function transcribeRoom(ctx: JobContext, deepgramApiKey: string) {
       sessionStartedAt: session.startedAt,
       publishCaption: (caption) =>
         publishCaption(ctx.room, participant.identity, trackId, caption),
+      onAudioSent: (seconds) => {
+        audioSeconds += seconds
+      },
     })
     streams.set(trackId, stream)
     stream.start()
   }
 
-  const close = (publication: TrackPublication) => {
-    if (!publication.sid) return
-    streams.get(publication.sid)?.close()
-    streams.delete(publication.sid)
+  const close = (trackId: string | undefined) => {
+    const stream = trackId ? streams.get(trackId) : undefined
+    if (!trackId || !stream) return
+    streams.delete(trackId)
+    const done = stream.finish().finally(() => finishing.delete(done))
+    finishing.add(done)
   }
+
+  // The lease is held while people are in the call. An empty room releases
+  // it, so the stretch until someone returns isn't recorded as missed.
+  let holding = true
+  let leaveTimer: ReturnType<typeof setTimeout> | undefined
+  const logLeaseError = (err: unknown) =>
+    logger.error({ err, sessionId }, "transcriber: lease write failed")
+  const onEmpty = () => {
+    holding = false
+    void releaseTranscriber(sessionId, jobId).catch(logLeaseError)
+    leaveTimer = setTimeout(
+      () => ctx.shutdown("call empty"),
+      LEAVE_EMPTY_ROOM_MS
+    )
+  }
+  const onHumanJoined = async () => {
+    clearTimeout(leaveTimer)
+    if (holding) return
+    if (await claimTranscriber(sessionId, jobId)) holding = true
+    else ctx.shutdown("another transcriber took over")
+  }
+  const heartbeat = setInterval(() => {
+    if (!holding) return
+    void renewTranscriber(sessionId, jobId)
+      .then((kept) => {
+        if (!kept && holding) ctx.shutdown("another transcriber took over")
+      })
+      .catch(logLeaseError)
+  }, TRANSCRIBER_HEARTBEAT_MS)
+  const humanCount = () =>
+    [...ctx.room.remoteParticipants.values()].filter(isHuman).length
 
   let reconnectingAtMs: number | null = null
   ctx.room
+    .on(RoomEvent.ParticipantConnected, (participant) => {
+      if (isHuman(participant)) void onHumanJoined().catch(logLeaseError)
+    })
+    .on(RoomEvent.ParticipantDisconnected, (participant) => {
+      if (isHuman(participant) && humanCount() === 0) onEmpty()
+    })
     .on(RoomEvent.TrackSubscribed, open)
     .on(RoomEvent.TrackUnsubscribed, (_track, publication) =>
-      close(publication)
+      close(publication.sid)
     )
-    .on(RoomEvent.TrackMuted, (publication) => close(publication))
+    .on(RoomEvent.TrackMuted, (publication) => close(publication.sid))
     .on(RoomEvent.TrackUnmuted, (publication, participant) => {
       if (!(participant instanceof RemoteParticipant) || !publication.sid) {
         return
@@ -159,12 +210,22 @@ export async function transcribeRoom(ctx: JobContext, deepgramApiKey: string) {
       )
     })
 
+  // Runs after the room disconnects: captions stop, but final transcripts
+  // still arrive and are saved.
   ctx.addShutdownCallback(async () => {
-    for (const stream of streams.values()) stream.close()
-    streams.clear()
+    clearInterval(heartbeat)
+    clearTimeout(leaveTimer)
+    for (const trackId of [...streams.keys()]) close(trackId)
+    await Promise.all(finishing)
     await speech.close()
+    // Compare with Deepgram's billed minutes for the call.
+    logger.info(
+      { sessionId, sttMinutes: Number((audioSeconds / 60).toFixed(2)) },
+      "transcriber: left"
+    )
   })
 
   await ctx.connect(undefined, AutoSubscribe.AUDIO_ONLY)
+  if (humanCount() === 0) onEmpty()
   logger.info({ sessionId }, "transcriber: joined")
 }

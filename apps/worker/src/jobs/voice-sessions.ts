@@ -27,7 +27,10 @@ export async function auditVoiceSessions() {
   const livekit = getLiveKitConfig()
   if (!livekit) return
 
-  const { failed } = await auditLiveSessions(livekit)
+  const { dispatched, failed } = await auditLiveSessions(livekit)
+  if (dispatched.length > 0) {
+    logger.warn({ dispatched }, "voice: transcriber missing, dispatched")
+  }
   for (const { sessionId, err } of failed) {
     logger.warn({ err, sessionId }, "voice: session audit failed")
   }

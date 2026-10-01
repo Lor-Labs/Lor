@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto"
+import { setTimeout as delay } from "node:timers/promises"
 import { stt } from "@livekit/agents"
 import type * as deepgram from "@livekit/agents-plugin-deepgram"
 import { AudioStream, type RemoteTrack } from "@livekit/rtc-node"
@@ -13,6 +14,8 @@ export const STT_PROVIDER = "deepgram"
 export const STT_MODEL = "nova-3"
 // Deepgram's own retries are exhausted by the time a stream fails for good.
 const RESTART_DELAY_MS = 5_000
+// How long a finishing stream waits for Deepgram's last final transcript.
+const FINISH_TIMEOUT_MS = 3_000
 const SAMPLE_RATE = 16_000
 
 export type Caption = { segmentId: string; text: string; final: boolean }
@@ -25,6 +28,8 @@ type MicStreamInput = {
   speech: deepgram.STT
   sessionStartedAt: Date
   publishCaption: (caption: Caption) => Promise<void>
+  // Seconds of audio sent to Deepgram, reported every few seconds.
+  onAudioSent: (seconds: number) => void
 }
 
 // One unmuted microphone's Deepgram stream. Interim and final text go out as
@@ -34,6 +39,8 @@ type MicStreamInput = {
 export class MicStream {
   readonly #input: MicStreamInput
   #stream: stt.SpeechStream | null = null
+  #audio: AudioStream | null = null
+  #running: Promise<void> = Promise.resolve()
   #closed = false
   #failedAtMs: number | null = null
   #restartTimer: ReturnType<typeof setTimeout> | undefined
@@ -47,20 +54,41 @@ export class MicStream {
   }
 
   start() {
-    void this.#run()
+    this.#running = this.#run()
   }
 
-  close() {
+  // On mute, leave, or call end: stop the audio, then wait briefly so the
+  // phrase in progress comes back final and is saved.
+  async finish() {
     if (this.#closed) return
     this.#closed = true
     clearTimeout(this.#restartTimer)
-    this.#stream?.close()
-    this.#stream = null
     this.#endGap()
+    const stream = this.#stream
+    if (!stream) return
+    this.#detachAudio()
+    try {
+      stream.flush()
+      stream.endInput()
+    } catch {
+      // The input already closed.
+    }
+    await Promise.race([this.#running, delay(FINISH_TIMEOUT_MS)])
+    stream.close()
+    await this.#running
+    await this.#captions
   }
 
   #sessionMs() {
     return Date.now() - this.#input.sessionStartedAt.getTime()
+  }
+
+  // An unread AudioStream keeps buffering frames, so it's cancelled once the
+  // speech stream stops reading it.
+  #detachAudio() {
+    this.#stream?.detachInputStream()
+    void this.#audio?.cancel().catch(() => undefined)
+    this.#audio = null
   }
 
   async #run() {
@@ -71,12 +99,18 @@ export class MicStream {
     // Deepgram's times are relative to the stream; this puts them on the
     // session timeline.
     stream.startTimeOffset = this.#sessionMs() / 1000
-    stream.updateInputStream(
-      new AudioStream(track, { sampleRate: SAMPLE_RATE, numChannels: 1 })
-    )
+    this.#audio = new AudioStream(track, {
+      sampleRate: SAMPLE_RATE,
+      numChannels: 1,
+    })
+    stream.updateInputStream(this.#audio)
 
     try {
       for await (const event of stream) {
+        if (event.type === stt.SpeechEventType.RECOGNITION_USAGE) {
+          this.#input.onAudioSent(event.recognitionUsage?.audioDuration ?? 0)
+          continue
+        }
         const final = event.type === stt.SpeechEventType.FINAL_TRANSCRIPT
         if (!final && event.type !== stt.SpeechEventType.INTERIM_TRANSCRIPT) {
           continue
@@ -119,10 +153,13 @@ export class MicStream {
       "transcriber: speech stream failed"
     )
     this.#failedAtMs = this.#sessionMs()
+    this.#detachAudio()
+    stream.close()
+    this.#stream = null
     this.#restartTimer = setTimeout(() => {
       if (this.#closed) return
       this.#endGap()
-      void this.#run()
+      this.#running = this.#run()
     }, RESTART_DELAY_MS)
   }
 

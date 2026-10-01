@@ -1,6 +1,7 @@
 import { env } from "@repo/env/server"
 import {
   AccessToken,
+  AgentDispatchClient,
   RoomAgentDispatch,
   RoomConfiguration,
   RoomServiceClient,
@@ -72,6 +73,16 @@ export function createJoinToken(
     agents: [new RoomAgentDispatch({ agentName: transcriberAgentName() })],
   })
   return token.toJwt()
+}
+
+// Token dispatch fires only when LiveKit creates the room, so a live room
+// that lost its transcriber gets a new one this way.
+export function dispatchTranscriber(config: LiveKitConfig, room: string) {
+  return new AgentDispatchClient(
+    config.url,
+    config.apiKey,
+    config.apiSecret
+  ).createDispatch(room, transcriberAgentName())
 }
 
 // Throws when the Authorization signature doesn't match the raw body.

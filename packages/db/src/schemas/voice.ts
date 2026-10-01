@@ -44,6 +44,11 @@ export const voiceSession = pgTable(
     // later unless someone rejoins; endedAt then takes this value.
     emptySince: timestamp("empty_since"),
     endedAt: timestamp("ended_at"),
+    // Transcriber lease. The holding job renews seenAt while people are in
+    // the call and clears jobId when the room empties; a stale lease means
+    // the transcriber died, and the next one records the missing stretch.
+    transcriberJobId: text("transcriber_job_id"),
+    transcriberSeenAt: timestamp("transcriber_seen_at"),
   },
   (table) => [
     uniqueIndex("voice_session_channelId_live_uidx")

@@ -279,6 +279,14 @@ Realtime, emitted from the API with the existing emitter
   when a live room has no transcriber. Subscribe to human microphone tracks
   only. Handle late joins, departures, mute and unmute, republishing, and
   worker restarts.
+- Transcriber lease on `voice_session` (`transcriber_job_id`,
+  `transcriber_seen_at`; **db:push owed**). The job claims it on join (a
+  second transcriber in the same room leaves), renews it every 30s while
+  people are in the call, and releases it when the room empties. A lease not
+  renewed for 90s means the transcriber is missing: the audit dispatches a new
+  one, which records the stretch since the last renewal as a `no_transcriber`
+  gap. A session that ends without one records the gap at session end. An
+  empty room's transcriber leaves after the grace period plus a minute.
 - Deepgram direct through `@livekit/agents-plugin-deepgram` with
   `DEEPGRAM_API_KEY` (optional in `packages/env`; the transcriber exits with a
   clear error without it). One stream per unmuted microphone, closed on mute.
@@ -290,11 +298,15 @@ Realtime, emitted from the API with the existing emitter
   to the normal foreground when final (Jacob's call). The CC toggle is per
   device and starts on.
 - At session end: drain pending output, flush final segments, record gaps,
-  finalize once.
+  finalize once. Built as a clean finish per microphone (on mute, leave, and
+  job shutdown): stop the audio, flush, end the input, and wait up to 3s for
+  Deepgram's last final transcript before closing.
 - No Egress.
 - Record STT minutes per call to compare with the research cost model. On the
   first real call, compare Deepgram's billed minutes with the minutes we
   streamed. If Deepgram bills open but silent streams, also skip silent audio.
+  Built as the `sttMinutes` field on the transcriber's "transcriber: left" log
+  line (audio sent to Deepgram, per job).
 - Segments are the input V5 listens to for "Lor, …", so ingestion latency
   matters: persist and publish final segments as they arrive, not in batches.
 - Measure final-segment latency on the first real call.
@@ -560,6 +572,21 @@ Design: the spec's "Lor in the call" section.
     every thread reply in the database.
   - `pnpm dev` now offers the transcriber. A room created before the
     transcriber was running never gets one until it closes and reopens.
+- 2026-10-01 — V4 chunk 4 (reliability) built:
+  - The transcriber lease, audit re-dispatch, `no_transcriber` gaps, clean
+    finish, and STT minutes, as described in V4. The audit now also covers a
+    room created before the transcriber was running (within 10 minutes).
+  - Two leaks fixed: a closed or failed speech stream left its LiveKit audio
+    stream open and buffering frames. Each stream is now detached and
+    cancelled.
+  - A released lease records no gap, so time with nobody in the room is never
+    marked as missed. Known limit: if people rejoin an emptied room and no
+    transcriber arrives, the stretch until the audit's transcriber is not
+    recorded.
+  - Verified in the SDK sources: shutdown callbacks run after the room
+    disconnects, and a client-side disconnect fires no participant-left
+    events, so a drained or crashed job keeps its lease and the gap is
+    recorded.
 
 ## Production setup (do once at launch)
 
