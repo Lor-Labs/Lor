@@ -950,7 +950,7 @@ export function MessageInput({
       )}
       <div
         className={cn(
-          "border border-input bg-muted/40 transition-colors duration-150 focus-within:border-muted-foreground/40",
+          "border border-input bg-background transition-colors duration-150 focus-within:border-muted-foreground/40 dark:bg-muted/40",
           replyingTo ? "rounded-b-lg" : "rounded-lg"
         )}
         onPaste={handlePaste}
