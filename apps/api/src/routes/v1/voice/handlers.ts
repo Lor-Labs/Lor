@@ -2,11 +2,13 @@ import {
   listAccessibleChannelIds,
   resolveChannelAccess,
 } from "@repo/db/queries/channel-access"
+import { canSeeSession } from "@repo/db/queries/session-chat-access"
 import {
   countConnectedParticipants,
   createJoinToken,
   getCurrentCall,
   getLiveKitConfig,
+  listTranscript,
   markParticipantLeft,
   removeFromRoom,
 } from "@repo/voice/server"
@@ -29,6 +31,7 @@ import type {
   GetVoiceCallRoute,
   GetVoicePresenceRoute,
   GetVoiceSessionRoute,
+  GetVoiceTranscriptRoute,
   JoinVoiceChannelRoute,
   LeaveVoiceSessionRoute,
   ListVoiceSessionsRoute,
@@ -119,6 +122,32 @@ export const getVoiceSession: AppRouteHandler<GetVoiceSessionRoute> = async (
     )
   }
   return c.json(summary, HttpStatusCodes.OK)
+}
+
+// Same 404 for missing, inaccessible, and live calls the person isn't in.
+export const getVoiceTranscript: AppRouteHandler<
+  GetVoiceTranscriptRoute
+> = async (c) => {
+  const { sessionId } = c.req.valid("param")
+  const { after, limit } = c.req.valid("query")
+  const scope = await findSessionScope(sessionId)
+  const access = scope
+    ? await resolveChannelAccess(c.var.user.id, scope.channelId)
+    : null
+  if (
+    !scope ||
+    !access?.ok ||
+    !(await canSeeSession(c.var.user.id, sessionId))
+  ) {
+    return c.json(
+      { success: false as const, message: "Session not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  return c.json(
+    await listTranscript(sessionId, { after, limit }),
+    HttpStatusCodes.OK
+  )
 }
 
 export const getVoicePresence: AppRouteHandler<GetVoicePresenceRoute> = async (

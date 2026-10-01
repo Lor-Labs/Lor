@@ -52,6 +52,28 @@ export async function canSeeSessionChat(userId: string, threadRootId: string) {
   return !row || row.participantId !== null
 }
 
+// The same rule keyed by session, for its transcript. False when the session
+// doesn't exist.
+export async function canSeeSession(userId: string, sessionId: string) {
+  const [row] = await db
+    .select({
+      endedAt: voiceSession.endedAt,
+      participantId: voiceSessionParticipant.id,
+    })
+    .from(voiceSession)
+    .leftJoin(
+      voiceSessionParticipant,
+      and(
+        eq(voiceSessionParticipant.sessionId, voiceSession.id),
+        eq(voiceSessionParticipant.userId, userId),
+        isNotNull(voiceSessionParticipant.connectedAt)
+      )
+    )
+    .where(eq(voiceSession.id, sessionId))
+    .limit(1)
+  return Boolean(row && (row.endedAt !== null || row.participantId !== null))
+}
+
 // People connected to the call when the thread is a live session chat, else
 // null. Message fanout uses it to keep live chat previews inside the call.
 export async function liveSessionChatMembers(

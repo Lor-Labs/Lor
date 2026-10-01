@@ -24,6 +24,8 @@ import {
   voiceSessionHistoryQuerySchema,
   voiceSessionHistoryResponseSchema,
   voiceSessionParamsSchema,
+  voiceTranscriptQuerySchema,
+  voiceTranscriptResponseSchema,
   workspaceSlugParamsSchema,
 } from "@/routes/v1/voice/schema"
 
@@ -177,6 +179,32 @@ export const getVoiceSession = createRoute({
 })
 
 export type GetVoiceSessionRoute = typeof getVoiceSession
+
+export const getVoiceTranscript = createRoute({
+  path: "/voice/sessions/{sessionId}/transcript",
+  method: "get",
+  summary: "Get a voice session transcript",
+  description:
+    "Final transcript segments in timeline order, with capture gaps. A live session's transcript is only for people connected to the call; after it ends, channel access applies.",
+  tags: ["Voice"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: {
+    params: voiceSessionParamsSchema,
+    query: voiceTranscriptQuerySchema,
+  },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: voiceTranscriptResponseSchema,
+      description: "Transcript page",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type GetVoiceTranscriptRoute = typeof getVoiceTranscript
 
 export const getVoicePresence = createRoute({
   path: "/workspaces/{workspaceSlug}/voice/presence",

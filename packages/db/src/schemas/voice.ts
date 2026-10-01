@@ -1,7 +1,10 @@
 import { relations, sql } from "drizzle-orm"
 import {
   index,
+  integer,
+  pgEnum,
   pgTable,
+  text,
   timestamp,
   uniqueIndex,
   uuid,
@@ -84,6 +87,81 @@ export const voiceSessionParticipant = pgTable(
   ]
 )
 
+// One final transcript segment from one person's microphone. Offsets are
+// milliseconds on the session timeline (from voice_session.started_at).
+export const voiceTranscriptSegment = pgTable(
+  "voice_transcript_segment",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at")
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => voiceSession.id, { onDelete: "cascade" }),
+    participantId: uuid("participant_id")
+      .notNull()
+      .references(() => voiceSessionParticipant.id, { onDelete: "cascade" }),
+    // LiveKit track SID of the microphone.
+    trackId: text("track_id").notNull(),
+    // Assigned by the transcriber; stable across revisions of one segment.
+    segmentId: text("segment_id").notNull(),
+    revision: integer("revision").default(0).notNull(),
+    startMs: integer("start_ms").notNull(),
+    endMs: integer("end_ms").notNull(),
+    text: text("text").notNull(),
+    provider: text("provider").notNull(),
+    model: text("model").notNull(),
+  },
+  (table) => [
+    uniqueIndex("voice_transcript_segment_sessionId_segmentId_uidx").on(
+      table.sessionId,
+      table.segmentId
+    ),
+    index("voice_transcript_segment_sessionId_startMs_idx").on(
+      table.sessionId,
+      table.startMs
+    ),
+  ]
+)
+
+export const voiceCaptureGapReasonEnum = pgEnum("voice_capture_gap_reason", [
+  // A microphone's speech-to-text stream failed or closed early.
+  "provider_error",
+  // The transcriber lost the room and rejoined.
+  "transcriber_restart",
+  // The session ran without a transcriber in the room.
+  "no_transcriber",
+])
+
+// A stretch of the session the transcript doesn't cover. A null participant
+// means nobody was transcribed.
+export const voiceCaptureGap = pgTable(
+  "voice_capture_gap",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => voiceSession.id, { onDelete: "cascade" }),
+    participantId: uuid("participant_id").references(
+      () => voiceSessionParticipant.id,
+      { onDelete: "cascade" }
+    ),
+    startMs: integer("start_ms").notNull(),
+    endMs: integer("end_ms").notNull(),
+    reason: voiceCaptureGapReasonEnum("reason").notNull(),
+  },
+  (table) => [
+    index("voice_capture_gap_sessionId_startMs_idx").on(
+      table.sessionId,
+      table.startMs
+    ),
+  ]
+)
+
 export const voiceSessionRelations = relations(
   voiceSession,
   ({ one, many }) => ({
@@ -100,6 +178,36 @@ export const voiceSessionRelations = relations(
       references: [message.id],
     }),
     participants: many(voiceSessionParticipant),
+    transcriptSegments: many(voiceTranscriptSegment),
+    captureGaps: many(voiceCaptureGap),
+  })
+)
+
+export const voiceTranscriptSegmentRelations = relations(
+  voiceTranscriptSegment,
+  ({ one }) => ({
+    session: one(voiceSession, {
+      fields: [voiceTranscriptSegment.sessionId],
+      references: [voiceSession.id],
+    }),
+    participant: one(voiceSessionParticipant, {
+      fields: [voiceTranscriptSegment.participantId],
+      references: [voiceSessionParticipant.id],
+    }),
+  })
+)
+
+export const voiceCaptureGapRelations = relations(
+  voiceCaptureGap,
+  ({ one }) => ({
+    session: one(voiceSession, {
+      fields: [voiceCaptureGap.sessionId],
+      references: [voiceSession.id],
+    }),
+    participant: one(voiceSessionParticipant, {
+      fields: [voiceCaptureGap.participantId],
+      references: [voiceSessionParticipant.id],
+    }),
   })
 )
 
@@ -123,3 +231,8 @@ export type VoiceSessionParticipant =
   typeof voiceSessionParticipant.$inferSelect
 export type NewVoiceSessionParticipant =
   typeof voiceSessionParticipant.$inferInsert
+export type VoiceTranscriptSegment = typeof voiceTranscriptSegment.$inferSelect
+export type NewVoiceTranscriptSegment =
+  typeof voiceTranscriptSegment.$inferInsert
+export type VoiceCaptureGap = typeof voiceCaptureGap.$inferSelect
+export type NewVoiceCaptureGap = typeof voiceCaptureGap.$inferInsert

@@ -30,9 +30,11 @@ real working conversations and find the resulting memory useful afterward.
 ## Decisions from the product discussion
 
 - Voice channels are the next feature direction to develop.
-- Start with LiveKit Cloud for calls and LiveKit Inference for transcription.
-  Use separate participant streams for attribution. Defer direct Deepgram/BYOK
-  and custom silence filtering; the initial priority is reliable capture.
+- Use LiveKit Cloud for calls and Deepgram Nova-3 for transcription, through a
+  small transcriber service we run ourselves (decided 2026-09-30; reasons in
+  the runbook). Use one stream per unmuted participant, so every segment is
+  attributed to the person whose microphone it came from. The initial priority
+  is reliable capture.
 - The first release covers human calls, the session chat, and transcription.
   Lor joining the call by voice follows directly after (see "Lor in the call").
   The aim is to be much better than a huddle, not a copy of one: Lor puts live,

@@ -1,4 +1,5 @@
 import { z } from "@hono/zod-openapi"
+import { voiceCaptureGapReasonEnum } from "@repo/db/schema"
 
 export const voiceChannelParamsSchema = z.object({
   channelId: z
@@ -74,6 +75,39 @@ export const workspaceSlugParamsSchema = z.object({
 export const voiceSessionHistoryQuerySchema = z.object({
   before: z.string().datetime().optional(),
   limit: z.coerce.number().int().min(1).max(50).default(20),
+})
+
+export const voiceTranscriptQuerySchema = z.object({
+  after: z.string().uuid().optional(),
+  limit: z.coerce.number().int().min(1).max(500).default(200),
+})
+
+export const voiceTranscriptResponseSchema = z.object({
+  segments: z.array(
+    z.object({
+      id: z.string().uuid(),
+      participantId: z.string().uuid(),
+      speaker: z.object({
+        userId: z.string().uuid(),
+        name: z.string(),
+        image: z.string().nullable(),
+        avatarColor: z.string().nullable(),
+      }),
+      // Milliseconds from the session's start.
+      startMs: z.number().int(),
+      endMs: z.number().int(),
+      text: z.string(),
+    })
+  ),
+  gaps: z.array(
+    z.object({
+      participantId: z.string().uuid().nullable(),
+      startMs: z.number().int(),
+      endMs: z.number().int(),
+      reason: z.enum(voiceCaptureGapReasonEnum.enumValues),
+    })
+  ),
+  nextAfter: z.string().uuid().nullable(),
 })
 
 const voiceParticipantSchema = z.object({

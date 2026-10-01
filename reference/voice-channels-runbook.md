@@ -26,8 +26,8 @@ Rules for every phase:
 
 Before V0:
 
-- [ ] Create a LiveKit Cloud project. The free Build plan is enough for V0 (5
-      concurrent connections). Put `LIVEKIT_URL`, `LIVEKIT_API_KEY`, and
+- [ ] Create a LiveKit Cloud project. The free Build plan is enough for V0
+      (100 concurrent connections). Put `LIVEKIT_URL`, `LIVEKIT_API_KEY`, and
       `LIVEKIT_API_SECRET` in the root `.env`, which the API loads.
 - [ ] iPhone dev build (microphone publishing needs a real device): with the
       phone plugged in, run `APP_VARIANT=development npx expo run:ios --device`
@@ -44,10 +44,16 @@ Before V1:
 - [ ] Point the project's webhook at `POST /v1/voice/livekit/webhook` (local
       development needs a tunnel).
 
+Before V4 live testing:
+
+- [ ] Create a Deepgram account and put `DEEPGRAM_API_KEY` in the root `.env`.
+- [ ] Add a Railway service for `apps/transcriber` with the `LIVEKIT_*` vars,
+      `DEEPGRAM_API_KEY`, `DATABASE_URL`, and `REDIS_URL`.
+
 Before real team use:
 
-- [ ] Move to the Ship plan. Build's 5 concurrent connections can't hold a
-      30-person call.
+- [ ] Move to the Ship plan. Build includes 5,000 WebRTC minutes a month; one
+      10-person hour uses 600.
 
 ## Locked decisions (do not relitigate without logging a deviation)
 
@@ -61,7 +67,7 @@ Before real team use:
 | Participant identity | One `voice_session_participant` row per person per session. Its ID is the LiveKit identity, reused for reconnects and transfers. Display names are never used to map speech to people. |
 | Transfer | "Transfer here" joins with the same identity; LiveKit disconnects the older connection, and that device shows where the call went. Verify the disconnect reason in V0. |
 | One call per person | Joining a different session removes the person's participant from the old one through the LiveKit room API before the new token is issued. |
-| Room cap | 30 people, enforced in the join handler by counting connected humans. The transcriber also joins the room, and LiveKit's docs don't say whether agents count toward its own room limit, so never set that limit to exactly 30. |
+| Room cap | 30 people, enforced in the join handler by counting connected humans. The transcriber joins as an agent participant; LiveKit's own `maxParticipants` excludes agents (`RoomConfiguration` in `@livekit/protocol`), and we don't set it. |
 | Join response | `{ url, token, sessionId, participantId }`. Clients need no LiveKit env. Tokens are short-lived and grant only that room. |
 | Access | Every voice handler starts with `resolveChannelAccess` (`packages/db/src/queries/channel-access.ts`), then requires `channel.type = "voice"` and a non-archived channel. |
 | Session chat | Plan pattern: a `voice_session` message is the thread root, `voice_session.threadRootId` is unique, and the session chat is that thread. Voice channels accept no other top-level messages. Root messages post silent. The chat is human-only: Lor mention routing ignores session threads on the server, and the composer doesn't offer Lor. Lor reads the thread as passive context for voice requests. |
@@ -70,7 +76,7 @@ Before real team use:
 | Gateway ZDR | Voice-path gateway requests set `providerOptions.gateway.zeroDataRetention: true` per request. Pending: the gateway plan is Hobby, which returns 403 for the flag; turn it on once the plan is Pro. |
 | Live-only visibility | While a session is live, its thread room, thread reads, search, Lor retrieval, thread activity, and notification previews exclude everyone not connected to the call. Once it ends, normal channel access applies. |
 | Sidebar presence | Push-invalidated snapshot, the sidebar Lor activity pattern (`reference/sidebar-realtime-activity-plan.md`): an invalidation event to the workspace room, then an auth-filtered fetch. Connected people only. |
-| Transcription | Always on. One silent transcriber job per room with one Deepgram Nova-3 stream per human microphone through LiveKit Inference. Final segments persist through the API as they arrive. No Egress; LiveKit agent observability audio recording off. |
+| Transcription | Always on. One self-hosted transcriber service (`apps/transcriber`, TypeScript `@livekit/agents` worker on Railway) serves every call, with one lightweight job per room, dispatched from the join token. Each job opens one Deepgram Nova-3 stream (direct, our own API key, keyterm "Lor") per unmuted human microphone and closes it on mute. No `AgentSession`, LLM, or TTS. Final segments are written to Postgres through `@repo/voice/server` as they arrive. No Egress. |
 | Captions | A per-device CC toggle, default on, stored on the device. It only controls display. |
 | Retention | Forever. No pruning jobs for sessions, chats, or transcripts. |
 | Env | The three `LIVEKIT_*` vars are optional in `packages/env/src/server.ts`; voice routes fail with a clear error when they are missing. |
@@ -249,21 +255,29 @@ Realtime, emitted from the API with the existing emitter
 
 ### [ ] V4 — Transcription
 
-- Language gate: TypeScript (`@livekit/agents`) if the pinned Node SDK handles
-  several participant streams cleanly; otherwise a small Python service based
-  on LiveKit's multi-user transcriber example. Log the choice.
-- New `apps/transcriber`, deployed as a LiveKit Cloud agent; shared types from
-  `packages/voice`.
+- Language and hosting (decided 2026-09-30, see the log): TypeScript
+  `@livekit/agents` worker, self-hosted on Railway, Node runtime (the native
+  `@livekit/rtc-node` module rules out Bun). No `AgentSession`: each job
+  manages its own speech-to-text streams.
+- New `apps/transcriber` with agent name `lor-transcriber`; shared code from
+  `packages/voice`. It writes to Postgres and the Socket.IO emitter directly,
+  like the worker, so there's no ingestion API.
 - Schema in `voice.ts`: `voice_transcript_segment` (session, participant,
   track, start/end offsets on the session timeline, final text, segment ID and
-  revision, provider and model) and `voice_capture_gap` (session, start, end,
-  reason). **db:push owed.**
-- API: service-authenticated segment ingestion, idempotent per segment ID and
-  revision; a transcript read endpoint for late joiners and past sessions that
+  revision, provider and model) and `voice_capture_gap` (session, participant,
+  start, end, reason). **db:push owed.**
+- `@repo/voice/server` transcript helpers: record a segment idempotently per
+  segment ID and revision, record a gap, list a session's transcript.
+- API: a transcript read endpoint for late joiners and past sessions that
   follows the live-only rule.
-- Dispatch one transcriber per session when it starts. Subscribe to human
-  microphone tracks only. Handle late joins, departures, republishing, and
+- Dispatch from the join token (`roomConfig.agents`), which fires when LiveKit
+  creates the room. The 10-minute audit re-dispatches with `createDispatch`
+  when a live room has no transcriber. Subscribe to human microphone tracks
+  only. Handle late joins, departures, mute and unmute, republishing, and
   worker restarts.
+- Deepgram direct through `@livekit/agents-plugin-deepgram` with
+  `DEEPGRAM_API_KEY` (optional in `packages/env`; the transcriber exits with a
+  clear error without it). One stream per unmuted microphone, closed on mute.
 - Add "Lor" as a Deepgram keyterm on every participant stream, through
   LiveKit's per-session keyterm option, so V5's name gate sees the name
   spelled right.
@@ -271,8 +285,10 @@ Realtime, emitted from the API with the existing emitter
   same segment. The CC toggle is per device and starts on.
 - At session end: drain pending output, flush final segments, record gaps,
   finalize once.
-- Turn off LiveKit agent observability audio recording; no Egress.
-- Record STT minutes per call to compare with the research cost model.
+- No Egress.
+- Record STT minutes per call to compare with the research cost model. On the
+  first real call, compare Deepgram's billed minutes with the minutes we
+  streamed. If Deepgram bills open but silent streams, also skip silent audio.
 - Segments are the input V5 listens to for "Lor, …", so ingestion latency
   matters: persist and publish final segments as they arrive, not in batches.
 - Measure final-segment latency on the first real call.
@@ -350,6 +366,9 @@ Design: the spec's "Lor in the call" section.
   links to transcript passages. Session chat messages are ordinary messages and
   become searchable when the session ends.
 - Lor text Q&A with grounded links; corrections and deletions propagate.
+- Capture gaps mean "not captured", never "something was said": Lor never
+  infers content from a gap, and only qualifies claims about absence inside
+  one ("nobody objected" → "nobody objected in the captured part").
 - Session deletion: a permission statement, and propagation to derived memory.
 - Private questions to Lor stay deferred (`reference/private-lor-questions.md`).
 
@@ -502,3 +521,25 @@ Design: the spec's "Lor in the call" section.
     offer no bots.
   - Workspace search now covers voice channels. History rows show new-reply
     and mention counts from `thread_read_state`.
+- 2026-09-30 — V4 transcriber decided (Jacob), replacing "deployed as a
+  LiveKit Cloud agent" and "through LiveKit Inference":
+  - TypeScript `@livekit/agents` worker, self-hosted on Railway. Agent session
+    minutes ($0.01/min) apply only to agents LiveKit hosts; a self-hosted
+    worker is billed as a participant ($0.0005/min on Ship). That saves about
+    $0.57 per call-hour and removes LiveKit's cap on concurrent agent sessions
+    (5 on Build, 20 on Ship).
+  - Deepgram Nova-3 direct. LiveKit Inference caps concurrent connections per
+    project (5 on Build, 20 on Ship, 50 on Scale), so Ship can't transcribe one
+    full 30-person call. Deepgram pay-as-you-go allows 150 concurrent streams
+    at the same $0.0048/min (a promotion; regular $0.0077), plus $0.0013/min
+    for keyterms.
+  - One stream per unmuted microphone, not one mixed stream with Deepgram
+    diarization: a mixed stream guesses who spoke, and Lor runs voice requests
+    as the speaker. People mostly take turns, so with streams closed on mute
+    the billed minutes stay close to the call length.
+  - Self-hosting lets the transcriber write to Postgres directly, so the
+    service-authenticated ingestion API is dropped.
+  - Verified in `livekit-server-sdk` 2.19.1: token dispatch
+    (`roomConfig.agents`) and `AgentDispatchClient.createDispatch`. Token
+    dispatch fires only when LiveKit creates the room. Unverified: whether
+    Deepgram bills an open stream that receives no audio.
