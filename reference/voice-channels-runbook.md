@@ -286,7 +286,9 @@ Realtime, emitted from the API with the existing emitter
   LiveKit's per-session keyterm option, so V5's name gate sees the name
   spelled right.
 - Captions over the `lk.transcription` text stream; interim updates replace the
-  same segment. The CC toggle is per device and starts on.
+  same segment. Interim text renders in the muted foreground token and turns
+  to the normal foreground when final (Jacob's call). The CC toggle is per
+  device and starts on.
 - At session end: drain pending output, flush final segments, record gaps,
   finalize once.
 - No Egress.
