@@ -21,6 +21,11 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Strong ease-out for UI enter/exit; overrides Tailwind's weak default `ease-out`. */
+@theme {
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+}
+
 @theme inline {
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);

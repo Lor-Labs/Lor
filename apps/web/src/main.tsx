@@ -2,6 +2,7 @@ import { AnchoredToastProvider, ToastProvider } from "@repo/ui/components/toast"
 import { TooltipProvider } from "@repo/ui/components/tooltip"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { createRouter, RouterProvider } from "@tanstack/react-router"
+import { MotionConfig } from "motion/react"
 import { ThemeProvider } from "next-themes"
 import { StrictMode } from "react"
 import { createRoot } from "react-dom/client"
@@ -72,7 +73,10 @@ createRoot(rootElement).render(
         <ToastProvider>
           <AnchoredToastProvider>
             <TooltipProvider>
-              <RouterProvider router={router} />
+              {/* Reduced motion: transforms, size, and layout animations snap; opacity still fades. */}
+              <MotionConfig reducedMotion="user">
+                <RouterProvider router={router} />
+              </MotionConfig>
             </TooltipProvider>
           </AnchoredToastProvider>
         </ToastProvider>
