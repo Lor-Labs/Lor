@@ -677,8 +677,11 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
     dividerCount !== undefined &&
     dividerCount > 0
 
+  // Keyed so the chat and transcript returns below share one Tabs instance;
+  // a remount would skip the active tab's slide.
   const callTabs = voiceSessionId ? (
     <Tabs
+      key="call-tabs"
       value={showTranscript ? "transcript" : "chat"}
       onValueChange={(value) =>
         setView({
@@ -687,11 +690,9 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
           callTab: value === "transcript" ? "transcript" : "chat",
         })
       }
+      className="border-border/70 border-b px-4 pb-3"
     >
-      <TabsList
-        variant="underline"
-        className="w-full justify-start border-b border-border/60 px-1.5"
-      >
+      <TabsList>
         <TabsTab value="chat" className="grow-0">
           Chat
         </TabsTab>
