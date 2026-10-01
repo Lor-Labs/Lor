@@ -51,6 +51,7 @@ import { MessageItem } from "@/components/chat/message-item"
 import { scrollToMessage } from "@/components/chat/message-list"
 import {
   highlightMessage,
+  jumpScrollBehavior,
   MessageScrollerCommandBridge,
   MessageScrollerJumpToLatest,
   signalMessageScrollerInteraction,
@@ -583,7 +584,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
         const didScroll =
           messageScrollCommandRef.current?.(messageId, {
             align: "center",
-            behavior: "smooth",
+            behavior: jumpScrollBehavior(),
           }) ?? false
         if (didScroll) {
           window.requestAnimationFrame(() =>
@@ -944,7 +945,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
         </MessageScroller>
 
         <div className="shrink-0 pt-2">
-          <TypingIndicator users={typingUsers} />
+          <TypingIndicator users={typingUsers} className="from-sidebar" />
           <RunQueuePill
             messages={queuedMessages}
             currentUserId={currentUserId}

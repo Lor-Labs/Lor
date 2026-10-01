@@ -454,7 +454,7 @@ function OperationItem({
                     size={15}
                     className={cn(
                       "shrink-0 text-muted-foreground/50 group-hover/op:text-muted-foreground",
-                      "motion-safe:transition-transform motion-safe:duration-200",
+                      "motion-safe:transition-transform motion-safe:duration-150 motion-safe:ease-out",
                       open && "rotate-180"
                     )}
                   />

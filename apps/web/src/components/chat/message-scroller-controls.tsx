@@ -2,7 +2,6 @@ import { ArrowDown01Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { Button } from "@repo/ui/components/button"
 import {
-  MessageScrollerButton,
   useMessageScroller,
   useMessageScrollerScrollable,
 } from "@repo/ui/components/message-scroller"
@@ -25,6 +24,15 @@ export type MessageScrollToEndCommand = ReturnType<
 >["scrollToEnd"]
 
 const JUMP_TO_LATEST_REVEAL_DISTANCE = 160
+const HIGHLIGHT_ANIMATION_ID = "message-highlight"
+
+// Jumps to a message or the latest scroll smoothly, except under reduced
+// motion. The highlight is a color pulse, so it plays either way.
+export function jumpScrollBehavior(): ScrollBehavior {
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    ? "auto"
+    : "smooth"
+}
 
 export function highlightMessage(
   messageId: string,
@@ -34,8 +42,10 @@ export function highlightMessage(
     `[data-message-id="${CSS.escape(messageId)}"]`
   ) as HTMLElement | null
   if (!element) return
-  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return
 
+  for (const animation of element.getAnimations()) {
+    if (animation.id === HIGHLIGHT_ANIMATION_ID) animation.cancel()
+  }
   element.animate(
     [
       { backgroundColor: "transparent", offset: 0 },
@@ -49,7 +59,7 @@ export function highlightMessage(
       },
       { backgroundColor: "transparent", offset: 1 },
     ],
-    { duration: 2400, easing: "ease-out" }
+    { id: HIGHLIGHT_ANIMATION_ID, duration: 2400, easing: "ease-out" }
   )
 }
 
@@ -440,6 +450,7 @@ export function MessageScrollerJumpToLatest({
   onJumpToPresent?: () => void
 }) {
   const { end: canScrollToEnd } = useMessageScrollerScrollable()
+  const { scrollToEnd } = useMessageScroller()
   const previousNewestIdRef = useRef(newestMessageId)
   const [hasNewActivity, setHasNewActivity] = useState(false)
   const [isMeaningfullyScrolledUp, setIsMeaningfullyScrolledUp] =
@@ -507,8 +518,6 @@ export function MessageScrollerJumpToLatest({
     hasOffscreenLatest &&
     (isMeaningfullyScrolledUp || hasUnloadedNewer || pendingCount > 0)
 
-  if (!shouldShow) return null
-
   const label = isLorResponding
     ? "Lor is responding"
     : pendingCount > 0
@@ -531,35 +540,28 @@ export function MessageScrollerJumpToLatest({
     </>
   )
 
-  const button = (
-    <Button
-      size="sm"
-      variant="outline"
-      className="h-8 rounded-full bg-background/95 px-3 text-xs shadow-sm backdrop-blur-sm hover:bg-accent"
-    />
-  )
-
   // Anchored search/history mode can be at the end of the mounted slice while
-  // newer pages still exist. In that case the primitive correctly sees no DOM
-  // distance to scroll, so use a normal button to return to the live query.
-  if (hasUnloadedNewer || pendingCount > 0) {
-    return (
-      <Button
-        type="button"
-        size="sm"
-        variant="outline"
-        onClick={onJumpToPresent}
-        className="absolute bottom-3 left-1/2 z-10 h-8 -translate-x-1/2 rounded-full bg-background/95 px-3 text-xs shadow-sm backdrop-blur-sm hover:bg-accent"
-      >
-        {content}
-      </Button>
-    )
+  // newer pages still exist. There is no DOM distance to scroll, so only
+  // return to the live query.
+  const handleClick = () => {
+    onJumpToPresent?.()
+    if (hasUnloadedNewer || pendingCount > 0) return
+    scrollToEnd({ behavior: jumpScrollBehavior() })
   }
 
+  // Stays mounted so showing and hiding transition instead of popping.
   return (
-    <MessageScrollerButton render={button} onClick={onJumpToPresent}>
+    <Button
+      type="button"
+      size="sm"
+      variant="outline"
+      onClick={handleClick}
+      inert={!shouldShow}
+      data-visible={shouldShow}
+      className="absolute bottom-3 left-1/2 z-10 h-8 -translate-x-1/2 rounded-full bg-background/95 px-3 text-xs shadow-sm transition-[translate,scale,opacity] duration-200 ease-out hover:bg-accent data-[visible=false]:pointer-events-none data-[visible=false]:translate-y-2 data-[visible=false]:scale-95 data-[visible=false]:opacity-0 data-[visible=true]:backdrop-blur-sm motion-reduce:transition-opacity motion-reduce:data-[visible=false]:translate-y-0 motion-reduce:data-[visible=false]:scale-100"
+    >
       {content}
-    </MessageScrollerButton>
+    </Button>
   )
 }
 

@@ -50,7 +50,7 @@ export function LorActivity({
       >
         <HugeiconsIcon
           icon={ArrowRight01Icon}
-          className="size-3 shrink-0 text-muted-foreground/70 transition-transform duration-200 ease-out group-data-panel-open/activity:rotate-90 motion-reduce:transition-none"
+          className="size-3 shrink-0 text-muted-foreground/70 transition-transform duration-150 ease-out group-data-panel-open/activity:rotate-90 motion-reduce:transition-none"
           strokeWidth={1.75}
         />
         {active && (
@@ -141,7 +141,7 @@ export function LorActivityGroup({
         )}
         <HugeiconsIcon
           icon={ArrowRight01Icon}
-          className="size-3 shrink-0 transition-transform group-data-panel-open/work:rotate-90 motion-reduce:transition-none"
+          className="size-3 shrink-0 transition-transform duration-150 ease-out group-data-panel-open/work:rotate-90 motion-reduce:transition-none"
           strokeWidth={2}
         />
       </CollapsibleTrigger>

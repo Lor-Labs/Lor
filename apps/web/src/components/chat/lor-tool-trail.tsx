@@ -202,11 +202,11 @@ function SubStepRow({ toolCall }: { toolCall: LorToolCallView }) {
         {diff && <DiffCounts diff={diff} />}
         <HugeiconsIcon
           icon={ArrowRight01Icon}
-          className="invisible size-3 shrink-0 transition-transform group-hover/tool-step:visible group-focus-visible/tool-step:visible group-data-panel-open/tool-step:visible group-data-panel-open/tool-step:rotate-90"
+          className="invisible size-3 shrink-0 transition-transform duration-150 ease-out group-hover/tool-step:visible group-focus-visible/tool-step:visible group-data-panel-open/tool-step:visible group-data-panel-open/tool-step:rotate-90"
           strokeWidth={2}
         />
       </CollapsibleTrigger>
-      <CollapsibleContent>
+      <CollapsibleContent className="transition-none">
         <div className="mt-1 mb-1 max-h-64 overflow-auto rounded-md border border-border/50 bg-muted/30 p-2 text-[11px] leading-4">
           <pre className="whitespace-pre-wrap font-mono [overflow-wrap:anywhere]">
             {toolCall.label}

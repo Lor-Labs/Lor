@@ -1,6 +1,7 @@
 import { Cancel01Icon, MessageMultiple01Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar"
+import { EASE_OUT } from "@repo/ui/lib/motion"
 import { cn } from "@repo/ui/lib/utils"
 import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { timeAgo } from "@repo/utils/date"
@@ -217,7 +218,7 @@ function ThreadActivityCard({
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: 6 }}
-      transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+      transition={{ duration: 0.2, ease: EASE_OUT }}
       className="group relative"
     >
       <button
@@ -302,9 +303,11 @@ export function ThreadActivityDock({
   const gooFilterId = `thread-goo-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`
   const dockRef = useRef<HTMLDivElement>(null)
   const collapseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Reduced motion: MotionConfig already snaps transforms and layout; keep a
+  // short opacity fade instead of a spring.
   const reducedMotion = useReducedMotion()
   const transition = reducedMotion
-    ? { duration: 0 }
+    ? { duration: 0.15, ease: EASE_OUT }
     : { type: "spring" as const, stiffness: 480, damping: 34 }
 
   const cancelCollapse = useCallback(() => {

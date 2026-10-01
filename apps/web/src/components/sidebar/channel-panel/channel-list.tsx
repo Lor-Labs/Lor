@@ -42,6 +42,7 @@ import {
   DropdownMenuTrigger,
 } from "@repo/ui/components/menu"
 import { Skeleton } from "@repo/ui/components/skeleton"
+import { EASE_OUT } from "@repo/ui/lib/motion"
 import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
@@ -743,7 +744,7 @@ function SortableCategorySection({
           >
             <motion.div
               animate={{ rotate: collapsed ? -90 : 0 }}
-              transition={{ duration: 0.15, ease: "easeInOut" }}
+              transition={{ duration: 0.15, ease: EASE_OUT }}
             >
               <HugeiconsIcon
                 icon={ArrowDown01Icon}
@@ -784,7 +785,7 @@ function SortableCategorySection({
           ) : (
             <motion.div
               animate={{ rotate: collapsed ? -90 : 0 }}
-              transition={{ duration: 0.15, ease: "easeInOut" }}
+              transition={{ duration: 0.15, ease: EASE_OUT }}
             >
               <HugeiconsIcon
                 icon={ArrowDown01Icon}
@@ -901,7 +902,7 @@ function SortableCategorySection({
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.15, ease: "easeInOut" }}
+            transition={{ duration: 0.15, ease: EASE_OUT }}
             className="overflow-hidden"
           >
             <SortableContext
@@ -953,7 +954,7 @@ function ArchivedProjectsSection({
       >
         <motion.div
           animate={{ rotate: collapsed ? -90 : 0 }}
-          transition={{ duration: 0.15, ease: "easeInOut" }}
+          transition={{ duration: 0.15, ease: EASE_OUT }}
         >
           <HugeiconsIcon
             icon={ArrowDown01Icon}
@@ -969,7 +970,7 @@ function ArchivedProjectsSection({
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.15, ease: "easeInOut" }}
+            transition={{ duration: 0.15, ease: EASE_OUT }}
             className="space-y-2 overflow-hidden"
           >
             {categories.map((cat) => (

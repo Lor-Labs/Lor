@@ -1,5 +1,6 @@
 "use client"
 
+import { EASE_OUT } from "@repo/ui/lib/motion"
 import { motion } from "motion/react"
 
 // Outer rounded rectangle — fill + stroke, common to both states
@@ -54,7 +55,7 @@ export function SidebarToggleIcon({
         d={isOpen ? PANEL_OPEN : PANEL_CLOSED}
         animate={{ d: isOpen ? PANEL_OPEN : PANEL_CLOSED }}
         style={{ fill: "var(--background)" }}
-        transition={{ duration: 0.35, ease: [0.4, 0, 0.2, 1] }}
+        transition={{ duration: 0.2, ease: EASE_OUT }}
       />
     </svg>
   )

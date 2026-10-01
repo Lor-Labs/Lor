@@ -200,12 +200,12 @@ export function AppearanceSettings() {
                   >
                     {selected && (
                       <motion.span
-                        initial={{ scale: 0 }}
-                        animate={{ scale: 1 }}
+                        initial={{ scale: 0.5, opacity: 0 }}
+                        animate={{ scale: 1, opacity: 1 }}
                         transition={{
                           type: "spring",
-                          bounce: 0.4,
-                          duration: 0.4,
+                          bounce: 0.2,
+                          duration: 0.3,
                         }}
                         className="size-2 rounded-full bg-primary"
                       />
