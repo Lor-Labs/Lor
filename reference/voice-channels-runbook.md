@@ -560,3 +560,52 @@ Design: the spec's "Lor in the call" section.
     every thread reply in the database.
   - `pnpm dev` now offers the transcriber. A room created before the
     transcriber was running never gets one until it closes and reopens.
+
+## Production setup (do once at launch)
+
+How it fits together: the API mints a short-lived LiveKit token for each join,
+and the token tells LiveKit to dispatch `lor-transcriber` when it creates the
+room. Each transcriber copy keeps one outbound connection to the LiveKit
+project and reports its load (CPU by default; full above 70% in production),
+so LiveKit spreads calls across copies by itself. The transcriber only makes
+outbound connections (LiveKit, Deepgram, Postgres); it needs no public URL.
+
+LiveKit Cloud:
+
+- [ ] Move the project to the Ship plan (see Prerequisites).
+- [ ] Webhook: `https://<production API host>/v1/voice/livekit/webhook`,
+      signed with the same API key as `LIVEKIT_API_KEY`. Remove any ngrok
+      webhook URLs; LiveKit sends every event to every configured URL.
+- [ ] Optional: a separate LiveKit project for local development, so laptops
+      never receive production webhooks. Agent names already keep dispatch
+      apart (`lor-transcriber` in production, `lor-transcriber-dev` elsewhere).
+
+Railway, all of API, worker, and transcriber:
+
+- [ ] The same `LIVEKIT_URL`, `LIVEKIT_API_KEY`, and `LIVEKIT_API_SECRET`.
+
+Railway, transcriber service (`apps/transcriber/Dockerfile`, repo root as the
+build context):
+
+- [ ] The worker's variables plus `DEEPGRAM_API_KEY`. The Dockerfile sets
+      `NODE_ENV=production`, which selects the `lor-transcriber` agent name and
+      the SDK's production mode.
+- [ ] `PORT=8081`. In production mode the agents SDK serves a health endpoint
+      on 8081: `/` returns 200 only while it's connected to LiveKit (503
+      otherwise), and `/worker` returns JSON with the active call count.
+      Railway health-checks whatever `PORT` says.
+- [ ] Health check path `/`. Railway makes a new deployment active only after
+      this returns 2xx (it retries for up to 5 minutes by default), so a broken
+      build never replaces a working one.
+- [ ] `RAILWAY_DEPLOYMENT_DRAINING_SECONDS=3600`. Railway's default is 0, which
+      would SIGKILL the old copy at once and cut transcription in every live
+      call. With 3600, the old copy gets SIGTERM, the SDK stops taking new calls
+      and lets current ones finish (its own drain limit is 60 minutes), while
+      the new copy takes new calls. A call still running after an hour gets a
+      fresh transcriber from the 10-minute audit, with the missing stretch
+      recorded as a gap.
+- [ ] Before launch, check two things not yet verified: whether Railway caps
+      the draining time, and whether these settings can live in a checked-in
+      Railway config file instead of the dashboard.
+- [ ] Scaling: add replicas when one copy runs hot. Each copy registers itself
+      and LiveKit sends it new calls; no code change.
