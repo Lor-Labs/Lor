@@ -1,12 +1,20 @@
+import { Cancel01Icon } from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
 import { useParticipants, useTranscriptions } from "@livekit/components-react"
 import type { VoiceRequestState } from "@repo/realtime-types/events"
 import { Button } from "@repo/ui/components/button"
 import { TextShimmer } from "@repo/ui/components/nexus-ui/text-shimmer"
 import { toast } from "@repo/ui/components/toast"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@repo/ui/components/tooltip"
 import { EASE_OUT } from "@repo/ui/lib/motion"
 import { cn } from "@repo/ui/lib/utils"
 import { useQueryClient } from "@tanstack/react-query"
 import { motion } from "motion/react"
+import type { ReactNode } from "react"
 import { captionLine } from "@/components/voice/call-captions"
 import {
   isSimulatedRequest,
@@ -61,8 +69,44 @@ function LorMark({ listening }: { listening: boolean }) {
   )
 }
 
-// Lor's window in the screen-share slot, the same for everyone in the call.
-// Opens once Jev says Lor was addressed.
+// Width of Lor's window beside a screen share.
+const DOCKED_WIDTH = 400
+
+// Where Lor's window lives in the screen-share slot: the whole slot, or a
+// panel that slides in beside a screen share so it never covers it. Stays
+// mounted across requests, so a new one crossfades inside it.
+export function LorStage({
+  docked,
+  children,
+}: {
+  docked: boolean
+  children: ReactNode
+}) {
+  const closed = docked
+    ? { width: 0, opacity: 0 }
+    : { width: "100%", opacity: 0, scale: 0.97 }
+  return (
+    <motion.div
+      initial={closed}
+      animate={{ width: docked ? DOCKED_WIDTH : "100%", opacity: 1, scale: 1 }}
+      exit={closed}
+      transition={{ duration: 0.25, ease: EASE_OUT }}
+      className="relative h-full shrink-0 overflow-hidden"
+    >
+      {/* Fixed width while docked, so the content doesn't reflow as the
+          panel slides open. */}
+      <div
+        className={cn("absolute inset-y-0 right-0", docked && "pl-3")}
+        style={{ width: docked ? DOCKED_WIDTH : "100%" }}
+      >
+        {children}
+      </div>
+    </motion.div>
+  )
+}
+
+// Lor's window, the same for everyone in the call. Opens once Jev says Lor
+// was addressed.
 export function LorWindow({ request }: { request: VoiceRequestState }) {
   const queryClient = useQueryClient()
   const participants = useParticipants()
@@ -92,12 +136,31 @@ export function LorWindow({ request }: { request: VoiceRequestState }) {
 
   return (
     <motion.div
-      initial={{ opacity: 0, scale: 0.97 }}
-      animate={{ opacity: 1, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.98 }}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
       transition={{ duration: 0.2, ease: EASE_OUT }}
-      className="absolute inset-0 flex flex-col items-center justify-center gap-6 rounded-lg border border-border bg-card p-8 text-center"
+      className="group/lor absolute inset-0 flex flex-col items-center justify-center gap-6 rounded-lg border border-border bg-card p-8 text-center"
     >
+      <Tooltip>
+        <TooltipTrigger
+          delay={300}
+          render={
+            <Button
+              size="icon-xs"
+              variant="ghost"
+              aria-label="Cancel request"
+              onClick={() => void cancel()}
+              className="absolute top-3 right-3 text-muted-foreground opacity-0 transition-opacity group-hover/lor:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"
+            />
+          }
+        >
+          <HugeiconsIcon icon={Cancel01Icon} strokeWidth={2} />
+        </TooltipTrigger>
+        <TooltipContent side="top">
+          <p className="text-xs">Cancel request</p>
+        </TooltipContent>
+      </Tooltip>
       <LorMark listening={listening} />
       <div className="flex max-w-2xl flex-col gap-2">
         <span aria-live="polite" className="text-sm text-muted-foreground">
@@ -111,9 +174,6 @@ export function LorWindow({ request }: { request: VoiceRequestState }) {
           {listening ? <LiveWords request={request} /> : request.heardText}
         </p>
       </div>
-      <Button size="sm" variant="ghost" onClick={() => void cancel()}>
-        Cancel
-      </Button>
     </motion.div>
   )
 }

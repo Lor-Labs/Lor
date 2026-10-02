@@ -28,12 +28,31 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { UserAvatar } from "@/components/ui/user-avatar"
 import { CallCaptions } from "@/components/voice/call-captions"
 import { CallControls } from "@/components/voice/call-controls"
-import { LorWindow } from "@/components/voice/lor-window"
+import { LorStage, LorWindow } from "@/components/voice/lor-window"
 import { useVoiceCall } from "@/context/voice-call-context"
 import { useVoiceRequests } from "@/hooks/use-voice-requests"
 import { apiClient } from "@/lib/api-client"
 
 const PAGE_SIZE = 12
+// The speaking ring stays on this long after speech stops, so it doesn't
+// flicker off between words.
+const SPEAKING_HOLD_MS = 800
+
+function useSpeakingRing(
+  participant: TrackReferenceOrPlaceholder["participant"]
+) {
+  const speaking = useIsSpeaking(participant)
+  const [held, setHeld] = useState(speaking)
+  useEffect(() => {
+    if (speaking) {
+      setHeld(true)
+      return
+    }
+    const timer = setTimeout(() => setHeld(false), SPEAKING_HOLD_MS)
+    return () => clearTimeout(timer)
+  }, [speaking])
+  return speaking || held
+}
 
 function ParticipantTile({
   trackRef,
@@ -43,17 +62,12 @@ function ParticipantTile({
   onRemove?: (participantId: string) => void
 }) {
   const { participant } = trackRef
-  const isSpeaking = useIsSpeaking(participant)
+  const isSpeaking = useSpeakingRing(participant)
   const showVideo = isTrackReference(trackRef) && !trackRef.publication.isMuted
   const name = participant.name || participant.identity
 
   return (
-    <div
-      className={cn(
-        "group/tile relative flex aspect-video items-center justify-center overflow-hidden rounded-lg bg-muted ring-2 ring-transparent transition-shadow",
-        isSpeaking && "ring-primary"
-      )}
-    >
+    <div className="group/tile relative flex aspect-video items-center justify-center overflow-hidden rounded-lg bg-muted">
       {showVideo ? (
         <VideoTrack
           trackRef={trackRef}
@@ -68,6 +82,15 @@ function ParticipantTile({
       <span className="absolute bottom-2 left-2 max-w-[calc(100%-1rem)] truncate rounded-md bg-background/80 px-1.5 py-0.5 text-xs font-medium">
         {name}
       </span>
+      {/* Speaking ring, drawn inside the tile above the video: an outside
+          ring gets clipped by the scrolling filmstrip. */}
+      <span
+        aria-hidden
+        className={cn(
+          "pointer-events-none absolute inset-0 rounded-lg ring-2 ring-transparent ring-inset transition-shadow duration-300",
+          isSpeaking && "ring-primary duration-100"
+        )}
+      />
       {onRemove && !participant.isLocal && (
         <DropdownMenu>
           <DropdownMenuTrigger
@@ -143,9 +166,9 @@ export function CallStage({ canModerate }: { canModerate: boolean }) {
     <div className="flex min-h-0 flex-1 flex-col gap-3 p-4">
       <div className="relative flex min-h-0 flex-1 flex-col gap-3">
         {showSlot && (
-          <div className="relative min-h-0 flex-1">
+          <div className="flex min-h-0 flex-1">
             {screenShare && (
-              <div className="size-full overflow-hidden rounded-lg bg-muted">
+              <div className="min-w-0 flex-1 overflow-hidden rounded-lg bg-muted">
                 <VideoTrack
                   trackRef={screenShare}
                   className="size-full object-contain"
@@ -154,12 +177,16 @@ export function CallStage({ canModerate }: { canModerate: boolean }) {
             )}
             <AnimatePresence
               onExitComplete={() => {
-                // A newer request may have replaced the one that just left.
+                // A request may have arrived while the stage was leaving.
                 if (!lorRequestRef.current) setLorMounted(false)
               }}
             >
               {lorRequest && (
-                <LorWindow key={lorRequest.id} request={lorRequest} />
+                <LorStage key="lor" docked={Boolean(screenShare)}>
+                  <AnimatePresence initial={false}>
+                    <LorWindow key={lorRequest.id} request={lorRequest} />
+                  </AnimatePresence>
+                </LorStage>
               )}
             </AnimatePresence>
           </div>
