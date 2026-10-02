@@ -14,6 +14,7 @@ import {
   useRef,
   useState,
 } from "react"
+import { MorphText } from "@/components/ui/morph-text"
 
 export type MessageScrollCommand = ReturnType<
   typeof useMessageScroller
@@ -531,7 +532,7 @@ export function MessageScrollerJumpToLatest({
       {isLorResponding && (
         <Spinner className="size-3.5 motion-reduce:animate-none" />
       )}
-      <span>{label}</span>
+      <MorphText>{label}</MorphText>
       <HugeiconsIcon
         icon={ArrowDown01Icon}
         className="size-3.5"

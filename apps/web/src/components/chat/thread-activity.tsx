@@ -12,6 +12,7 @@ import {
   useReducedMotion,
 } from "motion/react"
 import { useCallback, useEffect, useId, useRef, useState } from "react"
+import { MorphText } from "@/components/ui/morph-text"
 import type { ThreadActivity } from "@/hooks/use-thread-activity"
 import type { Message } from "@/lib/api-types"
 import { STORED_MENTION_REGEX } from "@/lib/editor-utils"
@@ -160,15 +161,11 @@ function ThreadBlob({
           </Avatar>
         </motion.span>
       ))}
-      <motion.span
-        key={activity.newReplyCount}
-        initial={{ scale: 1.4 }}
-        animate={{ scale: 1 }}
-        transition={transition}
-        className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground"
-      >
-        {activity.newReplyCount > 99 ? "99+" : activity.newReplyCount}
-      </motion.span>
+      <span className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
+        <MorphText>
+          {activity.newReplyCount > 99 ? "99+" : String(activity.newReplyCount)}
+        </MorphText>
+      </span>
     </motion.button>
   )
 }

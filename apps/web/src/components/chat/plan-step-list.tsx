@@ -12,6 +12,7 @@ import {
 import { Spinner } from "@repo/ui/components/spinner"
 import { cn } from "@repo/ui/lib/utils"
 import { useEffect, useRef, useState } from "react"
+import { MorphText } from "@/components/ui/morph-text"
 import type { ChannelPlan } from "@/hooks/use-channel-plans"
 
 type PlanStep = ChannelPlan["steps"][number]
@@ -235,11 +236,13 @@ export function PlanStepProgress({
     activeIndex >= 0
       ? `Step ${activeIndex + 1} of ${total}`
       : `${done} of ${total} complete`
+  // Only plans still in progress at mount can change; finished ones stay plain.
+  const [live] = useState(() => done < total)
 
   return (
     <div className={className}>
       <div className="mb-2 font-medium text-[11px] text-muted-foreground uppercase tracking-[0.08em]">
-        {label}
+        <MorphText live={live}>{label}</MorphText>
       </div>
       <div
         aria-label={label}

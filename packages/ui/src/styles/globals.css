@@ -521,6 +521,48 @@
   }
 }
 
+/* Shimmer for morphing text (torph): background-clip: text can drop
+   transformed child spans and leave them invisible; a mask covers the whole
+   subtree. Pair with a bright text color; the mask dims everything but the band. */
+@keyframes shimmer-mask {
+  from {
+    -webkit-mask-position: 100% 0;
+    mask-position: 100% 0;
+  }
+
+  to {
+    -webkit-mask-position: 0 0;
+    mask-position: 0 0;
+  }
+}
+
+@utility shimmer-mask {
+  --_spread: var(--shimmer-spread, calc(3ch + 40px));
+  --_mask: linear-gradient(
+    calc(90deg + var(--shimmer-angle)),
+    rgb(0 0 0 / 0.5) calc(50% - var(--_spread)),
+    #000 50%,
+    rgb(0 0 0 / 0.5) calc(50% + var(--_spread))
+  );
+
+  -webkit-mask-image: var(--_mask);
+  mask-image: var(--_mask);
+  -webkit-mask-size: calc(200% + var(--_spread) * 2) 100%;
+  mask-size: calc(200% + var(--_spread) * 2) 100%;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  animation: shimmer-mask var(--shimmer-duration, 2s) linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shimmer-mask {
+    animation: none;
+    -webkit-mask-image: none;
+    mask-image: none;
+    opacity: 0.6;
+  }
+}
+
 @keyframes theme-reveal {
   from {
     clip-path: circle(0% at var(--vt-x) var(--vt-y));

@@ -67,6 +67,7 @@ import { TypingIndicator } from "@/components/chat/typing-indicator"
 import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-header"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import type { ThreadSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
+import { MorphText } from "@/components/ui/morph-text"
 import { CallTranscript } from "@/components/voice/call-transcript"
 import { useSocket } from "@/context/socket-context"
 import { useVoiceCall } from "@/context/voice-call-context"
@@ -848,9 +849,9 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
               {showDivider && (
                 <MessageScrollerItem>
                   <div className="flex items-center gap-3 px-4 pt-3 pb-1 text-[12px] text-muted-foreground">
-                    <span className="font-medium">
-                      {dividerCount} {dividerCount === 1 ? "reply" : "replies"}
-                    </span>
+                    <MorphText className="font-medium">
+                      {`${dividerCount} ${dividerCount === 1 ? "reply" : "replies"}`}
+                    </MorphText>
                     <div className="h-px flex-1 bg-border/60" />
                   </div>
                 </MessageScrollerItem>

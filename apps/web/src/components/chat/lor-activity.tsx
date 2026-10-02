@@ -12,6 +12,7 @@ import {
 } from "@repo/ui/components/collapsible"
 import { cn } from "@repo/ui/lib/utils"
 import { type ReactNode, useRef, useState } from "react"
+import { MorphText } from "@/components/ui/morph-text"
 
 export function LorActivity({
   active,
@@ -28,12 +29,15 @@ export function LorActivity({
 }) {
   const [wasActive, setWasActive] = useState(active)
   const [open, setOpen] = useState(active)
+  // Labels morph only for runs seen live; settled history rows stay plain text.
+  const [live, setLive] = useState(active)
   const triggerRef = useRef<HTMLButtonElement>(null)
   // Reset at run boundaries; manual toggles still work while a run is active.
   if (wasActive !== active) {
     setWasActive(active)
     setOpen(active)
   }
+  if (active && !live) setLive(true)
 
   const label = active
     ? "Working…"
@@ -62,11 +66,11 @@ export function LorActivity({
           />
         )}
         <span className="flex min-w-0 flex-wrap items-baseline gap-x-1.5">
-          <span>{label}</span>
+          <MorphText live={live}>{label}</MorphText>
           {toolCount > 0 && (
-            <span className="text-xs text-muted-foreground/70">
-              · {toolCount} tool {toolCount === 1 ? "call" : "calls"}
-            </span>
+            <MorphText live={live} className="text-xs text-muted-foreground/70">
+              {`· ${toolCount} tool ${toolCount === 1 ? "call" : "calls"}`}
+            </MorphText>
           )}
           {errorCount > 0 && (
             <span className="text-xs text-destructive">

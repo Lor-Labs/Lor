@@ -31,6 +31,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useParams } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
 import { ChannelWebhooksTab } from "@/components/sidebar/channel-panel/channel-webhooks-tab"
+import { MorphText } from "@/components/ui/morph-text"
 import { hasBlanketTools } from "@/components/workspace/agent-profiles-section"
 import { apiClient } from "@/lib/api-client"
 import type {
@@ -420,7 +421,9 @@ export function EditChannelDialog({
               type="submit"
               disabled={!hasChanges || !isValid || updateMutation.isPending}
             >
-              {updateMutation.isPending ? "Saving..." : "Save"}
+              <MorphText>
+                {updateMutation.isPending ? "Saving..." : "Save"}
+              </MorphText>
             </Button>
           </DialogFooter>
         </form>
