@@ -77,7 +77,7 @@ Decided 2026-09-28.
 - The session chat is for humans. Lor reads it as background context when
   someone addresses Lor by voice, but never takes it as a command: typing
   "@Lor" there does nothing, and the server enforces that. Lor's own work lives
-  in Lor's window and the Lor tab, not in the chat.
+  in Lor's window and the transcript, not in the chat.
 - When people revisit a voice channel they see its session history. A past
   session's chat and transcript appear only when someone opens that session.
 - The session chat stays open after the call, so follow-ups belong there.
@@ -185,13 +185,32 @@ it shows becomes part of the session record.
 - Later, when Lor gets browser or computer use, a live view of its screen shows
   in this same window.
 
-### The Lor tab
+### How Lor communicates
 
-- Next to the chat, the Lor tab lists every request in the session: who asked,
-  what Lor heard, what it did, and the result, which reopens as cards.
-- Anyone can look back through it without moving everyone's window, and "Show
-  on stage" brings an earlier result back for the whole call.
-- After the call, a session opens with Chat, Lor, and Transcript tabs.
+Decided 2026-10-02 (Jacob):
+
+- Lor answers in its window, in writing: results, short answers, and
+  questions back with choices ("Which project?"). People answer by voice
+  ("Lor, the second one") or by clicking.
+- No "thinking" or status text. The window shows Lor is busy with an
+  animation of Lor's mark and the logos of the tools it's using; the model's
+  reasoning is never shown.
+- Lor acknowledges what's said to it with an emoji reaction, only when it
+  chooses to (a tool the model calls, such as a 👍 when corrected). Reactions
+  float up from Lor's mark in the window. No automatic reactions.
+- No voice, and nothing posted to the call chat, which stays human-only.
+  There's no "share to chat": everyone in the call already sees the window.
+
+### Lor in the transcript
+
+- There's no Lor tab. Each request and its result appear in the call's
+  transcript at the moment they happened: who asked, what Lor heard, and the
+  result as cards.
+- Clicking an earlier result brings it back into Lor's window for the whole
+  call ("Show on stage"), and the window can step back through this
+  session's results ("2 of 3").
+- After the call, a session opens with Chat and Transcript tabs; Lor's
+  results live in the transcript.
 
 ## The experience we want
 
@@ -216,7 +235,8 @@ it shows becomes part of the session record.
    adjusts them and creates them, with approvals where policy requires.
 4. The team keeps talking while Lor works; the window clears when they move on.
 5. The session keeps the discussion, the chat, and every Lor request and result
-   together, and the Lor tab reopens any of them later.
+   together; the transcript shows each request and result where it happened
+   and reopens any of them later.
 
 ## Phase 1 — Voice channels with memory
 
@@ -355,7 +375,9 @@ builds.
 Resolved on 2026-09-28 (see "Voice channel model"): supported clients, the
 relationship between a voice channel and its text, transcription defaults,
 retention, and session boundaries. Resolved on 2026-09-30 (see "Lor in the
-call"): how people ask Lor, Lor's window, the Lor tab, and the chat's role.
+call"): how people ask Lor, Lor's window, and the chat's role. Resolved on
+2026-10-02 (see "How Lor communicates"): no Lor tab, results in the
+transcript, reactions by tool only, no status text.
 
 Still open:
 

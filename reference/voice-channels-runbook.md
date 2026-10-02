@@ -378,13 +378,19 @@ Design: the spec's "Lor in the call" section.
   first release.
 - Realtime: request and stage events to the session's thread room only
   (live-only rule), so late joiners and every device see the same window.
-- Web: Lor's window in the screen-share slot, mounted only while a request is
-  active or its result is showing: enter animation, a working state with "Lor
-  heard: …", live tool activity, and Cancel, the result, exit animation.
-  Shared clear and step-back
-  ("2 of 3"). A Lor tab beside Chat lists the session's requests, with
-  "Show on stage".
-- Past sessions: Chat, Lor, and Transcript tabs.
+- Web: Lor's window in the screen-share slot (beside a screen share, never
+  over it), mounted only while a request is active or its result is showing:
+  enter animation, listening with the live words, a working state shown only
+  by animation (Lor's mark plus the logos of tools in use; no status text,
+  no reasoning), the result, exit animation. Cancel is a hover X. Shared
+  clear and step-back ("2 of 3").
+- How Lor communicates (Jacob, 2026-10-02): written answers and questions
+  with choices in the window; emoji reactions only through a `react` tool
+  the model calls to acknowledge something said to it, floating from Lor's
+  mark; no voice, no posts to the call chat, no "share to chat".
+- No Lor tab (Jacob, 2026-10-02): requests and results appear in the call
+  transcript where they happened, and clicking one shows it on stage. Past
+  sessions keep Chat and Transcript tabs.
 
 Chunks (planned 2026-10-01):
 
@@ -401,12 +407,18 @@ Chunks (planned 2026-10-01):
      tiles move to the filmstrip while it shows. `useVoiceRequests` keeps the
      list from the endpoint plus events. Until chunk 3, an accepted request
      stays on "Working on it" until someone cancels.
-3. [ ] Runs: the worker runs an accepted request as the speaker, steers new
-   requests into the running one, shows live tool activity, and renders the
-   stage tool's generic blocks.
+3. Runs, in three parts:
+   - [ ] 3a, server: the worker runs an accepted request as the speaker; the
+     stage tool with generic blocks plus `answer` and `question` (choices);
+     the `react` tool; status, result, and cancel stopping the run.
+   - [ ] 3b, web: the working animation with tool logos, result blocks,
+     questions with clickable choices, and floating reactions.
+   - [ ] 3c: new requests and corrections steer the running request; the
+     speaker's words just after the start join it; follow-ups build on the
+     previous result.
 4. [ ] Entity blocks: Linear issues and GitHub pull requests with live data.
-5. [ ] The Lor tab, "Show on stage", and step-back ("2 of 3"); past sessions
-   get Chat, Lor, and Transcript tabs.
+5. [ ] Lor in the transcript: requests and results inline where they
+   happened, "Show on stage", and step-back ("2 of 3").
 6. [ ] The approval overlay inside Lor's window.
 
 As built, chunk 1:
@@ -448,7 +460,7 @@ As built, chunk 2a (replaces chunk 1's 900ms quiet timer):
   `apps/mobile/src/app/channel/[channelId]/index.tsx` for voice channels.
 - Call screen: camera grid, share viewer with landscape and full screen (the app
   is portrait-only in `app.json`), mute, camera, and leave; no share button.
-  Lor's window in the share slot, and Chat and Lor tabs as a sheet.
+  Lor's window in the share slot, and Chat and Transcript tabs as a sheet.
 - A persistent call pill across the navigation stack.
 - Background audio and interruptions. No CallKit (V0 decision).
 - Session chat through the thread screen
@@ -702,6 +714,11 @@ As built, chunk 2a (replaces chunk 1's 900ms quiet timer):
     falls back to the latest connection or leave and may end the session
     early.
   - The sweep and the join share one compare-and-set end (`endSession`).
+- 2026-10-02 — How Lor communicates (Jacob): no Lor tab, so results live in
+  the transcript; no share to chat; reactions only through a model-called
+  tool when acknowledging something said to Lor; no thinking or status text,
+  only animation. Answers and questions with choices stay in the window.
+  Chunks 3–5 replanned.
 - 2026-10-01 — V5 design calls (Jacob), after chunk 1: the window opens only
   on Jev's accept; new requests steer the running one and Lor decides whether
   they replace it; results are generative UI from a component catalog, with
