@@ -36,7 +36,7 @@ import { apiClient } from "@/lib/api-client"
 const PAGE_SIZE = 12
 // The speaking ring stays on this long after speech stops, so it doesn't
 // flicker off between words.
-const SPEAKING_HOLD_MS = 800
+const SPEAKING_HOLD_MS = 500
 
 function useSpeakingRing(
   participant: TrackReferenceOrPlaceholder["participant"]
