@@ -31,6 +31,7 @@ import {
 import { toast } from "@repo/ui/components/toast"
 import { ConnectionState, Track } from "livekit-client"
 import { CallChatUnreadBadge } from "@/components/voice/call-chat-unread-badge"
+import { LorSimulatorMenu } from "@/components/voice/lor-simulator"
 import { useVoiceCall } from "@/context/voice-call-context"
 import { useCallChatPanel } from "@/hooks/use-call-chat-panel"
 import { useMicrophoneToggle } from "@/hooks/use-microphone-toggle"
@@ -54,21 +55,19 @@ function DeviceGroup({
   if (devices.length === 0) return null
 
   return (
-    <>
+    <DropdownMenuRadioGroup
+      value={activeDeviceId}
+      onValueChange={(value) => {
+        if (typeof value === "string") void setActiveMediaDevice(value)
+      }}
+    >
       <DropdownMenuLabel>{label}</DropdownMenuLabel>
-      <DropdownMenuRadioGroup
-        value={activeDeviceId}
-        onValueChange={(value) => {
-          if (typeof value === "string") void setActiveMediaDevice(value)
-        }}
-      >
-        {devices.map((device) => (
-          <DropdownMenuRadioItem key={device.deviceId} value={device.deviceId}>
-            {device.label || "Unnamed device"}
-          </DropdownMenuRadioItem>
-        ))}
-      </DropdownMenuRadioGroup>
-    </>
+      {devices.map((device) => (
+        <DropdownMenuRadioItem key={device.deviceId} value={device.deviceId}>
+          {device.label || "Unnamed device"}
+        </DropdownMenuRadioItem>
+      ))}
+    </DropdownMenuRadioGroup>
   )
 }
 
@@ -193,6 +192,7 @@ export function CallControls() {
           />
         </Button>
         <CallChatButton />
+        {import.meta.env.DEV && <LorSimulatorMenu />}
         <Button
           size="icon"
           variant="destructive"

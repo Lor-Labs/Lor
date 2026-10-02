@@ -1,5 +1,9 @@
 import type { VoiceRequestState } from "@repo/realtime-types/events"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  type QueryClient,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
 import { useEffect } from "react"
 import { useSocket } from "@/context/socket-context"
 import { apiClient } from "@/lib/api-client"
@@ -16,6 +20,26 @@ const ACTIVE_STATUSES: ReadonlySet<VoiceRequestState["status"]> = new Set([
 
 export function isActiveVoiceRequest(request: VoiceRequestState) {
   return ACTIVE_STATUSES.has(request.status)
+}
+
+export function applyVoiceRequestUpdate(
+  queryClient: QueryClient,
+  request: VoiceRequestState
+) {
+  queryClient.setQueryData<VoiceRequestState[]>(
+    voiceRequestsQueryKey(request.sessionId),
+    (current) => {
+      const list = current ?? []
+      const existing = list.find((entry) => entry.id === request.id)
+      // Events from the transcriber and the API can arrive out of order.
+      if (existing && existing.updatedAt > request.updatedAt) return list
+      const rest = list.filter((entry) => entry.id !== request.id)
+      if (request.status === "rejected") return rest
+      return [...rest, request].sort((a, b) =>
+        a.createdAt.localeCompare(b.createdAt)
+      )
+    }
+  )
 }
 
 // Requests to Lor in the live call this device is in. Events reach only the
@@ -42,17 +66,7 @@ export function useVoiceRequests(sessionId: string | null) {
     const queryKey = voiceRequestsQueryKey(sessionId)
     const onUpdated = ({ request }: { request: VoiceRequestState }) => {
       if (request.sessionId !== sessionId) return
-      queryClient.setQueryData<VoiceRequestState[]>(queryKey, (current) => {
-        const list = current ?? []
-        const existing = list.find((entry) => entry.id === request.id)
-        // Events from the transcriber and the API can arrive out of order.
-        if (existing && existing.updatedAt > request.updatedAt) return list
-        const rest = list.filter((entry) => entry.id !== request.id)
-        if (request.status === "rejected") return rest
-        return [...rest, request].sort((a, b) =>
-          a.createdAt.localeCompare(b.createdAt)
-        )
-      })
+      applyVoiceRequestUpdate(queryClient, request)
     }
     const onReconnect = () => {
       void queryClient.invalidateQueries({ queryKey })

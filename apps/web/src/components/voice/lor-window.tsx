@@ -8,6 +8,10 @@ import { cn } from "@repo/ui/lib/utils"
 import { useQueryClient } from "@tanstack/react-query"
 import { motion } from "motion/react"
 import { captionLine } from "@/components/voice/call-captions"
+import {
+  isSimulatedRequest,
+  useSimulatedCaptions,
+} from "@/components/voice/lor-simulator"
 import { voiceRequestsQueryKey } from "@/hooks/use-voice-requests"
 import { apiClient } from "@/lib/api-client"
 
@@ -18,15 +22,14 @@ const LIVE_LOOKBACK_MS = 2_000
 // The speaker's words as they say them, from the call's captions.
 function LiveWords({ request }: { request: VoiceRequestState }) {
   const transcriptions = useTranscriptions()
+  const simulated = useSimulatedCaptions()
   const since = Date.parse(request.createdAt) - LIVE_LOOKBACK_MS
-  const lines = transcriptions
-    .map(captionLine)
-    .filter(
-      (line) =>
-        line.participantId === request.participantId &&
-        line.updatedAt >= since &&
-        line.text.trim()
-    )
+  const lines = [...transcriptions.map(captionLine), ...simulated].filter(
+    (line) =>
+      line.participantId === request.participantId &&
+      line.updatedAt >= since &&
+      line.text.trim()
+  )
   if (lines.length === 0) return <>{request.heardText}</>
   return lines.map((line) => (
     <span
@@ -76,6 +79,7 @@ export function LorWindow({ request }: { request: VoiceRequestState }) {
         entry.id === request.id ? { ...entry, status: "cancelled" } : entry
       )
     )
+    if (isSimulatedRequest(request)) return
     const res = await apiClient.v1.voice.requests[":requestId"].cancel
       .$post({ param: { requestId: request.id } })
       .catch(() => null)
