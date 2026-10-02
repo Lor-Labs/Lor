@@ -25,6 +25,7 @@ export async function findSessionScope(sessionId: string) {
     .select({
       workspaceId: voiceSession.workspaceId,
       channelId: voiceSession.channelId,
+      threadRootId: voiceSession.threadRootId,
       endedAt: voiceSession.endedAt,
     })
     .from(voiceSession)

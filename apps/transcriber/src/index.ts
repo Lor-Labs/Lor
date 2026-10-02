@@ -8,6 +8,7 @@ import {
 import { env } from "@repo/env/server"
 import { transcriberAgentName } from "@repo/voice/server"
 import { logger } from "./logger"
+import { installVoiceNotifier } from "./realtime"
 import { transcribeRoom } from "./room"
 
 // Silent transcriber for voice calls. LiveKit dispatches one job per room
@@ -16,6 +17,7 @@ import { transcribeRoom } from "./room"
 export default defineAgent({
   entry: async (ctx: JobContext) => {
     if (!env.DEEPGRAM_API_KEY) throw new Error("DEEPGRAM_API_KEY is not set")
+    installVoiceNotifier()
     await transcribeRoom(ctx, env.DEEPGRAM_API_KEY)
   },
 })

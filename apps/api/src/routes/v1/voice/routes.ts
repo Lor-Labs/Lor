@@ -13,6 +13,7 @@ import {
 import { sessionAuthMiddleware } from "@/middleware/session-auth"
 import { workspaceAuthMiddleware } from "@/middleware/workspace-auth"
 import {
+  cancelVoiceRequestResponseSchema,
   joinVoiceChannelResponseSchema,
   leaveVoiceSessionResponseSchema,
   removeVoiceParticipantParamsSchema,
@@ -20,6 +21,8 @@ import {
   voiceCallResponseSchema,
   voiceChannelParamsSchema,
   voicePresenceResponseSchema,
+  voiceRequestParamsSchema,
+  voiceRequestsResponseSchema,
   voiceSessionDetailResponseSchema,
   voiceSessionHistoryQuerySchema,
   voiceSessionHistoryResponseSchema,
@@ -205,6 +208,57 @@ export const getVoiceTranscript = createRoute({
 })
 
 export type GetVoiceTranscriptRoute = typeof getVoiceTranscript
+
+export const listVoiceRequests = createRoute({
+  path: "/voice/sessions/{sessionId}/requests",
+  method: "get",
+  summary: "List a voice session's requests to Lor",
+  description:
+    "Requests to Lor in this session, oldest first, for Lor's window and the Lor tab. A live session's requests are only for people connected to the call; after it ends, channel access applies.",
+  tags: ["Voice"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: {
+    params: voiceSessionParamsSchema,
+  },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: voiceRequestsResponseSchema,
+      description: "Requests",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type ListVoiceRequestsRoute = typeof listVoiceRequests
+
+export const cancelVoiceRequest = createRoute({
+  path: "/voice/requests/{requestId}/cancel",
+  method: "post",
+  summary: "Cancel a request to Lor",
+  description:
+    "Cancels a request Lor is listening to or working on. Anyone in the call can cancel.",
+  tags: ["Voice"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: {
+    params: voiceRequestParamsSchema,
+  },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: cancelVoiceRequestResponseSchema,
+      description: "The cancelled request",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.CONFLICT]: conflictSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type CancelVoiceRequestRoute = typeof cancelVoiceRequest
 
 export const getVoicePresence = createRoute({
   path: "/workspaces/{workspaceSlug}/voice/presence",

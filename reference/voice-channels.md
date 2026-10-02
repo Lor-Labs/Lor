@@ -172,10 +172,16 @@ it shows becomes part of the session record.
   the result is no longer needed.
 - Everyone in the call sees the same window. Anyone can clear it, or step back
   through this session's earlier results ("2 of 3").
-- Results render as purpose-built cards: Linear issues and GitHub pull requests
-  first. People can open and act on them from the card. Later, a small kit of
-  generic pieces (cards, lists, tables, simple charts) covers requests no
-  purpose-built card fits. Lor never writes arbitrary UI code for the window.
+- Lor composes the window from a catalog of components (decided 2026-10-01):
+  generic pieces (text, lists, tables, details, links, code) for any tool,
+  MCP servers and custom tools included, plus purpose-built cards for
+  built-in connectors, Linear issues and GitHub pull requests first, filled
+  with live data. People can open and act on them. Later, Lor may build its
+  own components, shown in a sandboxed frame; the catalog leaves room for it.
+- While Lor works, the window shows what it's doing, tool by tool.
+- A new request while Lor is working reaches it mid-task, and Lor decides
+  whether it replaces the current work or comes after it.
+- An action that needs approval shows the approval over Lor's window.
 - Later, when Lor gets browser or computer use, a live view of its screen shows
   in this same window.
 
@@ -316,8 +322,9 @@ segments that contain Lor's name:
    is this a request, a mention, or a continuation, and is it complete. An
    error or timeout counts as not addressed.
 
-Lor's window opens in a listening state when the gate matches, and closes
-quietly if Jev rejects the segment. Speech capture, transcription, execution,
+Lor's window opens only when Jev accepts the segment (decided 2026-10-01).
+Jev is fast enough that a listening state isn't needed, and words the gate
+also matches, like "law" and "lower", never flash the window. Speech capture, transcription, execution,
 and speech output remain separate parts of the system. Jev decides whether
 Lor starts; it never replaces application permissions or user authorization.
 

@@ -29,5 +29,11 @@ export function installVoiceNotifier() {
         if (inCall) sockets.socketsJoin(threadRoom(threadRootId))
         else sockets.socketsLeave(threadRoom(threadRootId))
       }),
+    requestChanged: (threadRootId, request) =>
+      publish((io) =>
+        io.to(threadRoom(threadRootId)).emit("voice:request:updated", {
+          request,
+        })
+      ),
   })
 }

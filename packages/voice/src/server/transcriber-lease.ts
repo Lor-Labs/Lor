@@ -46,6 +46,7 @@ export async function claimTranscriber(sessionId: string, jobId: string) {
     const [lease] = await tx
       .select({
         startedAt: voiceSession.startedAt,
+        threadRootId: voiceSession.threadRootId,
         transcriberJobId: voiceSession.transcriberJobId,
         transcriberSeenAt: voiceSession.transcriberSeenAt,
       })
@@ -72,7 +73,7 @@ export async function claimTranscriber(sessionId: string, jobId: string) {
       .update(voiceSession)
       .set({ transcriberJobId: jobId, transcriberSeenAt: now })
       .where(eq(voiceSession.id, sessionId))
-    return { startedAt: lease.startedAt }
+    return { startedAt: lease.startedAt, threadRootId: lease.threadRootId }
   })
 }
 

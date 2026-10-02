@@ -6,10 +6,14 @@ import { canSeeSession } from "@repo/db/queries/session-chat-access"
 import {
   countConnectedParticipants,
   createJoinToken,
+  findVoiceRequest,
   getCurrentCall,
   getLiveKitConfig,
+  listSessionVoiceRequests,
   listTranscript,
   markParticipantLeft,
+  markVoiceRequestCancelled,
+  notifyVoiceRequest,
   removeFromRoom,
 } from "@repo/voice/server"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
@@ -28,15 +32,28 @@ import {
   upsertParticipant,
 } from "@/lib/voice/sessions"
 import type {
+  CancelVoiceRequestRoute,
   GetVoiceCallRoute,
   GetVoicePresenceRoute,
   GetVoiceSessionRoute,
   GetVoiceTranscriptRoute,
   JoinVoiceChannelRoute,
   LeaveVoiceSessionRoute,
+  ListVoiceRequestsRoute,
   ListVoiceSessionsRoute,
   RemoveVoiceParticipantRoute,
 } from "@/routes/v1/voice/routes"
+
+// A session the user may read: channel access, plus the live-only rule.
+async function findVisibleSession(userId: string, sessionId: string) {
+  const scope = await findSessionScope(sessionId)
+  const access = scope
+    ? await resolveChannelAccess(userId, scope.channelId)
+    : null
+  return scope && access?.ok && (await canSeeSession(userId, sessionId))
+    ? scope
+    : null
+}
 
 export const removeVoiceParticipant: AppRouteHandler<
   RemoveVoiceParticipantRoute
@@ -130,14 +147,9 @@ export const getVoiceTranscript: AppRouteHandler<
 > = async (c) => {
   const { sessionId } = c.req.valid("param")
   const { after, limit } = c.req.valid("query")
-  const scope = await findSessionScope(sessionId)
-  const access = scope
-    ? await resolveChannelAccess(c.var.user.id, scope.channelId)
+  const transcript = (await findVisibleSession(c.var.user.id, sessionId))
+    ? await listTranscript(sessionId, { after, limit })
     : null
-  const transcript =
-    scope && access?.ok && (await canSeeSession(c.var.user.id, sessionId))
-      ? await listTranscript(sessionId, { after, limit })
-      : null
   if (!transcript) {
     return c.json(
       { success: false as const, message: "Session not found" },
@@ -145,6 +157,47 @@ export const getVoiceTranscript: AppRouteHandler<
     )
   }
   return c.json(transcript, HttpStatusCodes.OK)
+}
+
+export const listVoiceRequests: AppRouteHandler<
+  ListVoiceRequestsRoute
+> = async (c) => {
+  const { sessionId } = c.req.valid("param")
+  if (!(await findVisibleSession(c.var.user.id, sessionId))) {
+    return c.json(
+      { success: false as const, message: "Session not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  return c.json(
+    { requests: await listSessionVoiceRequests(sessionId) },
+    HttpStatusCodes.OK
+  )
+}
+
+export const cancelVoiceRequest: AppRouteHandler<
+  CancelVoiceRequestRoute
+> = async (c) => {
+  const { requestId } = c.req.valid("param")
+  const found = await findVoiceRequest(requestId)
+  const scope = found
+    ? await findVisibleSession(c.var.user.id, found.sessionId)
+    : null
+  if (!scope) {
+    return c.json(
+      { success: false as const, message: "Request not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  const request = await markVoiceRequestCancelled(requestId, c.var.user.id)
+  if (!request) {
+    return c.json(
+      { success: false as const, message: "This request already finished" },
+      HttpStatusCodes.CONFLICT
+    )
+  }
+  if (scope.threadRootId) notifyVoiceRequest(scope.threadRootId, request)
+  return c.json({ request }, HttpStatusCodes.OK)
 }
 
 export const getVoicePresence: AppRouteHandler<GetVoicePresenceRoute> = async (

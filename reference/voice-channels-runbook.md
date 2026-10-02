@@ -331,9 +331,32 @@ Design: the spec's "Lor in the call" section.
      closed on an error or timeout.
 
   Log every trigger and every rejection so false triggers can be tuned.
-- Lor's window opens on the gate in a listening state that shows the heard
-  text. The run starts only on Jev's answer; a rejection closes the window
-  quietly.
+- Lor's window opens only after Jev says Lor is addressed (Jacob,
+  2026-10-01), so words like "law" and "lower" never flash it. To feel
+  instant, Jev checks the speaker's live words as soon as they contain the
+  name: "Hey Lor" opens the window listening about 0.6–0.7s after it's said,
+  and the words appear as they're spoken. Each finished line is checked
+  again; a complete request starts if the speaker didn't keep talking during
+  the ~350ms check, so Jev's own latency is the pause detector. A listening
+  window closes after 4s of silence. Words after the start steer the running
+  request (chunk 3).
+- A new request while Lor is working goes into the running request at its
+  next step, the way steering works in chat, and Lor decides (Jacob,
+  2026-10-01): "stop that and look at the PR instead" replaces the current
+  work, "after that, …" waits until it's done. During a long tool call Lor
+  reacts when the tool returns; Cancel stops at once.
+- Results are generative UI from a component catalog (Jacob, 2026-10-01).
+  Lor composes the window with one stage tool from typed blocks: generic
+  blocks (text, list, table, details, link, code) carry their data, so any
+  MCP server or custom tool works without per-tool prompting; entity blocks
+  for built-in connectors (Linear issue, GitHub pull request) are references
+  the server fills with live data. `live_view` (browser) and `app` (a
+  Lor-written component in a sandboxed frame) are reserved block types, so
+  Lor-built UI can come later without a redesign. While Lor works, the window
+  shows its live tool activity for every tool.
+- A tool call that needs approval shows an approval overlay on Lor's window
+  over a blurred background (Jacob, 2026-10-01). Approving continues the
+  request in the window; nothing posts to the call chat.
 - Follow-ups must also be addressed ("Lor, open the second one") in the first
   release. A bounded continuation window is deferred.
 - Jev transport: bump `ai` in `packages/lor` from 7.0.11 to >= 7.0.105 for
@@ -349,15 +372,16 @@ Design: the spec's "Lor in the call" section.
   `reference/automation-primitives.md`), scoped to the session thread, as the
   speaker, with the full toolset and approval policies. Context: the recent
   transcript, the session chat as passive background, and the request text.
-- Output: tools return typed results; the stage payload is the typed union
-  (`cards` | `answer` | reserved `liveView`). Cards: Linear issues and GitHub
-  pull requests first, with actions routed through the normal tools and
-  approvals.
+- Output: the stage tool's typed blocks (see the generative UI decision
+  above). Actions on entity blocks route through the normal tools and
+  approvals; asking Lor ("Lor, assign the second one to me") works from the
+  first release.
 - Realtime: request and stage events to the session's thread room only
   (live-only rule), so late joiners and every device see the same window.
 - Web: Lor's window in the screen-share slot, mounted only while a request is
-  active or its result is showing: enter animation, listening state with "Lor
-  heard: …" and Cancel, thinking state, result, exit animation. Shared clear and step-back
+  active or its result is showing: enter animation, a working state with "Lor
+  heard: …", live tool activity, and Cancel, the result, exit animation.
+  Shared clear and step-back
   ("2 of 3"). A Lor tab beside Chat lists the session's requests, with
   "Show on stage".
 - Past sessions: Chat, Lor, and Transcript tabs.
@@ -366,16 +390,19 @@ Chunks (planned 2026-10-01):
 
 1. [x] Address detection: the `voice_request` table, the name gate, the Jev
    check, and the transcriber's listener. **db:push owed.**
-2. [ ] Lor's window on web, listening and rejected states: realtime request
-   events to the session thread room, a request list endpoint for late
-   joiners, Cancel.
-3. [ ] Runs: the worker runs an accepted request as the speaker, with its
-   context and a stage tool that sets the typed result (`answer` | `cards`).
-   Thinking and answer states in the window.
-4. [ ] Cards: Linear issues and GitHub pull requests.
-5. [ ] The Lor tab and "Show on stage"; past sessions get Chat, Lor, and
-   Transcript tabs.
-6. [ ] Approvals inside a voice request.
+2. Lor's window shell, in two parts:
+   - [x] 2a, server: live-word checks, the verdict fix, request events to the
+     session thread room (the transcriber now has its own Redis emitter),
+     `GET /voice/sessions/{id}/requests`, `POST /voice/requests/{id}/cancel`.
+   - [ ] 2b, web: the window opening on a listening or accepted request, the
+     speaker's live words, a working state, Cancel, and the exit animation.
+3. [ ] Runs: the worker runs an accepted request as the speaker, steers new
+   requests into the running one, shows live tool activity, and renders the
+   stage tool's generic blocks.
+4. [ ] Entity blocks: Linear issues and GitHub pull requests with live data.
+5. [ ] The Lor tab, "Show on stage", and step-back ("2 of 3"); past sessions
+   get Chat, Lor, and Transcript tabs.
+6. [ ] The approval overlay inside Lor's window.
 
 As built, chunk 1:
 
@@ -394,6 +421,19 @@ As built, chunk 1:
 - `voice_request` keeps every check (probabilities, latency, model) and
   whether the gate matched "Lor" or a homophone. Logs carry the request ID and
   the check, never the heard text.
+
+As built, chunk 2a (replaces chunk 1's 900ms quiet timer):
+
+- Verdict fix: Jev labels "Hey Lor" a mention (0.91 addressed, 0.19
+  complete), and chunk 1 rejected every mention, so a paused "Hey Lor… pull
+  up my tickets" failed. Now addressed + incomplete means listen, whatever
+  the kind; "Thanks Lor." (0.76 complete) is still rejected.
+- The row is created at Jev's first yes. Rejections of finished lines are
+  recorded for tuning; rejections of live words aren't, and that speaker's
+  live words aren't rechecked until the line finishes.
+- Request events go to the session thread room (`voice:request:updated`),
+  from the transcriber and the API. The web shows the speaker's live words
+  from the captions it already receives, so no per-word events.
 
 ---
 
@@ -657,6 +697,11 @@ As built, chunk 1:
     falls back to the latest connection or leave and may end the session
     early.
   - The sweep and the join share one compare-and-set end (`endSession`).
+- 2026-10-01 — V5 design calls (Jacob), after chunk 1: the window opens only
+  on Jev's accept; new requests steer the running one and Lor decides whether
+  they replace it; results are generative UI from a component catalog, with
+  Lor-built components reserved for later; approvals overlay Lor's window.
+  Chunks 2–6 replanned to match.
 - 2026-10-01 — Review fixes (CodeRabbit, verified by hand):
   - `reconcileSession` only clears connections older than its LiveKit
     snapshot, so a join during the check isn't marked left.

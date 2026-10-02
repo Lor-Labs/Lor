@@ -26,6 +26,7 @@ import {
 import { logger } from "./logger"
 import { LorListener } from "./lor-listener"
 import { type Caption, MicStream, STT_MODEL } from "./mic-stream"
+import { closeRealtime } from "./realtime"
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -99,7 +100,7 @@ export async function transcribeRoom(ctx: JobContext, deepgramApiKey: string) {
   })
   const streams = new Map<string, MicStream>()
   const finishing = new Set<Promise<void>>()
-  const listener = new LorListener(sessionId)
+  const listener = new LorListener(sessionId, session.threadRootId)
   let audioSeconds = 0
   const sessionMs = () => Date.now() - session.startedAt.getTime()
 
@@ -226,6 +227,7 @@ export async function transcribeRoom(ctx: JobContext, deepgramApiKey: string) {
     for (const trackId of [...streams.keys()]) close(trackId)
     await Promise.all(finishing)
     await listener.close()
+    await closeRealtime()
     await speech.close()
     // Compare with Deepgram's billed minutes for the call.
     logger.info(

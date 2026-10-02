@@ -36,6 +36,26 @@ export type VoiceCallState = {
   workspaceSlug: string
 }
 
+// Something said to Lor in a live call. Sent to the session chat's thread
+// room, so only people in the call receive it (live-only rule).
+export type VoiceRequestState = {
+  id: string
+  sessionId: string
+  participantId: string
+  userId: string
+  heardText: string
+  status:
+    | "listening"
+    | "rejected"
+    | "queued"
+    | "working"
+    | "done"
+    | "failed"
+    | "cancelled"
+  createdAt: string
+  updatedAt: string
+}
+
 export const channelRoomPayloadSchema = z.object({
   channelId: z.string().uuid(),
 })
@@ -579,6 +599,7 @@ export interface ServerToClientEvents {
   "workspace:activity:updated": (payload: WorkspaceActivityUpdated) => void
   "workspace:voice:updated": (payload: WorkspaceVoiceUpdated) => void
   "voice:call:updated": (payload: { call: VoiceCallState | null }) => void
+  "voice:request:updated": (payload: { request: VoiceRequestState }) => void
   "message:created": (payload: RealtimeMessage) => void
   "message:deleted": (payload: { channelId: string; messageId: string }) => void
   "message:updated": (payload: {

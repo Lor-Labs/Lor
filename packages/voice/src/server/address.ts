@@ -22,7 +22,9 @@ const JEV_URL = "https://ai-gateway.vercel.sh/typesafe/v1/systemone"
 const JEV_MODEL = "typesafe-ai/jev"
 const JEV_TIMEOUT_MS = 3_000
 // Sampled 2026-10-01: direct requests scored ~0.9 addressed and passing
-// mentions or homophones ~0.05; "Lor, can you, um" scored 0.04 complete.
+// mentions or homophones under 0.3. "Hey Lor" scores 0.91 addressed but is
+// labeled a mention with 0.19 complete, so an addressed, unfinished line
+// means Lor was called and the request is still coming.
 const ADDRESSED_MIN = 0.5
 const COMPLETE_MIN = 0.5
 
@@ -33,7 +35,8 @@ const KIND_CRITERIA = {
 } as const
 type RequestKind = keyof typeof KIND_CRITERIA
 
-export type AddressVerdict = "accept" | "reject" | "incomplete"
+// listen: Lor is addressed and the speaker hasn't said what they want yet.
+export type AddressVerdict = "accept" | "reject" | "listen"
 
 export type AddressInput = {
   // Earlier lines, oldest first, as "[Name] text".
@@ -95,11 +98,9 @@ function parseAnswers(body: unknown) {
 }
 
 function verdictFor(check: VoiceRequestCheck): AddressVerdict {
-  if ("error" in check) return "reject"
-  if (check.addressed < ADDRESSED_MIN || check.kind === "mention") {
-    return "reject"
-  }
-  return check.complete >= COMPLETE_MIN ? "accept" : "incomplete"
+  if ("error" in check || check.addressed < ADDRESSED_MIN) return "reject"
+  if (check.complete < COMPLETE_MIN) return "listen"
+  return check.kind === "mention" ? "reject" : "accept"
 }
 
 // Fails closed: an error, a timeout, or an unexpected answer rejects.

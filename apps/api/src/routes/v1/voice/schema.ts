@@ -1,5 +1,8 @@
 import { z } from "@hono/zod-openapi"
-import { voiceCaptureGapReasonEnum } from "@repo/db/schema"
+import {
+  voiceCaptureGapReasonEnum,
+  voiceRequestStatusEnum,
+} from "@repo/db/schema"
 
 export const voiceChannelParamsSchema = z.object({
   channelId: z
@@ -17,6 +20,34 @@ export const voiceSessionParamsSchema = z.object({
     .openapi({
       param: { name: "sessionId", in: "path", required: true },
     }),
+})
+
+export const voiceRequestParamsSchema = z.object({
+  requestId: z
+    .string()
+    .uuid()
+    .openapi({
+      param: { name: "requestId", in: "path", required: true },
+    }),
+})
+
+const voiceRequestSchema = z.object({
+  id: z.string().uuid(),
+  sessionId: z.string().uuid(),
+  participantId: z.string().uuid(),
+  userId: z.string().uuid(),
+  heardText: z.string(),
+  status: z.enum(voiceRequestStatusEnum.enumValues),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+})
+
+export const voiceRequestsResponseSchema = z.object({
+  requests: z.array(voiceRequestSchema),
+})
+
+export const cancelVoiceRequestResponseSchema = z.object({
+  request: voiceRequestSchema,
 })
 
 export const leaveVoiceSessionResponseSchema = z.object({

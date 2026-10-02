@@ -1,4 +1,7 @@
-import type { VoiceCallState } from "@repo/realtime-types/events"
+import type {
+  VoiceCallState,
+  VoiceRequestState,
+} from "@repo/realtime-types/events"
 
 export type VoiceNotifier = {
   presenceChanged: (workspaceId: string) => void
@@ -10,10 +13,11 @@ export type VoiceNotifier = {
     threadRootId: string,
     inCall: boolean
   ) => void
+  requestChanged: (threadRootId: string, request: VoiceRequestState) => void
 }
 
-// Hosts (API, worker) install their Socket.IO emitter at startup so this
-// package stays transport-free.
+// Hosts (API, worker, transcriber) install their Socket.IO emitter at startup
+// so this package stays transport-free.
 let notifier: VoiceNotifier | null = null
 
 export function setVoiceNotifier(next: VoiceNotifier) {
@@ -45,6 +49,17 @@ export function notifySessionChat(
 ) {
   try {
     notifier?.sessionChatChanged(userId, threadRootId, inCall)
+  } catch {
+    // swallow: delivery is best-effort by design
+  }
+}
+
+export function notifyVoiceRequest(
+  threadRootId: string,
+  request: VoiceRequestState
+) {
+  try {
+    notifier?.requestChanged(threadRootId, request)
   } catch {
     // swallow: delivery is best-effort by design
   }
