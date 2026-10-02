@@ -2,8 +2,12 @@ import { CodeBlock } from "@tiptap/extension-code-block"
 import type { Node as PMNode } from "@tiptap/pm/model"
 import { Plugin, PluginKey } from "@tiptap/pm/state"
 import { Decoration, DecorationSet } from "@tiptap/pm/view"
+import { ReactNodeViewRenderer } from "@tiptap/react"
 import type { BundledLanguage, Highlighter, ThemedToken } from "shiki"
-import { LANGUAGE_ALIAS_MAP } from "@/components/chat/composer/code-block-view"
+import {
+  CodeBlockView,
+  LANGUAGE_ALIAS_MAP,
+} from "@/components/chat/composer/code-block-view"
 import { CODE_THEMES } from "@/lib/code-themes"
 
 // Composer code highlighting with the same Shiki themes, regex engine, and
@@ -115,7 +119,13 @@ function buildDecorations(doc: PMNode, typeName: string): DecorationSet {
 
 const shikiPluginKey = new PluginKey<DecorationSet>("codeBlockShiki")
 
+// Use as-is (configure only, never .extend()): Tiptap's extend() copies the
+// parent config, so a child would run addProseMirrorPlugins twice and register
+// the keyed Shiki plugin twice ("Adding different instances of a keyed plugin").
 export const CodeBlockShiki = CodeBlock.extend({
+  addNodeView() {
+    return ReactNodeViewRenderer(CodeBlockView)
+  },
   addProseMirrorPlugins() {
     const typeName = this.name
     return [

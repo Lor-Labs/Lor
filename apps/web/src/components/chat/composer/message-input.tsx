@@ -26,7 +26,6 @@ import { PluginKey } from "@tiptap/pm/state"
 import {
   EditorContent,
   Extension,
-  ReactNodeViewRenderer,
   ReactRenderer,
   useEditor,
   useEditorState,
@@ -48,7 +47,6 @@ import {
 } from "react"
 import { AttachmentPreview } from "@/components/chat/composer/attachment-preview"
 import { CodeBlockShiki } from "@/components/chat/composer/code-block-shiki"
-import { CodeBlockView } from "@/components/chat/composer/code-block-view"
 import {
   type AttachableConnector,
   ConnectorAttachMenu,
@@ -563,11 +561,7 @@ export function MessageInput({
           // Registered separately below with app-specific options.
           link: false,
         }),
-        CodeBlockShiki.extend({
-          addNodeView() {
-            return ReactNodeViewRenderer(CodeBlockView)
-          },
-        }).configure({
+        CodeBlockShiki.configure({
           defaultLanguage: "plaintext",
         }),
         Markdown,

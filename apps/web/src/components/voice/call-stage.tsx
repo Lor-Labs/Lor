@@ -23,11 +23,14 @@ import {
 import { toast } from "@repo/ui/components/toast"
 import { cn } from "@repo/ui/lib/utils"
 import { Track } from "livekit-client"
-import { useMemo } from "react"
+import { AnimatePresence } from "motion/react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { UserAvatar } from "@/components/ui/user-avatar"
 import { CallCaptions } from "@/components/voice/call-captions"
 import { CallControls } from "@/components/voice/call-controls"
+import { LorWindow } from "@/components/voice/lor-window"
 import { useVoiceCall } from "@/context/voice-call-context"
+import { useVoiceRequests } from "@/hooks/use-voice-requests"
 import { apiClient } from "@/lib/api-client"
 
 const PAGE_SIZE = 12
@@ -108,6 +111,16 @@ export function CallStage({ canModerate }: { canModerate: boolean }) {
   const stableTracks = useVisualStableUpdate(cameraTracks, PAGE_SIZE)
   const page = usePagination(PAGE_SIZE, stableTracks)
   const [screenShare] = useTracks([Track.Source.ScreenShare])
+  const { active: lorRequest } = useVoiceRequests(call?.sessionId ?? null)
+  // Lor's window takes the screen-share slot, which stays until its exit
+  // animation ends.
+  const [lorMounted, setLorMounted] = useState(false)
+  const lorRequestRef = useRef(lorRequest)
+  lorRequestRef.current = lorRequest
+  useEffect(() => {
+    if (lorRequest) setLorMounted(true)
+  }, [lorRequest])
+  const showSlot = Boolean(screenShare) || lorRequest !== null || lorMounted
 
   const removeParticipant = async (participantId: string) => {
     if (!call) return
@@ -129,18 +142,32 @@ export function CallStage({ canModerate }: { canModerate: boolean }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 p-4">
       <div className="relative flex min-h-0 flex-1 flex-col gap-3">
-        {screenShare && (
-          <div className="min-h-0 flex-1 overflow-hidden rounded-lg bg-muted">
-            <VideoTrack
-              trackRef={screenShare}
-              className="size-full object-contain"
-            />
+        {showSlot && (
+          <div className="relative min-h-0 flex-1">
+            {screenShare && (
+              <div className="size-full overflow-hidden rounded-lg bg-muted">
+                <VideoTrack
+                  trackRef={screenShare}
+                  className="size-full object-contain"
+                />
+              </div>
+            )}
+            <AnimatePresence
+              onExitComplete={() => {
+                // A newer request may have replaced the one that just left.
+                if (!lorRequestRef.current) setLorMounted(false)
+              }}
+            >
+              {lorRequest && (
+                <LorWindow key={lorRequest.id} request={lorRequest} />
+              )}
+            </AnimatePresence>
           </div>
         )}
         <div
           className={cn(
             "grid gap-3",
-            screenShare
+            showSlot
               ? "shrink-0 auto-cols-[12rem] grid-flow-col overflow-x-auto"
               : "min-h-0 flex-1 grid-cols-[repeat(auto-fit,minmax(14rem,1fr))] content-center overflow-y-auto"
           )}

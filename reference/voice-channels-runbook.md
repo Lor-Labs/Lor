@@ -394,8 +394,13 @@ Chunks (planned 2026-10-01):
    - [x] 2a, server: live-word checks, the verdict fix, request events to the
      session thread room (the transcriber now has its own Redis emitter),
      `GET /voice/sessions/{id}/requests`, `POST /voice/requests/{id}/cancel`.
-   - [ ] 2b, web: the window opening on a listening or accepted request, the
+   - [x] 2b, web: the window opening on a listening or accepted request, the
      speaker's live words, a working state, Cancel, and the exit animation.
+     `LorWindow` (`apps/web/src/components/voice/lor-window.tsx`) sits in the
+     call stage's share slot, over a screen share if there is one, and the
+     tiles move to the filmstrip while it shows. `useVoiceRequests` keeps the
+     list from the endpoint plus events. Until chunk 3, an accepted request
+     stays on "Working on it" until someone cancels.
 3. [ ] Runs: the worker runs an accepted request as the speaker, steers new
    requests into the running one, shows live tool activity, and renders the
    stage tool's generic blocks.
