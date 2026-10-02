@@ -6,6 +6,7 @@ import type { Components } from "streamdown"
 import { UserHoverCard } from "@/components/ui/user-profile-card"
 import { useMessageLocation } from "@/hooks/use-message-search-navigation"
 import type { Message } from "@/lib/api-types"
+import { CODE_THEMES } from "@/lib/code-themes"
 import { connectorForUrl, connectorLogo } from "@/lib/connector-ui"
 
 const USER_MENTION_TOKEN_REGEX =
@@ -297,7 +298,7 @@ export const MessageMarkdown = memo(function MessageMarkdown({
         // Nexus supplies the code/math/mermaid/cjk plugin bundle and the
         // codeblock + table UI; only the dark theme is overridden to keep
         // parity with the rest of the app's chrome.
-        shikiTheme={["github-light", "github-dark-dimmed"]}
+        shikiTheme={CODE_THEMES}
         // Keys here are matched by hast-util-sanitize against the HAST property
         // names, which rehype-raw camelCases — so it MUST be `dataId`/`dataUrl`,
         // not `data-id`/`data-url`. With the hyphenated form the attribute is

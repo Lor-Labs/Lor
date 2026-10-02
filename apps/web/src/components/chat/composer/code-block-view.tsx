@@ -69,7 +69,7 @@ export function CodeBlockView({ node, updateAttributes }: NodeViewProps) {
         </Select>
       </div>
       <pre className="!mt-0 !mb-0 !rounded-none !border-0 px-3 py-2 font-mono text-[0.92em] leading-6">
-        <NodeViewContent className="hljs" />
+        <NodeViewContent />
       </pre>
     </NodeViewWrapper>
   )
