@@ -88,7 +88,7 @@ type DeltaRow = {
 // Newest finished run in this scope worth continuing. `failed` qualifies on
 // purpose: a run that tripped a budget rail mid-work is exactly the one whose
 // transcript the follow-up should inherit.
-async function findPredecessor(args: {
+export async function findPredecessor(args: {
   scopeKey: string
   channelId: string
   excludeRunId: string | undefined

@@ -344,6 +344,21 @@ export async function listShownVoiceRequests(
   return rows.reverse()
 }
 
+// Where in the call each request Lor took on was said, for continuing the
+// call's runs: their words already reached Lor as requests.
+export async function listRunVoiceRequestSpans(sessionId: string) {
+  return await db
+    .select({
+      runId: voiceRequest.runId,
+      startMs: voiceRequest.startMs,
+      endMs: voiceRequest.endMs,
+    })
+    .from(voiceRequest)
+    .where(
+      and(eq(voiceRequest.sessionId, sessionId), isNotNull(voiceRequest.runId))
+    )
+}
+
 // Ends a request that is still in flight. `fallback` fills an empty result,
 // e.g. the run's final reply when it never called the stage tool.
 export async function finishVoiceRequest(

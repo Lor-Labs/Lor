@@ -471,6 +471,21 @@ Chunks (planned 2026-10-01):
        request. Jev's ~350ms check already refuses to start while they're
        still talking, and steering covers a restated request; revisit if
        mid-sentence starts show up in testing.
+   - [x] 3d: a call's runs share one cached conversation, and Lor sees the
+     whole call. As built:
+     - Continuation (`apps/worker/src/lib/voice-continuation.ts`): a later
+       request continues the call's last finished run (scope = session),
+       reusing chat's `findPredecessor` + `replayChain`. The new run replays
+       that transcript verbatim (earlier requests, tool results, what Lor
+       showed) and adds one message: what was said since (transcript lines
+       from the last run's first request on, minus the words of requests Lor
+       already took on, plus call chat sent since it started) and the new
+       request. Crash recovery uses the existing `replayContinuedPrefix`.
+     - The system prompt no longer names the speaker, so it is identical for
+       every voice run; who asked lives in the messages.
+     - The fresh path (first request, or a chain that can't be replayed)
+       loads the whole transcript and call chat, not a recent window. Caps of
+       5,000 lines and 1,000 chat messages are runaway guards only.
 4. [ ] Entity blocks: Linear issues and GitHub pull requests with live data.
 5. [ ] Lor in the transcript: requests and results inline where they
    happened, "Show on stage", and step-back ("2 of 3").

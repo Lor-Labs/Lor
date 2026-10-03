@@ -1,4 +1,4 @@
-import { and, asc, db, desc, eq, lt, schema, sql } from "@repo/db"
+import { and, asc, db, desc, eq, gte, lt, schema, sql } from "@repo/db"
 import type {
   NewVoiceCaptureGap,
   NewVoiceTranscriptSegment,
@@ -45,10 +45,11 @@ export async function recordCaptureGap(input: CaptureGapInput) {
   await db.insert(voiceCaptureGap).values(input)
 }
 
-// The call up to a point, oldest first, as context for a request to Lor.
-export async function listRecentCallLines(
+// The call between two points, oldest first, as context for a request to Lor.
+// `limit` is a runaway guard: past it the oldest lines are dropped.
+export async function listCallLines(
   sessionId: string,
-  options: { untilMs: number; limit: number }
+  options: { fromMs?: number; untilMs: number; limit: number }
 ) {
   const rows = await db
     .select({
@@ -65,7 +66,10 @@ export async function listRecentCallLines(
     .where(
       and(
         eq(voiceTranscriptSegment.sessionId, sessionId),
-        lt(voiceTranscriptSegment.startMs, options.untilMs)
+        lt(voiceTranscriptSegment.startMs, options.untilMs),
+        options.fromMs === undefined
+          ? undefined
+          : gte(voiceTranscriptSegment.startMs, options.fromMs)
       )
     )
     .orderBy(desc(voiceTranscriptSegment.startMs))

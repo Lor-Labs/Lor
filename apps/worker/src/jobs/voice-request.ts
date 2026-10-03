@@ -9,7 +9,7 @@ import {
   claimQueuedVoiceRequests,
   finishRunVoiceRequests,
   finishVoiceRequest,
-  listRecentCallLines,
+  listCallLines,
   listShownVoiceRequests,
   loadVoiceRequest,
   notifyVoiceRequest,
@@ -23,6 +23,7 @@ import type { Job } from "bullmq"
 import { claimAgentRun, LeaseLostError } from "@/lib/agent-run"
 import { logger } from "@/lib/logger"
 import { cancelPendingRun } from "@/lib/unattended-run"
+import { buildVoiceContinuation } from "@/lib/voice-continuation"
 import { notifyWorkspaceActivity } from "@/lib/workspace-activity"
 
 // A request in a call is bounded to the call, not the 2h default.
@@ -32,9 +33,11 @@ const VOICE_RUN_WALL_MS = 10 * 60_000
 // arrives as the run ends gets its own run once the scope is free.
 const BUSY_RETRY_MS = 1_000
 const BUSY_WAIT_MS = 5 * 60_000
-const RECENT_LINES = 60
-const RECENT_CHAT = 20
-const SHOWN_RESULTS = 5
+// Runaway guards: the whole call goes in, so a reference to something said
+// long ago still lands.
+const MAX_CALL_LINES = 5_000
+const MAX_CALL_CHAT = 1_000
+const SHOWN_RESULTS = 20
 const WINDOW_TOOLS = new Set(["show_in_call", "react_in_call"])
 
 type LoadedRequest = NonNullable<Awaited<ReturnType<typeof loadVoiceRequest>>>
@@ -85,17 +88,18 @@ async function createVoiceRun(
   return "timeout"
 }
 
-// The call so far as background, in time order: transcript lines by
+// The call so far as background, in time order: the whole transcript by
 // speaker, the call chat, and what Lor showed for earlier requests. The
-// request itself is the turn Lor answers.
+// request itself is the turn Lor answers. Only the call's first run (or one
+// that can't continue the last) builds this.
 async function loadCallBackground(
   request: LoadedRequest
 ): Promise<ConversationTurn[]> {
   const startedAt = request.sessionStartedAt.getTime()
   const [lines, chat, shown] = await Promise.all([
-    listRecentCallLines(request.sessionId, {
+    listCallLines(request.sessionId, {
       untilMs: request.startMs,
-      limit: RECENT_LINES,
+      limit: MAX_CALL_LINES,
     }),
     request.threadRootId
       ? db
@@ -108,7 +112,7 @@ async function loadCallBackground(
           .innerJoin(schema.user, eq(schema.user.id, schema.message.authorId))
           .where(eq(schema.message.threadRootId, request.threadRootId))
           .orderBy(desc(schema.message.createdAt))
-          .limit(RECENT_CHAT)
+          .limit(MAX_CALL_CHAT)
       : [],
     listShownVoiceRequests(request.sessionId, {
       before: new Date(request.createdAt),
@@ -181,24 +185,42 @@ async function runVoiceRequest(request: LoadedRequest, runId: string) {
       return
     }
 
+    const turn = {
+      authorName: request.speakerName,
+      content: requestText(request.gate, request.heardText),
+    }
+    // A recovered attempt replays its own transcript instead.
+    const continuation = execution.resume
+      ? null
+      : await buildVoiceContinuation(
+          { ...request, speakerName: turn.authorName, content: turn.content },
+          runId
+        )
+    if (continuation) {
+      await execution.markContinuedFrom(continuation.predecessorRunId)
+    }
+
     const answer = await respond(
       {
         workspaceId: execution.workspaceId,
-        conversation: execution.resume
-          ? execution.resume.conversation
-          : [
-              {
-                authorName: request.speakerName,
-                content: requestText(request.gate, request.heardText),
-              },
-            ],
-        ...(execution.resume
+        conversation: execution.resume ? execution.resume.conversation : [turn],
+        ...(execution.resume || continuation
           ? {}
           : { backgroundConversation: await loadCallBackground(request) }),
+        ...(continuation
+          ? {
+              continuation: {
+                messages: continuation.messages,
+                coveredMessageIds: continuation.coveredMessageIds,
+                deltaText: continuation.deltaText,
+                lastInputTokens: continuation.lastInputTokens,
+                compaction: continuation.compaction,
+              },
+            }
+          : {}),
         channelId: request.channelId,
         runId,
         voice: {
-          speakerName: request.speakerName,
           show: async (blocks) => {
             publish(request, await setRunVoiceResult(runId, { blocks }))
           },
