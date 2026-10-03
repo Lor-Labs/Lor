@@ -18,6 +18,10 @@ export type RunVoiceContext = {
 
 const text = (max: number) => z.string().trim().min(1).max(max)
 
+export const LINEAR_IDENTIFIER = /^[A-Z][A-Z0-9]{0,9}-\d+$/
+export const GITHUB_PULL_REF = /^[\w.-]+\/[\w.-]+#\d+$/
+const ENTITY_MAX = 10
+
 const blockSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("answer"),
@@ -61,6 +65,24 @@ const blockSchema = z.discriminatedUnion("type", [
       .min(1)
       .max(12),
   }),
+  z.object({
+    type: z.literal("linear_issues"),
+    title: text(120).nullable(),
+    issues: z
+      .array(z.string().regex(LINEAR_IDENTIFIER))
+      .min(1)
+      .max(ENTITY_MAX)
+      .describe('Issue identifiers, e.g. "ENG-412"'),
+  }),
+  z.object({
+    type: z.literal("github_pull_requests"),
+    title: text(120).nullable(),
+    pullRequests: z
+      .array(z.string().regex(GITHUB_PULL_REF))
+      .min(1)
+      .max(ENTITY_MAX)
+      .describe('Pull requests as "owner/repo#142"'),
+  }),
 ]) satisfies z.ZodType<VoiceBlock>
 
 export const voiceTools = {
@@ -102,6 +124,7 @@ export function voicePromptSection(): string {
     "Someone asked you this out loud in a live voice call. You can't speak and you don't post in the call chat: you answer in Lor's window, which everyone in the call sees while they keep talking.",
     "",
     "- Show your result with show_in_call. Blocks: answer (short markdown), list, table, or details for structured results from any tool, and question when the speaker needs to choose. After a question, stop: the reply comes as a new request.",
+    "- For Linear issues and GitHub pull requests, use linear_issues and github_pull_requests blocks: name them and the window shows live cards with status, assignee, reviews, and checks. Don't repeat those details in other blocks.",
     "- If you never call show_in_call, your final reply is shown as the answer. Either way, keep it short.",
     "- Don't narrate your progress or announce what you're about to do; the window already shows that you're working.",
     "- This is transcribed speech: names and terms can be misheard, and your name can appear as lore, law, lower, or Laura. Read the request generously, and ask only when the choice really matters.",
@@ -112,6 +135,15 @@ export function voicePromptSection(): string {
 
 function tableText(columns: string[], rows: string[][]) {
   return [columns, ...rows].map((row) => `| ${row.join(" | ")} |`).join("\n")
+}
+
+function entityText(title: string | null, kind: string, refs: string[]) {
+  return [
+    title ?? "",
+    ...refs.map((ref, index) => `${index + 1}. ${kind} ${ref} (live card)`),
+  ]
+    .filter(Boolean)
+    .join("\n")
 }
 
 // What Lor's window showed, as text for a later request's context.
@@ -147,6 +179,10 @@ export function voiceBlocksText(blocks: VoiceBlock[]): string {
           ]
             .filter(Boolean)
             .join("\n")
+        case "linear_issues":
+          return entityText(block.title, "Linear issue", block.issues)
+        case "github_pull_requests":
+          return entityText(block.title, "pull request", block.pullRequests)
       }
     })
     .join("\n\n")

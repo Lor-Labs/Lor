@@ -492,6 +492,15 @@ Chunks (planned 2026-10-01):
        addressed request (not a mention) starts it (`isAddressedRequest`,
        `settleVoiceRequest`). "Hey Lor, um…" (a mention) still waits 4s.
 4. [ ] Entity blocks: Linear issues and GitHub pull requests with live data.
+   - [x] 4a (server): blocks `linear_issues` (`issues`: identifiers) and
+     `github_pull_requests` (`pullRequests`: "owner/repo#142") store
+     references only. `GET /voice/requests/{id}/entities` loads the cards
+     with the workspace's connections (`@repo/lor/voice-entities`): Linear in
+     one `issues` query filtered by team key + number; each PR is 3 GitHub
+     calls (PR, reviews, check runs). Missing references are left out; the
+     response says whether each connector is connected.
+   - [ ] 4b (web): the two cards, a 60s refresh while shown, simulator
+     scenario.
 5. [ ] Lor in the transcript: requests and results inline where they
    happened, "Show on stage", and step-back ("2 of 3").
 6. [ ] The approval overlay inside Lor's window.

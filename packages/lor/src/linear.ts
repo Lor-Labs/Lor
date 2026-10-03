@@ -162,6 +162,37 @@ async function compactLinearIssues(
   })
 }
 
+export type LinearIssueCard = Awaited<
+  ReturnType<typeof compactLinearIssues>
+>[number]
+
+// Issues by identifier ("ENG-412") in one query, for cards in Lor's window.
+// Identifiers that don't resolve are simply missing from the result.
+export async function loadLinearIssueCards(
+  externalId: string,
+  identifiers: string[]
+): Promise<LinearIssueCard[]> {
+  const refs = identifiers.flatMap((identifier) => {
+    const match = /^([A-Z][A-Z0-9]*)-(\d+)$/.exec(identifier)
+    return match?.[1] && match[2]
+      ? [{ key: match[1], number: Number(match[2]) }]
+      : []
+  })
+  if (refs.length === 0) return []
+  const client = await linearClientFor(externalId)
+  if (!client) return []
+  const result = await client.issues({
+    first: refs.length,
+    filter: {
+      or: refs.map((ref) => ({
+        team: { key: { eq: ref.key } },
+        number: { eq: ref.number },
+      })),
+    },
+  })
+  return await compactLinearIssues(client, result.nodes)
+}
+
 export const linearTools = {
   search_linear: tool({
     description:

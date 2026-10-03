@@ -21,6 +21,7 @@ import {
   removeVoiceParticipantResponseSchema,
   voiceCallResponseSchema,
   voiceChannelParamsSchema,
+  voiceEntitiesResponseSchema,
   voicePresenceResponseSchema,
   voiceRequestParamsSchema,
   voiceRequestsResponseSchema,
@@ -316,6 +317,31 @@ export const chooseVoiceRequest = createRoute({
 })
 
 export type ChooseVoiceRequestRoute = typeof chooseVoiceRequest
+
+export const getVoiceRequestEntities = createRoute({
+  path: "/voice/requests/{requestId}/entities",
+  method: "get",
+  summary: "Live cards for a result in Lor's window",
+  description:
+    "Current data for the Linear issues and GitHub pull requests a request's result names, read with the workspace's connections. Anyone who can see the call can read it.",
+  tags: ["Voice"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: {
+    params: voiceRequestParamsSchema,
+  },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: voiceEntitiesResponseSchema,
+      description: "The cards",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type GetVoiceRequestEntitiesRoute = typeof getVoiceRequestEntities
 
 export const getVoicePresence = createRoute({
   path: "/workspaces/{workspaceSlug}/voice/presence",

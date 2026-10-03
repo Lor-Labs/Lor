@@ -4,6 +4,7 @@ import {
   voiceCaptureGapReasonEnum,
   voiceRequestStatusEnum,
 } from "@repo/db/schema"
+import type { VoiceEntityCards } from "@repo/lor/voice-entities"
 
 export const voiceChannelParamsSchema = z.object({
   channelId: z
@@ -57,6 +58,10 @@ export const voiceRequestsResponseSchema = z.object({
 
 export const cancelVoiceRequestResponseSchema = z.object({
   request: voiceRequestSchema,
+})
+
+export const voiceEntitiesResponseSchema = z.object({
+  cards: z.custom<VoiceEntityCards>(),
 })
 
 export const leaveVoiceSessionResponseSchema = z.object({

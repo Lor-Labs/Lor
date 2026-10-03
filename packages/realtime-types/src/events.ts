@@ -57,6 +57,12 @@ export type RealtimeVoiceBlock =
       title: string | null
       fields: { label: string; value: string }[]
     }
+  | { type: "linear_issues"; title: string | null; issues: string[] }
+  | {
+      type: "github_pull_requests"
+      title: string | null
+      pullRequests: string[]
+    }
 
 // Something said to Lor in a live call. Sent to the session chat's thread
 // room, so only people in the call receive it (live-only rule).

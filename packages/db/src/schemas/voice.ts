@@ -211,6 +211,20 @@ export type VoiceBlock =
       title: string | null
       fields: { label: string; value: string }[]
     }
+  // Entity blocks name records in a built-in connector; the window fills
+  // them with live data, so nothing stored here goes stale.
+  | {
+      type: "linear_issues"
+      title: string | null
+      // Identifiers, e.g. "ENG-412".
+      issues: string[]
+    }
+  | {
+      type: "github_pull_requests"
+      title: string | null
+      // "owner/repo#142".
+      pullRequests: string[]
+    }
 
 export type VoiceRequestResult = { blocks: VoiceBlock[] }
 

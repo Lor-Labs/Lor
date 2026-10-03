@@ -3,6 +3,7 @@ import {
   resolveChannelAccess,
 } from "@repo/db/queries/channel-access"
 import { canSeeSession } from "@repo/db/queries/session-chat-access"
+import { loadVoiceEntityCards } from "@repo/lor/voice-entities"
 import {
   countConnectedParticipants,
   createJoinToken,
@@ -41,6 +42,7 @@ import type {
   DismissVoiceRequestRoute,
   GetVoiceCallRoute,
   GetVoicePresenceRoute,
+  GetVoiceRequestEntitiesRoute,
   GetVoiceSessionRoute,
   GetVoiceTranscriptRoute,
   JoinVoiceChannelRoute,
@@ -258,6 +260,27 @@ export const chooseVoiceRequest: AppRouteHandler<
   if (scope.threadRootId) notifyVoiceRequest(scope.threadRootId, request)
   await enqueueVoiceRequest(request.id)
   return c.json({ request }, HttpStatusCodes.OK)
+}
+
+export const getVoiceRequestEntities: AppRouteHandler<
+  GetVoiceRequestEntitiesRoute
+> = async (c) => {
+  const { requestId } = c.req.valid("param")
+  const found = await findVoiceRequest(requestId)
+  const scope = found
+    ? await findVisibleSession(c.var.user.id, found.sessionId)
+    : null
+  if (!found || !scope) {
+    return c.json(
+      { success: false as const, message: "Request not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  const cards = await loadVoiceEntityCards(
+    scope.workspaceId,
+    found.result?.blocks ?? []
+  )
+  return c.json({ cards }, HttpStatusCodes.OK)
 }
 
 export const dismissVoiceRequest: AppRouteHandler<
