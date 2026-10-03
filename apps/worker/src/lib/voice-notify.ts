@@ -20,5 +20,13 @@ export function installVoiceNotifier(emitter: Emitter<ServerToClientEvents>) {
       emitter
         .to(threadRoom(threadRootId))
         .emit("voice:request:updated", { request }),
+    requestActivity: (threadRootId, activity) =>
+      emitter
+        .to(threadRoom(threadRootId))
+        .emit("voice:request:activity", activity),
+    requestReaction: (threadRootId, reaction) =>
+      emitter
+        .to(threadRoom(threadRootId))
+        .emit("voice:request:reaction", reaction),
   })
 }

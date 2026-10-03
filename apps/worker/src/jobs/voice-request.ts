@@ -10,6 +10,8 @@ import {
   listRecentCallLines,
   loadVoiceRequest,
   notifyVoiceRequest,
+  notifyVoiceRequestActivity,
+  notifyVoiceRequestReaction,
   setVoiceRequestResult,
   startVoiceRequest,
 } from "@repo/voice/server"
@@ -27,6 +29,7 @@ const BUSY_RETRY_MS = 2_000
 const BUSY_WAIT_MS = 5 * 60_000
 const RECENT_LINES = 60
 const RECENT_CHAT = 20
+const WINDOW_TOOLS = new Set(["show_in_call", "react_in_call"])
 
 type LoadedRequest = NonNullable<Awaited<ReturnType<typeof loadVoiceRequest>>>
 
@@ -126,6 +129,7 @@ async function runVoiceRequest(request: LoadedRequest, runId: string) {
   const execution = claim.execution
   const writer = execution.writer
   writer.append({ kind: "state", state: "working" })
+  const startedTools = new Set<string>()
 
   try {
     const gate = await checkCredits(execution.workspaceId)
@@ -158,10 +162,37 @@ async function runVoiceRequest(request: LoadedRequest, runId: string) {
               await setVoiceRequestResult(request.id, { blocks })
             )
           },
+          react: async (emoji) => {
+            if (!request.threadRootId) return
+            notifyVoiceRequestReaction(request.threadRootId, {
+              sessionId: request.sessionId,
+              requestId: request.id,
+              emoji,
+            })
+          },
         },
       },
       {
         onDelta: () => {},
+        // Lor's window shows which tools are in use; its own window tools
+        // aren't work worth showing.
+        onToolEvent: (event) => {
+          const { toolName } = event
+          if (
+            !toolName ||
+            !request.threadRootId ||
+            WINDOW_TOOLS.has(toolName) ||
+            startedTools.has(event.toolCallId)
+          ) {
+            return
+          }
+          startedTools.add(event.toolCallId)
+          notifyVoiceRequestActivity(request.threadRootId, {
+            sessionId: request.sessionId,
+            requestId: request.id,
+            toolName,
+          })
+        },
         onUsage: (usage) => {
           if (
             usage.tool === "investigate_code" ||

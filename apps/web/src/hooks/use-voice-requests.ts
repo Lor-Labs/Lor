@@ -1,10 +1,15 @@
-import type { VoiceRequestState } from "@repo/realtime-types/events"
+import type {
+  VoiceRequestActivity,
+  VoiceRequestReaction,
+  VoiceRequestState,
+} from "@repo/realtime-types/events"
 import {
   type QueryClient,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query"
 import { useEffect } from "react"
+import { addLorReaction, addLorTool } from "@/components/voice/lor-stage-store"
 import { useSocket } from "@/context/socket-context"
 import { apiClient } from "@/lib/api-client"
 
@@ -68,20 +73,41 @@ export function useVoiceRequests(sessionId: string | null) {
       if (request.sessionId !== sessionId) return
       applyVoiceRequestUpdate(queryClient, request)
     }
+    const onActivity = (activity: VoiceRequestActivity) => {
+      if (activity.sessionId === sessionId) {
+        addLorTool(activity.requestId, activity.toolName)
+      }
+    }
+    const onReaction = (reaction: VoiceRequestReaction) => {
+      if (reaction.sessionId === sessionId) {
+        addLorReaction(reaction.requestId, reaction.emoji)
+      }
+    }
     const onReconnect = () => {
       void queryClient.invalidateQueries({ queryKey })
     }
     socket.on("voice:request:updated", onUpdated)
+    socket.on("voice:request:activity", onActivity)
+    socket.on("voice:request:reaction", onReaction)
     socket.on("connect", onReconnect)
     return () => {
       socket.off("voice:request:updated", onUpdated)
+      socket.off("voice:request:activity", onActivity)
+      socket.off("voice:request:reaction", onReaction)
       socket.off("connect", onReconnect)
     }
   }, [socket, sessionId, queryClient])
 
   const requests = query.data ?? []
-  return {
-    requests,
-    active: requests.filter(isActiveVoiceRequest).at(-1) ?? null,
-  }
+  // Lor's window shows the newest request someone didn't cancel, while it's
+  // in flight or until its result is cleared. Cancelling a misheard request
+  // brings back the result it covered.
+  const latest = requests
+    .filter((request) => request.status !== "cancelled")
+    .at(-1)
+  const onStage =
+    latest && (isActiveVoiceRequest(latest) || !latest.dismissedAt)
+      ? latest
+      : null
+  return { requests, onStage }
 }

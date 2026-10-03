@@ -61,7 +61,7 @@ const WriteGlyph = glyph(PencilEdit02Icon)
 const WrenchGlyph = glyph(Wrench01Icon)
 const ExternalLinkGlyph = glyph(LinkSquare02Icon)
 
-function toolIcon(toolName: string): TrailIcon {
+export function toolIcon(toolName: string): TrailIcon {
   // Connector tools wear their brand mark; built-in tools get an action glyph.
   const connector = connectorForTool(toolName)
   if (connector) return connectorLogo(connector)

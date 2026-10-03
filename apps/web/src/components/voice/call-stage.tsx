@@ -134,7 +134,7 @@ export function CallStage({ canModerate }: { canModerate: boolean }) {
   const stableTracks = useVisualStableUpdate(cameraTracks, PAGE_SIZE)
   const page = usePagination(PAGE_SIZE, stableTracks)
   const [screenShare] = useTracks([Track.Source.ScreenShare])
-  const { active: lorRequest } = useVoiceRequests(call?.sessionId ?? null)
+  const { onStage: lorRequest } = useVoiceRequests(call?.sessionId ?? null)
   // Lor's window takes the screen-share slot, which stays until its exit
   // animation ends.
   const [lorMounted, setLorMounted] = useState(false)

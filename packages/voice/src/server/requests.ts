@@ -1,4 +1,4 @@
-import { and, asc, db, eq, inArray, ne, schema, sql } from "@repo/db"
+import { and, asc, db, eq, inArray, isNull, ne, schema, sql } from "@repo/db"
 import type {
   NewVoiceRequest,
   VoiceRequest,
@@ -20,6 +20,7 @@ const stateColumns = {
   heardText: voiceRequest.heardText,
   status: voiceRequest.status,
   result: voiceRequest.result,
+  dismissedAt: voiceRequest.dismissedAt,
   createdAt: voiceRequest.createdAt,
   updatedAt: voiceRequest.updatedAt,
 }
@@ -29,9 +30,26 @@ function toState(
 ): VoiceRequestState {
   return {
     ...row,
+    dismissedAt: row.dismissedAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   }
+}
+
+// Clears a finished result from Lor's window for everyone in the call.
+export async function dismissVoiceRequest(requestId: string) {
+  const [row] = await db
+    .update(voiceRequest)
+    .set({ dismissedAt: new Date() })
+    .where(
+      and(
+        eq(voiceRequest.id, requestId),
+        inArray(voiceRequest.status, ["done", "failed"]),
+        isNull(voiceRequest.dismissedAt)
+      )
+    )
+    .returning(stateColumns)
+  return row ? toState(row) : null
 }
 
 export type VoiceRequestInput = Pick<

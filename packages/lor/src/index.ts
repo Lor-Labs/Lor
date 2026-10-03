@@ -442,7 +442,7 @@ export type {
   TriggeredPostMessage,
 } from "./triggered"
 export type { OnUsage, UsageEvent } from "./usage"
-export type { RunVoiceContext, ShowInCall } from "./voice"
+export type { ReactInCall, RunVoiceContext, ShowInCall } from "./voice"
 
 export type RespondResult = {
   text: string
@@ -2193,7 +2193,12 @@ export async function respond(
               : {}),
           }
         : {}),
-      ...(ctx.voice ? { show_in_call: { show: ctx.voice.show } } : {}),
+      ...(ctx.voice
+        ? {
+            show_in_call: { show: ctx.voice.show },
+            react_in_call: { react: ctx.voice.react },
+          }
+        : {}),
       ...(ctx.proposeLoop && ctx.channelId
         ? { propose_loop: { createLoopCard: ctx.proposeLoop } }
         : {}),

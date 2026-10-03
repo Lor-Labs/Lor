@@ -75,8 +75,24 @@ export type VoiceRequestState = {
     | "failed"
     | "cancelled"
   result: { blocks: RealtimeVoiceBlock[] } | null
+  // Someone cleared the finished result from Lor's window.
+  dismissedAt: string | null
   createdAt: string
   updatedAt: string
+}
+
+// While a request runs: a tool Lor started, and a reaction it chose. Live
+// only, to the session chat's thread room.
+export type VoiceRequestActivity = {
+  sessionId: string
+  requestId: string
+  toolName: string
+}
+
+export type VoiceRequestReaction = {
+  sessionId: string
+  requestId: string
+  emoji: string
 }
 
 export const channelRoomPayloadSchema = z.object({
@@ -623,6 +639,8 @@ export interface ServerToClientEvents {
   "workspace:voice:updated": (payload: WorkspaceVoiceUpdated) => void
   "voice:call:updated": (payload: { call: VoiceCallState | null }) => void
   "voice:request:updated": (payload: { request: VoiceRequestState }) => void
+  "voice:request:activity": (payload: VoiceRequestActivity) => void
+  "voice:request:reaction": (payload: VoiceRequestReaction) => void
   "message:created": (payload: RealtimeMessage) => void
   "message:deleted": (payload: { channelId: string; messageId: string }) => void
   "message:updated": (payload: {

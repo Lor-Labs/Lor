@@ -430,9 +430,24 @@ Chunks (planned 2026-10-01):
        its worker (`apps/api/src/lib/voice/runs.ts`).
      - Not built: a sweep for a request stuck `queued` if the enqueue is
        lost.
-   - [ ] 3b, web: the working animation with tool logos (live tool events),
-     result blocks, questions with clickable choices, and the `react` tool
-     with floating reactions. Replaces 2b's "Working on it" label.
+   - [x] 3b, web: the working animation with tool logos (live tool events),
+     result blocks, and the `react_in_call` tool with floating reactions.
+     Replaces 2b's "Working on it" label. **db:push owed**
+     (`voice_request.dismissed_at`). As built:
+     - Lor's window shows the newest request nobody cancelled, while it's in
+       flight or until someone clears its result (the X clears for
+       everyone, `POST /voice/requests/{id}/dismiss`). Cancelling a misheard
+       request brings back the result it covered.
+     - Tool activity and reactions are live-only events
+       (`voice:request:activity`, `voice:request:reaction`) kept in
+       `lor-stage-store.ts`; the worker skips its own window tools.
+     - The mark pulses while listening and turns an arc while working; tool
+       logos reuse the chat trail's `toolIcon`, one per kind, the newest
+       pulsing. A result gets a header (mark, heard text, tools) over
+       scrolling blocks; answers render with the chat's `MessageMarkdown`;
+       question choices are numbered so people can answer by number.
+     - Moved to 3c: clickable question choices (an answer is a follow-up).
+     - The dev simulator gained result, correction, and failure scenarios.
    - [ ] 3c: new requests and corrections steer the running request; the
      speaker's words just after the start join it; follow-ups build on the
      previous result.

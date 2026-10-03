@@ -3,7 +3,6 @@ import { HugeiconsIcon } from "@hugeicons/react"
 import { useParticipants, useTranscriptions } from "@livekit/components-react"
 import type { VoiceRequestState } from "@repo/realtime-types/events"
 import { Button } from "@repo/ui/components/button"
-import { TextShimmer } from "@repo/ui/components/nexus-ui/text-shimmer"
 import { toast } from "@repo/ui/components/toast"
 import {
   Tooltip,
@@ -13,14 +12,24 @@ import {
 import { EASE_OUT } from "@repo/ui/lib/motion"
 import { cn } from "@repo/ui/lib/utils"
 import { useQueryClient } from "@tanstack/react-query"
-import { motion } from "motion/react"
+import { AnimatePresence, motion } from "motion/react"
 import type { ReactNode } from "react"
+import { toolIcon } from "@/components/chat/lor-tool-trail"
 import { captionLine } from "@/components/voice/call-captions"
+import { LorBlocks } from "@/components/voice/lor-blocks"
 import {
   isSimulatedRequest,
   useSimulatedCaptions,
 } from "@/components/voice/lor-simulator"
-import { voiceRequestsQueryKey } from "@/hooks/use-voice-requests"
+import {
+  REACTION_MS,
+  useLorReactions,
+  useLorTools,
+} from "@/components/voice/lor-stage-store"
+import {
+  isActiveVoiceRequest,
+  voiceRequestsQueryKey,
+} from "@/hooks/use-voice-requests"
 import { apiClient } from "@/lib/api-client"
 
 // Reaches back to the caption line that said "Lor": the request is created
@@ -52,10 +61,48 @@ function LiveWords({ request }: { request: VoiceRequestState }) {
   ))
 }
 
-function LorMark({ listening }: { listening: boolean }) {
+// Reactions Lor chose, floating up from its mark.
+function Reactions({ requestId }: { requestId: string }) {
+  const reactions = useLorReactions(requestId)
   return (
-    <div className="relative flex size-14 items-center justify-center">
-      {listening && (
+    <div className="pointer-events-none absolute inset-x-0 bottom-1/2 flex justify-center">
+      <AnimatePresence>
+        {reactions.map((reaction) => (
+          <motion.span
+            key={reaction.id}
+            className="absolute text-2xl"
+            initial={{ opacity: 0, y: 0, scale: 0.6 }}
+            animate={{ opacity: [0, 1, 1, 0], y: -56, scale: 1 }}
+            transition={{ duration: REACTION_MS / 1000, ease: EASE_OUT }}
+          >
+            {reaction.emoji}
+          </motion.span>
+        ))}
+      </AnimatePresence>
+    </div>
+  )
+}
+
+type MarkState = "listening" | "working" | "idle"
+
+// Lor's mark: a pulsing halo while it listens, a turning arc while it works.
+function LorMark({
+  requestId,
+  state,
+  size,
+}: {
+  requestId: string
+  state: MarkState
+  size: "sm" | "lg"
+}) {
+  return (
+    <div
+      className={cn(
+        "relative flex shrink-0 items-center justify-center",
+        size === "lg" ? "size-14" : "size-8"
+      )}
+    >
+      {state === "listening" && (
         <motion.span
           aria-hidden
           className="absolute inset-0 rounded-full bg-primary/25"
@@ -64,7 +111,72 @@ function LorMark({ listening }: { listening: boolean }) {
           transition={{ duration: 1.4, repeat: Infinity, ease: EASE_OUT }}
         />
       )}
-      <img src="/lor-mark.svg" alt="" className="relative size-14" />
+      {state === "working" && (
+        <motion.span
+          aria-hidden
+          className="absolute -inset-1 rounded-full border-2 border-primary/15 border-t-primary"
+          animate={{ rotate: 360 }}
+          transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+        />
+      )}
+      <img src="/lor-mark.svg" alt="" className="relative size-full" />
+      <Reactions requestId={requestId} />
+    </div>
+  )
+}
+
+function toolLabel(toolName: string) {
+  const words = toolName.replaceAll("_", " ")
+  return words.charAt(0).toUpperCase() + words.slice(1)
+}
+
+// The tools Lor has used on this request, one mark per kind; the newest
+// pulses while Lor works.
+function ToolRow({
+  requestId,
+  working,
+}: {
+  requestId: string
+  working: boolean
+}) {
+  const toolNames = useLorTools(requestId)
+  const marks = toolNames
+    .map((toolName) => ({ toolName, Icon: toolIcon(toolName) }))
+    .filter(
+      (mark, index, all) =>
+        all.findIndex((entry) => entry.Icon === mark.Icon) === index
+    )
+  if (marks.length === 0) return null
+  return (
+    <div className="flex items-center gap-2 text-muted-foreground">
+      {marks.map(({ toolName, Icon }, index) => (
+        <Tooltip key={toolName}>
+          <TooltipTrigger
+            delay={300}
+            render={
+              <motion.span
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={
+                  working && index === marks.length - 1
+                    ? { opacity: [1, 0.4, 1], scale: 1 }
+                    : { opacity: 1, scale: 1 }
+                }
+                transition={
+                  working && index === marks.length - 1
+                    ? { duration: 1.2, repeat: Infinity }
+                    : { duration: 0.2, ease: EASE_OUT }
+                }
+                className="flex"
+              />
+            }
+          >
+            <Icon className="size-4" />
+          </TooltipTrigger>
+          <TooltipContent side="top">
+            <p className="text-xs">{toolLabel(toolName)}</p>
+          </TooltipContent>
+        </Tooltip>
+      ))}
     </div>
   )
 }
@@ -106,7 +218,7 @@ export function LorStage({
 }
 
 // Lor's window, the same for everyone in the call. Opens once Jev says Lor
-// was addressed.
+// was addressed; a finished result stays until someone clears it.
 export function LorWindow({ request }: { request: VoiceRequestState }) {
   const queryClient = useQueryClient()
   const participants = useParticipants()
@@ -114,25 +226,62 @@ export function LorWindow({ request }: { request: VoiceRequestState }) {
     participants.find(
       (participant) => participant.identity === request.participantId
     )?.name || "someone"
+  const active = isActiveVoiceRequest(request)
   const listening = request.status === "listening"
+  const markState: MarkState = listening
+    ? "listening"
+    : active
+      ? "working"
+      : "idle"
+  const blocks = request.result?.blocks ?? []
 
-  const cancel = async () => {
+  // Cancels Lor's work while it's active; clears the finished result after.
+  const close = async () => {
     const queryKey = voiceRequestsQueryKey(request.sessionId)
     queryClient.setQueryData<VoiceRequestState[]>(queryKey, (list) =>
       list?.map((entry) =>
-        entry.id === request.id ? { ...entry, status: "cancelled" } : entry
+        entry.id !== request.id
+          ? entry
+          : active
+            ? { ...entry, status: "cancelled" }
+            : { ...entry, dismissedAt: new Date().toISOString() }
       )
     )
     if (isSimulatedRequest(request)) return
-    const res = await apiClient.v1.voice.requests[":requestId"].cancel
+    const action =
+      apiClient.v1.voice.requests[":requestId"][active ? "cancel" : "dismiss"]
+    const res = await action
       .$post({ param: { requestId: request.id } })
       .catch(() => null)
-    // 409: it finished first, which closes the window anyway.
+    // 409: someone else got there first, which closes the window anyway.
     if (!res || (!res.ok && res.status !== 409)) {
-      toast.error("Couldn't cancel the request")
+      toast.error(active ? "Couldn't cancel the request" : "Couldn't clear it")
       void queryClient.invalidateQueries({ queryKey })
     }
   }
+  const closeLabel = active ? "Cancel request" : "Clear"
+
+  const closeButton = (
+    <Tooltip>
+      <TooltipTrigger
+        delay={300}
+        render={
+          <Button
+            size="icon-xs"
+            variant="ghost"
+            aria-label={closeLabel}
+            onClick={() => void close()}
+            className="absolute top-3 right-3 z-10 text-muted-foreground opacity-0 transition-opacity group-hover/lor:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"
+          />
+        }
+      >
+        <HugeiconsIcon icon={Cancel01Icon} strokeWidth={2} />
+      </TooltipTrigger>
+      <TooltipContent side="top">
+        <p className="text-xs">{closeLabel}</p>
+      </TooltipContent>
+    </Tooltip>
+  )
 
   return (
     <motion.div
@@ -140,40 +289,48 @@ export function LorWindow({ request }: { request: VoiceRequestState }) {
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.2, ease: EASE_OUT }}
-      className="group/lor absolute inset-0 flex flex-col items-center justify-center gap-6 rounded-lg border border-border bg-card p-8 text-center"
+      className="group/lor absolute inset-0 flex flex-col overflow-hidden rounded-lg border border-border bg-card"
     >
-      <Tooltip>
-        <TooltipTrigger
-          delay={300}
-          render={
-            <Button
-              size="icon-xs"
-              variant="ghost"
-              aria-label="Cancel request"
-              onClick={() => void cancel()}
-              className="absolute top-3 right-3 text-muted-foreground opacity-0 transition-opacity group-hover/lor:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"
-            />
-          }
-        >
-          <HugeiconsIcon icon={Cancel01Icon} strokeWidth={2} />
-        </TooltipTrigger>
-        <TooltipContent side="top">
-          <p className="text-xs">Cancel request</p>
-        </TooltipContent>
-      </Tooltip>
-      <LorMark listening={listening} />
-      <div className="flex max-w-2xl flex-col gap-2">
-        <span aria-live="polite" className="text-sm text-muted-foreground">
-          {listening ? (
-            `Listening to ${speakerName}`
-          ) : (
-            <TextShimmer>Working on it</TextShimmer>
-          )}
-        </span>
-        <p className="text-balance text-xl font-medium leading-snug">
-          {listening ? <LiveWords request={request} /> : request.heardText}
-        </p>
-      </div>
+      {closeButton}
+      {blocks.length > 0 ? (
+        <>
+          <div className="flex shrink-0 items-center gap-3 border-border/60 border-b px-5 py-3 pr-12">
+            <LorMark requestId={request.id} state={markState} size="sm" />
+            <p className="line-clamp-2 text-sm text-muted-foreground">
+              {request.heardText}
+            </p>
+            <div className="ml-auto">
+              <ToolRow requestId={request.id} working={active} />
+            </div>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+            <LorBlocks blocks={blocks} />
+          </div>
+        </>
+      ) : (
+        <div className="flex flex-1 flex-col items-center justify-center gap-6 p-8 text-center">
+          <LorMark requestId={request.id} state={markState} size="lg" />
+          <div className="flex max-w-2xl flex-col gap-2">
+            {listening && (
+              <span
+                aria-live="polite"
+                className="text-sm text-muted-foreground"
+              >
+                Listening to {speakerName}
+              </span>
+            )}
+            <p className="text-balance text-xl font-medium leading-snug">
+              {listening ? <LiveWords request={request} /> : request.heardText}
+            </p>
+            {request.status === "failed" && (
+              <span className="text-sm text-muted-foreground">
+                Lor couldn't finish this.
+              </span>
+            )}
+          </div>
+          <ToolRow requestId={request.id} working={active} />
+        </div>
+      )}
     </motion.div>
   )
 }

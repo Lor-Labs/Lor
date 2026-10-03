@@ -14,6 +14,7 @@ import {
 import { toast } from "@repo/ui/components/toast"
 import { type QueryClient, useQueryClient } from "@tanstack/react-query"
 import { useSyncExternalStore } from "react"
+import { addLorReaction, addLorTool } from "@/components/voice/lor-stage-store"
 import { useVoiceCall } from "@/context/voice-call-context"
 import {
   applyVoiceRequestUpdate,
@@ -118,46 +119,75 @@ class Simulation {
     }
   }
 
+  // One request: its state as the server would send it, plus the tools and
+  // reactions a run would report.
   request() {
     const id = simulatedId()
     let createdAt: string | null = null
-    return (status: VoiceRequestState["status"], heardText: string) => {
-      const list =
-        this.queryClient.getQueryData<VoiceRequestState[]>(
-          voiceRequestsQueryKey(this.sessionId)
-        ) ?? []
-      if (list.find((entry) => entry.id === id)?.status === "cancelled") {
-        throw new Stopped()
-      }
-      const now = new Date().toISOString()
-      createdAt ??= now
-      applyVoiceRequestUpdate(this.queryClient, {
-        id,
-        sessionId: this.sessionId,
-        participantId: this.participantId,
-        userId: this.participantId,
-        heardText,
-        status,
-        result: null,
-        createdAt,
-        updatedAt: now,
-      })
+    let heard = ""
+    return {
+      set: (
+        status: VoiceRequestState["status"],
+        heardText = heard,
+        result: VoiceRequestState["result"] = null
+      ) => {
+        const list =
+          this.queryClient.getQueryData<VoiceRequestState[]>(
+            voiceRequestsQueryKey(this.sessionId)
+          ) ?? []
+        if (list.find((entry) => entry.id === id)?.status === "cancelled") {
+          throw new Stopped()
+        }
+        const now = new Date().toISOString()
+        createdAt ??= now
+        heard = heardText
+        applyVoiceRequestUpdate(this.queryClient, {
+          id,
+          sessionId: this.sessionId,
+          participantId: this.participantId,
+          userId: this.participantId,
+          heardText,
+          status,
+          result,
+          dismissedAt: null,
+          createdAt,
+          updatedAt: now,
+        })
+      },
+      tool: (toolName: string) => addLorTool(id, toolName),
+      react: (emoji: string) => addLorReaction(id, emoji),
     }
   }
 }
 
 type Scenario = { label: string; run: (sim: Simulation) => Promise<void> }
+type SimulatedRequest = ReturnType<Simulation["request"]>
 
-const askInOneGo = async (sim: Simulation) => {
+// Speaks a whole request in one go; Lor's window opens mid-sentence.
+async function ask(sim: Simulation, request: SimulatedRequest, text: string) {
+  const [first, ...rest] = text.split(" ")
   const line = sim.line()
-  const set = sim.request()
-  await line.say("Lor,")
-  const opened = sim.after(JEV_MS, () => set("listening", "Lor,"))
-  await line.say("what did we decide about pricing last week?")
+  await line.say(first ?? text)
+  const opened = sim.after(JEV_MS, () => request.set("listening", first))
+  await line.say(rest.join(" "))
   await opened
   line.end()
   await sim.wait(JEV_MS)
-  set("queued", "Lor, what did we decide about pricing last week?")
+  request.set("queued", text)
+  await sim.wait(150)
+  request.set("working")
+}
+
+// Uses each tool for a moment, as a run would.
+async function work(
+  sim: Simulation,
+  request: SimulatedRequest,
+  tools: string[]
+) {
+  for (const toolName of tools) {
+    request.tool(toolName)
+    await sim.wait(1_200)
+  }
 }
 
 const SCENARIOS: Scenario[] = [
@@ -165,48 +195,163 @@ const SCENARIOS: Scenario[] = [
     label: "Calls Lor, never finishes",
     run: async (sim) => {
       const line = sim.line()
-      const set = sim.request()
+      const request = sim.request()
       await line.say("Hey Lor,")
-      const opened = sim.after(JEV_MS, () => set("listening", "Hey Lor,"))
+      const opened = sim.after(JEV_MS, () =>
+        request.set("listening", "Hey Lor,")
+      )
       await line.say("um…")
       await opened
       line.end()
       await sim.wait(SILENCE_TIMEOUT_MS)
-      set("rejected", "Hey Lor, um…")
+      request.set("rejected", "Hey Lor, um…")
     },
   },
   {
     label: "Calls Lor, pauses, then asks",
     run: async (sim) => {
       const first = sim.line()
-      const set = sim.request()
+      const request = sim.request()
       await first.say("Hey Lor,")
       await sim.wait(JEV_MS)
-      set("listening", "Hey Lor,")
+      request.set("listening", "Hey Lor,")
       first.end()
       await sim.wait(1_500)
       const second = sim.line()
       await second.say("pull up the tickets I created yesterday")
       second.end()
       await sim.wait(JEV_MS)
-      set("queued", "Hey Lor, pull up the tickets I created yesterday")
+      request.set("working", "Hey Lor, pull up the tickets I created yesterday")
+      await work(sim, request, ["search_linear"])
+      request.set("done", undefined, {
+        blocks: [
+          {
+            type: "list",
+            title: "Created yesterday",
+            items: [
+              {
+                title: "ENG-412 Session refresh drops the auth cookie",
+                detail: "In progress · Jacob",
+                url: null,
+              },
+              {
+                title: "ENG-415 Retry Deepgram stream on 1011",
+                detail: "Todo · unassigned",
+                url: null,
+              },
+            ],
+          },
+        ],
+      })
     },
   },
-  { label: "Asks in one go", run: askInOneGo },
+  {
+    label: "Answers a question",
+    run: async (sim) => {
+      const request = sim.request()
+      await ask(
+        sim,
+        request,
+        "Lor, what did we decide about pricing last week?"
+      )
+      await work(sim, request, ["search_messages", "search_sources"])
+      request.set("done", undefined, {
+        blocks: [
+          {
+            type: "answer",
+            markdown:
+              "You kept **$20 per seat** and moved the free tier to 3 seats. Alice wanted annual-only discounts; that was left open.",
+          },
+        ],
+      })
+    },
+  },
+  {
+    label: "Shows a table",
+    run: async (sim) => {
+      const request = sim.request()
+      await ask(sim, request, "Lor, how are the open bugs split by team?")
+      await work(sim, request, ["search_linear"])
+      request.set("done", undefined, {
+        blocks: [
+          {
+            type: "table",
+            title: "Open bugs",
+            columns: ["Team", "Open", "Urgent"],
+            rows: [
+              ["Platform", "7", "2"],
+              ["Web", "4", "0"],
+              ["Mobile", "5", "1"],
+            ],
+          },
+        ],
+      })
+    },
+  },
+  {
+    label: "Asks which one",
+    run: async (sim) => {
+      const request = sim.request()
+      await ask(sim, request, "Lor, open the auth PR")
+      await work(sim, request, ["search_github"])
+      request.set("done", undefined, {
+        blocks: [
+          {
+            type: "question",
+            prompt: "Two open pull requests touch auth. Which one?",
+            choices: [
+              "#142 Refresh tokens on reconnect",
+              "#151 Move session storage to Redis",
+            ],
+          },
+        ],
+      })
+    },
+  },
+  {
+    label: "Gets corrected",
+    run: async (sim) => {
+      const request = sim.request()
+      await ask(sim, request, "Lor, pull up all the tickets for the release")
+      await work(sim, request, ["search_linear"])
+      const line = sim.line()
+      await line.say("Lor, no, only the open ones")
+      line.end()
+      await sim.wait(JEV_MS)
+      request.react("👍")
+      await work(sim, request, ["search_linear"])
+      request.set("done", undefined, {
+        blocks: [
+          {
+            type: "details",
+            title: "Release 0.7",
+            fields: [
+              { label: "Open", value: "6 tickets" },
+              { label: "Urgent", value: "ENG-412" },
+              { label: "Due", value: "Friday" },
+            ],
+          },
+        ],
+      })
+    },
+  },
+  {
+    label: "Fails",
+    run: async (sim) => {
+      const request = sim.request()
+      await ask(sim, request, "Lor, check the deploy logs")
+      await work(sim, request, ["search_web"])
+      request.set("failed")
+    },
+  },
   {
     label: "New request while Lor works",
     run: async (sim) => {
-      await askInOneGo(sim)
-      await sim.wait(2_500)
-      const line = sim.line()
-      const set = sim.request()
-      await line.say("Lor,")
-      const opened = sim.after(JEV_MS, () => set("listening", "Lor,"))
-      await line.say("actually stop that and open the auth PR")
-      await opened
-      line.end()
-      await sim.wait(JEV_MS)
-      set("queued", "Lor, actually stop that and open the auth PR")
+      const first = sim.request()
+      await ask(sim, first, "Lor, what did we decide about pricing last week?")
+      await work(sim, first, ["search_messages"])
+      const second = sim.request()
+      await ask(sim, second, "Lor, actually stop that and open the auth PR")
     },
   },
   {

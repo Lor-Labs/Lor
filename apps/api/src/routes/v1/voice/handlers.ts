@@ -6,6 +6,7 @@ import { canSeeSession } from "@repo/db/queries/session-chat-access"
 import {
   countConnectedParticipants,
   createJoinToken,
+  dismissVoiceRequest as dismissRequest,
   findVoiceRequest,
   getCurrentCall,
   getLiveKitConfig,
@@ -34,6 +35,7 @@ import {
 } from "@/lib/voice/sessions"
 import type {
   CancelVoiceRequestRoute,
+  DismissVoiceRequestRoute,
   GetVoiceCallRoute,
   GetVoicePresenceRoute,
   GetVoiceSessionRoute,
@@ -202,6 +204,31 @@ export const cancelVoiceRequest: AppRouteHandler<
     notifyVoiceRequest(scope.threadRootId, cancelled.request)
   }
   return c.json({ request: cancelled.request }, HttpStatusCodes.OK)
+}
+
+export const dismissVoiceRequest: AppRouteHandler<
+  DismissVoiceRequestRoute
+> = async (c) => {
+  const { requestId } = c.req.valid("param")
+  const found = await findVoiceRequest(requestId)
+  const scope = found
+    ? await findVisibleSession(c.var.user.id, found.sessionId)
+    : null
+  if (!scope) {
+    return c.json(
+      { success: false as const, message: "Request not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  const request = await dismissRequest(requestId)
+  if (!request) {
+    return c.json(
+      { success: false as const, message: "This result was already cleared" },
+      HttpStatusCodes.CONFLICT
+    )
+  }
+  if (scope.threadRootId) notifyVoiceRequest(scope.threadRootId, request)
+  return c.json({ request }, HttpStatusCodes.OK)
 }
 
 export const getVoicePresence: AppRouteHandler<GetVoicePresenceRoute> = async (

@@ -1,5 +1,7 @@
 import type {
   VoiceCallState,
+  VoiceRequestActivity,
+  VoiceRequestReaction,
   VoiceRequestState,
 } from "@repo/realtime-types/events"
 
@@ -14,6 +16,15 @@ export type VoiceNotifier = {
     inCall: boolean
   ) => void
   requestChanged: (threadRootId: string, request: VoiceRequestState) => void
+  // Only the worker, which runs requests, sends these.
+  requestActivity?: (
+    threadRootId: string,
+    activity: VoiceRequestActivity
+  ) => void
+  requestReaction?: (
+    threadRootId: string,
+    reaction: VoiceRequestReaction
+  ) => void
 }
 
 // Hosts (API, worker, transcriber) install their Socket.IO emitter at startup
@@ -60,6 +71,28 @@ export function notifyVoiceRequest(
 ) {
   try {
     notifier?.requestChanged(threadRootId, request)
+  } catch {
+    // swallow: delivery is best-effort by design
+  }
+}
+
+export function notifyVoiceRequestActivity(
+  threadRootId: string,
+  activity: VoiceRequestActivity
+) {
+  try {
+    notifier?.requestActivity?.(threadRootId, activity)
+  } catch {
+    // swallow: delivery is best-effort by design
+  }
+}
+
+export function notifyVoiceRequestReaction(
+  threadRootId: string,
+  reaction: VoiceRequestReaction
+) {
+  try {
+    notifier?.requestReaction?.(threadRootId, reaction)
   } catch {
     // swallow: delivery is best-effort by design
   }

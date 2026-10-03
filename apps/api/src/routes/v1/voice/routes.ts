@@ -260,6 +260,32 @@ export const cancelVoiceRequest = createRoute({
 
 export type CancelVoiceRequestRoute = typeof cancelVoiceRequest
 
+export const dismissVoiceRequest = createRoute({
+  path: "/voice/requests/{requestId}/dismiss",
+  method: "post",
+  summary: "Clear a result from Lor's window",
+  description:
+    "Clears a finished request's result from Lor's window for everyone in the call. Anyone in the call can clear it.",
+  tags: ["Voice"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: {
+    params: voiceRequestParamsSchema,
+  },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: cancelVoiceRequestResponseSchema,
+      description: "The cleared request",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.CONFLICT]: conflictSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type DismissVoiceRequestRoute = typeof dismissVoiceRequest
+
 export const getVoicePresence = createRoute({
   path: "/workspaces/{workspaceSlug}/voice/presence",
   method: "get",

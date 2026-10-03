@@ -263,6 +263,8 @@ export const voiceRequest = pgTable(
       onDelete: "set null",
     }),
     finishedAt: timestamp("finished_at"),
+    // Someone cleared the finished result from Lor's window, for everyone.
+    dismissedAt: timestamp("dismissed_at"),
   },
   (table) => [
     // Explicit name: the auto-generated one exceeds Postgres's 63-byte limit.

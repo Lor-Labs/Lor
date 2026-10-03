@@ -8,10 +8,13 @@ import { z } from "zod"
 
 export type ShowInCall = (blocks: VoiceBlock[]) => Promise<void>
 
+export type ReactInCall = (emoji: string) => Promise<void>
+
 export type RunVoiceContext = {
   speakerName: string
   // Replaces what Lor's window shows for this request.
   show: ShowInCall
+  react: ReactInCall
 }
 
 const text = (max: number) => z.string().trim().min(1).max(max)
@@ -73,6 +76,20 @@ export const voiceTools = {
         return { ok: true as const }
       } catch {
         return { ok: false as const, error: "Failed to update Lor's window" }
+      }
+    },
+  }),
+  react_in_call: tool({
+    description:
+      "React with one emoji, shown on Lor's window, to acknowledge something said to you, like a 👍 when someone corrects or redirects you. Only to acknowledge; never to show progress, and not on every request.",
+    inputSchema: z.object({ emoji: z.string().trim().min(1).max(16) }),
+    contextSchema: z.object({ react: z.custom<ReactInCall>() }),
+    execute: async ({ emoji }, { context }) => {
+      try {
+        await context.react(emoji)
+        return { ok: true as const }
+      } catch {
+        return { ok: false as const, error: "Failed to react" }
       }
     },
   }),
