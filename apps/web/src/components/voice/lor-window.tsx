@@ -26,6 +26,7 @@ import {
   useLorReactions,
   useLorTools,
 } from "@/components/voice/lor-stage-store"
+import { useVoiceEntityCards } from "@/hooks/use-voice-entity-cards"
 import {
   isActiveVoiceRequest,
   voiceRequestsQueryKey,
@@ -234,6 +235,7 @@ export function LorWindow({ request }: { request: VoiceRequestState }) {
       ? "working"
       : "idle"
   const blocks = request.result?.blocks ?? []
+  const entityCards = useVoiceEntityCards(request)
 
   // Cancels Lor's work while it's active; clears the finished result after.
   const close = async () => {
@@ -324,6 +326,10 @@ export function LorWindow({ request }: { request: VoiceRequestState }) {
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
             <LorBlocks
               blocks={blocks}
+              cards={{
+                data: entityCards.data,
+                failed: entityCards.isError,
+              }}
               onChoose={
                 request.status === "done" && !choosing
                   ? (index) => void choose(index)

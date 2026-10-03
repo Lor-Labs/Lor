@@ -491,7 +491,7 @@ Chunks (planned 2026-10-01):
        timed out as rejected. Now a pause of 1.2s after a line Jev read as an
        addressed request (not a mention) starts it (`isAddressedRequest`,
        `settleVoiceRequest`). "Hey Lor, um…" (a mention) still waits 4s.
-4. [ ] Entity blocks: Linear issues and GitHub pull requests with live data.
+4. [x] Entity blocks: Linear issues and GitHub pull requests with live data.
    - [x] 4a (server): blocks `linear_issues` (`issues`: identifiers) and
      `github_pull_requests` (`pullRequests`: "owner/repo#142") store
      references only. `GET /voice/requests/{id}/entities` loads the cards
@@ -499,8 +499,13 @@ Chunks (planned 2026-10-01):
      one `issues` query filtered by team key + number; each PR is 3 GitHub
      calls (PR, reviews, check runs). Missing references are left out; the
      response says whether each connector is connected.
-   - [ ] 4b (web): the two cards, a 60s refresh while shown, simulator
-     scenario.
+   - [x] 4b (web): `lor-entity-cards.tsx` renders each record as a link
+     card (reference, title, state badge; Linear: priority, assignee, team,
+     labels; GitHub: author, review, checks, +/−). Unloaded references show
+     loading, then "couldn't load" or "isn't connected".
+     `useVoiceEntityCards` refetches every 60s while the window shows them
+     (not while the tab is hidden), keyed by the result's references. The
+     simulator's "Shows Linear issues and PRs" seeds sample cards.
 5. [ ] Lor in the transcript: requests and results inline where they
    happened, "Show on stage", and step-back ("2 of 3").
 6. [ ] The approval overlay inside Lor's window.

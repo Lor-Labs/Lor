@@ -1,7 +1,10 @@
 import { TestTube01Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { useLocalParticipant } from "@livekit/components-react"
-import type { VoiceRequestState } from "@repo/realtime-types/events"
+import type {
+  RealtimeVoiceBlock,
+  VoiceRequestState,
+} from "@repo/realtime-types/events"
 import { Button } from "@repo/ui/components/button"
 import {
   DropdownMenu,
@@ -16,6 +19,11 @@ import { type QueryClient, useQueryClient } from "@tanstack/react-query"
 import { useSyncExternalStore } from "react"
 import { addLorReaction, addLorTool } from "@/components/voice/lor-stage-store"
 import { useVoiceCall } from "@/context/voice-call-context"
+import {
+  entityRefsKey,
+  type VoiceEntityCards,
+  voiceEntityCardsQueryKey,
+} from "@/hooks/use-voice-entity-cards"
 import {
   applyVoiceRequestUpdate,
   voiceRequestsQueryKey,
@@ -126,6 +134,7 @@ class Simulation {
     let createdAt: string | null = null
     let heard = ""
     return {
+      id,
       set: (
         status: VoiceRequestState["status"],
         heardText = heard,
@@ -188,6 +197,80 @@ async function work(
     request.tool(toolName)
     await sim.wait(1_200)
   }
+}
+
+// ENG-999 is left out, to show a card that didn't load.
+const SAMPLE_CARDS: VoiceEntityCards = {
+  linear: {
+    connected: true,
+    issues: [
+      {
+        id: "sample-412",
+        identifier: "ENG-412",
+        title: "Session refresh drops the auth cookie",
+        url: "https://linear.app",
+        state: "started",
+        status: "In Progress",
+        priority: "Urgent",
+        assignee: "Jacob",
+        team: "Engineering",
+        project: "Release 0.7",
+        labels: ["Bug", "Auth"],
+        createdAt: "2026-09-28T16:00:00.000Z",
+        updatedAt: "2026-10-03T09:00:00.000Z",
+        startedAt: "2026-10-01T10:00:00.000Z",
+        completedAt: null,
+        dueDate: null,
+      },
+      {
+        id: "sample-415",
+        identifier: "ENG-415",
+        title: "Retry the Deepgram stream on close code 1011",
+        url: "https://linear.app",
+        state: "unstarted",
+        status: "Todo",
+        priority: "Medium",
+        assignee: null,
+        team: "Engineering",
+        project: "Release 0.7",
+        labels: [],
+        createdAt: "2026-09-30T16:00:00.000Z",
+        updatedAt: "2026-10-02T09:00:00.000Z",
+        startedAt: null,
+        completedAt: null,
+        dueDate: null,
+      },
+    ],
+  },
+  github: {
+    connected: true,
+    pullRequests: [
+      {
+        ref: "acme/app#142",
+        title: "Refresh tokens on reconnect",
+        url: "https://github.com",
+        state: "open",
+        author: "jacob",
+        additions: 128,
+        deletions: 34,
+        review: "approved",
+        checks: "passing",
+        updatedAt: "2026-10-03T09:00:00.000Z",
+      },
+      {
+        ref: "acme/app#151",
+        title: "Move session storage to Redis",
+        url: "https://github.com",
+        state: "draft",
+        author: "alice",
+        additions: 412,
+        deletions: 220,
+        review: "changes_requested",
+        checks: "failing",
+        updatedAt: "2026-10-03T08:00:00.000Z",
+      },
+    ],
+  },
 }
 
 const SCENARIOS: Scenario[] = [
@@ -286,6 +369,31 @@ const SCENARIOS: Scenario[] = [
           },
         ],
       })
+    },
+  },
+  {
+    label: "Shows Linear issues and PRs",
+    run: async (sim) => {
+      const request = sim.request()
+      await ask(sim, request, "Lor, what's still open for the release?")
+      await work(sim, request, ["search_linear", "search_github"])
+      const blocks: RealtimeVoiceBlock[] = [
+        {
+          type: "linear_issues",
+          title: "Release 0.7",
+          issues: ["ENG-412", "ENG-415", "ENG-999"],
+        },
+        {
+          type: "github_pull_requests",
+          title: null,
+          pullRequests: ["acme/app#142", "acme/app#151"],
+        },
+      ]
+      sim.queryClient.setQueryData<VoiceEntityCards>(
+        voiceEntityCardsQueryKey(request.id, entityRefsKey(blocks)),
+        SAMPLE_CARDS
+      )
+      request.set("done", undefined, { blocks })
     },
   },
   {

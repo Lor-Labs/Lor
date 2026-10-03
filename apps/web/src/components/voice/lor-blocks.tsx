@@ -1,5 +1,10 @@
 import type { RealtimeVoiceBlock } from "@repo/realtime-types/events"
 import { MessageMarkdown } from "@/components/chat/message-markdown"
+import {
+  type EntityCardsState,
+  LinearIssueCards,
+  PullRequestCards,
+} from "@/components/voice/lor-entity-cards"
 
 const NO_MENTIONS: never[] = []
 
@@ -27,11 +32,29 @@ type OnChoose = (index: number) => void
 function Block({
   block,
   onChoose,
+  cards,
 }: {
   block: RealtimeVoiceBlock
   onChoose?: OnChoose
+  cards: EntityCardsState
 }) {
   switch (block.type) {
+    case "linear_issues":
+      return (
+        <LinearIssueCards
+          title={block.title}
+          identifiers={block.issues}
+          cards={cards}
+        />
+      )
+    case "github_pull_requests":
+      return (
+        <PullRequestCards
+          title={block.title}
+          refs={block.pullRequests}
+          cards={cards}
+        />
+      )
     case "answer":
       return <MessageMarkdown content={block.markdown} mentions={NO_MENTIONS} />
     case "question":
@@ -114,13 +137,15 @@ function Block({
 }
 
 // What Lor composed for its window, top to bottom. Question choices are
-// clickable when `onChoose` is set.
+// clickable when `onChoose` is set; entity blocks render from `cards`.
 export function LorBlocks({
   blocks,
   onChoose,
+  cards,
 }: {
   blocks: RealtimeVoiceBlock[]
   onChoose?: OnChoose
+  cards: EntityCardsState
 }) {
   return (
     <div className="flex flex-col gap-5">
@@ -129,6 +154,7 @@ export function LorBlocks({
           key={`${index}-${block.type}`}
           block={block}
           onChoose={onChoose}
+          cards={cards}
         />
       ))}
     </div>
