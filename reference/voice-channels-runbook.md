@@ -434,10 +434,10 @@ Chunks (planned 2026-10-01):
      result blocks, and the `react_in_call` tool with floating reactions.
      Replaces 2b's "Working on it" label. **db:push owed**
      (`voice_request.dismissed_at`). As built:
-     - Lor's window shows the newest request nobody cancelled, while it's in
-       flight or until someone clears its result (the X clears for
-       everyone, `POST /voice/requests/{id}/dismiss`). Cancelling a misheard
-       request brings back the result it covered.
+     - Lor's window shows only the newest request, while it's in flight or
+       until someone clears its result (the X clears for everyone,
+       `POST /voice/requests/{id}/dismiss`). Cancelling it closes the window
+       and never brings back an earlier request (Jacob, 2026-10-03).
      - Tool activity and reactions are live-only events
        (`voice:request:activity`, `voice:request:reaction`) kept in
        `lor-stage-store.ts`; the worker skips its own window tools.

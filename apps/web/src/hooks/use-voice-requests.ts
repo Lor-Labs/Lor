@@ -99,14 +99,14 @@ export function useVoiceRequests(sessionId: string | null) {
   }, [socket, sessionId, queryClient])
 
   const requests = query.data ?? []
-  // Lor's window shows the newest request someone didn't cancel, while it's
-  // in flight or until its result is cleared. Cancelling a misheard request
-  // brings back the result it covered.
-  const latest = requests
-    .filter((request) => request.status !== "cancelled")
-    .at(-1)
+  // Lor's window shows only the newest request, while it's in flight or until
+  // its result is cleared. Cancelling it closes the window; it never brings
+  // back an earlier request.
+  const latest = requests.at(-1)
   const onStage =
-    latest && (isActiveVoiceRequest(latest) || !latest.dismissedAt)
+    latest &&
+    latest.status !== "cancelled" &&
+    (isActiveVoiceRequest(latest) || !latest.dismissedAt)
       ? latest
       : null
   return { requests, onStage }

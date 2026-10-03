@@ -3,6 +3,20 @@ import { MessageMarkdown } from "@/components/chat/message-markdown"
 
 const NO_MENTIONS: never[] = []
 
+function markdownCell(value: string) {
+  return value.replaceAll("|", "\\|").replaceAll("\n", " ")
+}
+
+function markdownTable(columns: string[], rows: string[][]) {
+  const line = (cells: string[]) =>
+    `| ${columns.map((_, index) => markdownCell(cells[index] ?? "")).join(" | ")} |`
+  return [
+    line(columns),
+    `| ${columns.map(() => "---").join(" | ")} |`,
+    ...rows.map(line),
+  ].join("\n")
+}
+
 function BlockTitle({ title }: { title: string | null }) {
   if (!title) return null
   return <h3 className="mb-2 text-sm font-medium">{title}</h3>
@@ -60,36 +74,14 @@ function Block({ block }: { block: RealtimeVoiceBlock }) {
         </div>
       )
     case "table":
+      // Rendered as markdown so it matches the tables in Lor's chat answers.
       return (
         <div>
           <BlockTitle title={block.title} />
-          <div className="overflow-x-auto rounded-lg border border-border/60">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-muted/60 text-muted-foreground">
-                <tr>
-                  {block.columns.map((column, index) => (
-                    <th
-                      key={`${index}-${column}`}
-                      className="px-3 py-2 font-medium"
-                    >
-                      {column}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border/60">
-                {block.rows.map((row, rowIndex) => (
-                  <tr key={`${rowIndex}-${row.join("|")}`}>
-                    {row.map((cell, cellIndex) => (
-                      <td key={`${cellIndex}-${cell}`} className="px-3 py-2">
-                        {cell}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <MessageMarkdown
+            content={markdownTable(block.columns, block.rows)}
+            mentions={NO_MENTIONS}
+          />
         </div>
       )
     case "details":
