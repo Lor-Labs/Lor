@@ -194,6 +194,36 @@ function Chip({
   )
 }
 
+// A connector account's picture (Linear assignee, GitHub author); initials
+// until it loads.
+function PersonAvatar({
+  name,
+  src,
+  size,
+}: {
+  name: string
+  src: string | null
+  size: "sm" | "xs"
+}) {
+  return (
+    <Avatar
+      className={cn("shrink-0", size === "sm" ? "size-5" : "size-4")}
+      title={name}
+    >
+      {src && <AvatarImage src={src} alt={name} />}
+      <AvatarFallback
+        fallbackSeed={name}
+        className={cn(
+          "font-semibold",
+          size === "sm" ? "text-[9px]" : "text-[8px]"
+        )}
+      >
+        {getAvatarInitials(name)}
+      </AvatarFallback>
+    </Avatar>
+  )
+}
+
 // Shaped like a card on a Linear board: identifier and assignee, status and
 // title, then priority, due date, and labels.
 function IssueCard({ issue }: { issue: LinearIssue }) {
@@ -214,20 +244,11 @@ function IssueCard({ issue }: { issue: LinearIssue }) {
         <span className="tabular-nums">{issue.identifier}</span>
         <span className="ml-auto">
           {issue.assignee ? (
-            <Avatar className="size-5" title={issue.assignee}>
-              {visuals?.assigneeAvatarUrl && (
-                <AvatarImage
-                  src={visuals.assigneeAvatarUrl}
-                  alt={issue.assignee}
-                />
-              )}
-              <AvatarFallback
-                fallbackSeed={issue.assignee}
-                className="font-semibold text-[9px]"
-              >
-                {getAvatarInitials(issue.assignee)}
-              </AvatarFallback>
-            </Avatar>
+            <PersonAvatar
+              name={issue.assignee}
+              src={visuals?.assigneeAvatarUrl ?? null}
+              size="sm"
+            />
           ) : (
             <span
               title="Unassigned"
@@ -285,7 +306,16 @@ function PullRequestCard({ pull }: { pull: PullRequest }) {
       title={pull.title}
       badge={<Badge variant={state.variant}>{state.label}</Badge>}
     >
-      {pull.author && <span>{pull.author}</span>}
+      {pull.author && (
+        <span className="flex items-center gap-1.5">
+          <PersonAvatar
+            name={pull.author}
+            src={pull.authorAvatarUrl}
+            size="xs"
+          />
+          {pull.author}
+        </span>
+      )}
       {pull.review && <SignalLabel signal={REVIEW_SIGNAL[pull.review]} />}
       {pull.checks && <SignalLabel signal={CHECKS_SIGNAL[pull.checks]} />}
       <span className="tabular-nums">

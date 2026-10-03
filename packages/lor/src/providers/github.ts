@@ -418,6 +418,7 @@ export type PullRequestCard = {
   url: string
   state: "open" | "draft" | "merged" | "closed"
   author: string | null
+  authorAvatarUrl: string | null
   additions: number
   deletions: number
   review: "approved" | "changes_requested" | "waiting" | null
@@ -509,6 +510,7 @@ export async function fetchPullRequestCard(
             ? "draft"
             : "open",
       author: pr.user?.login ?? null,
+      authorAvatarUrl: pr.user?.avatar_url ?? null,
       additions: pr.additions,
       deletions: pr.deletions,
       review,
