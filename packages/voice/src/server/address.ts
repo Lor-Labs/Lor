@@ -97,6 +97,17 @@ function parseAnswers(body: unknown) {
   return { addressed, kind, kindConfidence, complete }
 }
 
+// Jev's `complete` runs low on short finished questions (sampled 2026-10-03:
+// "Are you there, Lor?" 0.36, "Lor, what did I say earlier on the call?"
+// 0.47), so once the speaker pauses, an addressed request is taken as said.
+export function isAddressedRequest(check: VoiceRequestCheck) {
+  return (
+    !("error" in check) &&
+    check.addressed >= ADDRESSED_MIN &&
+    check.kind !== "mention"
+  )
+}
+
 function verdictFor(check: VoiceRequestCheck): AddressVerdict {
   if ("error" in check || check.addressed < ADDRESSED_MIN) return "reject"
   if (check.complete < COMPLETE_MIN) return "listen"

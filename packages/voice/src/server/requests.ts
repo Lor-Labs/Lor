@@ -130,11 +130,21 @@ export async function recordVoiceRequestCheck(
   return row ? toState(row) : null
 }
 
-// The speaker never said what they wanted, or the transcriber left first.
-export async function abandonVoiceRequest(requestId: string) {
+// The speaker stopped talking: queued when what they said was a request,
+// rejected when they never said what they wanted (or the transcriber left).
+export async function settleVoiceRequest(
+  requestId: string,
+  update:
+    | { status: "rejected" }
+    | { status: "queued"; heardText: string; endMs: number }
+) {
   const [row] = await db
     .update(voiceRequest)
-    .set({ status: "rejected", finishedAt: new Date() })
+    .set(
+      update.status === "rejected"
+        ? { status: "rejected", finishedAt: new Date() }
+        : update
+    )
     .where(
       and(eq(voiceRequest.id, requestId), eq(voiceRequest.status, "listening"))
     )

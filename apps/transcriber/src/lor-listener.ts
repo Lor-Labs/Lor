@@ -1,13 +1,14 @@
 import type { VoiceRequestCheck } from "@repo/db/schema"
 import type { VoiceRequestState } from "@repo/realtime-types/events"
 import {
-  abandonVoiceRequest,
   checkAddress,
   createVoiceRequest,
+  isAddressedRequest,
   type LorNameMatch,
   matchLorName,
   notifyVoiceRequest,
   recordVoiceRequestCheck,
+  settleVoiceRequest,
 } from "@repo/voice/server"
 import { logger } from "./logger"
 import type { HeardLine } from "./mic-stream"
@@ -15,6 +16,8 @@ import { enqueueVoiceRequest } from "./queue"
 
 // Once Lor is listening, this much silence from the speaker closes it.
 const CONTINUE_MS = 4_000
+// After a line Jev read as a request, this much silence starts it.
+const REQUEST_PAUSE_MS = 1_200
 const MAX_CHECKS = 8
 // Earlier lines Jev sees as context.
 const RECENT_LINES = 12
@@ -33,6 +36,7 @@ type Pending = {
   // Set once Jev first says Lor is addressed and the row exists.
   request: VoiceRequestState | null
   checks: number
+  lastCheck: VoiceRequestCheck | null
   checking: boolean
   // Speech arrived during a check, so its answer may be stale.
   heardDuringCheck: boolean
@@ -95,6 +99,7 @@ export class LorListener {
       endMs: line.endMs,
       request: null,
       checks: 0,
+      lastCheck: null,
       checking: false,
       heardDuringCheck: false,
       finalDuringCheck: false,
@@ -107,7 +112,7 @@ export class LorListener {
   async close() {
     const pending = [...this.#pending.values()]
     this.#pending.clear()
-    await Promise.all(pending.map((entry) => this.#abandon(entry)))
+    await Promise.all(pending.map((entry) => this.#endPause(entry, false)))
   }
 
   #remember(line: Line) {
@@ -130,19 +135,31 @@ export class LorListener {
 
   #waitForMore(pending: Pending) {
     clearTimeout(pending.timer)
-    pending.timer = setTimeout(() => {
-      if (pending.checking) return
-      this.#settle(pending)
-      void this.#abandon(pending)
-    }, CONTINUE_MS)
+    const accept =
+      pending.lastCheck !== null && isAddressedRequest(pending.lastCheck)
+    pending.timer = setTimeout(
+      () => {
+        if (pending.checking) return
+        this.#settle(pending)
+        void this.#endPause(pending, accept)
+      },
+      accept ? REQUEST_PAUSE_MS : CONTINUE_MS
+    )
   }
 
-  async #abandon(pending: Pending) {
+  async #endPause(pending: Pending, accept: boolean) {
     clearTimeout(pending.timer)
     if (!pending.request) return
-    const request = await abandonVoiceRequest(pending.request.id).catch(
-      () => null
-    )
+    const request = await settleVoiceRequest(
+      pending.request.id,
+      accept
+        ? {
+            status: "queued",
+            heardText: [...pending.finals, pending.interim].join(" ").trim(),
+            endMs: pending.endMs,
+          }
+        : { status: "rejected" }
+    ).catch(() => null)
     if (request) this.#publish(request)
   }
 
@@ -173,6 +190,7 @@ export class LorListener {
     })
     pending.checking = false
     pending.checks += 1
+    pending.lastCheck = check
 
     // Never start on a line the speaker is still adding to.
     const outcome =

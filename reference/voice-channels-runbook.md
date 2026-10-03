@@ -486,6 +486,11 @@ Chunks (planned 2026-10-01):
      - The fresh path (first request, or a chain that can't be replayed)
        loads the whole transcript and call chat, not a recent window. Caps of
        5,000 lines and 1,000 chat messages are runaway guards only.
+     - Fix from the first live test (2026-10-03): Jev's `complete` scored
+       finished short questions low ("Are you there, Lor?" 0.36), so they
+       timed out as rejected. Now a pause of 1.2s after a line Jev read as an
+       addressed request (not a mention) starts it (`isAddressedRequest`,
+       `settleVoiceRequest`). "Hey Lor, um…" (a mention) still waits 4s.
 4. [ ] Entity blocks: Linear issues and GitHub pull requests with live data.
 5. [ ] Lor in the transcript: requests and results inline where they
    happened, "Show on stage", and step-back ("2 of 3").
