@@ -60,9 +60,12 @@ type IssueFilter = NonNullable<IssuesArgs["filter"]>
 const compactName = (value: { displayName?: string | null; name: string }) =>
   value.displayName || value.name
 
+// `visuals` adds what a card draws (avatar, label colours); tool results for
+// the model leave it out.
 async function compactLinearIssues(
   client: LinearClient,
-  issues: LinearIssue[]
+  issues: LinearIssue[],
+  options: { visuals?: boolean } = {}
 ) {
   const unique = (ids: Array<string | undefined>) => [
     ...new Set(ids.filter((id): id is string => Boolean(id))),
@@ -158,6 +161,19 @@ async function compactLinearIssues(
       startedAt: issue.startedAt?.toISOString() ?? null,
       completedAt: issue.completedAt?.toISOString() ?? null,
       dueDate: issue.dueDate ?? null,
+      ...(options.visuals
+        ? {
+            visuals: {
+              // 0 none, 1 urgent, 2 high, 3 medium, 4 low.
+              priority: issue.priority,
+              assigneeAvatarUrl: assignee?.avatarUrl ?? null,
+              labels: issue.labelIds.flatMap((id) => {
+                const label = labelById.get(id)
+                return label ? [{ name: label.name, color: label.color }] : []
+              }),
+            },
+          }
+        : {}),
     }
   })
 }
@@ -190,7 +206,7 @@ export async function loadLinearIssueCards(
       })),
     },
   })
-  return await compactLinearIssues(client, result.nodes)
+  return await compactLinearIssues(client, result.nodes, { visuals: true })
 }
 
 export const linearTools = {

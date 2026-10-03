@@ -1,13 +1,20 @@
 import {
   AlertCircleIcon,
+  Calendar03Icon,
   CheckmarkCircle02Icon,
   Clock01Icon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react"
+import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar"
 import { Badge } from "@repo/ui/components/badge"
 import { Skeleton } from "@repo/ui/components/skeleton"
 import { cn } from "@repo/ui/lib/utils"
+import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import type { ComponentProps, ReactNode } from "react"
+import {
+  LinearPriorityIcon,
+  LinearStatusIcon,
+} from "@/components/voice/linear-issue-icons"
 import type { VoiceEntityCards } from "@/hooks/use-voice-entity-cards"
 import { connectorLogo } from "@/lib/connector-ui"
 
@@ -17,13 +24,6 @@ type BadgeVariant = ComponentProps<typeof Badge>["variant"]
 
 const LinearLogo = connectorLogo("linear")
 const GithubLogo = connectorLogo("github")
-
-const ISSUE_STATE_VARIANT: Record<string, BadgeVariant> = {
-  started: "warning",
-  completed: "success",
-  canceled: "secondary",
-  duplicate: "secondary",
-}
 
 const PULL_STATE: Record<
   PullRequest["state"],
@@ -145,35 +145,133 @@ function LoadingCard({ refLabel }: { refLabel: string }) {
 
 function CardList({
   title,
+  grid = false,
   children,
 }: {
   title: string | null
+  // Board-style columns that collapse to one in a docked window.
+  grid?: boolean
   children: ReactNode
 }) {
   return (
     <div>
       {title && <h3 className="mb-2 font-medium text-sm">{title}</h3>}
-      <div className="flex flex-col gap-1.5">{children}</div>
+      <div
+        className={
+          grid
+            ? "grid grid-cols-[repeat(auto-fill,minmax(16rem,1fr))] gap-2"
+            : "flex flex-col gap-1.5"
+        }
+      >
+        {children}
+      </div>
     </div>
   )
 }
 
-function IssueCard({ issue }: { issue: LinearIssue }) {
-  const details = [issue.priority, issue.assignee ?? "Unassigned", issue.team]
-  const variant = ISSUE_STATE_VARIANT[issue.state ?? ""] ?? "outline"
+const shortDate = (date: Date) =>
+  date.toLocaleDateString(undefined, { month: "short", day: "numeric" })
+
+function Chip({
+  children,
+  className,
+  title,
+}: {
+  children: ReactNode
+  className?: string
+  title?: string
+}) {
   return (
-    <EntityCard
-      url={issue.url}
-      logo={LinearLogo}
-      refLabel={issue.identifier}
-      title={issue.title}
-      badge={issue.status && <Badge variant={variant}>{issue.status}</Badge>}
+    <span
+      title={title}
+      className={cn(
+        "flex h-6 items-center gap-1.5 rounded-full border border-border/60 px-2 text-muted-foreground text-xs",
+        className
+      )}
     >
-      {details.filter(Boolean).map((detail) => (
-        <span key={detail}>{detail}</span>
-      ))}
-      {issue.labels.length > 0 && <span>{issue.labels.join(", ")}</span>}
-    </EntityCard>
+      {children}
+    </span>
+  )
+}
+
+// Shaped like a card on a Linear board: identifier and assignee, status and
+// title, then priority, due date, and labels.
+function IssueCard({ issue }: { issue: LinearIssue }) {
+  const visuals = issue.visuals
+  // A date-only value: midnight local time, not UTC.
+  const due = issue.dueDate ? new Date(`${issue.dueDate}T00:00:00`) : null
+  const overdue =
+    due !== null && due.getTime() < Date.now() && issue.state !== "completed"
+  return (
+    <a
+      href={issue.url}
+      target="_blank"
+      rel="noreferrer"
+      className="flex flex-col gap-2.5 rounded-lg bg-muted/60 p-3 transition-colors hover:bg-muted"
+    >
+      <span className="flex items-center gap-2 text-muted-foreground text-xs">
+        <LinearLogo className="size-3.5" />
+        <span className="tabular-nums">{issue.identifier}</span>
+        <span className="ml-auto">
+          {issue.assignee ? (
+            <Avatar className="size-5" title={issue.assignee}>
+              {visuals?.assigneeAvatarUrl && (
+                <AvatarImage
+                  src={visuals.assigneeAvatarUrl}
+                  alt={issue.assignee}
+                />
+              )}
+              <AvatarFallback
+                fallbackSeed={issue.assignee}
+                className="font-semibold text-[9px]"
+              >
+                {getAvatarInitials(issue.assignee)}
+              </AvatarFallback>
+            </Avatar>
+          ) : (
+            <span
+              title="Unassigned"
+              className="block size-5 rounded-full border border-muted-foreground/50 border-dashed"
+            />
+          )}
+        </span>
+      </span>
+      <span className="flex items-start gap-2">
+        <span title={issue.status ?? undefined} className="mt-[3px] flex">
+          <LinearStatusIcon state={issue.state} />
+        </span>
+        <span className="line-clamp-2 font-medium text-sm">{issue.title}</span>
+      </span>
+      <span className="flex flex-wrap gap-1.5">
+        {visuals && (
+          <Chip title={issue.priority} className="w-6 justify-center px-0">
+            <LinearPriorityIcon priority={visuals.priority} />
+          </Chip>
+        )}
+        {due && (
+          <Chip className={cn(overdue && "text-destructive-foreground")}>
+            <HugeiconsIcon
+              icon={Calendar03Icon}
+              strokeWidth={2}
+              className="size-3.5"
+            />
+            {shortDate(due)}
+          </Chip>
+        )}
+        {visuals?.labels.map((label) => (
+          <Chip key={label.name}>
+            <span
+              className="size-2 rounded-full"
+              style={{ backgroundColor: label.color }}
+            />
+            {label.name}
+          </Chip>
+        ))}
+      </span>
+      <span className="text-muted-foreground text-xs">
+        Created {shortDate(new Date(issue.createdAt))}
+      </span>
+    </a>
   )
 }
 
@@ -235,7 +333,7 @@ export function LinearIssueCards({
 }) {
   const linear = cards.data?.linear
   return (
-    <CardList title={title}>
+    <CardList title={title} grid>
       {identifiers.map((identifier) => {
         const issue = linear?.issues.find(
           (entry) => entry.identifier === identifier

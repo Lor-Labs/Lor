@@ -85,6 +85,7 @@
     cubic-bezier(0.5, 1, 0.89, 1);
   --color-warning-foreground: var(--warning-foreground);
   --color-warning: var(--warning);
+  --color-urgent: var(--urgent);
   --color-info-foreground: var(--info-foreground);
   --color-info: var(--info);
   --color-destructive-foreground: var(--destructive-foreground);
