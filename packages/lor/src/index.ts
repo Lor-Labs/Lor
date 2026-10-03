@@ -442,7 +442,12 @@ export type {
   TriggeredPostMessage,
 } from "./triggered"
 export type { OnUsage, UsageEvent } from "./usage"
-export type { ReactInCall, RunVoiceContext, ShowInCall } from "./voice"
+export {
+  type ReactInCall,
+  type RunVoiceContext,
+  type ShowInCall,
+  voiceBlocksText,
+} from "./voice"
 
 export type RespondResult = {
   text: string

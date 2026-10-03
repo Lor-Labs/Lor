@@ -6,6 +6,7 @@ import { canSeeSession } from "@repo/db/queries/session-chat-access"
 import {
   countConnectedParticipants,
   createJoinToken,
+  createVoiceRequest,
   dismissVoiceRequest as dismissRequest,
   findVoiceRequest,
   getCurrentCall,
@@ -25,8 +26,9 @@ import {
   listSessionHistory,
   listWorkspacePresence,
 } from "@/lib/voice/queries"
-import { stopVoiceRun } from "@/lib/voice/runs"
+import { enqueueVoiceRequest, stopVoiceRun } from "@/lib/voice/runs"
 import {
+  findConnectedParticipant,
   findSessionScope,
   getOrCreateLiveSession,
   isSessionFull,
@@ -35,6 +37,7 @@ import {
 } from "@/lib/voice/sessions"
 import type {
   CancelVoiceRequestRoute,
+  ChooseVoiceRequestRoute,
   DismissVoiceRequestRoute,
   GetVoiceCallRoute,
   GetVoicePresenceRoute,
@@ -204,6 +207,57 @@ export const cancelVoiceRequest: AppRouteHandler<
     notifyVoiceRequest(scope.threadRootId, cancelled.request)
   }
   return c.json({ request: cancelled.request }, HttpStatusCodes.OK)
+}
+
+export const chooseVoiceRequest: AppRouteHandler<
+  ChooseVoiceRequestRoute
+> = async (c) => {
+  const userId = c.var.user.id
+  const { requestId } = c.req.valid("param")
+  const { choice } = c.req.valid("json")
+  const found = await findVoiceRequest(requestId)
+  const scope = found ? await findVisibleSession(userId, found.sessionId) : null
+  const participant =
+    found && scope && !scope.endedAt
+      ? await findConnectedParticipant(found.sessionId, userId)
+      : null
+  if (!found || !scope || !participant) {
+    return c.json(
+      { success: false as const, message: "Request not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  const question = found.result?.blocks.find(
+    (block) => block.type === "question"
+  )
+  const picked =
+    question?.type === "question" ? question.choices[choice] : undefined
+  if (!picked) {
+    return c.json(
+      { success: false as const, message: "That choice isn't offered" },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+
+  const atMs = Date.now() - scope.startedAt.getTime()
+  const request = await createVoiceRequest({
+    sessionId: found.sessionId,
+    participantId: participant.id,
+    heardText: picked,
+    startMs: atMs,
+    endMs: atMs,
+    gate: "choice",
+    status: "queued",
+  })
+  if (!request) {
+    return c.json(
+      { success: false as const, message: "Request not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  if (scope.threadRootId) notifyVoiceRequest(scope.threadRootId, request)
+  await enqueueVoiceRequest(request.id)
+  return c.json({ request }, HttpStatusCodes.OK)
 }
 
 export const dismissVoiceRequest: AppRouteHandler<

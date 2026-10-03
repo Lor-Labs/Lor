@@ -26,10 +26,30 @@ export async function findSessionScope(sessionId: string) {
       workspaceId: voiceSession.workspaceId,
       channelId: voiceSession.channelId,
       threadRootId: voiceSession.threadRootId,
+      startedAt: voiceSession.startedAt,
       endedAt: voiceSession.endedAt,
     })
     .from(voiceSession)
     .where(eq(voiceSession.id, sessionId))
+    .limit(1)
+  return row ?? null
+}
+
+// The user's row in a live session, if they're connected to it.
+export async function findConnectedParticipant(
+  sessionId: string,
+  userId: string
+) {
+  const [row] = await db
+    .select({ id: voiceSessionParticipant.id })
+    .from(voiceSessionParticipant)
+    .where(
+      and(
+        eq(voiceSessionParticipant.sessionId, sessionId),
+        eq(voiceSessionParticipant.userId, userId),
+        isNotNull(voiceSessionParticipant.connectedAt)
+      )
+    )
     .limit(1)
   return row ?? null
 }

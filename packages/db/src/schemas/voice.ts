@@ -251,8 +251,9 @@ export const voiceRequest = pgTable(
     // Span of the heard text on the session timeline.
     startMs: integer("start_ms").notNull(),
     endMs: integer("end_ms").notNull(),
-    // Whether the gate matched "Lor" itself or a word it's misheard as.
-    gate: text("gate").$type<"name" | "homophone">().notNull(),
+    // How it was asked: the gate matched "Lor" itself or a word it's
+    // misheard as, or someone clicked a choice Lor offered.
+    gate: text("gate").$type<"name" | "homophone" | "choice">().notNull(),
     status: voiceRequestStatusEnum("status").default("listening").notNull(),
     checks: jsonb("checks").$type<VoiceRequestCheck[]>().notNull().default([]),
     result: jsonb("result").$type<VoiceRequestResult>(),

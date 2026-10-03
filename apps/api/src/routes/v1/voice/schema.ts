@@ -46,6 +46,11 @@ const voiceRequestSchema = z.object({
   updatedAt: z.string().datetime(),
 })
 
+export const chooseVoiceRequestBodySchema = z.object({
+  // Index into the choices of the question Lor's window shows.
+  choice: z.number().int().min(0),
+})
+
 export const voiceRequestsResponseSchema = z.object({
   requests: z.array(voiceRequestSchema),
 })

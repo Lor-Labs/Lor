@@ -2,17 +2,21 @@ import { setTimeout as sleep } from "node:timers/promises"
 import { checkCredits, recordUsage } from "@repo/billing"
 import { db, desc, eq, isUniqueViolation, schema } from "@repo/db"
 import { env } from "@repo/env/server"
-import { type ConversationTurn, respond } from "@repo/lor"
+import { type ConversationTurn, respond, voiceBlocksText } from "@repo/lor"
 import type { VoiceRequestState } from "@repo/realtime-types/events"
 import type { VoiceRequestJobData } from "@repo/realtime-types/queues"
 import {
+  claimQueuedVoiceRequests,
+  finishRunVoiceRequests,
   finishVoiceRequest,
   listRecentCallLines,
+  listShownVoiceRequests,
   loadVoiceRequest,
   notifyVoiceRequest,
   notifyVoiceRequestActivity,
   notifyVoiceRequestReaction,
-  setVoiceRequestResult,
+  runVoiceResultShown,
+  setRunVoiceResult,
   startVoiceRequest,
 } from "@repo/voice/server"
 import type { Job } from "bullmq"
@@ -23,12 +27,14 @@ import { notifyWorkspaceActivity } from "@/lib/workspace-activity"
 
 // A request in a call is bounded to the call, not the 2h default.
 const VOICE_RUN_WALL_MS = 10 * 60_000
-// One run per call at a time (scopeKey = session). A request that arrives
-// while another runs waits for it; steering replaces this in chunk 3c.
-const BUSY_RETRY_MS = 2_000
+// One run per call at a time (scopeKey = session). A request made while a
+// run works is claimed by that run at its next step (steering); one that
+// arrives as the run ends gets its own run once the scope is free.
+const BUSY_RETRY_MS = 1_000
 const BUSY_WAIT_MS = 5 * 60_000
 const RECENT_LINES = 60
 const RECENT_CHAT = 20
+const SHOWN_RESULTS = 5
 const WINDOW_TOOLS = new Set(["show_in_call", "react_in_call"])
 
 type LoadedRequest = NonNullable<Awaited<ReturnType<typeof loadVoiceRequest>>>
@@ -39,9 +45,14 @@ function publish(request: LoadedRequest, state: VoiceRequestState | null) {
   }
 }
 
-// Null when the call's previous request is still running past the wait, or
-// this one was cancelled while waiting.
-async function createVoiceRun(request: LoadedRequest) {
+// What Lor hears for a request; a clicked choice reads as one.
+function requestText(gate: LoadedRequest["gate"], heardText: string) {
+  return gate === "choice" ? `(picked in Lor's window) ${heardText}` : heardText
+}
+
+async function createVoiceRun(
+  request: LoadedRequest
+): Promise<{ runId: string } | "absorbed" | "gone" | "timeout"> {
   const deadline = Date.now() + BUSY_WAIT_MS
   while (Date.now() < deadline) {
     const run = await db
@@ -64,21 +75,24 @@ async function createVoiceRun(request: LoadedRequest) {
         if (isUniqueViolation(err)) return null
         throw err
       })
-    if (run) return run.id
+    if (run) return { runId: run.id }
     await sleep(BUSY_RETRY_MS)
     const current = await loadVoiceRequest(request.id)
-    if (current?.status !== "queued") return null
+    // The running request took this one on at its next step.
+    if (current?.status === "working") return "absorbed"
+    if (current?.status !== "queued") return "gone"
   }
-  return null
+  return "timeout"
 }
 
-// The call so far as background: transcript lines by speaker and the call
-// chat, in time order. The request itself is the turn Lor answers.
+// The call so far as background, in time order: transcript lines by
+// speaker, the call chat, and what Lor showed for earlier requests. The
+// request itself is the turn Lor answers.
 async function loadCallBackground(
   request: LoadedRequest
 ): Promise<ConversationTurn[]> {
   const startedAt = request.sessionStartedAt.getTime()
-  const [lines, chat] = await Promise.all([
+  const [lines, chat, shown] = await Promise.all([
     listRecentCallLines(request.sessionId, {
       untilMs: request.startMs,
       limit: RECENT_LINES,
@@ -96,6 +110,10 @@ async function loadCallBackground(
           .orderBy(desc(schema.message.createdAt))
           .limit(RECENT_CHAT)
       : [],
+    listShownVoiceRequests(request.sessionId, {
+      before: new Date(request.createdAt),
+      limit: SHOWN_RESULTS,
+    }),
   ])
   const turns = [
     ...lines.map((line) => ({
@@ -115,31 +133,51 @@ async function loadCallBackground(
           ]
         : []
     ),
+    ...shown.flatMap((entry) =>
+      entry.result
+        ? [
+            {
+              at: entry.createdAt.getTime(),
+              turn: {
+                authorName: "Lor",
+                content: `[shown in Lor's window for ${entry.speakerName}: "${entry.heardText}"]\n${voiceBlocksText(entry.result.blocks)}`,
+              },
+            },
+          ]
+        : []
+    ),
   ]
   return turns.sort((a, b) => a.at - b.at).map((entry) => entry.turn)
+}
+
+async function failRun(request: LoadedRequest, runId: string) {
+  for (const state of await finishRunVoiceRequests(runId, {
+    status: "failed",
+  })) {
+    publish(request, state)
+  }
 }
 
 async function runVoiceRequest(request: LoadedRequest, runId: string) {
   const claim = await claimAgentRun(runId)
   if (claim.kind === "terminal") return
   if (claim.kind !== "claimed") {
-    publish(request, await finishVoiceRequest(request.id, { status: "failed" }))
+    await failRun(request, runId)
     return
   }
   const execution = claim.execution
   const writer = execution.writer
   writer.append({ kind: "state", state: "working" })
   const startedTools = new Set<string>()
+  // The request on stage: tools and reactions show on it.
+  let stageRequestId = request.id
 
   try {
     const gate = await checkCredits(execution.workspaceId)
     if (!gate.allowed) {
       await writer.transition("failed", { stopReason: "out_of_credits" })
       await writer.close()
-      publish(
-        request,
-        await finishVoiceRequest(request.id, { status: "failed" })
-      )
+      await failRun(request, runId)
       return
     }
 
@@ -148,7 +186,12 @@ async function runVoiceRequest(request: LoadedRequest, runId: string) {
         workspaceId: execution.workspaceId,
         conversation: execution.resume
           ? execution.resume.conversation
-          : [{ authorName: request.speakerName, content: request.heardText }],
+          : [
+              {
+                authorName: request.speakerName,
+                content: requestText(request.gate, request.heardText),
+              },
+            ],
         ...(execution.resume
           ? {}
           : { backgroundConversation: await loadCallBackground(request) }),
@@ -157,16 +200,13 @@ async function runVoiceRequest(request: LoadedRequest, runId: string) {
         voice: {
           speakerName: request.speakerName,
           show: async (blocks) => {
-            publish(
-              request,
-              await setVoiceRequestResult(request.id, { blocks })
-            )
+            publish(request, await setRunVoiceResult(runId, { blocks }))
           },
           react: async (emoji) => {
             if (!request.threadRootId) return
             notifyVoiceRequestReaction(request.threadRootId, {
               sessionId: request.sessionId,
-              requestId: request.id,
+              requestId: stageRequestId,
               emoji,
             })
           },
@@ -189,7 +229,7 @@ async function runVoiceRequest(request: LoadedRequest, runId: string) {
           startedTools.add(event.toolCallId)
           notifyVoiceRequestActivity(request.threadRootId, {
             sessionId: request.sessionId,
-            requestId: request.id,
+            requestId: stageRequestId,
             toolName,
           })
         },
@@ -205,8 +245,27 @@ async function runVoiceRequest(request: LoadedRequest, runId: string) {
         },
         notifyWorkspaceActivity,
       },
-      // Steering for voice requests arrives in chunk 3c.
-      { ...execution.handle, drainConversation: undefined }
+      {
+        ...execution.handle,
+        // Steering: requests made in the call since the last step.
+        drainConversation: async () => {
+          const claimed = await claimQueuedVoiceRequests(
+            request.sessionId,
+            runId
+          )
+          for (const entry of claimed) publish(request, entry.request)
+          const newest = claimed.at(-1)
+          if (newest) stageRequestId = newest.request.id
+          return {
+            steered: claimed.map((entry) => ({
+              messageId: entry.request.id,
+              authorName: entry.speakerName,
+              content: requestText(entry.gate, entry.request.heardText),
+            })),
+            ambient: [],
+          }
+        },
+      }
     )
 
     const stopped = answer.stoppedFor === "stopped_by_user"
@@ -215,20 +274,24 @@ async function runVoiceRequest(request: LoadedRequest, runId: string) {
     })
     execution.stop()
     await writer.close()
-    // The final reply becomes the answer when Lor never called show_in_call.
-    // Nothing at all to show (e.g. a budget stop) is a failure. A cancel
-    // already settled the request, so the update below no-ops then.
+    // A cancel stops the whole run, so every request it took on ends
+    // cancelled. Otherwise the final reply becomes the answer when Lor never
+    // called show_in_call, and nothing at all to show (e.g. a budget stop)
+    // is a failure.
     const reply = answer.text.trim()
-    const shown = (await loadVoiceRequest(request.id))?.result
-    publish(
-      request,
-      await finishVoiceRequest(request.id, {
-        status: shown || reply ? "done" : "failed",
-        ...(reply
-          ? { fallback: { blocks: [{ type: "answer", markdown: reply }] } }
-          : {}),
-      })
+    const shown = await runVoiceResultShown(runId)
+    const finished = await finishRunVoiceRequests(
+      runId,
+      stopped
+        ? { status: "cancelled" }
+        : {
+            status: shown || reply ? "done" : "failed",
+            ...(reply
+              ? { fallback: { blocks: [{ type: "answer", markdown: reply }] } }
+              : {}),
+          }
     )
+    for (const state of finished) publish(request, state)
   } catch (err) {
     if (err instanceof LeaseLostError || execution.aborted()) {
       logger.warn({ err, runId }, "Voice run superseded; exiting silently")
@@ -237,7 +300,7 @@ async function runVoiceRequest(request: LoadedRequest, runId: string) {
     logger.error({ err, runId }, "Voice run failed")
     await writer.transition("failed", { stopReason: "error" })
     await writer.close()
-    publish(request, await finishVoiceRequest(request.id, { status: "failed" }))
+    await failRun(request, runId)
   } finally {
     execution.stop()
   }
@@ -255,22 +318,23 @@ export function createVoiceRequestProcessor() {
     }
     if (request.status !== "queued") return
 
-    const runId = await createVoiceRun(request)
-    if (!runId) {
+    const created = await createVoiceRun(request)
+    if (created === "absorbed" || created === "gone") return
+    if (created === "timeout") {
       publish(
         request,
         await finishVoiceRequest(request.id, { status: "failed" })
       )
       return
     }
-    const started = await startVoiceRequest(request.id, runId)
+    const started = await startVoiceRequest(request.id, created.runId)
     if (!started) {
-      // Cancelled between the run insert and the start.
-      await cancelPendingRun(runId)
+      // Cancelled, or claimed by a run that just started, before this one.
+      await cancelPendingRun(created.runId)
       return
     }
     publish(request, started)
     notifyWorkspaceActivity(request.workspaceId)
-    await runVoiceRequest(request, runId)
+    await runVoiceRequest(request, created.runId)
   }
 }

@@ -13,7 +13,7 @@ import { EASE_OUT } from "@repo/ui/lib/motion"
 import { cn } from "@repo/ui/lib/utils"
 import { useQueryClient } from "@tanstack/react-query"
 import { AnimatePresence, motion } from "motion/react"
-import type { ReactNode } from "react"
+import { type ReactNode, useState } from "react"
 import { toolIcon } from "@/components/chat/lor-tool-trail"
 import { captionLine } from "@/components/voice/call-captions"
 import { LorBlocks } from "@/components/voice/lor-blocks"
@@ -261,6 +261,24 @@ export function LorWindow({ request }: { request: VoiceRequestState }) {
   }
   const closeLabel = active ? "Cancel request" : "Clear"
 
+  // A picked choice becomes a new request from whoever clicked, which then
+  // takes over the window.
+  const [choosing, setChoosing] = useState(false)
+  const choose = async (index: number) => {
+    if (isSimulatedRequest(request)) {
+      toast.info("Simulated: the pick would go to Lor as a new request")
+      return
+    }
+    setChoosing(true)
+    const res = await apiClient.v1.voice.requests[":requestId"].choose
+      .$post({ param: { requestId: request.id }, json: { choice: index } })
+      .catch(() => null)
+    if (!res?.ok) {
+      toast.error("Couldn't send that to Lor")
+      setChoosing(false)
+    }
+  }
+
   const closeButton = (
     <Tooltip>
       <TooltipTrigger
@@ -304,7 +322,14 @@ export function LorWindow({ request }: { request: VoiceRequestState }) {
             </div>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-            <LorBlocks blocks={blocks} />
+            <LorBlocks
+              blocks={blocks}
+              onChoose={
+                request.status === "done" && !choosing
+                  ? (index) => void choose(index)
+                  : undefined
+              }
+            />
           </div>
         </>
       ) : (

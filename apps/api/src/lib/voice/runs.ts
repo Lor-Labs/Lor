@@ -1,8 +1,48 @@
 import { and, db, eq, inArray, schema, sql } from "@repo/db"
-import { AGENT_RUN_STOP_CHANNEL } from "@repo/realtime-types/queues"
+import { env } from "@repo/env/server"
+import {
+  AGENT_RUN_STOP_CHANNEL,
+  VOICE_REQUEST_JOB,
+  VOICE_REQUEST_QUEUE,
+  type VoiceRequestJobData,
+} from "@repo/realtime-types/queues"
+import { Queue } from "bullmq"
 import { getRedisClient } from "@/lib/redis"
 
 const { agentRun } = schema
+
+function parseRedisUrl(url: string) {
+  const parsed = new URL(url)
+  const dbIndex = Number.parseInt(parsed.pathname.slice(1), 10)
+  return {
+    host: parsed.hostname,
+    port: Number(parsed.port) || 6379,
+    password: parsed.password || undefined,
+    username: parsed.username || undefined,
+    tls: parsed.protocol === "rediss:" ? {} : undefined,
+    db: Number.isFinite(dbIndex) ? dbIndex : 0,
+  }
+}
+
+let voiceRequestQueue: Queue<VoiceRequestJobData> | null = null
+
+// A clicked choice becomes a request; the worker runs it like a spoken one.
+export async function enqueueVoiceRequest(requestId: string) {
+  voiceRequestQueue ??= new Queue<VoiceRequestJobData>(VOICE_REQUEST_QUEUE, {
+    connection: { ...parseRedisUrl(env.REDIS_URL), maxRetriesPerRequest: null },
+  })
+  await voiceRequestQueue.add(
+    VOICE_REQUEST_JOB,
+    { requestId },
+    {
+      jobId: requestId,
+      attempts: 2,
+      backoff: { type: "fixed", delay: 5_000 },
+      removeOnComplete: true,
+      removeOnFail: { age: 86_400 },
+    }
+  )
+}
 
 // Stops a cancelled voice request's run. A run no worker has claimed yet
 // settles here; a working one is flagged and its worker signalled, like a

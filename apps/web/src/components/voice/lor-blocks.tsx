@@ -22,25 +22,37 @@ function BlockTitle({ title }: { title: string | null }) {
   return <h3 className="mb-2 text-sm font-medium">{title}</h3>
 }
 
-function Block({ block }: { block: RealtimeVoiceBlock }) {
+type OnChoose = (index: number) => void
+
+function Block({
+  block,
+  onChoose,
+}: {
+  block: RealtimeVoiceBlock
+  onChoose?: OnChoose
+}) {
   switch (block.type) {
     case "answer":
       return <MessageMarkdown content={block.markdown} mentions={NO_MENTIONS} />
     case "question":
-      // Numbered, so people can answer "Lor, the second one".
+      // Numbered, so people can also answer "Lor, the second one".
       return (
         <div>
           <p className="font-medium">{block.prompt}</p>
           <ol className="mt-2 flex flex-col gap-1.5">
             {block.choices.map((choice, index) => (
-              <li
-                key={`${index}-${choice}`}
-                className="flex gap-2.5 rounded-lg bg-muted px-3 py-2 text-sm"
-              >
-                <span className="text-muted-foreground tabular-nums">
-                  {index + 1}
-                </span>
-                {choice}
+              <li key={`${index}-${choice}`}>
+                <button
+                  type="button"
+                  disabled={!onChoose}
+                  onClick={() => onChoose?.(index)}
+                  className="flex w-full cursor-pointer gap-2.5 rounded-lg bg-muted px-3 py-2 text-left text-sm transition-colors hover:bg-accent disabled:cursor-default disabled:hover:bg-muted"
+                >
+                  <span className="text-muted-foreground tabular-nums">
+                    {index + 1}
+                  </span>
+                  {choice}
+                </button>
               </li>
             ))}
           </ol>
@@ -101,12 +113,23 @@ function Block({ block }: { block: RealtimeVoiceBlock }) {
   }
 }
 
-// What Lor composed for its window, top to bottom.
-export function LorBlocks({ blocks }: { blocks: RealtimeVoiceBlock[] }) {
+// What Lor composed for its window, top to bottom. Question choices are
+// clickable when `onChoose` is set.
+export function LorBlocks({
+  blocks,
+  onChoose,
+}: {
+  blocks: RealtimeVoiceBlock[]
+  onChoose?: OnChoose
+}) {
   return (
     <div className="flex flex-col gap-5">
       {blocks.map((block, index) => (
-        <Block key={`${index}-${block.type}`} block={block} />
+        <Block
+          key={`${index}-${block.type}`}
+          block={block}
+          onChoose={onChoose}
+        />
       ))}
     </div>
   )

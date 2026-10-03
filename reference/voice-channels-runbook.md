@@ -448,9 +448,29 @@ Chunks (planned 2026-10-01):
        question choices are numbered so people can answer by number.
      - Moved to 3c: clickable question choices (an answer is a follow-up).
      - The dev simulator gained result, correction, and failure scenarios.
-   - [ ] 3c: new requests and corrections steer the running request; the
-     speaker's words just after the start join it; follow-ups build on the
-     previous result.
+   - [x] 3c: new requests and corrections steer the running request;
+     follow-ups build on the previous result; question choices are
+     clickable. As built:
+     - Steering: the running request's `drainConversation` claims queued
+       requests in the same call at each step (`claimQueuedVoiceRequests`)
+       and injects them with the run's delivery guarantee. The prompt tells
+       Lor to drop the old work when a new request replaces it and to
+       finish first when it's for after. A request that arrives as the run
+       ends gets its own run once the scope frees (polled every second).
+     - One run can carry several requests: `show_in_call` writes to the
+       newest, tool activity and reactions follow it, and the run finishes
+       them together. A cancel stops the whole run and ends all of them
+       cancelled.
+     - Follow-ups: the background includes what Lor showed for the last 5
+       requests in the call (`listShownVoiceRequests`, rendered as text by
+       `voiceBlocksText`).
+     - Choices: `POST /voice/requests/{id}/choose` turns a pick into a new
+       request from the clicker (`gate` = `choice`, no Jev check), enqueued
+       from the API. Lor hears it as "(picked in Lor's window) …".
+     - Deferred: the speaker's words just after Lor starts joining the
+       request. Jev's ~350ms check already refuses to start while they're
+       still talking, and steering covers a restated request; revisit if
+       mid-sentence starts show up in testing.
 4. [ ] Entity blocks: Linear issues and GitHub pull requests with live data.
 5. [ ] Lor in the transcript: requests and results inline where they
    happened, "Show on stage", and step-back ("2 of 3").

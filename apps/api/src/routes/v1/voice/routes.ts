@@ -14,6 +14,7 @@ import { sessionAuthMiddleware } from "@/middleware/session-auth"
 import { workspaceAuthMiddleware } from "@/middleware/workspace-auth"
 import {
   cancelVoiceRequestResponseSchema,
+  chooseVoiceRequestBodySchema,
   joinVoiceChannelResponseSchema,
   leaveVoiceSessionResponseSchema,
   removeVoiceParticipantParamsSchema,
@@ -285,6 +286,36 @@ export const dismissVoiceRequest = createRoute({
 })
 
 export type DismissVoiceRequestRoute = typeof dismissVoiceRequest
+
+export const chooseVoiceRequest = createRoute({
+  path: "/voice/requests/{requestId}/choose",
+  method: "post",
+  summary: "Pick a choice Lor offered",
+  description:
+    "Answers the question in a request's result by picking one of its choices. The pick becomes a new request to Lor from the person who clicked; it must come from someone in the live call.",
+  tags: ["Voice"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: {
+    params: voiceRequestParamsSchema,
+    body: jsonContent({
+      schema: chooseVoiceRequestBodySchema,
+      description: "The picked choice",
+    }),
+  },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: cancelVoiceRequestResponseSchema,
+      description: "The new request",
+    }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type ChooseVoiceRequestRoute = typeof chooseVoiceRequest
 
 export const getVoicePresence = createRoute({
   path: "/workspaces/{workspaceSlug}/voice/presence",

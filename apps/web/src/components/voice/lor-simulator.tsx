@@ -350,8 +350,28 @@ const SCENARIOS: Scenario[] = [
       const first = sim.request()
       await ask(sim, first, "Lor, what did we decide about pricing last week?")
       await work(sim, first, ["search_messages"])
+      // Steering: the running request takes the new one on, Lor drops the
+      // pricing search, and both finish together.
       const second = sim.request()
       await ask(sim, second, "Lor, actually stop that and open the auth PR")
+      second.react("👍")
+      await work(sim, second, ["search_github"])
+      second.set("done", undefined, {
+        blocks: [
+          {
+            type: "list",
+            title: null,
+            items: [
+              {
+                title: "#142 Refresh tokens on reconnect",
+                detail: "Open · review requested from Jacob",
+                url: null,
+              },
+            ],
+          },
+        ],
+      })
+      first.set("done")
     },
   },
   {
