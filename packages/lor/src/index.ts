@@ -1775,24 +1775,31 @@ export function toolDetail(
 async function buildRunContext(ctx: RespondContext): Promise<AgentRunContext> {
   // Roster of teammates Lor can @-mention. Rendered with their exact
   // <@id> token so Lor's mentions fan out and highlight like a person's.
-  const roster = await db
-    .select({
-      id: schema.user.id,
-      name: schema.user.name,
-    })
-    .from(schema.workspaceMember)
-    .innerJoin(schema.user, eq(schema.workspaceMember.userId, schema.user.id))
-    .where(
-      and(
-        eq(schema.workspaceMember.workspaceId, ctx.workspaceId),
-        ne(schema.user.id, LOR_USER_ID),
-        // Keep anyone with a usable label.
-        sql`btrim(${schema.user.name}) <> ''`
-      )
-    )
-    .orderBy(asc(schema.user.name))
-    .limit(ROSTER_LIMIT)
-    .catch(() => [])
+  // Voice runs get none: Lor's window can't notify anyone, so names stay
+  // plain text.
+  const roster = ctx.voice
+    ? []
+    : await db
+        .select({
+          id: schema.user.id,
+          name: schema.user.name,
+        })
+        .from(schema.workspaceMember)
+        .innerJoin(
+          schema.user,
+          eq(schema.workspaceMember.userId, schema.user.id)
+        )
+        .where(
+          and(
+            eq(schema.workspaceMember.workspaceId, ctx.workspaceId),
+            ne(schema.user.id, LOR_USER_ID),
+            // Keep anyone with a usable label.
+            sql`btrim(${schema.user.name}) <> ''`
+          )
+        )
+        .orderBy(asc(schema.user.name))
+        .limit(ROSTER_LIMIT)
+        .catch(() => [])
   const rosterText =
     roster.length > 0
       ? `\n\nPeople you can mention (write the token exactly to @-mention them):\n${roster
