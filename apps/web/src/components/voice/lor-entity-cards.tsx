@@ -149,17 +149,18 @@ function CardList({
   children,
 }: {
   title: string | null
-  // Board-style columns that collapse to one in a docked window.
+  // Two board-style columns when Lor's window is wide, one when it's narrow
+  // (docked beside a screen share).
   grid?: boolean
   children: ReactNode
 }) {
   return (
-    <div>
+    <div className="@container">
       {title && <h3 className="mb-2 font-medium text-sm">{title}</h3>}
       <div
         className={
           grid
-            ? "grid grid-cols-[repeat(auto-fill,minmax(16rem,1fr))] gap-2"
+            ? "grid grid-cols-1 gap-2 @xl:grid-cols-2"
             : "flex flex-col gap-1.5"
         }
       >
