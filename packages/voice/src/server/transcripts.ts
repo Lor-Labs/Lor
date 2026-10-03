@@ -1,4 +1,4 @@
-import { and, asc, db, eq, schema, sql } from "@repo/db"
+import { and, asc, db, desc, eq, lt, schema, sql } from "@repo/db"
 import type {
   NewVoiceCaptureGap,
   NewVoiceTranscriptSegment,
@@ -43,6 +43,34 @@ export async function recordTranscriptSegment(input: TranscriptSegmentInput) {
 
 export async function recordCaptureGap(input: CaptureGapInput) {
   await db.insert(voiceCaptureGap).values(input)
+}
+
+// The call up to a point, oldest first, as context for a request to Lor.
+export async function listRecentCallLines(
+  sessionId: string,
+  options: { untilMs: number; limit: number }
+) {
+  const rows = await db
+    .select({
+      startMs: voiceTranscriptSegment.startMs,
+      text: voiceTranscriptSegment.text,
+      speakerName: user.name,
+    })
+    .from(voiceTranscriptSegment)
+    .innerJoin(
+      voiceSessionParticipant,
+      eq(voiceSessionParticipant.id, voiceTranscriptSegment.participantId)
+    )
+    .innerJoin(user, eq(user.id, voiceSessionParticipant.userId))
+    .where(
+      and(
+        eq(voiceTranscriptSegment.sessionId, sessionId),
+        lt(voiceTranscriptSegment.startMs, options.untilMs)
+      )
+    )
+    .orderBy(desc(voiceTranscriptSegment.startMs))
+    .limit(options.limit)
+  return rows.reverse()
 }
 
 // Everyone who joined the session, keyed by participant id, so live captions

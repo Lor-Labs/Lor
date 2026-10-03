@@ -36,6 +36,28 @@ export type VoiceCallState = {
   workspaceSlug: string
 }
 
+// Wire shape of what Lor's window shows. Mirrors VoiceBlock in
+// @repo/db/schema.
+export type RealtimeVoiceBlock =
+  | { type: "answer"; markdown: string }
+  | { type: "question"; prompt: string; choices: string[] }
+  | {
+      type: "list"
+      title: string | null
+      items: { title: string; detail: string | null; url: string | null }[]
+    }
+  | {
+      type: "table"
+      title: string | null
+      columns: string[]
+      rows: string[][]
+    }
+  | {
+      type: "details"
+      title: string | null
+      fields: { label: string; value: string }[]
+    }
+
 // Something said to Lor in a live call. Sent to the session chat's thread
 // room, so only people in the call receive it (live-only rule).
 export type VoiceRequestState = {
@@ -52,6 +74,7 @@ export type VoiceRequestState = {
     | "done"
     | "failed"
     | "cancelled"
+  result: { blocks: RealtimeVoiceBlock[] } | null
   createdAt: string
   updatedAt: string
 }

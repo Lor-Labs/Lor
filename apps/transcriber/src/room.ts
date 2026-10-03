@@ -26,6 +26,7 @@ import {
 import { logger } from "./logger"
 import { LorListener } from "./lor-listener"
 import { type Caption, MicStream, STT_MODEL } from "./mic-stream"
+import { closeQueue } from "./queue"
 import { closeRealtime } from "./realtime"
 
 const UUID_PATTERN =
@@ -228,6 +229,7 @@ export async function transcribeRoom(ctx: JobContext, deepgramApiKey: string) {
     await Promise.all(finishing)
     await listener.close()
     await closeRealtime()
+    await closeQueue()
     await speech.close()
     // Compare with Deepgram's billed minutes for the call.
     logger.info(

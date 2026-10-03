@@ -11,6 +11,7 @@ import {
 } from "@repo/voice/server"
 import { logger } from "./logger"
 import type { HeardLine } from "./mic-stream"
+import { enqueueVoiceRequest } from "./queue"
 
 // Once Lor is listening, this much silence from the speaker closes it.
 const CONTINUE_MS = 4_000
@@ -114,8 +115,17 @@ export class LorListener {
     if (this.#recent.length > RECENT_LINES) this.#recent.shift()
   }
 
+  // A request turns queued once; that's when the worker gets it.
   #publish(request: VoiceRequestState) {
     if (this.#threadRootId) notifyVoiceRequest(this.#threadRootId, request)
+    if (request.status === "queued") {
+      enqueueVoiceRequest(request.id).catch((err: unknown) =>
+        logger.error(
+          { err, requestId: request.id },
+          "lor request: enqueue failed"
+        )
+      )
+    }
   }
 
   #waitForMore(pending: Pending) {

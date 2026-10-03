@@ -138,6 +138,7 @@ class Simulation {
         userId: this.participantId,
         heardText,
         status,
+        result: null,
         createdAt,
         updatedAt: now,
       })

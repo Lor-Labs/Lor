@@ -69,6 +69,13 @@ export type LoopRunJobData = {
   loopId: string
 }
 
+// Requests to Lor spoken in a call (reference/voice-channels-runbook.md V5).
+// The transcriber enqueues an accepted request; the worker creates its run.
+export const VOICE_REQUEST_QUEUE = "voice-request"
+export const VOICE_REQUEST_JOB = "voice"
+
+export type VoiceRequestJobData = { requestId: string }
+
 // Project archive synthesis: the API flips the project to `archiving` (write
 // locks engage immediately), then this job distills the project into
 // workspace-scoped brain pages, posts a closing summary, and marks it

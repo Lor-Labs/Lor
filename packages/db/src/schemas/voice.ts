@@ -190,6 +190,30 @@ export const voiceRequestStatusEnum = pgEnum("voice_request_status", [
   "cancelled",
 ])
 
+// What Lor shows in its window, composed by the run. Generic blocks carry
+// their own data, so any tool's results fit; connector cards come later.
+export type VoiceBlock =
+  | { type: "answer"; markdown: string }
+  | { type: "question"; prompt: string; choices: string[] }
+  | {
+      type: "list"
+      title: string | null
+      items: { title: string; detail: string | null; url: string | null }[]
+    }
+  | {
+      type: "table"
+      title: string | null
+      columns: string[]
+      rows: string[][]
+    }
+  | {
+      type: "details"
+      title: string | null
+      fields: { label: string; value: string }[]
+    }
+
+export type VoiceRequestResult = { blocks: VoiceBlock[] }
+
 // One answer from Jev, the address check. Kept on the request for tuning.
 export type VoiceRequestCheck = {
   model: string
@@ -231,6 +255,7 @@ export const voiceRequest = pgTable(
     gate: text("gate").$type<"name" | "homophone">().notNull(),
     status: voiceRequestStatusEnum("status").default("listening").notNull(),
     checks: jsonb("checks").$type<VoiceRequestCheck[]>().notNull().default([]),
+    result: jsonb("result").$type<VoiceRequestResult>(),
     runId: uuid("run_id").references(() => agentRun.id, {
       onDelete: "set null",
     }),

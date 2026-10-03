@@ -1,5 +1,6 @@
 import { z } from "@hono/zod-openapi"
 import {
+  type VoiceRequestResult,
   voiceCaptureGapReasonEnum,
   voiceRequestStatusEnum,
 } from "@repo/db/schema"
@@ -38,6 +39,8 @@ const voiceRequestSchema = z.object({
   userId: z.string().uuid(),
   heardText: z.string(),
   status: z.enum(voiceRequestStatusEnum.enumValues),
+  // Written by the run's stage tool, which validates it (packages/lor).
+  result: z.custom<VoiceRequestResult>().nullable(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 })

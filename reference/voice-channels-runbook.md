@@ -408,11 +408,31 @@ Chunks (planned 2026-10-01):
      list from the endpoint plus events. Until chunk 3, an accepted request
      stays on "Working on it" until someone cancels.
 3. Runs, in three parts:
-   - [ ] 3a, server: the worker runs an accepted request as the speaker; the
+   - [x] 3a, server: the worker runs an accepted request as the speaker; the
      stage tool with generic blocks plus `answer` and `question` (choices);
-     the `react` tool; status, result, and cancel stopping the run.
-   - [ ] 3b, web: the working animation with tool logos, result blocks,
-     questions with clickable choices, and floating reactions.
+     status, result, and cancel stopping the run. **db:push owed**
+     (`voice_request.result`). The `react` tool moved to 3b with its UI.
+     As built:
+     - The transcriber enqueues a queued request on `voice-request`
+       (`apps/transcriber/src/queue.ts`); the worker
+       (`apps/worker/src/jobs/voice-request.ts`) creates the `agent_run`
+       with `scopeKey` = the session, so a call has one active request at a
+       time, and a later one waits (up to 5 min) until 3c steers instead.
+       Wall clock is capped at 10 minutes.
+     - `respond()` gets a `voice` context (`packages/lor/src/voice.ts`):
+       `show_in_call` with the block catalog, the call framing in the system
+       prompt, and no `react_to_message` (no chat to react in). The recent
+       call goes in as background: up to 60 transcript lines before the
+       request and the last 20 call chat messages marked `[call chat]`.
+     - The final reply becomes an `answer` block when Lor never called
+       `show_in_call`; with nothing to show, the request fails.
+     - Cancel settles an unclaimed run or flags a working one and signals
+       its worker (`apps/api/src/lib/voice/runs.ts`).
+     - Not built: a sweep for a request stuck `queued` if the enqueue is
+       lost.
+   - [ ] 3b, web: the working animation with tool logos (live tool events),
+     result blocks, questions with clickable choices, and the `react` tool
+     with floating reactions. Replaces 2b's "Working on it" label.
    - [ ] 3c: new requests and corrections steer the running request; the
      speaker's words just after the start join it; follow-ups build on the
      previous result.

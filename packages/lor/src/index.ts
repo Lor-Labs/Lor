@@ -145,6 +145,7 @@ import {
   triggeredTools,
 } from "./triggered"
 import type { OnUsage } from "./usage"
+import { type RunVoiceContext, voicePromptSection, voiceTools } from "./voice"
 import { webTools } from "./web"
 
 // Step cap for the background write-back pass only; the answer loop's
@@ -352,6 +353,9 @@ export type RespondContext = {
   // tools and injects the trigger's instructions — which appear in the
   // system prompt only when the trigger fires.
   triggered?: RunTriggeredContext
+  // Set on a request spoken in a voice call: binds show_in_call and the call
+  // framing. Results go to Lor's window, never the chat.
+  voice?: RunVoiceContext
   // Overrides the persistent-sandbox scope (default threadRootId ??
   // channelId). Loop runs pass loop.id so co-channel loops/triggers never
   // share a warm checkout — keeps "sandbox key = run scope" true for them.
@@ -438,6 +442,7 @@ export type {
   TriggeredPostMessage,
 } from "./triggered"
 export type { OnUsage, UsageEvent } from "./usage"
+export type { RunVoiceContext, ShowInCall } from "./voice"
 
 export type RespondResult = {
   text: string
@@ -1972,7 +1977,7 @@ export async function respond(
       ...brainReadTools,
       ...brainWriteTools,
       ...instructionsTools,
-      ...(ctx.channelId ? messageActionTools : {}),
+      ...(ctx.channelId && !ctx.voice ? messageActionTools : {}),
       ...(env.EXA_API_KEY && caps.includes("web") ? webTools : {}),
       ...(github && caps.includes("github") ? githubTools : {}),
       ...(blaxelConfigured() && github && caps.includes("code_intelligence")
@@ -1983,6 +1988,7 @@ export async function respond(
       ...(ctx.plan || ctx.threadRootId ? planTools : {}),
       ...(ctx.triggered ? triggeredTools : {}),
       ...(ctx.triggered?.completeLoop ? completeLoopTool : {}),
+      ...(ctx.voice ? voiceTools : {}),
       ...(ctx.proposeLoop && ctx.channelId ? proposeLoopTool : {}),
       ...(ctx.proposeChange && ctx.channelId ? proposeChangeTool : {}),
       ...(linear && caps.includes("linear") ? linearTools : {}),
@@ -2187,6 +2193,7 @@ export async function respond(
               : {}),
           }
         : {}),
+      ...(ctx.voice ? { show_in_call: { show: ctx.voice.show } } : {}),
       ...(ctx.proposeLoop && ctx.channelId
         ? { propose_loop: { createLoopCard: ctx.proposeLoop } }
         : {}),
@@ -2318,7 +2325,7 @@ export async function respond(
         buildRunContext(ctx),
         loadWorkspaceInstructions(ctx.workspaceId),
       ])
-      instructions = `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}${context.rosterText ? `\n\n${MENTION_GUIDANCE}` : ""}${workspaceInstructions ? `\n\n${formatInstructionsBlock(workspaceInstructions)}` : ""}${ctx.plan || ctx.threadRootId ? `\n\n${planRulesSection(artifactsEnabled, !!ctx.plan)}` : ""}${ctx.triggered ? `\n\n${ctx.triggered.loop ? loopPromptSection({ ...ctx.triggered, loop: ctx.triggered.loop }) : triggeredPromptSection(ctx.triggered)}` : ""}`
+      instructions = `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}${context.rosterText ? `\n\n${MENTION_GUIDANCE}` : ""}${workspaceInstructions ? `\n\n${formatInstructionsBlock(workspaceInstructions)}` : ""}${ctx.plan || ctx.threadRootId ? `\n\n${planRulesSection(artifactsEnabled, !!ctx.plan)}` : ""}${ctx.triggered ? `\n\n${ctx.triggered.loop ? loopPromptSection({ ...ctx.triggered, loop: ctx.triggered.loop }) : triggeredPromptSection(ctx.triggered)}` : ""}${ctx.voice ? `\n\n${voicePromptSection(ctx.voice)}` : ""}`
       messageBudget = getMessageBudget(instructions)
       // A continued run inherits its predecessors' transcript in place of a
       // fresh initial message; the snapshot records the delta it was started

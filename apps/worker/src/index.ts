@@ -16,6 +16,8 @@ import {
   type ProjectArchiveJobData,
   TRIGGERED_RUN_QUEUE,
   type TriggeredRunJobData,
+  VOICE_REQUEST_QUEUE,
+  type VoiceRequestJobData,
 } from "@repo/realtime-types/queues"
 import { Emitter } from "@socket.io/redis-emitter"
 import { Queue, Worker } from "bullmq"
@@ -34,6 +36,7 @@ import {
 } from "@/jobs/prune-run-events"
 import { LOOP_SWEEP_EVERY_MS, sweepDueLoops } from "@/jobs/sweep-due-loops"
 import { createTriggeredRunProcessor } from "@/jobs/triggered-run"
+import { createVoiceRequestProcessor } from "@/jobs/voice-request"
 import {
   auditVoiceSessions,
   sweepVoiceSessions,
@@ -265,6 +268,34 @@ async function bootstrap() {
     )
   })
 
+  // Requests to Lor spoken in a call. The transcriber is the producer.
+  const voiceRequestWorker = new Worker<VoiceRequestJobData>(
+    VOICE_REQUEST_QUEUE,
+    createVoiceRequestProcessor(),
+    {
+      connection: {
+        ...redisOpts,
+        maxRetriesPerRequest: null,
+      },
+      concurrency: 5,
+    }
+  )
+
+  voiceRequestWorker.on("failed", (job, error) => {
+    logger.error({ jobId: job?.id, err: error }, "Voice-request job failed")
+  })
+
+  voiceRequestWorker.on("error", (error) => {
+    logger.error(
+      {
+        queue: VOICE_REQUEST_QUEUE,
+        workerId: voiceRequestWorker.id,
+        err: error,
+      },
+      "Voice-request worker error"
+    )
+  })
+
   const projectArchiveWorker = new Worker<ProjectArchiveJobData>(
     PROJECT_ARCHIVE_QUEUE,
     createProjectArchiveProcessor(emitter),
@@ -387,6 +418,7 @@ async function bootstrap() {
         LOR_RESPOND_QUEUE,
         TRIGGERED_RUN_QUEUE,
         LOOP_RUN_QUEUE,
+        VOICE_REQUEST_QUEUE,
         PROJECT_ARCHIVE_QUEUE,
         MAINTENANCE_QUEUE,
       ],
@@ -401,6 +433,7 @@ async function bootstrap() {
     await lorRespondWorker.close()
     await triggeredRunWorker.close()
     await loopRunWorker.close()
+    await voiceRequestWorker.close()
     await projectArchiveWorker.close()
     // The dead-run sweep also drains scopes — close it before waiting so no
     // new drain can start after the wait completes.

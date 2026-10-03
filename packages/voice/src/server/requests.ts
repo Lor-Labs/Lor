@@ -3,10 +3,11 @@ import type {
   NewVoiceRequest,
   VoiceRequest,
   VoiceRequestCheck,
+  VoiceRequestResult,
 } from "@repo/db/schema"
 import type { VoiceRequestState } from "@repo/realtime-types/events"
 
-const { voiceRequest, voiceSessionParticipant } = schema
+const { user, voiceRequest, voiceSession, voiceSessionParticipant } = schema
 
 // A request someone can still cancel.
 const ACTIVE_STATUSES = ["listening", "queued", "working"] as const
@@ -18,6 +19,7 @@ const stateColumns = {
   userId: voiceRequest.userId,
   heardText: voiceRequest.heardText,
   status: voiceRequest.status,
+  result: voiceRequest.result,
   createdAt: voiceRequest.createdAt,
   updatedAt: voiceRequest.updatedAt,
 }
@@ -108,6 +110,7 @@ export async function abandonVoiceRequest(requestId: string) {
   return row ? toState(row) : null
 }
 
+// Also returns the run, so the caller can stop it.
 export async function markVoiceRequestCancelled(
   requestId: string,
   userId: string
@@ -125,8 +128,10 @@ export async function markVoiceRequestCancelled(
         inArray(voiceRequest.status, ACTIVE_STATUSES)
       )
     )
-    .returning(stateColumns)
-  return row ? toState(row) : null
+    .returning({ ...stateColumns, runId: voiceRequest.runId })
+  if (!row) return null
+  const { runId, ...state } = row
+  return { request: toState(state), runId }
 }
 
 export async function findVoiceRequest(requestId: string) {
@@ -136,6 +141,81 @@ export async function findVoiceRequest(requestId: string) {
     .where(eq(voiceRequest.id, requestId))
     .limit(1)
   return row ?? null
+}
+
+// Everything the worker needs to run a request.
+export async function loadVoiceRequest(requestId: string) {
+  const [row] = await db
+    .select({
+      ...stateColumns,
+      runId: voiceRequest.runId,
+      startMs: voiceRequest.startMs,
+      speakerName: user.name,
+      workspaceId: voiceSession.workspaceId,
+      channelId: voiceSession.channelId,
+      threadRootId: voiceSession.threadRootId,
+      sessionStartedAt: voiceSession.startedAt,
+    })
+    .from(voiceRequest)
+    .innerJoin(voiceSession, eq(voiceSession.id, voiceRequest.sessionId))
+    .innerJoin(user, eq(user.id, voiceRequest.userId))
+    .where(eq(voiceRequest.id, requestId))
+    .limit(1)
+  return row ?? null
+}
+
+// Queued → working once its run exists. Null if it was cancelled first.
+export async function startVoiceRequest(requestId: string, runId: string) {
+  const [row] = await db
+    .update(voiceRequest)
+    .set({ status: "working", runId })
+    .where(
+      and(eq(voiceRequest.id, requestId), eq(voiceRequest.status, "queued"))
+    )
+    .returning(stateColumns)
+  return row ? toState(row) : null
+}
+
+// What Lor's window shows, replaced each time the run calls the stage tool.
+export async function setVoiceRequestResult(
+  requestId: string,
+  result: VoiceRequestResult
+) {
+  const [row] = await db
+    .update(voiceRequest)
+    .set({ result })
+    .where(
+      and(eq(voiceRequest.id, requestId), eq(voiceRequest.status, "working"))
+    )
+    .returning(stateColumns)
+  return row ? toState(row) : null
+}
+
+// Ends a request that is still in flight. `fallback` fills an empty result,
+// e.g. the run's final reply when it never called the stage tool.
+export async function finishVoiceRequest(
+  requestId: string,
+  update: { status: "done" | "failed"; fallback?: VoiceRequestResult }
+) {
+  const [row] = await db
+    .update(voiceRequest)
+    .set({
+      status: update.status,
+      finishedAt: new Date(),
+      ...(update.fallback
+        ? {
+            result: sql`coalesce(${voiceRequest.result}, ${JSON.stringify(update.fallback)}::jsonb)`,
+          }
+        : {}),
+    })
+    .where(
+      and(
+        eq(voiceRequest.id, requestId),
+        inArray(voiceRequest.status, ["queued", "working"])
+      )
+    )
+    .returning(stateColumns)
+  return row ? toState(row) : null
 }
 
 // Everything Lor's window and the Lor tab can show; rejected lines were never

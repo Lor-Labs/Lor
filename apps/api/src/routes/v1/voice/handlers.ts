@@ -24,6 +24,7 @@ import {
   listSessionHistory,
   listWorkspacePresence,
 } from "@/lib/voice/queries"
+import { stopVoiceRun } from "@/lib/voice/runs"
 import {
   findSessionScope,
   getOrCreateLiveSession,
@@ -189,15 +190,18 @@ export const cancelVoiceRequest: AppRouteHandler<
       HttpStatusCodes.NOT_FOUND
     )
   }
-  const request = await markVoiceRequestCancelled(requestId, c.var.user.id)
-  if (!request) {
+  const cancelled = await markVoiceRequestCancelled(requestId, c.var.user.id)
+  if (!cancelled) {
     return c.json(
       { success: false as const, message: "This request already finished" },
       HttpStatusCodes.CONFLICT
     )
   }
-  if (scope.threadRootId) notifyVoiceRequest(scope.threadRootId, request)
-  return c.json({ request }, HttpStatusCodes.OK)
+  if (cancelled.runId) await stopVoiceRun(cancelled.runId, c.var.user.id)
+  if (scope.threadRootId) {
+    notifyVoiceRequest(scope.threadRootId, cancelled.request)
+  }
+  return c.json({ request: cancelled.request }, HttpStatusCodes.OK)
 }
 
 export const getVoicePresence: AppRouteHandler<GetVoicePresenceRoute> = async (
