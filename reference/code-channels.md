@@ -204,29 +204,40 @@ verify):
 | Read code without a sandbox | `readFile`, commits; search "coming" | grep, glob archives, file streaming, commit/merge APIs |
 | SDKs | Workers binding + REST; TS/Go/Python announced | TS (`@pierre/storage`), Go, Python |
 | Events | Cloudflare Queues (needs a Worker) | Webhooks (fits Node/Hono) |
-| Data residency | US/EU per namespace | Unknown |
+| Data residency | US/EU per namespace | Region chosen per org at setup; EU availability unconfirmed |
 | Big-repo mounts | ArtifactFS | ArtifactFS works with any git remote |
 | Self-host | No | Not found |
 | Pricing | $0.15/1k ops (10k free), $0.50/GB-mo (1 GB free); Workers Paid | Plans from $20/$200 mo; warm $1/GB-mo **per replica**, cold $0.05/GB-mo after 7 days unread |
 
-Leaning: Code Storage maps more directly (GitHub Sync + ephemeral branches + code APIs
-remove work we'd otherwise build); Artifacts wins on vendor stability, residency and
-likely cost at scale.
+**Leaning strongly: Code Storage** — its documented agent patterns (below) are this
+design almost verbatim, and GitHub Sync + ephemeral branches + server-side APIs remove
+work we'd otherwise build. Artifacts wins on vendor size and confirmed EU residency.
+Confirm in the phase-1 spike.
 
 Code Storage checks (researched 2026-10-05 from the SDK repo `pierrecomputer/sdk`
-`skills/code-storage/SKILL.md` — the API reference — plus search results):
+`skills/code-storage/SKILL.md`, the docs pages GitHub Sync, Organizations, Webhooks,
+Capture/Restore Agent State and Run Parallel Attempts, plus search results):
 
 1. **Session branches stay off GitHub — resolved.** The ephemeral namespace
    (`REPO_ID+ephemeral.git`, `ephemeral: true` on commits/reads) has "no GitHub sync".
    Promotion to a real branch is explicit (`createBranch` with `base_is_ephemeral`).
    Notes are never synced to GitHub either.
-2. **GitHub Sync credentials — partly open.** Authenticated sync goes through a GitHub
-   App configured at the org level (`412 GitHub App config required` otherwise); public
-   repos need no app. Generic providers (GitLab, Bitbucket, Gitea, Forgejo, self-hosted)
-   use stored HTTPS credentials. Still to ask: is it Code Storage's app or can we bring
-   our own (Lor already has one), and what permissions does it request.
+2. **GitHub Sync credentials — resolved: bring our own GitHub App.** We create the app and
+   give Code Storage its App ID, private key and webhook secret. Permissions: Metadata
+   read; Contents read (one-way) or read/write (bidirectional); Workflows only if pushes
+   touch `.github/workflows/`. Code Storage requests no fixed permission set — it uses
+   whatever the installation grants. GitHub webhooks can go to Code Storage, or to **our
+   own handler that calls `pullUpstream()`** (Lor already receives GitHub App webhooks).
+   Decision for implementation: Code Storage would hold an app private key, i.e. act as
+   that app on every customer installation. Options: give it Lor's existing app (one
+   install for customers, broader blast radius) or a dedicated minimal "Lor Code Sync"
+   app (Contents + Metadata only, but a second install). Also: sync is two-way — any push
+   to the normal namespace is forwarded to GitHub, and syncs copy only `refs/heads/*`
+   and `refs/tags/*`.
 3. **Compliance — mostly resolved.** SOC 2 Type II, HIPAA, GDPR-ready; per-tenant
-   encryption; single-tenant option on the Scale plan. EU data residency not found — ask.
+   encryption; single-tenant option on the Scale plan. Region is selected per org at
+   creation ("select a region if setup asks for one"; `meta.get` reports provider and
+   region) — EU availability still to confirm with support@pierre.co.
 4. **Pricing — resolved, sources conflict.** Pricing page (via search): hot storage
    $0.005/GB/hr (~$3.65/GB-mo, replication included), cold $0.0002/GB/hr (~$0.15/GB-mo)
    after 7 days unread, bandwidth $0.06/GB in and $0.15/GB out, no per-operation fee,
@@ -245,6 +256,23 @@ Code Storage capabilities that fit this design (from the API reference):
 - **Blame, grep, diff, archive, merge and merge-preview APIs** — `explain_line`,
   fork comparison and "sync with dev" without booting a sandbox.
 - **Forks are one-time copies within the same org**; branches remain the per-session unit.
+
+Their documented agent patterns map onto §5 directly:
+
+| Their guide | Our flow |
+|---|---|
+| Capture Agent State — one ephemeral branch per session, one commit per state, backend stores repo + branch + tip SHA, `expectedHeadSha` rejects concurrent writers | Each step → commit; `commit_sha` on the step |
+| Confine a sandbox — short-TTL credential with `refPolicies` limited to the session's own ref; private key never enters a sandbox | "Agent never holds a push token" — sandboxes can even push, but only to their own session branch |
+| Restore Agent State — clone, `fetch <tip>`, continue; stale old sandbox gets `precondition_failed`; `no-force-push` on the session branch; record new owner | Handoff / take over / rebuild sandbox from a checkpoint |
+| Run Parallel Attempts — several ephemeral branches from one SHA (ref-only, no object copy), compare diffs, promote winner to a normal branch, delete the rest | Fork, rewind branches, compare forks, ship |
+| Show Live Diffs | Step permalinks / live diff view |
+
+Implementation gotchas noted from the docs:
+
+- Promoting an ephemeral branch to a normal branch **pushes it to GitHub** (normal-namespace writes are forwarded) — that is our "ship" step, so only promote what should land on GitHub.
+- Promotion via `createBranch()` does **not** upload LFS objects to GitHub; push LFS-tracked files through a normal ref.
+- First sync of a new repo returns `409` until done (retry); later reads may be briefly stale until `repo.sync.succeeded`.
+- Webhooks: `push` (ref, before, after) and `repo.sync.started|succeeded|failed`, HMAC-signed (`X-Pierre-Signature`, SDK `validateWebhook`). Verify `push` fires for ephemeral refs — needed to turn local pushes into steps.
 
 ## Sources
 
