@@ -3,12 +3,14 @@ import type {
   VoiceRequestReaction,
   VoiceRequestState,
 } from "@repo/realtime-types/events"
+import { toast } from "@repo/ui/components/toast"
 import {
   type QueryClient,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query"
 import { useEffect } from "react"
+import { isSimulatedRequest } from "@/components/voice/lor-simulator"
 import { addLorReaction, addLorTool } from "@/components/voice/lor-stage-store"
 import { useSocket } from "@/context/socket-context"
 import { apiClient } from "@/lib/api-client"
@@ -98,16 +100,63 @@ export function useVoiceRequests(sessionId: string | null) {
     }
   }, [socket, sessionId, queryClient])
 
-  const requests = query.data ?? []
-  // Lor's window shows only the newest request, while it's in flight or until
-  // its result is cleared. Cancelling it closes the window; it never brings
-  // back an earlier request.
+  const requests = query.data ?? NO_REQUESTS
+  const results = requests.filter(hasResult)
+  return { requests, results, onStage: pickOnStage(requests) }
+}
+
+const NO_REQUESTS: VoiceRequestState[] = []
+
+export function hasResult(request: VoiceRequestState) {
+  return request.status === "done" && request.result !== null
+}
+
+const time = (value: string | null) => (value ? Date.parse(value) : 0)
+
+// When a request last took Lor's window: it was made, it finished, or
+// someone staged it again.
+const stageTime = (request: VoiceRequestState) =>
+  Math.max(
+    time(request.createdAt),
+    time(request.finishedAt),
+    time(request.stagedAt)
+  )
+
+// What Lor's window shows. A request in flight always does. Otherwise the
+// request that most recently took the window, until it's cleared; a cancel
+// takes the window and closes it, so it never brings back an earlier one.
+// Requests that a later one replaced mid-run (done, no result) never show.
+function pickOnStage(requests: VoiceRequestState[]) {
   const latest = requests.at(-1)
-  const onStage =
-    latest &&
-    latest.status !== "cancelled" &&
-    (isActiveVoiceRequest(latest) || !latest.dismissedAt)
-      ? latest
-      : null
-  return { requests, onStage }
+  if (latest && isActiveVoiceRequest(latest)) return latest
+  let top: VoiceRequestState | null = null
+  for (const request of requests) {
+    if (request.status === "done" && !request.result) continue
+    if (!top || stageTime(request) >= stageTime(top)) top = request
+  }
+  return top && top.status !== "cancelled" && !top.dismissedAt ? top : null
+}
+
+// Brings a result back into Lor's window for everyone in the call.
+export async function stageVoiceRequest(
+  queryClient: QueryClient,
+  request: VoiceRequestState
+) {
+  const queryKey = voiceRequestsQueryKey(request.sessionId)
+  const stagedAt = new Date().toISOString()
+  queryClient.setQueryData<VoiceRequestState[]>(queryKey, (list) =>
+    list?.map((entry) =>
+      entry.id === request.id
+        ? { ...entry, stagedAt, dismissedAt: null }
+        : entry
+    )
+  )
+  if (isSimulatedRequest(request)) return
+  const res = await apiClient.v1.voice.requests[":requestId"].stage
+    .$post({ param: { requestId: request.id } })
+    .catch(() => null)
+  if (!res?.ok) {
+    toast.error("Couldn't show that in Lor's window")
+    void queryClient.invalidateQueries({ queryKey })
+  }
 }

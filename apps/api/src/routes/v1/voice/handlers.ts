@@ -18,6 +18,7 @@ import {
   markVoiceRequestCancelled,
   notifyVoiceRequest,
   removeFromRoom,
+  stageVoiceRequest as stageRequest,
 } from "@repo/voice/server"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { assertWorkspaceAuthority } from "@/lib/permissions"
@@ -50,6 +51,7 @@ import type {
   ListVoiceRequestsRoute,
   ListVoiceSessionsRoute,
   RemoveVoiceParticipantRoute,
+  StageVoiceRequestRoute,
 } from "@/routes/v1/voice/routes"
 
 // A session the user may read: channel access, plus the live-only rule.
@@ -259,6 +261,34 @@ export const chooseVoiceRequest: AppRouteHandler<
   }
   if (scope.threadRootId) notifyVoiceRequest(scope.threadRootId, request)
   await enqueueVoiceRequest(request.id)
+  return c.json({ request }, HttpStatusCodes.OK)
+}
+
+export const stageVoiceRequest: AppRouteHandler<
+  StageVoiceRequestRoute
+> = async (c) => {
+  const userId = c.var.user.id
+  const { requestId } = c.req.valid("param")
+  const found = await findVoiceRequest(requestId)
+  const scope = found ? await findVisibleSession(userId, found.sessionId) : null
+  const participant =
+    found && scope && !scope.endedAt
+      ? await findConnectedParticipant(found.sessionId, userId)
+      : null
+  if (!scope || !participant) {
+    return c.json(
+      { success: false as const, message: "Request not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  const request = await stageRequest(requestId)
+  if (!request) {
+    return c.json(
+      { success: false as const, message: "This request has no result" },
+      HttpStatusCodes.CONFLICT
+    )
+  }
+  if (scope.threadRootId) notifyVoiceRequest(scope.threadRootId, request)
   return c.json({ request }, HttpStatusCodes.OK)
 }
 

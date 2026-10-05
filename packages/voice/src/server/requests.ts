@@ -33,7 +33,9 @@ const stateColumns = {
   heardText: voiceRequest.heardText,
   status: voiceRequest.status,
   result: voiceRequest.result,
+  finishedAt: voiceRequest.finishedAt,
   dismissedAt: voiceRequest.dismissedAt,
+  stagedAt: voiceRequest.stagedAt,
   createdAt: voiceRequest.createdAt,
   updatedAt: voiceRequest.updatedAt,
 }
@@ -43,10 +45,28 @@ function toState(
 ): VoiceRequestState {
   return {
     ...row,
+    finishedAt: row.finishedAt?.toISOString() ?? null,
     dismissedAt: row.dismissedAt?.toISOString() ?? null,
+    stagedAt: row.stagedAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   }
+}
+
+// Brings a finished result back into Lor's window for everyone in the call.
+export async function stageVoiceRequest(requestId: string) {
+  const [row] = await db
+    .update(voiceRequest)
+    .set({ stagedAt: new Date(), dismissedAt: null })
+    .where(
+      and(
+        eq(voiceRequest.id, requestId),
+        eq(voiceRequest.status, "done"),
+        isNotNull(voiceRequest.result)
+      )
+    )
+    .returning(stateColumns)
+  return row ? toState(row) : null
 }
 
 // Clears a finished result from Lor's window for everyone in the call.

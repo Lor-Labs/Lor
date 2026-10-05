@@ -81,8 +81,11 @@ export type VoiceRequestState = {
     | "failed"
     | "cancelled"
   result: { blocks: RealtimeVoiceBlock[] } | null
+  finishedAt: string | null
   // Someone cleared the finished result from Lor's window.
   dismissedAt: string | null
+  // Someone brought this result back into Lor's window.
+  stagedAt: string | null
   createdAt: string
   updatedAt: string
 }

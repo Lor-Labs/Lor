@@ -280,6 +280,9 @@ export const voiceRequest = pgTable(
     finishedAt: timestamp("finished_at"),
     // Someone cleared the finished result from Lor's window, for everyone.
     dismissedAt: timestamp("dismissed_at"),
+    // Someone brought this result back into Lor's window ("Show on stage",
+    // step-back).
+    stagedAt: timestamp("staged_at"),
   },
   (table) => [
     // Explicit name: the auto-generated one exceeds Postgres's 63-byte limit.

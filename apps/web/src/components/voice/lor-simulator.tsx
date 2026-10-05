@@ -26,6 +26,7 @@ import {
 } from "@/hooks/use-voice-entity-cards"
 import {
   applyVoiceRequestUpdate,
+  isActiveVoiceRequest,
   voiceRequestsQueryKey,
 } from "@/hooks/use-voice-requests"
 
@@ -158,7 +159,11 @@ class Simulation {
           heardText,
           status,
           result,
+          finishedAt: ["listening", "queued", "working"].includes(status)
+            ? null
+            : now,
           dismissedAt: null,
+          stagedAt: null,
           createdAt,
           updatedAt: now,
         })
@@ -515,10 +520,14 @@ function play(scenario: Scenario, simulation: Simulation) {
   if (current) current.stopped = true
   current = simulation
   setCaptions([])
-  // Drop the last run's requests, which never finish on their own.
+  // Drop the last run's unfinished requests, which never finish on their own.
+  // Finished ones stay, so step-back and the transcript have results.
   simulation.queryClient.setQueryData<VoiceRequestState[]>(
     voiceRequestsQueryKey(simulation.sessionId),
-    (list) => list?.filter((entry) => !isSimulatedRequest(entry))
+    (list) =>
+      list?.filter(
+        (entry) => !isSimulatedRequest(entry) || !isActiveVoiceRequest(entry)
+      )
   )
   void scenario.run(simulation).catch((err: unknown) => {
     if (!(err instanceof Stopped)) toast.error("Lor simulation failed")

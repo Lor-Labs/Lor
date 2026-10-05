@@ -42,7 +42,9 @@ const voiceRequestSchema = z.object({
   status: z.enum(voiceRequestStatusEnum.enumValues),
   // Written by the run's stage tool, which validates it (packages/lor).
   result: z.custom<VoiceRequestResult>().nullable(),
+  finishedAt: z.string().datetime().nullable(),
   dismissedAt: z.string().datetime().nullable(),
+  stagedAt: z.string().datetime().nullable(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 })

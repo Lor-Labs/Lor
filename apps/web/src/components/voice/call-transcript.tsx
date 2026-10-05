@@ -1,16 +1,26 @@
 import { useParticipants, useTranscriptions } from "@livekit/components-react"
+import type { VoiceRequestState } from "@repo/realtime-types/events"
 import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar"
+import { Button } from "@repo/ui/components/button"
 import { Skeleton } from "@repo/ui/components/skeleton"
 import { cn } from "@repo/ui/lib/utils"
 import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { formatTime } from "@repo/utils/date"
+import { useQueryClient } from "@tanstack/react-query"
 import { useLayoutEffect, useMemo, useRef } from "react"
 import { captionLine } from "@/components/voice/call-captions"
+import { LorBlocks } from "@/components/voice/lor-blocks"
 import { formatDuration } from "@/components/voice/voice-lobby"
 import {
   type TranscriptPage,
   useCallTranscript,
 } from "@/hooks/use-call-transcript"
+import { useVoiceEntityCards } from "@/hooks/use-voice-entity-cards"
+import {
+  hasResult,
+  stageVoiceRequest,
+  useVoiceRequests,
+} from "@/hooks/use-voice-requests"
 
 // One speaker's phrases within this window share a block.
 const BLOCK_WINDOW_MS = 2 * 60_000
@@ -35,15 +45,21 @@ type Gap = {
   at: number
   durationMs: number
 }
+type LorEntry = { id: string; at: number; request: VoiceRequestState }
 type Block =
   | { kind: "speech"; id: string; participantId: string; lines: Line[] }
   | { kind: "gap"; id: string; gap: Gap }
+  | { kind: "lor"; id: string; request: VoiceRequestState }
 
-function toBlocks(entries: (Line | Gap)[]) {
+function toBlocks(entries: (Line | Gap | LorEntry)[]) {
   const blocks: Block[] = []
   for (const entry of entries) {
     if ("durationMs" in entry) {
       blocks.push({ kind: "gap", id: entry.id, gap: entry })
+      continue
+    }
+    if ("request" in entry) {
+      blocks.push({ kind: "lor", id: entry.id, request: entry.request })
       continue
     }
     const last = blocks.at(-1)
@@ -67,15 +83,28 @@ function toBlocks(entries: (Line | Gap)[]) {
   return blocks
 }
 
-// Saved segments and capture gaps in timeline order, then live lines this
-// device heard that aren't saved yet. Saved segments and captions share an id.
-function buildBlocks(pages: TranscriptPage[], liveLines: Line[]) {
+// Saved segments, capture gaps, and Lor's results in timeline order, then live
+// lines this device heard that aren't saved yet. Saved segments and captions
+// share an id. A result sits where it was asked, just after the words that
+// asked it.
+function buildBlocks(
+  pages: TranscriptPage[],
+  liveLines: Line[],
+  requests: VoiceRequestState[]
+) {
   const first = pages[0]
   if (!first) return []
   const startedAt = Date.parse(first.startedAt)
   const saved = pages.flatMap((page) => page.segments)
   const savedIds = new Set(saved.map((segment) => segment.segmentId))
-  const entries: (Line | Gap)[] = [
+  const entries: (Line | Gap | LorEntry)[] = [
+    ...requests
+      .filter((request) => hasResult(request) || request.status === "failed")
+      .map((request) => ({
+        id: request.id,
+        at: Date.parse(request.createdAt),
+        request,
+      })),
     ...saved.map((segment) => ({
       id: segment.segmentId,
       participantId: segment.participantId,
@@ -111,6 +140,61 @@ function SpeakerAvatar({ speaker }: { speaker: Speaker }) {
   )
 }
 
+// A request to Lor and its result, where it happened. During the call,
+// "Show on stage" brings it back into Lor's window for everyone.
+function LorResult({
+  request,
+  askedBy,
+  canStage,
+}: {
+  request: VoiceRequestState
+  askedBy: string
+  canStage: boolean
+}) {
+  const queryClient = useQueryClient()
+  const cards = useVoiceEntityCards(request, false)
+  return (
+    <div className="flex gap-3 px-4 py-1.5">
+      <div className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-full bg-muted">
+        <img src="/lor-mark.svg" alt="" className="size-6" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold leading-snug">Lor</span>
+          <span className="text-xs text-muted-foreground">
+            {formatTime(new Date(request.createdAt))}
+          </span>
+          {canStage && (
+            <Button
+              size="xs"
+              variant="ghost"
+              className="-my-1 ml-auto text-muted-foreground"
+              onClick={() => void stageVoiceRequest(queryClient, request)}
+            >
+              Show on stage
+            </Button>
+          )}
+        </div>
+        <p className="line-clamp-2 text-xs text-muted-foreground">
+          {askedBy}: “{request.heardText}”
+        </p>
+        <div className="mt-2">
+          {request.result ? (
+            <LorBlocks
+              blocks={request.result.blocks}
+              cards={{ data: cards.data, failed: cards.isError }}
+            />
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Lor couldn't finish this.
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function TranscriptSkeleton() {
   return (
     <div className="flex flex-col gap-4 px-4 py-2">
@@ -143,10 +227,11 @@ function TranscriptView({
     live
   )
   const pages = data?.pages ?? []
+  const { requests, onStage } = useVoiceRequests(sessionId)
   // Live lines wait for every saved page, so nothing is skipped between them.
   const blocks = useMemo(
-    () => buildBlocks(pages, hasNextPage ? NO_LINES : liveLines),
-    [pages, hasNextPage, liveLines]
+    () => buildBlocks(pages, hasNextPage ? NO_LINES : liveLines, requests),
+    [pages, hasNextPage, liveLines, requests]
   )
   const speakers = useMemo(
     () =>
@@ -201,6 +286,20 @@ function TranscriptView({
     >
       {status ??
         blocks.map((block) => {
+          if (block.kind === "lor") {
+            return (
+              <LorResult
+                key={block.id}
+                request={block.request}
+                askedBy={speakerFor(block.request.participantId).name}
+                canStage={
+                  live &&
+                  hasResult(block.request) &&
+                  onStage?.id !== block.request.id
+                }
+              />
+            )
+          }
           if (block.kind === "gap") {
             const { participantId, durationMs } = block.gap
             const who = participantId

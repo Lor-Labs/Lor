@@ -37,13 +37,14 @@ async function fetchCards(requestId: string) {
 
 export type VoiceEntityCards = Awaited<ReturnType<typeof fetchCards>>
 
-export function useVoiceEntityCards(request: VoiceRequestState) {
+// `live`: refresh while shown (Lor's window); the transcript loads once.
+export function useVoiceEntityCards(request: VoiceRequestState, live: boolean) {
   const refs = entityRefsKey(request.result?.blocks ?? [])
   return useQuery({
     queryKey: voiceEntityCardsQueryKey(request.id, refs),
     // The simulator seeds its cards into the cache instead.
     enabled: refs !== "" && !isSimulatedRequest(request),
-    refetchInterval: REFRESH_MS,
+    refetchInterval: live ? REFRESH_MS : false,
     queryFn: () => fetchCards(request.id),
   })
 }

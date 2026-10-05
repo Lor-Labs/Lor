@@ -506,8 +506,24 @@ Chunks (planned 2026-10-01):
      `useVoiceEntityCards` refetches every 60s while the window shows them
      (not while the tab is hidden), keyed by the result's references. The
      simulator's "Shows Linear issues and PRs" seeds sample cards.
-5. [ ] Lor in the transcript: requests and results inline where they
-   happened, "Show on stage", and step-back ("2 of 3").
+5. [x] Lor in the transcript: requests and results inline where they
+   happened, "Show on stage", and step-back ("2 of 3"). As built:
+   - `voice_request.staged_at` (**db:push owed**); the request state now
+     carries `finishedAt` and `stagedAt`. `POST /voice/requests/{id}/stage`
+     (someone in the live call, done requests with a result) sets it and
+     clears `dismissedAt`.
+   - Window rule (`pickOnStage` in `use-voice-requests.ts`): a request in
+     flight always shows; otherwise the request that most recently took the
+     window (made, finished, or staged), unless it's cancelled or cleared.
+     A cancel finishes last, so it closes the window and never brings back an
+     earlier result. Requests replaced mid-run (done, no result) never show.
+   - Step-back: "‹ 2 of 3 ›" in the result header stages the neighbouring
+     result, so everyone moves together.
+   - Transcript: done and failed requests sit at their `createdAt`, just after
+     the words that asked them: Lor's mark, who asked and what was heard, then
+     the blocks. Entity cards load once there (no 60s refresh). "Show on
+     stage" appears during the call on results not already shown. Past
+     sessions show the same entries without the button.
 6. [ ] The approval overlay inside Lor's window.
 
 As built, chunk 1:

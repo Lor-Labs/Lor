@@ -1,4 +1,8 @@
-import { Cancel01Icon } from "@hugeicons/core-free-icons"
+import {
+  ArrowLeft01Icon,
+  ArrowRight01Icon,
+  Cancel01Icon,
+} from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { useParticipants, useTranscriptions } from "@livekit/components-react"
 import type { VoiceRequestState } from "@repo/realtime-types/events"
@@ -29,6 +33,7 @@ import {
 import { useVoiceEntityCards } from "@/hooks/use-voice-entity-cards"
 import {
   isActiveVoiceRequest,
+  stageVoiceRequest,
   voiceRequestsQueryKey,
 } from "@/hooks/use-voice-requests"
 import { apiClient } from "@/lib/api-client"
@@ -220,7 +225,14 @@ export function LorStage({
 
 // Lor's window, the same for everyone in the call. Opens once Jev says Lor
 // was addressed; a finished result stays until someone clears it.
-export function LorWindow({ request }: { request: VoiceRequestState }) {
+export function LorWindow({
+  request,
+  results,
+}: {
+  request: VoiceRequestState
+  // The call's results, oldest first, for stepping back ("2 of 3").
+  results: VoiceRequestState[]
+}) {
   const queryClient = useQueryClient()
   const participants = useParticipants()
   const speakerName =
@@ -235,7 +247,7 @@ export function LorWindow({ request }: { request: VoiceRequestState }) {
       ? "working"
       : "idle"
   const blocks = request.result?.blocks ?? []
-  const entityCards = useVoiceEntityCards(request)
+  const entityCards = useVoiceEntityCards(request, true)
 
   // Cancels Lor's work while it's active; clears the finished result after.
   const close = async () => {
@@ -245,7 +257,11 @@ export function LorWindow({ request }: { request: VoiceRequestState }) {
         entry.id !== request.id
           ? entry
           : active
-            ? { ...entry, status: "cancelled" }
+            ? {
+                ...entry,
+                status: "cancelled",
+                finishedAt: new Date().toISOString(),
+              }
             : { ...entry, dismissedAt: new Date().toISOString() }
       )
     )
@@ -262,6 +278,38 @@ export function LorWindow({ request }: { request: VoiceRequestState }) {
     }
   }
   const closeLabel = active ? "Cancel request" : "Clear"
+
+  // Stepping stages the neighbouring result, so the whole call moves with it.
+  const step = results.findIndex((entry) => entry.id === request.id)
+  const stepTo = (index: number) => {
+    const target = results[index]
+    if (target) void stageVoiceRequest(queryClient, target)
+  }
+  const stepper = step >= 0 && results.length > 1 && (
+    <div className="flex items-center gap-0.5 text-muted-foreground text-xs tabular-nums">
+      <Button
+        size="icon-xs"
+        variant="ghost"
+        aria-label="Earlier result"
+        disabled={step === 0}
+        onClick={() => stepTo(step - 1)}
+      >
+        <HugeiconsIcon icon={ArrowLeft01Icon} strokeWidth={2} />
+      </Button>
+      <span>
+        {step + 1} of {results.length}
+      </span>
+      <Button
+        size="icon-xs"
+        variant="ghost"
+        aria-label="Later result"
+        disabled={step === results.length - 1}
+        onClick={() => stepTo(step + 1)}
+      >
+        <HugeiconsIcon icon={ArrowRight01Icon} strokeWidth={2} />
+      </Button>
+    </div>
+  )
 
   // A picked choice becomes a new request from whoever clicked, which then
   // takes over the window.
@@ -319,8 +367,9 @@ export function LorWindow({ request }: { request: VoiceRequestState }) {
             <p className="line-clamp-2 text-sm text-muted-foreground">
               {request.heardText}
             </p>
-            <div className="ml-auto">
+            <div className="ml-auto flex items-center gap-3">
               <ToolRow requestId={request.id} working={active} />
+              {stepper}
             </div>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">

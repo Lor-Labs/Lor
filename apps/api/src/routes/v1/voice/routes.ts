@@ -318,6 +318,32 @@ export const chooseVoiceRequest = createRoute({
 
 export type ChooseVoiceRequestRoute = typeof chooseVoiceRequest
 
+export const stageVoiceRequest = createRoute({
+  path: "/voice/requests/{requestId}/stage",
+  method: "post",
+  summary: "Show an earlier result in Lor's window",
+  description:
+    "Brings a finished result back into Lor's window for everyone in the live call. It must come from someone in the call.",
+  tags: ["Voice"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: {
+    params: voiceRequestParamsSchema,
+  },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: cancelVoiceRequestResponseSchema,
+      description: "The request now on stage",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.CONFLICT]: conflictSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type StageVoiceRequestRoute = typeof stageVoiceRequest
+
 export const getVoiceRequestEntities = createRoute({
   path: "/voice/requests/{requestId}/entities",
   method: "get",
