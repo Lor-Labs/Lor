@@ -3,6 +3,12 @@ import type {
   VoiceRequestReaction,
   VoiceRequestState,
 } from "@repo/realtime-types/events"
+import {
+  hasVoiceResult,
+  isActiveVoiceRequest,
+  mergeVoiceRequest,
+  pickVoiceRequestOnStage,
+} from "@repo/realtime-types/voice-requests"
 import { toast } from "@repo/ui/components/toast"
 import {
   type QueryClient,
@@ -15,21 +21,10 @@ import { addLorReaction, addLorTool } from "@/components/voice/lor-stage-store"
 import { useSocket } from "@/context/socket-context"
 import { apiClient } from "@/lib/api-client"
 
+export { isActiveVoiceRequest, hasVoiceResult as hasResult }
+
 export function voiceRequestsQueryKey(sessionId: string) {
   return ["voice-requests", sessionId] as const
-}
-
-const ACTIVE_STATUSES: ReadonlySet<VoiceRequestState["status"]> = new Set([
-  "listening",
-  "queued",
-  "working",
-  "awaiting_approval",
-])
-
-export function isActiveVoiceRequest(
-  request: Pick<VoiceRequestState, "status">
-) {
-  return ACTIVE_STATUSES.has(request.status)
 }
 
 export function applyVoiceRequestUpdate(
@@ -38,17 +33,7 @@ export function applyVoiceRequestUpdate(
 ) {
   queryClient.setQueryData<VoiceRequestState[]>(
     voiceRequestsQueryKey(request.sessionId),
-    (current) => {
-      const list = current ?? []
-      const existing = list.find((entry) => entry.id === request.id)
-      // Events from the transcriber and the API can arrive out of order.
-      if (existing && existing.updatedAt > request.updatedAt) return list
-      const rest = list.filter((entry) => entry.id !== request.id)
-      if (request.status === "rejected") return rest
-      return [...rest, request].sort((a, b) =>
-        a.createdAt.localeCompare(b.createdAt)
-      )
-    }
+    (current) => mergeVoiceRequest(current ?? [], request)
   )
 }
 
@@ -104,41 +89,11 @@ export function useVoiceRequests(sessionId: string | null) {
   }, [socket, sessionId, queryClient])
 
   const requests = query.data ?? NO_REQUESTS
-  const results = requests.filter(hasResult)
-  return { requests, results, onStage: pickOnStage(requests) }
+  const results = requests.filter(hasVoiceResult)
+  return { requests, results, onStage: pickVoiceRequestOnStage(requests) }
 }
 
 const NO_REQUESTS: VoiceRequestState[] = []
-
-export function hasResult(request: VoiceRequestState) {
-  return request.status === "done" && request.result !== null
-}
-
-const time = (value: string | null) => (value ? Date.parse(value) : 0)
-
-// When a request last took Lor's window: it was made, it finished, or
-// someone staged it again.
-const stageTime = (request: VoiceRequestState) =>
-  Math.max(
-    time(request.createdAt),
-    time(request.finishedAt),
-    time(request.stagedAt)
-  )
-
-// What Lor's window shows. A request in flight always does. Otherwise the
-// request that most recently took the window, until it's cleared; a cancel
-// takes the window and closes it, so it never brings back an earlier one.
-// Requests that a later one replaced mid-run (done, no result) never show.
-function pickOnStage(requests: VoiceRequestState[]) {
-  const latest = requests.at(-1)
-  if (latest && isActiveVoiceRequest(latest)) return latest
-  let top: VoiceRequestState | null = null
-  for (const request of requests) {
-    if (request.status === "done" && !request.result) continue
-    if (!top || stageTime(request) >= stageTime(top)) top = request
-  }
-  return top && top.status !== "cancelled" && !top.dismissedAt ? top : null
-}
 
 // Brings a result back into Lor's window for everyone in the call.
 export async function stageVoiceRequest(

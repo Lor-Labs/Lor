@@ -606,7 +606,16 @@ stage", and step-back wait for the rest of V6.
   session and the `audio` background mode keeps the call alive while the mic
   is on (SDK 3.0.0 README). Android background needs a foreground service,
   not done. The share viewer from V0 stays as is.
-- [ ] Essentials 2: Lor's window, read-only.
+- [x] Essentials 2: Lor's window, read-only. The window rules
+  (`pickVoiceRequestOnStage`, `mergeVoiceRequest`, `isActiveVoiceRequest`,
+  `hasVoiceResult`) moved to `@repo/realtime-types/voice-requests`, shared by
+  web and mobile. Mobile `useVoiceRequests` (query + `voice:request:updated`)
+  feeds `LorWindow` above the tiles: Lor's mark pulsing (the app's `Shimmer`)
+  while listening or working, "Listening to …", the heard text, every block
+  type (answers and tables through `MessageContent`; Linear and GitHub as
+  compact rows from the entities route, refreshed every 60s), "Waiting for …
+  to approve" without buttons, and the X to cancel or clear. No tool logos,
+  reactions, live words, choices to tap, step-back, or "Show on stage" yet.
 
 - Voice channel screen (history, live session, Join or "Transfer here") from
   `apps/mobile/src/app/channel/[channelId]/index.tsx` for voice channels.

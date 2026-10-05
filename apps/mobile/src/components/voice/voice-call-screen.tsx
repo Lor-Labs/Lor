@@ -32,7 +32,9 @@ import { Avatar } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { IconButton } from "@/components/ui/icon-button"
 import { Screen } from "@/components/ui/screen"
+import { LorWindow } from "@/components/voice/lor-window"
 import { useSocket } from "@/context/socket-context"
+import { useVoiceRequests } from "@/hooks/use-voice-requests"
 import { api, responseMessage } from "@/lib/api"
 import { holdThreadRoom } from "@/lib/thread-rooms"
 
@@ -99,12 +101,15 @@ function ParticipantTile({
 }
 
 function CallStage({
+  sessionId,
   onLeave,
   onOpenChat,
 }: {
+  sessionId: string | null
   onLeave: () => void
   onOpenChat?: () => void
 }) {
+  const lorRequest = useVoiceRequests(sessionId)
   const [foreground, danger] = useThemeColor(["foreground", "danger"])
   const allCameraTracks = useTracks([
     { source: Track.Source.Camera, withPlaceholder: true },
@@ -149,6 +154,7 @@ function CallStage({
           />
         </View>
       )}
+      {lorRequest && <LorWindow key={lorRequest.id} request={lorRequest} />}
       <ScrollView contentContainerClassName="flex-row flex-wrap gap-three p-three">
         {cameraTracks.map((trackRef) => (
           <ParticipantTile
@@ -357,7 +363,11 @@ export function VoiceCallScreen({
           </Text>
         </View>
         {connected ? (
-          <CallStage onLeave={() => void leave()} onOpenChat={openChat} />
+          <CallStage
+            onLeave={() => void leave()}
+            onOpenChat={openChat}
+            sessionId={session?.sessionId ?? null}
+          />
         ) : (
           <View className="flex-1 items-center justify-center">
             <Button isDisabled={joining} onPress={() => void join()}>

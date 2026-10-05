@@ -97,9 +97,16 @@ Deliberately parked until the composer/keyboard rework settles (active in messag
 - [ ] **Formatting toolbar** — mobile composer's text-format button is also a no-op.
 - [ ] **Bio editing** — profile sheet displays bio but nothing can edit it anywhere (column is dormant since web removed it). Needs a product call on whether bios come back before any UI work.
 
+## Voice calls (reference/voice-channels-runbook.md, V6)
+
+- [x] Join, mute, camera, tiles, share viewer, call chat, leave — 2026-10-05
+- [x] Lor's window, read-only (all block types, Linear/GitHub rows, approval waiting line, cancel/clear) — 2026-10-05
+- [ ] Approval buttons, Transcript tab, "Show on stage", step-back, tappable question choices, tool logos and reactions in Lor's window
+- [ ] Persistent call pill across navigation (today leaving the call screen ends the call)
+- [ ] Landscape full-screen share viewer, push deep links into a call, Android background (foreground service)
+
 ## Explicitly not gaps (don't chase)
 
-- **Voice** — web has no real voice implementation either (no WebRTC/LiveKit); voice channels are just a list type.
 - **Onboarding dialog, integration OAuth setup (GitHub/Linear), channel webhooks tab** — inherently web-side.
 
 ## Done (recent parity work)

@@ -9,7 +9,8 @@
     "./loops": "./src/loops.ts",
     "./queues": "./src/queues.ts",
     "./rooms": "./src/rooms.ts",
-    "./uploads": "./src/uploads.ts"
+    "./uploads": "./src/uploads.ts",
+    "./voice-requests": "./src/voice-requests.ts"
   },
   "scripts": {
     "check-types": "tsc --noEmit"
