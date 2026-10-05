@@ -29,6 +29,7 @@ import {
   startRunReplay,
 } from "@/lib/run-replay"
 import type { AppSocket } from "@/lib/socket"
+import { holdThreadRoom } from "@/lib/thread-rooms"
 
 type CurrentUser = {
   id: string
@@ -648,7 +649,7 @@ export function useThreadMessages({
       )
     }
 
-    if (socket.connected) joinThread()
+    const releaseRoom = holdThreadRoom(socket, threadRootId)
     socket.on("connect", rejoinThread)
     socket.on("message:created", receiveMessage)
     socket.on("message:updated", updateMessage)
@@ -666,7 +667,7 @@ export function useThreadMessages({
     socket.on("message:thread:updated", updateThread)
 
     return () => {
-      if (socket.connected) socket.emit("thread:leave", { threadRootId })
+      releaseRoom()
       socket.off("connect", rejoinThread)
       socket.off("message:created", receiveMessage)
       socket.off("message:updated", updateMessage)

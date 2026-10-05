@@ -85,10 +85,11 @@ export function ThreadMessageList({
 
   const orderedMessages = useMemo(() => [...messages].reverse(), [messages])
   const items = useMemo<ThreadListItem[]>(() => {
-    const next: ThreadListItem[] = [
-      { kind: "root", message: root },
-      { kind: "count" },
-    ]
+    // A call chat's root is the session itself, with nothing to read.
+    const next: ThreadListItem[] =
+      root.type === "voice_session"
+        ? []
+        : [{ kind: "root", message: root }, { kind: "count" }]
     if (hasOlder || isLoadingOlder || paginationError) {
       next.push({ kind: "pagination" })
     }

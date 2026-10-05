@@ -1,4 +1,5 @@
 import CallEnd01Icon from "@hugeicons/core-free-icons/CallEnd01Icon"
+import Message01Icon from "@hugeicons/core-free-icons/Message01Icon"
 import Mic01Icon from "@hugeicons/core-free-icons/Mic01Icon"
 import MicOff01Icon from "@hugeicons/core-free-icons/MicOff01Icon"
 import Video01Icon from "@hugeicons/core-free-icons/Video01Icon"
@@ -18,7 +19,7 @@ import { SymbolView } from "expo-symbols"
 import { useThemeColor } from "heroui-native/hooks"
 import { cn } from "heroui-native/utils"
 import { DisconnectReason, Room, RoomEvent, Track } from "livekit-client"
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   Alert,
   ScrollView,
@@ -31,7 +32,9 @@ import { Avatar } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { IconButton } from "@/components/ui/icon-button"
 import { Screen } from "@/components/ui/screen"
+import { useSocket } from "@/context/socket-context"
 import { api, responseMessage } from "@/lib/api"
+import { holdThreadRoom } from "@/lib/thread-rooms"
 
 // The `three` spacing token (12pt), used for the grid's padding and gap.
 // aspectRatio gave these tiles no height on device, so they're sized here.
@@ -95,7 +98,13 @@ function ParticipantTile({
   )
 }
 
-function CallStage({ onLeave }: { onLeave: () => void }) {
+function CallStage({
+  onLeave,
+  onOpenChat,
+}: {
+  onLeave: () => void
+  onOpenChat?: () => void
+}) {
   const [foreground, danger] = useThemeColor(["foreground", "danger"])
   const allCameraTracks = useTracks([
     { source: Track.Source.Camera, withPlaceholder: true },
@@ -176,6 +185,20 @@ function CallStage({ onLeave }: { onLeave: () => void }) {
             strokeWidth={2}
           />
         </IconButton>
+        {onOpenChat && (
+          <IconButton
+            accessibilityLabel="Open call chat"
+            onPress={onOpenChat}
+            variant="secondary"
+          >
+            <HugeiconsIcon
+              color={foreground}
+              icon={Message01Icon}
+              size={20}
+              strokeWidth={2}
+            />
+          </IconButton>
+        )}
         <IconButton
           accessibilityLabel="Leave call"
           onPress={onLeave}
@@ -208,9 +231,27 @@ export function VoiceCallScreen({
   )
   const [connected, setConnected] = useState(false)
   const [joining, setJoining] = useState(false)
+  // The joined session and its call chat, from the join response.
+  const [session, setSession] = useState<{
+    sessionId: string
+    threadRootId: string | null
+  } | null>(null)
+  const sessionRef = useRef(session)
+  sessionRef.current = session
   // Set when the screen closes, so a join still in flight can't leave a call
   // and microphone running without it.
   const closedRef = useRef(false)
+  const socket = useSocket()
+
+  // Tells the server right away; the LiveKit webhook is the fallback.
+  const leave = useCallback(async () => {
+    const current = sessionRef.current
+    await room.disconnect()
+    if (!current) return
+    await api.v1.voice.sessions[":sessionId"].leave
+      .$post({ param: { sessionId: current.sessionId } })
+      .catch(() => undefined)
+  }, [room])
 
   useEffect(() => {
     closedRef.current = false
@@ -227,9 +268,31 @@ export function VoiceCallScreen({
     return () => {
       closedRef.current = true
       room.off(RoomEvent.Disconnected, handleDisconnected)
-      void room.disconnect()
+      void leave()
     }
-  }, [room])
+  }, [room, leave])
+
+  // The call chat's room carries the chat and Lor's window, so it's held for
+  // the whole call, not just while the chat is open.
+  const threadRootId = connected ? session?.threadRootId : null
+  useEffect(() => {
+    if (!socket || !threadRootId) return
+    const release = holdThreadRoom(socket, threadRootId)
+    const rejoin = () => socket.emit("thread:join", { threadRootId })
+    socket.on("connect", rejoin)
+    return () => {
+      socket.off("connect", rejoin)
+      release()
+    }
+  }, [socket, threadRootId])
+
+  const openChat = threadRootId
+    ? () =>
+        router.push({
+          pathname: "/channel/[channelId]/thread/[threadRootId]",
+          params: { channelId, threadRootId },
+        } as never)
+    : undefined
 
   const join = async () => {
     setJoining(true)
@@ -242,8 +305,9 @@ export function VoiceCallScreen({
           await responseMessage(response, "Could not join the call")
         )
       }
-      const { url, token } = await response.json()
+      const { url, token, sessionId, threadRootId } = await response.json()
       if (closedRef.current) return
+      setSession({ sessionId, threadRootId })
       await room.connect(url, token)
       if (closedRef.current) {
         void room.disconnect()
@@ -293,7 +357,7 @@ export function VoiceCallScreen({
           </Text>
         </View>
         {connected ? (
-          <CallStage onLeave={() => void room.disconnect()} />
+          <CallStage onLeave={() => void leave()} onOpenChat={openChat} />
         ) : (
           <View className="flex-1 items-center justify-center">
             <Button isDisabled={joining} onPress={() => void join()}>

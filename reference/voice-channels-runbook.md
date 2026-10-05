@@ -591,6 +591,23 @@ As built, chunk 2a (replaces chunk 1's 900ms quiet timer):
 
 ### [ ] V6 — iPhone app
 
+Phone essentials first (Jacob, 2026-10-05: the team takes calls on phones),
+then V7, then the rest of V6. Essentials = join and take part, see shares,
+open the call chat, and see Lor's window read-only. Approval buttons, the
+Transcript tab, the call pill, landscape shares, push deep links, "Show on
+stage", and step-back wait for the rest of V6.
+
+- [x] Essentials 1: the existing call screen keeps the join response's
+  session and call chat ids, holds the chat's thread room for the whole call
+  (`lib/thread-rooms.ts` counts holders, so closing the chat screen no longer
+  leaves the room Lor's events use), adds a Chat button that opens the
+  thread screen (titled "Call chat", no root row), and calls the leave route
+  on leave. iOS audio needs no new code: `registerGlobals()` configures the
+  session and the `audio` background mode keeps the call alive while the mic
+  is on (SDK 3.0.0 README). Android background needs a foreground service,
+  not done. The share viewer from V0 stays as is.
+- [ ] Essentials 2: Lor's window, read-only.
+
 - Voice channel screen (history, live session, Join or "Transfer here") from
   `apps/mobile/src/app/channel/[channelId]/index.tsx` for voice channels.
 - Call screen: camera grid, share viewer with landscape and full screen (the app
