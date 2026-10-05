@@ -392,7 +392,7 @@ async function parkRun(request: LoadedRequest, runId: string) {
     approvalId: approval.id,
     label: approval.description,
     toolName: approval.toolName ?? "",
-    approverUserIds: await listCallApprovers(request, approval.target),
+    approvers: await listCallApprovers(request, approval.target),
   })
   for (const state of parked) publish(request, state)
   const waiting = parked.find((state) => state.status === "awaiting_approval")
@@ -424,19 +424,20 @@ async function watchApproval(data: VoiceApprovalWatchJobData) {
     return
   }
 
-  const approverUserIds = await listCallApprovers(request, approval.target)
-  if (approverUserIds.join() !== request.approval.approverUserIds.join()) {
+  const approvers = await listCallApprovers(request, approval.target)
+  const ids = (list: { userId: string }[]) =>
+    list.map((approver) => approver.userId).join()
+  if (ids(approvers) !== ids(request.approval.approvers)) {
     publish(
       request,
       await setVoiceRequestApprovers(request.id, {
         ...request.approval,
-        approverUserIds,
+        approvers,
       })
     )
   }
   const now = Date.now()
-  const missingSince =
-    approverUserIds.length > 0 ? null : (data.missingSince ?? now)
+  const missingSince = approvers.length > 0 ? null : (data.missingSince ?? now)
   if (missingSince !== null && now - missingSince >= APPROVER_GRACE_MS) {
     if (await settleApprovalUnresolved(data.approvalId, "rejected")) {
       await enqueueApprovalResume(request.id, data.approvalId)

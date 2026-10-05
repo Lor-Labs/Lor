@@ -1,6 +1,7 @@
 import { TestTube01Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { useLocalParticipant } from "@livekit/components-react"
+import { authClient } from "@repo/auth/client"
 import type {
   RealtimeVoiceBlock,
   VoiceRequestState,
@@ -84,7 +85,9 @@ class Simulation {
   constructor(
     readonly queryClient: QueryClient,
     readonly sessionId: string,
-    readonly participantId: string
+    readonly participantId: string,
+    // The person at this device, who approves simulated approvals.
+    readonly user: { userId: string; name: string }
   ) {}
 
   wait(ms: number) {
@@ -139,7 +142,8 @@ class Simulation {
       set: (
         status: VoiceRequestState["status"],
         heardText = heard,
-        result: VoiceRequestState["result"] = null
+        result: VoiceRequestState["result"] = null,
+        approval: VoiceRequestState["approval"] = null
       ) => {
         const list =
           this.queryClient.getQueryData<VoiceRequestState[]>(
@@ -159,12 +163,10 @@ class Simulation {
           heardText,
           status,
           result,
-          finishedAt: ["listening", "queued", "working"].includes(status)
-            ? null
-            : now,
+          finishedAt: isActiveVoiceRequest({ status }) ? null : now,
           dismissedAt: null,
           stagedAt: null,
-          approval: null,
+          approval,
           createdAt,
           updatedAt: now,
         })
@@ -418,6 +420,20 @@ const SCENARIOS: Scenario[] = [
     },
   },
   {
+    label: "Needs approval",
+    run: async (sim) => {
+      const request = sim.request()
+      await ask(sim, request, "Lor, file a ticket for the Deepgram retry")
+      await work(sim, request, ["search_linear"])
+      request.set("awaiting_approval", undefined, null, {
+        approvalId: simulatedId(),
+        label: "Create Linear issue “Retry the Deepgram stream on 1011”",
+        toolName: "create_linear_issue",
+        approvers: [sim.user],
+      })
+    },
+  },
+  {
     label: "Asks which one",
     run: async (sim) => {
       const request = sim.request()
@@ -515,6 +531,38 @@ const SCENARIOS: Scenario[] = [
   },
 ]
 
+// Approve or Reject on a simulated approval: Lor resumes, then answers.
+export function resolveSimulatedApproval(
+  queryClient: QueryClient,
+  request: VoiceRequestState,
+  approved: boolean
+) {
+  const update = (patch: Partial<VoiceRequestState>) =>
+    applyVoiceRequestUpdate(queryClient, {
+      ...request,
+      ...patch,
+      updatedAt: new Date().toISOString(),
+    })
+  update({ status: "working", approval: null })
+  if (approved) addLorTool(request.id, "create_linear_issue")
+  setTimeout(() => {
+    update({
+      status: "done",
+      finishedAt: new Date().toISOString(),
+      result: {
+        blocks: [
+          {
+            type: "answer",
+            markdown: approved
+              ? "Filed **ENG-416** Retry the Deepgram stream on 1011."
+              : "Okay, I didn't file it.",
+          },
+        ],
+      },
+    })
+  }, 1_500)
+}
+
 let current: Simulation | null = null
 
 function play(scenario: Scenario, simulation: Simulation) {
@@ -539,6 +587,7 @@ export function LorSimulatorMenu() {
   const { call } = useVoiceCall()
   const { localParticipant } = useLocalParticipant()
   const queryClient = useQueryClient()
+  const { data: session } = authClient.useSession()
   if (!call) return null
 
   return (
@@ -566,7 +615,11 @@ export function LorSimulatorMenu() {
                   new Simulation(
                     queryClient,
                     call.sessionId,
-                    localParticipant.identity
+                    localParticipant.identity,
+                    {
+                      userId: session?.user.id ?? "",
+                      name: session?.user.name ?? "You",
+                    }
                   )
                 )
               }

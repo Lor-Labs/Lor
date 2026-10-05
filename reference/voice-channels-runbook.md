@@ -524,7 +524,7 @@ Chunks (planned 2026-10-01):
      the blocks. Entity cards load once there (no 60s refresh). "Show on
      stage" appears during the call on results not already shown. Past
      sessions show the same entries without the button.
-6. [ ] The approval overlay inside Lor's window. Decided 2026-10-04 (Jacob):
+6. [x] The approval overlay inside Lor's window. Decided 2026-10-04 (Jacob):
    approvals never leave the call. A gated tool pauses only when someone
    connected to the call can resolve it; otherwise it's refused with a reason
    Lor passes on. Tools stay bound either way (prompt cache). The last
@@ -546,8 +546,15 @@ Chunks (planned 2026-10-01):
      voice job with `resumeApprovalId`, which replays the paused run via
      `buildApprovalContinuation`. Cancel expires the pending approval. Voice
      approvals are left out of the channel approvals list.
-   - [ ] 6b (web): the overlay (blurred window, action, approvers, Approve /
-     Reject), waiting entries in the transcript, simulator scenario.
+   - [x] 6b (web): `ApprovalOverlay` in `lor-window.tsx` blurs the window
+     and shows the tool's logo, "Lor needs approval", and the action label.
+     Approvers present (the stored list now carries names) get Approve /
+     Reject, which call the existing approvals routes; everyone else sees
+     "Waiting for Alice or Bob to approve". The X stays above it and cancels.
+     `awaiting_approval` counts as in flight, so a waiting request holds the
+     window until a newer request takes it; the transcript then shows it as
+     "Waiting for approval: …" with "Show on stage". The simulator's "Needs
+     approval" scenario resolves locally.
 
 As built, chunk 1:
 

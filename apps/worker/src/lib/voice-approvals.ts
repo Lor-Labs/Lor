@@ -56,10 +56,15 @@ export async function listCallApprovers(scope: CallScope, target: string) {
     db
       .selectDistinct({
         userId: schema.voiceSessionParticipant.userId,
+        name: schema.user.name,
         role: schema.workspaceMember.role,
         ownerId: schema.workspace.ownerId,
       })
       .from(schema.voiceSessionParticipant)
+      .innerJoin(
+        schema.user,
+        eq(schema.user.id, schema.voiceSessionParticipant.userId)
+      )
       .innerJoin(
         schema.workspaceMember,
         and(
@@ -81,7 +86,7 @@ export async function listCallApprovers(scope: CallScope, target: string) {
         )
       ),
   ])
-  const approvers: string[] = []
+  const approvers: { userId: string; name: string }[] = []
   for (const person of people) {
     const authority = {
       role: person.role,
@@ -92,7 +97,9 @@ export async function listCallApprovers(scope: CallScope, target: string) {
       : authority.isOwner
     if (!allowed) continue
     const access = await resolveChannelAccess(person.userId, scope.channelId)
-    if (access.ok && access.access.canWrite) approvers.push(person.userId)
+    if (access.ok && access.access.canWrite) {
+      approvers.push({ userId: person.userId, name: person.name })
+    }
   }
   return approvers
 }

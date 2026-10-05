@@ -5,6 +5,7 @@ import {
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { useParticipants, useTranscriptions } from "@livekit/components-react"
+import { authClient } from "@repo/auth/client"
 import type { VoiceRequestState } from "@repo/realtime-types/events"
 import { Button } from "@repo/ui/components/button"
 import { toast } from "@repo/ui/components/toast"
@@ -23,6 +24,7 @@ import { captionLine } from "@/components/voice/call-captions"
 import { LorBlocks } from "@/components/voice/lor-blocks"
 import {
   isSimulatedRequest,
+  resolveSimulatedApproval,
   useSimulatedCaptions,
 } from "@/components/voice/lor-simulator"
 import {
@@ -187,6 +189,98 @@ function ToolRow({
   )
 }
 
+type PendingApproval = NonNullable<VoiceRequestState["approval"]>
+
+const orList = new Intl.ListFormat(undefined, { type: "disjunction" })
+
+// A paused request's approval, over a blurred window. Only people in the call
+// who can resolve it get the buttons; the server checks again.
+function ApprovalOverlay({
+  request,
+  approval,
+}: {
+  request: VoiceRequestState
+  approval: PendingApproval
+}) {
+  const queryClient = useQueryClient()
+  const { data: session } = authClient.useSession()
+  const [sending, setSending] = useState(false)
+  const canResolve = approval.approvers.some(
+    (approver) => approver.userId === session?.user.id
+  )
+  const Icon = toolIcon(approval.toolName)
+
+  const resolve = async (resolution: "approve" | "reject") => {
+    if (isSimulatedRequest(request)) {
+      resolveSimulatedApproval(queryClient, request, resolution === "approve")
+      return
+    }
+    setSending(true)
+    const res = await apiClient.v1.approvals[":approvalId"][resolution]
+      .$post({ param: { approvalId: approval.approvalId } })
+      .catch(() => null)
+    // On success the request resumes, and its update removes this overlay.
+    if (!res?.ok) {
+      toast.error("Couldn't record that. Try again.")
+      setSending(false)
+    }
+  }
+
+  const names = approval.approvers.map((approver) => approver.name)
+  const waiting =
+    names.length > 0
+      ? `Waiting for ${orList.format(names)} to approve`
+      : "Waiting for someone who can approve"
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.2, ease: EASE_OUT }}
+      className="absolute inset-0 z-[5] flex items-center justify-center bg-background/40 p-6 backdrop-blur-sm"
+    >
+      <motion.div
+        initial={{ scale: 0.96, y: 6 }}
+        animate={{ scale: 1, y: 0 }}
+        transition={{ duration: 0.25, ease: EASE_OUT }}
+        className="flex w-full max-w-sm flex-col gap-4 rounded-xl border border-border bg-popover p-5 shadow-lg"
+      >
+        <div className="flex flex-col gap-1.5">
+          <span className="flex items-center gap-2 text-muted-foreground text-sm">
+            <Icon className="size-4" />
+            Lor needs approval
+          </span>
+          <p className="text-balance font-medium">{approval.label}</p>
+        </div>
+        {canResolve ? (
+          <div className="flex gap-2">
+            <Button
+              className="flex-1"
+              disabled={sending}
+              onClick={() => void resolve("approve")}
+            >
+              Approve
+            </Button>
+            <Button
+              className="flex-1"
+              variant="outline"
+              disabled={sending}
+              onClick={() => void resolve("reject")}
+            >
+              Reject
+            </Button>
+          </div>
+        ) : (
+          <p aria-live="polite" className="text-muted-foreground text-sm">
+            {waiting}
+          </p>
+        )}
+      </motion.div>
+    </motion.div>
+  )
+}
+
 // Width of Lor's window beside a screen share.
 const DOCKED_WIDTH = 400
 
@@ -241,9 +335,11 @@ export function LorWindow({
     )?.name || "someone"
   const active = isActiveVoiceRequest(request)
   const listening = request.status === "listening"
+  const approval =
+    request.status === "awaiting_approval" ? request.approval : null
   const markState: MarkState = listening
     ? "listening"
-    : active
+    : active && !approval
       ? "working"
       : "idle"
   const blocks = request.result?.blocks ?? []
@@ -368,7 +464,7 @@ export function LorWindow({
               {request.heardText}
             </p>
             <div className="ml-auto flex items-center gap-3">
-              <ToolRow requestId={request.id} working={active} />
+              <ToolRow requestId={request.id} working={active && !approval} />
               {stepper}
             </div>
           </div>
@@ -408,9 +504,18 @@ export function LorWindow({
               </span>
             )}
           </div>
-          <ToolRow requestId={request.id} working={active} />
+          <ToolRow requestId={request.id} working={active && !approval} />
         </div>
       )}
+      <AnimatePresence>
+        {approval && (
+          <ApprovalOverlay
+            key={approval.approvalId}
+            request={request}
+            approval={approval}
+          />
+        )}
+      </AnimatePresence>
     </motion.div>
   )
 }

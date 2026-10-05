@@ -99,7 +99,12 @@ function buildBlocks(
   const savedIds = new Set(saved.map((segment) => segment.segmentId))
   const entries: (Line | Gap | LorEntry)[] = [
     ...requests
-      .filter((request) => hasResult(request) || request.status === "failed")
+      .filter(
+        (request) =>
+          hasResult(request) ||
+          request.status === "failed" ||
+          request.status === "awaiting_approval"
+      )
       .map((request) => ({
         id: request.id,
         at: Date.parse(request.createdAt),
@@ -178,16 +183,23 @@ function LorResult({
         <p className="line-clamp-2 text-xs text-muted-foreground">
           {askedBy}: “{request.heardText}”
         </p>
-        <div className="mt-2">
-          {request.result ? (
+        <div className="mt-2 flex flex-col gap-2">
+          {request.result && (
             <LorBlocks
               blocks={request.result.blocks}
               cards={{ data: cards.data, failed: cards.isError }}
             />
-          ) : (
+          )}
+          {request.approval ? (
             <p className="text-sm text-muted-foreground">
-              Lor couldn't finish this.
+              Waiting for approval: {request.approval.label}
             </p>
+          ) : (
+            request.status === "failed" && (
+              <p className="text-sm text-muted-foreground">
+                Lor couldn't finish this.
+              </p>
+            )
           )}
         </div>
       </div>
@@ -294,7 +306,8 @@ function TranscriptView({
                 askedBy={speakerFor(block.request.participantId).name}
                 canStage={
                   live &&
-                  hasResult(block.request) &&
+                  (hasResult(block.request) ||
+                    block.request.status === "awaiting_approval") &&
                   onStage?.id !== block.request.id
                 }
               />

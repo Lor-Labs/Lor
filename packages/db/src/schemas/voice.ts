@@ -199,7 +199,7 @@ export type VoiceRequestApproval = {
   approvalId: string
   label: string
   toolName: string
-  approverUserIds: string[]
+  approvers: { userId: string; name: string }[]
 }
 
 // What Lor shows in its window, composed by the run. Generic blocks carry

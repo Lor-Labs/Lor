@@ -23,9 +23,12 @@ const ACTIVE_STATUSES: ReadonlySet<VoiceRequestState["status"]> = new Set([
   "listening",
   "queued",
   "working",
+  "awaiting_approval",
 ])
 
-export function isActiveVoiceRequest(request: VoiceRequestState) {
+export function isActiveVoiceRequest(
+  request: Pick<VoiceRequestState, "status">
+) {
   return ACTIVE_STATUSES.has(request.status)
 }
 

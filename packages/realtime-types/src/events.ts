@@ -87,7 +87,7 @@ export type VoiceRequestState = {
     approvalId: string
     label: string
     toolName: string
-    approverUserIds: string[]
+    approvers: { userId: string; name: string }[]
   } | null
   finishedAt: string | null
   // Someone cleared the finished result from Lor's window.
