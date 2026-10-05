@@ -110,6 +110,13 @@ and conversation memory first, live voice interaction with Lor later. It records
 product direction and open decisions, not an as-built implementation. Broader
 priorities live in `reference/product-direction.md`.
 
+### Code channels (multiplayer AI coding)
+
+The target architecture for code channels — per-step checkpoints (Postgres
+conversation + Cloudflare Artifacts commits), fork/handoff/rewind, local clone,
+and Yjs live editing — lives in `reference/code-channels.md`. Design only, not
+built; its locked decisions and rejected alternatives explain the shape.
+
 ### Attachment search + reranking
 
 Attachment indexing (screenshots, documents) and the Lor reranker are executed
