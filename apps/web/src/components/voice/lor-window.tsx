@@ -21,7 +21,7 @@ import { AnimatePresence, motion } from "motion/react"
 import { type ReactNode, useState } from "react"
 import { toolIcon } from "@/components/chat/lor-tool-trail"
 import { captionLine } from "@/components/voice/call-captions"
-import { LorBlocks } from "@/components/voice/lor-blocks"
+import { LorBlocks, LorFailedNotice } from "@/components/voice/lor-blocks"
 import {
   isSimulatedRequest,
   resolveSimulatedApproval,
@@ -499,9 +499,7 @@ export function LorWindow({
               {listening ? <LiveWords request={request} /> : request.heardText}
             </p>
             {request.status === "failed" && (
-              <span className="text-sm text-muted-foreground">
-                Lor couldn't finish this.
-              </span>
+              <LorFailedNotice className="self-center" />
             )}
           </div>
           <ToolRow requestId={request.id} working={active && !approval} />

@@ -1,3 +1,5 @@
+import AlertCircleIcon from "@hugeicons/core-free-icons/AlertCircleIcon"
+import { HugeiconsIcon } from "@hugeicons/react-native"
 import { useParticipants } from "@livekit/react-native"
 import type { VoiceRequestState } from "@repo/realtime-types/events"
 import { isActiveVoiceRequest } from "@repo/realtime-types/voice-requests"
@@ -9,7 +11,10 @@ import Svg, { Defs, LinearGradient, Path, Stop } from "react-native-svg"
 import { Shimmer } from "@/components/shimmer"
 import { IconButton } from "@/components/ui/icon-button"
 import { LorBlocks } from "@/components/voice/lor-blocks"
-import { voiceRequestsQueryKey } from "@/hooks/use-voice-requests"
+import {
+  isSimulatedRequest,
+  voiceRequestsQueryKey,
+} from "@/hooks/use-voice-requests"
 import { api } from "@/lib/api"
 
 // Lor's brand mark (apps/web/public/lor-mark.svg).
@@ -50,7 +55,7 @@ function orList(names: string[]) {
 // show who can approve; the buttons stay on desktop for now.
 export function LorWindow({ request }: { request: VoiceRequestState }) {
   const queryClient = useQueryClient()
-  const [foreground] = useThemeColor(["foreground"])
+  const [foreground, danger] = useThemeColor(["foreground", "danger"])
   const participants = useParticipants()
   const speakerName =
     participants.find(
@@ -74,6 +79,7 @@ export function LorWindow({ request }: { request: VoiceRequestState }) {
             : { ...entry, dismissedAt: now }
       )
     )
+    if (isSimulatedRequest(request)) return
     const action =
       api.v1.voice.requests[":requestId"][active ? "cancel" : "dismiss"]
     const res = await action
@@ -130,9 +136,17 @@ export function LorWindow({ request }: { request: VoiceRequestState }) {
           </View>
         )}
         {request.status === "failed" && (
-          <Text className="text-[14px] text-muted">
-            Lor couldn't finish this.
-          </Text>
+          <View className="flex-row items-center gap-two rounded-lor-sm bg-danger-soft px-three py-two">
+            <HugeiconsIcon
+              color={danger}
+              icon={AlertCircleIcon}
+              size={16}
+              strokeWidth={2}
+            />
+            <Text className="text-[14px] font-medium text-danger">
+              Lor couldn't finish this
+            </Text>
+          </View>
         )}
       </ScrollView>
     </View>

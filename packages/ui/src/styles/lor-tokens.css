@@ -40,6 +40,8 @@
   --color-lor-success-fg-dark: oklch(0.18 0.03 150);
   --color-lor-danger: oklch(0.55 0.2 25);
   --color-lor-danger-dark: oklch(0.62 0.19 25);
+  --color-lor-urgent: oklch(0.68 0.17 45);
+  --color-lor-urgent-dark: oklch(0.7 0.17 45);
   --spacing-one: 4px;
   --spacing-two: 8px;
   --spacing-three: 12px;

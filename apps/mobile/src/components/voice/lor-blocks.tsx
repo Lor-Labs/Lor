@@ -3,16 +3,19 @@ import type {
   VoiceRequestState,
 } from "@repo/realtime-types/events"
 import { useQuery } from "@tanstack/react-query"
-import { useThemeColor } from "heroui-native/hooks"
-import { cn } from "heroui-native/utils"
 import { Pressable, Text, View } from "react-native"
-import { ConnectorIcon } from "@/components/connector-icon"
 import { MessageContent } from "@/components/message-content"
+import { EntityCardList } from "@/components/voice/lor-entity-cards"
+import {
+  entityCardsQueryKey,
+  entityRefs,
+  isSimulatedRequest,
+} from "@/hooks/use-voice-requests"
 import { api } from "@/lib/api"
 import { openExternalUrl } from "@/lib/open-url"
 
 // What Lor composed for its window, read-only on the phone: the same blocks
-// as web, with Linear and GitHub cards as compact rows.
+// as web.
 
 // Cards stay live while shown, like web.
 const CARDS_REFRESH_MS = 60_000
@@ -25,21 +28,15 @@ async function fetchCards(requestId: string) {
   return (await res.json()).cards
 }
 
-type Cards = Awaited<ReturnType<typeof fetchCards>>
+export type EntityCards = Awaited<ReturnType<typeof fetchCards>>
+type Cards = EntityCards
 
 function useEntityCards(request: VoiceRequestState) {
-  const refs = (request.result?.blocks ?? [])
-    .flatMap((block) =>
-      block.type === "linear_issues"
-        ? block.issues
-        : block.type === "github_pull_requests"
-          ? block.pullRequests
-          : []
-    )
-    .join(",")
+  const refs = entityRefs(request)
   return useQuery({
-    queryKey: ["voice-entity-cards", request.id, refs],
-    enabled: refs !== "",
+    queryKey: entityCardsQueryKey(request.id, refs),
+    // The simulator seeds its cards into the cache instead.
+    enabled: refs !== "" && !isSimulatedRequest(request),
     refetchInterval: CARDS_REFRESH_MS,
     queryFn: () => fetchCards(request.id),
   })
@@ -88,159 +85,6 @@ function Row({
   ) : (
     <View className={className}>{children}</View>
   )
-}
-
-const ISSUE_STATE_CLASS: Record<string, string> = {
-  started: "text-warning",
-  completed: "text-accent",
-}
-
-const PULL_STATE: Record<string, { label: string; className: string }> = {
-  open: { label: "Open", className: "text-success" },
-  draft: { label: "Draft", className: "text-muted" },
-  merged: { label: "Merged", className: "text-accent" },
-  closed: { label: "Closed", className: "text-danger" },
-}
-
-const REVIEW_LABEL: Record<string, string> = {
-  approved: "Approved",
-  changes_requested: "Changes requested",
-  waiting: "Review requested",
-}
-
-const CHECKS_LABEL: Record<string, string> = {
-  passing: "Checks passing",
-  failing: "Checks failing",
-  running: "Checks running",
-}
-
-function Unloaded({
-  refLabel,
-  cards,
-  failed,
-  connected,
-}: {
-  refLabel: string
-  cards: Cards | undefined
-  failed: boolean
-  connected: boolean | undefined
-}) {
-  const reason = !cards
-    ? failed
-      ? "couldn't load"
-      : "loading…"
-    : connected === false
-      ? "not connected"
-      : "couldn't load"
-  return (
-    <Row>
-      <Text className="text-[14px] text-muted">
-        {refLabel}: {reason}
-      </Text>
-    </Row>
-  )
-}
-
-function EntityRows({
-  block,
-  cards,
-  failed,
-}: {
-  block: Extract<
-    RealtimeVoiceBlock,
-    { type: "linear_issues" | "github_pull_requests" }
-  >
-  cards: Cards | undefined
-  failed: boolean
-}) {
-  const [muted] = useThemeColor(["muted"])
-  if (block.type === "linear_issues") {
-    return block.issues.map((identifier) => {
-      const issue = cards?.linear.issues.find(
-        (entry) => entry.identifier === identifier
-      )
-      if (!issue) {
-        return (
-          <Unloaded
-            key={identifier}
-            cards={cards}
-            connected={cards?.linear.connected}
-            failed={failed}
-            refLabel={identifier}
-          />
-        )
-      }
-      const details = [issue.priority, issue.assignee ?? "Unassigned"]
-      return (
-        <Row key={identifier} url={issue.url}>
-          <View className="flex-row items-center gap-two">
-            <ConnectorIcon color={muted} connector="linear" size={14} />
-            <Text className="text-[13px] text-muted">{issue.identifier}</Text>
-            {issue.status && (
-              <Text
-                className={cn(
-                  "ml-auto text-[12px] font-medium",
-                  ISSUE_STATE_CLASS[issue.state ?? ""] ?? "text-muted"
-                )}
-              >
-                {issue.status}
-              </Text>
-            )}
-          </View>
-          <Text className="text-[15px] font-medium text-foreground">
-            {issue.title}
-          </Text>
-          <Text className="text-[12px] text-muted">
-            {details.filter(Boolean).join(" · ")}
-          </Text>
-        </Row>
-      )
-    })
-  }
-  return block.pullRequests.map((ref) => {
-    const pull = cards?.github.pullRequests.find(
-      (entry) => entry.ref.toLowerCase() === ref.toLowerCase()
-    )
-    if (!pull) {
-      return (
-        <Unloaded
-          key={ref}
-          cards={cards}
-          connected={cards?.github.connected}
-          failed={failed}
-          refLabel={ref}
-        />
-      )
-    }
-    const state = PULL_STATE[pull.state]
-    const details = [
-      pull.author,
-      pull.review && REVIEW_LABEL[pull.review],
-      pull.checks && CHECKS_LABEL[pull.checks],
-      `+${pull.additions} −${pull.deletions}`,
-    ]
-    return (
-      <Row key={ref} url={pull.url}>
-        <View className="flex-row items-center gap-two">
-          <ConnectorIcon color={muted} connector="github" size={14} />
-          <Text className="text-[13px] text-muted">{pull.ref}</Text>
-          {state && (
-            <Text
-              className={cn("ml-auto text-[12px] font-medium", state.className)}
-            >
-              {state.label}
-            </Text>
-          )}
-        </View>
-        <Text className="text-[15px] font-medium text-foreground">
-          {pull.title}
-        </Text>
-        <Text className="text-[12px] text-muted">
-          {details.filter(Boolean).join(" · ")}
-        </Text>
-      </Row>
-    )
-  })
 }
 
 function Block({
@@ -322,13 +166,21 @@ function Block({
         </View>
       )
     case "linear_issues":
+      return (
+        <View>
+          <Title title={block.title} />
+          <EntityCardList cards={cards} failed={failed} issues={block.issues} />
+        </View>
+      )
     case "github_pull_requests":
       return (
         <View>
           <Title title={block.title} />
-          <View className="gap-two">
-            <EntityRows block={block} cards={cards} failed={failed} />
-          </View>
+          <EntityCardList
+            cards={cards}
+            failed={failed}
+            pullRequests={block.pullRequests}
+          />
         </View>
       )
   }

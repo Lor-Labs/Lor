@@ -32,6 +32,7 @@ import { Avatar } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { IconButton } from "@/components/ui/icon-button"
 import { Screen } from "@/components/ui/screen"
+import { LorSimulatorButton } from "@/components/voice/lor-simulator"
 import { LorWindow } from "@/components/voice/lor-window"
 import { useSocket } from "@/context/socket-context"
 import { useVoiceRequests } from "@/hooks/use-voice-requests"
@@ -191,6 +192,7 @@ function CallStage({
             strokeWidth={2}
           />
         </IconButton>
+        {sessionId && <LorSimulatorButton sessionId={sessionId} />}
         {onOpenChat && (
           <IconButton
             accessibilityLabel="Open call chat"

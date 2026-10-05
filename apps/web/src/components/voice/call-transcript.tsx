@@ -9,7 +9,7 @@ import { formatTime } from "@repo/utils/date"
 import { useQueryClient } from "@tanstack/react-query"
 import { useLayoutEffect, useMemo, useRef } from "react"
 import { captionLine } from "@/components/voice/call-captions"
-import { LorBlocks } from "@/components/voice/lor-blocks"
+import { LorBlocks, LorFailedNotice } from "@/components/voice/lor-blocks"
 import { formatDuration } from "@/components/voice/voice-lobby"
 import {
   type TranscriptPage,
@@ -196,9 +196,7 @@ function LorResult({
             </p>
           ) : (
             request.status === "failed" && (
-              <p className="text-sm text-muted-foreground">
-                Lor couldn't finish this.
-              </p>
+              <LorFailedNotice className="self-start" />
             )
           )}
         </div>

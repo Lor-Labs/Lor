@@ -14,6 +14,31 @@ export function voiceRequestsQueryKey(sessionId: string) {
   return ["voice-requests", sessionId] as const
 }
 
+// Requests the dev simulator fakes on this phone; the server never saw them.
+const SIMULATED_ID_PREFIX = "dev-sim-"
+export const simulatedRequestId = () =>
+  `${SIMULATED_ID_PREFIX}${Math.random().toString(36).slice(2)}`
+export const isSimulatedRequest = (request: Pick<VoiceRequestState, "id">) =>
+  request.id.startsWith(SIMULATED_ID_PREFIX)
+
+// The Linear and GitHub references a result names; its cards query is keyed
+// by them.
+export function entityRefs(request: Pick<VoiceRequestState, "result">) {
+  return (request.result?.blocks ?? [])
+    .flatMap((block) =>
+      block.type === "linear_issues"
+        ? block.issues
+        : block.type === "github_pull_requests"
+          ? block.pullRequests
+          : []
+    )
+    .join(",")
+}
+
+export function entityCardsQueryKey(requestId: string, refs: string) {
+  return ["voice-entity-cards", requestId, refs] as const
+}
+
 // Requests to Lor in the call this phone is in, and the one Lor's window
 // shows. Same rules as web; events arrive through the call chat's room, which
 // the call screen holds for the whole call.

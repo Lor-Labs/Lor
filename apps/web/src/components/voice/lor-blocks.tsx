@@ -1,4 +1,7 @@
+import { AlertCircleIcon } from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
 import type { RealtimeVoiceBlock } from "@repo/realtime-types/events"
+import { cn } from "@repo/ui/lib/utils"
 import { MessageMarkdown } from "@/components/chat/message-markdown"
 import {
   type EntityCardsState,
@@ -134,6 +137,25 @@ function Block({
         </div>
       )
   }
+}
+
+// A request Lor couldn't finish, in Lor's window and the transcript.
+export function LorFailedNotice({ className }: { className?: string }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full bg-destructive/8 px-3 py-1 font-medium text-destructive-foreground text-sm dark:bg-destructive/16",
+        className
+      )}
+    >
+      <HugeiconsIcon
+        icon={AlertCircleIcon}
+        strokeWidth={2}
+        className="size-4"
+      />
+      Lor couldn't finish this
+    </span>
+  )
 }
 
 // What Lor composed for its window, top to bottom. Question choices are
