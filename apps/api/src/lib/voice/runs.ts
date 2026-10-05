@@ -39,7 +39,8 @@ export async function enqueueVoiceRequest(
     VOICE_REQUEST_JOB,
     resumeApprovalId ? { requestId, resumeApprovalId } : { requestId },
     {
-      jobId: resumeApprovalId ? `${requestId}:${resumeApprovalId}` : requestId,
+      // BullMQ rejects ":" in custom ids.
+      jobId: resumeApprovalId ? `${requestId}-${resumeApprovalId}` : requestId,
       attempts: 2,
       backoff: { type: "fixed", delay: 5_000 },
       removeOnComplete: true,

@@ -1,6 +1,7 @@
 import { relations, sql } from "drizzle-orm"
 import {
   foreignKey,
+  halfvec,
   index,
   integer,
   jsonb,
@@ -11,11 +12,22 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core"
+import { LOR_EMBED_DIMENSIONS } from "../constants"
 import { agentRun } from "./agent-runs"
 import { channel } from "./channels"
 import { message } from "./messages"
 import { user } from "./users"
 import { workspace } from "./workspaces"
+
+// What an ended call came to, written by Lor once and correctable by people.
+// `atMs` points into the transcript, where the item was said.
+export type VoiceSessionSummaryItem = { text: string; atMs: number | null }
+export type VoiceSessionSummary = {
+  summary: string
+  decisions: VoiceSessionSummaryItem[]
+  openQuestions: VoiceSessionSummaryItem[]
+  followUps: VoiceSessionSummaryItem[]
+}
 
 // A voice session: one bounded conversation in a persistent voice channel,
 // live while endedAt is null. Its root message anchors the session chat
@@ -51,6 +63,10 @@ export const voiceSession = pgTable(
     // the transcriber died, and the next one records the missing stretch.
     transcriberJobId: text("transcriber_job_id"),
     transcriberSeenAt: timestamp("transcriber_seen_at"),
+    // Null for calls too short to summarize.
+    summary: jsonb("summary").$type<VoiceSessionSummary>(),
+    // Set once the ended call is summarized and its passages indexed.
+    memoryProcessedAt: timestamp("memory_processed_at"),
   },
   (table) => [
     uniqueIndex("voice_session_channelId_live_uidx")
@@ -173,6 +189,50 @@ export const voiceCaptureGap = pgTable(
     index("voice_capture_gap_sessionId_startMs_idx").on(
       table.sessionId,
       table.startMs
+    ),
+  ]
+)
+
+// One searchable piece of an ended call: a stretch of back-and-forth from its
+// transcript, or its summary. `context` says where it sits (call, channel,
+// date, speakers, and what was going on) and is indexed with the text
+// (contextual retrieval). A rebuildable index; live calls are never indexed.
+export const voicePassage = pgTable(
+  "voice_passage",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspace.id, { onDelete: "cascade" }),
+    channelId: uuid("channel_id")
+      .notNull()
+      .references(() => channel.id, { onDelete: "cascade" }),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => voiceSession.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<"transcript" | "summary">().notNull(),
+    // Span on the session timeline; the summary spans the whole call.
+    startMs: integer("start_ms").notNull(),
+    endMs: integer("end_ms").notNull(),
+    context: text("context").notNull(),
+    text: text("text").notNull(),
+    embedding: halfvec("embedding", { dimensions: LOR_EMBED_DIMENSIONS }),
+  },
+  (table) => [
+    uniqueIndex("voice_passage_session_kind_start_uidx").on(
+      table.sessionId,
+      table.kind,
+      table.startMs
+    ),
+    index("voice_passage_embedding_hnsw_idx").using(
+      "hnsw",
+      table.embedding.op("halfvec_cosine_ops")
+    ),
+    // Expression index; queries must use the identical expression.
+    index("voice_passage_text_tsv_idx").using(
+      "gin",
+      sql`to_tsvector('english', ${table.context} || ' ' || ${table.text})`
     ),
   ]
 )
@@ -401,5 +461,7 @@ export type NewVoiceTranscriptSegment =
   typeof voiceTranscriptSegment.$inferInsert
 export type VoiceCaptureGap = typeof voiceCaptureGap.$inferSelect
 export type NewVoiceCaptureGap = typeof voiceCaptureGap.$inferInsert
+export type VoicePassage = typeof voicePassage.$inferSelect
+export type NewVoicePassage = typeof voicePassage.$inferInsert
 export type VoiceRequest = typeof voiceRequest.$inferSelect
 export type NewVoiceRequest = typeof voiceRequest.$inferInsert

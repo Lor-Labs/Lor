@@ -6,8 +6,10 @@ import { type ConversationTurn, respond, voiceBlocksText } from "@repo/lor"
 import type { VoiceRequestState } from "@repo/realtime-types/events"
 import {
   VOICE_APPROVAL_WATCH_JOB,
+  VOICE_SESSION_MEMORY_JOB,
   type VoiceApprovalWatchJobData,
   type VoiceRequestJobData,
+  type VoiceSessionMemoryJobData,
 } from "@repo/realtime-types/queues"
 import {
   claimQueuedVoiceRequests,
@@ -27,6 +29,7 @@ import {
   startVoiceRequest,
 } from "@repo/voice/server"
 import type { Job } from "bullmq"
+import { processCallMemory } from "@/jobs/voice-session-memory"
 import { claimAgentRun, LeaseLostError } from "@/lib/agent-run"
 import { logger } from "@/lib/logger"
 import {
@@ -467,9 +470,19 @@ async function resumeRequest(request: LoadedRequest, approvalId: string) {
 // Runs a request someone spoke to Lor in a call. A retried job (worker crash)
 // finds the request working and resumes its run from the last checkpoint.
 export function createVoiceRequestProcessor() {
-  return async (job: Job<VoiceRequestJobData | VoiceApprovalWatchJobData>) => {
+  return async (
+    job: Job<
+      | VoiceRequestJobData
+      | VoiceApprovalWatchJobData
+      | VoiceSessionMemoryJobData
+    >
+  ) => {
     if (job.name === VOICE_APPROVAL_WATCH_JOB) {
       await watchApproval(job.data as VoiceApprovalWatchJobData)
+      return
+    }
+    if (job.name === VOICE_SESSION_MEMORY_JOB) {
+      await processCallMemory((job.data as VoiceSessionMemoryJobData).sessionId)
       return
     }
     const data = job.data as VoiceRequestJobData

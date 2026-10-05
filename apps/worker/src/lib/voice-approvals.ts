@@ -5,16 +5,12 @@ import {
 } from "@repo/auth/permissions"
 import { and, db, eq, isNotNull, isNull, schema } from "@repo/db"
 import { resolveChannelAccess } from "@repo/db/queries/channel-access"
-import { env } from "@repo/env/server"
 import {
   VOICE_APPROVAL_WATCH_JOB,
   VOICE_REQUEST_JOB,
-  VOICE_REQUEST_QUEUE,
   type VoiceApprovalWatchJobData,
-  type VoiceRequestJobData,
 } from "@repo/realtime-types/queues"
-import { Queue } from "bullmq"
-import { parseRedisUrl } from "@/lib/approval-notify"
+import { getVoiceQueue } from "@/lib/voice-queue"
 
 // How often a paused request's approvers are checked, and how long the call
 // may go without one before the approval is rejected (they may be
@@ -104,15 +100,6 @@ export async function listCallApprovers(scope: CallScope, target: string) {
   return approvers
 }
 
-let voiceQueue: Queue<VoiceRequestJobData | VoiceApprovalWatchJobData> | null =
-  null
-function getVoiceQueue() {
-  voiceQueue ??= new Queue(VOICE_REQUEST_QUEUE, {
-    connection: { ...parseRedisUrl(env.REDIS_URL), maxRetriesPerRequest: null },
-  })
-  return voiceQueue
-}
-
 export async function scheduleApprovalWatch(data: VoiceApprovalWatchJobData) {
   await getVoiceQueue().add(VOICE_APPROVAL_WATCH_JOB, data, {
     delay: APPROVAL_WATCH_MS,
@@ -131,7 +118,8 @@ export async function enqueueApprovalResume(
     VOICE_REQUEST_JOB,
     { requestId, resumeApprovalId: approvalId },
     {
-      jobId: `${requestId}:${approvalId}`,
+      // BullMQ rejects ":" in custom ids.
+      jobId: `${requestId}-${approvalId}`,
       attempts: 2,
       backoff: { type: "fixed", delay: 5_000 },
       removeOnComplete: true,

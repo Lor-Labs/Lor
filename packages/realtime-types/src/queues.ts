@@ -81,6 +81,10 @@ export type VoiceRequestJobData = {
   resumeApprovalId?: string
 }
 
+// After a call ends: summarize it and index its passages for Lor's search.
+export const VOICE_SESSION_MEMORY_JOB = "session-memory"
+export type VoiceSessionMemoryJobData = { sessionId: string }
+
 // Checks a paused request's approvers every few seconds, and rejects the
 // approval once nobody in the call can resolve it for the grace period.
 export const VOICE_APPROVAL_WATCH_JOB = "approval-watch"
