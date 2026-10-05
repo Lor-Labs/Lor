@@ -44,7 +44,7 @@
 Locked decisions:
 
 - **Conversation in Postgres, code in Git, joined by `commit_sha` on the step.** Commits are content-addressed and immutable, so the pointer cannot drift; a crash between push and row write leaves a harmless orphan commit.
-- **Artifacts sits behind a checkpoint interface** (`saveCheckpoint`, `restore`, `fork`, `getCloneUrl`). Artifacts is not self-hostable (only ArtifactFS is open source); Forgejo or a thin `git http-backend` endpoint are the swap-in fallbacks (e.g. a customer requiring code in their own cloud).
+- **The git host sits behind a checkpoint interface** (`saveCheckpoint`, `restore`, `fork`, `getCloneUrl`). Artifacts vs Code Storage is decided at phase 1 (§10). Artifacts is not self-hostable (only ArtifactFS is open source); Forgejo or a thin `git http-backend` endpoint are the swap-in fallbacks (e.g. a customer requiring code in their own cloud).
 - **The agent never holds a push token.** Lor commits and pushes from its own commands with an explicit refspec (same rule as `propose_code_change` today).
 - **Nothing in the sandbox is the only copy of anything.**
 - **Preview URLs come from the sandbox (Blaxel), not Artifacts.** Workers Builds previews only apply to Workers-hosted projects (possibly V2 generated apps).
@@ -186,6 +186,37 @@ Relation to what exists today (verified 2026-10-05):
 - Repos not on GitHub: support Artifacts-only projects (new projects, V2 generated apps)?
 - Per-workspace budget for sandbox and Artifacts usage.
 - What rewinding past a human's locally pushed step means.
+
+### Git host: Cloudflare Artifacts vs Code Storage (Pierre) — decide at phase 1
+
+Both are managed, API-first git hosts with real clone URLs, so either fits behind the
+checkpoint interface. Decide with a 1–2 day spike against a real repo, not on paper.
+Comparison as of 2026-10-05 (Code Storage details from search results, not its docs —
+verify):
+
+| | Cloudflare Artifacts | Code Storage (Pierre) |
+|---|---|---|
+| Maturity | Open beta (Oct 2026) | In production (Lovable, Bolt, Amp, Poke…) |
+| Vendor | Cloudflare — stable, broad platform | Small focused startup — more vendor risk |
+| Local clone | Repo-scoped tokens | JWT-authenticated remote URLs |
+| GitHub mirror | Import only; we keep it fresh | Built-in GitHub Sync (GitHub = source of truth, webhook-driven, can forward writes back; also GitLab/Bitbucket) |
+| Session branches | Branches / `fork()` | Ephemeral branches (git namespaces) |
+| Read code without a sandbox | `readFile`, commits; search "coming" | grep, glob archives, file streaming, commit/merge APIs |
+| SDKs | Workers binding + REST; TS/Go/Python announced | TS (`@pierre/storage`), Go, Python |
+| Events | Cloudflare Queues (needs a Worker) | Webhooks (fits Node/Hono) |
+| Data residency | US/EU per namespace | Unknown |
+| Big-repo mounts | ArtifactFS | ArtifactFS works with any git remote |
+| Self-host | No | Not found |
+| Pricing | $0.15/1k ops (10k free), $0.50/GB-mo (1 GB free); Workers Paid | Plans from $20/$200 mo; warm $1/GB-mo **per replica**, cold $0.05/GB-mo after 7 days unread |
+
+Leaning: Code Storage maps more directly (GitHub Sync + ephemeral branches + code APIs
+remove work we'd otherwise build); Artifacts wins on vendor stability, residency and
+likely cost at scale. Must verify for Code Storage before choosing:
+
+1. Ephemeral/session branches can be excluded from GitHub Sync's write-forwarding (otherwise it recreates the branch noise rejected in §8).
+2. What credentials GitHub Sync holds on the customer's GitHub.
+3. Data residency and compliance (EU/US, SOC 2).
+4. Per-operation pricing and how replicas multiply storage for many small, short-lived repos.
 
 ## Sources
 
