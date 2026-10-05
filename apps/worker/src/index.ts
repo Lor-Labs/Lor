@@ -39,10 +39,6 @@ import { LOOP_SWEEP_EVERY_MS, sweepDueLoops } from "@/jobs/sweep-due-loops"
 import { createTriggeredRunProcessor } from "@/jobs/triggered-run"
 import { createVoiceRequestProcessor } from "@/jobs/voice-request"
 import {
-  ENDED_CALL_SWEEP_EVERY_MS,
-  sweepEndedCalls,
-} from "@/jobs/voice-session-memory"
-import {
   auditVoiceSessions,
   sweepVoiceSessions,
   VOICE_SESSION_AUDIT_EVERY_MS,
@@ -277,13 +273,17 @@ async function bootstrap() {
   // worker itself schedules approval watchers and resumes.
   const voiceRequestWorker = new Worker<
     VoiceRequestJobData | VoiceApprovalWatchJobData
-  >(VOICE_REQUEST_QUEUE, createVoiceRequestProcessor(), {
-    connection: {
-      ...redisOpts,
-      maxRetriesPerRequest: null,
-    },
-    concurrency: 5,
-  })
+  >(
+    VOICE_REQUEST_QUEUE,
+    createVoiceRequestProcessor({ emitter, redis: redisEmitterClient }),
+    {
+      connection: {
+        ...redisOpts,
+        maxRetriesPerRequest: null,
+      },
+      concurrency: 5,
+    }
+  )
 
   voiceRequestWorker.on("failed", (job, error) => {
     logger.error({ jobId: job?.id, err: error }, "Voice-request job failed")
@@ -354,7 +354,6 @@ async function bootstrap() {
         await sweepDueLoops(emitter, loopRunQueue)
       else if (job.name === "sweep-voice-sessions") await sweepVoiceSessions()
       else if (job.name === "audit-voice-sessions") await auditVoiceSessions()
-      else if (job.name === "sweep-ended-calls") await sweepEndedCalls()
       else if (job.name === NOTIFY_APPROVAL_JOB) {
         const { approvalId } = job.data as { approvalId: string }
         await escalateApproval(
@@ -413,9 +412,6 @@ async function bootstrap() {
   })
   await maintenanceQueue.upsertJobScheduler("audit-voice-sessions", {
     every: VOICE_SESSION_AUDIT_EVERY_MS,
-  })
-  await maintenanceQueue.upsertJobScheduler("sweep-ended-calls", {
-    every: ENDED_CALL_SWEEP_EVERY_MS,
   })
 
   logger.info(

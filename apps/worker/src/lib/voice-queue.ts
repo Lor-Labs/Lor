@@ -4,6 +4,7 @@ import {
   type VoiceApprovalWatchJobData,
   type VoiceRequestJobData,
   type VoiceSessionMemoryJobData,
+  voiceSessionMemoryJob,
 } from "@repo/realtime-types/queues"
 import { Queue } from "bullmq"
 import { parseRedisUrl } from "@/lib/approval-notify"
@@ -19,4 +20,9 @@ export function getVoiceQueue() {
     connection: { ...parseRedisUrl(env.REDIS_URL), maxRetriesPerRequest: null },
   })
   return voiceQueue
+}
+
+export async function enqueueCallMemory(sessionId: string) {
+  const job = voiceSessionMemoryJob(sessionId)
+  await getVoiceQueue().add(job.name, job.data, job.opts)
 }

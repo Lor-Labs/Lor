@@ -82,8 +82,24 @@ export type VoiceRequestJobData = {
 }
 
 // After a call ends: summarize it and index its passages for Lor's search.
+// Queued by whichever host ended the call, and by the voice audit as a
+// backstop; the fixed id keeps a call from running twice at once.
 export const VOICE_SESSION_MEMORY_JOB = "session-memory"
 export type VoiceSessionMemoryJobData = { sessionId: string }
+export function voiceSessionMemoryJob(sessionId: string) {
+  return {
+    name: VOICE_SESSION_MEMORY_JOB,
+    data: { sessionId } satisfies VoiceSessionMemoryJobData,
+    opts: {
+      // BullMQ rejects ":" in custom ids.
+      jobId: `memory-${sessionId}`,
+      attempts: 3,
+      backoff: { type: "exponential" as const, delay: 30_000 },
+      removeOnComplete: true,
+      removeOnFail: { age: 86_400 },
+    },
+  }
+}
 
 // Checks a paused request's approvers every few seconds, and rejects the
 // approval once nobody in the call can resolve it for the grace period.

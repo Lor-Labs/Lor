@@ -2,6 +2,7 @@ import { threadRoom, userRoom, workspaceRoom } from "@repo/realtime-types/rooms"
 import { setVoiceNotifier } from "@repo/voice/server"
 import { getEmitter } from "@/lib/bot-messages"
 import { logger } from "@/lib/logger"
+import { enqueueCallMemory } from "@/lib/voice/runs"
 
 type Emitter = Awaited<ReturnType<typeof getEmitter>>
 
@@ -35,5 +36,10 @@ export function installVoiceNotifier() {
           request,
         })
       ),
+    sessionEnded: (sessionId) => {
+      enqueueCallMemory(sessionId).catch((err) =>
+        logger.warn({ err, sessionId }, "voice: could not queue call memory")
+      )
+    },
   })
 }

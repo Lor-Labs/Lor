@@ -73,7 +73,7 @@ async function resolveThreadNotificationContext(message: FanoutMessage) {
     }
   }
 
-  const [participantRows, planCreator] = await Promise.all([
+  const [participantRows, planCreator, callRows] = await Promise.all([
     db
       .selectDistinct({ userId: schema.message.authorId })
       .from(schema.message)
@@ -89,9 +89,19 @@ async function resolveThreadNotificationContext(message: FanoutMessage) {
       .where(eq(schema.plan.threadRootId, threadRootId))
       .limit(1)
       .then((rows) => rows[0]?.userId ?? null),
+    // Everyone who was in a call follows its chat, so they hear about Lor's
+    // after-call recap even if they never typed there.
+    db
+      .selectDistinct({ userId: schema.voiceSessionParticipant.userId })
+      .from(schema.voiceSessionParticipant)
+      .innerJoin(
+        schema.voiceSession,
+        eq(schema.voiceSession.id, schema.voiceSessionParticipant.sessionId)
+      )
+      .where(eq(schema.voiceSession.threadRootId, threadRootId)),
   ])
   const subscribedUserIds = new Set(
-    participantRows.map((participant) => participant.userId)
+    [...participantRows, ...callRows].map((participant) => participant.userId)
   )
   if (planCreator) subscribedUserIds.add(planCreator)
 

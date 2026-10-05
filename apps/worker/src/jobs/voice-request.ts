@@ -32,6 +32,7 @@ import type { Job } from "bullmq"
 import { processCallMemory } from "@/jobs/voice-session-memory"
 import { claimAgentRun, LeaseLostError } from "@/lib/agent-run"
 import { logger } from "@/lib/logger"
+import type { LorMessageDeps } from "@/lib/lor-messages"
 import {
   buildApprovalContinuation,
   type Continuation,
@@ -469,7 +470,8 @@ async function resumeRequest(request: LoadedRequest, approvalId: string) {
 
 // Runs a request someone spoke to Lor in a call. A retried job (worker crash)
 // finds the request working and resumes its run from the last checkpoint.
-export function createVoiceRequestProcessor() {
+// `deps` posts the after-call recap in the call chat.
+export function createVoiceRequestProcessor(deps: LorMessageDeps) {
   return async (
     job: Job<
       | VoiceRequestJobData
@@ -482,7 +484,10 @@ export function createVoiceRequestProcessor() {
       return
     }
     if (job.name === VOICE_SESSION_MEMORY_JOB) {
-      await processCallMemory((job.data as VoiceSessionMemoryJobData).sessionId)
+      await processCallMemory(
+        (job.data as VoiceSessionMemoryJobData).sessionId,
+        deps
+      )
       return
     }
     const data = job.data as VoiceRequestJobData

@@ -1,4 +1,4 @@
-import { and, asc, db, eq, isNotNull, isNull, lt, schema } from "@repo/db"
+import { and, asc, db, eq, isNotNull, isNull, schema } from "@repo/db"
 import type { NewVoicePassage, VoiceSessionSummary } from "@repo/db/schema"
 
 const {
@@ -11,18 +11,10 @@ const {
   voiceTranscriptSegment,
 } = schema
 
-// Ended calls are processed once the session settles.
-const SETTLE_MS = 30_000
-
-// A passage is a stretch of back-and-forth, not a single turn: most turns are
-// a few words and say nothing alone. It closes near TARGET_WORDS, at a long
-// pause once it has MIN_WORDS, or at MAX_SPAN_MS; the next one repeats the
-// last short line so an exchange isn't cut in half.
-const TARGET_WORDS = 300
-const MIN_WORDS = 80
-const PAUSE_BREAK_MS = 20_000
-const MAX_SPAN_MS = 150_000
-const OVERLAP_MAX_WORDS = 60
+// A topic section is one passage. Only a section too long for one embedding
+// input (alibaba/qwen3-embedding-4b takes 32K tokens) is cut, at line
+// boundaries; each part keeps the section's title and description.
+const MAX_PASSAGE_CHARS = 80_000
 
 export type CallLine =
   | {
@@ -34,14 +26,24 @@ export type CallLine =
     }
   | { kind: "gap"; startMs: number; endMs: number; speaker: string | null }
 
+// A topic of the call, as the summary model divided it.
+export type CallSectionInput = {
+  startLine: number
+  title: string
+  about: string
+}
+
 export type CallPassage = {
   startMs: number
   endMs: number
   speakers: string[]
+  title: string
+  about: string
   text: string
 }
 
-// Ended calls not yet summarized and indexed, oldest first.
+// Ended calls whose after-call job never ran (e.g. the queue was down when
+// they ended), oldest first. A backstop: the job is queued at the end.
 export async function listUnprocessedCalls(limit: number) {
   return await db
     .select({ id: voiceSession.id })
@@ -49,8 +51,7 @@ export async function listUnprocessedCalls(limit: number) {
     .where(
       and(
         isNotNull(voiceSession.endedAt),
-        isNull(voiceSession.memoryProcessedAt),
-        lt(voiceSession.endedAt, new Date(Date.now() - SETTLE_MS))
+        isNull(voiceSession.memoryProcessedAt)
       )
     )
     .orderBy(asc(voiceSession.endedAt))
@@ -65,6 +66,7 @@ export async function loadEndedCall(sessionId: string) {
       workspaceId: voiceSession.workspaceId,
       channelId: voiceSession.channelId,
       channelName: channel.name,
+      threadRootId: voiceSession.threadRootId,
       startedAt: voiceSession.startedAt,
       endedAt: voiceSession.endedAt,
       memoryProcessedAt: voiceSession.memoryProcessedAt,
@@ -141,44 +143,67 @@ export function callWordCount(lines: CallLine[]) {
   return lines.reduce((sum, line) => sum + wordCount(line), 0)
 }
 
-export function splitCallPassages(lines: CallLine[]): CallPassage[] {
-  const passages: CallPassage[] = []
-  let current: CallLine[] = []
-  let words = 0
-  const close = () => {
-    const first = current[0]
-    const last = current.at(-1)
-    if (!first || !last || words === 0) return
-    passages.push({
-      startMs: first.startMs,
-      endMs: last.endMs,
-      speakers: [
-        ...new Set(
-          current.flatMap((line) =>
-            line.kind === "speech" ? [line.speaker] : []
-          )
-        ),
-      ],
-      text: current.map(renderCallLine).join("\n"),
-    })
-    const carry = last.kind === "speech" && wordCount(last) <= OVERLAP_MAX_WORDS
-    current = carry ? [last] : []
-    words = carry ? wordCount(last) : 0
+// The transcript as the summary model reads it: "L12 [4:05] Alice: …", the
+// L numbers being what its sections point at.
+export function numberedCallTranscript(lines: CallLine[]) {
+  return lines
+    .map((line, index) => `L${index} ${renderCallLine(line)}`)
+    .join("\n")
+}
+
+function toPassage(
+  lines: CallLine[],
+  section: Pick<CallPassage, "title" | "about">
+): CallPassage | null {
+  const first = lines[0]
+  const last = lines.at(-1)
+  if (!first || !last || callWordCount(lines) === 0) return null
+  return {
+    ...section,
+    startMs: first.startMs,
+    endMs: last.endMs,
+    speakers: [
+      ...new Set(
+        lines.flatMap((line) => (line.kind === "speech" ? [line.speaker] : []))
+      ),
+    ],
+    text: lines.map(renderCallLine).join("\n"),
   }
-  for (const line of lines) {
-    const previous = current.at(-1)
-    const paused =
-      previous !== undefined && line.startMs - previous.endMs > PAUSE_BREAK_MS
-    const first = current[0]
-    const long = first !== undefined && line.endMs - first.startMs > MAX_SPAN_MS
-    if (words >= TARGET_WORDS || (paused && words >= MIN_WORDS) || long) {
-      close()
+}
+
+// One passage per topic section. Bad section starts are dropped, and the
+// first always starts at the top; no sections at all means one section for
+// the whole call.
+export function buildSectionPassages(
+  lines: CallLine[],
+  sections: CallSectionInput[] | null
+): CallPassage[] {
+  const starts = (sections ?? [])
+    .filter((section) => section.startLine < lines.length)
+    .sort((a, b) => a.startLine - b.startLine)
+    .filter(
+      (section, index, all) =>
+        index === 0 || section.startLine !== all[index - 1]?.startLine
+    )
+  const normalized = starts.length > 0 ? starts : [{ title: "", about: "" }]
+  return normalized.flatMap((section, index) => {
+    const from = index === 0 ? 0 : (starts[index]?.startLine ?? 0)
+    const to = starts[index + 1]?.startLine ?? lines.length
+    const sectionLines = lines.slice(from, to)
+    const label = { title: section.title, about: section.about }
+    const parts: CallLine[][] = [[]]
+    let chars = 0
+    for (const line of sectionLines) {
+      const length = renderCallLine(line).length + 1
+      if (chars + length > MAX_PASSAGE_CHARS && parts.at(-1)?.length) {
+        parts.push([])
+        chars = 0
+      }
+      parts.at(-1)?.push(line)
+      chars += length
     }
-    current.push(line)
-    words += wordCount(line)
-  }
-  close()
-  return passages
+    return parts.flatMap((part) => toPassage(part, label) ?? [])
+  })
 }
 
 // Replaces the call's summary and passages in one go and marks it processed;

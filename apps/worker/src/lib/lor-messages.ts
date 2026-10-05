@@ -2,18 +2,19 @@ import { db, eq, LOR_USER_ID, schema } from "@repo/db"
 import type { ChannelEventPayload, ChannelEventType } from "@repo/db/schema"
 import {
   buildMessageFanout,
+  loadThreadSummary,
   sendMessagePushNotifications,
 } from "@repo/messaging"
 import type { RealtimeMessage } from "@repo/realtime-types"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
-import { channelRoom, userRoom } from "@repo/realtime-types/rooms"
+import { channelRoom, threadRoom, userRoom } from "@repo/realtime-types/rooms"
 import type { Emitter } from "@socket.io/redis-emitter"
 import type { createClient } from "redis"
 import { logger } from "@/lib/logger"
 
 type RedisClient = ReturnType<typeof createClient>
 
-type LorMessageDeps = {
+export type LorMessageDeps = {
   emitter: Emitter<ServerToClientEvents>
   redis: RedisClient
 }
@@ -53,7 +54,12 @@ async function loadChannel(channelId: string) {
 // Best effort: returns resolved mentions, or [] when fanout failed.
 export async function fanoutLorMessage(
   deps: LorMessageDeps,
-  input: { channelId: string; messageId: string; content: string }
+  input: {
+    channelId: string
+    messageId: string
+    content: string
+    threadRootId?: string
+  }
 ): Promise<RealtimeMessage["mentions"]> {
   try {
     const [channel, author] = await Promise.all([
@@ -69,6 +75,7 @@ export async function fanoutLorMessage(
         content: input.content,
         author: { name: author.name, image: author.image },
         attachments: [],
+        threadRootId: input.threadRootId ?? null,
       },
       redis: deps.redis,
     })
@@ -117,6 +124,8 @@ export async function postLorMessage(
     // Loop fire markers point at the loop's card message so clients resolve
     // the loop row (cardMessageId) for rich chip rendering.
     referencedMessageId?: string
+    // A reply in this thread rather than a channel message.
+    threadRootId?: string
     silent?: boolean
   }
 ): Promise<{ messageId: string }> {
@@ -133,6 +142,7 @@ export async function postLorMessage(
       eventType: input.eventType ?? null,
       eventPayload: input.eventPayload ?? null,
       referencedMessageId: input.referencedMessageId ?? null,
+      threadRootId: input.threadRootId ?? null,
       excludedFromMemory: input.type === "event",
     })
     .returning({ id: schema.message.id, createdAt: schema.message.createdAt })
@@ -145,6 +155,7 @@ export async function postLorMessage(
         channelId: input.channelId,
         messageId: inserted.id,
         content: input.content,
+        ...(input.threadRootId ? { threadRootId: input.threadRootId } : {}),
       })
 
   const message: RealtimeMessage = {
@@ -172,8 +183,27 @@ export async function postLorMessage(
           overrideAvatarUrl: null,
         }
       : null,
-    threadRootId: null,
+    threadRootId: input.threadRootId ?? null,
   }
-  deps.emitter.to(channelRoom(input.channelId)).emit("message:created", message)
+  if (!input.threadRootId) {
+    deps.emitter
+      .to(channelRoom(input.channelId))
+      .emit("message:created", message)
+    return { messageId: inserted.id }
+  }
+  // A reply reaches the thread's room; the channel feed learns of it through
+  // the thread summary (reply count, latest repliers).
+  deps.emitter
+    .to(threadRoom(input.threadRootId))
+    .emit("message:created", message)
+  await loadThreadSummary(input.channelId, input.threadRootId)
+    .then((summary) =>
+      deps.emitter
+        .to(channelRoom(input.channelId))
+        .emit("message:thread:updated", summary)
+    )
+    .catch((err) =>
+      logger.warn({ err, messageId: inserted.id }, "Thread summary emit failed")
+    )
   return { messageId: inserted.id }
 }

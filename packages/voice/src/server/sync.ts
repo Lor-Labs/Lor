@@ -6,7 +6,7 @@ import {
   getRoomService,
   type LiveKitConfig,
 } from "./livekit"
-import { notifyVoicePresence } from "./notify"
+import { notifyVoicePresence, notifyVoiceSessionEnded } from "./notify"
 import { markParticipantConnected, markParticipantLeft } from "./participants"
 import {
   recordMissedTranscriberAtEnd,
@@ -118,6 +118,8 @@ async function endSession(sessionId: string, emptySince: Date) {
     id: sessionId,
     endedAt: emptySince,
   })
+  // After the gap above is recorded, so the summary sees it.
+  notifyVoiceSessionEnded(sessionId)
   return true
 }
 

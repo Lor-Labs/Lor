@@ -3,6 +3,7 @@ import {
   endExpiredSessions,
   getLiveKitConfig,
 } from "@repo/voice/server"
+import { queueMissedCallMemory } from "@/jobs/voice-session-memory"
 import { logger } from "@/lib/logger"
 
 // Webhooks keep voice state current; these sweeps are the backstop. They stay
@@ -34,4 +35,7 @@ export async function auditVoiceSessions() {
   for (const { sessionId, err } of failed) {
     logger.warn({ err, sessionId }, "voice: session audit failed")
   }
+  await queueMissedCallMemory().catch((err) =>
+    logger.warn({ err }, "voice: could not queue missed call memory")
+  )
 }

@@ -16,6 +16,9 @@ export type VoiceNotifier = {
     inCall: boolean
   ) => void
   requestChanged: (threadRootId: string, request: VoiceRequestState) => void
+  // Queues the after-call summary and indexing. Hosts that end sessions (API,
+  // worker) install it; the audit sweep catches a call whose queueing failed.
+  sessionEnded?: (sessionId: string) => void
   // Only the worker, which runs requests, sends these.
   requestActivity?: (
     threadRootId: string,
@@ -73,6 +76,14 @@ export function notifyVoiceRequest(
     notifier?.requestChanged(threadRootId, request)
   } catch {
     // swallow: delivery is best-effort by design
+  }
+}
+
+export function notifyVoiceSessionEnded(sessionId: string) {
+  try {
+    notifier?.sessionEnded?.(sessionId)
+  } catch {
+    // swallow: the audit sweep queues calls this missed
   }
 }
 

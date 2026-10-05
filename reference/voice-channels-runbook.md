@@ -637,29 +637,38 @@ stage", and step-back wait for the rest of V6.
 Plan (Jacob, 2026-10-05): 1 after-call summary + indexing, 2 Lor answers
 from calls, 3 summary on screen (editable by anyone who can post in the
 channel, "Edited by …"), 4 deleting a call (`voice: delete`, owner/admin).
-No backfill script (no real calls yet). Summaries never post to chat; calls
-under 2 minutes get none. Indexing follows contextual retrieval: passages are
-stretches of back-and-forth (~300 words, broken at long pauses, one short
-line of overlap), each prefixed with call/channel/date/speakers plus one
-model-written sentence placing it in the call; Lor reads around a hit with
-`read_call`. Search scope is the existing `privateAudienceFilter`: the
-channel Lor answers in, never the asker's access.
+No backfill script (no real calls yet). Calls under 2 minutes are left
+alone. Indexing follows contextual retrieval, with the model choosing the
+passages (Jacob, 2026-10-05): one read of the whole transcript (never cut)
+returns the summary and the call's topic sections; each section is one
+passage, labelled with the call, channel, date, speakers, and the section's
+title and description. A section is only cut past the embedding model's
+input limit. Lor reads around a hit with `read_call`. Search scope is the
+existing `privateAudienceFilter`: the channel Lor answers in, never the
+asker's access. Nothing happens silently: Lor posts the recap in the call
+chat when it's done, and everyone who was in the call follows that chat.
 
 - [x] 1 (built 2026-10-05): `voice_session.summary` (jsonb: summary,
   decisions, open questions, follow-ups, each item with `atMs`),
   `voice_session.memory_processed_at`, and the `voice_passage` table
   (transcript and summary passages, `context` + `text`, halfvec embedding,
-  FTS over both) — **db:push owed**. A maintenance sweep every 60s hands
-  ended, unprocessed calls (30s settle) to the voice queue as
-  `session-memory` jobs (`memory-<id>`). `processCallMemory`: calls under 2
-  minutes or 40 words are marked processed with nothing; otherwise
-  `summarizeCall` (small model, gap rule in the prompt, long transcripts cut
-  in the middle), `splitCallPassages`, `situateCallPassages` (one sentence
-  each from the summary, batches of 25), embeddings in batches of 32 (a
-  failed batch keeps keyword search), then one transaction replaces the
-  passages and sets the summary. Session chat needs nothing: messages become
-  searchable when the call ends. Fixed on the way: BullMQ rejects ":" in
-  custom job ids, so the approval-resume job ids (6a) now use "-".
+  FTS over both) — **db:push owed**. `endSession` calls the notifier's
+  `sessionEnded`, which the API and worker install to queue a
+  `session-memory` job (`voiceSessionMemoryJob`, id `memory-<id>`); the
+  10-minute voice audit queues any ended call still unprocessed (backstop,
+  no new scheduler). `processCallMemory`: calls under 2 minutes or 40 words
+  are marked processed with nothing; otherwise `summarizeCall` reads the
+  numbered transcript ("L12 [4:05] Alice: …", gap rule in the prompt) and
+  returns the summary plus `sections` (start line, title, about);
+  `buildSectionPassages` makes one passage per section (bad starts dropped,
+  none → the whole call); embeddings in batches of 32 (a failed batch keeps
+  keyword search); one transaction replaces the passages and sets the
+  summary; then Lor posts the recap in the call chat (`postLorMessage` now
+  takes `threadRootId`). `resolveThreadNotificationContext` counts a
+  voice_session thread's call participants as subscribed. Session chat
+  needs nothing: messages become searchable when the call ends. Fixed on
+  the way: BullMQ rejects ":" in custom job ids, so the approval-resume job
+  ids (6a) now use "-".
 
 - A summary per ended session (extend `packages/lor/src/meeting-insights.ts`)
   with decisions, open questions, and follow-ups; people can correct it.
