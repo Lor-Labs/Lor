@@ -2385,7 +2385,11 @@ export async function respond(
       store: run?.toolResults ?? null,
     })
 
-    const approvalToolGate = buildToolApproval(approvalGates, toolTargets)
+    const approvalToolGate = buildToolApproval(
+      approvalGates,
+      toolTargets,
+      ctx.voice?.canApprove
+    )
     // Set when a policy gate parks a call. The SDK ends the loop on its own
     // (the step's tool calls never all resolve), so there is no ceiling flag
     // to trip and no further model call.

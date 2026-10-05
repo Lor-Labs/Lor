@@ -1,8 +1,18 @@
 import { canResolveApproval } from "@repo/auth/permissions"
-import { and, db, eq, inArray, isNotNull, isNull, schema } from "@repo/db"
+import {
+  and,
+  db,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  notExists,
+  schema,
+} from "@repo/db"
 import { resolveChannelAccess } from "@repo/db/queries/channel-access"
 import type { Approval, Plan } from "@repo/db/schema"
 import { channelRoom } from "@repo/realtime-types/rooms"
+import { findRunVoiceRequest } from "@repo/voice/server"
 import {
   loadApprovalResolver,
   loadApprovalResolvers,
@@ -19,6 +29,8 @@ import {
   startScopeContinuationRun,
 } from "@/lib/scope-runs"
 import type { AppRouteHandler } from "@/lib/types/app-types"
+import { enqueueVoiceRequest } from "@/lib/voice/runs"
+import { findConnectedParticipant } from "@/lib/voice/sessions"
 import { notifyWorkspaceActivity } from "@/lib/workspace-activity"
 import type {
   ApproveApprovalRoute,
@@ -64,7 +76,14 @@ export const listChannelApprovals: AppRouteHandler<
       and(
         eq(schema.agentRun.channelId, channelId),
         eq(schema.approval.status, "pending"),
-        isNotNull(schema.approval.runId)
+        isNotNull(schema.approval.runId),
+        // A call's approvals show only in the call (Lor's window).
+        notExists(
+          db
+            .select({ id: schema.voiceRequest.id })
+            .from(schema.voiceRequest)
+            .where(eq(schema.voiceRequest.runId, schema.approval.runId))
+        )
       )
     )
     .limit(50)
@@ -170,6 +189,20 @@ async function resolveApproval(
   const scope = row ? approvalScope(row.run, row.plan) : null
   if (!row || !scope) return { kind: "not_found" }
 
+  // An approval from a voice call resolves only from that call, by someone
+  // connected to it, and resumes there.
+  const voice = row.approval.runId
+    ? await findRunVoiceRequest(row.approval.runId)
+    : null
+  if (voice) {
+    if (voice.status !== "awaiting_approval" || voice.sessionEndedAt) {
+      return { kind: "conflict" }
+    }
+    if (!(await findConnectedParticipant(voice.sessionId, userId))) {
+      return { kind: "forbidden" }
+    }
+  }
+
   // Channel write access is the floor for every approval: someone who cannot
   // speak in the conversation can never authorize an action inside it.
   const access = await resolveChannelAccess(userId, scope.channelId)
@@ -219,6 +252,34 @@ async function resolveApproval(
     .then((rows) => rows[0] ?? null)
   if (!resolved) return { kind: "conflict" }
 
+  const undoResolution = () =>
+    db
+      .update(schema.approval)
+      .set({ status: "pending", resolvedBy: null, resolvedAt: null })
+      .where(
+        and(
+          eq(schema.approval.id, approvalId),
+          eq(schema.approval.status, resolution),
+          eq(schema.approval.resolvedBy, userId)
+        )
+      )
+      .catch(() => {})
+
+  // Nothing posts to the call chat: the paused request resumes in Lor's
+  // window. Without the resume job the request would wait forever, so a
+  // failed enqueue undoes the resolution for a retry.
+  if (voice) {
+    const queued = await enqueueVoiceRequest(voice.id, resolved.id)
+      .then(() => true)
+      .catch(() => false)
+    if (!queued) {
+      await undoResolution()
+      return { kind: "post_failed" }
+    }
+    notifyWorkspaceActivity(resolved.workspaceId)
+    return { kind: "resolved", approval: resolved }
+  }
+
   // The resolution message is the continuation trigger: it lands in the run's
   // scope as the resolver, and the next run answers it. If it can't be
   // created, un-resolve the CAS so the caller can retry — a success response
@@ -234,17 +295,7 @@ async function resolveApproval(
     content,
   }).catch(() => null)
   if (!messageId) {
-    await db
-      .update(schema.approval)
-      .set({ status: "pending", resolvedBy: null, resolvedAt: null })
-      .where(
-        and(
-          eq(schema.approval.id, approvalId),
-          eq(schema.approval.status, resolution),
-          eq(schema.approval.resolvedBy, userId)
-        )
-      )
-      .catch(() => {})
+    await undoResolution()
     return { kind: "post_failed" }
   }
 

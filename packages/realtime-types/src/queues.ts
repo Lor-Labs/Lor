@@ -74,7 +74,22 @@ export type LoopRunJobData = {
 export const VOICE_REQUEST_QUEUE = "voice-request"
 export const VOICE_REQUEST_JOB = "voice"
 
-export type VoiceRequestJobData = { requestId: string }
+// `resumeApprovalId`: continue a request paused on that approval, now
+// resolved.
+export type VoiceRequestJobData = {
+  requestId: string
+  resumeApprovalId?: string
+}
+
+// Checks a paused request's approvers every few seconds, and rejects the
+// approval once nobody in the call can resolve it for the grace period.
+export const VOICE_APPROVAL_WATCH_JOB = "approval-watch"
+export type VoiceApprovalWatchJobData = {
+  requestId: string
+  approvalId: string
+  // When the last approver was found missing; null while one is present.
+  missingSince: number | null
+}
 
 // Project archive synthesis: the API flips the project to `archiving` (write
 // locks engage immediately), then this job distills the project into

@@ -17,6 +17,7 @@ import {
   TRIGGERED_RUN_QUEUE,
   type TriggeredRunJobData,
   VOICE_REQUEST_QUEUE,
+  type VoiceApprovalWatchJobData,
   type VoiceRequestJobData,
 } from "@repo/realtime-types/queues"
 import { Emitter } from "@socket.io/redis-emitter"
@@ -268,18 +269,17 @@ async function bootstrap() {
     )
   })
 
-  // Requests to Lor spoken in a call. The transcriber is the producer.
-  const voiceRequestWorker = new Worker<VoiceRequestJobData>(
-    VOICE_REQUEST_QUEUE,
-    createVoiceRequestProcessor(),
-    {
-      connection: {
-        ...redisOpts,
-        maxRetriesPerRequest: null,
-      },
-      concurrency: 5,
-    }
-  )
+  // Requests to Lor spoken in a call. The transcriber is the producer; the
+  // worker itself schedules approval watchers and resumes.
+  const voiceRequestWorker = new Worker<
+    VoiceRequestJobData | VoiceApprovalWatchJobData
+  >(VOICE_REQUEST_QUEUE, createVoiceRequestProcessor(), {
+    connection: {
+      ...redisOpts,
+      maxRetriesPerRequest: null,
+    },
+    concurrency: 5,
+  })
 
   voiceRequestWorker.on("failed", (job, error) => {
     logger.error({ jobId: job?.id, err: error }, "Voice-request job failed")

@@ -77,10 +77,18 @@ export type VoiceRequestState = {
     | "rejected"
     | "queued"
     | "working"
+    | "awaiting_approval"
     | "done"
     | "failed"
     | "cancelled"
   result: { blocks: RealtimeVoiceBlock[] } | null
+  // Set while the request waits on an approval.
+  approval: {
+    approvalId: string
+    label: string
+    toolName: string
+    approverUserIds: string[]
+  } | null
   finishedAt: string | null
   // Someone cleared the finished result from Lor's window.
   dismissedAt: string | null

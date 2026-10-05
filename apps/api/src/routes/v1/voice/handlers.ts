@@ -9,6 +9,7 @@ import {
   createJoinToken,
   createVoiceRequest,
   dismissVoiceRequest as dismissRequest,
+  expireRunApproval,
   findVoiceRequest,
   getCurrentCall,
   getLiveKitConfig,
@@ -206,7 +207,10 @@ export const cancelVoiceRequest: AppRouteHandler<
       HttpStatusCodes.CONFLICT
     )
   }
-  if (cancelled.runId) await stopVoiceRun(cancelled.runId, c.var.user.id)
+  if (cancelled.runId) {
+    await stopVoiceRun(cancelled.runId, c.var.user.id)
+    await expireRunApproval(cancelled.runId)
+  }
   if (scope.threadRootId) {
     notifyVoiceRequest(scope.threadRootId, cancelled.request)
   }

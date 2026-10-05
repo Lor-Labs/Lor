@@ -1,10 +1,14 @@
 import { setTimeout as sleep } from "node:timers/promises"
 import { checkCredits, recordUsage } from "@repo/billing"
-import { db, desc, eq, isUniqueViolation, schema } from "@repo/db"
+import { and, db, desc, eq, isUniqueViolation, schema } from "@repo/db"
 import { env } from "@repo/env/server"
 import { type ConversationTurn, respond, voiceBlocksText } from "@repo/lor"
 import type { VoiceRequestState } from "@repo/realtime-types/events"
-import type { VoiceRequestJobData } from "@repo/realtime-types/queues"
+import {
+  VOICE_APPROVAL_WATCH_JOB,
+  type VoiceApprovalWatchJobData,
+  type VoiceRequestJobData,
+} from "@repo/realtime-types/queues"
 import {
   claimQueuedVoiceRequests,
   finishRunVoiceRequests,
@@ -15,14 +19,29 @@ import {
   notifyVoiceRequest,
   notifyVoiceRequestActivity,
   notifyVoiceRequestReaction,
+  parkRunVoiceRequests,
+  resumeVoiceRequest,
   runVoiceResultShown,
   setRunVoiceResult,
+  setVoiceRequestApprovers,
   startVoiceRequest,
 } from "@repo/voice/server"
 import type { Job } from "bullmq"
 import { claimAgentRun, LeaseLostError } from "@/lib/agent-run"
 import { logger } from "@/lib/logger"
+import {
+  buildApprovalContinuation,
+  type Continuation,
+} from "@/lib/run-continuation"
 import { cancelPendingRun } from "@/lib/unattended-run"
+import {
+  APPROVER_GRACE_MS,
+  enqueueApprovalResume,
+  listCallApprovers,
+  loadApproval,
+  scheduleApprovalWatch,
+  settleApprovalUnresolved,
+} from "@/lib/voice-approvals"
 import { buildVoiceContinuation } from "@/lib/voice-continuation"
 import { notifyWorkspaceActivity } from "@/lib/workspace-activity"
 
@@ -82,8 +101,10 @@ async function createVoiceRun(
     await sleep(BUSY_RETRY_MS)
     const current = await loadVoiceRequest(request.id)
     // The running request took this one on at its next step.
-    if (current?.status === "working") return "absorbed"
-    if (current?.status !== "queued") return "gone"
+    if (request.status === "queued" && current?.status === "working") {
+      return "absorbed"
+    }
+    if (current?.status !== request.status) return "gone"
   }
   return "timeout"
 }
@@ -162,7 +183,13 @@ async function failRun(request: LoadedRequest, runId: string) {
   }
 }
 
-async function runVoiceRequest(request: LoadedRequest, runId: string) {
+// `approvalResume`: the paused run's transcript plus the approval's answer,
+// which this run continues instead of the call's last run.
+async function runVoiceRequest(
+  request: LoadedRequest,
+  runId: string,
+  approvalResume: Continuation | null = null
+) {
   const claim = await claimAgentRun(runId)
   if (claim.kind === "terminal") return
   if (claim.kind !== "claimed") {
@@ -192,10 +219,11 @@ async function runVoiceRequest(request: LoadedRequest, runId: string) {
     // A recovered attempt replays its own transcript instead.
     const continuation = execution.resume
       ? null
-      : await buildVoiceContinuation(
+      : (approvalResume ??
+        (await buildVoiceContinuation(
           { ...request, speakerName: turn.authorName, content: turn.content },
           runId
-        )
+        )))
     if (continuation) {
       await execution.markContinuedFrom(continuation.predecessorRunId)
     }
@@ -213,6 +241,9 @@ async function runVoiceRequest(request: LoadedRequest, runId: string) {
                 messages: continuation.messages,
                 coveredMessageIds: continuation.coveredMessageIds,
                 deltaText: continuation.deltaText,
+                ...(continuation.approvalResume
+                  ? { approvalResume: continuation.approvalResume }
+                  : {}),
                 lastInputTokens: continuation.lastInputTokens,
                 compaction: continuation.compaction,
               },
@@ -221,6 +252,8 @@ async function runVoiceRequest(request: LoadedRequest, runId: string) {
         channelId: request.channelId,
         runId,
         voice: {
+          canApprove: async (target) =>
+            (await listCallApprovers(request, target)).length > 0,
           show: async (blocks) => {
             publish(request, await setRunVoiceResult(runId, { blocks }))
           },
@@ -296,6 +329,10 @@ async function runVoiceRequest(request: LoadedRequest, runId: string) {
     })
     execution.stop()
     await writer.close()
+    if (answer.stoppedFor === "awaiting_approval") {
+      await parkRun(request, runId)
+      return
+    }
     // A cancel stops the whole run, so every request it took on ends
     // cancelled. Otherwise the final reply becomes the answer when Lor never
     // called show_in_call, and nothing at all to show (e.g. a budget stop)
@@ -328,12 +365,119 @@ async function runVoiceRequest(request: LoadedRequest, runId: string) {
   }
 }
 
+// The run paused on an approval gate (only ever one someone in the call can
+// resolve: canApprove refuses the rest). Its request waits in Lor's window
+// and a watcher keeps the approvers current.
+async function parkRun(request: LoadedRequest, runId: string) {
+  const [approval] = await db
+    .select({
+      id: schema.approval.id,
+      description: schema.approval.description,
+      toolName: schema.approval.toolName,
+      target: schema.approval.target,
+    })
+    .from(schema.approval)
+    .where(
+      and(
+        eq(schema.approval.runId, runId),
+        eq(schema.approval.status, "pending")
+      )
+    )
+    .limit(1)
+  if (!approval?.target) {
+    await failRun(request, runId)
+    return
+  }
+  const parked = await parkRunVoiceRequests(runId, {
+    approvalId: approval.id,
+    label: approval.description,
+    toolName: approval.toolName ?? "",
+    approverUserIds: await listCallApprovers(request, approval.target),
+  })
+  for (const state of parked) publish(request, state)
+  const waiting = parked.find((state) => state.status === "awaiting_approval")
+  if (waiting) {
+    await scheduleApprovalWatch({
+      requestId: waiting.id,
+      approvalId: approval.id,
+      missingSince: null,
+    })
+  }
+}
+
+// Keeps a paused request's approvers current. When none is left in the call
+// for the grace period the approval is rejected and the request resumes, so
+// Lor says so; when the call ended it expires and the request fails.
+async function watchApproval(data: VoiceApprovalWatchJobData) {
+  const request = await loadVoiceRequest(data.requestId)
+  if (
+    request?.status !== "awaiting_approval" ||
+    request.approval?.approvalId !== data.approvalId
+  ) {
+    return
+  }
+  const approval = await loadApproval(data.approvalId)
+  if (approval?.status !== "pending" || !approval.target) return
+  if (request.sessionEndedAt) {
+    await settleApprovalUnresolved(data.approvalId, "expired")
+    publish(request, await finishVoiceRequest(request.id, { status: "failed" }))
+    return
+  }
+
+  const approverUserIds = await listCallApprovers(request, approval.target)
+  if (approverUserIds.join() !== request.approval.approverUserIds.join()) {
+    publish(
+      request,
+      await setVoiceRequestApprovers(request.id, {
+        ...request.approval,
+        approverUserIds,
+      })
+    )
+  }
+  const now = Date.now()
+  const missingSince =
+    approverUserIds.length > 0 ? null : (data.missingSince ?? now)
+  if (missingSince !== null && now - missingSince >= APPROVER_GRACE_MS) {
+    if (await settleApprovalUnresolved(data.approvalId, "rejected")) {
+      await enqueueApprovalResume(request.id, data.approvalId)
+    }
+    return
+  }
+  await scheduleApprovalWatch({ ...data, missingSince })
+}
+
+// Continues a request paused on an approval that's now resolved: a new run
+// replays the paused transcript with the approval's answer, so an approved
+// tool runs as it was asked and a rejection reaches Lor.
+async function resumeRequest(request: LoadedRequest, approvalId: string) {
+  if (request.status !== "awaiting_approval") return
+  const created = await createVoiceRun(request)
+  if (typeof created === "string") return
+  const continuation = await buildApprovalContinuation({ approvalId })
+  const resumed = await resumeVoiceRequest(request.id, created.runId)
+  if (!resumed) {
+    await cancelPendingRun(created.runId)
+    return
+  }
+  publish(request, resumed)
+  await runVoiceRequest(request, created.runId, continuation)
+}
+
 // Runs a request someone spoke to Lor in a call. A retried job (worker crash)
 // finds the request working and resumes its run from the last checkpoint.
 export function createVoiceRequestProcessor() {
-  return async (job: Job<VoiceRequestJobData>) => {
-    const request = await loadVoiceRequest(job.data.requestId)
+  return async (job: Job<VoiceRequestJobData | VoiceApprovalWatchJobData>) => {
+    if (job.name === VOICE_APPROVAL_WATCH_JOB) {
+      await watchApproval(job.data as VoiceApprovalWatchJobData)
+      return
+    }
+    const data = job.data as VoiceRequestJobData
+    const request = await loadVoiceRequest(data.requestId)
     if (!request) return
+    if (data.resumeApprovalId) {
+      await resumeRequest(request, data.resumeApprovalId)
+      return
+    }
     if (request.status === "working" && request.runId) {
       await runVoiceRequest(request, request.runId)
       return

@@ -524,7 +524,30 @@ Chunks (planned 2026-10-01):
      the blocks. Entity cards load once there (no 60s refresh). "Show on
      stage" appears during the call on results not already shown. Past
      sessions show the same entries without the button.
-6. [ ] The approval overlay inside Lor's window.
+6. [ ] The approval overlay inside Lor's window. Decided 2026-10-04 (Jacob):
+   approvals never leave the call. A gated tool pauses only when someone
+   connected to the call can resolve it; otherwise it's refused with a reason
+   Lor passes on. Tools stay bound either way (prompt cache). The last
+   approver leaving starts a 30s grace period, then the approval is rejected
+   and Lor told; the call ending expires it.
+   - [x] 6a (server): new status `awaiting_approval` and `voice_request.approval`
+     jsonb (approval id, label, tool, approver user ids) — **db:push owed**.
+     `RunVoiceContext.canApprove` feeds `buildToolApproval`, which returns
+     `{ type: "denied", reason }` when nobody present can resolve.
+     `listCallApprovers` (worker) = connected participants passing
+     `canResolveApproval` for the policy's resolver, with channel write access
+     as the floor. On `awaiting_approval` the worker parks the run's newest
+     request (older ones it took on end done) and schedules an
+     `approval-watch` job on the voice queue every 10s: it refreshes the
+     approver list, rejects after 30s without one (then resumes so Lor is
+     told), and expires the approval and fails the request once the call
+     ended. Resolving goes through the existing approvals routes: for a voice
+     run they require a connected participant, post nothing, and enqueue a
+     voice job with `resumeApprovalId`, which replays the paused run via
+     `buildApprovalContinuation`. Cancel expires the pending approval. Voice
+     approvals are left out of the channel approvals list.
+   - [ ] 6b (web): the overlay (blurred window, action, approvers, Approve /
+     Reject), waiting entries in the transcript, simulator scenario.
 
 As built, chunk 1:
 

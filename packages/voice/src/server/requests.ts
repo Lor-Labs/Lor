@@ -9,12 +9,14 @@ import {
   isNull,
   lt,
   ne,
+  or,
   schema,
   sql,
 } from "@repo/db"
 import type {
   NewVoiceRequest,
   VoiceRequest,
+  VoiceRequestApproval,
   VoiceRequestCheck,
   VoiceRequestResult,
 } from "@repo/db/schema"
@@ -23,7 +25,12 @@ import type { VoiceRequestState } from "@repo/realtime-types/events"
 const { user, voiceRequest, voiceSession, voiceSessionParticipant } = schema
 
 // A request someone can still cancel.
-const ACTIVE_STATUSES = ["listening", "queued", "working"] as const
+const ACTIVE_STATUSES = [
+  "listening",
+  "queued",
+  "working",
+  "awaiting_approval",
+] as const
 
 const stateColumns = {
   id: voiceRequest.id,
@@ -36,6 +43,7 @@ const stateColumns = {
   finishedAt: voiceRequest.finishedAt,
   dismissedAt: voiceRequest.dismissedAt,
   stagedAt: voiceRequest.stagedAt,
+  approval: voiceRequest.approval,
   createdAt: voiceRequest.createdAt,
   updatedAt: voiceRequest.updatedAt,
 }
@@ -53,7 +61,8 @@ function toState(
   }
 }
 
-// Brings a finished result back into Lor's window for everyone in the call.
+// Brings a finished result, or a request waiting on approval, back into Lor's
+// window for everyone in the call.
 export async function stageVoiceRequest(requestId: string) {
   const [row] = await db
     .update(voiceRequest)
@@ -61,8 +70,10 @@ export async function stageVoiceRequest(requestId: string) {
     .where(
       and(
         eq(voiceRequest.id, requestId),
-        eq(voiceRequest.status, "done"),
-        isNotNull(voiceRequest.result)
+        or(
+          eq(voiceRequest.status, "awaiting_approval"),
+          and(eq(voiceRequest.status, "done"), isNotNull(voiceRequest.result))
+        )
       )
     )
     .returning(stateColumns)
@@ -218,6 +229,7 @@ export async function loadVoiceRequest(requestId: string) {
       channelId: voiceSession.channelId,
       threadRootId: voiceSession.threadRootId,
       sessionStartedAt: voiceSession.startedAt,
+      sessionEndedAt: voiceSession.endedAt,
     })
     .from(voiceRequest)
     .innerJoin(voiceSession, eq(voiceSession.id, voiceRequest.sessionId))
@@ -334,6 +346,93 @@ export async function finishRunVoiceRequests(
   return rows.map(toState)
 }
 
+// The run paused on an approval: its newest request waits on it in Lor's
+// window; any older ones it took on end, since the paused run carries them.
+export async function parkRunVoiceRequests(
+  runId: string,
+  approval: VoiceRequestApproval
+) {
+  const newestId = await newestRunRequestId(runId)
+  if (!newestId) return []
+  const rows = await db
+    .update(voiceRequest)
+    .set({
+      status: sql`case when ${voiceRequest.id} = ${newestId} then 'awaiting_approval'::voice_request_status else 'done'::voice_request_status end`,
+      approval: sql`case when ${voiceRequest.id} = ${newestId} then ${JSON.stringify(approval)}::jsonb else null end`,
+      finishedAt: sql`case when ${voiceRequest.id} = ${newestId} then null else now() end`,
+    })
+    .where(
+      and(eq(voiceRequest.runId, runId), eq(voiceRequest.status, "working"))
+    )
+    .returning(stateColumns)
+  return rows.map(toState)
+}
+
+// A resolved approval continues the paused request on a new run.
+export async function resumeVoiceRequest(requestId: string, runId: string) {
+  const [row] = await db
+    .update(voiceRequest)
+    .set({ status: "working", runId, approval: null })
+    .where(
+      and(
+        eq(voiceRequest.id, requestId),
+        eq(voiceRequest.status, "awaiting_approval")
+      )
+    )
+    .returning(stateColumns)
+  return row ? toState(row) : null
+}
+
+// A cancelled request's open approval can no longer be acted on.
+export async function expireRunApproval(runId: string) {
+  await db
+    .update(schema.approval)
+    .set({ status: "expired", resolvedAt: new Date() })
+    .where(
+      and(
+        eq(schema.approval.runId, runId),
+        eq(schema.approval.status, "pending")
+      )
+    )
+}
+
+// Keeps the paused request's approver list current as people join and leave.
+export async function setVoiceRequestApprovers(
+  requestId: string,
+  approval: VoiceRequestApproval
+) {
+  const [row] = await db
+    .update(voiceRequest)
+    .set({ approval })
+    .where(
+      and(
+        eq(voiceRequest.id, requestId),
+        eq(voiceRequest.status, "awaiting_approval")
+      )
+    )
+    .returning(stateColumns)
+  return row ? toState(row) : null
+}
+
+// A voice run's newest request: marks an approval as the call's, so it
+// resolves from the call and resumes there.
+export async function findRunVoiceRequest(runId: string) {
+  const [row] = await db
+    .select({
+      id: voiceRequest.id,
+      sessionId: voiceRequest.sessionId,
+      status: voiceRequest.status,
+      threadRootId: voiceSession.threadRootId,
+      sessionEndedAt: voiceSession.endedAt,
+    })
+    .from(voiceRequest)
+    .innerJoin(voiceSession, eq(voiceSession.id, voiceRequest.sessionId))
+    .where(eq(voiceRequest.runId, runId))
+    .orderBy(desc(voiceRequest.createdAt))
+    .limit(1)
+  return row ?? null
+}
+
 // Whether the newest request on a run has something on stage.
 export async function runVoiceResultShown(runId: string) {
   const requestId = await newestRunRequestId(runId)
@@ -409,7 +508,7 @@ export async function finishVoiceRequest(
     .where(
       and(
         eq(voiceRequest.id, requestId),
-        inArray(voiceRequest.status, ["queued", "working"])
+        inArray(voiceRequest.status, ["queued", "working", "awaiting_approval"])
       )
     )
     .returning(stateColumns)

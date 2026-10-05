@@ -164,6 +164,7 @@ class Simulation {
             : now,
           dismissedAt: null,
           stagedAt: null,
+          approval: null,
           createdAt,
           updatedAt: now,
         })

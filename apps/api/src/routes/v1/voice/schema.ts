@@ -1,5 +1,6 @@
 import { z } from "@hono/zod-openapi"
 import {
+  type VoiceRequestApproval,
   type VoiceRequestResult,
   voiceCaptureGapReasonEnum,
   voiceRequestStatusEnum,
@@ -45,6 +46,7 @@ const voiceRequestSchema = z.object({
   finishedAt: z.string().datetime().nullable(),
   dismissedAt: z.string().datetime().nullable(),
   stagedAt: z.string().datetime().nullable(),
+  approval: z.custom<VoiceRequestApproval>().nullable(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 })

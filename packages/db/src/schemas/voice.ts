@@ -185,10 +185,22 @@ export const voiceRequestStatusEnum = pgEnum("voice_request_status", [
   // Accepted; waiting for its run.
   "queued",
   "working",
+  // The run paused on an approval gate that someone in the call can resolve.
+  "awaiting_approval",
   "done",
   "failed",
   "cancelled",
 ])
+
+// The approval a paused request waits on, shown over Lor's window. Approvers
+// are the people connected to the call who can resolve it, kept current while
+// it waits.
+export type VoiceRequestApproval = {
+  approvalId: string
+  label: string
+  toolName: string
+  approverUserIds: string[]
+}
 
 // What Lor shows in its window, composed by the run. Generic blocks carry
 // their own data, so any tool's results fit; connector cards come later.
@@ -283,6 +295,7 @@ export const voiceRequest = pgTable(
     // Someone brought this result back into Lor's window ("Show on stage",
     // step-back).
     stagedAt: timestamp("staged_at"),
+    approval: jsonb("approval").$type<VoiceRequestApproval>(),
   },
   (table) => [
     // Explicit name: the auto-generated one exceeds Postgres's 63-byte limit.

@@ -14,6 +14,10 @@ export type RunVoiceContext = {
   // Replaces what Lor's window shows for this request.
   show: ShowInCall
   react: ReactInCall
+  // Whether someone connected to the call can resolve an approval on this
+  // target. If not, a gated call is refused instead of pausing: approvals
+  // never leave the call.
+  canApprove: (target: string) => Promise<boolean>
 }
 
 const text = (max: number) => z.string().trim().min(1).max(max)

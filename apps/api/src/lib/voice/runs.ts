@@ -27,15 +27,19 @@ function parseRedisUrl(url: string) {
 let voiceRequestQueue: Queue<VoiceRequestJobData> | null = null
 
 // A clicked choice becomes a request; the worker runs it like a spoken one.
-export async function enqueueVoiceRequest(requestId: string) {
+// With `resumeApprovalId`, a request paused on that approval continues.
+export async function enqueueVoiceRequest(
+  requestId: string,
+  resumeApprovalId?: string
+) {
   voiceRequestQueue ??= new Queue<VoiceRequestJobData>(VOICE_REQUEST_QUEUE, {
     connection: { ...parseRedisUrl(env.REDIS_URL), maxRetriesPerRequest: null },
   })
   await voiceRequestQueue.add(
     VOICE_REQUEST_JOB,
-    { requestId },
+    resumeApprovalId ? { requestId, resumeApprovalId } : { requestId },
     {
-      jobId: requestId,
+      jobId: resumeApprovalId ? `${requestId}:${resumeApprovalId}` : requestId,
       attempts: 2,
       backoff: { type: "fixed", delay: 5_000 },
       removeOnComplete: true,
