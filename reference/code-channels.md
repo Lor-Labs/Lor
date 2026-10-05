@@ -23,9 +23,9 @@
 | **Code channel** | A channel bound to a repo. Where people talk; permissions = channel membership. |
 | **Session** | One line of work: conversation + session branch + runtime. A channel has one main session by default; forks, branching threads and subchannels create their own. |
 | **Step** | One agent or human turn. The unit of checkpoint, @mention, rewind and fork. |
-| **Checkpoint** | State after a step = conversation up to the step (Postgres) + a code commit (Artifacts). |
+| **Checkpoint** | State after a step = conversation up to the step (Postgres) + a code commit (git host). |
 | **Base branch** | The GitHub branch work starts from and ships back to (e.g. `dev`). Never live-edited. |
-| **Session branch** | The Artifacts branch the session works on, e.g. `sessions/homepage-a1b2`. |
+| **Session branch** | The git-host branch the session works on (ephemeral namespace on Code Storage), e.g. `sessions/homepage-a1b2`. |
 | **Driver** | The one person (plus their agent) currently steering a session. |
 
 **The primitive:** after every step, commit the code and record that commit on the step. Every feature above is built from it.
@@ -35,7 +35,7 @@
 | Layer | Holds | Why |
 |---|---|---|
 | **Postgres** | Chat, both agents' full transcripts (Lor + coding sub-agent), steps, fork/branch tree, rewind branches, driver lock, mentions/comments, permissions, `commit_sha` per step | Shared, queryable, permissioned, deletable team data. Forks are parent pointers over immutable rows. |
-| **Cloudflare Artifacts** (managed) | Session branches; one commit per code-changing step | Real git remote (local clone), cheap branches/forks, push events, ArtifactFS. |
+| **Git host** — Code Storage or Cloudflare Artifacts (§10) | Session branches; one commit per code-changing step | Real git remote (local clone), cheap branches, push events, server-side read APIs. |
 | **Yjs** (`apps/realtime`) | Live docs for files open in a session | Concurrent-edit merging. Live layer only — never the durable store, never forked. |
 | **Sockets** (existing) | Agent edit stream, presence, notifications, Yjs transport | Already built. |
 | **Blaxel** | Disposable runtime; live preview URLs | Rebuilt from any checkpoint. Never source of truth. |
@@ -54,7 +54,7 @@ Locked decisions:
 ```
 code_session
   id, workspace_id, channel_id, repo_id
-  artifacts_repo, branch             -- session branch on Artifacts
+  git_repo, branch                   -- session branch on the git host
   base_branch, base_commit           -- e.g. dev @ abc123
   parent_session_id, forked_at_step_id
   driver_user_id                     -- single driver, DB-arbitrated lock
@@ -85,7 +85,7 @@ Relation to what exists today (verified 2026-10-05):
 ## 5. Flows
 
 ### Start a session
-1. Mint a scoped GitHub token; import the repo into Artifacts (or sync the existing mirror); create the session branch from `base_branch` @ head.
+1. Mint a scoped GitHub token; mirror the repo on the git host (or sync the existing mirror); create the session branch from `base_branch` @ head.
 2. Boot a sandbox from the branch (ArtifactFS for large repos).
 3. Insert `code_session` with the creator as driver.
 
@@ -105,7 +105,7 @@ Relation to what exists today (verified 2026-10-05):
 - **Take over**: same session, driver role transfers; recorded in history.
 
 ### Fork (any step)
-- New `code_session` with `parent_session_id` + `forked_at_step_id`; new Artifacts branch at that step's commit.
+- New `code_session` with `parent_session_id` + `forked_at_step_id`; new session branch at that step's commit.
 - Conversation = parent's steps up to the fork point + the fork's own (no copying); forks of forks chain. Long chains rely on compaction baselines.
 - The forker's permissions and credentials apply, never the original owner's. A fork cannot be shared wider than its parent.
 
@@ -124,7 +124,7 @@ Relation to what exists today (verified 2026-10-05):
 
 ### Clone locally
 - Lor issues a repo-scoped, per-user, revocable token; the user runs `git clone <url>`.
-- A push back from a laptop becomes a human step: an Artifacts push event → Lor records a step with that commit → open live docs reload → the agent's next run sees the change.
+- A push back from a laptop becomes a human step: a git-host push event → Lor records a step with that commit → open live docs reload → the agent's next run sees the change.
 - Only the driver may push. A push while the agent is mid-step is rejected by normal non-fast-forward rules; pull and retry.
 
 ### Sync with base
@@ -149,10 +149,10 @@ Relation to what exists today (verified 2026-10-05):
 ## 7. Security & permissions
 
 - Session access = channel membership.
-- Agents never hold Artifacts or GitHub push tokens; Lor pushes with an explicit refspec.
-- Artifacts tokens are repo-scoped and short-lived; local-clone tokens are per-user and revocable; GitHub tokens are minted only to import and publish.
+- Agents never hold GitHub push tokens; git-host credentials are short-lived and ref-scoped to their own session branch where the host supports it; Lor pushes with an explicit refspec.
+- Git-host tokens are short-lived; local-clone tokens are per-user and revocable; GitHub tokens are minted only to import and publish.
 - Transcripts are redacted for secrets before persisting; tool outputs are capped.
-- Customer code is stored at Cloudflare: disclose it, and pick the Artifacts namespace jurisdiction (US/EU) at creation — it is fixed per namespace.
+- Customer code is stored at the git-host vendor: disclose it, and pick the region at creation (Artifacts namespace jurisdiction or Code Storage org region) — both are fixed once set.
 
 ## 8. Rejected alternatives (don't re-litigate without new information)
 
@@ -170,21 +170,23 @@ Relation to what exists today (verified 2026-10-05):
 
 ## 9. Build phases
 
-- [ ] **1. Durable sessions** — persist the coding sub-agent transcript to Postgres; checkpoint interface on Artifacts; per-step commit + `commit_sha`; live edit streaming over sockets; step permalinks with diffs.
+- [ ] **0. Code index** (independent of code channels; can ship first as an upgrade to code Q&A) — see §11.
+- [ ] **1. Durable sessions** — persist the coding sub-agent transcript to Postgres; checkpoint interface on the git host; per-step commit + `commit_sha`; live edit streaming over sockets; step permalinks with diffs.
 - [ ] **2. Fork, handoff, rewind** — fork-at-step pointer, `session_branch`, driver lock, sandbox rebuild from any checkpoint.
 - [ ] **3. Collaboration** — @mentions/comments on steps and lines, `explain_line`, blame-to-prompt, "can't undo" list.
 - [ ] **4. Local clone** — clone tokens, push events → human steps.
 - [ ] **5. Subchannels** — channel fork pointers, context seeding.
 - [ ] **6. Compare forks** — side-by-side diffs and preview URLs, promote one to a PR.
 - [ ] **7. Co-editing** — Yjs live layer, sandbox bridge, file watcher.
+- [ ] **8. Coding agent CLIs** — adapter interface, Claude Code + Codex adapters, native session snapshots, credential modes — see §12.
 
 ## 10. Open questions
 
 - Code-channel interaction design: layout of chat, editor, file tree and preview (still unresolved per `product-direction.md`).
 - Is single-driver strict, or can two people take turns prompting one agent?
 - Retention for abandoned rewind branches and forks.
-- Repos not on GitHub: support Artifacts-only projects (new projects, V2 generated apps)?
-- Per-workspace budget for sandbox and Artifacts usage.
+- Repos not on GitHub: support git-host-only projects (new projects, V2 generated apps)?
+- Per-workspace budget for sandbox, git-host and embedding usage.
 - What rewinding past a human's locally pushed step means.
 
 ### Git host: Cloudflare Artifacts vs Code Storage (Pierre) — decide at phase 1
@@ -274,7 +276,111 @@ Implementation gotchas noted from the docs:
 - First sync of a new repo returns `409` until done (retry); later reads may be briefly stale until `repo.sync.succeeded`.
 - Webhooks: `push` (ref, before, after) and `repo.sync.started|succeeded|failed`, HMAC-signed (`X-Pierre-Signature`, SDK `validateWebhook`). Verify `push` fires for ephemeral refs — needed to turn local pushes into steps.
 
+## 11. Code index (answer code questions without a sandbox)
+
+Cursor-style semantic index of each connected repo, refreshed on every push, plus
+direct read tools — so most "where / how does X work" questions never boot a sandbox.
+Assumes Code Storage GitHub Sync (§10); does not depend on code channels.
+
+**Pipeline (default branch only):**
+
+```
+GitHub push → Code Storage sync → `push` webhook (before, after)
+  → getCommitDiff(before, after)      changed paths
+  → getFileStream(path, ref: after)   changed files only — no clone, no sandbox
+  → tree-sitter chunking              functions, classes, components, routes
+  → content-hash per chunk            unchanged chunks are never re-embedded
+  → embed new chunks                  same model as brain/sources (Qwen3 Embedding 4B)
+  → upsert `code_chunk`               repo, path, symbol, kind, line range, commit, text, hash, embedding
+```
+
+The first index walks the full file list once; afterwards each push touches only changed
+chunks.
+
+**Reuse:** same shape as `brain`, `source` and `attachment_chunk` — pgvector `halfvec` +
+HNSW, `tsvector` full-text for hybrid search, and the reranker from
+`reference/attachment-search.md`. New work is tree-sitter chunking and the push worker.
+
+**Tools for Lor (no sandbox):**
+
+| Tool | Backed by | For |
+|---|---|---|
+| `search_code` | hybrid vector + full-text over `code_chunk`, reranked | conceptual lookup ("where are billing retries handled") |
+| `grep_code` | Code Storage `grep` | identifiers, exact strings, error messages |
+| `read_file` | Code Storage `getFileStream` with line ranges | reading what search found |
+| `blame` / `history` | Code Storage `blame`, `listCommits` with `path` | who changed it, when, why |
+
+The sandbox (`investigate_code`, code sessions) stays for anything that must *run* code —
+builds, tests, reproductions, edits, very large analyses.
+
+**Decisions:**
+
+- Hybrid search (vector + full-text), never vector-only — identifiers and exact strings need lexical match.
+- Index the default branch only. Inside a code session, query the default-branch index and overlay the session's own changes (branch diff + grep on the session branch).
+- Store and embed metadata with each chunk: path, symbol name/kind, enclosing class/module, imports. Optional later: LLM file/directory summaries for broad questions.
+- Skip secrets and noise: `.env*`, lockfiles, vendored/generated code, `node_modules`, build output, binaries.
+- Enforce workspace + repo access on every query; delete all chunks when a repo is disconnected.
+- Cost is dominated by the first index of large repos; incremental pushes are small.
+
+## 12. Coding agent CLIs (Claude Code, Codex) and subscriptions
+
+Researched 2026-10-05. Not legal advice; both vendors changed policy in 2026 — recheck
+before building.
+
+### Adapters
+
+Lor already runs Pi headless in Blaxel (print mode, JSON events, session resume).
+Claude Code and Codex have the same shape, so support is a generalisation:
+
+| Capability | Pi (today) | Claude Code | Codex |
+|---|---|---|---|
+| Headless | `--print` | `claude -p` | `codex exec` |
+| Event stream | JSON events | `--output-format stream-json` | `--json` |
+| Resume | `--session-id` | `--resume <id>` | `codex exec resume <id>` |
+| Lor tools | — | MCP config | MCP config |
+| Skip own prompts (sandbox is the boundary) | `--no-approve` | `--dangerously-skip-permissions` | full-auto / sandbox flags |
+
+Verify flags against each CLI's docs at implementation time.
+
+- **Adapter interface:** `buildCommand`, `parseEvent` → Lor's neutral event format (text, tool start/end, file edit with old/new text, usage), `sessionId`, `resume`, `fork`. `runPi` in `sandbox/blaxel.ts` becomes the first adapter.
+- **Image:** add the CLIs to `packages/lor/sandbox-image/Dockerfile`, exact-pinned like Pi.
+- **Transcripts:** stored in the neutral format (§4), so step permalinks, mentions and blame-to-prompt work for every CLI.
+- **Fork/rewind need native session files:** Claude Code JSONL under `~/.claude/projects`, Codex sessions under `~/.codex/sessions`. Snapshot the native file per step (referenced from the step) and restore it to fork or resume. Never edit those files — formats are undocumented.
+- **Switching CLI mid-session is lossy:** the new CLI starts fresh from a neutral-transcript summary plus the current code. Lock one CLI per fork; show it in the UI.
+- **Live edits:** Claude Code `Edit`/`Write` events carry old/new text → Yjs ops; Codex patch/file events or the file watcher. Claude Code hooks can also route approvals into Lor.
+- **Lor as an MCP server** (memory search, ask a teammate, approvals) gives every CLI Lor's context without per-CLI code.
+- Same security rules: no push token in the sandbox, credentials per process, egress allowlist.
+
+### Credentials and subscriptions
+
+The problem is not cloud execution; it is **Lor, a third-party product, using a person's
+consumer subscription on their behalf**.
+
+- **Anthropic (Pro/Max): not allowed.** Third-party developers may not offer Claude.ai login or route requests through Free/Pro/Max credentials, and may not collect, store or intermediate Claude.ai credentials or session tokens; products must use API keys (Console, Bedrock, Vertex). Enforced in 2026 against tools that extracted OAuth tokens. Customers provisioning **their own API keys** is explicitly allowed.
+- **OpenAI (ChatGPT plans):** Codex supports Sign in with ChatGPT, but for third-party apps "Sign in with ChatGPT" is a limited partner preview (DevDay 2026). Treat a user's ChatGPT login in our sandbox as not allowed unless accepted into the program.
+- **How Conductor does it:** runs the official CLI and uses whatever login the machine already has; Conductor Cloud says you bring your own subscriptions or keys. Running the real `claude` binary on any machine is treated as using Claude Code itself; extracting or intermediating tokens is what's banned. Cloud is still grey: a token on a vendor-run disk is arguably "stored", and Pro/Max assumes ordinary individual use.
+- **Why Lor is stricter than Conductor:** teammates watching or steering, handoff, forks and Loops would put one person's subscription to team or autonomous use. Any subscription use must stay bound to that one person; a handoff switches to the recipient's own credentials; background runs never use a subscription.
+
+| Mode | How | Status |
+|---|---|---|
+| Lor-billed | Lor's API keys, metered through the usage ledger | Allowed |
+| Bring your own API key | Workspace admin adds Anthropic / OpenAI / Bedrock / Vertex key; billed to the customer | Allowed |
+| Sign in with ChatGPT | OpenAI's official partner flow | Only once accepted |
+| **Lor local runner** | Small Lor app on the user's machine runs *their* Claude Code / Codex with *their* login; Lor orchestrates and streams; checkpoints still go to the git host | Lowest-risk subscription path — official CLI, user's machine, Lor never touches the token |
+| Login inside a cloud sandbox | User signs in via the vendor's flow in their own isolated sandbox; Lor never reads or shares the token | Grey — ban risk, policy may change |
+| Collect the user's token | e.g. pasting `CLAUDE_CODE_OAUTH_TOKEN` | Banned |
+
+**Recommendation:** ship Lor-billed + BYO API key; email Anthropic and OpenAI partnerships
+for written approval of subscription access in a team product; if customers want
+subscriptions, build the local runner (it fits §5 — the runner clones the session branch,
+pushes steps back, and a handoff resumes on the recipient's runner with their own
+subscription).
+
 ## Sources
 
 - [Artifacts: versioned storage that speaks Git](https://blog.cloudflare.com/artifacts-git-for-agents-beta/) (2026-04-16)
 - [We want you to build the next Git platform on Cloudflare](https://blog.cloudflare.com/next-git-platform-on-cloudflare/) (2026-10-01)
+- [Code Storage docs index](https://code.storage/docs/llms.txt) and SDK/API reference [`pierrecomputer/sdk`](https://github.com/pierrecomputer/sdk)
+- [Claude Code legal and compliance](https://code.claude.com/docs/en/legal-and-compliance) · [The Register: Anthropic clarifies ban on third-party tool access](https://www.theregister.com/2026/02/20/anthropic_clarifies_ban_third_party_claude_access/)
+- [Codex authentication](https://learn.chatgpt.com/docs/auth) · [Codex CLI](https://developers.openai.com/codex/cli)
+- [Conductor: Claude Code harness](https://www.conductor.build/docs/reference/harnesses/claude-code) · [Introducing Conductor Cloud](https://www.conductor.build/changelog/0.78.0-introducing-conductor-cloud)

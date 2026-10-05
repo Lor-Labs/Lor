@@ -113,9 +113,11 @@ priorities live in `reference/product-direction.md`.
 ### Code channels (multiplayer AI coding)
 
 The target architecture for code channels — per-step checkpoints (Postgres
-conversation + Cloudflare Artifacts commits), fork/handoff/rewind, local clone,
-and Yjs live editing — lives in `reference/code-channels.md`. Design only, not
-built; its locked decisions and rejected alternatives explain the shape.
+conversation + git-host commits on Code Storage or Cloudflare Artifacts),
+fork/handoff/rewind, local clone, Yjs live editing, the push-driven code index,
+and Claude Code/Codex CLI support with subscription rules — lives in
+`reference/code-channels.md`. Design only, not built; its locked decisions and
+rejected alternatives explain the shape.
 
 ### Attachment search + reranking
 
