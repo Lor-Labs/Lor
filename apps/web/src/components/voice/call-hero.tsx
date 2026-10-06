@@ -157,7 +157,7 @@ function DevicePicker({
             variant="ghost"
             size="sm"
             disabled={disabled || devices === null || asking}
-            className="min-w-0 flex-1 justify-start text-muted-foreground hover:text-foreground"
+            className="min-w-0 flex-1 text-muted-foreground hover:text-foreground"
           />
         }
       >
@@ -264,82 +264,82 @@ export function CallHero({
   const extra = connected.length - shown.length
 
   // Sized by the lobby column, not the window: with the call panel open the
-  // column narrows, so the preview goes on top at full width and Join below.
+  // column narrows, so everything stacks under the preview. Side by side, the
+  // Join column centers on the preview alone, as in Meet, not on the preview
+  // plus the device row.
   return (
     <section className="@container">
-      <div className="grid items-center gap-6 @2xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] @2xl:gap-8">
-        <div className="flex flex-col gap-2">
-          <div className="relative aspect-video overflow-hidden rounded-2xl border border-border bg-card shadow-xs/5">
-            {camera && previewing ? (
-              <CameraPreview
-                deviceId={cameraId}
-                onFail={() => {
-                  setCamera(false)
-                  toast.error("Camera unavailable")
-                }}
-              />
-            ) : (
-              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 pb-10">
-                {me && <ParticipantAvatar participant={me} size="xl" />}
-                <span className="text-muted-foreground text-sm">
-                  Camera is off
-                </span>
-              </div>
-            )}
-            {me && (
-              <span className="absolute top-3 left-3 max-w-[calc(100%-1.5rem)] truncate rounded-md bg-background/80 px-1.5 py-0.5 text-xs font-medium">
-                {me.name}
-              </span>
-            )}
-            {/* A soft scrim keeps the controls readable over a camera. */}
-            <div className="absolute inset-x-0 bottom-0 flex justify-center gap-2 bg-linear-to-t from-background/70 to-transparent px-3 pt-8 pb-3">
-              <DeviceToggle
-                on={microphone}
-                label="Microphone"
-                onIcon={Mic01Icon}
-                offIcon={MicOff01Icon}
-                disabled={joinDisabled}
-                onToggle={() => setMicrophone((on) => !on)}
-              />
-              <DeviceToggle
-                on={camera}
-                label="Camera"
-                onIcon={Video01Icon}
-                offIcon={VideoOffIcon}
-                disabled={joinDisabled}
-                onToggle={() => setCamera((on) => !on)}
-              />
-            </div>
-          </div>
-          <div className="flex gap-1">
-            <DevicePicker
-              kind="audioinput"
-              label="Microphone"
-              icon={Mic01Icon}
-              devices={devices}
-              disabled={joinDisabled}
+      <div className="grid items-center gap-y-2 @2xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] @2xl:gap-x-8">
+        <div className="relative aspect-video overflow-hidden rounded-2xl border border-border bg-card shadow-xs/5 @2xl:col-start-1 @2xl:row-start-1">
+          {camera && previewing ? (
+            <CameraPreview
+              deviceId={cameraId}
+              onFail={() => {
+                setCamera(false)
+                toast.error("Camera unavailable")
+              }}
             />
-            {canPickSpeaker && (
-              <DevicePicker
-                kind="audiooutput"
-                label="Speaker"
-                icon={VolumeHighIcon}
-                devices={devices}
-                disabled={joinDisabled}
-              />
-            )}
-            <DevicePicker
-              kind="videoinput"
-              label="Camera"
-              icon={Video01Icon}
-              devices={devices}
+          ) : (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 pb-10">
+              {me && <ParticipantAvatar participant={me} size="xl" />}
+              <span className="text-muted-foreground text-sm">
+                Camera is off
+              </span>
+            </div>
+          )}
+          {me && (
+            <span className="absolute top-3 left-3 max-w-[calc(100%-1.5rem)] truncate rounded-md bg-background/80 px-1.5 py-0.5 text-xs font-medium">
+              {me.name}
+            </span>
+          )}
+          {/* A soft scrim keeps the controls readable over a camera. */}
+          <div className="absolute inset-x-0 bottom-0 flex justify-center gap-2 bg-linear-to-t from-background/70 to-transparent px-3 pt-8 pb-3">
+            <DeviceToggle
+              on={microphone}
+              label="Microphone"
+              onIcon={Mic01Icon}
+              offIcon={MicOff01Icon}
               disabled={joinDisabled}
+              onToggle={() => setMicrophone((on) => !on)}
+            />
+            <DeviceToggle
+              on={camera}
+              label="Camera"
+              onIcon={Video01Icon}
+              offIcon={VideoOffIcon}
+              disabled={joinDisabled}
+              onToggle={() => setCamera((on) => !on)}
             />
           </div>
         </div>
+        <div className="flex gap-1 @2xl:col-start-1 @2xl:row-start-2">
+          <DevicePicker
+            kind="audioinput"
+            label="Microphone"
+            icon={Mic01Icon}
+            devices={devices}
+            disabled={joinDisabled}
+          />
+          {canPickSpeaker && (
+            <DevicePicker
+              kind="audiooutput"
+              label="Speaker"
+              icon={VolumeHighIcon}
+              devices={devices}
+              disabled={joinDisabled}
+            />
+          )}
+          <DevicePicker
+            kind="videoinput"
+            label="Camera"
+            icon={Video01Icon}
+            devices={devices}
+            disabled={joinDisabled}
+          />
+        </div>
 
-        <div className="flex flex-col items-center gap-4 text-center @2xl:items-start @2xl:text-left">
-          <div className="flex flex-col items-center gap-2 @2xl:items-start">
+        <div className="mt-4 flex flex-col items-center gap-4 text-center @2xl:col-start-2 @2xl:row-start-1 @2xl:mt-0">
+          <div className="flex flex-col items-center gap-2">
             {live && (
               <AvatarGroup>
                 {shown.map((participant) => (
@@ -376,7 +376,7 @@ export function CallHero({
           </div>
           <Button
             size="lg"
-            className="w-full min-w-40 @2xl:w-auto"
+            className="w-full max-w-56"
             disabled={joinDisabled}
             onClick={() => {
               setPreviewing(false)

@@ -765,7 +765,12 @@ stage", and step-back wait for the rest of V6.
   web hero is a container query (`@2xl`), not a viewport one: the lobby
   column is `max-w-3xl`, and when the call panel narrows it the preview
   goes on top at full width with Join centered below, instead of both
-  columns squeezing. The camera-off avatar is sized like the account
+  columns squeezing. Side by side, the Join column is centered (as in
+  Meet) and placed on the preview's grid row, so it centers on the preview
+  alone, with the device row in a second row under the preview. The
+  pickers split the preview's width equally (`flex-1`; the kit's buttons
+  are `shrink-0`, so natural widths overflowed), long names truncated,
+  each centered in its share. The camera-off avatar is sized like the account
   settings one (`size-20`, `text-lg`).
 
 - Voice channel screen (history, live session, Join or "Transfer here") from
