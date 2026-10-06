@@ -202,7 +202,7 @@ export function VoiceLobby({
           onJoin={onJoin}
         />
         <section className="flex flex-col gap-2">
-          <h2 className="px-3 text-sm font-medium">Past sessions</h2>
+          <h2 className="px-3 text-sm font-medium">Past calls</h2>
           {isPending && (
             <div className="flex flex-col gap-2 px-3">
               <Skeleton className="h-12 w-full" />
@@ -211,12 +211,12 @@ export function VoiceLobby({
           )}
           {isError && (
             <span className="px-3 text-sm text-muted-foreground">
-              Couldn't load past sessions.
+              Couldn't load past calls.
             </span>
           )}
           {!isPending && !isError && past.length === 0 && (
             <span className="px-3 text-sm text-muted-foreground">
-              No past sessions yet.
+              No past calls yet.
             </span>
           )}
           {past.length > 0 && (
@@ -254,7 +254,7 @@ export function VoiceLobby({
               disabled={isFetchingNextPage}
               onClick={() => void fetchNextPage()}
             >
-              {isFetchingNextPage ? "Loading…" : "Show older sessions"}
+              {isFetchingNextPage ? "Loading…" : "Show older calls"}
             </Button>
           )}
         </section>
