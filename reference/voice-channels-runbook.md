@@ -668,7 +668,18 @@ stage", and step-back wait for the rest of V6.
   `embedded` mode that drops its header and tabs) so the route and the
   drawer share it. Stage: one tile fills it, two stack as halves, three or
   four share a 2x2 grid (an odd last tile spans its row), more scroll in rows
-  of two, three rows to a screen.
+  of two, three rows to a screen. Drawer feel (Jacob, 2026-10-06, matching
+  Discord's): docks at the peek, 60%, and 92%. From the bottom it always
+  opens to 92% (15% of the way up, flick included, is enough); the 60% dock
+  is only reached by letting go near it on the way down
+  (`useCallSheetGestures` replaces gorhom's release step). A slightly
+  underdamped (~0.8), clamped spring carrying the release speed replaces
+  gorhom's overdamped default, so it zips and stops dead. Haptics: one as it
+  zips open, one as it lands at the bottom, none at 60%. Chat opens to 92%;
+  the keyboard lifts 60% to 92%. gorhom sizes content for the top dock,
+  so the drawer sizes its content to each dock's visible height itself
+  (at once when rising, after settling when lowering) to keep the composer
+  and newest messages on screen at 60%.
 
 - Voice channel screen (history, live session, Join or "Transfer here") from
   `apps/mobile/src/app/channel/[channelId]/index.tsx` for voice channels.
