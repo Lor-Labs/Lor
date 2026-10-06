@@ -5,12 +5,11 @@ import { Button } from "@repo/ui/components/button"
 import { Skeleton } from "@repo/ui/components/skeleton"
 import { cn } from "@repo/ui/lib/utils"
 import { getAvatarInitials } from "@repo/utils/avatar-colors"
-import { formatTime } from "@repo/utils/date"
+import { formatDuration, formatTime } from "@repo/utils/date"
 import { useQueryClient } from "@tanstack/react-query"
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { captionLine } from "@/components/voice/call-captions"
 import { LorBlocks, LorFailedNotice } from "@/components/voice/lor-blocks"
-import { formatDuration } from "@/components/voice/voice-lobby"
 import {
   type TranscriptPage,
   useCallTranscript,

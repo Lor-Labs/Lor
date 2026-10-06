@@ -98,3 +98,24 @@ export function getDayLabel(date: Date | string): string {
   if (dt.hasSame(now.minus({ days: 1 }), "day")) return "Yesterday"
   return formatDate(date)
 }
+
+// A call's length: "Under a minute", "12 min", "1 hr 5 min".
+export function formatDuration(minutes: number): string {
+  const rounded = Math.round(minutes)
+  if (rounded < 1) return "Under a minute"
+  if (rounded < 60) return `${rounded} min`
+  const hours = Math.floor(rounded / 60)
+  const rest = rounded % 60
+  return rest > 0 ? `${hours} hr ${rest} min` : `${hours} hr`
+}
+
+// A moment into a call: "12:40", or "1:04:05" past an hour.
+export function formatCallOffset(ms: number): string {
+  const total = Math.floor(ms / 1000)
+  const hours = Math.floor(total / 3600)
+  const minutes = Math.floor((total % 3600) / 60)
+  const seconds = String(total % 60).padStart(2, "0")
+  return hours > 0
+    ? `${hours}:${String(minutes).padStart(2, "0")}:${seconds}`
+    : `${minutes}:${seconds}`
+}

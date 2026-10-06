@@ -104,7 +104,10 @@ Deliberately parked until the composer/keyboard rework settles (active in messag
 - [ ] Approval buttons, Transcript tab, "Show on stage", step-back, tappable question choices, tool logos and reactions in Lor's window
 - [ ] Persistent call pill across navigation (today leaving the call screen ends the call)
 - [ ] Landscape full-screen share viewer, push deep links into a call, Android background (foreground service)
-- [ ] Lor's call summary card (message type `call_summary`, V7 chunk 3, web 2026-10-06): today the phone shows the text fallback (title + paragraph). Draw the card like web (title, day, length, faces, decisions, open questions, action items with owners, "Edited by") and the edit form for people who can post; `GET`/`PUT /v1/voice/summary-cards/{messageId}`
+- [x] Voice channel screen before joining: live call card (who's in, how long, Join or "Transfer here") and past calls with unread dots and mention counts; a past call opens its chat — 2026-10-06
+- [x] Lor's call summary card, read-only (`call-summary-card.tsx`): title, day, length, faces, decisions, open questions, action items, byline — 2026-10-06
+- [ ] Summary card: tapping a time opens the transcript at that moment, "Open transcript", and the edit form (`PUT /v1/voice/summary-cards/{messageId}`)
+- [ ] Delete a call with Undo (web: "…" on a past call row, `voice: ["delete"]`)
 - [ ] Lor's `[[call:…]]` citations: the chip renders and opens the call's chat (V7, 2026-10-05); once the Transcript tab exists, open the transcript at the cited moment like web (`callAt`)
 
 ## Explicitly not gaps (don't chase)

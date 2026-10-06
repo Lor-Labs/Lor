@@ -60,7 +60,7 @@ function LorChannelStatus({ state }: { state: LorState }) {
   )
 }
 
-function MentionBadge({ count }: { count: number }) {
+export function MentionBadge({ count }: { count: number }) {
   return (
     <View className="h-5 min-w-5 items-center justify-center rounded-full bg-danger px-1.5">
       <Text className="text-[11px] font-bold leading-[13px] text-danger-foreground">

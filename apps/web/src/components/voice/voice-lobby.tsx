@@ -11,7 +11,12 @@ import {
 } from "@repo/ui/components/menu"
 import { Skeleton } from "@repo/ui/components/skeleton"
 import { cn } from "@repo/ui/lib/utils"
-import { differenceInMinutes, formatTime, getDayLabel } from "@repo/utils/date"
+import {
+  differenceInMinutes,
+  formatDuration,
+  formatTime,
+  getDayLabel,
+} from "@repo/utils/date"
 import { useState } from "react"
 import { ParticipantAvatar } from "@/components/voice/participant-avatar"
 import { isCallBeingDeleted } from "@/hooks/use-delete-call"
@@ -22,15 +27,6 @@ import {
 } from "@/hooks/use-voice-sessions"
 
 const STACK_LIMIT = 4
-
-export function formatDuration(minutes: number) {
-  const rounded = Math.round(minutes)
-  if (rounded < 1) return "Under a minute"
-  if (rounded < 60) return `${rounded} min`
-  const hours = Math.floor(rounded / 60)
-  const rest = rounded % 60
-  return rest > 0 ? `${hours} hr ${rest} min` : `${hours} hr`
-}
 
 function plural(count: number, one: string, many: string) {
   return `${count} ${count === 1 ? one : many}`
@@ -79,7 +75,7 @@ function LiveSessionCard({
               Live for{" "}
               {formatDuration(
                 differenceInMinutes(session.startedAt, new Date())
-              )}
+              ).toLowerCase()}
             </div>
             <ParticipantStack participants={connected} />
           </>

@@ -13,12 +13,14 @@ import { Skeleton } from "@repo/ui/components/skeleton"
 import { Textarea } from "@repo/ui/components/textarea"
 import { toast } from "@repo/ui/components/toast"
 import { cn } from "@repo/ui/lib/utils"
-import { differenceInMinutes, formatDateTime } from "@repo/utils/date"
-import { type ReactNode, useState } from "react"
 import {
+  differenceInMinutes,
+  formatCallOffset,
+  formatDateTime,
   formatDuration,
-  ParticipantStack,
-} from "@/components/voice/voice-lobby"
+} from "@repo/utils/date"
+import { type ReactNode, useState } from "react"
+import { ParticipantStack } from "@/components/voice/voice-lobby"
 import { useCallCitation } from "@/hooks/use-call-citation"
 import {
   type CallSummaryContent,
@@ -90,17 +92,6 @@ function fromDraft(draft: Draft): CallSummaryContent {
       }))
       .filter((item) => item.title),
   }
-}
-
-// "12:40", or "1:04:05" past an hour, into the call.
-function callTime(ms: number) {
-  const total = Math.floor(ms / 1000)
-  const hours = Math.floor(total / 3600)
-  const minutes = Math.floor((total % 3600) / 60)
-  const seconds = String(total % 60).padStart(2, "0")
-  return hours > 0
-    ? `${hours}:${String(minutes).padStart(2, "0")}:${seconds}`
-    : `${minutes}:${seconds}`
 }
 
 function EditorSection({
@@ -338,7 +329,7 @@ function SummaryRow({
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">{children}</span>
       {atMs !== null && (
         <span className="mt-0.5 shrink-0 text-muted-foreground text-xs tabular-nums transition-colors group-hover:text-foreground">
-          {callTime(atMs)}
+          {formatCallOffset(atMs)}
         </span>
       )}
     </>

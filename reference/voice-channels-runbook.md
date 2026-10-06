@@ -616,6 +616,14 @@ stage", and step-back wait for the rest of V6.
   compact rows from the entities route, refreshed every 60s), "Waiting for …
   to approve" without buttons, and the X to cancel or clear. No tool logos,
   reactions, live words, choices to tap, step-back, or "Show on stage" yet.
+- [x] Rest 1: the voice channel screen before joining (`voice/voice-lobby.tsx`
+  + `hooks/use-voice-sessions.ts`, same query key and push rules as web): the
+  live call card with "Transfer here" when your other device is in the call,
+  and past calls with unread dots and mention counts. A past call opens its
+  chat; there is no Transcript tab on the phone yet. Lor's summary card draws
+  read-only (`voice/call-summary-card.tsx`); times show but aren't tappable
+  until the Transcript tab lands, and editing stays on web for now.
+  `formatDuration` and `formatCallOffset` moved to `@repo/utils/date`.
 
 - Voice channel screen (history, live session, Join or "Transfer here") from
   `apps/mobile/src/app/channel/[channelId]/index.tsx` for voice channels.

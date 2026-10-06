@@ -29,12 +29,13 @@ import {
   View,
 } from "react-native"
 import { Avatar } from "@/components/ui/avatar"
-import { Button } from "@/components/ui/button"
 import { IconButton } from "@/components/ui/icon-button"
 import { Screen } from "@/components/ui/screen"
 import { LorSimulatorButton } from "@/components/voice/lor-simulator"
 import { LorWindow } from "@/components/voice/lor-window"
+import { VoiceLobby } from "@/components/voice/voice-lobby"
 import { useSocket } from "@/context/socket-context"
+import { useWorkspace } from "@/context/workspace-context"
 import { useVoiceRequests } from "@/hooks/use-voice-requests"
 import { api, responseMessage } from "@/lib/api"
 import { holdThreadRoom } from "@/lib/thread-rooms"
@@ -250,6 +251,7 @@ export function VoiceCallScreen({
   // and microphone running without it.
   const closedRef = useRef(false)
   const socket = useSocket()
+  const { workspace } = useWorkspace()
 
   // Tells the server right away; the LiveKit webhook is the fallback.
   const leave = useCallback(async () => {
@@ -294,13 +296,12 @@ export function VoiceCallScreen({
     }
   }, [socket, threadRootId])
 
-  const openChat = threadRootId
-    ? () =>
-        router.push({
-          pathname: "/channel/[channelId]/thread/[threadRootId]",
-          params: { channelId, threadRootId },
-        } as never)
-    : undefined
+  const openThread = (threadRootId: string) =>
+    router.push({
+      pathname: "/channel/[channelId]/thread/[threadRootId]",
+      params: { channelId, threadRootId },
+    } as never)
+  const openChat = threadRootId ? () => openThread(threadRootId) : undefined
 
   const join = async () => {
     setJoining(true)
@@ -371,11 +372,13 @@ export function VoiceCallScreen({
             sessionId={session?.sessionId ?? null}
           />
         ) : (
-          <View className="flex-1 items-center justify-center">
-            <Button isDisabled={joining} onPress={() => void join()}>
-              <Button.Label>{joining ? "Joining…" : "Join"}</Button.Label>
-            </Button>
-          </View>
+          <VoiceLobby
+            channelId={channelId}
+            joining={joining}
+            onJoin={() => void join()}
+            onOpenChat={openThread}
+            workspaceId={workspace?.id}
+          />
         )}
       </Screen>
     </RoomContext.Provider>
