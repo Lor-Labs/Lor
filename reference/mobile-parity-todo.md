@@ -101,14 +101,15 @@ Deliberately parked until the composer/keyboard rework settles (active in messag
 
 - [x] Join, mute, camera, tiles, share viewer, call chat, leave — 2026-10-05
 - [x] Lor's window, read-only (all block types, Linear/GitHub rows, approval waiting line, cancel/clear) — 2026-10-05
-- [ ] Approval buttons, Transcript tab, "Show on stage", step-back, tappable question choices, tool logos and reactions in Lor's window
+- [ ] Approval buttons, "Show on stage", step-back, tappable question choices, tool logos and reactions in Lor's window
 - [x] Floating call tile across navigation (the call outlives its screen), "Switch to this call", and who's connected under voice channels in the channel list — 2026-10-06
 - [ ] Landscape full-screen share viewer, push deep links into a call, Android background (foreground service)
 - [x] Voice channel screen before joining: live call card (who's in, how long, Join or "Transfer here") and past calls with unread dots and mention counts; a past call opens its chat — 2026-10-06
 - [x] Lor's call summary card, read-only (`call-summary-card.tsx`): title, day, length, faces, decisions, open questions, action items, byline — 2026-10-06
-- [ ] Summary card: tapping a time opens the transcript at that moment, "Open transcript", and the edit form (`PUT /v1/voice/summary-cards/{messageId}`)
+- [x] Transcript tab (speaker turns, gaps, Lor's results inline), opening at a moment from summary-card times, "Open transcript", and `[[call:…]]` citations — 2026-10-06
+- [ ] Live captions in the phone's transcript (today a live call refetches saved lines every 10s)
+- [ ] Summary card edit form (`PUT /v1/voice/summary-cards/{messageId}`)
 - [ ] Delete a call with Undo (web: "…" on a past call row, `voice: ["delete"]`)
-- [ ] Lor's `[[call:…]]` citations: the chip renders and opens the call's chat (V7, 2026-10-05); once the Transcript tab exists, open the transcript at the cited moment like web (`callAt`)
 
 ## Explicitly not gaps (don't chase)
 

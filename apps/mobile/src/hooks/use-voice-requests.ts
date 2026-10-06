@@ -39,14 +39,8 @@ export function entityCardsQueryKey(requestId: string, refs: string) {
   return ["voice-entity-cards", requestId, refs] as const
 }
 
-// Requests to Lor in the call this phone is in, and the one Lor's window
-// shows. Same rules as web; events arrive through the call chat's room, which
-// the call screen holds for the whole call.
-export function useVoiceRequests(sessionId: string | null) {
-  const socket = useSocket()
-  const queryClient = useQueryClient()
-
-  const query = useQuery({
+function voiceRequestsQuery(sessionId: string | null) {
+  return {
     queryKey: voiceRequestsQueryKey(sessionId ?? ""),
     enabled: sessionId !== null,
     queryFn: async (): Promise<VoiceRequestState[]> => {
@@ -57,7 +51,23 @@ export function useVoiceRequests(sessionId: string | null) {
       if (!res.ok) throw new Error("Failed to load requests to Lor")
       return (await res.json()).requests
     },
-  })
+  }
+}
+
+// Every request to Lor in a call, for its transcript. During the call, the
+// call screen's useVoiceRequests keeps the same cache live.
+export function useVoiceRequestList(sessionId: string) {
+  return useQuery(voiceRequestsQuery(sessionId)).data ?? NO_REQUESTS
+}
+
+// Requests to Lor in the call this phone is in, and the one Lor's window
+// shows. Same rules as web; events arrive through the call chat's room, which
+// the call provider holds for the whole call.
+export function useVoiceRequests(sessionId: string | null) {
+  const socket = useSocket()
+  const queryClient = useQueryClient()
+
+  const query = useQuery(voiceRequestsQuery(sessionId))
 
   useEffect(() => {
     if (!socket || !sessionId) return

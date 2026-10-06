@@ -6,6 +6,7 @@ import {
 } from "react-native-enriched-markdown"
 import { StreamdownText } from "react-native-streamdown"
 import { Fonts } from "@/constants/theme"
+import { useOpenCallTranscript } from "@/hooks/use-open-call-transcript"
 import type { Message } from "@/lib/api-types"
 import { BROADCAST_MENTION_IDS } from "@/lib/mentions"
 import {
@@ -15,7 +16,6 @@ import {
   SRC_SCHEME,
   toDisplayMarkdown,
 } from "@/lib/message-markdown"
-import { openCitedCall } from "@/lib/open-cited-call"
 import { openExternalUrl } from "@/lib/open-url"
 
 type MessageTheme = {
@@ -140,6 +140,7 @@ export function MessageContent({
     [content, mentions]
   )
   const markdownStyle = useMemo(() => buildMarkdownStyle(theme), [theme])
+  const openCallTranscript = useOpenCallTranscript()
 
   const onLinkPress = useCallback(
     ({ url }: { url: string }) => {
@@ -158,13 +159,18 @@ export function MessageContent({
         return
       }
       if (url.startsWith(CALL_SCHEME)) {
-        const sessionId = decodeURIComponent(url.slice(CALL_SCHEME.length))
-        if (sessionId) void openCitedCall(sessionId)
+        // lor://call/<sessionId>?at=<ms into the call>
+        const [id = "", query = ""] = url.slice(CALL_SCHEME.length).split("?")
+        const at = /(?:^|&)at=(\d+)/.exec(query)?.[1]
+        const sessionId = decodeURIComponent(id)
+        if (sessionId) {
+          void openCallTranscript(sessionId, at ? Number(at) : undefined)
+        }
         return
       }
       if (/^https?:\/\//i.test(url)) openExternalUrl(url)
     },
-    [onMentionPress, onCitationJump]
+    [onMentionPress, onCitationJump, openCallTranscript]
   )
 
   if (markdown.trim().length === 0) return null

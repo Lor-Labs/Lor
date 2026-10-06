@@ -18,7 +18,7 @@ import {
 import { api } from "@/lib/api"
 
 // Lor's brand mark (apps/web/public/lor-mark.svg).
-function LorMark({ size }: { size: number }) {
+export function LorMark({ size }: { size: number }) {
   return (
     <Svg height={(size * 470) / 776} viewBox="124 288 776 470" width={size}>
       <Defs>

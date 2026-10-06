@@ -46,6 +46,8 @@ type ThreadSnapshot = {
   totalReplyCount: number
   beforeCursor: string | null
   reachedOldest: boolean
+  // Set when the thread is a call's chat.
+  voiceSessionId: string | null
 }
 
 function participantsFromMessages(
@@ -79,6 +81,7 @@ export function useThreadMessages({
   const [messages, setMessages] = useState<Message[]>([])
   const [root, setRoot] = useState<Message | null>(null)
   const [participants, setParticipants] = useState<ThreadParticipant[]>([])
+  const [voiceSessionId, setVoiceSessionId] = useState<string | null>(null)
   const [totalReplyCount, setTotalReplyCount] = useState(0)
   const [isLoading, setIsLoading] = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
@@ -235,6 +238,7 @@ export function useThreadMessages({
           )
           if (payload.root) updateRoot(() => payload.root)
           setParticipants(nextParticipants)
+          setVoiceSessionId(payload.voiceSessionId)
           beforeCursorRef.current = payload.beforeCursor
           setReachedOldest(payload.reachedOldest)
           setTotalReplyCount(nextTotalReplyCount)
@@ -247,6 +251,7 @@ export function useThreadMessages({
               totalReplyCount: nextTotalReplyCount,
               beforeCursor: payload.beforeCursor,
               reachedOldest: payload.reachedOldest,
+              voiceSessionId: payload.voiceSessionId,
             })
           }
           return { data: payload.data, root: payload.root ?? null }
@@ -297,6 +302,7 @@ export function useThreadMessages({
     setMessages(cached?.messages ?? [])
     setRoot(cached?.root ?? null)
     setParticipants(cached?.participants ?? [])
+    setVoiceSessionId(cached?.voiceSessionId ?? null)
     setTotalReplyCount(cached?.totalReplyCount ?? 0)
     setIsRefreshing(false)
     setIsLoadingOlder(false)
@@ -1042,6 +1048,7 @@ export function useThreadMessages({
     messages,
     root,
     participants,
+    voiceSessionId,
     totalReplyCount,
     isLoading,
     isRefreshing,

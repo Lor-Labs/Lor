@@ -638,7 +638,23 @@ stage", and step-back wait for the rest of V6.
   avatar, with the speaking ring), "Only you" when alone, and a mic-off badge
   when muted. Drag it anywhere; on release it springs to the corner a flick
   points at (velocity projected 0.15s), and keeps that corner next time. Tap
-  opens the call.
+  opens the call. The snap spring is critically damped with overshoot clamped,
+  and keeps a flick's speed only toward the corner (Jacob: the first, bouncy
+  version swung around).
+- [x] Rest 3: the Transcript tab on the phone. A call's thread screen is
+  titled "Call" with Chat and Transcript tabs (route params `tab` and `at`;
+  the thread API's `voiceSessionId` now reaches the mobile thread hook).
+  `voice/call-transcript.tsx` draws speaker turns, capture gaps, and Lor's
+  results inline (`LorBlocks`, no "Show on stage" yet) in a LegendList, and
+  scrolls to and flashes the block at `at`. The layout rules
+  (`buildTranscriptBlocks`, `transcriptBlockAt`) moved from web into
+  `@repo/realtime-types/call-transcript`, shared by both. The phone shows no
+  live captions: a live call refetches saved lines every 10s and stays at the
+  bottom. `hooks/use-open-call-transcript.ts` opens a call's transcript at a
+  moment (same location query key as web), switching tabs in place inside
+  that call's chat; `[[call:…]]` links now carry `?at=<ms>`, and the summary
+  card's times and "Open transcript" use it. Past calls with an empty chat
+  open on the transcript, like web.
 
 - Voice channel screen (history, live session, Join or "Transfer here") from
   `apps/mobile/src/app/channel/[channelId]/index.tsx` for voice channels.

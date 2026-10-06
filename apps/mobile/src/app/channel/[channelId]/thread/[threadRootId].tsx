@@ -23,8 +23,11 @@ import { TypingIndicator } from "@/components/typing-indicator"
 import { IconButton } from "@/components/ui/icon-button"
 import { Screen } from "@/components/ui/screen"
 import { StatePanel } from "@/components/ui/state-panel"
+import { Tabs } from "@/components/ui/tabs"
 import { UserProfileSheet } from "@/components/user-profile-sheet"
+import { CallTranscript } from "@/components/voice/call-transcript"
 import { useSocket, useSocketConnected } from "@/context/socket-context"
+import { useVoiceCall } from "@/context/voice-call-context"
 import { useWorkspace } from "@/context/workspace-context"
 import { useChannelApprovals } from "@/hooks/use-approvals"
 import { useAutoMarkRead } from "@/hooks/use-auto-mark-read"
@@ -52,13 +55,17 @@ export default function ThreadScreen() {
   const socket = useSocket()
   const isSocketConnected = useSocketConnected()
   const { workspace } = useWorkspace()
-  const { channelId, composerDraft, focusMessageId, threadRootId } =
+  const { at, channelId, composerDraft, focusMessageId, tab, threadRootId } =
     useLocalSearchParams<{
+      // A moment of the call, in ms, for the transcript to open at.
+      at?: string
       channelId: string
       composerDraft?: string
       focusMessageId?: string
+      tab?: "chat" | "transcript"
       threadRootId: string
     }>()
+  const { call } = useVoiceCall()
   const { data: session } = authClient.useSession()
   const canPinMessages = useCanPinMessages(workspace?.id)
   const channelState = useChannelDetail({
@@ -264,6 +271,32 @@ export default function ThreadScreen() {
   }
 
   const channelName = channelState.channel?.name ?? "channel"
+  // A call's chat also holds its transcript.
+  const voiceSessionId = thread.voiceSessionId
+  const showTranscript = tab === "transcript" && voiceSessionId !== null
+  const callTabs = voiceSessionId ? (
+    <View className="border-b border-separator px-four py-two">
+      <Tabs
+        onValueChange={(value) =>
+          router.setParams({
+            tab: value === "transcript" ? "transcript" : "chat",
+            at: undefined,
+          })
+        }
+        value={showTranscript ? "transcript" : "chat"}
+      >
+        <Tabs.List>
+          <Tabs.Indicator />
+          <Tabs.Trigger value="chat">
+            <Tabs.Label>Chat</Tabs.Label>
+          </Tabs.Trigger>
+          <Tabs.Trigger value="transcript">
+            <Tabs.Label>Transcript</Tabs.Label>
+          </Tabs.Trigger>
+        </Tabs.List>
+      </Tabs>
+    </View>
+  ) : null
 
   return (
     <Screen className="bg-background" edges={["top", "bottom"]}>
@@ -285,11 +318,7 @@ export default function ThreadScreen() {
         </IconButton>
         <View className="min-w-0 flex-1 gap-px">
           <Text className="text-[17px] font-bold tracking-[-0.2px] text-foreground">
-            {isPlanThread
-              ? "Plan"
-              : thread.root?.type === "voice_session"
-                ? "Call chat"
-                : "Thread"}
+            {isPlanThread ? "Plan" : voiceSessionId ? "Call" : "Thread"}
           </Text>
           <Text
             className="text-xs font-medium leading-4 text-muted"
@@ -304,7 +333,8 @@ export default function ThreadScreen() {
           participants={thread.participants}
         />
       </View>
-      {showWorkHeader ? (
+      {callTabs}
+      {showWorkHeader && !showTranscript ? (
         <ThreadWorkHeader
           activityMessage={activityMessage}
           channelId={channelId}
@@ -318,7 +348,10 @@ export default function ThreadScreen() {
           onCustomInputViewChange,
           onInputLayout,
         }) =>
-          thread.root && !thread.isMissing && !thread.error ? (
+          thread.root &&
+          !thread.isMissing &&
+          !thread.error &&
+          !showTranscript ? (
             <MessageComposer
               accessibilityLabel="Reply in thread"
               initialDraft={composerDraft}
@@ -384,7 +417,15 @@ export default function ThreadScreen() {
           ) : null
         }
         renderMessageList={(keyboardProps) =>
-          thread.isLoading ? (
+          showTranscript ? (
+            <CallTranscript
+              // A new moment remounts, so it scrolls again.
+              atMs={at && /^\d+$/.test(at) ? Number(at) : undefined}
+              key={at ?? "start"}
+              live={call?.sessionId === voiceSessionId}
+              sessionId={voiceSessionId}
+            />
+          ) : thread.isLoading ? (
             <ThreadMessageListSkeleton />
           ) : thread.isMissing ? (
             <StatePanel
@@ -438,7 +479,10 @@ export default function ThreadScreen() {
           )
         }
         typingIndicator={
-          thread.root && !thread.isMissing && !thread.error ? (
+          thread.root &&
+          !thread.isMissing &&
+          !thread.error &&
+          !showTranscript ? (
             <TypingIndicator users={typingUsers} />
           ) : null
         }

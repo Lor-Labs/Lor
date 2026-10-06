@@ -161,20 +161,21 @@ function CallRow({
 }
 
 // A voice channel before you join: the live call, then past calls. A past
-// call opens its chat, where Lor's summary card sits.
+// call opens its chat, where Lor's summary card sits; a call with an empty
+// chat opens on its transcript, like web.
 export function VoiceLobby({
   channelId,
   workspaceId,
   joining,
   onJoin,
-  onOpenChat,
+  onOpenCall,
   otherCallName,
 }: {
   channelId: string
   workspaceId: string | undefined
   joining: boolean
   onJoin: () => void
-  onOpenChat: (threadRootId: string) => void
+  onOpenCall: (threadRootId: string, tab: "chat" | "transcript") => void
   // This phone is in a call in another channel.
   otherCallName: string | undefined
 }) {
@@ -242,10 +243,16 @@ export function VoiceLobby({
           <View>
             {past.map((session) => {
               const threadRootId = session.threadRootId
+              const tab =
+                session.hasSummaryCard || session.replyCount > 0
+                  ? "chat"
+                  : "transcript"
               return (
                 <CallRow
                   key={session.id}
-                  onOpen={threadRootId ? () => onOpenChat(threadRootId) : null}
+                  onOpen={
+                    threadRootId ? () => onOpenCall(threadRootId, tab) : null
+                  }
                   session={session}
                 />
               )

@@ -225,10 +225,13 @@ export function VoiceCallScreen({
   const { call, joining, join, leave } = useVoiceCall()
   const inThisCall = call?.channelId === channelId
 
-  const openThread = (threadRootId: string) =>
+  const openThread = (
+    threadRootId: string,
+    tab: "chat" | "transcript" = "chat"
+  ) =>
     router.push({
       pathname: "/channel/[channelId]/thread/[threadRootId]",
-      params: { channelId, threadRootId },
+      params: { channelId, threadRootId, tab },
     } as never)
   const callChatId = inThisCall ? call.threadRootId : null
 
@@ -271,7 +274,7 @@ export function VoiceCallScreen({
             if (!workspace) return
             void join({ workspaceId: workspace.id, channelId, channelName })
           }}
-          onOpenChat={openThread}
+          onOpenCall={openThread}
           otherCallName={call?.channelName}
           workspaceId={workspace?.id}
         />

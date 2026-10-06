@@ -142,7 +142,7 @@ export function toDisplayMarkdown(
         const start = Date.parse(startedAt.trim())
         if (!channel.trim() || Number.isNaN(start)) return codeChip("↗ call")
         const label = `${channel.trim()} call · ${formatDateTime(new Date(start + atMs))}`
-        return `[↗ ${escapeLinkText(label)}](${CALL_SCHEME}${encodeURIComponent(sessionId.trim())})`
+        return `[↗ ${escapeLinkText(label)}](${CALL_SCHEME}${encodeURIComponent(sessionId.trim())}?at=${atMs})`
       }
       // Verified brain-page citation ([[/path]]). Non-clickable (no brain
       // browser yet) — the path renders as a muted mono chip.

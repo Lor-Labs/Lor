@@ -10,27 +10,42 @@ import {
 } from "@repo/utils/date"
 import { useThemeColor } from "heroui-native/hooks"
 import type { ReactNode } from "react"
-import { Text, View } from "react-native"
+import { Pressable, Text, View } from "react-native"
+import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ParticipantStack } from "@/components/voice/voice-lobby"
 import { useSummaryCard } from "@/hooks/use-call-summary"
+import { useOpenCallTranscript } from "@/hooks/use-open-call-transcript"
 import type { Message } from "@/lib/api-types"
 
 const CARD = "mt-one rounded-lor-md bg-surface-secondary px-four py-three"
 
+// With a time, the whole row opens the transcript at that moment.
 function SummaryRow({
   icon,
   color,
   atMs,
+  onOpenMoment,
   children,
 }: {
   icon: IconSvgElement
   color: string
   atMs: number | null
+  onOpenMoment: (atMs: number) => void
   children: ReactNode
 }) {
   return (
-    <View className="flex-row items-start gap-two py-one">
+    <Pressable
+      accessibilityHint={
+        atMs !== null ? "Opens the transcript at this moment" : undefined
+      }
+      accessibilityRole={atMs !== null ? "button" : undefined}
+      className="-mx-two flex-row items-start gap-two rounded-lor-sm px-two py-one active:bg-surface-tertiary"
+      disabled={atMs === null}
+      onPress={() => {
+        if (atMs !== null) onOpenMoment(atMs)
+      }}
+    >
       <View className="pt-[2px]">
         <HugeiconsIcon color={color} icon={icon} size={16} strokeWidth={2} />
       </View>
@@ -40,7 +55,7 @@ function SummaryRow({
           {formatCallOffset(atMs)}
         </Text>
       ) : null}
-    </View>
+    </Pressable>
   )
 }
 
@@ -61,8 +76,10 @@ function SummarySection({
 
 // Lor's summary of an ended call, posted in its chat. Read-only on the phone;
 // it draws the call's current summary, so edits made on web show here too.
+// Times open the transcript at that moment.
 export function CallSummaryCard({ message }: { message: Message }) {
   const { data, isPending, isError } = useSummaryCard(message.id)
+  const openTranscript = useOpenCallTranscript()
   const [success, warning, accent, surfaceSecondary] = useThemeColor([
     "success",
     "warning",
@@ -98,6 +115,7 @@ export function CallSummaryCard({ message }: { message: Message }) {
   const length = call.endedAt
     ? formatDuration(differenceInMinutes(call.startedAt, call.endedAt))
     : null
+  const openAt = (atMs?: number) => void openTranscript(data.sessionId, atMs)
 
   return (
     <View className={CARD}>
@@ -126,6 +144,7 @@ export function CallSummaryCard({ message }: { message: Message }) {
               {summary.decisions.map((item) => (
                 <SummaryRow
                   atMs={item.atMs}
+                  onOpenMoment={openAt}
                   color={success}
                   icon={CheckmarkCircle02Icon}
                   key={`${item.atMs}-${item.text}`}
@@ -142,6 +161,7 @@ export function CallSummaryCard({ message }: { message: Message }) {
               {summary.openQuestions.map((item) => (
                 <SummaryRow
                   atMs={item.atMs}
+                  onOpenMoment={openAt}
                   color={warning}
                   icon={HelpCircleIcon}
                   key={`${item.atMs}-${item.text}`}
@@ -158,6 +178,7 @@ export function CallSummaryCard({ message }: { message: Message }) {
               {summary.actionItems.map((item) => (
                 <SummaryRow
                   atMs={item.atMs}
+                  onOpenMoment={openAt}
                   color={accent}
                   icon={CircleArrowRight02Icon}
                   key={`${item.atMs}-${item.title}`}
@@ -177,11 +198,6 @@ export function CallSummaryCard({ message }: { message: Message }) {
               ))}
             </SummarySection>
           ) : null}
-          <Text className="text-xs text-muted" numberOfLines={1}>
-            {data.editedAt
-              ? `Edited by ${data.editedBy?.name ?? "someone"} · ${formatDateTime(data.editedAt)}`
-              : "Written by Lor"}
-          </Text>
         </View>
       ) : (
         <Text className="mt-four text-[15px] leading-[22px] text-muted">
@@ -189,6 +205,22 @@ export function CallSummaryCard({ message }: { message: Message }) {
           so you can still ask Lor about it.
         </Text>
       )}
+
+      <View className="mt-four flex-row items-center gap-three">
+        <Button onPress={() => openAt()} size="sm" variant="secondary">
+          <Button.Label>Open transcript</Button.Label>
+        </Button>
+        {summary ? (
+          <Text
+            className="min-w-0 flex-1 text-right text-xs text-muted"
+            numberOfLines={1}
+          >
+            {data.editedAt
+              ? `Edited by ${data.editedBy?.name ?? "someone"} · ${formatDateTime(data.editedAt)}`
+              : "Written by Lor"}
+          </Text>
+        ) : null}
+      </View>
     </View>
   )
 }

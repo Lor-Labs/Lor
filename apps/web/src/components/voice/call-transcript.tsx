@@ -1,4 +1,9 @@
 import { useParticipants, useTranscriptions } from "@livekit/components-react"
+import {
+  buildTranscriptBlocks,
+  type TranscriptLine as Line,
+  transcriptBlockAt,
+} from "@repo/realtime-types/call-transcript"
 import type { VoiceRequestState } from "@repo/realtime-types/events"
 import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar"
 import { Button } from "@repo/ui/components/button"
@@ -21,8 +26,6 @@ import {
   useVoiceRequests,
 } from "@/hooks/use-voice-requests"
 
-// One speaker's phrases within this window share a block.
-const BLOCK_WINDOW_MS = 2 * 60_000
 const FOLLOW_THRESHOLD_PX = 64
 const NO_LINES: Line[] = []
 const NO_NAMES = new Map<string, string>()
@@ -31,121 +34,6 @@ type Speaker = Pick<
   TranscriptPage["participants"][number],
   "name" | "image" | "avatarColor"
 >
-type Line = {
-  id: string
-  participantId: string
-  at: number
-  text: string
-  final: boolean
-}
-type Gap = {
-  id: string
-  participantId: string | null
-  at: number
-  durationMs: number
-}
-type LorEntry = { id: string; at: number; request: VoiceRequestState }
-type Block =
-  | { kind: "speech"; id: string; participantId: string; lines: Line[] }
-  | { kind: "gap"; id: string; gap: Gap }
-  | { kind: "lor"; id: string; request: VoiceRequestState }
-
-function toBlocks(entries: (Line | Gap | LorEntry)[]) {
-  const blocks: Block[] = []
-  for (const entry of entries) {
-    if ("durationMs" in entry) {
-      blocks.push({ kind: "gap", id: entry.id, gap: entry })
-      continue
-    }
-    if ("request" in entry) {
-      blocks.push({ kind: "lor", id: entry.id, request: entry.request })
-      continue
-    }
-    const last = blocks.at(-1)
-    const previous = last?.kind === "speech" ? last.lines.at(-1) : undefined
-    if (
-      last?.kind === "speech" &&
-      previous &&
-      last.participantId === entry.participantId &&
-      entry.at - previous.at <= BLOCK_WINDOW_MS
-    ) {
-      last.lines.push(entry)
-    } else {
-      blocks.push({
-        kind: "speech",
-        id: entry.id,
-        participantId: entry.participantId,
-        lines: [entry],
-      })
-    }
-  }
-  return blocks
-}
-
-// Saved segments, capture gaps, and Lor's results in timeline order, then live
-// lines this device heard that aren't saved yet. Saved segments and captions
-// share an id. A result sits where it was asked, just after the words that
-// asked it.
-function buildBlocks(
-  pages: TranscriptPage[],
-  liveLines: Line[],
-  requests: VoiceRequestState[]
-) {
-  const first = pages[0]
-  if (!first) return []
-  const startedAt = Date.parse(first.startedAt)
-  const saved = pages.flatMap((page) => page.segments)
-  const savedIds = new Set(saved.map((segment) => segment.segmentId))
-  const entries: (Line | Gap | LorEntry)[] = [
-    ...requests
-      .filter(
-        (request) =>
-          hasResult(request) ||
-          request.status === "failed" ||
-          request.status === "awaiting_approval"
-      )
-      .map((request) => ({
-        id: request.id,
-        at: Date.parse(request.createdAt),
-        request,
-      })),
-    ...saved.map((segment) => ({
-      id: segment.segmentId,
-      participantId: segment.participantId,
-      at: startedAt + segment.startMs,
-      text: segment.text,
-      final: true,
-    })),
-    ...first.gaps.map((gap, index) => ({
-      id: `gap-${index}`,
-      participantId: gap.participantId,
-      at: startedAt + gap.startMs,
-      durationMs: gap.endMs - gap.startMs,
-    })),
-  ].sort((a, b) => a.at - b.at)
-  return toBlocks([
-    ...entries,
-    ...liveLines.filter((line) => !savedIds.has(line.id)),
-  ])
-}
-
-// The spoken block at a moment of the call: the last one starting at or
-// before it.
-function blockAtMoment(blocks: Block[], at: number) {
-  let found: Block | undefined
-  for (const block of blocks) {
-    const start =
-      block.kind === "speech"
-        ? block.lines[0]?.at
-        : block.kind === "gap"
-          ? block.gap.at
-          : undefined
-    if (start === undefined) continue
-    if (start > at) break
-    found = block
-  }
-  return found ?? blocks.find((block) => block.kind !== "lor")
-}
 
 function SpeakerAvatar({ speaker }: { speaker: Speaker }) {
   return (
@@ -259,7 +147,12 @@ function TranscriptView({
   const { requests, onStage } = useVoiceRequests(sessionId)
   // Live lines wait for every saved page, so nothing is skipped between them.
   const blocks = useMemo(
-    () => buildBlocks(pages, hasNextPage ? NO_LINES : liveLines, requests),
+    () =>
+      buildTranscriptBlocks(
+        pages,
+        hasNextPage ? NO_LINES : liveLines,
+        requests
+      ),
     [pages, hasNextPage, liveLines, requests]
   )
   const speakers = useMemo(
@@ -307,7 +200,7 @@ function TranscriptView({
     const first = pages[0]
     if (!target || !first || hasNextPage) return
     setTarget(null)
-    const block = blockAtMoment(
+    const block = transcriptBlockAt(
       blocks,
       Date.parse(first.startedAt) + target.atMs
     )
