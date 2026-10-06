@@ -686,6 +686,24 @@ chat when it's done, and everyone who was in the call follows that chat.
   the way the people on the call would list it". Remaining misses are
   over-splits of one problem into its steps.
 
+- [x] 2 (built 2026-10-05): Lor answers from past calls. `search` gains a
+  `calls` type (`packages/lor/src/calls.ts` `searchCalls`: keyword + vector
+  over `voice_passage` by RRF, the run's `privateAudienceFilter`, at most 2
+  hits per call, snippets of 1,500 chars with `truncated`); a `call` result
+  carries the passage `context`, `from`–`to` call times, and `kind`.
+  `read_call` reads an ended call's transcript (gaps as "not captured"
+  lines), 300 lines a page with `nextFrom`, under the same audience rule.
+  Citation `[[call:<sessionId>@<m:ss>]]`; grounding verifies the call is an
+  ended call in the workspace and rewrites it to
+  `[[call:<id>@<ms>|<channel>|<startedAt>]]` so clients label it without a
+  lookup. Web: the chip ("standup call · Oct 5, 2026, 10:42 AM") opens the
+  call chat panel's Transcript tab via a new `callAt` channel search param
+  (`useThreadPanelUrlSync`), and the transcript scrolls to the block spoken
+  then and flashes it. Mobile: the chip opens the call chat (no transcript
+  tab yet; `reference/mobile-parity-todo.md`). Search previews and push text
+  show "↗ <channel> call". The gap rule is in Lor's chat prompt. Call times
+  floor to the second so `nextFrom` never skips a line.
+
 - A summary per ended session (extend `packages/lor/src/meeting-insights.ts`)
   with decisions, open questions, and follow-ups; people can correct it.
 - Index each ended session's transcript as a source under channel access, with

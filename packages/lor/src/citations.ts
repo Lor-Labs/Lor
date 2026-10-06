@@ -1,22 +1,40 @@
-// [[/page]], [[msg:<id>]], or [[src:<id>]]; excludes "]" from tokens.
+// [[/page]], [[msg:<id>]], [[src:<id>]], or [[call:<id>@<m:ss>]]; excludes
+// "]" from tokens.
 export const CITATION_REGEX = /\[\[([^\]]+)\]\]/g
 
-export type CitationKind = "page" | "msg" | "src"
+export type CitationKind = "page" | "msg" | "src" | "call"
+
+export type CallCitation = {
+  sessionId: string
+  atMs: number | null
+  channelName: string
+  startedAt: string
+}
 
 export type Resolution =
   | { kind: "page"; exists: boolean }
   | { kind: "msg"; exists: boolean }
   | { kind: "src"; source: { title: string; url: string | null } | null }
+  | { kind: "call"; call: CallCitation | null }
 
 export function classifyToken(token: string): CitationKind {
   if (token.startsWith("src:")) return "src"
   if (token.startsWith("msg:")) return "msg"
+  if (token.startsWith("call:")) return "call"
   return "page"
 }
 
 // Handles already-enriched [[src:<id>|...]] tokens during re-grounding.
 export function prefixedTokenId(token: string): string {
   return token.slice(4).split("|")[0]?.trim() ?? ""
+}
+
+// "call:<id>@4:05" as written by the model, or "call:<id>@245000|…" once
+// grounded. The time is optional.
+export function splitCallToken(token: string) {
+  const [body = ""] = token.slice(5).split("|")
+  const [sessionId = "", at] = body.split("@")
+  return { sessionId: sessionId.trim(), at: at?.trim() || null }
 }
 
 export function extractCitationTokens(text: string): Set<string> {
@@ -35,7 +53,9 @@ export function sanitizeCitationField(value: string): string {
     .trim()
 }
 
-// Keep resolved citations, enrich sources, and unwrap/drop unresolved tokens.
+// Keep resolved citations, enrich sources and calls, and unwrap/drop
+// unresolved tokens. A grounded call carries its time in ms plus the channel
+// and start time, so clients can label it without a lookup.
 export function rewriteCitations(
   text: string,
   resolve: (token: string) => Resolution
@@ -51,6 +71,16 @@ export function rewriteCitations(
         const title = sanitizeCitationField(r.source.title)
         const url = sanitizeCitationField(r.source.url ?? "")
         return `[[src:${prefixedTokenId(t)}|${title}|${url}]]`
+      }
+      invalid++
+      return ""
+    }
+    if (r.kind === "call") {
+      if (r.call) {
+        valid++
+        const at = r.call.atMs === null ? "" : `@${r.call.atMs}`
+        const channel = sanitizeCitationField(r.call.channelName)
+        return `[[call:${r.call.sessionId}${at}|${channel}|${r.call.startedAt}]]`
       }
       invalid++
       return ""

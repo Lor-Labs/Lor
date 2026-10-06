@@ -24,6 +24,7 @@ export function VoiceChannelView({
   archived,
   threadId,
   threadMessageId,
+  callAt,
 }: {
   workspaceSlug: string
   workspaceId: string | undefined
@@ -32,6 +33,7 @@ export function VoiceChannelView({
   archived: boolean
   threadId: string | undefined
   threadMessageId: string | undefined
+  callAt: number | undefined
 }) {
   const { call, remoteCall, joining, join } = useVoiceCall()
   const inThisCall = call?.channelId === channelId
@@ -41,6 +43,7 @@ export function VoiceChannelView({
     channelId,
     threadId,
     threadMessageId,
+    callAt,
     transientThreadRootId: inThisCall ? call.threadRootId : null,
   })
   const { view, setView, isCollapsed, toggleCollapsed } = useRightSidebar()

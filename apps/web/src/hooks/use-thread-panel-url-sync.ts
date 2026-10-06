@@ -13,12 +13,15 @@ export function useThreadPanelUrlSync({
   channelId,
   threadId,
   threadMessageId,
+  callAt,
   transientThreadRootId = null,
 }: {
   workspaceSlug: string
   channelId: string
   threadId: string | undefined
   threadMessageId: string | undefined
+  // A call chat's transcript tab, at this moment of the call.
+  callAt?: number
   transientThreadRootId?: string | null
 }) {
   const { view, setView, clearView } = useRightSidebar()
@@ -31,18 +34,24 @@ export function useThreadPanelUrlSync({
   threadIdRef.current = threadId
   const threadMessageIdRef = useRef(threadMessageId)
   threadMessageIdRef.current = threadMessageId
+  const callAtRef = useRef(callAt)
+  callAtRef.current = callAt
 
   // Set the initial right-panel view when entering a channel: reopen the
   // thread from the URL (refresh / deep link) or fall back to members.
   useEffect(() => {
     const initialThreadId = threadIdRef.current
     if (initialThreadId) {
+      const initialCallAt = callAtRef.current
       setView({
         type: "thread",
         workspaceSlug,
         channelId,
         threadRootId: initialThreadId,
         targetMessageId: threadMessageIdRef.current,
+        ...(initialCallAt === undefined
+          ? {}
+          : { callTab: "transcript", transcriptAtMs: initialCallAt }),
       })
     } else if (isMobile === false) {
       setView({ type: "workspace-members", workspaceSlug, channelId })
@@ -64,20 +73,24 @@ export function useThreadPanelUrlSync({
         ? view
         : null
     if (mirrored) {
+      const mirroredCallAt =
+        mirrored.callTab === "transcript" ? mirrored.transcriptAtMs : undefined
       if (
         mirrored.threadRootId !== threadId ||
-        mirrored.targetMessageId !== threadMessageId
+        mirrored.targetMessageId !== threadMessageId ||
+        mirroredCallAt !== callAt
       ) {
         void navigate({
           search: (prev) => ({
             ...prev,
             threadId: mirrored.threadRootId,
             threadMessageId: mirrored.targetMessageId,
+            callAt: mirroredCallAt,
           }),
           replace: true,
         })
       }
-    } else if (view && (threadId || threadMessageId)) {
+    } else if (view && (threadId || threadMessageId || callAt !== undefined)) {
       // Only clear once a real view is set — `view === null` is the
       // pre-hydration state on refresh and must not wipe the URL's threadId.
       void navigate({
@@ -85,6 +98,7 @@ export function useThreadPanelUrlSync({
           ...prev,
           threadId: undefined,
           threadMessageId: undefined,
+          callAt: undefined,
         }),
         replace: true,
       })
@@ -94,6 +108,7 @@ export function useThreadPanelUrlSync({
     channelId,
     threadId,
     threadMessageId,
+    callAt,
     transientThreadRootId,
     isMobile,
     navigate,

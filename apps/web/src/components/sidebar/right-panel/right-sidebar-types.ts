@@ -14,6 +14,8 @@ export type ThreadSidebarView = {
   composerDraft?: { id: string; text: string }
   /** A voice session's panel: its chat (the default) or its transcript. */
   callTab?: "chat" | "transcript"
+  /** Moment in the call (ms from its start) to reveal in the transcript. */
+  transcriptAtMs?: number
 }
 
 export type AttachmentsSidebarView = {

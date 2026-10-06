@@ -9,11 +9,13 @@ import { Fonts } from "@/constants/theme"
 import type { Message } from "@/lib/api-types"
 import { BROADCAST_MENTION_IDS } from "@/lib/mentions"
 import {
+  CALL_SCHEME,
   MENTION_SCHEME,
   MSG_SCHEME,
   SRC_SCHEME,
   toDisplayMarkdown,
 } from "@/lib/message-markdown"
+import { openCitedCall } from "@/lib/open-cited-call"
 import { openExternalUrl } from "@/lib/open-url"
 
 type MessageTheme = {
@@ -153,6 +155,11 @@ export function MessageContent({
       if (url.startsWith(SRC_SCHEME)) {
         const target = decodeURIComponent(url.slice(SRC_SCHEME.length))
         if (/^https?:\/\//i.test(target)) openExternalUrl(target)
+        return
+      }
+      if (url.startsWith(CALL_SCHEME)) {
+        const sessionId = decodeURIComponent(url.slice(CALL_SCHEME.length))
+        if (sessionId) void openCitedCall(sessionId)
         return
       }
       if (/^https?:\/\//i.test(url)) openExternalUrl(url)

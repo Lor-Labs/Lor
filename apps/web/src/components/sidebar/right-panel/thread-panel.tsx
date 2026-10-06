@@ -690,6 +690,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
           ...view,
           composerDraft: undefined,
           callTab: value === "transcript" ? "transcript" : "chat",
+          transcriptAtMs: undefined,
         })
       }
       className="border-border/70 border-b px-4 pb-3"
@@ -716,8 +717,11 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
         />
         {callTabs}
         <CallTranscript
+          // A new citation target remounts, so it scrolls again.
+          key={view.transcriptAtMs ?? "start"}
           sessionId={voiceSessionId}
           live={call?.sessionId === voiceSessionId}
+          atMs={view.transcriptAtMs}
         />
       </div>
     )

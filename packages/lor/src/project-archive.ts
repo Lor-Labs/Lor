@@ -237,6 +237,7 @@ export async function synthesizeProjectArchive(
       read_thread: retrieval,
       view_image: retrieval,
       read_attachment: retrieval,
+      read_call: retrieval,
       fetch_source: { workspaceId: args.workspaceId },
       ls: readContext,
       read: readContext,

@@ -7,7 +7,7 @@ import { cn } from "@repo/ui/lib/utils"
 import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { formatTime } from "@repo/utils/date"
 import { useQueryClient } from "@tanstack/react-query"
-import { useLayoutEffect, useMemo, useRef } from "react"
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { captionLine } from "@/components/voice/call-captions"
 import { LorBlocks, LorFailedNotice } from "@/components/voice/lor-blocks"
 import { formatDuration } from "@/components/voice/voice-lobby"
@@ -130,6 +130,24 @@ function buildBlocks(
   ])
 }
 
+// The spoken block at a moment of the call: the last one starting at or
+// before it.
+function blockAtMoment(blocks: Block[], at: number) {
+  let found: Block | undefined
+  for (const block of blocks) {
+    const start =
+      block.kind === "speech"
+        ? block.lines[0]?.at
+        : block.kind === "gap"
+          ? block.gap.at
+          : undefined
+    if (start === undefined) continue
+    if (start > at) break
+    found = block
+  }
+  return found ?? blocks.find((block) => block.kind !== "lor")
+}
+
 function SpeakerAvatar({ speaker }: { speaker: Speaker }) {
   return (
     <Avatar size="lg" className="mt-0.5">
@@ -226,11 +244,13 @@ function TranscriptView({
   live,
   liveLines,
   liveNames,
+  atMs,
 }: {
   sessionId: string
   live: boolean
   liveLines: Line[]
   liveNames: Map<string, string>
+  atMs?: number
 }) {
   const { data, isPending, isError, hasNextPage } = useCallTranscript(
     sessionId,
@@ -277,6 +297,29 @@ function TranscriptView({
     }
   }, [blocks])
 
+  // A [[call:…]] citation opens the transcript at a moment: once every page
+  // has loaded, the block spoken then scrolls into view and flashes.
+  const [highlightId, setHighlightId] = useState<string | null>(null)
+  const revealedRef = useRef(false)
+  useLayoutEffect(() => {
+    const first = pages[0]
+    if (atMs === undefined || revealedRef.current || !first || hasNextPage) {
+      return
+    }
+    const block = blockAtMoment(blocks, Date.parse(first.startedAt) + atMs)
+    if (!block) return
+    revealedRef.current = true
+    scrollRef.current
+      ?.querySelector(`[data-block-id="${CSS.escape(block.id)}"]`)
+      ?.scrollIntoView({ block: "center" })
+    setHighlightId(block.id)
+  }, [atMs, blocks, pages, hasNextPage])
+  useEffect(() => {
+    if (!highlightId) return
+    const timer = setTimeout(() => setHighlightId(null), 2500)
+    return () => clearTimeout(timer)
+  }, [highlightId])
+
   const emptyText = live ? "Nothing said yet." : "No transcript for this call."
   const status = isPending ? (
     <TranscriptSkeleton />
@@ -320,7 +363,11 @@ function TranscriptView({
             return (
               <div
                 key={block.id}
-                className="flex items-center gap-3 px-4 py-2 text-xs text-muted-foreground"
+                data-block-id={block.id}
+                className={cn(
+                  "flex items-center gap-3 px-4 py-2 text-xs text-muted-foreground transition-colors duration-700",
+                  highlightId === block.id && "bg-primary/8"
+                )}
               >
                 <div className="h-px flex-1 bg-border/60" />
                 <span>
@@ -333,7 +380,14 @@ function TranscriptView({
           const speaker = speakerFor(block.participantId)
           const startedAt = block.lines[0]?.at ?? 0
           return (
-            <div key={block.id} className="flex gap-3 px-4 py-1.5">
+            <div
+              key={block.id}
+              data-block-id={block.id}
+              className={cn(
+                "flex gap-3 px-4 py-1.5 transition-colors duration-700",
+                highlightId === block.id && "bg-primary/8"
+              )}
+            >
               <SpeakerAvatar speaker={speaker} />
               <div className="min-w-0 flex-1">
                 <div className="flex items-baseline gap-2">
@@ -401,9 +455,11 @@ function LiveTranscript({ sessionId }: { sessionId: string }) {
 export function CallTranscript({
   sessionId,
   live,
+  atMs,
 }: {
   sessionId: string
   live: boolean
+  atMs?: number
 }) {
   return live ? (
     <LiveTranscript sessionId={sessionId} />
@@ -413,6 +469,7 @@ export function CallTranscript({
       live={false}
       liveLines={NO_LINES}
       liveNames={NO_NAMES}
+      atMs={atMs}
     />
   )
 }

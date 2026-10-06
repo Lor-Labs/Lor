@@ -58,6 +58,9 @@ type ChannelSearchParams = {
   threadId?: string
   // Focuses a reply inside the open thread (for search/deep links).
   threadMessageId?: string
+  // Opens a call's transcript at this moment (ms into the call), e.g. from a
+  // Lor [[call:…]] citation. Needs threadId (the call's chat root).
+  callAt?: number
   // Opens the artifact viewer; shareable — everyone opening the same URL
   // lands on the same artifact (and, later, in the same live session).
   artifactId?: string
@@ -76,6 +79,12 @@ export const Route = createFileRoute(
       typeof search.threadMessageId === "string"
         ? search.threadMessageId
         : undefined,
+    callAt:
+      typeof search.callAt === "number" &&
+      Number.isFinite(search.callAt) &&
+      search.callAt >= 0
+        ? search.callAt
+        : undefined,
     artifactId:
       typeof search.artifactId === "string" ? search.artifactId : undefined,
     artifactFrom: search.artifactFrom === "files" ? "files" : undefined,
@@ -90,7 +99,7 @@ export const Route = createFileRoute(
 // channel fetch; voice channels swap in once the type is known.
 function ChannelRoute() {
   const { workspaceSlug, channelId } = Route.useParams()
-  const { threadId, threadMessageId } = Route.useSearch()
+  const { threadId, threadMessageId, callAt } = Route.useSearch()
   const { data } = useQuery(channelQueryOptions(workspaceSlug, channelId))
 
   if (data?.type === "voice") {
@@ -104,6 +113,7 @@ function ChannelRoute() {
         archived={Boolean(data.archivedAt)}
         threadId={threadId}
         threadMessageId={threadMessageId}
+        callAt={callAt}
       />
     )
   }
