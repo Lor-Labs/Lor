@@ -96,11 +96,7 @@ function DeviceGroup({
   label: string
 }) {
   const { devices, activeDeviceId, setActiveMediaDevice } =
-    useMediaDeviceSelect({
-      kind,
-      requestPermissions: false,
-      onError: reportDeviceError,
-    })
+    useMediaDeviceSelect({ kind, onError: reportDeviceError })
   if (devices.length === 0) return null
 
   return (

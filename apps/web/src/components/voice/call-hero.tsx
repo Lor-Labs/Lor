@@ -24,8 +24,8 @@ import {
 } from "@repo/ui/components/tooltip"
 import { differenceInMinutes, formatDuration } from "@repo/utils/date"
 import { useParams } from "@tanstack/react-router"
-import { createLocalVideoTrack, Room } from "livekit-client"
-import { useCallback, useEffect, useRef, useState } from "react"
+import { createLocalVideoTrack } from "livekit-client"
+import { useEffect, useRef, useState } from "react"
 import {
   activeDevice,
   DeviceRadioGroup,
@@ -33,6 +33,12 @@ import {
 } from "@/components/voice/call-controls"
 import { ParticipantAvatar } from "@/components/voice/participant-avatar"
 import type { JoinDevices } from "@/context/voice-call-context"
+import {
+  hasDeviceNames,
+  refreshLocalDevices,
+  requestDeviceAccess,
+  useLocalDevices,
+} from "@/hooks/use-local-devices"
 import { useOwnVoiceParticipant } from "@/hooks/use-own-voice-participant"
 import type { VoiceSessionSummary } from "@/hooks/use-voice-sessions"
 
@@ -85,71 +91,79 @@ const canPickSpeaker =
   typeof HTMLMediaElement !== "undefined" &&
   "setSinkId" in HTMLMediaElement.prototype
 
-// Devices of one kind, listed without asking for access; refresh(true) asks,
-// which names need. Not LiveKit's hook: changing its requestPermissions
-// recreates it with an empty list, which unmounted the picker mid-click.
-function useDeviceList(kind: MediaDeviceKind) {
-  const [devices, setDevices] = useState<MediaDeviceInfo[]>([])
-  const refresh = useCallback(
-    async (requestPermissions: boolean) => {
-      try {
-        setDevices(await Room.getLocalDevices(kind, requestPermissions))
-      } catch (error) {
-        if (requestPermissions) reportDeviceError(error)
-      }
-    },
-    [kind]
-  )
-  useEffect(() => {
-    void refresh(false)
-    const onChange = () => void refresh(false)
-    navigator.mediaDevices?.addEventListener("devicechange", onChange)
-    return () =>
-      navigator.mediaDevices?.removeEventListener("devicechange", onChange)
-  }, [refresh])
-  return { devices, refresh }
+function reportAccessError(kind: MediaDeviceKind, error: unknown) {
+  const noun = kind === "videoinput" ? "Camera" : "Microphone"
+  const name = error instanceof DOMException ? error.name : ""
+  if (name === "NotAllowedError") {
+    toast.error(`${noun} access is blocked`, {
+      description: "Allow it in your browser's site settings.",
+    })
+  } else if (name === "NotFoundError") {
+    toast.error(`No ${noun.toLowerCase()} found`)
+  } else {
+    reportDeviceError(error)
+  }
 }
 
 // Which microphone, speaker, or camera, by name, like Meet's row under the
-// preview. Always rendered, disabled until its list arrives, so the row never
-// changes shape and the menu never opens empty.
+// preview. Until the page has access the browser hides names, so the first
+// click asks, then opens the list. Disabled only while the first listing
+// loads or the browser's prompt is up, so a click is never lost.
 function DevicePicker({
   kind,
   label,
   icon,
+  devices,
   disabled,
 }: {
   kind: MediaDeviceKind
   label: string
   icon: IconSvgElement
+  devices: MediaDeviceInfo[] | null
   disabled: boolean
 }) {
-  const { devices, refresh } = useDeviceList(kind)
+  const [open, setOpen] = useState(false)
+  const [asking, setAsking] = useState(false)
   const { activeDeviceId, setActiveMediaDevice } = useMediaDeviceSelect({
     kind,
     requestPermissions: false,
     onError: reportDeviceError,
   })
-  const active = activeDevice(devices, activeDeviceId)
+  const ofKind = devices?.filter((device) => device.kind === kind) ?? []
+  const named = hasDeviceNames(ofKind)
+  const shown = named
+    ? activeDevice(ofKind, activeDeviceId)?.label
+    : `Default ${label.toLowerCase()}`
+
+  function handleOpenChange(next: boolean) {
+    if (!next || named) {
+      setOpen(next)
+      return
+    }
+    setAsking(true)
+    requestDeviceAccess(kind)
+      .then((list) =>
+        setOpen(hasDeviceNames(list.filter((device) => device.kind === kind)))
+      )
+      .catch((error) => reportAccessError(kind, error))
+      .finally(() => setAsking(false))
+  }
+
   return (
-    <DropdownMenu
-      onOpenChange={(open) => {
-        if (open) void refresh(true)
-      }}
-    >
+    <DropdownMenu open={open} onOpenChange={handleOpenChange}>
       <DropdownMenuTrigger
         render={
           <Button
             variant="ghost"
             size="sm"
-            disabled={disabled || devices.length === 0}
+            disabled={disabled || devices === null || asking}
             className="min-w-0 flex-1 justify-start text-muted-foreground hover:text-foreground"
           />
         }
       >
         <HugeiconsIcon icon={icon} strokeWidth={2} />
         <span className="sr-only">{label}: </span>
-        <span className="min-w-0 truncate">{active?.label || label}</span>
+        <span className="min-w-0 truncate">{shown}</span>
         <HugeiconsIcon
           icon={ArrowDown01Icon}
           strokeWidth={2}
@@ -159,7 +173,7 @@ function DevicePicker({
       <DropdownMenuContent side="bottom" align="start">
         <DeviceRadioGroup
           label={label}
-          devices={devices}
+          devices={ofKind}
           activeDeviceId={activeDeviceId}
           onSelect={(deviceId) => void setActiveMediaDevice(deviceId)}
         />
@@ -192,6 +206,8 @@ function CameraPreview({
         }
         stop = () => track.stop()
         if (videoRef.current) track.attach(videoRef.current)
+        // A live camera reveals camera names to the pickers.
+        void refreshLocalDevices()
       })
       .catch(() => failRef.current())
     return () => {
@@ -241,6 +257,7 @@ export function CallHero({
     kind: "videoinput",
     requestPermissions: false,
   })
+  const devices = useLocalDevices()
   const connected = session?.participants.filter((p) => p.connected) ?? []
   const live = session !== undefined && connected.length > 0
   const shown = connected.slice(0, STACK_LIMIT)
@@ -299,6 +316,7 @@ export function CallHero({
               kind="audioinput"
               label="Microphone"
               icon={Mic01Icon}
+              devices={devices}
               disabled={joinDisabled}
             />
             {canPickSpeaker && (
@@ -306,6 +324,7 @@ export function CallHero({
                 kind="audiooutput"
                 label="Speaker"
                 icon={VolumeHighIcon}
+                devices={devices}
                 disabled={joinDisabled}
               />
             )}
@@ -313,6 +332,7 @@ export function CallHero({
               kind="videoinput"
               label="Camera"
               icon={Video01Icon}
+              devices={devices}
               disabled={joinDisabled}
             />
           </div>

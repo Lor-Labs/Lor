@@ -736,18 +736,24 @@ stage", and step-back wait for the rest of V6.
   camera controls on it (red when off; mic on, camera off by default). On
   web, as in Meet, the chosen devices sit in a row under the preview: a
   ghost picker per kind (microphone, camera, and speaker where `setSinkId`
-  exists) showing the active device's name, or the kind until access is
-  granted, with `DeviceRadioGroup` from the call controls as its menu
-  (`activeDevice` shows LiveKit's "default" as the first listed device,
-  since only Chrome lists a "default" entry, so the trigger and the checked
-  item agree). The pickers always render, disabled until their list
-  arrives, and own that list (`useDeviceList`: LiveKit's
-  `Room.getLocalDevices` plus `devicechange`), refreshed with access when
-  the menu opens, because toggling LiveKit's hook `requestPermissions`
-  recreates it with an empty list, which unmounted the picker mid-click and
-  hid pickers whose list hadn't arrived. Every pre-join hook passes
-  `requestPermissions: false`, because LiveKit's default is true and would
-  prompt on a visit. The preview carries your name like a call tile.
+  exists) showing the active device's name, with `DeviceRadioGroup` from
+  the call controls as its menu (`activeDevice` shows LiveKit's "default"
+  as the first listed device, since only Chrome lists a "default" entry, so
+  the trigger and the checked item agree). Browsers hide device names, and
+  list no speakers, until the page has used a microphone or camera, so the
+  pickers read one shared list (`hooks/use-local-devices.ts`: a module
+  store over `enumerateDevices`, kept across visits, refreshed on mount,
+  `devicechange`, permission `change`, a started camera preview, and any
+  grant). Before names, a picker reads "Default microphone" and its first
+  click asks for access (`requestDeviceAccess`; a speaker asks for the
+  microphone) and then opens the list; it is disabled only while the first
+  listing loads or the prompt is up. A microphone already allowed is opened
+  for a moment on arrival when names are still hidden (Safari, Firefox),
+  never the camera. Per-picker lists failed: access granted in one never
+  reached the others, so the speaker stayed grey until a remount. Pre-join
+  LiveKit hooks pass `requestPermissions: false` (its default asks on a
+  visit); the in-call settings menu keeps the default, so opening it asks.
+  The preview carries your name like a call tile.
   Picking switches the call's shared room, which stores it as the capture
   default when nothing is published (livekit `switchActiveDevice`; the
   speaker as `audioOutput`), so the choice carries into the call; the
