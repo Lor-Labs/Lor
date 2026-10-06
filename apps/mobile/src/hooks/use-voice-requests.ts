@@ -1,10 +1,21 @@
-import type { VoiceRequestState } from "@repo/realtime-types/events"
+import type {
+  VoiceRequestActivity,
+  VoiceRequestReaction,
+  VoiceRequestState,
+} from "@repo/realtime-types/events"
 import {
+  hasVoiceResult,
   mergeVoiceRequest,
   pickVoiceRequestOnStage,
 } from "@repo/realtime-types/voice-requests"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  type QueryClient,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
 import { useEffect } from "react"
+import { Alert } from "react-native"
+import { addLorReaction, addLorTool } from "@/components/voice/lor-stage-store"
 import { useSocket } from "@/context/socket-context"
 import { api } from "@/lib/api"
 
@@ -60,9 +71,20 @@ export function useVoiceRequestList(sessionId: string) {
   return useQuery(voiceRequestsQuery(sessionId)).data ?? NO_REQUESTS
 }
 
-// Requests to Lor in the call this phone is in, and the one Lor's window
-// shows. Same rules as web; events arrive through the call chat's room, which
-// the call provider holds for the whole call.
+export function applyVoiceRequestUpdate(
+  queryClient: QueryClient,
+  request: VoiceRequestState
+) {
+  queryClient.setQueryData<VoiceRequestState[]>(
+    voiceRequestsQueryKey(request.sessionId),
+    (current) => mergeVoiceRequest(current ?? [], request)
+  )
+}
+
+// Requests to Lor in the call this phone is in: the one Lor's window shows,
+// and the results it can step back through. Same rules as web; events arrive
+// through the call chat's room, which the call provider holds for the whole
+// call.
 export function useVoiceRequests(sessionId: string | null) {
   const socket = useSocket()
   const queryClient = useQueryClient()
@@ -74,20 +96,60 @@ export function useVoiceRequests(sessionId: string | null) {
     const queryKey = voiceRequestsQueryKey(sessionId)
     const onUpdated = ({ request }: { request: VoiceRequestState }) => {
       if (request.sessionId !== sessionId) return
-      queryClient.setQueryData<VoiceRequestState[]>(queryKey, (current) =>
-        mergeVoiceRequest(current ?? [], request)
-      )
+      applyVoiceRequestUpdate(queryClient, request)
+    }
+    const onActivity = (activity: VoiceRequestActivity) => {
+      if (activity.sessionId === sessionId) {
+        addLorTool(activity.requestId, activity.toolName)
+      }
+    }
+    const onReaction = (reaction: VoiceRequestReaction) => {
+      if (reaction.sessionId === sessionId) {
+        addLorReaction(reaction.requestId, reaction.emoji)
+      }
     }
     const onReconnect = () => {
       void queryClient.invalidateQueries({ queryKey })
     }
     socket.on("voice:request:updated", onUpdated)
+    socket.on("voice:request:activity", onActivity)
+    socket.on("voice:request:reaction", onReaction)
     socket.on("connect", onReconnect)
     return () => {
       socket.off("voice:request:updated", onUpdated)
+      socket.off("voice:request:activity", onActivity)
+      socket.off("voice:request:reaction", onReaction)
       socket.off("connect", onReconnect)
     }
   }, [socket, sessionId, queryClient])
 
-  return pickVoiceRequestOnStage(query.data ?? NO_REQUESTS)
+  const requests = query.data ?? NO_REQUESTS
+  return {
+    onStage: pickVoiceRequestOnStage(requests),
+    results: requests.filter(hasVoiceResult),
+  }
+}
+
+// Brings a result back into Lor's window for everyone in the call.
+export async function stageVoiceRequest(
+  queryClient: QueryClient,
+  request: VoiceRequestState
+) {
+  const queryKey = voiceRequestsQueryKey(request.sessionId)
+  const stagedAt = new Date().toISOString()
+  queryClient.setQueryData<VoiceRequestState[]>(queryKey, (list) =>
+    list?.map((entry) =>
+      entry.id === request.id
+        ? { ...entry, stagedAt, dismissedAt: null }
+        : entry
+    )
+  )
+  if (isSimulatedRequest(request)) return
+  const res = await api.v1.voice.requests[":requestId"].stage
+    .$post({ param: { requestId: request.id } })
+    .catch(() => null)
+  if (!res?.ok) {
+    Alert.alert("Couldn't show that in Lor's window")
+    void queryClient.invalidateQueries({ queryKey })
+  }
 }

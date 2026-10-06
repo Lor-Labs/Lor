@@ -5,10 +5,16 @@ import {
   transcriptBlockAt,
 } from "@repo/realtime-types/call-transcript"
 import type { VoiceRequestState } from "@repo/realtime-types/events"
+import {
+  hasVoiceResult,
+  pickVoiceRequestOnStage,
+} from "@repo/realtime-types/voice-requests"
 import { formatDuration, formatTime } from "@repo/utils/date"
+import { useQueryClient } from "@tanstack/react-query"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { Text, View } from "react-native"
 import { Avatar } from "@/components/ui/avatar"
+import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { LorBlocks } from "@/components/voice/lor-blocks"
 import { LorMark } from "@/components/voice/lor-window"
@@ -16,7 +22,10 @@ import {
   type TranscriptPage,
   useCallTranscript,
 } from "@/hooks/use-call-transcript"
-import { useVoiceRequestList } from "@/hooks/use-voice-requests"
+import {
+  stageVoiceRequest,
+  useVoiceRequestList,
+} from "@/hooks/use-voice-requests"
 
 const HIGHLIGHT_MS = 2500
 
@@ -30,12 +39,16 @@ const UNKNOWN_SPEAKER: Speaker = {
   avatarColor: null,
 }
 
+// A request to Lor and its result, where it happened. During the call, "Show
+// on stage" brings it back into Lor's window for everyone.
 function LorResult({
   request,
   askedBy,
+  onShowOnStage,
 }: {
   request: VoiceRequestState
   askedBy: string
+  onShowOnStage: (() => void) | undefined
 }) {
   return (
     <View className="flex-row gap-three">
@@ -44,13 +57,23 @@ function LorResult({
       </View>
       <View className="min-w-0 flex-1 gap-two">
         <View className="gap-px">
-          <View className="flex-row items-baseline gap-two">
+          <View className="flex-row items-center gap-two">
             <Text className="text-[15px] font-semibold text-foreground">
               Lor
             </Text>
             <Text className="text-xs text-muted">
               {formatTime(request.createdAt)}
             </Text>
+            {onShowOnStage ? (
+              <Button
+                className="ml-auto"
+                onPress={onShowOnStage}
+                size="sm"
+                variant="ghost"
+              >
+                <Button.Label>Show on stage</Button.Label>
+              </Button>
+            ) : null}
           </View>
           <Text className="text-[13px] text-muted" numberOfLines={2}>
             {askedBy}: “{request.heardText}”
@@ -74,15 +97,26 @@ function LorResult({
 function BlockRow({
   block,
   speakerFor,
+  showOnStage,
+  onStageId,
 }: {
   block: TranscriptBlock
   speakerFor: (participantId: string) => Speaker
+  // Set during the call.
+  showOnStage: ((request: VoiceRequestState) => void) | undefined
+  onStageId: string | null
 }) {
   if (block.kind === "lor") {
+    const { request } = block
+    const canStage =
+      showOnStage &&
+      (hasVoiceResult(request) || request.status === "awaiting_approval") &&
+      onStageId !== request.id
     return (
       <LorResult
-        askedBy={speakerFor(block.request.participantId).name}
-        request={block.request}
+        askedBy={speakerFor(request.participantId).name}
+        onShowOnStage={canStage ? () => showOnStage(request) : undefined}
+        request={request}
       />
     )
   }
@@ -162,6 +196,12 @@ export function CallTranscript({
   )
   const speakerFor = (participantId: string) =>
     speakers.get(participantId) ?? UNKNOWN_SPEAKER
+  const queryClient = useQueryClient()
+  const onStageId = pickVoiceRequestOnStage(requests)?.id ?? null
+  const showOnStage = live
+    ? (request: VoiceRequestState) =>
+        void stageVoiceRequest(queryClient, request)
+    : undefined
 
   const listRef = useRef<LegendListRef>(null)
   const [pendingAt, setPendingAt] = useState(atMs)
@@ -222,7 +262,7 @@ export function CallTranscript({
       contentContainerStyle={{ paddingVertical: 8 }}
       data={blocks}
       estimatedItemSize={72}
-      extraData={highlightId}
+      extraData={`${highlightId}:${onStageId}`}
       initialScrollIndex={live && atMs === undefined ? blocks.length - 1 : 0}
       keyExtractor={(block) => block.id}
       maintainScrollAtEnd={live}
@@ -233,7 +273,12 @@ export function CallTranscript({
             highlightId === item.id ? "bg-accent-soft" : ""
           }`}
         >
-          <BlockRow block={item} speakerFor={speakerFor} />
+          <BlockRow
+            block={item}
+            onStageId={onStageId}
+            showOnStage={showOnStage}
+            speakerFor={speakerFor}
+          />
         </View>
       )}
     />

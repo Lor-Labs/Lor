@@ -11,12 +11,15 @@ import { useThemeColor } from "heroui-native/hooks"
 import { Alert } from "react-native"
 import { IconButton } from "@/components/ui/icon-button"
 import type { EntityCards } from "@/components/voice/lor-blocks"
+import { addLorTool } from "@/components/voice/lor-stage-store"
 import {
+  applyVoiceRequestUpdate,
   entityCardsQueryKey,
   entityRefs,
   simulatedRequestId,
   voiceRequestsQueryKey,
 } from "@/hooks/use-voice-requests"
+import { authClient } from "@/lib/auth-client"
 
 // Dev only: plays scripted requests to Lor through Lor's window on this
 // phone, so its layout can be tuned without speaking or a live connector.
@@ -243,10 +246,45 @@ const SCENARIOS: Scenario[] = [
 const LISTEN_MS = 1_500
 const WORK_MS = 2_000
 
+// Approves or rejects a simulated approval: the request works on, then ends
+// with a line saying what happened.
+export function resolveSimulatedApproval(
+  queryClient: QueryClient,
+  request: VoiceRequestState,
+  approved: boolean
+) {
+  const update = (patch: Partial<VoiceRequestState>) =>
+    applyVoiceRequestUpdate(queryClient, {
+      ...request,
+      ...patch,
+      updatedAt: new Date().toISOString(),
+    })
+  update({ status: "working", approval: null })
+  if (approved) addLorTool(request.id, "create_linear_issue")
+  setTimeout(() => {
+    update({
+      status: "done",
+      finishedAt: new Date().toISOString(),
+      result: {
+        blocks: [
+          {
+            type: "answer",
+            markdown: approved
+              ? "Filed **ENG-416** Retry the Deepgram stream on 1011."
+              : "Okay, I didn't file it.",
+          },
+        ],
+      },
+    })
+  }, WORK_MS)
+}
+
 function play(
   queryClient: QueryClient,
   sessionId: string,
   participantId: string,
+  // The approver of a simulated approval, so its buttons show on this phone.
+  user: { userId: string; name: string },
   scenario: Scenario
 ) {
   const id = simulatedRequestId()
@@ -279,7 +317,10 @@ function play(
   }
 
   set({ status: "listening" })
-  setTimeout(() => set({ status: "working" }), LISTEN_MS)
+  setTimeout(() => {
+    set({ status: "working" })
+    addLorTool(id, "search_messages")
+  }, LISTEN_MS)
   setTimeout(() => {
     const { ending } = scenario
     if (ending.status === "done") {
@@ -295,8 +336,11 @@ function play(
       set(finished)
     } else if (ending.status === "failed") {
       set({ status: "failed", finishedAt: new Date().toISOString() })
-    } else {
-      set({ status: "awaiting_approval", approval: ending.approval })
+    } else if (ending.approval) {
+      set({
+        status: "awaiting_approval",
+        approval: { ...ending.approval, approvers: [user] },
+      })
     }
   }, LISTEN_MS + WORK_MS)
 }
@@ -305,15 +349,23 @@ function play(
 export function LorSimulatorButton({ sessionId }: { sessionId: string }) {
   const queryClient = useQueryClient()
   const { localParticipant } = useLocalParticipant()
+  const { data: auth } = authClient.useSession()
   const [foreground] = useThemeColor(["foreground"])
   if (!__DEV__) return null
 
+  const user = { userId: auth?.user.id ?? "", name: auth?.user.name ?? "You" }
   const open = () =>
     Alert.alert("Simulate Lor (dev)", undefined, [
       ...SCENARIOS.map((scenario) => ({
         text: scenario.label,
         onPress: () =>
-          play(queryClient, sessionId, localParticipant.identity, scenario),
+          play(
+            queryClient,
+            sessionId,
+            localParticipant.identity,
+            user,
+            scenario
+          ),
       })),
       { text: "Cancel", style: "cancel" as const },
     ])

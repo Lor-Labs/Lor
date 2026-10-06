@@ -127,7 +127,7 @@ function StageGrid({ tracks }: { tracks: TrackReferenceOrPlaceholder[] }) {
 }
 
 function CallStage({ sessionId }: { sessionId: string }) {
-  const lorRequest = useVoiceRequests(sessionId)
+  const { onStage: lorRequest, results } = useVoiceRequests(sessionId)
   const peekHeight = useCallSheetPeekHeight()
   const allCameraTracks = useTracks([
     { source: Track.Source.Camera, withPlaceholder: true },
@@ -155,7 +155,9 @@ function CallStage({ sessionId }: { sessionId: string }) {
           />
         </View>
       )}
-      {lorRequest && <LorWindow key={lorRequest.id} request={lorRequest} />}
+      {lorRequest && (
+        <LorWindow key={lorRequest.id} request={lorRequest} results={results} />
+      )}
       <StageGrid tracks={cameraTracks} />
     </View>
   )

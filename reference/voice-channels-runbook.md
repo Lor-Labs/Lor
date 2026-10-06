@@ -681,6 +681,17 @@ stage", and step-back wait for the rest of V6.
   so the drawer sizes its content to each dock's visible height itself
   (at once when rising, after settling when lowering) to keep the composer
   and newest messages on screen at 60%.
+- [x] Rest 4: Lor's window acts on the phone, mirroring web. Approve and
+  Reject for people who can approve (others still see who can); question
+  choices are tappable (`/voice/requests/{id}/choose`); a "2 of 3" stepper
+  at the bottom stages the neighbouring result; the tools Lor used show as
+  glyphs in the header (one per kind, `toolKind` in `lor-tool-trail.tsx`,
+  the newest pulsing while it works) and its reactions float up from the
+  mark. Tools and reactions come from `voice:request:activity` and
+  `voice:request:reaction` into `voice/lor-stage-store.ts` (same as web's
+  store). Lor's results in the transcript get "Show on stage" during the
+  call. The dev simulator now makes you the approver of its approval and
+  resolves it locally, and shows a tool while it works.
 
 - Voice channel screen (history, live session, Join or "Transfer here") from
   `apps/mobile/src/app/channel/[channelId]/index.tsx` for voice channels.

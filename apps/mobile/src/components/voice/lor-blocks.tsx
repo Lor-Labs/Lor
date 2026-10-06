@@ -91,10 +91,12 @@ function Block({
   block,
   cards,
   failed,
+  onChoose,
 }: {
   block: RealtimeVoiceBlock
   cards: Cards | undefined
   failed: boolean
+  onChoose?: (index: number) => void
 }) {
   switch (block.type) {
     case "answer":
@@ -110,19 +112,26 @@ function Block({
         </View>
       )
     case "question":
-      // Answered out loud on the phone ("Lor, the second one").
+      // Tap a choice, or answer out loud ("Lor, the second one").
       return (
         <View className="gap-two">
           <Text className="text-[15px] font-semibold text-foreground">
             {block.prompt}
           </Text>
           {block.choices.map((choice, index) => (
-            <Row key={`${index}-${choice}`}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ disabled: !onChoose }}
+              className="gap-one rounded-lor-sm bg-surface-secondary px-three py-two active:bg-surface-tertiary"
+              disabled={!onChoose}
+              key={`${index}-${choice}`}
+              onPress={() => onChoose?.(index)}
+            >
               <Text className="text-[15px] text-foreground">
                 <Text className="text-muted">{index + 1} </Text>
                 {choice}
               </Text>
-            </Row>
+            </Pressable>
           ))}
         </View>
       )
@@ -186,7 +195,14 @@ function Block({
   }
 }
 
-export function LorBlocks({ request }: { request: VoiceRequestState }) {
+// Question choices are tappable when `onChoose` is set.
+export function LorBlocks({
+  request,
+  onChoose,
+}: {
+  request: VoiceRequestState
+  onChoose?: (index: number) => void
+}) {
   const cards = useEntityCards(request)
   return (
     <View className="gap-four">
@@ -196,6 +212,7 @@ export function LorBlocks({ request }: { request: VoiceRequestState }) {
           block={block}
           cards={cards.data}
           failed={cards.isError}
+          onChoose={onChoose}
         />
       ))}
     </View>
