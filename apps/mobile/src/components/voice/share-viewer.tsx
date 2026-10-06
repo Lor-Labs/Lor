@@ -16,16 +16,32 @@ import {
 } from "react-native"
 import { Gesture, GestureDetector } from "react-native-gesture-handler"
 import Animated, {
+  Extrapolation,
+  interpolate,
   useAnimatedStyle,
   useSharedValue,
+  withSpring,
   withTiming,
 } from "react-native-reanimated"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
+import { scheduleOnRN } from "react-native-worklets"
 import { viewerForeground } from "@/components/image-viewer"
 
 const MAX_SCALE = 4
 const DOUBLE_TAP_SCALE = 2.5
 const RESET_MS = 200
+// A drag past this far, or a flick this fast, closes the viewer.
+const DISMISS_DISTANCE = 120
+const DISMISS_VELOCITY = 900
+const DISMISS_MS = 180
+// Short of that it snaps back: slightly underdamped and clamped, so it lands
+// crisply without bouncing past.
+const SNAP_BACK = {
+  mass: 1,
+  stiffness: 420,
+  damping: 33,
+  overshootClamping: true,
+}
 
 function clamp(value: number, limit: number) {
   "worklet"
@@ -107,6 +123,9 @@ export function ShareViewer({
   const y = useSharedValue(0)
   const savedX = useSharedValue(0)
   const savedY = useSharedValue(0)
+  const dismissY = useSharedValue(0)
+  const touchStartX = useSharedValue(0)
+  const touchStartY = useSharedValue(0)
 
   const reset = () => {
     "worklet"
@@ -140,16 +159,60 @@ export function ShareViewer({
       if (scale.value <= 1.02) reset()
       else savedScale.value = scale.value
     })
+  // Moving around only while zoomed in; otherwise a drag is the dismiss.
   const pan = Gesture.Pan()
-    .averageTouches(true)
+    .manualActivation(true)
+    .onTouchesMove((event, manager) => {
+      if (event.numberOfTouches === 1 && scale.value > 1.02) manager.activate()
+      else manager.fail()
+    })
     .onUpdate((event) => {
-      if (scale.value <= 1) return
       x.value = clamp(savedX.value + event.translationX, limitX(scale.value))
       y.value = clamp(savedY.value + event.translationY, limitY(scale.value))
     })
     .onEnd(() => {
       savedX.value = x.value
       savedY.value = y.value
+    })
+  // Drag down to close, like the image viewer: it starts only on a mostly
+  // downward drag at normal size, and the backdrop fades as the share goes.
+  const dismiss = Gesture.Pan()
+    .manualActivation(true)
+    .onTouchesDown((event) => {
+      const touch = event.allTouches[0]
+      if (!touch) return
+      touchStartX.value = touch.absoluteX
+      touchStartY.value = touch.absoluteY
+    })
+    .onTouchesMove((event, manager) => {
+      const touch = event.allTouches[0]
+      if (!touch || event.numberOfTouches !== 1 || scale.value > 1.02) {
+        manager.fail()
+        return
+      }
+      const deltaX = touch.absoluteX - touchStartX.value
+      const deltaY = touch.absoluteY - touchStartY.value
+      if (deltaY > 10 && deltaY > Math.abs(deltaX) * 1.15) manager.activate()
+      else if (Math.abs(deltaX) > 10 || deltaY < -8) manager.fail()
+    })
+    .onUpdate((event) => {
+      dismissY.value = Math.max(0, event.translationY)
+    })
+    .onEnd((event) => {
+      if (
+        event.translationY > DISMISS_DISTANCE ||
+        event.velocityY > DISMISS_VELOCITY
+      ) {
+        dismissY.value = withTiming(
+          frame.height,
+          { duration: DISMISS_MS },
+          (finished) => {
+            if (finished) scheduleOnRN(onClose)
+          }
+        )
+        return
+      }
+      dismissY.value = withSpring(0, SNAP_BACK)
     })
   const doubleTap = Gesture.Tap()
     .numberOfTaps(2)
@@ -161,7 +224,10 @@ export function ShareViewer({
       scale.value = withTiming(DOUBLE_TAP_SCALE, { duration: RESET_MS })
       savedScale.value = DOUBLE_TAP_SCALE
     })
-  const gesture = Gesture.Simultaneous(pinch, Gesture.Race(pan, doubleTap))
+  const gesture = Gesture.Simultaneous(
+    pinch,
+    Gesture.Race(pan, dismiss, doubleTap)
+  )
   // A turn changes the frame, so zoom starts over.
   useEffect(() => {
     reset()
@@ -170,9 +236,20 @@ export function ShareViewer({
   const zoomStyle = useAnimatedStyle(() => ({
     transform: [
       { translateX: x.value },
-      { translateY: y.value },
-      { scale: scale.value },
+      { translateY: y.value + dismissY.value },
+      { scale: scale.value * (1 - Math.min(dismissY.value / 1800, 0.08)) },
     ],
+  }))
+  const backdropStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(
+      dismissY.value,
+      [0, frame.height * 0.4],
+      [1, 0],
+      Extrapolation.CLAMP
+    ),
+  }))
+  const controlsStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(dismissY.value, [0, 80], [1, 0], Extrapolation.CLAMP),
   }))
 
   return (
@@ -187,7 +264,11 @@ export function ShareViewer({
       visible
     >
       <StatusBar hidden={landscape} style="light" />
-      <View className="flex-1 overflow-hidden bg-neutral-950">
+      <View className="flex-1 overflow-hidden">
+        <Animated.View
+          className="bg-neutral-950"
+          style={[StyleSheet.absoluteFill, backdropStyle]}
+        />
         <GestureDetector gesture={gesture}>
           <Animated.View style={[StyleSheet.absoluteFill, zoomStyle]}>
             <VideoTrack
@@ -197,10 +278,10 @@ export function ShareViewer({
             />
           </Animated.View>
         </GestureDetector>
-        <View
+        <Animated.View
           className="absolute inset-x-0 top-0 flex-row items-center gap-three"
           pointerEvents="box-none"
-          style={controlsInset}
+          style={[controlsInset, controlsStyle]}
         >
           <Text
             className="min-w-0 flex-1 text-[15px] font-semibold"
@@ -219,7 +300,7 @@ export function ShareViewer({
             onPress={toggleLandscape}
           />
           <ViewerButton icon={Cancel01Icon} label="Close" onPress={onClose} />
-        </View>
+        </Animated.View>
       </View>
     </Modal>
   )

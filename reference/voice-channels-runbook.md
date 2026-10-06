@@ -702,7 +702,10 @@ stage", and step-back wait for the rest of V6.
   it sideways for people who keep rotation lock on. Native change: needs a
   new dev client and TestFlight build; an old binary crashes on the import.
   Pinch or double-tap zooms (up to 4x), drag pans while zoomed, a turn
-  resets zoom; a share that ends closes it. Push
+  resets zoom; a share that ends closes it. Drag down to close (the image
+  viewer's gesture: a mostly downward drag at normal size, past 120pt or a
+  900pt/s flick); the backdrop fades to show the call behind, and short of
+  the threshold it snaps back crisply. Push
   deep links needed no code: a mention from a live call you aren't in is
   pushed with the voice channel only (no thread, no message), so a tap opens
   the lobby with Join; after the call, the push carries the call chat and
