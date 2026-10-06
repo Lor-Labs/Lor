@@ -1,3 +1,5 @@
+import FullScreenIcon from "@hugeicons/core-free-icons/FullScreenIcon"
+import { HugeiconsIcon } from "@hugeicons/react-native"
 import {
   isTrackReference,
   type TrackReferenceOrPlaceholder,
@@ -10,8 +12,9 @@ import { SymbolView } from "expo-symbols"
 import { useThemeColor } from "heroui-native/hooks"
 import { cn } from "heroui-native/utils"
 import { Track } from "livekit-client"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import {
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -26,6 +29,7 @@ import {
   useCallSheetPeekHeight,
 } from "@/components/voice/call-sheet"
 import { LorWindow } from "@/components/voice/lor-window"
+import { ShareViewer } from "@/components/voice/share-viewer"
 import { VoiceLobby } from "@/components/voice/voice-lobby"
 import { useVoiceCall } from "@/context/voice-call-context"
 import { useWorkspace } from "@/context/workspace-context"
@@ -139,13 +143,25 @@ function CallStage({ sessionId }: { sessionId: string }) {
   )
   const [screenShare] = useTracks([Track.Source.ScreenShare])
   const { width: windowWidth } = useWindowDimensions()
+  const foreground = useThemeColor("foreground")
+  const [viewingShare, setViewingShare] = useState(false)
+  const sharerName =
+    screenShare?.participant.name || screenShare?.participant.identity || ""
+  // A share that ends closes the viewer; the next one starts on the stage.
+  useEffect(() => {
+    if (!screenShare) setViewingShare(false)
+  }, [screenShare])
 
   // Room at the bottom for the drawer's controls.
   return (
     <View className="flex-1" style={{ paddingBottom: peekHeight }}>
       {screenShare && (
-        <View
+        <Pressable
+          accessibilityHint="Opens the screen share full screen"
+          accessibilityLabel={`${sharerName}'s screen`}
+          accessibilityRole="button"
           className="bg-surface-secondary"
+          onPress={() => setViewingShare(true)}
           style={{ width: windowWidth, height: (windowWidth * 9) / 16 }}
         >
           <VideoTrack
@@ -153,8 +169,23 @@ function CallStage({ sessionId }: { sessionId: string }) {
             style={StyleSheet.absoluteFill}
             trackRef={screenShare}
           />
-        </View>
+          <View className="absolute right-two bottom-two size-8 items-center justify-center rounded-lor-sm bg-background/80">
+            <HugeiconsIcon
+              color={foreground}
+              icon={FullScreenIcon}
+              size={16}
+              strokeWidth={2}
+            />
+          </View>
+        </Pressable>
       )}
+      {screenShare && viewingShare ? (
+        <ShareViewer
+          onClose={() => setViewingShare(false)}
+          sharerName={sharerName}
+          trackRef={screenShare}
+        />
+      ) : null}
       {lorRequest && (
         <LorWindow key={lorRequest.id} request={lorRequest} results={results} />
       )}

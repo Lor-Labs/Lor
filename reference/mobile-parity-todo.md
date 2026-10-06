@@ -104,7 +104,8 @@ Deliberately parked until the composer/keyboard rework settles (active in messag
 - [x] Approval buttons, "Show on stage", step-back, tappable question choices, tool logos and reactions in Lor's window — 2026-10-06
 - [ ] Live words in Lor's window while it listens (web shows the speaker's captions; the phone has no captions yet)
 - [x] Floating call tile across navigation (the call outlives its screen), "Switch to this call", and who's connected under voice channels in the channel list — 2026-10-06
-- [ ] Landscape full-screen share viewer, push deep links into a call, Android background (foreground service)
+- [x] Full-screen share viewer (rotate, pinch and double-tap zoom) and push deep links into a call (worked already) — 2026-10-06
+- [ ] Android background call audio: needs our own `microphone` foreground service (not in the LiveKit SDK or its Expo plugin), a native build, and an Android device — deferred
 - [x] Voice channel screen before joining: live call card (who's in, how long, Join or "Transfer here") and past calls with unread dots and mention counts; a past call opens its chat — 2026-10-06
 - [x] Lor's call summary card, read-only (`call-summary-card.tsx`): title, day, length, faces, decisions, open questions, action items, byline — 2026-10-06
 - [x] Transcript tab (speaker turns, gaps, Lor's results inline), opening at a moment from summary-card times, "Open transcript", and `[[call:…]]` citations — 2026-10-06

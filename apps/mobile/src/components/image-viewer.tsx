@@ -40,7 +40,7 @@ type ImageAttachment = NonNullable<Message["attachments"]>[number]
 type ViewerAction = "saving" | "sharing" | null
 type ViewerStatus = { tone: "danger" | "success"; text: string } | null
 
-const viewerForeground = "#F5F5F4"
+export const viewerForeground = "#F5F5F4"
 const viewerMuted = "#A8A29E"
 const springConfig = { damping: 22, stiffness: 220 }
 

@@ -1,0 +1,210 @@
+import Cancel01Icon from "@hugeicons/core-free-icons/Cancel01Icon"
+import OrientationPotraitToLandscapeIcon from "@hugeicons/core-free-icons/OrientationPotraitToLandscapeIcon"
+import { HugeiconsIcon } from "@hugeicons/react-native"
+import { type TrackReference, VideoTrack } from "@livekit/react-native"
+import { StatusBar } from "expo-status-bar"
+import { useState } from "react"
+import {
+  Modal,
+  Pressable,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from "react-native"
+import { Gesture, GestureDetector } from "react-native-gesture-handler"
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated"
+import { useSafeAreaInsets } from "react-native-safe-area-context"
+import { viewerForeground } from "@/components/image-viewer"
+
+const MAX_SCALE = 4
+const DOUBLE_TAP_SCALE = 2.5
+const RESET_MS = 200
+
+function clamp(value: number, limit: number) {
+  "worklet"
+  return Math.min(Math.max(value, -limit), limit)
+}
+
+function ViewerButton({
+  label,
+  icon,
+  onPress,
+}: {
+  label: string
+  icon: typeof Cancel01Icon
+  onPress: () => void
+}) {
+  return (
+    <Pressable
+      accessibilityLabel={label}
+      accessibilityRole="button"
+      className="size-10 items-center justify-center rounded-lor-sm bg-neutral-900/80 active:bg-neutral-800"
+      hitSlop={8}
+      onPress={onPress}
+    >
+      <HugeiconsIcon
+        color={viewerForeground}
+        icon={icon}
+        size={20}
+        strokeWidth={2}
+      />
+    </Pressable>
+  )
+}
+
+// Someone's screen share, full screen. The app is portrait-only, so instead of
+// the phone rotating, "Rotate" turns the share on its side to fill the screen
+// held sideways. Pinch or double-tap to zoom into small text; drag to move
+// around while zoomed.
+export function ShareViewer({
+  trackRef,
+  sharerName,
+  onClose,
+}: {
+  trackRef: TrackReference
+  sharerName: string
+  onClose: () => void
+}) {
+  const window = useWindowDimensions()
+  const insets = useSafeAreaInsets()
+  const [sideways, setSideways] = useState(false)
+  // Turned a quarter clockwise, the frame's top is the phone's right edge:
+  // the island side (top inset) becomes its left, the home bar its right.
+  const frame = sideways
+    ? { width: window.height, height: window.width }
+    : { width: window.width, height: window.height }
+  const controlsInset = sideways
+    ? { paddingLeft: insets.top, paddingRight: insets.bottom, paddingTop: 12 }
+    : { paddingTop: insets.top + 8 }
+
+  const scale = useSharedValue(1)
+  const savedScale = useSharedValue(1)
+  const x = useSharedValue(0)
+  const y = useSharedValue(0)
+  const savedX = useSharedValue(0)
+  const savedY = useSharedValue(0)
+
+  const reset = () => {
+    "worklet"
+    scale.value = withTiming(1, { duration: RESET_MS })
+    x.value = withTiming(0, { duration: RESET_MS })
+    y.value = withTiming(0, { duration: RESET_MS })
+    savedScale.value = 1
+    savedX.value = 0
+    savedY.value = 0
+  }
+  // How far a zoomed share may move before its edge leaves the frame's edge.
+  const limitX = (zoom: number) => {
+    "worklet"
+    return ((zoom - 1) * frame.width) / 2
+  }
+  const limitY = (zoom: number) => {
+    "worklet"
+    return ((zoom - 1) * frame.height) / 2
+  }
+
+  const pinch = Gesture.Pinch()
+    .onUpdate((event) => {
+      scale.value = Math.min(
+        Math.max(savedScale.value * event.scale, 1),
+        MAX_SCALE
+      )
+      x.value = clamp(x.value, limitX(scale.value))
+      y.value = clamp(y.value, limitY(scale.value))
+    })
+    .onEnd(() => {
+      if (scale.value <= 1.02) reset()
+      else savedScale.value = scale.value
+    })
+  const pan = Gesture.Pan()
+    .averageTouches(true)
+    .onUpdate((event) => {
+      if (scale.value <= 1) return
+      x.value = clamp(savedX.value + event.translationX, limitX(scale.value))
+      y.value = clamp(savedY.value + event.translationY, limitY(scale.value))
+    })
+    .onEnd(() => {
+      savedX.value = x.value
+      savedY.value = y.value
+    })
+  const doubleTap = Gesture.Tap()
+    .numberOfTaps(2)
+    .onEnd(() => {
+      if (savedScale.value > 1) {
+        reset()
+        return
+      }
+      scale.value = withTiming(DOUBLE_TAP_SCALE, { duration: RESET_MS })
+      savedScale.value = DOUBLE_TAP_SCALE
+    })
+  const gesture = Gesture.Simultaneous(pinch, Gesture.Race(pan, doubleTap))
+
+  const zoomStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: x.value },
+      { translateY: y.value },
+      { scale: scale.value },
+    ],
+  }))
+
+  return (
+    <Modal
+      accessibilityViewIsModal
+      animationType="fade"
+      onRequestClose={onClose}
+      presentationStyle="overFullScreen"
+      statusBarTranslucent
+      supportedOrientations={["portrait"]}
+      transparent
+      visible
+    >
+      <StatusBar hidden={sideways} style="light" />
+      <View className="flex-1 items-center justify-center bg-neutral-950">
+        <View
+          className="overflow-hidden"
+          style={[
+            frame,
+            { transform: [{ rotate: sideways ? "90deg" : "0deg" }] },
+          ]}
+        >
+          <GestureDetector gesture={gesture}>
+            <Animated.View style={[StyleSheet.absoluteFill, zoomStyle]}>
+              <VideoTrack
+                objectFit="contain"
+                style={StyleSheet.absoluteFill}
+                trackRef={trackRef}
+              />
+            </Animated.View>
+          </GestureDetector>
+          <View
+            className="absolute inset-x-0 top-0 flex-row items-center gap-three px-four"
+            pointerEvents="box-none"
+            style={controlsInset}
+          >
+            <Text
+              className="min-w-0 flex-1 text-[15px] font-semibold"
+              style={{ color: viewerForeground }}
+              numberOfLines={1}
+            >
+              {sharerName}'s screen
+            </Text>
+            <ViewerButton
+              icon={OrientationPotraitToLandscapeIcon}
+              label={sideways ? "Turn upright" : "Rotate"}
+              onPress={() => {
+                reset()
+                setSideways((current) => !current)
+              }}
+            />
+            <ViewerButton icon={Cancel01Icon} label="Close" onPress={onClose} />
+          </View>
+        </View>
+      </View>
+    </Modal>
+  )
+}

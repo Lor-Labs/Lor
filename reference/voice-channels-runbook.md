@@ -692,6 +692,21 @@ stage", and step-back wait for the rest of V6.
   store). Lor's results in the transcript get "Show on stage" during the
   call. The dev simulator now makes you the approver of its approval and
   resolves it locally, and shows a tool while it works.
+- [x] Rest 5: tapping a screen share opens `voice/share-viewer.tsx`, a
+  full-screen viewer. The app stays portrait-only (no native change, ships
+  by EAS Update): "Rotate" turns the share a quarter turn to fill the phone
+  held sideways, insets following the turn. Pinch or double-tap zooms
+  (up to 4x), drag pans while zoomed; a share that ends closes it. Push
+  deep links needed no code: a mention from a live call you aren't in is
+  pushed with the voice channel only (no thread, no message), so a tap opens
+  the lobby with Join; after the call, the push carries the call chat and
+  message and opens it there.
+- [ ] Android background audio: deferred (Jacob to decide). Neither the
+  LiveKit SDK nor its Expo plugin keeps the microphone alive in the
+  background on Android (their foreground service is for screen share
+  only); it needs our own `microphone` foreground service (e.g. Notifee and
+  a config plugin), a new EAS build, and an Android device to test. iOS
+  already works through the `audio` background mode.
 
 - Voice channel screen (history, live session, Join or "Transfer here") from
   `apps/mobile/src/app/channel/[channelId]/index.tsx` for voice channels.
