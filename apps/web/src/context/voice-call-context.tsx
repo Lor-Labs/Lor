@@ -49,6 +49,10 @@ export type ActiveVoiceCall = {
 
 export type JoinTarget = Omit<ActiveVoiceCall, "sessionId" | "threadRootId">
 
+// How someone enters a call, chosen on the pre-join screen.
+export type JoinDevices = { microphone: boolean; camera: boolean }
+const DEFAULT_DEVICES: JoinDevices = { microphone: true, camera: false }
+
 type VoiceCallContextValue = {
   // The call this device is connected to.
   call: ActiveVoiceCall | null
@@ -65,7 +69,7 @@ type VoiceCallContextValue = {
   // microphone to how it was.
   deafened: boolean
   toggleDeafen: () => Promise<void>
-  join: (target: JoinTarget) => Promise<void>
+  join: (target: JoinTarget, devices?: JoinDevices) => Promise<void>
   leave: () => Promise<void>
 }
 
@@ -180,7 +184,7 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
   }, [room])
 
   const join = useCallback(
-    async (target: JoinTarget) => {
+    async (target: JoinTarget, devices: JoinDevices = DEFAULT_DEVICES) => {
       setJoining(true)
       try {
         if (room.state !== ConnectionState.Disconnected) {
@@ -197,10 +201,19 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
         await room.connect(url, token)
         setCall({ ...target, sessionId, threadRootId })
         setDeafened(false)
-        try {
-          await room.localParticipant.setMicrophoneEnabled(true)
-        } catch {
-          toast.error("Microphone unavailable. You can still listen.")
+        if (devices.microphone) {
+          try {
+            await room.localParticipant.setMicrophoneEnabled(true)
+          } catch {
+            toast.error("Microphone unavailable. You can still listen.")
+          }
+        }
+        if (devices.camera) {
+          try {
+            await room.localParticipant.setCameraEnabled(true)
+          } catch {
+            toast.error("Camera unavailable")
+          }
         }
       } finally {
         setJoining(false)

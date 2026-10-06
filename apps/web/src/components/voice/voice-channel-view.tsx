@@ -7,7 +7,7 @@ import { HeaderNavControls } from "@/components/desktop-titlebar"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import { CallStage } from "@/components/voice/call-stage"
 import { VoiceLobby } from "@/components/voice/voice-lobby"
-import { useVoiceCall } from "@/context/voice-call-context"
+import { type JoinDevices, useVoiceCall } from "@/context/voice-call-context"
 import { useAutoMarkRead } from "@/hooks/use-auto-mark-read"
 import { useDeleteCall } from "@/hooks/use-delete-call"
 import { useThreadPanelUrlSync } from "@/hooks/use-thread-panel-url-sync"
@@ -15,7 +15,9 @@ import { apiClient } from "@/lib/api-client"
 import { canDeleteVoiceCalls, canModerateVoice } from "@/lib/permissions"
 
 // Phone browsers are out of scope; the iPhone app handles calls.
-const isPhoneBrowser = /iPhone|iPod|Android.+Mobile/i.test(navigator.userAgent)
+export const isPhoneBrowser = /iPhone|iPod|Android.+Mobile/i.test(
+  navigator.userAgent
+)
 
 export function VoiceChannelView({
   workspaceSlug,
@@ -100,6 +102,7 @@ export function VoiceChannelView({
     otherCall && otherCall.channelId !== channelId
       ? (otherCall.channelName ?? "another channel")
       : undefined
+  // Otherwise the lobby says "Join call" or "Start call".
   const joinLabel = isPhoneBrowser
     ? "Open the Lor app to join"
     : joining
@@ -108,16 +111,16 @@ export function VoiceChannelView({
         ? "Transfer here"
         : otherCallName
           ? "Switch to this call"
-          : "Join"
+          : undefined
   const note = onAnotherDevice
     ? "You're in this call on another device."
     : otherCallName
       ? `You're in a call in ${otherCallName}.`
       : undefined
 
-  const handleJoin = async () => {
+  const handleJoin = async (devices: JoinDevices) => {
     try {
-      await join({ workspaceSlug, channelId, channelName })
+      await join({ workspaceSlug, channelId, channelName }, devices)
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "Could not join the call"
@@ -141,11 +144,12 @@ export function VoiceChannelView({
       ) : (
         <VoiceLobby
           channelId={channelId}
+          channelName={channelName}
           workspaceId={workspaceId}
           joinLabel={joinLabel}
           joinDisabled={joining || archived || isPhoneBrowser}
           note={note}
-          onJoin={() => void handleJoin()}
+          onJoin={(devices) => void handleJoin(devices)}
           openThreadRootId={openThreadRootId}
           onOpenSession={openSession}
           onDeleteSession={canDeleteCalls ? deleteCall : undefined}

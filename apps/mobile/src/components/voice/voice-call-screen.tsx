@@ -254,10 +254,14 @@ export function VoiceCallScreen({
       ) : (
         <VoiceLobby
           channelId={channelId}
+          channelName={channelName}
           joining={joining}
-          onJoin={() => {
+          onJoin={(devices) => {
             if (!workspace) return
-            void join({ workspaceId: workspace.id, channelId, channelName })
+            void join(
+              { workspaceId: workspace.id, channelId, channelName },
+              devices
+            )
           }}
           onOpenCall={openThread}
           otherCallName={call?.channelName}

@@ -36,11 +36,15 @@ export type JoinTarget = Pick<
   "workspaceId" | "channelId" | "channelName"
 >
 
+// How someone enters a call, chosen on the pre-join screen.
+export type JoinDevices = { microphone: boolean; camera: boolean }
+const DEFAULT_DEVICES: JoinDevices = { microphone: true, camera: false }
+
 type VoiceCallContextValue = {
   // The call this phone is connected to.
   call: ActiveVoiceCall | null
   joining: boolean
-  join: (target: JoinTarget) => Promise<void>
+  join: (target: JoinTarget, devices?: JoinDevices) => Promise<void>
   leave: () => Promise<void>
 }
 
@@ -114,7 +118,7 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
   }, [room])
 
   const join = useCallback(
-    async (target: JoinTarget) => {
+    async (target: JoinTarget, devices: JoinDevices = DEFAULT_DEVICES) => {
       setJoining(true)
       try {
         if (callRef.current) await leave()
@@ -130,10 +134,19 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
         const { url, token, sessionId, threadRootId } = await res.json()
         await room.connect(url, token)
         setCall({ ...target, sessionId, threadRootId, connectedAt: Date.now() })
-        try {
-          await room.localParticipant.setMicrophoneEnabled(true)
-        } catch {
-          Alert.alert("Microphone unavailable", "You can still listen.")
+        if (devices.microphone) {
+          try {
+            await room.localParticipant.setMicrophoneEnabled(true)
+          } catch {
+            Alert.alert("Microphone unavailable", "You can still listen.")
+          }
+        }
+        if (devices.camera) {
+          try {
+            await room.localParticipant.setCameraEnabled(true)
+          } catch {
+            Alert.alert("Camera unavailable")
+          }
         }
       } catch (error) {
         Alert.alert(

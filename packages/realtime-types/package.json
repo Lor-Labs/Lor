@@ -11,6 +11,7 @@
     "./queues": "./src/queues.ts",
     "./rooms": "./src/rooms.ts",
     "./uploads": "./src/uploads.ts",
+    "./voice-presence": "./src/voice-presence.ts",
     "./voice-requests": "./src/voice-requests.ts"
   },
   "scripts": {

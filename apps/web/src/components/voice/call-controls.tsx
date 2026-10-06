@@ -39,8 +39,53 @@ import { useMicrophoneToggle } from "@/hooks/use-microphone-toggle"
 const canShareScreen =
   typeof navigator.mediaDevices?.getDisplayMedia === "function"
 
-function reportDeviceError(error: Error) {
-  toast.error(error.message || "Could not access the device")
+export function reportDeviceError(error: unknown) {
+  toast.error(
+    error instanceof Error && error.message
+      ? error.message
+      : "Could not access the device"
+  )
+}
+
+// LiveKit reports "default" until a track is published. Only Chrome lists a
+// "default" entry; elsewhere show the first device, which browsers list first.
+export function activeDevice(
+  devices: MediaDeviceInfo[],
+  activeDeviceId: string
+) {
+  return (
+    devices.find((device) => device.deviceId === activeDeviceId) ?? devices[0]
+  )
+}
+
+// A device list for a menu. Picking one switches the call's room, so a choice
+// made before joining carries into the call.
+export function DeviceRadioGroup({
+  label,
+  devices,
+  activeDeviceId,
+  onSelect,
+}: {
+  label: string
+  devices: MediaDeviceInfo[]
+  activeDeviceId: string
+  onSelect: (deviceId: string) => void
+}) {
+  return (
+    <DropdownMenuRadioGroup
+      value={activeDevice(devices, activeDeviceId)?.deviceId}
+      onValueChange={(value) => {
+        if (typeof value === "string") onSelect(value)
+      }}
+    >
+      <DropdownMenuLabel>{label}</DropdownMenuLabel>
+      {devices.map((device) => (
+        <DropdownMenuRadioItem key={device.deviceId} value={device.deviceId}>
+          {device.label || "Unnamed device"}
+        </DropdownMenuRadioItem>
+      ))}
+    </DropdownMenuRadioGroup>
+  )
 }
 
 function DeviceGroup({
@@ -51,23 +96,20 @@ function DeviceGroup({
   label: string
 }) {
   const { devices, activeDeviceId, setActiveMediaDevice } =
-    useMediaDeviceSelect({ kind, onError: reportDeviceError })
+    useMediaDeviceSelect({
+      kind,
+      requestPermissions: false,
+      onError: reportDeviceError,
+    })
   if (devices.length === 0) return null
 
   return (
-    <DropdownMenuRadioGroup
-      value={activeDeviceId}
-      onValueChange={(value) => {
-        if (typeof value === "string") void setActiveMediaDevice(value)
-      }}
-    >
-      <DropdownMenuLabel>{label}</DropdownMenuLabel>
-      {devices.map((device) => (
-        <DropdownMenuRadioItem key={device.deviceId} value={device.deviceId}>
-          {device.label || "Unnamed device"}
-        </DropdownMenuRadioItem>
-      ))}
-    </DropdownMenuRadioGroup>
+    <DeviceRadioGroup
+      label={label}
+      devices={devices}
+      activeDeviceId={activeDeviceId}
+      onSelect={(deviceId) => void setActiveMediaDevice(deviceId)}
+    />
   )
 }
 

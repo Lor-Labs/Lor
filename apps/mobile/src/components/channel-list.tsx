@@ -7,7 +7,9 @@ import SquareLock02Icon from "@hugeicons/core-free-icons/SquareLock02Icon"
 import VolumeHighIcon from "@hugeicons/core-free-icons/VolumeHighIcon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
 import type { ChannelActivity } from "@repo/realtime-types"
+import { withOwnVoiceCall } from "@repo/realtime-types/voice-presence"
 import * as Haptics from "expo-haptics"
+import { router } from "expo-router"
 import { useThemeColor } from "heroui-native/hooks"
 import { Fragment, type ReactNode, useMemo, useState } from "react"
 import { ActivityIndicator, Pressable, Text, View } from "react-native"
@@ -16,11 +18,13 @@ import { PrivateHashIcon } from "@/components/ui/private-hash-icon"
 import { SectionLabel } from "@/components/ui/section-label"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useUnread } from "@/context/unread-context"
+import { useVoiceCall } from "@/context/voice-call-context"
 import { useWorkspace } from "@/context/workspace-context"
 import { useVoicePresence } from "@/hooks/use-voice-presence"
 import type { VoiceParticipant } from "@/hooks/use-voice-sessions"
 import { useWorkspaceActivity } from "@/hooks/use-workspace-activity"
 import type { Channel, ChannelCategory } from "@/lib/api-types"
+import { authClient } from "@/lib/auth-client"
 
 type LorState = NonNullable<ChannelActivity["lor"]>
 
@@ -177,15 +181,25 @@ export function ChannelRow({
 }
 
 // People connected to a voice channel's call, listed under it like web.
+// Pressing them joins the call straight away.
 function VoiceParticipantRows({
   participants,
+  channelName,
+  onJoin,
 }: {
   participants: VoiceParticipant[] | undefined
+  channelName: string
+  onJoin: () => void
 }) {
   if (!participants?.length) return null
   return (
     // Lines up with the channel name: row padding + icon box + gap.
-    <View className="mb-one pl-[44px]">
+    <Pressable
+      accessibilityLabel={`Join the call in ${channelName}`}
+      accessibilityRole="button"
+      className="mb-one rounded-lor-sm pl-[44px] active:bg-surface-secondary"
+      onPress={onJoin}
+    >
       {participants.map((participant) => (
         <View
           className="min-h-7 flex-row items-center gap-two"
@@ -206,7 +220,7 @@ function VoiceParticipantRows({
           </Text>
         </View>
       ))}
-    </View>
+    </Pressable>
   )
 }
 
@@ -367,7 +381,9 @@ export function ChannelList({
     () => new Set()
   )
   const { getUnreadCount, getMentionCount } = useUnread()
-  const { workspace } = useWorkspace()
+  const { workspace, avatarColor } = useWorkspace()
+  const { call, joining, join } = useVoiceCall()
+  const { data: auth } = authClient.useSession()
   const activity = useWorkspaceActivity(workspace?.id)
   const lorStates = useMemo(() => {
     const map = new Map<string, LorState>()
@@ -377,13 +393,43 @@ export function ChannelList({
     return map
   }, [activity])
   const presence = useVoicePresence(workspace?.slug, workspace?.id)
-  const inCall = useMemo(
-    () =>
-      new Map(
-        presence?.map((channel) => [channel.channelId, channel.participants])
-      ),
-    [presence]
-  )
+  const user = auth?.user
+  const inCall = useMemo(() => {
+    const ownCall =
+      call && user && call.workspaceId === workspace?.id
+        ? {
+            channelId: call.channelId,
+            sessionId: call.sessionId,
+            participant: {
+              userId: user.id,
+              name: user.name,
+              image: user.image ?? null,
+              avatarColor,
+              connected: true,
+            },
+          }
+        : null
+    return new Map(
+      withOwnVoiceCall(presence ?? [], ownCall).map((channel) => [
+        channel.channelId,
+        channel.participants,
+      ])
+    )
+  }, [presence, call, user, workspace?.id, avatarColor])
+
+  // Opens the voice channel and joins its call (unless already in it).
+  const joinCall = (channel: Channel) => {
+    router.push({
+      pathname: "/channel/[channelId]",
+      params: { channelId: channel.id },
+    } as never)
+    if (!workspace || joining || call?.channelId === channel.id) return
+    void join({
+      workspaceId: workspace.id,
+      channelId: channel.id,
+      channelName: channel.name ?? "Voice",
+    })
+  }
 
   if (isLoading && !data) return <ChannelListSkeleton />
   if (!data) return null
@@ -432,7 +478,11 @@ export function ChannelList({
         unread={getUnreadCount(channel.id) > 0}
       />
       {channel.type === "voice" ? (
-        <VoiceParticipantRows participants={inCall.get(channel.id)} />
+        <VoiceParticipantRows
+          channelName={channel.name ?? "voice"}
+          onJoin={() => joinCall(channel)}
+          participants={inCall.get(channel.id)}
+        />
       ) : null}
     </Fragment>
   )

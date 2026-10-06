@@ -18,7 +18,9 @@ import {
   getDayLabel,
 } from "@repo/utils/date"
 import { useState } from "react"
+import { CallHero } from "@/components/voice/call-hero"
 import { ParticipantAvatar } from "@/components/voice/participant-avatar"
+import type { JoinDevices } from "@/context/voice-call-context"
 import { isCallBeingDeleted } from "@/hooks/use-delete-call"
 import type { VoiceParticipant } from "@/hooks/use-voice-presence"
 import {
@@ -48,48 +50,6 @@ export function ParticipantStack({
         <AvatarGroupCount className="size-6 text-xs">+{extra}</AvatarGroupCount>
       )}
     </AvatarGroup>
-  )
-}
-
-function LiveSessionCard({
-  session,
-  joinLabel,
-  joinDisabled,
-  note,
-  onJoin,
-}: {
-  session: VoiceSessionSummary | undefined
-  joinLabel: string
-  joinDisabled: boolean
-  note: string | undefined
-  onJoin: () => void
-}) {
-  const connected = session?.participants.filter((p) => p.connected) ?? []
-  return (
-    <div className="flex items-center gap-4 rounded-xl border border-border bg-card p-4">
-      <div className="flex min-w-0 flex-1 flex-col gap-2">
-        {session && connected.length > 0 ? (
-          <>
-            <div className="flex items-center gap-2 text-sm font-medium">
-              <span className="size-2 shrink-0 rounded-full bg-success" />
-              Live for{" "}
-              {formatDuration(
-                differenceInMinutes(session.startedAt, new Date())
-              ).toLowerCase()}
-            </div>
-            <ParticipantStack participants={connected} />
-          </>
-        ) : (
-          <span className="text-sm text-muted-foreground">
-            No one is here yet.
-          </span>
-        )}
-        {note && <span className="text-xs text-muted-foreground">{note}</span>}
-      </div>
-      <Button onClick={onJoin} disabled={joinDisabled}>
-        {joinLabel}
-      </Button>
-    </div>
   )
 }
 
@@ -207,6 +167,7 @@ function SessionRow({
 
 export function VoiceLobby({
   channelId,
+  channelName,
   workspaceId,
   joinLabel,
   joinDisabled,
@@ -217,11 +178,12 @@ export function VoiceLobby({
   onDeleteSession,
 }: {
   channelId: string
+  channelName: string
   workspaceId: string | undefined
-  joinLabel: string
+  joinLabel: string | undefined
   joinDisabled: boolean
   note: string | undefined
-  onJoin: () => void
+  onJoin: (devices: JoinDevices) => void
   openThreadRootId: string | null
   onOpenSession: (threadRootId: string, tab: "chat" | "transcript") => void
   // Only for people allowed to delete calls.
@@ -243,8 +205,9 @@ export function VoiceLobby({
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-6 py-8">
-        <LiveSessionCard
+      <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-6 py-8">
+        <CallHero
+          channelName={channelName}
           session={live}
           joinLabel={joinLabel}
           joinDisabled={joinDisabled}

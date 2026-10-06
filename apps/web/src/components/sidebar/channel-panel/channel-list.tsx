@@ -1188,7 +1188,9 @@ function SortableChannelItem({
             </DropdownMenu>
           </div>
         </div>
-        {ch.type === "voice" && <VoiceParticipantRows channelId={ch.id} />}
+        {ch.type === "voice" && (
+          <VoiceParticipantRows channelId={ch.id} channelName={ch.name ?? ""} />
+        )}
       </div>
       {canManage && (
         <EditChannelDialog

@@ -719,6 +719,48 @@ stage", and step-back wait for the rest of V6.
   only); it needs our own `microphone` foreground service (e.g. Notifee and
   a config plugin), a new EAS build, and an Android device to test. iOS
   already works through the `audio` background mode.
+- [x] Polish A (Jacob, 2026-10-06), web and phone: your own avatar shows
+  under the voice channel the moment this device connects, not after
+  LiveKit's webhook (`withOwnVoiceCall` in
+  `@repo/realtime-types/voice-presence`, derived so a refetch can't drop it;
+  the server's entry wins once it lists you, and you're shown nowhere
+  else). The people under a live voice channel are one button that opens
+  the channel and joins (web sidebar, phone channel list); already in that
+  call, it just opens it.
+- [x] Polish B, web `voice/call-hero.tsx` and the phone lobby: a pre-join
+  like Google Meet's (Jacob tried a centered "who's here" hero first, then
+  chose this). A preview of how you'll appear: your camera (livekit
+  `createLocalVideoTrack` on web, WebRTC `getUserMedia` + `RTCView` on the
+  phone), started only when you turn the camera on so a visit never asks
+  for camera access, else your avatar and "Camera is off"; microphone and
+  camera controls on it (red when off; mic on, camera off by default). On
+  web, as in Meet, the chosen devices sit in a row under the preview: a
+  ghost picker per kind (microphone, camera, and speaker where `setSinkId`
+  exists) showing the active device's name, or the kind until access is
+  granted, with `DeviceRadioGroup` from the call controls as its menu
+  (`activeDevice` shows LiveKit's "default" as the first listed device,
+  since only Chrome lists a "default" entry, so the trigger and the checked
+  item agree). The pickers always render, disabled until their list
+  arrives, and own that list (`useDeviceList`: LiveKit's
+  `Room.getLocalDevices` plus `devicechange`), refreshed with access when
+  the menu opens, because toggling LiveKit's hook `requestPermissions`
+  recreates it with an empty list, which unmounted the picker mid-click and
+  hid pickers whose list hadn't arrived. Every pre-join hook passes
+  `requestPermissions: false`, because LiveKit's default is true and would
+  prompt on a visit. The preview carries your name like a call tile.
+  Picking switches the call's shared room, which stores it as the capture
+  default when nothing is published (livekit `switchActiveDevice`; the
+  speaker as `audioOutput`), so the choice carries into the call; the
+  preview follows the picked camera. Beside it (below on the phone): who's here ("Jacob, Bucky, and
+  Alex are here", `whoIsHere` shared) and the live time, or "It's quiet in
+  #channel", and "Join call" / "Start call". The preview stops before the
+  call takes the camera; `join(target, devices)` on both. "Joining…",
+  "Transfer here", and "Switch to this call" still replace the label. The
+  web hero is a container query (`@2xl`), not a viewport one: the lobby
+  column is `max-w-3xl`, and when the call panel narrows it the preview
+  goes on top at full width with Join centered below, instead of both
+  columns squeezing. The camera-off avatar is sized like the account
+  settings one (`size-20`, `text-lg`).
 
 - Voice channel screen (history, live session, Join or "Transfer here") from
   `apps/mobile/src/app/channel/[channelId]/index.tsx` for voice channels.
