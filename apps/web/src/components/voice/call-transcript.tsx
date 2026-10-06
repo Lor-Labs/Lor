@@ -255,7 +255,7 @@ function TranscriptView({
             const who = participantId
               ? `${speakerFor(participantId).name}'s audio not captured`
               : "Not captured"
-            const length = formatDuration(durationMs / 60_000).toLowerCase()
+            const length = formatDuration(durationMs / 60_000)
             return (
               <div
                 key={block.id}

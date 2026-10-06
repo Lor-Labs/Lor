@@ -260,6 +260,14 @@ export function CallHero({
   const devices = useLocalDevices()
   const connected = session?.participants.filter((p) => p.connected) ?? []
   const live = session !== undefined && connected.length > 0
+  // Re-read the clock so "Live for 3 min" keeps counting while you look.
+  const [now, setNow] = useState(() => new Date())
+  useEffect(() => {
+    if (!live) return
+    setNow(new Date())
+    const timer = setInterval(() => setNow(new Date()), 15_000)
+    return () => clearInterval(timer)
+  }, [live])
   const shown = connected.slice(0, STACK_LIMIT)
   const extra = connected.length - shown.length
 
@@ -364,9 +372,7 @@ export function CallHero({
               <p className="flex items-center gap-2 text-muted-foreground text-sm">
                 <span className="size-2 shrink-0 rounded-full bg-success" />
                 Live for{" "}
-                {formatDuration(
-                  differenceInMinutes(session.startedAt, new Date())
-                ).toLowerCase()}
+                {formatDuration(differenceInMinutes(session.startedAt, now))}
               </p>
             ) : (
               <p className="text-muted-foreground text-sm">

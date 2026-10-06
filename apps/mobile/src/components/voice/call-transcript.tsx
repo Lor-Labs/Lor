@@ -129,7 +129,7 @@ function BlockRow({
       <View className="flex-row items-center gap-three">
         <View className="h-px flex-1 bg-separator" />
         <Text className="text-xs text-muted">
-          {who} · {formatDuration(durationMs / 60_000).toLowerCase()}
+          {who} · {formatDuration(durationMs / 60_000)}
         </Text>
         <View className="h-px flex-1 bg-separator" />
       </View>

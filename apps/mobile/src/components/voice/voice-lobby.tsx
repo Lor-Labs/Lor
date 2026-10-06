@@ -186,6 +186,14 @@ function CallHero({
   const [previewing, setPreviewing] = useState(true)
   const connected = session?.participants.filter((p) => p.connected) ?? []
   const live = session !== undefined && connected.length > 0
+  // Re-read the clock so "Live for 3 min" keeps counting while you look.
+  const [now, setNow] = useState(() => new Date())
+  useEffect(() => {
+    if (!live) return
+    setNow(new Date())
+    const timer = setInterval(() => setNow(new Date()), 15_000)
+    return () => clearInterval(timer)
+  }, [live])
   // 4:3, across the lobby's padded width.
   const previewHeight = ((width - LOBBY_PADDING * 2) * 3) / 4
 
@@ -247,9 +255,7 @@ function CallHero({
             <View className="size-2 rounded-full bg-success" />
             <Text className="text-[14px] text-muted">
               Live for{" "}
-              {formatDuration(
-                differenceInMinutes(session.startedAt, new Date())
-              ).toLowerCase()}
+              {formatDuration(differenceInMinutes(session.startedAt, now))}
             </Text>
           </View>
         ) : (

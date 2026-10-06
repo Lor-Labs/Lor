@@ -99,10 +99,10 @@ export function getDayLabel(date: Date | string): string {
   return formatDate(date)
 }
 
-// A call's length: "Under a minute", "12 min", "1 hr 5 min".
+// A call's length: "< 1 min", "12 min", "1 hr 5 min".
 export function formatDuration(minutes: number): string {
   const rounded = Math.round(minutes)
-  if (rounded < 1) return "Under a minute"
+  if (rounded < 1) return "< 1 min"
   if (rounded < 60) return `${rounded} min`
   const hours = Math.floor(rounded / 60)
   const rest = rounded % 60
