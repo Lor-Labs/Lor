@@ -409,14 +409,18 @@ export function ThreadMessageList({
               </Pressable>
             )
           }}
+          // Always mounted: LegendList keeps a removed footer's last size, which
+          // left a gap under the first reply.
           ListFooterComponent={
-            messages.length === 0 ? (
-              <View className="items-center px-five py-eight">
-                <Text className="text-sm font-medium text-muted">
-                  No replies yet
-                </Text>
-              </View>
-            ) : null
+            <View>
+              {messages.length === 0 ? (
+                <View className="items-center px-five py-eight">
+                  <Text className="text-sm font-medium text-muted">
+                    No replies yet
+                  </Text>
+                </View>
+              ) : null}
+            </View>
           }
           showsVerticalScrollIndicator={false}
         />
