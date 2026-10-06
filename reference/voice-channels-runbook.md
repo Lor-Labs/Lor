@@ -638,7 +638,10 @@ stage", and step-back wait for the rest of V6.
   avatar, with the speaking ring), "Only you" when alone, and a mic-off badge
   when muted. Drag it anywhere; on release it springs to the corner a flick
   points at (velocity projected 0.15s), and keeps that corner next time. Tap
-  opens the call. The snap spring is critically damped with overshoot clamped,
+  opens the call. While someone shares their screen the tile shows the share
+  instead (Jacob, 2026-10-06; Slack, Meet, and Zoom do the same), reshaping
+  from 108x144 to a 16:9 176x99 in its corner. The snap spring is critically
+  damped with overshoot clamped,
   and keeps a flick's speed only toward the corner (Jacob: the first, bouncy
   version swung around).
 - [x] Rest 3: the Transcript tab on the phone. A call's thread screen is

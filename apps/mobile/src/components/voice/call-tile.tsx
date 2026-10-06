@@ -2,6 +2,7 @@ import MicOff01Icon from "@hugeicons/core-free-icons/MicOff01Icon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
 import {
   isTrackReference,
+  type TrackReference,
   type TrackReferenceOrPlaceholder,
   useIsSpeaking,
   useLocalParticipant,
@@ -13,10 +14,11 @@ import { router, usePathname } from "expo-router"
 import { useThemeColor } from "heroui-native/hooks"
 import { cn } from "heroui-native/utils"
 import { Track } from "livekit-client"
-import { useRef } from "react"
+import { useEffect, useRef } from "react"
 import { StyleSheet, Text, useWindowDimensions, View } from "react-native"
 import { Gesture, GestureDetector } from "react-native-gesture-handler"
 import Animated, {
+  Easing,
   FadeIn,
   FadeOut,
   useAnimatedStyle,
@@ -33,8 +35,13 @@ import {
 } from "@/context/voice-call-context"
 import { useWorkspace } from "@/context/workspace-context"
 
-const TILE_WIDTH = 108
-const TILE_HEIGHT = 144
+// A person stands in a tall tile; a screen share (usually landscape) gets a
+// wide 16:9 one.
+const PERSON_TILE = { width: 108, height: 144 }
+const SHARE_TILE = { width: 176, height: 99 }
+// Size and position move on one curve, so the edges against the tile's
+// corner stay put while it reshapes.
+const RESHAPE = { duration: 220, easing: Easing.out(Easing.cubic) }
 const EDGE = 12
 // Clears screen headers at the top and the tab bar or composer at the bottom.
 const HEADER_CLEARANCE = 68
@@ -122,22 +129,59 @@ function FeaturedParticipant({
   )
 }
 
+// While someone shares their screen the tile shows the share, as Slack's,
+// Meet's, and Zoom's call windows do; otherwise whoever spoke last.
+function SharePreview({ trackRef }: { trackRef: TrackReference }) {
+  const name = trackRef.participant.name || trackRef.participant.identity
+  return (
+    <View className="flex-1 overflow-hidden rounded-lor-lg">
+      <VideoTrack
+        objectFit="contain"
+        style={StyleSheet.absoluteFill}
+        trackRef={trackRef}
+      />
+      <View className="absolute inset-x-two bottom-two items-start">
+        <Text
+          className="max-w-full rounded-lor-sm bg-background/80 px-one text-[11px] font-medium text-foreground"
+          numberOfLines={1}
+        >
+          {name}'s screen
+        </Text>
+      </View>
+    </View>
+  )
+}
+
 function FloatingTile({ call }: { call: ActiveVoiceCall }) {
   const { width, height } = useWindowDimensions()
   const insets = useSafeAreaInsets()
   const { workspace, selectWorkspace } = useWorkspace()
+  const [share] = useTracks([Track.Source.ScreenShare])
+  const tile = share ? SHARE_TILE : PERSON_TILE
 
   const bounds = {
     left: insets.left + EDGE,
-    right: width - insets.right - EDGE - TILE_WIDTH,
+    right: width - insets.right - EDGE - tile.width,
     top: insets.top + HEADER_CLEARANCE,
-    bottom: height - insets.bottom - FOOTER_CLEARANCE - TILE_HEIGHT,
+    bottom: height - insets.bottom - FOOTER_CLEARANCE - tile.height,
   }
   const x = useSharedValue(lastCorner.right ? bounds.right : bounds.left)
   const y = useSharedValue(lastCorner.bottom ? bounds.bottom : bounds.top)
+  const tileWidth = useSharedValue(tile.width)
+  const tileHeight = useSharedValue(tile.height)
   const startX = useSharedValue(0)
   const startY = useSharedValue(0)
   const pressScale = useSharedValue(1)
+
+  // A share starting or ending reshapes the tile in its corner.
+  const toX = lastCorner.right ? bounds.right : bounds.left
+  const toY = lastCorner.bottom ? bounds.bottom : bounds.top
+  useEffect(() => {
+    x.value = withTiming(toX, RESHAPE)
+    y.value = withTiming(toY, RESHAPE)
+    tileWidth.value = withTiming(tile.width, RESHAPE)
+    tileHeight.value = withTiming(tile.height, RESHAPE)
+  }, [tile, toX, toY, x, y, tileWidth, tileHeight])
 
   const saveCorner = (next: Corner) => {
     lastCorner = next
@@ -168,8 +212,8 @@ function FloatingTile({ call }: { call: ActiveVoiceCall }) {
       const projectedX = x.value + event.velocityX * FLICK_SECONDS
       const projectedY = y.value + event.velocityY * FLICK_SECONDS
       const next = {
-        right: projectedX + TILE_WIDTH / 2 > width / 2,
-        bottom: projectedY + TILE_HEIGHT / 2 > height / 2,
+        right: projectedX + tile.width / 2 > width / 2,
+        bottom: projectedY + tile.height / 2 > height / 2,
       }
       const toX = next.right ? bounds.right : bounds.left
       const toY = next.bottom ? bounds.bottom : bounds.top
@@ -197,6 +241,8 @@ function FloatingTile({ call }: { call: ActiveVoiceCall }) {
   const gesture = Gesture.Exclusive(pan, tap)
 
   const style = useAnimatedStyle(() => ({
+    width: tileWidth.value,
+    height: tileHeight.value,
     transform: [
       { translateX: x.value },
       { translateY: y.value },
@@ -213,9 +259,9 @@ function FloatingTile({ call }: { call: ActiveVoiceCall }) {
         className="absolute left-0 top-0 rounded-lor-lg bg-surface-secondary shadow-sm"
         entering={FadeIn.duration(180)}
         exiting={FadeOut.duration(140)}
-        style={[{ width: TILE_WIDTH, height: TILE_HEIGHT }, style]}
+        style={style}
       >
-        <TileContent />
+        <TileContent share={share} />
       </Animated.View>
     </GestureDetector>
   )
@@ -223,13 +269,15 @@ function FloatingTile({ call }: { call: ActiveVoiceCall }) {
 
 // Re-renders on every speaker change, so it's kept apart from the drag
 // gesture above.
-function TileContent() {
+function TileContent({ share }: { share: TrackReference | undefined }) {
   const danger = useThemeColor("danger")
   const { isMicrophoneEnabled } = useLocalParticipant()
   const { featured, alone } = useFeaturedTrack()
   return (
     <>
-      {featured ? (
+      {share ? (
+        <SharePreview trackRef={share} />
+      ) : featured ? (
         <FeaturedParticipant alone={alone} trackRef={featured} />
       ) : null}
       {isMicrophoneEnabled ? null : (
