@@ -654,7 +654,9 @@ chat when it's done, and everyone who was in the call follows that chat.
   (transcript and summary passages, `context` + `text`, halfvec embedding,
   FTS over both) — **db:push owed**. `endSession` calls the notifier's
   `sessionEnded`, which the API and worker install to queue a
-  `session-memory` job (`voiceSessionMemoryJob`, id `memory-<id>`); the
+  `voice-session-memory` job (`voiceSessionMemoryJob`, id `memory-<id>`;
+  code in `voice-session-memory.ts` in packages/voice, packages/lor, and
+  the worker); the
   10-minute voice audit queues any ended call still unprocessed (backstop,
   no new scheduler). `processCallMemory`: calls under 2 minutes or 40 words
   are marked processed with nothing; otherwise `summarizeCall` reads the
@@ -669,6 +671,20 @@ chat when it's done, and everyone who was in the call follows that chat.
   needs nothing: messages become searchable when the call ends. Fixed on
   the way: BullMQ rejects ":" in custom job ids, so the approval-resume job
   ids (6a) now use "-".
+  Sectioning eval (2026-10-05): `apps/worker/src/scripts/eval-voice-session-memory.ts`
+  runs seven written calls (`…-calls.ts`: fillers, back-channels, audio
+  trouble, misheard names, unannounced topic changes; blocks mark expected
+  section starts, `optional` where either reading is fine) through
+  `summarizeCall` and tallies pass/split/merged, with gateway cost.
+  `--model`, `--reasoning`, `--runs` compare settings (`SummarizeCallOptions`).
+  Findings: the small model at medium reasoning scored 37/42; high reasoning
+  split one subject by angle more often (26/36 on the earlier set); Kimi K3
+  was consistent but split finer still (19/28) at 40x the cost; a prompt
+  that pushed harder toward fewer sections made it merge distinct subjects
+  (postmortem into incident, next steps into pricing), the costlier
+  direction, so the rule stayed as is plus "one section per agenda item,
+  the way the people on the call would list it". Remaining misses are
+  over-splits of one problem into its steps.
 
 - A summary per ended session (extend `packages/lor/src/meeting-insights.ts`)
   with decisions, open questions, and follow-ups; people can correct it.

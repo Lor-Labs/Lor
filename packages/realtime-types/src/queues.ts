@@ -84,7 +84,7 @@ export type VoiceRequestJobData = {
 // After a call ends: summarize it and index its passages for Lor's search.
 // Queued by whichever host ended the call, and by the voice audit as a
 // backstop; the fixed id keeps a call from running twice at once.
-export const VOICE_SESSION_MEMORY_JOB = "session-memory"
+export const VOICE_SESSION_MEMORY_JOB = "voice-session-memory"
 export type VoiceSessionMemoryJobData = { sessionId: string }
 export function voiceSessionMemoryJob(sessionId: string) {
   return {

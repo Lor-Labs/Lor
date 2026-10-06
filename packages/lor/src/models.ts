@@ -62,6 +62,10 @@ export const LOR_EMBED_DIM = modelConfig.embedding.dimensions
 
 export const lorModel = gatewayTransport.languageModel(LOR_MODEL)
 export const lorSmallModel = gatewayTransport.languageModel(LOR_SMALL_MODEL)
+// For eval scripts that compare models on one task; production code uses
+// the role models above.
+export const lorGatewayModel = (id: string) =>
+  gatewayTransport.languageModel(id)
 export const lorEmbeddingModel =
   gatewayTransport.textEmbeddingModel(LOR_EMBED_MODEL)
 

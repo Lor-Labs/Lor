@@ -413,7 +413,6 @@ export type RespondCallbacks = {
   notifyWorkspaceActivity?: (workspaceId: string) => void
 }
 
-export { type CallSection, summarizeCall } from "./call-memory"
 export { estimateMessagesTokens, isSafeSplit } from "./compaction"
 export { embedDocumentsWithUsage } from "./embeddings"
 export { buildInitialUserMessage } from "./initial-message"
@@ -450,6 +449,11 @@ export {
   type ShowInCall,
   voiceBlocksText,
 } from "./voice"
+export {
+  type CallSection,
+  type SummarizeCallOptions,
+  summarizeCall,
+} from "./voice-session-memory"
 
 export type RespondResult = {
   text: string
