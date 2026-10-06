@@ -212,7 +212,7 @@ function CallStage({
 }
 
 // The call itself lives in VoiceCallProvider, so leaving this screen keeps
-// it; the call bar brings you back.
+// it; the floating call tile brings you back.
 export function VoiceCallScreen({
   channelId,
   channelName,

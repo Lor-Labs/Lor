@@ -626,15 +626,19 @@ stage", and step-back wait for the rest of V6.
   `formatDuration` and `formatCallOffset` moved to `@repo/utils/date`.
 - [x] Rest 2: the call lives in `context/voice-call-context.tsx` (one Room
   for the app's lifetime, like web), so leaving the call screen keeps the
-  call. `voice/call-bar.tsx` sits at the top of every other screen while in a
-  call: the channel name, time in the call, and mute; a tap returns to the
-  call. It takes the status bar's space, and the Stack sits in a nested
-  `SafeAreaProvider` below it, so screens don't inset twice (the image viewer
-  reads window insets instead). The lobby offers "Switch to this call" when
-  the phone is in another channel's call. Voice channels in the channel list
-  show who is connected (`hooks/use-voice-presence.ts`, same key as web).
-  Deviation from web: switching workspace doesn't end or block the call; the
-  bar switches back before it opens the call. Signing out ends the call.
+  call. The lobby offers "Switch to this call" when the phone is in another
+  channel's call. Voice channels in the channel list show who is connected
+  (`hooks/use-voice-presence.ts`, same key as web). Deviation from web:
+  switching workspace doesn't end or block the call; opening the call
+  switches back. Signing out ends the call.
+- [x] Rest 2b (Jacob, 2026-10-06: people know Discord's and Slack's floating
+  call windows): a top call bar was built first, then replaced by
+  `voice/call-tile.tsx`, a floating tile over every screen except the call's
+  own. It shows whoever spoke last (video if their camera is on, else their
+  avatar, with the speaking ring), "Only you" when alone, and a mic-off badge
+  when muted. Drag it anywhere; on release it springs to the corner a flick
+  points at (velocity projected 0.15s), and keeps that corner next time. Tap
+  opens the call.
 
 - Voice channel screen (history, live session, Join or "Transfer here") from
   `apps/mobile/src/app/channel/[channelId]/index.tsx` for voice channels.

@@ -8,12 +8,11 @@ import { useEffect } from "react"
 import { useColorScheme, View } from "react-native"
 import { GestureHandlerRootView } from "react-native-gesture-handler"
 import { KeyboardProvider } from "react-native-keyboard-controller"
-import { SafeAreaProvider } from "react-native-safe-area-context"
 
 import "../global.css"
 import { AnimatedSplashOverlay } from "@/components/animated-icon"
 import { PushNotifications } from "@/components/push-notifications"
-import { CallBar } from "@/components/voice/call-bar"
+import { CallTile } from "@/components/voice/call-tile"
 import { SocketProvider } from "@/context/socket-context"
 import { UnreadProvider } from "@/context/unread-context"
 import { VoiceCallProvider } from "@/context/voice-call-context"
@@ -47,12 +46,8 @@ export default function RootLayout() {
                     <VoiceCallProvider>
                       <PushNotifications />
                       <View style={{ flex: 1 }}>
-                        <CallBar />
-                        {/* Measured below the call bar, so screens don't
-                            inset again for the status bar it covers. */}
-                        <SafeAreaProvider>
-                          <Stack screenOptions={{ headerShown: false }} />
-                        </SafeAreaProvider>
+                        <Stack screenOptions={{ headerShown: false }} />
+                        <CallTile />
                       </View>
                     </VoiceCallProvider>
                   </WorkspaceProvider>
