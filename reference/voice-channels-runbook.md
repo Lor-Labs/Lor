@@ -655,6 +655,20 @@ stage", and step-back wait for the rest of V6.
   that call's chat; `[[call:…]]` links now carry `?at=<ms>`, and the summary
   card's times and "Open transcript" use it. Past calls with an empty chat
   open on the transcript, like web.
+- [x] Rest 3b (Jacob, 2026-10-06: keep the call center stage, chat as a
+  pull-up drawer like Discord's; fill the stage when alone, halves for two).
+  `voice/call-sheet.tsx`: a `@gorhom/bottom-sheet` drawer on the call screen.
+  Pulled down it shows the grabber and the call controls; pulled up (92%) or
+  Chat tapped, the Chat and Transcript tabs fade in. Only the controls strip
+  drags it (`enableContentPanningGesture={false}`), so the chat and
+  transcript scroll freely; gorhom ignores the composer's keyboard (it only
+  tracks its own `BottomSheetTextInput`), so `ChatKeyboardLayout` keeps
+  handling it. The chat stays mounted behind the transcript tab. The thread
+  screen's body moved to `components/thread-view.tsx` (`ThreadView`, with an
+  `embedded` mode that drops its header and tabs) so the route and the
+  drawer share it. Stage: one tile fills it, two stack as halves, three or
+  four share a 2x2 grid (an odd last tile spans its row), more scroll in rows
+  of two, three rows to a screen.
 
 - Voice channel screen (history, live session, Join or "Transfer here") from
   `apps/mobile/src/app/channel/[channelId]/index.tsx` for voice channels.
