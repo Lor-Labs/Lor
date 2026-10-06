@@ -40,6 +40,7 @@ type SessionRow = {
   threadRootId: string | null
   startedAt: Date
   endedAt: Date | null
+  hasSummaryCard: boolean
   replyCount: number
   unreadCount: number
   mentionCount: number
@@ -49,10 +50,16 @@ type SessionRow = {
 // drizzle strips table names from columns placed directly in a single-table
 // select list, which made `message.thread_root_id = voice_session.thread_root_id`
 // render as `thread_root_id = thread_root_id`.
+// People's chat only: Lor's summary card isn't counted as a message.
 const replyCount = sql<number>`(${db
   .select({ value: count() })
   .from(message)
-  .where(eq(message.threadRootId, voiceSession.threadRootId))})::int`
+  .where(
+    and(
+      eq(message.threadRootId, voiceSession.threadRootId),
+      ne(message.type, "call_summary")
+    )
+  )})::int`
 const participantCount = sql<number>`(${db
   .select({ value: count() })
   .from(voiceSessionParticipant)
@@ -63,6 +70,7 @@ const sessionColumns = {
   threadRootId: voiceSession.threadRootId,
   startedAt: voiceSession.startedAt,
   endedAt: voiceSession.endedAt,
+  hasSummaryCard: sql<boolean>`${voiceSession.summaryCardMessageId} is not null`,
   replyCount,
 }
 
@@ -188,6 +196,7 @@ function toSummary(
     replyCount: hidden ? 0 : row.replyCount,
     unreadCount: hidden ? 0 : row.unreadCount,
     mentionCount: hidden ? 0 : row.mentionCount,
+    hasSummaryCard: row.hasSummaryCard,
     participants,
   }
 }

@@ -116,7 +116,9 @@ function SessionRow({
         <div
           className={cn(
             "truncate text-sm",
-            unread > 0 || mentions > 0 ? "font-semibold" : "font-medium"
+            unread > 0 || mentions > 0
+              ? "font-semibold text-foreground"
+              : "font-medium text-foreground/80"
           )}
         >
           {getDayLabel(session.startedAt)} · {formatTime(session.startedAt)}
@@ -125,13 +127,13 @@ function SessionRow({
           {details.join(" · ")}
         </div>
       </div>
+      {/* Like the sidebar: a count only for mentions, a dot for unread. */}
       {mentions > 0 ? (
         <MentionBadge count={mentions} />
       ) : (
         unread > 0 && (
-          <span className="shrink-0 rounded-md bg-primary/15 px-1.5 font-semibold text-[11px] text-primary tabular-nums">
-            {unread > 99 ? "99+" : unread}
-            <span className="sr-only"> unread messages</span>
+          <span className="mr-1 size-1.5 shrink-0 rounded-full bg-foreground">
+            <span className="sr-only">Unread messages</span>
           </span>
         )
       )}
@@ -226,7 +228,10 @@ export function VoiceLobby({
                 // Chat holds Lor's summary card and anything people wrote,
                 // so a past call opens there; a call with an empty chat
                 // opens on its transcript.
-                const tab = session.replyCount > 0 ? "chat" : "transcript"
+                const tab =
+                  session.hasSummaryCard || session.replyCount > 0
+                    ? "chat"
+                    : "transcript"
                 return (
                   <SessionRow
                     key={session.id}

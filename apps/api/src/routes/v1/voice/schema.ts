@@ -184,6 +184,8 @@ const voiceSessionSummarySchema = z.object({
   // Chat replies from others and direct mentions since the viewer last read.
   unreadCount: z.number().int(),
   mentionCount: z.number().int(),
+  // Lor posted its summary card in the call's chat.
+  hasSummaryCard: z.boolean(),
   participants: z.array(voiceParticipantSchema),
 })
 
