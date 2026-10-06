@@ -1,6 +1,7 @@
 import { registerGlobals } from "@livekit/react-native"
 import { QueryClientProvider } from "@tanstack/react-query"
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from "expo-router"
+import * as ScreenOrientation from "expo-screen-orientation"
 import * as SplashScreen from "expo-splash-screen"
 import { StatusBar } from "expo-status-bar"
 import { HeroUINativeProvider } from "heroui-native/provider"
@@ -28,6 +29,12 @@ export default function RootLayout() {
 
   useEffect(() => {
     void restoreThemePreference()
+  }, [])
+  // The app is portrait; only the screen share viewer turns with the phone.
+  useEffect(() => {
+    void ScreenOrientation.lockAsync(
+      ScreenOrientation.OrientationLock.PORTRAIT_UP
+    )
   }, [])
   useEffect(() => subscribeQueryFocus(), [])
   return (

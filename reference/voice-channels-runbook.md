@@ -693,10 +693,16 @@ stage", and step-back wait for the rest of V6.
   call. The dev simulator now makes you the approver of its approval and
   resolves it locally, and shows a tool while it works.
 - [x] Rest 5: tapping a screen share opens `voice/share-viewer.tsx`, a
-  full-screen viewer. The app stays portrait-only (no native change, ships
-  by EAS Update): "Rotate" turns the share a quarter turn to fill the phone
-  held sideways, insets following the turn. Pinch or double-tap zooms
-  (up to 4x), drag pans while zoomed; a share that ends closes it. Push
+  full-screen viewer that turns with the phone (Jacob: a manual rotate
+  button alone is bad practice; the first version had only that).
+  `expo-screen-orientation`: app.json `orientation` is now `default` with
+  the plugin's `initialOrientation: PORTRAIT_UP` (and
+  `ios.requireFullScreen`), the root layout locks portrait, and the viewer
+  unlocks while open and locks portrait again on close. "Landscape" forces
+  it sideways for people who keep rotation lock on. Native change: needs a
+  new dev client and TestFlight build; an old binary crashes on the import.
+  Pinch or double-tap zooms (up to 4x), drag pans while zoomed, a turn
+  resets zoom; a share that ends closes it. Push
   deep links needed no code: a mention from a live call you aren't in is
   pushed with the voice channel only (no thread, no message), so a tap opens
   the lobby with Join; after the call, the push carries the call chat and

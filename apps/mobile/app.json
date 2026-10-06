@@ -4,7 +4,7 @@
     "slug": "lor",
     "owner": "lor-chat",
     "version": "0.1.1",
-    "orientation": "portrait",
+    "orientation": "default",
     "icon": "./assets/images/icon.png",
     "scheme": "lor",
     "userInterfaceStyle": "automatic",
@@ -16,6 +16,7 @@
       },
       "bundleIdentifier": "chat.lor.app",
       "supportsTablet": false,
+      "requireFullScreen": true,
       "entitlements": {
         "com.apple.developer.usernotifications.communication": true
       },
@@ -57,6 +58,12 @@
         }
       ],
       "expo-secure-store",
+      [
+        "expo-screen-orientation",
+        {
+          "initialOrientation": "PORTRAIT_UP"
+        }
+      ],
       [
         "expo-image-picker",
         {

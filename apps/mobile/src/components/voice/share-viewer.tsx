@@ -1,9 +1,11 @@
 import Cancel01Icon from "@hugeicons/core-free-icons/Cancel01Icon"
+import OrientationLandscapeToPotraitIcon from "@hugeicons/core-free-icons/OrientationLandscapeToPotraitIcon"
 import OrientationPotraitToLandscapeIcon from "@hugeicons/core-free-icons/OrientationPotraitToLandscapeIcon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
 import { type TrackReference, VideoTrack } from "@livekit/react-native"
+import * as ScreenOrientation from "expo-screen-orientation"
 import { StatusBar } from "expo-status-bar"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import {
   Modal,
   Pressable,
@@ -57,10 +59,10 @@ function ViewerButton({
   )
 }
 
-// Someone's screen share, full screen. The app is portrait-only, so instead of
-// the phone rotating, "Rotate" turns the share on its side to fill the screen
-// held sideways. Pinch or double-tap to zoom into small text; drag to move
-// around while zoomed.
+// Someone's screen share, full screen. The rest of the app is portrait-only;
+// while this is open the screen turns with the phone, and "Landscape" forces
+// it sideways for people who keep rotation lock on. Pinch or double-tap to
+// zoom into small text; drag to move around while zoomed.
 export function ShareViewer({
   trackRef,
   sharerName,
@@ -70,17 +72,34 @@ export function ShareViewer({
   sharerName: string
   onClose: () => void
 }) {
-  const window = useWindowDimensions()
+  const frame = useWindowDimensions()
   const insets = useSafeAreaInsets()
-  const [sideways, setSideways] = useState(false)
-  // Turned a quarter clockwise, the frame's top is the phone's right edge:
-  // the island side (top inset) becomes its left, the home bar its right.
-  const frame = sideways
-    ? { width: window.height, height: window.width }
-    : { width: window.width, height: window.height }
-  const controlsInset = sideways
-    ? { paddingLeft: insets.top, paddingRight: insets.bottom, paddingTop: 12 }
-    : { paddingTop: insets.top + 8 }
+  const landscape = frame.width > frame.height
+  const [forcedLandscape, setForcedLandscape] = useState(false)
+  const controlsInset = {
+    paddingTop: insets.top + 8,
+    paddingLeft: insets.left + 16,
+    paddingRight: insets.right + 16,
+  }
+
+  useEffect(() => {
+    void ScreenOrientation.unlockAsync()
+    return () => {
+      void ScreenOrientation.lockAsync(
+        ScreenOrientation.OrientationLock.PORTRAIT_UP
+      )
+    }
+  }, [])
+  const toggleLandscape = () => {
+    if (forcedLandscape) {
+      void ScreenOrientation.unlockAsync()
+    } else {
+      void ScreenOrientation.lockAsync(
+        ScreenOrientation.OrientationLock.LANDSCAPE
+      )
+    }
+    setForcedLandscape(!forcedLandscape)
+  }
 
   const scale = useSharedValue(1)
   const savedScale = useSharedValue(1)
@@ -143,6 +162,10 @@ export function ShareViewer({
       savedScale.value = DOUBLE_TAP_SCALE
     })
   const gesture = Gesture.Simultaneous(pinch, Gesture.Race(pan, doubleTap))
+  // A turn changes the frame, so zoom starts over.
+  useEffect(() => {
+    reset()
+  }, [frame.width, frame.height])
 
   const zoomStyle = useAnimatedStyle(() => ({
     transform: [
@@ -159,50 +182,43 @@ export function ShareViewer({
       onRequestClose={onClose}
       presentationStyle="overFullScreen"
       statusBarTranslucent
-      supportedOrientations={["portrait"]}
+      supportedOrientations={["portrait", "landscape"]}
       transparent
       visible
     >
-      <StatusBar hidden={sideways} style="light" />
-      <View className="flex-1 items-center justify-center bg-neutral-950">
-        <View
-          className="overflow-hidden"
-          style={[
-            frame,
-            { transform: [{ rotate: sideways ? "90deg" : "0deg" }] },
-          ]}
-        >
-          <GestureDetector gesture={gesture}>
-            <Animated.View style={[StyleSheet.absoluteFill, zoomStyle]}>
-              <VideoTrack
-                objectFit="contain"
-                style={StyleSheet.absoluteFill}
-                trackRef={trackRef}
-              />
-            </Animated.View>
-          </GestureDetector>
-          <View
-            className="absolute inset-x-0 top-0 flex-row items-center gap-three px-four"
-            pointerEvents="box-none"
-            style={controlsInset}
-          >
-            <Text
-              className="min-w-0 flex-1 text-[15px] font-semibold"
-              style={{ color: viewerForeground }}
-              numberOfLines={1}
-            >
-              {sharerName}'s screen
-            </Text>
-            <ViewerButton
-              icon={OrientationPotraitToLandscapeIcon}
-              label={sideways ? "Turn upright" : "Rotate"}
-              onPress={() => {
-                reset()
-                setSideways((current) => !current)
-              }}
+      <StatusBar hidden={landscape} style="light" />
+      <View className="flex-1 overflow-hidden bg-neutral-950">
+        <GestureDetector gesture={gesture}>
+          <Animated.View style={[StyleSheet.absoluteFill, zoomStyle]}>
+            <VideoTrack
+              objectFit="contain"
+              style={StyleSheet.absoluteFill}
+              trackRef={trackRef}
             />
-            <ViewerButton icon={Cancel01Icon} label="Close" onPress={onClose} />
-          </View>
+          </Animated.View>
+        </GestureDetector>
+        <View
+          className="absolute inset-x-0 top-0 flex-row items-center gap-three"
+          pointerEvents="box-none"
+          style={controlsInset}
+        >
+          <Text
+            className="min-w-0 flex-1 text-[15px] font-semibold"
+            numberOfLines={1}
+            style={{ color: viewerForeground }}
+          >
+            {sharerName}'s screen
+          </Text>
+          <ViewerButton
+            icon={
+              forcedLandscape
+                ? OrientationLandscapeToPotraitIcon
+                : OrientationPotraitToLandscapeIcon
+            }
+            label={forcedLandscape ? "Rotate automatically" : "Landscape"}
+            onPress={toggleLandscape}
+          />
+          <ViewerButton icon={Cancel01Icon} label="Close" onPress={onClose} />
         </View>
       </View>
     </Modal>
