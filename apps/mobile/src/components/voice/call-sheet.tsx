@@ -135,10 +135,10 @@ function CallControls({
   )
 }
 
-// Where the drawer docks, as shares of the area below the header: a little
-// over halfway, like Discord's, and nearly full.
+// Where the drawer docks in the area below the header: a little over halfway,
+// like Discord's, and up to a thin strip of the call under the header.
 const MIDDLE = 0.6
-const TOP = 0.92
+const TOP_GAP = 12
 const MIDDLE_INDEX = 1
 const TOP_INDEX = 2
 // Slightly underdamped (ratio ~0.8) and clamped, carrying the release speed:
@@ -230,9 +230,12 @@ export function CallSheet({
   const [open, setOpen] = useState(false)
   // The chat and transcript mount the first time the drawer opens.
   const [opened, setOpened] = useState(false)
+  // The top dock is a fixed gap below the header, so it needs the measured
+  // area; before that, a close stand-in.
+  const topHeight = containerHeight > 0 ? containerHeight - TOP_GAP : "98%"
   const snapPoints = useMemo(
-    () => [peekHeight, `${MIDDLE * 100}%`, `${TOP * 100}%`],
-    [peekHeight]
+    () => [peekHeight, `${MIDDLE * 100}%`, topHeight],
+    [peekHeight, topHeight]
   )
 
   // The sheet library sizes content for the top dock, which would leave the
@@ -244,7 +247,7 @@ export function CallSheet({
     (index: number) => {
       const sheetHeight =
         index === TOP_INDEX
-          ? containerHeight * TOP
+          ? containerHeight - TOP_GAP
           : index === MIDDLE_INDEX
             ? containerHeight * MIDDLE
             : peekHeight
