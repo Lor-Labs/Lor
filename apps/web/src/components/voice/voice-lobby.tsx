@@ -1,10 +1,20 @@
+import { Delete02Icon, MoreHorizontalIcon } from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
 import { AvatarGroup, AvatarGroupCount } from "@repo/ui/components/avatar"
 import { Button } from "@repo/ui/components/button"
 import { MentionBadge } from "@repo/ui/components/mention-badge"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@repo/ui/components/menu"
 import { Skeleton } from "@repo/ui/components/skeleton"
 import { cn } from "@repo/ui/lib/utils"
 import { differenceInMinutes, formatTime, getDayLabel } from "@repo/utils/date"
+import { useState } from "react"
 import { ParticipantAvatar } from "@/components/voice/participant-avatar"
+import { isCallBeingDeleted } from "@/hooks/use-delete-call"
 import type { VoiceParticipant } from "@/hooks/use-voice-presence"
 import {
   useVoiceSessions,
@@ -91,11 +101,14 @@ function SessionRow({
   session,
   active,
   onOpen,
+  onDelete,
 }: {
   session: VoiceSessionSummary
   active: boolean
   onOpen: (() => void) | null
+  onDelete: (() => void) | null
 }) {
+  const [menuOpen, setMenuOpen] = useState(false)
   const minutes = session.endedAt
     ? differenceInMinutes(session.startedAt, session.endedAt)
     : 0
@@ -127,28 +140,37 @@ function SessionRow({
           {details.join(" · ")}
         </div>
       </div>
-      {/* Like the sidebar: a count only for mentions, a dot for unread. */}
-      {mentions > 0 ? (
-        <MentionBadge count={mentions} />
-      ) : (
-        unread > 0 && (
-          <span className="mr-1 size-1.5 shrink-0 rounded-full bg-foreground">
-            <span className="sr-only">Unread messages</span>
-          </span>
-        )
-      )}
+      {/* Like the sidebar: a count only for mentions, a dot for unread. The
+          options button takes their place on hover. */}
+      <span
+        className={cn(
+          "flex shrink-0 items-center",
+          onDelete && "group-hover/row:opacity-0",
+          menuOpen && "opacity-0"
+        )}
+      >
+        {mentions > 0 ? (
+          <MentionBadge count={mentions} />
+        ) : (
+          unread > 0 && (
+            <span className="mr-1 size-1.5 rounded-full bg-foreground">
+              <span className="sr-only">Unread messages</span>
+            </span>
+          )
+        )}
+      </span>
     </>
   )
 
   return (
-    <li>
+    <li className="group/row relative">
       {onOpen ? (
         <button
           type="button"
           onClick={onOpen}
           className={cn(
             "flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-accent",
-            active && "bg-accent"
+            (active || menuOpen) && "bg-accent"
           )}
         >
           {body}
@@ -157,6 +179,31 @@ function SessionRow({
         <div className="flex items-center gap-3 rounded-lg px-3 py-2.5">
           {body}
         </div>
+      )}
+      {onDelete && (
+        <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+          <DropdownMenuTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                aria-label="Call options"
+                className={cn(
+                  "absolute top-1/2 right-2 -translate-y-1/2 text-muted-foreground opacity-0 transition-opacity duration-150 hover:text-foreground focus-visible:opacity-100 group-hover/row:opacity-100",
+                  menuOpen && "opacity-100"
+                )}
+              />
+            }
+          >
+            <HugeiconsIcon icon={MoreHorizontalIcon} strokeWidth={2} />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent side="bottom" align="end">
+            <DropdownMenuItem variant="destructive" onClick={onDelete}>
+              <HugeiconsIcon icon={Delete02Icon} strokeWidth={2} />
+              Delete call
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       )}
     </li>
   )
@@ -171,6 +218,7 @@ export function VoiceLobby({
   onJoin,
   openThreadRootId,
   onOpenSession,
+  onDeleteSession,
 }: {
   channelId: string
   workspaceId: string | undefined
@@ -180,6 +228,8 @@ export function VoiceLobby({
   onJoin: () => void
   openThreadRootId: string | null
   onOpenSession: (threadRootId: string, tab: "chat" | "transcript") => void
+  // Only for people allowed to delete calls.
+  onDeleteSession?: (session: VoiceSessionSummary) => void
 }) {
   const {
     data,
@@ -191,7 +241,9 @@ export function VoiceLobby({
   } = useVoiceSessions(channelId, workspaceId)
   const sessions = data?.pages.flatMap((page) => page.sessions) ?? []
   const live = sessions.find((session) => session.live)
-  const past = sessions.filter((session) => !session.live)
+  const past = sessions.filter(
+    (session) => !session.live && !isCallBeingDeleted(session.id)
+  )
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
@@ -243,6 +295,9 @@ export function VoiceLobby({
                       threadRootId
                         ? () => onOpenSession(threadRootId, tab)
                         : null
+                    }
+                    onDelete={
+                      onDeleteSession ? () => onDeleteSession(session) : null
                     }
                   />
                 )

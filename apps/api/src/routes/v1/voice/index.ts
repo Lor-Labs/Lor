@@ -25,6 +25,7 @@ const voiceRouter = createRouter()
   .openapi(routes.getVoicePresence, handlers.getVoicePresence)
   .openapi(routes.getVoiceCall, handlers.getVoiceCall)
   .openapi(routes.removeVoiceParticipant, handlers.removeVoiceParticipant)
+  .openapi(routes.deleteVoiceSession, handlers.deleteVoiceSession)
 
 const MAX_WEBHOOK_BYTES = 1024 * 1024
 

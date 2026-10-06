@@ -2,7 +2,9 @@ import { and, asc, db, eq, isNotNull, isNull, schema } from "@repo/db"
 import type { NewVoicePassage, VoiceSessionSummary } from "@repo/db/schema"
 
 const {
+  agentRun,
   channel,
+  message,
   user,
   voiceCaptureGap,
   voicePassage,
@@ -353,6 +355,30 @@ export async function saveEditedSummary(
         summaryEditedById: edit.editedById,
       })
       .where(eq(voiceSession.id, sessionId))
+  })
+}
+
+// Deletes an ended call and everything derived from it: Lor's runs in the
+// call (each holds the transcript up to its request), the call chat (its root
+// message, so every reply and Lor's summary card go with it), and the session
+// row, which cascades to participants, transcript, capture gaps, Lor's
+// requests, and search passages. Memory pages Lor wrote from the call stay;
+// nothing records which sentences came from it.
+export async function deleteCall(sessionId: string) {
+  return await db.transaction(async (tx) => {
+    const [session] = await tx
+      .select({ threadRootId: voiceSession.threadRootId })
+      .from(voiceSession)
+      .where(eq(voiceSession.id, sessionId))
+      .limit(1)
+    if (!session) return null
+    // Voice runs are scoped to their call (scopeKey = session id).
+    await tx.delete(agentRun).where(eq(agentRun.scopeKey, sessionId))
+    await tx.delete(voiceSession).where(eq(voiceSession.id, sessionId))
+    if (session.threadRootId) {
+      await tx.delete(message).where(eq(message.id, session.threadRootId))
+    }
+    return { threadRootId: session.threadRootId }
   })
 }
 

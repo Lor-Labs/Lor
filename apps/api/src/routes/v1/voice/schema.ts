@@ -115,6 +115,18 @@ export const voiceCallResponseSchema = z.object({
     .nullable(),
 })
 
+export const deleteVoiceSessionParamsSchema = z.object({
+  workspaceSlug: z.string().openapi({
+    param: { name: "workspaceSlug", in: "path", required: true },
+  }),
+  sessionId: z
+    .string()
+    .uuid()
+    .openapi({
+      param: { name: "sessionId", in: "path", required: true },
+    }),
+})
+
 export const workspaceSlugParamsSchema = z.object({
   workspaceSlug: z.string().openapi({
     param: { name: "workspaceSlug", in: "path", required: true },

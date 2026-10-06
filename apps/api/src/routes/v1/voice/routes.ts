@@ -16,6 +16,7 @@ import {
   callSummaryBodySchema,
   cancelVoiceRequestResponseSchema,
   chooseVoiceRequestBodySchema,
+  deleteVoiceSessionParamsSchema,
   joinVoiceChannelResponseSchema,
   leaveVoiceSessionResponseSchema,
   removeVoiceParticipantParamsSchema,
@@ -136,6 +137,33 @@ export const removeVoiceParticipant = createRoute({
 })
 
 export type RemoveVoiceParticipantRoute = typeof removeVoiceParticipant
+
+export const deleteVoiceSession = createRoute({
+  path: "/workspaces/{workspaceSlug}/voice/sessions/{sessionId}",
+  method: "delete",
+  summary: "Delete a call",
+  description:
+    "Deletes an ended call with its chat, transcript, summary, search passages, and Lor's runs in it. Requires the voice delete permission and access to the channel.",
+  tags: ["Voice"],
+  middleware: [workspaceAuthMiddleware] as const,
+  request: {
+    params: deleteVoiceSessionParamsSchema,
+  },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: removeVoiceParticipantResponseSchema,
+      description: "Call deleted",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.CONFLICT]: conflictSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type DeleteVoiceSessionRoute = typeof deleteVoiceSession
 
 export const listVoiceSessions = createRoute({
   path: "/channels/{channelId}/voice/sessions",

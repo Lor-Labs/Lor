@@ -9,9 +9,10 @@ import { CallStage } from "@/components/voice/call-stage"
 import { VoiceLobby } from "@/components/voice/voice-lobby"
 import { useVoiceCall } from "@/context/voice-call-context"
 import { useAutoMarkRead } from "@/hooks/use-auto-mark-read"
+import { useDeleteCall } from "@/hooks/use-delete-call"
 import { useThreadPanelUrlSync } from "@/hooks/use-thread-panel-url-sync"
 import { apiClient } from "@/lib/api-client"
-import { canModerateVoice } from "@/lib/permissions"
+import { canDeleteVoiceCalls, canModerateVoice } from "@/lib/permissions"
 
 // Phone browsers are out of scope; the iPhone app handles calls.
 const isPhoneBrowser = /iPhone|iPod|Android.+Mobile/i.test(navigator.userAgent)
@@ -86,6 +87,13 @@ export function VoiceChannelView({
           ownerId: workspaceMembersData.ownerId,
         })
       : false
+  const canDeleteCalls =
+    activeMember && workspaceMembersData?.ownerId
+      ? canDeleteVoiceCalls(activeMember, {
+          ownerId: workspaceMembersData.ownerId,
+        })
+      : false
+  const deleteCall = useDeleteCall(workspaceSlug, channelId)
   const onAnotherDevice = remoteCall?.channelId === channelId
   const otherCall = call ?? remoteCall
   const otherCallName =
@@ -140,6 +148,7 @@ export function VoiceChannelView({
           onJoin={() => void handleJoin()}
           openThreadRootId={openThreadRootId}
           onOpenSession={openSession}
+          onDeleteSession={canDeleteCalls ? deleteCall : undefined}
         />
       )}
     </div>

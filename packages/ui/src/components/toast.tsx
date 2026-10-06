@@ -281,6 +281,8 @@ export const anchoredToastManager: ReturnType<typeof Toast.createToastManager> =
 type ToastOptions = {
   description?: string
   action?: { label: string; onClick: () => void }
+  // How long it stays, in ms (Base UI's default is 5000).
+  timeout?: number
 }
 
 let toastSeq = 0
@@ -297,6 +299,7 @@ function addToast(
     title,
     ...(type ? { type } : {}),
     ...(options?.description ? { description: options.description } : {}),
+    ...(options?.timeout !== undefined ? { timeout: options.timeout } : {}),
     ...(action
       ? {
           actionProps: {

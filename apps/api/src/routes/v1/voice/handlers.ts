@@ -6,10 +6,12 @@ import {
 import { canSeeSession } from "@repo/db/queries/session-chat-access"
 import { embedDocumentsWithUsage } from "@repo/lor/embeddings"
 import { loadVoiceEntityCards } from "@repo/lor/voice-entities"
+import { channelRoom } from "@repo/realtime-types/rooms"
 import {
   countConnectedParticipants,
   createJoinToken,
   createVoiceRequest,
+  deleteCall,
   dismissVoiceRequest as dismissRequest,
   expireRunApproval,
   findVoiceRequest,
@@ -20,12 +22,14 @@ import {
   loadSummaryCard,
   markParticipantLeft,
   markVoiceRequestCancelled,
+  notifyVoicePresence,
   notifyVoiceRequest,
   removeFromRoom,
   saveEditedSummary,
   stageVoiceRequest as stageRequest,
   summaryPassageFor,
 } from "@repo/voice/server"
+import { getEmitter } from "@/lib/bot-messages"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
 import { assertWorkspaceAuthority } from "@/lib/permissions"
@@ -47,6 +51,7 @@ import {
 import type {
   CancelVoiceRequestRoute,
   ChooseVoiceRequestRoute,
+  DeleteVoiceSessionRoute,
   DismissVoiceRequestRoute,
   GetSummaryCardRoute,
   GetVoiceCallRoute,
@@ -102,6 +107,51 @@ export const removeVoiceParticipant: AppRouteHandler<
 
   await removeFromRoom(livekit, sessionId, participantId)
   await markParticipantLeft(sessionId, { participantId })
+  return c.json({ success: true as const }, HttpStatusCodes.OK)
+}
+
+// The client holds this request for its undo window, so it only arrives once
+// the person has let the delete stand.
+export const deleteVoiceSession: AppRouteHandler<
+  DeleteVoiceSessionRoute
+> = async (c) => {
+  assertWorkspaceAuthority(c.var.authority, { voice: ["delete"] })
+  const { sessionId } = c.req.valid("param")
+
+  const scope = await findSessionScope(sessionId)
+  const access =
+    scope && scope.workspaceId === c.var.workspace.id
+      ? await resolveChannelAccess(c.var.user.id, scope.channelId)
+      : null
+  if (!scope || !access?.ok) {
+    return c.json(
+      { success: false as const, message: "Call not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  if (!scope.endedAt) {
+    return c.json(
+      { success: false as const, message: "End the call before deleting it" },
+      HttpStatusCodes.CONFLICT
+    )
+  }
+
+  const deleted = await deleteCall(sessionId)
+  if (deleted) {
+    // Past-call lists refetch, and an open call chat drops its root.
+    notifyVoicePresence(scope.workspaceId)
+    if (deleted.threadRootId) {
+      const messageId = deleted.threadRootId
+      void getEmitter()
+        .then((io) =>
+          io.to(channelRoom(scope.channelId)).emit("message:deleted", {
+            channelId: scope.channelId,
+            messageId,
+          })
+        )
+        .catch((err) => logger.warn({ err }, "voice: delete notify failed"))
+    }
+  }
   return c.json({ success: true as const }, HttpStatusCodes.OK)
 }
 

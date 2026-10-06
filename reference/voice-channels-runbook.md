@@ -632,7 +632,7 @@ stage", and step-back wait for the rest of V6.
 
 ---
 
-### [ ] V7 — Memory and Q&A
+### [x] V7 — Memory and Q&A
 
 Plan (Jacob, 2026-10-05): 1 after-call summary + indexing, 2 Lor answers
 from calls, 3 summary on screen (editable by anyone who can post in the
@@ -733,6 +733,23 @@ chat when it's done, and everyone who was in the call follows that chat.
   (`reference/mobile-parity-todo.md`). Dev seed:
   `apps/worker/src/scripts/seed-call-summary.ts <sessionId> [--edited]`
   writes a fake summary, its passage, and the card without notifications.
+
+- [x] 4 (built 2026-10-06): deleting a call. New permission `voice:
+  delete` ("Delete calls"; owners and admins through `workspaceGrants`).
+  `DELETE /v1/workspaces/{slug}/voice/sessions/{id}` (permission first,
+  channel access, ended calls only) runs `deleteCall` in one transaction:
+  Lor's runs in the call (`agent_run.scopeKey` = session id; each holds the
+  transcript up to its request — Jacob: they go too), the session row
+  (cascading participants, transcript, capture gaps, requests, passages),
+  and the call chat's root message (cascading every reply and the summary
+  card — Jacob: the chat goes too). Then `notifyVoicePresence` refetches
+  past-call lists and `message:deleted` drops the chat root. Memory pages
+  Lor wrote from the call stay (nothing records which sentences came from
+  it). Undo (Jacob): the client hides the call, shows "Call deleted" with
+  Undo for 10s (toast `timeout`), and only then sends the delete; Undo just
+  never sends it; leaving the page sends waiting deletes at once
+  (`keepalive`). Web: "Delete call" in a past call's "…" menu, for people
+  with the permission. Phone: no past-call list yet.
 
 - A summary per ended session (extend `packages/lor/src/meeting-insights.ts`)
   with decisions, open questions, and follow-ups; people can correct it.
