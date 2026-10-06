@@ -14,13 +14,14 @@ import { sessionAuthMiddleware } from "@/middleware/session-auth"
 import { workspaceAuthMiddleware } from "@/middleware/workspace-auth"
 import {
   callSummaryBodySchema,
-  callSummaryResponseSchema,
   cancelVoiceRequestResponseSchema,
   chooseVoiceRequestBodySchema,
   joinVoiceChannelResponseSchema,
   leaveVoiceSessionResponseSchema,
   removeVoiceParticipantParamsSchema,
   removeVoiceParticipantResponseSchema,
+  summaryCardParamsSchema,
+  summaryCardResponseSchema,
   voiceCallResponseSchema,
   voiceChannelParamsSchema,
   voiceEntitiesResponseSchema,
@@ -213,22 +214,22 @@ export const getVoiceTranscript = createRoute({
 
 export type GetVoiceTranscriptRoute = typeof getVoiceTranscript
 
-export const getCallSummary = createRoute({
-  path: "/voice/sessions/{sessionId}/summary",
+export const getSummaryCard = createRoute({
+  path: "/voice/summary-cards/{messageId}",
   method: "get",
-  summary: "Get a call's summary",
+  summary: "Get a call summary card",
   description:
-    "The summary Lor wrote after the call (summary, decisions, open questions, follow-ups), with who last corrected it. Same access as the transcript.",
+    "What Lor's summary card in a call chat shows: the call (date, length, participants) and its current summary (title, decisions, open questions, action items), with who last corrected it. Same access as the call's transcript.",
   tags: ["Voice"],
   middleware: [sessionAuthMiddleware] as const,
   request: {
-    params: voiceSessionParamsSchema,
+    params: summaryCardParamsSchema,
   },
   hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
-      schema: callSummaryResponseSchema,
-      description: "Call summary",
+      schema: summaryCardResponseSchema,
+      description: "Call summary card",
     }),
     [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
     [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
@@ -236,18 +237,18 @@ export const getCallSummary = createRoute({
   },
 })
 
-export type GetCallSummaryRoute = typeof getCallSummary
+export type GetSummaryCardRoute = typeof getSummaryCard
 
-export const updateCallSummary = createRoute({
-  path: "/voice/sessions/{sessionId}/summary",
+export const updateSummaryCard = createRoute({
+  path: "/voice/summary-cards/{messageId}",
   method: "put",
   summary: "Correct a call's summary",
   description:
-    "Replaces an ended call's summary and re-indexes it for Lor's search, recording who edited it. Anyone who can post in the channel can edit.",
+    "Replaces the summary on Lor's card and re-indexes it for Lor's search, recording who edited it. Anyone who can post in the channel can edit.",
   tags: ["Voice"],
   middleware: [sessionAuthMiddleware] as const,
   request: {
-    params: voiceSessionParamsSchema,
+    params: summaryCardParamsSchema,
     body: jsonContent({
       schema: callSummaryBodySchema,
       description: "The corrected summary",
@@ -256,18 +257,17 @@ export const updateCallSummary = createRoute({
   hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
-      schema: callSummaryResponseSchema,
-      description: "Call summary",
+      schema: summaryCardResponseSchema,
+      description: "Call summary card",
     }),
     [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
     [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
     [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
-    [HttpStatusCodes.CONFLICT]: conflictSchema,
     [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
   },
 })
 
-export type UpdateCallSummaryRoute = typeof updateCallSummary
+export type UpdateSummaryCardRoute = typeof updateSummaryCard
 
 export const listVoiceRequests = createRoute({
   path: "/voice/sessions/{sessionId}/requests",

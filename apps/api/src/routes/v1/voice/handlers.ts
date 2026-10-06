@@ -17,7 +17,7 @@ import {
   getLiveKitConfig,
   listSessionVoiceRequests,
   listTranscript,
-  loadCallSummary,
+  loadSummaryCard,
   markParticipantLeft,
   markVoiceRequestCancelled,
   notifyVoiceRequest,
@@ -48,7 +48,7 @@ import type {
   CancelVoiceRequestRoute,
   ChooseVoiceRequestRoute,
   DismissVoiceRequestRoute,
-  GetCallSummaryRoute,
+  GetSummaryCardRoute,
   GetVoiceCallRoute,
   GetVoicePresenceRoute,
   GetVoiceRequestEntitiesRoute,
@@ -60,7 +60,7 @@ import type {
   ListVoiceSessionsRoute,
   RemoveVoiceParticipantRoute,
   StageVoiceRequestRoute,
-  UpdateCallSummaryRoute,
+  UpdateSummaryCardRoute,
 } from "@/routes/v1/voice/routes"
 
 // A session the user may read: channel access, plus the live-only rule.
@@ -178,70 +178,60 @@ export const getVoiceTranscript: AppRouteHandler<
   return c.json(transcript, HttpStatusCodes.OK)
 }
 
-// A call's summary as this person sees it; null when they can't see the call
-// (the transcript's rule). Editing needs posting rights in the channel.
-async function readCallSummary(userId: string, sessionId: string) {
-  const scope = await findSessionScope(sessionId)
-  const access = scope
-    ? await resolveChannelAccess(userId, scope.channelId)
+// Lor's summary card as this person sees it; null when they can't see the
+// call (the transcript's rule). Editing needs posting rights in the channel.
+// Cards are only posted once a call has ended and been processed, so the
+// after-call job never overwrites an edit.
+async function readSummaryCard(userId: string, messageId: string) {
+  const card = await loadSummaryCard(messageId)
+  const access = card
+    ? await resolveChannelAccess(userId, card.channelId)
     : null
-  if (!scope || !access?.ok || !(await canSeeSession(userId, sessionId))) {
+  if (!card || !access?.ok || !(await canSeeSession(userId, card.sessionId))) {
     return null
   }
-  const record = await loadCallSummary(sessionId)
-  if (!record) return null
-  const status = !record.endedAt
-    ? ("live" as const)
-    : !record.memoryProcessedAt
-      ? ("processing" as const)
-      : record.summary
-        ? ("ready" as const)
-        : ("none" as const)
+  const detail = await getSessionSummary(card.sessionId, userId)
+  if (!detail) return null
   return {
-    status,
-    summary: record.summary,
-    editedAt: record.editedAt?.toISOString() ?? null,
-    editedBy: record.editorId
-      ? { id: record.editorId, name: record.editorName ?? "Someone" }
+    sessionId: card.sessionId,
+    call: detail.session,
+    summary: card.summary,
+    editedAt: card.editedAt?.toISOString() ?? null,
+    editedBy: card.editorId
+      ? { id: card.editorId, name: card.editorName ?? "Someone" }
       : null,
-    canEdit:
-      access.access.canWrite && (status === "ready" || status === "none"),
+    canEdit: access.access.canWrite,
   }
 }
 
-export const getCallSummary: AppRouteHandler<GetCallSummaryRoute> = async (
+export const getSummaryCard: AppRouteHandler<GetSummaryCardRoute> = async (
   c
 ) => {
-  const { sessionId } = c.req.valid("param")
-  const summary = await readCallSummary(c.var.user.id, sessionId)
-  if (!summary) {
+  const { messageId } = c.req.valid("param")
+  const card = await readSummaryCard(c.var.user.id, messageId)
+  if (!card) {
     return c.json(
       { success: false as const, message: "Call not found" },
       HttpStatusCodes.NOT_FOUND
     )
   }
-  return c.json(summary, HttpStatusCodes.OK)
+  return c.json(card, HttpStatusCodes.OK)
 }
 
-export const updateCallSummary: AppRouteHandler<
-  UpdateCallSummaryRoute
+export const updateSummaryCard: AppRouteHandler<
+  UpdateSummaryCardRoute
 > = async (c) => {
   const userId = c.var.user.id
-  const { sessionId } = c.req.valid("param")
+  const { messageId } = c.req.valid("param")
   const summary = c.req.valid("json")
-  const current = await readCallSummary(userId, sessionId)
+  const current = await readSummaryCard(userId, messageId)
   if (!current) {
     return c.json(
       { success: false as const, message: "Call not found" },
       HttpStatusCodes.NOT_FOUND
     )
   }
-  if (current.status === "live" || current.status === "processing") {
-    return c.json(
-      { success: false as const, message: "The summary isn't written yet" },
-      HttpStatusCodes.CONFLICT
-    )
-  }
+  const { sessionId } = current
   if (!current.canEdit) {
     return c.json(
       { success: false as const, message: "You can't post in this channel" },
@@ -281,7 +271,7 @@ export const updateCallSummary: AppRouteHandler<
     editedById: userId,
     passage: { ...passage, embedding },
   })
-  const updated = await readCallSummary(userId, sessionId)
+  const updated = await readSummaryCard(userId, messageId)
   return c.json(updated ?? current, HttpStatusCodes.OK)
 }
 

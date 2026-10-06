@@ -10,6 +10,7 @@ import {
   loadEndedCall,
   numberedCallTranscript,
   saveCallMemory,
+  setSummaryCard,
   summaryPassageContext,
   summaryText,
 } from "@repo/voice/server"
@@ -31,20 +32,19 @@ export async function queueMissedCallMemory() {
   }
 }
 
-// Tells everyone in the call what Lor did with it, so it never comes as a
-// surprise. Posted in the call chat as Lor, so people in the call are
-// notified the way a reply notifies them.
-function recapMessage(summary: VoiceSessionSummary | null) {
-  const indexed =
-    "I indexed this call's transcript, so you can ask me about it later."
+// Lor's summary card tells everyone in the call what Lor did with it, so it
+// never comes as a surprise; posted in the call chat, it notifies them the
+// way a reply does. The card draws the call's current summary; this text is
+// what notifications and clients without the card show.
+function cardFallback(summary: VoiceSessionSummary | null) {
   return summary
-    ? `${summaryText(summary)}\n\n${indexed}`
-    : `${indexed} I couldn't write a summary this time.`
+    ? `${summary.title}\n\n${summary.summary}`
+    : "I indexed this call's transcript, so you can ask me about it later. I couldn't write a summary this time."
 }
 
 // Summarizes an ended call, indexes it for Lor's search (a summary passage
 // plus one passage per topic section, each labelled with where it sits), and
-// posts the recap in the call chat.
+// posts Lor's summary card in the call chat.
 export async function processCallMemory(
   sessionId: string,
   deps: LorMessageDeps
@@ -139,16 +139,19 @@ export async function processCallMemory(
       embedding: embeddings[index] ?? null,
     })),
   })
-  // After the save: a retry never posts twice, at the cost of a lost recap
-  // if this post fails.
+  // After the save: a retry never posts twice, at the cost of a lost card if
+  // this post fails.
   if (call.threadRootId) {
     await postLorMessage(deps, {
       channelId: call.channelId,
       threadRootId: call.threadRootId,
-      content: recapMessage(summary),
-    }).catch((err) =>
-      logger.error({ err, sessionId }, "Call recap post failed")
-    )
+      type: "call_summary",
+      content: cardFallback(summary),
+    })
+      .then(({ messageId }) => setSummaryCard(sessionId, messageId))
+      .catch((err) =>
+        logger.error({ err, sessionId }, "Call summary card post failed")
+      )
   }
   logger.info(
     { sessionId, passages: rows.length, summarized: summary !== null },

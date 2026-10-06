@@ -22,11 +22,20 @@ import { workspace } from "./workspaces"
 // What an ended call came to, written by Lor once and correctable by people.
 // `atMs` points into the transcript, where the item was said.
 export type VoiceSessionSummaryItem = { text: string; atMs: number | null }
+// `owner`: the person's name as heard, only when the call said who.
+export type VoiceSessionActionItem = {
+  owner: string | null
+  title: string
+  detail: string | null
+  atMs: number | null
+}
 export type VoiceSessionSummary = {
+  // A short name for the call, like a meeting's.
+  title: string
   summary: string
   decisions: VoiceSessionSummaryItem[]
   openQuestions: VoiceSessionSummaryItem[]
-  followUps: VoiceSessionSummaryItem[]
+  actionItems: VoiceSessionActionItem[]
 }
 
 // A voice session: one bounded conversation in a persistent voice channel,
@@ -72,11 +81,20 @@ export const voiceSession = pgTable(
     }),
     // Set once the ended call is summarized and its passages indexed.
     memoryProcessedAt: timestamp("memory_processed_at"),
+    // Lor's summary card in the call chat (message type "call_summary"),
+    // which renders the summary above; looked up like plan.cardMessageId.
+    summaryCardMessageId: uuid("summary_card_message_id").references(
+      () => message.id,
+      { onDelete: "set null" }
+    ),
   },
   (table) => [
     uniqueIndex("voice_session_channelId_live_uidx")
       .on(table.channelId)
       .where(sql`ended_at is null`),
+    uniqueIndex("voice_session_summaryCardMessageId_uidx")
+      .on(table.summaryCardMessageId)
+      .where(sql`summary_card_message_id is not null`),
     uniqueIndex("voice_session_threadRootId_uidx")
       .on(table.threadRootId)
       .where(sql`thread_root_id is not null`),

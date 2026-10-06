@@ -217,17 +217,31 @@ export function callDateLabel(startedAt: Date) {
   })
 }
 
-// The summary as text: for its search passage and Lor's recap.
+// The summary as text, for its search passage.
 export function summaryText(summary: VoiceSessionSummary) {
-  const section = (title: string, items: VoiceSessionSummary["decisions"]) =>
-    items.length > 0
-      ? `**${title}**\n${items.map((item) => `- ${item.text}`).join("\n")}`
+  const section = (title: string, lines: string[]) =>
+    lines.length > 0
+      ? `${title}\n${lines.map((line) => `- ${line}`).join("\n")}`
       : ""
   return [
+    summary.title,
     summary.summary,
-    section("Decisions", summary.decisions),
-    section("Open questions", summary.openQuestions),
-    section("Follow-ups", summary.followUps),
+    section(
+      "Decisions",
+      summary.decisions.map((item) => item.text)
+    ),
+    section(
+      "Open questions",
+      summary.openQuestions.map((item) => item.text)
+    ),
+    section(
+      "Action items",
+      summary.actionItems.map((item) =>
+        [item.owner ? `${item.owner}: ${item.title}` : item.title, item.detail]
+          .filter(Boolean)
+          .join(". ")
+      )
+    ),
   ]
     .filter(Boolean)
     .join("\n\n")
@@ -241,12 +255,13 @@ export function summaryPassageContext(
   return `Summary of a call in #${channelName} on ${date}. Speakers: ${speakers.join(", ")}.`
 }
 
-// A call's summary for its record, with who last corrected it.
-export async function loadCallSummary(sessionId: string) {
+// The call behind Lor's summary card, with its summary and who last
+// corrected it.
+export async function loadSummaryCard(messageId: string) {
   const [row] = await db
     .select({
-      endedAt: voiceSession.endedAt,
-      memoryProcessedAt: voiceSession.memoryProcessedAt,
+      sessionId: voiceSession.id,
+      channelId: voiceSession.channelId,
       summary: voiceSession.summary,
       editedAt: voiceSession.summaryEditedAt,
       editorId: user.id,
@@ -254,9 +269,16 @@ export async function loadCallSummary(sessionId: string) {
     })
     .from(voiceSession)
     .leftJoin(user, eq(user.id, voiceSession.summaryEditedById))
-    .where(eq(voiceSession.id, sessionId))
+    .where(eq(voiceSession.summaryCardMessageId, messageId))
     .limit(1)
   return row ?? null
+}
+
+export async function setSummaryCard(sessionId: string, messageId: string) {
+  await db
+    .update(voiceSession)
+    .set({ summaryCardMessageId: messageId })
+    .where(eq(voiceSession.id, sessionId))
 }
 
 // The search passage for a corrected summary, labelled like the one the

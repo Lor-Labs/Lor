@@ -1,36 +1,33 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { apiClient } from "@/lib/api-client"
 
-async function fetchCallSummary(sessionId: string) {
-  const res = await apiClient.v1.voice.sessions[":sessionId"].summary.$get({
-    param: { sessionId },
+async function fetchSummaryCard(messageId: string) {
+  const res = await apiClient.v1.voice["summary-cards"][":messageId"].$get({
+    param: { messageId },
   })
   if (!res.ok) throw new Error("Failed to load the summary")
   return res.json()
 }
 
-export type CallSummaryRecord = Awaited<ReturnType<typeof fetchCallSummary>>
-export type CallSummaryContent = NonNullable<CallSummaryRecord["summary"]>
+export type SummaryCard = Awaited<ReturnType<typeof fetchSummaryCard>>
+export type CallSummaryContent = NonNullable<SummaryCard["summary"]>
 
-const callSummaryKey = (sessionId: string) => ["voice-summary", sessionId]
+const summaryCardKey = (messageId: string) => ["voice-summary-card", messageId]
 
-// Checks back while Lor is still writing, so the summary appears without a
-// reload.
-export function useCallSummary(sessionId: string) {
+// Lor's summary card in a call chat, by the card message's id.
+export function useSummaryCard(messageId: string) {
   return useQuery({
-    queryKey: callSummaryKey(sessionId),
-    queryFn: () => fetchCallSummary(sessionId),
-    refetchInterval: (query) =>
-      query.state.data?.status === "processing" ? 10_000 : false,
+    queryKey: summaryCardKey(messageId),
+    queryFn: () => fetchSummaryCard(messageId),
   })
 }
 
-export function useSaveCallSummary(sessionId: string) {
+export function useSaveSummaryCard(messageId: string) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async (summary: CallSummaryContent) => {
-      const res = await apiClient.v1.voice.sessions[":sessionId"].summary.$put({
-        param: { sessionId },
+      const res = await apiClient.v1.voice["summary-cards"][":messageId"].$put({
+        param: { messageId },
         json: summary,
       })
       const body = await res.json()
@@ -41,8 +38,8 @@ export function useSaveCallSummary(sessionId: string) {
       }
       return body
     },
-    onSuccess: (record) => {
-      queryClient.setQueryData(callSummaryKey(sessionId), record)
+    onSuccess: (card) => {
+      queryClient.setQueryData(summaryCardKey(messageId), card)
     },
   })
 }

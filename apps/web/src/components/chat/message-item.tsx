@@ -44,6 +44,7 @@ import { PlanCard } from "@/components/chat/plan-card"
 import { ProposalCard } from "@/components/chat/proposal-card"
 import { ThinkingIndicator } from "@/components/chat/thinking-indicator"
 import { UserProfilePopover } from "@/components/ui/user-profile-card"
+import { CallSummaryCard } from "@/components/voice/call-summary"
 import { useStopLorRun } from "@/hooks/use-stop-lor-run"
 import type { Message } from "@/lib/api-types"
 import { connectorMessageEmbed } from "@/lib/connector-message-embed"
@@ -400,7 +401,8 @@ export const MessageItem = memo(function MessageItem({
     message.type === "plan_card" ||
     message.type === "loop_card" ||
     message.type === "loop_fire" ||
-    message.type === "proposal_card"
+    message.type === "proposal_card" ||
+    message.type === "call_summary"
   ) {
     const planAvatar = (
       <Avatar size="lg">
@@ -469,6 +471,8 @@ export const MessageItem = memo(function MessageItem({
               <PlanCard message={message} onOpenThread={onOpenThread} />
             ) : message.type === "proposal_card" ? (
               <ProposalCard message={message} />
+            ) : message.type === "call_summary" ? (
+              <CallSummaryCard message={message} />
             ) : (
               <LoopCard message={message} />
             )}

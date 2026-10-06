@@ -198,26 +198,51 @@ export const voiceSessionDetailResponseSchema = z.object({
 })
 
 // `atMs`: where in the call it was said; null for items people added.
-const callSummaryItemSchema = z.object({
-  text: z.string().trim().min(1).max(1_000),
-  atMs: z.number().int().min(0).nullable(),
+export const summaryCardParamsSchema = z.object({
+  messageId: z
+    .string()
+    .uuid()
+    .openapi({
+      param: { name: "messageId", in: "path", required: true },
+    }),
 })
+
+// `atMs`: where in the call it was said; null for items people added.
+const atMsSchema = z.number().int().min(0).nullable()
 
 export const callSummaryBodySchema = z.object({
+  title: z.string().trim().min(1).max(200),
   summary: z.string().trim().min(1).max(4_000),
-  decisions: z.array(callSummaryItemSchema).max(30),
-  openQuestions: z.array(callSummaryItemSchema).max(30),
-  followUps: z.array(callSummaryItemSchema).max(30),
+  decisions: z
+    .array(
+      z.object({ text: z.string().trim().min(1).max(1_000), atMs: atMsSchema })
+    )
+    .max(30),
+  openQuestions: z
+    .array(
+      z.object({ text: z.string().trim().min(1).max(1_000), atMs: atMsSchema })
+    )
+    .max(30),
+  actionItems: z
+    .array(
+      z.object({
+        owner: z.string().trim().min(1).max(200).nullable(),
+        title: z.string().trim().min(1).max(300),
+        detail: z.string().trim().min(1).max(1_000).nullable(),
+        atMs: atMsSchema,
+      })
+    )
+    .max(30),
 })
 
-export const callSummaryResponseSchema = z.object({
-  // live: the call hasn't ended; processing: Lor is still writing it; none:
-  // no summary (a short call, or Lor couldn't write one).
-  status: z.enum(["live", "processing", "ready", "none"]),
+// Lor's summary card in a call chat. `summary` is null when Lor couldn't
+// write one; anyone who can post in the channel can correct or write it.
+export const summaryCardResponseSchema = z.object({
+  sessionId: z.string().uuid(),
+  call: voiceSessionSummarySchema,
   summary: z.custom<VoiceSessionSummary>().nullable(),
   editedAt: z.string().datetime().nullable(),
   editedBy: z.object({ id: z.string().uuid(), name: z.string() }).nullable(),
-  // Anyone who can post in the channel can correct an ended call's summary.
   canEdit: z.boolean(),
 })
 

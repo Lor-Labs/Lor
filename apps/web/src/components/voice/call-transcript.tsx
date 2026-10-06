@@ -9,7 +9,6 @@ import { formatTime } from "@repo/utils/date"
 import { useQueryClient } from "@tanstack/react-query"
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { captionLine } from "@/components/voice/call-captions"
-import { CallSummary } from "@/components/voice/call-summary"
 import { LorBlocks, LorFailedNotice } from "@/components/voice/lor-blocks"
 import { formatDuration } from "@/components/voice/voice-lobby"
 import {
@@ -298,9 +297,9 @@ function TranscriptView({
     }
   }, [blocks])
 
-  // A [[call:…]] citation or a summary item's time opens the transcript at a
-  // moment: once every page has loaded, the block spoken then scrolls into
-  // view and flashes. An object, so picking the same time again re-scrolls.
+  // A [[call:…]] citation or a time on Lor's summary card opens the
+  // transcript at a moment: once every page has loaded, the block spoken then
+  // scrolls into view and flashes. A new moment remounts this view.
   const [target, setTarget] = useState<{ atMs: number } | null>(() =>
     atMs === undefined ? null : { atMs }
   )
@@ -342,12 +341,6 @@ function TranscriptView({
       onScroll={handleScroll}
       className="min-h-0 flex-1 overflow-y-auto py-2"
     >
-      {!live && (
-        <CallSummary
-          sessionId={sessionId}
-          onOpenMoment={(moment) => setTarget({ atMs: moment })}
-        />
-      )}
       {status ??
         blocks.map((block) => {
           if (block.kind === "lor") {

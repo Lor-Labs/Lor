@@ -26,7 +26,7 @@ function plural(count: number, one: string, many: string) {
   return `${count} ${count === 1 ? one : many}`
 }
 
-function ParticipantStack({
+export function ParticipantStack({
   participants,
 }: {
   participants: VoiceParticipant[]
@@ -223,12 +223,10 @@ export function VoiceLobby({
             <ul className="flex flex-col">
               {past.map((session) => {
                 const threadRootId = session.threadRootId
-                // The record (summary, then transcript) is a call's main
-                // view; unread chat wins so the badge leads where it points.
-                const tab =
-                  session.unreadCount > 0 || session.mentionCount > 0
-                    ? "chat"
-                    : "transcript"
+                // Chat holds Lor's summary card and anything people wrote,
+                // so a past call opens there; a call with an empty chat
+                // opens on its transcript.
+                const tab = session.replyCount > 0 ? "chat" : "transcript"
                 return (
                   <SessionRow
                     key={session.id}

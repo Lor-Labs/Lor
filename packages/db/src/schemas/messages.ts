@@ -41,6 +41,9 @@ export const messageTypeEnum = pgEnum("message_type", [
   // A voice session's anchor — the thread root of the session chat. The
   // session row (see voice.ts) is looked up by threadRootId.
   "voice_session",
+  // Lor's summary of an ended call, posted in its chat. Renders the call's
+  // current summary; the session row is looked up by summaryCardMessageId.
+  "call_summary",
 ])
 
 // Kinds of channel events (message.type = "event"). Adding a kind means a new

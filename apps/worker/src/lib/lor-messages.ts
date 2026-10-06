@@ -118,6 +118,7 @@ export async function postLorMessage(
       | "loop_card"
       | "loop_fire"
       | "proposal_card"
+      | "call_summary"
     // Channel event kind + structured copy data (type "event" only).
     eventType?: ChannelEventType
     eventPayload?: ChannelEventPayload
@@ -143,7 +144,9 @@ export async function postLorMessage(
       eventPayload: input.eventPayload ?? null,
       referencedMessageId: input.referencedMessageId ?? null,
       threadRootId: input.threadRootId ?? null,
-      excludedFromMemory: input.type === "event",
+      // A call summary is already indexed as the call's own passage.
+      excludedFromMemory:
+        input.type === "event" || input.type === "call_summary",
     })
     .returning({ id: schema.message.id, createdAt: schema.message.createdAt })
     .then((rows) => rows[0])

@@ -1,9 +1,9 @@
 // Dev only: gives an ended call a made-up summary, its search passage, and
-// Lor's recap in the call chat, so the summary UI can be seen without
+// Lor's summary card in the call chat, so the card can be seen without
 // running the after-call job (reference/voice-channels-runbook.md V7). The
 // content is fake on purpose and never reads the transcript; item times are
-// spread across the call's length. The recap is inserted without
-// notifications. Re-running replaces the summary and skips the recap.
+// spread across the call's length. The card is inserted without
+// notifications, and replaces any earlier Lor post in that call's chat.
 //
 //   pnpm --filter @repo/worker exec tsx src/scripts/seed-call-summary.ts <sessionId> [--edited]
 //
@@ -15,12 +15,9 @@ import { embedDocumentsWithUsage } from "@repo/lor/embeddings"
 import {
   saveCallMemory,
   saveEditedSummary,
+  setSummaryCard,
   summaryPassageFor,
-  summaryText,
 } from "@repo/voice/server"
-
-const RECAP_NOTE =
-  "I indexed this call's transcript, so you can ask me about it later."
 
 const [sessionId] = process.argv.slice(2).filter((arg) => !arg.startsWith("--"))
 const edited = process.argv.includes("--edited")
@@ -39,15 +36,30 @@ const [call] = await db
   .from(schema.voiceSession)
   .where(eq(schema.voiceSession.id, sessionId))
   .limit(1)
-if (!call?.endedAt) {
-  console.error("No ended call with that id")
+if (!call?.endedAt || !call.threadRootId) {
+  console.error("No ended call with a chat for that id")
   process.exit(1)
 }
 const endedAt = call.endedAt
 const length = endedAt.getTime() - call.startedAt.getTime()
 const at = (fraction: number) => Math.round(length * fraction)
 
+const [first] = await db
+  .select({
+    userId: schema.voiceSessionParticipant.userId,
+    name: schema.user.name,
+  })
+  .from(schema.voiceSessionParticipant)
+  .innerJoin(
+    schema.user,
+    eq(schema.user.id, schema.voiceSessionParticipant.userId)
+  )
+  .where(eq(schema.voiceSessionParticipant.sessionId, sessionId))
+  .orderBy(asc(schema.voiceSessionParticipant.firstJoinedAt))
+  .limit(1)
+
 const lorSummary: VoiceSessionSummary = {
+  title: "Voice channels launch review",
   summary:
     "The team reviewed the voice channels launch. They agreed to ship call summaries and Lor's answers about past calls in the next release, and to keep approvals desktop-only until the phone app has the call pill.",
   decisions: [
@@ -62,33 +74,46 @@ const lorSummary: VoiceSessionSummary = {
   ],
   openQuestions: [
     {
-      text: "Should correcting a summary also update Lor's recap in the call chat?",
+      text: "Should the summary card also show who was in the call?",
       atMs: at(0.62),
     },
   ],
-  followUps: [
+  actionItems: [
     {
-      text: "Write the release notes for voice channels by Friday.",
+      owner: first?.name ?? null,
+      title: "Write the voice channels release notes",
+      detail:
+        "Cover summaries, Lor's answers about past calls, and the approval limits on phones, ready by Friday.",
       atMs: at(0.78),
     },
-    { text: "Run a full team call on phones before launch.", atMs: at(0.9) },
+    {
+      owner: null,
+      title: "Run a full team call on phones before launch",
+      detail:
+        "Everyone joins from a phone for at least ten minutes, to check audio and the call chat.",
+      atMs: at(0.9),
+    },
   ],
 }
 
 const correction: VoiceSessionSummary = {
-  summary:
-    "The team reviewed the voice channels launch. They agreed to ship call summaries and Lor's answers about past calls in the next release, with the summary shown above the transcript, and to keep approvals desktop-only until the phone app has the call pill.",
+  ...lorSummary,
   decisions: [
     ...lorSummary.decisions,
     {
-      text: "Show the summary at the top of the transcript instead of in its own tab.",
+      text: "Show each person's face in the card header.",
       atMs: at(0.62),
     },
   ],
   openQuestions: [],
-  followUps: [
-    ...lorSummary.followUps,
-    { text: "Check how long summaries look on a laptop screen.", atMs: null },
+  actionItems: [
+    ...lorSummary.actionItems,
+    {
+      owner: first?.name ?? null,
+      title: "Check long summaries on a laptop screen",
+      detail: null,
+      atMs: null,
+    },
   ],
 }
 
@@ -108,42 +133,34 @@ await saveCallMemory(sessionId, {
   passages: [{ ...(await passageFor(lorSummary)), kind: "summary" }],
 })
 
-if (call.threadRootId) {
-  const [recap] = await db
-    .select({ id: schema.message.id })
-    .from(schema.message)
-    .where(
-      and(
-        eq(schema.message.threadRootId, call.threadRootId),
-        eq(schema.message.authorId, LOR_USER_ID)
-      )
+await db
+  .delete(schema.message)
+  .where(
+    and(
+      eq(schema.message.threadRootId, call.threadRootId),
+      eq(schema.message.authorId, LOR_USER_ID)
     )
-    .limit(1)
-  if (!recap) {
-    await db.insert(schema.message).values({
-      channelId: call.channelId,
-      authorId: LOR_USER_ID,
-      content: `${summaryText(lorSummary)}\n\n${RECAP_NOTE}`,
-      threadRootId: call.threadRootId,
-      createdAt: new Date(endedAt.getTime() + 40_000),
-    })
-  }
-}
+  )
+const [card] = await db
+  .insert(schema.message)
+  .values({
+    channelId: call.channelId,
+    authorId: LOR_USER_ID,
+    type: "call_summary",
+    content: `${lorSummary.title}\n\n${lorSummary.summary}`,
+    threadRootId: call.threadRootId,
+    excludedFromMemory: true,
+    createdAt: new Date(endedAt.getTime() + 40_000),
+  })
+  .returning({ id: schema.message.id })
+if (card) await setSummaryCard(sessionId, card.id)
 
-if (edited) {
-  const [first] = await db
-    .select({ userId: schema.voiceSessionParticipant.userId })
-    .from(schema.voiceSessionParticipant)
-    .where(eq(schema.voiceSessionParticipant.sessionId, sessionId))
-    .orderBy(asc(schema.voiceSessionParticipant.firstJoinedAt))
-    .limit(1)
-  if (first) {
-    await saveEditedSummary(sessionId, {
-      summary: correction,
-      editedById: first.userId,
-      passage: await passageFor(correction),
-    })
-  }
+if (edited && first) {
+  await saveEditedSummary(sessionId, {
+    summary: correction,
+    editedById: first.userId,
+    passage: await passageFor(correction),
+  })
 }
 
 console.log(`Seeded ${sessionId}${edited ? " (edited)" : ""}`)

@@ -26,8 +26,9 @@ function callLocationQuery(sessionId: string) {
   }
 }
 
-/** Open a call's transcript at a moment, from a Lor [[call:…]] citation.
- * Resolves false when the call isn't found. Citations prefetch on hover. */
+/** Open a call's transcript, at a moment when given: a Lor [[call:…]]
+ * citation, or Lor's summary card. Resolves false when the call isn't found.
+ * Citations prefetch on hover. */
 export function useCallCitation() {
   const { workspaceSlug } = useParams({ strict: false })
   const navigate = useNavigate()
@@ -35,7 +36,7 @@ export function useCallCitation() {
   const { setView, isCollapsed, toggleCollapsed } = useRightSidebar()
 
   const open = useCallback(
-    async (sessionId: string, atMs: number) => {
+    async (sessionId: string, atMs?: number) => {
       if (!workspaceSlug) return false
       const location = await queryClient.fetchQuery(
         callLocationQuery(sessionId)
@@ -53,7 +54,7 @@ export function useCallCitation() {
       void navigate({
         to: "/$workspaceSlug/$channelId",
         params: { workspaceSlug, channelId: location.channelId },
-        search: { threadId: location.threadRootId, callAt: atMs },
+        search: { threadId: location.threadRootId, callAt: atMs ?? 0 },
       })
       return true
     },

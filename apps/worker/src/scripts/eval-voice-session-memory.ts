@@ -150,10 +150,17 @@ async function evaluate(call: Call, run: number) {
       }
     }
     if (run === 1 && !quiet) {
+      const at = (ms: number | null) =>
+        ms === null ? "" : ` @${formatCallTime(ms)}`
+      output.push(`    title: ${memory.summary.title}`)
       output.push(`    summary: ${memory.summary.summary}`)
       for (const decision of memory.summary.decisions) {
+        output.push(`    decision${at(decision.atMs)}: ${decision.text}`)
+      }
+      // Owners must come from the call, never be invented.
+      for (const item of memory.summary.actionItems) {
         output.push(
-          `    decision${decision.atMs === null ? "" : ` @${formatCallTime(decision.atMs)}`}: ${decision.text}`
+          `    action${at(item.atMs)}: [${item.owner ?? "no owner"}] ${item.title}${item.detail ? ` (${item.detail})` : ""}`
         )
       }
     }
