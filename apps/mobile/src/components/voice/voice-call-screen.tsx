@@ -7,7 +7,6 @@ import VideoOffIcon from "@hugeicons/core-free-icons/VideoOffIcon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
 import {
   isTrackReference,
-  RoomContext,
   type TrackReferenceOrPlaceholder,
   useIsSpeaking,
   useLocalParticipant,
@@ -18,8 +17,8 @@ import { router } from "expo-router"
 import { SymbolView } from "expo-symbols"
 import { useThemeColor } from "heroui-native/hooks"
 import { cn } from "heroui-native/utils"
-import { DisconnectReason, Room, RoomEvent, Track } from "livekit-client"
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { Track } from "livekit-client"
+import { useMemo } from "react"
 import {
   Alert,
   ScrollView,
@@ -34,26 +33,13 @@ import { Screen } from "@/components/ui/screen"
 import { LorSimulatorButton } from "@/components/voice/lor-simulator"
 import { LorWindow } from "@/components/voice/lor-window"
 import { VoiceLobby } from "@/components/voice/voice-lobby"
-import { useSocket } from "@/context/socket-context"
+import { useVoiceCall } from "@/context/voice-call-context"
 import { useWorkspace } from "@/context/workspace-context"
 import { useVoiceRequests } from "@/hooks/use-voice-requests"
-import { api, responseMessage } from "@/lib/api"
-import { holdThreadRoom } from "@/lib/thread-rooms"
 
 // The `three` spacing token (12pt), used for the grid's padding and gap.
 // aspectRatio gave these tiles no height on device, so they're sized here.
 const TILE_GAP = 12
-
-function disconnectMessage(reason: DisconnectReason) {
-  switch (reason) {
-    case DisconnectReason.DUPLICATE_IDENTITY:
-      return "The call moved to another device."
-    case DisconnectReason.PARTICIPANT_REMOVED:
-      return "You were removed from the call."
-    default:
-      return `The call ended (${DisconnectReason[reason] ?? "unknown reason"}).`
-  }
-}
 
 function ParticipantTile({
   trackRef,
@@ -225,8 +211,8 @@ function CallStage({
   )
 }
 
-// V0 spike: the call lives with this screen. V6 moves it to an app-level
-// provider with a persistent call pill.
+// The call itself lives in VoiceCallProvider, so leaving this screen keeps
+// it; the call bar brings you back.
 export function VoiceCallScreen({
   channelId,
   channelName,
@@ -235,152 +221,61 @@ export function VoiceCallScreen({
   channelName: string
 }) {
   const [foreground] = useThemeColor(["foreground"])
-  const [room] = useState(
-    () => new Room({ adaptiveStream: true, dynacast: true })
-  )
-  const [connected, setConnected] = useState(false)
-  const [joining, setJoining] = useState(false)
-  // The joined session and its call chat, from the join response.
-  const [session, setSession] = useState<{
-    sessionId: string
-    threadRootId: string | null
-  } | null>(null)
-  const sessionRef = useRef(session)
-  sessionRef.current = session
-  // Set when the screen closes, so a join still in flight can't leave a call
-  // and microphone running without it.
-  const closedRef = useRef(false)
-  const socket = useSocket()
   const { workspace } = useWorkspace()
-
-  // Tells the server right away; the LiveKit webhook is the fallback.
-  const leave = useCallback(async () => {
-    const current = sessionRef.current
-    await room.disconnect()
-    if (!current) return
-    await api.v1.voice.sessions[":sessionId"].leave
-      .$post({ param: { sessionId: current.sessionId } })
-      .catch(() => undefined)
-  }, [room])
-
-  useEffect(() => {
-    closedRef.current = false
-    const handleDisconnected = (reason?: DisconnectReason) => {
-      setConnected(false)
-      if (
-        reason !== undefined &&
-        reason !== DisconnectReason.CLIENT_INITIATED
-      ) {
-        Alert.alert("Call ended", disconnectMessage(reason))
-      }
-    }
-    room.on(RoomEvent.Disconnected, handleDisconnected)
-    return () => {
-      closedRef.current = true
-      room.off(RoomEvent.Disconnected, handleDisconnected)
-      void leave()
-    }
-  }, [room, leave])
-
-  // The call chat's room carries the chat and Lor's window, so it's held for
-  // the whole call, not just while the chat is open.
-  const threadRootId = connected ? session?.threadRootId : null
-  useEffect(() => {
-    if (!socket || !threadRootId) return
-    const release = holdThreadRoom(socket, threadRootId)
-    const rejoin = () => socket.emit("thread:join", { threadRootId })
-    socket.on("connect", rejoin)
-    return () => {
-      socket.off("connect", rejoin)
-      release()
-    }
-  }, [socket, threadRootId])
+  const { call, joining, join, leave } = useVoiceCall()
+  const inThisCall = call?.channelId === channelId
 
   const openThread = (threadRootId: string) =>
     router.push({
       pathname: "/channel/[channelId]/thread/[threadRootId]",
       params: { channelId, threadRootId },
     } as never)
-  const openChat = threadRootId ? () => openThread(threadRootId) : undefined
-
-  const join = async () => {
-    setJoining(true)
-    try {
-      const response = await api.v1.channels[":channelId"].voice.join.$post({
-        param: { channelId },
-      })
-      if (!response.ok) {
-        throw new Error(
-          await responseMessage(response, "Could not join the call")
-        )
-      }
-      const { url, token, sessionId, threadRootId } = await response.json()
-      if (closedRef.current) return
-      setSession({ sessionId, threadRootId })
-      await room.connect(url, token)
-      if (closedRef.current) {
-        void room.disconnect()
-        return
-      }
-      setConnected(true)
-      try {
-        await room.localParticipant.setMicrophoneEnabled(true)
-      } catch {
-        Alert.alert("Microphone unavailable", "You can still listen.")
-      }
-    } catch (error) {
-      if (closedRef.current) return
-      Alert.alert(
-        "Could not join the call",
-        error instanceof Error ? error.message : "Try again."
-      )
-    } finally {
-      setJoining(false)
-    }
-  }
+  const callChatId = inThisCall ? call.threadRootId : null
 
   return (
-    <RoomContext.Provider value={room}>
-      <Screen className="bg-background" edges={["top", "bottom"]}>
-        <View className="min-h-[60px] flex-row items-center gap-two border-b border-separator px-three">
-          <IconButton
-            accessibilityLabel="Back to channels"
-            onPress={() => router.back()}
-            variant="ghost"
-          >
-            <SymbolView
-              name={{
-                ios: "chevron.left",
-                android: "arrow_back",
-                web: "arrow_back",
-              }}
-              size={21}
-              tintColor={foreground}
-            />
-          </IconButton>
-          <Text
-            className="flex-1 text-[17px] font-bold tracking-[-0.2px] text-foreground"
-            numberOfLines={1}
-          >
-            {channelName}
-          </Text>
-        </View>
-        {connected ? (
-          <CallStage
-            onLeave={() => void leave()}
-            onOpenChat={openChat}
-            sessionId={session?.sessionId ?? null}
+    <Screen className="bg-background" edges={["top", "bottom"]}>
+      <View className="min-h-[60px] flex-row items-center gap-two border-b border-separator px-three">
+        <IconButton
+          accessibilityLabel="Back to channels"
+          onPress={() => router.back()}
+          variant="ghost"
+        >
+          <SymbolView
+            name={{
+              ios: "chevron.left",
+              android: "arrow_back",
+              web: "arrow_back",
+            }}
+            size={21}
+            tintColor={foreground}
           />
-        ) : (
-          <VoiceLobby
-            channelId={channelId}
-            joining={joining}
-            onJoin={() => void join()}
-            onOpenChat={openThread}
-            workspaceId={workspace?.id}
-          />
-        )}
-      </Screen>
-    </RoomContext.Provider>
+        </IconButton>
+        <Text
+          className="flex-1 text-[17px] font-bold tracking-[-0.2px] text-foreground"
+          numberOfLines={1}
+        >
+          {channelName}
+        </Text>
+      </View>
+      {inThisCall ? (
+        <CallStage
+          onLeave={() => void leave()}
+          onOpenChat={callChatId ? () => openThread(callChatId) : undefined}
+          sessionId={call.sessionId}
+        />
+      ) : (
+        <VoiceLobby
+          channelId={channelId}
+          joining={joining}
+          onJoin={() => {
+            if (!workspace) return
+            void join({ workspaceId: workspace.id, channelId, channelName })
+          }}
+          onOpenChat={openThread}
+          otherCallName={call?.channelName}
+          workspaceId={workspace?.id}
+        />
+      )}
+    </Screen>
   )
 }

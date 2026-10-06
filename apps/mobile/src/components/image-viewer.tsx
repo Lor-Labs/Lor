@@ -31,7 +31,10 @@ import Animated, {
   useSharedValue,
   withSpring,
 } from "react-native-reanimated"
-import { useSafeAreaInsets } from "react-native-safe-area-context"
+import {
+  initialWindowMetrics,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context"
 import { scheduleOnRN } from "react-native-worklets"
 import { triggerHaptic } from "@/components/ui/haptics"
 import type { Message } from "@/lib/api-types"
@@ -77,7 +80,10 @@ export function ImageViewer({
   onClose: () => void
 }) {
   const { width, height } = useWindowDimensions()
-  const insets = useSafeAreaInsets()
+  // The viewer covers the whole window, so it takes the window's insets: under
+  // the call bar, the screen's own provider reports no top inset.
+  const screenInsets = useSafeAreaInsets()
+  const insets = initialWindowMetrics?.insets ?? screenInsets
   const [currentIndex, setCurrentIndex] = useState(initialIndex)
   const [isZoomed, setIsZoomed] = useState(false)
   const [action, setAction] = useState<ViewerAction>(null)

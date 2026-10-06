@@ -102,7 +102,7 @@ Deliberately parked until the composer/keyboard rework settles (active in messag
 - [x] Join, mute, camera, tiles, share viewer, call chat, leave — 2026-10-05
 - [x] Lor's window, read-only (all block types, Linear/GitHub rows, approval waiting line, cancel/clear) — 2026-10-05
 - [ ] Approval buttons, Transcript tab, "Show on stage", step-back, tappable question choices, tool logos and reactions in Lor's window
-- [ ] Persistent call pill across navigation (today leaving the call screen ends the call)
+- [x] Call bar across navigation (the call outlives its screen), "Switch to this call", and who's connected under voice channels in the channel list — 2026-10-06
 - [ ] Landscape full-screen share viewer, push deep links into a call, Android background (foreground service)
 - [x] Voice channel screen before joining: live call card (who's in, how long, Join or "Transfer here") and past calls with unread dots and mention counts; a past call opens its chat — 2026-10-06
 - [x] Lor's call summary card, read-only (`call-summary-card.tsx`): title, day, length, faces, decisions, open questions, action items, byline — 2026-10-06

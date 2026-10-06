@@ -9,13 +9,16 @@ import { HugeiconsIcon } from "@hugeicons/react-native"
 import type { ChannelActivity } from "@repo/realtime-types"
 import * as Haptics from "expo-haptics"
 import { useThemeColor } from "heroui-native/hooks"
-import { type ReactNode, useMemo, useState } from "react"
+import { Fragment, type ReactNode, useMemo, useState } from "react"
 import { ActivityIndicator, Pressable, Text, View } from "react-native"
+import { Avatar } from "@/components/ui/avatar"
 import { PrivateHashIcon } from "@/components/ui/private-hash-icon"
 import { SectionLabel } from "@/components/ui/section-label"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useUnread } from "@/context/unread-context"
 import { useWorkspace } from "@/context/workspace-context"
+import { useVoicePresence } from "@/hooks/use-voice-presence"
+import type { VoiceParticipant } from "@/hooks/use-voice-sessions"
 import { useWorkspaceActivity } from "@/hooks/use-workspace-activity"
 import type { Channel, ChannelCategory } from "@/lib/api-types"
 
@@ -170,6 +173,40 @@ export function ChannelRow({
       {mentionCount > 0 ? <MentionBadge count={mentionCount} /> : null}
       {lorState ? <LorChannelStatus state={lorState} /> : null}
     </Pressable>
+  )
+}
+
+// People connected to a voice channel's call, listed under it like web.
+function VoiceParticipantRows({
+  participants,
+}: {
+  participants: VoiceParticipant[] | undefined
+}) {
+  if (!participants?.length) return null
+  return (
+    // Lines up with the channel name: row padding + icon box + gap.
+    <View className="mb-one pl-[44px]">
+      {participants.map((participant) => (
+        <View
+          className="min-h-7 flex-row items-center gap-two"
+          key={participant.userId}
+        >
+          <Avatar
+            avatarColor={participant.avatarColor}
+            className="size-5"
+            image={participant.image}
+            name={participant.name}
+            size="xs"
+          />
+          <Text
+            className="min-w-0 flex-1 text-[13px] text-muted"
+            numberOfLines={1}
+          >
+            {participant.name}
+          </Text>
+        </View>
+      ))}
+    </View>
   )
 }
 
@@ -339,6 +376,14 @@ export function ChannelList({
     }
     return map
   }, [activity])
+  const presence = useVoicePresence(workspace?.slug, workspace?.id)
+  const inCall = useMemo(
+    () =>
+      new Map(
+        presence?.map((channel) => [channel.channelId, channel.participants])
+      ),
+    [presence]
+  )
 
   if (isLoading && !data) return <ChannelListSkeleton />
   if (!data) return null
@@ -377,15 +422,19 @@ export function ChannelList({
   )
 
   const renderRow = (channel: Channel) => (
-    <ChannelRow
-      channel={channel}
-      key={channel.id}
-      lorState={lorStates.get(channel.id)}
-      mentionCount={getMentionCount(channel.id)}
-      onLongPress={onLongPress}
-      onPress={onPress}
-      unread={getUnreadCount(channel.id) > 0}
-    />
+    <Fragment key={channel.id}>
+      <ChannelRow
+        channel={channel}
+        lorState={lorStates.get(channel.id)}
+        mentionCount={getMentionCount(channel.id)}
+        onLongPress={onLongPress}
+        onPress={onPress}
+        unread={getUnreadCount(channel.id) > 0}
+      />
+      {channel.type === "voice" ? (
+        <VoiceParticipantRows participants={inCall.get(channel.id)} />
+      ) : null}
+    </Fragment>
   )
 
   return (

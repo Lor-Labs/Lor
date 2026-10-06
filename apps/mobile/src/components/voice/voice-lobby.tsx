@@ -168,12 +168,15 @@ export function VoiceLobby({
   joining,
   onJoin,
   onOpenChat,
+  otherCallName,
 }: {
   channelId: string
   workspaceId: string | undefined
   joining: boolean
   onJoin: () => void
   onOpenChat: (threadRootId: string) => void
+  // This phone is in a call in another channel.
+  otherCallName: string | undefined
 }) {
   const { data: auth } = authClient.useSession()
   const {
@@ -200,10 +203,20 @@ export function VoiceLobby({
       <LiveCallCard
         joinDisabled={joining}
         joinLabel={
-          joining ? "Joining…" : onAnotherDevice ? "Transfer here" : "Join"
+          joining
+            ? "Joining…"
+            : onAnotherDevice
+              ? "Transfer here"
+              : otherCallName
+                ? "Switch to this call"
+                : "Join"
         }
         note={
-          onAnotherDevice ? "You're in this call on another device." : undefined
+          onAnotherDevice
+            ? "You're in this call on another device."
+            : otherCallName
+              ? `You're in a call in ${otherCallName}.`
+              : undefined
         }
         onJoin={onJoin}
         session={live}

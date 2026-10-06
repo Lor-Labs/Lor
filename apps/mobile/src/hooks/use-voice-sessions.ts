@@ -7,9 +7,8 @@ import {
 import { useEffect } from "react"
 import { useSocket } from "@/context/socket-context"
 import { useChannelRoom } from "@/hooks/use-channel-room"
+import { useInvalidateOnVoiceUpdate } from "@/hooks/use-voice-presence"
 import { api } from "@/lib/api"
-
-const COALESCE_MS = 100
 
 export function voiceSessionsQueryKey(channelId: string) {
   return ["voice-sessions", channelId] as const
@@ -38,6 +37,7 @@ export function useVoiceSessions(
   channelId: string,
   workspaceId: string | undefined
 ) {
+  useInvalidateOnVoiceUpdate("voice-sessions", channelId, workspaceId)
   const socket = useSocket()
   const queryClient = useQueryClient()
   useChannelRoom(socket, channelId)
@@ -45,19 +45,10 @@ export function useVoiceSessions(
   useEffect(() => {
     if (!socket) return
     const queryKey = voiceSessionsQueryKey(channelId)
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const refresh = () => {
-      void queryClient.invalidateQueries({ queryKey })
-    }
-    const onVoiceUpdated = (payload: { workspaceId: string }) => {
-      if (timer || (workspaceId && payload.workspaceId !== workspaceId)) return
-      timer = setTimeout(() => {
-        timer = undefined
-        refresh()
-      }, COALESCE_MS)
-    }
     const onThreadUpdated = (payload: { channelId: string }) => {
-      if (payload.channelId === channelId) refresh()
+      if (payload.channelId === channelId) {
+        void queryClient.invalidateQueries({ queryKey })
+      }
     }
     // Reading a call chat on any device clears its badges.
     const onThreadRead = (payload: ThreadReadUpdated) => {
@@ -78,18 +69,13 @@ export function useVoiceSessions(
           : data
       )
     }
-    socket.on("workspace:voice:updated", onVoiceUpdated)
     socket.on("message:thread:updated", onThreadUpdated)
     socket.on("thread-read:updated", onThreadRead)
-    socket.on("connect", refresh)
     return () => {
-      if (timer) clearTimeout(timer)
-      socket.off("workspace:voice:updated", onVoiceUpdated)
       socket.off("message:thread:updated", onThreadUpdated)
       socket.off("thread-read:updated", onThreadRead)
-      socket.off("connect", refresh)
     }
-  }, [socket, channelId, workspaceId, queryClient])
+  }, [socket, channelId, queryClient])
 
   return useInfiniteQuery({
     queryKey: voiceSessionsQueryKey(channelId),
