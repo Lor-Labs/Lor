@@ -9,6 +9,7 @@ import { formatTime } from "@repo/utils/date"
 import { useQueryClient } from "@tanstack/react-query"
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { captionLine } from "@/components/voice/call-captions"
+import { CallSummary } from "@/components/voice/call-summary"
 import { LorBlocks, LorFailedNotice } from "@/components/voice/lor-blocks"
 import { formatDuration } from "@/components/voice/voice-lobby"
 import {
@@ -297,23 +298,27 @@ function TranscriptView({
     }
   }, [blocks])
 
-  // A [[call:…]] citation opens the transcript at a moment: once every page
-  // has loaded, the block spoken then scrolls into view and flashes.
+  // A [[call:…]] citation or a summary item's time opens the transcript at a
+  // moment: once every page has loaded, the block spoken then scrolls into
+  // view and flashes. An object, so picking the same time again re-scrolls.
+  const [target, setTarget] = useState<{ atMs: number } | null>(() =>
+    atMs === undefined ? null : { atMs }
+  )
   const [highlightId, setHighlightId] = useState<string | null>(null)
-  const revealedRef = useRef(false)
   useLayoutEffect(() => {
     const first = pages[0]
-    if (atMs === undefined || revealedRef.current || !first || hasNextPage) {
-      return
-    }
-    const block = blockAtMoment(blocks, Date.parse(first.startedAt) + atMs)
+    if (!target || !first || hasNextPage) return
+    setTarget(null)
+    const block = blockAtMoment(
+      blocks,
+      Date.parse(first.startedAt) + target.atMs
+    )
     if (!block) return
-    revealedRef.current = true
     scrollRef.current
       ?.querySelector(`[data-block-id="${CSS.escape(block.id)}"]`)
-      ?.scrollIntoView({ block: "center" })
+      ?.scrollIntoView({ block: "center", behavior: "smooth" })
     setHighlightId(block.id)
-  }, [atMs, blocks, pages, hasNextPage])
+  }, [target, blocks, pages, hasNextPage])
   useEffect(() => {
     if (!highlightId) return
     const timer = setTimeout(() => setHighlightId(null), 2500)
@@ -337,6 +342,12 @@ function TranscriptView({
       onScroll={handleScroll}
       className="min-h-0 flex-1 overflow-y-auto py-2"
     >
+      {!live && (
+        <CallSummary
+          sessionId={sessionId}
+          onOpenMoment={(moment) => setTarget({ atMs: moment })}
+        />
+      )}
       {status ??
         blocks.map((block) => {
           if (block.kind === "lor") {

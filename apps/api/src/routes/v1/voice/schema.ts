@@ -2,6 +2,7 @@ import { z } from "@hono/zod-openapi"
 import {
   type VoiceRequestApproval,
   type VoiceRequestResult,
+  type VoiceSessionSummary,
   voiceCaptureGapReasonEnum,
   voiceRequestStatusEnum,
 } from "@repo/db/schema"
@@ -194,6 +195,30 @@ export const voiceSessionHistoryResponseSchema = z.object({
 export const voiceSessionDetailResponseSchema = z.object({
   channelId: z.string().uuid(),
   session: voiceSessionSummarySchema,
+})
+
+// `atMs`: where in the call it was said; null for items people added.
+const callSummaryItemSchema = z.object({
+  text: z.string().trim().min(1).max(1_000),
+  atMs: z.number().int().min(0).nullable(),
+})
+
+export const callSummaryBodySchema = z.object({
+  summary: z.string().trim().min(1).max(4_000),
+  decisions: z.array(callSummaryItemSchema).max(30),
+  openQuestions: z.array(callSummaryItemSchema).max(30),
+  followUps: z.array(callSummaryItemSchema).max(30),
+})
+
+export const callSummaryResponseSchema = z.object({
+  // live: the call hasn't ended; processing: Lor is still writing it; none:
+  // no summary (a short call, or Lor couldn't write one).
+  status: z.enum(["live", "processing", "ready", "none"]),
+  summary: z.custom<VoiceSessionSummary>().nullable(),
+  editedAt: z.string().datetime().nullable(),
+  editedBy: z.object({ id: z.string().uuid(), name: z.string() }).nullable(),
+  // Anyone who can post in the channel can correct an ended call's summary.
+  canEdit: z.boolean(),
 })
 
 export const voicePresenceResponseSchema = z.object({

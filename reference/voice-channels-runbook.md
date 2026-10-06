@@ -704,6 +704,28 @@ chat when it's done, and everyone who was in the call follows that chat.
   show "↗ <channel> call". The gap rule is in Lor's chat prompt. Call times
   floor to the second so `nextFrom` never skips a line.
 
+- [x] 3 (built 2026-10-05): the summary on screen. `voice_session` gains
+  `summary_edited_at` and `summary_edited_by_id` — **db:push owed**.
+  `GET`/`PUT /v1/voice/sessions/{id}/summary`: status `live` |
+  `processing` | `ready` | `none`, the summary, who last edited it, and
+  `canEdit` (channel access + `canWrite`, the posting rule; ended and
+  processed calls only, so the after-call job never overwrites an edit).
+  A save replaces the summary and its `voice_passage` summary row in one
+  transaction (`saveEditedSummary`), re-embedded in the request (a failed
+  embed keeps keyword search), so Lor never cites the corrected version.
+  `summaryText`, `summaryPassageContext`, and `callDateLabel` moved to
+  packages/voice and the worker uses them. Web (Jacob, 2026-10-05: not its
+  own tab): the summary is a collapsible card at the top of an ended call's
+  Transcript tab, next to its evidence. It shows "Written by Lor" or
+  "Edited by <name> · <time>"; item times scroll the transcript below to
+  that moment and flash it; Edit (or "Add a summary" when there's none)
+  edits the paragraph and each list in place. Live calls show no card;
+  while Lor is writing, a "Lor is writing the summary…" line, polled every
+  10s. The recap Lor posted in the call chat stays as posted. Phone: not
+  yet (`reference/mobile-parity-todo.md`). Dev seed:
+  `apps/worker/src/scripts/seed-call-summary.ts <sessionId> [--edited]`
+  writes a fake summary, its passage, and a recap without notifications.
+
 - A summary per ended session (extend `packages/lor/src/meeting-insights.ts`)
   with decisions, open questions, and follow-ups; people can correct it.
 - Index each ended session's transcript as a source under channel access, with

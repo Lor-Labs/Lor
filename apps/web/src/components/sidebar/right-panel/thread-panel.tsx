@@ -256,7 +256,8 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
   })
 
   const rootMessage = threadApiRoot ?? channelCacheRoot
-  // A call chat's panel also holds the session transcript.
+  // A call chat's panel also holds the call's record: its summary and
+  // transcript.
   const showTranscript =
     view.callTab === "transcript" && voiceSessionId !== null
 

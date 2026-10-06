@@ -104,6 +104,7 @@ Deliberately parked until the composer/keyboard rework settles (active in messag
 - [ ] Approval buttons, Transcript tab, "Show on stage", step-back, tappable question choices, tool logos and reactions in Lor's window
 - [ ] Persistent call pill across navigation (today leaving the call screen ends the call)
 - [ ] Landscape full-screen share viewer, push deep links into a call, Android background (foreground service)
+- [ ] Call summary (V7 chunk 3, web 2026-10-05): show it for past calls with "Edited by", and the edit form for people who can post; `GET`/`PUT /v1/voice/sessions/{id}/summary`
 - [ ] Lor's `[[call:…]]` citations: the chip renders and opens the call's chat (V7, 2026-10-05); once the Transcript tab exists, open the transcript at the cited moment like web (`callAt`)
 
 ## Explicitly not gaps (don't chase)

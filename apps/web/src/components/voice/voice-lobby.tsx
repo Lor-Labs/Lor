@@ -223,8 +223,8 @@ export function VoiceLobby({
             <ul className="flex flex-col">
               {past.map((session) => {
                 const threadRootId = session.threadRootId
-                // The transcript is a call's main record; unread chat wins so
-                // the badge leads where it points.
+                // The record (summary, then transcript) is a call's main
+                // view; unread chat wins so the badge leads where it points.
                 const tab =
                   session.unreadCount > 0 || session.mentionCount > 0
                     ? "chat"

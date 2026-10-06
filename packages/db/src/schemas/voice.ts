@@ -65,6 +65,11 @@ export const voiceSession = pgTable(
     transcriberSeenAt: timestamp("transcriber_seen_at"),
     // Null for calls too short to summarize.
     summary: jsonb("summary").$type<VoiceSessionSummary>(),
+    // Set when a person corrects the summary; null while it's Lor's.
+    summaryEditedAt: timestamp("summary_edited_at"),
+    summaryEditedById: uuid("summary_edited_by_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
     // Set once the ended call is summarized and its passages indexed.
     memoryProcessedAt: timestamp("memory_processed_at"),
   },

@@ -1,8 +1,10 @@
+import { recordUsage } from "@repo/billing"
 import {
   listAccessibleChannelIds,
   resolveChannelAccess,
 } from "@repo/db/queries/channel-access"
 import { canSeeSession } from "@repo/db/queries/session-chat-access"
+import { embedDocumentsWithUsage } from "@repo/lor/embeddings"
 import { loadVoiceEntityCards } from "@repo/lor/voice-entities"
 import {
   countConnectedParticipants,
@@ -15,13 +17,17 @@ import {
   getLiveKitConfig,
   listSessionVoiceRequests,
   listTranscript,
+  loadCallSummary,
   markParticipantLeft,
   markVoiceRequestCancelled,
   notifyVoiceRequest,
   removeFromRoom,
+  saveEditedSummary,
   stageVoiceRequest as stageRequest,
+  summaryPassageFor,
 } from "@repo/voice/server"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
+import { logger } from "@/lib/logger"
 import { assertWorkspaceAuthority } from "@/lib/permissions"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import {
@@ -42,6 +48,7 @@ import type {
   CancelVoiceRequestRoute,
   ChooseVoiceRequestRoute,
   DismissVoiceRequestRoute,
+  GetCallSummaryRoute,
   GetVoiceCallRoute,
   GetVoicePresenceRoute,
   GetVoiceRequestEntitiesRoute,
@@ -53,6 +60,7 @@ import type {
   ListVoiceSessionsRoute,
   RemoveVoiceParticipantRoute,
   StageVoiceRequestRoute,
+  UpdateCallSummaryRoute,
 } from "@/routes/v1/voice/routes"
 
 // A session the user may read: channel access, plus the live-only rule.
@@ -168,6 +176,113 @@ export const getVoiceTranscript: AppRouteHandler<
     )
   }
   return c.json(transcript, HttpStatusCodes.OK)
+}
+
+// A call's summary as this person sees it; null when they can't see the call
+// (the transcript's rule). Editing needs posting rights in the channel.
+async function readCallSummary(userId: string, sessionId: string) {
+  const scope = await findSessionScope(sessionId)
+  const access = scope
+    ? await resolveChannelAccess(userId, scope.channelId)
+    : null
+  if (!scope || !access?.ok || !(await canSeeSession(userId, sessionId))) {
+    return null
+  }
+  const record = await loadCallSummary(sessionId)
+  if (!record) return null
+  const status = !record.endedAt
+    ? ("live" as const)
+    : !record.memoryProcessedAt
+      ? ("processing" as const)
+      : record.summary
+        ? ("ready" as const)
+        : ("none" as const)
+  return {
+    status,
+    summary: record.summary,
+    editedAt: record.editedAt?.toISOString() ?? null,
+    editedBy: record.editorId
+      ? { id: record.editorId, name: record.editorName ?? "Someone" }
+      : null,
+    canEdit:
+      access.access.canWrite && (status === "ready" || status === "none"),
+  }
+}
+
+export const getCallSummary: AppRouteHandler<GetCallSummaryRoute> = async (
+  c
+) => {
+  const { sessionId } = c.req.valid("param")
+  const summary = await readCallSummary(c.var.user.id, sessionId)
+  if (!summary) {
+    return c.json(
+      { success: false as const, message: "Call not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  return c.json(summary, HttpStatusCodes.OK)
+}
+
+export const updateCallSummary: AppRouteHandler<
+  UpdateCallSummaryRoute
+> = async (c) => {
+  const userId = c.var.user.id
+  const { sessionId } = c.req.valid("param")
+  const summary = c.req.valid("json")
+  const current = await readCallSummary(userId, sessionId)
+  if (!current) {
+    return c.json(
+      { success: false as const, message: "Call not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  if (current.status === "live" || current.status === "processing") {
+    return c.json(
+      { success: false as const, message: "The summary isn't written yet" },
+      HttpStatusCodes.CONFLICT
+    )
+  }
+  if (!current.canEdit) {
+    return c.json(
+      { success: false as const, message: "You can't post in this channel" },
+      HttpStatusCodes.FORBIDDEN
+    )
+  }
+  const passage = await summaryPassageFor(sessionId, summary)
+  if (!passage) {
+    return c.json(
+      { success: false as const, message: "Call not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  // A failed embed keeps the summary findable by keyword, as in the
+  // after-call job.
+  const embedding = await embedDocumentsWithUsage([
+    `${passage.context}\n${passage.text}`,
+  ])
+    .then((result) => {
+      void recordUsage(
+        {
+          workspaceId: passage.workspaceId,
+          tool: "voice.embed",
+          model: result.model,
+          inputTokens: result.tokens,
+        },
+        { channelId: passage.channelId }
+      )
+      return result.embeddings[0] ?? null
+    })
+    .catch((err: unknown) => {
+      logger.warn({ err, sessionId }, "Edited call summary embed failed")
+      return null
+    })
+  await saveEditedSummary(sessionId, {
+    summary,
+    editedById: userId,
+    passage: { ...passage, embedding },
+  })
+  const updated = await readCallSummary(userId, sessionId)
+  return c.json(updated ?? current, HttpStatusCodes.OK)
 }
 
 export const listVoiceRequests: AppRouteHandler<

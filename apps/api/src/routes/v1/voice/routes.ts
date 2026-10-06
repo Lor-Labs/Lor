@@ -13,6 +13,8 @@ import {
 import { sessionAuthMiddleware } from "@/middleware/session-auth"
 import { workspaceAuthMiddleware } from "@/middleware/workspace-auth"
 import {
+  callSummaryBodySchema,
+  callSummaryResponseSchema,
   cancelVoiceRequestResponseSchema,
   chooseVoiceRequestBodySchema,
   joinVoiceChannelResponseSchema,
@@ -210,6 +212,62 @@ export const getVoiceTranscript = createRoute({
 })
 
 export type GetVoiceTranscriptRoute = typeof getVoiceTranscript
+
+export const getCallSummary = createRoute({
+  path: "/voice/sessions/{sessionId}/summary",
+  method: "get",
+  summary: "Get a call's summary",
+  description:
+    "The summary Lor wrote after the call (summary, decisions, open questions, follow-ups), with who last corrected it. Same access as the transcript.",
+  tags: ["Voice"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: {
+    params: voiceSessionParamsSchema,
+  },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: callSummaryResponseSchema,
+      description: "Call summary",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type GetCallSummaryRoute = typeof getCallSummary
+
+export const updateCallSummary = createRoute({
+  path: "/voice/sessions/{sessionId}/summary",
+  method: "put",
+  summary: "Correct a call's summary",
+  description:
+    "Replaces an ended call's summary and re-indexes it for Lor's search, recording who edited it. Anyone who can post in the channel can edit.",
+  tags: ["Voice"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: {
+    params: voiceSessionParamsSchema,
+    body: jsonContent({
+      schema: callSummaryBodySchema,
+      description: "The corrected summary",
+    }),
+  },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: callSummaryResponseSchema,
+      description: "Call summary",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.CONFLICT]: conflictSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type UpdateCallSummaryRoute = typeof updateCallSummary
 
 export const listVoiceRequests = createRoute({
   path: "/voice/sessions/{sessionId}/requests",

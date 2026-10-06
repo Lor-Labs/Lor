@@ -3,12 +3,15 @@ import type { VoiceSessionSummary } from "@repo/db/schema"
 import { embedDocumentsWithUsage, summarizeCall } from "@repo/lor"
 import {
   buildSectionPassages,
+  callDateLabel,
   callWordCount,
   formatCallTime,
   listUnprocessedCalls,
   loadEndedCall,
   numberedCallTranscript,
   saveCallMemory,
+  summaryPassageContext,
+  summaryText,
 } from "@repo/voice/server"
 import { logger } from "@/lib/logger"
 import { type LorMessageDeps, postLorMessage } from "@/lib/lor-messages"
@@ -26,21 +29,6 @@ export async function queueMissedCallMemory() {
   for (const { id } of await listUnprocessedCalls(BACKSTOP_LIMIT)) {
     await enqueueCallMemory(id)
   }
-}
-
-function summaryText(summary: VoiceSessionSummary) {
-  const section = (title: string, items: VoiceSessionSummary["decisions"]) =>
-    items.length > 0
-      ? `**${title}**\n${items.map((item) => `- ${item.text}`).join("\n")}`
-      : ""
-  return [
-    summary.summary,
-    section("Decisions", summary.decisions),
-    section("Open questions", summary.openQuestions),
-    section("Follow-ups", summary.followUps),
-  ]
-    .filter(Boolean)
-    .join("\n\n")
 }
 
 // Tells everyone in the call what Lor did with it, so it never comes as a
@@ -73,11 +61,7 @@ export async function processCallMemory(
   }
 
   const channelName = call.channelName ?? "voice"
-  const date = call.startedAt.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  })
+  const date = callDateLabel(call.startedAt)
   const speakers = [
     ...new Set(
       call.lines.flatMap((line) =>
@@ -104,7 +88,7 @@ export async function processCallMemory(
             kind: "summary" as const,
             startMs: 0,
             endMs: durationMs,
-            context: `Summary of a call in #${channelName} on ${date}. Speakers: ${speakers.join(", ")}.`,
+            context: summaryPassageContext(channelName, date, speakers),
             text: summaryText(summary),
           },
         ]

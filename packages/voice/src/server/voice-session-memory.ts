@@ -208,6 +208,132 @@ export function buildSectionPassages(
 
 // Replaces the call's summary and passages in one go and marks it processed;
 // re-running rebuilds the same rows.
+// "Oct 5, 2026", as passages label the call.
+export function callDateLabel(startedAt: Date) {
+  return startedAt.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  })
+}
+
+// The summary as text: for its search passage and Lor's recap.
+export function summaryText(summary: VoiceSessionSummary) {
+  const section = (title: string, items: VoiceSessionSummary["decisions"]) =>
+    items.length > 0
+      ? `**${title}**\n${items.map((item) => `- ${item.text}`).join("\n")}`
+      : ""
+  return [
+    summary.summary,
+    section("Decisions", summary.decisions),
+    section("Open questions", summary.openQuestions),
+    section("Follow-ups", summary.followUps),
+  ]
+    .filter(Boolean)
+    .join("\n\n")
+}
+
+export function summaryPassageContext(
+  channelName: string,
+  date: string,
+  speakers: string[]
+) {
+  return `Summary of a call in #${channelName} on ${date}. Speakers: ${speakers.join(", ")}.`
+}
+
+// A call's summary for its record, with who last corrected it.
+export async function loadCallSummary(sessionId: string) {
+  const [row] = await db
+    .select({
+      endedAt: voiceSession.endedAt,
+      memoryProcessedAt: voiceSession.memoryProcessedAt,
+      summary: voiceSession.summary,
+      editedAt: voiceSession.summaryEditedAt,
+      editorId: user.id,
+      editorName: user.name,
+    })
+    .from(voiceSession)
+    .leftJoin(user, eq(user.id, voiceSession.summaryEditedById))
+    .where(eq(voiceSession.id, sessionId))
+    .limit(1)
+  return row ?? null
+}
+
+// The search passage for a corrected summary, labelled like the one the
+// after-call job wrote. Speakers are the people heard in the transcript.
+export async function summaryPassageFor(
+  sessionId: string,
+  summary: VoiceSessionSummary
+) {
+  const [call] = await db
+    .select({
+      workspaceId: voiceSession.workspaceId,
+      channelId: voiceSession.channelId,
+      channelName: channel.name,
+      startedAt: voiceSession.startedAt,
+      endedAt: voiceSession.endedAt,
+    })
+    .from(voiceSession)
+    .innerJoin(channel, eq(channel.id, voiceSession.channelId))
+    .where(eq(voiceSession.id, sessionId))
+    .limit(1)
+  if (!call?.endedAt) return null
+  const speakers = await db
+    .selectDistinct({ name: user.name })
+    .from(voiceTranscriptSegment)
+    .innerJoin(
+      voiceSessionParticipant,
+      eq(voiceSessionParticipant.id, voiceTranscriptSegment.participantId)
+    )
+    .innerJoin(user, eq(user.id, voiceSessionParticipant.userId))
+    .where(eq(voiceTranscriptSegment.sessionId, sessionId))
+  return {
+    workspaceId: call.workspaceId,
+    channelId: call.channelId,
+    startMs: 0,
+    endMs: call.endedAt.getTime() - call.startedAt.getTime(),
+    context: summaryPassageContext(
+      call.channelName ?? "voice",
+      callDateLabel(call.startedAt),
+      speakers.map((speaker) => speaker.name)
+    ),
+    text: summaryText(summary),
+  }
+}
+
+// The summary and its search passage change together, so Lor never cites
+// the version that was corrected.
+export async function saveEditedSummary(
+  sessionId: string,
+  edit: {
+    summary: VoiceSessionSummary
+    editedById: string
+    passage: Omit<NewVoicePassage, "id" | "createdAt" | "sessionId" | "kind">
+  }
+) {
+  await db.transaction(async (tx) => {
+    await tx
+      .delete(voicePassage)
+      .where(
+        and(
+          eq(voicePassage.sessionId, sessionId),
+          eq(voicePassage.kind, "summary")
+        )
+      )
+    await tx
+      .insert(voicePassage)
+      .values({ ...edit.passage, sessionId, kind: "summary" })
+    await tx
+      .update(voiceSession)
+      .set({
+        summary: edit.summary,
+        summaryEditedAt: new Date(),
+        summaryEditedById: edit.editedById,
+      })
+      .where(eq(voiceSession.id, sessionId))
+  })
+}
+
 export async function saveCallMemory(
   sessionId: string,
   memory: {
