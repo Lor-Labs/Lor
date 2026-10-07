@@ -1,3 +1,4 @@
+import CameraRotated01Icon from "@hugeicons/core-free-icons/CameraRotated01Icon"
 import Mic01Icon from "@hugeicons/core-free-icons/Mic01Icon"
 import MicOff01Icon from "@hugeicons/core-free-icons/MicOff01Icon"
 import Video01Icon from "@hugeicons/core-free-icons/Video01Icon"
@@ -31,7 +32,7 @@ import { Avatar } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { IconButton } from "@/components/ui/icon-button"
 import { Skeleton } from "@/components/ui/skeleton"
-import type { JoinDevices } from "@/context/voice-call-context"
+import type { CameraFacing, JoinDevices } from "@/context/voice-call-context"
 import { useWorkspace } from "@/context/workspace-context"
 import {
   useVoiceSessions,
@@ -122,8 +123,14 @@ function DeviceToggle({
 
 // Your camera, before you join. Started only when you turn the camera on, so
 // opening a voice channel never asks for camera access; stopped when it's
-// turned off or you join.
-function CameraPreview({ onFail }: { onFail: () => void }) {
+// turned off or you join, and restarted on the other side when flipped.
+function CameraPreview({
+  facing,
+  onFail,
+}: {
+  facing: CameraFacing
+  onFail: () => void
+}) {
   const [stream, setStream] = useState<MediaStream | null>(null)
   const failRef = useRef(onFail)
   failRef.current = onFail
@@ -131,7 +138,7 @@ function CameraPreview({ onFail }: { onFail: () => void }) {
     let cancelled = false
     let current: MediaStream | null = null
     mediaDevices
-      .getUserMedia({ video: { facingMode: "user" }, audio: false })
+      .getUserMedia({ video: { facingMode: facing }, audio: false })
       .then((next) => {
         if (cancelled) {
           for (const track of next.getTracks()) track.stop()
@@ -145,11 +152,11 @@ function CameraPreview({ onFail }: { onFail: () => void }) {
       cancelled = true
       for (const track of current?.getTracks() ?? []) track.stop()
     }
-  }, [])
+  }, [facing])
   if (!stream) return null
   return (
     <RTCView
-      mirror
+      mirror={facing === "user"}
       objectFit="cover"
       streamURL={stream.toURL()}
       style={StyleSheet.absoluteFill}
@@ -180,8 +187,10 @@ function CallHero({
   const { width } = useWindowDimensions()
   const { data: auth } = authClient.useSession()
   const { avatarColor } = useWorkspace()
+  const [foreground] = useThemeColor(["foreground"])
   const [microphone, setMicrophone] = useState(true)
   const [camera, setCamera] = useState(false)
+  const [facing, setFacing] = useState<CameraFacing>("user")
   // The preview lets go of the camera before the call takes it.
   const [previewing, setPreviewing] = useState(true)
   const connected = session?.participants.filter((p) => p.connected) ?? []
@@ -200,11 +209,12 @@ function CallHero({
   return (
     <View className="gap-four">
       <View
-        className="overflow-hidden rounded-lor-lg bg-surface-secondary"
+        className="overflow-hidden rounded-lor-lg border border-border bg-surface-secondary"
         style={{ height: previewHeight }}
       >
         {camera && previewing ? (
           <CameraPreview
+            facing={facing}
             onFail={() => {
               setCamera(false)
               Alert.alert("Camera unavailable")
@@ -224,6 +234,38 @@ function CallHero({
             <Text className="text-[14px] text-muted">Camera is off</Text>
           </View>
         )}
+        {/* Your name like a call tile's, and front or back camera while it's
+            on, like Meet's. */}
+        <View className="absolute inset-x-three top-three flex-row items-center gap-two">
+          {auth?.user ? (
+            <View className="shrink rounded-lor-sm bg-background/80 px-one">
+              <Text
+                className="text-[12px] font-medium text-foreground"
+                numberOfLines={1}
+              >
+                {auth.user.name}
+              </Text>
+            </View>
+          ) : null}
+          {camera && previewing ? (
+            <IconButton
+              accessibilityLabel="Switch camera"
+              className="ml-auto rounded-full"
+              isDisabled={joinDisabled}
+              onPress={() =>
+                setFacing((side) => (side === "user" ? "environment" : "user"))
+              }
+              variant="secondary"
+            >
+              <HugeiconsIcon
+                color={foreground}
+                icon={CameraRotated01Icon}
+                size={18}
+                strokeWidth={2}
+              />
+            </IconButton>
+          ) : null}
+        </View>
         <View className="absolute inset-x-0 bottom-three flex-row justify-center gap-three">
           <DeviceToggle
             disabled={joinDisabled}
@@ -268,7 +310,7 @@ function CallHero({
         isDisabled={joinDisabled}
         onPress={() => {
           setPreviewing(false)
-          onJoin({ microphone, camera })
+          onJoin({ microphone, camera, facing })
         }}
         size="lg"
       >

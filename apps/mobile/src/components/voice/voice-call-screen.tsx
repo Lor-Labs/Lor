@@ -1,9 +1,11 @@
+import CameraRotated01Icon from "@hugeicons/core-free-icons/CameraRotated01Icon"
 import FullScreenIcon from "@hugeicons/core-free-icons/FullScreenIcon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
 import {
   isTrackReference,
   type TrackReferenceOrPlaceholder,
   useIsSpeaking,
+  useLocalParticipant,
   useTracks,
   VideoTrack,
 } from "@livekit/react-native"
@@ -51,6 +53,7 @@ function ParticipantTile({
 }) {
   const { participant } = trackRef
   const isSpeaking = useIsSpeaking(participant)
+  const { cameraFacing } = useVoiceCall()
   const showVideo = isTrackReference(trackRef) && !trackRef.publication.isMuted
   const name = participant.name || participant.identity
 
@@ -63,7 +66,7 @@ function ParticipantTile({
     >
       {showVideo ? (
         <VideoTrack
-          mirror={participant.isLocal}
+          mirror={participant.isLocal && cameraFacing === "user"}
           objectFit="cover"
           style={StyleSheet.absoluteFill}
           trackRef={trackRef}
@@ -194,6 +197,29 @@ function CallStage({ sessionId }: { sessionId: string }) {
   )
 }
 
+// Front or back camera while yours is on. In the header, like Meet's and
+// Discord's, so the controls row keeps its shape.
+function FlipCameraButton() {
+  const [foreground] = useThemeColor(["foreground"])
+  const { isCameraEnabled } = useLocalParticipant()
+  const { flipCamera } = useVoiceCall()
+  if (!isCameraEnabled) return null
+  return (
+    <IconButton
+      accessibilityLabel="Switch camera"
+      onPress={() => void flipCamera()}
+      variant="ghost"
+    >
+      <HugeiconsIcon
+        color={foreground}
+        icon={CameraRotated01Icon}
+        size={20}
+        strokeWidth={2}
+      />
+    </IconButton>
+  )
+}
+
 // The call itself lives in VoiceCallProvider, so leaving this screen keeps
 // it; the floating call tile brings you back.
 export function VoiceCallScreen({
@@ -245,6 +271,7 @@ export function VoiceCallScreen({
         >
           {channelName}
         </Text>
+        {inThisCall ? <FlipCameraButton /> : null}
       </View>
       {inThisCall ? (
         <View className="flex-1">

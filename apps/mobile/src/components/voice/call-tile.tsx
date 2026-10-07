@@ -95,6 +95,7 @@ function FeaturedParticipant({
 }) {
   const { participant } = trackRef
   const isSpeaking = useIsSpeaking(participant)
+  const { cameraFacing } = useVoiceCall()
   const showVideo = isTrackReference(trackRef) && !trackRef.publication.isMuted
   const name = participant.name || participant.identity
 
@@ -107,7 +108,7 @@ function FeaturedParticipant({
     >
       {showVideo ? (
         <VideoTrack
-          mirror={participant.isLocal}
+          mirror={participant.isLocal && cameraFacing === "user"}
           objectFit="cover"
           style={StyleSheet.absoluteFill}
           trackRef={trackRef}

@@ -29,7 +29,10 @@ import { IconButton } from "@/components/ui/icon-button"
 import { Tabs } from "@/components/ui/tabs"
 import { CallTranscript } from "@/components/voice/call-transcript"
 import { LorSimulatorButton } from "@/components/voice/lor-simulator"
-import type { ActiveVoiceCall } from "@/context/voice-call-context"
+import {
+  type ActiveVoiceCall,
+  useVoiceCall,
+} from "@/context/voice-call-context"
 
 const GRABBER_HEIGHT = 20
 const CONTROLS_HEIGHT = 64
@@ -59,6 +62,7 @@ function CallControls({
   ])
   const { localParticipant, isMicrophoneEnabled, isCameraEnabled } =
     useLocalParticipant()
+  const { cameraFacing } = useVoiceCall()
 
   const toggleMicrophone = async () => {
     try {
@@ -69,7 +73,9 @@ function CallControls({
   }
   const toggleCamera = async () => {
     try {
-      await localParticipant.setCameraEnabled(!isCameraEnabled)
+      await localParticipant.setCameraEnabled(!isCameraEnabled, {
+        facingMode: cameraFacing,
+      })
     } catch {
       Alert.alert("Camera unavailable")
     }

@@ -4,6 +4,7 @@ import {
   DisconnectReason,
   Room,
   RoomEvent,
+  Track,
 } from "livekit-client"
 import {
   createContext,
@@ -36,9 +37,19 @@ export type JoinTarget = Pick<
   "workspaceId" | "channelId" | "channelName"
 >
 
+export type CameraFacing = "user" | "environment"
+
 // How someone enters a call, chosen on the pre-join screen.
-export type JoinDevices = { microphone: boolean; camera: boolean }
-const DEFAULT_DEVICES: JoinDevices = { microphone: true, camera: false }
+export type JoinDevices = {
+  microphone: boolean
+  camera: boolean
+  facing: CameraFacing
+}
+const DEFAULT_DEVICES: JoinDevices = {
+  microphone: true,
+  camera: false,
+  facing: "user",
+}
 
 type VoiceCallContextValue = {
   // The call this phone is connected to.
@@ -46,6 +57,9 @@ type VoiceCallContextValue = {
   joining: boolean
   join: (target: JoinTarget, devices?: JoinDevices) => Promise<void>
   leave: () => Promise<void>
+  // Front or back camera; your own video is mirrored only for the front.
+  cameraFacing: CameraFacing
+  flipCamera: () => Promise<void>
 }
 
 const VoiceCallContext = createContext<VoiceCallContextValue | null>(null)
@@ -69,6 +83,10 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
   )
   const [call, setCall] = useState<ActiveVoiceCall | null>(null)
   const [joining, setJoining] = useState(false)
+  const [cameraFacing, setCameraFacing] = useState<CameraFacing>("user")
+  const facingRef = useRef(cameraFacing)
+  facingRef.current = cameraFacing
+  const flippingRef = useRef(false)
   const callRef = useRef(call)
   callRef.current = call
   const socket = useSocket()
@@ -134,6 +152,7 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
         const { url, token, sessionId, threadRootId } = await res.json()
         await room.connect(url, token)
         setCall({ ...target, sessionId, threadRootId, connectedAt: Date.now() })
+        setCameraFacing(devices.facing)
         if (devices.microphone) {
           try {
             await room.localParticipant.setMicrophoneEnabled(true)
@@ -143,7 +162,9 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
         }
         if (devices.camera) {
           try {
-            await room.localParticipant.setCameraEnabled(true)
+            await room.localParticipant.setCameraEnabled(true, {
+              facingMode: devices.facing,
+            })
           } catch {
             Alert.alert("Camera unavailable")
           }
@@ -160,14 +181,33 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
     [room, leave]
   )
 
+  // LiveKit keeps the new facing in the track's constraints, so turning the
+  // camera off and on again stays on the same side.
+  const flipCamera = useCallback(async () => {
+    const track = room.localParticipant.getTrackPublication(
+      Track.Source.Camera
+    )?.videoTrack
+    if (!track || flippingRef.current) return
+    flippingRef.current = true
+    const next = facingRef.current === "user" ? "environment" : "user"
+    try {
+      await track.restartTrack({ facingMode: next })
+      setCameraFacing(next)
+    } catch {
+      Alert.alert("Couldn't switch cameras")
+    } finally {
+      flippingRef.current = false
+    }
+  }, [room])
+
   // Signing out ends the call.
   useEffect(() => {
     if (!userId && callRef.current) void leave()
   }, [userId, leave])
 
   const value = useMemo(
-    () => ({ call, joining, join, leave }),
-    [call, joining, join, leave]
+    () => ({ call, joining, join, leave, cameraFacing, flipCamera }),
+    [call, joining, join, leave, cameraFacing, flipCamera]
   )
 
   return (

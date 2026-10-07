@@ -772,6 +772,22 @@ stage", and step-back wait for the rest of V6.
   are `shrink-0`, so natural widths overflowed), long names truncated,
   each centered in its share. The camera-off avatar is sized like the account
   settings one (`size-20`, `text-lg`).
+- [x] Polish B2 (Jacob, 2026-10-06), the phone: the pre-join gets web's
+  refinements (bordered card, your name like a call tile) and front/back
+  camera in place of web's device row, since iOS picks the microphone and
+  speaker itself. Jacob: camera flip is required before release. A flip
+  button on the preview while the camera is on restarts the preview on the
+  other side; the choice goes in `JoinDevices.facing` and the camera opens
+  with it (`setCameraEnabled(true, { facingMode })`). In the call, the
+  header shows the flip while your camera is on (like Meet's and
+  Discord's, so the controls row keeps its shape). `flipCamera` in the call
+  context calls `LocalVideoTrack.restartTrack({ facingMode })`; LiveKit
+  keeps that in the track's constraints, so turning the camera off and on
+  stays on the same side, and the in-call camera toggle passes the same
+  facing for a fresh track. Your own video is mirrored only for the front
+  camera (stage, floating tile, preview). Verified in source: LiveKit's
+  `deviceId: { ideal: "default" }` matches no real camera, so iOS and
+  Android both fall back to `facingMode`.
 
 - Voice channel screen (history, live session, Join or "Transfer here") from
   `apps/mobile/src/app/channel/[channelId]/index.tsx` for voice channels.

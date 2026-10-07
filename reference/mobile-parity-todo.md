@@ -107,6 +107,7 @@ Deliberately parked until the composer/keyboard rework settles (active in messag
 - [x] Full-screen share viewer (rotate, pinch and double-tap zoom) and push deep links into a call (worked already) — 2026-10-06
 - [ ] Android background call audio: needs our own `microphone` foreground service (not in the LiveKit SDK or its Expo plugin), a native build, and an Android device — deferred
 - [x] Voice channel screen before joining: live call card (who's in, how long, Join or "Transfer here") and past calls with unread dots and mention counts; a past call opens its chat — 2026-10-06
+- [x] Pre-join like web's (camera preview, mic and camera toggles, your name) and front/back camera before and during a call, in place of web's device pickers — 2026-10-06
 - [x] Lor's call summary card, read-only (`call-summary-card.tsx`): title, day, length, faces, decisions, open questions, action items, byline — 2026-10-06
 - [x] Transcript tab (speaker turns, gaps, Lor's results inline), opening at a moment from summary-card times, "Open transcript", and `[[call:…]]` citations — 2026-10-06
 - [ ] Live captions in the phone's transcript (today a live call refetches saved lines every 10s)
