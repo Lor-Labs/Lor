@@ -866,9 +866,13 @@ stage", and step-back wait for the rest of V6.
   button: the left half toggles, an up chevron opens the menu (the
   microphone's lists speakers too, where `setSinkId` exists). Both halves
   stay outlined while on (Jacob: no grey fill), the icon showing the
-  state. Share, captions, and chat show on with a primary tint (fill,
-  border, icon), off as a plain outline; the grey "secondary" fill read
-  too close to off. A muted microphone takes
+  state. On and off read by brightness, with no added colour: off is a dim
+  (`muted-foreground`) icon in the outline, on (share, captions, chat
+  open) a bright icon on a subtle `accent` fill; a camera that's off, the
+  device chevrons, and the dev simulator are dim too. Tried first and
+  rejected by Jacob: the grey "secondary" fill with bright icons (too close
+  to off), a primary tint (an added colour), and an inverted solid fill
+  like Meet's (too loud). A muted microphone takes
   Discord's red (Jacob wanted only the colour, not its layout): both
   halves tinted `destructive`, with a dark divider. The menus read the shared
   device list and open through `useDeviceMenu` (asks for access first

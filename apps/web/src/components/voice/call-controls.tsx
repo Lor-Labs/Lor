@@ -187,10 +187,12 @@ const DIVIDER_BRIDGE =
 // A muted microphone, red like Discord's: both halves, with a dark divider.
 const MUTED =
   "bg-destructive/12 text-destructive-foreground hover:bg-destructive/20 data-pressed:bg-destructive/20"
-// A feature that's on (sharing, captions, chat open): tinted with the
-// primary colour, so on and off can't be confused. Off is a plain outline.
+// On and off read by brightness, with no added colour: off is a dim icon in
+// the outline, on (sharing, captions, chat open) a bright icon on a subtle
+// fill. A camera that's off and the device chevrons are dim too.
+const DIM = "text-muted-foreground hover:text-foreground"
 const ACTIVE =
-  "border-primary/40 bg-primary/15 text-primary hover:bg-primary/20 data-pressed:bg-primary/20"
+  "bg-accent text-foreground hover:bg-accent/80 data-pressed:bg-accent/80"
 
 function ControlButton({
   tooltip,
@@ -227,7 +229,10 @@ function ControlButton({
           aria-pressed={pressed}
           disabled={disabled}
           onClick={onClick}
-          className={cn(bridge && TOOLTIP_BRIDGE, active && ACTIVE)}
+          className={cn(
+            bridge && TOOLTIP_BRIDGE,
+            active ? ACTIVE : !destructive && DIM
+          )}
         />
       }
     >
@@ -284,7 +289,7 @@ function DeviceSplitButton({
             aria-label={label}
             disabled={pending}
             onClick={onToggle}
-            className={cn(DIVIDER_BRIDGE, alert && MUTED)}
+            className={cn(DIVIDER_BRIDGE, alert ? MUTED : !on && DIM)}
           />
         }
       >
@@ -307,7 +312,7 @@ function DeviceSplitButton({
                   variant={alert ? "ghost" : "outline"}
                   aria-label={menuLabel}
                   disabled={devices === null || menu.asking}
-                  className={cn(TOOLTIP_BRIDGE, alert && MUTED)}
+                  className={cn(TOOLTIP_BRIDGE, alert ? MUTED : DIM)}
                 />
               }
             />
@@ -445,7 +450,7 @@ export function CallControls() {
         {import.meta.env.DEV && (
           <LorSimulatorMenu
             tooltipHandle={tooltip}
-            className={TOOLTIP_BRIDGE}
+            className={cn(TOOLTIP_BRIDGE, DIM)}
           />
         )}
         <ControlButton
