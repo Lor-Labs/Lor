@@ -191,6 +191,8 @@ const voiceSessionSummarySchema = z.object({
   threadRootId: z.string().uuid().nullable(),
   startedAt: z.string().datetime(),
   endedAt: z.string().datetime().nullable(),
+  // Lor's name for the call, once it has summarized it.
+  title: z.string().nullable(),
   live: z.boolean(),
   replyCount: z.number().int(),
   // Chat replies from others and direct mentions since the viewer last read.

@@ -15,7 +15,7 @@ import { HugeiconsIcon } from "@hugeicons/react-native"
 import { useLocalParticipant } from "@livekit/react-native"
 import { useThemeColor } from "heroui-native/hooks"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { Alert, Keyboard, Platform, StyleSheet, View } from "react-native"
+import { Alert, Keyboard, Platform, StyleSheet, Text, View } from "react-native"
 import Animated, {
   Extrapolation,
   interpolate,
@@ -48,11 +48,14 @@ export function useCallSheetPeekHeight() {
 function CallControls({
   sessionId,
   chatOpen,
+  chatUnread,
   onToggleChat,
   onLeave,
 }: {
   sessionId: string
   chatOpen: boolean
+  // Zero while the chat is on screen.
+  chatUnread: number
   onToggleChat: () => void
   onLeave: () => void
 }) {
@@ -128,18 +131,32 @@ function CallControls({
         />
       </IconButton>
       <LorSimulatorButton sessionId={sessionId} />
-      <IconButton
-        accessibilityLabel={chatOpen ? "Close call chat" : "Open call chat"}
-        onPress={onToggleChat}
-        variant="secondary"
-      >
-        <HugeiconsIcon
-          color={chatOpen ? accent : foreground}
-          icon={Message01Icon}
-          size={20}
-          strokeWidth={2}
-        />
-      </IconButton>
+      <View>
+        <IconButton
+          accessibilityLabel={`${chatOpen ? "Close call chat" : "Open call chat"}${
+            chatUnread > 0 ? `, ${chatUnread} unread` : ""
+          }`}
+          onPress={onToggleChat}
+          variant="secondary"
+        >
+          <HugeiconsIcon
+            color={chatOpen ? accent : foreground}
+            icon={Message01Icon}
+            size={20}
+            strokeWidth={2}
+          />
+        </IconButton>
+        {chatUnread > 0 ? (
+          <View
+            className="absolute -top-1 -right-1 h-[18px] min-w-[18px] items-center justify-center rounded-full bg-accent px-1"
+            pointerEvents="none"
+          >
+            <Text className="text-[11px] font-bold leading-[13px] text-accent-foreground">
+              {chatUnread > 99 ? "99+" : chatUnread}
+            </Text>
+          </View>
+        ) : null}
+      </View>
       <IconButton
         accessibilityLabel="Leave call"
         onPress={onLeave}
@@ -289,6 +306,12 @@ export function CallSheet({
     sheetRef.current?.snapToIndex(TOP_INDEX)
   }, [open])
 
+  const { chatUnread, clearChatUnread } = useVoiceCall()
+  const chatVisible = open && tab === "chat"
+  useEffect(() => {
+    if (chatVisible && chatUnread > 0) clearChatUnread()
+  }, [chatVisible, chatUnread, clearChatUnread])
+
   // Typing needs the room: the composer's keyboard lifts the drawer to the
   // top dock.
   useEffect(() => {
@@ -315,13 +338,14 @@ export function CallSheet({
         </View>
         <CallControls
           chatOpen={open}
+          chatUnread={chatVisible ? 0 : chatUnread}
           onLeave={onLeave}
           onToggleChat={toggleChat}
           sessionId={call.sessionId}
         />
       </View>
     ),
-    [muted, open, onLeave, toggleChat, call.sessionId]
+    [muted, open, chatVisible, chatUnread, onLeave, toggleChat, call.sessionId]
   )
 
   // The tabs and their content fade in as the drawer rises.

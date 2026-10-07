@@ -68,7 +68,10 @@ function SessionRow({
   const minutes = session.endedAt
     ? differenceInMinutes(session.startedAt, session.endedAt)
     : 0
+  const when = `${getDayLabel(session.startedAt)} · ${formatTime(session.startedAt)}`
+  // Once Lor has named the call, the name leads and the time moves down.
   const details = [
+    session.title ? when : null,
     formatDuration(minutes),
     plural(session.participants.length, "person", "people"),
     session.replyCount > 0
@@ -90,7 +93,7 @@ function SessionRow({
               : "font-medium text-foreground/80"
           )}
         >
-          {getDayLabel(session.startedAt)} · {formatTime(session.startedAt)}
+          {session.title ?? when}
         </div>
         <div className="truncate text-xs text-muted-foreground">
           {details.join(" · ")}

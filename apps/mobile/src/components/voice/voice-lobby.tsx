@@ -30,10 +30,17 @@ import {
 import { MentionBadge } from "@/components/channel-list"
 import { Avatar } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
+import { triggerHaptic } from "@/components/ui/haptics"
 import { IconButton } from "@/components/ui/icon-button"
 import { Skeleton } from "@/components/ui/skeleton"
+import { CallActionsSheet } from "@/components/voice/call-actions-sheet"
 import type { CameraFacing, JoinDevices } from "@/context/voice-call-context"
 import { useWorkspace } from "@/context/workspace-context"
+import {
+  isCallBeingDeleted,
+  useCanDeleteCalls,
+  useDeleteCall,
+} from "@/hooks/use-delete-call"
 import {
   useVoiceSessions,
   type VoiceParticipant,
@@ -325,18 +332,15 @@ function CallHero({
   )
 }
 
-function CallRow({
-  session,
-  onOpen,
-}: {
-  session: VoiceSessionSummary
-  onOpen: (() => void) | null
-}) {
+// Once Lor has named the call, the name leads and the time moves down. Same
+// as web.
+function callLabels(session: VoiceSessionSummary) {
   const minutes = session.endedAt
     ? differenceInMinutes(session.startedAt, session.endedAt)
     : 0
   const when = `${getDayLabel(session.startedAt)} · ${formatTime(session.startedAt)}`
   const details = [
+    session.title ? when : null,
     formatDuration(minutes),
     plural(session.participants.length, "person", "people"),
     session.replyCount > 0
@@ -345,12 +349,26 @@ function CallRow({
   ]
     .filter(Boolean)
     .join(" · ")
+  return { name: session.title ?? when, details }
+}
+
+function CallRow({
+  session,
+  onOpen,
+  onLongPress,
+}: {
+  session: VoiceSessionSummary
+  onOpen: (() => void) | null
+  // Only for people allowed to delete calls.
+  onLongPress: (() => void) | null
+}) {
+  const { name, details } = callLabels(session)
   const emphasized = session.unreadCount > 0 || session.mentionCount > 0
 
   return (
     <Pressable
       accessibilityHint={onOpen ? "Opens the call chat" : undefined}
-      accessibilityLabel={`${when}, ${details}${
+      accessibilityLabel={`${name}, ${details}${
         session.mentionCount > 0
           ? `, ${plural(session.mentionCount, "mention", "mentions")}`
           : session.unreadCount > 0
@@ -359,7 +377,8 @@ function CallRow({
       }`}
       accessibilityRole={onOpen ? "button" : undefined}
       className="min-h-[56px] flex-row items-center gap-three rounded-lor-sm px-two py-two active:bg-surface-secondary"
-      disabled={!onOpen}
+      disabled={!onOpen && !onLongPress}
+      onLongPress={onLongPress ?? undefined}
       onPress={onOpen ?? undefined}
     >
       <ParticipantStack participants={session.participants} />
@@ -372,7 +391,7 @@ function CallRow({
           }`}
           numberOfLines={1}
         >
-          {when}
+          {name}
         </Text>
         <Text className="text-[13px] text-muted" numberOfLines={1}>
           {details}
@@ -410,6 +429,7 @@ export function VoiceLobby({
   otherCallName: string | undefined
 }) {
   const { data: auth } = authClient.useSession()
+  const { workspace } = useWorkspace()
   const {
     data,
     isPending,
@@ -418,9 +438,16 @@ export function VoiceLobby({
     fetchNextPage,
     isFetchingNextPage,
   } = useVoiceSessions(channelId, workspaceId)
+  const canDelete = useCanDeleteCalls(workspaceId, workspace?.slug)
+  const deleteCall = useDeleteCall(channelId, workspace?.slug)
+  const [actionCall, setActionCall] = useState<VoiceSessionSummary | null>(null)
+  // Kept while the sheet closes, so its text doesn't vanish mid-animation.
+  const [sheetLabels, setSheetLabels] = useState({ name: "", details: "" })
   const sessions = data?.pages.flatMap((page) => page.sessions) ?? []
   const live = sessions.find((session) => session.live)
-  const past = sessions.filter((session) => !session.live)
+  const past = sessions.filter(
+    (session) => !session.live && !isCallBeingDeleted(session.id)
+  )
   // Joining moves the call here; the server ends it on the other device.
   const onAnotherDevice = Boolean(
     live?.participants.some(
@@ -481,6 +508,15 @@ export function VoiceLobby({
               return (
                 <CallRow
                   key={session.id}
+                  onLongPress={
+                    canDelete
+                      ? () => {
+                          triggerHaptic("medium")
+                          setSheetLabels(callLabels(session))
+                          setActionCall(session)
+                        }
+                      : null
+                  }
                   onOpen={
                     threadRootId ? () => onOpenCall(threadRootId, tab) : null
                   }
@@ -504,6 +540,18 @@ export function VoiceLobby({
           </Button>
         ) : null}
       </View>
+      <CallActionsSheet
+        description={sheetLabels.details}
+        isOpen={actionCall !== null}
+        onDelete={() => {
+          if (actionCall) deleteCall(actionCall)
+          setActionCall(null)
+        }}
+        onOpenChange={(isOpen) => {
+          if (!isOpen) setActionCall(null)
+        }}
+        title={sheetLabels.name}
+      />
     </ScrollView>
   )
 }

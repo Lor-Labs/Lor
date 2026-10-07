@@ -1,4 +1,5 @@
 import { RoomContext } from "@livekit/react-native"
+import type { RealtimeMessage } from "@repo/realtime-types"
 import * as SecureStore from "expo-secure-store"
 import {
   ConnectionState,
@@ -65,6 +66,9 @@ type VoiceCallContextValue = {
   // Per-device CC toggle, like web's: it only hides the stage's captions.
   captionsOn: boolean
   toggleCaptions: () => void
+  // Other people's call chat messages since the chat was last on screen.
+  chatUnread: number
+  clearChatUnread: () => void
 }
 
 const VoiceCallContext = createContext<VoiceCallContextValue | null>(null)
@@ -148,6 +152,22 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
       release()
     }
   }, [socket, threadRootId])
+
+  // Same count as web's, from the room held above.
+  const [chatUnread, setChatUnread] = useState(0)
+  useEffect(() => {
+    setChatUnread(0)
+    if (!socket || !threadRootId) return
+    const onMessageCreated = (message: RealtimeMessage) => {
+      if (message.threadRootId === threadRootId && message.author.id !== userId)
+        setChatUnread((count) => count + 1)
+    }
+    socket.on("message:created", onMessageCreated)
+    return () => {
+      socket.off("message:created", onMessageCreated)
+    }
+  }, [socket, threadRootId, userId])
+  const clearChatUnread = useCallback(() => setChatUnread(0), [])
 
   // The leave request is a hint; LiveKit's webhook is the authority.
   const leave = useCallback(async () => {
@@ -240,6 +260,8 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
       flipCamera,
       captionsOn,
       toggleCaptions,
+      chatUnread,
+      clearChatUnread,
     }),
     [
       call,
@@ -250,6 +272,8 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
       flipCamera,
       captionsOn,
       toggleCaptions,
+      chatUnread,
+      clearChatUnread,
     ]
   )
 

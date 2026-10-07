@@ -41,6 +41,7 @@ type SessionRow = {
   threadRootId: string | null
   startedAt: Date
   endedAt: Date | null
+  title: string | null
   hasSummaryCard: boolean
   replyCount: number
   unreadCount: number
@@ -71,6 +72,8 @@ const sessionColumns = {
   threadRootId: voiceSession.threadRootId,
   startedAt: voiceSession.startedAt,
   endedAt: voiceSession.endedAt,
+  // The summary's title, people's correction included.
+  title: sql<string | null>`${voiceSession.summary}->>'title'`,
   hasSummaryCard: sql<boolean>`${voiceSession.summaryCardMessageId} is not null`,
   replyCount,
 }
@@ -193,6 +196,7 @@ function toSummary(
     threadRootId: row.threadRootId,
     startedAt: row.startedAt.toISOString(),
     endedAt: row.endedAt?.toISOString() ?? null,
+    title: row.title,
     live,
     replyCount: hidden ? 0 : row.replyCount,
     unreadCount: hidden ? 0 : row.unreadCount,

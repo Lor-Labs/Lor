@@ -112,7 +112,8 @@ Deliberately parked until the composer/keyboard rework settles (active in messag
 - [x] Transcript tab (speaker turns, gaps, Lor's results inline), opening at a moment from summary-card times, "Open transcript", and `[[call:…]]` citations — 2026-10-06
 - [x] Live captions: over the stage with a CC button remembered on the device, and in the transcript of the call you're in (replaces the 10s refetch) — 2026-10-06
 - [ ] Summary card edit form (`PUT /v1/voice/summary-cards/{messageId}`)
-- [ ] Delete a call with Undo (web: "…" on a past call row, `voice: ["delete"]`)
+- [x] Delete a call with Undo: long-press a past call, 10s Undo toast — 2026-10-06
+- [x] Lor's call title on past-call rows, and an unread count on the call drawer's chat button — 2026-10-06
 
 ## Explicitly not gaps (don't chase)
 

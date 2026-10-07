@@ -807,6 +807,20 @@ stage", and step-back wait for the rest of V6.
   call this phone is in merges caption lines (dimmed until final) in place
   of the old 10s polling, naming late joiners from the call, and Lor's
   window shows the speaker's live words while it listens.
+- [x] Polish D (Jacob, 2026-10-06):
+  - Past-call rows lead with Lor's title once the call is summarized, the
+    day and time moving into the detail line (web and phone). The history
+    and detail responses carry `title`, read as `summary->>'title'`, so a
+    person's correction shows too; null until Lor summarizes.
+  - The phone deletes a call by long-press (people with `voice: ["delete"]`,
+    checked like `useMemberModeration`: custom roles count as members and
+    the server enforces the grant). A haptic, then `CallActionsSheet` with
+    Delete; `hooks/use-delete-call.ts` mirrors web's: the row hides at
+    once, the delete is sent after 10s, Undo in a HeroUI toast never sends
+    it, and going to the background sends waiting deletes at once.
+  - The drawer's chat button shows a count of other people's call chat
+    messages (accent badge), counted in the call context from the thread
+    room it already holds and cleared while the drawer shows the Chat tab.
 
 - Voice channel screen (history, live session, Join or "Transfer here") from
   `apps/mobile/src/app/channel/[channelId]/index.tsx` for voice channels.
