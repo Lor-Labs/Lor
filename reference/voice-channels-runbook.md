@@ -1380,12 +1380,12 @@ Database, before the API and worker deploy from main:
 
 LiveKit Cloud:
 
-- [ ] Move the project to the Ship plan (see Prerequisites).
-- [ ] Settings › Data and privacy: Agent observability stays off. The spec
+- [x] Move the project to the Ship plan (see Prerequisites).
+- [x] Settings › Data and privacy: Agent observability stays off. The spec
       bans recordings, and the per-session `record` option only exists on
       `AgentSession.start()`, which the transcriber doesn't use, so this
       project setting is the only control.
-- [ ] Webhook: `https://<production API host>/v1/voice/livekit/webhook`,
+- [x] Webhook: `https://<production API host>/v1/voice/livekit/webhook`,
       signed with the same API key as `LIVEKIT_API_KEY`. Remove any ngrok
       webhook URLs; LiveKit sends every event to every configured URL.
 - [ ] Optional: a separate LiveKit project for local development, so laptops
@@ -1394,39 +1394,50 @@ LiveKit Cloud:
 
 Railway, all of API, worker, and transcriber:
 
-- [ ] The same `LIVEKIT_URL`, `LIVEKIT_API_KEY`, and `LIVEKIT_API_SECRET`.
+- [x] The same `LIVEKIT_URL`, `LIVEKIT_API_KEY`, and `LIVEKIT_API_SECRET`.
 
 Railway, transcriber service (`apps/transcriber/Dockerfile`, repo root as the
 build context):
 
-- [ ] The worker's variables plus `DEEPGRAM_API_KEY`. The Dockerfile sets
-      `NODE_ENV=production`, which selects the `lor-transcriber` agent name and
-      the SDK's production mode.
-- [ ] `PORT=8081`. In production mode the agents SDK serves a health endpoint
+- [ ] Only the variables it reads: `DATABASE_URL`, `REDIS_URL`,
+      `AI_GATEWAY_API_KEY` (Jev), the three `LIVEKIT_*`, and
+      `DEEPGRAM_API_KEY`. Never the worker's full set: the transcriber and the
+      shared code it loads (`@repo/db`, `@repo/voice/server`) validate only
+      their own variables through `readServerEnv` in
+      `@repo/env/server-fields`, never the full server schema (2026-10-07).
+      A missing one fails startup with a ZodError naming it; in production a
+      missing LiveKit or Deepgram variable also stops startup. The
+      Dockerfile sets `NODE_ENV=production`, which selects the
+      `lor-transcriber` agent name and the SDK's production mode.
+- [x] `PORT=8081`. In production mode the agents SDK serves a health endpoint
       on 8081: `/` returns 200 only while it's connected to LiveKit (503
       otherwise), and `/worker` returns JSON with the active call count.
       Railway health-checks whatever `PORT` says.
-- [ ] Health check path `/`. Railway makes a new deployment active only after
+- [x] Health check path `/`. Railway makes a new deployment active only after
       this returns 2xx (it retries for up to 5 minutes by default), so a broken
       build never replaces a working one.
-- [ ] `RAILWAY_DEPLOYMENT_DRAINING_SECONDS=3600`. Railway's default is 0, which
+- [x] `RAILWAY_DEPLOYMENT_DRAINING_SECONDS=3600`. Railway's default is 0, which
       would SIGKILL the old copy at once and cut transcription in every live
       call. With 3600, the old copy gets SIGTERM, the SDK stops taking new calls
       and lets current ones finish (its own drain limit is 60 minutes), while
       the new copy takes new calls. A call still running after an hour gets a
       fresh transcriber from the 10-minute audit, with the missing stretch
-      recorded as a gap.
-- [ ] Before launch, check two things not yet verified: whether Railway caps
-      the draining time, and whether these settings can live in a checked-in
-      Railway config file instead of the dashboard.
+      recorded as a gap. Set in the dashboard as Teardown enabled, Overlap 0,
+      Draining 3600: overlap only delays the SIGTERM, which the SDK's own
+      drain already covers.
+- [ ] Before launch, check whether Railway caps the draining time; its docs
+      (2026-10-07) state no maximum. Config as code is supported
+      (`deploy.drainingSeconds`, `overlapSeconds`, `healthcheckPath`), so the
+      dashboard settings could move into a checked-in Railway config file.
 - [ ] Scaling: add replicas when one copy runs hot. Each copy registers itself
       and LiveKit sends it new calls; no code change.
 
 Apple:
 
-- [ ] Accept the current agreements in App Store Connect (Business) and the
+- [x] Accept the current agreements in App Store Connect (Business) and the
       developer account. On 2026-10-07 the v0.7.0 desktop release, tagged
       automatically by the merge, failed at notarization with Apple's 403
       "A required agreement is missing or has expired". No release was
       published. Once accepted, re-run the failed job of that run; it
-      publishes to the updater for every user.
+      publishes to the updater for every user. Done 2026-10-07: notarization
+      accepted on the re-run, and 0.7.0 is live at releases.lor.chat.

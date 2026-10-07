@@ -1,10 +1,12 @@
-import { env } from "@repo/env/server"
+import { readServerEnv } from "@repo/env/server-fields"
 import {
   VOICE_REQUEST_JOB,
   VOICE_REQUEST_QUEUE,
   type VoiceRequestJobData,
 } from "@repo/realtime-types/queues"
 import { Queue } from "bullmq"
+
+const env = readServerEnv("REDIS_URL")
 
 function parseRedisUrl(url: string) {
   const parsed = new URL(url)

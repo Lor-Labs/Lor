@@ -1,4 +1,4 @@
-import { env } from "@repo/env/server"
+import { readServerEnv } from "@repo/env/server-fields"
 import {
   AccessToken,
   AgentDispatchClient,
@@ -9,6 +9,13 @@ import {
   WebhookReceiver,
 } from "livekit-server-sdk"
 import { TRANSCRIBER_AGENT_NAME } from "../index"
+
+const env = readServerEnv(
+  "NODE_ENV",
+  "LIVEKIT_URL",
+  "LIVEKIT_API_KEY",
+  "LIVEKIT_API_SECRET"
+)
 
 export type LiveKitConfig = {
   url: string

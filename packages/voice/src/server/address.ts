@@ -1,5 +1,7 @@
 import type { VoiceRequestCheck } from "@repo/db/schema"
-import { env } from "@repo/env/server"
+import { readServerEnv } from "@repo/env/server-fields"
+
+const env = readServerEnv("AI_GATEWAY_API_KEY")
 
 // Address detection: is a transcript line said to Lor? Stage 1 is a local
 // name gate on every final segment; stage 2 asks Jev (TypeSafe's decision

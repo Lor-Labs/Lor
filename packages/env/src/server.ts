@@ -1,12 +1,5 @@
-import { resolve } from "node:path"
-import { config as dotenvConfig } from "dotenv"
 import { z } from "zod"
-
-// In development, load .env files. In production, env vars are set by the platform.
-if (process.env.NODE_ENV !== "production") {
-  dotenvConfig({ path: resolve(process.cwd(), ".env") })
-  dotenvConfig({ path: resolve(process.cwd(), "../../.env") })
-}
+import { blankToUndefined, sharedServerFields } from "./server-fields.js"
 
 /** Adds a protocol to a URL if missing. Defaults to http:// for localhost/loopback, https:// otherwise. */
 const addProtocol = (url: string) => {
@@ -23,20 +16,11 @@ const DEFAULT_MAX_FILE_UPLOAD_SIZE = 100 * 1024 * 1024
 const DEFAULT_REALTIME_CORS_ORIGIN =
   "http://localhost:3000,http://localhost:3001,tauri://localhost"
 
-const blankToUndefined = (value: unknown) => {
-  if (typeof value !== "string") return value
-  const trimmed = value.trim()
-  return trimmed === "" ? undefined : trimmed
-}
-
 const defaultedString = (fallback: string) =>
   z.preprocess(blankToUndefined, z.string().min(1).default(fallback))
 
 const serverSchema = z.object({
-  NODE_ENV: z
-    .enum(["development", "staging", "production", "test"])
-    .default("production"),
-  DATABASE_URL: z.string().url(),
+  ...sharedServerFields,
   // Throwaway database for the Lor eval harness (`pnpm --filter @repo/lor
   // eval`). When unset, the eval is skipped. Read by the eval bootstrap before
   // @repo/db loads, so it can point the shared client here instead of prod.
@@ -44,11 +28,7 @@ const serverSchema = z.object({
   PORT: z.coerce.number().int().min(1).max(65535).default(8080),
   REALTIME_PORT: z.coerce.number().int().min(1).max(65535).default(8000),
   REALTIME_CORS_ORIGIN: z.string().default(DEFAULT_REALTIME_CORS_ORIGIN),
-  REDIS_URL: z.string().url(),
   BETTER_AUTH_SECRET: z.string().min(1),
-  // Vercel AI Gateway is Lor's explicit transport. Model-role selection
-  // remains provider-neutral through the LOR_* model ids below.
-  AI_GATEWAY_API_KEY: z.string().min(1),
   AI_GATEWAY_BASE_URL: z.preprocess(
     blankToUndefined,
     z.string().url().optional()
@@ -138,19 +118,6 @@ const serverSchema = z.object({
     .string()
     .regex(/^\d+[hdw]$/, "must be a duration like 24h, 7d, or 2w")
     .default("7d"),
-  // LiveKit Cloud carries voice channel media. When unset, voice join returns
-  // 503 instead of failing at boot.
-  LIVEKIT_URL: z.preprocess(blankToUndefined, z.string().url().optional()),
-  LIVEKIT_API_KEY: z.preprocess(blankToUndefined, z.string().min(1).optional()),
-  LIVEKIT_API_SECRET: z.preprocess(
-    blankToUndefined,
-    z.string().min(1).optional()
-  ),
-  // Voice transcription (apps/transcriber only).
-  DEEPGRAM_API_KEY: z.preprocess(
-    blankToUndefined,
-    z.string().min(1).optional()
-  ),
   LOR_WORKBENCH_MEMORY_MB: z.coerce.number().int().positive().default(4096),
   // Disk-backed /workspace volume for clones, dependencies, caches, and outputs.
   LOR_WORKBENCH_DISK_MB: z.coerce.number().int().positive().default(8192),
