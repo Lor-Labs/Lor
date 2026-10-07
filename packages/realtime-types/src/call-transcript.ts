@@ -5,6 +5,16 @@ import { hasVoiceResult } from "./voice-requests"
 // segments, capture gaps, and Lor's results in timeline order, grouped into
 // one block per speaker turn.
 
+// LiveKit's transcription text-stream protocol, which its client hooks read.
+// Each caption update is a stream; updates to one segment share its id, which
+// is also the saved segment's id.
+export const CAPTION_TOPIC = "lk.transcription"
+export const CAPTION_ATTRIBUTES = {
+  trackId: "lk.transcribed_track_id",
+  segmentId: "lk.segment_id",
+  final: "lk.transcription_final",
+} as const
+
 // One speaker's phrases within this window share a block.
 const BLOCK_WINDOW_MS = 2 * 60_000
 

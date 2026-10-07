@@ -1,7 +1,9 @@
 import { LegendList, type LegendListRef } from "@legendapp/list/react-native"
+import { useParticipants } from "@livekit/react-native"
 import {
   buildTranscriptBlocks,
   type TranscriptBlock,
+  type TranscriptLine,
   transcriptBlockAt,
 } from "@repo/realtime-types/call-transcript"
 import type { VoiceRequestState } from "@repo/realtime-types/events"
@@ -18,6 +20,7 @@ import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { LorBlocks } from "@/components/voice/lor-blocks"
 import { LorMark } from "@/components/voice/lor-window"
+import { useCaptionLines } from "@/hooks/use-call-captions"
 import {
   type TranscriptPage,
   useCallTranscript,
@@ -38,6 +41,7 @@ const UNKNOWN_SPEAKER: Speaker = {
   image: null,
   avatarColor: null,
 }
+const NO_LINES: TranscriptLine[] = []
 
 // A request to Lor and its result, where it happened. During the call, "Show
 // on stage" brings it back into Lor's window for everyone.
@@ -153,18 +157,25 @@ function BlockRow({
             {formatTime(new Date(block.lines[0]?.at ?? 0))}
           </Text>
         </View>
-        <Text className="text-[15px] leading-[22px] text-foreground">
-          {block.lines.map((line) => line.text).join(" ")}
+        <Text className="text-[15px] leading-[22px]">
+          {block.lines.map((line) => (
+            <Text
+              className={line.final ? "text-foreground" : "text-muted"}
+              key={line.id}
+            >
+              {line.text}{" "}
+            </Text>
+          ))}
         </Text>
       </View>
     </View>
   )
 }
 
-// A call's transcript on the phone. Saved lines only: a live call refreshes
-// them every few seconds and follows the newest while you're at the bottom.
-// `atMs` (a citation or a time on Lor's summary card) scrolls to the block
-// spoken then and flashes it.
+// A call's transcript on the phone. `live` is the call this phone is in: its
+// captions join the saved lines, dimmed until final, and the list follows the
+// newest while you're at the bottom. `atMs` (a citation or a time on Lor's
+// summary card) scrolls to the block spoken then and flashes it.
 export function CallTranscript({
   sessionId,
   live,
@@ -179,10 +190,15 @@ export function CallTranscript({
     live
   )
   const requests = useVoiceRequestList(sessionId)
+  const captions = useCaptionLines()
+  const liveLines = useMemo(
+    () => (live ? captions.filter((line) => line.text.trim()) : NO_LINES),
+    [live, captions]
+  )
   const pages = data?.pages ?? []
   const blocks = useMemo(
-    () => buildTranscriptBlocks(pages, [], requests),
-    [pages, requests]
+    () => buildTranscriptBlocks(pages, liveLines, requests),
+    [pages, liveLines, requests]
   )
   const speakers = useMemo(
     () =>
@@ -194,8 +210,18 @@ export function CallTranscript({
       ),
     [pages]
   )
-  const speakerFor = (participantId: string) =>
-    speakers.get(participantId) ?? UNKNOWN_SPEAKER
+  // Someone who joined after the transcript loaded is named from the call.
+  const participants = useParticipants()
+  const speakerFor = (participantId: string): Speaker => {
+    const saved = speakers.get(participantId)
+    if (saved) return saved
+    const inCall = participants.find(
+      (participant) => participant.identity === participantId
+    )
+    return inCall?.name
+      ? { ...UNKNOWN_SPEAKER, name: inCall.name }
+      : UNKNOWN_SPEAKER
+  }
   const queryClient = useQueryClient()
   const onStageId = pickVoiceRequestOnStage(requests)?.id ?? null
   const showOnStage = live

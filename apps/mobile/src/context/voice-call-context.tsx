@@ -1,4 +1,5 @@
 import { RoomContext } from "@livekit/react-native"
+import * as SecureStore from "expo-secure-store"
 import {
   ConnectionState,
   DisconnectReason,
@@ -18,6 +19,7 @@ import {
 } from "react"
 import { Alert } from "react-native"
 import { useSocket } from "@/context/socket-context"
+import { listenForCaptions } from "@/hooks/use-call-captions"
 import { api, responseMessage } from "@/lib/api"
 import { authClient } from "@/lib/auth-client"
 import { holdThreadRoom } from "@/lib/thread-rooms"
@@ -60,9 +62,14 @@ type VoiceCallContextValue = {
   // Front or back camera; your own video is mirrored only for the front.
   cameraFacing: CameraFacing
   flipCamera: () => Promise<void>
+  // Per-device CC toggle, like web's: it only hides the stage's captions.
+  captionsOn: boolean
+  toggleCaptions: () => void
 }
 
 const VoiceCallContext = createContext<VoiceCallContextValue | null>(null)
+
+const CAPTIONS_KEY = "lor.voice-captions"
 
 function disconnectMessage(reason: DisconnectReason) {
   switch (reason) {
@@ -87,6 +94,9 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
   const facingRef = useRef(cameraFacing)
   facingRef.current = cameraFacing
   const flippingRef = useRef(false)
+  const [captionsOn, setCaptionsOn] = useState(true)
+  const captionsRef = useRef(captionsOn)
+  captionsRef.current = captionsOn
   const callRef = useRef(call)
   callRef.current = call
   const socket = useSocket()
@@ -104,11 +114,26 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
       }
     }
     room.on(RoomEvent.Disconnected, handleDisconnected)
+    const stopCaptions = listenForCaptions(room)
     return () => {
       room.off(RoomEvent.Disconnected, handleDisconnected)
+      stopCaptions()
       void room.disconnect()
     }
   }, [room])
+
+  useEffect(() => {
+    SecureStore.getItemAsync(CAPTIONS_KEY)
+      .then((stored) => {
+        if (stored === "off") setCaptionsOn(false)
+      })
+      .catch(() => {})
+  }, [])
+  const toggleCaptions = useCallback(() => {
+    const next = !captionsRef.current
+    setCaptionsOn(next)
+    SecureStore.setItemAsync(CAPTIONS_KEY, next ? "on" : "off").catch(() => {})
+  }, [])
 
   // The call chat's room carries the chat and Lor's window, so it's held for
   // the whole call.
@@ -206,8 +231,26 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
   }, [userId, leave])
 
   const value = useMemo(
-    () => ({ call, joining, join, leave, cameraFacing, flipCamera }),
-    [call, joining, join, leave, cameraFacing, flipCamera]
+    () => ({
+      call,
+      joining,
+      join,
+      leave,
+      cameraFacing,
+      flipCamera,
+      captionsOn,
+      toggleCaptions,
+    }),
+    [
+      call,
+      joining,
+      join,
+      leave,
+      cameraFacing,
+      flipCamera,
+      captionsOn,
+      toggleCaptions,
+    ]
   )
 
   return (

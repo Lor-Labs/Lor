@@ -26,6 +26,7 @@ import {
 import { Avatar } from "@/components/ui/avatar"
 import { IconButton } from "@/components/ui/icon-button"
 import { Screen } from "@/components/ui/screen"
+import { CallCaptions } from "@/components/voice/call-captions"
 import {
   CallSheet,
   useCallSheetPeekHeight,
@@ -135,6 +136,7 @@ function StageGrid({ tracks }: { tracks: TrackReferenceOrPlaceholder[] }) {
 
 function CallStage({ sessionId }: { sessionId: string }) {
   const { onStage: lorRequest, results } = useVoiceRequests(sessionId)
+  const { captionsOn } = useVoiceCall()
   const peekHeight = useCallSheetPeekHeight()
   const allCameraTracks = useTracks([
     { source: Track.Source.Camera, withPlaceholder: true },
@@ -192,7 +194,11 @@ function CallStage({ sessionId }: { sessionId: string }) {
       {lorRequest && (
         <LorWindow key={lorRequest.id} request={lorRequest} results={results} />
       )}
-      <StageGrid tracks={cameraTracks} />
+      {/* Captions sit over the grid, above the drawer's controls. */}
+      <View className="flex-1">
+        <StageGrid tracks={cameraTracks} />
+        {captionsOn ? <CallCaptions /> : null}
+      </View>
     </View>
   )
 }

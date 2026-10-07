@@ -5,6 +5,8 @@ import BottomSheet, {
   useGestureEventsHandlersDefault,
 } from "@gorhom/bottom-sheet"
 import CallEnd01Icon from "@hugeicons/core-free-icons/CallEnd01Icon"
+import CaptionsIcon from "@hugeicons/core-free-icons/CaptionsIcon"
+import CaptionsOffIcon from "@hugeicons/core-free-icons/CaptionsOffIcon"
 import Message01Icon from "@hugeicons/core-free-icons/Message01Icon"
 import Mic01Icon from "@hugeicons/core-free-icons/Mic01Icon"
 import MicOff01Icon from "@hugeicons/core-free-icons/MicOff01Icon"
@@ -62,7 +64,7 @@ function CallControls({
   ])
   const { localParticipant, isMicrophoneEnabled, isCameraEnabled } =
     useLocalParticipant()
-  const { cameraFacing } = useVoiceCall()
+  const { cameraFacing, captionsOn, toggleCaptions } = useVoiceCall()
 
   const toggleMicrophone = async () => {
     try {
@@ -108,6 +110,18 @@ function CallControls({
         <HugeiconsIcon
           color={foreground}
           icon={isCameraEnabled ? Video01Icon : VideoOffIcon}
+          size={20}
+          strokeWidth={2}
+        />
+      </IconButton>
+      <IconButton
+        accessibilityLabel={captionsOn ? "Hide captions" : "Show captions"}
+        onPress={toggleCaptions}
+        variant="secondary"
+      >
+        <HugeiconsIcon
+          color={foreground}
+          icon={captionsOn ? CaptionsIcon : CaptionsOffIcon}
           size={20}
           strokeWidth={2}
         />

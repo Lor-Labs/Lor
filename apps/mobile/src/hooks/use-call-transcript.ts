@@ -3,9 +3,6 @@ import { useEffect } from "react"
 import { api } from "@/lib/api"
 
 const PAGE_SIZE = "500"
-// The phone shows no live captions, so a live call's saved lines refresh on
-// this interval instead.
-const LIVE_REFRESH_MS = 10_000
 
 async function fetchTranscriptPage(
   sessionId: string,
@@ -21,7 +18,9 @@ async function fetchTranscriptPage(
 
 export type TranscriptPage = Awaited<ReturnType<typeof fetchTranscriptPage>>
 
-// The whole saved transcript, loaded page by page. Same key as web.
+// The whole saved transcript, loaded page by page. Same key as web. A live
+// call refetches on every open; captions cover the rest, since this phone has
+// heard everything said while it was in the call.
 export function useCallTranscript(sessionId: string, live: boolean) {
   const query = useInfiniteQuery({
     queryKey: ["voice-transcript", sessionId],
@@ -29,7 +28,6 @@ export function useCallTranscript(sessionId: string, live: boolean) {
     queryFn: ({ pageParam }) => fetchTranscriptPage(sessionId, pageParam),
     getNextPageParam: (lastPage) => lastPage.nextAfter ?? undefined,
     refetchOnMount: live ? "always" : true,
-    refetchInterval: live ? LIVE_REFRESH_MS : false,
   })
   const { hasNextPage, isFetchingNextPage, fetchNextPage } = query
   useEffect(() => {

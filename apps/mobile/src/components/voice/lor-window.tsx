@@ -23,6 +23,7 @@ import {
   useLorReactions,
   useLorTools,
 } from "@/components/voice/lor-stage-store"
+import { useCaptionLines } from "@/hooks/use-call-captions"
 import {
   isSimulatedRequest,
   stageVoiceRequest,
@@ -192,6 +193,31 @@ function ApprovalCard({
 
 // Lor's window on the phone, the same window everyone in the call sees. The
 // mark pulses while Lor listens or works; no status text.
+// Reaches back to the caption line that said "Lor": the request is created
+// once Jev answers, a moment after the name was heard. Same as web.
+const LIVE_LOOKBACK_MS = 2_000
+
+// The speaker's words as they say them, from the call's captions.
+function LiveWords({ request }: { request: VoiceRequestState }) {
+  const lines = useCaptionLines()
+  const since = Date.parse(request.createdAt) - LIVE_LOOKBACK_MS
+  const spoken = lines.filter(
+    (line) =>
+      line.participantId === request.participantId &&
+      line.updatedAt >= since &&
+      line.text.trim()
+  )
+  if (spoken.length === 0) return request.heardText
+  return spoken.map((line) => (
+    <Text
+      className={line.final ? "text-foreground" : "text-muted"}
+      key={line.id}
+    >
+      {line.text}{" "}
+    </Text>
+  ))
+}
+
 export function LorWindow({
   request,
   results,
@@ -298,7 +324,7 @@ export function LorWindow({
       <ScrollView contentContainerClassName="gap-three p-three">
         {request.status === "listening" && (
           <Text className="text-[18px] font-medium text-foreground">
-            {request.heardText}
+            <LiveWords request={request} />
           </Text>
         )}
         {hasBlocks && (

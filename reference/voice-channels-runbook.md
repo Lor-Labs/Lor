@@ -788,6 +788,22 @@ stage", and step-back wait for the rest of V6.
   camera (stage, floating tile, preview). Verified in source: LiveKit's
   `deviceId: { ideal: "default" }` matches no real camera, so iOS and
   Android both fall back to `facingMode`.
+- [x] Polish C (Jacob, 2026-10-06), the phone: live captions, like web's.
+  `@livekit/react-native` doesn't re-export `useTranscriptions`, so
+  `hooks/use-call-captions.ts` registers the caption topic once on the
+  app's room (LiveKit keeps handlers across disconnects; the store clears
+  on `Disconnected`) and merges updates by segment id like LiveKit's
+  `setupTextStream`, a late interim never undoing a final. Each update is
+  one short stream (the transcriber writes once and closes), read with
+  `readAll()`. `CAPTION_TOPIC` / `CAPTION_ATTRIBUTES` moved to
+  `@repo/realtime-types/call-transcript` (re-exported by `@repo/voice`),
+  since `@repo/voice` pulls in the database and server SDK. Captions show
+  over the bottom of the stage (`call-captions.tsx`, three lines, interim
+  muted); a CC button in the controls row hides them, remembered on the
+  device (`expo-secure-store`, `lor.voice-captions`). The transcript of the
+  call this phone is in merges caption lines (dimmed until final) in place
+  of the old 10s polling, naming late joiners from the call, and Lor's
+  window shows the speaker's live words while it listens.
 
 - Voice channel screen (history, live session, Join or "Transfer here") from
   `apps/mobile/src/app/channel/[channelId]/index.tsx` for voice channels.

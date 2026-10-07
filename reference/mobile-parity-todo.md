@@ -102,7 +102,7 @@ Deliberately parked until the composer/keyboard rework settles (active in messag
 - [x] Join, mute, camera, tiles, share viewer, call chat, leave — 2026-10-05
 - [x] Lor's window, read-only (all block types, Linear/GitHub rows, approval waiting line, cancel/clear) — 2026-10-05
 - [x] Approval buttons, "Show on stage", step-back, tappable question choices, tool logos and reactions in Lor's window — 2026-10-06
-- [ ] Live words in Lor's window while it listens (web shows the speaker's captions; the phone has no captions yet)
+- [x] Live words in Lor's window while it listens, from the call's captions — 2026-10-06
 - [x] Floating call tile across navigation (the call outlives its screen), "Switch to this call", and who's connected under voice channels in the channel list — 2026-10-06
 - [x] Full-screen share viewer (rotate, pinch and double-tap zoom) and push deep links into a call (worked already) — 2026-10-06
 - [ ] Android background call audio: needs our own `microphone` foreground service (not in the LiveKit SDK or its Expo plugin), a native build, and an Android device — deferred
@@ -110,7 +110,7 @@ Deliberately parked until the composer/keyboard rework settles (active in messag
 - [x] Pre-join like web's (camera preview, mic and camera toggles, your name) and front/back camera before and during a call, in place of web's device pickers — 2026-10-06
 - [x] Lor's call summary card, read-only (`call-summary-card.tsx`): title, day, length, faces, decisions, open questions, action items, byline — 2026-10-06
 - [x] Transcript tab (speaker turns, gaps, Lor's results inline), opening at a moment from summary-card times, "Open transcript", and `[[call:…]]` citations — 2026-10-06
-- [ ] Live captions in the phone's transcript (today a live call refetches saved lines every 10s)
+- [x] Live captions: over the stage with a CC button remembered on the device, and in the transcript of the call you're in (replaces the 10s refetch) — 2026-10-06
 - [ ] Summary card edit form (`PUT /v1/voice/summary-cards/{messageId}`)
 - [ ] Delete a call with Undo (web: "…" on a past call row, `voice: ["delete"]`)
 
