@@ -1,4 +1,4 @@
-import { BotIcon, Message01Icon } from "@hugeicons/core-free-icons"
+import { Message01Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
 import { Badge } from "@repo/ui/components/badge"
