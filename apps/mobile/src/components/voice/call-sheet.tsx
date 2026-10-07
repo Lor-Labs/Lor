@@ -11,7 +11,7 @@ import Mic01Icon from "@hugeicons/core-free-icons/Mic01Icon"
 import MicOff01Icon from "@hugeicons/core-free-icons/MicOff01Icon"
 import Video01Icon from "@hugeicons/core-free-icons/Video01Icon"
 import VideoOffIcon from "@hugeicons/core-free-icons/VideoOffIcon"
-import { HugeiconsIcon } from "@hugeicons/react-native"
+import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react-native"
 import { useLocalParticipant } from "@livekit/react-native"
 import { useThemeColor } from "heroui-native/hooks"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
@@ -45,6 +45,53 @@ export function useCallSheetPeekHeight() {
   return GRABBER_HEIGHT + CONTROLS_HEIGHT + bottom
 }
 
+// Web's call button states (call-controls.tsx), so both apps read alike: on
+// and off by brightness, no added colour. "off" a dim icon in an outline,
+// "on" a bright one, "active" (captions, chat open) a bright icon on a
+// subtle fill, "red" the one soft red (muted, Leave).
+export type ControlTone = "on" | "off" | "active" | "red"
+
+export function ControlButton({
+  icon,
+  label,
+  tone,
+  selected,
+  onPress,
+}: {
+  icon: IconSvgElement
+  label: string
+  tone: ControlTone
+  selected?: boolean
+  onPress: () => void
+}) {
+  const [foreground, muted, danger] = useThemeColor([
+    "foreground",
+    "muted",
+    "danger",
+  ])
+  return (
+    <IconButton
+      accessibilityLabel={label}
+      accessibilityState={selected === undefined ? undefined : { selected }}
+      onPress={onPress}
+      variant={
+        tone === "red"
+          ? "danger-soft"
+          : tone === "active"
+            ? "secondary"
+            : "outline"
+      }
+    >
+      <HugeiconsIcon
+        color={tone === "red" ? danger : tone === "off" ? muted : foreground}
+        icon={icon}
+        size={20}
+        strokeWidth={2}
+      />
+    </IconButton>
+  )
+}
+
 function CallControls({
   sessionId,
   chatOpen,
@@ -59,11 +106,6 @@ function CallControls({
   onToggleChat: () => void
   onLeave: () => void
 }) {
-  const [foreground, danger, accent] = useThemeColor([
-    "foreground",
-    "danger",
-    "accent",
-  ])
   const { localParticipant, isMicrophoneEnabled, isCameraEnabled } =
     useLocalParticipant()
   const { cameraFacing, captionsOn, toggleCaptions } = useVoiceCall()
@@ -90,62 +132,36 @@ function CallControls({
       className="flex-row items-center justify-center gap-four"
       style={{ height: CONTROLS_HEIGHT }}
     >
-      <IconButton
-        accessibilityLabel={isMicrophoneEnabled ? "Mute" : "Unmute"}
+      <ControlButton
+        icon={isMicrophoneEnabled ? Mic01Icon : MicOff01Icon}
+        label={isMicrophoneEnabled ? "Mute" : "Unmute"}
         onPress={() => void toggleMicrophone()}
-        variant="secondary"
-      >
-        <HugeiconsIcon
-          color={foreground}
-          icon={isMicrophoneEnabled ? Mic01Icon : MicOff01Icon}
-          size={20}
-          strokeWidth={2}
-        />
-      </IconButton>
-      <IconButton
-        accessibilityLabel={
-          isCameraEnabled ? "Turn camera off" : "Turn camera on"
-        }
+        tone={isMicrophoneEnabled ? "on" : "red"}
+      />
+      <ControlButton
+        icon={isCameraEnabled ? Video01Icon : VideoOffIcon}
+        label={isCameraEnabled ? "Turn camera off" : "Turn camera on"}
         onPress={() => void toggleCamera()}
-        variant="secondary"
-      >
-        <HugeiconsIcon
-          color={foreground}
-          icon={isCameraEnabled ? Video01Icon : VideoOffIcon}
-          size={20}
-          strokeWidth={2}
-        />
-      </IconButton>
-      {/* No crossed-out CC icon, so on reads like the chat toggle: accent. */}
-      <IconButton
-        accessibilityLabel={captionsOn ? "Hide captions" : "Show captions"}
-        accessibilityState={{ selected: captionsOn }}
+        tone={isCameraEnabled ? "on" : "off"}
+      />
+      {/* No crossed-out CC icon, so on reads like an open chat: filled. */}
+      <ControlButton
+        icon={ClosedCaptionIcon}
+        label={captionsOn ? "Hide captions" : "Show captions"}
         onPress={toggleCaptions}
-        variant="secondary"
-      >
-        <HugeiconsIcon
-          color={captionsOn ? accent : foreground}
-          icon={ClosedCaptionIcon}
-          size={20}
-          strokeWidth={2}
-        />
-      </IconButton>
+        selected={captionsOn}
+        tone={captionsOn ? "active" : "off"}
+      />
       <LorSimulatorButton sessionId={sessionId} />
       <View>
-        <IconButton
-          accessibilityLabel={`${chatOpen ? "Close call chat" : "Open call chat"}${
+        <ControlButton
+          icon={Message01Icon}
+          label={`${chatOpen ? "Close call chat" : "Open call chat"}${
             chatUnread > 0 ? `, ${chatUnread} unread` : ""
           }`}
           onPress={onToggleChat}
-          variant="secondary"
-        >
-          <HugeiconsIcon
-            color={chatOpen ? accent : foreground}
-            icon={Message01Icon}
-            size={20}
-            strokeWidth={2}
-          />
-        </IconButton>
+          tone={chatOpen ? "active" : "off"}
+        />
         {chatUnread > 0 ? (
           <View
             className="absolute -top-1 -right-1 h-[18px] min-w-[18px] items-center justify-center rounded-full bg-accent px-1"
@@ -157,18 +173,12 @@ function CallControls({
           </View>
         ) : null}
       </View>
-      <IconButton
-        accessibilityLabel="Leave call"
+      <ControlButton
+        icon={CallEnd01Icon}
+        label="Leave call"
         onPress={onLeave}
-        variant="danger-soft"
-      >
-        <HugeiconsIcon
-          color={danger}
-          icon={CallEnd01Icon}
-          size={20}
-          strokeWidth={2}
-        />
-      </IconButton>
+        tone="red"
+      />
     </View>
   )
 }

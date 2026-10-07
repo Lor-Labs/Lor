@@ -29,6 +29,7 @@ import Animated, {
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { scheduleOnRN } from "react-native-worklets"
 import { Avatar } from "@/components/ui/avatar"
+import { ReconnectingNotice } from "@/components/voice/reconnecting-notice"
 import {
   type ActiveVoiceCall,
   useVoiceCall,
@@ -291,6 +292,7 @@ function TileContent({ share }: { share: TrackReference | undefined }) {
           />
         </View>
       )}
+      <ReconnectingNotice overlay />
     </>
   )
 }

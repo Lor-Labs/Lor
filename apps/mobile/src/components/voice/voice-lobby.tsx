@@ -89,8 +89,12 @@ export function ParticipantStack({
   )
 }
 
+// The call's states (call-sheet.tsx ControlButton): a microphone that's off
+// takes the soft red, a camera that's off just reads dim. Filled rather than
+// outlined, since they sit on the camera preview.
 function DeviceToggle({
   on,
+  alertWhenOff,
   label,
   onIcon,
   offIcon,
@@ -98,16 +102,19 @@ function DeviceToggle({
   onToggle,
 }: {
   on: boolean
+  alertWhenOff: boolean
   label: string
   onIcon: IconSvgElement
   offIcon: IconSvgElement
   disabled: boolean
   onToggle: () => void
 }) {
-  const [foreground, dangerForeground] = useThemeColor([
+  const [foreground, muted, danger] = useThemeColor([
     "foreground",
-    "danger-foreground",
+    "muted",
+    "danger",
   ])
+  const alert = alertWhenOff && !on
   return (
     <IconButton
       accessibilityLabel={label}
@@ -116,10 +123,10 @@ function DeviceToggle({
       isDisabled={disabled}
       onPress={onToggle}
       size="lg"
-      variant={on ? "secondary" : "danger"}
+      variant={alert ? "danger-soft" : "secondary"}
     >
       <HugeiconsIcon
-        color={on ? foreground : dangerForeground}
+        color={alert ? danger : on ? foreground : muted}
         icon={on ? onIcon : offIcon}
         size={20}
         strokeWidth={2}
@@ -275,6 +282,7 @@ function CallHero({
         </View>
         <View className="absolute inset-x-0 bottom-three flex-row justify-center gap-three">
           <DeviceToggle
+            alertWhenOff
             disabled={joinDisabled}
             label="Microphone"
             offIcon={MicOff01Icon}
@@ -283,6 +291,7 @@ function CallHero({
             onToggle={() => setMicrophone((on) => !on)}
           />
           <DeviceToggle
+            alertWhenOff={false}
             disabled={joinDisabled}
             label="Camera"
             offIcon={VideoOffIcon}

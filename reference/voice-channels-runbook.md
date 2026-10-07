@@ -901,6 +901,22 @@ stage", and step-back wait for the rest of V6.
   window's always-mounted wrapper. Same in the desktop app (same code);
   floating over other apps (a second Tauri window, or Document
   Picture-in-Picture in Chromium) is a later, separate step.
+- [x] Polish I (Jacob, 2026-10-06), both apps: one set of call button states
+  everywhere. Web exports `DIM` / `RED` / `ACTIVE` from `call-controls.tsx`
+  for the pre-join and the floating window; the phone's drawer controls use
+  `ControlButton` tones (`on` / `off` / `active` / `red` on HeroUI's
+  outline, secondary, and danger-soft variants). So: off is a dim icon in an
+  outline, a device that's on a bright one, a feature that's on (captions,
+  chat open, sharing) a bright icon on a subtle fill, and a muted
+  microphone and Leave share one soft red. The phone's muted microphone,
+  which only swapped its icon, is now red; its captions and chat no longer
+  use the accent colour for on. Both pre-join screens follow it (a camera
+  that's off is no longer red); the phone's stay filled since they sit on
+  the camera preview. The floating window's buttons take the same states
+  and a grouped tooltip. "Reconnecting…" now shows on the floating window,
+  the phone's call screen (a pill at the top), and its floating tile (an
+  overlay), not only in web's call controls; only the full `Reconnecting`
+  state, since audio keeps flowing during `SignalReconnecting`.
 
 - Voice channel screen (history, live session, Join or "Transfer here") from
   `apps/mobile/src/app/channel/[channelId]/index.tsx` for voice channels.

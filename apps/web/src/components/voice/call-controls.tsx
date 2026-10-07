@@ -184,14 +184,16 @@ const TOOLTIP_BRIDGE =
 // Across a split button's 1px divider.
 const DIVIDER_BRIDGE =
   "pointer-fine:after:absolute pointer-fine:after:left-full pointer-fine:after:h-full pointer-fine:after:w-px"
-// On and off read by brightness, with no added colour: off is a dim icon in
-// the outline, on (sharing, captions, chat open) a bright icon on a subtle
-// fill. A camera that's off and the device chevrons are dim too.
-const DIM = "text-muted-foreground hover:text-foreground"
-// The bar's one red, a soft tint: a muted microphone (both halves) and Leave.
-const RED =
+// Call button states, shared by the bar, the pre-join, and the floating
+// window (the phone follows the same rule). On and off read by brightness,
+// with no added colour: off is a dim icon in an outline, on (sharing,
+// captions, chat open) a bright icon on a subtle fill (ghost variant). A
+// camera that's off and the device chevrons are dim too.
+export const DIM = "text-muted-foreground hover:text-foreground"
+// The one red, a soft tint (ghost variant): a muted microphone and Leave.
+export const RED =
   "bg-destructive/12 text-destructive-foreground hover:bg-destructive/20 data-pressed:bg-destructive/20"
-const ACTIVE =
+export const ACTIVE =
   "bg-accent text-foreground hover:bg-accent/80 data-pressed:bg-accent/80"
 
 function ControlButton({

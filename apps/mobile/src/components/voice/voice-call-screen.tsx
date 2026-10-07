@@ -32,6 +32,7 @@ import {
   useCallSheetPeekHeight,
 } from "@/components/voice/call-sheet"
 import { LorWindow } from "@/components/voice/lor-window"
+import { ReconnectingNotice } from "@/components/voice/reconnecting-notice"
 import { ShareViewer } from "@/components/voice/share-viewer"
 import { VoiceLobby } from "@/components/voice/voice-lobby"
 import { useVoiceCall } from "@/context/voice-call-context"
@@ -199,6 +200,7 @@ function CallStage({ sessionId }: { sessionId: string }) {
         <StageGrid tracks={cameraTracks} />
         {captionsOn ? <CallCaptions /> : null}
       </View>
+      <ReconnectingNotice />
     </View>
   )
 }

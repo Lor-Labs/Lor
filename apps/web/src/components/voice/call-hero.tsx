@@ -24,6 +24,7 @@ import {
   type TooltipPrimitive,
   TooltipTrigger,
 } from "@repo/ui/components/tooltip"
+import { cn } from "@repo/ui/lib/utils"
 import { differenceInMinutes, formatDuration } from "@repo/utils/date"
 import { useParams } from "@tanstack/react-router"
 import { createLocalVideoTrack } from "livekit-client"
@@ -32,6 +33,8 @@ import {
   activeDevice,
   canPickSpeaker,
   DeviceRadioGroup,
+  DIM,
+  RED,
   reportDeviceError,
   useDeviceMenu,
 } from "@/components/voice/call-controls"
@@ -43,9 +46,12 @@ import type { VoiceSessionSummary } from "@/hooks/use-voice-sessions"
 
 const STACK_LIMIT = 4
 
-// Turns the microphone or camera on or off for the call; red while off.
+// Turns the microphone or camera on or off for the call. Same states as the
+// call's controls: a microphone that's off takes the soft red, a camera
+// that's off just reads dim.
 function DeviceToggle({
   on,
+  alertWhenOff,
   label,
   onIcon,
   offIcon,
@@ -54,6 +60,7 @@ function DeviceToggle({
   onToggle,
 }: {
   on: boolean
+  alertWhenOff: boolean
   label: string
   onIcon: IconSvgElement
   offIcon: IconSvgElement
@@ -61,6 +68,7 @@ function DeviceToggle({
   tooltipHandle: TooltipPrimitive.Handle<string>
   onToggle: () => void
 }) {
+  const alert = alertWhenOff && !on
   return (
     <TooltipTrigger
       handle={tooltipHandle}
@@ -68,13 +76,16 @@ function DeviceToggle({
       delay={300}
       render={
         <Button
-          variant={on ? "outline" : "destructive-outline"}
+          variant={alert ? "ghost" : "outline"}
           size="icon-lg"
           aria-label={label}
           aria-pressed={on}
           disabled={disabled}
           onClick={onToggle}
-          className="pointer-fine:after:absolute pointer-fine:after:left-full pointer-fine:after:h-full pointer-fine:after:w-2"
+          className={cn(
+            "pointer-fine:after:absolute pointer-fine:after:left-full pointer-fine:after:h-full pointer-fine:after:w-2",
+            alert ? RED : !on && DIM
+          )}
         />
       }
     >
@@ -265,6 +276,7 @@ export function CallHero({
           <div className="absolute inset-x-0 bottom-0 flex justify-center gap-2 bg-linear-to-t from-background/70 to-transparent px-3 pt-8 pb-3">
             <DeviceToggle
               on={microphone}
+              alertWhenOff
               label="Microphone"
               onIcon={Mic01Icon}
               offIcon={MicOff01Icon}
@@ -274,6 +286,7 @@ export function CallHero({
             />
             <DeviceToggle
               on={camera}
+              alertWhenOff={false}
               label="Camera"
               onIcon={Video01Icon}
               offIcon={VideoOffIcon}

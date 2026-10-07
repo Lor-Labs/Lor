@@ -350,7 +350,8 @@ export function LorSimulatorButton({ sessionId }: { sessionId: string }) {
   const queryClient = useQueryClient()
   const { localParticipant } = useLocalParticipant()
   const { data: auth } = authClient.useSession()
-  const [foreground] = useThemeColor(["foreground"])
+  // The call controls' "off" look (call-sheet.tsx ControlButton).
+  const [muted] = useThemeColor(["muted"])
   if (!__DEV__) return null
 
   const user = { userId: auth?.user.id ?? "", name: auth?.user.name ?? "You" }
@@ -374,10 +375,10 @@ export function LorSimulatorButton({ sessionId }: { sessionId: string }) {
     <IconButton
       accessibilityLabel="Simulate a request to Lor"
       onPress={open}
-      variant="secondary"
+      variant="outline"
     >
       <HugeiconsIcon
-        color={foreground}
+        color={muted}
         icon={TestTube01Icon}
         size={20}
         strokeWidth={2}

@@ -9,6 +9,7 @@ import {
   isTrackReference,
   type TrackReference,
   type TrackReferenceOrPlaceholder,
+  useConnectionState,
   useIsSpeaking,
   useLocalParticipant,
   useSpeakingParticipants,
@@ -16,9 +17,17 @@ import {
   VideoTrack,
 } from "@livekit/components-react"
 import { Button } from "@repo/ui/components/button"
+import { Spinner } from "@repo/ui/components/spinner"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipCreateHandle,
+  type TooltipPrimitive,
+  TooltipTrigger,
+} from "@repo/ui/components/tooltip"
 import { cn } from "@repo/ui/lib/utils"
 import { useNavigate, useParams } from "@tanstack/react-router"
-import { Track } from "livekit-client"
+import { ConnectionState, Track } from "livekit-client"
 import {
   AnimatePresence,
   animate,
@@ -26,11 +35,16 @@ import {
   useDragControls,
   useMotionValue,
 } from "motion/react"
-import { useEffect, useRef, useState } from "react"
+import { type ReactNode, useEffect, useRef, useState } from "react"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import { UserAvatar } from "@/components/ui/user-avatar"
 import { CallChatUnreadBadge } from "@/components/voice/call-chat-unread-badge"
-import { reportDeviceError } from "@/components/voice/call-controls"
+import {
+  ACTIVE,
+  DIM,
+  RED,
+  reportDeviceError,
+} from "@/components/voice/call-controls"
 import {
   type ActiveVoiceCall,
   useVoiceCall,
@@ -196,15 +210,68 @@ function WindowContent({ share }: { share: TrackReference | undefined }) {
   ) : null
 }
 
+// The bar's states: "on" a bright outline, "off" a dim one, "active" a
+// subtle fill, "red" the soft red.
+type Tone = "on" | "off" | "active" | "red"
+
+function WindowButton({
+  tooltip,
+  label,
+  tone,
+  disabled,
+  bridge = true,
+  onClick,
+  children,
+}: {
+  tooltip: TooltipPrimitive.Handle<string>
+  label: string
+  tone: Tone
+  disabled?: boolean
+  // Off for the last button: bridges the gap to the next so the shared
+  // tooltip stays open between them.
+  bridge?: boolean
+  onClick: () => void
+  children: ReactNode
+}) {
+  return (
+    <TooltipTrigger
+      handle={tooltip}
+      payload={label}
+      delay={300}
+      render={
+        <Button
+          size="icon-sm"
+          variant={tone === "red" || tone === "active" ? "ghost" : "outline"}
+          aria-label={label}
+          disabled={disabled}
+          onClick={onClick}
+          className={cn(
+            bridge &&
+              "pointer-fine:after:absolute pointer-fine:after:left-full pointer-fine:after:h-full pointer-fine:after:w-1.5",
+            tone === "red"
+              ? RED
+              : tone === "active"
+                ? ACTIVE
+                : tone === "off" && DIM
+          )}
+        />
+      }
+    >
+      {children}
+    </TooltipTrigger>
+  )
+}
+
 function WindowControls({ onLeave }: { onLeave: () => void }) {
   const microphone = useMicrophoneToggle(reportDeviceError)
   const chat = useCallChatPanel()
+  const [tooltip] = useState(() => TooltipCreateHandle<string>())
   return (
     <div className="absolute inset-x-0 bottom-0 flex justify-center gap-1.5 bg-linear-to-t from-background/70 to-transparent px-2 pt-6 pb-2 opacity-0 transition-opacity duration-150 group-hover/call-window:opacity-100 focus-within:opacity-100 pointer-coarse:opacity-100">
-      <Button
-        size="icon-sm"
-        variant="outline"
-        aria-label={microphone.enabled ? "Mute" : "Unmute"}
+      <WindowButton
+        tooltip={tooltip}
+        label={microphone.enabled ? "Mute" : "Unmute"}
+        tone={microphone.enabled ? "on" : "red"}
         disabled={microphone.pending}
         onClick={() => void microphone.toggle()}
       >
@@ -212,28 +279,46 @@ function WindowControls({ onLeave }: { onLeave: () => void }) {
           icon={microphone.enabled ? Mic01Icon : MicOff01Icon}
           strokeWidth={2}
         />
-      </Button>
+      </WindowButton>
       {chat.available && (
         <div className="relative">
-          <Button
-            size="icon-sm"
-            variant="outline"
-            aria-label={chat.open ? "Hide chat" : "Show chat"}
+          <WindowButton
+            tooltip={tooltip}
+            label={chat.open ? "Hide chat" : "Show chat"}
+            tone={chat.open ? "active" : "off"}
             onClick={chat.toggle}
           >
             <HugeiconsIcon icon={Message01Icon} strokeWidth={2} />
-          </Button>
+          </WindowButton>
           {!chat.open && <CallChatUnreadBadge count={chat.unread} />}
         </div>
       )}
-      <Button
-        size="icon-sm"
-        variant="destructive"
-        aria-label="Leave call"
+      <WindowButton
+        tooltip={tooltip}
+        label="Leave call"
+        tone="red"
+        bridge={false}
         onClick={onLeave}
       >
         <HugeiconsIcon icon={CallEnd01Icon} strokeWidth={2} />
-      </Button>
+      </WindowButton>
+      <Tooltip handle={tooltip}>
+        {({ payload }) => <TooltipContent side="top">{payload}</TooltipContent>}
+      </Tooltip>
+    </div>
+  )
+}
+
+// A dropped connection would otherwise just look like silence.
+function ReconnectingNotice() {
+  const state = useConnectionState()
+  if (state !== ConnectionState.Reconnecting) return null
+  return (
+    <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background/60">
+      <span className="flex items-center gap-1.5 rounded-md bg-background/90 px-2 py-1 text-xs font-medium">
+        <Spinner className="size-3.5" />
+        Reconnecting…
+      </span>
     </div>
   )
 }
@@ -336,6 +421,7 @@ function FloatingWindow({ call }: { call: ActiveVoiceCall }) {
           <span className="sr-only">Muted</span>
         </span>
       )}
+      <ReconnectingNotice />
       <WindowControls onLeave={() => void leave()} />
     </motion.div>
   )
