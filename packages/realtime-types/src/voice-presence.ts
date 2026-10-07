@@ -26,22 +26,39 @@ export function whoIsHere(names: string[]) {
   return `${first}, ${second}, and ${names.length - 2} others are here`
 }
 
-export type OwnVoiceCall = {
-  channelId: string
-  sessionId: string
-  participant: VoicePresenceParticipant
-}
+// This device's user before the server knows: in the call being joined or
+// in, or gone from the call just left.
+export type OwnVoicePresence =
+  | { left: false; channelId: string; participant: VoicePresenceParticipant }
+  | { left: true; channelId: string; userId: string }
 
-// This device's call, shown the moment it joins: the server only learns of a
-// join from LiveKit's webhook, a moment later. Derived rather than written to
-// the cache, so a refetch landing before the webhook can't drop it; once the
-// server lists the person, its entry (with their real colour) wins. Joining
-// here moves the call off any other device, so they're shown nowhere else.
-export function withOwnVoiceCall(
-  channels: VoicePresenceChannel[],
-  own: OwnVoiceCall | null
-): VoicePresenceChannel[] {
+type ChannelPresence = Pick<VoicePresenceChannel, "channelId" | "participants">
+
+// The server only learns of a join or leave from LiveKit (a webhook, or the
+// leave request's push), a moment later, so this device's own moves show
+// from the tap. Derived rather than written to the cache, so a refetch landing
+// first can't undo them; once the server lists the person, its entry (with
+// their real colour) wins. Joining here moves the call off any other device,
+// so they're shown nowhere else.
+export function withOwnVoicePresence(
+  channels: ChannelPresence[],
+  own: OwnVoicePresence | null
+): ChannelPresence[] {
   if (!own) return channels
+  if (own.left) {
+    return channels
+      .map((channel) =>
+        channel.channelId === own.channelId
+          ? {
+              ...channel,
+              participants: channel.participants.filter(
+                (participant) => participant.userId !== own.userId
+              ),
+            }
+          : channel
+      )
+      .filter((channel) => channel.participants.length > 0)
+  }
   const { userId } = own.participant
   const elsewhere = channels
     .map((channel) =>
@@ -61,11 +78,7 @@ export function withOwnVoiceCall(
   if (!current) {
     return [
       ...elsewhere,
-      {
-        channelId: own.channelId,
-        sessionId: own.sessionId,
-        participants: [own.participant],
-      },
+      { channelId: own.channelId, participants: [own.participant] },
     ]
   }
   if (

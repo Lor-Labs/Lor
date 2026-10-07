@@ -40,6 +40,16 @@ export type JoinTarget = Pick<
   "workspaceId" | "channelId" | "channelName"
 >
 
+// Where this user shows in voice presence before the server catches up: the
+// call being joined or in, or the one just left. The server's push after a
+// leave lands well inside this; a rejoin clears it sooner. Same as web.
+export type OwnVoiceChannel = {
+  workspaceId: string
+  channelId: string
+  left: boolean
+}
+const LEFT_PRESENCE_MS = 10_000
+
 export type CameraFacing = "user" | "environment"
 
 // How someone enters a call, chosen on the pre-join screen.
@@ -58,6 +68,7 @@ type VoiceCallContextValue = {
   // The call this phone is connected to.
   call: ActiveVoiceCall | null
   joining: boolean
+  ownVoiceChannel: OwnVoiceChannel | null
   join: (target: JoinTarget, devices?: JoinDevices) => Promise<void>
   leave: () => Promise<void>
   // Front or back camera; your own video is mirrored only for the front.
@@ -94,6 +105,32 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
   )
   const [call, setCall] = useState<ActiveVoiceCall | null>(null)
   const [joining, setJoining] = useState(false)
+  const [joiningTarget, setJoiningTarget] = useState<JoinTarget | null>(null)
+  const [leftCall, setLeftCall] = useState<JoinTarget | null>(null)
+  useEffect(() => {
+    if (!leftCall) return
+    const timer = setTimeout(() => setLeftCall(null), LEFT_PRESENCE_MS)
+    return () => clearTimeout(timer)
+  }, [leftCall])
+  // A join in progress wins over the call it replaces.
+  const presenceCall = joiningTarget ?? call
+  const ownVoiceChannel = useMemo<OwnVoiceChannel | null>(
+    () =>
+      presenceCall
+        ? {
+            workspaceId: presenceCall.workspaceId,
+            channelId: presenceCall.channelId,
+            left: false,
+          }
+        : leftCall
+          ? {
+              workspaceId: leftCall.workspaceId,
+              channelId: leftCall.channelId,
+              left: true,
+            }
+          : null,
+    [presenceCall, leftCall]
+  )
   const [cameraFacing, setCameraFacing] = useState<CameraFacing>("user")
   const facingRef = useRef(cameraFacing)
   facingRef.current = cameraFacing
@@ -173,6 +210,7 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
   const leave = useCallback(async () => {
     const current = callRef.current
     setCall(null)
+    if (current) setLeftCall(current)
     await room.disconnect()
     if (!current) return
     await api.v1.voice.sessions[":sessionId"].leave
@@ -183,6 +221,8 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
   const join = useCallback(
     async (target: JoinTarget, devices: JoinDevices = DEFAULT_DEVICES) => {
       setJoining(true)
+      setJoiningTarget(target)
+      setLeftCall(null)
       try {
         if (callRef.current) await leave()
         else if (room.state !== ConnectionState.Disconnected) {
@@ -221,6 +261,7 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
         )
       } finally {
         setJoining(false)
+        setJoiningTarget(null)
       }
     },
     [room, leave]
@@ -254,6 +295,7 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
     () => ({
       call,
       joining,
+      ownVoiceChannel,
       join,
       leave,
       cameraFacing,
@@ -266,6 +308,7 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
     [
       call,
       joining,
+      ownVoiceChannel,
       join,
       leave,
       cameraFacing,

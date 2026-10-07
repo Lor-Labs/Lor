@@ -7,7 +7,10 @@ import SquareLock02Icon from "@hugeicons/core-free-icons/SquareLock02Icon"
 import VolumeHighIcon from "@hugeicons/core-free-icons/VolumeHighIcon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
 import type { ChannelActivity } from "@repo/realtime-types"
-import { withOwnVoiceCall } from "@repo/realtime-types/voice-presence"
+import {
+  type OwnVoicePresence,
+  withOwnVoicePresence,
+} from "@repo/realtime-types/voice-presence"
 import * as Haptics from "expo-haptics"
 import { router } from "expo-router"
 import { useThemeColor } from "heroui-native/hooks"
@@ -382,7 +385,7 @@ export function ChannelList({
   )
   const { getUnreadCount, getMentionCount } = useUnread()
   const { workspace, avatarColor } = useWorkspace()
-  const { call, joining, join } = useVoiceCall()
+  const { call, joining, join, ownVoiceChannel } = useVoiceCall()
   const { data: auth } = authClient.useSession()
   const activity = useWorkspaceActivity(workspace?.id)
   const lorStates = useMemo(() => {
@@ -395,27 +398,33 @@ export function ChannelList({
   const presence = useVoicePresence(workspace?.slug, workspace?.id)
   const user = auth?.user
   const inCall = useMemo(() => {
-    const ownCall =
-      call && user && call.workspaceId === workspace?.id
-        ? {
-            channelId: call.channelId,
-            sessionId: call.sessionId,
-            participant: {
+    const own: OwnVoicePresence | null =
+      ownVoiceChannel && user && ownVoiceChannel.workspaceId === workspace?.id
+        ? ownVoiceChannel.left
+          ? {
+              left: true,
+              channelId: ownVoiceChannel.channelId,
               userId: user.id,
-              name: user.name,
-              image: user.image ?? null,
-              avatarColor,
-              connected: true,
-            },
-          }
+            }
+          : {
+              left: false,
+              channelId: ownVoiceChannel.channelId,
+              participant: {
+                userId: user.id,
+                name: user.name,
+                image: user.image ?? null,
+                avatarColor,
+                connected: true,
+              },
+            }
         : null
     return new Map(
-      withOwnVoiceCall(presence ?? [], ownCall).map((channel) => [
+      withOwnVoicePresence(presence ?? [], own).map((channel) => [
         channel.channelId,
         channel.participants,
       ])
     )
-  }, [presence, call, user, workspace?.id, avatarColor])
+  }, [presence, ownVoiceChannel, user, workspace?.id, avatarColor])
 
   // Opens the voice channel and joins its call (unless already in it).
   const joinCall = (channel: Channel) => {

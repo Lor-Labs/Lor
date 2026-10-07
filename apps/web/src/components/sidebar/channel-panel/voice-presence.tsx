@@ -1,4 +1,7 @@
-import { withOwnVoiceCall } from "@repo/realtime-types/voice-presence"
+import {
+  type OwnVoicePresence,
+  withOwnVoicePresence,
+} from "@repo/realtime-types/voice-presence"
 import { toast } from "@repo/ui/components/toast"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import { createContext, type ReactNode, useContext, useMemo } from "react"
@@ -25,24 +28,30 @@ export function VoicePresenceProvider({
   children: ReactNode
 }) {
   const channels = useVoicePresence(workspaceSlug, workspaceId)
-  const { call } = useVoiceCall()
+  const { ownVoiceChannel } = useVoiceCall()
   const me = useOwnVoiceParticipant(workspaceSlug)
   const value = useMemo(() => {
-    const ownCall =
-      call && me && call.workspaceSlug === workspaceSlug
-        ? {
-            channelId: call.channelId,
-            sessionId: call.sessionId,
-            participant: me,
-          }
+    const own: OwnVoicePresence | null =
+      ownVoiceChannel && me && ownVoiceChannel.workspaceSlug === workspaceSlug
+        ? ownVoiceChannel.left
+          ? {
+              left: true,
+              channelId: ownVoiceChannel.channelId,
+              userId: me.userId,
+            }
+          : {
+              left: false,
+              channelId: ownVoiceChannel.channelId,
+              participant: me,
+            }
         : null
     return new Map(
-      withOwnVoiceCall(channels ?? [], ownCall).map((channel) => [
+      withOwnVoicePresence(channels ?? [], own).map((channel) => [
         channel.channelId,
         channel.participants,
       ])
     )
-  }, [channels, call, me, workspaceSlug])
+  }, [channels, ownVoiceChannel, me, workspaceSlug])
   return <VoicePresenceContext value={value}>{children}</VoicePresenceContext>
 }
 

@@ -58,12 +58,23 @@ export type JoinTarget = Omit<ActiveVoiceCall, "sessionId" | "threadRootId">
 export type JoinDevices = { microphone: boolean; camera: boolean }
 const DEFAULT_DEVICES: JoinDevices = { microphone: true, camera: false }
 
+// Where this user shows in voice presence before the server catches up: the
+// call being joined or in, or the one just left. The server's push after a
+// leave lands well inside this; a rejoin clears it sooner.
+export type OwnVoiceChannel = {
+  workspaceSlug: string
+  channelId: string
+  left: boolean
+}
+const LEFT_PRESENCE_MS = 10_000
+
 type VoiceCallContextValue = {
   // The call this device is connected to.
   call: ActiveVoiceCall | null
   // The call this user is connected to on another device ("Transfer here").
   remoteCall: VoiceCallState | null
   joining: boolean
+  ownVoiceChannel: OwnVoiceChannel | null
   // Call chat messages from others since the chat was last on screen.
   chatUnread: number
   clearChatUnread: () => void
@@ -110,6 +121,32 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
   )
   const [call, setCall] = useState<ActiveVoiceCall | null>(null)
   const [joining, setJoining] = useState(false)
+  const [joiningTarget, setJoiningTarget] = useState<JoinTarget | null>(null)
+  const [leftCall, setLeftCall] = useState<JoinTarget | null>(null)
+  useEffect(() => {
+    if (!leftCall) return
+    const timer = setTimeout(() => setLeftCall(null), LEFT_PRESENCE_MS)
+    return () => clearTimeout(timer)
+  }, [leftCall])
+  // A join in progress wins over the call it replaces.
+  const presenceCall = joiningTarget ?? call
+  const ownVoiceChannel = useMemo<OwnVoiceChannel | null>(
+    () =>
+      presenceCall
+        ? {
+            workspaceSlug: presenceCall.workspaceSlug,
+            channelId: presenceCall.channelId,
+            left: false,
+          }
+        : leftCall
+          ? {
+              workspaceSlug: leftCall.workspaceSlug,
+              channelId: leftCall.channelId,
+              left: true,
+            }
+          : null,
+    [presenceCall, leftCall]
+  )
   const [deafened, setDeafened] = useState(false)
   const microphoneBeforeDeafen = useRef(true)
   const callRef = useRef(call)
@@ -216,6 +253,8 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
   const join = useCallback(
     async (target: JoinTarget, devices: JoinDevices = DEFAULT_DEVICES) => {
       setJoining(true)
+      setJoiningTarget(target)
+      setLeftCall(null)
       try {
         if (room.state !== ConnectionState.Disconnected) {
           await room.disconnect()
@@ -247,6 +286,7 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
         }
       } finally {
         setJoining(false)
+        setJoiningTarget(null)
       }
     },
     [room]
@@ -273,6 +313,7 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
     // Until the server's push lands, the cached call would read as "in a call
     // on another device".
     if (current) {
+      setLeftCall(current)
       queryClient.setQueryData<VoiceCallState | null>(
         VOICE_CALL_QUERY_KEY,
         (cached) => (cached?.sessionId === current.sessionId ? null : cached)
@@ -324,6 +365,7 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
       call,
       remoteCall,
       joining,
+      ownVoiceChannel,
       chatUnread,
       clearChatUnread,
       captionsOn,
@@ -337,6 +379,7 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
       call,
       remoteCall,
       joining,
+      ownVoiceChannel,
       chatUnread,
       clearChatUnread,
       captionsOn,

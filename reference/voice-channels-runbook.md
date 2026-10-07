@@ -842,6 +842,19 @@ stage", and step-back wait for the rest of V6.
     list lays out at a real size. Its auto mark-read touches only the voice
     channel, and only while the call screen has focus, as it already did
     after the first open; the phone writes no per-call read state.
+- [x] Polish F (Jacob, 2026-10-06): your own place in the channel list
+  moves from the tap, both ways, on both apps. Polish A showed you once
+  connected; now you show from the tap on Join (the join request and
+  LiveKit connect take about a second), and leaving drops you at once
+  instead of after the leave request's push. Each call context exposes
+  `ownVoiceChannel`: the call being joined (which wins over the call it
+  replaces) or in, else the call just left, kept `LEFT_PRESENCE_MS` (10s)
+  or until the next join. `withOwnVoicePresence` (renamed from
+  `withOwnVoiceCall`) takes `{ left: false, participant }` to place you
+  (and remove you elsewhere) or `{ left: true, userId }` to remove you from
+  that channel; its result has no session id, which nothing read.
+  Unexpected disconnects don't mark you gone: "moved to another device"
+  means you're still in the call.
 
 - Voice channel screen (history, live session, Join or "Transfer here") from
   `apps/mobile/src/app/channel/[channelId]/index.tsx` for voice channels.
