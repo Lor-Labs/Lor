@@ -184,13 +184,13 @@ const TOOLTIP_BRIDGE =
 // Across a split button's 1px divider.
 const DIVIDER_BRIDGE =
   "pointer-fine:after:absolute pointer-fine:after:left-full pointer-fine:after:h-full pointer-fine:after:w-px"
-// A muted microphone, red like Discord's: both halves, with a dark divider.
-const MUTED =
-  "bg-destructive/12 text-destructive-foreground hover:bg-destructive/20 data-pressed:bg-destructive/20"
 // On and off read by brightness, with no added colour: off is a dim icon in
 // the outline, on (sharing, captions, chat open) a bright icon on a subtle
 // fill. A camera that's off and the device chevrons are dim too.
 const DIM = "text-muted-foreground hover:text-foreground"
+// The bar's one red, a soft tint: a muted microphone (both halves) and Leave.
+const RED =
+  "bg-destructive/12 text-destructive-foreground hover:bg-destructive/20 data-pressed:bg-destructive/20"
 const ACTIVE =
   "bg-accent text-foreground hover:bg-accent/80 data-pressed:bg-accent/80"
 
@@ -224,14 +224,14 @@ function ControlButton({
       render={
         <Button
           size="icon"
-          variant={destructive ? "destructive" : active ? "ghost" : "outline"}
+          variant={destructive || active ? "ghost" : "outline"}
           aria-label={label}
           aria-pressed={pressed}
           disabled={disabled}
           onClick={onClick}
           className={cn(
             bridge && TOOLTIP_BRIDGE,
-            active ? ACTIVE : !destructive && DIM
+            destructive ? RED : active ? ACTIVE : DIM
           )}
         />
       }
@@ -244,7 +244,8 @@ function ControlButton({
 // The microphone or camera as a split button: the left half turns it on or
 // off, the chevron picks the device (the microphone's also the speaker).
 // Both look normal (outlined) while on; the icon shows the state, and a
-// muted microphone turns both halves red.
+// muted microphone turns both halves the bar's soft red (Leave's too), with a
+// dark divider.
 function DeviceSplitButton({
   tooltip,
   kind,
@@ -289,7 +290,7 @@ function DeviceSplitButton({
             aria-label={label}
             disabled={pending}
             onClick={onToggle}
-            className={cn(DIVIDER_BRIDGE, alert ? MUTED : !on && DIM)}
+            className={cn(DIVIDER_BRIDGE, alert ? RED : !on && DIM)}
           />
         }
       >
@@ -312,7 +313,7 @@ function DeviceSplitButton({
                   variant={alert ? "ghost" : "outline"}
                   aria-label={menuLabel}
                   disabled={devices === null || menu.asking}
-                  className={cn(TOOLTIP_BRIDGE, alert ? MUTED : DIM)}
+                  className={cn(TOOLTIP_BRIDGE, alert ? RED : DIM)}
                 />
               }
             />

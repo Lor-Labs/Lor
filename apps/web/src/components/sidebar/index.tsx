@@ -24,6 +24,7 @@ import {
 import { RightSidebarPanel } from "@/components/sidebar/right-panel/right-sidebar-panel"
 import { WorkspaceSidebarContent } from "@/components/sidebar/workspace-sidebar"
 import { CallBar } from "@/components/voice/call-bar"
+import { CallWindow } from "@/components/voice/call-window"
 
 /**
  * URL-driven left sidebar with a book-page-turn transition:
@@ -530,6 +531,7 @@ function SidebarLayout({ children }: { children: React.ReactNode }) {
       <LeftSidebarResizeHandle width={width} onWidthChange={persistWidth} />
       <MainArea>{children}</MainArea>
       {isMobile ? <MobileRightPanel /> : <RightPanelDock />}
+      <CallWindow />
     </SidebarProvider>
   )
 }

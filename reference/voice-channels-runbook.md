@@ -874,7 +874,9 @@ stage", and step-back wait for the rest of V6.
   to off), a primary tint (an added colour), and an inverted solid fill
   like Meet's (too loud). A muted microphone takes
   Discord's red (Jacob wanted only the colour, not its layout): both
-  halves tinted `destructive`, with a dark divider. The menus read the shared
+  halves take a soft `destructive/12` tint with a dark divider, and Leave
+  takes the same tint (Jacob: one red, the softer one; a solid red for
+  both was tried first). The menus read the shared
   device list and open through `useDeviceMenu` (asks for access first
   while names are hidden), the same as the pre-join pickers, instead of
   LiveKit's hook mounting an empty list on open. Deafen is removed (Jacob: nobody will use it): its button, the
@@ -882,6 +884,23 @@ stage", and step-back wait for the rest of V6.
   the unmute-undeafens rule in `useMicrophoneToggle`. The phone never had
   deafen, and its touch controls keep accessibility labels instead of
   tooltips.
+- [x] Polish H (Jacob, 2026-10-06), web: a floating call window replaces the
+  sidebar's "Voice connected" bar, like the phone's tile (`call-window.tsx`,
+  mounted in the sidebar layout for the right panel's context). It shows
+  while this device is in a call and not on the call's page: whoever spoke
+  last, or the share while someone shares (a 4:3 window for a person,
+  16:9 for a share, reshaping in its corner), with a name label, speaking
+  ring, and muted badge; mute, chat (with the unread count), and leave
+  show on hover. Clicking it opens the call; dragging snaps it to the
+  nearest corner after a flick (Motion's `drag` with `useDragControls`
+  started from the video area only, since Motion's native pointer listener
+  can't be stopped by a child's React handler; a critically damped spring
+  keeps only speed toward the corner). The corner is remembered in
+  `localStorage`. The sidebar keeps only "In a call on another device"
+  with Transfer here, and closing a left call's chat moved into the
+  window's always-mounted wrapper. Same in the desktop app (same code);
+  floating over other apps (a second Tauri window, or Document
+  Picture-in-Picture in Chromium) is a later, separate step.
 
 - Voice channel screen (history, live session, Join or "Transfer here") from
   `apps/mobile/src/app/channel/[channelId]/index.tsx` for voice channels.
