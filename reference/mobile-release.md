@@ -135,10 +135,14 @@ device build.
 - **Commit before building.** EAS builds from the repo; `pnpm-lock.yaml` must
   be committed in sync (frozen install) — a lockfile drift fails the install
   step immediately.
-- **`eas-build-post-install`** (apps/mobile/package.json) compiles
-  `@repo/api-client` on the EAS worker — its `dist/` is gitignored and Metro
-  needs it. Don't remove the hook; if another workspace package ever exports
-  compiled output, add it to the same turbo filter.
+- **Metro bundles `@repo/api-client` from source.** Its exports map has a
+  `react-native` condition pointing at `src/index.ts` (after `types`, so
+  TypeScript keeps reading the built `.d.ts`; web and the server still get
+  `dist/`). The gitignored `dist/` is therefore never needed on EAS, in
+  builds or in OTA updates. The `eas-build-post-install` hook that compiles
+  it is now redundant, but `package.json` scripts are part of the native
+  fingerprint, so remove it only alongside a native change. A workspace
+  package that ships compiled output to the phone needs the same condition.
 - **`babel-preset-expo` and `@babel/preset-typescript` must stay direct
   devDependencies** of apps/mobile (the latter is required by the
   react-native-worklets babel plugin; keep it on the `^7.x` line matching
@@ -158,11 +162,13 @@ device build.
   same variable in `.eas/workflows/deploy.yml`; build 20 finished but its
   submission failed this way. A finished build whose submission failed can
   be sent on its own: `eas submit -p ios --id <build id>`.
-- **The workflow's OTA path doesn't build `@repo/api-client`.** The
-  `update` job runs no `eas-build-post-install` hook, so Metro can't resolve
-  the gitignored `dist/` and the export fails ("While trying to resolve
-  module `@repo/api-client`"). Every OTA publish from the workflow has
-  failed this way since at least 2026-09-27. Not fixed yet.
+- **OTA publishes failed on `@repo/api-client` until 2026-10-07.** The
+  `update` job runs no `eas-build-post-install` hook, so Metro couldn't
+  resolve the gitignored `dist/` ("While trying to resolve module
+  `@repo/api-client`"), and every OTA publish from the workflow failed from
+  at least 2026-09-27. Fixed by the source condition above; checked with
+  `expo export --platform ios --source-maps`, whose map lists
+  `packages/api-client/src/index.ts`.
 - **Don't persist `android.permissions` in app.json.** Config plugins compute
   them at prebuild; `eas update:configure` once serialized them in (with
   duplicates, re-adding RECORD_AUDIO that `microphonePermission: false`
