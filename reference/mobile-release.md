@@ -147,6 +147,13 @@ device build.
   with `Cannot find module '<babel thing>'` only on EAS, often right after an
   unrelated dependency change reshuffles the lockfile — fix by declaring the
   module explicitly in apps/mobile.
+- **`sharp` (a `@repo/lor` server dependency) installs on EAS too**, since
+  the install is the whole workspace. Its install check builds from source
+  when it finds a system libvips through pkg-config, and fails without
+  `node-addon-api`. The production profile sets
+  `SHARP_IGNORE_GLOBAL_LIBVIPS=1` so it takes its prebuilt binary. First seen
+  2026-10-07 (build `cc563d83`): "sharp: Please add node-addon-api to your
+  dependencies" in the install phase.
 - **Don't persist `android.permissions` in app.json.** Config plugins compute
   them at prebuild; `eas update:configure` once serialized them in (with
   duplicates, re-adding RECORD_AUDIO that `microphonePermission: false`
