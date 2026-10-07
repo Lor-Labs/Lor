@@ -7,8 +7,7 @@ import {
   PopoverTrigger,
 } from "@repo/ui/components/popover"
 import {
-  Tooltip,
-  TooltipContent,
+  type TooltipPrimitive,
   TooltipTrigger,
 } from "@repo/ui/components/tooltip"
 import EmojiPicker, { type EmojiClickData, Theme } from "emoji-picker-react"
@@ -18,11 +17,13 @@ import { useState } from "react"
 const QUICK_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🙏", "🎉", "👀"]
 
 interface EmojiReactionPickerProps {
+  tooltipHandle: TooltipPrimitive.Handle<string>
   onSelect?: (emoji: string) => void
   onOpenChange?: (open: boolean) => void
 }
 
 export function EmojiReactionPicker({
+  tooltipHandle,
   onSelect,
   onOpenChange,
 }: EmojiReactionPickerProps) {
@@ -51,26 +52,26 @@ export function EmojiReactionPicker({
         }
       }}
     >
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <PopoverTrigger
-              render={
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="size-7"
-                  aria-label="Add reaction"
-                />
-              }
-            />
-          }
-        >
-          <HugeiconsIcon icon={SmilePlusIcon} size={16} />
-        </TooltipTrigger>
-        {!open && <TooltipContent side="top">Add reaction</TooltipContent>}
-      </Tooltip>
+      <TooltipTrigger
+        handle={tooltipHandle}
+        payload="Add reaction"
+        disabled={open}
+        render={
+          <PopoverTrigger
+            render={
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-7 pointer-fine:after:absolute pointer-fine:after:left-full pointer-fine:after:h-full pointer-fine:after:w-0.5"
+                aria-label="Add reaction"
+              />
+            }
+          />
+        }
+      >
+        <HugeiconsIcon icon={SmilePlusIcon} size={16} />
+      </TooltipTrigger>
 
       <PopoverContent
         side="top"

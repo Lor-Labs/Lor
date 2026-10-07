@@ -20,6 +20,7 @@ import { Button } from "@repo/ui/components/button"
 import {
   Tooltip,
   TooltipContent,
+  TooltipCreateHandle,
   TooltipTrigger,
 } from "@repo/ui/components/tooltip"
 import { cn } from "@repo/ui/lib/utils"
@@ -266,6 +267,60 @@ function ThreadFooter({
         strokeWidth={2.25}
       />
     </button>
+  )
+}
+
+function ReactionPills({
+  reactions,
+  currentUserId,
+  onReact,
+}: {
+  reactions: Message["reactions"]
+  currentUserId: string | undefined
+  onReact: (emoji: string) => void
+}) {
+  const [tooltipHandle] = useState(() => TooltipCreateHandle<string>())
+
+  return (
+    <div className="mt-1 flex flex-wrap gap-1">
+      {reactions.map((reaction) => {
+        const reactors = reaction.reactors ?? []
+        const names = reactors.map((r) =>
+          r.id === currentUserId ? "You" : r.name
+        )
+        const tooltipText =
+          names.length > 0
+            ? `${names.join(", ")} reacted with ${reaction.emoji}`
+            : `${reaction.count} reaction${reaction.count !== 1 ? "s" : ""}`
+
+        return (
+          <TooltipTrigger
+            key={reaction.emoji}
+            handle={tooltipHandle}
+            payload={tooltipText}
+            render={
+              <button
+                type="button"
+                onClick={() => onReact(reaction.emoji)}
+                aria-pressed={reaction.reactedByCurrentUser}
+                className={cn(
+                  "relative inline-flex cursor-pointer items-center gap-1 rounded-full border px-2 py-0.5 text-xs transition-colors pointer-fine:after:absolute pointer-fine:after:left-full pointer-fine:after:h-full pointer-fine:after:w-1",
+                  reaction.reactedByCurrentUser
+                    ? "border-primary/40 bg-primary/15 text-primary hover:bg-primary/20"
+                    : "border-border/70 bg-background text-muted-foreground hover:bg-accent hover:text-foreground"
+                )}
+              />
+            }
+          >
+            <span>{reaction.emoji}</span>
+            <span>{reaction.count}</span>
+          </TooltipTrigger>
+        )
+      })}
+      <Tooltip handle={tooltipHandle}>
+        {({ payload }) => <TooltipContent side="top">{payload}</TooltipContent>}
+      </Tooltip>
+    </div>
   )
 }
 
@@ -763,44 +818,11 @@ export const MessageItem = memo(function MessageItem({
             </div>
           )}
           {message.reactions.length > 0 && (
-            <div className="mt-1 flex flex-wrap gap-1">
-              {message.reactions.map((reaction) => {
-                const reactors = reaction.reactors ?? []
-                const names = reactors.map((r) =>
-                  r.id === currentUserId ? "You" : r.name
-                )
-                const tooltipText =
-                  names.length > 0
-                    ? `${names.join(", ")} reacted with ${reaction.emoji}`
-                    : `${reaction.count} reaction${reaction.count !== 1 ? "s" : ""}`
-
-                return (
-                  <Tooltip key={reaction.emoji}>
-                    <TooltipTrigger
-                      render={
-                        <button
-                          type="button"
-                          onClick={() => handleReact(reaction.emoji)}
-                          aria-pressed={reaction.reactedByCurrentUser}
-                          className={cn(
-                            "inline-flex cursor-pointer items-center gap-1 rounded-full border px-2 py-0.5 text-xs transition-colors",
-                            reaction.reactedByCurrentUser
-                              ? "border-primary/40 bg-primary/15 text-primary hover:bg-primary/20"
-                              : "border-border/70 bg-background text-muted-foreground hover:bg-accent hover:text-foreground"
-                          )}
-                        />
-                      }
-                    >
-                      <span>{reaction.emoji}</span>
-                      <span>{reaction.count}</span>
-                    </TooltipTrigger>
-                    <TooltipContent side="top">
-                      <p className="text-xs">{tooltipText}</p>
-                    </TooltipContent>
-                  </Tooltip>
-                )
-              })}
-            </div>
+            <ReactionPills
+              reactions={message.reactions}
+              currentUserId={currentUserId}
+              onReact={handleReact}
+            />
           )}
           {message.threadSummary && message.threadSummary.replyCount > 0 && (
             <ThreadFooter

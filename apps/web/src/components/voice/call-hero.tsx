@@ -20,6 +20,8 @@ import { toast } from "@repo/ui/components/toast"
 import {
   Tooltip,
   TooltipContent,
+  TooltipCreateHandle,
+  type TooltipPrimitive,
   TooltipTrigger,
 } from "@repo/ui/components/tooltip"
 import { differenceInMinutes, formatDuration } from "@repo/utils/date"
@@ -51,6 +53,7 @@ function DeviceToggle({
   onIcon,
   offIcon,
   disabled,
+  tooltipHandle,
   onToggle,
 }: {
   on: boolean
@@ -58,31 +61,28 @@ function DeviceToggle({
   onIcon: IconSvgElement
   offIcon: IconSvgElement
   disabled: boolean
+  tooltipHandle: TooltipPrimitive.Handle<string>
   onToggle: () => void
 }) {
   return (
-    <Tooltip>
-      <TooltipTrigger
-        delay={300}
-        render={
-          <Button
-            variant={on ? "outline" : "destructive-outline"}
-            size="icon-lg"
-            aria-label={label}
-            aria-pressed={on}
-            disabled={disabled}
-            onClick={onToggle}
-          />
-        }
-      >
-        <HugeiconsIcon icon={on ? onIcon : offIcon} strokeWidth={2} />
-      </TooltipTrigger>
-      <TooltipContent side="top">
-        <p className="text-xs">
-          {label} {on ? "on" : "off"}
-        </p>
-      </TooltipContent>
-    </Tooltip>
+    <TooltipTrigger
+      handle={tooltipHandle}
+      payload={`${label} ${on ? "on" : "off"}`}
+      delay={300}
+      render={
+        <Button
+          variant={on ? "outline" : "destructive-outline"}
+          size="icon-lg"
+          aria-label={label}
+          aria-pressed={on}
+          disabled={disabled}
+          onClick={onToggle}
+          className="pointer-fine:after:absolute pointer-fine:after:left-full pointer-fine:after:h-full pointer-fine:after:w-2"
+        />
+      }
+    >
+      <HugeiconsIcon icon={on ? onIcon : offIcon} strokeWidth={2} />
+    </TooltipTrigger>
   )
 }
 
@@ -249,6 +249,7 @@ export function CallHero({
   const me = useOwnVoiceParticipant(workspaceSlug)
   const [microphone, setMicrophone] = useState(true)
   const [camera, setCamera] = useState(false)
+  const [tooltipHandle] = useState(() => TooltipCreateHandle<string>())
   // The preview lets go of the camera before the call takes it.
   const [previewing, setPreviewing] = useState(true)
   // The camera picked in the row (on the call's room), for the preview.
@@ -308,6 +309,7 @@ export function CallHero({
               onIcon={Mic01Icon}
               offIcon={MicOff01Icon}
               disabled={joinDisabled}
+              tooltipHandle={tooltipHandle}
               onToggle={() => setMicrophone((on) => !on)}
             />
             <DeviceToggle
@@ -316,8 +318,14 @@ export function CallHero({
               onIcon={Video01Icon}
               offIcon={VideoOffIcon}
               disabled={joinDisabled}
+              tooltipHandle={tooltipHandle}
               onToggle={() => setCamera((on) => !on)}
             />
+            <Tooltip handle={tooltipHandle}>
+              {({ payload }) => (
+                <TooltipContent side="top">{payload}</TooltipContent>
+              )}
+            </Tooltip>
           </div>
         </div>
         <div className="flex gap-1 @2xl:col-start-1 @2xl:row-start-2">

@@ -13,8 +13,7 @@ import {
   DropdownMenuTrigger,
 } from "@repo/ui/components/menu"
 import {
-  Tooltip,
-  TooltipContent,
+  type TooltipPrimitive,
   TooltipTrigger,
 } from "@repo/ui/components/tooltip"
 import { MUTE_DURATIONS, useChannelMutes } from "@/hooks/use-channel-mutes"
@@ -30,48 +29,51 @@ function mutedUntilLabel(mutedUntil: string | null) {
   })}`
 }
 
-export function ChannelMuteMenu({ channelId }: { channelId: string }) {
+export function ChannelMuteMenu({
+  channelId,
+  tooltipHandle,
+}: {
+  channelId: string
+  tooltipHandle: TooltipPrimitive.Handle<string>
+}) {
   const { getMute, muteChannel, unmuteChannel } = useChannelMutes()
   const mute = getMute(channelId)
 
   return (
     <DropdownMenu>
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <DropdownMenuTrigger
-              render={
-                <button
-                  type="button"
-                  aria-label={
-                    mute ? "Muted — notification options" : "Mute channel"
-                  }
-                  className="rounded-sm p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-                />
-              }
-            />
-          }
-        >
-          {mute ? (
-            <HugeiconsIcon
-              icon={NotificationOff01Icon}
-              className="size-4"
-              aria-hidden="true"
-              strokeWidth={2}
-            />
-          ) : (
-            <HugeiconsIcon
-              icon={Notification01Icon}
-              className="size-4"
-              aria-hidden="true"
-              strokeWidth={2}
-            />
-          )}
-        </TooltipTrigger>
-        <TooltipContent>
-          {mute ? mutedUntilLabel(mute.mutedUntil) : "Mute channel"}
-        </TooltipContent>
-      </Tooltip>
+      <TooltipTrigger
+        handle={tooltipHandle}
+        payload={mute ? mutedUntilLabel(mute.mutedUntil) : "Mute channel"}
+        render={
+          <DropdownMenuTrigger
+            render={
+              <button
+                type="button"
+                aria-label={
+                  mute ? "Muted — notification options" : "Mute channel"
+                }
+                className="relative rounded-sm p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground pointer-fine:after:absolute pointer-fine:after:left-full pointer-fine:after:h-full pointer-fine:after:w-1"
+              />
+            }
+          />
+        }
+      >
+        {mute ? (
+          <HugeiconsIcon
+            icon={NotificationOff01Icon}
+            className="size-4"
+            aria-hidden="true"
+            strokeWidth={2}
+          />
+        ) : (
+          <HugeiconsIcon
+            icon={Notification01Icon}
+            className="size-4"
+            aria-hidden="true"
+            strokeWidth={2}
+          />
+        )}
+      </TooltipTrigger>
       <DropdownMenuContent align="end">
         {mute ? (
           <DropdownMenuGroup>

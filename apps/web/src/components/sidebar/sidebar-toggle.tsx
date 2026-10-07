@@ -1,8 +1,7 @@
 import { Button } from "@repo/ui/components/button"
 import { useSidebar } from "@repo/ui/components/sidebar"
 import {
-  Tooltip,
-  TooltipContent,
+  type TooltipPrimitive,
   TooltipTrigger,
 } from "@repo/ui/components/tooltip"
 import { SidebarToggleIcon } from "@repo/ui/components/unlumen-ui/sidebar-toggle-icon"
@@ -15,36 +14,36 @@ import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-
  * is opened or collapsed. Content headers should render it via
  * HeaderNavControls, which handles macOS desktop placement.
  */
-export function LeftSidebarToggle({ className }: { className?: string }) {
+export function LeftSidebarToggle({
+  tooltipHandle,
+  className,
+}: {
+  tooltipHandle: TooltipPrimitive.Handle<string>
+  className?: string
+}) {
   const { open, openMobile, isMobile, toggleSidebar } = useSidebar()
   const isOpen = isMobile ? openMobile : open
+  const label = isOpen ? "Collapse sidebar" : "Expand sidebar"
 
   return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={toggleSidebar}
-            className={cn(
-              "size-7 text-muted-foreground hover:text-foreground",
-              className
-            )}
-            aria-label={isOpen ? "Collapse sidebar" : "Expand sidebar"}
-          />
-        }
-      >
-        <SidebarToggleIcon
-          isOpen={isOpen}
-          className="size-4"
-          strokeWidth={1.5}
+    <TooltipTrigger
+      handle={tooltipHandle}
+      payload={label}
+      render={
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={toggleSidebar}
+          className={cn(
+            "size-7 text-muted-foreground hover:text-foreground",
+            className
+          )}
+          aria-label={label}
         />
-      </TooltipTrigger>
-      <TooltipContent>
-        {isOpen ? "Collapse sidebar" : "Expand sidebar"}
-      </TooltipContent>
-    </Tooltip>
+      }
+    >
+      <SidebarToggleIcon isOpen={isOpen} className="size-4" strokeWidth={1.5} />
+    </TooltipTrigger>
   )
 }
 
@@ -56,10 +55,12 @@ export function LeftSidebarToggle({ className }: { className?: string }) {
 export function RightPanelToggle({
   workspaceSlug,
   channelId,
+  tooltipHandle,
   className,
 }: {
   workspaceSlug: string
   channelId: string
+  tooltipHandle: TooltipPrimitive.Handle<string>
   className?: string
 }) {
   const { view, setView, isCollapsed, toggleCollapsed } = useRightSidebar()
@@ -81,28 +82,27 @@ export function RightPanelToggle({
   }
 
   return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={handleClick}
-            className={cn(
-              "size-7 text-muted-foreground hover:text-foreground",
-              className
-            )}
-            aria-label="Open side panel"
-          />
-        }
-      >
-        <SidebarToggleIcon
-          isOpen={false}
-          className="size-4 -scale-x-100"
-          strokeWidth={1.5}
+    <TooltipTrigger
+      handle={tooltipHandle}
+      payload="Show panel"
+      render={
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={handleClick}
+          className={cn(
+            "size-7 text-muted-foreground hover:text-foreground",
+            className
+          )}
+          aria-label="Open side panel"
         />
-      </TooltipTrigger>
-      <TooltipContent>Show panel</TooltipContent>
-    </Tooltip>
+      }
+    >
+      <SidebarToggleIcon
+        isOpen={false}
+        className="size-4 -scale-x-100"
+        strokeWidth={1.5}
+      />
+    </TooltipTrigger>
   )
 }

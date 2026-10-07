@@ -12,6 +12,7 @@ import { toast } from "@repo/ui/components/toast"
 import {
   Tooltip,
   TooltipContent,
+  TooltipCreateHandle,
   TooltipTrigger,
 } from "@repo/ui/components/tooltip"
 import { EASE_OUT } from "@repo/ui/lib/motion"
@@ -148,6 +149,7 @@ function ToolRow({
   working: boolean
 }) {
   const toolNames = useLorTools(requestId)
+  const [tooltipHandle] = useState(() => TooltipCreateHandle<string>())
   const marks = toolNames
     .map((toolName) => ({ toolName, Icon: toolIcon(toolName) }))
     .filter(
@@ -158,33 +160,34 @@ function ToolRow({
   return (
     <div className="flex items-center gap-2 text-muted-foreground">
       {marks.map(({ toolName, Icon }, index) => (
-        <Tooltip key={toolName}>
-          <TooltipTrigger
-            delay={300}
-            render={
-              <motion.span
-                initial={{ opacity: 0, scale: 0.8 }}
-                animate={
-                  working && index === marks.length - 1
-                    ? { opacity: [1, 0.4, 1], scale: 1 }
-                    : { opacity: 1, scale: 1 }
-                }
-                transition={
-                  working && index === marks.length - 1
-                    ? { duration: 1.2, repeat: Infinity }
-                    : { duration: 0.2, ease: EASE_OUT }
-                }
-                className="flex"
-              />
-            }
-          >
-            <Icon className="size-4" />
-          </TooltipTrigger>
-          <TooltipContent side="top">
-            <p className="text-xs">{toolLabel(toolName)}</p>
-          </TooltipContent>
-        </Tooltip>
+        <TooltipTrigger
+          key={toolName}
+          handle={tooltipHandle}
+          payload={toolLabel(toolName)}
+          delay={300}
+          render={
+            <motion.span
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={
+                working && index === marks.length - 1
+                  ? { opacity: [1, 0.4, 1], scale: 1 }
+                  : { opacity: 1, scale: 1 }
+              }
+              transition={
+                working && index === marks.length - 1
+                  ? { duration: 1.2, repeat: Infinity }
+                  : { duration: 0.2, ease: EASE_OUT }
+              }
+              className="relative flex pointer-fine:after:absolute pointer-fine:after:left-full pointer-fine:after:h-full pointer-fine:after:w-2"
+            />
+          }
+        >
+          <Icon className="size-4" />
+        </TooltipTrigger>
       ))}
+      <Tooltip handle={tooltipHandle}>
+        {({ payload }) => <TooltipContent side="top">{payload}</TooltipContent>}
+      </Tooltip>
     </div>
   )
 }
