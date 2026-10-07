@@ -30,17 +30,14 @@ import { createLocalVideoTrack } from "livekit-client"
 import { useEffect, useRef, useState } from "react"
 import {
   activeDevice,
+  canPickSpeaker,
   DeviceRadioGroup,
   reportDeviceError,
+  useDeviceMenu,
 } from "@/components/voice/call-controls"
 import { ParticipantAvatar } from "@/components/voice/participant-avatar"
 import type { JoinDevices } from "@/context/voice-call-context"
-import {
-  hasDeviceNames,
-  refreshLocalDevices,
-  requestDeviceAccess,
-  useLocalDevices,
-} from "@/hooks/use-local-devices"
+import { refreshLocalDevices, useLocalDevices } from "@/hooks/use-local-devices"
 import { useOwnVoiceParticipant } from "@/hooks/use-own-voice-participant"
 import type { VoiceSessionSummary } from "@/hooks/use-voice-sessions"
 
@@ -86,29 +83,9 @@ function DeviceToggle({
   )
 }
 
-// Only where the browser can route audio to a chosen output (Safari can't).
-const canPickSpeaker =
-  typeof HTMLMediaElement !== "undefined" &&
-  "setSinkId" in HTMLMediaElement.prototype
-
-function reportAccessError(kind: MediaDeviceKind, error: unknown) {
-  const noun = kind === "videoinput" ? "Camera" : "Microphone"
-  const name = error instanceof DOMException ? error.name : ""
-  if (name === "NotAllowedError") {
-    toast.error(`${noun} access is blocked`, {
-      description: "Allow it in your browser's site settings.",
-    })
-  } else if (name === "NotFoundError") {
-    toast.error(`No ${noun.toLowerCase()} found`)
-  } else {
-    reportDeviceError(error)
-  }
-}
-
 // Which microphone, speaker, or camera, by name, like Meet's row under the
-// preview. Until the page has access the browser hides names, so the first
-// click asks, then opens the list. Disabled only while the first listing
-// loads or the browser's prompt is up, so a click is never lost.
+// preview. Disabled only while the first listing loads or the browser's
+// prompt is up, so a click is never lost.
 function DevicePicker({
   kind,
   label,
@@ -122,41 +99,24 @@ function DevicePicker({
   devices: MediaDeviceInfo[] | null
   disabled: boolean
 }) {
-  const [open, setOpen] = useState(false)
-  const [asking, setAsking] = useState(false)
+  const menu = useDeviceMenu(kind, devices)
   const { activeDeviceId, setActiveMediaDevice } = useMediaDeviceSelect({
     kind,
     requestPermissions: false,
     onError: reportDeviceError,
   })
-  const ofKind = devices?.filter((device) => device.kind === kind) ?? []
-  const named = hasDeviceNames(ofKind)
-  const shown = named
-    ? activeDevice(ofKind, activeDeviceId)?.label
+  const shown = menu.named
+    ? activeDevice(menu.ofKind, activeDeviceId)?.label
     : `Default ${label.toLowerCase()}`
 
-  function handleOpenChange(next: boolean) {
-    if (!next || named) {
-      setOpen(next)
-      return
-    }
-    setAsking(true)
-    requestDeviceAccess(kind)
-      .then((list) =>
-        setOpen(hasDeviceNames(list.filter((device) => device.kind === kind)))
-      )
-      .catch((error) => reportAccessError(kind, error))
-      .finally(() => setAsking(false))
-  }
-
   return (
-    <DropdownMenu open={open} onOpenChange={handleOpenChange}>
+    <DropdownMenu open={menu.open} onOpenChange={menu.onOpenChange}>
       <DropdownMenuTrigger
         render={
           <Button
             variant="ghost"
             size="sm"
-            disabled={disabled || devices === null || asking}
+            disabled={disabled || devices === null || menu.asking}
             className="min-w-0 flex-1 text-muted-foreground hover:text-foreground"
           />
         }
@@ -173,7 +133,7 @@ function DevicePicker({
       <DropdownMenuContent side="bottom" align="start">
         <DeviceRadioGroup
           label={label}
-          devices={ofKind}
+          devices={menu.ofKind}
           activeDeviceId={activeDeviceId}
           onSelect={(deviceId) => void setActiveMediaDevice(deviceId)}
         />

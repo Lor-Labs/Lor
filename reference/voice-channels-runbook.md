@@ -858,10 +858,22 @@ stage", and step-back wait for the rest of V6.
 - [x] Polish G (Jacob, 2026-10-06), web: the call controls have tooltips, one
   grouped tooltip for the row (`TooltipCreateHandle` with a payload per
   button, like the message action bar), naming each button's action
-  (Mute, Turn camera on, Share screen, Devices, Show captions, Show chat,
-  Leave call). A `pointer-fine:after` bridge spans the `gap-2` so the
-  tooltip stays open between buttons; menus turn their tooltip off while
-  open. Deafen is removed (Jacob: nobody will use it): its button, the
+  (Mute, Turn camera on, Audio devices, Choose camera, Share screen, Show
+  captions, Show chat, Leave call). A `pointer-fine:after` bridge spans
+  the `gap-2` (and a 1px one each split button's divider) so the tooltip
+  stays open between buttons; menus turn their tooltip off while open.
+  Microphone and camera are split buttons, replacing the separate Devices
+  button: the left half toggles, an up chevron opens the menu (the
+  microphone's lists speakers too, where `setSinkId` exists). Both halves
+  stay outlined while on (Jacob: no grey fill), the icon showing the
+  state. Share, captions, and chat show on with a primary tint (fill,
+  border, icon), off as a plain outline; the grey "secondary" fill read
+  too close to off. A muted microphone takes
+  Discord's red (Jacob wanted only the colour, not its layout): both
+  halves tinted `destructive`, with a dark divider. The menus read the shared
+  device list and open through `useDeviceMenu` (asks for access first
+  while names are hidden), the same as the pre-join pickers, instead of
+  LiveKit's hook mounting an empty list on open. Deafen is removed (Jacob: nobody will use it): its button, the
   context's `deafened` / `toggleDeafen`, `RoomAudioRenderer muted`, and
   the unmute-undeafens rule in `useMicrophoneToggle`. The phone never had
   deafen, and its touch controls keep accessibility labels instead of
