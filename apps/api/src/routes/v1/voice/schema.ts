@@ -1,0 +1,273 @@
+import { z } from "@hono/zod-openapi"
+import {
+  type VoiceRequestApproval,
+  type VoiceRequestResult,
+  type VoiceSessionSummary,
+  voiceCaptureGapReasonEnum,
+  voiceRequestStatusEnum,
+} from "@repo/db/schema"
+import type { VoiceEntityCards } from "@repo/lor/voice-entities"
+
+export const voiceChannelParamsSchema = z.object({
+  channelId: z
+    .string()
+    .uuid()
+    .openapi({
+      param: { name: "channelId", in: "path", required: true },
+    }),
+})
+
+export const voiceSessionParamsSchema = z.object({
+  sessionId: z
+    .string()
+    .uuid()
+    .openapi({
+      param: { name: "sessionId", in: "path", required: true },
+    }),
+})
+
+export const voiceRequestParamsSchema = z.object({
+  requestId: z
+    .string()
+    .uuid()
+    .openapi({
+      param: { name: "requestId", in: "path", required: true },
+    }),
+})
+
+const voiceRequestSchema = z.object({
+  id: z.string().uuid(),
+  sessionId: z.string().uuid(),
+  participantId: z.string().uuid(),
+  userId: z.string().uuid(),
+  heardText: z.string(),
+  status: z.enum(voiceRequestStatusEnum.enumValues),
+  // Written by the run's stage tool, which validates it (packages/lor).
+  result: z.custom<VoiceRequestResult>().nullable(),
+  finishedAt: z.string().datetime().nullable(),
+  dismissedAt: z.string().datetime().nullable(),
+  stagedAt: z.string().datetime().nullable(),
+  approval: z.custom<VoiceRequestApproval>().nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+})
+
+export const chooseVoiceRequestBodySchema = z.object({
+  // Index into the choices of the question Lor's window shows.
+  choice: z.number().int().min(0),
+})
+
+export const voiceRequestsResponseSchema = z.object({
+  requests: z.array(voiceRequestSchema),
+})
+
+export const cancelVoiceRequestResponseSchema = z.object({
+  request: voiceRequestSchema,
+})
+
+export const voiceEntitiesResponseSchema = z.object({
+  cards: z.custom<VoiceEntityCards>(),
+})
+
+export const leaveVoiceSessionResponseSchema = z.object({
+  success: z.literal(true),
+})
+
+export const joinVoiceChannelResponseSchema = z.object({
+  url: z.string(),
+  token: z.string(),
+  sessionId: z.string().uuid(),
+  participantId: z.string().uuid(),
+  threadRootId: z.string().uuid().nullable(),
+})
+
+export const removeVoiceParticipantParamsSchema = z.object({
+  workspaceSlug: z.string().openapi({
+    param: { name: "workspaceSlug", in: "path", required: true },
+  }),
+  sessionId: z
+    .string()
+    .uuid()
+    .openapi({
+      param: { name: "sessionId", in: "path", required: true },
+    }),
+  participantId: z
+    .string()
+    .uuid()
+    .openapi({
+      param: { name: "participantId", in: "path", required: true },
+    }),
+})
+
+export const removeVoiceParticipantResponseSchema = z.object({
+  success: z.literal(true),
+})
+
+export const voiceCallResponseSchema = z.object({
+  call: z
+    .object({
+      sessionId: z.string().uuid(),
+      channelId: z.string().uuid(),
+      channelName: z.string().nullable(),
+      workspaceId: z.string().uuid(),
+      workspaceSlug: z.string(),
+    })
+    .nullable(),
+})
+
+export const deleteVoiceSessionParamsSchema = z.object({
+  workspaceSlug: z.string().openapi({
+    param: { name: "workspaceSlug", in: "path", required: true },
+  }),
+  sessionId: z
+    .string()
+    .uuid()
+    .openapi({
+      param: { name: "sessionId", in: "path", required: true },
+    }),
+})
+
+export const workspaceSlugParamsSchema = z.object({
+  workspaceSlug: z.string().openapi({
+    param: { name: "workspaceSlug", in: "path", required: true },
+    example: "my-workspace",
+  }),
+})
+
+export const voiceSessionHistoryQuerySchema = z.object({
+  before: z.string().datetime().optional(),
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+})
+
+export const voiceTranscriptQuerySchema = z.object({
+  after: z.string().uuid().optional(),
+  limit: z.coerce.number().int().min(1).max(500).default(200),
+})
+
+export const voiceTranscriptResponseSchema = z.object({
+  startedAt: z.string().datetime(),
+  participants: z.array(
+    z.object({
+      id: z.string().uuid(),
+      userId: z.string().uuid(),
+      name: z.string(),
+      image: z.string().nullable(),
+      avatarColor: z.string().nullable(),
+    })
+  ),
+  segments: z.array(
+    z.object({
+      id: z.string().uuid(),
+      // Shared with the segment's live captions (`lk.segment_id`).
+      segmentId: z.string(),
+      participantId: z.string().uuid(),
+      // Milliseconds from the session's start.
+      startMs: z.number().int(),
+      endMs: z.number().int(),
+      text: z.string(),
+    })
+  ),
+  gaps: z.array(
+    z.object({
+      participantId: z.string().uuid().nullable(),
+      startMs: z.number().int(),
+      endMs: z.number().int(),
+      reason: z.enum(voiceCaptureGapReasonEnum.enumValues),
+    })
+  ),
+  nextAfter: z.string().uuid().nullable(),
+})
+
+const voiceParticipantSchema = z.object({
+  userId: z.string().uuid(),
+  name: z.string(),
+  image: z.string().nullable(),
+  avatarColor: z.string().nullable(),
+  connected: z.boolean(),
+})
+
+const voiceSessionSummarySchema = z.object({
+  id: z.string().uuid(),
+  threadRootId: z.string().uuid().nullable(),
+  startedAt: z.string().datetime(),
+  endedAt: z.string().datetime().nullable(),
+  // Lor's name for the call, once it has summarized it.
+  title: z.string().nullable(),
+  live: z.boolean(),
+  replyCount: z.number().int(),
+  // Chat replies from others and direct mentions since the viewer last read.
+  unreadCount: z.number().int(),
+  mentionCount: z.number().int(),
+  // Lor posted its summary card in the call's chat.
+  hasSummaryCard: z.boolean(),
+  participants: z.array(voiceParticipantSchema),
+})
+
+export const voiceSessionHistoryResponseSchema = z.object({
+  sessions: z.array(voiceSessionSummarySchema),
+  nextBefore: z.string().datetime().nullable(),
+})
+
+export const voiceSessionDetailResponseSchema = z.object({
+  channelId: z.string().uuid(),
+  session: voiceSessionSummarySchema,
+})
+
+// `atMs`: where in the call it was said; null for items people added.
+export const summaryCardParamsSchema = z.object({
+  messageId: z
+    .string()
+    .uuid()
+    .openapi({
+      param: { name: "messageId", in: "path", required: true },
+    }),
+})
+
+// `atMs`: where in the call it was said; null for items people added.
+const atMsSchema = z.number().int().min(0).nullable()
+
+export const callSummaryBodySchema = z.object({
+  title: z.string().trim().min(1).max(200),
+  summary: z.string().trim().min(1).max(4_000),
+  decisions: z
+    .array(
+      z.object({ text: z.string().trim().min(1).max(1_000), atMs: atMsSchema })
+    )
+    .max(30),
+  openQuestions: z
+    .array(
+      z.object({ text: z.string().trim().min(1).max(1_000), atMs: atMsSchema })
+    )
+    .max(30),
+  actionItems: z
+    .array(
+      z.object({
+        owner: z.string().trim().min(1).max(200).nullable(),
+        title: z.string().trim().min(1).max(300),
+        detail: z.string().trim().min(1).max(1_000).nullable(),
+        atMs: atMsSchema,
+      })
+    )
+    .max(30),
+})
+
+// Lor's summary card in a call chat. `summary` is null when Lor couldn't
+// write one; anyone who can post in the channel can correct or write it.
+export const summaryCardResponseSchema = z.object({
+  sessionId: z.string().uuid(),
+  call: voiceSessionSummarySchema,
+  summary: z.custom<VoiceSessionSummary>().nullable(),
+  editedAt: z.string().datetime().nullable(),
+  editedBy: z.object({ id: z.string().uuid(), name: z.string() }).nullable(),
+  canEdit: z.boolean(),
+})
+
+export const voicePresenceResponseSchema = z.object({
+  channels: z.array(
+    z.object({
+      channelId: z.string().uuid(),
+      sessionId: z.string().uuid(),
+      participants: z.array(voiceParticipantSchema),
+    })
+  ),
+})

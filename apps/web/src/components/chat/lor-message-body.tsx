@@ -269,6 +269,8 @@ export const LorMessageBody = memo(function LorMessageBody({
                   Boolean(streaming) &&
                   block.segments.at(-1) === segments.at(-1)
                 }
+                runActive={Boolean(streaming)}
+                bare={activityBlocks.length === 1}
                 toolCount={groupTools.length}
                 errorCount={
                   allGroupTools.filter((tool) => tool.status === "error").length

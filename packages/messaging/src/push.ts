@@ -13,6 +13,9 @@ import {
   type UnreadNotification,
 } from "@repo/realtime-types"
 
+// A push for someone mentioned from a live call they aren't in.
+export type CallMentionPush = Omit<UnreadNotification, "messageId">
+
 // Structural subset of the node-redis client so realtime, worker, and api can
 // all pass their own instance without this package depending on "redis".
 type PresenceRedisClient = {
@@ -113,11 +116,14 @@ export async function sendMessagePushNotifications(input: {
       userId: string
       payload: { type: "direct_mention" | "everyone_mention" }
     }>
+    callMentionPushes: Array<{ userId: string; payload: CallMentionPush }>
   }
-  threadRootId?: string | null
   redis: PresenceRedisClient
 }) {
-  const recipients = input.fanout.unreadNotifications
+  const recipients = [
+    ...input.fanout.unreadNotifications,
+    ...input.fanout.callMentionPushes,
+  ]
   if (recipients.length === 0) return
 
   const membership = await input.redis.smIsMember(
@@ -245,8 +251,8 @@ export async function sendMessagePushNotifications(input: {
           communication: true,
           channelId: payload.channelId,
           workspaceId: payload.workspaceId,
-          threadRootId: input.threadRootId ?? null,
-          messageId: payload.messageId,
+          threadRootId: payload.threadRootId,
+          ...("messageId" in payload ? { messageId: payload.messageId } : {}),
           senderId: payload.authorUserId,
           senderName: payload.authorName,
           senderImage: payload.authorImage,

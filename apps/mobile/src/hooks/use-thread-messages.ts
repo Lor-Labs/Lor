@@ -29,6 +29,7 @@ import {
   startRunReplay,
 } from "@/lib/run-replay"
 import type { AppSocket } from "@/lib/socket"
+import { holdThreadRoom } from "@/lib/thread-rooms"
 
 type CurrentUser = {
   id: string
@@ -45,6 +46,9 @@ type ThreadSnapshot = {
   totalReplyCount: number
   beforeCursor: string | null
   reachedOldest: boolean
+  // Set when the thread is a call's chat; the title once Lor summarized it.
+  voiceSessionId: string | null
+  voiceSessionTitle: string | null
 }
 
 function participantsFromMessages(
@@ -78,6 +82,10 @@ export function useThreadMessages({
   const [messages, setMessages] = useState<Message[]>([])
   const [root, setRoot] = useState<Message | null>(null)
   const [participants, setParticipants] = useState<ThreadParticipant[]>([])
+  const [voiceSessionId, setVoiceSessionId] = useState<string | null>(null)
+  const [voiceSessionTitle, setVoiceSessionTitle] = useState<string | null>(
+    null
+  )
   const [totalReplyCount, setTotalReplyCount] = useState(0)
   const [isLoading, setIsLoading] = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
@@ -234,6 +242,8 @@ export function useThreadMessages({
           )
           if (payload.root) updateRoot(() => payload.root)
           setParticipants(nextParticipants)
+          setVoiceSessionId(payload.voiceSessionId)
+          setVoiceSessionTitle(payload.voiceSessionTitle)
           beforeCursorRef.current = payload.beforeCursor
           setReachedOldest(payload.reachedOldest)
           setTotalReplyCount(nextTotalReplyCount)
@@ -246,6 +256,8 @@ export function useThreadMessages({
               totalReplyCount: nextTotalReplyCount,
               beforeCursor: payload.beforeCursor,
               reachedOldest: payload.reachedOldest,
+              voiceSessionId: payload.voiceSessionId,
+              voiceSessionTitle: payload.voiceSessionTitle,
             })
           }
           return { data: payload.data, root: payload.root ?? null }
@@ -296,6 +308,8 @@ export function useThreadMessages({
     setMessages(cached?.messages ?? [])
     setRoot(cached?.root ?? null)
     setParticipants(cached?.participants ?? [])
+    setVoiceSessionId(cached?.voiceSessionId ?? null)
+    setVoiceSessionTitle(cached?.voiceSessionTitle ?? null)
     setTotalReplyCount(cached?.totalReplyCount ?? 0)
     setIsRefreshing(false)
     setIsLoadingOlder(false)
@@ -648,7 +662,7 @@ export function useThreadMessages({
       )
     }
 
-    if (socket.connected) joinThread()
+    const releaseRoom = holdThreadRoom(socket, threadRootId)
     socket.on("connect", rejoinThread)
     socket.on("message:created", receiveMessage)
     socket.on("message:updated", updateMessage)
@@ -666,7 +680,7 @@ export function useThreadMessages({
     socket.on("message:thread:updated", updateThread)
 
     return () => {
-      if (socket.connected) socket.emit("thread:leave", { threadRootId })
+      releaseRoom()
       socket.off("connect", rejoinThread)
       socket.off("message:created", receiveMessage)
       socket.off("message:updated", updateMessage)
@@ -1041,6 +1055,8 @@ export function useThreadMessages({
     messages,
     root,
     participants,
+    voiceSessionId,
+    voiceSessionTitle,
     totalReplyCount,
     isLoading,
     isRefreshing,

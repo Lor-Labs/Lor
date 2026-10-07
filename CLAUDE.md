@@ -87,6 +87,15 @@ If you add/edit routes in the API, use `pnpm run check` and
 `pnpm run check-types`. The type-check task builds upstream dependencies
 before checking dependents. Do not run `pnpm run validate`, which executes tests.
 
+### Reference docs (`reference/`)
+
+`reference/README.md` indexes every design, runbook and as-built doc with its
+status. The root holds what exists (as-built docs, in-flight runbooks, how-tos).
+`reference/planned/` holds designs not yet started — verify against code before
+relying on them. `reference/archive/` holds superseded or finished one-off
+plans. Code comments cite `reference/<file>` paths, so a root doc moves only
+with a link sweep.
+
 ### Adding an integration/connector
 
 When adding a new integration (Linear, Notion, Datadog, …), follow the runbook at `reference/adding-a-connector.md`. Connectors are declared in the `@repo/connectors` registry (typed, exhaustive over the DB enums) — adding an enum value cascades compile errors that walk you through wiring the descriptor, provider, tools, capabilities, and icon. The runbook flags which steps are compiler-enforced vs. still hand-edited.
@@ -94,7 +103,7 @@ When adding a new integration (Linear, Notion, Datadog, …), follow the runbook
 ### Self-configuration roadmap (custom roles → approvals → change proposals)
 
 The next-phase product vision (Lor proposes changes to its own configuration;
-Playbooks come later) lives at `reference/self-configuration.md`. Custom
+Playbooks come later) lives at `reference/planned/self-configuration.md`. Custom
 roles/permissions work (LOR-57/LOR-82) is executed step-by-step from
 `reference/custom-roles.md` — locked decisions and status checkboxes live
 there; update them as steps land.
@@ -106,9 +115,22 @@ Loops work is executed phase-by-phase from the runbook at `reference/loops.md` �
 ### Voice channels and memory
 
 The guiding feature spec lives in `reference/voice-channels.md`: voice channels
-and conversation memory first, live voice interaction with Lor later. It records
-product direction and open decisions, not an as-built implementation. Broader
+and conversation memory first, live voice interaction with Lor later. Its
+"Voice channel model" section holds the locked product decisions. Voice work is
+executed phase-by-phase from the runbook at `reference/voice-channels-runbook.md`
+— locked implementation decisions, per-phase file lists, and status checkboxes
+live there. Update its checkboxes and deviations log as phases land. Private
+questions to Lor are deferred (`reference/planned/private-lor-questions.md`). Broader
 priorities live in `reference/product-direction.md`.
+
+### Code channels (multiplayer AI coding)
+
+The target architecture for code channels — per-step checkpoints (Postgres
+conversation + git-host commits on Code Storage or Cloudflare Artifacts),
+fork/handoff/rewind, local clone, Yjs live editing, the push-driven code index,
+and Claude Code/Codex CLI support with subscription rules — lives in
+`reference/planned/code-channels.md`. Design only, not built; its locked decisions and
+rejected alternatives explain the shape.
 
 ### Attachment search + reranking
 

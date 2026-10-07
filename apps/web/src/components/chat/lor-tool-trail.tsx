@@ -61,7 +61,7 @@ const WriteGlyph = glyph(PencilEdit02Icon)
 const WrenchGlyph = glyph(Wrench01Icon)
 const ExternalLinkGlyph = glyph(LinkSquare02Icon)
 
-function toolIcon(toolName: string): TrailIcon {
+export function toolIcon(toolName: string): TrailIcon {
   // Connector tools wear their brand mark; built-in tools get an action glyph.
   const connector = connectorForTool(toolName)
   if (connector) return connectorLogo(connector)
@@ -202,7 +202,7 @@ function SubStepRow({ toolCall }: { toolCall: LorToolCallView }) {
         {diff && <DiffCounts diff={diff} />}
         <HugeiconsIcon
           icon={ArrowRight01Icon}
-          className="invisible size-3 shrink-0 transition-transform group-hover/tool-step:visible group-focus-visible/tool-step:visible group-data-panel-open/tool-step:visible group-data-panel-open/tool-step:rotate-90"
+          className="invisible size-3 shrink-0 transition-transform duration-150 ease-out group-hover/tool-step:visible group-focus-visible/tool-step:visible group-data-panel-open/tool-step:visible group-data-panel-open/tool-step:rotate-90"
           strokeWidth={2}
         />
       </CollapsibleTrigger>

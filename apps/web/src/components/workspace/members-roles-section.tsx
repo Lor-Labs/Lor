@@ -16,10 +16,7 @@ export function MembersRolesSection({
   return (
     <div ref={topRef} className="scroll-mt-6">
       <Tabs defaultValue="members">
-        <TabsList
-          variant="underline"
-          className="w-full justify-start border-b border-border/60"
-        >
+        <TabsList>
           <TabsTab value="members" className="grow-0">
             Members
           </TabsTab>

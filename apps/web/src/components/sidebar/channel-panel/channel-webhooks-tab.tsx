@@ -34,6 +34,7 @@ import { toast } from "@repo/ui/components/toast"
 import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useRef, useState } from "react"
+import { MorphText } from "@/components/ui/morph-text"
 import {
   formatActWindowShort,
   TriggerEffects,
@@ -585,7 +586,9 @@ export function ChannelWebhooksTab({
                               })
                             }
                           >
-                            {updateMutation.isPending ? "Saving..." : "Save"}
+                            <MorphText>
+                              {updateMutation.isPending ? "Saving..." : "Save"}
+                            </MorphText>
                           </Button>
                         )}
                       </div>

@@ -12,6 +12,11 @@ export type ThreadSidebarView = {
   /** Message to reveal when the thread was opened from search or a citation. */
   targetMessageId?: string
   composerDraft?: { id: string; text: string }
+  /** A call's panel: its chat (the default) or its record (summary and
+   * transcript). */
+  callTab?: "chat" | "transcript"
+  /** Moment in the call (ms from its start) to reveal in the transcript. */
+  transcriptAtMs?: number
 }
 
 export type AttachmentsSidebarView = {

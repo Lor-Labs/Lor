@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { MorphText } from "@/components/ui/morph-text"
 
 // Claude-Code-style nonsense gerunds Lor cycles through while it works — a
 // mix of made-up words and wizardly flavor. Purely cosmetic.
@@ -62,9 +63,10 @@ export function ThinkingIndicator() {
     return () => clearInterval(id)
   }, [])
 
+  // Every word ends in "ing…", so the suffix glides while the stem morphs.
   return (
-    <span className="shimmer inline-flex items-center text-sm text-muted-foreground italic">
-      {WORDS[index]}…
-    </span>
+    <MorphText className="shimmer-mask text-sm text-foreground italic">
+      {`${WORDS[index]}…`}
+    </MorphText>
   )
 }

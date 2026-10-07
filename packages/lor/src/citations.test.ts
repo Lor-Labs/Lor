@@ -14,9 +14,9 @@ function resolverFrom(map: Record<string, Resolution>) {
     const known = map[token]
     if (known) return known
     const kind = classifyToken(token)
-    return kind === "src"
-      ? { kind: "src", source: null }
-      : { kind, exists: false }
+    if (kind === "src") return { kind: "src", source: null }
+    if (kind === "call") return { kind: "call", call: null }
+    return { kind, exists: false }
   }
 }
 

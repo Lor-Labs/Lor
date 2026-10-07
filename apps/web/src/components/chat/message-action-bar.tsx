@@ -17,6 +17,7 @@ import {
 import {
   Tooltip,
   TooltipContent,
+  TooltipCreateHandle,
   TooltipTrigger,
 } from "@repo/ui/components/tooltip"
 import { useCallback, useEffect, useRef, useState } from "react"
@@ -53,6 +54,7 @@ export function MessageActionBar({
   const [isMoreOpen, setIsMoreOpen] = useState(false)
   const [suppressTooltip, setSuppressTooltip] = useState(false)
   const suppressTimeoutRef = useRef<ReturnType<typeof setTimeout>>(null)
+  const [tooltipHandle] = useState(() => TooltipCreateHandle<string>())
 
   useEffect(() => {
     onOverlayOpenChange?.(isEmojiOpen || isMoreOpen)
@@ -79,75 +81,77 @@ export function MessageActionBar({
 
   return (
     <div className="flex items-center gap-0.5 rounded-md border border-border bg-background p-0.5 shadow-sm">
-      <EmojiReactionPicker onSelect={onReact} onOpenChange={setIsEmojiOpen} />
+      <EmojiReactionPicker
+        tooltipHandle={tooltipHandle}
+        onSelect={onReact}
+        onOpenChange={setIsEmojiOpen}
+      />
 
-      <Tooltip>
+      <TooltipTrigger
+        handle={tooltipHandle}
+        payload="Reply"
+        render={
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            className="size-7 pointer-fine:after:absolute pointer-fine:after:left-full pointer-fine:after:h-full pointer-fine:after:w-0.5"
+            onClick={onReply}
+            aria-label="Reply"
+          />
+        }
+      >
+        <HugeiconsIcon
+          icon={ArrowTurnBackwardIcon}
+          className="size-4"
+          strokeWidth={1.5}
+        />
+      </TooltipTrigger>
+
+      {onReplyInThread && (
         <TooltipTrigger
+          handle={tooltipHandle}
+          payload="Reply in thread"
           render={
             <Button
               type="button"
               variant="ghost"
-              size="icon-xs"
-              className="size-7"
-              onClick={onReply}
-              aria-label="Reply"
+              size="icon"
+              className="size-7 pointer-fine:after:absolute pointer-fine:after:left-full pointer-fine:after:h-full pointer-fine:after:w-0.5"
+              onClick={onReplyInThread}
+              aria-label="Reply in thread"
+            />
+          }
+        >
+          <HugeiconsIcon icon={MessageMultiple01Icon} size={8} />
+        </TooltipTrigger>
+      )}
+
+      <DropdownMenu open={isMoreOpen} onOpenChange={handleMoreOpenChange}>
+        <TooltipTrigger
+          handle={tooltipHandle}
+          payload="More actions"
+          disabled={isMoreOpen || suppressTooltip}
+          render={
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  className="size-7"
+                  aria-label="More actions"
+                />
+              }
             />
           }
         >
           <HugeiconsIcon
-            icon={ArrowTurnBackwardIcon}
+            icon={MoreHorizontalIcon}
             className="size-4"
-            strokeWidth={1.5}
+            strokeWidth={2}
           />
         </TooltipTrigger>
-        <TooltipContent side="top">Reply</TooltipContent>
-      </Tooltip>
-
-      {onReplyInThread && (
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="size-7"
-                onClick={onReplyInThread}
-                aria-label="Reply in thread"
-              />
-            }
-          >
-            <HugeiconsIcon icon={MessageMultiple01Icon} size={8} />
-          </TooltipTrigger>
-          <TooltipContent side="top">Reply in thread</TooltipContent>
-        </Tooltip>
-      )}
-
-      <DropdownMenu open={isMoreOpen} onOpenChange={handleMoreOpenChange}>
-        <Tooltip open={isMoreOpen || suppressTooltip ? false : undefined}>
-          <TooltipTrigger
-            render={
-              <DropdownMenuTrigger
-                render={
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-xs"
-                    className="size-7"
-                    aria-label="More actions"
-                  />
-                }
-              />
-            }
-          >
-            <HugeiconsIcon
-              icon={MoreHorizontalIcon}
-              className="size-4"
-              strokeWidth={2}
-            />
-          </TooltipTrigger>
-          <TooltipContent side="top">More actions</TooltipContent>
-        </Tooltip>
 
         <DropdownMenuContent side="top" align="end">
           {canManageMessage && (
@@ -179,6 +183,10 @@ export function MessageActionBar({
           )}
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <Tooltip handle={tooltipHandle}>
+        {({ payload }) => <TooltipContent side="top">{payload}</TooltipContent>}
+      </Tooltip>
     </div>
   )
 }

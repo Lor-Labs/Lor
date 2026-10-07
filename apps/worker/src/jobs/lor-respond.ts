@@ -1085,7 +1085,6 @@ export function createLorRespondProcessor(
               }
               void sendMessagePushNotifications({
                 fanout,
-                threadRootId,
                 redis,
               }).catch((err) => {
                 logger.error(

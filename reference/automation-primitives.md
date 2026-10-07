@@ -89,7 +89,7 @@ LOR-49: index data silently, notify no one.
   layer directly would pollute it.
 - **System-of-record exception (webhooks only):** a webhook has no provider to
   live-fetch from, so the "summary + pointer, never store whole" rule
-  (`lor-agent-architecture.md` §2.2) breaks deliberately: the capped raw payload (64KB)
+  (`archive/lor-agent-architecture.md` §2.2) breaks deliberately: the capped raw payload (64KB)
   is stored on the `trigger_delivery` row. First-party connectors keep true
   pointers (e.g. Attio transcripts are live-fetched). Known gap: the webhook
   provider's `fetchContent` returns null for now, so Lor retrieves the summary

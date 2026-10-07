@@ -1,3 +1,4 @@
+import { formatDateTime } from "@repo/utils/date"
 import type { Message } from "@/lib/api-types"
 
 // Mirrors the token contract in apps/web message-markdown.tsx. Stored message
@@ -7,6 +8,7 @@ import type { Message } from "@/lib/api-types"
 export const MENTION_SCHEME = "lor://mention/"
 export const MSG_SCHEME = "lor://msg/"
 export const SRC_SCHEME = "lor://src/"
+export const CALL_SCHEME = "lor://call/"
 
 const USER_MENTION_TOKEN_REGEX =
   /<@([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})>/gi
@@ -128,6 +130,19 @@ export function toDisplayMarkdown(
         return isHttpUrl(trimmedUrl)
           ? `[↗ ${escapeLinkText(label)}](${SRC_SCHEME}${encodeURIComponent(trimmedUrl)})`
           : codeChip(`↗ ${label}`)
+      }
+      if (token.startsWith("call:")) {
+        // [[call:<id>@<ms>|<channel>|<startedAt>]] once grounded; a bare
+        // [[call:<id>@12:40]] while streaming stays a plain chip.
+        const [body = "", channel = "", startedAt = ""] = token
+          .slice(5)
+          .split("|")
+        const [sessionId = "", at = ""] = body.split("@")
+        const atMs = /^\d+$/.test(at.trim()) ? Number(at.trim()) : 0
+        const start = Date.parse(startedAt.trim())
+        if (!channel.trim() || Number.isNaN(start)) return codeChip("↗ call")
+        const label = `${channel.trim()} call · ${formatDateTime(new Date(start + atMs))}`
+        return `[↗ ${escapeLinkText(label)}](${CALL_SCHEME}${encodeURIComponent(sessionId.trim())}?at=${atMs})`
       }
       // Verified brain-page citation ([[/path]]). Non-clickable (no brain
       // browser yet) — the path renders as a muted mono chip.

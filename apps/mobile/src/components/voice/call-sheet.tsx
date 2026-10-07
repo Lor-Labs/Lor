@@ -1,0 +1,466 @@
+import BottomSheet, {
+  ANIMATION_SOURCE,
+  type GestureEventHandlerCallbackType,
+  useBottomSheetInternal,
+  useGestureEventsHandlersDefault,
+} from "@gorhom/bottom-sheet"
+import CallEnd01Icon from "@hugeicons/core-free-icons/CallEnd01Icon"
+import ClosedCaptionIcon from "@hugeicons/core-free-icons/ClosedCaptionIcon"
+import Message01Icon from "@hugeicons/core-free-icons/Message01Icon"
+import Mic01Icon from "@hugeicons/core-free-icons/Mic01Icon"
+import MicOff01Icon from "@hugeicons/core-free-icons/MicOff01Icon"
+import Video01Icon from "@hugeicons/core-free-icons/Video01Icon"
+import VideoOffIcon from "@hugeicons/core-free-icons/VideoOffIcon"
+import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react-native"
+import { useLocalParticipant } from "@livekit/react-native"
+import { useThemeColor } from "heroui-native/hooks"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { Alert, Keyboard, Platform, StyleSheet, Text, View } from "react-native"
+import Animated, {
+  Extrapolation,
+  interpolate,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated"
+import { useSafeAreaInsets } from "react-native-safe-area-context"
+import { ThreadView } from "@/components/thread-view"
+import { triggerHaptic } from "@/components/ui/haptics"
+import { IconButton } from "@/components/ui/icon-button"
+import { Tabs } from "@/components/ui/tabs"
+import { CallTranscript } from "@/components/voice/call-transcript"
+import { LorSimulatorButton } from "@/components/voice/lor-simulator"
+import {
+  type ActiveVoiceCall,
+  useVoiceCall,
+} from "@/context/voice-call-context"
+
+const GRABBER_HEIGHT = 20
+const CONTROLS_HEIGHT = 64
+
+// What the drawer shows when pulled down: the grabber and the call controls.
+// The stage leaves this much room at the bottom.
+export function useCallSheetPeekHeight() {
+  const { bottom } = useSafeAreaInsets()
+  return GRABBER_HEIGHT + CONTROLS_HEIGHT + bottom
+}
+
+// Web's call button states (call-controls.tsx), so both apps read alike: on
+// and off by brightness, no added colour. "off" a dim icon in an outline,
+// "on" a bright one, "active" (captions, chat open) a bright icon on a
+// subtle fill, "red" the one soft red (muted, Leave).
+export type ControlTone = "on" | "off" | "active" | "red"
+
+export function ControlButton({
+  icon,
+  label,
+  tone,
+  selected,
+  onPress,
+}: {
+  icon: IconSvgElement
+  label: string
+  tone: ControlTone
+  selected?: boolean
+  onPress: () => void
+}) {
+  const [foreground, muted, danger] = useThemeColor([
+    "foreground",
+    "muted",
+    "danger",
+  ])
+  return (
+    <IconButton
+      accessibilityLabel={label}
+      accessibilityState={selected === undefined ? undefined : { selected }}
+      onPress={onPress}
+      variant={
+        tone === "red"
+          ? "danger-soft"
+          : tone === "active"
+            ? "secondary"
+            : "outline"
+      }
+    >
+      <HugeiconsIcon
+        color={tone === "red" ? danger : tone === "off" ? muted : foreground}
+        icon={icon}
+        size={20}
+        strokeWidth={2}
+      />
+    </IconButton>
+  )
+}
+
+function CallControls({
+  sessionId,
+  chatOpen,
+  chatUnread,
+  onToggleChat,
+  onLeave,
+}: {
+  sessionId: string
+  chatOpen: boolean
+  // Zero while the chat is on screen.
+  chatUnread: number
+  onToggleChat: () => void
+  onLeave: () => void
+}) {
+  const { localParticipant, isMicrophoneEnabled, isCameraEnabled } =
+    useLocalParticipant()
+  const { cameraFacing, captionsOn, toggleCaptions } = useVoiceCall()
+
+  const toggleMicrophone = async () => {
+    try {
+      await localParticipant.setMicrophoneEnabled(!isMicrophoneEnabled)
+    } catch {
+      Alert.alert("Microphone unavailable")
+    }
+  }
+  const toggleCamera = async () => {
+    try {
+      await localParticipant.setCameraEnabled(!isCameraEnabled, {
+        facingMode: cameraFacing,
+      })
+    } catch {
+      Alert.alert("Camera unavailable")
+    }
+  }
+
+  return (
+    <View
+      className="flex-row items-center justify-center gap-four"
+      style={{ height: CONTROLS_HEIGHT }}
+    >
+      <ControlButton
+        icon={isMicrophoneEnabled ? Mic01Icon : MicOff01Icon}
+        label={isMicrophoneEnabled ? "Mute" : "Unmute"}
+        onPress={() => void toggleMicrophone()}
+        tone={isMicrophoneEnabled ? "on" : "red"}
+      />
+      <ControlButton
+        icon={isCameraEnabled ? Video01Icon : VideoOffIcon}
+        label={isCameraEnabled ? "Turn camera off" : "Turn camera on"}
+        onPress={() => void toggleCamera()}
+        tone={isCameraEnabled ? "on" : "off"}
+      />
+      {/* No crossed-out CC icon, so on reads like an open chat: filled. */}
+      <ControlButton
+        icon={ClosedCaptionIcon}
+        label={captionsOn ? "Hide captions" : "Show captions"}
+        onPress={toggleCaptions}
+        selected={captionsOn}
+        tone={captionsOn ? "active" : "off"}
+      />
+      <LorSimulatorButton sessionId={sessionId} />
+      <View>
+        <ControlButton
+          icon={Message01Icon}
+          label={`${chatOpen ? "Close call chat" : "Open call chat"}${
+            chatUnread > 0 ? `, ${chatUnread} unread` : ""
+          }`}
+          onPress={onToggleChat}
+          tone={chatOpen ? "active" : "off"}
+        />
+        {chatUnread > 0 ? (
+          <View
+            className="absolute -top-1 -right-1 h-[18px] min-w-[18px] items-center justify-center rounded-full bg-accent px-1"
+            pointerEvents="none"
+          >
+            <Text className="text-[11px] font-bold leading-[13px] text-accent-foreground">
+              {chatUnread > 99 ? "99+" : chatUnread}
+            </Text>
+          </View>
+        ) : null}
+      </View>
+      <ControlButton
+        icon={CallEnd01Icon}
+        label="Leave call"
+        onPress={onLeave}
+        tone="red"
+      />
+    </View>
+  )
+}
+
+// Where the drawer docks in the area below the header: a little over halfway,
+// like Discord's, and up to a thin strip of the call under the header.
+const MIDDLE = 0.6
+const TOP_GAP = 12
+const MIDDLE_INDEX = 1
+const TOP_INDEX = 2
+// Slightly underdamped (ratio ~0.8) and clamped, carrying the release speed:
+// it reaches a dock in about 0.2s and stops dead there, never bouncing past.
+// A critically damped spring only creeps in, which felt soft.
+const SNAP_SPRING = {
+  mass: 1,
+  stiffness: 420,
+  damping: 33,
+  overshootClamping: true,
+}
+const SHRINK_MS = 120
+// From the bottom, a drag (flick included) this share of the way up opens the
+// drawer.
+const OPEN_THRESHOLD = 0.15
+// How far a flick carries, as in gorhom's own snapping.
+const FLICK_SECONDS = 0.2
+
+// Where a release lands. From the bottom the drawer always opens to the top,
+// never stopping halfway, like Discord's; the middle dock is only reached by
+// letting go near it on the way down. Otherwise gorhom's default handlers.
+function useCallSheetGestures() {
+  const defaults = useGestureEventsHandlersDefault()
+  const { animatedDetentsState, animatedPosition, animateToPosition } =
+    useBottomSheetInternal()
+  const startPosition = useSharedValue(0)
+
+  const handleOnStart: GestureEventHandlerCallbackType = useCallback(
+    function handleOnStart(source, payload) {
+      "worklet"
+      startPosition.value = animatedPosition.value
+      defaults.handleOnStart(source, payload)
+    },
+    [defaults, startPosition, animatedPosition]
+  )
+  const handleOnEnd: GestureEventHandlerCallbackType = useCallback(
+    function handleOnEnd(_source, { velocityY }) {
+      "worklet"
+      const { detents } = animatedDetentsState.get()
+      if (!detents || detents.length <= TOP_INDEX) return
+      // Positions from the top of the drawer's area: smaller is higher.
+      const peek = detents[0] ?? 0
+      const top = detents[TOP_INDEX] ?? 0
+      const position = animatedPosition.value
+      const projected = position + FLICK_SECONDS * velocityY
+      let destination = peek
+      if (Math.abs(startPosition.value - peek) < 1) {
+        const travelled = (peek - projected) / (peek - top)
+        destination = travelled > OPEN_THRESHOLD ? top : peek
+      } else {
+        for (const detent of detents) {
+          if (
+            Math.abs(detent - projected) < Math.abs(destination - projected)
+          ) {
+            destination = detent
+          }
+        }
+      }
+      if (destination === position) return
+      animateToPosition(destination, ANIMATION_SOURCE.GESTURE, velocityY / 2)
+    },
+    [animatedDetentsState, animatedPosition, animateToPosition, startPosition]
+  )
+
+  return { ...defaults, handleOnStart, handleOnEnd }
+}
+
+// The drawer under a call's stage, like Discord's: pulled down it's the call
+// controls; pulled up (or Chat tapped) it holds the call chat and transcript
+// while the call stays on screen above it. Only the controls strip drags it,
+// so the chat and transcript scroll freely.
+export function CallSheet({
+  call,
+  onLeave,
+}: {
+  call: ActiveVoiceCall
+  onLeave: () => void
+}) {
+  const surface = useThemeColor("surface")
+  const muted = useThemeColor("muted")
+  const { bottom: bottomInset } = useSafeAreaInsets()
+  const peekHeight = useCallSheetPeekHeight()
+  const sheetRef = useRef<BottomSheet>(null)
+  const animatedIndex = useSharedValue(0)
+  const indexRef = useRef(0)
+  const dockedRef = useRef(false)
+  const [containerHeight, setContainerHeight] = useState(0)
+  const [tab, setTab] = useState<"chat" | "transcript">("chat")
+  const [open, setOpen] = useState(false)
+  // The top dock is a fixed gap below the header, so it needs the measured
+  // area; before that, a close stand-in.
+  const topHeight = containerHeight > 0 ? containerHeight - TOP_GAP : "98%"
+  const snapPoints = useMemo(
+    () => [peekHeight, `${MIDDLE * 100}%`, topHeight],
+    [peekHeight, topHeight]
+  )
+
+  // The sheet library sizes content for the top dock, which would leave the
+  // composer and newest messages below the screen at the middle one. So the
+  // content takes each dock's visible height: right away when the drawer
+  // rises (the rise reveals it), and once it settles when it lowers. Closed,
+  // it's hidden but keeps the middle dock's height: the chat is mounted from
+  // the start of the call and needs a real height to lay out.
+  const contentHeight = useSharedValue(0)
+  const visibleContentHeight = useCallback(
+    (index: number) => {
+      const sheetHeight =
+        index === TOP_INDEX
+          ? containerHeight - TOP_GAP
+          : containerHeight * MIDDLE
+      return Math.max(0, sheetHeight - GRABBER_HEIGHT - CONTROLS_HEIGHT)
+    },
+    [containerHeight]
+  )
+  const contentSizeStyle = useAnimatedStyle(() => ({
+    height: contentHeight.value,
+  }))
+  // The area is measured after the first dock, so size the content then.
+  useEffect(() => {
+    contentHeight.value = visibleContentHeight(indexRef.current)
+  }, [visibleContentHeight, contentHeight])
+
+  const toggleChat = useCallback(() => {
+    if (open) {
+      sheetRef.current?.snapToIndex(0)
+      return
+    }
+    setTab("chat")
+    sheetRef.current?.snapToIndex(TOP_INDEX)
+  }, [open])
+
+  const { chatUnread, clearChatUnread } = useVoiceCall()
+  const chatVisible = open && tab === "chat"
+  useEffect(() => {
+    if (chatVisible && chatUnread > 0) clearChatUnread()
+  }, [chatVisible, chatUnread, clearChatUnread])
+
+  // Typing needs the room: the composer's keyboard lifts the drawer to the
+  // top dock.
+  useEffect(() => {
+    const event = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow"
+    const subscription = Keyboard.addListener(event, () => {
+      if (indexRef.current === MIDDLE_INDEX) {
+        sheetRef.current?.snapToIndex(TOP_INDEX)
+      }
+    })
+    return () => subscription.remove()
+  }, [])
+
+  const renderHandle = useCallback(
+    () => (
+      <View>
+        <View
+          className="items-center justify-end"
+          style={{ height: GRABBER_HEIGHT }}
+        >
+          <View
+            className="h-[5px] w-9 rounded-full"
+            style={{ backgroundColor: muted, opacity: 0.4 }}
+          />
+        </View>
+        <CallControls
+          chatOpen={open}
+          chatUnread={chatVisible ? 0 : chatUnread}
+          onLeave={onLeave}
+          onToggleChat={toggleChat}
+          sessionId={call.sessionId}
+        />
+      </View>
+    ),
+    [muted, open, chatVisible, chatUnread, onLeave, toggleChat, call.sessionId]
+  )
+
+  // The tabs and their content fade in as the drawer rises.
+  const contentStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(
+      animatedIndex.value,
+      [0, 0.5],
+      [0, 1],
+      Extrapolation.CLAMP
+    ),
+  }))
+
+  return (
+    <View
+      onLayout={(event) => setContainerHeight(event.nativeEvent.layout.height)}
+      pointerEvents="box-none"
+      style={StyleSheet.absoluteFill}
+    >
+      <BottomSheet
+        animatedIndex={animatedIndex}
+        animationConfigs={SNAP_SPRING}
+        backgroundStyle={{ backgroundColor: surface, borderRadius: 18 }}
+        enableContentPanningGesture={false}
+        enableDynamicSizing={false}
+        enablePanDownToClose={false}
+        handleComponent={renderHandle}
+        index={0}
+        gestureEventsHandlersHook={useCallSheetGestures}
+        // Haptics like Discord's: one as the drawer zips open, one as it lands
+        // at the bottom, none for the middle dock.
+        onAnimate={(fromIndex, toIndex) => {
+          indexRef.current = toIndex
+          if (
+            toIndex === TOP_INDEX &&
+            fromIndex >= 0 &&
+            fromIndex < TOP_INDEX
+          ) {
+            triggerHaptic("medium")
+          }
+          if (toIndex > fromIndex) {
+            contentHeight.value = visibleContentHeight(toIndex)
+          }
+          setOpen(toIndex > 0)
+        }}
+        onChange={(index) => {
+          // The clamped spring ends the moment it reaches the dock, so this
+          // lands with the visual stop. The first dock is the mount.
+          if (index === 0 && dockedRef.current) triggerHaptic("medium")
+          dockedRef.current = true
+          contentHeight.value = withTiming(visibleContentHeight(index), {
+            duration: SHRINK_MS,
+          })
+        }}
+        ref={sheetRef}
+        snapPoints={snapPoints}
+      >
+        {/* Bottom padding like a screen's safe area: the chat's keyboard
+            layout lifts the composer by the keyboard height minus this
+            inset. */}
+        <Animated.View
+          pointerEvents={open ? "auto" : "none"}
+          style={[
+            contentStyle,
+            contentSizeStyle,
+            { paddingBottom: bottomInset },
+          ]}
+        >
+          <View className="border-b border-separator px-four pb-two">
+            <Tabs
+              onValueChange={(value) =>
+                setTab(value === "transcript" ? "transcript" : "chat")
+              }
+              value={tab}
+            >
+              <Tabs.List>
+                <Tabs.Indicator />
+                <Tabs.Trigger value="chat">
+                  <Tabs.Label>Chat</Tabs.Label>
+                </Tabs.Trigger>
+                <Tabs.Trigger value="transcript">
+                  <Tabs.Label>Transcript</Tabs.Label>
+                </Tabs.Trigger>
+              </Tabs.List>
+            </Tabs>
+          </View>
+          {/* The chat mounts with the call, so it has loaded and kept up
+            with new messages before anyone opens the drawer; it stays
+            mounted behind the transcript, so a half-written message survives
+            a tab switch. */}
+          {call.threadRootId ? (
+            <View className={tab === "chat" ? "flex-1" : "hidden"}>
+              <ThreadView
+                channelId={call.channelId}
+                embedded
+                threadRootId={call.threadRootId}
+              />
+            </View>
+          ) : null}
+          {tab === "transcript" ? (
+            <CallTranscript live sessionId={call.sessionId} />
+          ) : null}
+        </Animated.View>
+      </BottomSheet>
+    </View>
+  )
+}

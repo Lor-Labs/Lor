@@ -5,15 +5,22 @@ import { useSidebar } from "@repo/ui/components/sidebar"
 import {
   Tooltip,
   TooltipContent,
+  TooltipCreateHandle,
+  type TooltipPrimitive,
   TooltipTrigger,
 } from "@repo/ui/components/tooltip"
 import { cn } from "@repo/ui/lib/utils"
 import { useCanGoBack, useRouter, useRouterState } from "@tanstack/react-router"
+import { useState } from "react"
 import { useDesktopChrome } from "@/components/desktop-window-frame"
 import { LeftSidebarToggle } from "@/components/sidebar/sidebar-toggle"
 import { useDesktopZoom } from "@/context/desktop-zoom-context"
 
-function HistoryNavButtons() {
+function HistoryNavButtons({
+  tooltipHandle,
+}: {
+  tooltipHandle: TooltipPrimitive.Handle<string>
+}) {
   const router = useRouter()
   const canGoBack = useCanGoBack()
   // The router doesn't expose a canGoForward — approximate it from the
@@ -27,42 +34,40 @@ function HistoryNavButtons() {
 
   return (
     <>
-      <Tooltip>
-        {/* aria-disabled (not disabled) so the tooltip stays hoverable —
-            native disabled buttons don't receive pointer events. */}
-        <TooltipTrigger
-          render={
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => canGoBack && router.history.back()}
-              aria-disabled={!canGoBack}
-              aria-label="Go back"
-              className="size-7 text-muted-foreground hover:text-foreground aria-disabled:opacity-50 aria-disabled:hover:bg-transparent aria-disabled:hover:text-muted-foreground"
-            />
-          }
-        >
-          <HugeiconsIcon icon={ArrowLeft02Icon} size={16} strokeWidth={2} />
-        </TooltipTrigger>
-        <TooltipContent>Back</TooltipContent>
-      </Tooltip>
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => canGoForward && router.history.forward()}
-              aria-disabled={!canGoForward}
-              aria-label="Go forward"
-              className="size-7 text-muted-foreground hover:text-foreground aria-disabled:opacity-50 aria-disabled:hover:bg-transparent aria-disabled:hover:text-muted-foreground"
-            />
-          }
-        >
-          <HugeiconsIcon icon={ArrowRight02Icon} size={16} strokeWidth={2} />
-        </TooltipTrigger>
-        <TooltipContent>Forward</TooltipContent>
-      </Tooltip>
+      {/* aria-disabled (not disabled) so the tooltip stays hoverable —
+          native disabled buttons don't receive pointer events. */}
+      <TooltipTrigger
+        handle={tooltipHandle}
+        payload="Back"
+        render={
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => canGoBack && router.history.back()}
+            aria-disabled={!canGoBack}
+            aria-label="Go back"
+            className="size-7 text-muted-foreground hover:text-foreground aria-disabled:opacity-50 aria-disabled:hover:bg-transparent aria-disabled:hover:text-muted-foreground pointer-fine:after:absolute pointer-fine:after:left-full pointer-fine:after:h-full pointer-fine:after:w-1"
+          />
+        }
+      >
+        <HugeiconsIcon icon={ArrowLeft02Icon} size={16} strokeWidth={2} />
+      </TooltipTrigger>
+      <TooltipTrigger
+        handle={tooltipHandle}
+        payload="Forward"
+        render={
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => canGoForward && router.history.forward()}
+            aria-disabled={!canGoForward}
+            aria-label="Go forward"
+            className="size-7 text-muted-foreground hover:text-foreground aria-disabled:opacity-50 aria-disabled:hover:bg-transparent aria-disabled:hover:text-muted-foreground pointer-fine:after:absolute pointer-fine:after:left-full pointer-fine:after:h-full pointer-fine:after:w-1"
+          />
+        }
+      >
+        <HugeiconsIcon icon={ArrowRight02Icon} size={16} strokeWidth={2} />
+      </TooltipTrigger>
     </>
   )
 }
@@ -79,6 +84,7 @@ export function DesktopSidebarTitlebar() {
   const { isMobile } = useSidebar()
   const zoom = useDesktopZoom()
   const appScale = (zoom?.levels.app ?? 100) / 100
+  const [tooltipHandle] = useState(() => TooltipCreateHandle<string>())
 
   if (!isMacDesktop || isMobile) return null
 
@@ -87,7 +93,10 @@ export function DesktopSidebarTitlebar() {
       className="flex h-12 shrink-0 items-center justify-end pr-1"
       style={{ minHeight: 48 / appScale, paddingLeft: 80 / appScale }}
     >
-      <HistoryNavButtons />
+      <HistoryNavButtons tooltipHandle={tooltipHandle} />
+      <Tooltip handle={tooltipHandle}>
+        {({ payload }) => <TooltipContent>{payload}</TooltipContent>}
+      </Tooltip>
     </div>
   )
 }
@@ -111,6 +120,7 @@ export function HeaderNavControls({
   const zoom = useDesktopZoom()
   const chromeScale = zoom ? (zoom.levels.app * zoom.levels.main) / 10000 : 1
   const collapsedDesktop = isMacDesktop && !isMobile && !open
+  const [tooltipHandle] = useState(() => TooltipCreateHandle<string>())
 
   return (
     <>
@@ -123,8 +133,13 @@ export function HeaderNavControls({
             : undefined
         }
       >
-        {collapsedDesktop && <HistoryNavButtons />}
-        <LeftSidebarToggle />
+        {collapsedDesktop && (
+          <HistoryNavButtons tooltipHandle={tooltipHandle} />
+        )}
+        <LeftSidebarToggle tooltipHandle={tooltipHandle} />
+        <Tooltip handle={tooltipHandle}>
+          {({ payload }) => <TooltipContent>{payload}</TooltipContent>}
+        </Tooltip>
       </div>
       {withDivider && <div className="h-4 w-px bg-border" aria-hidden="true" />}
     </>

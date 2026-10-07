@@ -1,4 +1,5 @@
 import { db } from "@repo/db"
+import { visibleToSessionChatFilter } from "@repo/db/queries/session-chat-access"
 import type {
   Attachment,
   ChannelEventPayload,
@@ -432,6 +433,7 @@ export async function fetchMessages({
           .where(inArray(agentRun.messageId, messageIds))
       : Promise.resolve([]),
     // Thread summaries only when fetching channel messages, not thread replies.
+    // Live-only rule: a live call's chat shows no activity outside the call.
     threadRootId || messageIds.length === 0
       ? Promise.resolve([])
       : db
@@ -441,7 +443,12 @@ export async function fetchMessages({
             lastReplyAt: max(message.createdAt),
           })
           .from(message)
-          .where(inArray(message.threadRootId, messageIds))
+          .where(
+            and(
+              inArray(message.threadRootId, messageIds),
+              visibleToSessionChatFilter(currentUserId, message.threadRootId)
+            )
+          )
           .groupBy(message.threadRootId),
     threadRootId || messageIds.length === 0
       ? Promise.resolve([])
@@ -455,7 +462,12 @@ export async function fetchMessages({
           })
           .from(message)
           .innerJoin(user, eq(message.authorId, user.id))
-          .where(inArray(message.threadRootId, messageIds))
+          .where(
+            and(
+              inArray(message.threadRootId, messageIds),
+              visibleToSessionChatFilter(currentUserId, message.threadRootId)
+            )
+          )
           .orderBy(desc(message.createdAt)),
     // Blocked-on-a-human footer state, same sources as the live
     // loadThreadSummary: waiting plans and pending approvals (anchored via

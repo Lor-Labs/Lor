@@ -10,7 +10,9 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@repo/ui/components/collapsible"
+import { cn } from "@repo/ui/lib/utils"
 import { type ReactNode, useRef, useState } from "react"
+import { MorphText } from "@/components/ui/morph-text"
 
 export function LorActivity({
   active,
@@ -27,12 +29,15 @@ export function LorActivity({
 }) {
   const [wasActive, setWasActive] = useState(active)
   const [open, setOpen] = useState(active)
+  // Labels morph only for runs seen live; settled history rows stay plain text.
+  const [live, setLive] = useState(active)
   const triggerRef = useRef<HTMLButtonElement>(null)
   // Reset at run boundaries; manual toggles still work while a run is active.
   if (wasActive !== active) {
     setWasActive(active)
     setOpen(active)
   }
+  if (active && !live) setLive(true)
 
   const label = active
     ? "Working…"
@@ -50,7 +55,7 @@ export function LorActivity({
       >
         <HugeiconsIcon
           icon={ArrowRight01Icon}
-          className="size-3 shrink-0 text-muted-foreground/70 transition-transform duration-200 ease-out group-data-panel-open/activity:rotate-90 motion-reduce:transition-none"
+          className="size-3 shrink-0 text-muted-foreground/70 transition-transform duration-150 ease-out group-data-panel-open/activity:rotate-90 motion-reduce:transition-none"
           strokeWidth={1.75}
         />
         {active && (
@@ -61,11 +66,11 @@ export function LorActivity({
           />
         )}
         <span className="flex min-w-0 flex-wrap items-baseline gap-x-1.5">
-          <span>{label}</span>
+          <MorphText live={live}>{label}</MorphText>
           {toolCount > 0 && (
-            <span className="text-xs text-muted-foreground/70">
-              · {toolCount} tool {toolCount === 1 ? "call" : "calls"}
-            </span>
+            <MorphText live={live} className="text-xs text-muted-foreground/70">
+              {`· ${toolCount} tool ${toolCount === 1 ? "call" : "calls"}`}
+            </MorphText>
           )}
           {errorCount > 0 && (
             <span className="text-xs text-destructive">
@@ -74,7 +79,7 @@ export function LorActivity({
           )}
         </span>
       </CollapsibleTrigger>
-      <CollapsibleContent className="transition-none">
+      <CollapsibleContent>
         <div className="relative mt-3 mb-5 min-w-0 pl-5">
           <span
             aria-hidden="true"
@@ -105,21 +110,42 @@ export function LorActivity({
 
 export function LorActivityGroup({
   active,
+  runActive,
+  bare = false,
   toolCount,
   errorCount,
   children,
 }: {
   active: boolean
+  runActive: boolean
+  bare?: boolean
   toolCount: number
   errorCount: number
   children: ReactNode
 }) {
-  const [wasActive, setWasActive] = useState(active)
-  const [open, setOpen] = useState(active)
-  if (wasActive !== active) {
-    setWasActive(active)
-    setOpen(active)
+  // Settled runs open every group, so one click on the activity panel shows
+  // the whole log. While a run streams, only the current group stays open.
+  const defaultOpen = !runActive || active
+  const [prevDefaultOpen, setPrevDefaultOpen] = useState(defaultOpen)
+  const [open, setOpen] = useState(defaultOpen)
+  if (prevDefaultOpen !== defaultOpen) {
+    setPrevDefaultOpen(defaultOpen)
+    setOpen(defaultOpen)
   }
+
+  const content = (
+    <div
+      className={cn(
+        "max-h-80 space-y-2 overflow-y-auto overscroll-contain pr-2 text-muted-foreground [&_[data-slot=chain-of-thought-step-title]]:text-xs [&_[data-slot=chain-of-thought-step-title]_[data-nx-text-shimmer]]:text-xs",
+        !bare && "mt-2 pl-5"
+      )}
+    >
+      {children}
+    </div>
+  )
+
+  // A lone group repeats the panel's own label, so it renders without a header.
+  if (bare) return content
 
   return (
     <Collapsible open={open} onOpenChange={setOpen} className="min-w-0">
@@ -141,15 +167,11 @@ export function LorActivityGroup({
         )}
         <HugeiconsIcon
           icon={ArrowRight01Icon}
-          className="size-3 shrink-0 transition-transform group-data-panel-open/work:rotate-90 motion-reduce:transition-none"
+          className="size-3 shrink-0 transition-transform duration-150 ease-out group-data-panel-open/work:rotate-90 motion-reduce:transition-none"
           strokeWidth={2}
         />
       </CollapsibleTrigger>
-      <CollapsibleContent className="transition-none">
-        <div className="mt-2 max-h-80 space-y-2 overflow-y-auto overscroll-contain pr-2 pl-5 text-muted-foreground [&_[data-slot=chain-of-thought-step-title]]:text-xs [&_[data-slot=chain-of-thought-step-title]_[data-nx-text-shimmer]]:text-xs">
-          {children}
-        </div>
-      </CollapsibleContent>
+      <CollapsibleContent>{content}</CollapsibleContent>
     </Collapsible>
   )
 }

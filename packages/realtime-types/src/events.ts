@@ -21,6 +21,97 @@ export type WorkspaceActivityUpdated = {
   workspaceId: string
 }
 
+// Invalidation only: clients refetch the authorized presence snapshot.
+export type WorkspaceVoiceUpdated = {
+  workspaceId: string
+}
+
+// The call a user is connected to on any device, or null. Sent to the user's
+// room so their other devices can offer "Transfer here".
+export type VoiceCallState = {
+  sessionId: string
+  channelId: string
+  channelName: string | null
+  workspaceId: string
+  workspaceSlug: string
+}
+
+// Wire shape of what Lor's window shows. Mirrors VoiceBlock in
+// @repo/db/schema.
+export type RealtimeVoiceBlock =
+  | { type: "answer"; markdown: string }
+  | { type: "question"; prompt: string; choices: string[] }
+  | {
+      type: "list"
+      title: string | null
+      items: { title: string; detail: string | null; url: string | null }[]
+    }
+  | {
+      type: "table"
+      title: string | null
+      columns: string[]
+      rows: string[][]
+    }
+  | {
+      type: "details"
+      title: string | null
+      fields: { label: string; value: string }[]
+    }
+  | { type: "linear_issues"; title: string | null; issues: string[] }
+  | {
+      type: "github_pull_requests"
+      title: string | null
+      pullRequests: string[]
+    }
+
+// Something said to Lor in a live call. Sent to the session chat's thread
+// room, so only people in the call receive it (live-only rule).
+export type VoiceRequestState = {
+  id: string
+  sessionId: string
+  participantId: string
+  userId: string
+  heardText: string
+  status:
+    | "listening"
+    | "rejected"
+    | "queued"
+    | "working"
+    | "awaiting_approval"
+    | "done"
+    | "failed"
+    | "cancelled"
+  result: { blocks: RealtimeVoiceBlock[] } | null
+  // Set while the request waits on an approval.
+  approval: {
+    approvalId: string
+    label: string
+    toolName: string
+    approvers: { userId: string; name: string }[]
+  } | null
+  finishedAt: string | null
+  // Someone cleared the finished result from Lor's window.
+  dismissedAt: string | null
+  // Someone brought this result back into Lor's window.
+  stagedAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+// While a request runs: a tool Lor started, and a reaction it chose. Live
+// only, to the session chat's thread room.
+export type VoiceRequestActivity = {
+  sessionId: string
+  requestId: string
+  toolName: string
+}
+
+export type VoiceRequestReaction = {
+  sessionId: string
+  requestId: string
+  emoji: string
+}
+
 export const channelRoomPayloadSchema = z.object({
   channelId: z.string().uuid(),
 })
@@ -111,6 +202,8 @@ export type RealtimeMessageType =
   | "loop_card"
   | "loop_fire"
   | "proposal_card"
+  | "voice_session"
+  | "call_summary"
 
 // Mirrors channel_event_type / ChannelEventPayload in @repo/db (messages.ts) —
 // hand-copied like RealtimeMessageType so clients don't pull in drizzle.
@@ -369,6 +462,9 @@ export type MentionNotification = {
   isLorThread: boolean
   isSubscribedToThread: boolean
   createdAt: string
+  // Set when the mention is in a live call's chat the person isn't in: they
+  // get who and where, never the message, and threadRootId is null.
+  callMention?: { authorName: string; channelName: string | null }
 }
 
 // Sent to the user room when the user reads a thread on any device (opened
@@ -558,6 +654,11 @@ export interface ServerToClientEvents {
   }) => void
   "presence:user:update": (payload: PresenceUserUpdate) => void
   "workspace:activity:updated": (payload: WorkspaceActivityUpdated) => void
+  "workspace:voice:updated": (payload: WorkspaceVoiceUpdated) => void
+  "voice:call:updated": (payload: { call: VoiceCallState | null }) => void
+  "voice:request:updated": (payload: { request: VoiceRequestState }) => void
+  "voice:request:activity": (payload: VoiceRequestActivity) => void
+  "voice:request:reaction": (payload: VoiceRequestReaction) => void
   "message:created": (payload: RealtimeMessage) => void
   "message:deleted": (payload: { channelId: string; messageId: string }) => void
   "message:updated": (payload: {

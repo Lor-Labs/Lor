@@ -19,7 +19,6 @@ import {
 import { cn } from "@repo/ui/lib/utils"
 import { useQuery } from "@tanstack/react-query"
 import { useParams } from "@tanstack/react-router"
-import { CodeBlockLowlight } from "@tiptap/extension-code-block-lowlight"
 import Link from "@tiptap/extension-link"
 import Mention, { type MentionOptions } from "@tiptap/extension-mention"
 import { Markdown } from "@tiptap/markdown"
@@ -27,7 +26,6 @@ import { PluginKey } from "@tiptap/pm/state"
 import {
   EditorContent,
   Extension,
-  ReactNodeViewRenderer,
   ReactRenderer,
   useEditor,
   useEditorState,
@@ -39,7 +37,6 @@ import Suggestion, {
   type SuggestionOptions,
   type SuggestionProps,
 } from "@tiptap/suggestion"
-import { common, createLowlight } from "lowlight"
 import {
   type ComponentType,
   useCallback,
@@ -49,7 +46,7 @@ import {
   useState,
 } from "react"
 import { AttachmentPreview } from "@/components/chat/composer/attachment-preview"
-import { CodeBlockView } from "@/components/chat/composer/code-block-view"
+import { CodeBlockShiki } from "@/components/chat/composer/code-block-shiki"
 import {
   type AttachableConnector,
   ConnectorAttachMenu,
@@ -94,7 +91,6 @@ const POPUP_GAP = 6
 export const SUGGESTION_MENU_SELECTOR =
   "[data-suggestion-open='true'], [data-mention-suggestion-open='true'], [data-slash-suggestion-open='true'], [data-slash-command-open='true']"
 const SLASH_COMMAND_PLUGIN_KEY = new PluginKey("slash-command")
-const lowlight = createLowlight(common)
 const DEFAULT_CODE_BLOCK_LANGUAGE = "plaintext"
 const CODE_BLOCK_LANGUAGE_OPTIONS = [
   { value: "plaintext", label: "Plain Text" },
@@ -565,12 +561,7 @@ export function MessageInput({
           // Registered separately below with app-specific options.
           link: false,
         }),
-        CodeBlockLowlight.extend({
-          addNodeView() {
-            return ReactNodeViewRenderer(CodeBlockView)
-          },
-        }).configure({
-          lowlight,
+        CodeBlockShiki.configure({
           defaultLanguage: "plaintext",
         }),
         Markdown,
@@ -950,7 +941,7 @@ export function MessageInput({
       )}
       <div
         className={cn(
-          "border border-input bg-muted/40 transition-colors duration-150 focus-within:border-muted-foreground/40",
+          "border border-input bg-background transition-colors duration-150 focus-within:border-muted-foreground/40 dark:bg-muted/40",
           replyingTo ? "rounded-b-lg" : "rounded-lg"
         )}
         onPaste={handlePaste}

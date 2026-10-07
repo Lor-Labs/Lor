@@ -1,10 +1,13 @@
 import {
   type InfiniteData,
+  infiniteQueryOptions,
+  type QueryClient,
   useInfiniteQuery,
   useQueryClient,
 } from "@tanstack/react-query"
 import { type MutableRefObject, useCallback, useEffect, useMemo } from "react"
 import { useRealtimeRoom } from "@/hooks/use-realtime-room"
+import { apiClient } from "@/lib/api-client"
 import type { Message } from "@/lib/api-types"
 import { preserveMessageStream } from "@/lib/message-cache-utils"
 import { realtimeMessageToMessage } from "@/lib/realtime-adapter"
@@ -26,6 +29,8 @@ export type ThreadPage = {
   // even when it's scrolled out of the channel feed.
   root?: Message | null
   participants?: ThreadParticipant[]
+  voiceSessionId?: string | null
+  voiceSessionTitle?: string | null
 }
 
 export type ThreadParticipant = Pick<
@@ -33,40 +38,50 @@ export type ThreadParticipant = Pick<
   "id" | "name" | "image" | "avatarColor"
 >
 
-type FetchPageParams = {
+export type FetchPageParams = {
   around?: string
   before?: string
   after?: string
   limit: number
 }
 
-interface UseThreadMessagesOptions {
+type ThreadTarget = {
+  workspaceSlug: string
   channelId: string
   threadRootId: string
-  fetchPage: (params: FetchPageParams) => Promise<ThreadPage>
-  enabled?: boolean
-  socket: AppSocket | null
-  pendingNoncesRef?: MutableRefObject<Set<string>>
-  perPage?: number
 }
 
-/**
- * Fetches + subscribes to a single thread's replies for the right-side panel.
- * Mirrors useChannelMessages but stripped down: no anchored mode, no pending
- * buffer — threads always show their full live tail.
- */
-export function useThreadMessages({
-  channelId,
-  threadRootId,
-  fetchPage,
-  enabled = true,
-  socket,
-  pendingNoncesRef,
-  perPage = 50,
-}: UseThreadMessagesOptions) {
-  const queryClient = useQueryClient()
+export async function fetchThreadPage(
+  target: ThreadTarget,
+  params: FetchPageParams
+): Promise<ThreadPage> {
+  const query: Record<string, string> = { limit: String(params.limit) }
+  if (params.around) query.around = params.around
+  if (params.before) query.before = params.before
+  if (params.after) query.after = params.after
+  const res = await apiClient.v1.workspaces[":workspaceSlug"].channels[
+    ":channelId"
+  ].messages[":messageId"].thread.$get({
+    param: {
+      workspaceSlug: target.workspaceSlug,
+      channelId: target.channelId,
+      messageId: target.threadRootId,
+    },
+    query,
+  })
+  if (!res.ok) throw new Error("Failed to fetch thread replies")
+  return res.json()
+}
 
-  const query = useInfiniteQuery<
+// One way to fetch a thread for the panel, the live call (which keeps its
+// chat loaded for the whole call), and hover prefetches.
+export function threadQueryOptions(
+  queryClient: QueryClient,
+  threadRootId: string,
+  fetchPage: (params: FetchPageParams) => Promise<ThreadPage>,
+  perPage = 50
+) {
+  return infiniteQueryOptions<
     ThreadPage,
     Error,
     InfiniteData<ThreadPage, ThreadPageParam>,
@@ -107,6 +122,46 @@ export function useThreadMessages({
       lastPage.reachedOldest || !lastPage.beforeCursor
         ? undefined
         : { before: lastPage.beforeCursor },
+  })
+}
+
+// Opening a past call's chat right after hovering its row is instant.
+export function prefetchThread(queryClient: QueryClient, target: ThreadTarget) {
+  void queryClient.prefetchInfiniteQuery(
+    threadQueryOptions(queryClient, target.threadRootId, (params) =>
+      fetchThreadPage(target, params)
+    )
+  )
+}
+
+interface UseThreadMessagesOptions {
+  channelId: string
+  threadRootId: string
+  fetchPage: (params: FetchPageParams) => Promise<ThreadPage>
+  enabled?: boolean
+  socket: AppSocket | null
+  pendingNoncesRef?: MutableRefObject<Set<string>>
+  perPage?: number
+}
+
+/**
+ * Fetches + subscribes to a single thread's replies for the right-side panel.
+ * Mirrors useChannelMessages but stripped down: no anchored mode, no pending
+ * buffer — threads always show their full live tail.
+ */
+export function useThreadMessages({
+  channelId,
+  threadRootId,
+  fetchPage,
+  enabled = true,
+  socket,
+  pendingNoncesRef,
+  perPage = 50,
+}: UseThreadMessagesOptions) {
+  const queryClient = useQueryClient()
+
+  const query = useInfiniteQuery({
+    ...threadQueryOptions(queryClient, threadRootId, fetchPage, perPage),
     enabled,
   })
 
@@ -129,8 +184,15 @@ export function useThreadMessages({
         ["thread", threadRootId],
         (old) => {
           if (!old) return old
+          // Also skips the echo of a send still shown as its optimistic
+          // entry (id = nonce): the sender's hook swaps that in place. The
+          // call's copy of this hook has no pending-nonce ref, so it relies
+          // on this.
           const exists = old.pages.some((page) =>
-            page.data.some((m) => m.id === adapted.id)
+            page.data.some(
+              (m) =>
+                m.id === adapted.id || (message.nonce && m.id === message.nonce)
+            )
           )
           if (exists) return old
           return {
@@ -249,6 +311,8 @@ export function useThreadMessages({
     messages,
     root,
     participants,
+    voiceSessionId: query.data?.pages[0]?.voiceSessionId ?? null,
+    voiceSessionTitle: query.data?.pages[0]?.voiceSessionTitle ?? null,
     isLoading: query.isPending,
     isError: query.isError,
     error: query.error,

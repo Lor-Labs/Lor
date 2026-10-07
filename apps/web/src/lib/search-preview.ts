@@ -37,6 +37,10 @@ export function toSearchPreviewText(
         const [, title = ""] = token.slice(4).split("|")
         return `↗ ${title.trim() || "source"}`
       }
+      if (token.startsWith("call:")) {
+        const [, channel = ""] = token.slice(5).split("|")
+        return `↗ ${channel.trim() ? `${channel.trim()} call` : "call"}`
+      }
       return token
     })
     .replace(/!\[([^\]]*)]\([^)]*\)/g, "$1")

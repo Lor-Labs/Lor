@@ -13,6 +13,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
 import { Button } from "@repo/ui/components/button"
+import { CustomMenuItem } from "@repo/ui/components/custom-menu-item"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -50,6 +51,7 @@ import {
   CreateChannelProvider,
   useCreateChannel,
 } from "@/components/sidebar/channel-panel/create-channel-context"
+import { VoicePresenceProvider } from "@/components/sidebar/channel-panel/voice-presence"
 import { WorkspaceCommand } from "@/components/sidebar/channel-panel/workspace-command"
 import { CreateWorkspaceDialog } from "@/components/sidebar/create-workspace-dialog"
 import {
@@ -373,7 +375,7 @@ function WorkspaceSidebarInner() {
                 </TooltipTrigger>
                 <TooltipContent>Create</TooltipContent>
               </Tooltip>
-              <DropdownMenuContent align="end" sideOffset={6} className="w-64">
+              <DropdownMenuContent align="end" sideOffset={6} className="w-44">
                 <DropdownMenuItem onClick={() => openCreateChannel()}>
                   <HugeiconsIcon
                     icon={HashtagIcon}
@@ -387,19 +389,18 @@ function WorkspaceSidebarInner() {
                   New category
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={openCreateProject}>
+                <CustomMenuItem
+                  onClick={openCreateProject}
+                  tooltip="Channels scoped to one unit of work"
+                  side="right"
+                >
                   <HugeiconsIcon
                     icon={Folder02Icon}
-                    className="size-4 mr-2 self-start mt-0.5"
+                    className="size-4 mr-2"
                     strokeWidth={2}
                   />
-                  <div className="flex min-w-0 flex-col">
-                    <span>New project</span>
-                    <span className="whitespace-nowrap text-xs text-muted-foreground">
-                      Channels scoped to one unit of work
-                    </span>
-                  </div>
-                </DropdownMenuItem>
+                  New project
+                </CustomMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           )}
@@ -417,7 +418,12 @@ function WorkspaceSidebarInner() {
         <SidebarGroup className="min-h-0 flex-1 pt-1">
           <div className="-mx-2 min-h-0 flex-1 overflow-hidden">
             <ChannelActivityProvider workspaceId={activeWorkspace?.id}>
-              <ChannelList />
+              <VoicePresenceProvider
+                workspaceSlug={activeWorkspace?.slug}
+                workspaceId={activeWorkspace?.id}
+              >
+                <ChannelList />
+              </VoicePresenceProvider>
             </ChannelActivityProvider>
           </div>
         </SidebarGroup>

@@ -3,6 +3,7 @@ import {
   type ChannelAudienceInfo,
   resolveChannelAudienceInfo,
 } from "@repo/db/queries/channel-access"
+import { liveSessionChatMembers } from "@repo/db/queries/session-chat-access"
 import type { Embed } from "@repo/db/schema"
 import type {
   MentionNotification,
@@ -16,6 +17,7 @@ import {
   MARKDOWN_USER_MENTION_REGEX,
   USER_MENTION_REGEX,
 } from "./mentions"
+import type { CallMentionPush } from "./push"
 
 export {
   type ChannelEventContentInput,
@@ -71,7 +73,7 @@ async function resolveThreadNotificationContext(message: FanoutMessage) {
     }
   }
 
-  const [participantRows, planCreator] = await Promise.all([
+  const [participantRows, planCreator, callRows] = await Promise.all([
     db
       .selectDistinct({ userId: schema.message.authorId })
       .from(schema.message)
@@ -87,9 +89,19 @@ async function resolveThreadNotificationContext(message: FanoutMessage) {
       .where(eq(schema.plan.threadRootId, threadRootId))
       .limit(1)
       .then((rows) => rows[0]?.userId ?? null),
+    // Everyone who was in a call follows its chat, so they hear about Lor's
+    // after-call recap even if they never typed there.
+    db
+      .selectDistinct({ userId: schema.voiceSessionParticipant.userId })
+      .from(schema.voiceSessionParticipant)
+      .innerJoin(
+        schema.voiceSession,
+        eq(schema.voiceSession.id, schema.voiceSessionParticipant.sessionId)
+      )
+      .where(eq(schema.voiceSession.threadRootId, threadRootId)),
   ])
   const subscribedUserIds = new Set(
-    participantRows.map((participant) => participant.userId)
+    [...participantRows, ...callRows].map((participant) => participant.userId)
   )
   if (planCreator) subscribedUserIds.add(planCreator)
 
@@ -150,9 +162,12 @@ async function listRecipientAudience(channel: FanoutChannel) {
 function buildMentionTargets(args: {
   audience: ChannelAudienceInfo["audience"]
   recipients: string[]
+  // Who @everyone/@channel/@here can reach; defaults to all recipients.
+  broadcastRecipients?: string[]
   messageContent: string
   onlineRecipientIds: Set<string>
 }) {
+  const broadcastRecipients = args.broadcastRecipients ?? args.recipients
   const directMentionedUserIds = extractDirectMentionUserIds(
     args.messageContent
   )
@@ -183,13 +198,13 @@ function buildMentionTargets(args: {
   // whoever is online right now. Direct mentions always win.
   if (includeEveryone || includeChannel) {
     const type: MentionInsertType = includeEveryone ? "everyone" : "channel"
-    for (const userId of args.recipients) {
+    for (const userId of broadcastRecipients) {
       if (!mentionTypeByUserId.has(userId)) {
         mentionTypeByUserId.set(userId, type)
       }
     }
   } else if (includeHere) {
-    for (const userId of args.recipients) {
+    for (const userId of broadcastRecipients) {
       if (
         args.onlineRecipientIds.has(userId) &&
         !mentionTypeByUserId.has(userId)
@@ -356,6 +371,10 @@ export function buildNotificationContentPreview(input: {
         const [, title = ""] = token.slice(4).split("|")
         return `↗ ${title.trim() || "source"}`
       }
+      if (token.startsWith("call:")) {
+        const [, channel = ""] = token.slice(5).split("|")
+        return `↗ ${channel.trim() ? `${channel.trim()} call` : "call"}`
+      }
       return token
     })
     .replace(/!\[([^\]]*)]\([^)]*\)/g, "$1")
@@ -465,7 +484,18 @@ export async function buildMessageFanout(input: MessageFanoutInput) {
   const recipientIds = [...new Set(allRecipientIds)].filter(
     (id) => id !== input.authorId
   )
-  const threadContext = await resolveThreadNotificationContext(input.message)
+  const threadRootId = input.message.threadRootId ?? null
+  const [threadContext, callMemberIds] = await Promise.all([
+    resolveThreadNotificationContext(input.message),
+    threadRootId ? liveSessionChatMembers(threadRootId) : null,
+  ])
+  // Live session chat: only people in the call receive the message. Anyone
+  // else it mentions learns who and where, never the content.
+  const readerIds = callMemberIds
+    ? recipientIds.filter((id) => callMemberIds.has(id))
+    : recipientIds
+  const outsideCall = (userId: string) =>
+    callMemberIds !== null && !callMemberIds.has(userId)
 
   const contentPreview =
     (input.message.content
@@ -476,36 +506,35 @@ export async function buildMessageFanout(input: MessageFanoutInput) {
       ? `sent ${input.message.attachments.length} attachment${input.message.attachments.length > 1 ? "s" : ""}`
       : null)
 
+  const unreadPayload = (userId: string): UnreadNotification => ({
+    channelId: input.channel.id,
+    workspaceId: input.channel.workspaceId,
+    messageId: input.message.id,
+    messageType: input.message.type,
+    threadRootId: threadContext.threadRootId,
+    isLorThread: threadContext.isLorThread,
+    isSubscribedToThread: threadContext.subscribedUserIds.has(userId),
+    unreadCountDelta: 1,
+    authorUserId: input.authorId,
+    authorName: input.message.author.name,
+    authorImage: input.message.author.image ?? null,
+    contentPreview,
+    channelName: input.channel.name,
+    workspaceName: input.channel.workspaceName ?? null,
+  })
   const unreadNotifications: Array<UserTargetedPayload<UnreadNotification>> =
-    recipientIds.map((userId) => ({
-      userId,
-      payload: {
-        channelId: input.channel.id,
-        workspaceId: input.channel.workspaceId,
-        messageId: input.message.id,
-        messageType: input.message.type,
-        threadRootId: threadContext.threadRootId,
-        isLorThread: threadContext.isLorThread,
-        isSubscribedToThread: threadContext.subscribedUserIds.has(userId),
-        unreadCountDelta: 1,
-        authorUserId: input.authorId,
-        authorName: input.message.author.name,
-        authorImage: input.message.author.image ?? null,
-        contentPreview,
-        channelName: input.channel.name,
-        workspaceName: input.channel.workspaceName ?? null,
-      },
-    }))
+    readerIds.map((userId) => ({ userId, payload: unreadPayload(userId) }))
 
   const onlineRecipientIds = needsPresenceLookup(
     audience,
     input.message.content ?? ""
   )
-    ? await listOnlineRecipientIds(input.redis, recipientIds)
+    ? await listOnlineRecipientIds(input.redis, readerIds)
     : new Set<string>()
   const mentionTypeByUserId = buildMentionTargets({
     audience,
     recipients: recipientIds,
+    broadcastRecipients: readerIds,
     messageContent: input.message.content ?? "",
     onlineRecipientIds,
   })
@@ -519,8 +548,27 @@ export async function buildMessageFanout(input: MessageFanoutInput) {
       mentionNotifications: [] as Array<
         UserTargetedPayload<MentionNotification>
       >,
+      callMentionPushes: [] as Array<UserTargetedPayload<CallMentionPush>>,
     }
   }
+
+  // Push-only entries for people mentioned from a call they aren't in; they
+  // never count as unread, and never point at the message or its chat.
+  const callMentionPushes: Array<UserTargetedPayload<CallMentionPush>> = [
+    ...mentionTypeByUserId.keys(),
+  ]
+    .filter(outsideCall)
+    .map((userId) => {
+      const { messageId: _messageId, ...payload } = unreadPayload(userId)
+      return {
+        userId,
+        payload: {
+          ...payload,
+          threadRootId: null,
+          contentPreview: "Mentioned you in a call",
+        },
+      }
+    })
 
   const mentionRows = Array.from(mentionTypeByUserId.entries()).map(
     ([userId, mentionType]) => ({
@@ -622,6 +670,7 @@ export async function buildMessageFanout(input: MessageFanoutInput) {
         return []
       }
 
+      const outsider = outsideCall(notification.userId)
       return [
         {
           userId: notification.userId,
@@ -631,12 +680,18 @@ export async function buildMessageFanout(input: MessageFanoutInput) {
             messageId: notification.messageId ?? input.message.id,
             channelId: notification.channelId ?? input.channel.id,
             workspaceId: notification.workspaceId ?? input.channel.workspaceId,
-            threadRootId: threadContext.threadRootId,
+            threadRootId: outsider ? null : threadContext.threadRootId,
             isLorThread: threadContext.isLorThread,
             isSubscribedToThread: threadContext.subscribedUserIds.has(
               notification.userId
             ),
             createdAt: notification.createdAt.toISOString(),
+            ...(outsider && {
+              callMention: {
+                authorName: input.message.author.name,
+                channelName: input.channel.name,
+              },
+            }),
           },
         },
       ]
@@ -646,6 +701,7 @@ export async function buildMessageFanout(input: MessageFanoutInput) {
     unreadNotifications,
     messageMentions,
     mentionNotifications,
+    callMentionPushes,
   }
 }
 

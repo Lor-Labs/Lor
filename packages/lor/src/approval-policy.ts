@@ -60,14 +60,29 @@ export type ParkedApproval = {
 // executing, and the step's client tool calls never all resolve, so streamText
 // finishes without another model call. Ungated sibling calls in the same step
 // still execute — a parked step can carry real side effects.
+//
+// `canPark` (voice runs): when nobody present can resolve the approval, the
+// call is denied with a reason the model reads and passes on.
 export function buildToolApproval(
   gates: ApprovalGates,
-  targets: ToolTargetMap
+  targets: ToolTargetMap,
+  canPark?: (target: string) => Promise<boolean>
 ) {
   if (gates.size === 0) return undefined
-  return ({ toolCall }: { toolCall: { toolName: string } }) => {
+  return async ({ toolCall }: { toolCall: { toolName: string } }) => {
     const target = targets.targetFor(toolCall.toolName)
     if (!target || !gates.has(target)) return "not-applicable" as const
+    if (canPark && !(await canPark(target))) {
+      logger.info(
+        { tool: toolCall.toolName, target },
+        "Lor tool call denied: no approver in the call"
+      )
+      return {
+        type: "denied" as const,
+        reason:
+          "This action needs approval, and no one in this call can approve it. Say so in Lor's window; someone who can approve can join the call, or it can be done from chat.",
+      }
+    }
     logger.info(
       { tool: toolCall.toolName, target },
       "Lor tool call parked for approval"

@@ -1,5 +1,6 @@
 "use client"
 
+import { EASE_OUT } from "@repo/ui/lib/motion"
 import { cn } from "@repo/ui/lib/utils"
 import { MonitorIcon, MoonStarIcon, SunIcon } from "lucide-react"
 import { motion } from "motion/react"
@@ -53,7 +54,7 @@ function ThemeOption({
     <button
       type="button"
       className={cn(
-        "relative flex size-8 cursor-pointer items-center justify-center rounded-full transition-all [&_svg]:size-4",
+        "relative flex size-8 cursor-pointer items-center justify-center rounded-full transition-colors [&_svg]:size-4",
         isActive
           ? "text-foreground"
           : "text-muted-foreground hover:text-foreground"
@@ -67,7 +68,7 @@ function ThemeOption({
       {isActive && (
         <motion.div
           layoutId="theme-option"
-          transition={{ type: "spring", bounce: 0.3, duration: 0.6 }}
+          transition={{ type: "spring", bounce: 0.2, duration: 0.5 }}
           className="absolute inset-0 rounded-full border border-border"
         />
       )}
@@ -116,7 +117,7 @@ function ThemeSwitcher() {
       key={String(isMounted)}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      transition={{ duration: 0.3 }}
+      transition={{ duration: 0.15, ease: EASE_OUT }}
       className="inline-flex items-center overflow-hidden rounded-full bg-background ring-1 ring-border ring-inset"
     >
       {THEME_OPTIONS.map((option) => (

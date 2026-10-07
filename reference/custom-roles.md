@@ -4,7 +4,7 @@ Status legend: `[ ]` todo · `[x]` done. Update checkboxes as steps land, and
 append to the **Decisions & deviations log** at the bottom when reality forces
 a change — this document is the source of truth across agent runs.
 
-Product context: pillar 1 of `reference/self-configuration.md`. Custom roles
+Product context: pillar 1 of `reference/planned/self-configuration.md`. Custom roles
 are the authority vocabulary that approval policies (LOR-81) and workspace
 change proposals will be written in.
 
@@ -226,7 +226,7 @@ Manual QA checklist (live, after db:push):
 
 - 2026-08-31 — Runbook created. Enforcement stays local (Jacob), taxonomy
   split now (Jacob), settings-dialog tabs for UI (Jacob), new vision doc
-  `reference/self-configuration.md` precedes playbooks (Jacob).
+  `reference/planned/self-configuration.md` precedes playbooks (Jacob).
 - 2026-08-31 — Taxonomy review with Jacob: `mcpServer` + `customTool` merged
   into one `tool` statement (both add tools to the workspace). Confirmed:
   `webhook`/`agentProfile` grants are workspace-wide and include per-channel

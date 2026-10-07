@@ -16,6 +16,9 @@ import {
   type ProjectArchiveJobData,
   TRIGGERED_RUN_QUEUE,
   type TriggeredRunJobData,
+  VOICE_REQUEST_QUEUE,
+  type VoiceApprovalWatchJobData,
+  type VoiceRequestJobData,
 } from "@repo/realtime-types/queues"
 import { Emitter } from "@socket.io/redis-emitter"
 import { Queue, Worker } from "bullmq"
@@ -34,6 +37,13 @@ import {
 } from "@/jobs/prune-run-events"
 import { LOOP_SWEEP_EVERY_MS, sweepDueLoops } from "@/jobs/sweep-due-loops"
 import { createTriggeredRunProcessor } from "@/jobs/triggered-run"
+import { createVoiceRequestProcessor } from "@/jobs/voice-request"
+import {
+  auditVoiceSessions,
+  sweepVoiceSessions,
+  VOICE_SESSION_AUDIT_EVERY_MS,
+  VOICE_SESSION_SWEEP_EVERY_MS,
+} from "@/jobs/voice-sessions"
 import { signalRunStop } from "@/lib/agent-run"
 import {
   escalateApproval,
@@ -43,6 +53,7 @@ import {
 } from "@/lib/approval-notify"
 import { logger } from "@/lib/logger"
 import { awaitInflightDrains } from "@/lib/run-queue"
+import { installVoiceNotifier } from "@/lib/voice-notify"
 import { setWorkspaceActivityEmitter } from "@/lib/workspace-activity"
 
 process.on("unhandledRejection", (reason) => {
@@ -77,6 +88,7 @@ async function bootstrap() {
 
   const emitter = new Emitter<ServerToClientEvents>(redisEmitterClient)
   setWorkspaceActivityEmitter(emitter)
+  installVoiceNotifier(emitter)
 
   // Immediate-stop fast path: abort the in-flight model request for runs this
   // process holds a lease on. The stopRequestedAt flag stays the durable
@@ -257,6 +269,37 @@ async function bootstrap() {
     )
   })
 
+  // Requests to Lor spoken in a call. The transcriber is the producer; the
+  // worker itself schedules approval watchers and resumes.
+  const voiceRequestWorker = new Worker<
+    VoiceRequestJobData | VoiceApprovalWatchJobData
+  >(
+    VOICE_REQUEST_QUEUE,
+    createVoiceRequestProcessor({ emitter, redis: redisEmitterClient }),
+    {
+      connection: {
+        ...redisOpts,
+        maxRetriesPerRequest: null,
+      },
+      concurrency: 5,
+    }
+  )
+
+  voiceRequestWorker.on("failed", (job, error) => {
+    logger.error({ jobId: job?.id, err: error }, "Voice-request job failed")
+  })
+
+  voiceRequestWorker.on("error", (error) => {
+    logger.error(
+      {
+        queue: VOICE_REQUEST_QUEUE,
+        workerId: voiceRequestWorker.id,
+        err: error,
+      },
+      "Voice-request worker error"
+    )
+  })
+
   const projectArchiveWorker = new Worker<ProjectArchiveJobData>(
     PROJECT_ARCHIVE_QUEUE,
     createProjectArchiveProcessor(emitter),
@@ -309,6 +352,8 @@ async function bootstrap() {
         await sweepOrphanedPlaceholders(emitter)
       } else if (job.name === "sweep-due-loops")
         await sweepDueLoops(emitter, loopRunQueue)
+      else if (job.name === "sweep-voice-sessions") await sweepVoiceSessions()
+      else if (job.name === "audit-voice-sessions") await auditVoiceSessions()
       else if (job.name === NOTIFY_APPROVAL_JOB) {
         const { approvalId } = job.data as { approvalId: string }
         await escalateApproval(
@@ -362,6 +407,12 @@ async function bootstrap() {
   await maintenanceQueue.upsertJobScheduler("sweep-due-loops", {
     every: LOOP_SWEEP_EVERY_MS,
   })
+  await maintenanceQueue.upsertJobScheduler("sweep-voice-sessions", {
+    every: VOICE_SESSION_SWEEP_EVERY_MS,
+  })
+  await maintenanceQueue.upsertJobScheduler("audit-voice-sessions", {
+    every: VOICE_SESSION_AUDIT_EVERY_MS,
+  })
 
   logger.info(
     {
@@ -371,6 +422,7 @@ async function bootstrap() {
         LOR_RESPOND_QUEUE,
         TRIGGERED_RUN_QUEUE,
         LOOP_RUN_QUEUE,
+        VOICE_REQUEST_QUEUE,
         PROJECT_ARCHIVE_QUEUE,
         MAINTENANCE_QUEUE,
       ],
@@ -385,6 +437,7 @@ async function bootstrap() {
     await lorRespondWorker.close()
     await triggeredRunWorker.close()
     await loopRunWorker.close()
+    await voiceRequestWorker.close()
     await projectArchiveWorker.close()
     // The dead-run sweep also drains scopes — close it before waiting so no
     // new drain can start after the wait completes.

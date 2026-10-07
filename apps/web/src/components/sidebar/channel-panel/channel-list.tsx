@@ -42,6 +42,7 @@ import {
   DropdownMenuTrigger,
 } from "@repo/ui/components/menu"
 import { Skeleton } from "@repo/ui/components/skeleton"
+import { EASE_OUT } from "@repo/ui/lib/motion"
 import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
@@ -55,6 +56,7 @@ import {
 import { useCreateChannel } from "@/components/sidebar/channel-panel/create-channel-context"
 import { DeleteChannelDialog } from "@/components/sidebar/channel-panel/delete-channel-dialog"
 import { EditChannelDialog } from "@/components/sidebar/channel-panel/edit-channel-dialog"
+import { VoiceParticipantRows } from "@/components/sidebar/channel-panel/voice-presence"
 import { PrivateHashIcon } from "@/components/ui/private-hash-icon"
 import { useMobileSidebar } from "@/context/mobile-sidebar-context"
 import { useUnread } from "@/context/unread-context"
@@ -742,7 +744,7 @@ function SortableCategorySection({
           >
             <motion.div
               animate={{ rotate: collapsed ? -90 : 0 }}
-              transition={{ duration: 0.15, ease: "easeInOut" }}
+              transition={{ duration: 0.15, ease: EASE_OUT }}
             >
               <HugeiconsIcon
                 icon={ArrowDown01Icon}
@@ -783,7 +785,7 @@ function SortableCategorySection({
           ) : (
             <motion.div
               animate={{ rotate: collapsed ? -90 : 0 }}
-              transition={{ duration: 0.15, ease: "easeInOut" }}
+              transition={{ duration: 0.15, ease: EASE_OUT }}
             >
               <HugeiconsIcon
                 icon={ArrowDown01Icon}
@@ -900,7 +902,7 @@ function SortableCategorySection({
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.15, ease: "easeInOut" }}
+            transition={{ duration: 0.15, ease: EASE_OUT }}
             className="overflow-hidden"
           >
             <SortableContext
@@ -952,7 +954,7 @@ function ArchivedProjectsSection({
       >
         <motion.div
           animate={{ rotate: collapsed ? -90 : 0 }}
-          transition={{ duration: 0.15, ease: "easeInOut" }}
+          transition={{ duration: 0.15, ease: EASE_OUT }}
         >
           <HugeiconsIcon
             icon={ArrowDown01Icon}
@@ -968,7 +970,7 @@ function ArchivedProjectsSection({
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.15, ease: "easeInOut" }}
+            transition={{ duration: 0.15, ease: EASE_OUT }}
             className="space-y-2 overflow-hidden"
           >
             {categories.map((cat) => (
@@ -1053,139 +1055,142 @@ function SortableChannelItem({
 
   return (
     <>
-      <div
-        ref={setNodeRef}
-        style={style}
-        className={cn(
-          "group/channel relative flex w-full items-center gap-2 rounded-lg px-2 py-[6px] text-[14px] hover:bg-foreground/[0.06] cursor-pointer",
-          active && "bg-foreground/[0.06] font-medium text-foreground",
-          !active && hasUnread && "font-medium text-foreground",
-          !active && !hasUnread && "text-muted-foreground",
-          menuOpen && "bg-foreground/[0.06]"
-        )}
-      >
-        {active && (
-          <div className="absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-r-full bg-primary" />
-        )}
-        {!active && hasUnread && (
-          <div className="absolute left-0 top-1/2 size-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-foreground" />
-        )}
-        <ChannelIcon
-          type={ch.type}
-          isPrivate={ch.audience === "members" && ch.parentId === null}
-        />
-        <button
-          type="button"
-          onClick={onClick}
-          {...(canManage ? { ...attributes, ...listeners } : {})}
-          aria-current={active ? "page" : undefined}
-          className="min-w-0 flex-1 cursor-pointer truncate text-left outline-none after:absolute after:inset-0 after:rounded-lg focus-visible:after:ring-2 focus-visible:after:ring-ring/50"
+      <div ref={setNodeRef} style={style}>
+        <div
+          className={cn(
+            "group/channel relative flex w-full items-center gap-2 rounded-lg px-2 py-[6px] text-[14px] hover:bg-foreground/[0.06] cursor-pointer",
+            active && "bg-foreground/[0.06] font-medium text-foreground",
+            !active && hasUnread && "font-medium text-foreground",
+            !active && !hasUnread && "text-muted-foreground",
+            menuOpen && "bg-foreground/[0.06]"
+          )}
         >
-          {ch.name}
-        </button>
-        <div className="ml-auto flex shrink-0 items-center gap-1.5">
-          <MentionBadge count={mentionCount} />
-          {activity?.lor && <LorChannelStatus state={activity.lor} compact />}
-          <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
-            <DropdownMenuTrigger
-              render={
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  aria-label="Channel options"
-                  onClick={(e) => e.stopPropagation()}
-                  onPointerDown={(e) => e.stopPropagation()}
-                  className={cn(
-                    "text-muted-foreground opacity-0 transition-opacity duration-150 hover:text-foreground group-hover/channel:opacity-100 focus-visible:opacity-100",
-                    hasChannelActivity &&
-                      "absolute right-1 top-1/2 z-[1] -translate-y-1/2 rounded-md border-foreground/10 bg-sidebar/60 shadow-none hover:bg-sidebar/60 data-pressed:bg-sidebar/60",
-                    hasChannelActivity &&
-                      menuOpen &&
-                      "border-transparent bg-accent hover:bg-accent data-pressed:bg-accent",
-                    menuOpen && "opacity-100"
-                  )}
-                />
-              }
-            >
-              <HugeiconsIcon icon={MoreHorizontalIcon} strokeWidth={2} />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent side="bottom" align="start">
-              {mute ? (
-                <DropdownMenuItem
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    unmuteChannel(ch.id)
-                    setMenuOpen(false)
-                  }}
-                >
-                  Unmute Channel
-                </DropdownMenuItem>
-              ) : (
-                <DropdownMenuSub>
-                  <DropdownMenuSubTrigger
+          {active && (
+            <div className="absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-r-full bg-primary" />
+          )}
+          {!active && hasUnread && (
+            <div className="absolute left-0 top-1/2 size-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-foreground" />
+          )}
+          <ChannelIcon
+            type={ch.type}
+            isPrivate={ch.audience === "members" && ch.parentId === null}
+          />
+          <button
+            type="button"
+            onClick={onClick}
+            {...(canManage ? { ...attributes, ...listeners } : {})}
+            aria-current={active ? "page" : undefined}
+            className="min-w-0 flex-1 cursor-pointer truncate text-left outline-none after:absolute after:inset-0 after:rounded-lg focus-visible:after:ring-2 focus-visible:after:ring-ring/50"
+          >
+            {ch.name}
+          </button>
+          <div className="ml-auto flex shrink-0 items-center gap-1.5">
+            <MentionBadge count={mentionCount} />
+            {activity?.lor && <LorChannelStatus state={activity.lor} compact />}
+            <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    aria-label="Channel options"
                     onClick={(e) => e.stopPropagation()}
                     onPointerDown={(e) => e.stopPropagation()}
-                  >
-                    Mute Channel
-                  </DropdownMenuSubTrigger>
-                  <DropdownMenuSubContent>
-                    {MUTE_DURATIONS.map((duration) => (
-                      <DropdownMenuItem
-                        key={duration.label}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          muteChannel({
-                            channelId: ch.id,
-                            minutes: duration.minutes,
-                          })
-                          setMenuOpen(false)
-                        }}
-                      >
-                        {duration.label}
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuSubContent>
-                </DropdownMenuSub>
-              )}
-              <DropdownMenuSeparator />
-              {canManage && (
-                <DropdownMenuItem
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    setMenuOpen(false)
-                    setEditOpen(true)
-                  }}
-                >
-                  Edit Channel
-                </DropdownMenuItem>
-              )}
-              <DropdownMenuItem
-                onClick={(e) => {
-                  e.stopPropagation()
-                  navigator.clipboard.writeText(ch.id)
-                  setMenuOpen(false)
-                }}
+                    className={cn(
+                      "text-muted-foreground opacity-0 transition-opacity duration-150 hover:text-foreground group-hover/channel:opacity-100 focus-visible:opacity-100",
+                      hasChannelActivity &&
+                        "absolute right-1 top-1/2 z-[1] -translate-y-1/2 rounded-md border-foreground/10 bg-sidebar/60 shadow-none hover:bg-sidebar/60 data-pressed:bg-sidebar/60",
+                      hasChannelActivity &&
+                        menuOpen &&
+                        "border-transparent bg-accent hover:bg-accent data-pressed:bg-accent",
+                      menuOpen && "opacity-100"
+                    )}
+                  />
+                }
               >
-                Copy Channel ID
-              </DropdownMenuItem>
-              {canDelete && (
-                <>
-                  <DropdownMenuSeparator />
+                <HugeiconsIcon icon={MoreHorizontalIcon} strokeWidth={2} />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent side="bottom" align="start">
+                {mute ? (
+                  <DropdownMenuItem
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      unmuteChannel(ch.id)
+                      setMenuOpen(false)
+                    }}
+                  >
+                    Unmute Channel
+                  </DropdownMenuItem>
+                ) : (
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger
+                      onClick={(e) => e.stopPropagation()}
+                      onPointerDown={(e) => e.stopPropagation()}
+                    >
+                      Mute Channel
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent>
+                      {MUTE_DURATIONS.map((duration) => (
+                        <DropdownMenuItem
+                          key={duration.label}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            muteChannel({
+                              channelId: ch.id,
+                              minutes: duration.minutes,
+                            })
+                            setMenuOpen(false)
+                          }}
+                        >
+                          {duration.label}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                )}
+                <DropdownMenuSeparator />
+                {canManage && (
                   <DropdownMenuItem
                     onClick={(e) => {
                       e.stopPropagation()
                       setMenuOpen(false)
-                      setDeleteOpen(true)
+                      setEditOpen(true)
                     }}
-                    className="text-destructive focus:text-destructive"
                   >
-                    Delete Channel
+                    Edit Channel
                   </DropdownMenuItem>
-                </>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
+                )}
+                <DropdownMenuItem
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    navigator.clipboard.writeText(ch.id)
+                    setMenuOpen(false)
+                  }}
+                >
+                  Copy Channel ID
+                </DropdownMenuItem>
+                {canDelete && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setMenuOpen(false)
+                        setDeleteOpen(true)
+                      }}
+                      className="text-destructive focus:text-destructive"
+                    >
+                      Delete Channel
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
+        {ch.type === "voice" && (
+          <VoiceParticipantRows channelId={ch.id} channelName={ch.name ?? ""} />
+        )}
       </div>
       {canManage && (
         <EditChannelDialog

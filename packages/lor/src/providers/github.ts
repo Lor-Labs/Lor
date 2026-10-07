@@ -412,6 +412,117 @@ export async function fetchIssueOrPr(
   }
 }
 
+export type PullRequestCard = {
+  ref: string
+  title: string
+  url: string
+  state: "open" | "draft" | "merged" | "closed"
+  author: string | null
+  authorAvatarUrl: string | null
+  additions: number
+  deletions: number
+  review: "approved" | "changes_requested" | "waiting" | null
+  checks: "passing" | "failing" | "running" | null
+  updatedAt: string
+}
+
+const FAILED_CONCLUSIONS = new Set([
+  "failure",
+  "timed_out",
+  "cancelled",
+  "action_required",
+])
+
+// A pull request's live state for a card in Lor's window: the PR, its
+// reviews (each reviewer's latest verdict), and its check runs.
+export async function fetchPullRequestCard(
+  installationId: string,
+  ref: string
+): Promise<PullRequestCard | null> {
+  const app = getApp()
+  const id = Number(installationId)
+  const parsed = parseRef(ref, "#")
+  if (!app || !Number.isFinite(id) || !parsed) return null
+  const request = () => ({ signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) })
+  try {
+    const octokit = await app.getInstallationOctokit(id)
+    const target = { owner: parsed.owner, repo: parsed.repo }
+    const { data: pr } = await octokit.rest.pulls.get({
+      ...target,
+      pull_number: parsed.id,
+      request: request(),
+    })
+    const [reviews, checkRuns] = await Promise.all([
+      octokit.rest.pulls
+        .listReviews({
+          ...target,
+          pull_number: parsed.id,
+          per_page: 100,
+          request: request(),
+        })
+        .then((r) => r.data)
+        .catch(() => []),
+      octokit.rest.checks
+        .listForRef({
+          ...target,
+          ref: pr.head.sha,
+          per_page: 100,
+          request: request(),
+        })
+        .then((r) => r.data.check_runs)
+        .catch(() => []),
+    ])
+
+    const verdicts = new Map<string, string>()
+    for (const review of reviews) {
+      if (review.user && review.state !== "COMMENTED") {
+        verdicts.set(review.user.login, review.state)
+      }
+    }
+    const latest = [...verdicts.values()]
+    const review = latest.includes("CHANGES_REQUESTED")
+      ? "changes_requested"
+      : latest.includes("APPROVED")
+        ? "approved"
+        : (pr.requested_reviewers?.length ?? 0) > 0
+          ? "waiting"
+          : null
+    const checks =
+      checkRuns.length === 0
+        ? null
+        : checkRuns.some(
+              (run) => run.conclusion && FAILED_CONCLUSIONS.has(run.conclusion)
+            )
+          ? "failing"
+          : checkRuns.some((run) => run.status !== "completed")
+            ? "running"
+            : "passing"
+
+    return {
+      ref: `${parsed.owner}/${parsed.repo}#${parsed.id}`,
+      title: pr.title,
+      url: pr.html_url,
+      state: pr.merged_at
+        ? "merged"
+        : pr.state === "closed"
+          ? "closed"
+          : pr.draft
+            ? "draft"
+            : "open",
+      author: pr.user?.login ?? null,
+      authorAvatarUrl: pr.user?.avatar_url ?? null,
+      additions: pr.additions,
+      deletions: pr.deletions,
+      review,
+      checks,
+      updatedAt: pr.updated_at,
+    }
+  } catch (err) {
+    logger.warn({ err, ref }, "GitHub pull request card fetch failed")
+    return null
+  }
+}
+
 function parseRef(externalId: string, sep: "#" | "@") {
   const [ownerRepo, tail] = externalId.split(sep)
   const [owner, repo] = (ownerRepo ?? "").split("/")

@@ -1,0 +1,29 @@
+{
+  "name": "@repo/transcriber",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "node --import tsx src/index.ts dev",
+    "start": "node --import tsx src/index.ts start",
+    "check-types": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@livekit/agents": "^1.9.1",
+    "@livekit/agents-plugin-deepgram": "^1.9.1",
+    "@livekit/rtc-node": "^1.1.0",
+    "@repo/db": "workspace:*",
+    "@repo/env": "workspace:*",
+    "@repo/logger": "workspace:^",
+    "@repo/realtime-types": "workspace:*",
+    "@repo/voice": "workspace:*",
+    "@socket.io/redis-emitter": "^5.1.0",
+    "bullmq": "^5.70.2",
+    "redis": "^4.7.1",
+    "tsx": "^4.21.0"
+  },
+  "devDependencies": {
+    "@repo/typescript-config": "workspace:*",
+    "@types/node": "^24"
+  }
+}

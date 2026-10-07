@@ -21,6 +21,7 @@ import {
 } from "@repo/ui/components/message-scroller"
 import { Skeleton } from "@repo/ui/components/skeleton"
 import { Spinner } from "@repo/ui/components/spinner"
+import { Tabs, TabsList, TabsTab } from "@repo/ui/components/tabs"
 import { anchoredToastManager, toast } from "@repo/ui/components/toast"
 import {
   differenceInMinutes,
@@ -50,6 +51,7 @@ import { MessageItem } from "@/components/chat/message-item"
 import { scrollToMessage } from "@/components/chat/message-list"
 import {
   highlightMessage,
+  jumpScrollBehavior,
   MessageScrollerCommandBridge,
   MessageScrollerJumpToLatest,
   signalMessageScrollerInteraction,
@@ -65,11 +67,15 @@ import { TypingIndicator } from "@/components/chat/typing-indicator"
 import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-header"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import type { ThreadSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
+import { MorphText } from "@/components/ui/morph-text"
+import { CallTranscript } from "@/components/voice/call-transcript"
 import { useSocket } from "@/context/socket-context"
+import { useVoiceCall } from "@/context/voice-call-context"
 import { usePlanForThread } from "@/hooks/use-channel-plans"
 import { useFileUpload } from "@/hooks/use-file-upload"
 import { useLorRunReplay } from "@/hooks/use-lor-stream"
 import { useMarkThreadRead } from "@/hooks/use-mark-thread-read"
+import { useMentionCandidates } from "@/hooks/use-mention-candidates"
 import { useMessageDeletion } from "@/hooks/use-message-deletion"
 import { useMessageEditing } from "@/hooks/use-message-editing"
 import { useMessageReactions } from "@/hooks/use-message-reactions"
@@ -83,11 +89,14 @@ import { useQueuedMessageSteering } from "@/hooks/use-queued-message-steering"
 import { useReplyState } from "@/hooks/use-reply-state"
 import { useRunQueue } from "@/hooks/use-run-queue"
 import { useStopLorRun } from "@/hooks/use-stop-lor-run"
-import { useThreadMessages } from "@/hooks/use-thread-messages"
+import {
+  type FetchPageParams,
+  fetchThreadPage,
+  useThreadMessages,
+} from "@/hooks/use-thread-messages"
 import { useTypingIndicator } from "@/hooks/use-typing-indicator"
-import { apiClient } from "@/lib/api-client"
 import type { Message } from "@/lib/api-types"
-import { broadcastMentionCandidates } from "@/lib/broadcast-mentions"
+import { channelQueryOptions } from "@/lib/channel-query"
 import { PLAN_STATUS_META } from "@/lib/plan-ui"
 
 const MESSAGE_GROUP_WINDOW_MINUTES = 5
@@ -137,7 +146,8 @@ function messageToMarkdown(message: Message, headingLevel: 2 | 3): string {
 }
 
 export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
-  const { consumeComposerDraft } = useRightSidebar()
+  const { consumeComposerDraft, setView } = useRightSidebar()
+  const { call } = useVoiceCall()
   const queryClient = useQueryClient()
   const socket = useSocket()
   const { data: session } = authClient.useSession()
@@ -191,30 +201,16 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
     getChannelRoot
   )
 
-  const fetchThreadPage = useCallback(
-    async (params: {
-      around?: string
-      before?: string
-      after?: string
-      limit: number
-    }) => {
-      const query: Record<string, string> = { limit: String(params.limit) }
-      if (params.around) query.around = params.around
-      if (params.before) query.before = params.before
-      if (params.after) query.after = params.after
-      const res = await apiClient.v1.workspaces[":workspaceSlug"].channels[
-        ":channelId"
-      ].messages[":messageId"].thread.$get({
-        param: {
+  const fetchPage = useCallback(
+    (params: FetchPageParams) =>
+      fetchThreadPage(
+        {
           workspaceSlug: view.workspaceSlug,
           channelId: view.channelId,
-          messageId: view.threadRootId,
+          threadRootId: view.threadRootId,
         },
-        query,
-      })
-      if (!res.ok) throw new Error("Failed to fetch thread replies")
-      return res.json()
-    },
+        params
+      ),
     [view.workspaceSlug, view.channelId, view.threadRootId]
   )
 
@@ -234,6 +230,8 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
     messages,
     root: threadApiRoot,
     participants,
+    voiceSessionId,
+    voiceSessionTitle,
     isLoading,
     fetchOlder,
     hasOlder,
@@ -242,12 +240,16 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
   } = useThreadMessages({
     channelId: view.channelId,
     threadRootId: view.threadRootId,
-    fetchPage: fetchThreadPage,
+    fetchPage,
     socket,
     pendingNoncesRef: pendingNonces,
   })
 
   const rootMessage = threadApiRoot ?? channelCacheRoot
+  // A call chat's panel also holds the call's record: its summary and
+  // transcript.
+  const showTranscript =
+    view.callTab === "transcript" && voiceSessionId !== null
 
   // An open panel means the thread is being read — advance the per-thread
   // read cursor on open and on every reply that lands while it's visible, so
@@ -255,11 +257,12 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
   const markThreadRead = useMarkThreadRead(view.workspaceSlug, view.channelId)
   const newestReplyId = messages[0]?.id ?? null
   useEffect(() => {
-    if (document.visibilityState !== "visible") return
+    if (document.visibilityState !== "visible" || showTranscript) return
     const timer = setTimeout(() => markThreadRead(view.threadRootId), 500)
     return () => clearTimeout(timer)
-  }, [view.threadRootId, newestReplyId, markThreadRead])
+  }, [view.threadRootId, newestReplyId, markThreadRead, showTranscript])
   useEffect(() => {
+    if (showTranscript) return
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible") {
         markThreadRead(view.threadRootId)
@@ -269,7 +272,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
     return () => {
       document.removeEventListener("visibilitychange", onVisibilityChange)
     }
-  }, [view.threadRootId, markThreadRead])
+  }, [view.threadRootId, markThreadRead, showTranscript])
 
   // MessageItem is memoized — keep the root message prop referentially
   // stable. A fresh `{ ...rootMessage, threadSummary: null }` spread on every
@@ -302,7 +305,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
 
   const handleCopyAsMarkdown = useCallback(async () => {
     try {
-      const firstPage = await fetchThreadPage({ limit: 50 })
+      const firstPage = await fetchPage({ limit: 50 })
       const replies = new Map<string, Message>()
       for (const message of [...messages, ...firstPage.data]) {
         if (message.status !== "pending") replies.set(message.id, message)
@@ -313,7 +316,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
       while (!page.reachedOldest && page.beforeCursor) {
         if (visitedCursors.has(page.beforeCursor)) break
         visitedCursors.add(page.beforeCursor)
-        page = await fetchThreadPage({ before: page.beforeCursor, limit: 50 })
+        page = await fetchPage({ before: page.beforeCursor, limit: 50 })
         for (const message of page.data) {
           if (message.status !== "pending") replies.set(message.id, message)
         }
@@ -381,7 +384,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
     } catch {
       toast.error(`Couldn't copy ${isPlan ? "plan" : "thread"}`)
     }
-  }, [fetchThreadPage, isPlan, messages, rootMessage, plan, planArtifacts])
+  }, [fetchPage, isPlan, messages, rootMessage, plan, planArtifacts])
 
   // Files the team fed the plan, gathered from the loaded slice of the
   // thread (sources ≠ outputs: uploads stay plain links, artifacts open the
@@ -494,47 +497,15 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
     clearReply()
   }, [view.threadRootId, clearReply])
 
-  const { data: workspaceMembersData } = useQuery({
-    queryKey: ["workspace-members", view.workspaceSlug],
-    queryFn: async () => {
-      const res = await apiClient.v1.workspaces[":workspaceSlug"].members.$get({
-        param: { workspaceSlug: view.workspaceSlug },
-      })
-      if (!res.ok) throw new Error("Failed to fetch workspace members")
-      return res.json()
-    },
-  })
-
-  // Same key as the channel route — usually a cache hit; the audience gates
-  // which broadcast mentions the composer offers.
-  const { data: channelData } = useQuery({
-    queryKey: ["channel", view.workspaceSlug, view.channelId],
-    queryFn: async () => {
-      const res = await apiClient.v1.workspaces[":workspaceSlug"].channels[
-        ":channelId"
-      ].$get({
-        param: {
-          workspaceSlug: view.workspaceSlug,
-          channelId: view.channelId,
-        },
-      })
-      if (!res.ok) throw new Error("Failed to fetch channel")
-      return res.json()
-    },
-  })
-
-  const mentionCandidates = useMemo(
-    () => [
-      ...broadcastMentionCandidates(channelData?.audience),
-      ...(workspaceMembersData?.members.map((member) => ({
-        id: member.userId,
-        label: member.name,
-        name: member.name,
-        image: member.image,
-      })) ?? []),
-    ],
-    [workspaceMembersData?.members, channelData?.audience]
+  const mentionCandidates = useMentionCandidates(
+    view.workspaceSlug,
+    view.channelId
   )
+  // Voice channel threads are call chats; their root is a silent placeholder.
+  const { data: channel } = useQuery(
+    channelQueryOptions(view.workspaceSlug, view.channelId)
+  )
+  const isCallChat = channel?.type === "voice"
 
   // Threads render top-down (oldest → newest). The API + cache hold
   // newest-first, so reverse for display.
@@ -605,7 +576,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
         const didScroll =
           messageScrollCommandRef.current?.(messageId, {
             align: "center",
-            behavior: "smooth",
+            behavior: jumpScrollBehavior(),
           }) ?? false
         if (didScroll) {
           window.requestAnimationFrame(() =>
@@ -693,10 +664,59 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
   const summaryTotal = rootMessage?.threadSummary?.replyCount
   const dividerCount = hasOlder ? summaryTotal : orderedReplies.length
   const showDivider =
+    !isCallChat &&
     !isLoading &&
     orderedReplies.length > 0 &&
     dividerCount !== undefined &&
     dividerCount > 0
+
+  // Keyed so the chat and transcript returns below share one Tabs instance;
+  // a remount would skip the active tab's slide.
+  const callTabs = voiceSessionId ? (
+    <Tabs
+      key="call-tabs"
+      value={showTranscript ? "transcript" : "chat"}
+      onValueChange={(value) =>
+        setView({
+          ...view,
+          composerDraft: undefined,
+          callTab: value === "transcript" ? "transcript" : "chat",
+          transcriptAtMs: undefined,
+        })
+      }
+      className="border-border/70 border-b px-4 pb-3"
+    >
+      <TabsList>
+        <TabsTab value="chat" className="grow-0">
+          Chat
+        </TabsTab>
+        <TabsTab value="transcript" className="grow-0">
+          Transcript
+        </TabsTab>
+      </TabsList>
+    </Tabs>
+  ) : null
+
+  if (showTranscript && voiceSessionId) {
+    return (
+      <div className="@container relative flex h-full w-full flex-col">
+        <RightPanelHeader
+          title={voiceSessionTitle ?? "Call"}
+          workspaceSlug={view.workspaceSlug}
+          channelId={view.channelId}
+          className="border-b-0"
+        />
+        {callTabs}
+        <CallTranscript
+          // A new citation target remounts, so it scrolls again.
+          key={view.transcriptAtMs ?? "start"}
+          sessionId={voiceSessionId}
+          live={call?.sessionId === voiceSessionId}
+          atMs={view.transcriptAtMs}
+        />
+      </div>
+    )
+  }
 
   return (
     <div
@@ -705,7 +725,14 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
     >
       <DropZoneOverlay isDragActive={isDragActive} />
       <RightPanelHeader
-        title={isPlan ? "Plan" : "Thread"}
+        // A call chat takes Lor's name for the call once it's summarized.
+        title={
+          isPlan
+            ? "Plan"
+            : isCallChat
+              ? (voiceSessionTitle ?? "Call")
+              : "Thread"
+        }
         workspaceSlug={view.workspaceSlug}
         channelId={view.channelId}
         titleAdornment={
@@ -724,7 +751,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
             </span>
           ) : undefined
         }
-        className={showWorkHeader ? "border-b-0" : undefined}
+        className={showWorkHeader || callTabs ? "border-b-0" : undefined}
         actions={
           <>
             <ThreadSubscriberStack subscribers={participants} />
@@ -746,10 +773,12 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
                 />
               </DropdownMenuTrigger>
               <DropdownMenuContent side="bottom" align="end" className="w-60">
-                <DropdownMenuItem onClick={handleViewInChannel}>
-                  <HugeiconsIcon icon={CornerUpRightIcon} strokeWidth={2} />
-                  Go to message
-                </DropdownMenuItem>
+                {!isCallChat && (
+                  <DropdownMenuItem onClick={handleViewInChannel}>
+                    <HugeiconsIcon icon={CornerUpRightIcon} strokeWidth={2} />
+                    Go to message
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuItem onClick={() => void handleCopyAsMarkdown()}>
                   <HugeiconsIcon icon={Copy01Icon} strokeWidth={2} />
                   {`Copy ${isPlan ? "plan" : "thread"} as Markdown`}
@@ -759,6 +788,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
           </>
         }
       />
+      {callTabs}
 
       {showWorkHeader && (
         <ThreadWorkHeader
@@ -793,7 +823,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
               aria-busy={Boolean(pendingLorMessage)}
               className="justify-end"
             >
-              {rootMessageForRender && (
+              {rootMessageForRender && !isCallChat && (
                 <MessageScrollerItem
                   messageId={rootMessageForRender.id}
                   scrollAnchor={openingLorTriggerMessageIds.has(
@@ -821,9 +851,9 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
               {showDivider && (
                 <MessageScrollerItem>
                   <div className="flex items-center gap-3 px-4 pt-3 pb-1 text-[12px] text-muted-foreground">
-                    <span className="font-medium">
-                      {dividerCount} {dividerCount === 1 ? "reply" : "replies"}
-                    </span>
+                    <MorphText className="font-medium">
+                      {`${dividerCount} ${dividerCount === 1 ? "reply" : "replies"}`}
+                    </MorphText>
                     <div className="h-px flex-1 bg-border/60" />
                   </div>
                 </MessageScrollerItem>
@@ -918,7 +948,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
         </MessageScroller>
 
         <div className="shrink-0 pt-2">
-          <TypingIndicator users={typingUsers} />
+          <TypingIndicator users={typingUsers} className="from-sidebar" />
           <RunQueuePill
             messages={queuedMessages}
             currentUserId={currentUserId}
@@ -933,7 +963,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
             context={channelContext}
             channelId={view.channelId}
             contextScopeKey={view.threadRootId}
-            placeholder="Reply…"
+            placeholder={isCallChat ? "Message the call…" : "Reply…"}
             onSend={(content, options) => {
               const nonce = handleSend(content, options)
               // Retire opening anchors so a later resize cannot recapture them.

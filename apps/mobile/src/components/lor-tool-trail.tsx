@@ -50,7 +50,13 @@ function builtinToolIcon(toolName: string): IconSvgElement {
   }
 }
 
-function ToolGlyph({
+// What a tool's glyph shows: its connector's mark, or a built-in action
+// glyph. Tools of one kind share it.
+export function toolKind(toolName: string) {
+  return connectorForTool(toolName) ?? builtinToolIcon(toolName)
+}
+
+export function ToolGlyph({
   toolName,
   color,
   size = 14,

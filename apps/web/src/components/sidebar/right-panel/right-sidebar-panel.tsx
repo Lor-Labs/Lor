@@ -1,3 +1,4 @@
+import { EASE_OUT } from "@repo/ui/lib/motion"
 import { AnimatePresence, motion } from "motion/react"
 import { ChannelFilesPanel } from "@/components/sidebar/right-panel/channel-files-panel"
 import { LoopPanel } from "@/components/sidebar/right-panel/loop-panel"
@@ -6,15 +7,8 @@ import type { RightSidebarView } from "@/components/sidebar/right-panel/right-si
 import { ThreadPanel } from "@/components/sidebar/right-panel/thread-panel"
 import { WorkspaceMembersPanel } from "@/components/sidebar/right-panel/workspace-members-panel"
 
-const viewTransition = {
-  duration: 0.28,
-  ease: [0.16, 1, 0.3, 1] as const,
-}
-
-const threadExitTransition = {
-  duration: 0.06,
-  ease: "linear" as const,
-}
+const enterTransition = { duration: 0.22, ease: EASE_OUT }
+const exitTransition = { duration: 0.12, ease: EASE_OUT }
 
 export function RightSidebarPanel({ view }: { view: RightSidebarView }) {
   // Use view.type as the key for AnimatePresence — switching between views
@@ -28,20 +22,17 @@ export function RightSidebarPanel({ view }: { view: RightSidebarView }) {
         ? `loop:${view.loopId}`
         : `${view.type}:${view.channelId}`
 
+  // popLayout: the next view enters while the old one fades out, so a view
+  // switch never waits for the exit to finish.
   return (
     <div className="relative h-full w-full overflow-hidden">
-      <AnimatePresence mode="wait" initial={false}>
+      <AnimatePresence mode="popLayout" initial={false}>
         <motion.div
           key={key}
-          initial={{ x: 18, opacity: 0 }}
+          initial={{ x: 12, opacity: 0 }}
           animate={{ x: 0, opacity: 1 }}
-          exit={{
-            x: -4,
-            opacity: 0,
-            transition:
-              view.type === "thread" ? threadExitTransition : viewTransition,
-          }}
-          transition={viewTransition}
+          exit={{ opacity: 0, transition: exitTransition }}
+          transition={enterTransition}
           className="flex h-full w-full flex-col"
         >
           {view.type === "workspace-members" && (

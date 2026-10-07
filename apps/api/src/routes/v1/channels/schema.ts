@@ -101,6 +101,10 @@ export const listThreadRepliesResponseSchema =
   listMessagesResponseSchema.extend({
     root: messageWithAuthorSchema.nullable(),
     participants: z.array(threadParticipantSchema),
+    // Set on a call chat's first page, for its transcript.
+    voiceSessionId: z.string().uuid().nullable(),
+    // Lor's name for the call once summarized, for the chat's header.
+    voiceSessionTitle: z.string().nullable(),
   })
 
 // ── Pins ──────────────────────────────────────────
@@ -176,6 +180,11 @@ export const threadActivityItemSchema = z.object({
 
 export const listThreadActivityResponseSchema = z.object({
   data: z.array(threadActivityItemSchema),
+})
+
+export const channelAudienceResponseSchema = z.object({
+  audience: z.enum(["workspace", "members"]),
+  userIds: z.array(z.string()),
 })
 
 export const threadReadParamsSchema = channelParamsSchema.extend({

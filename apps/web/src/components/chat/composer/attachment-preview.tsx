@@ -32,7 +32,7 @@ export function AttachmentPreview({
   return (
     <>
       <AttachmentList className="justify-start px-4 pt-3 pb-2">
-        {attachments.map((attachment) => {
+        {attachments.map((attachment, index) => {
           const isImage = attachment.contentType.startsWith("image/")
           const previewable = isImage ? attachment.previewUrl : undefined
           const meta = toAttachmentMeta({
@@ -55,7 +55,11 @@ export function AttachmentPreview({
               attachment={meta}
               progress={attachment.progress}
               onRemove={() => onRemove(attachment.id)}
+              // Tiles fade and scale in as they're added; a multi-file drop
+              // staggers them 30ms apart.
+              style={{ animationDelay: `${index * 30}ms` }}
               className={cn(
+                "motion-safe:fade-in motion-safe:zoom-in-95 motion-safe:animate-in motion-safe:fill-mode-backwards motion-safe:duration-200 motion-safe:ease-out",
                 attachment.status === "error" &&
                   "border-destructive/50 opacity-60",
                 // Dim the thumbnail while bytes are still going out, so an

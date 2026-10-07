@@ -14,6 +14,7 @@ import { Sidebar } from "@/components/sidebar/index"
 import { MobileSidebarProvider } from "@/context/mobile-sidebar-context"
 import { SocketProvider } from "@/context/socket-context"
 import { UnreadProvider } from "@/context/unread-context"
+import { VoiceCallProvider } from "@/context/voice-call-context"
 import { useBrowserNotifications } from "@/hooks/use-browser-notifications"
 import { useConnectivity } from "@/hooks/use-connectivity"
 import { useUpdateCheck } from "@/hooks/use-update-check"
@@ -177,13 +178,17 @@ function AuthenticatedLayout() {
   return (
     <SocketProvider enabled={!!session}>
       <UnreadProvider>
-        <BrowserNotifications />
         <MobileSidebarProvider>
           <div className="flex h-screen overflow-hidden bg-background text-foreground">
             <UpdateBanner />
-            <Sidebar>
-              <Outlet />
-            </Sidebar>
+            <VoiceCallProvider>
+              <Sidebar>
+                {/* Inside the sidebar tree so notification clicks can open
+                    the right panel. */}
+                <BrowserNotifications />
+                <Outlet />
+              </Sidebar>
+            </VoiceCallProvider>
             <OnboardingDialog open={showOnboarding} />
             <SettingsDialog />
           </div>

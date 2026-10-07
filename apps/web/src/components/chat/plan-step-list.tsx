@@ -12,6 +12,7 @@ import {
 import { Spinner } from "@repo/ui/components/spinner"
 import { cn } from "@repo/ui/lib/utils"
 import { useEffect, useRef, useState } from "react"
+import { MorphText } from "@/components/ui/morph-text"
 import type { ChannelPlan } from "@/hooks/use-channel-plans"
 
 type PlanStep = ChannelPlan["steps"][number]
@@ -32,22 +33,34 @@ const MARKER_BASE =
   "flex size-6 shrink-0 items-center justify-center rounded-full border"
 
 // Rendered with `key={status}` at the call site, so a status flip remounts the
-// marker and its enter animation actually replays.
-function StepMarker({ status }: { status: PlanStep["status"] }) {
+// marker and its enter animation replays. `animate` is false when a remount
+// (channel switch, thread open) renders a step that was already done.
+function StepMarker({
+  status,
+  animate,
+}: {
+  status: PlanStep["status"]
+  animate: boolean
+}) {
   if (status === "done") {
     return (
       <span
         className={cn(
           MARKER_BASE,
           "border-primary bg-primary shadow-sm",
-          "motion-safe:zoom-in-75 motion-safe:fade-in motion-safe:animate-in motion-safe:duration-300 motion-safe:ease-out"
+          animate &&
+            "motion-safe:zoom-in-75 motion-safe:fade-in motion-safe:animate-in motion-safe:duration-300 motion-safe:ease-out"
         )}
       >
         <HugeiconsIcon
           icon={Tick02Icon}
           size={16}
           strokeWidth={3}
-          className="motion-safe:zoom-in-75 motion-safe:fade-in text-primary-foreground motion-safe:animate-in motion-safe:fill-mode-both motion-safe:delay-75 motion-safe:duration-200"
+          className={cn(
+            "text-primary-foreground",
+            animate &&
+              "motion-safe:zoom-in-75 motion-safe:fade-in motion-safe:animate-in motion-safe:fill-mode-both motion-safe:delay-75 motion-safe:duration-200 motion-safe:ease-out"
+          )}
         />
       </span>
     )
@@ -58,7 +71,7 @@ function StepMarker({ status }: { status: PlanStep["status"] }) {
         className={cn(
           MARKER_BASE,
           "border-primary/25 bg-background shadow-[0_0_0_4px_--theme(--color-primary/8%)]",
-          "motion-safe:transition-all motion-safe:duration-300"
+          "motion-safe:transition-[background-color,border-color,box-shadow] motion-safe:duration-300"
         )}
       >
         <Spinner className="size-5 text-primary motion-reduce:animate-none" />
@@ -70,7 +83,7 @@ function StepMarker({ status }: { status: PlanStep["status"] }) {
       className={cn(
         MARKER_BASE,
         "border-border bg-background",
-        "motion-safe:transition-all motion-safe:duration-200"
+        "motion-safe:transition-[background-color,border-color] motion-safe:duration-200"
       )}
     />
   )
@@ -114,6 +127,8 @@ function Step({
   index: number
 }) {
   const [open, setOpen] = useState(false)
+  const [mountedStatus] = useState(item.status)
+  const animateMarker = item.status !== mountedStatus
 
   const enterClasses =
     "motion-safe:fade-in motion-safe:slide-in-from-bottom-1 motion-safe:animate-in motion-safe:duration-300 motion-safe:ease-out"
@@ -138,7 +153,11 @@ function Step({
       >
         {showConnector && <StepConnector />}
         <span className="relative z-10">
-          <StepMarker key={item.status} status={item.status} />
+          <StepMarker
+            key={item.status}
+            status={item.status}
+            animate={animateMarker}
+          />
         </span>
         <div className="min-w-0 flex-1">
           <StepLabel item={item} />
@@ -159,7 +178,7 @@ function Step({
       <Collapsible open={open} onOpenChange={setOpen}>
         <div
           className={cn(
-            "min-w-0 rounded-md motion-safe:transition-all motion-safe:duration-200",
+            "min-w-0 rounded-md motion-safe:transition-colors motion-safe:duration-200",
             open && "bg-foreground/5"
           )}
         >
@@ -167,7 +186,11 @@ function Step({
               toggles its detail instead of opening the thread. */}
           <CollapsibleTrigger className="group/step relative z-20 flex w-full cursor-pointer items-start gap-3 px-2 py-1.5 text-left">
             <span className="relative z-10">
-              <StepMarker key={item.status} status={item.status} />
+              <StepMarker
+                key={item.status}
+                status={item.status}
+                animate={animateMarker}
+              />
             </span>
             <span className="min-w-0 flex-1">
               <StepLabel item={item} />
@@ -177,7 +200,7 @@ function Step({
               size={16}
               className={cn(
                 "mt-1 shrink-0 text-muted-foreground/50 group-hover/step:text-muted-foreground",
-                "motion-safe:transition-transform motion-safe:duration-300 motion-safe:ease-[cubic-bezier(0.34,1.56,0.64,1)]",
+                "motion-safe:transition-transform motion-safe:duration-150 motion-safe:ease-out",
                 open && "rotate-180"
               )}
             />
@@ -213,11 +236,13 @@ export function PlanStepProgress({
     activeIndex >= 0
       ? `Step ${activeIndex + 1} of ${total}`
       : `${done} of ${total} complete`
+  // Only plans still in progress at mount can change; finished ones stay plain.
+  const [live] = useState(() => done < total)
 
   return (
     <div className={className}>
       <div className="mb-2 font-medium text-[11px] text-muted-foreground uppercase tracking-[0.08em]">
-        {label}
+        <MorphText live={live}>{label}</MorphText>
       </div>
       <div
         aria-label={label}

@@ -60,9 +60,12 @@ type IssueFilter = NonNullable<IssuesArgs["filter"]>
 const compactName = (value: { displayName?: string | null; name: string }) =>
   value.displayName || value.name
 
+// `visuals` adds what a card draws (avatar, label colours); tool results for
+// the model leave it out.
 async function compactLinearIssues(
   client: LinearClient,
-  issues: LinearIssue[]
+  issues: LinearIssue[],
+  options: { visuals?: boolean } = {}
 ) {
   const unique = (ids: Array<string | undefined>) => [
     ...new Set(ids.filter((id): id is string => Boolean(id))),
@@ -158,8 +161,52 @@ async function compactLinearIssues(
       startedAt: issue.startedAt?.toISOString() ?? null,
       completedAt: issue.completedAt?.toISOString() ?? null,
       dueDate: issue.dueDate ?? null,
+      ...(options.visuals
+        ? {
+            visuals: {
+              // 0 none, 1 urgent, 2 high, 3 medium, 4 low.
+              priority: issue.priority,
+              assigneeAvatarUrl: assignee?.avatarUrl ?? null,
+              labels: issue.labelIds.flatMap((id) => {
+                const label = labelById.get(id)
+                return label ? [{ name: label.name, color: label.color }] : []
+              }),
+            },
+          }
+        : {}),
     }
   })
+}
+
+export type LinearIssueCard = Awaited<
+  ReturnType<typeof compactLinearIssues>
+>[number]
+
+// Issues by identifier ("ENG-412") in one query, for cards in Lor's window.
+// Identifiers that don't resolve are simply missing from the result.
+export async function loadLinearIssueCards(
+  externalId: string,
+  identifiers: string[]
+): Promise<LinearIssueCard[]> {
+  const refs = identifiers.flatMap((identifier) => {
+    const match = /^([A-Z][A-Z0-9]*)-(\d+)$/.exec(identifier)
+    return match?.[1] && match[2]
+      ? [{ key: match[1], number: Number(match[2]) }]
+      : []
+  })
+  if (refs.length === 0) return []
+  const client = await linearClientFor(externalId)
+  if (!client) return []
+  const result = await client.issues({
+    first: refs.length,
+    filter: {
+      or: refs.map((ref) => ({
+        team: { key: { eq: ref.key } },
+        number: { eq: ref.number },
+      })),
+    },
+  })
+  return await compactLinearIssues(client, result.nodes, { visuals: true })
 }
 
 export const linearTools = {

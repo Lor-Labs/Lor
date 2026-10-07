@@ -1,11 +1,15 @@
 import { env } from "@repo/env/client"
 import { MessageMarkdown as NexusMessageMarkdown } from "@repo/ui/components/nexus-ui/message"
+import { toast } from "@repo/ui/components/toast"
 import { cn } from "@repo/ui/lib/utils"
+import { formatDateTime } from "@repo/utils/date"
 import { memo, type ReactNode, useMemo, useState } from "react"
 import type { Components } from "streamdown"
 import { UserHoverCard } from "@/components/ui/user-profile-card"
+import { useCallCitation } from "@/hooks/use-call-citation"
 import { useMessageLocation } from "@/hooks/use-message-search-navigation"
 import type { Message } from "@/lib/api-types"
+import { CODE_THEMES } from "@/lib/code-themes"
 import { connectorForUrl, connectorLogo } from "@/lib/connector-ui"
 
 const USER_MENTION_TOKEN_REGEX =
@@ -17,8 +21,9 @@ const CHANNEL_MENTION_REGEX = /(^|\s)@channel\b/gi
 const HERE_MENTION_REGEX = /(^|\s)@here\b/gi
 const BROADCAST_MENTION_IDS = new Set(["everyone", "channel", "here"])
 // Lor cites grounded sources, all verified server-side: [[/path]] (brain
-// page), [[msg:<id>]] (message), or [[src:<id>|<title>|<url>]] (connected-tool
-// source, enriched with its verified title + url at grounding time).
+// page), [[msg:<id>]] (message), [[src:<id>|<title>|<url>]] (connected-tool
+// source, enriched with its verified title + url at grounding time), or
+// [[call:<id>@<ms>|<channel>|<startedAt>]] (a moment in a past call).
 const CITATION_REGEX = /\[\[([^\]]+)\]\]/g
 
 // Escapes for both text and double-quoted attribute contexts (data-id below),
@@ -138,6 +143,21 @@ function toRenderableMarkdown(
           ? `<srcref data-url="${escapeHtml(safeUrl)}">↗ ${escapeHtml(label)}</srcref>`
           : `<srcref>↗ ${escapeHtml(label)}</srcref>`
       }
+      if (token.startsWith("call:")) {
+        // Grounded tokens carry the channel and start time; a bare
+        // [[call:<id>@12:40]] while streaming stays a plain chip.
+        const [body = "", channel = "", startedAt = ""] = token
+          .slice(5)
+          .split("|")
+        const [sessionId = "", at = ""] = body.split("@")
+        const atMs = /^\d+$/.test(at.trim()) ? Number(at.trim()) : 0
+        const start = Date.parse(startedAt.trim())
+        if (!channel.trim() || Number.isNaN(start)) {
+          return "<callref>↗ call</callref>"
+        }
+        const label = `${channel.trim()} call · ${formatDateTime(new Date(start + atMs))}`
+        return `<callref data-id="${escapeHtml(sessionId.trim())}" data-at="${atMs}">↗ ${escapeHtml(label)}</callref>`
+      }
       return `<pageref>${escapeHtml(token)}</pageref>`
     })
 }
@@ -145,8 +165,43 @@ function toRenderableMarkdown(
 interface MentionProps {
   "data-id"?: string
   "data-url"?: string
+  "data-at"?: string
   children?: ReactNode
   node?: { properties?: Record<string, unknown> }
+}
+
+// A [[call:…]] citation: opens the call's transcript at the cited moment.
+function CallCitation({
+  sessionId,
+  atMs,
+  children,
+}: {
+  sessionId: string | undefined
+  atMs: number
+  children: ReactNode
+}) {
+  const { open, prefetch } = useCallCitation()
+  if (!sessionId) {
+    return (
+      <span className="inline-flex items-center rounded bg-muted px-1 py-0.5 text-[0.82em] text-muted-foreground">
+        {children}
+      </span>
+    )
+  }
+  const failed = () => toast.error("Couldn't open that call")
+  return (
+    <button
+      type="button"
+      onClick={() =>
+        void open(sessionId, atMs).then((found) => found || failed(), failed)
+      }
+      onPointerEnter={() => prefetch(sessionId)}
+      onFocus={() => prefetch(sessionId)}
+      className="inline-flex items-center rounded bg-primary/10 px-1 py-0.5 text-[0.82em] text-primary hover:bg-primary/20"
+    >
+      {children}
+    </button>
+  )
 }
 
 function srcUrl(props: MentionProps): string | undefined {
@@ -252,6 +307,16 @@ export const MessageMarkdown = memo(function MessageMarkdown({
           </button>
         )
       },
+      callref: (props: MentionProps) => {
+        const at =
+          props["data-at"] ??
+          (props.node?.properties?.dataAt as string | undefined)
+        return (
+          <CallCitation sessionId={mentionId(props)} atMs={Number(at) || 0}>
+            {props.children}
+          </CallCitation>
+        )
+      },
       mention: (props: MentionProps) => {
         const id = mentionId(props)
         const children = props.children
@@ -297,7 +362,7 @@ export const MessageMarkdown = memo(function MessageMarkdown({
         // Nexus supplies the code/math/mermaid/cjk plugin bundle and the
         // codeblock + table UI; only the dark theme is overridden to keep
         // parity with the rest of the app's chrome.
-        shikiTheme={["github-light", "github-dark-dimmed"]}
+        shikiTheme={CODE_THEMES}
         // Keys here are matched by hast-util-sanitize against the HAST property
         // names, which rehype-raw camelCases — so it MUST be `dataId`/`dataUrl`,
         // not `data-id`/`data-url`. With the hyphenated form the attribute is
@@ -310,8 +375,15 @@ export const MessageMarkdown = memo(function MessageMarkdown({
           pageref: [],
           msgref: ["dataId"],
           srcref: ["dataUrl"],
+          callref: ["dataId", "dataAt"],
         }}
-        literalTagContent={["mention", "pageref", "msgref", "srcref"]}
+        literalTagContent={[
+          "mention",
+          "pageref",
+          "msgref",
+          "srcref",
+          "callref",
+        ]}
         components={components}
       >
         {markdown}

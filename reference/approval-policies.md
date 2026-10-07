@@ -4,7 +4,7 @@ Status legend: `[ ]` todo · `[x]` done. Update checkboxes as steps land, and
 append to the **Decisions & deviations log** at the bottom when reality forces
 a change — this document is the source of truth across agent runs.
 
-Product context: pillar 2 of `reference/self-configuration.md`. Approval moves
+Product context: pillar 2 of `reference/planned/self-configuration.md`. Approval moves
 from prompt etiquette to execution physics: the run harness pauses gated tool
 calls, policy says which tool targets are gated and who may resolve, and
 resolver authority is written in the pillar-1 vocabulary

@@ -25,6 +25,7 @@ import { PlanCard } from "@/components/plan-card"
 import { ProposalCard } from "@/components/proposal-card"
 import { ThinkingIndicator } from "@/components/thinking-indicator"
 import { Avatar } from "@/components/ui/avatar"
+import { CallSummaryCard } from "@/components/voice/call-summary-card"
 import { useStopLorRun } from "@/hooks/use-stop-lor-run"
 import type { Message } from "@/lib/api-types"
 import { toSearchPreviewText } from "@/lib/message-markdown"
@@ -191,6 +192,8 @@ function MessageRowBody({
         <LoopCard message={message} />
       ) : message.type === "proposal_card" ? (
         <ProposalCard message={message} />
+      ) : message.type === "call_summary" ? (
+        <CallSummaryCard message={message} />
       ) : (
         <>
           {message.type === "reply" ? (

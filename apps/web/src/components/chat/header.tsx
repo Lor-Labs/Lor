@@ -1,8 +1,14 @@
 import { HashtagIcon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipCreateHandle,
+} from "@repo/ui/components/tooltip"
 import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { useParams } from "@tanstack/react-router"
+import { useState } from "react"
 import { ChannelMuteMenu } from "@/components/chat/channel-mute-menu"
 import { HeaderSearch } from "@/components/chat/header-search"
 import { PinnedMessagesPopover } from "@/components/chat/pinned-messages-popover"
@@ -23,6 +29,7 @@ export function ChatHeader({
   channelId: string
 }) {
   const { workspaceSlug } = useParams({ strict: false })
+  const [tooltipHandle] = useState(() => TooltipCreateHandle<string>())
 
   return (
     <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-4">
@@ -69,20 +76,25 @@ export function ChatHeader({
           mode={context.type === "channel" ? "workspace" : "dm"}
           channelId={channelId}
         />
-        <ChannelMuteMenu channelId={channelId} />
+        <ChannelMuteMenu channelId={channelId} tooltipHandle={tooltipHandle} />
         {context.type === "channel" && workspaceSlug && (
           <PinnedMessagesPopover
             key={`${workspaceSlug}:${channelId}`}
             workspaceSlug={workspaceSlug}
             channelId={channelId}
+            tooltipHandle={tooltipHandle}
           />
         )}
         {context.type === "channel" && (
           <RightPanelToggle
             workspaceSlug={workspaceSlug ?? ""}
             channelId={channelId}
+            tooltipHandle={tooltipHandle}
           />
         )}
+        <Tooltip handle={tooltipHandle}>
+          {({ payload }) => <TooltipContent>{payload}</TooltipContent>}
+        </Tooltip>
       </div>
     </div>
   )

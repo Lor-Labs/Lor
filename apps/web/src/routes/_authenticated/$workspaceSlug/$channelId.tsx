@@ -2,7 +2,6 @@ import { Archive02Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
 import { toast } from "@repo/ui/components/toast"
-import { useIsMobile } from "@repo/ui/hooks/use-mobile"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
 import { AnimatePresence } from "framer-motion"
@@ -21,6 +20,7 @@ import {
 import { RunQueuePill } from "@/components/chat/run-queue-pill"
 import { TypingIndicator } from "@/components/chat/typing-indicator"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
+import { VoiceChannelView } from "@/components/voice/voice-channel-view"
 import { useSocket } from "@/context/socket-context"
 import { useChannelApprovals } from "@/hooks/use-approvals"
 import { useAutoMarkRead } from "@/hooks/use-auto-mark-read"
@@ -31,6 +31,7 @@ import { useChannelPlans } from "@/hooks/use-channel-plans"
 import { useFileUpload } from "@/hooks/use-file-upload"
 import { useLorRunReplay } from "@/hooks/use-lor-stream"
 import { useMarkThreadRead } from "@/hooks/use-mark-thread-read"
+import { useMentionCandidates } from "@/hooks/use-mention-candidates"
 import { useMessageDeletion } from "@/hooks/use-message-deletion"
 import { useMessageEditing } from "@/hooks/use-message-editing"
 import { useMessagePinning } from "@/hooks/use-message-pinning"
@@ -43,10 +44,11 @@ import { useRealtimeRoom } from "@/hooks/use-realtime-room"
 import { useReplyState } from "@/hooks/use-reply-state"
 import { useRunQueue } from "@/hooks/use-run-queue"
 import { useThreadActivity } from "@/hooks/use-thread-activity"
+import { useThreadPanelUrlSync } from "@/hooks/use-thread-panel-url-sync"
 import { useTypingIndicator } from "@/hooks/use-typing-indicator"
 import { apiClient } from "@/lib/api-client"
 import type { Message } from "@/lib/api-types"
-import { broadcastMentionCandidates } from "@/lib/broadcast-mentions"
+import { channelQueryOptions } from "@/lib/channel-query"
 import { writeLastChannelId } from "@/lib/last-location"
 import { canPinMessages } from "@/lib/permissions"
 
@@ -56,6 +58,9 @@ type ChannelSearchParams = {
   threadId?: string
   // Focuses a reply inside the open thread (for search/deep links).
   threadMessageId?: string
+  // Opens a call's transcript at this moment (ms into the call), e.g. from a
+  // Lor [[call:…]] citation. Needs threadId (the call's chat root).
+  callAt?: number
   // Opens the artifact viewer; shareable — everyone opening the same URL
   // lands on the same artifact (and, later, in the same live session).
   artifactId?: string
@@ -66,13 +71,19 @@ type ChannelSearchParams = {
 export const Route = createFileRoute(
   "/_authenticated/$workspaceSlug/$channelId"
 )({
-  component: ChannelView,
+  component: ChannelRoute,
   validateSearch: (search: Record<string, unknown>): ChannelSearchParams => ({
     msgId: typeof search.msgId === "string" ? search.msgId : undefined,
     threadId: typeof search.threadId === "string" ? search.threadId : undefined,
     threadMessageId:
       typeof search.threadMessageId === "string"
         ? search.threadMessageId
+        : undefined,
+    callAt:
+      typeof search.callAt === "number" &&
+      Number.isFinite(search.callAt) &&
+      search.callAt >= 0
+        ? search.callAt
         : undefined,
     artifactId:
       typeof search.artifactId === "string" ? search.artifactId : undefined,
@@ -83,6 +94,31 @@ export const Route = createFileRoute(
         : undefined,
   }),
 })
+
+// Text channels render immediately so messages load in parallel with the
+// channel fetch; voice channels swap in once the type is known.
+function ChannelRoute() {
+  const { workspaceSlug, channelId } = Route.useParams()
+  const { threadId, threadMessageId, callAt } = Route.useSearch()
+  const { data } = useQuery(channelQueryOptions(workspaceSlug, channelId))
+
+  if (data?.type === "voice") {
+    return (
+      <VoiceChannelView
+        key={channelId}
+        workspaceSlug={workspaceSlug}
+        workspaceId={data.workspaceId ?? undefined}
+        channelId={channelId}
+        channelName={data.name ?? "Voice"}
+        archived={Boolean(data.archivedAt)}
+        threadId={threadId}
+        threadMessageId={threadMessageId}
+        callAt={callAt}
+      />
+    )
+  }
+  return <ChannelView />
+}
 
 function ChannelView() {
   const { workspaceSlug, channelId } = Route.useParams()
@@ -96,11 +132,10 @@ function ChannelView() {
   } = Route.useSearch()
   const navigate = Route.useNavigate()
   const socket = useSocket()
-  const isMobile = useIsMobile()
   const entry = useChannelEntry(workspaceSlug, channelId)
   useAutoMarkRead(entry.ready ? channelId : undefined)
   const queryClient = useQueryClient()
-  const { view, setView, clearView, isCollapsed, toggleCollapsed, panelWidth } =
+  const { view, setView, isCollapsed, toggleCollapsed, panelWidth } =
     useRightSidebar()
   const { data: session } = authClient.useSession()
   const currentUserId = session?.user.id
@@ -120,81 +155,11 @@ function ChannelView() {
     writeLastChannelId(workspaceSlug, channelId)
   }, [workspaceSlug, channelId])
 
-  // Read the current threadId without re-running the mount effect on its
-  // changes (runtime open/close is driven by the URL-sync effect below).
-  const threadIdRef = useRef(threadId)
-  threadIdRef.current = threadId
-  const threadMessageIdRef = useRef(threadMessageId)
-  threadMessageIdRef.current = threadMessageId
+  useThreadPanelUrlSync({ workspaceSlug, channelId, threadId, threadMessageId })
 
-  // Set the initial right-panel view when entering a channel: reopen the
-  // thread from the URL (refresh / deep link) or fall back to members.
-  useEffect(() => {
-    const initialThreadId = threadIdRef.current
-    if (initialThreadId) {
-      setView({
-        type: "thread",
-        workspaceSlug,
-        channelId,
-        threadRootId: initialThreadId,
-        targetMessageId: threadMessageIdRef.current,
-      })
-    } else if (isMobile === false) {
-      setView({ type: "workspace-members", workspaceSlug, channelId })
-    }
-    return () => {
-      clearView()
-    }
-  }, [setView, clearView, workspaceSlug, channelId, isMobile])
-
-  // Keep ?threadId in step with the panel so a refresh restores it and closing
-  // the thread drops it. Mirrors view → URL (the mount effect does URL → view).
-  // Skip views for another channel: a cross-channel jump (search result, Lor
-  // citation) sets the target's view before navigation lands, and mirroring it
-  // here would pull the URL back to this channel.
-  useEffect(() => {
-    if (isMobile !== false) return
-    if (view && view.channelId !== channelId) return
-    if (view?.type === "thread") {
-      if (
-        view.threadRootId !== threadId ||
-        view.targetMessageId !== threadMessageId
-      ) {
-        void navigate({
-          search: (prev) => ({
-            ...prev,
-            threadId: view.threadRootId,
-            threadMessageId: view.targetMessageId,
-          }),
-          replace: true,
-        })
-      }
-    } else if (view && (threadId || threadMessageId)) {
-      // Only clear once a real non-thread view is set — `view === null` is the
-      // pre-hydration state on refresh and must not wipe the URL's threadId.
-      void navigate({
-        search: (prev) => ({
-          ...prev,
-          threadId: undefined,
-          threadMessageId: undefined,
-        }),
-        replace: true,
-      })
-    }
-  }, [view, channelId, threadId, threadMessageId, isMobile, navigate])
-
-  const { data, isPending, isError, error } = useQuery({
-    queryKey: ["channel", workspaceSlug, channelId],
-    queryFn: async () => {
-      const res = await apiClient.v1.workspaces[":workspaceSlug"].channels[
-        ":channelId"
-      ].$get({
-        param: { workspaceSlug, channelId },
-      })
-      if (!res.ok) throw new Error("Failed to fetch channel")
-      return res.json()
-    },
-  })
+  const { data, isPending, isError, error } = useQuery(
+    channelQueryOptions(workspaceSlug, channelId)
+  )
 
   const fetchMessagesPage = useCallback(
     async (params: {
@@ -522,18 +487,7 @@ function ChannelView() {
     noKeyboard: true,
   })
 
-  const mentionCandidates = useMemo(
-    () => [
-      ...broadcastMentionCandidates(data?.audience),
-      ...(workspaceMembersData?.members.map((member) => ({
-        id: member.userId,
-        label: member.name,
-        name: member.name,
-        image: member.image,
-      })) ?? []),
-    ],
-    [workspaceMembersData?.members, data?.audience]
-  )
+  const mentionCandidates = useMentionCandidates(workspaceSlug, channelId)
 
   if (isPending) {
     return <ChatSkeleton />

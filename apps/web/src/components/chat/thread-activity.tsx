@@ -1,6 +1,7 @@
 import { Cancel01Icon, MessageMultiple01Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar"
+import { EASE_OUT } from "@repo/ui/lib/motion"
 import { cn } from "@repo/ui/lib/utils"
 import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { timeAgo } from "@repo/utils/date"
@@ -11,6 +12,7 @@ import {
   useReducedMotion,
 } from "motion/react"
 import { useCallback, useEffect, useId, useRef, useState } from "react"
+import { MorphText } from "@/components/ui/morph-text"
 import type { ThreadActivity } from "@/hooks/use-thread-activity"
 import type { Message } from "@/lib/api-types"
 import { STORED_MENTION_REGEX } from "@/lib/editor-utils"
@@ -159,15 +161,11 @@ function ThreadBlob({
           </Avatar>
         </motion.span>
       ))}
-      <motion.span
-        key={activity.newReplyCount}
-        initial={{ scale: 1.4 }}
-        animate={{ scale: 1 }}
-        transition={transition}
-        className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground"
-      >
-        {activity.newReplyCount > 99 ? "99+" : activity.newReplyCount}
-      </motion.span>
+      <span className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
+        <MorphText>
+          {activity.newReplyCount > 99 ? "99+" : String(activity.newReplyCount)}
+        </MorphText>
+      </span>
     </motion.button>
   )
 }
@@ -217,7 +215,7 @@ function ThreadActivityCard({
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: 6 }}
-      transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+      transition={{ duration: 0.2, ease: EASE_OUT }}
       className="group relative"
     >
       <button
@@ -302,9 +300,11 @@ export function ThreadActivityDock({
   const gooFilterId = `thread-goo-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`
   const dockRef = useRef<HTMLDivElement>(null)
   const collapseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Reduced motion: MotionConfig already snaps transforms and layout; keep a
+  // short opacity fade instead of a spring.
   const reducedMotion = useReducedMotion()
   const transition = reducedMotion
-    ? { duration: 0 }
+    ? { duration: 0.15, ease: EASE_OUT }
     : { type: "spring" as const, stiffness: 480, damping: 34 }
 
   const cancelCollapse = useCallback(() => {

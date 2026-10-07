@@ -10,6 +10,7 @@ import { ApprovalGateCard } from "@/components/chat/approval-card"
 import { ArtifactFileCard } from "@/components/chat/artifact-file-card"
 import { LorToolTrail } from "@/components/chat/lor-tool-trail"
 import { PlanStepList } from "@/components/chat/plan-step-list"
+import { MorphText } from "@/components/ui/morph-text"
 import { usePlanForThread } from "@/hooks/use-channel-plans"
 import { usePlan, usePlanArtifacts } from "@/hooks/use-plan"
 import type { LorToolCallView, Message } from "@/lib/api-types"
@@ -115,7 +116,7 @@ export function ThreadWorkHeader({
             <Popover>
               <PopoverTrigger className={SECTION_TRIGGER_CLASS}>
                 <SectionChevron />
-                {`Steps · ${doneCount}/${plan.steps.length}`}
+                <MorphText>{`Steps · ${doneCount}/${plan.steps.length}`}</MorphText>
               </PopoverTrigger>
               <PopoverPopup
                 side="bottom"

@@ -4,8 +4,9 @@ import {
   isWorkspaceRole,
 } from "@repo/auth/permissions"
 import { syncSeats } from "@repo/billing"
-import { and, count, db, desc, eq, ilike, inArray, schema } from "@repo/db"
+import { and, count, db, desc, eq, ilike, inArray, ne, schema } from "@repo/db"
 import { listAccessibleChannelIds } from "@repo/db/queries/channel-access"
+import { visibleToSessionChatFilter } from "@repo/db/queries/session-chat-access"
 import { env } from "@repo/env/server"
 import { PRESENCE_ONLINE_USERS_SET_KEY } from "@repo/realtime-types"
 import { asc } from "drizzle-orm"
@@ -428,7 +429,7 @@ export const searchMessages: AppRouteHandler<SearchMessagesRoute> = async (
       .where(
         and(
           eq(schema.channel.workspaceId, workspace.id),
-          eq(schema.channel.type, "text")
+          inArray(schema.channel.type, ["text", "voice"])
         )
       ),
     listAccessibleChannelIds(currentUser.id, workspace.id),
@@ -464,7 +465,11 @@ export const searchMessages: AppRouteHandler<SearchMessagesRoute> = async (
   const searchPattern = `%${escaped}%`
   const whereConditions = and(
     inArray(schema.message.channelId, searchChannelIds),
-    ilike(schema.message.content, searchPattern)
+    ilike(schema.message.content, searchPattern),
+    // Voice channels contribute session chats: never the placeholder root,
+    // and a live session's chat only for people in the call.
+    ne(schema.message.type, "voice_session"),
+    visibleToSessionChatFilter(currentUser.id, schema.message.threadRootId)
   )
 
   const [countResult, messages] = await Promise.all([

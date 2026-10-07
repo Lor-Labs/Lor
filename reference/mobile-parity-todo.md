@@ -5,7 +5,7 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done. Keep this file updated as
 
 Last audited: 2026-08-04. Nothing here gates the TestFlight beta — everything below is deferred post-launch polish.
 
-## Post-launch — sidebar Lor activity (web shipped 2026-09-14, `reference/sidebar-realtime-activity-plan.md`)
+## Post-launch — sidebar Lor activity (web shipped 2026-09-14, `reference/archive/sidebar-realtime-activity-plan.md`)
 
 - [x] Per-channel Lor state in mobile's channel list — 2026-09-14, same session as web. `src/hooks/use-workspace-activity.ts` mirrors web (AppState replaces window focus: refresh on active, clear on background; 100ms coalesce; 15s poll fallback); `LorChannelStatus` in `channel-list.tsx` (accent ActivityIndicator scaled 0.7 = working, accent dot = queued, `bg-warning-soft` `!` badge = needs_approval/needs_input, same tokens as plan-ui.tsx) rendered in `ChannelRow` via `lorState` prop, workspace id from `useWorkspace()` inside `ChannelList`. Precedence lives server-side. JS-only → ships via `eas update`. Needs on-device QA. NOTE: channel viewer avatars were removed from web by design (surveillance concern) — do NOT port those.
 
@@ -97,9 +97,26 @@ Deliberately parked until the composer/keyboard rework settles (active in messag
 - [ ] **Formatting toolbar** — mobile composer's text-format button is also a no-op.
 - [ ] **Bio editing** — profile sheet displays bio but nothing can edit it anywhere (column is dormant since web removed it). Needs a product call on whether bios come back before any UI work.
 
+## Voice calls (reference/voice-channels-runbook.md, V6)
+
+- [x] Join, mute, camera, tiles, share viewer, call chat, leave — 2026-10-05
+- [x] Lor's window, read-only (all block types, Linear/GitHub rows, approval waiting line, cancel/clear) — 2026-10-05
+- [x] Approval buttons, "Show on stage", step-back, tappable question choices, tool logos and reactions in Lor's window — 2026-10-06
+- [x] Live words in Lor's window while it listens, from the call's captions — 2026-10-06
+- [x] Floating call tile across navigation (the call outlives its screen), "Switch to this call", and who's connected under voice channels in the channel list — 2026-10-06
+- [x] Full-screen share viewer (rotate, pinch and double-tap zoom) and push deep links into a call (worked already) — 2026-10-06
+- [ ] Android background call audio: needs our own `microphone` foreground service (not in the LiveKit SDK or its Expo plugin), a native build, and an Android device — deferred
+- [x] Voice channel screen before joining: live call card (who's in, how long, Join or "Transfer here") and past calls with unread dots and mention counts; a past call opens its chat — 2026-10-06
+- [x] Pre-join like web's (camera preview, mic and camera toggles, your name) and front/back camera before and during a call, in place of web's device pickers — 2026-10-06
+- [x] Lor's call summary card, read-only (`call-summary-card.tsx`): title, day, length, faces, decisions, open questions, action items, byline — 2026-10-06
+- [x] Transcript tab (speaker turns, gaps, Lor's results inline), opening at a moment from summary-card times, "Open transcript", and `[[call:…]]` citations — 2026-10-06
+- [x] Live captions: over the stage with a CC button remembered on the device, and in the transcript of the call you're in (replaces the 10s refetch) — 2026-10-06
+- [ ] Summary card edit form (`PUT /v1/voice/summary-cards/{messageId}`)
+- [x] Delete a call with Undo: long-press a past call, 10s Undo toast — 2026-10-06
+- [x] Lor's call title on past-call rows, and an unread count on the call drawer's chat button — 2026-10-06
+
 ## Explicitly not gaps (don't chase)
 
-- **Voice** — web has no real voice implementation either (no WebRTC/LiveKit); voice channels are just a list type.
 - **Onboarding dialog, integration OAuth setup (GitHub/Linear), channel webhooks tab** — inherently web-side.
 
 ## Done (recent parity work)

@@ -28,6 +28,7 @@ import pushTokensRouter from "@/routes/v1/push-tokens/index"
 import runsRouter from "@/routes/v1/runs/index"
 import uploadsRouter from "@/routes/v1/uploads/index"
 import usersRouter from "@/routes/v1/users/index"
+import voiceRouter from "@/routes/v1/voice/index"
 import webhooksRouter from "@/routes/v1/webhooks/index"
 import workspacesRouter from "@/routes/v1/workspaces/index"
 import waitlistRouter from "@/routes/waitlist/index"
@@ -93,6 +94,7 @@ const routes = app
   .route("/v1", proposalsRouter)
   .route("/v1", loopsRouter)
   .route("/v1", instructionsRouter)
+  .route("/v1", voiceRouter)
   .route("/v1", faviconRouter)
 
 export type AppType = typeof routes

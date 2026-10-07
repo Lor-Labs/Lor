@@ -11,6 +11,10 @@ export const workspaceStatements = {
   // Resolving approvals is NOT a permission — resolvers are named per gate
   // (role/person/any member, teams later). This only gates the settings page.
   approval: ["manage"],
+  // Channel access already governs joining, speaking, camera, and screen
+  // sharing; this covers removing someone from a call, and deleting an ended
+  // call with everything derived from it.
+  voice: ["moderate", "delete"],
 } as const
 
 // Shared human-readable vocabulary for the statements — the roles UI and the
@@ -74,6 +78,13 @@ export const workspaceStatementMeta: {
     label: "Agent approvals",
     actions: {
       manage: "Configure approval policies",
+    },
+  },
+  voice: {
+    label: "Voice",
+    actions: {
+      moderate: "Remove people from calls",
+      delete: "Delete calls",
     },
   },
 }

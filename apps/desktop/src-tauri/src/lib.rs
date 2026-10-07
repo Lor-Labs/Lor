@@ -14,6 +14,7 @@ use tauri::menu::Submenu;
 
 const SETTINGS_MENU_ID: &str = "settings";
 const OPEN_SETTINGS_EVENT: &str = "open-settings";
+const MAIN_WINDOW_HIDDEN_EVENT: &str = "main-window-hidden";
 
 // Dev servers (API :8080, realtime :8081) are plain HTTP on localhost, which
 // the production http scope (https://*.lor.chat) rejects. Grant them only in
@@ -114,6 +115,9 @@ pub fn run() {
                 } if label == "main" => {
                     // Keep the webview alive on window close; explicit Quit still exits.
                     api.prevent_close();
+                    // The web app leaves any voice call: a hidden window must not
+                    // keep the microphone live.
+                    let _ = _app.emit(MAIN_WINDOW_HIDDEN_EVENT, ());
                     if let Some(window) = _app.get_webview_window("main") {
                         if let Err(error) = window.hide() {
                             log::error!("failed to hide main window: {error}");

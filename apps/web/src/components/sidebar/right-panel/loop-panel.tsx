@@ -344,7 +344,7 @@ function LoopRunRow({ run, view }: { run: LoopRun; view: LoopSidebarView }) {
             icon={ArrowDown01Icon}
             size={16}
             className={cn(
-              "shrink-0 text-muted-foreground/50 transition-transform duration-300 ease-out",
+              "shrink-0 text-muted-foreground/50 transition-transform duration-150 ease-out",
               expanded && "rotate-180"
             )}
           />

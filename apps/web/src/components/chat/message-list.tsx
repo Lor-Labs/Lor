@@ -30,6 +30,7 @@ import type { ChatContext } from "@/components/chat/header"
 import { MessageItem } from "@/components/chat/message-item"
 import {
   highlightMessage,
+  jumpScrollBehavior,
   type MessageScrollCommand,
   MessageScrollerCommandBridge,
   MessageScrollerJumpToLatest,
@@ -169,7 +170,7 @@ export function scrollToMessage(messageId: string): boolean {
   const didScroll =
     activeMessageScrollCommand?.(messageId, {
       align: "center",
-      behavior: "smooth",
+      behavior: jumpScrollBehavior(),
     }) ?? false
   if (didScroll) {
     window.requestAnimationFrame(() => highlightMessage(messageId))
@@ -248,7 +249,7 @@ export function MessageList({
       const didScroll =
         messageScrollCommandRef.current?.(messageId, {
           align: "center",
-          behavior: "smooth",
+          behavior: jumpScrollBehavior(),
         }) ?? false
       if (didScroll) {
         window.requestAnimationFrame(() =>
@@ -470,7 +471,7 @@ export function MessageList({
         <div
           ref={stickyDateRef}
           data-visible="false"
-          className="pointer-events-none absolute top-2 left-1/2 z-30 -translate-x-1/2 rounded-full border border-border/70 bg-background px-2.5 py-0.5 text-xs font-medium text-muted-foreground opacity-0 shadow-sm transition-[translate,opacity] duration-300 ease-out data-[visible=false]:-translate-y-2 data-[visible=true]:translate-y-0 data-[visible=true]:opacity-100 motion-reduce:transition-none"
+          className="pointer-events-none absolute top-2 left-1/2 z-30 -translate-x-1/2 rounded-full border border-border/70 bg-background px-2.5 py-0.5 text-xs font-medium text-muted-foreground opacity-0 shadow-sm transition-[translate,opacity] duration-300 ease-out data-[visible=false]:-translate-y-2 data-[visible=true]:translate-y-0 data-[visible=true]:opacity-100 motion-reduce:transition-opacity motion-reduce:data-[visible=false]:translate-y-0"
         />
         <MessageScrollerViewport
           ref={scrollRef}

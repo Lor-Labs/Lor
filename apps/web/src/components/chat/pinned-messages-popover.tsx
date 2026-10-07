@@ -11,8 +11,7 @@ import {
 } from "@repo/ui/components/popover"
 import { Skeleton } from "@repo/ui/components/skeleton"
 import {
-  Tooltip,
-  TooltipContent,
+  type TooltipPrimitive,
   TooltipTrigger,
 } from "@repo/ui/components/tooltip"
 import { getAvatarInitials } from "@repo/utils/avatar-colors"
@@ -27,9 +26,11 @@ import { apiClient } from "@/lib/api-client"
 export function PinnedMessagesPopover({
   workspaceSlug,
   channelId,
+  tooltipHandle,
 }: {
   workspaceSlug: string
   channelId: string
+  tooltipHandle: TooltipPrimitive.Handle<string>
 }) {
   const [open, setOpen] = useState(false)
   const navigateToMessage = useMessageSearchNavigation()
@@ -47,24 +48,23 @@ export function PinnedMessagesPopover({
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <PopoverTrigger
-              render={
-                <button
-                  type="button"
-                  aria-label="Pinned messages"
-                  className="rounded-sm p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground data-popup-open:bg-accent data-popup-open:text-foreground"
-                />
-              }
-            />
-          }
-        >
-          <HugeiconsIcon icon={Pin02Icon} size={16} aria-hidden="true" />
-        </TooltipTrigger>
-        <TooltipContent>Pinned messages</TooltipContent>
-      </Tooltip>
+      <TooltipTrigger
+        handle={tooltipHandle}
+        payload="Pinned messages"
+        render={
+          <PopoverTrigger
+            render={
+              <button
+                type="button"
+                aria-label="Pinned messages"
+                className="relative rounded-sm p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground data-popup-open:bg-accent data-popup-open:text-foreground pointer-fine:after:absolute pointer-fine:after:left-full pointer-fine:after:h-full pointer-fine:after:w-1"
+              />
+            }
+          />
+        }
+      >
+        <HugeiconsIcon icon={Pin02Icon} size={16} aria-hidden="true" />
+      </TooltipTrigger>
       <PopoverPopup
         align="end"
         sideOffset={12}

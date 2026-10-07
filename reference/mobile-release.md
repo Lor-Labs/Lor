@@ -125,6 +125,13 @@ device build.
 
 ## Gotchas (each one cost a failed build)
 
+- **First local device build of a new bundle ID fails with "No profiles for
+  'chat.lor.app.dev' were found".** `APPLE_TEAM_ID` in `apps/mobile/.env` puts
+  the team in the project, so `expo run:ios` treats signing as configured and
+  skips `-allowProvisioningUpdates`. Build once from Xcode
+  (`ios/LorDev.xcworkspace`, scheme LorDev, Run) so automatic signing creates
+  the profiles; later `expo run:ios --device` builds find them.
+
 - **Commit before building.** EAS builds from the repo; `pnpm-lock.yaml` must
   be committed in sync (frozen install) — a lockfile drift fails the install
   step immediately.

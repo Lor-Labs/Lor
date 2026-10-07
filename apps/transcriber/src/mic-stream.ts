@@ -1,0 +1,214 @@
+import { randomUUID } from "node:crypto"
+import { setTimeout as delay } from "node:timers/promises"
+import { stt } from "@livekit/agents"
+import type * as deepgram from "@livekit/agents-plugin-deepgram"
+import { AudioStream, type RemoteTrack } from "@livekit/rtc-node"
+import {
+  recordCaptureGap,
+  recordTranscriptSegment,
+  type TranscriptSegmentInput,
+} from "@repo/voice/server"
+import { logger } from "./logger"
+
+export const STT_PROVIDER = "deepgram"
+export const STT_MODEL = "nova-3"
+// Deepgram's own retries are exhausted by the time a stream fails for good.
+const RESTART_DELAY_MS = 5_000
+// How long a finishing stream waits for Deepgram's last final transcript.
+const FINISH_TIMEOUT_MS = 3_000
+const SAMPLE_RATE = 16_000
+
+export type Caption = { segmentId: string; text: string; final: boolean }
+export type HeardLine = {
+  text: string
+  final: boolean
+  startMs: number
+  endMs: number
+}
+
+type MicStreamInput = {
+  sessionId: string
+  participantId: string
+  trackId: string
+  track: RemoteTrack
+  speech: deepgram.STT
+  sessionStartedAt: Date
+  publishCaption: (caption: Caption) => Promise<void>
+  // Every interim and final line, for address detection.
+  onHeard: (line: HeardLine) => void
+  // Seconds of audio sent to Deepgram, reported every few seconds.
+  onAudioSent: (seconds: number) => void
+}
+
+// One unmuted microphone's Deepgram stream. Interim and final text go out as
+// live captions; final text becomes segments on the session timeline. A
+// stream that fails for good records a provider_error gap until it restarts
+// or the microphone goes away.
+export class MicStream {
+  readonly #input: MicStreamInput
+  #stream: stt.SpeechStream | null = null
+  #audio: AudioStream | null = null
+  #running: Promise<void> = Promise.resolve()
+  #closed = false
+  #failedAtMs: number | null = null
+  #restartTimer: ReturnType<typeof setTimeout> | undefined
+  // The phrase being spoken; its id is shared by its captions and segment.
+  #segmentId: string | null = null
+  // Captions publish in order, so a late interim can't overwrite a final.
+  #captions: Promise<void> = Promise.resolve()
+
+  constructor(input: MicStreamInput) {
+    this.#input = input
+  }
+
+  start() {
+    this.#running = this.#run()
+  }
+
+  // On mute, leave, or call end: stop the audio, then wait briefly so the
+  // phrase in progress comes back final and is saved.
+  async finish() {
+    if (this.#closed) return
+    this.#closed = true
+    clearTimeout(this.#restartTimer)
+    this.#endGap()
+    const stream = this.#stream
+    if (!stream) return
+    this.#detachAudio()
+    try {
+      stream.flush()
+      stream.endInput()
+    } catch {
+      // The input already closed.
+    }
+    await Promise.race([this.#running, delay(FINISH_TIMEOUT_MS)])
+    stream.close()
+    await this.#running
+    await this.#captions
+  }
+
+  #sessionMs() {
+    return Date.now() - this.#input.sessionStartedAt.getTime()
+  }
+
+  // An unread AudioStream keeps buffering frames, so it's cancelled once the
+  // speech stream stops reading it.
+  #detachAudio() {
+    this.#stream?.detachInputStream()
+    void this.#audio?.cancel().catch(() => undefined)
+    this.#audio = null
+  }
+
+  async #run() {
+    const { track, speech } = this.#input
+    const stream = speech.stream()
+    this.#stream = stream
+    this.#segmentId = null
+    // Deepgram's times are relative to the stream; this puts them on the
+    // session timeline.
+    stream.startTimeOffset = this.#sessionMs() / 1000
+    this.#audio = new AudioStream(track, {
+      sampleRate: SAMPLE_RATE,
+      numChannels: 1,
+    })
+    stream.updateInputStream(this.#audio)
+
+    try {
+      for await (const event of stream) {
+        if (event.type === stt.SpeechEventType.RECOGNITION_USAGE) {
+          this.#input.onAudioSent(event.recognitionUsage?.audioDuration ?? 0)
+          continue
+        }
+        const final = event.type === stt.SpeechEventType.FINAL_TRANSCRIPT
+        if (!final && event.type !== stt.SpeechEventType.INTERIM_TRANSCRIPT) {
+          continue
+        }
+        const alternative = event.alternatives?.[0]
+        const text = alternative?.text.trim()
+        if (!alternative || !text) continue
+        this.#segmentId ??= randomUUID()
+        const segmentId = this.#segmentId
+        const startMs = Math.round(alternative.startTime * 1000)
+        const endMs = Math.round(alternative.endTime * 1000)
+        this.#caption({ segmentId, text, final })
+        this.#input.onHeard({ text, final, startMs, endMs })
+        if (!final) continue
+        this.#segmentId = null
+        await this.#save({
+          sessionId: this.#input.sessionId,
+          participantId: this.#input.participantId,
+          trackId: this.#input.trackId,
+          segmentId,
+          startMs,
+          endMs,
+          text,
+          provider: STT_PROVIDER,
+          model: STT_MODEL,
+        })
+      }
+    } catch (err) {
+      logger.warn(
+        { err, trackId: this.#input.trackId },
+        "transcriber: speech stream threw"
+      )
+    }
+
+    // A clean end means the track ended; only a terminal error restarts.
+    if (this.#closed || !stream.terminalError) return
+    logger.error(
+      {
+        err: stream.terminalError,
+        sessionId: this.#input.sessionId,
+        participantId: this.#input.participantId,
+      },
+      "transcriber: speech stream failed"
+    )
+    this.#failedAtMs = this.#sessionMs()
+    this.#detachAudio()
+    stream.close()
+    this.#stream = null
+    this.#restartTimer = setTimeout(() => {
+      if (this.#closed) return
+      this.#endGap()
+      this.#running = this.#run()
+    }, RESTART_DELAY_MS)
+  }
+
+  #caption(caption: Caption) {
+    this.#captions = this.#captions
+      .then(() => this.#input.publishCaption(caption))
+      .catch((err: unknown) =>
+        logger.warn({ err }, "transcriber: caption publish failed")
+      )
+  }
+
+  async #save(segment: TranscriptSegmentInput) {
+    try {
+      await recordTranscriptSegment(segment)
+    } catch (err) {
+      // One retry with the same segment id; the write is idempotent.
+      logger.warn({ err }, "transcriber: segment write failed, retrying")
+      await recordTranscriptSegment(segment).catch((retryErr: unknown) =>
+        logger.error(
+          { err: retryErr, sessionId: segment.sessionId },
+          "transcriber: segment lost"
+        )
+      )
+    }
+  }
+
+  #endGap() {
+    if (this.#failedAtMs === null) return
+    const startMs = this.#failedAtMs
+    this.#failedAtMs = null
+    void recordCaptureGap({
+      sessionId: this.#input.sessionId,
+      participantId: this.#input.participantId,
+      startMs,
+      endMs: this.#sessionMs(),
+      reason: "provider_error",
+    }).catch((err: unknown) =>
+      logger.error({ err }, "transcriber: gap write failed")
+    )
+  }
+}

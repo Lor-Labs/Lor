@@ -69,6 +69,48 @@ export type LoopRunJobData = {
   loopId: string
 }
 
+// Requests to Lor spoken in a call (reference/voice-channels-runbook.md V5).
+// The transcriber enqueues an accepted request; the worker creates its run.
+export const VOICE_REQUEST_QUEUE = "voice-request"
+export const VOICE_REQUEST_JOB = "voice"
+
+// `resumeApprovalId`: continue a request paused on that approval, now
+// resolved.
+export type VoiceRequestJobData = {
+  requestId: string
+  resumeApprovalId?: string
+}
+
+// After a call ends: summarize it and index its passages for Lor's search.
+// Queued by whichever host ended the call, and by the voice audit as a
+// backstop; the fixed id keeps a call from running twice at once.
+export const VOICE_SESSION_MEMORY_JOB = "voice-session-memory"
+export type VoiceSessionMemoryJobData = { sessionId: string }
+export function voiceSessionMemoryJob(sessionId: string) {
+  return {
+    name: VOICE_SESSION_MEMORY_JOB,
+    data: { sessionId } satisfies VoiceSessionMemoryJobData,
+    opts: {
+      // BullMQ rejects ":" in custom ids.
+      jobId: `memory-${sessionId}`,
+      attempts: 3,
+      backoff: { type: "exponential" as const, delay: 30_000 },
+      removeOnComplete: true,
+      removeOnFail: { age: 86_400 },
+    },
+  }
+}
+
+// Checks a paused request's approvers every few seconds, and rejects the
+// approval once nobody in the call can resolve it for the grace period.
+export const VOICE_APPROVAL_WATCH_JOB = "approval-watch"
+export type VoiceApprovalWatchJobData = {
+  requestId: string
+  approvalId: string
+  // When the last approver was found missing; null while one is present.
+  missingSince: number | null
+}
+
 // Project archive synthesis: the API flips the project to `archiving` (write
 // locks engage immediately), then this job distills the project into
 // workspace-scoped brain pages, posts a closing summary, and marks it

@@ -1,12 +1,16 @@
 # Voice channels and shared memory
 
 **Status:** Guiding product spec; not an as-built reference or implementation plan.
-**Updated:** 2026-09-27
-**Direction:** Build voice channels with conversation memory first. Add live voice interaction with Lor afterward.
+**Updated:** 2026-09-30
+**Direction:** Voice channels whose calls Lor can join by being addressed, showing its work on a shared stage, with the conversation kept as team memory.
 
-**Implementation research:** [LiveKit Cloud research — 2026-09-27](./voice-channels-livekit-research.md).
-The newer research separates the immediate call foundation and transcript capture
-from later Q&A and spoken Lor; the phases below retain the broader product vision.
+**Implementation:** executed phase by phase from the
+[voice channels runbook](./voice-channels-runbook.md). Delivery order: calls,
+session chat, transcription, Lor in the call, the iPhone app, then memory and
+Q&A.
+**Research:** [LiveKit Cloud research — 2026-09-27](./archive/voice-channels-livekit-research.md).
+Where the research and this spec disagree, the decisions recorded here on
+2026-09-28 and 2026-09-30 win.
 
 ## Product goal
 
@@ -26,86 +30,258 @@ real working conversations and find the resulting memory useful afterward.
 ## Decisions from the product discussion
 
 - Voice channels are the next feature direction to develop.
-- Start with LiveKit Cloud for calls and LiveKit Inference for transcription.
-  Use separate participant streams for attribution. Defer direct Deepgram/BYOK
-  and custom silence filtering; the initial priority is reliable capture.
-- The first release focuses on human conversation and memory. Live spoken AI
-  responses, wake words, and voice-triggered tasks are a later phase.
+- Use LiveKit Cloud for calls and Deepgram Nova-3 for transcription, through a
+  small transcriber service we run ourselves (decided 2026-09-30; reasons in
+  the runbook). Use one stream per unmuted participant, so every segment is
+  attributed to the person whose microphone it came from. The initial priority
+  is reliable capture.
+- The first release covers human calls, the session chat, and transcription.
+  Lor joining the call by voice follows directly after (see "Lor in the call").
+  The aim is to be much better than a huddle, not a copy of one: Lor puts live,
+  interactive objects in front of the whole call instead of someone sharing
+  their screen.
 - Code channels remain a future direction. Their interaction design is still
   unresolved; they are not a dependency for this feature.
 - Direct multiplayer document editing is not a prerequisite for this work.
-- Keep the experience within the existing channel structure. Avoid a separate
-  meetings dashboard or inbox unless usage demonstrates a concrete need.
-- This document guides scope and design and records the initial LiveKit choice.
-  Detailed model selection, database schema, and public launch date remain open.
+- The voice channel itself is the permanent home for its calls and their
+  history. Avoid a separate meetings dashboard or inbox unless usage
+  demonstrates a concrete need.
+- The voice channel model below was decided on 2026-09-28. Model selection and
+  the public launch date remain open; implementation detail lives in the runbook.
+
+## Voice channel model
+
+Decided 2026-09-28.
+
+### Persistent channels, bounded sessions
+
+- Voice channels are persistent, in the style of Discord. Opening one never
+  connects audio: it shows the live session, if any, and the session history.
+  An explicit Join connects.
+- A session starts when the first person joins an empty voice channel. It ends
+  two minutes after the last person leaves; a rejoin inside that window
+  continues the same session. The grace period is tunable: a code constant for
+  the MVP, and a workspace setting only if teams ask for one.
+- Reconnects, device transfers, and processing retries update the same session
+  rather than create duplicates.
+- Long-running rooms are not split in the MVP. If all-day rooms appear, revisit
+  a split after long silence or a manual "New session" action.
+- Sessions where only one person joined and nothing was said or posted are
+  stored but hidden from the history.
+
+### Session chat
+
+- Each session has one text conversation for the people in it: messages, links,
+  and files, with the same look as chat elsewhere in the app. Voice channels
+  have no channel-wide chat.
+- The session chat is for humans. Lor reads it as background context when
+  someone addresses Lor by voice, but never takes it as a command: typing
+  "@Lor" there does nothing, and the server enforces that. Lor's own work lives
+  in Lor's window and the transcript, not in the chat.
+- When people revisit a voice channel they see its session history. A past
+  session's chat and transcript appear only when someone opens that session.
+- The session chat stays open after the call, so follow-ups belong there.
+- Returning to an old session must be easy. A mention or reply in a session
+  chat notifies like other thread activity and opens the exact message in its
+  session. Session history rows show unread and mention state.
+
+### Live-only visibility
+
+- While a session is live, only people currently in the call can see its
+  transcript, its chat, and Lor's work in it. Nobody can follow a live call
+  without visibly joining it.
+- After the session ends, everyone with channel access can read it, and Lor can
+  answer questions about it.
+- Mentioning someone who is not in a live call sends them a notice with a Join
+  action and no message text. After the session ends, the same notification
+  opens the message.
+
+### Presence
+
+- The sidebar lists the people in a call under its voice channel, one row per
+  person. This is chosen presence. Lor never shows who is viewing a channel or
+  reading a session.
+- People who have not joined get no audio and no speaking indicators.
+
+### Call scope
+
+- A person has one call at a time. The call follows them across the app,
+  including DMs. Switching workspaces ends it after a confirmation.
+- A second device offers "Transfer here" instead of joining as a second
+  participant.
+- Closing the macOS app window ends the call.
+
+### Transcription
+
+- Every session is transcribed. There is no stop control and no pre-join
+  transcription notice; the privacy policy can cover transcription if needed.
+- Each device has a CC toggle that shows or hides live captions for that
+  person. Captions start on. The toggle never affects transcription.
+- Transcripts are kept forever, like all team data: Lor aims to be the team's
+  system of record.
+- No audio or video recordings. This includes LiveKit's agent observability
+  audio, which must be switched off explicitly.
+
+### Clients and media
+
+- Supported clients: web in desktop browsers, the macOS app, and the iPhone
+  app. Android, Windows and Linux desktop builds, and phone browsers are out of
+  scope.
+- Camera video on phones and computers. The camera starts off when someone
+  joins.
+- Screen sharing from computers. Phones can view a share, including in a
+  landscape or full-screen viewer, but cannot start one.
+- A call holds at most 30 people, matching the largest team size Lor currently
+  targets.
+
+### Permissions
+
+- Channel access governs viewing history, joining, speaking, camera, and screen
+  sharing.
+- New permission statements cover moderation, such as removing someone from a
+  call, and deleting a session.
+
+## Lor in the call
+
+Decided 2026-09-30. Screen sharing puts pixels in front of a call: nobody else
+can click, edit, or keep what they see, and one person drives while everyone
+waits. Lor instead shows live, interactive objects to the whole call, and what
+it shows becomes part of the session record.
+
+### Asking Lor
+
+- Voice only, and ambient: nobody holds a button. Lor acts when someone
+  addresses it directly, such as "Lor, pull up the tickets I created
+  yesterday" or "Hey Lor, …". Its name mentioned in passing ("we should ask
+  Lor") never starts anything.
+- A second check confirms the sentence is a request to Lor before anything
+  runs (see the Jev section below).
+- Follow-ups are addressed too: "Lor, open the second one." For now, the next
+  sentence is never treated as a follow-up on its own.
+- Lor doesn't speak, for now. It answers on screen.
+- A request runs as the person who spoke it, with Lor's full toolset and the
+  workspace's approval policies. Hearing speech grants no extra authority.
+
+### Lor's window
+
+- Lor's window appears only when someone addresses Lor. It never shows at the
+  start of a call and isn't always on.
+- It takes the screen-share slot, where the room's attention already goes. It
+  opens with a thinking animation and a line showing what Lor heard, with a way
+  to cancel. It then shows the result, and animates away when it's cleared or
+  the result is no longer needed.
+- Everyone in the call sees the same window. Anyone can clear it, or step back
+  through this session's earlier results ("2 of 3").
+- Lor composes the window from a catalog of components (decided 2026-10-01):
+  generic pieces (text, lists, tables, details, links, code) for any tool,
+  MCP servers and custom tools included, plus purpose-built cards for
+  built-in connectors, Linear issues and GitHub pull requests first, filled
+  with live data. People can open and act on them. Later, Lor may build its
+  own components, shown in a sandboxed frame; the catalog leaves room for it.
+- While Lor works, the window shows what it's doing, tool by tool.
+- A new request while Lor is working reaches it mid-task, and Lor decides
+  whether it replaces the current work or comes after it.
+- An action that needs approval shows the approval over Lor's window.
+- Later, when Lor gets browser or computer use, a live view of its screen shows
+  in this same window.
+
+### How Lor communicates
+
+Decided 2026-10-02 (Jacob):
+
+- Lor answers in its window, in writing: results, short answers, and
+  questions back with choices ("Which project?"). People answer by voice
+  ("Lor, the second one") or by clicking.
+- No "thinking" or status text. The window shows Lor is busy with an
+  animation of Lor's mark and the logos of the tools it's using; the model's
+  reasoning is never shown.
+- Lor acknowledges what's said to it with an emoji reaction, only when it
+  chooses to (a tool the model calls, such as a 👍 when corrected). Reactions
+  float up from Lor's mark in the window. No automatic reactions.
+- No voice, and nothing posted to the call chat, which stays human-only.
+  There's no "share to chat": everyone in the call already sees the window.
+
+### Lor in the transcript
+
+- There's no Lor tab. Each request and its result appear in the call's
+  transcript at the moment they happened: who asked, what Lor heard, and the
+  result as cards.
+- Clicking an earlier result brings it back into Lor's window for the whole
+  call ("Show on stage"), and the window can step back through this
+  session's results ("2 of 3").
+- After the call, a session opens with Chat and Transcript tabs; Lor's
+  results live in the transcript.
 
 ## The experience we want
 
 ### First release: a conversation the team can return to
 
-1. Teammates join a voice channel to discuss a customer issue and share a screen.
-2. Everyone can see whether conversation capture is enabled.
-3. They discuss alternatives, agree on a next step, and leave.
-4. A durable session record appears in the channel's associated text conversation.
-5. A teammate who missed the discussion can read the useful outcome and inspect
-   the transcript behind it.
+1. A teammate opens a voice channel, sees who is in the live session, and joins.
+2. The team discusses a customer issue, turns on cameras, shares a screen, and
+   drops links and files into the session chat.
+3. They agree on a next step and leave. The session ends shortly after.
+4. The session appears in the channel's history with its chat and transcript.
+5. A teammate who missed the discussion opens the session, reads the outcome,
+   and inspects the transcript behind it.
 6. Someone asks Lor in text, "What did we decide about this, and why?" Lor can
    retrieve that session and ground its answer in the source conversation.
 
-### Later: Lor helps during the conversation
+### Next: Lor helps during the conversation
 
-1. A participant addresses Lor: "What did we decide about this last week?"
-2. Lor briefly answers, with sources visible in the channel.
-3. Someone asks Lor to investigate the implementation while the team keeps talking.
-4. The existing agent system runs the work and posts progress and results in text.
-5. Teammates clarify the request, review the result, and approve actions where
-   the workspace's existing policies require it.
-6. The session preserves the discussion, requested work, and outcomes together.
+1. A participant says, "Lor, pull up the tickets I created yesterday."
+2. Lor's window slides into the screen-share slot: a thinking animation, then
+   the five Linear tickets as cards everyone can open.
+3. "Lor, draft tickets for what we just agreed." Draft cards appear; the team
+   adjusts them and creates them, with approvals where policy requires.
+4. The team keeps talking while Lor works; the window clears when they move on.
+5. The session keeps the discussion, the chat, and every Lor request and result
+   together; the transcript shows each request and result where it happened
+   and reopens any of them later.
 
 ## Phase 1 — Voice channels with memory
 
 ### Everyday voice experience
 
-- Drop-in audio with visible participants and speaking indicators.
-- Mute/deafen, input/output device selection, and clear connection state.
-- Screen sharing for working through an issue together.
-- Stay connected while navigating channels and other Lor surfaces.
-- Reliable join, leave, and reconnect behavior.
-- An associated text conversation for links, files, and the session record.
+- Explicit Join from the voice channel page, with visible participants and
+  speaking indicators.
+- Camera video, mute, input/output device selection, and clear connection
+  state. (Deafen was built in V2 and removed on 2026-10-06: Jacob judged
+  nobody would use it.)
+- Screen sharing from computers; share viewing on every client.
+- A persistent call bar keeps call controls available while navigating.
+- Reliable join, leave, reconnect, and transfer behavior.
+- A session chat for links, files, and messages.
 
 The audio experience must stand on its own. A transcription or summarization
 failure must not end the call or prevent people from continuing to talk.
 
-### Capture and session records
+### Transcripts and session records
 
-- Make capture explicitly enabled and visibly active. People joining an active
-  session must see its current capture state; provide a clear way to stop it.
 - Preserve timestamped transcript segments with participant attribution where
   available. Mark uncertainty instead of inventing a speaker or missing words.
-- Give each captured session a stable identity and a shareable source link.
+- Give each session a stable identity and a shareable source link.
 - Produce a concise summary of the substance, explicit decisions, unresolved
   questions, and stated follow-ups. Include owners or dates only when supported.
 - Distinguish a suggestion, a disagreement, and an agreed decision. A summary
   must not silently turn brainstorming into a company commitment.
 - Let people inspect the underlying transcript and correct the session summary.
-- Show processing, incomplete capture, and failure states honestly. A partial
-  transcript must not be presented as a complete account.
-
-For persistent rooms, a session is a bounded conversation within the channel.
-The exact boundary policy for empty rooms, reconnects, and long-running calls
-must be decided during implementation. Reconnects and processing retries should
-update the same session rather than create duplicate records.
+- Show processing, incomplete transcripts, and failures honestly in the session
+  record and in live captions. A partial transcript must not be presented as a
+  complete account.
 
 ### Findable, grounded memory
 
-- Session content must be retrievable by Lor through the existing memory/source
-  system and findable by people through the relevant search experience.
+- Session content, chat and transcript together, must be retrievable by Lor
+  through the existing memory/source system and findable by people through the
+  relevant search experience.
 - Text questions can refer to past voice conversations and receive links back to
   the relevant session and transcript passages.
 - Preserve the source and time behind remembered decisions. New discussion can
   supersede an old decision without erasing its history.
 - Session content and derived memory must respect the source channel's access.
   Shared workspace memory must not broaden access to a restricted conversation.
+- A live session stays out of search and Lor retrieval for anyone outside the
+  call until it ends.
 - Summary corrections and source deletion must propagate to derived retrieval
   or memory so stale statements do not remain authoritative.
 
@@ -118,27 +294,30 @@ sources; the exact timing and mechanism of brain synthesis remain open.
 Use focused code review and manual use in real team conversations, following the
 repository's no-tests policy.
 
-- Teammates can join, talk, share a screen, navigate, and reconnect successfully.
-- Capture state is understandable to both existing participants and late joiners.
-- A captured conversation produces one durable, accessible session record.
+- Teammates can join, talk, use cameras, share a screen from a computer,
+  navigate, transfer devices, and reconnect successfully.
+- People with CC on see live captions, and late joiners also see the session's
+  earlier transcript and chat.
+- Every conversation produces one durable session with its chat and transcript.
+- Nobody outside a live call can see its chat or transcript; everyone with
+  channel access can after it ends.
+- A person mentioned in an old session chat reaches the exact message in one step.
 - A person who missed the conversation can understand its outcome and inspect
   the source; corrections remain visible on subsequent retrieval.
 - Lor can answer a text question about that conversation with grounded links.
 - Restricted content stays restricted, including through derived memory.
-- Capture or processing failures are visible and do not break the voice call.
+- Transcription or processing failures are visible and do not break the call.
 - The team chooses to use this for ordinary work without requiring live voice AI.
 
-## Phase 2 — Explicit voice interaction with Lor
+## Phase 2 — Lor in the call
 
-Add this after the voice and memory foundation is useful in real team use.
+Builds on transcription. The model is in "Lor in the call" above; these are the
+behaviors to get right.
 
-- Invoke Lor explicitly, initially with a phrase such as "Hey Lor" and a button
-  fallback. The invocation wording and interaction design are still proposals.
-- Make listening, acknowledging, working, and responding states understandable.
-- Allow brief spoken answers and clarification questions; place detailed sources,
-  files, progress, and results in the associated text conversation.
-- Let the human discussion continue while background work runs. Prefer visual
-  updates over unsolicited spoken interruptions.
+- Make listening, thinking, working, and showing states understandable in Lor's
+  window, and let anyone cancel a request Lor misheard.
+- Let the human discussion continue while work runs. Lor shows results; it
+  doesn't interrupt.
 - Support follow-up instructions and cancellation. Resolve competing directions
   from teammates explicitly rather than silently applying the last utterance.
 - Reuse Lor's existing agent execution, tool permissions, approvals, and history.
@@ -147,48 +326,69 @@ Add this after the voice and memory foundation is useful in real team use.
 - Separate discussion of an action from an actual request to execute it. Ask for
   clarification when the intended action, requester, or target is ambiguous.
 
-Initial examples: retrieve a prior decision, investigate a reported issue,
-draft an issue from the discussion, or start a requested analysis. Expand based
-on the team's actual use of connected tools.
+Initial examples: pull up Linear issues or GitHub pull requests, draft issues
+from the discussion, retrieve a prior decision, or investigate a reported
+issue. Expand based on the team's actual use of connected tools.
 
-### Jev: candidate decision component
+### Jev: the address check
 
-Jev is a candidate for focused decisions such as whether a transcribed utterance
-addresses Lor or continues an active request. TypeSafe documents structured
-decisions with probabilities/confidence; see the [official introduction](https://docs.typesafe.ai/introduction).
+Decided 2026-09-30. Jev, TypeSafe's decision model (see the
+[official introduction](https://docs.typesafe.ai/introduction)), decides whether
+a transcribed segment addresses Lor. It is the second stage, and it sees only
+segments that contain Lor's name:
 
-The proposed role is an intent filter after transcription. Speech capture,
-transcription, response generation, speech output, and execution remain separate
-parts of the system. Assess behavior with overlapping speakers, ambiguous
-references, and background discussion before selecting it. Model confidence
-does not replace application permissions or user authorization.
+1. A local name gate checks every final transcript segment for "Lor" and a few
+   words it is misheard as. Segments without the name never reach a model.
+2. Jev reads the segments that pass and answers in one call: is Lor addressed,
+   is this a request, a mention, or a continuation, and is it complete. An
+   error or timeout counts as not addressed.
 
-No Jev dependency or provider commitment is required for Phase 1.
+Lor's window opens only when Jev accepts the segment (decided 2026-10-01).
+Jev is fast enough that a listening state isn't needed, and words the gate
+also matches, like "law" and "lower", never flash the window. Speech capture, transcription, execution,
+and speech output remain separate parts of the system. Jev decides whether
+Lor starts; it never replaces application permissions or user authorization.
 
 ## Longer-term possibilities
 
-Once explicit interaction works well, explore more natural follow-ups,
-selective offers to help, and coordination across voice, text, and shared work
-surfaces. Ambient intervention and automatically inferred tasks are future
-explorations, not launch requirements.
+- Browser and computer use, shown live in Lor's window.
+- Spoken answers, once show-only works well.
+- More natural follow-ups, selective offers to help, and coordination across
+  voice, text, and shared work surfaces. Lor acting without being addressed,
+  or inferring tasks from overheard talk, stays out of scope.
+- Call controls outside the desktop app window, such as in the menu bar.
+
+## Deferred: private questions to Lor
+
+People will want to ask Lor about a session without posting a public question.
+This is a platform decision, deferred on 2026-09-28; see
+[Private questions to Lor](./planned/private-lor-questions.md). Until then, people ask
+Lor by voice during the call, or in a text channel afterward.
 
 ## Boundaries and open decisions
 
-The first phase does not include spoken AI participation, autonomous action from
-overheard conversation, a full meeting/calendar product, video recording,
-collaborative document editing, or a code-channel workbench.
+Out of scope for now: Lor speaking, Lor acting on conversation it wasn't
+addressed in, Lor browser or computer use, a full meeting/calendar product,
+audio or video recording, collaborative document editing, a code-channel
+workbench, screen sharing from phones, Android, and Windows and Linux desktop
+builds.
 
-Resolve these before implementation depends on them:
+Resolved on 2026-09-28 (see "Voice channel model"): supported clients, the
+relationship between a voice channel and its text, transcription defaults,
+retention, and session boundaries. Resolved on 2026-09-30 (see "Lor in the
+call"): how people ask Lor, Lor's window, and the chat's role. Resolved on
+2026-10-02 (see "How Lor communicates"): no Lor tab, results in the
+transcript, reactions by tool only, no status text.
 
-- The first supported clients and desktop/web/mobile capability expectations,
-  including background audio. LiveKit Cloud is the initial transport choice.
-- Relationship between a voice channel and its text history in navigation.
-- Capture defaults, who can enable/stop it, and participant notification behavior.
-- Whether raw audio is retained; retention/deletion rules for audio, transcripts,
-  summaries, and derived memory. Transcription does not imply permanent audio storage.
-- Session boundaries, transcription delivery, and processing recovery behavior.
+Still open:
+
+- Transcription delivery and processing recovery details (see the runbook).
 - Correction controls and source/citation integration with existing search and brain.
 - Latency and operating-cost targets based on typical team sessions.
+- Privacy policy wording for always-on transcription, if needed.
+- Zero data retention for Lor's voice requests to the AI Gateway, pending the
+  gateway's Pro plan (see the runbook).
+- Private questions to Lor (deferred).
 
 ## Existing foundations to inspect and reuse
 
@@ -200,5 +400,6 @@ Resolve these before implementation depends on them:
 - [Product direction](./product-direction.md): broader workspace vision.
 
 These are starting points to inspect, not evidence that native voice or memory
-requirements above are already implemented. Keep this spec updated as product
-decisions become concrete; put implementation details in a separate runbook.
+requirements above are already implemented. The runbook maps the implementation
+onto existing code. Keep this spec updated as product decisions become concrete;
+put implementation details in the runbook.

@@ -7,17 +7,27 @@ import SquareLock02Icon from "@hugeicons/core-free-icons/SquareLock02Icon"
 import VolumeHighIcon from "@hugeicons/core-free-icons/VolumeHighIcon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
 import type { ChannelActivity } from "@repo/realtime-types"
+import {
+  type OwnVoicePresence,
+  withOwnVoicePresence,
+} from "@repo/realtime-types/voice-presence"
 import * as Haptics from "expo-haptics"
+import { router } from "expo-router"
 import { useThemeColor } from "heroui-native/hooks"
-import { type ReactNode, useMemo, useState } from "react"
+import { Fragment, type ReactNode, useMemo, useState } from "react"
 import { ActivityIndicator, Pressable, Text, View } from "react-native"
+import { Avatar } from "@/components/ui/avatar"
 import { PrivateHashIcon } from "@/components/ui/private-hash-icon"
 import { SectionLabel } from "@/components/ui/section-label"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useUnread } from "@/context/unread-context"
+import { useVoiceCall } from "@/context/voice-call-context"
 import { useWorkspace } from "@/context/workspace-context"
+import { useVoicePresence } from "@/hooks/use-voice-presence"
+import type { VoiceParticipant } from "@/hooks/use-voice-sessions"
 import { useWorkspaceActivity } from "@/hooks/use-workspace-activity"
 import type { Channel, ChannelCategory } from "@/lib/api-types"
+import { authClient } from "@/lib/auth-client"
 
 type LorState = NonNullable<ChannelActivity["lor"]>
 
@@ -60,7 +70,7 @@ function LorChannelStatus({ state }: { state: LorState }) {
   )
 }
 
-function MentionBadge({ count }: { count: number }) {
+export function MentionBadge({ count }: { count: number }) {
   return (
     <View className="h-5 min-w-5 items-center justify-center rounded-full bg-danger px-1.5">
       <Text className="text-[11px] font-bold leading-[13px] text-danger-foreground">
@@ -169,6 +179,50 @@ export function ChannelRow({
       </Text>
       {mentionCount > 0 ? <MentionBadge count={mentionCount} /> : null}
       {lorState ? <LorChannelStatus state={lorState} /> : null}
+    </Pressable>
+  )
+}
+
+// People connected to a voice channel's call, listed under it like web.
+// Pressing them joins the call straight away.
+function VoiceParticipantRows({
+  participants,
+  channelName,
+  onJoin,
+}: {
+  participants: VoiceParticipant[] | undefined
+  channelName: string
+  onJoin: () => void
+}) {
+  if (!participants?.length) return null
+  return (
+    // Lines up with the channel name: row padding + icon box + gap.
+    <Pressable
+      accessibilityLabel={`Join the call in ${channelName}`}
+      accessibilityRole="button"
+      className="mb-one rounded-lor-sm pl-[44px] active:bg-surface-secondary"
+      onPress={onJoin}
+    >
+      {participants.map((participant) => (
+        <View
+          className="min-h-7 flex-row items-center gap-two"
+          key={participant.userId}
+        >
+          <Avatar
+            avatarColor={participant.avatarColor}
+            className="size-5"
+            image={participant.image}
+            name={participant.name}
+            size="xs"
+          />
+          <Text
+            className="min-w-0 flex-1 text-[13px] text-muted"
+            numberOfLines={1}
+          >
+            {participant.name}
+          </Text>
+        </View>
+      ))}
     </Pressable>
   )
 }
@@ -330,7 +384,9 @@ export function ChannelList({
     () => new Set()
   )
   const { getUnreadCount, getMentionCount } = useUnread()
-  const { workspace } = useWorkspace()
+  const { workspace, avatarColor } = useWorkspace()
+  const { call, joining, join, ownVoiceChannel } = useVoiceCall()
+  const { data: auth } = authClient.useSession()
   const activity = useWorkspaceActivity(workspace?.id)
   const lorStates = useMemo(() => {
     const map = new Map<string, LorState>()
@@ -339,6 +395,50 @@ export function ChannelList({
     }
     return map
   }, [activity])
+  const presence = useVoicePresence(workspace?.slug, workspace?.id)
+  const user = auth?.user
+  const inCall = useMemo(() => {
+    const own: OwnVoicePresence | null =
+      ownVoiceChannel && user && ownVoiceChannel.workspaceId === workspace?.id
+        ? ownVoiceChannel.left
+          ? {
+              left: true,
+              channelId: ownVoiceChannel.channelId,
+              userId: user.id,
+            }
+          : {
+              left: false,
+              channelId: ownVoiceChannel.channelId,
+              participant: {
+                userId: user.id,
+                name: user.name,
+                image: user.image ?? null,
+                avatarColor,
+                connected: true,
+              },
+            }
+        : null
+    return new Map(
+      withOwnVoicePresence(presence ?? [], own).map((channel) => [
+        channel.channelId,
+        channel.participants,
+      ])
+    )
+  }, [presence, ownVoiceChannel, user, workspace?.id, avatarColor])
+
+  // Opens the voice channel and joins its call (unless already in it).
+  const joinCall = (channel: Channel) => {
+    router.push({
+      pathname: "/channel/[channelId]",
+      params: { channelId: channel.id },
+    } as never)
+    if (!workspace || joining || call?.channelId === channel.id) return
+    void join({
+      workspaceId: workspace.id,
+      channelId: channel.id,
+      channelName: channel.name ?? "Voice",
+    })
+  }
 
   if (isLoading && !data) return <ChannelListSkeleton />
   if (!data) return null
@@ -377,15 +477,23 @@ export function ChannelList({
   )
 
   const renderRow = (channel: Channel) => (
-    <ChannelRow
-      channel={channel}
-      key={channel.id}
-      lorState={lorStates.get(channel.id)}
-      mentionCount={getMentionCount(channel.id)}
-      onLongPress={onLongPress}
-      onPress={onPress}
-      unread={getUnreadCount(channel.id) > 0}
-    />
+    <Fragment key={channel.id}>
+      <ChannelRow
+        channel={channel}
+        lorState={lorStates.get(channel.id)}
+        mentionCount={getMentionCount(channel.id)}
+        onLongPress={onLongPress}
+        onPress={onPress}
+        unread={getUnreadCount(channel.id) > 0}
+      />
+      {channel.type === "voice" ? (
+        <VoiceParticipantRows
+          channelName={channel.name ?? "voice"}
+          onJoin={() => joinCall(channel)}
+          participants={inCall.get(channel.id)}
+        />
+      ) : null}
+    </Fragment>
   )
 
   return (

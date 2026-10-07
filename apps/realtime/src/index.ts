@@ -2,6 +2,10 @@ import { randomUUID } from "node:crypto"
 import { createServer } from "node:http"
 import { auth, type Session } from "@repo/auth"
 import { and, db, eq, notExists, schema } from "@repo/db"
+import {
+  canSeeSessionChat,
+  isLiveSessionChat,
+} from "@repo/db/queries/session-chat-access"
 import { env } from "@repo/env/server"
 import { enterContext } from "@repo/logger"
 import { decideReplyPlacement } from "@repo/lor/placement"
@@ -513,13 +517,22 @@ io.on("connection", (socket) => {
       const parsed = threadRoomPayloadSchema.parse(payload)
       // Verify the user can access the thread's channel.
       const root = await db
-        .select({ channelId: schema.message.channelId })
+        .select({
+          channelId: schema.message.channelId,
+          type: schema.message.type,
+        })
         .from(schema.message)
         .where(eq(schema.message.id, parsed.threadRootId))
         .limit(1)
         .then((rows) => rows[0])
       if (!root) throw new Error("Thread not found")
       await assertUserCanAccessChannel(socket.data.user.id, root.channelId)
+      if (
+        root.type === "voice_session" &&
+        !(await canSeeSessionChat(socket.data.user.id, parsed.threadRootId))
+      ) {
+        throw new Error("Thread not found")
+      }
       await socket.join(threadRoom(parsed.threadRootId))
       ack?.({ ok: true })
     } catch (error) {
@@ -614,12 +627,16 @@ io.on("connection", (socket) => {
         ...createdMessage.message,
         mentions: fanout?.messageMentions ?? createdMessage.message.mentions,
       }
-      const summary = messageWithMentions.threadRootId
-        ? await loadThreadSummary(
-            parsed.channelId,
-            messageWithMentions.threadRootId
-          )
-        : null
+      // A live session chat's replies stay out of the channel room.
+      const threadRootId = messageWithMentions.threadRootId
+      const summary =
+        threadRootId &&
+        !(
+          accessibleChannel.type === "voice" &&
+          (await isLiveSessionChat(threadRootId))
+        )
+          ? await loadThreadSummary(parsed.channelId, threadRootId)
+          : null
 
       // Finish fallible reads before fanout; retries may repeat message IDs,
       // but notification deltas and pushes have a single delivery claim.
@@ -653,7 +670,6 @@ io.on("connection", (socket) => {
         }
         void sendMessagePushNotifications({
           fanout,
-          threadRootId: messageWithMentions.threadRootId,
           redis: redisPresenceClient,
         }).catch((err) =>
           logger.error({ err }, "Push notification send failed")
@@ -719,6 +735,8 @@ io.on("connection", (socket) => {
         // DMs have no workspace context; Lor only runs in workspace channels.
         const workspaceId = accessibleChannel.workspaceId
         if (!workspaceId) return
+        // Session chats are human-only; Lor takes requests by voice.
+        if (accessibleChannel.type === "voice") return
         const [existingRun] = await db
           .select()
           .from(schema.agentRun)
@@ -1124,14 +1142,19 @@ io.on("connection", (socket) => {
         socket
           .to(threadRoom(result.threadRootId))
           .emit("message:deleted", deletedPayload)
-        const summary = await loadThreadSummary(
-          parsed.channelId,
-          result.threadRootId
-        )
-        io.to(channelRoom(parsed.channelId)).emit(
-          "message:thread:updated",
-          summary
-        )
+        const hidden =
+          result.channel.type === "voice" &&
+          (await isLiveSessionChat(result.threadRootId))
+        if (!hidden) {
+          const summary = await loadThreadSummary(
+            parsed.channelId,
+            result.threadRootId
+          )
+          io.to(channelRoom(parsed.channelId)).emit(
+            "message:thread:updated",
+            summary
+          )
+        }
       } else {
         socket
           .to([channelRoom(parsed.channelId), threadRoom(result.messageId)])

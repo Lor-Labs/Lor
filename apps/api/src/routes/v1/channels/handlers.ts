@@ -1,5 +1,12 @@
 import { db, schema } from "@repo/db"
-import { listAccessibleChannelIds } from "@repo/db/queries/channel-access"
+import {
+  listAccessibleChannelIds,
+  resolveChannelAudienceInfo,
+} from "@repo/db/queries/channel-access"
+import {
+  canSeeSessionChat,
+  visibleToSessionChatFilter,
+} from "@repo/db/queries/session-chat-access"
 import type { IntegrationProvider } from "@repo/db/schema"
 import {
   agentProfile,
@@ -44,6 +51,7 @@ import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
   CreateChannelRoute,
   DeleteChannelRoute,
+  GetChannelAudienceRoute,
   GetChannelReadPositionRoute,
   GetChannelRoute,
   GetMessageLocationRoute,
@@ -602,6 +610,40 @@ export const listChannelMessages: AppRouteHandler<
   )
 }
 
+// The same audience the message fanout notifies, so a composer never offers
+// someone a mention can't reach.
+export const getChannelAudience: AppRouteHandler<
+  GetChannelAudienceRoute
+> = async (c) => {
+  const workspace = c.var.workspace
+  const currentUser = c.var.user
+  const { channelId } = c.req.valid("param")
+
+  const ch = await db
+    .select({ id: channel.id })
+    .from(channel)
+    .where(
+      and(eq(channel.id, channelId), eq(channel.workspaceId, workspace.id))
+    )
+    .limit(1)
+    .then((rows) => rows[0])
+  const info =
+    ch && (await userCanAccessChannel(channelId, currentUser.id))
+      ? await resolveChannelAudienceInfo(channelId)
+      : null
+  if (!info || (info.audience !== "workspace" && info.audience !== "members")) {
+    return c.json(
+      { success: false, message: "Channel not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+
+  return c.json(
+    { audience: info.audience, userIds: info.userIds },
+    HttpStatusCodes.OK
+  )
+}
+
 export const listThreadActivity: AppRouteHandler<
   ListThreadActivityRoute
 > = async (c) => {
@@ -805,7 +847,14 @@ export const listPinnedMessages: AppRouteHandler<
     .select(pinnedMessageSelect)
     .from(message)
     .innerJoin(user, eq(message.authorId, user.id))
-    .where(and(eq(message.channelId, channelId), eq(message.pinned, true)))
+    .where(
+      and(
+        eq(message.channelId, channelId),
+        eq(message.pinned, true),
+        // Live-only rule: a pin inside a live call's chat stays with the call.
+        visibleToSessionChatFilter(currentUser.id, message.threadRootId)
+      )
+    )
     .orderBy(desc(message.createdAt))
 
   const messageIds = messages.map((msg) => msg.id)
@@ -990,13 +1039,22 @@ export const listThreadReplies: AppRouteHandler<
   // Verify the root message exists, belongs to this channel, and is itself a
   // channel-level message (not a thread reply — threads are flat).
   const root = await db
-    .select({ id: message.id, threadRootId: message.threadRootId })
+    .select({
+      id: message.id,
+      threadRootId: message.threadRootId,
+      type: message.type,
+    })
     .from(message)
     .where(and(eq(message.id, messageId), eq(message.channelId, channelId)))
     .limit(1)
     .then((rows) => rows[0])
 
-  if (!root || root.threadRootId !== null) {
+  if (
+    !root ||
+    root.threadRootId !== null ||
+    (root.type === "voice_session" &&
+      !(await canSeeSessionChat(currentUser.id, messageId)))
+  ) {
     return c.json(
       { success: false, message: "Thread root not found" },
       HttpStatusCodes.NOT_FOUND
@@ -1008,7 +1066,7 @@ export const listThreadReplies: AppRouteHandler<
   // The root is fetched as a single channel-level message (around + limit 1)
   // so the panel can show it even when it's scrolled out of the channel feed.
   const isInitialPage = !before && !after
-  const [replies, rootResult, participantRows, planCreatorRow] =
+  const [replies, rootResult, participantRows, planCreatorRow, voiceSession] =
     await Promise.all([
       fetchMessages({
         channelId,
@@ -1075,6 +1133,19 @@ export const listThreadReplies: AppRouteHandler<
             .limit(1)
             .then((rows) => rows[0] ?? null)
         : Promise.resolve(null),
+      isInitialPage && root.type === "voice_session"
+        ? db
+            .select({
+              id: schema.voiceSession.id,
+              title: sql<
+                string | null
+              >`${schema.voiceSession.summary}->>'title'`,
+            })
+            .from(schema.voiceSession)
+            .where(eq(schema.voiceSession.threadRootId, messageId))
+            .limit(1)
+            .then((rows) => rows[0] ?? null)
+        : Promise.resolve(null),
     ])
 
   const participants = new Map(
@@ -1087,6 +1158,8 @@ export const listThreadReplies: AppRouteHandler<
       ...replies,
       root: rootResult?.data[0] ?? null,
       participants: [...participants.values()],
+      voiceSessionId: voiceSession?.id ?? null,
+      voiceSessionTitle: voiceSession?.title ?? null,
     },
     HttpStatusCodes.OK
   )
@@ -1115,7 +1188,12 @@ export const getMessageLocation: AppRouteHandler<
 
   // Same 404 for "doesn't exist" and "not allowed" — message ids must not
   // probe private channels.
-  if (!row || !(await userCanAccessChannel(row.channelId, currentUser.id))) {
+  if (
+    !row ||
+    !(await userCanAccessChannel(row.channelId, currentUser.id)) ||
+    (row.threadRootId &&
+      !(await canSeeSessionChat(currentUser.id, row.threadRootId)))
+  ) {
     return c.json(
       { success: false, message: "Message not found" },
       HttpStatusCodes.NOT_FOUND
