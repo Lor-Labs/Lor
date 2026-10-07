@@ -89,9 +89,12 @@ import { useQueuedMessageSteering } from "@/hooks/use-queued-message-steering"
 import { useReplyState } from "@/hooks/use-reply-state"
 import { useRunQueue } from "@/hooks/use-run-queue"
 import { useStopLorRun } from "@/hooks/use-stop-lor-run"
-import { useThreadMessages } from "@/hooks/use-thread-messages"
+import {
+  type FetchPageParams,
+  fetchThreadPage,
+  useThreadMessages,
+} from "@/hooks/use-thread-messages"
 import { useTypingIndicator } from "@/hooks/use-typing-indicator"
-import { apiClient } from "@/lib/api-client"
 import type { Message } from "@/lib/api-types"
 import { channelQueryOptions } from "@/lib/channel-query"
 import { PLAN_STATUS_META } from "@/lib/plan-ui"
@@ -198,30 +201,16 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
     getChannelRoot
   )
 
-  const fetchThreadPage = useCallback(
-    async (params: {
-      around?: string
-      before?: string
-      after?: string
-      limit: number
-    }) => {
-      const query: Record<string, string> = { limit: String(params.limit) }
-      if (params.around) query.around = params.around
-      if (params.before) query.before = params.before
-      if (params.after) query.after = params.after
-      const res = await apiClient.v1.workspaces[":workspaceSlug"].channels[
-        ":channelId"
-      ].messages[":messageId"].thread.$get({
-        param: {
+  const fetchPage = useCallback(
+    (params: FetchPageParams) =>
+      fetchThreadPage(
+        {
           workspaceSlug: view.workspaceSlug,
           channelId: view.channelId,
-          messageId: view.threadRootId,
+          threadRootId: view.threadRootId,
         },
-        query,
-      })
-      if (!res.ok) throw new Error("Failed to fetch thread replies")
-      return res.json()
-    },
+        params
+      ),
     [view.workspaceSlug, view.channelId, view.threadRootId]
   )
 
@@ -250,7 +239,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
   } = useThreadMessages({
     channelId: view.channelId,
     threadRootId: view.threadRootId,
-    fetchPage: fetchThreadPage,
+    fetchPage,
     socket,
     pendingNoncesRef: pendingNonces,
   })
@@ -315,7 +304,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
 
   const handleCopyAsMarkdown = useCallback(async () => {
     try {
-      const firstPage = await fetchThreadPage({ limit: 50 })
+      const firstPage = await fetchPage({ limit: 50 })
       const replies = new Map<string, Message>()
       for (const message of [...messages, ...firstPage.data]) {
         if (message.status !== "pending") replies.set(message.id, message)
@@ -326,7 +315,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
       while (!page.reachedOldest && page.beforeCursor) {
         if (visitedCursors.has(page.beforeCursor)) break
         visitedCursors.add(page.beforeCursor)
-        page = await fetchThreadPage({ before: page.beforeCursor, limit: 50 })
+        page = await fetchPage({ before: page.beforeCursor, limit: 50 })
         for (const message of page.data) {
           if (message.status !== "pending") replies.set(message.id, message)
         }
@@ -394,7 +383,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
     } catch {
       toast.error(`Couldn't copy ${isPlan ? "plan" : "thread"}`)
     }
-  }, [fetchThreadPage, isPlan, messages, rootMessage, plan, planArtifacts])
+  }, [fetchPage, isPlan, messages, rootMessage, plan, planArtifacts])
 
   // Files the team fed the plan, gathered from the loaded slice of the
   // thread (sources ≠ outputs: uploads stay plain links, artifacts open the

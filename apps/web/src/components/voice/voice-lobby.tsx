@@ -17,11 +17,14 @@ import {
   formatTime,
   getDayLabel,
 } from "@repo/utils/date"
+import { useQueryClient } from "@tanstack/react-query"
+import { useParams } from "@tanstack/react-router"
 import { useState } from "react"
 import { CallHero } from "@/components/voice/call-hero"
 import { ParticipantAvatar } from "@/components/voice/participant-avatar"
 import type { JoinDevices } from "@/context/voice-call-context"
 import { isCallBeingDeleted } from "@/hooks/use-delete-call"
+import { prefetchThread } from "@/hooks/use-thread-messages"
 import type { VoiceParticipant } from "@/hooks/use-voice-presence"
 import {
   useVoiceSessions,
@@ -57,11 +60,14 @@ function SessionRow({
   session,
   active,
   onOpen,
+  onPrefetch,
   onDelete,
 }: {
   session: VoiceSessionSummary
   active: boolean
   onOpen: (() => void) | null
+  // Loads the chat on hover or focus, so opening it is instant.
+  onPrefetch: (() => void) | null
   onDelete: (() => void) | null
 }) {
   const [menuOpen, setMenuOpen] = useState(false)
@@ -127,6 +133,8 @@ function SessionRow({
         <button
           type="button"
           onClick={onOpen}
+          onMouseEnter={onPrefetch ?? undefined}
+          onFocus={onPrefetch ?? undefined}
           className={cn(
             "flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-accent",
             (active || menuOpen) && "bg-accent"
@@ -200,6 +208,8 @@ export function VoiceLobby({
     fetchNextPage,
     isFetchingNextPage,
   } = useVoiceSessions(channelId, workspaceId)
+  const queryClient = useQueryClient()
+  const { workspaceSlug } = useParams({ strict: false })
   const sessions = data?.pages.flatMap((page) => page.sessions) ?? []
   const live = sessions.find((session) => session.live)
   const past = sessions.filter(
@@ -256,6 +266,16 @@ export function VoiceLobby({
                     onOpen={
                       threadRootId
                         ? () => onOpenSession(threadRootId, tab)
+                        : null
+                    }
+                    onPrefetch={
+                      threadRootId && workspaceSlug
+                        ? () =>
+                            prefetchThread(queryClient, {
+                              workspaceSlug,
+                              channelId,
+                              threadRootId,
+                            })
                         : null
                     }
                     onDelete={

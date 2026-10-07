@@ -34,6 +34,11 @@ import {
 } from "react"
 import { useSocket } from "@/context/socket-context"
 import { useRealtimeRoom } from "@/hooks/use-realtime-room"
+import {
+  type FetchPageParams,
+  fetchThreadPage,
+  useThreadMessages,
+} from "@/hooks/use-thread-messages"
 import { apiClient } from "@/lib/api-client"
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window
@@ -154,6 +159,31 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
     }
   }, [socket, threadRootId, userId])
   const clearChatUnread = useCallback(() => setChatUnread(0), [])
+
+  // The call chat loads at join and stays current for the whole call, so the
+  // chat panel opens at once with every message, even ones sent while it was
+  // closed. The panel reads the same thread cache.
+  const chatWorkspaceSlug = call?.workspaceSlug ?? ""
+  const chatChannelId = call?.channelId ?? ""
+  const fetchCallChatPage = useCallback(
+    (params: FetchPageParams) =>
+      fetchThreadPage(
+        {
+          workspaceSlug: chatWorkspaceSlug,
+          channelId: chatChannelId,
+          threadRootId: threadRootId ?? "",
+        },
+        params
+      ),
+    [chatWorkspaceSlug, chatChannelId, threadRootId]
+  )
+  useThreadMessages({
+    channelId: chatChannelId,
+    threadRootId: threadRootId ?? "",
+    fetchPage: fetchCallChatPage,
+    enabled: Boolean(threadRootId),
+    socket,
+  })
 
   const [captionsOn, setCaptionsOn] = useState(readCaptionsOn)
   const toggleCaptions = useCallback(() => {

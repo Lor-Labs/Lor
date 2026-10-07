@@ -821,6 +821,27 @@ stage", and step-back wait for the rest of V6.
   - The drawer's chat button shows a count of other people's call chat
     messages (accent badge), counted in the call context from the thread
     room it already holds and cleared while the drawer shows the Chat tab.
+- [x] Polish E (Jacob, 2026-10-06): the call chat opens instantly, with
+  every message, on both apps. Before, the first open of a call's chat
+  loaded, and web's panel (unmounted when closed) stopped receiving
+  messages: reopening within the 60s `staleTime` showed a copy missing what
+  was sent meanwhile, though the unread badge had counted it.
+  - Web: `VoiceCallProvider` runs `useThreadMessages` for the call chat for
+    the whole call, so the `["thread", id]` cache loads at join, is never
+    collected, and takes live messages while the panel is closed (edits,
+    reactions, deletes, Lor's streams, and reconnect resyncs already write
+    that cache). `fetchThreadPage` / `threadQueryOptions` are shared by the
+    panel, the call, and `prefetchThread`, which past-call rows run on hover
+    or focus. The live insert skips a message whose nonce matches an
+    optimistic entry still in the cache (the sending hook swaps it), since
+    the call's copy has no pending-nonce ref. Room joins are ref-counted,
+    so the panel closing doesn't drop the call's rooms.
+  - Phone: the drawer's chat mounts with the call instead of on first open
+    (it already stayed mounted after that), so it loads at join and keeps
+    up. Closed, the hidden content keeps the middle dock's height, so the
+    list lays out at a real size. Its auto mark-read touches only the voice
+    channel, and only while the call screen has focus, as it already did
+    after the first open; the phone writes no per-call read state.
 
 - Voice channel screen (history, live session, Join or "Transfer here") from
   `apps/mobile/src/app/channel/[channelId]/index.tsx` for voice channels.

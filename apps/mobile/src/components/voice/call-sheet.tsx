@@ -266,8 +266,6 @@ export function CallSheet({
   const [containerHeight, setContainerHeight] = useState(0)
   const [tab, setTab] = useState<"chat" | "transcript">("chat")
   const [open, setOpen] = useState(false)
-  // The chat and transcript mount the first time the drawer opens.
-  const [opened, setOpened] = useState(false)
   // The top dock is a fixed gap below the header, so it needs the measured
   // area; before that, a close stand-in.
   const topHeight = containerHeight > 0 ? containerHeight - TOP_GAP : "98%"
@@ -279,23 +277,27 @@ export function CallSheet({
   // The sheet library sizes content for the top dock, which would leave the
   // composer and newest messages below the screen at the middle one. So the
   // content takes each dock's visible height: right away when the drawer
-  // rises (the rise reveals it), and once it settles when it lowers.
+  // rises (the rise reveals it), and once it settles when it lowers. Closed,
+  // it's hidden but keeps the middle dock's height: the chat is mounted from
+  // the start of the call and needs a real height to lay out.
   const contentHeight = useSharedValue(0)
   const visibleContentHeight = useCallback(
     (index: number) => {
       const sheetHeight =
         index === TOP_INDEX
           ? containerHeight - TOP_GAP
-          : index === MIDDLE_INDEX
-            ? containerHeight * MIDDLE
-            : peekHeight
+          : containerHeight * MIDDLE
       return Math.max(0, sheetHeight - GRABBER_HEIGHT - CONTROLS_HEIGHT)
     },
-    [containerHeight, peekHeight]
+    [containerHeight]
   )
   const contentSizeStyle = useAnimatedStyle(() => ({
     height: contentHeight.value,
   }))
+  // The area is measured after the first dock, so size the content then.
+  useEffect(() => {
+    contentHeight.value = visibleContentHeight(indexRef.current)
+  }, [visibleContentHeight, contentHeight])
 
   const toggleChat = useCallback(() => {
     if (open) {
@@ -389,7 +391,6 @@ export function CallSheet({
             contentHeight.value = visibleContentHeight(toIndex)
           }
           setOpen(toIndex > 0)
-          if (toIndex > 0) setOpened(true)
         }}
         onChange={(index) => {
           // The clamped spring ends the moment it reaches the dock, so this
@@ -432,9 +433,11 @@ export function CallSheet({
               </Tabs.List>
             </Tabs>
           </View>
-          {/* The chat stays mounted behind the transcript, so a half-written
-            message survives a tab switch. */}
-          {opened && call.threadRootId ? (
+          {/* The chat mounts with the call, so it has loaded and kept up
+            with new messages before anyone opens the drawer; it stays
+            mounted behind the transcript, so a half-written message survives
+            a tab switch. */}
+          {call.threadRootId ? (
             <View className={tab === "chat" ? "flex-1" : "hidden"}>
               <ThreadView
                 channelId={call.channelId}
@@ -443,7 +446,7 @@ export function CallSheet({
               />
             </View>
           ) : null}
-          {opened && tab === "transcript" ? (
+          {tab === "transcript" ? (
             <CallTranscript live sessionId={call.sessionId} />
           ) : null}
         </Animated.View>
