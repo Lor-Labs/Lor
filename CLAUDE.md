@@ -114,6 +114,15 @@ live there. Update its checkboxes and deviations log as phases land. Private
 questions to Lor are deferred (`reference/private-lor-questions.md`). Broader
 priorities live in `reference/product-direction.md`.
 
+### Code channels (multiplayer AI coding)
+
+The target architecture for code channels — per-step checkpoints (Postgres
+conversation + git-host commits on Code Storage or Cloudflare Artifacts),
+fork/handoff/rewind, local clone, Yjs live editing, the push-driven code index,
+and Claude Code/Codex CLI support with subscription rules — lives in
+`reference/code-channels.md`. Design only, not built; its locked decisions and
+rejected alternatives explain the shape.
+
 ### Attachment search + reranking
 
 Attachment indexing (screenshots, documents) and the Lor reranker are executed
