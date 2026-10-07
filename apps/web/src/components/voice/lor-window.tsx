@@ -24,7 +24,6 @@ import { toolIcon } from "@/components/chat/lor-tool-trail"
 import { captionLine } from "@/components/voice/call-captions"
 import { LorBlocks, LorFailedNotice } from "@/components/voice/lor-blocks"
 import {
-  isSimulatedRequest,
   resolveSimulatedApproval,
   useSimulatedCaptions,
 } from "@/components/voice/lor-simulator"
@@ -40,6 +39,7 @@ import {
   voiceRequestsQueryKey,
 } from "@/hooks/use-voice-requests"
 import { apiClient } from "@/lib/api-client"
+import { isSimulatedRequest } from "@/lib/lor-simulation"
 
 // Reaches back to the caption line that said "Lor": the request is created
 // once Jev answers, a moment after the name was heard.

@@ -16,10 +16,10 @@ import {
   useQueryClient,
 } from "@tanstack/react-query"
 import { useEffect } from "react"
-import { isSimulatedRequest } from "@/components/voice/lor-simulator"
 import { addLorReaction, addLorTool } from "@/components/voice/lor-stage-store"
 import { useSocket } from "@/context/socket-context"
 import { apiClient } from "@/lib/api-client"
+import { isSimulatedRequest } from "@/lib/lor-simulation"
 
 export { isActiveVoiceRequest, hasVoiceResult as hasResult }
 

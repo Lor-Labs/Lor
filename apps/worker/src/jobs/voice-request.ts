@@ -457,6 +457,10 @@ async function watchApproval(data: VoiceApprovalWatchJobData) {
 async function resumeRequest(request: LoadedRequest, approvalId: string) {
   if (request.status !== "awaiting_approval") return
   const created = await createVoiceRun(request)
+  if (created === "timeout") {
+    publish(request, await finishVoiceRequest(request.id, { status: "failed" }))
+    return
+  }
   if (typeof created === "string") return
   const continuation = await buildApprovalContinuation({ approvalId })
   const resumed = await resumeVoiceRequest(request.id, created.runId)

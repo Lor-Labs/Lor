@@ -3,8 +3,8 @@ import type {
   VoiceRequestState,
 } from "@repo/realtime-types/events"
 import { useQuery } from "@tanstack/react-query"
-import { isSimulatedRequest } from "@/components/voice/lor-simulator"
 import { apiClient } from "@/lib/api-client"
+import { isSimulatedRequest } from "@/lib/lor-simulation"
 
 // Cards stay live while they're on screen, without a webhook per connector.
 const REFRESH_MS = 60_000

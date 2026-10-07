@@ -239,8 +239,9 @@ Realtime, emitted from the API with the existing emitter
   - Reply fanout in `apps/realtime/src/index.ts` sends `message:thread:updated`
     with the full reply to the channel room; skip that while the session is live.
   - When someone leaves the call, remove their sockets from the thread room.
-  - API thread reads, message search, and the thread activity dock skip live
-    sessions for people outside the call.
+  - API thread reads, message search, the thread activity dock, pinned-message
+    lists, and channel-feed thread summaries skip live sessions for people
+    outside the call.
   - Lor retrieval: add a live-session filter next to `privateAudienceFilter`
     (`packages/lor/src/retrieval.ts`). A run inside the session thread may read
     its own session.
@@ -1336,6 +1337,29 @@ chat when it's done, and everyone who was in the call follows that chat.
   - Menu side tooltips also show on keyboard focus.
   - Not changed: every transcript page returns all gaps by design; the client
     reads them from the first page.
+- 2026-10-06 — Review fixes (CodeRabbit, verified by hand):
+  - The leave hint is dropped while LiveKit still lists the person, so one
+    that lands after a rejoin can't clear the new connection.
+  - The LiveKit webhook route uses Hono's `bodyLimit`, which stops reading a
+    chunked body at the limit instead of after it's all in memory.
+  - Pinned-message lists and channel-feed thread summaries apply the
+    live-only filter.
+  - A resume whose run can't start in time fails the request instead of
+    leaving it waiting.
+  - Partial index `voice_request_runId_idx` on `voice_request` (db:push).
+  - Pull request cards are cached in the API for 60s per installation and
+    ref, so a whole call shares one GitHub fetch.
+  - One `formatCallTime`, in `@repo/realtime-types/call-transcript` (floors).
+    The voice package's copy rounded, so a stored passage and `read_call`
+    could label the same line one second apart.
+  - The phone pre-join preview comes back after a failed join; the Undo toast
+    hides once the delete is sent; a Linear issue is overdue after its due
+    day, not during it; `read_call` has a tool-trail label and detail; the
+    simulator's id helper moved to `apps/web/src/lib/lor-simulation.ts` to
+    break an import cycle.
+  - Not changed: the transcriber Dockerfile installs like the other images;
+    Biome's index-key rule is off in this repo; the pre-join notice stays out
+    by decision.
 
 ## Production setup (do once at launch)
 

@@ -1214,6 +1214,8 @@ export function toolLabel(toolName: string, input: unknown): string {
       return query ? `Searching for “${query}”` : "Searching"
     case "read_thread":
       return "Reading a thread"
+    case "read_call":
+      return "Reading a call"
     case "view_image": {
       const url = field("url")
       const basename = url?.split("/").at(-1)?.split("?")[0]
@@ -1317,6 +1319,7 @@ export function toolDetail(
           ["memory page", count("memory")],
           ["message", count("message")],
           ["attachment", count("attachment")],
+          ["call", count("call")],
           ["source", count("source")],
         ] as const
       )
@@ -1342,6 +1345,18 @@ export function toolDetail(
             omitted > 0
               ? `${plural(msgs.length, "message")} (${omitted} outside the window)`
               : plural(msgs.length, "message"),
+        },
+      }
+    }
+    case "read_call": {
+      const lines = Array.isArray(rec?.lines) ? rec.lines : []
+      const channelName = asString(rec?.channel)
+      return {
+        status: "ok",
+        detail: {
+          summary: channelName
+            ? `${plural(lines.length, "line")} from #${channelName}`
+            : plural(lines.length, "line"),
         },
       }
     }

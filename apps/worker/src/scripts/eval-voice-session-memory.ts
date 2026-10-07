@@ -7,10 +7,10 @@
 //
 //   pnpm --filter @repo/worker exec tsx src/scripts/eval-voice-session-memory.ts [call-name] [--runs=3] [--model=moonshotai/kimi-k3] [--reasoning=high] [--quiet]
 import { type SummarizeCallOptions, summarizeCall } from "@repo/lor"
+import { formatCallTime } from "@repo/realtime-types/call-transcript"
 import {
   buildSectionPassages,
   type CallLine,
-  formatCallTime,
   numberedCallTranscript,
 } from "@repo/voice/server"
 import { CALLS, type Call } from "./eval-voice-session-memory-calls"

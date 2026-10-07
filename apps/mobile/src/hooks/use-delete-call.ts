@@ -97,6 +97,8 @@ export function useDeleteCall(
       const send = () => {
         clearTimeout(timer)
         waiting.delete(session.id)
+        // Undo can't follow a delete that has already gone out.
+        toast.hide(toastId)
         void api.v1.workspaces[":workspaceSlug"].voice.sessions[":sessionId"]
           .$delete({ param: { workspaceSlug, sessionId: session.id } })
           .then((res) => {

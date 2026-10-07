@@ -229,10 +229,15 @@ function PersonAvatar({
 // title, then priority, due date, and labels.
 function IssueCard({ issue }: { issue: LinearIssue }) {
   const visuals = issue.visuals
-  // A date-only value: midnight local time, not UTC.
+  // A date-only value: midnight local time, not UTC. Overdue once the due
+  // day has passed, not during it.
   const due = issue.dueDate ? new Date(`${issue.dueDate}T00:00:00`) : null
+  const dueEnds =
+    due && new Date(due.getFullYear(), due.getMonth(), due.getDate() + 1)
   const overdue =
-    due !== null && due.getTime() < Date.now() && issue.state !== "completed"
+    dueEnds !== null &&
+    dueEnds.getTime() <= Date.now() &&
+    issue.state !== "completed"
   return (
     <a
       href={issue.url}

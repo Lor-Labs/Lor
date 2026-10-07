@@ -15,6 +15,19 @@ export const CAPTION_ATTRIBUTES = {
   final: "lk.transcription_final",
 } as const
 
+// "4:05", or "1:04:05" past an hour, from the call's start. Floors, so a
+// time passed back as read_call's `from` never skips the line it names; the
+// stored passages and Lor's reading of a call label a line the same way.
+export function formatCallTime(ms: number) {
+  const total = Math.max(0, Math.floor(ms / 1000))
+  const hours = Math.floor(total / 3600)
+  const minutes = Math.floor((total % 3600) / 60)
+  const seconds = String(total % 60).padStart(2, "0")
+  return hours > 0
+    ? `${hours}:${String(minutes).padStart(2, "0")}:${seconds}`
+    : `${minutes}:${seconds}`
+}
+
 // One speaker's phrases within this window share a block.
 const BLOCK_WINDOW_MS = 2 * 60_000
 

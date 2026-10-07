@@ -15,6 +15,33 @@ export type VoiceEntityCards = {
   github: { connected: boolean; pullRequests: PullRequestCard[] }
 }
 
+// Everyone in a call refreshes the same cards each minute, and a pull request
+// card costs three GitHub calls against the installation's rate limit, so one
+// fetch per pull request serves the whole call. A failed fetch isn't kept.
+const PULL_CARD_CACHE_MS = 60_000
+const pullCards = new Map<
+  string,
+  { at: number; card: Promise<PullRequestCard | null> }
+>()
+
+function cachedPullRequestCard(installation: string, ref: string) {
+  const key = `${installation}:${ref.toLowerCase()}`
+  const now = Date.now()
+  const hit = pullCards.get(key)
+  if (hit && now - hit.at < PULL_CARD_CACHE_MS) return hit.card
+  const card = fetchPullRequestCard(installation, ref).then((result) => {
+    if (result === null && pullCards.get(key)?.card === card) {
+      pullCards.delete(key)
+    }
+    return result
+  })
+  pullCards.set(key, { at: now, card })
+  for (const [other, entry] of pullCards) {
+    if (now - entry.at >= PULL_CARD_CACHE_MS) pullCards.delete(other)
+  }
+  return card
+}
+
 // Live data for the entity blocks in Lor's window, read with the workspace's
 // connections each time the window refreshes. A reference that doesn't load
 // is missing from the result; the window shows it as unavailable.
@@ -46,7 +73,7 @@ export async function loadVoiceEntityCards(
       : [],
     installation
       ? Promise.all(
-          [...pullRefs].map((ref) => fetchPullRequestCard(installation, ref))
+          [...pullRefs].map((ref) => cachedPullRequestCard(installation, ref))
         ).then((cards) => cards.filter((card) => card !== null))
       : [],
   ])

@@ -3,7 +3,10 @@ import {
   listAccessibleChannelIds,
   resolveChannelAudienceInfo,
 } from "@repo/db/queries/channel-access"
-import { canSeeSessionChat } from "@repo/db/queries/session-chat-access"
+import {
+  canSeeSessionChat,
+  visibleToSessionChatFilter,
+} from "@repo/db/queries/session-chat-access"
 import type { IntegrationProvider } from "@repo/db/schema"
 import {
   agentProfile,
@@ -844,7 +847,14 @@ export const listPinnedMessages: AppRouteHandler<
     .select(pinnedMessageSelect)
     .from(message)
     .innerJoin(user, eq(message.authorId, user.id))
-    .where(and(eq(message.channelId, channelId), eq(message.pinned, true)))
+    .where(
+      and(
+        eq(message.channelId, channelId),
+        eq(message.pinned, true),
+        // Live-only rule: a pin inside a live call's chat stays with the call.
+        visibleToSessionChatFilter(currentUser.id, message.threadRootId)
+      )
+    )
     .orderBy(desc(message.createdAt))
 
   const messageIds = messages.map((msg) => msg.id)

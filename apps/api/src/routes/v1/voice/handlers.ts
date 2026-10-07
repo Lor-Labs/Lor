@@ -17,6 +17,7 @@ import {
   findVoiceRequest,
   getCurrentCall,
   getLiveKitConfig,
+  listRoomIdentities,
   listSessionVoiceRequests,
   listTranscript,
   loadSummaryCard,
@@ -507,12 +508,26 @@ export const getVoicePresence: AppRouteHandler<GetVoicePresenceRoute> = async (
 }
 
 // Only touches the caller's own participant row, so no channel check is
-// needed: a stranger's sessionId matches nothing.
+// needed: a stranger's sessionId matches nothing. A hint that lands after a
+// rejoin (another device, or a quick return) must not clear the new
+// connection, so it's dropped while LiveKit still lists the person; the
+// webhook's leave carries its own connection's join time.
 export const leaveVoiceSession: AppRouteHandler<
   LeaveVoiceSessionRoute
 > = async (c) => {
   const { sessionId } = c.req.valid("param")
-  await markParticipantLeft(sessionId, { userId: c.var.user.id })
+  const userId = c.var.user.id
+  const livekit = getLiveKitConfig()
+  const participant = livekit
+    ? await findConnectedParticipant(sessionId, userId)
+    : null
+  const stillInRoom =
+    livekit && participant
+      ? await listRoomIdentities(livekit, sessionId)
+          .then((inRoom) => inRoom.has(participant.id))
+          .catch(() => false)
+      : false
+  if (!stillInRoom) await markParticipantLeft(sessionId, { userId })
   return c.json({ success: true as const }, HttpStatusCodes.OK)
 }
 

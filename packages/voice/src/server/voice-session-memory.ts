@@ -1,5 +1,6 @@
 import { and, asc, db, eq, isNotNull, isNull, schema } from "@repo/db"
 import type { NewVoicePassage, VoiceSessionSummary } from "@repo/db/schema"
+import { formatCallTime } from "@repo/realtime-types/call-transcript"
 
 const {
   agentRun,
@@ -116,17 +117,6 @@ export async function loadEndedCall(sessionId: string) {
     ...gaps.map((gap) => ({ kind: "gap" as const, ...gap })),
   ].sort((a, b) => a.startMs - b.startMs)
   return { ...session, endedAt: session.endedAt, lines }
-}
-
-// "4:05", or "1:04:05" past an hour, from the call's start.
-export function formatCallTime(ms: number) {
-  const total = Math.max(0, Math.round(ms / 1000))
-  const hours = Math.floor(total / 3600)
-  const minutes = Math.floor((total % 3600) / 60)
-  const seconds = String(total % 60).padStart(2, "0")
-  return hours > 0
-    ? `${hours}:${String(minutes).padStart(2, "0")}:${seconds}`
-    : `${minutes}:${seconds}`
 }
 
 // "[4:05] Alice: …", with gaps as "not captured" so nothing is read into them.

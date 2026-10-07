@@ -205,8 +205,9 @@ function CallHero({
   const [microphone, setMicrophone] = useState(true)
   const [camera, setCamera] = useState(false)
   const [facing, setFacing] = useState<CameraFacing>("user")
-  // The preview lets go of the camera before the call takes it.
-  const [previewing, setPreviewing] = useState(true)
+  // The preview lets go of the camera while a join is in progress, before the
+  // call takes it, and comes back if the join fails.
+  const previewing = !joinDisabled
   const connected = session?.participants.filter((p) => p.connected) ?? []
   const live = session !== undefined && connected.length > 0
   // Re-read the clock so "Live for 3 min" keeps counting while you look.
@@ -324,10 +325,7 @@ function CallHero({
       </View>
       <Button
         isDisabled={joinDisabled}
-        onPress={() => {
-          setPreviewing(false)
-          onJoin({ microphone, camera, facing })
-        }}
+        onPress={() => onJoin({ microphone, camera, facing })}
         size="lg"
       >
         <Button.Label>

@@ -35,6 +35,7 @@ import {
   isActiveVoiceRequest,
   voiceRequestsQueryKey,
 } from "@/hooks/use-voice-requests"
+import { isSimulatedRequest, SIMULATED_ID_PREFIX } from "@/lib/lor-simulation"
 
 // Dev only: plays scripted requests to Lor through Lor's window, so its states
 // can be tuned without speaking. It writes what the server would send (request
@@ -43,7 +44,6 @@ import {
 const WORD_MS = 200
 const JEV_MS = 350
 const SILENCE_TIMEOUT_MS = 4_000
-const SIMULATED_ID_PREFIX = "dev-sim-"
 
 export type SimulatedCaption = {
   id: string
@@ -73,10 +73,6 @@ const getCaptions = () => captions
 // Always empty outside dev: nothing writes to the store.
 export function useSimulatedCaptions() {
   return useSyncExternalStore(subscribe, getCaptions, getCaptions)
-}
-
-export function isSimulatedRequest(request: Pick<VoiceRequestState, "id">) {
-  return request.id.startsWith(SIMULATED_ID_PREFIX)
 }
 
 const simulatedId = () => `${SIMULATED_ID_PREFIX}${crypto.randomUUID()}`

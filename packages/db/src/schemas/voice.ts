@@ -391,6 +391,9 @@ export const voiceRequest = pgTable(
       table.sessionId,
       table.createdAt
     ),
+    index("voice_request_runId_idx")
+      .on(table.runId)
+      .where(sql`run_id is not null`),
   ]
 )
 

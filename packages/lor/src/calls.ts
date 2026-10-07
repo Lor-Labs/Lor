@@ -11,6 +11,7 @@ import {
   schema,
   sql,
 } from "@repo/db"
+import { formatCallTime } from "@repo/realtime-types/call-transcript"
 import { embedCallQuery } from "./embeddings"
 import { orTsQuery, privateAudienceFilter } from "./retrieval"
 
@@ -31,18 +32,6 @@ const { voicePassage, voiceSession } = schema
 
 // Must match the voice_passage_text_tsv_idx expression exactly.
 const passageTsv = sql`to_tsvector('english', ${voicePassage.context} || ' ' || ${voicePassage.text})`
-
-// "4:05", or "1:04:05" past an hour, from the call's start. Floors, so a
-// time passed back as read_call's `from` never skips the line it names.
-export function formatCallTime(ms: number) {
-  const total = Math.max(0, Math.floor(ms / 1000))
-  const hours = Math.floor(total / 3600)
-  const minutes = Math.floor((total % 3600) / 60)
-  const seconds = String(total % 60).padStart(2, "0")
-  return hours > 0
-    ? `${hours}:${String(minutes).padStart(2, "0")}:${seconds}`
-    : `${minutes}:${seconds}`
-}
 
 // "4:05" or "1:04:05" to ms; plain digits are already ms (a citation that was
 // grounded before). Null when it's neither.

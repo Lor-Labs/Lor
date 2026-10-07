@@ -1,11 +1,11 @@
 import { recordUsage } from "@repo/billing"
 import type { VoiceSessionSummary } from "@repo/db/schema"
 import { embedDocumentsWithUsage, summarizeCall } from "@repo/lor"
+import { formatCallTime } from "@repo/realtime-types/call-transcript"
 import {
   buildSectionPassages,
   callDateLabel,
   callWordCount,
-  formatCallTime,
   listUnprocessedCalls,
   loadEndedCall,
   numberedCallTranscript,

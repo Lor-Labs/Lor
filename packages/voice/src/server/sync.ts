@@ -17,7 +17,11 @@ const { voiceSession, voiceSessionParticipant } = schema
 
 type SyncFailure = { sessionId: string; err: unknown }
 
-async function listRoomIdentities(config: LiveKitConfig, sessionId: string) {
+// Who LiveKit says is in the room, by identity, with when each joined.
+export async function listRoomIdentities(
+  config: LiveKitConfig,
+  sessionId: string
+) {
   try {
     const participants =
       await getRoomService(config).listParticipants(sessionId)
