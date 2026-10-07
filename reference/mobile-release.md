@@ -153,7 +153,16 @@ device build.
   `node-addon-api`. The production profile sets
   `SHARP_IGNORE_GLOBAL_LIBVIPS=1` so it takes its prebuilt binary. First seen
   2026-10-07 (build `cc563d83`): "sharp: Please add node-addon-api to your
-  dependencies" in the install phase.
+  dependencies" in the install phase. The workflow's submit job installs the
+  workspace on a Mac as well and ignores the build profile, so it sets the
+  same variable in `.eas/workflows/deploy.yml`; build 20 finished but its
+  submission failed this way. A finished build whose submission failed can
+  be sent on its own: `eas submit -p ios --id <build id>`.
+- **The workflow's OTA path doesn't build `@repo/api-client`.** The
+  `update` job runs no `eas-build-post-install` hook, so Metro can't resolve
+  the gitignored `dist/` and the export fails ("While trying to resolve
+  module `@repo/api-client`"). Every OTA publish from the workflow has
+  failed this way since at least 2026-09-27. Not fixed yet.
 - **Don't persist `android.permissions` in app.json.** Config plugins compute
   them at prebuild; `eas update:configure` once serialized them in (with
   duplicates, re-adding RECORD_AUDIO that `microphonePermission: false`

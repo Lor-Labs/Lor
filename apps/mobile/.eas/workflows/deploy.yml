@@ -45,6 +45,10 @@ jobs:
     name: Submit iOS build
     needs: [build_ios]
     type: submit
+    # The submit job installs the workspace on a Mac too, and doesn't read
+    # the build profile's env (see eas.json and the runbook's sharp gotcha).
+    env:
+      SHARP_IGNORE_GLOBAL_LIBVIPS: "1"
     params:
       build_id: ${{ needs.build_ios.outputs.build_id }}
   publish_ios_update:
