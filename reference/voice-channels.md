@@ -8,7 +8,7 @@
 [voice channels runbook](./voice-channels-runbook.md). Delivery order: calls,
 session chat, transcription, Lor in the call, the iPhone app, then memory and
 Q&A.
-**Research:** [LiveKit Cloud research — 2026-09-27](./voice-channels-livekit-research.md).
+**Research:** [LiveKit Cloud research — 2026-09-27](./archive/voice-channels-livekit-research.md).
 Where the research and this spec disagree, the decisions recorded here on
 2026-09-28 and 2026-09-30 win.
 
@@ -362,7 +362,7 @@ Lor starts; it never replaces application permissions or user authorization.
 
 People will want to ask Lor about a session without posting a public question.
 This is a platform decision, deferred on 2026-09-28; see
-[Private questions to Lor](./private-lor-questions.md). Until then, people ask
+[Private questions to Lor](./planned/private-lor-questions.md). Until then, people ask
 Lor by voice during the call, or in a text channel afterward.
 
 ## Boundaries and open decisions

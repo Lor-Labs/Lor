@@ -2,9 +2,9 @@
 
 **Status:** MVP-core **implemented** (2026-06-17) — the full loop works: `@Lor` → answer grounded in chat + brain → autonomous write-back → semantic retrieval. Remaining for MVP: integrations (Track B) + polish (see §10).
 **Audience:** anyone working on the Lor brain + harness.
-**Relationship to `lor-agent-architecture.md`:** that doc is the north-star vision; this is what actually got built. Where they differ, this wins.
+**Relationship to `archive/lor-agent-architecture.md`:** that doc is the north-star vision; this is what actually got built. Where they differ, this wins.
 
-## What this changed vs. `lor-agent-architecture.md`
+## What this changed vs. `archive/lor-agent-architecture.md`
 
 | Topic | Architecture doc | **As built** |
 |---|---|---|

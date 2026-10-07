@@ -4,14 +4,14 @@ Status legend: `[ ]` todo · `[x]` done. Update checkboxes as steps land, and
 append to the **Decisions & deviations log** at the bottom when reality forces
 a change — this document is the source of truth across agent runs.
 
-Product context: pillar 3 of `reference/self-configuration.md`. Lor can
+Product context: pillar 3 of `reference/planned/self-configuration.md`. Lor can
 already be *gated* (LOR-81 approval policies) and authority is a real object
 (LOR-57/82 custom roles). This pillar gives Lor the one sanctioned way to
 change the workspace itself: a **reviewable change set** — typed operations, a
 rationale, evidence — that a human approves and the system applies atomically.
 Lor never silently widens its own authority; everything applied is
 versioned and attributable. Playbooks build on this later
-(`reference/playbooks.md`).
+(`reference/planned/playbooks.md`).
 
 ## Current state (verified 2026-09-02)
 

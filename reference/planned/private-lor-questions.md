@@ -2,7 +2,7 @@
 
 **Status:** Deferred platform decision (2026-09-28). Not scheduled; do not build
 until Jacob picks it up.
-**Raised by:** [Voice channels](./voice-channels.md). People want to ask Lor
+**Raised by:** [Voice channels](../voice-channels.md). People want to ask Lor
 about a session without posting a public question.
 
 ## The need

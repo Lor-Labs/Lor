@@ -5,7 +5,7 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done. Keep this file updated as
 
 Last audited: 2026-08-04. Nothing here gates the TestFlight beta — everything below is deferred post-launch polish.
 
-## Post-launch — sidebar Lor activity (web shipped 2026-09-14, `reference/sidebar-realtime-activity-plan.md`)
+## Post-launch — sidebar Lor activity (web shipped 2026-09-14, `reference/archive/sidebar-realtime-activity-plan.md`)
 
 - [x] Per-channel Lor state in mobile's channel list — 2026-09-14, same session as web. `src/hooks/use-workspace-activity.ts` mirrors web (AppState replaces window focus: refresh on active, clear on background; 100ms coalesce; 15s poll fallback); `LorChannelStatus` in `channel-list.tsx` (accent ActivityIndicator scaled 0.7 = working, accent dot = queued, `bg-warning-soft` `!` badge = needs_approval/needs_input, same tokens as plan-ui.tsx) rendered in `ChannelRow` via `lorState` prop, workspace id from `useWorkspace()` inside `ChannelList`. Precedence lives server-side. JS-only → ships via `eas update`. Needs on-device QA. NOTE: channel viewer avatars were removed from web by design (surveillance concern) — do NOT port those.
 

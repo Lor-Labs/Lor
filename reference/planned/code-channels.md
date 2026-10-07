@@ -3,7 +3,7 @@
 > Status: design, not built. Agreed 2026-10-05 as the target architecture for
 > code channels. Details are expected to be re-litigated at implementation
 > time; the **locked decisions** (§3) and **rejected alternatives** (§8) record
-> why the shape is what it is. Broader priorities: [`product-direction.md`](./product-direction.md).
+> why the shape is what it is. Broader priorities: [`product-direction.md`](../product-direction.md).
 
 ## 1. Goals
 

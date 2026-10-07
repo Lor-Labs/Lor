@@ -1,5 +1,7 @@
 # Lor Memory & Knowledge Architecture — Implementation Spec
 
+> Archived 2026-10-06: north-star vision; [`lor-mvp-spec.md`](../lor-mvp-spec.md) is what was built and wins where they differ. Kept for the reasoning.
+
 > **As-built note (2026-06-17):** this is the north-star vision. For what's actually implemented, see **`lor-mvp-spec.md`** — several decisions here were revised in the build: chat synthesis is lazy/on-demand (not the proactive "tutor"), chat retrieval is Postgres FTS (no chat embeddings/`conversation_chunks`), `memory_events` is dropped, edge `type` is a controlled enum (not free text), brain tables are `brain_node`/`brain_edge`, and Lor is workspace-scoped with an autonomous write-back. Integrations + code search remain future work.
 
 > **Direction update (2026-06-26):** integrations and code are now actively being built. New since the as-built note: a three-mode **connector taxonomy** (§2.4); the GitHub **code** path moves to ephemeral **Railway sandboxes** running real agentic coding tools — §7.4 flips from "defer" to adopted, plus the incident→code→PR loop (§7.4–7.5); per-channel **agent tool/context profiles** + live **tool-call streaming** to the client (§8); and a layered execution plan (§11.1). The summary-and-pointer / don't-mirror / don't-embed-code principles are **unchanged** — what changed is the *mechanism* for code (sandbox, not REST file-fetch) and the *runtime* (channel-scoped tools, streamed status).

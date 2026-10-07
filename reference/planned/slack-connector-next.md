@@ -1,6 +1,8 @@
 # Slack connector: read Slack from Lor, never become a Slack bot
 
-This is the next product milestone after the durable agent harness ([`agent-harness.md`](./agent-harness.md), shipped).
+Status: not started (checked 2026-10-06; no Slack provider in the connector registry).
+
+This is the next product milestone after the durable agent harness ([`agent-harness.md`](../agent-harness.md), shipped).
 
 ## Product goal
 

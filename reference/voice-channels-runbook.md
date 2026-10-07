@@ -6,7 +6,7 @@ a change — this document is the source of truth across agent runs.
 
 Product decisions live in [voice-channels.md](./voice-channels.md) ("Voice
 channel model"). Background research lives in
-[voice-channels-livekit-research.md](./voice-channels-livekit-research.md).
+[voice-channels-livekit-research.md](./archive/voice-channels-livekit-research.md).
 Tracking issue: LOR-79.
 
 Rules for every phase:
@@ -76,7 +76,7 @@ Before real team use:
 | Lor's window | Mounted only while a request is listening, thinking, working, or showing a result; it animates in and out of the screen-share slot. Shared state for everyone in the call; anyone can clear it or step through the session's earlier results. Content is a typed union from day one: `cards` (Linear issues, GitHub PRs), `answer`, and a reserved `liveView`. A future Lor browser joins the LiveKit room as its own participant and publishes a video track into this slot; non-UUID identities are already ignored by presence and sync. |
 | Gateway ZDR | Voice-path gateway requests set `providerOptions.gateway.zeroDataRetention: true` per request. Pending: the gateway plan is Hobby, which returns 403 for the flag; turn it on once the plan is Pro. |
 | Live-only visibility | While a session is live, its thread room, thread reads, search, Lor retrieval, thread activity, and notification previews exclude everyone not connected to the call. Once it ends, normal channel access applies. |
-| Sidebar presence | Push-invalidated snapshot, the sidebar Lor activity pattern (`reference/sidebar-realtime-activity-plan.md`): an invalidation event to the workspace room, then an auth-filtered fetch. Connected people only. |
+| Sidebar presence | Push-invalidated snapshot, the sidebar Lor activity pattern (`reference/archive/sidebar-realtime-activity-plan.md`): an invalidation event to the workspace room, then an auth-filtered fetch. Connected people only. |
 | Transcription | Always on. One self-hosted transcriber service (`apps/transcriber`, TypeScript `@livekit/agents` worker on Railway) serves every call, with one lightweight job per room, dispatched from the join token. Each job opens one Deepgram Nova-3 stream (direct, our own API key, keyterm "Lor") per unmuted human microphone and closes it on mute. No `AgentSession`, LLM, or TTS. Final segments are written to Postgres through `@repo/voice/server` as they arrive. No Egress. |
 | Captions | A per-device CC toggle, default on, stored on the device. It only controls display. |
 | Retention | Forever. No pruning jobs for sessions, chats, or transcripts. |
@@ -1077,7 +1077,7 @@ chat when it's done, and everyone who was in the call follows that chat.
   infers content from a gap, and only qualifies claims about absence inside
   one ("nobody objected" → "nobody objected in the captured part").
 - Session deletion: a permission statement, and propagation to derived memory.
-- Private questions to Lor stay deferred (`reference/private-lor-questions.md`).
+- Private questions to Lor stay deferred (`reference/planned/private-lor-questions.md`).
 
 ---
 

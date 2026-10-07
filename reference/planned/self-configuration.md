@@ -1,7 +1,7 @@
 # Self-configuration — Lor proposes and applies changes to itself
 
 > Status: product vision for the next roadmap phase. This document defines the
-> step *before* Playbooks. `reference/playbooks.md` remains the note for the
+> step *before* Playbooks. `reference/planned/playbooks.md` remains the note for the
 > later layer; its "Recommended implementation order" items 1–2 are promoted
 > here to a first-class phase.
 
@@ -165,7 +165,7 @@ exists.
 ## Non-goals for this phase
 
 - The Playbook identity/version object and "I can take this over" proactive
-  proposals (`reference/playbooks.md` — next phase).
+  proposals (`reference/planned/playbooks.md` — next phase).
 - Generated connectors, generated tools, specialist sub-agents.
 - Persistent viewable browser/computer as an execution capability.
 - Repeated-work detection / evidence mining.
@@ -181,4 +181,4 @@ exists.
    tool grant), then roles/approval policies themselves.
 4. One end-to-end vertical slice: "I want X to happen" → proposal → approval →
    applied configuration → triggered run visibly doing the work.
-5. Then Playbooks, per `reference/playbooks.md`.
+5. Then Playbooks, per `reference/planned/playbooks.md`.

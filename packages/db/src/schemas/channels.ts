@@ -66,7 +66,7 @@ export const channel = pgTable(
 
     // Lor capability profile for this channel (or category). Null = inherit:
     // a channel falls back to its parent category's profile, then the workspace
-    // default. See reference/lor-agent-architecture.md §8.1.
+    // default. See reference/archive/lor-agent-architecture.md §8.1.
     agentProfileId: uuid("agent_profile_id").references(
       (): AnyPgColumn => agentProfile.id,
       { onDelete: "set null" }

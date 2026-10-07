@@ -1,5 +1,7 @@
 # Sidebar presence and Lor activity: execution plan
 
+> Archived 2026-10-06: fully executed 2026-09-14 on web and mobile. Kept for the push-invalidated sidebar pattern's rationale.
+
 Prepared for GPT 5.6 on 2026-09-14. This is an implementation handoff, not a claim that the reported presence bug has been reproduced or fixed.
 
 ## Objective and boundaries

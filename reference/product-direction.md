@@ -19,7 +19,7 @@ with Lor afterward. The guiding scope, phases, and open decisions live in
 [`voice-channels.md`](./voice-channels.md).
 
 Code channels remain a future direction with an unresolved interaction design;
-their target architecture is recorded in [`code-channels.md`](./code-channels.md).
+their target architecture is recorded in [`code-channels.md`](./planned/code-channels.md).
 Direct multiplayer document editing, including shared cursors and comments,
 also remains part of the broader vision but is not a prerequisite for this phase.
 These priorities do not set a public launch date or imply native voice is built.

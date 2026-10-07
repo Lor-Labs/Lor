@@ -15,7 +15,7 @@ import { workspace } from "./workspaces"
 // What Lor is allowed to *do* in a channel — gated tools/connectors, not the
 // brain (the brain is shared institutional memory, never walled). Add a value
 // as each gated ability lands; brain read/write + chat search are always-on
-// core and deliberately NOT capabilities. See reference/lor-agent-architecture.md §8.1.
+// core and deliberately NOT capabilities. See reference/archive/lor-agent-architecture.md §8.1.
 export const lorCapabilityEnum = pgEnum("lor_capability", [
   "github",
   "code_intelligence",

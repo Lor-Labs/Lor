@@ -2,7 +2,7 @@
 
 Inline system messages in the channel timeline: "Jacob created this channel", "Alice was added by Lor", "Daily digest — scheduled run". They add signal to the channel and replace the prose bot messages we post today.
 
-Status: **decisions locked 2026-09-05, not started**.
+Status: **built 2026-09-05 (web + mobile)**; live QA still open, see the checklist below.
 
 ## Why this shape
 

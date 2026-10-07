@@ -1,5 +1,7 @@
 # Merlin → Lor rename (LOR-87)
 
+> Archived 2026-10-06: one-off migration, code complete; §6 keeps the deployment cutover steps.
+
 Status: CODE COMPLETE (C1–C9 landed 2026-09-12). Full repo-wide rename of the
 agent from Merlin to Lor — code identifiers, DB names, wire protocol, env
 vars, prompts, copy, docs. Remaining work is Jacob-side cutover only (§6).
