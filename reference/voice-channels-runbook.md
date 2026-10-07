@@ -855,6 +855,17 @@ stage", and step-back wait for the rest of V6.
   that channel; its result has no session id, which nothing read.
   Unexpected disconnects don't mark you gone: "moved to another device"
   means you're still in the call.
+- [x] Polish G (Jacob, 2026-10-06), web: the call controls have tooltips, one
+  grouped tooltip for the row (`TooltipCreateHandle` with a payload per
+  button, like the message action bar), naming each button's action
+  (Mute, Turn camera on, Share screen, Devices, Show captions, Show chat,
+  Leave call). A `pointer-fine:after` bridge spans the `gap-2` so the
+  tooltip stays open between buttons; menus turn their tooltip off while
+  open. Deafen is removed (Jacob: nobody will use it): its button, the
+  context's `deafened` / `toggleDeafen`, `RoomAudioRenderer muted`, and
+  the unmute-undeafens rule in `useMicrophoneToggle`. The phone never had
+  deafen, and its touch controls keep accessibility labels instead of
+  tooltips.
 
 - Voice channel screen (history, live session, Join or "Transfer here") from
   `apps/mobile/src/app/channel/[channelId]/index.tsx` for voice channels.

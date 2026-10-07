@@ -244,8 +244,9 @@ Decided 2026-10-02 (Jacob):
 
 - Explicit Join from the voice channel page, with visible participants and
   speaking indicators.
-- Camera video, mute/deafen, input/output device selection, and clear
-  connection state.
+- Camera video, mute, input/output device selection, and clear connection
+  state. (Deafen was built in V2 and removed on 2026-10-06: Jacob judged
+  nobody would use it.)
 - Screen sharing from computers; share viewing on every client.
 - A persistent call bar keeps call controls available while navigating.
 - Reliable join, leave, reconnect, and transfer behavior.

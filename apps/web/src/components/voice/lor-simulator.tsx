@@ -16,8 +16,12 @@ import {
   DropdownMenuTrigger,
 } from "@repo/ui/components/menu"
 import { toast } from "@repo/ui/components/toast"
+import {
+  type TooltipPrimitive,
+  TooltipTrigger,
+} from "@repo/ui/components/tooltip"
 import { type QueryClient, useQueryClient } from "@tanstack/react-query"
-import { useSyncExternalStore } from "react"
+import { useState, useSyncExternalStore } from "react"
 import { addLorReaction, addLorTool } from "@/components/voice/lor-stage-store"
 import { useVoiceCall } from "@/context/voice-call-context"
 import {
@@ -583,26 +587,42 @@ function play(scenario: Scenario, simulation: Simulation) {
   })
 }
 
-export function LorSimulatorMenu() {
+export function LorSimulatorMenu({
+  tooltipHandle,
+  className,
+}: {
+  // The call controls' grouped tooltip.
+  tooltipHandle: TooltipPrimitive.Handle<string>
+  className?: string
+}) {
   const { call } = useVoiceCall()
   const { localParticipant } = useLocalParticipant()
   const queryClient = useQueryClient()
   const { data: session } = authClient.useSession()
+  const [open, setOpen] = useState(false)
   if (!call) return null
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <TooltipTrigger
+        handle={tooltipHandle}
+        payload="Simulate Lor (dev)"
+        disabled={open}
         render={
-          <Button
-            size="icon"
-            variant="outline"
-            aria-label="Simulate a request to Lor"
+          <DropdownMenuTrigger
+            render={
+              <Button
+                size="icon"
+                variant="outline"
+                aria-label="Simulate a request to Lor"
+                className={className}
+              />
+            }
           />
         }
       >
         <HugeiconsIcon icon={TestTube01Icon} strokeWidth={2} />
-      </DropdownMenuTrigger>
+      </TooltipTrigger>
       <DropdownMenuContent side="top" align="center">
         <DropdownMenuGroup>
           <DropdownMenuLabel>Simulate Lor (dev)</DropdownMenuLabel>

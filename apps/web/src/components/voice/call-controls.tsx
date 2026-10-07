@@ -2,8 +2,6 @@ import {
   CallEnd01Icon,
   ClosedCaptionIcon,
   ComputerScreenShareIcon,
-  HeadphoneMuteIcon,
-  HeadphonesIcon,
   Message01Icon,
   Mic01Icon,
   MicOff01Icon,
@@ -28,7 +26,15 @@ import {
   DropdownMenuTrigger,
 } from "@repo/ui/components/menu"
 import { toast } from "@repo/ui/components/toast"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipCreateHandle,
+  type TooltipPrimitive,
+  TooltipTrigger,
+} from "@repo/ui/components/tooltip"
 import { ConnectionState, Track } from "livekit-client"
+import { type ReactNode, useState } from "react"
 import { CallChatUnreadBadge } from "@/components/voice/call-chat-unread-badge"
 import { LorSimulatorMenu } from "@/components/voice/lor-simulator"
 import { useVoiceCall } from "@/context/voice-call-context"
@@ -108,28 +114,110 @@ function DeviceGroup({
   )
 }
 
-function CallChatButton() {
+type TooltipHandle = TooltipPrimitive.Handle<string>
+
+// One tooltip moves along the row (grouped, like the message action bar's);
+// this bridges the gap to the next button so it stays open across it.
+const TOOLTIP_BRIDGE =
+  "pointer-fine:after:absolute pointer-fine:after:left-full pointer-fine:after:h-full pointer-fine:after:w-2"
+
+function ControlButton({
+  tooltip,
+  label,
+  variant,
+  pressed,
+  disabled,
+  bridge = true,
+  onClick,
+  children,
+}: {
+  tooltip: TooltipHandle
+  label: string
+  variant: "secondary" | "outline" | "destructive"
+  pressed?: boolean
+  disabled?: boolean
+  // Off for the last button in the row.
+  bridge?: boolean
+  onClick: () => void
+  children: ReactNode
+}) {
+  return (
+    <TooltipTrigger
+      handle={tooltip}
+      payload={label}
+      delay={300}
+      render={
+        <Button
+          size="icon"
+          variant={variant}
+          aria-label={label}
+          aria-pressed={pressed}
+          disabled={disabled}
+          onClick={onClick}
+          className={bridge ? TOOLTIP_BRIDGE : undefined}
+        />
+      }
+    >
+      {children}
+    </TooltipTrigger>
+  )
+}
+
+function DevicesMenu({ tooltip }: { tooltip: TooltipHandle }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <TooltipTrigger
+        handle={tooltip}
+        payload="Devices"
+        delay={300}
+        disabled={open}
+        render={
+          <DropdownMenuTrigger
+            render={
+              <Button
+                size="icon"
+                variant="outline"
+                aria-label="Devices"
+                className={TOOLTIP_BRIDGE}
+              />
+            }
+          />
+        }
+      >
+        <HugeiconsIcon icon={Settings02Icon} strokeWidth={2} />
+      </TooltipTrigger>
+      <DropdownMenuContent side="top">
+        <DeviceGroup kind="audioinput" label="Microphone" />
+        <DeviceGroup kind="videoinput" label="Camera" />
+        <DeviceGroup kind="audiooutput" label="Speaker" />
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+function CallChatButton({ tooltip }: { tooltip: TooltipHandle }) {
   const { available, open, unread, toggle } = useCallChatPanel()
   if (!available) return null
 
   return (
     <div className="relative">
-      <Button
-        size="icon"
+      <ControlButton
+        tooltip={tooltip}
+        label={open ? "Hide chat" : "Show chat"}
         variant={open ? "secondary" : "outline"}
-        aria-label={open ? "Hide chat" : "Show chat"}
         onClick={toggle}
       >
         <HugeiconsIcon icon={Message01Icon} strokeWidth={2} />
-      </Button>
+      </ControlButton>
       {!open && <CallChatUnreadBadge count={unread} />}
     </div>
   )
 }
 
 export function CallControls() {
-  const { leave, deafened, toggleDeafen, captionsOn, toggleCaptions } =
-    useVoiceCall()
+  const { leave, captionsOn, toggleCaptions } = useVoiceCall()
+  const [tooltip] = useState(() => TooltipCreateHandle<string>())
   const microphone = useMicrophoneToggle(reportDeviceError)
   const camera = useTrackToggle({
     source: Track.Source.Camera,
@@ -153,10 +241,10 @@ export function CallControls() {
         </Button>
       )}
       <div className="flex items-center gap-2">
-        <Button
-          size="icon"
+        <ControlButton
+          tooltip={tooltip}
+          label={microphone.enabled ? "Mute" : "Unmute"}
           variant={microphone.enabled ? "secondary" : "outline"}
-          aria-label={microphone.enabled ? "Mute" : "Unmute"}
           disabled={microphone.pending}
           onClick={() => void microphone.toggle()}
         >
@@ -164,22 +252,11 @@ export function CallControls() {
             icon={microphone.enabled ? Mic01Icon : MicOff01Icon}
             strokeWidth={2}
           />
-        </Button>
-        <Button
-          size="icon"
-          variant={deafened ? "outline" : "secondary"}
-          aria-label={deafened ? "Undeafen" : "Deafen"}
-          onClick={() => void toggleDeafen()}
-        >
-          <HugeiconsIcon
-            icon={deafened ? HeadphoneMuteIcon : HeadphonesIcon}
-            strokeWidth={2}
-          />
-        </Button>
-        <Button
-          size="icon"
+        </ControlButton>
+        <ControlButton
+          tooltip={tooltip}
+          label={camera.enabled ? "Turn camera off" : "Turn camera on"}
           variant={camera.enabled ? "secondary" : "outline"}
-          aria-label={camera.enabled ? "Turn camera off" : "Turn camera on"}
           disabled={camera.pending}
           onClick={() => void camera.toggle()}
         >
@@ -187,57 +264,53 @@ export function CallControls() {
             icon={camera.enabled ? Video01Icon : VideoOffIcon}
             strokeWidth={2}
           />
-        </Button>
-        <Button
-          size="icon"
-          variant={screenShare.enabled ? "secondary" : "outline"}
-          aria-label={
+        </ControlButton>
+        <ControlButton
+          tooltip={tooltip}
+          label={
             canShareScreen
               ? screenShare.enabled
                 ? "Stop sharing"
                 : "Share screen"
               : "Screen sharing isn't available here"
           }
+          variant={screenShare.enabled ? "secondary" : "outline"}
           disabled={!canShareScreen || screenShare.pending}
           onClick={() => void screenShare.toggle()}
         >
           <HugeiconsIcon icon={ComputerScreenShareIcon} strokeWidth={2} />
-        </Button>
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={
-              <Button size="icon" variant="outline" aria-label="Devices" />
-            }
-          >
-            <HugeiconsIcon icon={Settings02Icon} strokeWidth={2} />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent side="top">
-            <DeviceGroup kind="audioinput" label="Microphone" />
-            <DeviceGroup kind="videoinput" label="Camera" />
-            <DeviceGroup kind="audiooutput" label="Speaker" />
-          </DropdownMenuContent>
-        </DropdownMenu>
+        </ControlButton>
+        <DevicesMenu tooltip={tooltip} />
         {/* No crossed-out CC icon, so on and off read like the chat toggle. */}
-        <Button
-          size="icon"
+        <ControlButton
+          tooltip={tooltip}
+          label={captionsOn ? "Hide captions" : "Show captions"}
           variant={captionsOn ? "secondary" : "outline"}
-          aria-label={captionsOn ? "Hide captions" : "Show captions"}
-          aria-pressed={captionsOn}
+          pressed={captionsOn}
           onClick={toggleCaptions}
         >
           <HugeiconsIcon icon={ClosedCaptionIcon} strokeWidth={2} />
-        </Button>
-        <CallChatButton />
-        {import.meta.env.DEV && <LorSimulatorMenu />}
-        <Button
-          size="icon"
+        </ControlButton>
+        <CallChatButton tooltip={tooltip} />
+        {import.meta.env.DEV && (
+          <LorSimulatorMenu
+            tooltipHandle={tooltip}
+            className={TOOLTIP_BRIDGE}
+          />
+        )}
+        <ControlButton
+          tooltip={tooltip}
+          label="Leave call"
           variant="destructive"
-          aria-label="Leave call"
+          bridge={false}
           onClick={() => void leave()}
         >
           <HugeiconsIcon icon={CallEnd01Icon} strokeWidth={2} />
-        </Button>
+        </ControlButton>
       </div>
+      <Tooltip handle={tooltip}>
+        {({ payload }) => <TooltipContent side="top">{payload}</TooltipContent>}
+      </Tooltip>
     </div>
   )
 }
