@@ -21,7 +21,10 @@
     "production": {
       "environment": "production",
       "autoIncrement": true,
-      "channel": "production"
+      "channel": "production",
+      "env": {
+        "SHARP_IGNORE_GLOBAL_LIBVIPS": "1"
+      }
     }
   },
   "submit": {

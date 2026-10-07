@@ -1372,7 +1372,7 @@ outbound connections (LiveKit, Deepgram, Postgres); it needs no public URL.
 
 Database, before the API and worker deploy from main:
 
-- [ ] `pnpm db:push` against the production database (every "db:push owed"
+- [x] `pnpm db:push` against the production database (every "db:push owed"
       above: the voice tables, enums, and indexes). The channel feed, pinned
       messages, thread activity, and search all join `voice_session` for
       every channel now, so an API build that reaches production ahead of
@@ -1421,3 +1421,12 @@ build context):
       Railway config file instead of the dashboard.
 - [ ] Scaling: add replicas when one copy runs hot. Each copy registers itself
       and LiveKit sends it new calls; no code change.
+
+Apple:
+
+- [ ] Accept the current agreements in App Store Connect (Business) and the
+      developer account. On 2026-10-07 the v0.7.0 desktop release, tagged
+      automatically by the merge, failed at notarization with Apple's 403
+      "A required agreement is missing or has expired". No release was
+      published. Once accepted, re-run the failed job of that run; it
+      publishes to the updater for every user.
