@@ -1086,6 +1086,11 @@ chat when it's done, and everyone who was in the call follows that chat.
 - Lor browser and computer use, shown live in Lor's window (`liveView`).
 - Spoken answers.
 - A generic component kit for results no purpose-built card fits.
+- Talking and muted signs on the people under a voice channel, for the call
+  you're in (LiveKit already has the data; other calls need server work).
+  Skipped by Jacob on 2026-10-06: not needed yet.
+- Floating the call window over other apps (desktop: a second Tauri window;
+  Chromium: Document Picture-in-Picture).
 
 ## Decisions & deviations log
 
