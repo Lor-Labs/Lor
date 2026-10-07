@@ -1409,6 +1409,11 @@ build context):
       missing LiveKit or Deepgram variable also stops startup. The
       Dockerfile sets `NODE_ENV=production`, which selects the
       `lor-transcriber` agent name and the SDK's production mode.
+- [ ] The image installs `ca-certificates`. LiveKit's native Rust core reads
+      the system CA store to join a room, and `node:24-slim` ships none: the
+      first production deploy (2026-10-07) registered fine but every job
+      failed with "signal failure: transport connection error". Confirm a
+      call gets captions after the rebuild.
 - [x] `PORT=8081`. In production mode the agents SDK serves a health endpoint
       on 8081: `/` returns 200 only while it's connected to LiveKit (503
       otherwise), and `/worker` returns JSON with the active call count.
