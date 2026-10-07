@@ -19,8 +19,6 @@ import {
 import { Button } from "@repo/ui/components/button"
 import { Spinner } from "@repo/ui/components/spinner"
 import {
-  Tooltip,
-  TooltipContent,
   TooltipCreateHandle,
   type TooltipPrimitive,
   TooltipTrigger,
@@ -41,7 +39,10 @@ import { UserAvatar } from "@/components/ui/user-avatar"
 import { CallChatUnreadBadge } from "@/components/voice/call-chat-unread-badge"
 import {
   ACTIVE,
+  type ControlTip,
+  ControlTooltip,
   DIM,
+  MUTE_SHORTCUT,
   RED,
   reportDeviceError,
 } from "@/components/voice/call-controls"
@@ -219,14 +220,16 @@ function WindowButton({
   label,
   tone,
   disabled,
+  shortcut,
   bridge = true,
   onClick,
   children,
 }: {
-  tooltip: TooltipPrimitive.Handle<string>
+  tooltip: TooltipPrimitive.Handle<ControlTip>
   label: string
   tone: Tone
   disabled?: boolean
+  shortcut?: typeof MUTE_SHORTCUT
   // Off for the last button: bridges the gap to the next so the shared
   // tooltip stays open between them.
   bridge?: boolean
@@ -236,13 +239,14 @@ function WindowButton({
   return (
     <TooltipTrigger
       handle={tooltip}
-      payload={label}
+      payload={{ label, shortcut: shortcut?.label }}
       delay={300}
       render={
         <Button
           size="icon-sm"
           variant={tone === "red" || tone === "active" ? "ghost" : "outline"}
           aria-label={label}
+          aria-keyshortcuts={shortcut?.aria}
           disabled={disabled}
           onClick={onClick}
           className={cn(
@@ -265,7 +269,7 @@ function WindowButton({
 function WindowControls({ onLeave }: { onLeave: () => void }) {
   const microphone = useMicrophoneToggle(reportDeviceError)
   const chat = useCallChatPanel()
-  const [tooltip] = useState(() => TooltipCreateHandle<string>())
+  const [tooltip] = useState(() => TooltipCreateHandle<ControlTip>())
   return (
     <div className="absolute inset-x-0 bottom-0 flex justify-center gap-1.5 bg-linear-to-t from-background/70 to-transparent px-2 pt-6 pb-2 opacity-0 transition-opacity duration-150 group-hover/call-window:opacity-100 focus-within:opacity-100 pointer-coarse:opacity-100">
       <WindowButton
@@ -273,6 +277,7 @@ function WindowControls({ onLeave }: { onLeave: () => void }) {
         label={microphone.enabled ? "Mute" : "Unmute"}
         tone={microphone.enabled ? "on" : "red"}
         disabled={microphone.pending}
+        shortcut={MUTE_SHORTCUT}
         onClick={() => void microphone.toggle()}
       >
         <HugeiconsIcon
@@ -302,9 +307,7 @@ function WindowControls({ onLeave }: { onLeave: () => void }) {
       >
         <HugeiconsIcon icon={CallEnd01Icon} strokeWidth={2} />
       </WindowButton>
-      <Tooltip handle={tooltip}>
-        {({ payload }) => <TooltipContent side="top">{payload}</TooltipContent>}
-      </Tooltip>
+      <ControlTooltip handle={tooltip} />
     </div>
   )
 }

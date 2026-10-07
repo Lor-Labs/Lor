@@ -326,8 +326,16 @@ export function ThreadView({
         />
       </IconButton>
       <View className="min-w-0 flex-1 gap-px">
-        <Text className="text-[17px] font-bold tracking-[-0.2px] text-foreground">
-          {isPlanThread ? "Plan" : voiceSessionId ? "Call" : "Thread"}
+        {/* A call chat takes Lor's name for the call once it's summarized. */}
+        <Text
+          className="text-[17px] font-bold tracking-[-0.2px] text-foreground"
+          numberOfLines={1}
+        >
+          {isPlanThread
+            ? "Plan"
+            : voiceSessionId
+              ? (thread.voiceSessionTitle ?? "Call")
+              : "Thread"}
         </Text>
         <Text
           className="text-xs font-medium leading-4 text-muted"

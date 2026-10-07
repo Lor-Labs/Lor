@@ -231,6 +231,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
     root: threadApiRoot,
     participants,
     voiceSessionId,
+    voiceSessionTitle,
     isLoading,
     fetchOlder,
     hasOlder,
@@ -700,7 +701,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
     return (
       <div className="@container relative flex h-full w-full flex-col">
         <RightPanelHeader
-          title="Call"
+          title={voiceSessionTitle ?? "Call"}
           workspaceSlug={view.workspaceSlug}
           channelId={view.channelId}
           className="border-b-0"
@@ -724,7 +725,14 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
     >
       <DropZoneOverlay isDragActive={isDragActive} />
       <RightPanelHeader
-        title={isPlan ? "Plan" : isCallChat ? "Call" : "Thread"}
+        // A call chat takes Lor's name for the call once it's summarized.
+        title={
+          isPlan
+            ? "Plan"
+            : isCallChat
+              ? (voiceSessionTitle ?? "Call")
+              : "Thread"
+        }
         workspaceSlug={view.workspaceSlug}
         channelId={view.channelId}
         titleAdornment={

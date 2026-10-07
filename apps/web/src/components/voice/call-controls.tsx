@@ -18,6 +18,7 @@ import {
 } from "@livekit/components-react"
 import { Button } from "@repo/ui/components/button"
 import { ButtonGroup, ButtonGroupSeparator } from "@repo/ui/components/group"
+import { Kbd } from "@repo/ui/components/kbd"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -175,7 +176,33 @@ function DeviceKindGroup({
   )
 }
 
-type TooltipHandle = TooltipPrimitive.Handle<string>
+// What a call button's tooltip shows: its action, and its shortcut if any.
+export type ControlTip = { label: string; shortcut?: string }
+type TooltipHandle = TooltipPrimitive.Handle<ControlTip>
+
+const isMac =
+  typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform)
+// Mute from anywhere in a call (VoiceCallProvider handles the key), shown in
+// the mute tooltips and announced to screen readers.
+export const MUTE_SHORTCUT = {
+  label: isMac ? "⌘⇧M" : "Ctrl+Shift+M",
+  aria: isMac ? "Meta+Shift+M" : "Control+Shift+M",
+}
+
+export function ControlTooltip({ handle }: { handle: TooltipHandle }) {
+  return (
+    <Tooltip handle={handle}>
+      {({ payload }) => (
+        <TooltipContent side="top">
+          <span className="flex items-center gap-1.5">
+            {payload?.label}
+            {payload?.shortcut && <Kbd>{payload.shortcut}</Kbd>}
+          </span>
+        </TooltipContent>
+      )}
+    </Tooltip>
+  )
+}
 
 // One tooltip moves along the row (grouped, like the message action bar's);
 // this bridges the gap to the next button so it stays open across it.
@@ -221,7 +248,7 @@ function ControlButton({
   return (
     <TooltipTrigger
       handle={tooltip}
-      payload={label}
+      payload={{ label }}
       delay={300}
       render={
         <Button
@@ -259,6 +286,7 @@ function DeviceSplitButton({
   onIcon,
   offIcon,
   devices,
+  shortcut,
   onToggle,
   children,
 }: {
@@ -273,6 +301,8 @@ function DeviceSplitButton({
   onIcon: IconSvgElement
   offIcon: IconSvgElement
   devices: MediaDeviceInfo[] | null
+  // The toggle's keyboard shortcut.
+  shortcut?: typeof MUTE_SHORTCUT
   onToggle: () => void
   // The menu's device lists.
   children: ReactNode
@@ -283,13 +313,14 @@ function DeviceSplitButton({
     <ButtonGroup>
       <TooltipTrigger
         handle={tooltip}
-        payload={label}
+        payload={{ label, shortcut: shortcut?.label }}
         delay={300}
         render={
           <Button
             size="icon"
             variant={alert ? "ghost" : "outline"}
             aria-label={label}
+            aria-keyshortcuts={shortcut?.aria}
             disabled={pending}
             onClick={onToggle}
             className={cn(DIVIDER_BRIDGE, alert ? RED : !on && DIM)}
@@ -304,7 +335,7 @@ function DeviceSplitButton({
       <DropdownMenu open={menu.open} onOpenChange={menu.onOpenChange}>
         <TooltipTrigger
           handle={tooltip}
-          payload={menuLabel}
+          payload={{ label: menuLabel }}
           delay={300}
           disabled={menu.open}
           render={
@@ -352,7 +383,7 @@ function CallChatButton({ tooltip }: { tooltip: TooltipHandle }) {
 
 export function CallControls() {
   const { leave, captionsOn, toggleCaptions } = useVoiceCall()
-  const [tooltip] = useState(() => TooltipCreateHandle<string>())
+  const [tooltip] = useState(() => TooltipCreateHandle<ControlTip>())
   const microphone = useMicrophoneToggle(reportDeviceError)
   const camera = useTrackToggle({
     source: Track.Source.Camera,
@@ -391,6 +422,7 @@ export function CallControls() {
           onIcon={Mic01Icon}
           offIcon={MicOff01Icon}
           devices={devices}
+          shortcut={MUTE_SHORTCUT}
           onToggle={() => void microphone.toggle()}
         >
           <DeviceKindGroup
@@ -466,9 +498,7 @@ export function CallControls() {
           <HugeiconsIcon icon={CallEnd01Icon} strokeWidth={2} />
         </ControlButton>
       </div>
-      <Tooltip handle={tooltip}>
-        {({ payload }) => <TooltipContent side="top">{payload}</TooltipContent>}
-      </Tooltip>
+      <ControlTooltip handle={tooltip} />
     </div>
   )
 }

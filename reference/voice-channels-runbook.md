@@ -917,6 +917,21 @@ stage", and step-back wait for the rest of V6.
   the phone's call screen (a pill at the top), and its floating tile (an
   overlay), not only in web's call controls; only the full `Reconnecting`
   state, since audio keeps flowing during `SignalReconnecting`.
+- [x] Polish J (Jacob, 2026-10-06):
+  - A call chat's header shows Lor's title once the call is summarized,
+    else "Call", on both apps. The thread replies response carries
+    `voiceSessionTitle` (`summary->>'title'`, read with `voiceSessionId`);
+    the phone keeps it in its thread snapshot too.
+  - Web mutes and unmutes with ⌘⇧M (Ctrl+Shift+M off Mac) from anywhere
+    while in a call, like Discord's (a document `keydown` listener in
+    `VoiceCallProvider`, only while connected). The mute tooltips, in the
+    bar and the floating window, show it as a `Kbd`, and the buttons carry
+    `aria-keyshortcuts`. Call tooltips now take a `ControlTip` payload
+    (label and optional shortcut) rendered by `ControlTooltip`. Unverified:
+    Chrome binds the same keys to its profile menu and Firefox to
+    responsive design mode. The handler calls `preventDefault`, which
+    should win if the page gets the key first; check both browsers (the
+    desktop app has no such binding).
 
 - Voice channel screen (history, live session, Join or "Transfer here") from
   `apps/mobile/src/app/channel/[channelId]/index.tsx` for voice channels.

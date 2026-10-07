@@ -103,6 +103,8 @@ export const listThreadRepliesResponseSchema =
     participants: z.array(threadParticipantSchema),
     // Set on a call chat's first page, for its transcript.
     voiceSessionId: z.string().uuid().nullable(),
+    // Lor's name for the call once summarized, for the chat's header.
+    voiceSessionTitle: z.string().nullable(),
   })
 
 // ── Pins ──────────────────────────────────────────

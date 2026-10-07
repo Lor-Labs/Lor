@@ -30,6 +30,7 @@ export type ThreadPage = {
   root?: Message | null
   participants?: ThreadParticipant[]
   voiceSessionId?: string | null
+  voiceSessionTitle?: string | null
 }
 
 export type ThreadParticipant = Pick<
@@ -311,6 +312,7 @@ export function useThreadMessages({
     root,
     participants,
     voiceSessionId: query.data?.pages[0]?.voiceSessionId ?? null,
+    voiceSessionTitle: query.data?.pages[0]?.voiceSessionTitle ?? null,
     isLoading: query.isPending,
     isError: query.isError,
     error: query.error,

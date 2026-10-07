@@ -22,6 +22,7 @@ import {
 } from "@repo/ui/components/tooltip"
 import { type QueryClient, useQueryClient } from "@tanstack/react-query"
 import { useState, useSyncExternalStore } from "react"
+import type { ControlTip } from "@/components/voice/call-controls"
 import { addLorReaction, addLorTool } from "@/components/voice/lor-stage-store"
 import { useVoiceCall } from "@/context/voice-call-context"
 import {
@@ -592,7 +593,7 @@ export function LorSimulatorMenu({
   className,
 }: {
   // The call controls' grouped tooltip.
-  tooltipHandle: TooltipPrimitive.Handle<string>
+  tooltipHandle: TooltipPrimitive.Handle<ControlTip>
   className?: string
 }) {
   const { call } = useVoiceCall()
@@ -606,7 +607,7 @@ export function LorSimulatorMenu({
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <TooltipTrigger
         handle={tooltipHandle}
-        payload="Simulate Lor (dev)"
+        payload={{ label: "Simulate Lor (dev)" }}
         disabled={open}
         render={
           <DropdownMenuTrigger

@@ -326,6 +326,31 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
     }
   }, [leave])
 
+  // ⌘⇧M (Ctrl+Shift+M elsewhere) mutes and unmutes from anywhere in the app
+  // while in a call, like Discord's; the mute tooltips show it.
+  const inCall = call !== null
+  useEffect(() => {
+    if (!inCall) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.repeat ||
+        event.altKey ||
+        !event.shiftKey ||
+        !(event.metaKey || event.ctrlKey) ||
+        event.key.toLowerCase() !== "m"
+      ) {
+        return
+      }
+      event.preventDefault()
+      const { localParticipant } = room
+      localParticipant
+        .setMicrophoneEnabled(!localParticipant.isMicrophoneEnabled)
+        .catch(() => toast.error("Microphone unavailable"))
+    }
+    document.addEventListener("keydown", onKeyDown)
+    return () => document.removeEventListener("keydown", onKeyDown)
+  }, [inCall, room])
+
   // The call follows the user everywhere except across workspaces.
   const blocker = useBlocker({
     shouldBlockFn: ({ next }) => {

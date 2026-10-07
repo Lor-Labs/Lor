@@ -46,8 +46,9 @@ type ThreadSnapshot = {
   totalReplyCount: number
   beforeCursor: string | null
   reachedOldest: boolean
-  // Set when the thread is a call's chat.
+  // Set when the thread is a call's chat; the title once Lor summarized it.
   voiceSessionId: string | null
+  voiceSessionTitle: string | null
 }
 
 function participantsFromMessages(
@@ -82,6 +83,9 @@ export function useThreadMessages({
   const [root, setRoot] = useState<Message | null>(null)
   const [participants, setParticipants] = useState<ThreadParticipant[]>([])
   const [voiceSessionId, setVoiceSessionId] = useState<string | null>(null)
+  const [voiceSessionTitle, setVoiceSessionTitle] = useState<string | null>(
+    null
+  )
   const [totalReplyCount, setTotalReplyCount] = useState(0)
   const [isLoading, setIsLoading] = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
@@ -239,6 +243,7 @@ export function useThreadMessages({
           if (payload.root) updateRoot(() => payload.root)
           setParticipants(nextParticipants)
           setVoiceSessionId(payload.voiceSessionId)
+          setVoiceSessionTitle(payload.voiceSessionTitle)
           beforeCursorRef.current = payload.beforeCursor
           setReachedOldest(payload.reachedOldest)
           setTotalReplyCount(nextTotalReplyCount)
@@ -252,6 +257,7 @@ export function useThreadMessages({
               beforeCursor: payload.beforeCursor,
               reachedOldest: payload.reachedOldest,
               voiceSessionId: payload.voiceSessionId,
+              voiceSessionTitle: payload.voiceSessionTitle,
             })
           }
           return { data: payload.data, root: payload.root ?? null }
@@ -303,6 +309,7 @@ export function useThreadMessages({
     setRoot(cached?.root ?? null)
     setParticipants(cached?.participants ?? [])
     setVoiceSessionId(cached?.voiceSessionId ?? null)
+    setVoiceSessionTitle(cached?.voiceSessionTitle ?? null)
     setTotalReplyCount(cached?.totalReplyCount ?? 0)
     setIsRefreshing(false)
     setIsLoadingOlder(false)
@@ -1049,6 +1056,7 @@ export function useThreadMessages({
     root,
     participants,
     voiceSessionId,
+    voiceSessionTitle,
     totalReplyCount,
     isLoading,
     isRefreshing,
