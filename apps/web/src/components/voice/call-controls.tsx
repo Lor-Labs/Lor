@@ -1,7 +1,6 @@
 import {
   CallEnd01Icon,
-  CaptionsIcon,
-  CaptionsOffIcon,
+  ClosedCaptionIcon,
   ComputerScreenShareIcon,
   HeadphoneMuteIcon,
   HeadphonesIcon,
@@ -218,16 +217,15 @@ export function CallControls() {
             <DeviceGroup kind="audiooutput" label="Speaker" />
           </DropdownMenuContent>
         </DropdownMenu>
+        {/* No crossed-out CC icon, so on and off read like the chat toggle. */}
         <Button
           size="icon"
           variant={captionsOn ? "secondary" : "outline"}
           aria-label={captionsOn ? "Hide captions" : "Show captions"}
+          aria-pressed={captionsOn}
           onClick={toggleCaptions}
         >
-          <HugeiconsIcon
-            icon={captionsOn ? CaptionsIcon : CaptionsOffIcon}
-            strokeWidth={2}
-          />
+          <HugeiconsIcon icon={ClosedCaptionIcon} strokeWidth={2} />
         </Button>
         <CallChatButton />
         {import.meta.env.DEV && <LorSimulatorMenu />}

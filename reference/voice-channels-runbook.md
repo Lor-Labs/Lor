@@ -800,7 +800,10 @@ stage", and step-back wait for the rest of V6.
   since `@repo/voice` pulls in the database and server SDK. Captions show
   over the bottom of the stage (`call-captions.tsx`, three lines, interim
   muted); a CC button in the controls row hides them, remembered on the
-  device (`expo-secure-store`, `lor.voice-captions`). The transcript of the
+  device (`expo-secure-store`, `lor.voice-captions`). Both apps use
+  `ClosedCaptionIcon` (a box with "CC", Jacob's pick); the free set has no
+  crossed-out version, so on reads like the chat toggle (accent on the
+  phone, the filled button on web). The transcript of the
   call this phone is in merges caption lines (dimmed until final) in place
   of the old 10s polling, naming late joiners from the call, and Lor's
   window shows the speaker's live words while it listens.

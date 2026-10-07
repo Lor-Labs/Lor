@@ -5,8 +5,7 @@ import BottomSheet, {
   useGestureEventsHandlersDefault,
 } from "@gorhom/bottom-sheet"
 import CallEnd01Icon from "@hugeicons/core-free-icons/CallEnd01Icon"
-import CaptionsIcon from "@hugeicons/core-free-icons/CaptionsIcon"
-import CaptionsOffIcon from "@hugeicons/core-free-icons/CaptionsOffIcon"
+import ClosedCaptionIcon from "@hugeicons/core-free-icons/ClosedCaptionIcon"
 import Message01Icon from "@hugeicons/core-free-icons/Message01Icon"
 import Mic01Icon from "@hugeicons/core-free-icons/Mic01Icon"
 import MicOff01Icon from "@hugeicons/core-free-icons/MicOff01Icon"
@@ -114,14 +113,16 @@ function CallControls({
           strokeWidth={2}
         />
       </IconButton>
+      {/* No crossed-out CC icon, so on reads like the chat toggle: accent. */}
       <IconButton
         accessibilityLabel={captionsOn ? "Hide captions" : "Show captions"}
+        accessibilityState={{ selected: captionsOn }}
         onPress={toggleCaptions}
         variant="secondary"
       >
         <HugeiconsIcon
-          color={foreground}
-          icon={captionsOn ? CaptionsIcon : CaptionsOffIcon}
+          color={captionsOn ? accent : foreground}
+          icon={ClosedCaptionIcon}
           size={20}
           strokeWidth={2}
         />
