@@ -5,11 +5,22 @@ import {
   type JobContext,
   ServerOptions,
 } from "@livekit/agents"
-import { env } from "@repo/env/server"
+import { readServerEnv } from "@repo/env/server-fields"
 import { transcriberAgentName } from "@repo/voice/server"
 import { logger } from "./logger"
 import { installVoiceNotifier } from "./realtime"
 import { transcribeRoom } from "./room"
+
+// Only the variables the transcriber reads, never the full server env (see
+// @repo/env/server-fields): its imports validate the database, Redis, and
+// gateway ones as they load.
+const env = readServerEnv(
+  "NODE_ENV",
+  "LIVEKIT_URL",
+  "LIVEKIT_API_KEY",
+  "LIVEKIT_API_SECRET",
+  "DEEPGRAM_API_KEY"
+)
 
 // Silent transcriber for voice calls. LiveKit dispatches one job per room
 // from the join token; each job runs in its own child process, which

@@ -1,5 +1,7 @@
-import { env } from "@repo/env/server"
+import { readServerEnv } from "@repo/env/server-fields"
 import { defineConfig } from "drizzle-kit"
+
+const env = readServerEnv("DATABASE_URL")
 
 export default defineConfig({
   schema: "./src/schemas",

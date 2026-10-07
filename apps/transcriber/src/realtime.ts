@@ -1,10 +1,12 @@
-import { env } from "@repo/env/server"
+import { readServerEnv } from "@repo/env/server-fields"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
 import { threadRoom, userRoom, workspaceRoom } from "@repo/realtime-types/rooms"
 import { setVoiceNotifier } from "@repo/voice/server"
 import { Emitter } from "@socket.io/redis-emitter"
 import { createClient } from "redis"
 import { logger } from "./logger"
+
+const env = readServerEnv("REDIS_URL")
 
 type RedisClient = ReturnType<typeof createClient>
 

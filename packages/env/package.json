@@ -5,6 +5,7 @@
   "private": true,
   "exports": {
     "./server": "./src/server.ts",
+    "./server-fields": "./src/server-fields.ts",
     "./client": "./src/client.ts"
   },
   "scripts": {

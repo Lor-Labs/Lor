@@ -1399,9 +1399,16 @@ Railway, all of API, worker, and transcriber:
 Railway, transcriber service (`apps/transcriber/Dockerfile`, repo root as the
 build context):
 
-- [x] The worker's variables plus `DEEPGRAM_API_KEY`. The Dockerfile sets
-      `NODE_ENV=production`, which selects the `lor-transcriber` agent name and
-      the SDK's production mode.
+- [ ] Only the variables it reads: `DATABASE_URL`, `REDIS_URL`,
+      `AI_GATEWAY_API_KEY` (Jev), the three `LIVEKIT_*`, and
+      `DEEPGRAM_API_KEY`. Never the worker's full set: the transcriber and the
+      shared code it loads (`@repo/db`, `@repo/voice/server`) validate only
+      their own variables through `readServerEnv` in
+      `@repo/env/server-fields`, never the full server schema (2026-10-07).
+      A missing one fails startup with a ZodError naming it; in production a
+      missing LiveKit or Deepgram variable also stops startup. The
+      Dockerfile sets `NODE_ENV=production`, which selects the
+      `lor-transcriber` agent name and the SDK's production mode.
 - [x] `PORT=8081`. In production mode the agents SDK serves a health endpoint
       on 8081: `/` returns 200 only while it's connected to LiveKit (503
       otherwise), and `/worker` returns JSON with the active call count.
@@ -1432,4 +1439,5 @@ Apple:
       automatically by the merge, failed at notarization with Apple's 403
       "A required agreement is missing or has expired". No release was
       published. Once accepted, re-run the failed job of that run; it
-      publishes to the updater for every user.
+      publishes to the updater for every user. Done 2026-10-07: notarization
+      accepted on the re-run, and 0.7.0 is live at releases.lor.chat.
