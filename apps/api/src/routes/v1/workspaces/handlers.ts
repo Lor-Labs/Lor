@@ -15,16 +15,21 @@ import {
   inArray,
   isNull,
   ne,
+  notInArray,
   schema,
 } from "@repo/db"
 import { listAccessibleChannelIds } from "@repo/db/queries/channel-access"
 import { visibleToSessionChatFilter } from "@repo/db/queries/session-chat-access"
 import { env } from "@repo/env/server"
-import { PRESENCE_ONLINE_USERS_SET_KEY } from "@repo/realtime-types"
+import {
+  PRESENCE_ONLINE_USERS_SET_KEY,
+  workspaceRoom,
+} from "@repo/realtime-types"
 import { normalizeDomain } from "@repo/utils/domain"
 import { workspaceKey } from "@repo/utils/short-code"
 import { asc } from "drizzle-orm"
 import { HTTPException } from "hono/http-exception"
+import { publishRealtime } from "@/lib/bot-messages"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
 import {
@@ -36,11 +41,18 @@ import { getRedisClient } from "@/lib/redis"
 import { fetchSiteIcon, storeWorkspaceIcon } from "@/lib/site-icon"
 import { disconnectUserSockets } from "@/lib/socket-access"
 import type { AppRouteHandler } from "@/lib/types/app-types"
+import {
+  addWorkspaceMember,
+  afterWorkspaceJoin,
+  verifiedCompanyDomain,
+} from "@/lib/workspace-membership"
 import type {
   CompleteWorkspaceSetupRoute,
   CreateWorkspaceRoute,
   DeleteWorkspaceRoleRoute,
+  JoinWorkspaceRoute,
   KickWorkspaceMemberRoute,
+  ListJoinableWorkspacesRoute,
   ListWorkspaceMembersRoute,
   SearchMessagesRoute,
   UpdateWorkspaceMemberRoleRoute,
@@ -364,12 +376,30 @@ const workspaceSummaryColumns = {
   logo: schema.workspace.logo,
   description: schema.workspace.description,
   website: schema.workspace.website,
+  joinDomain: schema.workspace.joinDomain,
 }
 
 // Empty input clears the field; the request schema already rejected
 // anything normalizeDomain can't parse.
 function websiteValue(input: string | null): string | null {
   return input ? normalizeDomain(input) : null
+}
+
+// Where a creator or joiner lands: the first top-level text channel.
+async function firstTextChannelId(workspaceId: string) {
+  return db
+    .select({ id: schema.channel.id })
+    .from(schema.channel)
+    .where(
+      and(
+        eq(schema.channel.workspaceId, workspaceId),
+        isNull(schema.channel.parentId),
+        eq(schema.channel.type, "text")
+      )
+    )
+    .orderBy(asc(schema.channel.position))
+    .limit(1)
+    .then((rows) => rows[0]?.id ?? null)
 }
 
 export const createWorkspace: AppRouteHandler<CreateWorkspaceRoute> = async (
@@ -401,6 +431,9 @@ export const createWorkspace: AppRouteHandler<CreateWorkspaceRoute> = async (
       description: body.description || null,
       website,
       logo,
+      // Join by email domain starts on when the creator's verified domain
+      // qualifies; setup and General settings can turn it off.
+      joinDomain: verifiedCompanyDomain(user),
     })
     .where(eq(schema.workspace.id, created.id))
     .returning(workspaceSummaryColumns)
@@ -410,23 +443,107 @@ export const createWorkspace: AppRouteHandler<CreateWorkspaceRoute> = async (
     })
   }
 
-  const firstChannel = await db
-    .select({ id: schema.channel.id })
-    .from(schema.channel)
+  return c.json(
+    { workspace, firstChannelId: await firstTextChannelId(workspace.id) },
+    HttpStatusCodes.CREATED
+  )
+}
+
+export const listJoinableWorkspaces: AppRouteHandler<
+  ListJoinableWorkspacesRoute
+> = async (c) => {
+  const user = c.var.user
+  const domain = verifiedCompanyDomain(user)
+  if (!domain) return c.json({ workspaces: [] }, HttpStatusCodes.OK)
+
+  const workspaces = await db
+    .select({
+      id: schema.workspace.id,
+      slug: schema.workspace.slug,
+      name: schema.workspace.name,
+      logo: schema.workspace.logo,
+      humanMemberCount: count(schema.workspaceMember.id),
+    })
+    .from(schema.workspace)
+    .innerJoin(
+      schema.workspaceMember,
+      eq(schema.workspaceMember.workspaceId, schema.workspace.id)
+    )
+    .innerJoin(schema.user, eq(schema.user.id, schema.workspaceMember.userId))
     .where(
       and(
-        eq(schema.channel.workspaceId, workspace.id),
-        isNull(schema.channel.parentId),
-        eq(schema.channel.type, "text")
+        eq(schema.workspace.joinDomain, domain),
+        eq(schema.user.isBot, false),
+        notInArray(
+          schema.workspace.id,
+          db
+            .select({ id: schema.workspaceMember.workspaceId })
+            .from(schema.workspaceMember)
+            .where(eq(schema.workspaceMember.userId, user.id))
+        )
       )
     )
-    .orderBy(asc(schema.channel.position))
+    .groupBy(schema.workspace.id)
+    .orderBy(desc(count(schema.workspaceMember.id)))
+
+  return c.json({ workspaces }, HttpStatusCodes.OK)
+}
+
+export const joinWorkspace: AppRouteHandler<JoinWorkspaceRoute> = async (c) => {
+  const user = c.var.user
+  const { workspaceSlug } = c.req.valid("param")
+  const domain = verifiedCompanyDomain(user)
+
+  const workspace = await db
+    .select({
+      id: schema.workspace.id,
+      slug: schema.workspace.slug,
+      name: schema.workspace.name,
+      joinDomain: schema.workspace.joinDomain,
+    })
+    .from(schema.workspace)
+    .where(eq(schema.workspace.slug, workspaceSlug))
     .limit(1)
     .then((rows) => rows[0])
+  // One answer for missing and not open to this domain, so keys can't be
+  // probed.
+  if (!workspace || !domain || workspace.joinDomain !== domain) {
+    return c.json(
+      { success: false, message: "Workspace not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+
+  const joined = await db.transaction((tx) =>
+    addWorkspaceMember(tx, workspace.id, user.id)
+  )
+  if (joined) {
+    afterWorkspaceJoin(workspace.id)
+    await publishRealtime((io) =>
+      io.to(workspaceRoom(workspace.id)).emit("workspace:member:joined", {
+        workspaceId: workspace.id,
+        userId: user.id,
+        name: user.name,
+        image: user.image ?? null,
+      })
+    ).catch((err) =>
+      logger.warn(
+        { err, workspaceId: workspace.id },
+        "member:joined emit failed"
+      )
+    )
+  }
 
   return c.json(
-    { workspace, firstChannelId: firstChannel?.id ?? null },
-    HttpStatusCodes.CREATED
+    {
+      workspace: {
+        id: workspace.id,
+        slug: workspace.slug,
+        name: workspace.name,
+      },
+      firstChannelId: await firstTextChannelId(workspace.id),
+    },
+    HttpStatusCodes.OK
   )
 }
 
@@ -481,6 +598,21 @@ export const updateWorkspace: AppRouteHandler<UpdateWorkspaceRoute> = async (
     updates.description = body.description || null
   }
   if (body.website !== undefined) updates.website = websiteValue(body.website)
+  if (body.joinDomain !== undefined) {
+    // Only the caller's own verified company domain, so nobody can open a
+    // workspace to a domain they don't belong to.
+    const joinDomain =
+      body.joinDomain === null ? null : normalizeDomain(body.joinDomain)
+    if (
+      body.joinDomain !== null &&
+      (!joinDomain || joinDomain !== verifiedCompanyDomain(c.var.user))
+    ) {
+      throw new HTTPException(HttpStatusCodes.BAD_REQUEST, {
+        message: "You can only open the workspace to your own email domain",
+      })
+    }
+    updates.joinDomain = joinDomain
+  }
 
   if (Object.keys(updates).length === 0) {
     return c.json(
@@ -493,6 +625,7 @@ export const updateWorkspace: AppRouteHandler<UpdateWorkspaceRoute> = async (
           logo: workspace.logo,
           description: workspace.description,
           website: workspace.website,
+          joinDomain: workspace.joinDomain,
         },
       },
       HttpStatusCodes.OK

@@ -205,11 +205,7 @@ export function InviteStep({
         </IconTile>
       }
       title="Invite your team"
-      detail={
-        inviteUrl ??
-        joined ??
-        "Share a link so teammates can join. It lasts 7 days."
-      }
+      detail={inviteUrl ?? joined ?? "Share a link so teammates can join."}
       action={
         inviteUrl ? (
           <motion.span key="copy" {...swapMotion}>

@@ -1,11 +1,13 @@
 import { auth } from "@repo/auth"
-import { grantFirstInvitePromo, syncSeats } from "@repo/billing"
 import { and, db, eq, schema, sql } from "@repo/db"
-import { pickWorkspaceAvatarColor } from "@repo/utils/avatar-colors"
 import { BASE62_ALPHABET, randomCode } from "@repo/utils/short-code"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { assertWorkspaceAuthority } from "@/lib/permissions"
 import type { AppRouteHandler } from "@/lib/types/app-types"
+import {
+  addWorkspaceMember,
+  afterWorkspaceJoin,
+} from "@/lib/workspace-membership"
 import type {
   AcceptInviteRoute,
   CreateInviteRoute,
@@ -382,23 +384,7 @@ export const acceptInvite: AppRouteHandler<AcceptInviteRoute> = async (c) => {
       return { maxedOut: true as const }
     }
 
-    // Insert membership with a color from the least-used workspace set.
-    const usedAvatarColors = await tx
-      .select({ avatarColor: schema.workspaceMember.avatarColor })
-      .from(schema.workspaceMember)
-      .where(eq(schema.workspaceMember.workspaceId, invite.workspaceId))
-    const avatarColor = pickWorkspaceAvatarColor(
-      usedAvatarColors.map((membership) => membership.avatarColor),
-      `${invite.workspaceId}:${user.id}`
-    )
-
-    await tx.insert(schema.workspaceMember).values({
-      workspaceId: invite.workspaceId,
-      userId: user.id,
-      role: "member",
-      createdAt: new Date(),
-      avatarColor,
-    })
+    await addWorkspaceMember(tx, invite.workspaceId, user.id)
 
     const workspace = await tx
       .select({
@@ -430,12 +416,7 @@ export const acceptInvite: AppRouteHandler<AcceptInviteRoute> = async (c) => {
     )
   }
 
-  if ("joined" in result) {
-    // Fire-and-forget: billing must never block a join. Both self-heal —
-    // syncSeats recomputes from scratch, the promo claim retries on failure.
-    void syncSeats(invite.workspaceId)
-    void grantFirstInvitePromo(invite.workspaceId)
-  }
+  if ("joined" in result) afterWorkspaceJoin(invite.workspaceId)
 
   return c.json(
     {

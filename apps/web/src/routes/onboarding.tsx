@@ -11,10 +11,11 @@ import { Button } from "@repo/ui/components/button"
 import { Input } from "@repo/ui/components/input"
 import { Label } from "@repo/ui/components/label"
 import { Spinner } from "@repo/ui/components/spinner"
+import { toast } from "@repo/ui/components/toast"
 import { EASE_OUT } from "@repo/ui/lib/motion"
 import { cn } from "@repo/ui/lib/utils"
 import { companyEmailDomain, normalizeDomain } from "@repo/utils/domain"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
 import { AnimatePresence, motion, type Variants } from "motion/react"
 import { type FormEvent, type ReactNode, useEffect, useState } from "react"
@@ -23,6 +24,7 @@ import { useCompanySite } from "@/components/onboarding/use-company-site"
 import { WebsiteInput } from "@/components/onboarding/website-input"
 import { MorphText } from "@/components/ui/morph-text"
 import { SETTINGS_SURFACE } from "@/components/workspace/settings-group"
+import { WorkspaceAvatar } from "@/components/workspace/workspace-avatar"
 import { apiClient } from "@/lib/api-client"
 
 export const Route = createFileRoute("/onboarding")({
@@ -127,6 +129,42 @@ function OnboardingFlow({ email }: { email: string }) {
   })
   const hasWorkspaces = (workspaces?.length ?? 0) > 0
 
+  // Workspaces open to this person's verified company domain.
+  const { data: joinable } = useQuery({
+    queryKey: ["workspaces", "joinable"],
+    queryFn: async () => {
+      const res = await apiClient.v1.workspaces.joinable.$get()
+      if (!res.ok) return []
+      return (await res.json()).workspaces
+    },
+  })
+  const join = useMutation({
+    mutationFn: async (workspaceSlug: string) => {
+      const res = await apiClient.v1.workspaces[":workspaceSlug"].join.$post({
+        param: { workspaceSlug },
+      })
+      if (!res.ok) {
+        throw new Error(await errorMessage(res, "Couldn't join the workspace"))
+      }
+      return res.json()
+    },
+    onSuccess: async ({ workspace, firstChannelId }) => {
+      await queryClient.invalidateQueries({ queryKey: ["workspaces"] })
+      await navigate(
+        firstChannelId
+          ? {
+              to: "/$workspaceSlug/$channelId",
+              params: {
+                workspaceSlug: workspace.slug,
+                channelId: firstChannelId,
+              },
+            }
+          : { to: "/$workspaceSlug", params: { workspaceSlug: workspace.slug } }
+      )
+    },
+    onError: (err) => toast.error(err.message),
+  })
+
   const goTo = (next: Step) => {
     setDirection(next === "choose" ? -1 : 1)
     setError(null)
@@ -217,6 +255,26 @@ function OnboardingFlow({ email }: { email: string }) {
                   title="Welcome to Lor"
                   subtitle="Set up a workspace for your team, or join one you were invited to."
                 />
+                {joinable && joinable.length > 0 && (
+                  <div className="mb-5 space-y-2">
+                    <p className="px-1 text-xs font-medium text-muted-foreground">
+                      Your team is already on Lor
+                    </p>
+                    <div className={cn(SETTINGS_SURFACE, "space-y-0.5 p-1")}>
+                      {joinable.map((w) => (
+                        <JoinRow
+                          key={w.id}
+                          name={w.name}
+                          logo={w.logo}
+                          memberCount={w.humanMemberCount}
+                          joining={join.isPending && join.variables === w.slug}
+                          disabled={join.isPending}
+                          onJoin={() => join.mutate(w.slug)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <div className={cn(SETTINGS_SURFACE, "space-y-0.5 p-1")}>
                   <ChoiceRow
                     icon={PlusSignIcon}
@@ -419,6 +477,43 @@ function ChoiceRow({
         strokeWidth={2}
       />
     </button>
+  )
+}
+
+function JoinRow({
+  name,
+  logo,
+  memberCount,
+  joining,
+  disabled,
+  onJoin,
+}: {
+  name: string
+  logo: string | null
+  memberCount: number
+  joining: boolean
+  disabled: boolean
+  onJoin: () => void
+}) {
+  return (
+    <div className="flex items-center gap-3 rounded-lg px-3 py-2.5">
+      <WorkspaceAvatar
+        name={name}
+        logo={logo}
+        className="size-8 rounded-lg text-sm"
+        imgClassName="rounded-md"
+      />
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium">{name}</p>
+        <p className="text-sm text-muted-foreground">
+          {memberCount} {memberCount === 1 ? "member" : "members"}
+        </p>
+      </div>
+      <Button size="sm" disabled={disabled} onClick={onJoin}>
+        {joining && <Spinner className="size-4" />}
+        Join
+      </Button>
+    </div>
   )
 }
 

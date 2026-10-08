@@ -105,6 +105,7 @@ const workspaceSummarySchema = z.object({
   logo: z.string().nullable(),
   description: z.string().nullable(),
   website: z.string().nullable(),
+  joinDomain: z.string().nullable(),
 })
 
 export const createWorkspaceRequestSchema = z.object({
@@ -124,6 +125,9 @@ export const updateWorkspaceRequestSchema = z
     logo: z.string().url().nullable().optional(),
     description: descriptionSchema.nullable().optional(),
     website: websiteSchema.nullable().optional(),
+    // Join by email domain: must be the caller's own verified company
+    // domain; null turns it off.
+    joinDomain: z.string().trim().max(253).nullable().optional(),
   })
   .refine((data) => Object.values(data).some((v) => v !== undefined), {
     message: "At least one field must be provided",
@@ -137,6 +141,29 @@ export const updateWorkspaceResponseSchema = z.object({
 export const completeWorkspaceSetupResponseSchema = z.object({
   success: z.literal(true),
   setupCompletedAt: z.string().datetime(),
+})
+
+// ── Join by email domain ───────────────────────────────────
+
+export const listJoinableWorkspacesResponseSchema = z.object({
+  workspaces: z.array(
+    z.object({
+      id: z.string().uuid(),
+      slug: z.string(),
+      name: z.string(),
+      logo: z.string().nullable(),
+      humanMemberCount: z.number().int(),
+    })
+  ),
+})
+
+export const joinWorkspaceResponseSchema = z.object({
+  workspace: z.object({
+    id: z.string().uuid(),
+    slug: z.string(),
+    name: z.string(),
+  }),
+  firstChannelId: z.string().uuid().nullable(),
 })
 
 // ── Search ──────────────────────────────────────────────

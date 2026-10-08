@@ -15,6 +15,8 @@ import {
   createWorkspaceRequestSchema,
   createWorkspaceResponseSchema,
   deleteWorkspaceRoleResponseSchema,
+  joinWorkspaceResponseSchema,
+  listJoinableWorkspacesResponseSchema,
   listWorkspaceMembersResponseSchema,
   moderateWorkspaceMemberResponseSchema,
   searchMessagesQuerySchema,
@@ -53,6 +55,48 @@ export const createWorkspace = createRoute({
 })
 
 export type CreateWorkspaceRoute = typeof createWorkspace
+
+export const listJoinableWorkspaces = createRoute({
+  path: "/workspaces/joinable",
+  method: "get",
+  summary: "List workspaces open to the caller's email domain",
+  description:
+    "Workspaces whose join domain equals the caller's verified company email domain, excluding ones they're already in.",
+  tags: ["Workspaces"],
+  middleware: [sessionAuthMiddleware] as const,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: listJoinableWorkspacesResponseSchema,
+      description: "Joinable workspaces",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+  },
+})
+
+export type ListJoinableWorkspacesRoute = typeof listJoinableWorkspaces
+
+export const joinWorkspace = createRoute({
+  path: "/workspaces/{workspaceSlug}/join",
+  method: "post",
+  summary: "Join a workspace by email domain",
+  description:
+    "Adds the caller as a member when the workspace's join domain equals their verified company email domain.",
+  tags: ["Workspaces"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: {
+    params: workspaceSlugParamsSchema,
+  },
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: joinWorkspaceResponseSchema,
+      description: "Joined workspace and its first channel",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+  },
+})
+
+export type JoinWorkspaceRoute = typeof joinWorkspace
 
 export const completeWorkspaceSetup = createRoute({
   path: "/workspaces/{workspaceSlug}/setup/complete",

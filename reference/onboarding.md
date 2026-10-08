@@ -640,7 +640,12 @@ creator edit) · [x] 6a committed · [ ] db:push · [x] 6b built 2026-10-08
 
 ### Step 7: join by email domain
 
-[ ] built · [ ] committed
+[x] built 2026-10-08 · [ ] committed
+
+As built: the toggle is `components/workspace/domain-join-switch.tsx`, shown
+in the setup checklist group and in General settings. `createWorkspace` sets
+`joinDomain` to the creator's verified company domain, which is what "the
+toggle starts on" means in data.
 
 - `apps/api/src/lib/workspace-membership.ts` (new): `addWorkspaceMember`
   extracted from `acceptInvite` (avatar color, insert, `syncSeats`). Invite
@@ -837,3 +842,10 @@ Redirect on update stays on. Creators cannot delete their own channels.
 - 2026-10-08, Step 6b: `connector:manage` also gates Datadog and CloudWatch
   connects. On web, event routing controls are disabled and the base-branch
   section is hidden without it.
+- 2026-10-08, Step 7: the join route emits `workspace:member:joined` itself
+  through `publishRealtime`, instead of the client emitting it. Web
+  onboarding sits outside the socket provider, and mobile gets it for free.
+- 2026-10-08, Step 7: `addWorkspaceMember` inserts with `onConflictDoNothing`
+  and reports whether it joined; `afterWorkspaceJoin` runs `syncSeats` and
+  the first-invite promo for both invite and domain joins. Join returns 404
+  for both a missing key and a domain mismatch, so keys can't be probed.

@@ -11,6 +11,7 @@ import {
   InviteStep,
 } from "@/components/setup/setup-steps"
 import { MorphText } from "@/components/ui/morph-text"
+import { DomainJoinSwitch } from "@/components/workspace/domain-join-switch"
 import {
   SettingsGroup,
   SettingsSection,
@@ -173,28 +174,31 @@ function SetupPage() {
               </p>
             </div>
 
-            <SettingsGroup>
-              {github && (
-                <ConnectStep
+            <div>
+              <SettingsGroup>
+                {github && (
+                  <ConnectStep
+                    workspaceSlug={workspaceSlug}
+                    provider={github}
+                    title="Connect GitHub"
+                    pitch="Lor reads your code and reviews pull requests."
+                  />
+                )}
+                {linear && (
+                  <ConnectStep
+                    workspaceSlug={workspaceSlug}
+                    provider={linear}
+                    title="Connect Linear"
+                    pitch="Lor finds, files, and updates your issues."
+                  />
+                )}
+                <InviteStep
                   workspaceSlug={workspaceSlug}
-                  provider={github}
-                  title="Connect GitHub"
-                  pitch="Lor reads your code and reviews pull requests."
+                  joinedNames={joinedNames}
                 />
-              )}
-              {linear && (
-                <ConnectStep
-                  workspaceSlug={workspaceSlug}
-                  provider={linear}
-                  title="Connect Linear"
-                  pitch="Lor finds, files, and updates your issues."
-                />
-              )}
-              <InviteStep
-                workspaceSlug={workspaceSlug}
-                joinedNames={joinedNames}
-              />
-            </SettingsGroup>
+              </SettingsGroup>
+              {workspace && <DomainJoinSwitch workspace={workspace} branch />}
+            </div>
 
             <SettingsSection title="Ask Lor">
               <AskLorSuggestions

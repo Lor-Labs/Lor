@@ -1,8 +1,9 @@
 import { companyEmailDomain, normalizeDomain } from "@repo/utils/domain"
+import { useQuery } from "@tanstack/react-query"
 import { Redirect, router } from "expo-router"
 import { SymbolView } from "expo-symbols"
 import { Spinner } from "heroui-native/spinner"
-import { type ComponentProps, type ReactNode, useState } from "react"
+import { type ComponentProps, Fragment, type ReactNode, useState } from "react"
 import {
   Image,
   KeyboardAvoidingView,
@@ -20,6 +21,7 @@ import Animated, {
   FadeOut,
 } from "react-native-reanimated"
 import { PrefillInput } from "@/components/prefill-input"
+import { Avatar } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { triggerHaptic } from "@/components/ui/haptics"
 import { Screen } from "@/components/ui/screen"
@@ -85,6 +87,18 @@ export default function OnboardingScreen() {
   const description = editedDescription ?? descriptionPrefill ?? ""
   const readingLabel = isReading ? `Reading ${siteDomain}…` : null
   const [inviteLink, setInviteLink] = useState("")
+  const [joiningSlug, setJoiningSlug] = useState<string | null>(null)
+
+  // Workspaces open to this person's verified company domain.
+  const { data: joinable = [] } = useQuery({
+    queryKey: ["workspaces", "joinable"],
+    enabled: !!session,
+    queryFn: async () => {
+      const response = await api.v1.workspaces.joinable.$get()
+      if (!response.ok) return []
+      return (await response.json()).workspaces
+    },
+  })
 
   if (isSessionPending || isWorkspaceLoading) {
     return (
@@ -136,6 +150,31 @@ export default function OnboardingScreen() {
     }
   }
 
+  const joinByDomain = async (workspaceSlug: string) => {
+    if (joiningSlug) return
+    setError(null)
+    setJoiningSlug(workspaceSlug)
+    try {
+      const response = await api.v1.workspaces[":workspaceSlug"].join.$post({
+        param: { workspaceSlug },
+      })
+      if (!response.ok) {
+        setError(
+          await responseMessage(response, "Could not join this workspace")
+        )
+        return
+      }
+      const { workspace } = await response.json()
+      triggerHaptic("success")
+      await reloadWorkspaces(workspace.id)
+      router.replace("/")
+    } catch {
+      setError("Something went wrong. Please try again.")
+    } finally {
+      setJoiningSlug(null)
+    }
+  }
+
   const joinWorkspace = () => {
     const code = parseInviteCode(inviteLink)
     if (!code) {
@@ -183,6 +222,30 @@ export default function OnboardingScreen() {
                   subtitle="Set up a workspace for your team, or join one you were invited to."
                   title={hasWorkspace ? "Add a workspace" : "Welcome to Lor"}
                 />
+                {joinable.length > 0 ? (
+                  <View className="mb-five gap-two">
+                    <Text className="px-one text-[13px] font-semibold text-muted">
+                      Your team is already on Lor
+                    </Text>
+                    <View className="overflow-hidden rounded-lor-md border border-border bg-surface">
+                      {joinable.map((workspace, index) => (
+                        <Fragment key={workspace.id}>
+                          {index > 0 ? (
+                            <View className="ml-[60px] h-px bg-separator" />
+                          ) : null}
+                          <JoinRow
+                            isDisabled={joiningSlug !== null}
+                            isJoining={joiningSlug === workspace.slug}
+                            logo={workspace.logo}
+                            memberCount={workspace.humanMemberCount}
+                            name={workspace.name}
+                            onJoin={() => void joinByDomain(workspace.slug)}
+                          />
+                        </Fragment>
+                      ))}
+                    </View>
+                  </View>
+                ) : null}
                 <View className="overflow-hidden rounded-lor-md border border-border bg-surface">
                   <ChoiceRow
                     detail="Start fresh for your team"
@@ -198,6 +261,7 @@ export default function OnboardingScreen() {
                     onPress={() => goToStep("join")}
                   />
                 </View>
+                {error ? <ErrorText message={error} /> : null}
               </>
             ) : null}
 
@@ -376,6 +440,42 @@ function ChoiceRow({
         tintColor={theme.textTertiary}
       />
     </Pressable>
+  )
+}
+
+function JoinRow({
+  isDisabled,
+  isJoining,
+  logo,
+  memberCount,
+  name,
+  onJoin,
+}: {
+  isDisabled: boolean
+  isJoining: boolean
+  logo: string | null
+  memberCount: number
+  name: string
+  onJoin: () => void
+}) {
+  return (
+    <View className="min-h-[60px] flex-row items-center gap-three px-four py-three">
+      <Avatar image={logo} name={name} shape="square" size="xs" />
+      <View className="min-w-0 flex-1 gap-px">
+        <Text
+          className="text-[15px] font-semibold text-foreground"
+          numberOfLines={1}
+        >
+          {name}
+        </Text>
+        <Text className="text-[13px] text-muted">
+          {memberCount} {memberCount === 1 ? "member" : "members"}
+        </Text>
+      </View>
+      <Button isDisabled={isDisabled} onPress={onJoin} size="sm">
+        {isJoining ? "Joining…" : "Join"}
+      </Button>
+    </View>
   )
 }
 
