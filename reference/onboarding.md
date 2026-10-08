@@ -474,7 +474,7 @@ Schema edits are listed; Jacob runs `db:push`.
 
 ### Step 2: startup template, Lor intro, Lor context
 
-[x] built 2026-10-07 · [ ] committed
+[x] built 2026-10-07 · [x] committed
 
 - `packages/auth/src/lib/workspace-template.ts` (new): the four channels with
   topics and positions, and the Lor intro message row in `#general`, in one
@@ -496,7 +496,7 @@ Schema edits are listed; Jacob runs `db:push`.
 
 ### Step 3: web `/onboarding` page and landing changes
 
-[x] built 2026-10-07 · [ ] committed
+[x] built 2026-10-07 · [x] committed
 
 - `apps/web/src/routes/onboarding.tsx` (new, top-level like
   `invite/$code.tsx`): session guard, choose / create / join steps, Create
@@ -534,8 +534,9 @@ Schema edits are listed; Jacob runs `db:push`.
 
 ### Step 4: company prefill and site icon
 
-[~] part 1 built 2026-10-07 (favicon field, email-domain prefill) ·
-[ ] part 2 (site lookup, workspace icon) · [ ] committed
+[x] part 1 built and committed 2026-10-07 (favicon field, email-domain
+prefill, web and mobile onboarding redesign) · [ ] part 2 (site lookup,
+workspace icon)
 
 Part 1, built:
 
