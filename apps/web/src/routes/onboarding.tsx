@@ -13,11 +13,12 @@ import { Label } from "@repo/ui/components/label"
 import { Spinner } from "@repo/ui/components/spinner"
 import { EASE_OUT } from "@repo/ui/lib/motion"
 import { cn } from "@repo/ui/lib/utils"
-import { normalizeDomain } from "@repo/utils/domain"
+import { companyEmailDomain, normalizeDomain } from "@repo/utils/domain"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
 import { AnimatePresence, motion, type Variants } from "motion/react"
 import { type FormEvent, type ReactNode, useEffect, useState } from "react"
+import { WebsiteInput } from "@/components/onboarding/website-input"
 import { MorphText } from "@/components/ui/morph-text"
 import { SETTINGS_SURFACE } from "@/components/workspace/settings-group"
 import { apiClient } from "@/lib/api-client"
@@ -96,7 +97,9 @@ function OnboardingFlow({ email }: { email: string }) {
   const queryClient = useQueryClient()
   const [step, setStep] = useState<Step>("choose")
   const [direction, setDirection] = useState(1)
-  const [website, setWebsite] = useState("")
+  // A company email prefills the website; the user can change it.
+  const emailDomain = companyEmailDomain(email)
+  const [website, setWebsite] = useState(emailDomain ?? "")
   const [name, setName] = useState("")
   const [description, setDescription] = useState("")
   const [inviteLink, setInviteLink] = useState("")
@@ -235,15 +238,15 @@ function OnboardingFlow({ email }: { email: string }) {
                 />
                 <form onSubmit={handleCreate} className="space-y-5">
                   <Field label="Website" htmlFor="workspace-website">
-                    <Input
+                    <WebsiteInput
                       id="workspace-website"
                       placeholder="acme.com"
                       inputMode="url"
                       autoComplete="url"
                       value={website}
-                      onChange={(e) => setWebsite(e.target.value)}
+                      onChange={setWebsite}
                       disabled={loading}
-                      autoFocus
+                      autoFocus={!emailDomain}
                     />
                   </Field>
                   <Field label="Name" htmlFor="workspace-name">
@@ -254,6 +257,7 @@ function OnboardingFlow({ email }: { email: string }) {
                       value={name}
                       onChange={(e) => setName(e.target.value)}
                       disabled={loading}
+                      autoFocus={!!emailDomain}
                     />
                   </Field>
                   <Field

@@ -161,17 +161,17 @@ shows its work).
   `fetchWebPage` in `packages/lor/src/providers/exa.ts`), then the small
   model writes a company name and one line of at most 120 characters. When
   `EXA_API_KEY` is unset, the endpoint returns only the icon.
-- **Icon.** The server reads the homepage's `<link rel>` icons and picks, in
-  order, `apple-touch-icon`, the largest declared `icon`, then
-  `/favicon.ico`. Fetches go through the DNS-checked guarded fetch
-  (`createGuardedMcpFetch`, `packages/lor/src/mcp-guarded-fetch.ts`), with a
-  timeout and a size cap. Only `https` icons are returned. The client renders
-  `iconUrl` directly: the desktop CSP already allows `img-src https:`.
+- **Icon.** Google's public favicon service
+  (`https://www.google.com/s2/favicons?domain=…&sz=…`), the same source as
+  the unlumen favicon-search component Jacob pointed to. The client renders
+  it straight into the Website field, debounced 300ms, swapping it in only
+  after it loads. The desktop CSP already allows `img-src https:`. Tradeoff:
+  the typed domain goes to Google, acceptable for a public company website.
 - **Workspace icon.** On create, if the user kept the website, the server
-  resolves the icon again (it never trusts a client-supplied URL), and only
-  if the icon declares at least 64px, downloads it and stores it in R2 under
-  `workspace-icons/{id}/` as `workspace.logo`. PNG, JPEG, WebP and ICO only;
-  SVG is skipped. Smaller icons fall back to today's letter avatar.
+  fetches the same Google URL at a larger size (a fixed host, so no
+  user-controlled fetch), and only if the image is at least 64px stores it in
+  R2 under `workspace-icons/{id}/` as `workspace.logo`. Smaller icons fall
+  back to today's letter avatar.
 - **Where it lands.** The form fields, then `workspace.website`,
   `workspace.description`, and `workspace.logo`, all editable in General.
   Never the memory brain: marketing copy is often aspirational and goes
@@ -534,23 +534,34 @@ Schema edits are listed; Jacob runs `db:push`.
 
 ### Step 4: company prefill and site icon
 
-[ ] built · [ ] committed
+[~] part 1 built 2026-10-07 (favicon field, email-domain prefill) ·
+[ ] part 2 (site lookup, workspace icon) · [ ] committed
 
-- `packages/utils/src/free-email-domains.ts` (new): vendored list and
-  `isFreeEmailDomain(domain)`.
+Part 1, built:
+
+- `packages/utils/src/domain.ts`: `isFreeEmailDomain` and
+  `companyEmailDomain` with a vendored list of personal mailbox providers.
+  Kept in `domain.ts` because `@repo/utils` relative imports need `.js`
+  extensions under node16 resolution, which Metro may not map to `.ts`.
+- `apps/web/src/components/onboarding/website-input.tsx` (new): `InputGroup`
+  with the favicon (or a globe) at the start, 180ms ease-out fade/scale/blur
+  swap, no spring overshoot.
+- `apps/mobile/src/components/website-input.tsx` (new): same field with
+  `expo-image` `Image.prefetch` and Reanimated fades.
+- `apps/web/src/routes/onboarding.tsx`, `apps/mobile/src/app/onboarding.tsx`:
+  Website prefilled from a company email; focus starts on Name when it is.
+
+Part 2, next:
+
 - `packages/lor/src/company-site.ts` (new): `lookupCompanySite(domain)`:
-  Exa page text plus a small-model call for name and one line;
-  `resolveSiteIcon(domain)` through `createGuardedMcpFetch`, returning the
-  best `https` icon and its declared size.
+  Exa page text plus a small-model call for name and one line.
 - `apps/api/src/routes/v1/onboarding/*` (new): `GET /onboarding/site`,
   session auth, rate limited, Redis cache per domain.
 - `apps/api/src/routes/v1/workspaces/handlers.ts`: on create with a website,
-  resolve the icon again, download it when it declares at least 64px, store
-  it in R2 under `workspace-icons/{id}/`, set `logo`.
-- `apps/web/src/routes/onboarding.tsx`: prefill from the email domain on
-  load; debounced lookup as the user edits Website; icon inside the field;
-  fields fill in without blocking typing.
-- `apps/mobile/src/app/onboarding.tsx`: the same prefill and icon.
+  fetch the Google favicon at a larger size, keep it when at least 64px,
+  store it in R2 under `workspace-icons/{id}/`, set `logo`.
+- Web and mobile onboarding: fill Name and description from the lookup when
+  the user hasn't typed them, without blocking typing.
 
 ### Step 5: web setup page
 
@@ -698,10 +709,10 @@ Schema edits are listed; Jacob runs `db:push`.
 - The rekey script breaks OAuth MCP server registrations, because the
   redirect URI they registered embeds the old key. Reconnect them after the
   script runs.
-- The site lookup makes our server fetch domains that users type. All
-  fetches go through the guarded fetch (DNS check against private ranges,
-  timeout, size cap), the endpoint is rate limited, and the workspace icon
-  is resolved again on the server at create time.
+- The site lookup never makes our server fetch a user-typed host: Exa
+  fetches the page remotely, and the workspace icon comes from Google's
+  favicon service, a fixed host. The endpoint is still rate limited, since
+  each lookup spends Exa and model credits.
 - `revoked` `integration_connection` rows still block the `(provider,
   external_id)` unique index across workspaces. Step 6 relaxes the 409 guard
   for revoked rows owned by another workspace.
@@ -760,3 +771,7 @@ Redirect on update stays on. Creators cannot delete their own channels.
   behind onboarding.
 - 2026-10-07, Step 3: `user.onboardingCompleted` is no longer read on web or
   mobile; Step 10 still removes the write.
+- 2026-10-07, Step 4: favicons come from Google's public favicon service, not
+  from parsing each site's `<link rel>` icons through the guarded fetch. It
+  is what Jacob's reference component uses, it is instant, and the server's
+  logo fetch hits one fixed host instead of user-typed ones.

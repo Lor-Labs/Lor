@@ -1,7 +1,7 @@
 import PlusSignIcon from "@hugeicons/core-free-icons/PlusSignIcon"
 import UserGroupIcon from "@hugeicons/core-free-icons/UserGroupIcon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
-import { normalizeDomain } from "@repo/utils/domain"
+import { companyEmailDomain, normalizeDomain } from "@repo/utils/domain"
 import { Redirect, router } from "expo-router"
 import { Spinner } from "heroui-native/spinner"
 import { useState } from "react"
@@ -16,6 +16,7 @@ import {
 } from "react-native"
 import { Button } from "@/components/ui/button"
 import { Screen } from "@/components/ui/screen"
+import { WebsiteInput } from "@/components/website-input"
 import { useWorkspace } from "@/context/workspace-context"
 import { useTheme } from "@/hooks/use-theme"
 import { api, responseMessage } from "@/lib/api"
@@ -38,7 +39,8 @@ export default function OnboardingScreen() {
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
-  const [website, setWebsite] = useState("")
+  // null until edited: a company email prefills it once the session loads.
+  const [editedWebsite, setWebsite] = useState<string | null>(null)
   const [workspaceName, setWorkspaceName] = useState("")
   const [description, setDescription] = useState("")
   const [inviteLink, setInviteLink] = useState("")
@@ -53,6 +55,8 @@ export default function OnboardingScreen() {
     )
   }
   if (!session) return <Redirect href="/sign-in" />
+
+  const website = editedWebsite ?? companyEmailDomain(session.user.email) ?? ""
 
   const createWorkspace = async () => {
     if (!workspaceName.trim() || isSubmitting) return
@@ -174,7 +178,7 @@ export default function OnboardingScreen() {
                   <Text className="text-[13px] font-semibold text-muted">
                     Website
                   </Text>
-                  <TextInput
+                  <WebsiteInput
                     accessibilityLabel="Website"
                     autoCapitalize="none"
                     autoCorrect={false}
