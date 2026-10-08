@@ -220,17 +220,17 @@ function ChannelRow({
           type="button"
           onClick={onToggle}
           aria-label={collapsed ? "Show sessions" : "Hide sessions"}
-          className="relative size-4 shrink-0 cursor-pointer"
+          className="group/toggle relative size-4 shrink-0 cursor-pointer outline-none"
         >
           <HugeiconsIcon
             icon={icon}
-            className="absolute inset-0 size-4 opacity-50 transition-opacity group-hover/channel:opacity-0"
+            className="absolute inset-0 size-4 opacity-50 transition-opacity group-hover/toggle:opacity-0 group-focus-visible/toggle:opacity-0"
             strokeWidth={2}
           />
           <HugeiconsIcon
             icon={ArrowDown01Icon}
             className={cn(
-              "absolute inset-0 size-4 opacity-0 transition-[opacity,transform] group-hover/channel:opacity-70",
+              "absolute inset-0 size-4 opacity-0 transition-[opacity,transform] group-hover/toggle:opacity-70 group-focus-visible/toggle:opacity-70",
               collapsed && "-rotate-90"
             )}
             strokeWidth={2}

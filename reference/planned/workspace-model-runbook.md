@@ -232,7 +232,9 @@ because nothing merges until the whole runbook lands.
   session; `ChannelActivity` (`events.ts:11-14`) carries subscribed sessions
   and the rollup.
 - `channel-list.tsx` `SortableChannelItem` (`:1002-1206`): session rows after
-  the voice rows (`:1185-1187`), collapse toggle, rollup only when collapsed.
+  the voice rows (`:1185-1187`), rollup only when collapsed. Collapse toggle:
+  the channel icon turns into a chevron only while the pointer is on the icon
+  itself or it has keyboard focus, never on row hover.
   `channel-activity.tsx` becomes the session state indicator (spinner, blue
   dot, alert); `queued` folds into running. `use-workspace-activity.ts`.
 - `workspace-sidebar.tsx:381-457`: New session button.
