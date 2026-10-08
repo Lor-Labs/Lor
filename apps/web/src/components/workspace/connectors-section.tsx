@@ -50,7 +50,9 @@ import { CodeBlock } from "@repo/ui/components/tool-ui/code-block"
 import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useSearch } from "@tanstack/react-router"
-import { useEffect, useLayoutEffect, useRef, useState } from "react"
+import { type Ref, useEffect, useLayoutEffect, useRef, useState } from "react"
+import { HintPopover } from "@/components/hints/hint-popover"
+import { useHint } from "@/components/hints/hints-provider"
 import { GithubBaseBranchSettings } from "@/components/workspace/github-base-branch-settings"
 import {
   IconTile,
@@ -418,6 +420,15 @@ function ConnectorList({
         `${p.name} ${p.description}`.toLowerCase().includes(needle)
       )
     : providers
+
+  // Points a manager at GitHub while nothing is connected. Opening or
+  // connecting any connector counts as getting it.
+  const githubRowRef = useRef<HTMLDivElement>(null)
+  const github = providers.find((p) => p.id === "github")
+  const connectorsHint = useHint(
+    "connectors_intro",
+    !needle && !!github?.canManage && !providers.some((p) => p.connected)
+  )
   const groups = [
     { title: "Connected", providers: matches.filter((p) => p.connected) },
     { title: "Not connected", providers: matches.filter((p) => !p.connected) },
@@ -456,23 +467,42 @@ function ConnectorList({
               <ConnectorRow
                 key={p.id}
                 provider={p}
-                onOpen={() => onOpen(p)}
-                onConnect={() => onConnect(p)}
+                rowRef={p.id === "github" ? githubRowRef : undefined}
+                onOpen={() => {
+                  connectorsHint.dismiss()
+                  onOpen(p)
+                }}
+                onConnect={() => {
+                  connectorsHint.dismiss()
+                  onConnect(p)
+                }}
               />
             ))}
           </div>
         </section>
       ))}
+      <HintPopover
+        open={connectorsHint.show}
+        anchor={githubRowRef}
+        side="bottom"
+        align="start"
+        onDismiss={connectorsHint.dismiss}
+      >
+        Connect GitHub first. Lor reads pull requests, issues, and code through
+        it.
+      </HintPopover>
     </div>
   )
 }
 
 function ConnectorRow({
   provider: p,
+  rowRef,
   onOpen,
   onConnect,
 }: {
   provider: IntegrationStatus
+  rowRef?: Ref<HTMLDivElement>
   onOpen: () => void
   onConnect: () => void
 }) {
@@ -490,7 +520,10 @@ function ConnectorRow({
     : p.description
 
   return (
-    <div className="flex items-center rounded-xl transition-colors hover:bg-accent/50">
+    <div
+      ref={rowRef}
+      className="flex items-center rounded-xl transition-colors hover:bg-accent/50"
+    >
       <button
         type="button"
         data-connector={p.id}

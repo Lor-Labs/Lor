@@ -5,6 +5,11 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done. Keep this file updated as
 
 Last audited: 2026-08-04. Nothing here gates the TestFlight beta — everything below is deferred post-launch polish.
 
+## Post-launch — onboarding (web shipped 2026-10-08, `reference/onboarding.md`)
+
+- [ ] Native setup checklist. Web has `/{key}/setup`; mobile only shows a "Finish setup on the web" card on the Channels tab (Step 9) with an Open on web button. A native screen would cover the invite link, the join-by-domain switch, and the Ask Lor suggestions, with GitHub and Linear as "Connect on web" rows: their install and OAuth callbacks land on `app.lor.chat` in the phone's browser, outside the app. Revisit if workspace creation on mobile becomes common.
+- [ ] Creator edit of their own channel (rename, topic). Web shows Edit Channel to the creator since Step 6a; mobile's channel options still gate on `channel:update`.
+
 ## Post-launch — sidebar Lor activity (web shipped 2026-09-14, `reference/archive/sidebar-realtime-activity-plan.md`)
 
 - [x] Per-channel Lor state in mobile's channel list — 2026-09-14, same session as web. `src/hooks/use-workspace-activity.ts` mirrors web (AppState replaces window focus: refresh on active, clear on background; 100ms coalesce; 15s poll fallback); `LorChannelStatus` in `channel-list.tsx` (accent ActivityIndicator scaled 0.7 = working, accent dot = queued, `bg-warning-soft` `!` badge = needs_approval/needs_input, same tokens as plan-ui.tsx) rendered in `ChannelRow` via `lorState` prop, workspace id from `useWorkspace()` inside `ChannelList`. Precedence lives server-side. JS-only → ships via `eas update`. Needs on-device QA. NOTE: channel viewer avatars were removed from web by design (surveillance concern) — do NOT port those.

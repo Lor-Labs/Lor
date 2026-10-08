@@ -681,7 +681,12 @@ so Step 9 needs no second db:push.
 
 ### Step 9: hints, part 2 and mobile
 
-[ ] built · [ ] committed
+[x] built 2026-10-08 · [ ] committed
+
+As built: web `lor_reply` lives in `lor-activity.tsx`, `voice_intro` in
+`call-hero.tsx`, `connectors_intro` in `ConnectorList`. Mobile has
+`hooks/use-hints.ts`, an inline `components/hint-card.tsx`, and
+`components/finish-setup-card.tsx` on the Channels tab.
 
 - `lor_reply` in `apps/web/src/components/chat/message-item.tsx` (anchor: the
   trail summary row; condition: `authorId === LOR_USER_ID`, trigger message by
@@ -864,3 +869,16 @@ Redirect on update stays on. Creators cannot delete their own channels.
   open (desktop collapse or the closed mobile sheet would hide its anchor).
   `lor_intro` is opted into with `MessageInput lorIntro` on the channel
   route; any composer's send that mentions Lor dismisses it.
+- 2026-10-08, Step 9: `lor_reply` shows on a Lor reply the viewer watched
+  finish (its activity row was live, now settled, with tool calls), not
+  "a reply to the viewer's own message": messages carry
+  `lorTriggerMessageId` but not the trigger's author. The provider now
+  tracks eligible instances per key and shows only the first, since every
+  live reply's activity row can be eligible at once.
+- 2026-10-08, Step 9: mobile hints are inline cards (`HintCard`) above the
+  composer and under the lobby's Start call button, not anchored popovers,
+  so they never cover the keyboard. Mobile's placeholder is shorter:
+  "Message #general or ask @Lor". The "Finish setup on the web" card shows
+  for owners and admins (mobile has no custom-role grants), opens
+  `{web}/{key}/setup` in the in-app browser, and its ✕ hides it on that
+  device only. A native setup screen is in `reference/mobile-parity-todo.md`.

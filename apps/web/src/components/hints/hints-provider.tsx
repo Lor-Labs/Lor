@@ -5,6 +5,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useId,
   useMemo,
   useState,
 } from "react"
@@ -27,9 +28,12 @@ const hintsQueryKey = ["hints"] as const
 
 type HintsContextValue = {
   activeKey: HintKey | null
+  // Several mounts can want the same hint (one per Lor reply); the first
+  // to become eligible gets it.
+  activeInstance: string | null
   isDismissed: (key: HintKey) => boolean
   dismiss: (key: HintKey) => void
-  setEligible: (key: HintKey, eligible: boolean) => void
+  setEligible: (key: HintKey, instance: string, eligible: boolean) => void
 }
 
 const HintsContext = createContext<HintsContextValue | null>(null)
@@ -41,9 +45,9 @@ function isHintKey(value: string): value is HintKey {
 export function HintsProvider({ children }: { children: ReactNode }) {
   const socket = useSocket()
   const queryClient = useQueryClient()
-  const [eligible, setEligibleKeys] = useState<ReadonlySet<HintKey>>(
-    () => new Set()
-  )
+  const [eligible, setEligibleMap] = useState<
+    ReadonlyMap<HintKey, readonly string[]>
+  >(() => new Map())
 
   const { data: dismissed } = useQuery({
     queryKey: hintsQueryKey,
@@ -96,22 +100,35 @@ export function HintsProvider({ children }: { children: ReactNode }) {
     [dismissed, mutate]
   )
 
-  const setEligible = useCallback((key: HintKey, value: boolean) => {
-    setEligibleKeys((prev) => {
-      if (prev.has(key) === value) return prev
-      const next = new Set(prev)
-      if (value) next.add(key)
-      else next.delete(key)
-      return next
-    })
-  }, [])
+  const setEligible = useCallback(
+    (key: HintKey, instance: string, value: boolean) => {
+      setEligibleMap((prev) => {
+        const instances = prev.get(key) ?? []
+        if (instances.includes(instance) === value) return prev
+        const next = new Map(prev)
+        next.set(
+          key,
+          value
+            ? [...instances, instance]
+            : instances.filter((id) => id !== instance)
+        )
+        return next
+      })
+    },
+    []
+  )
 
   const activeKey =
-    HINT_PRIORITY.find((key) => eligible.has(key) && !isDismissed(key)) ?? null
+    HINT_PRIORITY.find(
+      (key) => (eligible.get(key)?.length ?? 0) > 0 && !isDismissed(key)
+    ) ?? null
+  const activeInstance = activeKey
+    ? (eligible.get(activeKey)?.[0] ?? null)
+    : null
 
   const value = useMemo(
-    () => ({ activeKey, isDismissed, dismiss, setEligible }),
-    [activeKey, isDismissed, dismiss, setEligible]
+    () => ({ activeKey, activeInstance, isDismissed, dismiss, setEligible }),
+    [activeKey, activeInstance, isDismissed, dismiss, setEligible]
   )
 
   return <HintsContext.Provider value={value}>{children}</HintsContext.Provider>
@@ -121,19 +138,20 @@ export function HintsProvider({ children }: { children: ReactNode }) {
 // for the one hint that wins the slot.
 export function useHint(key: HintKey, eligible: boolean) {
   const context = useContext(HintsContext)
+  const instance = useId()
   const setEligible = context?.setEligible
   const dismissKey = context?.dismiss
 
   useEffect(() => {
     if (!setEligible) return
-    setEligible(key, eligible)
-    return () => setEligible(key, false)
-  }, [setEligible, key, eligible])
+    setEligible(key, instance, eligible)
+    return () => setEligible(key, instance, false)
+  }, [setEligible, key, instance, eligible])
 
   const dismiss = useCallback(() => dismissKey?.(key), [dismissKey, key])
 
   return {
-    show: context?.activeKey === key,
+    show: context?.activeKey === key && context.activeInstance === instance,
     dismissed: context ? context.isDismissed(key) : true,
     dismiss,
   }

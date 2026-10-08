@@ -18,6 +18,7 @@ import { ChannelActionsSheet } from "@/components/channel-actions-sheet"
 import { ChannelList } from "@/components/channel-list"
 import { CreateChannelSheet } from "@/components/create-channel-sheet"
 import { CreateInviteSheet } from "@/components/create-invite-sheet"
+import { FinishSetupCard } from "@/components/finish-setup-card"
 import { Avatar } from "@/components/ui/avatar"
 import { IconButton } from "@/components/ui/icon-button"
 import { Screen } from "@/components/ui/screen"
@@ -396,15 +397,23 @@ export default function WorkspaceScreen() {
             title="Channels are unavailable"
           />
         ) : (
-          <ChannelList
-            archivedCategoryIds={archivedCategoryIds}
-            archivingCategoryIds={archivingCategoryIds}
-            data={channels ?? undefined}
-            isLoading={isLoadingChannels}
-            onLongPress={setActionChannel}
-            onPress={openChannel}
-            projectCategoryIds={projectCategoryIds}
-          />
+          <>
+            {canManageWorkspace && workspace.setupPending ? (
+              <FinishSetupCard
+                workspaceId={workspace.id}
+                workspaceSlug={workspace.slug}
+              />
+            ) : null}
+            <ChannelList
+              archivedCategoryIds={archivedCategoryIds}
+              archivingCategoryIds={archivingCategoryIds}
+              data={channels ?? undefined}
+              isLoading={isLoadingChannels}
+              onLongPress={setActionChannel}
+              onPress={openChannel}
+              projectCategoryIds={projectCategoryIds}
+            />
+          </>
         )}
       </ScrollView>
       <ChannelActionsSheet
