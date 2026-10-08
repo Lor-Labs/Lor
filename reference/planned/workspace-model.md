@@ -1,8 +1,9 @@
 # Workspace model: human chat, Lor sessions
 
 **Status:** Design locked with Jacob on 2026-10-08: the fundamentals and the
-pass over existing features. Not built. Next: mockups of the key screens, then
-an implementation runbook.
+pass over existing features. Not built. Prototype: `/prototype` in the web app
+(`apps/web/src/components/prototype/`). Implementation plan:
+`workspace-model-runbook.md`.
 
 ## Problem
 
@@ -170,6 +171,9 @@ Features that put Lor or machine content in channel chat today.
      creator can choose "everyone in the channel". That puts the loop's
      session in each member's sidebar without posting in the chat. See
      item 4 for the subscription model.
+   - Locked: archiving a loop's session is a dismissal. The loop keeps
+     running, and its next run brings the session back. Only pausing,
+     cancelling or deleting the loop stops it.
 2. **Connector and webhook posts.** Locked: they stay in the chat. They are
    factual event feeds a person set up on purpose, not AI-written text. The
    rule: "Channel chat holds what people write, plus event feeds people set
