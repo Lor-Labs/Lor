@@ -54,6 +54,8 @@ needs a link sweep over `CLAUDE.md`, `reference/` and code comments.
 
 | Doc | Status |
 |---|---|
+| `onboarding.md` | First-run redesign for small tech startups: opaque workspace key, startup channel template, setup checklist (GitHub, Linear, invites), per-user hints, permission changes. Design 2026-10-07, core decisions locked |
+| `linear-projects.md` | Lor projects linked to Linear projects. Split from onboarding 2026-10-07; open for its own design thread |
 | `code-channels.md` | Multiplayer AI coding architecture, design agreed 2026-10-05 |
 | `self-configuration.md` | Vision for Lor proposing changes to itself; pillars 1–2 shipped (root runbooks), pillar 3 in flight |
 | `playbooks.md` | Working idea, not a spec |

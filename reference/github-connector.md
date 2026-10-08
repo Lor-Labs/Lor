@@ -2,6 +2,50 @@
 
 Status as of 2026-07-31. The **code-investigation core works end-to-end** (verified live: sandboxed Pi → Kimi K3 through Vercel AI Gateway → read-only tool loop → findings → metered → torn down). It is **NOT "done"** by our bar yet. This is the resume-here doc. (2026-08-10: the sandbox provider moved Railway → **Blaxel** — same flow, engine details updated below; the ported path needs a live GitHub e2e re-verify.) (2026-08-18: the **draft-PR write loop shipped** — `propose_code_change`, gated by the `code_actions` capability; details in Definition of Done. Needs its own live e2e verify.)
 
+## GitHub App webhook configuration
+
+The App is `lor-chat`. Its event subscriptions live in the App's settings on
+GitHub, not in code. As of 2026-10-07 it subscribes to: Pull request, Pull
+request review, Issues, Release, Discussion, Discussion comment, Deployment
+status, Workflow run, Meta.
+
+- Code handles `pull_request.opened`/`closed`, `issues.opened`/`closed`,
+  `release.published` (`apps/api/src/routes/v1/integrations/github/events.ts`).
+- `installation` and `installation_repositories` arrive without a
+  subscription: GitHub sends them to every App by default.
+- Pull request review, Discussion, Discussion comment, Deployment status and
+  Workflow run are delivered and ignored.
+
+Install settings (prod App, 2026-10-07): the App is public. Request user
+authorization during installation is off, so GitHub uses the Setup URL
+`https://app.lor.chat/integrations/github/setup`. Redirect on update is on.
+Webhook URL is `https://api.lor.chat/v1/integrations/github/webhook`.
+Disconnecting in Lor deletes the connection row but leaves the App installed
+on GitHub.
+
+### Dev App
+
+An App has one Setup URL, so dev needs its own App. Checklist:
+
+1. Create a second App under the same owner as `lor-chat`, for example
+   `lor-chat-dev`. It can stay private if you only install it on accounts
+   that owner controls.
+2. Copy the prod App's repository permissions and event subscriptions.
+3. Setup URL: the dev web origin plus `/integrations/github/setup`, for
+   example `http://localhost:3000/integrations/github/setup`. The browser
+   follows this redirect, so localhost works.
+4. Request user authorization during installation: off. Redirect on update:
+   on.
+5. Webhook: GitHub cannot reach localhost. Uncheck Active for normal dev
+   work, or point it at a forwarding URL (for example a smee.io channel) when
+   testing events.
+6. Generate a private key and a webhook secret. Set `GITHUB_APP_ID`,
+   `GITHUB_APP_PRIVATE_KEY`, `GITHUB_APP_SLUG`, and `GITHUB_WEBHOOK_SECRET` in
+   the dev env.
+7. Disconnect GitHub in every dev workspace and reconnect through the dev
+   App. Existing dev rows hold prod-App installation ids, and the dev App's
+   key cannot mint tokens for them.
+
 ## How it works today (as-built)
 
 The flow: Lor calls the `investigate_code(repo, question)` tool → clone the repo into an ephemeral Blaxel sandbox at query time → run Pi with the configured Lor main model as a read-only sub-agent → stream its tool calls back live → return findings → Lor composes the answer.

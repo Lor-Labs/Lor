@@ -1,0 +1,681 @@
+# Onboarding for small tech startups
+
+> Status: design, written 2026-10-07 from a full code audit. Not started.
+> Decisions marked **Locked** were agreed with Jacob on 2026-10-07; the rest
+> are recommendations. Verify file references against code before building.
+> Move this doc to `reference/` root when Step 1 starts. Linear-linked
+> projects were split out to `reference/planned/linear-projects.md`.
+
+## Why
+
+The current first run was built for a Discord-style community app. The audit
+(14 read-only research passes over web, api, realtime, worker, mobile, db,
+auth, connectors, lor) found:
+
+- Sign-up lands on `/dms` with an undismissable modal on top
+  (`apps/web/src/routes/_authenticated.tsx:169-192`,
+  `apps/web/src/components/onboarding/onboarding-dialog.tsx`). Copy says
+  "Start your own community". The create step asks for a slug behind a fake
+  `lor.chat/` prefix that is not a real URL.
+- Seeded channels are `#general`, `#introductions`, `#rules`, and a
+  `Community` category with `#help` and `#off-topic`
+  (`packages/auth/src/lib/auth.ts:26-88`). No topics, no voice channel, no
+  message. The first screen is the empty "Welcome to #general!" state.
+- Lor is never introduced. Nothing prompts the user to connect GitHub or
+  Linear, so the first `@Lor` question hits an empty brain and answers "I
+  don't have it in memory yet". Lor's prompt has no workspace name, no
+  description, and no channel topic (`packages/lor/src/index.ts:1855-1917`).
+- Invite accept lands on the workspace root, which shows "Select a channel to
+  start chatting" (`apps/web/src/routes/invite/$code.tsx:86-89`).
+  `user.onboardingCompleted` is never set for joiners, and is written with
+  Drizzle, which bypasses better-auth's Redis session cache.
+- Teammates who sign up without an invite link have no way to find their
+  company's workspace, so each one creates their own.
+- No hint, coachmark, or dismissal state exists anywhere (web or mobile). No
+  analytics SDK exists either.
+- The unique slug is user-typed and collides across companies. It is
+  load-bearing in 82 API paths, 37 web route templates, OAuth state, GitHub
+  install state, billing URLs, and a push payload.
+- Permissions are inconsistent: plain members cannot create channels, but any
+  member can connect or disconnect GitHub and Linear (only Notion checks
+  `connector:manage`, `apps/api/src/routes/v1/integrations/handlers.ts:770`).
+- With billing on, a solo workspace starts at zero credits and Lor refuses to
+  answer. The 2,000 promo credits arrive only when the first invite is
+  accepted (`packages/billing/src/promo.ts`), while www promises them at
+  creation. Billing is off in prod today on purpose (Autumn not connected
+  while testing).
+
+## Who onboards, and what "successful" means
+
+Three people arrive differently:
+
+- **Creator** (founder or CTO). Signs up cold, names the workspace, is the
+  only member for the first hour. Owner role.
+- **Invited joiner** (engineer, designer). Arrives through an invite link into
+  a workspace that already has channels and probably connectors. Member role.
+- **Domain joiner.** Signs up with a company email without an invite, and the
+  company's workspace already exists. Member role.
+
+The product promise is grounded answers and actions over the team's own code,
+issues, and conversations. For a brand-new workspace the conversation corpus
+is empty, so the only way Lor can be impressive in the first session is
+through connectors and company context. Order of leverage for a small tech
+startup:
+
+1. **GitHub.** Universal for the target segment. Pays off instantly with no
+   history: `search_github`, `fetch_github`, `investigate_code`,
+   `propose_code_change` all work live against the installation.
+2. **Linear.** The issue tracker for most startups in this segment.
+   `search_linear`, `list_linear_issues`, `create_linear_issue` work live.
+3. **Notion** later. Read-only, page-picker scoped, lower day-one value.
+4. **Invite the team.** Lor's memory grows from conversation, and the first
+   teammate is what turns a trial into a workspace.
+
+So the creator's first session is: create workspace, connect GitHub, connect
+Linear, invite the team, ask Lor one question that it can answer well. A
+joiner's first session is: land in `#general`, read Lor's intro, learn the
+three things that differ from Slack (mention Lor, voice is transcribed, Lor
+shows its work).
+
+## The flow
+
+### Creator
+
+1. `/signup` and email verification stay as they are.
+2. `/onboarding` is a full page (no sidebar), not a modal over `/dms`. If
+   workspaces exist for the user's verified email domain, "Your team is
+   already on Lor" join cards come first (see "Join by email domain"). Below
+   them: **Create a workspace** and **Join with an invite link**.
+3. Create asks for **Website**, **Name**, and an optional one-line **What are
+   you building?** (`workspace.description`). No slug field. When the
+   verified email is on a company domain, Website is prefilled with it, and
+   Name and description are prefilled from the site (see "Company prefill").
+   The site's icon shows inside the Website field as soon as it resolves,
+   and again as the user types a different site. Every field stays editable.
+4. The server creates the workspace with a generated key, seeds the startup
+   template, adds Lor, posts Lor's intro in `#general`, sets the site icon as
+   the workspace icon when it is large enough, and returns the first channel
+   id. The client sets the active organization and goes to `/{key}/setup`.
+5. `/{key}/setup` renders in the main pane with the sidebar visible, so the
+   creator sees the seeded channels while finishing setup. It is a checklist
+   whose state is derived from data, not stored step indexes:
+   - **Connect GitHub.** One sentence on what Lor can do once connected.
+     Connect button opens the GitHub App install. Done state shows the
+     account and repo count.
+   - **Connect Linear.** Same shape. Done state shows the Linear org.
+   - **Invite your team.** Inline invite link with Copy, and the "Anyone with
+     an @acme.com email can join" toggle when the domain qualifies. Done
+     state when a human member exists.
+   - **Ask Lor.** Two or three suggested questions that depend on what is
+     connected. Clicking one opens `#engineering` with the question prefilled
+     in the composer; the user presses send.
+   - **Finish** sets `workspace.setupCompletedAt` and opens `#general`.
+     **Do this later** does the same. Setup stays reachable from the
+     workspace menu until finished.
+6. Setup is visible to anyone who holds `connector:manage`: the owner,
+   admins, and custom roles with that grant. A cofounder who joins as admin
+   before setup is finished can connect GitHub themselves.
+7. The OAuth and App-install callbacks keep navigating to the workspace root.
+   The root route sends a `connector:manage` holder with unfinished setup to
+   `/setup`, carrying the `connector` search param so the matching card shows
+   its done state. On desktop the callback runs in the system browser, and
+   the setup page refetches integrations when the app window regains focus
+   (the existing `subscribeAppFocus` pattern).
+
+### Joiners
+
+1. Invite: `/invite/{code}` → sign up or sign in with `redirect` preserved
+   (already works) → Accept.
+2. Domain: sign up → `/onboarding` shows the join card → Join.
+3. Both land in the workspace's first channel (`#general`), not the root.
+   Lor's intro message is the first thing in the feed.
+4. Orientation comes from the hints (below), not a wizard. Joiners without
+   `connector:manage` never see `/setup`.
+
+### Mobile
+
+- `/onboarding` mirrors web: join cards, Website with icon, Name,
+  description, no slug. Lands on the channel list as today.
+- `connector:manage` holders with unfinished setup see one `StatePanel`:
+  "Finish setup on the web: connect GitHub and Linear and invite your team."
+  Connector OAuth stays web-only (`reference/mobile-parity-todo.md`).
+- Hints `lor_intro` and `voice_intro` render on mobile through the same API.
+- Pending invite code moves from module memory to SecureStore so a cold start
+  after email verification still lands on the invite.
+
+## Company prefill
+
+**Locked.** Look up the company, never the person.
+
+- **Source.** The verified email domain. Sign-up requires email verification
+  before a session exists, so the domain on the session is trustworthy. Free
+  email domains (Gmail, Outlook, iCloud, Proton, Yahoo and similar, from a
+  vendored list) get no prefill.
+- **Endpoint.** `GET /v1/onboarding/site?domain=` (session auth, rate
+  limited, cached per domain in Redis for 24 hours) returns
+  `{ domain, name, description, iconUrl }`. The page calls it on load with
+  the email domain, and again, debounced, when the user types a different
+  site.
+- **Name and description.** Exa `getContents` on the homepage (the existing
+  `fetchWebPage` in `packages/lor/src/providers/exa.ts`), then the small
+  model writes a company name and one line of at most 120 characters. When
+  `EXA_API_KEY` is unset, the endpoint returns only the icon.
+- **Icon.** The server reads the homepage's `<link rel>` icons and picks, in
+  order, `apple-touch-icon`, the largest declared `icon`, then
+  `/favicon.ico`. Fetches go through the DNS-checked guarded fetch
+  (`createGuardedMcpFetch`, `packages/lor/src/mcp-guarded-fetch.ts`), with a
+  timeout and a size cap. Only `https` icons are returned. The client renders
+  `iconUrl` directly: the desktop CSP already allows `img-src https:`.
+- **Workspace icon.** On create, if the user kept the website, the server
+  resolves the icon again (it never trusts a client-supplied URL), and only
+  if the icon declares at least 64px, downloads it and stores it in R2 under
+  `workspace-icons/{id}/` as `workspace.logo`. PNG, JPEG, WebP and ICO only;
+  SVG is skipped. Smaller icons fall back to today's letter avatar.
+- **Where it lands.** The form fields, then `workspace.website`,
+  `workspace.description`, and `workspace.logo`, all editable in General.
+  Never the memory brain: marketing copy is often aspirational and goes
+  stale, and brain pages are permanent.
+- **Lor context.** The initial message gains the website next to the name and
+  description (see "Lor cold start").
+
+**Person research: rejected.** No Exa people search, no profile scraping, for
+creators or joiners. Lor answers about code, issues and team conversations,
+so a person's history rarely changes an answer. Lor's memory is visible to
+the whole workspace and kept forever, so teammates would read a profile
+compiled about a colleague without their knowledge, which conflicts with the
+no-surveillance principle. Name-based people search misidentifies often
+enough to plant false facts that Lor would cite. Data collected about a
+person from third-party sources also brings notice duties (GDPR Article 14).
+
+## Join by email domain
+
+**Locked to build.** A workspace can let anyone with a verified email on its
+domain join without an invite.
+
+- **Storage.** `workspace.joinDomain text`, nullable, indexed. Not unique: two
+  teams at one company may each have a workspace.
+- **Who can set it.** Admins, in General settings and in the setup invite
+  card. The domain must equal the acting admin's own verified email domain,
+  and must not be a free email domain. This stops anyone from claiming a
+  domain they do not belong to.
+- **Default. Locked.** The setup toggle starts on when the creator's domain
+  qualifies, and the owner can turn it off. Small startups gain more
+  from teammates finding the workspace than they risk from strangers on their
+  own domain.
+- **Discovery.** `GET /v1/workspaces/joinable` (session auth) returns
+  workspaces whose `joinDomain` equals the caller's verified email domain and
+  that the caller is not in: `{ key, name, logo, humanMemberCount }`.
+- **Join.** `POST /v1/workspaces/{key}/join` (session auth; the caller is not
+  a member yet, so not workspace auth) re-checks the domain, inserts a
+  `member` through a helper extracted from `acceptInvite` (avatar color,
+  `syncSeats`), and returns the first channel id. The client emits
+  `workspace:member:joined`.
+- **Surfaces.** The `/onboarding` join cards. The workspace switcher's
+  "Create workspace" navigates to `/onboarding` instead of opening
+  `CreateWorkspaceDialog`, so existing users can find team workspaces too,
+  and the duplicated create logic goes away.
+- **Offboarding.** A person who leaves the company keeps access until an
+  admin removes them, the same as invite joiners. Domain join never removes
+  anyone.
+
+## Default workspace template
+
+**Locked.** Replace the community set with a startup set. All top-level, no
+category.
+
+| Channel | Type | Topic |
+|---|---|---|
+| `#general` | text | Team-wide updates and discussion. |
+| `#engineering` | text | Code, pull requests, and technical decisions. |
+| `Standup` | voice | Daily sync. Lor takes notes. |
+| `#random` | text | Everything else. |
+
+Why this set:
+
+- Small teams start with one place for everyone and one place for building.
+  Teams add `#product` or `#design` when they need them, and members can now
+  create channels.
+- One voice channel named for a concrete ritual beats a generic "Lounge". The
+  standup is the first place voice memory earns its keep.
+- `#random` is expected and cheap. `#introductions`, `#rules`, `#help`,
+  `#off-topic` are community-forum concepts and go.
+- Topics are seeded because Lor will read them (see "Lor cold start"). Today
+  `channel.topic` is never read by Lor.
+
+**No connector routing by default. Locked.** GitHub and Linear activity posts
+nowhere until someone turns it on in the connector's Events settings, and
+setup does not ask. Lor does not need these posts to know things: its GitHub
+and Linear tools query live. On day one nobody trusts a new tool enough to
+move their GitHub notifications into it, and a feed in `#engineering` would
+put noise where people talk. A better later moment is a Lor change proposal
+(the `set_trigger` operation already exists) when Lor notices the team
+pasting PR links. That belongs to the self-configuration work, not
+onboarding.
+
+Lor's intro, posted once in `#general` as `LOR_USER_ID`, `type: default`,
+`silent`, `excludedFromMemory: true`:
+
+> Hi, I'm Lor. Mention me with @Lor in any channel to ask about your code,
+> your issues, or anything this team has discussed. I show my work and cite
+> what I used.
+
+Nothing else is posted. No channel events are posted for seeded channels.
+
+The template lives in `packages/db/src/seeds/workspace-template.ts` and is
+called from the `afterCreateOrganization` hook. Each hook step runs
+independently: today a channel-seed failure returns early and skips Lor
+membership, the brain seed, and the billing customer
+(`packages/auth/src/lib/auth.ts:324-331`). Existing workspaces keep their
+channels.
+
+## Workspace key
+
+better-auth 1.4.18 owns workspace creation and requires a non-empty, unique
+`slug` before any hook runs (`dist/plugins/organization/routes/crud-org.mjs:65`).
+The column must stay. What changes is who chooses it and what it looks like.
+
+**Locked: an opaque key stored in the existing `slug` column.** Ten lowercase
+base36 characters (for example `f3e1g2cab7`), generated server-side, never
+shown in a form, retried on unique violation. Every `workspaceSlug` route
+param, the 82 API paths, OAuth state, and billing URLs keep working
+unchanged.
+
+Why opaque over a name prefix like `acme-7k3qd`:
+
+- It never goes stale. The key cannot change after creation (MCP OAuth
+  redirect URIs and bookmarks depend on it), so a name prefix would show the
+  old name forever after a rename.
+- No name edge cases. `sluggify` drops everything outside a–z and 0–9, so a
+  name like "株式会社" gives an empty prefix.
+- It matches chat apps, which put opaque ids in app URLs that nobody types.
+- The cost is unreadable URLs in history and support chats. The tab title and
+  sidebar still show the name.
+
+Creation moves behind a first-party route so the key is minted on the server:
+
+- `POST /v1/workspaces` `{ name, description?, website? }` calls
+  `auth.api.createOrganization({ body: { name, slug: key, description, website, userId } })`
+  with no headers. better-auth treats a session-less call with `userId` as a
+  system action (`crud-org.mjs:56-64`): hooks run, the creator member row is
+  inserted with role `owner`, and `setActiveOrganization` is skipped
+  (`crud-org.mjs:163`). The client calls `organization.setActive` afterwards,
+  which web already does in the `$workspaceSlug` layout and mobile does in
+  `reloadWorkspaces`.
+- `organization({ allowUserToCreateOrganization: false })` blocks direct
+  client calls to `/api/auth/organization/create`.
+- `organizationHooks.beforeUpdateOrganization` rejects any `slug` change so
+  the still-mounted `/api/auth/organization/update` cannot rename keys.
+
+**Existing workspaces are rekeyed. Locked.** There are no real users yet, so
+a one-off script rewrites every `workspace.slug` in dev and prod to a new
+key. Known effects, all accepted:
+
+- Bookmarks and old links break. Users land on `/dms` once, because the
+  `lor:last-workspace-slug` localStorage key no longer matches.
+- OAuth MCP servers must be reconnected: their registered redirect URI
+  embeds the old key.
+- In-flight OAuth or GitHub installs (10-minute window) fail.
+
+Later cleanup, not part of this work: rename `workspaceSlug` identifiers to
+`workspaceKey`. Cosmetic.
+
+## Hints
+
+Principles:
+
+- A hint is one sentence anchored to the thing it explains. No backdrop, no
+  focus trap, no step counter, no tour. It never blocks typing.
+- One hint on screen at a time. A short priority list decides which shows.
+- A hint goes away when the user does the thing, or presses Got it. Outside
+  clicks do not dismiss it (a missed hint would be lost forever).
+- Dismissal is per user, synced across devices. `thread_read_state` already
+  replaced a client-local dismiss set for this reason, and the desktop app's
+  `tauri://localhost` origin has its own localStorage.
+- Workspace facts (GitHub connected, LOR.md written, teammates present) are
+  derived from rows the client already loads. Only "this user has seen this"
+  needs storage.
+
+Storage: table `hint_dismissal` (`user_id` FK cascade, `key` pg enum
+`hint_key`, `dismissed_at`), unique `(user_id, key)`. Scope is per user, not
+per workspace: hints teach the product, and a user who learned `@Lor` in one
+workspace knows it in the next.
+
+API, following `channel-mutes`: `GET /v1/hints` returns dismissed keys;
+`PUT /v1/hints/{key}` upserts and emits `hint:dismissed { key }` to
+`userRoom`. Web `useHints()` wraps the query, an optimistic mutation, and the
+socket invalidation. Mobile mirrors it.
+
+Primitive: `HintPopover` in `apps/web/src/components/hints/`, built on the
+Base UI `Popover` root in controlled mode with `anchor` and `modal={false}`
+(no scroll lock, per the desktop click-lag episode). Compact body, one line of
+text, a Got it button. Appears 600ms after its anchor mounts, 200ms in and
+150ms out on `EASE_OUT`, no overshoot. Honors `MotionConfig reducedMotion`.
+
+The set:
+
+| key | Shows when | Anchor | Copy | Also dismissed by | Mobile |
+|---|---|---|---|---|---|
+| `channels_intro` | First visit to a workspace sidebar where the user can create channels | The sidebar `+` Create button | Your starting channels. Rename, reorder, or add channels and projects here. | Opening the `+` menu | no |
+| `lor_intro` | First text channel visit, user has never mentioned Lor | Composer | Placeholder becomes "Message #general, or @Lor to ask a question". Popover: Mention @Lor to ask about code, issues, or past conversations. | Sending a message that mentions Lor | yes |
+| `lor_reply` | First Lor reply to one of this user's messages finishes streaming | The reply's tool trail row | Lor shows its work. Open the trail to see what it checked. Reply in the thread to continue. | Expanding the trail | yes |
+| `voice_intro` | First voice channel lobby visit | The Start call button in `CallHero` | Calls are transcribed for the people in them. Say "Lor" during a call to ask it something. Lor writes notes when the call ends. | Joining a call | yes |
+| `connectors_intro` | Connectors tab opens with nothing connected, viewer holds `connector:manage` | The GitHub row | Connect GitHub first. Lor reads pull requests, issues, and code through it. | Connecting anything | no (no connectors screen) |
+
+Not hints: the Approvals card already explains itself; settings tabs are
+self-describing; invites are a setup card.
+
+Why not channel events for hints: event rows are channel-wide, permanent, and
+have no per-user state (`reference/channel-events.md`). Why not the empty
+state: channels created through the API start with a `channel_created` event
+row, so `EmptyState` never renders there.
+
+## Lor cold start
+
+Three additions so the first answer in an empty workspace is still good. All
+are context (data), not prompt rules, and none put per-request values in the
+cached system prompt:
+
+- The initial user message gains the workspace name, website, and
+  `description`, next to "Active conversation in #channel"
+  (`packages/lor/src/initial-message.ts:81-150`).
+- The initial message gains the channel topic. `buildRunContext` selects only
+  `channel.name` today (`packages/lor/src/index.ts:1896-1904`).
+- One static sentence in `SYSTEM_PROMPT_TAIL`: connectors that are not listed
+  above are not connected, and a workspace admin can connect them in Settings
+  → Connectors. Static text keeps the prompt cache stable and lets Lor answer
+  "can you see our GitHub?" correctly before setup is done.
+
+## Permissions
+
+**Locked.** Two changes to the static roles and one new rule.
+
+- **Members get `channel: ["create"]`.** Small teams expect everyone to make
+  channels, and projects reuse the same permission. Admins can still remove it
+  with a custom role.
+- **Creators can edit their own channel.** New column `channel.createdById`
+  (FK user, `set null`; null for seeded and existing channels, which stay
+  admin-only). In `updateChannel`, a caller who created the channel may change
+  `name` and `topic` without `channel:update`. Agent profile and slowmode
+  changes still need their normal permissions. Delete stays with
+  `channel:delete`, because a hard delete removes everyone's messages. This
+  mirrors projects, where the creator or `channel:update` can manage.
+- **Connectors are admin-only.** `connector: ["manage"]` becomes the first
+  statement of every connect, disconnect, trigger, and repo-config handler.
+  A connector is a workspace-wide credential: once GitHub is connected, every
+  member can ask Lor about every repo in the installation. Any member can
+  disconnect it for everyone today, and any member can set up Act triggers
+  that spend credits.
+
+## Decisions
+
+| Topic | Decision | Status |
+|---|---|---|
+| Workspace key | Opaque 10-char lowercase base36 key in the `slug` column; no user input; routes unchanged | Locked |
+| Existing workspaces | One-off script rekeys every workspace in dev and prod; breakage accepted (no real users) | Locked |
+| Creation path | First-party `POST /v1/workspaces`; client creation disabled in better-auth; slug changes rejected | Recommended |
+| Workspace fields | Add `description`, `website`, `joinDomain`, `setupCompletedAt`; description and website editable in General and injected into Lor's run context | Recommended |
+| Company prefill | Website, name and one-line description from the verified email domain; user confirms; never written to memory | Locked |
+| Person research | None, for creators or joiners | Locked |
+| Site icon | Shown in the Website field; becomes the workspace icon when it declares at least 64px | Locked |
+| Join by email domain | Build it; admins set the domain they belong to; free email domains excluded | Locked |
+| Domain join default | Setup toggle starts on when the creator's domain qualifies | Locked |
+| Default channels | `#general`, `#engineering`, `Standup` (voice), `#random`, with topics | Locked |
+| Connector routing | Off by default; setup does not ask; Lor change proposals can suggest it later | Locked |
+| Lor intro message | One static Lor message in `#general`, excluded from memory | Recommended |
+| Setup state | `workspace.setupCompletedAt`; card states derived from rows | Recommended |
+| Setup visibility | Anyone with `connector:manage` | Locked |
+| Hint storage | `hint_dismissal` per user, synced via `hint:dismissed` | Recommended |
+| Hint scope | Per user globally | Recommended |
+| `user.onboardingCompleted` | Stop reading it; gate on "zero workspaces"; drop the column in a later cleanup | Recommended |
+| Member channel creation | Members get `channel:create`; creators edit name and topic of their own channels; delete stays admin | Locked |
+| Connector permissions | `connector:manage` enforced on every connector handler | Locked |
+| Promo credits | Grant at workspace creation when billing is on. Interim: launch pricing is a separate discussion, and billing is off in prod until then | Locked |
+| Linear-linked projects | Separate design and thread: `reference/planned/linear-projects.md` | Locked |
+| Analytics | None now; measure the funnel from `setupCompletedAt`, connections, and invites in the DB | Recommended |
+
+## Steps
+
+Each step is one reviewable chunk (about 300 to 400 lines), leaves `check`
+and `check-types` green, and is committed by Jacob before the next starts.
+Schema edits are listed; Jacob runs `db:push`.
+
+### Step 1: workspace key, create route, new columns, rekey script
+
+- `packages/utils/src/short-code.ts` (new): `randomCode(length, alphabet)`
+  with rejection sampling, `workspaceKey()` (10 chars base36). The invite
+  code generator in `apps/api/src/routes/v1/invites/handlers.ts:19-30` moves
+  onto it, which also removes its modulo bias.
+- `packages/db/src/schemas/workspaces.ts`: add `description text`,
+  `website text`, `joinDomain text` (indexed), `setupCompletedAt timestamp`.
+  Comment on `slug`: server-generated key. **db:push owed.**
+- `packages/db/src/scripts/rekey-workspaces.ts` (new, one-off): rewrites
+  every `workspace.slug` to `workspaceKey()` in one transaction and prints
+  old and new keys. Header documents
+  `pnpm --filter @repo/db exec tsx src/scripts/rekey-workspaces.ts`. Jacob
+  runs it against dev, then prod, after Step 1 deploys. Old slugs keep
+  working until then.
+- `packages/auth/src/lib/auth.ts`: `allowUserToCreateOrganization: false`;
+  organization `additionalFields` `description` and `website` (input true,
+  returned true), `joinDomain` and `setupCompletedAt` (input false, returned
+  true) so `organization.list()` carries them to both clients with no new
+  endpoint; `beforeUpdateOrganization` rejects slug changes.
+- `apps/api/src/routes/v1/workspaces/{routes,schema,handlers}.ts`:
+  `POST /workspaces` (session auth) mints the key, calls
+  `auth.api.createOrganization` as a system action, retries once on `23505`,
+  returns `{ workspace, firstChannelId }`. PATCH accepts `description` and
+  `website`, and `setupCompleted: true` for `connector:manage` holders.
+- Rebuild `apps/api` and `packages/api-client`.
+
+### Step 2: startup template, Lor intro, Lor context
+
+- `packages/db/src/seeds/workspace-template.ts` (new): the four channels with
+  topics and positions, the Lor intro message row. Exported
+  `seedWorkspaceTemplate(workspaceId)`.
+- `packages/auth/src/lib/auth.ts`: `afterCreateOrganization` calls the
+  template; remove the early `return`; drop `defaultWorkspaceChannels` and
+  `seedDefaultWorkspaceChannels`.
+- `packages/lor/src/initial-message.ts`, `packages/lor/src/index.ts`
+  (`buildRunContext`, `SYSTEM_PROMPT_TAIL`): workspace name, website and
+  description, channel topic, the static connectors sentence.
+- `apps/api/scripts/seed-channels.ts`: update or delete the dev script.
+
+### Step 3: web `/onboarding` page and landing changes
+
+- `apps/web/src/routes/onboarding.tsx` (new, top-level like
+  `invite/$code.tsx`): session guard, Create (website, name, description) and
+  Join-with-invite cards, calls `POST /workspaces`, `organization.setActive`,
+  emits `workspace:member:joined` so the creator's socket joins the room
+  (today the create flows never emit it), navigates to `/{key}/setup`.
+- `apps/web/src/routes/_authenticated.tsx`: remove `OnboardingDialog`; zero
+  workspaces → `/onboarding`. `_authenticated/index.tsx`: same.
+- `apps/web/src/components/sidebar/workspace-sidebar.tsx`: "Create
+  workspace" navigates to `/onboarding`. Delete
+  `create-workspace-dialog.tsx`.
+- `apps/web/src/routes/invite/$code.tsx`: after accept, navigate to the first
+  channel.
+- Delete `apps/web/src/components/onboarding/onboarding-dialog.tsx` and the
+  campsite image.
+- `apps/mobile/src/app/onboarding.tsx`: website, name and description, no
+  slug, same route; `apps/mobile/src/lib/invites.ts`: SecureStore for the
+  pending code.
+
+### Step 4: company prefill and site icon
+
+- `packages/utils/src/free-email-domains.ts` (new): vendored list and
+  `isFreeEmailDomain(domain)`.
+- `packages/lor/src/company-site.ts` (new): `lookupCompanySite(domain)`:
+  Exa page text plus a small-model call for name and one line;
+  `resolveSiteIcon(domain)` through `createGuardedMcpFetch`, returning the
+  best `https` icon and its declared size.
+- `apps/api/src/routes/v1/onboarding/*` (new): `GET /onboarding/site`,
+  session auth, rate limited, Redis cache per domain.
+- `apps/api/src/routes/v1/workspaces/handlers.ts`: on create with a website,
+  resolve the icon again, download it when it declares at least 64px, store
+  it in R2 under `workspace-icons/{id}/`, set `logo`.
+- `apps/web/src/routes/onboarding.tsx`: prefill from the email domain on
+  load; debounced lookup as the user edits Website; icon inside the field;
+  fields fill in without blocking typing.
+- `apps/mobile/src/app/onboarding.tsx`: the same prefill and icon.
+
+### Step 5: web setup page
+
+- `apps/web/src/routes/_authenticated/$workspaceSlug/setup.tsx` (new) and
+  `apps/web/src/components/setup/*`: `ConnectCard` (GitHub, Linear) over
+  `["integrations", key]` with focus refetch, `InviteCard` reusing the
+  invite-link mutation from `create-invite-dialog.tsx`, `AskLorCard`, Finish
+  and Do this later → PATCH `setupCompleted`. Users without
+  `connector:manage` are sent to the first channel.
+- `apps/web/src/routes/_authenticated/$workspaceSlug/index.tsx`: a
+  `connector:manage` holder with null `setupCompletedAt` → `/setup`,
+  forwarding `connector` (today it drops that param, so the OAuth return lands
+  on the connectors list instead of the detail).
+- `apps/web/src/routes/_authenticated/$workspaceSlug/$channelId.tsx` and
+  `message-input.tsx`: a `draft` search param feeds `composerDraft` on the
+  channel route (only the thread panel supports it today), so AskLor can
+  prefill `@Lor ...` without sending.
+- `apps/web/src/components/sidebar/workspace-sidebar.tsx`: "Finish setup"
+  menu item while unfinished.
+
+### Step 6: permissions and GitHub connect
+
+- `packages/auth/src/lib/permissions.ts`: `member` gains
+  `channel: ["create"]`. Web `canCreateChannels` follows automatically.
+- `packages/db/src/schemas/channels.ts`: `createdById` column.
+  **db:push owed.**
+- `apps/api/src/routes/v1/channels/handlers.ts`: `createChannel` sets
+  `createdById` and `max(position)+1`; `updateChannel` allows the creator to
+  change `name` and `topic`, and asserts `channel:update` for everything
+  else.
+- `apps/web/src/components/sidebar/channel-panel/channel-list.tsx` and
+  `edit-channel-dialog.tsx`: Edit Channel shows for the creator, with the
+  Overview tab only.
+- `apps/api/src/routes/v1/integrations/handlers.ts`: `assertWorkspaceAuthority`
+  `connector: ["manage"]` as the first statement of connect, disconnect,
+  `updateIntegration`, and `updateGithubRepoConfig`; `canManage` in the list
+  response reflects it. Web `connectBlocker` already renders "Admin only".
+- The 409 cross-workspace guard ignores `revoked` rows (today a replaced or
+  suspended row in an old test workspace blocks the external id forever).
+- GitHub connect stops depending on GitHub returning `state`. Disconnecting
+  in Lor does not uninstall the App on GitHub, so a reconnect opens the
+  existing installation's configure page. With Redirect on update, GitHub
+  then returns to the Setup URL with `installation_id`, and third-party
+  reports say without `state`. Today `setup.tsx` bails with "Missing GitHub
+  install details". Fix: the Connect button calls a POST that records a
+  connect intent (Redis, user id → workspace id, 15 minutes) and returns the
+  install URL with a signed state. `setup.tsx` posts `installationId` and
+  any `state` to a session-scoped `POST /v1/integrations/github/setup`. The
+  server picks the workspace from the signed state, else from the intent,
+  checks membership and `connector:manage`, connects, and returns the
+  workspace key for navigation. This also replaces today's raw, unsigned
+  slug in `state`.
+
+### Step 7: join by email domain
+
+- `apps/api/src/lib/workspace-membership.ts` (new): `addWorkspaceMember`
+  extracted from `acceptInvite` (avatar color, insert, `syncSeats`). Invite
+  accept switches to it.
+- `apps/api/src/routes/v1/workspaces/*`: `GET /workspaces/joinable`,
+  `POST /workspaces/{key}/join`, PATCH accepts `joinDomain` (admins; must
+  equal the caller's verified email domain; not a free email domain; null
+  turns it off).
+- `apps/web/src/routes/onboarding.tsx` and `apps/mobile/src/app/onboarding.tsx`:
+  join cards above Create.
+- `apps/web/src/components/setup/invite-card.tsx` and the General section of
+  `workspace-settings-dialog.tsx`: the domain toggle.
+
+### Step 8: hints, part 1
+
+- `packages/db/src/schemas/hint-dismissals.ts` (new): `hint_key` enum,
+  `hint_dismissal` table. **db:push owed.**
+- `apps/api/src/routes/v1/hints/*` (new): `GET /hints`, `PUT /hints/{key}`,
+  emit `hint:dismissed` to `userRoom` through the redis emitter.
+- `packages/realtime-types/src/events.ts`: `hint:dismissed`.
+- `apps/web/src/hooks/use-hints.ts`, `apps/web/src/components/hints/hint-popover.tsx`,
+  a small `useHintSlot` that enforces one visible hint.
+- Mount `channels_intro` (`workspace-sidebar.tsx` `+` button) and `lor_intro`
+  (`message-input.tsx` placeholder and popover; dismissed in the send path
+  when the stored markdown contains `<@LOR_USER_ID>`).
+
+### Step 9: hints, part 2 and mobile
+
+- `lor_reply` in `apps/web/src/components/chat/message-item.tsx` (anchor: the
+  trail summary row; condition: `authorId === LOR_USER_ID`, trigger message by
+  the viewer, `streaming` false).
+- `voice_intro` in `apps/web/src/components/voice/call-hero.tsx`.
+- `connectors_intro` in `apps/web/src/components/workspace/connectors-section.tsx`
+  (`ConnectorList`, GitHub row, only when `canManage`).
+- Mobile: `apps/mobile/src/hooks/use-hints.ts`, `lor_intro` in
+  `message-composer.tsx`, `voice_intro` in `components/voice/voice-lobby.tsx`,
+  "Finish setup on the web" panel in `(tabs)/index.tsx`.
+
+### Step 10: invite management, billing, desktop
+
+- Mount `ManageInvitesDialog` in the Members tab (`members-section.tsx`); it
+  exists but is imported nowhere.
+- `packages/auth/src/lib/auth.ts`: remove the Drizzle `onboardingCompleted`
+  write; mark the field `input: false`. Column drop is a later cleanup.
+- `packages/billing/src/promo.ts` and `auth.ts`: grant the promo in
+  `afterCreateOrganization` when billing is on; `acceptInvite` stops calling
+  it. No effect in prod until Autumn is connected.
+- Desktop minimal fix: in Tauri, `signup.tsx`, `check-email.tsx`,
+  `forgot-password.tsx` build `callbackURL`/`redirectTo` from
+  `NEXT_PUBLIC_WEB_URL` (the `invite-url.ts` pattern), and `check-email`
+  says to sign in after verifying. A packaged desktop sign-up dead-ends today
+  because the verification link redirects to `tauri://localhost`, which the
+  browser cannot open. A real deep-link handoff is its own project.
+
+### Docs
+
+- `reference/README.md`: this doc moves to root when Step 1 starts.
+- `reference/mobile-parity-todo.md:120`: the "Onboarding dialog is web-side"
+  line is stale; mobile has `onboarding.tsx`.
+- `reference/github-connector.md:36,53`: the per-channel gating TODO and
+  `SOURCE_INGEST_ENABLED` are stale against code (agent profiles gate per
+  channel today).
+
+## Hazards
+
+- `afterCreateOrganization` returns early on a channel-seed failure and skips
+  everything after it. Step 2 makes each step independent.
+- `db.update(user)` bypasses better-auth's `refreshUserSessions`, so
+  `session.user` stays stale in Redis. Never write user flags that way; Step
+  10 removes the one existing case.
+- `WorkspaceHome` forwards `settings`, `tab`, `mcpServerId` but not
+  `connector`. Step 5 fixes it; the setup page depends on it.
+- On desktop the OAuth callback runs in the system browser with its own
+  session. The setup page must not rely on the callback reaching the app; it
+  reads server state on focus. If the browser is signed in as a different Lor
+  user, the Linear state check fails with a generic toast and the desktop app
+  sees nothing. Known gap, not fixed here.
+- The rekey script breaks OAuth MCP server registrations, because the
+  redirect URI they registered embeds the old key. Reconnect them after the
+  script runs.
+- The site lookup makes our server fetch domains that users type. All
+  fetches go through the guarded fetch (DNS check against private ranges,
+  timeout, size cap), the endpoint is rate limited, and the workspace icon
+  is resolved again on the server at create time.
+- `revoked` `integration_connection` rows still block the `(provider,
+  external_id)` unique index across workspaces. Step 6 relaxes the 409 guard
+  for revoked rows owned by another workspace.
+- The default agent profile is `grantsAll`, so every connected connector is
+  available in every channel. Fine for v1; scoping `code_actions` to
+  `#engineering` is a later agent-profile template.
+- `loadConversation` does not filter message types, so Lor's intro shows up as
+  a Lor turn in `#general`'s first run. Accurate, intended.
+- `AGENT_RUN_MAX_CREDITS` defaults to 2,000, equal to the promo, so one heavy
+  first answer can spend the whole grant. Revisit with launch pricing.
+- `connectGithub` never verifies that the acting user can access the
+  installation id (GitHub advises a user-token check). Admin-only connectors
+  narrow who can try. Pre-existing; out of scope.
+
+## Open questions
+
+None open. Before Step 5 is tested live, Jacob creates a dev GitHub App
+(checklist in `reference/github-connector.md`). Today dev shares the prod
+App, whose Setup URL points at `app.lor.chat`, so a GitHub connect started
+from dev lands on the prod web app and fails.
+
+Resolved 2026-10-07: the prod App is public, has OAuth during installation
+off, Setup URL `https://app.lor.chat/integrations/github/setup`, and Redirect
+on update on. Step 6 makes the connect flow independent of `state`, so
+Redirect on update stays on. Creators cannot delete their own channels.
