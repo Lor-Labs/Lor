@@ -40,7 +40,8 @@ export function useWorkspaceSetup(workspaceSlug: string) {
   const roles = useWorkspaceRoles(customRole ? workspace?.id : undefined)
 
   let status: WorkspaceSetupStatus = "loading"
-  if (workspace && !isUnfinished) status = "finished"
+  if (workspaces && !workspace) status = "no-access"
+  else if (workspace && !isUnfinished) status = "finished"
   else if (members.isError || roles.isError || (members.data && !me)) {
     status = "no-access"
   } else if (members.data && me && (!customRole || roles.data)) {

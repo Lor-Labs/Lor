@@ -221,9 +221,15 @@ function OnboardingFlow({ email }: { email: string }) {
   }
 
   const handleSignOut = async () => {
-    await authClient.signOut()
+    try {
+      const { error } = await authClient.signOut()
+      if (error) throw error
+    } catch {
+      toast.error("Couldn't sign out. Please try again.")
+      return
+    }
     queryClient.clear()
-    await navigate({ to: "/login" })
+    await navigate({ to: "/login", replace: true })
   }
 
   const createButtonLabel = created
