@@ -763,7 +763,13 @@ As built: web `lor_reply` lives in `lor-activity.tsx`, `voice_intro` in
 
 ## Open questions
 
-None open. Before Step 5 is tested live, Jacob creates a dev GitHub App
+Rework owed after `reference/planned/workspace-model.md` (2026-10-08):
+channel chat is now people only, and Lor works in sessions. The Lor intro
+message in `#general` (Step 2) goes away, and the `@Lor` hints (Steps 8 and 9)
+must teach "@Lor starts a session" and ⌘N. Jacob wants to redo how onboarding
+introduces Lor once the workspace model lands.
+
+Before Step 5 is tested live, Jacob creates a dev GitHub App
 (checklist in `reference/github-connector.md`). Today dev shares the prod
 App, whose Setup URL points at `app.lor.chat`, so a GitHub connect started
 from dev lands on the prod web app and fails.

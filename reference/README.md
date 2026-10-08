@@ -55,6 +55,7 @@ needs a link sweep over `CLAUDE.md`, `reference/` and code comments.
 
 | Doc | Status |
 |---|---|
+| `workspace-model.md` | Human-only channel chat, Lor works in sessions. Design locked 2026-10-08; next mockups, then a runbook |
 | `linear-projects.md` | Lor projects linked to Linear projects. Split from onboarding 2026-10-07; open for its own design thread |
 | `code-channels.md` | Multiplayer AI coding architecture, design agreed 2026-10-05 |
 | `self-configuration.md` | Vision for Lor proposing changes to itself; pillars 1–2 shipped (root runbooks), pillar 3 in flight |
