@@ -6,6 +6,7 @@ import {
   useNavigate,
 } from "@tanstack/react-router"
 import { useEffect, useRef, useState } from "react"
+import { HintsProvider } from "@/components/hints/hints-provider"
 import { OfflineScreen } from "@/components/offline-screen"
 import { SettingsDialog } from "@/components/settings/settings-dialog"
 import { Sidebar } from "@/components/sidebar/index"
@@ -157,22 +158,24 @@ function AuthenticatedLayout() {
 
   return (
     <SocketProvider enabled={!!session}>
-      <UnreadProvider>
-        <MobileSidebarProvider>
-          <div className="flex h-screen overflow-hidden bg-background text-foreground">
-            <UpdateBanner />
-            <VoiceCallProvider>
-              <Sidebar>
-                {/* Inside the sidebar tree so notification clicks can open
+      <HintsProvider>
+        <UnreadProvider>
+          <MobileSidebarProvider>
+            <div className="flex h-screen overflow-hidden bg-background text-foreground">
+              <UpdateBanner />
+              <VoiceCallProvider>
+                <Sidebar>
+                  {/* Inside the sidebar tree so notification clicks can open
                     the right panel. */}
-                <BrowserNotifications />
-                <Outlet />
-              </Sidebar>
-            </VoiceCallProvider>
-            <SettingsDialog />
-          </div>
-        </MobileSidebarProvider>
-      </UnreadProvider>
+                  <BrowserNotifications />
+                  <Outlet />
+                </Sidebar>
+              </VoiceCallProvider>
+              <SettingsDialog />
+            </div>
+          </MobileSidebarProvider>
+        </UnreadProvider>
+      </HintsProvider>
     </SocketProvider>
   )
 }

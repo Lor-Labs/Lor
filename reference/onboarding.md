@@ -661,7 +661,12 @@ toggle starts on" means in data.
 
 ### Step 8: hints, part 1
 
-[ ] built · [ ] committed · [ ] db:push
+[x] built 2026-10-08 · [ ] committed · [ ] db:push
+
+As built: `components/hints/hints-provider.tsx` (`HintsProvider` in the
+`_authenticated` layout, `useHint(key, eligible)`, the priority list) and
+`components/hints/hint-popover.tsx`. The enum already holds all five keys,
+so Step 9 needs no second db:push.
 
 - `packages/db/src/schemas/hint-dismissals.ts` (new): `hint_key` enum,
   `hint_dismissal` table. **db:push owed.**
@@ -849,3 +854,13 @@ Redirect on update stays on. Creators cannot delete their own channels.
   and reports whether it joined; `afterWorkspaceJoin` runs `syncSeats` and
   the first-invite promo for both invite and domain joins. Join returns 404
   for both a missing key and a domain mismatch, so keys can't be probed.
+- 2026-10-08, Step 8: one context provider replaces `use-hints.ts` +
+  `useHintSlot`. Components report eligibility through `useHint(key,
+  eligible)`; the provider shows the first eligible, undismissed key in
+  `HINT_PRIORITY`. `lor_intro` outranks `channels_intro`, so a new member
+  learns @Lor first. Dismissed state reads as "dismissed" until loaded, so
+  nothing flashes.
+- 2026-10-08, Step 8: `channels_intro` is eligible only while the sidebar is
+  open (desktop collapse or the closed mobile sheet would hide its anchor).
+  `lor_intro` is opted into with `MessageInput lorIntro` on the channel
+  route; any composer's send that mentions Lor dismisses it.

@@ -484,6 +484,11 @@ export type ChannelMuteUpdated = {
   muted: boolean
 }
 
+// A product hint the user dismissed on another device; key is a `hint_key`.
+export type HintDismissed = {
+  key: string
+}
+
 // Wire shape of a Lor tool-trail entry — mirrors LorToolCall in
 // @repo/db/schema. Shared by lor:tool and project:archive:progress.
 export type RealtimeLorToolCall = {
@@ -749,6 +754,7 @@ export interface ServerToClientEvents {
   "channel:read-state": (payload: ChannelReadState) => void
   "channel:created": (payload: ChannelCreatedEvent) => void
   "channel-mute:updated": (payload: ChannelMuteUpdated) => void
+  "hint:dismissed": (payload: HintDismissed) => void
   "thread-read:updated": (payload: ThreadReadUpdated) => void
   "project:updated": (payload: ProjectUpdatedEvent) => void
   "project:archive:progress": (payload: ProjectArchiveProgressEvent) => void

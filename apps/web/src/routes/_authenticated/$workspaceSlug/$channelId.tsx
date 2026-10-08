@@ -607,6 +607,7 @@ function ChannelView() {
         <MessageInput
           composerDraft={composerDraft}
           onComposerDraftConsumed={consumeComposerDraft}
+          lorIntro
           context={context}
           channelId={channelId}
           onSend={handleSend}
