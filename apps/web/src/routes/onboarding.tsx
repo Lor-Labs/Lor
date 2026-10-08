@@ -155,21 +155,14 @@ function OnboardingFlow({ email }: { email: string }) {
         setError(await errorMessage(res, "Couldn't create the workspace"))
         return
       }
-      const { workspace, firstChannelId } = await res.json()
+      const { workspace } = await res.json()
       await queryClient.invalidateQueries({ queryKey: ["workspaces"] })
 
       setCreated(true)
       await new Promise((resolve) => setTimeout(resolve, SUCCESS_BEAT_MS))
 
-      if (firstChannelId) {
-        await navigate({
-          to: "/$workspaceSlug/$channelId",
-          params: { workspaceSlug: workspace.slug, channelId: firstChannelId },
-        })
-        return
-      }
       await navigate({
-        to: "/$workspaceSlug",
+        to: "/$workspaceSlug/setup",
         params: { workspaceSlug: workspace.slug },
       })
     } catch {

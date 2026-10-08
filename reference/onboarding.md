@@ -575,7 +575,13 @@ Part 2, built:
 
 ### Step 5: web setup page
 
-[ ] built · [ ] committed · [ ] dev GitHub App created
+[x] built 2026-10-08 · [ ] committed · [ ] dev GitHub App created
+
+As built: the route is `setup.tsx`, the rows live in
+`components/setup/setup-steps.tsx` (`ConnectStep`, `InviteStep`,
+`AskLorSuggestions`), and access comes from `hooks/use-workspace-setup.ts`
+(also used by the root redirect and the sidebar item). Web onboarding now
+lands the creator on `/setup`.
 
 - `apps/web/src/routes/_authenticated/$workspaceSlug/setup.tsx` (new) and
   `apps/web/src/components/setup/*`: `ConnectCard` (GitHub, Linear) over
@@ -790,3 +796,17 @@ Redirect on update stays on. Creators cannot delete their own channels.
   the choose step; the shimmer and the "Filled from" hint make it visible.
   Google's favicon service never upscales and returns 404 for unknown sites,
   which is what makes the 64px rule work; it serves large icons as JPEG.
+- 2026-10-08, Step 5: connector callbacks (GitHub, Linear, Notion, Attio)
+  return to the root with only `?connector=<id>`. Sending `settings` too
+  flashed the settings dialog on the root before the setup redirect. The
+  root sends unfinished setup to `/setup` (done states come from the
+  integrations query) and otherwise opens the connector's settings detail
+  over the channel, which also fixes the dropped-`connector` hazard.
+- 2026-10-08, Step 5: "Finish" and "Do this later" are one button whose
+  label changes once anything is done; both set `setupCompletedAt`.
+- 2026-10-08, Step 5: setup access reads the viewer's role from the
+  slug-scoped members list, not `getActiveMember`, which can answer for the
+  previous workspace while the active organization switches.
+- 2026-10-08, Step 5: the invite row creates a 7-day, unlimited link on
+  click and tries to copy it at once; Safari can refuse a clipboard write
+  after the request's await, so a Copy button replaces Create.

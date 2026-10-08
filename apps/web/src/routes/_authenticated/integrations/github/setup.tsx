@@ -61,14 +61,12 @@ function GithubSetup() {
       } catch {
         toast.error("Couldn't connect GitHub")
       }
-      // Only deep-link into GitHub's connector detail on success; on failure
-      // just return to the workspace.
+      // The workspace root routes ?connector= to setup or the connector's
+      // detail; on failure just return to the workspace.
       await navigate({
         to: "/$workspaceSlug",
         params: { workspaceSlug: state },
-        search: connected
-          ? { settings: "workspace", tab: "connectors", connector: "github" }
-          : {},
+        search: connected ? { connector: "github" } : {},
         replace: true,
       })
     })()

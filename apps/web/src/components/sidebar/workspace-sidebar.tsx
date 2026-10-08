@@ -1,4 +1,5 @@
 import {
+  CheckListIcon,
   Folder02Icon,
   FolderAddIcon,
   GridViewIcon,
@@ -69,6 +70,7 @@ import {
 } from "@/components/workspace/workspace-settings-dialog"
 import { useBillingUpdates } from "@/hooks/use-billing-updates"
 import { useSettings } from "@/hooks/use-settings"
+import { useWorkspaceSetup } from "@/hooks/use-workspace-setup"
 import { apiClient } from "@/lib/api-client"
 import { writeLastWorkspaceSlug } from "@/lib/last-location"
 import { canCreateChannels, isAdminOrOwner } from "@/lib/permissions"
@@ -106,6 +108,7 @@ function WorkspaceSidebarInner() {
     useCreateChannel()
   const { target, tab, open: openSettings, close, setTab } = useSettings()
   const [inviteOpen, setInviteOpen] = useState(false)
+  const { status: setupStatus } = useWorkspaceSetup(workspaceSlug ?? "")
 
   const settingsOpen = target === "workspace"
   const settingsSection = toSectionId(tab)
@@ -263,6 +266,24 @@ function WorkspaceSidebarInner() {
                     />
                     Invite people
                   </DropdownMenuItem>
+                  {workspaceSlug && setupStatus === "open" && (
+                    <DropdownMenuItem
+                      className={sidebarMenuRow}
+                      onClick={() =>
+                        navigate({
+                          to: "/$workspaceSlug/setup",
+                          params: { workspaceSlug },
+                        })
+                      }
+                    >
+                      <HugeiconsIcon
+                        icon={CheckListIcon}
+                        className={sidebarMenuIcon}
+                        strokeWidth={1.5}
+                      />
+                      Finish setup
+                    </DropdownMenuItem>
+                  )}
                 </DropdownMenuGroup>
                 <DropdownMenuSeparator className={sidebarMenuSeparator} />
                 <DropdownMenuSub>

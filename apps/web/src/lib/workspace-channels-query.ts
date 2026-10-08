@@ -18,16 +18,26 @@ export function workspaceChannelsQueryOptions(workspaceSlug: string) {
   })
 }
 
+function openTextChannels(channels: ListChannelsResponse) {
+  return [
+    ...channels.uncategorized,
+    ...channels.categories.flatMap((category) => category.channels),
+  ].filter((channel) => channel.type === "text" && !channel.archivedAt)
+}
+
 // Where to land someone who has no remembered channel in this workspace.
 export function firstTextChannelId(
   channels: ListChannelsResponse
 ): string | null {
-  const ordered = [
-    ...channels.uncategorized,
-    ...channels.categories.flatMap((category) => category.channels),
-  ]
+  return openTextChannels(channels)[0]?.id ?? null
+}
+
+export function textChannelIdNamed(
+  channels: ListChannelsResponse,
+  name: string
+): string | null {
   return (
-    ordered.find((channel) => channel.type === "text" && !channel.archivedAt)
-      ?.id ?? null
+    openTextChannels(channels).find((channel) => channel.name === name)?.id ??
+    null
   )
 }

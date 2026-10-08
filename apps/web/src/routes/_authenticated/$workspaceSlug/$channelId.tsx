@@ -66,6 +66,9 @@ type ChannelSearchParams = {
   artifactId?: string
   artifactFrom?: "files"
   fileSearch?: string
+  // Prefills the composer with "@Lor <draft>" without sending (setup's Ask
+  // Lor suggestions). Cleared once applied.
+  draft?: string
 }
 
 export const Route = createFileRoute(
@@ -92,6 +95,8 @@ export const Route = createFileRoute(
       typeof search.fileSearch === "string"
         ? search.fileSearch.slice(0, 200)
         : undefined,
+    draft:
+      typeof search.draft === "string" ? search.draft.slice(0, 500) : undefined,
   }),
 })
 
@@ -129,8 +134,19 @@ function ChannelView() {
     artifactId,
     artifactFrom,
     fileSearch,
+    draft,
   } = Route.useSearch()
   const navigate = Route.useNavigate()
+  const composerDraft = useMemo(
+    () => (draft ? { id: draft, text: draft } : undefined),
+    [draft]
+  )
+  const consumeComposerDraft = useCallback(() => {
+    void navigate({
+      search: (prev) => ({ ...prev, draft: undefined }),
+      replace: true,
+    })
+  }, [navigate])
   const socket = useSocket()
   const entry = useChannelEntry(workspaceSlug, channelId)
   useAutoMarkRead(entry.ready ? channelId : undefined)
@@ -589,6 +605,8 @@ function ChannelView() {
         </div>
       ) : (
         <MessageInput
+          composerDraft={composerDraft}
+          onComposerDraftConsumed={consumeComposerDraft}
           context={context}
           channelId={channelId}
           onSend={handleSend}
