@@ -2,8 +2,8 @@ import Globe02Icon from "@hugeicons/core-free-icons/Globe02Icon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
 import { normalizeDomain } from "@repo/utils/domain"
 import { Image } from "expo-image"
-import { useEffect, useState } from "react"
-import { TextInput, type TextInputProps, View } from "react-native"
+import { useEffect, useRef, useState } from "react"
+import { Pressable, TextInput, type TextInputProps, View } from "react-native"
 import Animated, { withSpring, withTiming } from "react-native-reanimated"
 import { useTheme } from "@/hooks/use-theme"
 
@@ -46,7 +46,11 @@ function faviconUrl(domain: string) {
   return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=64`
 }
 
-type WebsiteInputProps = Omit<TextInputProps, "value" | "onChangeText"> & {
+// The field draws its own chrome, so callers can't restyle the inner input.
+type WebsiteInputProps = Omit<
+  TextInputProps,
+  "value" | "onChangeText" | "className" | "style"
+> & {
   value: string
   onChangeText: (value: string) => void
 }
@@ -59,6 +63,7 @@ export function WebsiteInput({
   ...props
 }: WebsiteInputProps) {
   const theme = useTheme()
+  const inputRef = useRef<TextInput>(null)
   const [loadedDomain, setLoadedDomain] = useState<string | null>(null)
   const [domain, setDomain] = useState(() => normalizeDomain(value))
 
@@ -83,10 +88,16 @@ export function WebsiteInput({
 
   const showFavicon = domain !== null && loadedDomain === domain
 
+  // A row, not an overlay: the icon and the text are centered by the same
+  // flex line, so they stay aligned however iOS places the text baseline.
   return (
-    <View className="justify-center">
+    <Pressable
+      accessible={false}
+      className="min-h-[52px] flex-row items-center gap-[10px] rounded-lor-md border border-border bg-surface px-three"
+      onPress={() => inputRef.current?.focus()}
+    >
       <View
-        className="absolute left-three z-10 items-center justify-center"
+        className="items-center justify-center"
         pointerEvents="none"
         style={{ width: ICON_SIZE, height: ICON_SIZE }}
       >
@@ -118,11 +129,12 @@ export function WebsiteInput({
         )}
       </View>
       <TextInput
+        ref={inputRef}
+        className="flex-1 self-stretch text-[16px] text-foreground"
         value={value}
         onChangeText={onChangeText}
-        style={{ paddingLeft: 42 }}
         {...props}
       />
-    </View>
+    </Pressable>
   )
 }
