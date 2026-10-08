@@ -72,8 +72,13 @@ places.
     and in the channel's full session list.
 12. **The sidebar is the attention surface. There is no inbox view.**
     - Each session row shows its own state.
-    - Each channel row shows the strongest state of your sessions in it:
-      alert, then spinner, then dot.
+    - Each channel shows at most 3 of your sessions, ordered alert, then
+      running, then unread, then the rest. A "N more" row shows the strongest
+      state of the hidden ones and expands the list in place.
+    - Hovering the channel's # (not the row) turns it into a chevron that
+      collapses the channel's sessions. A collapsed channel row shows the
+      strongest state of its sessions: alert, then spinner, then dot.
+    - Starting a session in a collapsed channel expands that channel.
     - "Needs you" always notifies. "Done" notifies the starter. Running never
       notifies.
     - Who is needed: a question from Lor goes to the starter (anyone in the

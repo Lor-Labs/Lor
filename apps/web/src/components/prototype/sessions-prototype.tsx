@@ -22,7 +22,12 @@ import {
   titleFromPrompt,
 } from "./prototype-data"
 import { MentionText, PersonAvatar } from "./prototype-parts"
-import { PrototypeSidebar, SessionStateIndicator } from "./prototype-sidebar"
+import {
+  PrototypeSidebar,
+  SESSION_CAP,
+  SessionStateIndicator,
+  toggleIn,
+} from "./prototype-sidebar"
 import { SessionView } from "./session-view"
 
 const LOR_REPLY =
@@ -74,6 +79,8 @@ export function SessionsPrototype() {
     kind: "channel",
     channelId: "engineering",
   })
+  const [collapsed, setCollapsed] = useState(() => new Set(["product"]))
+  const [expanded, setExpanded] = useState(() => new Set<string>())
   const [transcripts, setTranscripts] = useState(initialTranscripts)
   const [seeds, setSeeds] = useState(seedMessageIds)
   const [started, setStarted] = useState<Session | null>(null)
@@ -153,6 +160,21 @@ export function SessionsPrototype() {
       ],
     }
     const needsYou = startedCount.current % 3 === 0
+    const alertsAhead = sessions.filter(
+      (item) =>
+        item.channelId === channelId &&
+        item.state === "needs_you" &&
+        !item.archivedBy &&
+        item.subscriberIds.includes(me.id)
+    ).length
+    setCollapsed((prev) => {
+      const next = new Set(prev)
+      next.delete(channelId)
+      return next
+    })
+    if (alertsAhead >= SESSION_CAP) {
+      setExpanded((prev) => new Set(prev).add(channelId))
+    }
     setSessions((prev) => [session, ...prev])
     setTranscripts((prev) => ({
       ...prev,
@@ -261,6 +283,14 @@ export function SessionsPrototype() {
       >
         <PrototypeSidebar
           sessions={sidebarSessions}
+          collapsed={collapsed}
+          expanded={expanded}
+          onToggleCollapsed={(channelId) =>
+            setCollapsed((prev) => toggleIn(prev, channelId))
+          }
+          onToggleExpanded={(channelId) =>
+            setExpanded((prev) => toggleIn(prev, channelId))
+          }
           activeChannelId={activeChannel?.id ?? null}
           activeSessionId={activeSession?.id ?? null}
           newSessionActive={view.kind === "new"}

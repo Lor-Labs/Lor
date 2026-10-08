@@ -18,7 +18,6 @@ import {
 import { EASE_OUT } from "@repo/ui/lib/motion"
 import { cn } from "@repo/ui/lib/utils"
 import { AnimatePresence, motion } from "motion/react"
-import { useState } from "react"
 import { DesktopSidebarTitlebar } from "@/components/desktop-titlebar"
 import { WorkspaceAvatar } from "@/components/workspace/workspace-avatar"
 import {
@@ -29,6 +28,20 @@ import {
 } from "./prototype-data"
 
 const ROLL_UP_ORDER: SessionState[] = ["needs_you", "running", "unread"]
+const STATE_RANK: Record<SessionState, number> = {
+  needs_you: 0,
+  running: 1,
+  unread: 2,
+  idle: 3,
+}
+export const SESSION_CAP = 3
+
+export function toggleIn(set: Set<string>, id: string) {
+  const next = new Set(set)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  return next
+}
 
 export function SessionStateIndicator({ state }: { state: SessionState }) {
   if (state === "running") {
@@ -62,32 +75,29 @@ export function SessionStateIndicator({ state }: { state: SessionState }) {
 
 export function PrototypeSidebar({
   sessions,
+  collapsed,
+  expanded,
   activeChannelId,
   activeSessionId,
   newSessionActive,
+  onToggleCollapsed,
+  onToggleExpanded,
   onSelectChannel,
   onSelectSession,
   onNewSession,
 }: {
   sessions: Session[]
+  collapsed: Set<string>
+  expanded: Set<string>
   activeChannelId: string | null
   activeSessionId: string | null
   newSessionActive: boolean
+  onToggleCollapsed: (channelId: string) => void
+  onToggleExpanded: (channelId: string) => void
   onSelectChannel: (channelId: string) => void
   onSelectSession: (sessionId: string) => void
   onNewSession: () => void
 }) {
-  const [collapsed, setCollapsed] = useState(() => new Set(["product"]))
-
-  const toggleChannel = (channelId: string) => {
-    setCollapsed((prev) => {
-      const next = new Set(prev)
-      if (next.has(channelId)) next.delete(channelId)
-      else next.add(channelId)
-      return next
-    })
-  }
-
   return (
     <Sidebar variant="inset">
       <DesktopSidebarTitlebar />
@@ -143,8 +153,17 @@ export function PrototypeSidebar({
             (session) => session.channelId === channel.id
           )
           const isCollapsed = collapsed.has(channel.id)
+          const isExpanded = expanded.has(channel.id)
+          const ordered = [...channelSessions].sort(
+            (a, b) => STATE_RANK[a.state] - STATE_RANK[b.state]
+          )
+          const visible = isExpanded ? ordered : ordered.slice(0, SESSION_CAP)
+          const hidden = isExpanded ? [] : ordered.slice(SESSION_CAP)
           const rollUp = ROLL_UP_ORDER.find((state) =>
             channelSessions.some((session) => session.state === state)
+          )
+          const hiddenRollUp = ROLL_UP_ORDER.find((state) =>
+            hidden.some((session) => session.state === state)
           )
           return (
             <div key={channel.id}>
@@ -155,13 +174,14 @@ export function PrototypeSidebar({
                 collapsed={isCollapsed}
                 rollUp={isCollapsed ? rollUp : undefined}
                 onSelect={() => onSelectChannel(channel.id)}
-                onToggle={() => toggleChannel(channel.id)}
+                onToggle={() => onToggleCollapsed(channel.id)}
               />
               <AnimatePresence initial={false}>
                 {!isCollapsed &&
-                  channelSessions.map((session) => (
+                  visible.map((session) => (
                     <motion.div
                       key={session.id}
+                      layout="position"
                       initial={{ height: 0, opacity: 0 }}
                       animate={{ height: "auto", opacity: 1 }}
                       exit={{ height: 0, opacity: 0 }}
@@ -176,11 +196,44 @@ export function PrototypeSidebar({
                     </motion.div>
                   ))}
               </AnimatePresence>
+              {!isCollapsed && ordered.length > SESSION_CAP && (
+                <MoreRow
+                  count={hidden.length}
+                  expanded={isExpanded}
+                  rollUp={hiddenRollUp}
+                  onClick={() => onToggleExpanded(channel.id)}
+                />
+              )}
             </div>
           )
         })}
       </SidebarContent>
     </Sidebar>
+  )
+}
+
+function MoreRow({
+  count,
+  expanded,
+  rollUp,
+  onClick,
+}: {
+  count: number
+  expanded: boolean
+  rollUp?: SessionState
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="ml-6 flex w-[calc(100%-1.5rem)] cursor-pointer items-center gap-2 rounded-md px-2 py-[5px] text-left text-[13px] text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
+    >
+      <span className="min-w-0 flex-1 truncate">
+        {expanded ? "Show less" : `${count} more`}
+      </span>
+      {!expanded && rollUp && <SessionStateIndicator state={rollUp} />}
+    </button>
   )
 }
 
