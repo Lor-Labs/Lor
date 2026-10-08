@@ -53,7 +53,6 @@ import {
 } from "@/components/sidebar/channel-panel/create-channel-context"
 import { VoicePresenceProvider } from "@/components/sidebar/channel-panel/voice-presence"
 import { WorkspaceCommand } from "@/components/sidebar/channel-panel/workspace-command"
-import { CreateWorkspaceDialog } from "@/components/sidebar/create-workspace-dialog"
 import {
   sidebarMenuHeader,
   sidebarMenuIcon,
@@ -106,7 +105,6 @@ function WorkspaceSidebarInner() {
   const { openCreateChannel, openCreateCategory, openCreateProject } =
     useCreateChannel()
   const { target, tab, open: openSettings, close, setTab } = useSettings()
-  const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false)
   const [inviteOpen, setInviteOpen] = useState(false)
 
   const settingsOpen = target === "workspace"
@@ -316,7 +314,7 @@ function WorkspaceSidebarInner() {
                     <DropdownMenuSeparator className={sidebarMenuSeparator} />
                     <DropdownMenuItem
                       className={sidebarMenuRow}
-                      onClick={() => setCreateWorkspaceOpen(true)}
+                      onClick={() => void navigate({ to: "/onboarding" })}
                     >
                       <HugeiconsIcon
                         icon={PlusSignIcon}
@@ -429,10 +427,6 @@ function WorkspaceSidebarInner() {
         </SidebarGroup>
       </SidebarContent>
 
-      <CreateWorkspaceDialog
-        open={createWorkspaceOpen}
-        onOpenChange={setCreateWorkspaceOpen}
-      />
       {activeWorkspace && (
         <WorkspaceSettingsDialog
           open={settingsOpen}

@@ -191,6 +191,9 @@ export const auth = betterAuth({
   plugins: [
     organization({
       ac,
+      // Workspaces are created only through POST /v1/workspaces, which mints
+      // the URL key server-side (a system call, so this doesn't block it).
+      allowUserToCreateOrganization: false,
       roles: {
         owner: ownerRole,
         admin: adminRole,

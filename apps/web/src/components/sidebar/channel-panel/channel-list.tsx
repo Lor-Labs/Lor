@@ -70,6 +70,7 @@ import {
   canDeleteChannels,
   canManageChannels,
 } from "@/lib/permissions"
+import { workspaceChannelsQueryOptions } from "@/lib/workspace-channels-query"
 
 type ChannelMuteControls = ReturnType<typeof useChannelMutes>
 
@@ -165,21 +166,9 @@ export function ChannelList() {
   const queryClient = useQueryClient()
   const { setOpen: closeMobileSidebar } = useMobileSidebar()
 
-  const { data, isPending } = useQuery({
-    queryKey: ["channels", workspaceSlug],
-    queryFn: async () => {
-      const res = await apiClient.v1.workspaces[":workspaceSlug"].channels.$get(
-        {
-          param: { workspaceSlug: workspaceSlug as string },
-        }
-      )
-      if (!res.ok) {
-        throw new Error("Failed to fetch channels")
-      }
-      return res.json()
-    },
-    enabled: !!workspaceSlug,
-  })
+  const { data, isPending } = useQuery(
+    workspaceChannelsQueryOptions(workspaceSlug ?? "")
+  )
 
   const reorderMutation = useMutation({
     mutationFn: async (

@@ -1,10 +1,10 @@
 import PlusSignIcon from "@hugeicons/core-free-icons/PlusSignIcon"
 import UserGroupIcon from "@hugeicons/core-free-icons/UserGroupIcon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
-import { sluggify } from "@repo/utils/slug"
+import { normalizeDomain } from "@repo/utils/domain"
 import { Redirect, router } from "expo-router"
 import { Spinner } from "heroui-native/spinner"
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import {
   KeyboardAvoidingView,
   Platform,
@@ -18,17 +18,11 @@ import { Button } from "@/components/ui/button"
 import { Screen } from "@/components/ui/screen"
 import { useWorkspace } from "@/context/workspace-context"
 import { useTheme } from "@/hooks/use-theme"
+import { api, responseMessage } from "@/lib/api"
 import { authClient } from "@/lib/auth-client"
 import { parseInviteCode } from "@/lib/invites"
 
 type Step = "welcome" | "create" | "join"
-
-function normalizeSlugInput(value: string) {
-  return value
-    .toLowerCase()
-    .replace(/\s+/g, "-")
-    .replace(/[^a-z0-9-]/g, "")
-}
 
 export default function OnboardingScreen() {
   const theme = useTheme()
@@ -44,14 +38,10 @@ export default function OnboardingScreen() {
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
+  const [website, setWebsite] = useState("")
   const [workspaceName, setWorkspaceName] = useState("")
-  const [slug, setSlug] = useState("")
-  const [slugEdited, setSlugEdited] = useState(false)
+  const [description, setDescription] = useState("")
   const [inviteLink, setInviteLink] = useState("")
-
-  useEffect(() => {
-    if (!slugEdited) setSlug(sluggify(workspaceName))
-  }, [workspaceName, slugEdited])
 
   if (isSessionPending || isWorkspaceLoading) {
     return (
@@ -65,25 +55,29 @@ export default function OnboardingScreen() {
   if (!session) return <Redirect href="/sign-in" />
 
   const createWorkspace = async () => {
-    const normalizedSlug = sluggify(slug)
-    if (!workspaceName.trim() || !normalizedSlug || isSubmitting) return
+    if (!workspaceName.trim() || isSubmitting) return
+    if (website.trim() && !normalizeDomain(website)) {
+      setError("Enter a website like acme.com")
+      return
+    }
     setError(null)
     setIsSubmitting(true)
     try {
-      const result = await authClient.organization.create({
-        name: workspaceName.trim(),
-        slug: normalizedSlug,
+      const response = await api.v1.workspaces.$post({
+        json: {
+          name: workspaceName.trim(),
+          description: description.trim() || undefined,
+          website: website.trim() || undefined,
+        },
       })
-      if (result.error) {
+      if (!response.ok) {
         setError(
-          (result.error.message ?? "Could not create the workspace").replace(
-            /organization/gi,
-            "Workspace"
-          )
+          await responseMessage(response, "Could not create the workspace")
         )
         return
       }
-      if (result.data) await reloadWorkspaces(result.data.id)
+      const { workspace } = await response.json()
+      await reloadWorkspaces(workspace.id)
       router.replace("/")
     } catch {
       setError("Something went wrong. Please try again.")
@@ -131,13 +125,13 @@ export default function OnboardingScreen() {
                   {hasWorkspace ? "Add a workspace" : "Welcome to Lor"}
                 </Text>
                 <Text className="text-base leading-[22px] text-muted">
-                  Get started by creating a new workspace or joining one you’ve
-                  been invited to.
+                  Create a workspace for your team, or join one you’ve been
+                  invited to.
                 </Text>
               </View>
               <View className="gap-three">
                 <OptionCard
-                  detail="Start your own community from scratch"
+                  detail="Set up Lor for your team"
                   icon={
                     <HugeiconsIcon
                       color={theme.accent}
@@ -149,7 +143,7 @@ export default function OnboardingScreen() {
                   onPress={() => goToStep("create")}
                 />
                 <OptionCard
-                  detail="Enter an invite link to join a workspace"
+                  detail="Paste an invite link from a teammate"
                   icon={
                     <HugeiconsIcon
                       color={theme.accent}
@@ -157,7 +151,7 @@ export default function OnboardingScreen() {
                       size={20}
                     />
                   }
-                  label="Join an existing workspace"
+                  label="Join with an invite"
                   onPress={() => goToStep("join")}
                 />
               </View>
@@ -172,54 +166,63 @@ export default function OnboardingScreen() {
                   Create a workspace
                 </Text>
                 <Text className="text-base leading-[22px] text-muted">
-                  Give your community a name and a unique URL.
+                  You can change these later in settings.
                 </Text>
               </View>
               <View className="gap-four">
                 <View className="gap-two">
                   <Text className="text-[13px] font-semibold text-muted">
-                    Workspace name
+                    Website
+                  </Text>
+                  <TextInput
+                    accessibilityLabel="Website"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    className={inputClassName}
+                    inputMode="url"
+                    onChangeText={setWebsite}
+                    placeholder="acme.com"
+                    placeholderTextColor={theme.textTertiary}
+                    value={website}
+                  />
+                </View>
+                <View className="gap-two">
+                  <Text className="text-[13px] font-semibold text-muted">
+                    Name
                   </Text>
                   <TextInput
                     accessibilityLabel="Workspace name"
                     className={inputClassName}
+                    maxLength={100}
                     onChangeText={setWorkspaceName}
-                    placeholder="My Awesome Workspace"
+                    placeholder="Acme"
                     placeholderTextColor={theme.textTertiary}
                     value={workspaceName}
                   />
                 </View>
                 <View className="gap-two">
                   <Text className="text-[13px] font-semibold text-muted">
-                    Slug
+                    What are you building?
                   </Text>
                   <TextInput
-                    accessibilityLabel="Workspace slug"
-                    autoCapitalize="none"
-                    autoCorrect={false}
+                    accessibilityLabel="What are you building?"
                     className={inputClassName}
-                    onChangeText={(value) => {
-                      setSlugEdited(true)
-                      setSlug(normalizeSlugInput(value))
-                    }}
-                    placeholder="my-awesome-workspace"
+                    maxLength={280}
+                    onChangeText={setDescription}
+                    placeholder="Payments infrastructure for marketplaces"
                     placeholderTextColor={theme.textTertiary}
-                    value={slug}
+                    value={description}
                   />
-                  {sluggify(slug) ? (
-                    <Text className="text-xs text-muted">
-                      lor.chat/{sluggify(slug)}
-                    </Text>
-                  ) : null}
+                  <Text className="text-xs text-muted">
+                    Optional. Lor reads this to understand your team.
+                  </Text>
                 </View>
               </View>
               {error ? (
                 <Text className="text-sm font-medium text-danger">{error}</Text>
               ) : null}
               <Button
-                isDisabled={
-                  isSubmitting || !workspaceName.trim() || !sluggify(slug)
-                }
+                isDisabled={isSubmitting || !workspaceName.trim()}
                 onPress={() => void createWorkspace()}
               >
                 {isSubmitting ? "Creating…" : "Create workspace"}
@@ -235,7 +238,7 @@ export default function OnboardingScreen() {
                   Join a workspace
                 </Text>
                 <Text className="text-base leading-[22px] text-muted">
-                  Paste an invite link or code to join an existing workspace.
+                  Paste the invite link or code a teammate sent you.
                 </Text>
               </View>
               <View className="gap-two">

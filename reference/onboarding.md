@@ -496,27 +496,41 @@ Schema edits are listed; Jacob runs `db:push`.
 
 ### Step 3: web `/onboarding` page and landing changes
 
-[ ] built · [ ] committed
+[x] built 2026-10-07 · [ ] committed
 
 - `apps/web/src/routes/onboarding.tsx` (new, top-level like
-  `invite/$code.tsx`): session guard, Create (website, name, description) and
-  Join-with-invite cards, calls `POST /workspaces`, `organization.setActive`,
-  emits `workspace:member:joined` so the creator's socket joins the room
-  (today the create flows never emit it), navigates to `/{key}/setup`.
-- `apps/web/src/routes/_authenticated.tsx`: remove `OnboardingDialog`; zero
-  workspaces → `/onboarding`. `_authenticated/index.tsx`: same.
-- `packages/auth/src/lib/auth.ts`: `allowUserToCreateOrganization: false`,
-  now that every client creates through `POST /v1/workspaces`.
+  `invite/$code.tsx`): session guard, choose / create / join steps, Create
+  asks for website, name and description, calls `POST /v1/workspaces`, and
+  lands in the first channel (Step 5 switches this to `/{key}/setup`).
+  Footer: "Back to Lor" for users who have a workspace, "Signed in as … Sign
+  out" for users who don't.
+- `apps/web/src/routes/_authenticated.tsx`: `OnboardingDialog` and its
+  workspaces query removed. `_authenticated/index.tsx`: zero workspaces →
+  `/onboarding`.
+- `apps/web/src/routes/_authenticated/$workspaceSlug/index.tsx`: with no
+  remembered channel, redirects to the first text channel instead of "Select
+  a channel". Covers invite accept, "Already a member", and new devices.
+- `apps/web/src/routes/_authenticated/$workspaceSlug.tsx`: a workspace URL
+  this account isn't in sends a zero-workspace user to `/onboarding`;
+  otherwise "Workspace not found" offers a link to their first workspace.
+- `apps/web/src/components/sidebar/channel-panel/user-bar.tsx`: sign-out
+  clears the query cache and goes to `/login` with no return path. Before,
+  the next account to sign up in the tab inherited the previous account's
+  channel URL through the login redirect, and could briefly see its cached
+  queries. The old modal had hidden the resulting "Workspace not found".
+- `apps/web/src/lib/workspace-channels-query.ts` (new):
+  `workspaceChannelsQueryOptions` (shared with `ChannelList`) and
+  `firstTextChannelId`.
+- `packages/auth/src/lib/auth.ts`: `allowUserToCreateOrganization: false`.
 - `apps/web/src/components/sidebar/workspace-sidebar.tsx`: "Create
-  workspace" navigates to `/onboarding`. Delete
-  `create-workspace-dialog.tsx`.
-- `apps/web/src/routes/invite/$code.tsx`: after accept, navigate to the first
-  channel.
-- Delete `apps/web/src/components/onboarding/onboarding-dialog.tsx` and the
-  campsite image.
+  workspace" navigates to `/onboarding`. `create-workspace-dialog.tsx`
+  deleted.
+- Deleted `apps/web/src/components/onboarding/onboarding-dialog.tsx`,
+  `apps/web/public/lor-onboarding.png`, `apps/web/public/lor-onboarding2.png`.
 - `apps/mobile/src/app/onboarding.tsx`: website, name and description, no
-  slug, same route; `apps/mobile/src/lib/invites.ts`: SecureStore for the
-  pending code.
+  slug, `POST /v1/workspaces`. `apps/mobile/src/app/(tabs)/_layout.tsx`:
+  zero workspaces → onboarding. `apps/mobile/src/lib/invites.ts`: pending
+  invite code in SecureStore, expires after 24 hours.
 
 ### Step 4: company prefill and site icon
 
@@ -735,3 +749,14 @@ Redirect on update stays on. Creators cannot delete their own channels.
   channel the create dialog makes.
 - 2026-10-07, Step 2: Lor's intro writes "@Lor" as plain text, not a mention
   token, so it never notifies or links to itself.
+- 2026-10-07, Step 3: no `workspace:member:joined` emit after create.
+  `/onboarding` sits outside the app layout, so entering the workspace mounts
+  a fresh socket, which joins every workspace room on connect.
+- 2026-10-07, Step 3: invite accept still navigates to the workspace root;
+  the root now redirects to the first text channel. One fix covers every
+  entry path, with no API change.
+- 2026-10-07, Step 3: only the landing route sends zero-workspace users to
+  `/onboarding`. `/dms` stays reachable, so existing DMs are never locked
+  behind onboarding.
+- 2026-10-07, Step 3: `user.onboardingCompleted` is no longer read on web or
+  mobile; Step 10 still removes the write.
