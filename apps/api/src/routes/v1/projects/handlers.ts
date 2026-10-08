@@ -265,6 +265,7 @@ export const createProject: AppRouteHandler<CreateProjectRoute> = async (c) => {
         name: body.name,
         audience: body.audience,
         position: nextPosition,
+        creatorId: currentUser.id,
       })
       .returning({ id: schema.channel.id })
       .then((rows) => rows[0])
@@ -280,6 +281,7 @@ export const createProject: AppRouteHandler<CreateProjectRoute> = async (c) => {
         // resolution inherits from the container regardless.
         audience: body.audience,
         position: index,
+        creatorId: currentUser.id,
       }))
     )
 

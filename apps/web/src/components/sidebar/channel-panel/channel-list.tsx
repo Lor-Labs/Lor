@@ -1027,6 +1027,11 @@ function SortableChannelItem({
   const [editOpen, setEditOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
 
+  // Creators may rename their own channel and change its topic.
+  const { data: session } = authClient.useSession()
+  const isCreator = !!ch.creatorId && ch.creatorId === session?.user.id
+  const canEdit = canManage || isCreator
+
   const { getUnreadCount, getMentionCount } = useUnread()
   const { getMute, muteChannel, unmuteChannel } = muteControls
   const mute = getMute(ch.id)
@@ -1138,7 +1143,7 @@ function SortableChannelItem({
                   </DropdownMenuSub>
                 )}
                 <DropdownMenuSeparator />
-                {canManage && (
+                {canEdit && (
                   <DropdownMenuItem
                     onClick={(e) => {
                       e.stopPropagation()
@@ -1181,11 +1186,12 @@ function SortableChannelItem({
           <VoiceParticipantRows channelId={ch.id} channelName={ch.name ?? ""} />
         )}
       </div>
-      {canManage && (
+      {canEdit && (
         <EditChannelDialog
           channel={ch}
           open={editOpen}
           onOpenChange={setEditOpen}
+          overviewOnly={!canManage}
         />
       )}
       {canDelete && (

@@ -602,7 +602,9 @@ lands the creator on `/setup`.
 
 ### Step 6: permissions and GitHub connect
 
-[ ] built · [ ] committed · [ ] db:push
+[x] 6a built 2026-10-08 (member `channel:create`, `channel.creatorId`,
+creator edit) · [ ] 6a committed · [ ] db:push · [ ] 6b built (connector
+`manage` gates, revoked-row guard, GitHub connect intent)
 
 - `packages/auth/src/lib/permissions.ts`: `member` gains
   `channel: ["create"]`. Web `canCreateChannels` follows automatically.
@@ -810,3 +812,13 @@ Redirect on update stays on. Creators cannot delete their own channels.
 - 2026-10-08, Step 5: the invite row creates a 7-day, unlimited link on
   click and tries to copy it at once; Safari can refuse a clipboard write
   after the request's await, so a Copy button replaces Create.
+- 2026-10-08, Step 6a: the column is `channel.creatorId` (`creator_id`), not
+  `createdById`, to match `project.creatorId`, `plan.creatorId` and
+  `loop.creatorId`. `createProject` sets it on the category and its
+  channels. Lor-proposed channels and DMs leave it null; the DM response
+  schema omits it.
+- 2026-10-08, Step 6a: creator edit covers channels only. Category menus
+  (Edit Category, project Members/Archive) stay `channel:update`. Mobile has
+  no creator edit yet; its create button follows the role change.
+- 2026-10-08, Step 6a: new channels take `max(position)+1` among siblings:
+  categories among categories, channels within the same parent.

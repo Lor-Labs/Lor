@@ -30,13 +30,27 @@ import {
   userRoom,
 } from "@repo/realtime-types"
 import { Emitter } from "@socket.io/redis-emitter"
-import { and, asc, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm"
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  inArray,
+  isNull,
+  max,
+  ne,
+  or,
+  sql,
+} from "drizzle-orm"
 import { getEmitter } from "@/lib/bot-messages"
 import { allowedChannelConnectors } from "@/lib/channel-connectors"
 import { emitChannelCreated, postChannelEvent } from "@/lib/channel-events"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
-import { assertWorkspaceAuthority } from "@/lib/permissions"
+import {
+  assertWorkspaceAuthority,
+  hasWorkspaceAuthority,
+} from "@/lib/permissions"
 import { userCanAccessChannel } from "@/lib/queries/channel-access"
 import {
   fetchMessages,
@@ -183,13 +197,32 @@ export const createChannel: AppRouteHandler<CreateChannelRoute> = async (c) => {
     }
   }
 
+  // New channels go last among their siblings: categories among categories,
+  // channels within the same parent (or uncategorized).
+  const siblings =
+    body.type === "category"
+      ? eq(channel.type, "category")
+      : and(
+          ne(channel.type, "category"),
+          body.parentId
+            ? eq(channel.parentId, body.parentId)
+            : isNull(channel.parentId)
+        )
+
   const newChannel = await db.transaction(async (tx) => {
+    const position = await tx
+      .select({ value: max(channel.position) })
+      .from(channel)
+      .where(and(eq(channel.workspaceId, workspace.id), siblings))
+      .then((rows) => (rows[0]?.value ?? -1) + 1)
     const inserted = await tx
       .insert(channel)
       .values({
         ...body,
         audience: isStandalonePrivate ? "members" : "workspace",
         workspaceId: workspace.id,
+        creatorId: currentUser.id,
+        position,
       })
       .returning()
       .then((rows) => rows[0])
@@ -407,9 +440,20 @@ export const updateChannel: AppRouteHandler<UpdateChannelRoute> = async (c) => {
   const { channelId } = c.req.valid("param")
   const body = c.req.valid("json")
 
-  assertWorkspaceAuthority(c.var.authority, {
+  // channel:update edits any channel. Without it, the channel's creator may
+  // still rename it and change its topic; slowmode and the agent profile
+  // always need the permission.
+  const canUpdateAny = hasWorkspaceAuthority(c.var.authority, {
     channel: ["update"],
   })
+  const isNameOrTopicOnly =
+    body.rateLimitPerUser === undefined && body.agentProfileId === undefined
+  if (!canUpdateAny && !isNameOrTopicOnly) {
+    return c.json(
+      { success: false, message: "Forbidden" },
+      HttpStatusCodes.FORBIDDEN
+    )
+  }
 
   // Channel-manage permission is workspace-wide, but a private channel is
   // invisible to non-members — including admins. No implicit admin access.
@@ -418,6 +462,23 @@ export const updateChannel: AppRouteHandler<UpdateChannelRoute> = async (c) => {
       { success: false, message: "Channel not found" },
       HttpStatusCodes.NOT_FOUND
     )
+  }
+
+  if (!canUpdateAny) {
+    const creatorId = await db
+      .select({ creatorId: channel.creatorId })
+      .from(channel)
+      .where(
+        and(eq(channel.id, channelId), eq(channel.workspaceId, workspace.id))
+      )
+      .limit(1)
+      .then((rows) => rows[0]?.creatorId)
+    if (creatorId !== currentUser.id) {
+      return c.json(
+        { success: false, message: "Forbidden" },
+        HttpStatusCodes.FORBIDDEN
+      )
+    }
   }
 
   // Assigning an agent profile: it must belong to this workspace (the FK alone
