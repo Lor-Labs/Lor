@@ -44,6 +44,10 @@ export const messageTypeEnum = pgEnum("message_type", [
   // Lor's summary of an ended call, posted in its chat. Renders the call's
   // current summary; the session row is looked up by summaryCardMessageId.
   "call_summary",
+  // A Lor session's anchor: blank, never shown in chat, the thread root of
+  // the session's messages. The row (see agent-sessions.ts) is looked up by
+  // threadRootId.
+  "agent_session",
 ])
 
 // Kinds of channel events (message.type = "event"). Adding a kind means a new

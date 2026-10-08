@@ -341,6 +341,7 @@ export function MessageRow({
   onToggleReaction?: (message: Message, emoji: string) => void
   showLorRunControls?: boolean
 }) {
+  if (message.type === "agent_session") return null
   const isLor = message.authorId === LOR_USER_ID
   const isApp = Boolean(message.overrideName || message.overrideAvatarUrl)
   const authorPress = authorPressHandler(message, onPressAuthor)
@@ -441,6 +442,7 @@ export function ThreadRootMessage({
   onToggleReaction?: (message: Message, emoji: string) => void
   showLorRunControls?: boolean
 }) {
+  if (message.type === "agent_session") return null
   const isLor = message.authorId === LOR_USER_ID
   const isApp = Boolean(message.overrideName || message.overrideAvatarUrl)
   const authorPress = authorPressHandler(message, onPressAuthor)

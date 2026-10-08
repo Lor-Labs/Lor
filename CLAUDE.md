@@ -147,6 +147,17 @@ startup channel template, company prefill, the setup checklist, domain join,
 and per-user hints. Locked decisions, per-step file lists, and status
 checkboxes live there. Update its checkboxes and deviations log as steps land.
 
+### Workspace model (human chat, Lor sessions)
+
+The app's core model is locked in `reference/workspace-model.md`: channel chat
+is people talking to people, Lor works in sessions next to the chat, and
+subscriptions drive the sidebar and notifications. It is executed step-by-step
+from `reference/workspace-model-runbook.md` on the `app-redesign-sessions`
+branch: implementation decisions, hazards, per-step file lists, and status
+checkboxes live there. Update its checkboxes and deviations log as steps land.
+The `/prototype` route (`apps/web/src/components/prototype/`) is a flow
+reference and is deleted after the last step.
+
 ### Conventions
 
 - DO NOT make extremely verbose comments for every tiny detail or every line of code changed. this bloats the codebase and makes it harder to read and maintain. THIS IS VERY IMPORTANT.

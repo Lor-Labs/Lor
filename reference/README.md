@@ -40,6 +40,7 @@ needs a link sweep over `CLAUDE.md`, `reference/` and code comments.
 | `change-proposals.md` | Workspace change proposals (self-configuration pillar 3). P6 vertical-slice QA |
 | `attachment-search.md` | Attachment indexing + reranker. Steps 1–6 built; 4b and 7 parked behind triggers |
 | `onboarding.md` | First-run redesign for small tech startups: opaque workspace key, startup channel template, company prefill, setup checklist, domain join, per-user hints, permission changes. All 10 steps built 2026-10-08; prod db:push + rekey and live QA owed |
+| `workspace-model-runbook.md` | Human-only channel chat, Lor works in sessions: 22 steps on `app-redesign-sessions`. Started 2026-10-08 |
 
 ## Root — specs, how-tos, checklists
 
@@ -47,6 +48,7 @@ needs a link sweep over `CLAUDE.md`, `reference/` and code comments.
 |---|---|
 | `product-direction.md` | Current priorities and what is deferred |
 | `voice-channels.md` | Guiding product spec for voice; its "Voice channel model" decisions win over the runbook and research |
+| `workspace-model.md` | Locked design for channels, Lor sessions, subscriptions and archive; wins over its runbook on product behavior |
 | `adding-a-connector.md` | Runbook for wiring a new integration |
 | `mobile-release.md` | TestFlight / EAS release loop |
 | `mobile-parity-todo.md` | Living web ↔ mobile gap checklist |
@@ -55,8 +57,6 @@ needs a link sweep over `CLAUDE.md`, `reference/` and code comments.
 
 | Doc | Status |
 |---|---|
-| `workspace-model.md` | Human-only channel chat, Lor works in sessions. Design locked 2026-10-08; prototype at `/prototype` |
-| `workspace-model-runbook.md` | 22-step implementation plan for `workspace-model.md`. Planned 2026-10-08, not started |
 | `linear-projects.md` | Lor projects linked to Linear projects. Split from onboarding 2026-10-07; open for its own design thread |
 | `code-channels.md` | Multiplayer AI coding architecture, design agreed 2026-10-05 |
 | `self-configuration.md` | Vision for Lor proposing changes to itself; pillars 1–2 shipped (root runbooks), pillar 3 in flight |

@@ -435,6 +435,8 @@ export const MessageItem = memo(function MessageItem({
     setIsEditing(false)
   }, [])
 
+  if (message.type === "agent_session") return null
+
   if (isBlocked && !showBlockedContent) {
     return (
       <div data-message-id={message.id} className="px-4 py-1">

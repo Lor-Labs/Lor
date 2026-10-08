@@ -773,7 +773,7 @@ email with a callback too.
 
 ## Open questions
 
-Rework owed after `reference/planned/workspace-model.md` (2026-10-08):
+Rework owed after `reference/workspace-model.md` (2026-10-08):
 channel chat is now people only, and Lor works in sessions. The Lor intro
 message in `#general` (Step 2) goes away, and the `@Lor` hints (Steps 8 and 9)
 must teach "@Lor starts a session" and ⌘N. Jacob wants to redo how onboarding

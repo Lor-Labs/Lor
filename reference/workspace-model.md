@@ -1,9 +1,9 @@
 # Workspace model: human chat, Lor sessions
 
 **Status:** Design locked with Jacob on 2026-10-08: the fundamentals and the
-pass over existing features. Not built. Prototype: `/prototype` in the web app
-(`apps/web/src/components/prototype/`). Implementation plan:
-`workspace-model-runbook.md`.
+pass over existing features. Building from `workspace-model-runbook.md` on the
+`app-redesign-sessions` branch. Prototype: `/prototype` in the web app
+(`apps/web/src/components/prototype/`).
 
 ## Problem
 
@@ -126,7 +126,7 @@ places.
 
 17. **No private sessions in the MVP.** Every session is visible to its
     channel. An opt-in private mode can come later without breaking this
-    model (`private-lor-questions.md`).
+    model (`planned/private-lor-questions.md`).
 18. **The UI word is "session".** The collisions are in code only: the voice
     UI already says "calls", the reply window in `lor-session.ts` goes away
     with this model, and code-channel sessions are the same concept.
@@ -229,4 +229,5 @@ The pass over existing features is complete as of 2026-10-08.
 | Personal archive (hides a session from your sidebar only) | Jacob wants one person to be able to close out the work for everyone |
 | A separate inbox view for sessions | The sidebar already groups sessions under channels; revisit only if it gets too long to scan |
 | A decision model (Jev, Clef) routes each session message | Brings back the placement-router problem; the composer would flip while typing; wrong calls cost trust. A model may suggest a mention, never reroute |
+| Call Lor's work "threads" (2026-10-08) | Collides with human reply threads, which stay. Only works if human threads are dropped for quoted replies; Jacob kept both |
 | One driver per session, or only the starter types | Less multiplayer. May come back for code sessions, where two people steering one working copy is a real conflict |

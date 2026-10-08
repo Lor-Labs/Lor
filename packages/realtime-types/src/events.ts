@@ -144,6 +144,9 @@ export const sendMessagePayloadSchema = z
       .array(attachmentPayloadSchema)
       .max(MAX_ATTACHMENTS_PER_MESSAGE)
       .optional(),
+    // Session composer switched to "To people": Lor doesn't run and nobody
+    // is pinged.
+    toPeople: z.boolean().optional(),
   })
   .refine(
     (data) =>
@@ -204,6 +207,7 @@ export type RealtimeMessageType =
   | "proposal_card"
   | "voice_session"
   | "call_summary"
+  | "agent_session"
 
 // Mirrors channel_event_type / ChannelEventPayload in @repo/db (messages.ts) —
 // hand-copied like RealtimeMessageType so clients don't pull in drizzle.
@@ -726,6 +730,8 @@ export interface ServerToClientEvents {
 
   // Plan snapshot changed (status, steps, summary). Channel room.
   "plan:updated": (payload: PlanUpdatedEvent) => void
+  // Lor session row changed (title, archive, activity). Channel room.
+  "session:updated": (payload: AgentSessionUpdatedEvent) => void
   // A run parked on an approval gate. Channel room; ids only — the
   // durable card data comes from the channel approvals query this invalidates.
   "approval:created": (payload: ApprovalCreatedEvent) => void
@@ -834,6 +840,32 @@ export type RealtimePlan = {
 
 export type PlanUpdatedEvent = {
   plan: RealtimePlan
+}
+
+export type RealtimeAgentSessionOrigin = "chat" | "new" | "loop" | "trigger"
+
+// Snapshot of a Lor session row. Mirrors agent_session in @repo/db; guarded
+// in @repo/lor.
+export type RealtimeAgentSession = {
+  id: string
+  workspaceId: string
+  channelId: string
+  threadRootId: string
+  creatorId: string | null
+  origin: RealtimeAgentSessionOrigin
+  title: string
+  titleEditedAt: string | null
+  loopId: string | null
+  triggerId: string | null
+  archivedAt: string | null
+  archivedById: string | null
+  lastActivityAt: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type AgentSessionUpdatedEvent = {
+  session: RealtimeAgentSession
 }
 
 export type RealtimeApprovalStatus =

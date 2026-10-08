@@ -1,7 +1,7 @@
 # Workspace model runbook: human chat, Lor sessions
 
-> Status: planned 2026-10-08, not started. Implements the locked design in
-> `workspace-model.md`; that doc wins on product behavior. Written from two
+> Status: in flight on `app-redesign-sessions`, started 2026-10-08. Implements
+> the locked design in `workspace-model.md`; that doc wins on product behavior. Written from two
 > read-only research passes (server, clients) on the `onboarding` branch.
 > File:line references are as of that date; re-check them before each step.
 
@@ -30,8 +30,10 @@ because nothing merges until the whole runbook lands.
    `threadRootId` (notNull, unique, FK cascade), `creatorId` (null for loop
    and trigger sessions), `origin` enum (`chat` | `new` | `loop` | `trigger`),
    `title`, `titleEditedAt`, `loopId` (unique where not null), `triggerId`,
-   `seed` (typed jsonb: channel id and message ids), `archivedAt`,
-   `archivedById`, `lastActivityAt`.
+   `archivedAt`, `archivedById`, `lastActivityAt`. The messages a session
+   starts with live in `agent_session_context` (`sessionId`, `messageId`, both
+   FK cascade, unique pair), written once at session start: exact,
+   referentially sound tracking of what went in.
 3. **The anchor is blank.** Its author is the starter (Lor for loops and
    triggers), content null. Blank messages without attachments already stay
    out of Lor's context (`apps/worker/src/lib/lor-conversation.ts:48-51`).
@@ -126,10 +128,16 @@ because nothing merges until the whole runbook lands.
 
 #### Step 1: schema and wire types (~250)
 
-[ ] built · [ ] committed · [ ] db:push
+[x] built 2026-10-08 · [ ] committed · [ ] db:push
 
-- `packages/db/src/schemas/agent-sessions.ts` (new): `agent_session`, origin
-  enum, relations. `packages/db/src/schemas/thread-subscriptions.ts` (new).
+As built: `RealtimeAgentSession` and `session:updated` live in
+`realtime-types/src/events.ts`; `toRealtimeAgentSession` and its drift guard
+in `packages/lor/src/agent-sessions.ts` (export `@repo/lor/agent-sessions`).
+Docs moved to `reference/` root with a `CLAUDE.md` section.
+
+- `packages/db/src/schemas/agent-sessions.ts` (new): `agent_session`,
+  `agent_session_context`, origin enum, relations.
+  `packages/db/src/schemas/thread-subscriptions.ts` (new).
   Export both from the schema index.
 - `packages/db/src/schemas/messages.ts`: `agent_session` on `message_type`.
 - `packages/realtime-types/src/events.ts`: message type, `session:updated`
@@ -152,8 +160,9 @@ because nothing merges until the whole runbook lands.
 
 [ ] built · [ ] committed
 
-- `packages/lor`: `createSession` (anchor, row, starter subscription, one
-  transaction, nonce-safe per hazard 7) and `ensureLoopSession`.
+- `packages/lor`: `createSession` (anchor, row, context rows, starter
+  subscription, one transaction, nonce-safe per hazard 7) and
+  `ensureLoopSession`.
 - One `insertAgentRun` replacing the three copies: realtime
   `services/lor.ts:105-148`, worker `run-queue.ts`,
   `api/lib/scope-runs.ts:214-470`.
@@ -171,13 +180,13 @@ because nothing merges until the whole runbook lands.
 
 - `apps/realtime/src/index.ts:734-1113` `routeLor`: `@Lor` in chat creates a
   session through `createSession`; the prompt becomes the session's first
-  message; nothing posts in chat. Seed from `loadRecentChannelMessages`
-  (`services/lor.ts:59-83`). Hazards 1, 10, 14.
+  message; nothing posts in chat. Context rows from
+  `loadRecentChannelMessages` (`services/lor.ts:59-83`). Hazards 1, 10, 14.
 - Routing inside sessions: plain → Lor; mention of a person only → no Lor;
   reply to a person counts as a mention (`lor-routing.ts` `isReplyToPerson`,
   `packages/messaging/src/index.ts:162-218` `buildMentionTargets`); `toPeople`
   skips Lor and pings nobody.
-- `lor-conversation.ts:102-128`: background from `agent_session.seed`.
+- `lor-conversation.ts:102-128`: background from `agent_session_context`.
 - Delete: placement block (`index.ts:872-899`), reply window and mute
   (`:774-843`), `services/lor-session.ts`, `isLorThread` (`services/lor.ts:39-55`),
   `packages/lor/src/placement.ts` with its eval harness use
@@ -411,9 +420,10 @@ because nothing merges until the whole runbook lands.
 
 ### Docs
 
-- Move `workspace-model.md` and this runbook to `reference/` root when Step 1
-  starts, with a link sweep. Add a `CLAUDE.md` section like the other
-  runbooks. Update `mobile-parity-todo.md` in Phase F.
+- [x] Move `workspace-model.md` and this runbook to `reference/` root when
+  Step 1 starts, with a link sweep. Add a `CLAUDE.md` section like the other
+  runbooks. (Done in Step 1.)
+- [ ] Update `mobile-parity-todo.md` in Phase F.
 - After the last step: delete the prototype (`apps/web/src/components/prototype/`,
   `apps/web/src/routes/prototype.tsx`). It is a flow reference, not code to
   ship.
@@ -426,4 +436,12 @@ lines, plus the server steps. 22 steps.
 
 ## Deviations
 
-None yet.
+- Step 1: `toRealtimeAgentSession` and its wire guard landed in Step 1 instead
+  of Step 3, so the wire type is checked from the start.
+- Step 1: `agent_session` relations cover workspace, channel, anchor and loop
+  only. The user foreign keys (`creatorId`, `archivedById`) have no relations,
+  matching `voice_session`. Add them when a query needs them.
+- Step 1: the planned `seed` jsonb column became the `agent_session_context`
+  join table (Jacob, 2026-10-08), for exact, foreign-keyed tracking of the
+  messages a session starts with. Sessions with no context (New session,
+  loops, triggers) have no rows.
