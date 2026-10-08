@@ -729,11 +729,11 @@ email with a callback too.
 
 - `reference/README.md`: moved from `planned/` to root on 2026-10-07 when
   Step 1 started.
-- `reference/mobile-parity-todo.md:120`: the "Onboarding dialog is web-side"
-  line is stale; mobile has `onboarding.tsx`.
-- `reference/github-connector.md:36,53`: the per-channel gating TODO and
-  `SOURCE_INGEST_ENABLED` are stale against code (agent profiles gate per
-  channel today).
+- [x] `reference/mobile-parity-todo.md`: the "Onboarding dialog is web-side"
+  line now points at mobile's `onboarding.tsx` (2026-10-08).
+- [x] `reference/github-connector.md`: the per-channel gating TODO is marked
+  done (agent profiles) and the `SOURCE_INGEST_ENABLED` line now describes
+  per-trigger Remember (2026-10-08).
 
 ## Hazards
 
@@ -758,7 +758,8 @@ email with a callback too.
   each lookup spends Exa and model credits.
 - `revoked` `integration_connection` rows still block the `(provider,
   external_id)` unique index across workspaces. Step 6 relaxes the 409 guard
-  for revoked rows owned by another workspace.
+  for revoked rows owned by another workspace, except GitHub (see
+  Deviations).
 - The default agent profile is `grantsAll`, so every connected connector is
   available in every channel. Fine for v1; scoping `code_actions` to
   `#engineering` is a later agent-profile template.
@@ -864,6 +865,12 @@ Redirect on update stays on. Creators cannot delete their own channels.
 - 2026-10-08, Step 6b: a revoked row owned by another workspace is deleted
   (cascading its triggers, repo config and sources) when the external id is
   connected elsewhere. Retrieval already ignores sources of revoked rows.
+  Review follow-up: only connectors whose external id the connect proves
+  (OAuth code exchange, verified keys) reclaim (`reclaimRevoked`). GitHub
+  does not: the installation id is client-supplied and nothing checks the
+  user can access it, so a guessed id could take over another team's
+  revoked install. A revoked GitHub row elsewhere still returns 409 until a
+  user-token installation check exists.
 - 2026-10-08, Step 6b: `connector:manage` also gates Datadog and CloudWatch
   connects. On web, event routing controls are disabled and the base-branch
   section is hidden without it.

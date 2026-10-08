@@ -137,15 +137,15 @@ function SetupPage() {
   const anyDone =
     !!github?.connected || !!linear?.connected || joinedNames.length > 0
 
+  const askChannelId = channels
+    ? (textChannelIdNamed(channels, "engineering") ??
+      firstTextChannelId(channels))
+    : null
   const askLor = (question: string) => {
-    const channelId = channels
-      ? (textChannelIdNamed(channels, "engineering") ??
-        firstTextChannelId(channels))
-      : null
-    if (!channelId) return
+    if (!askChannelId) return
     void navigate({
       to: "/$workspaceSlug/$channelId",
-      params: { workspaceSlug, channelId },
+      params: { workspaceSlug, channelId: askChannelId },
       search: { draft: question },
     })
   }
@@ -207,6 +207,7 @@ function SetupPage() {
                   !!linear?.connected
                 )}
                 onAsk={askLor}
+                disabled={!askChannelId}
               />
             </SettingsSection>
 

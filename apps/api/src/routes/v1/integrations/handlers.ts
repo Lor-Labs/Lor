@@ -450,9 +450,9 @@ type ConnectionWrite = Partial<typeof integrationConnection.$inferInsert>
 
 // Shared connect transaction: serialize concurrent connects for this
 // workspace+provider (advisory lock, held until commit/rollback), refuse an
-// externalId actively connected to another workspace, retire this workspace's
-// other active rows (wiping their secrets via clearOnRevoke), and upsert the
-// new connection. Returns false when the externalId is connected elsewhere.
+// externalId connected to another workspace, retire this workspace's other
+// active rows (wiping their secrets via clearOnRevoke), and upsert the new
+// connection. Returns false when the externalId is connected elsewhere.
 async function replaceActiveConnection(opts: {
   workspaceId: string
   provider: ConnectorDescriptor["id"]
@@ -461,6 +461,10 @@ async function replaceActiveConnection(opts: {
   values: ConnectionWrite
   // Upsert set when it differs from the insert values (defaults to values).
   set?: ConnectionWrite
+  // Take over another workspace's revoked row. Only for external ids the
+  // connect itself proves (OAuth code exchange, verified keys); a GitHub
+  // installation id is client-supplied, so GitHub never reclaims.
+  reclaimRevoked?: boolean
 }): Promise<boolean> {
   const { workspaceId, provider, externalId } = opts
   return db.transaction(async (tx) => {
@@ -484,7 +488,7 @@ async function replaceActiveConnection(opts: {
       .limit(1)
       .then((rows) => rows[0])
     if (existing && existing.workspaceId !== workspaceId) {
-      if (existing.status !== "revoked") return false
+      if (existing.status !== "revoked" || !opts.reclaimRevoked) return false
       // A revoked row (replaced or suspended) no longer serves its old
       // workspace, and retrieval already ignores its sources. Delete it, with
       // its triggers and repo config, so the external id can move here.
@@ -572,6 +576,7 @@ export const connectLinear: AppRouteHandler<ConnectLinearRoute> = async (c) => {
     workspaceId: workspace.id,
     provider: "linear",
     externalId: result.externalId,
+    reclaimRevoked: true,
     clearOnRevoke: OAUTH_TOKEN_WIPE,
     values: {
       accountLogin: result.accountLabel,
@@ -632,6 +637,7 @@ export const connectDatadog: AppRouteHandler<ConnectDatadogRoute> = async (
     workspaceId: workspace.id,
     provider: "datadog",
     externalId: result.externalId,
+    reclaimRevoked: true,
     clearOnRevoke: { apiKey: null, appKey: null, site: null },
     values: {
       accountLogin: result.accountLabel,
@@ -696,6 +702,7 @@ export const connectCloudwatch: AppRouteHandler<
     workspaceId: workspace.id,
     provider: "cloudwatch",
     externalId: result.externalId,
+    reclaimRevoked: true,
     clearOnRevoke: { apiKey: null, appKey: null, site: null },
     values: {
       accountLogin: result.accountLabel,
@@ -775,6 +782,7 @@ export const connectAttio: AppRouteHandler<ConnectAttioRoute> = async (c) => {
     workspaceId: workspace.id,
     provider: "attio",
     externalId: result.externalId,
+    reclaimRevoked: true,
     clearOnRevoke: OAUTH_TOKEN_WIPE,
     values: {
       accountLogin: result.accountLabel,
@@ -853,6 +861,7 @@ export const connectNotion: AppRouteHandler<ConnectNotionRoute> = async (c) => {
     workspaceId: workspace.id,
     provider: "notion",
     externalId: result.externalId,
+    reclaimRevoked: true,
     clearOnRevoke: OAUTH_TOKEN_WIPE,
     values: {
       providerWorkspaceId: result.providerWorkspaceId,
