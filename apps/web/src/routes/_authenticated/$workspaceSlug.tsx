@@ -1,7 +1,8 @@
 import { authClient } from "@repo/auth/client"
+import { Button } from "@repo/ui/components/button"
 import { toast } from "@repo/ui/components/toast"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { createFileRoute, Outlet } from "@tanstack/react-router"
+import { createFileRoute, Link, Navigate, Outlet } from "@tanstack/react-router"
 import { useEffect, useMemo, useRef, useState } from "react"
 
 export const Route = createFileRoute("/_authenticated/$workspaceSlug")({
@@ -122,12 +123,30 @@ function WorkspaceLayout() {
     )
   }
 
+  // A URL for a workspace this account isn't in: a stale bookmark, a removed
+  // membership, or a link left over from another account in this tab.
   if (!workspace) {
+    if (workspaces?.length === 0) return <Navigate to="/onboarding" replace />
+    const fallback = workspaces?.[0]
     return (
-      <div className="flex flex-1 items-center justify-center">
+      <div className="flex flex-1 flex-col items-center justify-center gap-3">
         <span className="text-sm text-muted-foreground">
           Workspace not found
         </span>
+        {fallback && (
+          <Button
+            variant="outline"
+            size="sm"
+            render={
+              <Link
+                to="/$workspaceSlug"
+                params={{ workspaceSlug: fallback.slug }}
+              />
+            }
+          >
+            Go to {fallback.name}
+          </Button>
+        )}
       </div>
     )
   }

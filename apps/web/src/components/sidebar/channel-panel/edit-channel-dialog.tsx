@@ -155,10 +155,13 @@ export function EditChannelDialog({
   channel,
   open,
   onOpenChange,
+  overviewOnly = false,
 }: {
   channel: Channel
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** The channel's creator without channel:update: name and topic only. */
+  overviewOnly?: boolean
 }) {
   const { workspaceSlug } = useParams({ strict: false })
   const queryClient = useQueryClient()
@@ -180,7 +183,7 @@ export function EditChannelDialog({
 
   const { data: profilesData } = useQuery({
     queryKey: ["agent-profiles", workspaceSlug],
-    enabled: open && !!workspaceSlug,
+    enabled: open && !!workspaceSlug && !overviewOnly,
     queryFn: async () => {
       if (!workspaceSlug) throw new Error("Missing workspace slug")
       const res = await apiClient.v1.workspaces[":workspaceSlug"][
@@ -205,7 +208,9 @@ export function EditChannelDialog({
         json: {
           name,
           ...(isCategory ? {} : { topic: topic || undefined }),
-          agentProfileId: profileId === INHERIT ? null : profileId,
+          ...(overviewOnly
+            ? {}
+            : { agentProfileId: profileId === INHERIT ? null : profileId }),
         },
       })
       if (!res.ok) {
@@ -263,8 +268,11 @@ export function EditChannelDialog({
     profilesData?.profiles.filter((p) => !p.isDefault) ?? []
 
   // Webhooks post into the channel feed — text channels only.
-  const visibleTabs =
-    channel.type === "text" ? TABS : TABS.filter((t) => t.id !== "webhooks")
+  const visibleTabs = overviewOnly
+    ? TABS.filter((t) => t.id === "overview")
+    : channel.type === "text"
+      ? TABS
+      : TABS.filter((t) => t.id !== "webhooks")
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

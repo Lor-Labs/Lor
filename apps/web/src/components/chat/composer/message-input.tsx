@@ -68,6 +68,8 @@ import {
 } from "@/components/chat/composer/slash-command-list"
 import { ContextMeter } from "@/components/chat/context-meter"
 import type { ChatContext } from "@/components/chat/header"
+import { HintPopover } from "@/components/hints/hint-popover"
+import { useHint } from "@/components/hints/hints-provider"
 import type { PendingAttachment } from "@/hooks/use-file-upload"
 import { apiClient } from "@/lib/api-client"
 import type { ConnectorKey, Message } from "@/lib/api-types"
@@ -120,6 +122,9 @@ interface MessageInputProps {
   // context never accumulates there and a meter would imply a budget that
   // doesn't exist. Omit to hide the meter.
   contextScopeKey?: string
+  // Main channel composer only: teaches @Lor through the placeholder and the
+  // lor_intro hint.
+  lorIntro?: boolean
   placeholder?: string
   disabled?: boolean
   disabledReason?: string
@@ -453,6 +458,7 @@ export function MessageInput({
   context,
   channelId,
   contextScopeKey,
+  lorIntro = false,
   placeholder: placeholderOverride,
   disabled,
   disabledReason,
@@ -507,10 +513,16 @@ export function MessageInput({
   const attachableConnectors: AttachableConnector[] =
     connectorsData?.connectors ?? []
 
+  const composerRef = useRef<HTMLDivElement>(null)
+  const lorHint = useHint("lor_intro", lorIntro && !disabled)
+  const dismissLorHint = lorHint.dismiss
+
   const placeholder =
     placeholderOverride ??
     (context.type === "channel"
-      ? `Message #${context.name}`
+      ? lorIntro && !lorHint.dismissed
+        ? `Message #${context.name}, or @Lor to ask a question`
+        : `Message #${context.name}`
       : `Message ${context.name}`)
 
   const normalizedMentionCandidates = useMemo(() => {
@@ -689,20 +701,22 @@ export function MessageInput({
       normalizedMentionCandidates.map((candidate) => [candidate.id, candidate])
     )
 
-    const mentions: Message["mentions"] = extractMentionIds(trimmed).flatMap(
-      (mentionId) => {
-        const mentionCandidate = mentionCandidatesById.get(mentionId)
-        if (!mentionCandidate) return []
+    const mentionIds = extractMentionIds(trimmed)
+    // Asking Lor is what the lor_intro hint teaches, from any composer.
+    if (mentionIds.includes(LOR_USER_ID)) dismissLorHint()
 
-        return [
-          {
-            id: mentionCandidate.id,
-            name: mentionCandidate.name ?? mentionCandidate.label,
-            image: mentionCandidate.image ?? null,
-          },
-        ]
-      }
-    )
+    const mentions: Message["mentions"] = mentionIds.flatMap((mentionId) => {
+      const mentionCandidate = mentionCandidatesById.get(mentionId)
+      if (!mentionCandidate) return []
+
+      return [
+        {
+          id: mentionCandidate.id,
+          name: mentionCandidate.name ?? mentionCandidate.label,
+          image: mentionCandidate.image ?? null,
+        },
+      ]
+    })
 
     onSend(trimmed, {
       mentions,
@@ -731,6 +745,7 @@ export function MessageInput({
     onSend,
     replyingTo,
     onCancelReply,
+    dismissLorHint,
   ])
   const handleSubmit = useCallback(() => {
     const hasDraft =
@@ -939,7 +954,16 @@ export function MessageInput({
           </button>
         </div>
       )}
+      <HintPopover
+        open={lorHint.show}
+        anchor={composerRef}
+        align="start"
+        onDismiss={dismissLorHint}
+      >
+        Mention @Lor to ask about code, issues, or past conversations.
+      </HintPopover>
       <div
+        ref={composerRef}
         className={cn(
           "border border-input bg-background transition-colors duration-150 focus-within:border-muted-foreground/40 dark:bg-muted/40",
           replyingTo ? "rounded-b-lg" : "rounded-lg"

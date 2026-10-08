@@ -1,4 +1,4 @@
-import type { AgentRunContext } from "@repo/db/schema"
+import type { AgentRunContext, AgentRunContextWorkspace } from "@repo/db/schema"
 import type { ModelMessage } from "ai"
 import {
   type FetchedImage,
@@ -13,6 +13,21 @@ import { formatSpeakerLine, sanitizeInlineLabel } from "./transcript"
 type UserPart =
   | { type: "text"; text: string }
   | { type: "image"; image: Uint8Array; mediaType: string }
+
+function oneLine(text: string): string {
+  return text.replace(/\s+/g, " ").trim()
+}
+
+function workspaceSection(workspace: AgentRunContextWorkspace): string {
+  const name = sanitizeInlineLabel(workspace.name)
+  const website = workspace.website
+    ? ` (${sanitizeInlineLabel(workspace.website)})`
+    : ""
+  const description = workspace.description
+    ? `\nWhat the team builds: ${oneLine(workspace.description)}`
+    : ""
+  return `Workspace: ${name}${website}${description}`
+}
 
 // Deterministically assemble the initial user message from a run context.
 // Exported so the worker can rebuild the exact request when resuming a run;
@@ -71,6 +86,9 @@ export async function buildInitialUserMessage(
   }
 
   const parts: UserPart[] = []
+  if (context.workspace) {
+    parts.push({ type: "text", text: workspaceSection(context.workspace) })
+  }
   turns.forEach((t, turnIndex) => {
     if (turnIndex === 0 && background.length > 0) {
       parts.push({
@@ -81,7 +99,7 @@ export async function buildInitialUserMessage(
     if (turnIndex === background.length) {
       parts.push({
         type: "text",
-        text: `\n\nActive ${context.threadRootId ? "thread" : "conversation"}${context.channelName ? ` in #${sanitizeInlineLabel(context.channelName)}` : ""}:`,
+        text: `\n\nActive ${context.threadRootId ? "thread" : "conversation"}${context.channelName ? ` in #${sanitizeInlineLabel(context.channelName)}` : ""}${context.channelTopic ? ` (channel topic: ${oneLine(context.channelTopic)})` : ""}:`,
       })
     }
     if (turnIndex === requestIndex) {

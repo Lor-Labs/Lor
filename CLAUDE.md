@@ -139,6 +139,14 @@ step-by-step from the runbook at `reference/attachment-search.md` — locked
 decisions, per-step file lists, and status checkboxes live there. Update its
 checkboxes and deviations log as steps land.
 
+### Onboarding (first run for small startups)
+
+The onboarding redesign is executed step-by-step from the runbook at
+`reference/onboarding.md`: opaque workspace keys in the `slug` column, the
+startup channel template, company prefill, the setup checklist, domain join,
+and per-user hints. Locked decisions, per-step file lists, and status
+checkboxes live there. Update its checkboxes and deviations log as steps land.
+
 ### Conventions
 
 - DO NOT make extremely verbose comments for every tiny detail or every line of code changed. this bloats the codebase and makes it harder to read and maintain. THIS IS VERY IMPORTANT.

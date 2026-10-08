@@ -80,6 +80,12 @@ export const channel = pgTable(
       onDelete: "set null",
     }),
 
+    // Who made a workspace channel. The creator may rename it and change its
+    // topic without channel:update. Null for seeded and older channels.
+    creatorId: uuid("creator_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+
     // null = no slowmode
     rateLimitPerUser: integer("rate_limit_per_user"),
   },
@@ -160,6 +166,7 @@ export const insertChannelSchema = createInsertSchema(channel, {
   updatedAt: true,
   workspaceId: true,
   ownerId: true,
+  creatorId: true,
   position: true,
   rateLimitPerUser: true,
   // Audience/archival are set through the project + private-channel routes
@@ -177,6 +184,7 @@ export const updateChannelSchema = createUpdateSchema(channel, {
   updatedAt: true,
   workspaceId: true,
   ownerId: true,
+  creatorId: true,
   audience: true,
   archivedAt: true,
 })

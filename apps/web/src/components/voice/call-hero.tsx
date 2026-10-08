@@ -29,6 +29,8 @@ import { differenceInMinutes, formatDuration } from "@repo/utils/date"
 import { useParams } from "@tanstack/react-router"
 import { createLocalVideoTrack } from "livekit-client"
 import { useEffect, useRef, useState } from "react"
+import { HintPopover } from "@/components/hints/hint-popover"
+import { useHint } from "@/components/hints/hints-provider"
 import {
   activeDevice,
   canPickSpeaker,
@@ -218,6 +220,9 @@ export function CallHero({
 }) {
   const { workspaceSlug } = useParams({ strict: false })
   const me = useOwnVoiceParticipant(workspaceSlug)
+  const joinButtonRef = useRef<HTMLButtonElement>(null)
+  const voiceHint = useHint("voice_intro", !joinDisabled)
+  const dismissVoiceHint = voiceHint.dismiss
   const [microphone, setMicrophone] = useState(true)
   const [camera, setCamera] = useState(false)
   const [tooltipHandle] = useState(() => TooltipCreateHandle<string>())
@@ -362,16 +367,27 @@ export function CallHero({
             )}
           </div>
           <Button
+            ref={joinButtonRef}
             size="lg"
             className="w-full max-w-56"
             disabled={joinDisabled}
             onClick={() => {
               setPreviewing(false)
+              dismissVoiceHint()
               onJoin({ microphone, camera })
             }}
           >
             {joinLabel ?? (live ? "Join call" : "Start call")}
           </Button>
+          <HintPopover
+            open={voiceHint.show}
+            anchor={joinButtonRef}
+            side="bottom"
+            onDismiss={dismissVoiceHint}
+          >
+            Calls are transcribed for the people in them. Say "Lor" during a
+            call to ask it something, and Lor writes notes when it ends.
+          </HintPopover>
           {note && <p className="text-muted-foreground text-xs">{note}</p>}
         </div>
       </div>

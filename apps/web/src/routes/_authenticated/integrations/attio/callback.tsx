@@ -68,9 +68,7 @@ function AttioCallback() {
       await navigate({
         to: "/$workspaceSlug",
         params: { workspaceSlug: slug },
-        search: connected
-          ? { settings: "workspace", tab: "connectors", connector: "attio" }
-          : {},
+        search: connected ? { connector: "attio" } : {},
         replace: true,
       })
     })()

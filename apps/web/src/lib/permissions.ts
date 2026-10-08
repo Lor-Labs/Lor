@@ -87,6 +87,19 @@ export function canDeleteChannels(
   return hasPermissions(member, workspace, { channel: ["delete"] }, customRoles)
 }
 
+export function canManageConnectors(
+  member: { userId: string; role: string },
+  workspace: { ownerId: string },
+  customRoles?: CustomRoleMap
+): boolean {
+  return hasPermissions(
+    member,
+    workspace,
+    { connector: ["manage"] },
+    customRoles
+  )
+}
+
 export function canPinMessages(
   member: { userId: string; role: string },
   workspace: { ownerId: string },

@@ -1,5 +1,6 @@
 import { relations } from "drizzle-orm"
 import {
+  index,
   pgTable,
   text,
   timestamp,
@@ -22,8 +23,17 @@ export const workspace = pgTable(
   {
     id: uuid("id").defaultRandom().primaryKey(),
     name: text("name").notNull(),
+    // Opaque server-generated URL key (workspaceKey() in @repo/utils), never
+    // user-chosen. Immutable: MCP OAuth redirect URIs and bookmarks embed it.
     slug: text("slug").notNull().unique(),
     logo: text("logo"),
+    description: text("description"),
+    // Bare domain (normalizeDomain), e.g. "acme.com".
+    website: text("website"),
+    // Verified email domain whose users may join without an invite. Only an
+    // admin on that domain can set it.
+    joinDomain: text("join_domain"),
+    setupCompletedAt: timestamp("setup_completed_at"),
     createdAt: timestamp("created_at").notNull(),
     ownerId: uuid("owner_id") // source of truth for workspace ownership — derive owner status by comparing user.id against workspace.ownerId, NOT from workspace_member.role
       .notNull()
@@ -33,7 +43,10 @@ export const workspace = pgTable(
     // workspace's first invite is accepted; reverted if the grant fails).
     promoGrantedAt: timestamp("promo_granted_at"),
   },
-  (table) => [uniqueIndex("workspace_slug_uidx").on(table.slug)]
+  (table) => [
+    uniqueIndex("workspace_slug_uidx").on(table.slug),
+    index("workspace_joinDomain_idx").on(table.joinDomain),
+  ]
 )
 
 export const workspaceRelations = relations(workspace, ({ one, many }) => ({

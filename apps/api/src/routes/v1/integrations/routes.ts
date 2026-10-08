@@ -9,16 +9,17 @@ import {
   notFoundSchema,
   unauthorizedSchema,
 } from "@/lib/helpers/openapi/schemas"
+import { sessionAuthMiddleware } from "@/middleware/session-auth"
 import { workspaceAuthMiddleware } from "@/middleware/workspace-auth"
 import {
+  completeGithubSetupRequestSchema,
+  completeGithubSetupResponseSchema,
   connectAttioRequestSchema,
   connectAttioResponseSchema,
   connectCloudwatchRequestSchema,
   connectCloudwatchResponseSchema,
   connectDatadogRequestSchema,
   connectDatadogResponseSchema,
-  connectGithubRequestSchema,
-  connectGithubResponseSchema,
   connectionIdParamsSchema,
   connectLinearRequestSchema,
   connectLinearResponseSchema,
@@ -27,6 +28,7 @@ import {
   disconnectResponseSchema,
   integrationsWorkspaceParamsSchema,
   listIntegrationsResponseSchema,
+  startGithubConnectResponseSchema,
   updateGithubRepoConfigRequestSchema,
   updateGithubRepoConfigResponseSchema,
   updateIntegrationRequestSchema,
@@ -53,32 +55,52 @@ export const listIntegrations = createRoute({
   },
 })
 
-export const connectGithub = createRoute({
-  path: "/workspaces/{workspaceSlug}/integrations/github/connect",
+export const startGithubConnect = createRoute({
+  path: "/workspaces/{workspaceSlug}/integrations/github/connect-url",
   method: "post",
-  summary: "Link a GitHub App installation to a workspace",
+  summary: "Start connecting GitHub",
   description:
-    "Called by the post-install setup redirect with the installation id.",
+    "Records which workspace the caller is connecting and returns the GitHub App install URL with a signed state.",
   tags: ["Integrations"],
   middleware: [workspaceAuthMiddleware] as const,
   request: {
     params: integrationsWorkspaceParamsSchema,
-    body: jsonContent({
-      schema: connectGithubRequestSchema,
-      description: "The GitHub App installation id",
-    }),
   },
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
-      schema: connectGithubResponseSchema,
-      description: "Connected",
+      schema: startGithubConnectResponseSchema,
+      description: "Install URL",
     }),
     [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
     [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
     [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
     [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+  },
+})
+
+export const completeGithubSetup = createRoute({
+  path: "/integrations/github/setup",
+  method: "post",
+  summary: "Link a GitHub App installation after install",
+  description:
+    "Called by the GitHub Setup URL page. The workspace comes from the signed state, else from the caller's recorded connect intent.",
+  tags: ["Integrations"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: {
+    body: jsonContent({
+      schema: completeGithubSetupRequestSchema,
+      description: "The installation id and the returned state",
+    }),
+  },
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: completeGithubSetupResponseSchema,
+      description: "Connected",
+    }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
     [HttpStatusCodes.CONFLICT]: conflictSchema,
-    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
   },
 })
 
@@ -308,7 +330,8 @@ export const disconnectIntegration = createRoute({
 })
 
 export type ListIntegrationsRoute = typeof listIntegrations
-export type ConnectGithubRoute = typeof connectGithub
+export type StartGithubConnectRoute = typeof startGithubConnect
+export type CompleteGithubSetupRoute = typeof completeGithubSetup
 export type ConnectLinearRoute = typeof connectLinear
 export type ConnectAttioRoute = typeof connectAttio
 export type ConnectNotionRoute = typeof connectNotion

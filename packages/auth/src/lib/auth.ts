@@ -1,10 +1,11 @@
 import { expo } from "@better-auth/expo"
 import { redisStorage } from "@better-auth/redis-storage"
-import { ensureCustomer } from "@repo/billing"
+import { ensureCustomer, grantSignupPromo } from "@repo/billing"
 import { db, eq, LOR_USER_ID, schema } from "@repo/db"
 import { env } from "@repo/env/server"
 import { pickWorkspaceAvatarColor } from "@repo/utils/avatar-colors"
 import { drizzleAdapter } from "better-auth/adapters/drizzle"
+import { APIError } from "better-auth/api"
 import { betterAuth } from "better-auth/minimal"
 import { admin, organization, twoFactor } from "better-auth/plugins"
 import Redis from "ioredis"
@@ -16,76 +17,13 @@ import {
   member as memberRole,
   owner as ownerRole,
 } from "./permissions"
+import { seedWorkspaceTemplate } from "./workspace-template"
 
 const redis = new Redis(env.REDIS_URL)
 const resend = new Resend(env.RESEND_API_KEY)
 // Email clients need an sRGB fallback for Lor's primary token:
 // oklch(0.48 0.19 293) from packages/ui/src/styles/lor-tokens.css.
 const EMAIL_PRIMARY_COLOR = "#663cbc"
-
-const defaultWorkspaceChannels = {
-  uncategorized: [
-    { name: "general", type: "text" as const },
-    { name: "introductions", type: "text" as const },
-    { name: "rules", type: "text" as const },
-  ],
-  categories: [
-    {
-      name: "Community",
-      channels: [
-        { name: "help", type: "text" as const },
-        { name: "off-topic", type: "text" as const },
-      ],
-    },
-  ],
-}
-
-async function seedDefaultWorkspaceChannels(workspaceId: string) {
-  await db.transaction(async (tx) => {
-    let topLevelPosition = 0
-
-    const uncategorizedRows = defaultWorkspaceChannels.uncategorized.map(
-      (ch, index) => ({
-        name: ch.name,
-        type: ch.type,
-        workspaceId,
-        position: topLevelPosition + index,
-      })
-    )
-
-    if (uncategorizedRows.length > 0) {
-      await tx.insert(schema.channel).values(uncategorizedRows)
-    }
-    topLevelPosition += uncategorizedRows.length
-
-    for (const categoryConfig of defaultWorkspaceChannels.categories) {
-      const createdCategory = await tx
-        .insert(schema.channel)
-        .values({
-          name: categoryConfig.name,
-          type: "category",
-          workspaceId,
-          position: topLevelPosition++,
-        })
-        .returning({ id: schema.channel.id })
-        .then((rows) => rows[0])
-
-      if (!createdCategory) continue
-
-      const childRows = categoryConfig.channels.map((ch, channelIndex) => ({
-        name: ch.name,
-        type: ch.type,
-        workspaceId,
-        parentId: createdCategory.id,
-        position: channelIndex,
-      }))
-
-      if (childRows.length > 0) {
-        await tx.insert(schema.channel).values(childRows)
-      }
-    }
-  })
-}
 
 async function nextWorkspaceAvatarColor(workspaceId: string, userId: string) {
   const memberships = await db
@@ -148,9 +86,12 @@ export const auth = betterAuth({
   },
   user: {
     additionalFields: {
+      // Unused since /onboarding replaced the modal; column drop is a later
+      // cleanup (reference/onboarding.md, Step 10).
       onboardingCompleted: {
         type: "boolean",
         defaultValue: false,
+        input: false,
         returned: true,
       },
       bio: {
@@ -253,6 +194,9 @@ export const auth = betterAuth({
   plugins: [
     organization({
       ac,
+      // Workspaces are created only through POST /v1/workspaces, which mints
+      // the URL key server-side (a system call, so this doesn't block it).
+      allowUserToCreateOrganization: false,
       roles: {
         owner: ownerRole,
         admin: adminRole,
@@ -270,6 +214,32 @@ export const auth = betterAuth({
                 model: "user",
                 onDelete: "restrict",
               },
+              required: false,
+              input: false,
+              returned: true,
+            },
+            // Written only through /v1/workspaces routes (normalized there),
+            // returned so organization.list() carries them to clients.
+            description: {
+              type: "string",
+              required: false,
+              input: false,
+              returned: true,
+            },
+            website: {
+              type: "string",
+              required: false,
+              input: false,
+              returned: true,
+            },
+            joinDomain: {
+              type: "string",
+              required: false,
+              input: false,
+              returned: true,
+            },
+            setupCompletedAt: {
+              type: "date",
               required: false,
               input: false,
               returned: true,
@@ -312,6 +282,13 @@ export const auth = betterAuth({
         beforeCreateOrganization: async ({ organization, user }) => {
           return { data: { ...organization, ownerId: user.id } }
         },
+        beforeUpdateOrganization: async ({ organization }) => {
+          if (organization.slug !== undefined) {
+            throw new APIError("BAD_REQUEST", {
+              message: "Workspace keys cannot be changed",
+            })
+          }
+        },
         beforeAddMember: async ({ member }) => {
           const avatarColor = await nextWorkspaceAvatarColor(
             member.organizationId,
@@ -319,15 +296,14 @@ export const auth = betterAuth({
           )
           return { data: { ...member, avatarColor } }
         },
-        afterCreateOrganization: async ({ organization, user }) => {
+        afterCreateOrganization: async ({ organization }) => {
           try {
-            await seedDefaultWorkspaceChannels(organization.id)
+            await seedWorkspaceTemplate(organization.id)
           } catch (error) {
             logger.error(
               { err: error, workspaceId: organization.id },
               "Failed to seed default channels for workspace"
             )
-            return
           }
 
           try {
@@ -348,21 +324,10 @@ export const auth = betterAuth({
             )
           }
 
-          try {
-            await db
-              .update(schema.user)
-              .set({ onboardingCompleted: true })
-              .where(eq(schema.user.id, user.id))
-          } catch (error) {
-            logger.error(
-              { err: error, userId: user.id },
-              "Failed to mark onboarding as completed"
-            )
-          }
-
           // No-ops when billing is disabled; every later Autumn call also
           // falls back to get-or-create, so a failure here self-heals.
           await ensureCustomer(organization.id, organization.name)
+          await grantSignupPromo(organization.id)
         },
       },
       dynamicAccessControl: {

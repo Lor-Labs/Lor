@@ -28,6 +28,7 @@ import {
   View,
 } from "react-native"
 import { MentionBadge } from "@/components/channel-list"
+import { HintCard } from "@/components/hint-card"
 import { Avatar } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { triggerHaptic } from "@/components/ui/haptics"
@@ -41,6 +42,7 @@ import {
   useCanDeleteCalls,
   useDeleteCall,
 } from "@/hooks/use-delete-call"
+import { useHint } from "@/hooks/use-hints"
 import {
   useVoiceSessions,
   type VoiceParticipant,
@@ -205,6 +207,7 @@ function CallHero({
   const [microphone, setMicrophone] = useState(true)
   const [camera, setCamera] = useState(false)
   const [facing, setFacing] = useState<CameraFacing>("user")
+  const voiceHint = useHint("voice_intro")
   // The preview lets go of the camera while a join is in progress, before the
   // call takes it, and comes back if the join fails.
   const previewing = !joinDisabled
@@ -325,7 +328,10 @@ function CallHero({
       </View>
       <Button
         isDisabled={joinDisabled}
-        onPress={() => onJoin({ microphone, camera, facing })}
+        onPress={() => {
+          voiceHint.dismiss()
+          onJoin({ microphone, camera, facing })
+        }}
         size="lg"
       >
         <Button.Label>
@@ -334,6 +340,12 @@ function CallHero({
       </Button>
       {note ? (
         <Text className="text-center text-[13px] text-muted">{note}</Text>
+      ) : null}
+      {!voiceHint.dismissed && !joinDisabled ? (
+        <HintCard onDismiss={voiceHint.dismiss}>
+          Calls are transcribed for the people in them. Say "Lor" during a call
+          to ask it something, and Lor writes notes when it ends.
+        </HintCard>
       ) : null}
     </View>
   )

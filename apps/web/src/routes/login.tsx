@@ -25,6 +25,7 @@ import { OfflineScreen } from "@/components/offline-screen"
 import { useConnectivity } from "@/hooks/use-connectivity"
 import { sanitizeRedirect } from "@/lib/auth-redirect"
 import { validateEmail } from "@/lib/email-validation"
+import { webOrigin } from "@/lib/web-origin"
 
 export const Route = createFileRoute("/login")({
   component: LoginPage,
@@ -61,7 +62,7 @@ function LoginPage() {
       const { error } = await authClient.signIn.email({
         email,
         password,
-        callbackURL: `${window.location.origin}${redirect ?? "/"}`,
+        callbackURL: `${webOrigin()}${redirect ?? "/"}`,
       })
       if (error) {
         // 403 = email not verified — better-auth re-sends the verification email automatically

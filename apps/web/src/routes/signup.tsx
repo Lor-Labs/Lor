@@ -26,6 +26,7 @@ import { OfflineScreen } from "@/components/offline-screen"
 import { useConnectivity } from "@/hooks/use-connectivity"
 import { sanitizeRedirect } from "@/lib/auth-redirect"
 import { validateEmail } from "@/lib/email-validation"
+import { webOrigin } from "@/lib/web-origin"
 
 export const Route = createFileRoute("/signup")({
   component: SignUpPage,
@@ -66,7 +67,7 @@ function SignUpPage() {
         password,
         // The verification email link lands here after verifying, so the
         // redirect (e.g. an invite) survives the email round-trip
-        callbackURL: `${window.location.origin}${redirect ?? "/"}`,
+        callbackURL: `${webOrigin()}${redirect ?? "/"}`,
       })
       if (error) throw new Error(error.message ?? "Failed to create account")
     },

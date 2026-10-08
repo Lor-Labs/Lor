@@ -50,7 +50,7 @@ export const dmMemberSchema = z.object({
 })
 
 export const dmChannelSchema = selectChannelSchema
-  .omit({ agentProfileId: true })
+  .omit({ agentProfileId: true, creatorId: true })
   .extend({
     members: z.array(dmMemberSchema),
     lastMessage: lastMessageSchema.nullable(),

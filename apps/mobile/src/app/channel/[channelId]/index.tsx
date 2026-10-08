@@ -455,6 +455,7 @@ function ChannelScreen() {
                 channelId={channelId}
                 channelName={channelName}
                 editingMessage={editingMessage}
+                lorIntro
                 inputNativeID={inputNativeID}
                 onInputLayout={onInputLayout}
                 isConnected={isSocketConnected}

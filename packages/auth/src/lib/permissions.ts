@@ -24,9 +24,11 @@ const admin = ac.newRole({
   ...adminAc.statements,
 })
 
-// Member — basic access only
+// Member — basic access, plus creating channels: small teams expect everyone
+// to make channels (reference/onboarding.md, Permissions).
 const member = ac.newRole({
   ...memberAc.statements,
+  channel: ["create"],
 })
 
 const roles = { owner, admin, member }
