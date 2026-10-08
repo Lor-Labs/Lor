@@ -140,6 +140,8 @@ export const messageLocationResponseSchema = z.object({
   messageId: z.string().uuid(),
   channelId: z.string().uuid(),
   threadRootId: z.string().uuid().nullable(),
+  // Set when the message is in a Lor session (or is its anchor).
+  sessionId: z.string().uuid().nullable(),
 })
 
 export const listPinnedMessagesResponseSchema = z.object({

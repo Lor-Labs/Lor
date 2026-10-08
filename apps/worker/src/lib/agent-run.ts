@@ -19,6 +19,7 @@ import {
   schema,
   sql,
 } from "@repo/db"
+import { chatFeedMessage } from "@repo/db/queries/agent-sessions"
 import type {
   AgentRunContext,
   LorMemory,
@@ -630,10 +631,7 @@ export async function claimAgentRun(
     // boundary — context only, no delivery guarantee.
     const scopeCond = claimed.threadRootId
       ? eq(schema.message.threadRootId, claimed.threadRootId)
-      : and(
-          eq(schema.message.channelId, claimed.channelId),
-          isNull(schema.message.threadRootId)
-        )
+      : and(eq(schema.message.channelId, claimed.channelId), chatFeedMessage())
     const ambientRows = await db
       .select({
         id: schema.message.id,

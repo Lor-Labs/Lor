@@ -7,6 +7,7 @@ import {
   isUniqueViolation,
   schema,
 } from "@repo/db"
+import { findAgentSessionByThreadRoot } from "@repo/db/queries/agent-sessions"
 import { canSeeSessionChat } from "@repo/db/queries/session-chat-access"
 import {
   buildReactionNotification,
@@ -316,6 +317,10 @@ export async function createMessage(input: CreateMessageInput) {
   ) {
     throw new Error("Invalid thread root")
   }
+  if (threadRootId) {
+    const session = await findAgentSessionByThreadRoot(threadRootId)
+    if (session?.archivedAt) throw new Error("This session is archived")
+  }
 
   const runInsertTransaction = () =>
     db.transaction(async (tx) => {
@@ -516,6 +521,7 @@ export async function deleteMessage(
       id: schema.message.id,
       authorId: schema.message.authorId,
       threadRootId: schema.message.threadRootId,
+      type: schema.message.type,
     })
     .from(schema.message)
     .where(
@@ -527,7 +533,8 @@ export async function deleteMessage(
     .limit(1)
     .then((rows) => rows[0])
 
-  if (!messageRecord) {
+  // Deleting a session anchor would cascade away the whole session.
+  if (!messageRecord || messageRecord.type === "agent_session") {
     throw new Error("Message not found")
   }
 
@@ -573,6 +580,7 @@ export async function editMessage(
       id: schema.message.id,
       authorId: schema.message.authorId,
       threadRootId: schema.message.threadRootId,
+      type: schema.message.type,
     })
     .from(schema.message)
     .where(
@@ -584,7 +592,7 @@ export async function editMessage(
     .limit(1)
     .then((rows) => rows[0])
 
-  if (!messageRecord) {
+  if (!messageRecord || messageRecord.type === "agent_session") {
     throw new Error("Message not found")
   }
 
@@ -633,6 +641,7 @@ export async function toggleMessageReaction(input: ToggleMessageReactionInput) {
       authorId: schema.message.authorId,
       content: schema.message.content,
       threadRootId: schema.message.threadRootId,
+      type: schema.message.type,
     })
     .from(schema.message)
     .where(
@@ -644,7 +653,7 @@ export async function toggleMessageReaction(input: ToggleMessageReactionInput) {
     .limit(1)
     .then((rows) => rows[0])
 
-  if (!messageRecord) {
+  if (!messageRecord || messageRecord.type === "agent_session") {
     throw new Error("Message not found")
   }
 

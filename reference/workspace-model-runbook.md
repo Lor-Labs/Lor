@@ -147,7 +147,11 @@ Docs moved to `reference/` root with a `CLAUDE.md` section.
 
 #### Step 2: hide anchors, add guards (~250)
 
-[ ] built · [ ] committed
+[x] built 2026-10-08 · [ ] committed
+
+As built (~110 lines): `@repo/db/queries/agent-sessions` holds
+`chatFeedMessage()` and `findAgentSessionByThreadRoot()`. The message-location
+response gained `sessionId`. `countsAsUnread` also skips anchors.
 
 - One shared chat-message filter at every site in hazard 2.
 - Delete and edit guards for anchors (hazard 8).
@@ -445,3 +449,7 @@ lines, plus the server steps. 22 steps.
   join table (Jacob, 2026-10-08), for exact, foreign-keyed tracking of the
   messages a session starts with. Sessions with no context (New session,
   loops, triggers) have no rows.
+- Step 2: `markThreadRead` (`channels/handlers.ts:764`) keeps its plain
+  `isNull(threadRootId)`. It finds thread roots, and anchors are thread roots
+  that need read state. Hazard 2 listed it by mistake.
+- Step 2: reactions on anchors are rejected too, not only delete and edit.

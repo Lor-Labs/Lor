@@ -1,4 +1,5 @@
 import { db, schema } from "@repo/db"
+import { chatFeedMessage } from "@repo/db/queries/agent-sessions"
 import {
   listAccessibleChannelIds,
   resolveChannelAudienceInfo,
@@ -10,6 +11,7 @@ import {
 import type { IntegrationProvider } from "@repo/db/schema"
 import {
   agentProfile,
+  agentSession,
   channel,
   channelReadState,
   message,
@@ -613,7 +615,7 @@ export const getChannelReadPosition: AppRouteHandler<
     .where(
       and(
         eq(message.channelId, channelId),
-        isNull(message.threadRootId),
+        chatFeedMessage(),
         ne(message.authorId, userId),
         ne(message.type, "event"),
         sql`${message.createdAt} > coalesce((
@@ -1238,9 +1240,17 @@ export const getMessageLocation: AppRouteHandler<
       messageId: message.id,
       channelId: message.channelId,
       threadRootId: message.threadRootId,
+      sessionId: agentSession.id,
     })
     .from(message)
     .innerJoin(channel, eq(message.channelId, channel.id))
+    .leftJoin(
+      agentSession,
+      eq(
+        agentSession.threadRootId,
+        sql`coalesce(${message.threadRootId}, ${message.id})`
+      )
+    )
     .where(
       and(eq(message.id, messageId), eq(channel.workspaceId, workspace.id))
     )

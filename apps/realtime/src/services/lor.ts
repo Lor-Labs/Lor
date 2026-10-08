@@ -5,11 +5,11 @@ import {
   eq,
   inArray,
   isNotNull,
-  isNull,
   isUniqueViolation,
   LOR_USER_ID,
   schema,
 } from "@repo/db"
+import { chatFeedMessage } from "@repo/db/queries/agent-sessions"
 import { env } from "@repo/env/server"
 import type { PlacementTurn } from "@repo/lor/placement"
 import { extractDirectMentionUserIds } from "@repo/messaging"
@@ -66,7 +66,7 @@ export async function loadRecentChannelMessages(
     .where(
       and(
         eq(schema.message.channelId, channelId),
-        isNull(schema.message.threadRootId),
+        chatFeedMessage(),
         isNotNull(schema.message.content)
       )
     )

@@ -9,6 +9,7 @@ import {
   schema,
   sql,
 } from "@repo/db"
+import { findAgentSessionByThreadRoot } from "@repo/db/queries/agent-sessions"
 import { env } from "@repo/env/server"
 import { loadThreadSummary } from "@repo/messaging"
 import type { LorRespondJobData, RealtimeMessage } from "@repo/realtime-types"
@@ -127,6 +128,27 @@ async function runDrain(args: {
         messageId,
         state,
       })
+    }
+  }
+
+  // An archived session takes no more Lor turns: its queue is dropped.
+  if (threadRootId) {
+    const session = await findAgentSessionByThreadRoot(threadRootId)
+    if (session?.archivedAt) {
+      await db
+        .update(schema.agentRunQueue)
+        .set({ state: "rejected" })
+        .where(
+          inArray(
+            schema.agentRunQueue.id,
+            rows.map((r) => r.id)
+          )
+        )
+      emitQueueUpdate(
+        rows.map((r) => r.messageId),
+        "rejected"
+      )
+      return
     }
   }
 

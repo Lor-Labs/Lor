@@ -1,4 +1,5 @@
 import { db } from "@repo/db"
+import { chatFeedMessage } from "@repo/db/queries/agent-sessions"
 import { visibleToSessionChatFilter } from "@repo/db/queries/session-chat-access"
 import type {
   Attachment,
@@ -27,7 +28,6 @@ import {
   eq,
   gt,
   inArray,
-  isNull,
   lt,
   max,
   or,
@@ -194,7 +194,7 @@ export async function fetchMessages({
         eq(message.channelId, channelId),
         eq(message.threadRootId, threadRootId)
       )
-    : and(eq(message.channelId, channelId), isNull(message.threadRootId))
+    : and(eq(message.channelId, channelId), chatFeedMessage())
 
   // Look up the anchor's (createdAt, id) so we can do stable comparisons
   // even when multiple messages share a millisecond timestamp.

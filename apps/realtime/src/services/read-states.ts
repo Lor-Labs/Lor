@@ -7,11 +7,12 @@ import {
   eq,
   gt,
   inArray,
-  isNull,
   ne,
+  notInArray,
   schema,
   sql,
 } from "@repo/db"
+import { chatFeedMessage } from "@repo/db/queries/agent-sessions"
 import { listAccessibleChannelIds } from "@repo/db/queries/channel-access"
 import { visibleToSessionChatFilter } from "@repo/db/queries/session-chat-access"
 import type {
@@ -20,11 +21,11 @@ import type {
 } from "@repo/realtime-types"
 import { assertUserCanAccessChannel } from "@/services/channel-access"
 
-// Session roots post silently, and a live session's chat counts only for
-// people in the call.
+// Voice and Lor session roots post silently, and a live session's chat counts
+// only for people in the call.
 function countsAsUnread(userId: string) {
   return and(
-    ne(schema.message.type, "voice_session"),
+    notInArray(schema.message.type, ["voice_session", "agent_session"]),
     visibleToSessionChatFilter(userId, schema.message.threadRootId)
   )
 }
@@ -44,7 +45,7 @@ function firstUnreadMessageIdQuery(channelId: string, userId: string) {
     .where(
       and(
         eq(schema.message.channelId, channelId),
-        isNull(schema.message.threadRootId),
+        chatFeedMessage(),
         ne(schema.message.authorId, userId),
         ne(schema.message.type, "event"),
         sql`${schema.message.createdAt} > coalesce((

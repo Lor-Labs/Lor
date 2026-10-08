@@ -4,7 +4,6 @@ import {
   db,
   desc,
   eq,
-  isNull,
   lte,
   ne,
   notExists,
@@ -12,6 +11,7 @@ import {
   schema,
   sql,
 } from "@repo/db"
+import { chatFeedMessage } from "@repo/db/queries/agent-sessions"
 import { userDisplayName } from "@repo/lor"
 import { meetingThreadContext } from "./meeting-context"
 
@@ -75,10 +75,7 @@ export async function loadConversation(args: {
           eq(schema.message.threadRootId, args.threadRootId)
         )
       )
-    : and(
-        eq(schema.message.channelId, args.channelId),
-        isNull(schema.message.threadRootId)
-      )
+    : and(eq(schema.message.channelId, args.channelId), chatFeedMessage())
 
   // Thread context truncates to the newest THREAD_CONTEXT_LIMIT messages as a
   // runaway guard; channel context stays windowed to the newest CONTEXT_LIMIT.
@@ -118,7 +115,7 @@ export async function loadConversation(args: {
       const pre = await selectTurns(
         and(
           eq(schema.message.channelId, args.channelId),
-          isNull(schema.message.threadRootId),
+          chatFeedMessage(),
           ne(schema.message.id, args.threadRootId),
           lte(schema.message.createdAt, root.createdAt)
         )
