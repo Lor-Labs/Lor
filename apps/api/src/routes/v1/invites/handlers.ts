@@ -1,8 +1,8 @@
-import { randomBytes } from "node:crypto"
 import { auth } from "@repo/auth"
 import { grantFirstInvitePromo, syncSeats } from "@repo/billing"
 import { and, db, eq, schema, sql } from "@repo/db"
 import { pickWorkspaceAvatarColor } from "@repo/utils/avatar-colors"
+import { BASE62_ALPHABET, randomCode } from "@repo/utils/short-code"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { assertWorkspaceAuthority } from "@/lib/permissions"
 import type { AppRouteHandler } from "@/lib/types/app-types"
@@ -18,16 +18,6 @@ import type {
 
 const CODE_LENGTH = 8
 const MAX_CODE_RETRIES = 3
-
-function generateInviteCode(): string {
-  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
-  const bytes = randomBytes(CODE_LENGTH)
-  let code = ""
-  for (let i = 0; i < CODE_LENGTH; i++) {
-    code += chars[(bytes[i] as number) % chars.length]
-  }
-  return code
-}
 
 function isInviteExpired(expiresAt: Date | null): boolean {
   if (!expiresAt) return false
@@ -86,7 +76,7 @@ export const createInvite: AppRouteHandler<CreateInviteRoute> = async (c) => {
 
   let invite = null
   for (let attempt = 0; attempt < MAX_CODE_RETRIES; attempt++) {
-    const code = generateInviteCode()
+    const code = randomCode(CODE_LENGTH, BASE62_ALPHABET)
     try {
       const rows = await db
         .insert(schema.workspaceInvite)

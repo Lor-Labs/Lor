@@ -1,10 +1,11 @@
 # Onboarding for small tech startups
 
-> Status: design, written 2026-10-07 from a full code audit. Not started.
+> Status: in flight. Written 2026-10-07 from a full code audit; Step 1 built
+> 2026-10-07. Execute step by step: tick each step's checkboxes as it lands,
+> and record any departure from this plan in "Deviations" at the bottom.
 > Decisions marked **Locked** were agreed with Jacob on 2026-10-07; the rest
-> are recommendations. Verify file references against code before building.
-> Move this doc to `reference/` root when Step 1 starts. Linear-linked
-> projects were split out to `reference/planned/linear-projects.md`.
+> are recommendations. Linear-linked projects were split out to
+> `reference/planned/linear-projects.md`.
 
 ## Why
 
@@ -276,9 +277,10 @@ The column must stay. What changes is who chooses it and what it looks like.
 
 **Locked: an opaque key stored in the existing `slug` column.** Ten lowercase
 base36 characters (for example `f3e1g2cab7`), generated server-side, never
-shown in a form, retried on unique violation. Every `workspaceSlug` route
-param, the 82 API paths, OAuth state, and billing URLs keep working
-unchanged.
+shown in a form. Collisions are not retried: the key space is about 3.6 ×
+10^15, and better-auth rejects a duplicate before inserting. Every
+`workspaceSlug` route param, the 82 API paths, OAuth state, and billing URLs
+keep working unchanged.
 
 Why opaque over a name prefix like `acme-7k3qd`:
 
@@ -294,15 +296,16 @@ Why opaque over a name prefix like `acme-7k3qd`:
 Creation moves behind a first-party route so the key is minted on the server:
 
 - `POST /v1/workspaces` `{ name, description?, website? }` calls
-  `auth.api.createOrganization({ body: { name, slug: key, description, website, userId } })`
-  with no headers. better-auth treats a session-less call with `userId` as a
-  system action (`crud-org.mjs:56-64`): hooks run, the creator member row is
-  inserted with role `owner`, and `setActiveOrganization` is skipped
-  (`crud-org.mjs:163`). The client calls `organization.setActive` afterwards,
-  which web already does in the `$workspaceSlug` layout and mobile does in
-  `reloadWorkspaces`.
+  `auth.api.createOrganization({ body: { name, slug: key, userId } })` with no
+  headers, then writes `description` and the normalized `website` itself.
+  better-auth treats a session-less call with `userId` as a system action
+  (`crud-org.mjs:56-64`): hooks run, the creator member row is inserted with
+  role `owner`, and `setActiveOrganization` is skipped (`crud-org.mjs:163`).
+  The client calls `organization.setActive` afterwards, which web already
+  does in the `$workspaceSlug` layout and mobile does in `reloadWorkspaces`.
 - `organization({ allowUserToCreateOrganization: false })` blocks direct
-  client calls to `/api/auth/organization/create`.
+  client calls to `/api/auth/organization/create`. It lands in Step 3, when
+  web and mobile switch to the new route.
 - `organizationHooks.beforeUpdateOrganization` rejects any `slug` change so
   the still-mounted `/api/auth/organization/update` cannot rename keys.
 
@@ -441,32 +444,39 @@ Schema edits are listed; Jacob runs `db:push`.
 
 ### Step 1: workspace key, create route, new columns, rekey script
 
+[x] built 2026-10-07 · [ ] committed · [ ] db:push dev · [ ] rekey dev ·
+[ ] db:push prod · [ ] rekey prod
+
 - `packages/utils/src/short-code.ts` (new): `randomCode(length, alphabet)`
   with rejection sampling, `workspaceKey()` (10 chars base36). The invite
-  code generator in `apps/api/src/routes/v1/invites/handlers.ts:19-30` moves
-  onto it, which also removes its modulo bias.
+  code generator in `apps/api/src/routes/v1/invites/handlers.ts` moved onto
+  it, which also removes its modulo bias.
+- `packages/utils/src/domain.ts` (new): `normalizeDomain(input)` turns a
+  typed website into a bare lowercase domain without `www.`, or null.
 - `packages/db/src/schemas/workspaces.ts`: add `description text`,
   `website text`, `joinDomain text` (indexed), `setupCompletedAt timestamp`.
   Comment on `slug`: server-generated key. **db:push owed.**
 - `packages/db/src/scripts/rekey-workspaces.ts` (new, one-off): rewrites
-  every `workspace.slug` to `workspaceKey()` in one transaction and prints
-  old and new keys. Header documents
-  `pnpm --filter @repo/db exec tsx src/scripts/rekey-workspaces.ts`. Jacob
-  runs it against dev, then prod, after Step 1 deploys. Old slugs keep
-  working until then.
-- `packages/auth/src/lib/auth.ts`: `allowUserToCreateOrganization: false`;
-  organization `additionalFields` `description` and `website` (input true,
-  returned true), `joinDomain` and `setupCompletedAt` (input false, returned
-  true) so `organization.list()` carries them to both clients with no new
-  endpoint; `beforeUpdateOrganization` rejects slug changes.
-- `apps/api/src/routes/v1/workspaces/{routes,schema,handlers}.ts`:
+  every `workspace.slug` to `workspaceKey()` in one transaction, marks every
+  existing workspace as set up, prints old and new keys, and lists OAuth MCP
+  servers to reconnect. `--dry-run` prints without writing. Run after
+  db:push, against dev, then prod. Old slugs keep working until then.
+- `packages/auth/src/lib/auth.ts`: organization `additionalFields`
+  `description`, `website`, `joinDomain`, `setupCompletedAt`, all
+  `input: false, returned: true`, so `organization.list()` carries them to
+  both clients and only our routes write them; `beforeUpdateOrganization`
+  rejects slug changes.
+- `apps/api/src/routes/v1/workspaces/{routes,schema,handlers,index}.ts`:
   `POST /workspaces` (session auth) mints the key, calls
-  `auth.api.createOrganization` as a system action, retries once on `23505`,
-  returns `{ workspace, firstChannelId }`. PATCH accepts `description` and
-  `website`, and `setupCompleted: true` for `connector:manage` holders.
-- Rebuild `apps/api` and `packages/api-client`.
+  `auth.api.createOrganization` as a system action, writes description and
+  website, returns `{ workspace, firstChannelId }`.
+  `POST /workspaces/{key}/setup/complete` (first statement asserts
+  `connector:manage`) sets `setupCompletedAt` once. PATCH accepts
+  `description` and `website`.
 
 ### Step 2: startup template, Lor intro, Lor context
+
+[ ] built · [ ] committed
 
 - `packages/db/src/seeds/workspace-template.ts` (new): the four channels with
   topics and positions, the Lor intro message row. Exported
@@ -481,6 +491,8 @@ Schema edits are listed; Jacob runs `db:push`.
 
 ### Step 3: web `/onboarding` page and landing changes
 
+[ ] built · [ ] committed
+
 - `apps/web/src/routes/onboarding.tsx` (new, top-level like
   `invite/$code.tsx`): session guard, Create (website, name, description) and
   Join-with-invite cards, calls `POST /workspaces`, `organization.setActive`,
@@ -488,6 +500,8 @@ Schema edits are listed; Jacob runs `db:push`.
   (today the create flows never emit it), navigates to `/{key}/setup`.
 - `apps/web/src/routes/_authenticated.tsx`: remove `OnboardingDialog`; zero
   workspaces → `/onboarding`. `_authenticated/index.tsx`: same.
+- `packages/auth/src/lib/auth.ts`: `allowUserToCreateOrganization: false`,
+  now that every client creates through `POST /v1/workspaces`.
 - `apps/web/src/components/sidebar/workspace-sidebar.tsx`: "Create
   workspace" navigates to `/onboarding`. Delete
   `create-workspace-dialog.tsx`.
@@ -500,6 +514,8 @@ Schema edits are listed; Jacob runs `db:push`.
   pending code.
 
 ### Step 4: company prefill and site icon
+
+[ ] built · [ ] committed
 
 - `packages/utils/src/free-email-domains.ts` (new): vendored list and
   `isFreeEmailDomain(domain)`.
@@ -519,11 +535,13 @@ Schema edits are listed; Jacob runs `db:push`.
 
 ### Step 5: web setup page
 
+[ ] built · [ ] committed · [ ] dev GitHub App created
+
 - `apps/web/src/routes/_authenticated/$workspaceSlug/setup.tsx` (new) and
   `apps/web/src/components/setup/*`: `ConnectCard` (GitHub, Linear) over
   `["integrations", key]` with focus refetch, `InviteCard` reusing the
   invite-link mutation from `create-invite-dialog.tsx`, `AskLorCard`, Finish
-  and Do this later → PATCH `setupCompleted`. Users without
+  and Do this later → `POST /workspaces/{key}/setup/complete`. Users without
   `connector:manage` are sent to the first channel.
 - `apps/web/src/routes/_authenticated/$workspaceSlug/index.tsx`: a
   `connector:manage` holder with null `setupCompletedAt` → `/setup`,
@@ -537,6 +555,8 @@ Schema edits are listed; Jacob runs `db:push`.
   menu item while unfinished.
 
 ### Step 6: permissions and GitHub connect
+
+[ ] built · [ ] committed · [ ] db:push
 
 - `packages/auth/src/lib/permissions.ts`: `member` gains
   `channel: ["create"]`. Web `canCreateChannels` follows automatically.
@@ -571,6 +591,8 @@ Schema edits are listed; Jacob runs `db:push`.
 
 ### Step 7: join by email domain
 
+[ ] built · [ ] committed
+
 - `apps/api/src/lib/workspace-membership.ts` (new): `addWorkspaceMember`
   extracted from `acceptInvite` (avatar color, insert, `syncSeats`). Invite
   accept switches to it.
@@ -585,6 +607,8 @@ Schema edits are listed; Jacob runs `db:push`.
 
 ### Step 8: hints, part 1
 
+[ ] built · [ ] committed · [ ] db:push
+
 - `packages/db/src/schemas/hint-dismissals.ts` (new): `hint_key` enum,
   `hint_dismissal` table. **db:push owed.**
 - `apps/api/src/routes/v1/hints/*` (new): `GET /hints`, `PUT /hints/{key}`,
@@ -598,6 +622,8 @@ Schema edits are listed; Jacob runs `db:push`.
 
 ### Step 9: hints, part 2 and mobile
 
+[ ] built · [ ] committed
+
 - `lor_reply` in `apps/web/src/components/chat/message-item.tsx` (anchor: the
   trail summary row; condition: `authorId === LOR_USER_ID`, trigger message by
   the viewer, `streaming` false).
@@ -609,6 +635,8 @@ Schema edits are listed; Jacob runs `db:push`.
   "Finish setup on the web" panel in `(tabs)/index.tsx`.
 
 ### Step 10: invite management, billing, desktop
+
+[ ] built · [ ] committed
 
 - Mount `ManageInvitesDialog` in the Members tab (`members-section.tsx`); it
   exists but is imported nowhere.
@@ -626,7 +654,8 @@ Schema edits are listed; Jacob runs `db:push`.
 
 ### Docs
 
-- `reference/README.md`: this doc moves to root when Step 1 starts.
+- `reference/README.md`: moved from `planned/` to root on 2026-10-07 when
+  Step 1 started.
 - `reference/mobile-parity-todo.md:120`: the "Onboarding dialog is web-side"
   line is stale; mobile has `onboarding.tsx`.
 - `reference/github-connector.md:36,53`: the per-channel gating TODO and
@@ -679,3 +708,18 @@ Resolved 2026-10-07: the prod App is public, has OAuth during installation
 off, Setup URL `https://app.lor.chat/integrations/github/setup`, and Redirect
 on update on. Step 6 makes the connect flow independent of `state`, so
 Redirect on update stays on. Creators cannot delete their own channels.
+
+## Deviations
+
+- 2026-10-07, Step 1: `allowUserToCreateOrganization: false` moved to Step 3,
+  so workspace creation keeps working on web and mobile between commits.
+- 2026-10-07, Step 1: no retry on key collision (see "Workspace key").
+- 2026-10-07, Step 1: description and website are `input: false` in
+  better-auth; `POST /v1/workspaces` writes them after creation, so every
+  write goes through `normalizeDomain` and our length limits.
+- 2026-10-07, Step 1: finishing setup is its own route,
+  `POST /workspaces/{key}/setup/complete`, not a PATCH field, so its
+  permission check (`connector:manage`) can be the handler's first
+  statement.
+- 2026-10-07, Step 1: the rekey script also marks existing workspaces as set
+  up, so they skip the checklist.

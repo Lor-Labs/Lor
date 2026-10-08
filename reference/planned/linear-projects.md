@@ -1,7 +1,7 @@
 # Lor projects linked to Linear projects
 
 > Status: starting point for a separate design thread. Split out of
-> `reference/planned/onboarding.md` on 2026-10-07. Nothing is decided. Facts
+> `reference/onboarding.md` on 2026-10-07. Nothing is decided. Facts
 > below were verified against code on 2026-10-07.
 
 ## Idea

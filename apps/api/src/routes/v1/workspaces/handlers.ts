@@ -1,14 +1,28 @@
+import { auth } from "@repo/auth"
 import {
   getWorkspaceAuthorityPosition,
   getWorkspaceRolePosition,
   isWorkspaceRole,
 } from "@repo/auth/permissions"
 import { syncSeats } from "@repo/billing"
-import { and, count, db, desc, eq, ilike, inArray, ne, schema } from "@repo/db"
+import {
+  and,
+  count,
+  db,
+  desc,
+  eq,
+  ilike,
+  inArray,
+  isNull,
+  ne,
+  schema,
+} from "@repo/db"
 import { listAccessibleChannelIds } from "@repo/db/queries/channel-access"
 import { visibleToSessionChatFilter } from "@repo/db/queries/session-chat-access"
 import { env } from "@repo/env/server"
 import { PRESENCE_ONLINE_USERS_SET_KEY } from "@repo/realtime-types"
+import { normalizeDomain } from "@repo/utils/domain"
+import { workspaceKey } from "@repo/utils/short-code"
 import { asc } from "drizzle-orm"
 import { HTTPException } from "hono/http-exception"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
@@ -22,6 +36,8 @@ import { getRedisClient } from "@/lib/redis"
 import { disconnectUserSockets } from "@/lib/socket-access"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
+  CompleteWorkspaceSetupRoute,
+  CreateWorkspaceRoute,
   DeleteWorkspaceRoleRoute,
   KickWorkspaceMemberRoute,
   ListWorkspaceMembersRoute,
@@ -340,6 +356,98 @@ export const deleteWorkspaceRole: AppRouteHandler<
 
 // ── Workspace Settings ─────────────────────────────────────
 
+const workspaceSummaryColumns = {
+  id: schema.workspace.id,
+  name: schema.workspace.name,
+  slug: schema.workspace.slug,
+  logo: schema.workspace.logo,
+  description: schema.workspace.description,
+  website: schema.workspace.website,
+}
+
+// Empty input clears the field; the request schema already rejected
+// anything normalizeDomain can't parse.
+function websiteValue(input: string | null): string | null {
+  return input ? normalizeDomain(input) : null
+}
+
+export const createWorkspace: AppRouteHandler<CreateWorkspaceRoute> = async (
+  c
+) => {
+  const user = c.var.user
+  const body = c.req.valid("json")
+
+  // No headers + userId makes this a better-auth system action: its hooks
+  // still seed channels, Lor, and the owner membership.
+  const created = await auth.api.createOrganization({
+    body: { name: body.name, slug: workspaceKey(), userId: user.id },
+  })
+  if (!created) {
+    throw new HTTPException(HttpStatusCodes.INTERNAL_SERVER_ERROR, {
+      message: "Couldn't create the workspace",
+    })
+  }
+
+  const [workspace] = await db
+    .update(schema.workspace)
+    .set({
+      description: body.description || null,
+      website: websiteValue(body.website ?? null),
+    })
+    .where(eq(schema.workspace.id, created.id))
+    .returning(workspaceSummaryColumns)
+  if (!workspace) {
+    throw new HTTPException(HttpStatusCodes.INTERNAL_SERVER_ERROR, {
+      message: "Couldn't create the workspace",
+    })
+  }
+
+  const firstChannel = await db
+    .select({ id: schema.channel.id })
+    .from(schema.channel)
+    .where(
+      and(
+        eq(schema.channel.workspaceId, workspace.id),
+        isNull(schema.channel.parentId),
+        eq(schema.channel.type, "text")
+      )
+    )
+    .orderBy(asc(schema.channel.position))
+    .limit(1)
+    .then((rows) => rows[0])
+
+  return c.json(
+    { workspace, firstChannelId: firstChannel?.id ?? null },
+    HttpStatusCodes.CREATED
+  )
+}
+
+export const completeWorkspaceSetup: AppRouteHandler<
+  CompleteWorkspaceSetupRoute
+> = async (c) => {
+  assertWorkspaceAuthority(c.var.authority, {
+    connector: ["manage"],
+  })
+
+  const workspace = c.var.workspace
+  let setupCompletedAt = workspace.setupCompletedAt
+  if (!setupCompletedAt) {
+    setupCompletedAt = new Date()
+    await db
+      .update(schema.workspace)
+      .set({ setupCompletedAt })
+      .where(eq(schema.workspace.id, workspace.id))
+  }
+
+  return c.json(
+    {
+      success: true as const,
+      setupCompletedAt: setupCompletedAt.toISOString(),
+    },
+    HttpStatusCodes.OK
+  )
+}
+
 export const updateWorkspace: AppRouteHandler<UpdateWorkspaceRoute> = async (
   c
 ) => {
@@ -358,9 +466,13 @@ export const updateWorkspace: AppRouteHandler<UpdateWorkspaceRoute> = async (
     })
   }
 
-  const updates: Record<string, unknown> = {}
+  const updates: Partial<typeof schema.workspace.$inferInsert> = {}
   if (body.name !== undefined) updates.name = body.name
   if (body.logo !== undefined) updates.logo = body.logo
+  if (body.description !== undefined) {
+    updates.description = body.description || null
+  }
+  if (body.website !== undefined) updates.website = websiteValue(body.website)
 
   if (Object.keys(updates).length === 0) {
     return c.json(
@@ -371,6 +483,8 @@ export const updateWorkspace: AppRouteHandler<UpdateWorkspaceRoute> = async (
           name: workspace.name,
           slug: workspace.slug,
           logo: workspace.logo,
+          description: workspace.description,
+          website: workspace.website,
         },
       },
       HttpStatusCodes.OK
@@ -381,12 +495,7 @@ export const updateWorkspace: AppRouteHandler<UpdateWorkspaceRoute> = async (
     .update(schema.workspace)
     .set(updates)
     .where(eq(schema.workspace.id, workspace.id))
-    .returning({
-      id: schema.workspace.id,
-      name: schema.workspace.name,
-      slug: schema.workspace.slug,
-      logo: schema.workspace.logo,
-    })
+    .returning(workspaceSummaryColumns)
 
   if (!updated) {
     return c.json(
@@ -396,15 +505,7 @@ export const updateWorkspace: AppRouteHandler<UpdateWorkspaceRoute> = async (
   }
 
   return c.json(
-    {
-      success: true as const,
-      workspace: {
-        id: updated.id,
-        name: updated.name,
-        slug: updated.slug,
-        logo: updated.logo,
-      },
-    },
+    { success: true as const, workspace: updated },
     HttpStatusCodes.OK
   )
 }

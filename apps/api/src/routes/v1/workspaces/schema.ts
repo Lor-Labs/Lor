@@ -1,5 +1,6 @@
 import { z } from "@hono/zod-openapi"
 import { assignableWorkspaceRoles } from "@repo/auth/permissions"
+import { normalizeDomain } from "@repo/utils/domain"
 import { messageAuthorSchema } from "@/lib/helpers/openapi/message-schemas"
 import {
   paginatedResponseSchema,
@@ -87,23 +88,55 @@ export const deleteWorkspaceRoleResponseSchema = z.object({
 
 // ── Workspace Settings ─────────────────────────────────────
 
+const descriptionSchema = z.string().trim().max(280)
+
+const websiteSchema = z
+  .string()
+  .trim()
+  .max(2048)
+  .refine((value) => value === "" || normalizeDomain(value) !== null, {
+    message: "Enter a website like acme.com",
+  })
+
+const workspaceSummarySchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  slug: z.string(),
+  logo: z.string().nullable(),
+  description: z.string().nullable(),
+  website: z.string().nullable(),
+})
+
+export const createWorkspaceRequestSchema = z.object({
+  name: z.string().trim().min(1).max(100),
+  description: descriptionSchema.optional(),
+  website: websiteSchema.optional(),
+})
+
+export const createWorkspaceResponseSchema = z.object({
+  workspace: workspaceSummarySchema,
+  firstChannelId: z.string().uuid().nullable(),
+})
+
 export const updateWorkspaceRequestSchema = z
   .object({
     name: z.string().trim().min(1).max(100).optional(),
     logo: z.string().url().nullable().optional(),
+    description: descriptionSchema.nullable().optional(),
+    website: websiteSchema.nullable().optional(),
   })
-  .refine((data) => data.name !== undefined || data.logo !== undefined, {
-    message: "At least one field (name or logo) must be provided",
+  .refine((data) => Object.values(data).some((v) => v !== undefined), {
+    message: "At least one field must be provided",
   })
 
 export const updateWorkspaceResponseSchema = z.object({
   success: z.literal(true),
-  workspace: z.object({
-    id: z.string().uuid(),
-    name: z.string(),
-    slug: z.string(),
-    logo: z.string().nullable(),
-  }),
+  workspace: workspaceSummarySchema,
+})
+
+export const completeWorkspaceSetupResponseSchema = z.object({
+  success: z.literal(true),
+  setupCompletedAt: z.string().datetime(),
 })
 
 // ── Search ──────────────────────────────────────────────

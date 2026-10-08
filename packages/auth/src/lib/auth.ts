@@ -5,6 +5,7 @@ import { db, eq, LOR_USER_ID, schema } from "@repo/db"
 import { env } from "@repo/env/server"
 import { pickWorkspaceAvatarColor } from "@repo/utils/avatar-colors"
 import { drizzleAdapter } from "better-auth/adapters/drizzle"
+import { APIError } from "better-auth/api"
 import { betterAuth } from "better-auth/minimal"
 import { admin, organization, twoFactor } from "better-auth/plugins"
 import Redis from "ioredis"
@@ -274,6 +275,32 @@ export const auth = betterAuth({
               input: false,
               returned: true,
             },
+            // Written only through /v1/workspaces routes (normalized there),
+            // returned so organization.list() carries them to clients.
+            description: {
+              type: "string",
+              required: false,
+              input: false,
+              returned: true,
+            },
+            website: {
+              type: "string",
+              required: false,
+              input: false,
+              returned: true,
+            },
+            joinDomain: {
+              type: "string",
+              required: false,
+              input: false,
+              returned: true,
+            },
+            setupCompletedAt: {
+              type: "date",
+              required: false,
+              input: false,
+              returned: true,
+            },
           },
         },
         member: {
@@ -311,6 +338,13 @@ export const auth = betterAuth({
       organizationHooks: {
         beforeCreateOrganization: async ({ organization, user }) => {
           return { data: { ...organization, ownerId: user.id } }
+        },
+        beforeUpdateOrganization: async ({ organization }) => {
+          if (organization.slug !== undefined) {
+            throw new APIError("BAD_REQUEST", {
+              message: "Workspace keys cannot be changed",
+            })
+          }
         },
         beforeAddMember: async ({ member }) => {
           const avatarColor = await nextWorkspaceAvatarColor(
