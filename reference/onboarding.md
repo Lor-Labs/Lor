@@ -535,8 +535,8 @@ Schema edits are listed; Jacob runs `db:push`.
 ### Step 4: company prefill and site icon
 
 [x] part 1 built and committed 2026-10-07 (favicon field, email-domain
-prefill, web and mobile onboarding redesign) · [ ] part 2 (site lookup,
-workspace icon)
+prefill, web and mobile onboarding redesign) · [x] part 2 built 2026-10-08
+(site lookup, workspace icon) · [ ] part 2 committed
 
 Part 1, built:
 
@@ -552,17 +552,26 @@ Part 1, built:
 - `apps/web/src/routes/onboarding.tsx`, `apps/mobile/src/app/onboarding.tsx`:
   Website prefilled from a company email; focus starts on Name when it is.
 
-Part 2, next:
+Part 2, built:
 
 - `packages/lor/src/company-site.ts` (new): `lookupCompanySite(domain)`:
-  Exa page text plus a small-model call for name and one line.
-- `apps/api/src/routes/v1/onboarding/*` (new): `GET /onboarding/site`,
-  session auth, rate limited, Redis cache per domain.
-- `apps/api/src/routes/v1/workspaces/handlers.ts`: on create with a website,
-  fetch the Google favicon at a larger size, keep it when at least 64px,
-  store it in R2 under `workspace-icons/{id}/`, set `logo`.
-- Web and mobile onboarding: fill Name and description from the lookup when
-  the user hasn't typed them, without blocking typing.
+  Exa page text (first 4,000 chars) plus a small-model call for name and one
+  line. Returns null when Exa or the model failed.
+- `apps/api/src/routes/v1/onboarding/*` (new): `GET /v1/onboarding/site`,
+  session auth, `siteLookupRateLimit` (10/min per user), Redis cache per
+  domain for 24h. Only real answers are cached; failures return empty fields.
+- `apps/api/src/lib/site-icon.ts` (new): fetches the Google favicon at
+  `sz=128`, reads PNG/JPEG dimensions by hand (no sharp in the API), keeps it
+  when at least 64px, stores it in R2 under `workspace-icons/{id}/`.
+  `createWorkspace` starts the fetch before `createOrganization`, so it
+  overlaps the template seed.
+- Web `components/onboarding/{use-company-site.ts,prefill-input.tsx}` and
+  mobile `hooks/use-company-site.ts` + `components/prefill-input.tsx`: the
+  lookup starts at mount when the website is known (600ms debounce when
+  typed). Name and description derive from the lookup until the user types
+  in them; a new lookup can replace untouched values. While it runs, the
+  empty fields show a shimmering "Reading acme.com…"; filled text blurs in
+  (web) or fades in (mobile); the description hint reads "Filled from …".
 
 ### Step 5: web setup page
 
@@ -776,3 +785,8 @@ Redirect on update stays on. Creators cannot delete their own channels.
   from parsing each site's `<link rel>` icons through the guarded fetch. It
   is what Jacob's reference component uses, it is instant, and the server's
   logo fetch hits one fixed host instead of user-typed ones.
+- 2026-10-08, Step 4: the site lookup runs automatically, not behind a
+  button (Jacob's call). It starts at page mount, so the wait hides behind
+  the choose step; the shimmer and the "Filled from" hint make it visible.
+  Google's favicon service never upscales and returns 404 for unknown sites,
+  which is what makes the 64px rule work; it serves large icons as JPEG.

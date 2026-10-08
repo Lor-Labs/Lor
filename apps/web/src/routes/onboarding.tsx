@@ -18,6 +18,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
 import { AnimatePresence, motion, type Variants } from "motion/react"
 import { type FormEvent, type ReactNode, useEffect, useState } from "react"
+import { PrefillInput } from "@/components/onboarding/prefill-input"
+import { useCompanySite } from "@/components/onboarding/use-company-site"
 import { WebsiteInput } from "@/components/onboarding/website-input"
 import { MorphText } from "@/components/ui/morph-text"
 import { SETTINGS_SURFACE } from "@/components/workspace/settings-group"
@@ -100,8 +102,17 @@ function OnboardingFlow({ email }: { email: string }) {
   // A company email prefills the website; the user can change it.
   const emailDomain = companyEmailDomain(email)
   const [website, setWebsite] = useState(emailDomain ?? "")
-  const [name, setName] = useState("")
-  const [description, setDescription] = useState("")
+  const { domain: siteDomain, site, isReading } = useCompanySite(website)
+  // null until typed in: until then the fields show the site lookup, and a
+  // new lookup can replace what an old one filled.
+  const [editedName, setName] = useState<string | null>(null)
+  const [editedDescription, setDescription] = useState<string | null>(null)
+  const namePrefill = editedName === null ? (site?.name ?? null) : null
+  const descriptionPrefill =
+    editedDescription === null ? (site?.description ?? null) : null
+  const name = editedName ?? namePrefill ?? ""
+  const description = editedDescription ?? descriptionPrefill ?? ""
+  const readingLabel = isReading ? `Reading ${siteDomain}…` : null
   const [inviteLink, setInviteLink] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -250,12 +261,14 @@ function OnboardingFlow({ email }: { email: string }) {
                     />
                   </Field>
                   <Field label="Name" htmlFor="workspace-name">
-                    <Input
+                    <PrefillInput
                       id="workspace-name"
                       placeholder="Acme"
                       maxLength={100}
                       value={name}
-                      onChange={(e) => setName(e.target.value)}
+                      onChange={setName}
+                      prefill={namePrefill}
+                      pendingLabel={editedName === null ? readingLabel : null}
                       disabled={loading}
                       autoFocus={!!emailDomain}
                     />
@@ -263,14 +276,22 @@ function OnboardingFlow({ email }: { email: string }) {
                   <Field
                     label="What are you building?"
                     htmlFor="workspace-description"
-                    hint="Optional. Lor reads this to understand your team."
+                    hint={
+                      descriptionPrefill
+                        ? `Filled from ${siteDomain}. Lor reads this to understand your team.`
+                        : "Optional. Lor reads this to understand your team."
+                    }
                   >
-                    <Input
+                    <PrefillInput
                       id="workspace-description"
                       placeholder="Payments infrastructure for marketplaces"
                       maxLength={280}
                       value={description}
-                      onChange={(e) => setDescription(e.target.value)}
+                      onChange={setDescription}
+                      prefill={descriptionPrefill}
+                      pendingLabel={
+                        editedDescription === null ? readingLabel : null
+                      }
                       disabled={loading}
                     />
                   </Field>

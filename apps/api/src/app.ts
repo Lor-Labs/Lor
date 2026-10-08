@@ -21,6 +21,7 @@ import invitesRouter from "@/routes/v1/invites/index"
 import loopsRouter from "@/routes/v1/loops/index"
 import mcpServersRouter from "@/routes/v1/mcp-servers/index"
 import notificationSettingsRouter from "@/routes/v1/notification-settings/index"
+import onboardingRouter from "@/routes/v1/onboarding/index"
 import plansRouter from "@/routes/v1/plans/index"
 import projectsRouter from "@/routes/v1/projects/index"
 import proposalsRouter from "@/routes/v1/proposals/index"
@@ -73,6 +74,7 @@ const routes = app
   .route("/v1", channelsRouter)
   .route("/v1", projectsRouter)
   .route("/v1", workspacesRouter)
+  .route("/v1", onboardingRouter)
   .route("/v1", invitesRouter)
   .route("/v1", notificationSettingsRouter)
   .route("/v1", pushTokensRouter)

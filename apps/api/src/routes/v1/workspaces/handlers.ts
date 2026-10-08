@@ -33,6 +33,7 @@ import {
 } from "@/lib/permissions"
 import { getAvatarColorsByUserId } from "@/lib/queries/messages"
 import { getRedisClient } from "@/lib/redis"
+import { fetchSiteIcon, storeWorkspaceIcon } from "@/lib/site-icon"
 import { disconnectUserSockets } from "@/lib/socket-access"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
@@ -376,6 +377,9 @@ export const createWorkspace: AppRouteHandler<CreateWorkspaceRoute> = async (
 ) => {
   const user = c.var.user
   const body = c.req.valid("json")
+  const website = websiteValue(body.website ?? null)
+  // Fetched while the template seeds, so the icon adds no wait.
+  const siteIcon = website ? fetchSiteIcon(website) : null
 
   // No headers + userId makes this a better-auth system action: its hooks
   // still seed channels, Lor, and the owner membership.
@@ -388,11 +392,15 @@ export const createWorkspace: AppRouteHandler<CreateWorkspaceRoute> = async (
     })
   }
 
+  const icon = await siteIcon
+  const logo = icon ? await storeWorkspaceIcon(created.id, icon) : null
+
   const [workspace] = await db
     .update(schema.workspace)
     .set({
       description: body.description || null,
-      website: websiteValue(body.website ?? null),
+      website,
+      logo,
     })
     .where(eq(schema.workspace.id, created.id))
     .returning(workspaceSummaryColumns)

@@ -19,11 +19,13 @@ import Animated, {
   FadeInRight,
   FadeOut,
 } from "react-native-reanimated"
+import { PrefillInput } from "@/components/prefill-input"
 import { Button } from "@/components/ui/button"
 import { triggerHaptic } from "@/components/ui/haptics"
 import { Screen } from "@/components/ui/screen"
 import { WebsiteInput } from "@/components/website-input"
 import { useWorkspace } from "@/context/workspace-context"
+import { useCompanySite } from "@/hooks/use-company-site"
 import { useTheme } from "@/hooks/use-theme"
 import { api, responseMessage } from "@/lib/api"
 import { authClient } from "@/lib/auth-client"
@@ -69,8 +71,19 @@ export default function OnboardingScreen() {
 
   // null until edited: a company email prefills it once the session loads.
   const [editedWebsite, setWebsite] = useState<string | null>(null)
-  const [workspaceName, setWorkspaceName] = useState("")
-  const [description, setDescription] = useState("")
+  const emailDomain = session ? companyEmailDomain(session.user.email) : null
+  const website = editedWebsite ?? emailDomain ?? ""
+  const { domain: siteDomain, site, isReading } = useCompanySite(website)
+  // Also null until typed in: until then the fields show the site lookup, and
+  // a new lookup can replace what an old one filled.
+  const [editedName, setWorkspaceName] = useState<string | null>(null)
+  const [editedDescription, setDescription] = useState<string | null>(null)
+  const namePrefill = editedName === null ? (site?.name ?? null) : null
+  const descriptionPrefill =
+    editedDescription === null ? (site?.description ?? null) : null
+  const workspaceName = editedName ?? namePrefill ?? ""
+  const description = editedDescription ?? descriptionPrefill ?? ""
+  const readingLabel = isReading ? `Reading ${siteDomain}…` : null
   const [inviteLink, setInviteLink] = useState("")
 
   if (isSessionPending || isWorkspaceLoading) {
@@ -83,9 +96,6 @@ export default function OnboardingScreen() {
     )
   }
   if (!session) return <Redirect href="/sign-in" />
-
-  const emailDomain = companyEmailDomain(session.user.email)
-  const website = editedWebsite ?? emailDomain ?? ""
 
   const goToStep = (nextStep: Step) => {
     setDirection(nextStep === "welcome" ? -1 : 1)
@@ -211,28 +221,36 @@ export default function OnboardingScreen() {
                     />
                   </Field>
                   <Field label="Name">
-                    <TextInput
+                    <PrefillInput
                       accessibilityLabel="Workspace name"
                       autoFocus={!!emailDomain}
-                      className={INPUT_CLASS_NAME}
                       maxLength={100}
                       onChangeText={setWorkspaceName}
+                      pendingLabel={editedName === null ? readingLabel : null}
                       placeholder="Acme"
                       placeholderTextColor={theme.textTertiary}
+                      prefill={namePrefill}
                       value={workspaceName}
                     />
                   </Field>
                   <Field
-                    hint="Optional. Lor reads this to understand your team."
+                    hint={
+                      descriptionPrefill
+                        ? `Filled from ${siteDomain}. Lor reads this to understand your team.`
+                        : "Optional. Lor reads this to understand your team."
+                    }
                     label="What are you building?"
                   >
-                    <TextInput
+                    <PrefillInput
                       accessibilityLabel="What are you building?"
-                      className={INPUT_CLASS_NAME}
                       maxLength={280}
                       onChangeText={setDescription}
+                      pendingLabel={
+                        editedDescription === null ? readingLabel : null
+                      }
                       placeholder="Payments infrastructure for marketplaces"
                       placeholderTextColor={theme.textTertiary}
+                      prefill={descriptionPrefill}
                       value={description}
                     />
                   </Field>
