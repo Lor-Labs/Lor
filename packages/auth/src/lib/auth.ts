@@ -1,6 +1,6 @@
 import { expo } from "@better-auth/expo"
 import { redisStorage } from "@better-auth/redis-storage"
-import { ensureCustomer } from "@repo/billing"
+import { ensureCustomer, grantSignupPromo } from "@repo/billing"
 import { db, eq, LOR_USER_ID, schema } from "@repo/db"
 import { env } from "@repo/env/server"
 import { pickWorkspaceAvatarColor } from "@repo/utils/avatar-colors"
@@ -86,9 +86,12 @@ export const auth = betterAuth({
   },
   user: {
     additionalFields: {
+      // Unused since /onboarding replaced the modal; column drop is a later
+      // cleanup (reference/onboarding.md, Step 10).
       onboardingCompleted: {
         type: "boolean",
         defaultValue: false,
+        input: false,
         returned: true,
       },
       bio: {
@@ -293,7 +296,7 @@ export const auth = betterAuth({
           )
           return { data: { ...member, avatarColor } }
         },
-        afterCreateOrganization: async ({ organization, user }) => {
+        afterCreateOrganization: async ({ organization }) => {
           try {
             await seedWorkspaceTemplate(organization.id)
           } catch (error) {
@@ -321,21 +324,10 @@ export const auth = betterAuth({
             )
           }
 
-          try {
-            await db
-              .update(schema.user)
-              .set({ onboardingCompleted: true })
-              .where(eq(schema.user.id, user.id))
-          } catch (error) {
-            logger.error(
-              { err: error, userId: user.id },
-              "Failed to mark onboarding as completed"
-            )
-          }
-
           // No-ops when billing is disabled; every later Autumn call also
           // falls back to get-or-create, so a failure here self-heals.
           await ensureCustomer(organization.id, organization.name)
+          await grantSignupPromo(organization.id)
         },
       },
       dynamicAccessControl: {

@@ -122,7 +122,7 @@ Deliberately parked until the composer/keyboard rework settles (active in messag
 
 ## Explicitly not gaps (don't chase)
 
-- **Onboarding dialog, integration OAuth setup (GitHub/Linear), channel webhooks tab** — inherently web-side.
+- **Integration OAuth setup (GitHub/Linear), channel webhooks tab** — inherently web-side. (Onboarding itself exists on mobile as `src/app/onboarding.tsx`; the setup checklist is tracked under onboarding above.)
 
 ## Done (recent parity work)
 

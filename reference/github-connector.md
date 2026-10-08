@@ -77,7 +77,7 @@ The flow: Lor calls the `investigate_code(repo, question)` tool → clone the re
 
 ### 🟣 Cross-cutting (not a GitHub blocker — project-level)
 
-- [ ] **Gating — Layer 2 per-channel tool profiles.** `investigate_code` is currently callable in *every* channel by anyone; scope it to eng channels. This is a per-channel-per-connector concern shared across all connectors, so it lands as its own project-level layer, not inside the GitHub work.
+- [x] **Gating — Layer 2 per-channel tool profiles.** Agent profiles choose which capabilities, code investigation included, each channel gets. The default profile still grants everything, so scoping code to engineering channels is a per-workspace profile setting, not a code change.
 
 ### 🟡 For the "proper = read + write" bar
 
@@ -94,7 +94,7 @@ The flow: Lor calls the `investigate_code(repo, question)` tool → clone the re
 
 ## Decisions locked (do NOT re-litigate)
 
-- **No embedding** of GitHub PRs/issues — brain-centric. `SOURCE_INGEST_ENABLED = false` in `github/events.ts` (code kept; user may revisit).
+- **No embedding by default** of GitHub PRs/issues — brain-centric. The old `SOURCE_INGEST_ENABLED` flag is gone: an event becomes a source only when its trigger has Remember on (`apps/api/src/lib/connector-triggers.ts`).
 - **No repo caching for reads** (freshness) → investigate clones per query, shallow, no deps. Pi comes from our workbench image (exact-pinned). *Amended 2026-08-18 for writes:* code-action sandboxes persist per conversation scope as a **warm cache** — freshness still comes from a fetch+hard-reset at session start, never from trusting the cached checkout.
 - **Draft PRs only**, never auto-merge. Lor pushes only `lor/*` branches (the product namespace GitHub contributors see), never force-pushes.
 - **The coding agent never holds a write token.** Write-scoped tokens (narrowed to one repo, `contents: write`) exist only as per-command env on the orchestrated push, after the session ends.

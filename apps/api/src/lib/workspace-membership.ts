@@ -1,4 +1,4 @@
-import { grantFirstInvitePromo, syncSeats } from "@repo/billing"
+import { syncSeats } from "@repo/billing"
 import { type db, eq, schema } from "@repo/db"
 import { pickWorkspaceAvatarColor } from "@repo/utils/avatar-colors"
 import { companyEmailDomain } from "@repo/utils/domain"
@@ -35,11 +35,10 @@ export async function addWorkspaceMember(
   return inserted.length > 0
 }
 
-// Fire-and-forget after a join commits: billing must never block a join. Both
-// self-heal — syncSeats recomputes from scratch, the promo claim retries.
+// Fire-and-forget after a join commits: billing must never block a join, and
+// syncSeats recomputes from scratch, so a failure self-heals.
 export function afterWorkspaceJoin(workspaceId: string) {
   void syncSeats(workspaceId)
-  void grantFirstInvitePromo(workspaceId)
 }
 
 // Join by email domain only trusts a verified, non-free email domain.

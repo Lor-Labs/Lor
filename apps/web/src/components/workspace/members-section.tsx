@@ -25,10 +25,12 @@ import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useMemo, useState } from "react"
 import { CreateInviteDialog } from "@/components/invite/create-invite-dialog"
+import { ManageInvitesDialog } from "@/components/invite/manage-invites-dialog"
 import { UserAvatar } from "@/components/ui/user-avatar"
 import {
   PILL_BUTTON,
   SETTINGS_SURFACE,
+  SettingsAction,
   SettingsSection,
 } from "@/components/workspace/settings-group"
 import {
@@ -48,6 +50,7 @@ import {
 export function MembersSection({ workspaceSlug }: { workspaceSlug: string }) {
   const queryClient = useQueryClient()
   const [inviteOpen, setInviteOpen] = useState(false)
+  const [manageInvitesOpen, setManageInvitesOpen] = useState(false)
   const [kickTarget, setKickTarget] = useState<WorkspaceMemberPresence | null>(
     null
   )
@@ -156,15 +159,23 @@ export function MembersSection({ workspaceSlug }: { workspaceSlug: string }) {
       title="Members"
       count={isPending ? undefined : members.length}
       action={
-        <Button
-          variant="secondary"
-          size="sm"
-          className={cn(PILL_BUTTON, "px-3")}
-          onClick={() => setInviteOpen(true)}
-        >
-          <HugeiconsIcon icon={UserAdd01Icon} strokeWidth={2} />
-          Invite
-        </Button>
+        <div className="flex items-center gap-3">
+          {/* Listing invites needs the same tier as kicking members. */}
+          {canKickPermission && (
+            <SettingsAction onClick={() => setManageInvitesOpen(true)}>
+              Manage invites
+            </SettingsAction>
+          )}
+          <Button
+            variant="secondary"
+            size="sm"
+            className={cn(PILL_BUTTON, "px-3")}
+            onClick={() => setInviteOpen(true)}
+          >
+            <HugeiconsIcon icon={UserAdd01Icon} strokeWidth={2} />
+            Invite
+          </Button>
+        </div>
       }
     >
       {isPending ? (
@@ -288,6 +299,10 @@ export function MembersSection({ workspaceSlug }: { workspaceSlug: string }) {
       )}
 
       <CreateInviteDialog open={inviteOpen} onOpenChange={setInviteOpen} />
+      <ManageInvitesDialog
+        open={manageInvitesOpen}
+        onOpenChange={setManageInvitesOpen}
+      />
 
       <AlertDialog
         open={kickTarget !== null}

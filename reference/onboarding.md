@@ -700,7 +700,16 @@ As built: web `lor_reply` lives in `lor-activity.tsx`, `voice_intro` in
 
 ### Step 10: invite management, billing, desktop
 
-[ ] built · [ ] committed
+[x] built 2026-10-08 · [ ] committed
+
+As built: "Manage invites" sits beside Invite in the Members heading for
+anyone with `workspaceMember:kick` (the list endpoint's gate).
+`grantFirstInvitePromo` became `grantSignupPromo`, called after
+`ensureCustomer` in `afterCreateOrganization`; `afterWorkspaceJoin` only
+syncs seats now. `apps/web/src/lib/web-origin.ts` backs invite links and the
+sign-up, sign-in (verification resend), check-email and forgot-password
+callbacks; login was added because its 403 path resends the verification
+email with a callback too.
 
 - Mount `ManageInvitesDialog` in the Members tab (`members-section.tsx`); it
   exists but is imported nowhere.

@@ -21,6 +21,7 @@ import { createFileRoute, Link } from "@tanstack/react-router"
 import { type FormEvent, useState } from "react"
 import { AuthLayout } from "@/components/auth/auth-layout"
 import { validateEmail } from "@/lib/email-validation"
+import { webOrigin } from "@/lib/web-origin"
 
 export const Route = createFileRoute("/forgot-password")({
   component: ForgotPasswordPage,
@@ -40,7 +41,7 @@ function ForgotPasswordPage() {
       // origin (api.lor.chat) after better-auth's token redirect, 404ing.
       const { error } = await authClient.requestPasswordReset({
         email,
-        redirectTo: `${window.location.origin}/reset-password`,
+        redirectTo: `${webOrigin()}/reset-password`,
       })
       if (error) throw new Error(error.message ?? "Failed to send reset email")
     },
