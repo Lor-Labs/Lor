@@ -17,76 +17,13 @@ import {
   member as memberRole,
   owner as ownerRole,
 } from "./permissions"
+import { seedWorkspaceTemplate } from "./workspace-template"
 
 const redis = new Redis(env.REDIS_URL)
 const resend = new Resend(env.RESEND_API_KEY)
 // Email clients need an sRGB fallback for Lor's primary token:
 // oklch(0.48 0.19 293) from packages/ui/src/styles/lor-tokens.css.
 const EMAIL_PRIMARY_COLOR = "#663cbc"
-
-const defaultWorkspaceChannels = {
-  uncategorized: [
-    { name: "general", type: "text" as const },
-    { name: "introductions", type: "text" as const },
-    { name: "rules", type: "text" as const },
-  ],
-  categories: [
-    {
-      name: "Community",
-      channels: [
-        { name: "help", type: "text" as const },
-        { name: "off-topic", type: "text" as const },
-      ],
-    },
-  ],
-}
-
-async function seedDefaultWorkspaceChannels(workspaceId: string) {
-  await db.transaction(async (tx) => {
-    let topLevelPosition = 0
-
-    const uncategorizedRows = defaultWorkspaceChannels.uncategorized.map(
-      (ch, index) => ({
-        name: ch.name,
-        type: ch.type,
-        workspaceId,
-        position: topLevelPosition + index,
-      })
-    )
-
-    if (uncategorizedRows.length > 0) {
-      await tx.insert(schema.channel).values(uncategorizedRows)
-    }
-    topLevelPosition += uncategorizedRows.length
-
-    for (const categoryConfig of defaultWorkspaceChannels.categories) {
-      const createdCategory = await tx
-        .insert(schema.channel)
-        .values({
-          name: categoryConfig.name,
-          type: "category",
-          workspaceId,
-          position: topLevelPosition++,
-        })
-        .returning({ id: schema.channel.id })
-        .then((rows) => rows[0])
-
-      if (!createdCategory) continue
-
-      const childRows = categoryConfig.channels.map((ch, channelIndex) => ({
-        name: ch.name,
-        type: ch.type,
-        workspaceId,
-        parentId: createdCategory.id,
-        position: channelIndex,
-      }))
-
-      if (childRows.length > 0) {
-        await tx.insert(schema.channel).values(childRows)
-      }
-    }
-  })
-}
 
 async function nextWorkspaceAvatarColor(workspaceId: string, userId: string) {
   const memberships = await db
@@ -355,13 +292,12 @@ export const auth = betterAuth({
         },
         afterCreateOrganization: async ({ organization, user }) => {
           try {
-            await seedDefaultWorkspaceChannels(organization.id)
+            await seedWorkspaceTemplate(organization.id)
           } catch (error) {
             logger.error(
               { err: error, workspaceId: organization.id },
               "Failed to seed default channels for workspace"
             )
-            return
           }
 
           try {

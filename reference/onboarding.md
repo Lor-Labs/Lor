@@ -228,7 +228,7 @@ category.
 |---|---|---|
 | `#general` | text | Team-wide updates and discussion. |
 | `#engineering` | text | Code, pull requests, and technical decisions. |
-| `Standup` | voice | Daily sync. Lor takes notes. |
+| `standup` | voice | Daily sync. Lor takes notes. |
 | `#random` | text | Everything else. |
 
 Why this set:
@@ -262,12 +262,10 @@ Lor's intro, posted once in `#general` as `LOR_USER_ID`, `type: default`,
 
 Nothing else is posted. No channel events are posted for seeded channels.
 
-The template lives in `packages/db/src/seeds/workspace-template.ts` and is
+The template lives in `packages/auth/src/lib/workspace-template.ts` and is
 called from the `afterCreateOrganization` hook. Each hook step runs
-independently: today a channel-seed failure returns early and skips Lor
-membership, the brain seed, and the billing customer
-(`packages/auth/src/lib/auth.ts:324-331`). Existing workspaces keep their
-channels.
+independently, so a channel-seed failure no longer skips Lor membership, the
+brain seed, or the billing customer. Existing workspaces keep their channels.
 
 ## Workspace key
 
@@ -422,7 +420,7 @@ cached system prompt:
 | Site icon | Shown in the Website field; becomes the workspace icon when it declares at least 64px | Locked |
 | Join by email domain | Build it; admins set the domain they belong to; free email domains excluded | Locked |
 | Domain join default | Setup toggle starts on when the creator's domain qualifies | Locked |
-| Default channels | `#general`, `#engineering`, `Standup` (voice), `#random`, with topics | Locked |
+| Default channels | `#general`, `#engineering`, `standup` (voice), `#random`, with topics | Locked |
 | Connector routing | Off by default; setup does not ask; Lor change proposals can suggest it later | Locked |
 | Lor intro message | One static Lor message in `#general`, excluded from memory | Recommended |
 | Setup state | `workspace.setupCompletedAt`; card states derived from rows | Recommended |
@@ -444,7 +442,7 @@ Schema edits are listed; Jacob runs `db:push`.
 
 ### Step 1: workspace key, create route, new columns, rekey script
 
-[x] built 2026-10-07 · [ ] committed · [ ] db:push dev · [ ] rekey dev ·
+[x] built 2026-10-07 · [x] committed · [x] db:push dev · [x] rekey dev ·
 [ ] db:push prod · [ ] rekey prod
 
 - `packages/utils/src/short-code.ts` (new): `randomCode(length, alphabet)`
@@ -476,18 +474,25 @@ Schema edits are listed; Jacob runs `db:push`.
 
 ### Step 2: startup template, Lor intro, Lor context
 
-[ ] built · [ ] committed
+[x] built 2026-10-07 · [ ] committed
 
-- `packages/db/src/seeds/workspace-template.ts` (new): the four channels with
-  topics and positions, the Lor intro message row. Exported
-  `seedWorkspaceTemplate(workspaceId)`.
+- `packages/auth/src/lib/workspace-template.ts` (new): the four channels with
+  topics and positions, and the Lor intro message row in `#general`, in one
+  transaction. Exported `seedWorkspaceTemplate(workspaceId)`.
 - `packages/auth/src/lib/auth.ts`: `afterCreateOrganization` calls the
-  template; remove the early `return`; drop `defaultWorkspaceChannels` and
-  `seedDefaultWorkspaceChannels`.
-- `packages/lor/src/initial-message.ts`, `packages/lor/src/index.ts`
-  (`buildRunContext`, `SYSTEM_PROMPT_TAIL`): workspace name, website and
-  description, channel topic, the static connectors sentence.
-- `apps/api/scripts/seed-channels.ts`: update or delete the dev script.
+  template; the early `return` is gone, so a seed failure no longer skips
+  Lor membership, the brain seed, or the billing customer;
+  `defaultWorkspaceChannels` and `seedDefaultWorkspaceChannels` deleted.
+- `packages/db/src/schemas/agent-runs.ts`: `AgentRunContext` gains optional
+  `channelTopic` and `workspace { name, website?, description? }`.
+- `packages/lor/src/index.ts`: `buildRunContext` snapshots the channel topic
+  and the workspace's name, website and description; `SYSTEM_PROMPT_TAIL`
+  gains the static "not connected, ask an admin" bullet.
+- `packages/lor/src/initial-message.ts`: renders a `Workspace:` line at the
+  top of the run's first message and the topic after "Active conversation in
+  #channel".
+- `apps/api/scripts/seed-channels.ts`: deleted (seeded the old community
+  set; nothing referenced it).
 
 ### Step 3: web `/onboarding` page and landing changes
 
@@ -723,3 +728,10 @@ Redirect on update stays on. Creators cannot delete their own channels.
   statement.
 - 2026-10-07, Step 1: the rekey script also marks existing workspaces as set
   up, so they skip the checklist.
+- 2026-10-07, Step 2: the template lives in `packages/auth` next to the hook
+  that calls it, not in `packages/db/src/seeds`, so `@repo/db` needs no new
+  export.
+- 2026-10-07, Step 2: the voice channel is `standup`, lowercase like every
+  channel the create dialog makes.
+- 2026-10-07, Step 2: Lor's intro writes "@Lor" as plain text, not a mention
+  token, so it never notifies or links to itself.
