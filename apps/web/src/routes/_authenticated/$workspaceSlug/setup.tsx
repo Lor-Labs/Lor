@@ -176,6 +176,7 @@ function SetupPage() {
             <SettingsGroup>
               {github && (
                 <ConnectStep
+                  workspaceSlug={workspaceSlug}
                   provider={github}
                   title="Connect GitHub"
                   pitch="Lor reads your code and reviews pull requests."
@@ -183,6 +184,7 @@ function SetupPage() {
               )}
               {linear && (
                 <ConnectStep
+                  workspaceSlug={workspaceSlug}
                   provider={linear}
                   title="Connect Linear"
                   pitch="Lor finds, files, and updates your issues."

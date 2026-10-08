@@ -603,8 +603,9 @@ lands the creator on `/setup`.
 ### Step 6: permissions and GitHub connect
 
 [x] 6a built 2026-10-08 (member `channel:create`, `channel.creatorId`,
-creator edit) · [ ] 6a committed · [ ] db:push · [ ] 6b built (connector
-`manage` gates, revoked-row guard, GitHub connect intent)
+creator edit) · [x] 6a committed · [ ] db:push · [x] 6b built 2026-10-08
+(connector `manage` gates, revoked-row guard, GitHub connect intent) ·
+[ ] 6b committed
 
 - `packages/auth/src/lib/permissions.ts`: `member` gains
   `channel: ["create"]`. Web `canCreateChannels` follows automatically.
@@ -822,3 +823,17 @@ Redirect on update stays on. Creators cannot delete their own channels.
   no creator edit yet; its create button follows the role change.
 - 2026-10-08, Step 6a: new channels take `max(position)+1` among siblings:
   categories among categories, channels within the same parent.
+- 2026-10-08, Step 6b: GitHub connect is two routes.
+  `POST /workspaces/{key}/integrations/github/connect-url` (connector:manage
+  first) records the intent (`apps/api/src/lib/github-connect-intent.ts`)
+  and returns the install URL with a fresh signed state.
+  `POST /integrations/github/setup` (session) replaces the
+  workspace-scoped `github/connect` route. GitHub now goes through
+  `replaceActiveConnection` like every other connector. The setup page also
+  handles `setup_action=request` (org member without install rights).
+- 2026-10-08, Step 6b: a revoked row owned by another workspace is deleted
+  (cascading its triggers, repo config and sources) when the external id is
+  connected elsewhere. Retrieval already ignores sources of revoked rows.
+- 2026-10-08, Step 6b: `connector:manage` also gates Datadog and CloudWatch
+  connects. On web, event routing controls are disabled and the base-branch
+  section is hidden without it.

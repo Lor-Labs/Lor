@@ -70,6 +70,7 @@ import type {
 } from "@/lib/api-types"
 import { isAppFocused, subscribeAppFocus } from "@/lib/app-focus"
 import { connectorLogo } from "@/lib/connector-ui"
+import { openGithubConnect } from "@/lib/github-connect"
 import { openExternal } from "@/lib/open-external"
 
 // How many repositories to list before collapsing the rest into a "+N more".
@@ -93,8 +94,8 @@ type TriggerConfig = {
 
 // Why this viewer can't connect the connector right now, or null when they can.
 function connectBlocker(p: IntegrationStatus): string | null {
-  if (p.authType === "api-key") return p.available ? null : "Unavailable"
   if (!p.canManage) return "Admin only"
+  if (p.authType === "api-key") return p.available ? null : "Unavailable"
   return p.connectUrl ? null : "Unavailable"
 }
 
@@ -181,7 +182,8 @@ export function ConnectorsSection({
       setNotionConnect({ url: p.connectUrl, replacing: false })
       return
     }
-    openExternal(p.connectUrl)
+    if (p.id === "github") void openGithubConnect(workspaceSlug)
+    else openExternal(p.connectUrl)
     setPendingConnect(p.id)
   }
 
@@ -641,6 +643,7 @@ function ConnectorDetail({
             connectorId={p.id}
             connectionId={p.connectionId}
             events={p.events}
+            canManage={p.canManage}
           />
         ) : (
           <SettingsSection
@@ -670,11 +673,13 @@ function EventRoutes({
   connectorId,
   connectionId,
   events,
+  canManage,
 }: {
   workspaceSlug: string
   connectorId: ConnectorKey
   connectionId: string
   events: IntegrationStatus["events"]
+  canManage: boolean
 }) {
   const queryClient = useQueryClient()
 
@@ -760,7 +765,7 @@ function EventRoutes({
                 <Select
                   items={notifyChannelItems}
                   value={ev.channelId ?? NOTIFY_OFF}
-                  disabled={busy}
+                  disabled={busy || !canManage}
                   onValueChange={(value) => {
                     send({ channelId: value === NOTIFY_OFF ? null : value })
                   }}
@@ -785,7 +790,7 @@ function EventRoutes({
                     channelLabel={
                       textChannels.find((ch) => ch.id === ev.channelId)?.name
                     }
-                    disabled={busy}
+                    disabled={busy || !canManage}
                     value={{
                       post: ev.post,
                       remember: ev.remember,
@@ -870,19 +875,22 @@ function Repositories({
           )}
         </SettingsGroup>
       </SettingsSection>
-      {p.id === "github" && p.connectionId && repos.length > 0 && (
-        <SettingsSection title="Pull request base branch">
-          <SettingsGroup>
-            <div className="py-3">
-              <GithubBaseBranchSettings
-                workspaceSlug={workspaceSlug}
-                connectionId={p.connectionId}
-                repos={repos}
-              />
-            </div>
-          </SettingsGroup>
-        </SettingsSection>
-      )}
+      {p.id === "github" &&
+        p.canManage &&
+        p.connectionId &&
+        repos.length > 0 && (
+          <SettingsSection title="Pull request base branch">
+            <SettingsGroup>
+              <div className="py-3">
+                <GithubBaseBranchSettings
+                  workspaceSlug={workspaceSlug}
+                  connectionId={p.connectionId}
+                  repos={repos}
+                />
+              </div>
+            </SettingsGroup>
+          </SettingsSection>
+        )}
     </>
   )
 }

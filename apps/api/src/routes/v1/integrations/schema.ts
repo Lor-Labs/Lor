@@ -46,8 +46,8 @@ export const integrationStatusSchema = z.object({
   // instead of a redirect; `token` (BYO webhooks) never appears here but keeps
   // the enum aligned with the registry type.
   authType: z.enum(["github-app", "oauth", "api-key", "token"]),
-  // Some org-shared connectors (currently Notion) can only be managed by a
-  // Lor workspace admin even though every member may use the granted tools.
+  // connector:manage: connecting, disconnecting and configuring connectors is
+  // admin-only, though every member may use the granted tools.
   canManage: z.boolean(),
   // Whether the server is configured to accept a connection right now.
   available: z.boolean(),
@@ -91,13 +91,21 @@ export const listIntegrationsResponseSchema = z.object({
   providers: z.array(integrationStatusSchema),
 })
 
-export const connectGithubRequestSchema = z.object({
-  // GitHub App installation ids are numeric; reject anything else up front.
-  installationId: z.string().regex(/^\d+$/),
+export const startGithubConnectResponseSchema = z.object({
+  url: z.string(),
 })
 
-export const connectGithubResponseSchema = z.object({
+export const completeGithubSetupRequestSchema = z.object({
+  // GitHub App installation ids are numeric; reject anything else up front.
+  installationId: z.string().regex(/^\d+$/),
+  // The signed state from the install URL. GitHub's configure-page redirect
+  // can omit it; the server then uses the recorded connect intent.
+  state: z.string().min(1).optional(),
+})
+
+export const completeGithubSetupResponseSchema = z.object({
   success: z.literal(true),
+  workspaceSlug: z.string(),
   accountLogin: z.string().nullable(),
 })
 

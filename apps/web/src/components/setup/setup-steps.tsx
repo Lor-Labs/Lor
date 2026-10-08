@@ -21,6 +21,7 @@ import {
 import { apiClient } from "@/lib/api-client"
 import type { IntegrationStatus } from "@/lib/api-types"
 import { connectorLogo } from "@/lib/connector-ui"
+import { openGithubConnect } from "@/lib/github-connect"
 import { getInviteUrl } from "@/lib/invite-url"
 import { openExternal } from "@/lib/open-external"
 
@@ -81,10 +82,12 @@ function connectedDetail(p: IntegrationStatus) {
 }
 
 export function ConnectStep({
+  workspaceSlug,
   provider,
   title,
   pitch,
 }: {
+  workspaceSlug: string
   provider: IntegrationStatus
   title: string
   pitch: string
@@ -127,7 +130,11 @@ export function ConnectStep({
               className={cn(PILL_BUTTON, "px-3")}
               disabled={!!blocker}
               onClick={() => {
-                if (provider.connectUrl) openExternal(provider.connectUrl)
+                if (provider.id === "github") {
+                  void openGithubConnect(workspaceSlug)
+                } else if (provider.connectUrl) {
+                  openExternal(provider.connectUrl)
+                }
               }}
             >
               {blocker ?? "Connect"}

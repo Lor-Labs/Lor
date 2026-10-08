@@ -5,7 +5,7 @@ import {
   connectorCapabilities,
   isConnectorEvent,
 } from "@repo/connectors"
-import { db } from "@repo/db"
+import { db, schema } from "@repo/db"
 import {
   ACT_DEFAULTS,
   channel,
@@ -28,24 +28,34 @@ import {
   connectDatadog as verifyDatadogKeys,
 } from "@repo/lor/providers"
 import { and, eq, inArray, ne, sql } from "drizzle-orm"
+import {
+  clearGithubConnectIntent,
+  readGithubConnectIntent,
+  recordGithubConnectIntent,
+} from "@/lib/github-connect-intent"
 import { invalidateGithubRepoCache } from "@/lib/github-repo-cache"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { lastActByTrigger } from "@/lib/last-act"
 import { logger } from "@/lib/logger"
 import { signOAuthState, verifyOAuthState } from "@/lib/oauth-state"
-import { hasWorkspaceAuthority } from "@/lib/permissions"
+import {
+  assertWorkspaceAuthority,
+  hasWorkspaceAuthority,
+  resolveWorkspaceAuthority,
+} from "@/lib/permissions"
 import { userCanAccessChannel } from "@/lib/queries/channel-access"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import { ATTIO_EVENT_SUBSCRIPTIONS } from "@/routes/v1/integrations/attio/index"
 import type {
+  CompleteGithubSetupRoute,
   ConnectAttioRoute,
   ConnectCloudwatchRoute,
   ConnectDatadogRoute,
-  ConnectGithubRoute,
   ConnectLinearRoute,
   ConnectNotionRoute,
   DisconnectIntegrationRoute,
   ListIntegrationsRoute,
+  StartGithubConnectRoute,
   UpdateGithubRepoConfigRoute,
   UpdateIntegrationRoute,
 } from "@/routes/v1/integrations/routes"
@@ -110,19 +120,23 @@ function notionConnectUrl(state: string): string | null {
   return `https://api.notion.com/v1/oauth/authorize?${params.toString()}`
 }
 
+function githubInstallUrl(state: string): string | null {
+  if (!env.GITHUB_APP_SLUG) return null
+  return `https://github.com/apps/${env.GITHUB_APP_SLUG}/installations/new?state=${encodeURIComponent(state)}`
+}
+
 // The connect entry point per auth type. The `state` round-trips back to the
-// callback/setup redirect: OAuth uses a short-lived signed state (CSRF-bound to
-// the user + workspace); the GitHub App install carries the raw slug. null → the
-// connector shows as Unavailable.
+// callback/setup redirect as a short-lived signed state, CSRF-bound to the
+// user + workspace. Clients start GitHub through startGithubConnect instead,
+// which also records the connect intent. null → the connector shows as
+// Unavailable.
 function connectUrlFor(
   descriptor: ConnectorDescriptor,
   ctx: { slug: string; userId: string }
 ): string | null {
   switch (descriptor.authType) {
     case "github-app":
-      return env.GITHUB_APP_SLUG
-        ? `https://github.com/apps/${env.GITHUB_APP_SLUG}/installations/new?state=${ctx.slug}`
-        : null
+      return githubInstallUrl(signOAuthState(ctx.slug, ctx.userId))
     case "oauth":
       switch (descriptor.id) {
         case "linear":
@@ -146,10 +160,10 @@ function connectUrlFor(
 export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
   c
 ) => {
-  const workspace = c.var.workspace
-  const canManageNotion = hasWorkspaceAuthority(c.var.authority, {
+  const canManage = hasWorkspaceAuthority(c.var.authority, {
     connector: ["manage"],
   })
+  const workspace = c.var.workspace
 
   const connections = await db
     .select({
@@ -249,7 +263,6 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
           manageUrl = overview.manageUrl
         }
       }
-      const canManage = descriptor.id !== "notion" || canManageNotion
       const configuredUrl = connectUrlFor(descriptor, {
         slug: workspace.slug,
         userId: c.var.user.id,
@@ -308,9 +321,90 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
   return c.json({ providers }, HttpStatusCodes.OK)
 }
 
-export const connectGithub: AppRouteHandler<ConnectGithubRoute> = async (c) => {
+export const startGithubConnect: AppRouteHandler<
+  StartGithubConnectRoute
+> = async (c) => {
+  assertWorkspaceAuthority(c.var.authority, { connector: ["manage"] })
   const workspace = c.var.workspace
-  const { installationId } = c.req.valid("json")
+  const user = c.var.user
+
+  const url = githubInstallUrl(signOAuthState(workspace.slug, user.id))
+  if (!url) {
+    return c.json(
+      { success: false, message: "GitHub isn't available on this server" },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+  // Best effort: a fresh install returns the signed state on its own.
+  await recordGithubConnectIntent(user.id, workspace.id).catch((err) =>
+    logger.warn({ err }, "GitHub connect intent not recorded")
+  )
+  return c.json({ url }, HttpStatusCodes.OK)
+}
+
+// GitHub's Setup URL page posts here. Session-scoped because the workspace
+// isn't in the URL: the signed state names it on a fresh install, and the
+// connect intent covers the configure-page redirect that drops `state`.
+export const completeGithubSetup: AppRouteHandler<
+  CompleteGithubSetupRoute
+> = async (c) => {
+  const user = c.var.user
+  const { installationId, state } = c.req.valid("json")
+
+  const stateSlug = state ? verifyOAuthState(state, user.id) : null
+  const intentWorkspaceId = stateSlug
+    ? null
+    : await readGithubConnectIntent(user.id).catch(() => null)
+  const target = stateSlug
+    ? eq(schema.workspace.slug, stateSlug)
+    : intentWorkspaceId
+      ? eq(schema.workspace.id, intentWorkspaceId)
+      : null
+  const workspace = target
+    ? await db
+        .select({
+          id: schema.workspace.id,
+          slug: schema.workspace.slug,
+          ownerId: schema.workspace.ownerId,
+        })
+        .from(schema.workspace)
+        .where(target)
+        .limit(1)
+        .then((rows) => rows[0])
+    : undefined
+  if (!workspace) {
+    return c.json(
+      {
+        success: false,
+        message: "This GitHub connection expired. Start it again from Lor.",
+      },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+
+  const member = await db
+    .select({
+      userId: schema.workspaceMember.userId,
+      role: schema.workspaceMember.role,
+    })
+    .from(schema.workspaceMember)
+    .where(
+      and(
+        eq(schema.workspaceMember.workspaceId, workspace.id),
+        eq(schema.workspaceMember.userId, user.id)
+      )
+    )
+    .limit(1)
+    .then((rows) => rows[0])
+  if (!member) {
+    return c.json(
+      { success: false, message: "Forbidden" },
+      HttpStatusCodes.FORBIDDEN
+    )
+  }
+  assertWorkspaceAuthority(await resolveWorkspaceAuthority(member, workspace), {
+    connector: ["manage"],
+  })
 
   // Require a verifiable installation — don't persist fabricated ids or ones
   // the server can't actually reach (App not configured / invalid).
@@ -325,67 +419,13 @@ export const connectGithub: AppRouteHandler<ConnectGithubRoute> = async (c) => {
   }
   const accountLogin = verified.accountLabel ?? null
 
-  const ok = await db.transaction(async (tx) => {
-    // Serialize concurrent connects for this workspace+provider so the
-    // revoke-then-insert below can't interleave into multiple active rows.
-    // The lock is held for the transaction and released on commit/rollback.
-    await tx.execute(
-      sql`select pg_advisory_xact_lock(hashtextextended(${`${workspace.id}:github`}, 0))`
-    )
-
-    // The installation is globally unique; don't let one workspace hijack an
-    // installation already linked to another.
-    const existing = await tx
-      .select({ workspaceId: integrationConnection.workspaceId })
-      .from(integrationConnection)
-      .where(
-        and(
-          eq(integrationConnection.provider, "github"),
-          eq(integrationConnection.externalId, installationId)
-        )
-      )
-      .limit(1)
-      .then((rows) => rows[0])
-    if (existing && existing.workspaceId !== workspace.id) return false
-
-    // One active GitHub connection per workspace: retire any others.
-    await tx
-      .update(integrationConnection)
-      .set({ status: "revoked" })
-      .where(
-        and(
-          eq(integrationConnection.workspaceId, workspace.id),
-          eq(integrationConnection.provider, "github"),
-          eq(integrationConnection.status, "active"),
-          ne(integrationConnection.externalId, installationId)
-        )
-      )
-
-    const written = await tx
-      .insert(integrationConnection)
-      .values({
-        workspaceId: workspace.id,
-        provider: "github",
-        externalId: installationId,
-        accountLogin,
-        status: "active",
-      })
-      .onConflictDoUpdate({
-        target: [
-          integrationConnection.provider,
-          integrationConnection.externalId,
-        ],
-        set: { workspaceId: workspace.id, accountLogin, status: "active" },
-        // Guards the reassignment race the pre-check can't: only update a row
-        // this workspace already owns.
-        setWhere: eq(integrationConnection.workspaceId, workspace.id),
-      })
-      .returning({ id: integrationConnection.id })
-
-    // setWhere blocked the update → the installation is owned elsewhere.
-    return written.length > 0
+  const ok = await replaceActiveConnection({
+    workspaceId: workspace.id,
+    provider: "github",
+    externalId: installationId,
+    clearOnRevoke: {},
+    values: { accountLogin },
   })
-
   if (!ok) {
     return c.json(
       {
@@ -398,17 +438,21 @@ export const connectGithub: AppRouteHandler<ConnectGithubRoute> = async (c) => {
 
   // A (re)install can change the selected repos — drop any stale cached list.
   await invalidateGithubRepoCache(installationId)
+  await clearGithubConnectIntent(user.id).catch(() => {})
 
-  return c.json({ success: true as const, accountLogin }, HttpStatusCodes.OK)
+  return c.json(
+    { success: true as const, workspaceSlug: workspace.slug, accountLogin },
+    HttpStatusCodes.OK
+  )
 }
 
 type ConnectionWrite = Partial<typeof integrationConnection.$inferInsert>
 
 // Shared connect transaction: serialize concurrent connects for this
 // workspace+provider (advisory lock, held until commit/rollback), refuse an
-// externalId owned by another workspace, retire this workspace's other active
-// rows (wiping their secrets via clearOnRevoke), and upsert the new connection.
-// Returns false when the externalId is connected elsewhere.
+// externalId actively connected to another workspace, retire this workspace's
+// other active rows (wiping their secrets via clearOnRevoke), and upsert the
+// new connection. Returns false when the externalId is connected elsewhere.
 async function replaceActiveConnection(opts: {
   workspaceId: string
   provider: ConnectorDescriptor["id"]
@@ -425,7 +469,11 @@ async function replaceActiveConnection(opts: {
     )
 
     const existing = await tx
-      .select({ workspaceId: integrationConnection.workspaceId })
+      .select({
+        id: integrationConnection.id,
+        workspaceId: integrationConnection.workspaceId,
+        status: integrationConnection.status,
+      })
       .from(integrationConnection)
       .where(
         and(
@@ -435,7 +483,15 @@ async function replaceActiveConnection(opts: {
       )
       .limit(1)
       .then((rows) => rows[0])
-    if (existing && existing.workspaceId !== workspaceId) return false
+    if (existing && existing.workspaceId !== workspaceId) {
+      if (existing.status !== "revoked") return false
+      // A revoked row (replaced or suspended) no longer serves its old
+      // workspace, and retrieval already ignores its sources. Delete it, with
+      // its triggers and repo config, so the external id can move here.
+      await tx
+        .delete(integrationConnection)
+        .where(eq(integrationConnection.id, existing.id))
+    }
 
     await tx
       .update(integrationConnection)
@@ -488,6 +544,7 @@ const OAUTH_TOKEN_WIPE = {
 } satisfies ConnectionWrite
 
 export const connectLinear: AppRouteHandler<ConnectLinearRoute> = async (c) => {
+  assertWorkspaceAuthority(c.var.authority, { connector: ["manage"] })
   const workspace = c.var.workspace
   const { code, state } = c.req.valid("json")
 
@@ -544,6 +601,7 @@ export const connectLinear: AppRouteHandler<ConnectLinearRoute> = async (c) => {
 export const connectDatadog: AppRouteHandler<ConnectDatadogRoute> = async (
   c
 ) => {
+  assertWorkspaceAuthority(c.var.authority, { connector: ["manage"] })
   const workspace = c.var.workspace
   const { site, apiKey, appKey } = c.req.valid("json")
 
@@ -602,6 +660,7 @@ export const connectDatadog: AppRouteHandler<ConnectDatadogRoute> = async (
 export const connectCloudwatch: AppRouteHandler<
   ConnectCloudwatchRoute
 > = async (c) => {
+  assertWorkspaceAuthority(c.var.authority, { connector: ["manage"] })
   const workspace = c.var.workspace
   const { region, accessKeyId, secretAccessKey } = c.req.valid("json")
 
@@ -663,6 +722,7 @@ export const connectCloudwatch: AppRouteHandler<
 }
 
 export const connectAttio: AppRouteHandler<ConnectAttioRoute> = async (c) => {
+  assertWorkspaceAuthority(c.var.authority, { connector: ["manage"] })
   const workspace = c.var.workspace
   const { code, state } = c.req.valid("json")
 
@@ -764,15 +824,10 @@ export const connectAttio: AppRouteHandler<ConnectAttioRoute> = async (c) => {
 }
 
 export const connectNotion: AppRouteHandler<ConnectNotionRoute> = async (c) => {
+  assertWorkspaceAuthority(c.var.authority, { connector: ["manage"] })
   const workspace = c.var.workspace
   const { code, state } = c.req.valid("json")
 
-  if (!hasWorkspaceAuthority(c.var.authority, { connector: ["manage"] })) {
-    return c.json(
-      { success: false, message: "Only workspace admins can connect Notion" },
-      HttpStatusCodes.FORBIDDEN
-    )
-  }
   if (verifyOAuthState(state, c.var.user.id) !== workspace.slug) {
     return c.json(
       { success: false, message: "Invalid or expired connection request" },
@@ -828,6 +883,7 @@ export const connectNotion: AppRouteHandler<ConnectNotionRoute> = async (c) => {
 export const updateIntegration: AppRouteHandler<
   UpdateIntegrationRoute
 > = async (c) => {
+  assertWorkspaceAuthority(c.var.authority, { connector: ["manage"] })
   const workspace = c.var.workspace
   const { connectionId } = c.req.valid("param")
   const {
@@ -939,6 +995,7 @@ export const updateIntegration: AppRouteHandler<
 export const updateGithubRepoConfig: AppRouteHandler<
   UpdateGithubRepoConfigRoute
 > = async (c) => {
+  assertWorkspaceAuthority(c.var.authority, { connector: ["manage"] })
   const workspace = c.var.workspace
   const { connectionId } = c.req.valid("param")
   const { repoFullName, baseBranch } = c.req.valid("json")
@@ -1030,6 +1087,7 @@ export const updateGithubRepoConfig: AppRouteHandler<
 export const disconnectIntegration: AppRouteHandler<
   DisconnectIntegrationRoute
 > = async (c) => {
+  assertWorkspaceAuthority(c.var.authority, { connector: ["manage"] })
   const workspace = c.var.workspace
   const { connectionId } = c.req.valid("param")
 
@@ -1052,18 +1110,6 @@ export const disconnectIntegration: AppRouteHandler<
     return c.json(
       { success: false, message: "Connection not found" },
       HttpStatusCodes.NOT_FOUND
-    )
-  }
-  if (
-    connection.provider === "notion" &&
-    !hasWorkspaceAuthority(c.var.authority, { connector: ["manage"] })
-  ) {
-    return c.json(
-      {
-        success: false,
-        message: "Only workspace admins can disconnect Notion",
-      },
-      HttpStatusCodes.FORBIDDEN
     )
   }
 
