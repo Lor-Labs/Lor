@@ -1,6 +1,5 @@
 import { GithubIcon, HashtagIcon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
-import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar"
 import { SidebarInset, SidebarProvider } from "@repo/ui/components/sidebar"
 import { EASE_OUT } from "@repo/ui/lib/motion"
 import { AnimatePresence, motion } from "motion/react"
@@ -12,12 +11,56 @@ import {
   channels,
   initialChats,
   initialSessions,
+  initialTranscripts,
   me,
+  mentionedPeople,
+  people,
   type Session,
+  type SessionMessage,
   type SessionState,
+  seedMessageIds,
   titleFromPrompt,
 } from "./prototype-data"
+import { MentionText, PersonAvatar } from "./prototype-parts"
 import { PrototypeSidebar, SessionStateIndicator } from "./prototype-sidebar"
+import { SessionView } from "./session-view"
+
+const LOR_REPLY =
+  "I looked into this and wrote up what I found. The sources are in **Files** on the right, and the plan shows what is left."
+
+function lorReply(): SessionMessage {
+  return { id: crypto.randomUUID(), kind: "lor", text: LOR_REPLY }
+}
+
+function fallbackTranscript(session: Session): SessionMessage[] {
+  const author =
+    Object.values(people).find(
+      (person) => person.id === session.subscriberIds[0]
+    ) ?? me
+  const prompt: SessionMessage = {
+    id: `${session.id}-prompt`,
+    kind: "person",
+    author,
+    text: `@Lor ${session.title}`,
+    toLor: true,
+  }
+  if (session.state === "running") return [prompt]
+  const reply: SessionMessage = {
+    id: `${session.id}-reply`,
+    kind: "lor",
+    text: LOR_REPLY,
+  }
+  if (session.state !== "needs_you") return [prompt, reply]
+  return [
+    prompt,
+    reply,
+    {
+      id: `${session.id}-approval`,
+      kind: "approval",
+      action: `Apply the changes for "${session.title}"`,
+    },
+  ]
+}
 
 type View =
   | { kind: "channel"; channelId: string }
@@ -31,9 +74,13 @@ export function SessionsPrototype() {
     kind: "channel",
     channelId: "engineering",
   })
+  const [transcripts, setTranscripts] = useState(initialTranscripts)
+  const [seeds, setSeeds] = useState(seedMessageIds)
   const [started, setStarted] = useState<Session | null>(null)
   const timers = useRef<number[]>([])
   const startedCount = useRef(0)
+  const openSessionId = useRef<string | null>(null)
+  openSessionId.current = view.kind === "session" ? view.sessionId : null
 
   useEffect(() => {
     const pending = timers.current
@@ -46,11 +93,39 @@ export function SessionsPrototype() {
     timers.current.push(window.setTimeout(callback, ms))
   }
 
-  const setSessionState = (sessionId: string, state: SessionState) => {
+  const updateSession = (sessionId: string, patch: Partial<Session>) => {
     setSessions((prev) =>
       prev.map((session) =>
-        session.id === sessionId ? { ...session, state } : session
+        session.id === sessionId ? { ...session, ...patch } : session
       )
+    )
+  }
+
+  const setSessionState = (sessionId: string, state: SessionState) =>
+    updateSession(sessionId, { state })
+
+  const appendToTranscript = (sessionId: string, message: SessionMessage) => {
+    setTranscripts((prev) => {
+      const session = sessions.find((item) => item.id === sessionId)
+      const current =
+        prev[sessionId] ?? (session ? fallbackTranscript(session) : [])
+      return { ...prev, [sessionId]: [...current, message] }
+    })
+  }
+
+  const finishLorTurn = (sessionId: string, needsYou: boolean) => {
+    appendToTranscript(sessionId, lorReply())
+    if (needsYou) {
+      appendToTranscript(sessionId, {
+        id: crypto.randomUUID(),
+        kind: "approval",
+        action: "Open a pull request with these changes",
+      })
+    }
+    const isOpen = openSessionId.current === sessionId
+    setSessionState(
+      sessionId,
+      needsYou ? "needs_you" : isOpen ? "idle" : "unread"
     )
   }
 
@@ -72,13 +147,34 @@ export function SessionsPrototype() {
       channelId,
       title: titleFromPrompt(prompt),
       state: "running",
+      subscriberIds: [
+        me.id,
+        ...mentionedPeople(prompt).map((person) => person.id),
+      ],
     }
-    const finalState: SessionState =
-      startedCount.current % 3 === 0 ? "needs_you" : "unread"
+    const needsYou = startedCount.current % 3 === 0
     setSessions((prev) => [session, ...prev])
+    setTranscripts((prev) => ({
+      ...prev,
+      [session.id]: [
+        {
+          id: crypto.randomUUID(),
+          kind: "person",
+          author: me,
+          text: prompt,
+          toLor: true,
+        },
+      ],
+    }))
+    setSeeds((prev) => ({
+      ...prev,
+      [session.id]: (chats[channelId] ?? [])
+        .slice(-3)
+        .map((message) => message.id),
+    }))
     setStarted(session)
     later(
-      () => setSessionState(session.id, finalState),
+      () => finishLorTurn(session.id, needsYou),
       3000 + Math.random() * 3000
     )
     later(
@@ -102,6 +198,41 @@ export function SessionsPrototype() {
     }))
   }
 
+  const sendInSession = (session: Session, text: string, toLor: boolean) => {
+    appendToTranscript(session.id, {
+      id: crypto.randomUUID(),
+      kind: "person",
+      author: me,
+      text,
+      toLor,
+    })
+    const added = mentionedPeople(text)
+      .map((person) => person.id)
+      .filter((id) => !session.subscriberIds.includes(id))
+    const subscriberIds = session.subscriberIds.includes(me.id)
+      ? session.subscriberIds
+      : [...session.subscriberIds, me.id]
+    updateSession(session.id, {
+      subscriberIds: [...subscriberIds, ...added],
+      ...(toLor ? { state: "running" as const } : {}),
+    })
+    if (toLor) later(() => finishLorTurn(session.id, false), 2500)
+  }
+
+  const approve = (session: Session, messageId: string) => {
+    setTranscripts((prev) => ({
+      ...prev,
+      [session.id]: (prev[session.id] ?? fallbackTranscript(session)).map(
+        (message) =>
+          message.id === messageId && message.kind === "approval"
+            ? { ...message, approved: true }
+            : message
+      ),
+    }))
+    setSessionState(session.id, "running")
+    later(() => finishLorTurn(session.id, false), 2000)
+  }
+
   const activeChannel =
     view.kind === "channel"
       ? channels.find((channel) => channel.id === view.channelId)
@@ -110,6 +241,17 @@ export function SessionsPrototype() {
     view.kind === "session"
       ? sessions.find((session) => session.id === view.sessionId)
       : undefined
+  const sidebarSessions = sessions.filter(
+    (session) => !session.archivedBy && session.subscriberIds.includes(me.id)
+  )
+  const sessionChannel = channels.find(
+    (channel) => channel.id === activeSession?.channelId
+  )
+  const sessionSeed = activeSession
+    ? (chats[activeSession.channelId] ?? []).filter((message) =>
+        seeds[activeSession.id]?.includes(message.id)
+      )
+    : []
 
   return (
     <div className="h-[100dvh] min-h-0 overflow-hidden bg-sidebar text-foreground">
@@ -118,7 +260,7 @@ export function SessionsPrototype() {
         style={{ "--sidebar-width": "248px" } as CSSProperties}
       >
         <PrototypeSidebar
-          sessions={sessions}
+          sessions={sidebarSessions}
           activeChannelId={activeChannel?.id ?? null}
           activeSessionId={activeSession?.id ?? null}
           newSessionActive={view.kind === "new"}
@@ -144,7 +286,34 @@ export function SessionsPrototype() {
                 onOpenSession={openSession}
               />
             )}
-            {activeSession && <NextChunk title={activeSession.title} />}
+            {activeSession && sessionChannel && (
+              <SessionView
+                key={activeSession.id}
+                session={activeSession}
+                channelName={sessionChannel.name}
+                transcript={
+                  transcripts[activeSession.id] ??
+                  fallbackTranscript(activeSession)
+                }
+                seed={sessionSeed}
+                onSend={(text, toLor) =>
+                  sendInSession(activeSession, text, toLor)
+                }
+                onSetSubscribers={(subscriberIds) =>
+                  updateSession(activeSession.id, { subscriberIds })
+                }
+                onArchive={() =>
+                  updateSession(activeSession.id, { archivedBy: me.id })
+                }
+                onUnarchive={() =>
+                  updateSession(activeSession.id, { archivedBy: undefined })
+                }
+                onApprove={(messageId) => approve(activeSession, messageId)}
+                onOpenChannel={() =>
+                  setView({ kind: "channel", channelId: sessionChannel.id })
+                }
+              />
+            )}
             {view.kind === "new" && <NextChunk title="New session" />}
           </div>
         </SidebarInset>
@@ -228,7 +397,11 @@ function ChannelView({
             </motion.div>
           )}
         </AnimatePresence>
-        <PrototypeComposer channelName={channel.name} onSend={onSend} />
+        <PrototypeComposer
+          mode="channel"
+          channelName={channel.name}
+          onSend={onSend}
+        />
       </div>
     </>
   )
@@ -257,12 +430,7 @@ function ChatRow({
 
   return (
     <div className="flex gap-3 px-4 py-1.5">
-      <Avatar className="mt-0.5 size-10">
-        <AvatarImage src={message.author.image} alt={message.author.name} />
-        <AvatarFallback fallbackSeed={message.author.name}>
-          {message.author.name.charAt(0)}
-        </AvatarFallback>
-      </Avatar>
+      <PersonAvatar person={message.author} className="mt-0.5 size-10" />
       <div className="min-w-0 flex-1">
         <MessageMeta name={message.author.name} time={message.time} />
         <p className="text-sm leading-relaxed">
@@ -300,24 +468,6 @@ function MessageMeta({ name, time }: { name: string; time: string }) {
       <span className="text-sm font-semibold leading-snug">{name}</span>
       <span className="text-xs text-muted-foreground">{time}</span>
     </div>
-  )
-}
-
-function MentionText({ text }: { text: string }) {
-  let offset = 0
-  const parts = text.split(/(@\w+)/g).map((part) => {
-    const key = offset
-    offset += part.length
-    return { key, part }
-  })
-  return parts.map(({ key, part }) =>
-    part.startsWith("@") ? (
-      <span key={key} className="font-medium text-primary">
-        {part}
-      </span>
-    ) : (
-      <span key={key}>{part}</span>
-    )
   )
 }
 

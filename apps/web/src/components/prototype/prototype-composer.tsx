@@ -10,7 +10,7 @@ import { Button } from "@repo/ui/components/button"
 import { EASE_OUT } from "@repo/ui/lib/motion"
 import { cn } from "@repo/ui/lib/utils"
 import { AnimatePresence, motion } from "motion/react"
-import { type KeyboardEvent, useState } from "react"
+import { type KeyboardEvent, type ReactNode, useState } from "react"
 import { mentionedPeople, type Person } from "./prototype-data"
 
 // The composer's chrome swaps between the people and Lor states; the text
@@ -23,21 +23,29 @@ const swap = {
 }
 
 export function PrototypeComposer({
+  mode,
   channelName,
   onSend,
 }: {
+  mode: "channel" | "session"
   channelName: string
   onSend: (text: string, toLor: boolean) => void
 }) {
   const [text, setText] = useState("")
-  const toLor = /@lor\b/i.test(text)
+  const [toPeople, setToPeople] = useState(false)
+  const inSession = mode === "session"
+  const mentionsLor = /@lor\b/i.test(text)
   const pinged = mentionedPeople(text)
+  const toLor = inSession
+    ? mentionsLor || (!toPeople && pinged.length === 0)
+    : mentionsLor
   const canSend = text.trim().length > 0
 
   const send = () => {
     if (!canSend) return
     onSend(text.trim(), toLor)
     setText("")
+    setToPeople(false)
   }
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -65,7 +73,11 @@ export function PrototypeComposer({
         onChange={(event) => setText(event.target.value)}
         onKeyDown={handleKeyDown}
         rows={1}
-        placeholder={`Message #${channelName}, or @Lor to start a session`}
+        placeholder={
+          inSession
+            ? "Reply to Lor, or @mention a teammate"
+            : `Message #${channelName}, or @Lor to start a session`
+        }
         className="field-sizing-content block max-h-48 min-h-11 w-full resize-none bg-transparent px-3 pt-3 pb-1 text-sm leading-5 outline-none placeholder:text-muted-foreground"
       />
       <div className="flex h-10 items-center gap-1 px-2">
@@ -90,10 +102,14 @@ export function PrototypeComposer({
                 {...swap}
                 className="flex min-w-0 items-center gap-1.5 text-xs"
               >
-                <span className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-agent/10 px-2 py-1 font-medium text-agent">
+                <DestinationPill
+                  interactive={inSession && !mentionsLor}
+                  onClick={() => setToPeople(true)}
+                  className="bg-agent/10 font-medium text-agent"
+                >
                   <img src="/lor-mark.svg" alt="" className="size-3.5" />
-                  New session in #{channelName}
-                </span>
+                  {inSession ? "To Lor" : `New session in #${channelName}`}
+                </DestinationPill>
                 <button
                   type="button"
                   className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md px-1.5 py-1 text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground"
@@ -106,7 +122,10 @@ export function PrototypeComposer({
                   />
                 </button>
                 {pinged.length > 0 && (
-                  <PingedPeople people={pinged} label="Adds" />
+                  <PingedPeople
+                    people={pinged}
+                    label={inSession ? "Notifies" : "Adds"}
+                  />
                 )}
               </motion.div>
             ) : (
@@ -115,14 +134,23 @@ export function PrototypeComposer({
                 {...swap}
                 className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground"
               >
-                <span className="inline-flex shrink-0 items-center gap-1 px-1">
-                  <HugeiconsIcon
-                    icon={HashtagIcon}
-                    className="size-3.5"
-                    strokeWidth={2}
-                  />
-                  {channelName}
-                </span>
+                <DestinationPill
+                  interactive={inSession && pinged.length === 0}
+                  onClick={() => setToPeople(false)}
+                >
+                  {inSession ? (
+                    "To people"
+                  ) : (
+                    <>
+                      <HugeiconsIcon
+                        icon={HashtagIcon}
+                        className="size-3.5"
+                        strokeWidth={2}
+                      />
+                      {channelName}
+                    </>
+                  )}
+                </DestinationPill>
                 {pinged.length > 0 && (
                   <PingedPeople people={pinged} label="Notifies" />
                 )}
@@ -135,7 +163,7 @@ export function PrototypeComposer({
           variant="ghost"
           onClick={send}
           disabled={!canSend}
-          aria-label={toLor ? "Start session" : "Send message"}
+          aria-label={toLor && !inSession ? "Start session" : "Send message"}
           className={cn(
             "size-7 shrink-0 transition-colors",
             canSend ? sendTone : "text-muted-foreground"
@@ -145,6 +173,33 @@ export function PrototypeComposer({
         </Button>
       </div>
     </div>
+  )
+}
+
+function DestinationPill({
+  interactive,
+  onClick,
+  className,
+  children,
+}: {
+  interactive: boolean
+  onClick: () => void
+  className?: string
+  children: ReactNode
+}) {
+  const base = "inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1"
+  if (!interactive) {
+    return <span className={cn(base, className)}>{children}</span>
+  }
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title="Switch who this message goes to"
+      className={cn(base, "cursor-pointer hover:opacity-80", className)}
+    >
+      {children}
+    </button>
   )
 }
 

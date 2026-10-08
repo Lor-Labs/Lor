@@ -410,7 +410,10 @@ because nothing merges until the whole runbook lands.
 - Move `workspace-model.md` and this runbook to `reference/` root when Step 1
   starts, with a link sweep. Add a `CLAUDE.md` section like the other
   runbooks. Update `mobile-parity-todo.md` in Phase F.
-- After the last step: the onboarding redo flagged in `onboarding.md`.
+- After the last step: delete the prototype (`apps/web/src/components/prototype/`,
+  `apps/web/src/routes/prototype.tsx`). It is a flow reference, not code to
+  ship.
+- Then: the onboarding redo flagged in `onboarding.md`.
 
 ## Size
 
