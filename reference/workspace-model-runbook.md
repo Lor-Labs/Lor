@@ -523,7 +523,9 @@ ask): `use-workspace-activity.ts` is now a query
 (`["workspace-activity", workspaceId]`) fetched over the same
 `workspace:activity` socket ack, with **no polling**. Pushes
 (`workspace:activity:updated`, `thread-read:updated`), socket reconnects and
-app refocus refetch it, coalesced over 100 ms and skipped while unfocused.
+app refocus refetch it, coalesced over 100 ms. Pushes refetch in the
+background too (Jacob's call), so refocusing never replays a burst of
+changes; the refocus fetch is only a check.
 Session changes run under the `["sidebar-session"]` mutation key and patch
 both the session query and the sidebar query (`patchSidebarSession`: hide,
 show, rename); pushes wait while one is in flight, and the last to settle

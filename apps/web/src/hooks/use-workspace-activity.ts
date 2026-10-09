@@ -10,7 +10,7 @@ import {
 } from "@tanstack/react-query"
 import { useEffect } from "react"
 import { useSocket } from "@/context/socket-context"
-import { isAppFocused, subscribeAppFocus } from "@/lib/app-focus"
+import { subscribeAppFocus } from "@/lib/app-focus"
 import type { AppSocket } from "@/lib/socket"
 
 // Bursty invalidations (run transition + plan update) collapse into one
@@ -46,8 +46,9 @@ function fetchWorkspaceActivity(socket: AppSocket, workspaceId: string) {
 
 // Lor channel activity and the user's session rows for the sidebar, fetched
 // over the socket. Push-driven, no polling: workspace:activity:updated and
-// thread reads refetch, and so do reconnects and refocus, which cover pushes
-// missed while disconnected or in the background.
+// thread reads refetch, in the background too, so returning to the app
+// never replays a burst of changes (a teammate archiving several sessions).
+// Reconnects and refocus refetch as a check for missed pushes.
 export function useWorkspaceActivity(workspaceId?: string) {
   const socket = useSocket()
   const queryClient = useQueryClient()
@@ -67,7 +68,7 @@ export function useWorkspaceActivity(workspaceId?: string) {
     if (!socket || !workspaceId) return
     let coalesceTimer: ReturnType<typeof setTimeout> | undefined
     const refresh = () => {
-      if (coalesceTimer || !isAppFocused()) return
+      if (coalesceTimer) return
       coalesceTimer = setTimeout(() => {
         coalesceTimer = undefined
         if (
