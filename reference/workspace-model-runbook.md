@@ -128,7 +128,7 @@ because nothing merges until the whole runbook lands.
 
 #### Step 1: schema and wire types (~250)
 
-[x] built 2026-10-08 · [ ] committed · [ ] db:push
+[x] built 2026-10-08 · [x] committed · [ ] db:push
 
 As built: `RealtimeAgentSession` and `session:updated` live in
 `realtime-types/src/events.ts`; `toRealtimeAgentSession` and its drift guard
@@ -147,7 +147,7 @@ Docs moved to `reference/` root with a `CLAUDE.md` section.
 
 #### Step 2: hide anchors, add guards (~250)
 
-[x] built 2026-10-08 · [ ] committed
+[x] built 2026-10-08 · [x] committed
 
 As built (~110 lines): `@repo/db/queries/agent-sessions` holds
 `chatFeedMessage()` and `findAgentSessionByThreadRoot()`. The message-location
@@ -162,7 +162,7 @@ response gained `sessionId`. `countsAsUnread` also skips anchors.
 
 #### Step 3: shared session and run helpers (~350)
 
-[x] built 2026-10-08 · [ ] committed · [ ] backfill run (dev) · [ ] backfill run (prod)
+[x] built 2026-10-08 · [x] committed · [ ] backfill run (dev) · [ ] backfill run (prod)
 
 As built (~290 lines): `createSession(tx, args)` and `ensureLoopSession(loop)`
 in `packages/lor/src/agent-sessions.ts`. `createSession` takes the caller's
@@ -181,7 +181,7 @@ Backfill: `packages/db/src/scripts/backfill-agent-sessions.ts`, run after
 
 #### Step 4: send path (~400, may split)
 
-[x] built 2026-10-08 · [ ] committed
+[x] built 2026-10-08 · [x] committed
 
 As built (+240/−355): `sessionStartFor` (realtime `services/lor.ts`) decides
 whether a send starts a session and picks its context (last 10 chat messages,
@@ -208,7 +208,7 @@ anchor-rooted sessions. Web drops `@Lor` sends from the chat list.
 
 #### Step 5: web session route and view (~400)
 
-[x] built 2026-10-08 · [ ] committed
+[x] built 2026-10-08 · [x] committed
 
 As built: `GET /v1/sessions/{sessionId}` returns the session, its channel,
 and its context with mentions resolved to names (same 404 for missing and
@@ -233,16 +233,19 @@ started" toast with Open, until Step 7's composer note replaces it.
 
 #### Step 6: session rail (~350)
 
-[x] built 2026-10-08 · [ ] committed
+[x] built 2026-10-08 · [x] committed · [ ] right-panel follow-up committed
 
-As built (~335 lines): `components/session/session-rail.tsx` shows Plan,
-Files and Activity beside the transcript when the session area is at least
-56rem wide (container query). `ThreadPanel` takes the rail through
-`sessionView.rail` and drops the docked work header in sessions.
-`thread-work-header.tsx` now exports `useThreadWork` and `WorkFileList`, shared
-by the header and the rail. Files merge plan artifacts with the files in Lor's
-tool calls (so artifacts made without a plan show too) and the uploads in the
-loaded messages. The session page keeps approvals and proposals live
+As built: the rail is a right-panel view, `{ type: "session-work" }`
+(`right-panel/session-work-panel.tsx`, "Details": Plan, Files, Activity), so
+it gets the panel's background, resize and collapse. The session page sets
+that view on open and clears it on leave, as a channel page does; the header's
+`RightPanelToggle` reopens it (`openView` prop). It has its own size class
+(`rail`: opens at 320px, resizes up to the normal maximum, remembers its
+width). The panel reads the session page's thread query by the same key.
+Sessions drop the docked work header. `thread-work-header.tsx` now exports
+`useThreadWork` and `WorkFileList`, shared by the header and the panel. Files
+merge plan artifacts with the files in Lor's tool calls (so artifacts made
+without a plan show too) and the uploads in the loaded messages. The session page keeps approvals and proposals live
 (`useChannelApprovals`, `useChannelProposals`), so their cards render inline
 under the run's reply. The session route takes `?artifactId` and mounts
 `ArtifactOverlay`, so file cards open on the session page.
@@ -426,7 +429,8 @@ under the run's reply. The session route takes `?artifactId` and mounts
 [ ] built · [ ] committed
 
 - New session route lifting `components/thread-view.tsx` (526 lines); the
-  rail as a sheet (`ThreadWorkHeader` at `:359-366`); seed block; archive bar.
+  Details panel (context, plan, files, activity) as a sheet, not a block in
+  the transcript (`ThreadWorkHeader` at `:359-366`); archive bar.
 
 #### Step 21: composer and channel list (~400)
 
@@ -506,8 +510,18 @@ lines, plus the server steps. 22 steps.
 - Step 6: the rail has no approval card. Every approval belongs to a run, so
   `MessageApprovalCard` already shows it inline under the run's reply; the
   thread header's copy would show it twice. "Live computer" is the Activity
-  section (the newest run's tool trail) until a sandbox view exists. The rail
-  shows only when the session area is at least 56rem wide; below that there
-  is no plan or files view yet.
+  section (the newest run's tool trail) until a sandbox view exists.
+- Step 6: the first build (commit 98e92ce7) put a fixed rail inside the
+  session page. Jacob wanted the existing right panel instead, for its
+  background, resizing and collapse, so the rail moved into a right-panel
+  view in a follow-up.
+- Step 6 follow-up: the "From #channel" context block left the top of the
+  transcript, and the session no longer quotes the context messages (Jacob:
+  both looked wrong). The Details panel's first section, Context, is one link
+  row ("#general · N messages") that jumps to the newest context message in
+  its channel or thread (`useMessageIdNavigation`). The session API's context
+  entries shrank to `{ id, createdAt }`; the author, text and mention
+  resolution went. The panel view carries `sessionId` and reads
+  `useAgentSession`. The design doc's item 8 was updated to match.
 - Step 6 open item: the artifact viewer's "Open conversation" still opens the
   channel page with the thread panel, not the session.

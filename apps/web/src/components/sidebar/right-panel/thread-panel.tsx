@@ -148,12 +148,10 @@ function messageToMarkdown(message: Message, headingLevel: 2 | 3): string {
 }
 
 // A Lor session renders this same conversation in the main area, with its own
-// header and starting context in place of the thread root, and its work rail
-// in place of the docked work header.
+// header and no thread root. Its context, plan, files and activity live in
+// the right panel instead of the docked work header.
 export type SessionPresentation = {
   header: ReactNode
-  context?: ReactNode
-  rail?: (messages: Message[]) => ReactNode
 }
 
 export function ThreadPanel({
@@ -741,7 +739,7 @@ export function ThreadPanel({
     )
   }
 
-  const panel = (
+  return (
     <div
       {...getRootProps()}
       className="@container relative flex h-full w-full flex-col"
@@ -853,12 +851,6 @@ export function ThreadPanel({
                 sessionView && "mx-auto w-full max-w-3xl"
               )}
             >
-              {sessionView?.context && (
-                <MessageScrollerItem className="px-4 pt-4 pb-2">
-                  {sessionView.context}
-                </MessageScrollerItem>
-              )}
-
               {rootMessageForRender && !isCallChat && !sessionView && (
                 <MessageScrollerItem
                   messageId={rootMessageForRender.id}
@@ -1041,14 +1033,6 @@ export function ThreadPanel({
           />
         </div>
       </MessageScrollerProvider>
-    </div>
-  )
-
-  if (!sessionView?.rail) return panel
-  return (
-    <div className="@container flex h-full w-full">
-      <div className="min-w-0 flex-1">{panel}</div>
-      {sessionView.rail(messages)}
     </div>
   )
 }

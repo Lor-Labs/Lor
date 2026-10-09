@@ -40,9 +40,19 @@ export type LoopsListSidebarView = {
   channelId: string
 }
 
+// A Lor session's context, plan, files and activity, beside the session page.
+export type SessionWorkSidebarView = {
+  type: "session-work"
+  workspaceSlug: string
+  channelId: string
+  sessionId: string
+  threadRootId: string
+}
+
 export type RightSidebarView =
   | WorkspaceMembersSidebarView
   | ThreadSidebarView
   | AttachmentsSidebarView
   | LoopSidebarView
   | LoopsListSidebarView
+  | SessionWorkSidebarView

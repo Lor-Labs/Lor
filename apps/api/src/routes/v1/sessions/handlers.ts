@@ -1,6 +1,5 @@
-import { asc, db, eq, inArray, schema } from "@repo/db"
+import { asc, db, eq, schema } from "@repo/db"
 import { toRealtimeAgentSession } from "@repo/lor/agent-sessions"
-import { USER_MENTION_REGEX } from "@repo/messaging"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { userCanAccessChannel } from "@/lib/queries/channel-access"
 import type { AppRouteHandler } from "@/lib/types/app-types"
@@ -43,9 +42,6 @@ export const getAgentSession: AppRouteHandler<GetAgentSessionRoute> = async (
   const context = await db
     .select({
       id: schema.message.id,
-      authorName: schema.user.name,
-      authorImage: schema.user.image,
-      content: schema.message.content,
       createdAt: schema.message.createdAt,
     })
     .from(schema.agentSessionContext)
@@ -53,28 +49,8 @@ export const getAgentSession: AppRouteHandler<GetAgentSessionRoute> = async (
       schema.message,
       eq(schema.agentSessionContext.messageId, schema.message.id)
     )
-    .innerJoin(schema.user, eq(schema.message.authorId, schema.user.id))
     .where(eq(schema.agentSessionContext.sessionId, sessionId))
     .orderBy(asc(schema.message.createdAt))
-
-  const mentionedIds = [
-    ...new Set(
-      context.flatMap((message) =>
-        [...(message.content ?? "").matchAll(USER_MENTION_REGEX)].map(
-          (match) => match[1] ?? ""
-        )
-      )
-    ),
-  ].filter(Boolean)
-  const mentionedNames = new Map(
-    (mentionedIds.length === 0
-      ? []
-      : await db
-          .select({ id: schema.user.id, name: schema.user.name })
-          .from(schema.user)
-          .where(inArray(schema.user.id, mentionedIds))
-    ).map((user) => [user.id, user.name])
-  )
 
   return c.json(
     {
@@ -82,12 +58,6 @@ export const getAgentSession: AppRouteHandler<GetAgentSessionRoute> = async (
       channel: { id: row.session.channelId, name: row.channelName },
       context: context.map((message) => ({
         id: message.id,
-        authorName: message.authorName,
-        authorImage: message.authorImage,
-        text: (message.content ?? "").replace(
-          USER_MENTION_REGEX,
-          (_token, id: string) => `@${mentionedNames.get(id) ?? "someone"}`
-        ),
         createdAt: message.createdAt.toISOString(),
       })),
     },

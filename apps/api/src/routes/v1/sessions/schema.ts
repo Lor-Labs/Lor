@@ -30,12 +30,9 @@ export const agentSessionSchema = z
   })
   .openapi("AgentSession")
 
-// A message the session started with, mentions already resolved to names.
+// A message the session started with. Clients link to it, not quote it.
 export const sessionContextMessageSchema = z.object({
   id: z.string().uuid(),
-  authorName: z.string(),
-  authorImage: z.string().nullable(),
-  text: z.string(),
   createdAt: z.string(),
 })
 

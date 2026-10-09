@@ -14,6 +14,7 @@ export function RightPanelHeader({
   actions,
   className,
   hideCollapse = false,
+  hideBack = false,
   compact = false,
 }: {
   title: ReactNode
@@ -25,6 +26,9 @@ export function RightPanelHeader({
   // Detail views whose X already exits (loop panel) drop the collapse
   // toggle — closing the whole panel happens from the overview.
   hideCollapse?: boolean
+  // A page's own panel (a session's work) has no channel overview to go
+  // back to.
+  hideBack?: boolean
   compact?: boolean
 }) {
   const { setView, toggleCollapsed, clearView } = useRightSidebar()
@@ -42,21 +46,23 @@ export function RightPanelHeader({
         className
       )}
     >
-      <button
-        type="button"
-        aria-label="Back to channel overview"
-        onClick={goBack}
-        className={cn(
-          "flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-border bg-background/40 text-muted-foreground transition-[background-color,border-color,color,transform] duration-200 hover:border-foreground/20 hover:bg-accent hover:text-foreground active:scale-[0.97]",
-          compact && "size-7 rounded-md border-0 bg-transparent"
-        )}
-      >
-        <HugeiconsIcon
-          icon={compact ? ArrowLeft01Icon : Cancel01Icon}
-          size={16}
-          strokeWidth={1.75}
-        />
-      </button>
+      {!hideBack && (
+        <button
+          type="button"
+          aria-label="Back to channel overview"
+          onClick={goBack}
+          className={cn(
+            "flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-border bg-background/40 text-muted-foreground transition-[background-color,border-color,color,transform] duration-200 hover:border-foreground/20 hover:bg-accent hover:text-foreground active:scale-[0.97]",
+            compact && "size-7 rounded-md border-0 bg-transparent"
+          )}
+        >
+          <HugeiconsIcon
+            icon={compact ? ArrowLeft01Icon : Cancel01Icon}
+            size={16}
+            strokeWidth={1.75}
+          />
+        </button>
+      )}
       <div className="flex min-w-0 items-center gap-2">
         <div
           className={cn(

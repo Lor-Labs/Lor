@@ -1,0 +1,242 @@
+import { HashtagIcon } from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
+import { LOR_USER_ID } from "@repo/db/constants"
+import { toast } from "@repo/ui/components/toast"
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query"
+import { type ReactNode, useMemo } from "react"
+import { LorToolTrail } from "@/components/chat/lor-tool-trail"
+import { PlanStepList } from "@/components/chat/plan-step-list"
+import {
+  type PlanSourceFile,
+  useThreadWork,
+  WorkFileList,
+  type WorkOutputFile,
+} from "@/components/chat/thread-work-header"
+import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-header"
+import type { SessionWorkSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
+import { MorphText } from "@/components/ui/morph-text"
+import {
+  type AgentSessionDetail,
+  useAgentSession,
+} from "@/hooks/use-agent-session"
+import {
+  useMessageIdNavigation,
+  useMessageLocation,
+} from "@/hooks/use-message-search-navigation"
+import {
+  fetchThreadPage,
+  type ThreadPage,
+  threadQueryOptions,
+} from "@/hooks/use-thread-messages"
+import type { Message } from "@/lib/api-types"
+
+// Files and the newest tool trail from the loaded session messages, walked
+// oldest first so a file Lor rewrote keeps its latest version and moves to
+// the top.
+function collectSessionWork(pages: ThreadPage[]) {
+  const messages = pages
+    .flatMap((page) => page.data)
+    .sort(
+      (a, b) =>
+        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    )
+  let activityMessage: Message | null = null
+  const outputs = new Map<string, WorkOutputFile>()
+  const sources = new Map<string, PlanSourceFile>()
+  for (const message of messages) {
+    const toolCalls = message.lorToolCalls ?? []
+    if (message.authorId === LOR_USER_ID && toolCalls.length > 0) {
+      activityMessage = message
+    }
+    for (const call of toolCalls) {
+      for (const file of call.files ?? []) {
+        outputs.delete(file.artifactId)
+        outputs.set(file.artifactId, {
+          id: file.artifactId,
+          path: file.path,
+          mime: file.contentType,
+          size: file.size,
+        })
+      }
+    }
+    for (const attachment of message.attachments ?? []) {
+      sources.set(attachment.url, {
+        url: attachment.url,
+        filename: attachment.filename,
+        size: attachment.size,
+        contentType: attachment.contentType,
+      })
+    }
+  }
+  return {
+    activityMessage,
+    outputs: [...outputs.values()].reverse(),
+    sources: [...sources.values()],
+  }
+}
+
+// The session's details beside the session page: its starting context, plan,
+// files and Lor's latest activity stay in view while the transcript scrolls.
+// Approval and proposal cards render inline in the transcript, not here.
+export function SessionWorkPanel({ view }: { view: SessionWorkSidebarView }) {
+  const queryClient = useQueryClient()
+  // Same query as the session page, so it shares the cache, live replies and
+  // streaming.
+  const { data } = useInfiniteQuery(
+    threadQueryOptions(queryClient, view.threadRootId, (params) =>
+      fetchThreadPage(view, params)
+    )
+  )
+  const {
+    activityMessage,
+    outputs: toolOutputs,
+    sources,
+  } = useMemo(() => collectSessionWork(data?.pages ?? []), [data])
+  const {
+    plan,
+    outputs: planOutputs,
+    doneCount,
+    activityCalls,
+    childrenByParent,
+    streaming,
+  } = useThreadWork(view.channelId, view.threadRootId, activityMessage)
+
+  // Plan artifacts can predate the loaded messages; tool-call files cover
+  // artifacts made without a plan.
+  const outputs = useMemo(() => {
+    const byId = new Map(toolOutputs.map((file) => [file.id, file]))
+    for (const artifact of planOutputs) {
+      if (!byId.has(artifact.id)) byId.set(artifact.id, artifact)
+    }
+    return [...byId.values()]
+  }, [toolOutputs, planOutputs])
+  const fileCount = outputs.length + sources.length
+  const steps = plan?.steps ?? []
+  const { data: detail } = useAgentSession(view.sessionId)
+
+  return (
+    <div className="flex h-full w-full flex-col">
+      <RightPanelHeader
+        title="Details"
+        workspaceSlug={view.workspaceSlug}
+        channelId={view.channelId}
+        hideBack
+      />
+      <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto p-4">
+        {detail && detail.context.length > 0 && (
+          <PanelSection title="Context">
+            <ContextLink
+              channelName={detail.channel.name ?? "channel"}
+              messages={detail.context}
+            />
+          </PanelSection>
+        )}
+        <PanelSection
+          title="Plan"
+          meta={
+            steps.length > 0 ? (
+              <MorphText>{`${doneCount}/${steps.length}`}</MorphText>
+            ) : undefined
+          }
+        >
+          {steps.length > 0 ? (
+            <PlanStepList items={steps} />
+          ) : (
+            <PanelEmpty>No plan yet</PanelEmpty>
+          )}
+        </PanelSection>
+        <PanelSection
+          title="Files"
+          meta={fileCount > 0 ? String(fileCount) : undefined}
+        >
+          {fileCount > 0 ? (
+            <WorkFileList outputs={outputs} sources={sources} />
+          ) : (
+            <PanelEmpty>No files yet</PanelEmpty>
+          )}
+        </PanelSection>
+        <PanelSection
+          title={
+            streaming ? <span className="shimmer">Working…</span> : "Activity"
+          }
+        >
+          {activityCalls.length > 0 ? (
+            <LorToolTrail
+              toolCalls={activityCalls}
+              childrenByParent={childrenByParent}
+              streaming={streaming}
+              embedded
+            />
+          ) : (
+            <PanelEmpty>No activity yet</PanelEmpty>
+          )}
+        </PanelSection>
+      </div>
+    </div>
+  )
+}
+
+function PanelSection({
+  title,
+  meta,
+  children,
+}: {
+  title: ReactNode
+  meta?: ReactNode
+  children: ReactNode
+}) {
+  return (
+    <section className="flex flex-col gap-2">
+      <h3 className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+        {title}
+        {meta && <span className="text-muted-foreground/70">{meta}</span>}
+      </h3>
+      {children}
+    </section>
+  )
+}
+
+// The messages the session started with (what Lor was given as background),
+// as a link to where they were said rather than a copy.
+function ContextLink({
+  channelName,
+  messages,
+}: {
+  channelName: string
+  messages: AgentSessionDetail["context"]
+}) {
+  const goToMessage = useMessageIdNavigation()
+  const { prefetch } = useMessageLocation()
+  const newest = messages.at(-1)
+  if (!newest) return null
+
+  const open = () =>
+    void goToMessage(newest.id)
+      .then((found) => {
+        if (!found) toast.error("Couldn't find that conversation")
+      })
+      .catch(() => toast.error("Couldn't open that conversation"))
+
+  return (
+    <button
+      type="button"
+      onClick={open}
+      onPointerEnter={() => prefetch(newest.id)}
+      className="flex cursor-pointer items-center gap-1.5 rounded-md px-1 py-0.5 text-left text-sm text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+    >
+      <HugeiconsIcon
+        icon={HashtagIcon}
+        className="size-3.5 shrink-0"
+        strokeWidth={2}
+      />
+      <span className="min-w-0 truncate">{channelName}</span>
+      <span className="shrink-0 text-xs">
+        {messages.length} {messages.length === 1 ? "message" : "messages"}
+      </span>
+    </button>
+  )
+}
+
+function PanelEmpty({ children }: { children: ReactNode }) {
+  return <p className="text-sm text-muted-foreground/70">{children}</p>
+}

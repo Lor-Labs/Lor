@@ -4,6 +4,7 @@ import { ChannelFilesPanel } from "@/components/sidebar/right-panel/channel-file
 import { LoopPanel } from "@/components/sidebar/right-panel/loop-panel"
 import { LoopsListPanel } from "@/components/sidebar/right-panel/loops-list-panel"
 import type { RightSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
+import { SessionWorkPanel } from "@/components/sidebar/right-panel/session-work-panel"
 import { ThreadPanel } from "@/components/sidebar/right-panel/thread-panel"
 import { WorkspaceMembersPanel } from "@/components/sidebar/right-panel/workspace-members-panel"
 
@@ -16,8 +17,8 @@ export function RightSidebarPanel({ view }: { view: RightSidebarView }) {
   // For thread we also key on threadRootId so jumping between threads
   // re-runs the entry animation (same for loops).
   const key =
-    view.type === "thread"
-      ? `thread:${view.threadRootId}`
+    view.type === "thread" || view.type === "session-work"
+      ? `${view.type}:${view.threadRootId}`
       : view.type === "loop"
         ? `loop:${view.loopId}`
         : `${view.type}:${view.channelId}`
@@ -42,6 +43,7 @@ export function RightSidebarPanel({ view }: { view: RightSidebarView }) {
           {view.type === "loop" && <LoopPanel view={view} />}
           {view.type === "loops" && <LoopsListPanel view={view} />}
           {view.type === "attachments" && <ChannelFilesPanel view={view} />}
+          {view.type === "session-work" && <SessionWorkPanel view={view} />}
         </motion.div>
       </AnimatePresence>
     </div>
