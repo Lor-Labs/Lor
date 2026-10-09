@@ -64,6 +64,7 @@ import {
 } from "@/lib/run-continuation"
 import { noopRunEventWriter } from "@/lib/run-events"
 import { drainScopeQueue } from "@/lib/run-queue"
+import { titleSessionAfterFirstReply } from "@/lib/session-title"
 import { updateStreamMentionState } from "@/lib/stream-mentions"
 import { notifyWorkspaceActivity } from "@/lib/workspace-activity"
 
@@ -1119,6 +1120,17 @@ export function createLorRespondProcessor(
           await settlePlan(stoppedByUser ? "stopped" : "complete")
           await emitThreadSummary()
           drainQueue()
+          if (threadRootId && !stoppedByUser) {
+            void titleSessionAfterFirstReply({
+              emitter,
+              threadRootId,
+              reply: finalText,
+              onUsage: (u) =>
+                void recordUsage(u, { messageId: lorMessageId, channelId }),
+            }).catch((err) =>
+              logger.warn({ err, threadRootId }, "Session title failed")
+            )
+          }
           // Announce the gate only after the run is terminal — the resolve
           // endpoint refuses to resume a run that hasn't finished parking.
           // Ids only; cards read the durable row via the approvals query.

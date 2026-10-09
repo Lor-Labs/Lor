@@ -108,6 +108,7 @@ export function sidebarRowFor(session: RealtimeAgentSession): SidebarSession {
   return {
     id: session.id,
     title: session.title,
+    titleEdited: session.titleEditedAt !== null,
     state: "idle",
     loop: session.loopId !== null,
     lastActivityAt: session.lastActivityAt,
@@ -117,17 +118,27 @@ export function sidebarRowFor(session: RealtimeAgentSession): SidebarSession {
 export type SidebarSessionChange =
   | { hide: true }
   | { show: SidebarSession }
-  | { title: string }
+  | { title: string; titleEdited: boolean }
 
-// Optimistic edit of one session row. Call from onMutate; the in-flight
-// fetch is cancelled so its older snapshot can't land on top.
-export async function patchSidebarSession(
+// Await before patchSidebarSession: an in-flight fetch carries an older
+// snapshot, and a cancel that lands after the patch would revert it.
+export function cancelSidebarFetch(
+  queryClient: QueryClient,
+  workspaceId: string
+) {
+  return queryClient.cancelQueries({
+    queryKey: workspaceActivityKey(workspaceId),
+  })
+}
+
+// Edits one session row in place. Synchronous, so a caller can patch the
+// session page in the same tick and both type a new title out together.
+export function patchSidebarSession(
   queryClient: QueryClient,
   target: { workspaceId: string; channelId: string; sessionId: string },
   change: SidebarSessionChange
 ) {
   const queryKey = workspaceActivityKey(target.workspaceId)
-  await queryClient.cancelQueries({ queryKey })
   queryClient.setQueryData<ChannelActivity[]>(queryKey, (channels) => {
     if (!channels) return channels
     const withChannel = channels.some(
@@ -157,7 +168,11 @@ export async function patchSidebarSession(
         ...channel,
         sessions: channel.sessions.map((session) =>
           session.id === target.sessionId
-            ? { ...session, title: change.title }
+            ? {
+                ...session,
+                title: change.title,
+                titleEdited: change.titleEdited,
+              }
             : session
         ),
       }

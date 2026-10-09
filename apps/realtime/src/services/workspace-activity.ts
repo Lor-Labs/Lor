@@ -1,3 +1,7 @@
+import {
+  approvalResolverSpecFor,
+  canResolveApproval,
+} from "@repo/auth/permissions"
 import { and, db, desc, eq, inArray, isNull, schema, sql } from "@repo/db"
 import { listAccessibleChannelIds } from "@repo/db/queries/channel-access"
 import type { ChannelActivity, SidebarSessionState } from "@repo/realtime-types"
@@ -16,14 +20,29 @@ export async function getWorkspaceActivity(
   userId: string,
   workspaceId: string
 ): Promise<ChannelActivity[]> {
-  const membership = await db.query.workspaceMember.findFirst({
-    where: and(
-      eq(schema.workspaceMember.workspaceId, workspaceId),
-      eq(schema.workspaceMember.userId, userId)
-    ),
-    columns: { id: true },
-  })
+  const membership = await db
+    .select({
+      role: schema.workspaceMember.role,
+      ownerId: schema.workspace.ownerId,
+    })
+    .from(schema.workspaceMember)
+    .innerJoin(
+      schema.workspace,
+      eq(schema.workspace.id, schema.workspaceMember.workspaceId)
+    )
+    .where(
+      and(
+        eq(schema.workspaceMember.workspaceId, workspaceId),
+        eq(schema.workspaceMember.userId, userId)
+      )
+    )
+    .limit(1)
+    .then((rows) => rows[0])
   if (!membership) throw new Error("Workspace not found")
+  const authority = {
+    role: membership.role,
+    isOwner: membership.ownerId === userId,
+  }
 
   const accessible = await listAccessibleChannelIds(userId, workspaceId)
   if (accessible.size === 0) return []
@@ -80,10 +99,21 @@ export async function getWorkspaceActivity(
         planThreadRootId: schema.plan.threadRootId,
         runChannelId: schema.agentRun.channelId,
         runThreadRootId: schema.agentRun.threadRootId,
+        target: schema.approval.target,
+        resolverKind: schema.approvalPolicy.resolverKind,
+        resolverRole: schema.approvalPolicy.resolverRole,
+        resolverUserId: schema.approvalPolicy.resolverUserId,
       })
       .from(schema.approval)
       .leftJoin(schema.plan, eq(schema.approval.planId, schema.plan.id))
       .leftJoin(schema.agentRun, eq(schema.approval.runId, schema.agentRun.id))
+      .leftJoin(
+        schema.approvalPolicy,
+        and(
+          eq(schema.approvalPolicy.workspaceId, schema.approval.workspaceId),
+          eq(schema.approvalPolicy.target, schema.approval.target)
+        )
+      )
       .where(
         and(
           eq(schema.approval.workspaceId, workspaceId),
@@ -96,6 +126,7 @@ export async function getWorkspaceActivity(
         channelId: schema.agentSession.channelId,
         threadRootId: schema.agentSession.threadRootId,
         title: schema.agentSession.title,
+        titleEditedAt: schema.agentSession.titleEditedAt,
         loopId: schema.agentSession.loopId,
         lastActivityAt,
         unread: sql<boolean>`(exists (select 1 from message m where m.thread_root_id = ${schema.agentSession.threadRootId} and m.author_id <> ${userId}::uuid and m.created_at > ${readCursor}) or exists (select 1 from agent_run r where r.thread_root_id = ${schema.agentSession.threadRootId} and r.updated_at > ${readCursor}))`,
@@ -160,12 +191,17 @@ export async function getWorkspaceActivity(
     bump(run.channelId, run.state === "queued" ? "queued" : "working")
     if (run.threadRootId) running.add(run.threadRootId)
   }
+  // "Needs you": a question from Lor needs anyone in the session; an
+  // approval needs only the people allowed to resolve it. A plan waiting for
+  // approval always has its approval row, so the approval decides.
   for (const plan of plans) {
     bump(
       plan.channelId,
       plan.status === "waiting_for_approval" ? "needs_approval" : "needs_input"
     )
-    if (plan.threadRootId) needsYou.add(plan.threadRootId)
+    if (plan.threadRootId && plan.status === "waiting_for_input") {
+      needsYou.add(plan.threadRootId)
+    }
   }
   for (const approval of approvals) {
     const channelId = approval.planChannelId ?? approval.runChannelId
@@ -173,7 +209,20 @@ export async function getWorkspaceActivity(
       bump(channelId, "needs_approval")
     }
     const threadRootId = approval.planThreadRootId ?? approval.runThreadRootId
-    if (threadRootId) needsYou.add(threadRootId)
+    const spec = approvalResolverSpecFor(
+      approval.target,
+      approval.resolverKind
+        ? {
+            resolverKind: approval.resolverKind,
+            resolverRole: approval.resolverRole,
+            resolverUserId: approval.resolverUserId,
+          }
+        : null
+    )
+    const canResolve = spec
+      ? canResolveApproval(authority, spec, userId)
+      : authority.isOwner
+    if (threadRootId && canResolve) needsYou.add(threadRootId)
   }
   for (const session of sessions) {
     const state: SidebarSessionState = needsYou.has(session.threadRootId)
@@ -186,6 +235,7 @@ export async function getWorkspaceActivity(
     entry(session.channelId).sessions.push({
       id: session.id,
       title: session.title,
+      titleEdited: session.titleEditedAt !== null,
       state,
       loop: session.loopId !== null,
       lastActivityAt: session.lastActivityAt.toISOString(),

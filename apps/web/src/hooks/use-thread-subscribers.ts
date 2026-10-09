@@ -8,6 +8,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect } from "react"
 import { useSocket } from "@/context/socket-context"
 import {
+  cancelSidebarFetch,
   patchSidebarSession,
   settleSidebarSessions,
   sidebarRowFor,
@@ -114,7 +115,10 @@ export function useThreadSubscribers({
       if (!res.ok) throw new Error("Couldn't change subscribers")
     },
     onMutate: async ({ person, subscribed }) => {
-      await queryClient.cancelQueries({ queryKey })
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey }),
+        session && cancelSidebarFetch(queryClient, session.workspaceId),
+      ])
       const previous = queryClient.getQueryData<ThreadSubscriber[]>(queryKey)
       queryClient.setQueryData<ThreadSubscriber[]>(queryKey, (current = []) => {
         const others = current.filter(
@@ -123,7 +127,7 @@ export function useThreadSubscribers({
         return subscribed ? [...others, person] : others
       })
       if (session && !session.archivedAt && person.id === currentUserId) {
-        await patchSidebarSession(
+        patchSidebarSession(
           queryClient,
           {
             workspaceId: session.workspaceId,

@@ -15,6 +15,8 @@ export type SidebarSessionState = "needs_you" | "running" | "unread" | "idle"
 export type SidebarSession = {
   id: string
   title: string
+  // A person renamed it. Only Lor's generated titles type out on web.
+  titleEdited: boolean
   state: SidebarSessionState
   loop: boolean
   lastActivityAt: string

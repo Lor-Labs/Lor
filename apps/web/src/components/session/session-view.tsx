@@ -19,6 +19,7 @@ import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-
 import type { SessionWorkSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
 import { ThreadPanel } from "@/components/sidebar/right-panel/thread-panel"
 import { RightPanelToggle } from "@/components/sidebar/sidebar-toggle"
+import { TypewriterText } from "@/components/ui/typewriter-text"
 import {
   type AgentSessionDetail,
   useAgentSession,
@@ -184,6 +185,7 @@ function SessionHeader({
       <HeaderNavControls className="-ml-2" withDivider />
       <SessionTitle
         title={session.title}
+        generated={session.titleEditedAt === null}
         readOnly={archived}
         onRename={onRename}
       />
@@ -251,10 +253,13 @@ function SessionHeader({
 // saves; Escape cancels.
 function SessionTitle({
   title,
+  generated,
   readOnly,
   onRename,
 }: {
   title: string
+  // Lor's title types out; a person's rename shows at once.
+  generated: boolean
   readOnly: boolean
   onRename: (title: string) => void
 }) {
@@ -273,7 +278,7 @@ function SessionTitle({
         onClick={() => setDraft(title)}
         className="-ml-1.5 min-w-0 cursor-text truncate rounded-md px-1.5 py-0.5 text-left font-semibold transition-colors hover:bg-foreground/[0.06] disabled:cursor-default disabled:hover:bg-transparent"
       >
-        {title}
+        <TypewriterText text={title} animate={generated} />
       </button>
     )
   }

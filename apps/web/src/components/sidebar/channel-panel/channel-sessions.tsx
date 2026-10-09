@@ -21,6 +21,7 @@ import {
   strongestSessionState,
   useActivityWorkspaceId,
 } from "@/components/sidebar/channel-panel/channel-activity"
+import { TypewriterText } from "@/components/ui/typewriter-text"
 import { useMobileSidebar } from "@/context/mobile-sidebar-context"
 import { useUpdateAgentSession } from "@/hooks/use-agent-session"
 
@@ -226,7 +227,9 @@ function SessionRow({
             strokeWidth={2}
           />
         )}
-        <span className="min-w-0 flex-1 truncate">{session.title}</span>
+        <span className="min-w-0 flex-1 truncate">
+          <TypewriterText text={session.title} animate={!session.titleEdited} />
+        </span>
         <span className="flex group-hover/session:hidden">
           <SessionStateIndicator state={session.state} />
         </span>

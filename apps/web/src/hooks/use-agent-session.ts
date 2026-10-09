@@ -17,6 +17,7 @@ import {
   threadSubscribersKey,
 } from "@/hooks/use-thread-subscribers"
 import {
+  cancelSidebarFetch,
   patchSidebarSession,
   settleSidebarSessions,
   sidebarRowFor,
@@ -57,16 +58,32 @@ function patchSessionCache(
   )
 }
 
-// Renames and archives from anyone (title, archive notice) land live.
+// Renames, generated titles and archives from anyone land live. The sidebar
+// row takes the same event in the same tick, so a new title types out in the
+// header and the sidebar together instead of waiting for the sidebar refetch.
 export function useAgentSessionUpdates(sessionId: string) {
   const socket = useSocket()
   const queryClient = useQueryClient()
   useEffect(() => {
     if (!socket) return
-    const onUpdated = ({ session }: AgentSessionUpdatedEvent) => {
-      if (session.id === sessionId) {
-        patchSessionCache(queryClient, sessionId, session)
-      }
+    const onUpdated = async ({ session }: AgentSessionUpdatedEvent) => {
+      if (session.id !== sessionId) return
+      await cancelSidebarFetch(queryClient, session.workspaceId)
+      patchSidebarSession(
+        queryClient,
+        {
+          workspaceId: session.workspaceId,
+          channelId: session.channelId,
+          sessionId,
+        },
+        session.archivedAt
+          ? { hide: true }
+          : {
+              title: session.title,
+              titleEdited: session.titleEditedAt !== null,
+            }
+      )
+      patchSessionCache(queryClient, sessionId, session)
     }
     socket.on("session:updated", onUpdated)
     return () => {
@@ -106,20 +123,26 @@ export function useUpdateAgentSession() {
     mutationFn: ({ sessionId, title, archived }: SessionChange) =>
       patchAgentSession(sessionId, { title, archived }),
     onMutate: async (change) => {
-      const { sessionId, title, archived } = change
+      const { sessionId, workspaceId, title, archived } = change
       const queryKey = agentSessionQueryOptions(sessionId).queryKey
-      await queryClient.cancelQueries({ queryKey })
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey }),
+        cancelSidebarFetch(queryClient, workspaceId),
+      ])
       const previous = queryClient.getQueryData<AgentSessionDetail>(queryKey)
       if (title !== undefined) {
-        patchSessionCache(queryClient, sessionId, { title })
-        await patchSidebarSession(queryClient, change, { title })
+        patchSessionCache(queryClient, sessionId, {
+          title,
+          titleEditedAt: new Date().toISOString(),
+        })
+        patchSidebarSession(queryClient, change, { title, titleEdited: true })
       }
       if (archived === true) {
         patchSessionCache(queryClient, sessionId, {
           archivedAt: new Date().toISOString(),
           archivedById: currentUserId,
         })
-        await patchSidebarSession(queryClient, change, { hide: true })
+        patchSidebarSession(queryClient, change, { hide: true })
       }
       if (archived === false) {
         patchSessionCache(queryClient, sessionId, {
@@ -136,7 +159,7 @@ export function useUpdateAgentSession() {
               ?.some((person) => person.id === currentUserId)
           : false
         if (session && subscribed) {
-          await patchSidebarSession(queryClient, change, {
+          patchSidebarSession(queryClient, change, {
             show: sidebarRowFor(session),
           })
         }

@@ -444,6 +444,7 @@ export {
   type RunToolResultStore,
   type SteeredMessage,
 } from "./run"
+export { generateSessionTitle } from "./session-title"
 export { formatSpeakerLine } from "./transcript"
 export type {
   RunTriggeredContext,

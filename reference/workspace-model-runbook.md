@@ -490,7 +490,7 @@ participants are still notified even after unsubscribing.
 
 #### Step 13: archive, titles, needs-you (~400)
 
-[ ] built · [ ] committed
+[x] built · [ ] committed
 
 - Server: channel session list (active, archived), archive and unarchive
   (stop via `runs/handlers.ts:300` `requestRunStop`, cancel queued rows),
@@ -534,8 +534,27 @@ one. Unarchive shows the row again only if you subscribe; following or
 leaving a session from its header moves its row too. Push audit for dropping
 the poll: run transitions, plans, approvals, session posts, subscribe,
 archive and rename all emit; channel access changes (leaving a private
-channel) do not, and refocus covers them. **13b next:** generated titles (typed
-out on web when they arrive) and "needs you" for approvers only.
+channel) do not, and refocus covers them.
+
+**13b built** (generated titles, needs-you): `generateSessionTitle`
+(`packages/lor/src/session-title.ts`, small model, 2–6 words, usage tool
+`session.title`) runs from `lor-respond` after Lor's first completed run in a
+`chat` or `new` session (`apps/worker/src/lib/session-title.ts`). It reads the
+first human message and Lor's reply, skips loops, triggers, archived and
+renamed sessions, and writes with `titleEditedAt is null` so a rename made
+during generation wins. Then `session:updated` + workspace activity. Web:
+`TypewriterText` types out only Lor's titles (Jacob's call): a change while
+`titleEditedAt` is null (`SidebarSession.titleEdited` in the sidebar) types in
+the session header and sidebar rows; any person's rename, yours or a
+teammate's, shows at once. On the session page,
+`session:updated` patches the sidebar query too (after cancelling any
+in-flight sidebar fetch) in the same tick as the header, so both type
+together; the sidebar refetch that follows finds the same title. "Needs you" in
+`workspace-activity.ts`: a plan waiting for input marks every subscriber
+(anyone can answer); a pending approval marks only people who may resolve it
+(`approvalResolverSpecFor` in `@repo/auth/permissions` + `canResolveApproval`,
+owner fallback for a dangling resolver). The API and worker still carry
+their own copies of the resolver fallback.
 
 #### Step 14: Sessions view in the right panel (~300)
 
