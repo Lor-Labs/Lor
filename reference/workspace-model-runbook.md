@@ -162,19 +162,20 @@ response gained `sessionId`. `countsAsUnread` also skips anchors.
 
 #### Step 3: shared session and run helpers (~350)
 
-[ ] built · [ ] committed
+[x] built 2026-10-08 · [ ] committed · [ ] backfill run (dev) · [ ] backfill run (prod)
+
+As built (~290 lines): `createSession(tx, args)` and `ensureLoopSession(loop)`
+in `packages/lor/src/agent-sessions.ts`. `createSession` takes the caller's
+transaction and keeps only context messages from the session's own channel.
+Backfill: `packages/db/src/scripts/backfill-agent-sessions.ts`, run after
+`db:push` with `--dry-run` first (command in its header).
 
 - `packages/lor`: `createSession` (anchor, row, context rows, starter
   subscription, one transaction, nonce-safe per hazard 7) and
   `ensureLoopSession`.
-- One `insertAgentRun` replacing the three copies: realtime
-  `services/lor.ts:105-148`, worker `run-queue.ts`,
-  `api/lib/scope-runs.ts:214-470`.
-- One-off backfill script `packages/db/scripts/backfill-agent-sessions.ts`
-  (run with `pnpm --filter @repo/db exec tsx scripts/backfill-agent-sessions.ts`,
-  documented in its header, not registered in `package.json`): rows for
-  distinct `agent_run.threadRootId` and `plan.threadRootId`,
-  `on conflict do nothing`.
+- One-off backfill script: rows for distinct `agent_run.threadRootId` and
+  `plan.threadRootId` in workspace text channels, `on conflict do nothing`;
+  the people who wrote in each thread are subscribed.
 
 ### Phase B: the core loop on web
 
@@ -453,3 +454,9 @@ lines, plus the server steps. 22 steps.
   `isNull(threadRootId)`. It finds thread roots, and anchors are thread roots
   that need read state. Hazard 2 listed it by mistake.
 - Step 2: reactions on anchors are rejected too, not only delete and edit.
+- Step 3: no shared `insertAgentRun`. There are 8 run inserts, not 3, each
+  setting different fields (loop, trigger, schedule, voice). Sessions don't
+  need them merged: Step 4 reuses realtime `createAgentRun`, and Steps 16 and
+  17 change the loop and trigger inserts anyway.
+- Step 3: the backfill lives in `packages/db/src/scripts/` with the other
+  one-off scripts, not `packages/db/scripts/`.
