@@ -340,7 +340,7 @@ replaces `LorChannelStatus`.
 
 #### Step 9a: session document view (~130)
 
-[x] built 2026-10-09 · [ ] committed
+[x] built 2026-10-09 · [ ] committed · [ ] db:push (follow-up: `message.routed_to_lor`)
 
 Added 2026-10-09 (Jacob, after Delta DB's inline threads): a session reads as
 a document, not a chat thread, so it feels unlike a regular chat app. Rendering
@@ -352,13 +352,26 @@ turn has a 28px avatar in the gutter (Lor's mark too), no name row (name and
 time on the avatar's hover), document prose (15px, leading 7) for everyone,
 and no row hover fill. The session's input line is the transcript's last
 child: `MessageInput variant="inline"` with the writer's avatar as `gutter`,
-no box, same column and prose size, `sticky bottom-0` so it follows the last
-turn and pins to the bottom once the transcript outgrows the pane. Its tools
+no box, same column and prose size. It follows the last turn and is never
+pinned: you scroll to the end to reach it, like a document (Jacob rejected a
+sticky version that floated over the transcript). It has no placeholder, and
+typing a printable key anywhere outside another field or open dialog focuses
+it, types the key and scrolls to it (`MessageInput onTypeToFocus`). Its tools
 (attach, destination, context meter, stop/send) render through a portal
 (`toolbarTarget`) into a bar under the scroller, like an editor status bar.
 The transcript starts at the top. Only the writer's own avatar shows at the
 input line; others appear through the typing indicator, never as presence
 (the no-surveillance rule).
+
+Follow-up (2026-10-09): tighter rhythm (12px between turns, 15px/24px prose
+pinned on the inner `.prose`, avatar aligned to the first line, reply curve
+from the gutter avatar). Messages for channel members only render muted, with
+no label (Jacob: show it, don't say it); the inline input line dims the same
+way while it is headed to people, which teaches the rule. To show this on past
+messages the route is stored: new nullable `message.routed_to_lor` (db:push),
+set by `createMessage` from `sessionMessageRunsLor` in `lor-routing.ts` (the
+one copy of the session rule; null outside sessions and on Lor's messages).
+The realtime send handler reads the stored value instead of recomputing.
 
 #### Step 9: chat cleanup (~300, mostly deletions)
 

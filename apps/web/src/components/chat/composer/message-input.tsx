@@ -146,6 +146,9 @@ interface MessageInputProps {
   variant?: "box" | "inline"
   gutter?: ReactNode
   toolbarTarget?: HTMLElement | null
+  // Session document: typing anywhere on the page lands in this editor; called
+  // after it takes focus (to scroll the input line into view).
+  onTypeToFocus?: () => void
   placeholder?: string
   disabled?: boolean
   disabledReason?: string
@@ -544,6 +547,7 @@ export function MessageInput({
   variant = "box",
   gutter,
   toolbarTarget,
+  onTypeToFocus,
   placeholder: placeholderOverride,
   disabled,
   disabledReason,
@@ -891,6 +895,34 @@ export function MessageInput({
   ])
   handleSubmitRef.current = handleSubmit
 
+  // Session document: a printable key pressed anywhere outside another field
+  // or open dialog starts writing here, like typing into a doc.
+  const onTypeToFocusRef = useRef(onTypeToFocus)
+  onTypeToFocusRef.current = onTypeToFocus
+  const typeToFocus = Boolean(onTypeToFocus)
+  useEffect(() => {
+    if (!editor || !typeToFocus) return
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.isComposing) return
+      if (event.metaKey || event.ctrlKey || event.altKey) return
+      if (event.key.length !== 1) return
+      const target = event.target instanceof Element ? event.target : null
+      if (
+        target?.closest(
+          "input, textarea, select, button, [contenteditable='true'], [role='menu'], [role='listbox']"
+        ) ||
+        document.querySelector("[role='dialog']")
+      ) {
+        return
+      }
+      event.preventDefault()
+      editor.chain().focus("end").insertContent(event.key).run()
+      onTypeToFocusRef.current?.()
+    }
+    document.addEventListener("keydown", handleKeyDown)
+    return () => document.removeEventListener("keydown", handleKeyDown)
+  }, [editor, typeToFocus])
+
   useEffect(() => {
     if (replyingTo && editor) {
       editor.commands.focus("end")
@@ -1130,15 +1162,23 @@ export function MessageInput({
               destination === "new" && "min-h-16",
               // Same column and prose size as the transcript above it.
               isInline &&
-                "pl-10 [&_.tiptap]:text-[15px] [&_.tiptap]:leading-7 [&_.tiptap_p]:leading-7"
+                "pl-10 [&_.tiptap]:text-[15px] [&_.tiptap]:leading-6 [&_.tiptap]:transition-colors [&_.tiptap_p]:leading-6",
+              // Headed to channel members only: the text dims as it will in
+              // the transcript, so the route shows without a label.
+              isInline &&
+                destination === "session" &&
+                !routing.toLor &&
+                "[&_.tiptap]:text-muted-foreground"
             )}
           >
-            {isInline && <div className="absolute top-1 left-0">{gutter}</div>}
-            {isEmpty && (
+            {isInline && (
+              <div className="absolute top-0.5 left-0">{gutter}</div>
+            )}
+            {isEmpty && placeholder && (
               <span
                 className={cn(
                   "pointer-events-none absolute right-0 top-1 truncate text-sm leading-5 text-muted-foreground",
-                  isInline ? "left-10 text-[15px] leading-7" : "left-0"
+                  isInline ? "left-10 text-[15px] leading-6" : "left-0"
                 )}
               >
                 {placeholder}

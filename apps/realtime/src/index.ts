@@ -58,13 +58,10 @@ import { assertUserCanAccessChannel } from "@/services/channel-access"
 import {
   createAgentRun,
   createLorPlaceholder,
-  isLorMentioned,
-  mentionsOtherUser,
   type RunRouteOutcome,
   routeToActiveRun,
   sessionStartFor,
 } from "@/services/lor"
-import { isReplyToLor, isReplyToPerson } from "@/services/lor-routing"
 import {
   claimMessageDelivery,
   MESSAGE_DELIVERY_RETRY,
@@ -798,23 +795,9 @@ io.on("connection", (socket) => {
           .limit(1)
         if (queued) return
         // Lor works only in sessions; chat and human threads are people only.
-        // In a session each message is routed on its own: a plain message
-        // goes to Lor, addressing a teammate (mention or reply) leaves Lor
-        // out unless Lor is addressed too, and "To people" never runs Lor.
-        const explicitlyAddressesLor =
-          isLorMentioned(parsed.content) ||
-          isReplyToLor(createdMessage.message.referencedMessage)
-        const addressesPerson =
-          mentionsOtherUser(parsed.content) ||
-          isReplyToPerson(
-            createdMessage.message.referencedMessage,
-            socket.data.user.id
-          )
-        // The message that starts a session always runs Lor, even when it
-        // also mentions people (New session with "@Sam, look at …").
-        const triggerLor =
-          Boolean(createdMessage.session) ||
-          (!parsed.toPeople && (explicitlyAddressesLor || !addressesPerson))
+        // createMessage decided this message's route with the session rule
+        // (lor-routing.ts) and stored it.
+        const triggerLor = createdMessage.message.routedToLor === true
 
         if (session && triggerLor) {
           const lorScopeId = session.threadRootId

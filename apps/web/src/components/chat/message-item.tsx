@@ -106,15 +106,31 @@ function ReplyPreview({
   referencedMessage,
   mentionCandidates,
   onJumpToMessage,
+  compact = false,
 }: {
   referencedMessage: Message["referencedMessage"]
   mentionCandidates?: MentionCandidate[]
   onJumpToMessage?: (messageId: string) => void
+  // Document layout: the curve starts at the 28px gutter avatar's center.
+  compact?: boolean
 }) {
+  const connector = (
+    <div
+      className={cn(
+        "mb-1 h-3 rounded-tl-md border-t-2 border-l-2 border-muted-foreground/40",
+        compact ? "ml-3 w-7" : "ml-4 w-8"
+      )}
+    />
+  )
   if (!referencedMessage) {
     return (
-      <div className="mb-0.5 flex items-center gap-2 pl-6 text-xs text-muted-foreground italic">
-        <div className="mb-1 ml-4 h-3 w-8 rounded-tl-md border-t-2 border-l-2 border-muted-foreground/40" />
+      <div
+        className={cn(
+          "mb-0.5 flex items-center gap-2 text-xs text-muted-foreground italic",
+          !compact && "pl-6"
+        )}
+      >
+        {connector}
         <span>Original message was deleted</span>
       </div>
     )
@@ -140,7 +156,7 @@ function ReplyPreview({
       onClick={() => onJumpToMessage?.(referencedMessage.id)}
       className="mb-0.5 flex min-w-0 max-w-full cursor-pointer items-center gap-1.5 rounded-sm text-xs hover:opacity-80"
     >
-      <div className="mb-1 ml-4 h-3 w-8 rounded-tl-md border-t-2 border-l-2 border-muted-foreground/40" />
+      {connector}
       <Avatar size="sm" className="size-4">
         {referencedAvatar && (
           <AvatarImage src={referencedAvatar} alt={referencedName} />
@@ -562,7 +578,7 @@ export const MessageItem = memo(function MessageItem({
     <div className="w-7 shrink-0">
       {showHeader && (
         <Avatar
-          className="size-7"
+          className="-mt-0.5 size-7"
           title={`${displayName} · ${formatTime(message.createdAt)}`}
         >
           {avatarUrl && <AvatarImage src={avatarUrl} alt={displayName} />}
@@ -583,7 +599,7 @@ export const MessageItem = memo(function MessageItem({
       data-message-id={message.id}
       className={cn(
         "group relative px-4 py-0.5 transition-colors",
-        isDocument && showHeader && "pt-5",
+        isDocument && showHeader && "pt-3",
         isReplyTarget
           ? "bg-primary/[0.07] before:absolute before:inset-y-0 before:left-0 before:w-[3px] before:bg-primary"
           : hasBroadcastMention
@@ -628,6 +644,7 @@ export const MessageItem = memo(function MessageItem({
           referencedMessage={message.referencedMessage}
           mentionCandidates={mentionCandidates}
           onJumpToMessage={onJumpToMessage}
+          compact={isDocument}
         />
       )}
       <div className={cn(canWrapUnderAvatar ? "flow-root" : "flex gap-3")}>
@@ -704,9 +721,15 @@ export const MessageItem = memo(function MessageItem({
           className={cn(
             "min-w-0",
             !canWrapUnderAvatar && "flex-1",
-            // Every turn reads as document prose.
+            // Every turn reads as document prose. The inner `.prose` sets its
+            // own size and leading, so pin both.
             isDocument &&
-              "[&_.message-markdown]:text-[15px] [&_.message-markdown]:leading-7"
+              "[&_.message-markdown]:text-[15px] [&_.message-markdown_.prose]:text-[15px] [&_.message-markdown_.prose]:leading-6",
+            // A message for channel members only (Lor didn't get it) reads
+            // as an aside: muted, never labelled.
+            isDocument &&
+              message.routedToLor === false &&
+              "[&_.message-markdown]:text-muted-foreground"
           )}
         >
           {showHeader && !isDocument && (

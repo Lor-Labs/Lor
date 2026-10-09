@@ -92,6 +92,7 @@ type BareMessageRow = {
   overrideAvatarUrl: string | null
   referencedMessageId: string | null
   threadRootId: string | null
+  routedToLor: boolean | null
   editedAt: Date | null
   createdAt: Date
   authorId: string
@@ -121,6 +122,7 @@ export const messageSelect = {
   overrideAvatarUrl: message.overrideAvatarUrl,
   referencedMessageId: message.referencedMessageId,
   threadRootId: message.threadRootId,
+  routedToLor: message.routedToLor,
   editedAt: message.editedAt,
   createdAt: message.createdAt,
   authorId: message.authorId,

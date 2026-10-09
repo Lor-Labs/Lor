@@ -205,7 +205,8 @@ export function useMessageSending({
             author,
             options?.mentions ?? [],
             options?.referencedMessage ?? undefined,
-            options?.attachments ?? []
+            options?.attachments ?? [],
+            options?.toPeople ? false : null
           )
         )
       }

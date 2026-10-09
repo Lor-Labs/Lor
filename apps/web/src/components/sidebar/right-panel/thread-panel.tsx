@@ -699,8 +699,9 @@ export function ThreadPanel({
   // false the loaded array is the full thread.
   const summaryTotal = rootMessage?.threadSummary?.replyCount
   const dividerCount = hasOlder ? summaryTotal : orderedReplies.length
+  // A session's input line is bare, like the next line of a document.
   const composerPlaceholder = sessionView
-    ? "Reply to Lor, or @mention a teammate"
+    ? ""
     : isCallChat
       ? "Message the call…"
       : "Reply…"
@@ -786,6 +787,11 @@ export function ThreadPanel({
         destination={composerDestination}
         variant={sessionView ? "inline" : "box"}
         toolbarTarget={toolbarTarget}
+        onTypeToFocus={
+          sessionView
+            ? () => scrollToEndRef.current?.({ behavior: jumpScrollBehavior() })
+            : undefined
+        }
         gutter={
           <UserAvatar
             name={session?.user.name}
@@ -1071,13 +1077,9 @@ export function ThreadPanel({
                 })
               )}
 
-              {/* Inline input line: follows the last turn, and pins to the
-                  bottom once the transcript outgrows the pane. */}
-              {sessionView && (
-                <div className="sticky bottom-0 z-10 bg-background pt-3">
-                  {composer}
-                </div>
-              )}
+              {/* Inline input line: the document's last line, reached by
+                  scrolling to the end like any document (never pinned). */}
+              {sessionView && <div className="pt-3">{composer}</div>}
             </MessageScrollerContent>
           </MessageScrollerViewport>
           <MessageScrollerJumpToLatest
@@ -1086,8 +1088,6 @@ export function ThreadPanel({
             }
             viewportRef={scrollRef}
             isLorResponding={Boolean(pendingLorMessage)}
-            // Clears the session's inline input line pinned at the bottom.
-            className={sessionView ? "bottom-16" : undefined}
           />
         </MessageScroller>
 

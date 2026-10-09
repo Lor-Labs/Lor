@@ -6,7 +6,6 @@ import {
   useMessageScrollerScrollable,
 } from "@repo/ui/components/message-scroller"
 import { Spinner } from "@repo/ui/components/spinner"
-import { cn } from "@repo/ui/lib/utils"
 import {
   type RefObject,
   useCallback,
@@ -443,7 +442,6 @@ export function MessageScrollerJumpToLatest({
   pendingCount = 0,
   hasUnloadedNewer = false,
   onJumpToPresent,
-  className,
 }: {
   newestMessageId: string | null
   viewportRef: RefObject<HTMLDivElement | null>
@@ -451,7 +449,6 @@ export function MessageScrollerJumpToLatest({
   pendingCount?: number
   hasUnloadedNewer?: boolean
   onJumpToPresent?: () => void
-  className?: string
 }) {
   const { end: canScrollToEnd } = useMessageScrollerScrollable()
   const { scrollToEnd } = useMessageScroller()
@@ -562,10 +559,7 @@ export function MessageScrollerJumpToLatest({
       onClick={handleClick}
       inert={!shouldShow}
       data-visible={shouldShow}
-      className={cn(
-        "absolute bottom-3 left-1/2 z-10 h-8 -translate-x-1/2 rounded-full bg-background/95 px-3 text-xs shadow-sm transition-[translate,scale,opacity] duration-200 ease-out hover:bg-accent data-[visible=false]:pointer-events-none data-[visible=false]:translate-y-2 data-[visible=false]:scale-95 data-[visible=false]:opacity-0 data-[visible=true]:backdrop-blur-sm motion-reduce:transition-opacity motion-reduce:data-[visible=false]:translate-y-0 motion-reduce:data-[visible=false]:scale-100",
-        className
-      )}
+      className="absolute bottom-3 left-1/2 z-10 h-8 -translate-x-1/2 rounded-full bg-background/95 px-3 text-xs shadow-sm transition-[translate,scale,opacity] duration-200 ease-out hover:bg-accent data-[visible=false]:pointer-events-none data-[visible=false]:translate-y-2 data-[visible=false]:scale-95 data-[visible=false]:opacity-0 data-[visible=true]:backdrop-blur-sm motion-reduce:transition-opacity motion-reduce:data-[visible=false]:translate-y-0 motion-reduce:data-[visible=false]:scale-100"
     >
       {content}
     </Button>

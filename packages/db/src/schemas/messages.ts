@@ -106,6 +106,12 @@ export const message = pgTable(
       { onDelete: "cascade" }
     ),
 
+    // A person's message in a Lor session: whether it went to Lor, decided
+    // at send time by the session routing rule. false = for channel members
+    // only (shown as an aside). Null outside sessions and on Lor's own
+    // messages.
+    routedToLor: boolean("routed_to_lor"),
+
     // file attachments as JSON array
     // [{ url, filename, size, contentType, width?, height? }]
     attachments: jsonb("attachments").$type<Attachment[]>().default([]),

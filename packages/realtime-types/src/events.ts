@@ -343,6 +343,9 @@ export type RealtimeMessage = {
   // The human message that started this Lor response. Present only on
   // Lor placeholders so chat scrollers can anchor the start of the turn.
   lorTriggerMessageId?: string | null
+  // A person's session message: whether it went to Lor. false = for channel
+  // members only. Null outside sessions.
+  routedToLor?: boolean | null
 }
 
 export type RealtimeMessagePinToggled = {

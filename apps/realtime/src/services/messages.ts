@@ -7,6 +7,7 @@ import {
   isUniqueViolation,
   schema,
 } from "@repo/db"
+import { LOR_USER_ID } from "@repo/db/constants"
 import { findAgentSessionByThreadRoot } from "@repo/db/queries/agent-sessions"
 import { canSeeSessionChat } from "@repo/db/queries/session-chat-access"
 import type { AgentSession } from "@repo/db/schema"
@@ -30,6 +31,7 @@ import {
   type AccessibleChannel,
   assertUserCanAccessChannel,
 } from "@/services/channel-access"
+import { sessionMessageRunsLor } from "@/services/lor-routing"
 
 type CreateMessageInput = {
   userId: string
@@ -180,6 +182,7 @@ export async function loadMessageByClientKey(args: {
       createdAt: schema.message.createdAt,
       editedAt: schema.message.editedAt,
       threadRootId: schema.message.threadRootId,
+      routedToLor: schema.message.routedToLor,
       referencedMessageId: schema.message.referencedMessageId,
       attachments: schema.message.attachments,
       embeds: schema.message.embeds,
@@ -242,6 +245,7 @@ export async function loadMessageByClientKey(args: {
       ? await loadReferencedMessage(row.referencedMessageId, args.workspaceId)
       : null,
     threadRootId: row.threadRootId,
+    routedToLor: row.routedToLor,
     nonce: args.clientKey,
   }
 }
@@ -330,21 +334,25 @@ export async function createMessage(input: CreateMessageInput) {
   ) {
     throw new Error("Invalid thread root")
   }
-  if (threadRootId) {
-    const session = await findAgentSessionByThreadRoot(threadRootId)
-    if (session?.archivedAt) throw new Error("This session is archived")
-  }
+  const existingSession = threadRootId
+    ? await findAgentSessionByThreadRoot(threadRootId)
+    : null
+  if (existingSession?.archivedAt) throw new Error("This session is archived")
+  const isPersonInSession =
+    Boolean(input.newSession || existingSession) && input.userId !== LOR_USER_ID
 
   const runInsertTransaction = () =>
     db.transaction(async (tx) => {
       // Verify the referenced message exists in the same channel AND in the
       // same thread context (or both at channel level). Prevents a thread
       // reply from quoting a message in a different thread.
+      let replyAuthorId: string | null = null
       if (hasReply && input.payload.referencedMessageId) {
         const ref = await tx
           .select({
             id: schema.message.id,
             threadRootId: schema.message.threadRootId,
+            authorId: schema.message.authorId,
           })
           .from(schema.message)
           .where(
@@ -368,6 +376,7 @@ export async function createMessage(input: CreateMessageInput) {
           } else if (ref.threadRootId !== null) {
             hasReply = false
           }
+          if (hasReply) replyAuthorId = ref.authorId
         }
       }
 
@@ -410,6 +419,16 @@ export async function createMessage(input: CreateMessageInput) {
             })
           : null
 
+      const routedToLor = isPersonInSession
+        ? sessionMessageRunsLor({
+            content: input.payload.content,
+            toPeople: input.payload.toPeople,
+            replyAuthorId,
+            senderId: input.userId,
+            startsSession: Boolean(input.newSession),
+          })
+        : null
+
       const insertedMessage = await tx
         .insert(schema.message)
         .values({
@@ -421,6 +440,7 @@ export async function createMessage(input: CreateMessageInput) {
             ? (input.payload.referencedMessageId ?? null)
             : null,
           threadRootId: session?.threadRootId ?? threadRootId,
+          routedToLor,
           attachments: input.payload.attachments ?? [],
           status: input.status,
           clientKey: input.payload.nonce ?? null,
@@ -446,6 +466,7 @@ export async function createMessage(input: CreateMessageInput) {
           content: schema.message.content,
           type: schema.message.type,
           status: schema.message.status,
+          routedToLor: schema.message.routedToLor,
           createdAt: schema.message.createdAt,
           authorId: schema.user.id,
           authorName: schema.user.name,
@@ -516,6 +537,7 @@ export async function createMessage(input: CreateMessageInput) {
     embeds: [],
     referencedMessage,
     threadRootId: messageWithAuthor.session?.threadRootId ?? threadRootId,
+    routedToLor: messageWithAuthor.routedToLor,
   }
 
   if (input.payload.nonce) {

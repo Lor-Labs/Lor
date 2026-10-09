@@ -22,6 +22,7 @@ import {
 import type { RealtimeMessage, SendMessagePayload } from "@repo/realtime-types"
 import { logger } from "@/lib/logger"
 import type { AccessibleChannel } from "@/services/channel-access"
+import { isLorMentioned } from "@/services/lor-routing"
 import { createMessage, type NewSessionInput } from "@/services/messages"
 
 // How much chat a session started from `@Lor` carries as context; matches
@@ -29,20 +30,6 @@ import { createMessage, type NewSessionInput } from "@/services/messages"
 const CHAT_CONTEXT_LIMIT = 10
 const THREAD_CONTEXT_LIMIT = 50
 const TITLE_WORDS = 6
-
-export function isLorMentioned(content: string | null | undefined): boolean {
-  if (!content) return false
-  return extractDirectMentionUserIds(content).has(LOR_USER_ID)
-}
-
-// Whether the message addresses a teammate (any non-Lor mention).
-export function mentionsOtherUser(content: string | null | undefined): boolean {
-  if (!content) return false
-  for (const id of extractDirectMentionUserIds(content)) {
-    if (id !== LOR_USER_ID) return true
-  }
-  return false
-}
 
 function sessionTitleFromPrompt(content: string) {
   const words = content

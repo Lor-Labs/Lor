@@ -25,6 +25,7 @@ export function realtimeMessageToMessage(rm: RealtimeMessage): Message {
     mentions: rm.mentions,
     reactions: rm.reactions,
     threadRootId: rm.threadRootId ?? null,
+    routedToLor: rm.routedToLor ?? null,
     threadSummary: null,
     lorReasoning: null,
     lorReasoningSegments: [],
@@ -181,7 +182,9 @@ export function createOptimisticMessage(
   author: MessageAuthor,
   mentions: Message["mentions"] = [],
   referencedMessage?: Message["referencedMessage"],
-  attachments: Message["attachments"] = []
+  attachments: Message["attachments"] = [],
+  // Known before the echo only when the composer sent it to people.
+  routedToLor: Message["routedToLor"] = null
 ): Message {
   return {
     id: nonce,
@@ -203,6 +206,7 @@ export function createOptimisticMessage(
     mentions,
     reactions: [],
     threadRootId: null,
+    routedToLor,
     threadSummary: null,
     lorReasoning: null,
     lorReasoningSegments: [],
